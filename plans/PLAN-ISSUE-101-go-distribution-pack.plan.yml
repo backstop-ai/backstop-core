@@ -211,6 +211,100 @@ notes: |
       goreleaser-config-brews-token-absent
       gitignore-missing-goreleaser-dist
 
+  ⚠ THE WARNING HALF OF THIS LEDGER DOES NOT HOLD YET — see AMENDMENT 4.
+  Until core's ISSUE-104 lands, all three WARNING rules BLOCK in fact, because
+  core never reads the severity real semgrep actually emits. The ledger above
+  is the intended and correct contract; it is currently unenforceable, and
+  that is a core defect, not a miscalibration in this pack.
+
+  ─────────────────────────────────────────────────────────────────────────
+  AMENDMENTS — 2026-07-28, from MEASURED stash-leg evidence
+  ─────────────────────────────────────────────────────────────────────────
+  Recorded as-built. Each of these was found by running the plan, not by
+  re-reading it, and each corrects something this plan asserted incorrectly.
+
+  AMENDMENT 1 — STASH'S EXPECTED WARNING SET IS ONE, NOT TWO.
+  As written, TASK-013 declared an expected set of two warnings. That set was
+  INTERNALLY UNSATISFIABLE and the plan should have caught it: TASK-012
+  removes stash's `brews:` block outright, and `goreleaser-config-brews-token-
+  absent` fires only when a brews block IS PRESENT without a token (TASK-005).
+  With no brews block the rule is correctly SILENT — it is not un-adopted
+  capability being missed, it is a capability that is not there to report on.
+  The honest expected set for stash is ONE warning:
+    release-workflow-tap-token-not-exported
+  MEASURED CONFIRMATION, and it is worth more than the correction itself: with
+  `brews:` removed, `goreleaser check` passes with NO deprecation at all. That
+  is INDEPENDENT proof, arrived at from the opposite direction, that `brews:`
+  was the sole cause of the exit-2 this plan tolerates in CLM-020 — the
+  carve-out PLAN-ISSUE-087's CLM-012 established by observing the failure is
+  now also confirmed by observing its absence.
+
+  AMENDMENT 2 — THE TEMPLATE-FIDELITY ASSERTION IS APPLY-MODE ONLY.
+  CLM-017's "all eight foreign templates present" is a correct assertion about
+  what the RECIPE EMITS, and an incorrect one about what a CONSUMER HOLDS. A
+  consumer that legitimately declines the Homebrew capability loses two of the
+  eight — `{{ .Env.HOMEBREW_TAP_TOKEN }}` and
+  `${{ secrets.HOMEBREW_TAP_TOKEN }}` — by deleting the block that carried
+  them. So the harness splits its assertion by mode:
+    APPLY MODE (scratch project, TASK-009): all eight present, AND no
+      unintended `{{ }}` remains. The recipe's output is fully determined, so
+      the strong assertion is the right one.
+    CONSUMER MODE (`--project`, TASK-013): ONLY "no unintended `{{ }}`
+      remains". Which templates survive is a function of which capabilities
+      the consumer adopted, and asserting a fixed set there would punish
+      correct adaptation.
+
+  AMENDMENT 3 — TASK-012'S PARAM LIST WAS INCOMPLETE.
+  It omitted `tap_owner`, which TASK-008 declares REQUIRED with no default —
+  so the apply as literally specified would have failed at
+  `checkUndeclaredParams` before writing anything. The implementer supplied
+  the consumer's actual owner and proceeded. Recorded because the fix is not
+  "add a default": a required-no-default param failing loud is the machinery
+  working (apply.go:1175-1188 deliberately leaves such a param ABSENT so its
+  placeholder cannot resolve to ""), and the omission was the plan's.
+  NOTE, and it is the reassuring half: because TASK-012 then removes the
+  `brews:` block, NO tap coordinate persists in stash. The founder's open
+  question about where stash publishes remains genuinely open — no provisional
+  answer got baked into a committed file on the way past it.
+
+  AMENDMENT 4 — NEW BLOCKING EXTERNAL DEPENDENCY: core's ISSUE-104.
+  TASK-013, TASK-014 and TASK-015 are BLOCKED until ISSUE-104 (SARIF severity
+  descriptor-fallback) lands in backstop-core. THE v0.1.0 TAG IS HELD.
+
+  The four-link evidence chain, each link verified against the tree:
+    1. Real semgrep emits a rule's severity on the RULE DESCRIPTOR —
+       `runs[].tool.driver.rules[].defaultConfiguration.level` — not on every
+       individual result.
+    2. Core's `parseSarif` reads ONLY the result-level field: `Severity:
+       sarifSeverity(r.Level)` (pkg/check/parsers.go:131). The `sarifLog`
+       struct it unmarshals into (:51-54) declares `Runs[].Results` and
+       nothing else — the driver and its rule descriptors are never parsed at
+       all, so there is no fallback to fail over to.
+    3. `sarifSeverity` (:165-170) maps anything that is not the literal string
+       "warning" to "error", explicitly including the ABSENT case, so that a
+       missing level fails closed.
+    4. Compose them: every result from a real semgrep run arrives with an
+       EMPTY level, every empty level becomes "error", and therefore EVERY
+       WARNING RULE IN THIS PACK BLOCKS. Measured as a green -> red consumer
+       flip on stash.
+
+  Link 3 is fail-closed-on-silence and is CORRECT policy — it is what stops a
+  pack from evading the gate by omitting a level. The defect is link 2: core
+  calls the level absent when the engine did state it, just in the other legal
+  SARIF location. Do not "fix" this in the pack by promoting the three
+  WARNINGs to ERROR, or by moving severity somewhere core happens to read: the
+  pack's severity calibration is right, and papering over a core defect from
+  inside a pack would make the loud-not-blocking contract untestable for every
+  future pack.
+
+  What this changes in sequence: TASK-013 CANNOT report its expected outcome
+  (green with one warning) until ISSUE-104 lands, because that one warning
+  currently reads as an error. TASK-014 may commit but the tag is held, and
+  TASK-015's push does not happen, until TASK-013 has RE-RUN and observed
+  green-with-one-warning against fixed core. Publishing a pack whose
+  non-blocking rules block would ship a broken contract to every future
+  consumer, and it would be discovered by them rather than by us.
+
   ─────────────────────────────────────────────────────────────────────────
   DELIBERATE OMISSIONS
   ─────────────────────────────────────────────────────────────────────────
@@ -294,8 +388,13 @@ notes: |
       CLM-012  all four platforms are declared — darwin/amd64, darwin/arm64,
                linux/amd64, linux/arm64; dropping one goes RED. linux/arm64 is
                founder-ratified first-class, not optional. (requirement 4)
-      CLM-013  a `brews:` block is present and supplies an explicit `token:`;
-               its absence WARNS rather than blocks. (requirements 1, 5)
+      CLM-013  a `brews:` block that is present supplies an explicit `token:`;
+               a MISSING TOKEN WARNS rather than blocks. (requirements 1, 5)
+               SCOPE, sharpened by AMENDMENT 1: the rule is conditional on the
+               block EXISTING. A consumer with no `brews:` block at all — stash
+               is one — is correctly SILENT here, not warned. "Has no Homebrew
+               publication" and "has Homebrew publication wired wrong" are
+               different states and only the second is worth a warning.
       CLM-014  version stamping is declared via `-X <main-pkg>.version=` in
                ldflags; its absence goes RED. (requirement 3)
 
@@ -323,6 +422,12 @@ notes: |
                two spellings identically, so this is normalization rather than
                loss — but an assertion written as byte equality against the
                source would be unsatisfiable, and must not be.
+               ASSERTION SCOPE, per AMENDMENT 2: "all eight templates present"
+               binds APPLY MODE only — what the recipe emits. In CONSUMER MODE
+               the only assertion is that no UNINTENDED placeholder remains,
+               because a consumer that declines the Homebrew capability loses
+               two of the eight by deleting the block that carried them, and
+               that is correct adaptation rather than drift.
       CLM-018  the version starter is SELF-CONTAINED: one file declaring BOTH
                the `var version = "dev"` link-time stamp symbol AND the
                resolution logic. It reproduces resolveVersion's precedence
@@ -370,8 +475,16 @@ notes: |
                pipeline files are actionlint-clean, `goreleaser release
                --snapshot --clean` builds all four platform binaries, the
                applied version table test passes, and the pack's rules are
-               GREEN in stash with exactly the expected non-blocking WARNINGs
-               and zero errors. No stash release, tag, or tap.
+               GREEN in stash with EXACTLY ONE non-blocking WARNING —
+               `release-workflow-tap-token-not-exported` — and zero errors.
+               No stash release, tag, or tap.
+               AMENDED per AMENDMENT 1: the expected set was written as two
+               warnings and was unsatisfiable, because removing stash's
+               `brews:` block also removes the condition
+               `goreleaser-config-brews-token-absent` fires on.
+               BLOCKED per AMENDMENT 4: this claim cannot be satisfied until
+               core's ISSUE-104 lands — the one expected warning currently
+               reads as an error, flipping stash green -> red.
 
     REQ-008: The pack is published and consumable.
       CLM-026  the pack repo carries the pack-repo convention set — pack.yml
@@ -864,7 +977,11 @@ phases:
               the substituter emits the param's default, so a source
               `{{.Version}}` arrives as `{{ .Version }}`. Both spellings mean
               the same thing to goreleaser, but a byte-equality assertion
-              against core's file would be unsatisfiable by construction;
+              against core's file would be unsatisfiable by construction.
+              THIS FULL-SET ASSERTION IS APPLY-MODE ONLY (AMENDMENT 2). Gate
+              it on the scratch-apply path so it does not leak into the
+              `--project` path TASK-011 adds, where a consumer that declined
+              Homebrew legitimately holds only six of the eight;
             • run `actionlint` over both produced workflows and require ZERO
               findings (CLM-021);
             • run `goreleaser release --snapshot --clean` in the scratch
@@ -1192,6 +1309,23 @@ phases:
           binaries; `.gitignore` contains `dist/`; and the pack's rules report
           ZERO ERRORS.
 
+          TWO ASSERTIONS ARE DELIBERATELY WEAKER IN THIS MODE (AMENDMENT 2 and
+          AMENDMENT 1), and the weakening is the point — consumer mode must
+          not punish correct adaptation:
+            • TEMPLATE FIDELITY drops to "no UNINTENDED `{{ }}` remains". Do
+              NOT assert the eight-template set here: a consumer that declined
+              Homebrew deleted the block carrying
+              `{{ .Env.HOMEBREW_TAP_TOKEN }}` and
+              `${{ secrets.HOMEBREW_TAP_TOKEN }}`, so six of eight is the
+              correct outcome, not a regression.
+            • `goreleaser check` must accept BOTH shapes: with `brews:`
+              present, exactly the one `brews` deprecation on an otherwise
+              valid config (exit 2, CLM-020); with `brews:` absent, a clean
+              exit 0 and NO deprecation. Measured on stash: brews removed
+              yields no deprecation at all, which independently confirms
+              `brews` was the sole cause of the exit-2 carve-out. Any OTHER
+              deprecation, in either shape, still fails.
+
           `--expect-warning` is the part that matters and it must be exact-set,
           not a floor. The harness fails if a warning fires that was not
           declared, AND if a declared warning does not fire. Counting zero
@@ -1224,11 +1358,23 @@ phases:
             main_package=./cmd/stash
             main_package_dir=cmd/stash
             module_url=https://github.com/brandonmanson/stash
+            tap_owner=<the consumer's actual owner>
             app_description=<stash's one-line description>
             app_license=MIT
             ci_workflow_file=ci.yml
           The pass-through template params take their defaults and must not be
           supplied.
+
+          `tap_owner` WAS MISSING FROM THIS LIST AS ORIGINALLY WRITTEN
+          (AMENDMENT 3). TASK-008 declares it REQUIRED with no default, so the
+          apply as literally specified would have failed at
+          `checkUndeclaredParams` before writing a byte. That failure is the
+          machinery working — apply.go:1175-1188 deliberately leaves a
+          required-no-default param ABSENT so its placeholder cannot silently
+          resolve to "" — so the fix is to supply the value, NEVER to give
+          `tap_owner` a default. The value is transient here: the brews block
+          it feeds is removed in the next paragraph, so no tap coordinate
+          survives into any committed stash file.
 
           THE TAP IS THE OPEN FOUNDER QUESTION, AND THE ANSWER IS TO NOT GUESS.
           Where stash publishes — its own org/repo, and whether it shares
@@ -1237,10 +1383,17 @@ phases:
           `.goreleaser.yml` and the `HOMEBREW_TAP_TOKEN` export from its
           release.yml. That is a documented consumer-edit point, and the
           result is the pack's un-adopted-capability signalling working as
-          designed: `goreleaser-config-brews-token-absent` and
-          `release-workflow-tap-token-not-exported` are WARNINGs, not errors,
-          so stash stays GREEN while being told, loudly, what it has not wired
-          yet (CLM-013). Do NOT invent tap coordinates to silence them.
+          designed: `release-workflow-tap-token-not-exported` is a WARNING,
+          not an error, so stash stays GREEN while being told, loudly, what it
+          has not wired yet. Do NOT invent tap coordinates to silence it.
+
+          EXPECT ONE WARNING HERE, NOT TWO (AMENDMENT 1).
+          `goreleaser-config-brews-token-absent` fires only when a `brews:`
+          block is PRESENT without a token (CLM-013); removing the block
+          removes the condition, so that rule is correctly silent. Removing
+          the `brews:` block also makes `goreleaser check` exit 0 with no
+          deprecation at all — worth noting because it confirms, from the
+          opposite direction, the exit-2 carve-out CLM-020 tolerates.
 
           Also: add `dist/` to stash's `.gitignore` (CLM-019 — the recipe
           cannot do this as an op; see TASK-008), and record the pack in
@@ -1272,14 +1425,31 @@ phases:
         type: verification
         title: "Run the acceptance harness against stash and confirm the exact expected warning set"
         description: |
-          Run, from the pack repo root:
+          ⚠ BLOCKED ON core's ISSUE-104 — DO NOT RUN THIS TASK UNTIL IT LANDS
+          (AMENDMENT 4). Every WARNING rule in this pack currently BLOCKS,
+          because real semgrep states severity on the rule descriptor
+          (`runs[].tool.driver.rules[].defaultConfiguration.level`) while
+          core's `parseSarif` reads only the result-level `r.Level`
+          (pkg/check/parsers.go:131) — its `sarifLog` struct (:51-54) never
+          parses the driver at all — and `sarifSeverity` (:165-170) maps the
+          resulting empty level to "error" by its fail-closed rule. Measured:
+          a green -> red consumer flip on stash. Running this task before
+          ISSUE-104 lands produces a RED that says nothing about this pack.
+
+          Once ISSUE-104 has landed, run from the pack repo root:
             bash scripts/verify-recipe-apply.sh \
               --project /Users/bmanson/src/projects/stash \
-              --expect-warning goreleaser-config-brews-token-absent \
               --expect-warning release-workflow-tap-token-not-exported
           and require exit 0. Every assertion from TASK-011 must pass, and the
-          observed WARNING set must MATCH those two exactly — zero errors, and
-          no third warning.
+          observed WARNING set must MATCH that ONE exactly — zero errors, and
+          no second warning.
+
+          THE EXPECTED SET IS ONE, NOT TWO (AMENDMENT 1). As first written
+          this task also expected `goreleaser-config-brews-token-absent`,
+          which was unsatisfiable: TASK-012 removes stash's `brews:` block,
+          and that rule fires only when the block is present without a token.
+          If that warning DOES appear, something failed to remove the block —
+          investigate rather than widening the expectation.
 
           stash is at /Users/bmanson/src/projects/stash: module
           `github.com/brandonmanson/stash`, binary `stash` at `./cmd/stash`,
@@ -1314,9 +1484,18 @@ phases:
           which is exactly what the repo's own tag-integrity workflow asserts
           on a tag push (CLM-026).
 
+          ⚠ THE TAG IS HELD ON core's ISSUE-104 (AMENDMENT 4). Commit freely —
+          committing asserts nothing about the pack's behavior. But DO NOT cut
+          `v0.1.0` until ISSUE-104 has landed AND TASK-013 has re-run and
+          observed green-with-one-warning against fixed core. A tag is the
+          durable claim that this version works, and until ISSUE-104 lands
+          every WARNING rule in the pack blocks — publishing that would ship a
+          broken loud-not-blocking contract to every future consumer, who
+          would then discover it for us.
+
           Steps, all LOCAL:
             • commit the pack repo in full;
-            • `git tag v0.1.0`.
+            • ONCE UNBLOCKED: `git tag v0.1.0`.
           DO NOT PUSH, and do not create the remote repository. Both belong to
           TASK-015, which exists specifically so that gate is a visible node in
           the DAG rather than an assumption — creating a public repo under the
@@ -1344,6 +1523,13 @@ phases:
           without this node TASK-017 would depend on a remote no task in the
           plan brings into existence — and an implementer reading the DAG
           would either stall or push on its own authority.
+
+          ⚠ BLOCKED ON core's ISSUE-104 (AMENDMENT 4). There is nothing to
+          publish until TASK-014's tag exists, and that tag is held until
+          ISSUE-104 lands and TASK-013 re-runs green-with-one-warning. Confirm
+          BOTH before treating this gate as reachable: the fix is in core, and
+          stash was re-measured against fixed core. A green TASK-013 recorded
+          BEFORE the fix does not count — it cannot exist.
 
           Nothing in this task is the implementer's to do. The orchestrator:
             • confirms with the founder that `backstop-ai/go-distribution`
