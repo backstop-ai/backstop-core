@@ -51,3 +51,8 @@ prototype/
 # ignored, which is why it never appeared and is the precedent this follows.
 ast-grep.zip
 gate-report.json
+
+# PM operational queue — the mechanism ships, the correspondence does not.
+# Escalations/proposals to the founder are session-ops, not SDLC artifacts;
+# historical snapshots remain in pre-flip history as accepted fossils.
+.backstop/pm/
