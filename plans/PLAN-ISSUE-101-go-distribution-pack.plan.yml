@@ -1,0 +1,1482 @@
+---
+plan_id: PLAN-ISSUE-101
+spec_id: ISSUE-101
+created: "2026-07-28"
+status: draft
+
+notes: |
+  ─────────────────────────────────────────────────────────────────────────
+  WHAT THIS PLAN DOES
+  ─────────────────────────────────────────────────────────────────────────
+  Productizes the release trinity ISSUE-087 hand-wrote for backstop-core into
+  `backstop-ai/go-distribution`, a PACK living in its own repo at
+  ~/src/projects/backstop-go-distribution-pack and published at v0.1.0.
+
+  Two capabilities, per ISSUE-101's Scope:
+    A. RECIPES — starter payloads (.goreleaser.yml, release.yml,
+       tag-integrity.yml, a version-resolution Go starter + its table test)
+       derived VERBATIM from core's shipped, battle-tested files, with every
+       project-specific string expressed as a declared recipe param.
+    B. RULES — nine semgrep rules asserting the invariants that must survive
+       consumer adaptation, so drift cannot silently reintroduce a known
+       failure mode.
+
+  THREE REPOS ARE TOUCHED. Every `files:` entry is an ABSOLUTE path so the
+  repo is never ambiguous:
+    • /Users/bmanson/src/projects/backstop-go-distribution-pack — the pack
+      (new repo; the deliverable)
+    • /Users/bmanson/src/projects/backstop-core — READ-ONLY except for the
+      plan file itself and two follow-on issues. The core consumption proof
+      runs in a DETACHED GIT WORKTREE that is discarded; the live checkout is
+      never mutated, never gets the pack durably installed by this plan.
+    • /Users/bmanson/src/projects/stash — a real consumer that receives the
+      applied recipe. Its publication coordinates are an OPEN founder
+      question; this plan stops at "pipeline files in place, rules green".
+      NO stash release, tag, or tap is in scope.
+
+  ─────────────────────────────────────────────────────────────────────────
+  VERIFIED MECHANICS (read from the tree + spiked with real semgrep
+  1.156.0 on 2026-07-28 — the plan's shape hinges on these five findings)
+  ─────────────────────────────────────────────────────────────────────────
+
+  (1) RECIPES ARE FULLY PARAMETERIZED, and the substituter has NO ESCAPE.
+      pkg/recipe/substitute.go:31-62 resolves `{{ name }}` by exact lookup in
+      the declared param map; an undeclared name is a hard error returning NO
+      string. Substituted VALUES ARE NEVER RESCANNED (substitute.go:22-23).
+
+      This is the sharpest edge in the whole plan. Our payloads are GitHub
+      Actions workflows and a goreleaser config — both SATURATED with foreign
+      `{{ }}` templates that MUST reach the consumer's disk verbatim:
+        release.yml       ${{ github.ref_name }}, ${{ secrets.GITHUB_TOKEN }},
+                          ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        tag-integrity.yml ${{ github.ref_name }}
+        .goreleaser.yml   {{.Version}}, {{ .ProjectName }}, {{ .Os }},
+                          {{ .Arch }}, {{ .Env.HOMEBREW_TAP_TOKEN }}
+      Every one of those would be read as a param name and fail the apply.
+
+      THE MECHANISM THE MACHINERY ACTUALLY SUPPORTS — a SELF-EMITTING
+      PASS-THROUGH PARAM. Because values are never rescanned, a param whose
+      NAME is the template's inner text and whose DEFAULT is that same text
+      wrapped in delimiters emits the template verbatim:
+
+        params:
+          - name: ".Version"
+            required: false
+            default: "{{ .Version }}"
+
+      The payload writes `-X main.version={{ .Version }}`; Substitute looks up
+      `.Version`, emits `{{ .Version }}`, and does not rescan. Confirmed
+      viable: no runtime guard rejects `{{` in emitted content (only `Op.Rule`
+      and `Op.Fragment` refuse placeholders, manifest.go:220,272), and
+      effectiveParams (apply.go:1175-1188) includes any param with
+      `required: false` + a default. `{{.Version}}` and `{{ .Version }}` both
+      trim to the same name, so one param covers both spellings.
+
+      This is a WORKAROUND for a missing first-class escape, not a feature.
+      TASK-016 files it as a follow-on against the recipe machinery. It is
+      also a mild hazard: `--param .Version=anything` would rewrite the
+      emitted template, which the payload comments must warn about.
+
+  (2) `recipe apply` DEMANDS EXACTLY ONE PROVISIONED ENGINE BINDING —
+      unconditionally, before Apply runs, regardless of op family
+      (cmd/backstop/recipe_apply.go:231-243, :338-367). A create-only recipe
+      in a pack declaring zero (or two+) provisioned bindings fails with a
+      config error before the recipe ever executes.
+      Consequence: the pack MUST declare an `engines:` block with exactly one
+      binding carrying `provision:`. Our rules need semgrep anyway, so that
+      binding is the semgrep one — but it is declared under a DISTINCT NAME
+      (`semgrep-godist`), NOT `semgrep`. Pack bindings override the embedded
+      base-engines defaults (packs/base-engines/pack.yml:22-40), and a pack
+      that silently redefines the base `semgrep` binding for every OTHER
+      installed pack in the project is a coupling defect waiting to happen.
+      TASK-010 proves go-standards/go-toolchain still dispatch alongside it.
+
+  (3) ARCHETYPE IS `recipes`, and that choice has TEETH.
+      packval phase 4 (pkg/packval/phase4.go:101-154) requires every
+      `scaffolding`- or `implementing`-kind recipe to declare
+      `enforcement.rules`, naming the rules that re-check what the recipe
+      establishes. That IS this pack's design — recipe writes the invariant,
+      rule guards it — so `recipes` is the honest archetype and `scaffolding`
+      the honest kind. phase 1's `content` check still demands a non-empty
+      ruleset (packval/phase1.go:45), which our nine rules satisfy.
+      `kind: scaffolding` also means REGENERATE-BY-DEFAULT on re-apply unless
+      the consumer's divergence carries an active `@waiver` — the ratchet that
+      stops starters from silently rotting. That is intended; the payload
+      comments must say so.
+
+  (4) ISSUE-092 IS STILL TRUE — `pack test` phase 3 CANNOT FALSIFY OUR RULES.
+      packval reads a rule's source file from the `file:` key
+      (pkg/packval/manifest.go:78); every real pack, and this one, declares
+      `rule_path:` (pkg/pack/manifest.go:144). packval has zero `rule_path`
+      support, so `rule.File == ""`, so both guards at phase3.go:62 and :76
+      are false and RunEngine is NEVER CALLED — phase 3 reports `pass` having
+      executed nothing. Re-verify at implementation time; if still true (it
+      is as of 2026-07-28), `pack test` green is NOT evidence.
+
+      THE FALSIFICATION PATH IS THEREFORE DIRECT SEMGREP, and it must dodge
+      the two measurement traps ISSUE-092 records: a DIRECTORY scan skips
+      files semgrep's targeting excludes, and an InvalidRuleSchemaError
+      currently reads as ZERO FINDINGS (indistinguishable from "clean"). So
+      scripts/falsify.sh runs semgrep with EXPLICIT FILE TARGETS, one
+      (rule, fixture) pair at a time, and separately asserts the rule file
+      parses without schema error.
+
+  (5) SEMGREP'S STRUCTURAL YAML PATTERNS CANNOT EXPRESS THESE INVARIANTS;
+      WHOLE-FILE REGEX CAN. Spiked against the real release.yml:
+        • `$JOB: ... uses: goreleaser/goreleaser-action@$REF` — NO MATCH.
+          `...` does not traverse from a mapping down into sequence items, so
+          a job block cannot be correlated with a step nested inside it.
+        • Composing several `pattern-regex` entries under `patterns:`
+          INTERSECTS their ranges, collapsing the match to the narrowest one —
+          so a `pattern-not-regex` written against the file never sees it.
+        • THE IDIOM THAT WORKS: one whole-file anchor regex that ALSO carries
+          the trigger condition, plus a whole-file `pattern-not-regex`:
+
+            patterns:
+              - pattern-regex: "(?s)^name:.*goreleaser/goreleaser-action.*$"
+              - pattern-not-regex: "(?s)^name:.*needs:[^\\n]*\\[[^\\]\\n]+,[^\\]\\n]+\\].*$"
+
+          Measured: 0 findings on core's shipped release.yml; 1 finding with
+          `needs:` removed; 1 finding with `needs:` reduced to one job; 0
+          findings on tag-integrity.yml (no goreleaser action → silent).
+      The anchor doubling as the trigger is what makes these rules
+      SELF-SCOPING — they need no `paths:` restriction and stay silent on
+      unrelated YAML, which is why every claim carries a third "silence"
+      fixture beyond the required positive/negative pair.
+      `.gitignore` is reachable via `languages: [generic]` +
+      `paths.include: [".gitignore", "*.gitignore"]` — spiked, fires
+      correctly on both an explicit target and a directory scan.
+
+  (6) SEMGREP VERSION SKEW — NAMED, NOT HIDDEN. The pack pins
+      `provision: {tool: semgrep, version: 1.96.0}`, matching the trusted-tool
+      allowlist (pkg/pack/engine/allowlist.go). The rules in this plan were
+      falsified against semgrep 1.156.0, the binary on PATH. That is tolerable
+      because provisionEngines resolves semgrep from PATH when one is present,
+      so the falsification harness and the gate share a binary in practice.
+      The residual is real and worth stating: a runner that genuinely holds
+      1.96.0 would execute rules nobody falsified against 1.96.0. The regex
+      idiom these rules use is stable surface, so the risk is low — but if a
+      rule ever behaves differently under the gate than under
+      scripts/falsify.sh, version skew is the first suspect, not the last.
+
+  (7) SEQUENCING CONSTRAINT — `pack check` CANNOT RUN BEFORE THE RECIPE EXISTS.
+      `archetype: recipes` makes packval phase 4 emit a `recipes-required`
+      ERROR when the `recipes:` index is empty (pkg/packval/phase4.go:101-154),
+      and the index cannot be populated before the recipe directory holds a
+      real recipe.yml (pack.ParseManifestFile validates the index against the
+      pack root, manifest.go:432-457). So the rules phase (2) CANNOT gate on
+      `pack check` / `pack test`; those first become runnable in TASK-009,
+      after the recipe lands. TASK-006 therefore gates on falsification alone
+      and says so explicitly. This is a property of the archetype, not an
+      oversight — do not "fix" it by weakening the archetype.
+
+  ─────────────────────────────────────────────────────────────────────────
+  THE DERIVED-ENV DECISION (ISSUE-101 requirement 5) — SCOPED DOWN, HONESTLY
+  ─────────────────────────────────────────────────────────────────────────
+  The general class — "every `{{ .Env.X }}` referenced in .goreleaser.yml has
+  a matching env export in release.yml" — is a CROSS-FILE correlation.
+  Semgrep is single-file; there is no join available at the pinned version,
+  and the escalation ladder's next rung (a custom script engine) would mean
+  building engine machinery for one rule. Per ISSUE-101's own instruction to
+  keep this a pack and not a platform, it is NOT built here.
+
+  What ships instead, all three parts required:
+    (a) the enforceable single-file slice — a WARNING rule that a workflow
+        running goreleaser-action exports HOMEBREW_TAP_TOKEN in that step's
+        env. This is the specific instance that actually burned ISSUE-087
+        (half-published release: binaries and the GitHub Release go out, the
+        formula-publish step silently dies). WARNING not ERROR because a
+        consumer who has not adopted Homebrew publication is un-adopted
+        capability, not a broken promise — loud ≠ blocking.
+    (b) a verbatim manual-verification note in the release.yml payload:
+        before the first real tag, cross-read .goreleaser.yml's `{{ .Env.X }}`
+        references against release.yml's exports by hand.
+    (c) a filed follow-on issue (TASK-016) naming the script-engine
+        escalation, so the residual is tracked rather than forgotten.
+
+  ─────────────────────────────────────────────────────────────────────────
+  SEVERITY LEDGER (SARIF `level`, declared per-rule in the semgrep rule file;
+  `warning` is non-blocking by contract, `error`/absent BLOCKS —
+  cmd/backstop/pack_severity_contract_test.go)
+  ─────────────────────────────────────────────────────────────────────────
+    ERROR  (broken promise — the pipeline claims a guarantee it does not have)
+      release-workflow-goreleaser-job-ungated
+      release-workflow-goreleaser-action-unpinned
+      release-workflow-non-tag-trigger
+      release-workflow-permissions-too-broad
+      goreleaser-config-platform-matrix-incomplete
+      goreleaser-config-version-ldflags-absent
+    WARNING (un-adopted capability — correct, just not wired yet)
+      release-workflow-tap-token-not-exported
+      goreleaser-config-brews-token-absent
+      gitignore-missing-goreleaser-dist
+
+  ─────────────────────────────────────────────────────────────────────────
+  DELIBERATE OMISSIONS
+  ─────────────────────────────────────────────────────────────────────────
+  • `coverage_threshold` is OMITTED. This plan adds no Go code to
+    backstop-core; the only Go it authors is recipe PAYLOAD (data in the pack
+    repo, which carries no go.mod deliberately, so payload .go files are inert
+    there) and its applied copy in stash. Declaring a core coverage bar would
+    be a promise nothing in this plan can keep.
+  • `test_names` is OMITTED on every task. artifact_status_drift reads that
+    field against backstop-core's tree for a `completed` plan; the only Go
+    test functions this plan produces live in the pack repo as payload data
+    and in stash after apply, so declaring them would manufacture a broken
+    promise. The mandated names are stated in TASK-007's description instead.
+  • backstop-core does NOT durably adopt the pack here. Leg (a) of the
+    consumption proof is a discarded worktree, per ISSUE-101's constraint not
+    to disturb the live repo. Durable adoption (committed backstop.yml +
+    backstop.lock in core) is deliberately left as a follow-on — and TASK-016
+    FILES it as an issue rather than leaving it as prose in this plan, because
+    ISSUE-101's Verification section names that adoption and an omission
+    nothing owns is indistinguishable from an omission nobody noticed.
+
+  ─────────────────────────────────────────────────────────────────────────
+  REQUIREMENTS / CLAIMS (plan-local, derived from ISSUE-101's nine hard-won
+  requirements and its Verification section — the issue is at `open` status
+  and records no claims, which is schema-gated)
+  ─────────────────────────────────────────────────────────────────────────
+
+    REQ-001: The pack exists and satisfies pack-craft law.
+      CLM-001  pack.yml declares name `backstop-ai/go-distribution`, version
+               0.1.0, language `go`, `archetype: recipes`, and a description;
+               `backstop pack check` and `backstop pack test` both report
+               status `pass` with ZERO errors.
+      CLM-002  the pack declares EXACTLY ONE engine binding carrying
+               `provision:` — the precondition `recipe apply` enforces
+               unconditionally — under a DISTINCT name, never redefining
+               base-engines' `semgrep` for other installed packs.
+      CLM-003  every claim carries at least one positive AND one negative
+               fixture (ParseManifestFile, pkg/pack/manifest.go:655-663), and
+               every fixture file is CAPTURED — a byte copy of core's shipped
+               trinity, or a deliberate single-defect mutation of one. No
+               fixture is fabricated. (ISSUE-101 requirement 9)
+      CLM-004  every rule declares `engine` and `risk_class`; `pack check`
+               reports no orphan-fixture warning.
+
+    REQ-002: Rules are actually falsified, and are generic.
+      CLM-005  ISSUE-092 is re-verified at implementation time; because
+               phase-3 fixture execution is dead for `rule_path:` packs,
+               falsification runs semgrep DIRECTLY with EXPLICIT file targets
+               (never a directory scan) and separately proves each rule file
+               free of schema error, so "zero findings" can never be
+               indistinguishable from "rule did not load".
+      CLM-006  for every rule: its negative fixture yields >= 1 finding, its
+               positive fixture yields EXACTLY ZERO, and an unrelated-YAML
+               silence fixture yields EXACTLY ZERO.
+      CLM-007  no rule pattern contains a consumer-specific literal — not the
+               binary name `backstop`, the org `backstop-ai`, the module path,
+               the tap name, or a workflow job name. (ISSUE-101 requirement 9)
+
+    REQ-003: The release-workflow invariants survive adaptation.
+      CLM-008  the goreleaser-action is pinned to the `~> v2` line; `@latest`
+               or an omitted version input goes RED. (requirement 1)
+      CLM-009  the release workflow triggers ONLY on `v*` tag push; a
+               `branches:` trigger goes RED. (requirement 2)
+      CLM-010  the release workflow declares a `needs:` naming AT LEAST TWO
+               jobs; deleting it, or reducing it to one, goes RED. This is the
+               pack's central broken-promise blocker. (requirement 2)
+               HONEST LIMIT, stated so nobody reads more into it later: this
+               is a FILE-LEVEL shape check, not a job-level one. Semgrep
+               cannot correlate a `needs:` with the job that runs
+               goreleaser (notes finding 5), so a workflow that gated some
+               OTHER job on two dependencies would pass this rule. What the
+               rule actually guards is the REMOVAL of the gate the recipe
+               payload establishes — which is the observed failure mode
+               (a maintainer deleting `needs:` to "unblock" a release) — not
+               a deliberate mis-wiring. Closing that residual needs the same
+               cross-file capability CLM-015 defers.
+      CLM-011  workflow `permissions:` are `contents: write` + `actions: read`
+               and nothing broader; a broader grant goes RED. (requirement 2)
+
+    REQ-004: The goreleaser-config invariants survive adaptation.
+      CLM-012  all four platforms are declared — darwin/amd64, darwin/arm64,
+               linux/amd64, linux/arm64; dropping one goes RED. linux/arm64 is
+               founder-ratified first-class, not optional. (requirement 4)
+      CLM-013  a `brews:` block is present and supplies an explicit `token:`;
+               its absence WARNS rather than blocks. (requirements 1, 5)
+      CLM-014  version stamping is declared via `-X <main-pkg>.version=` in
+               ldflags; its absence goes RED. (requirement 3)
+
+    REQ-005: The derived-env class is scoped honestly, not faked.
+      CLM-015  the general cross-file falsifier is NOT built; the pack ships
+               instead the single-file HOMEBREW_TAP_TOKEN-export WARNING rule,
+               a verbatim manual-verification note in the release.yml payload,
+               and a filed follow-on issue naming the script-engine
+               escalation. (requirement 5)
+
+    REQ-006: The recipe payload is a faithful, parameterized derivation.
+      CLM-016  every payload file derives from core's shipped counterpart, and
+               every project-specific string (binary name, main package,
+               module URL, org/repo, tap owner and repository, homepage,
+               description, license, CI workflow filename) is a DECLARED
+               PARAM, not a literal.
+      CLM-017  every foreign `{{ }}` template — GitHub Actions' `${{ ... }}`
+               and goreleaser's `{{ .X }}` — reaches the consumer's disk
+               SEMANTICALLY INTACT via self-emitting pass-through params, and
+               after a successful apply no UNINTENDED placeholder remains.
+               NOT byte-identical, by construction: the substituter emits the
+               param's DEFAULT, so delimiter spacing is normalized to one
+               canonical form (`{{.Version}}` in the source emits as
+               `{{ .Version }}`). Both goreleaser and GitHub Actions treat the
+               two spellings identically, so this is normalization rather than
+               loss — but an assertion written as byte equality against the
+               source would be unsatisfiable, and must not be.
+      CLM-018  the version starter is SELF-CONTAINED: one file declaring BOTH
+               the `var version = "dev"` link-time stamp symbol AND the
+               resolution logic. It reproduces resolveVersion's precedence
+               (ldflags wins outright -> released module version from
+               ReadBuildInfo -> "dev") and REJECTS `(devel)`, `+dirty`, and
+               pseudo-versions; its shipped table test covers every branch and
+               passes in the consumer. (requirement 3)
+               THE SYMBOL IS THE HALF THAT IS EASY TO LOSE: backstop-core
+               declares `var version = "dev"` in cmd/backstop/root.go:20, NOT
+               in version.go, so a payload derived from version.go ALONE does
+               not compile (`undefined: version`) and `-X main.version=` has
+               no symbol to write — every release binary would silently report
+               "dev", which is exactly the failure the ldflags comment in
+               core's .goreleaser.yml warns about.
+      CLM-019  the CI-droppings lesson ships as payload: `dist/` guidance for
+               `.gitignore`, plus the WARNING rule that fires when it is
+               absent. (requirement 6)
+      CLM-020  consumer verification guidance points at
+               `goreleaser release --snapshot --clean`, and documents that
+               `goreleaser check` exits 2 on EXACTLY the `brews:` deprecation
+               — that one deprecation is tolerated and NOTHING else is.
+               (requirement 7, PLAN-ISSUE-087 CLM-012 carve-out)
+      CLM-021  every workflow the recipes ship passes `actionlint` with ZERO
+               findings, in the pack repo and in every consumer.
+               (requirement 8)
+      CLM-022  the recipe is `kind: scaffolding` and declares
+               `enforcement.rules` naming the rules that re-check what it
+               establishes, satisfying packval phase 4's recipes-archetype
+               teeth.
+
+    REQ-007: The pack is proven by consumption, in two independent legs.
+      CLM-023  in a DETACHED WORKTREE of backstop-core, the pack's rules
+               report ZERO findings against the shipped `.goreleaser.yml`,
+               `release.yml`, and `tag-integrity.yml` — the generic-not-
+               literal proof, since we are the reference implementation — and
+               the already-installed go-standards / go-toolchain packs still
+               dispatch alongside it.
+      CLM-024  in that same worktree, removing `needs: [tag-integrity,
+               require-green-ci]` from release.yml turns the gate RED naming
+               `release-workflow-goreleaser-job-ungated`, and dropping
+               linux/arm64 from .goreleaser.yml turns it RED naming
+               `goreleaser-config-platform-matrix-incomplete`. The live
+               checkout is never mutated and the worktree is discarded.
+      CLM-025  stash applies the recipe with stash's own params; the produced
+               pipeline files are actionlint-clean, `goreleaser release
+               --snapshot --clean` builds all four platform binaries, the
+               applied version table test passes, and the pack's rules are
+               GREEN in stash with exactly the expected non-blocking WARNINGs
+               and zero errors. No stash release, tag, or tap.
+
+    REQ-008: The pack is published and consumable.
+      CLM-026  the pack repo carries the pack-repo convention set — pack.yml
+               plus a `.github/workflows/tag-integrity.yml` asserting the
+               pushed tag equals pack.yml's version — and is committed and
+               tagged `v0.1.0`.
+      CLM-027  the pack is consumable via `pack add
+               backstop-ai/go-distribution@0.1.0`; the ISSUE-095 caveat (a
+               plain `add` over an already-installed same-name pack silently
+               no-ops) is handled by `pack remove` first, and the resulting
+               lock entry records `source_type: git`, `git_ref: v0.1.0`, and a
+               content hash EQUAL to the local install's.
+
+  ─────────────────────────────────────────────────────────────────────────
+  NAMED ARTIFACTS THE IMPLEMENTER MUST PRODUCE (mandated names)
+  ─────────────────────────────────────────────────────────────────────────
+  Rule ids (pack.yml, kebab):
+    release-workflow-goreleaser-action-unpinned          ERROR
+    release-workflow-non-tag-trigger                     ERROR
+    release-workflow-goreleaser-job-ungated              ERROR
+    release-workflow-permissions-too-broad               ERROR
+    release-workflow-tap-token-not-exported              WARNING
+    goreleaser-config-platform-matrix-incomplete         ERROR
+    goreleaser-config-version-ldflags-absent             ERROR
+    goreleaser-config-brews-token-absent                 WARNING
+    gitignore-missing-goreleaser-dist                    WARNING
+  Claim ids: clm-001 .. clm-009, one per rule, in the order above.
+  Recipe id: `go-release`, at recipes/go-release/.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Pack repo scaffold and engine binding"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Create the go-distribution pack repo skeleton with its single provisioned engine binding"
+        description: |
+          Create the new repo at
+          /Users/bmanson/src/projects/backstop-go-distribution-pack
+          (`git init`, default branch `main`) and lay down the skeleton.
+
+          pack.yml header — exactly these identity fields:
+            name: backstop-ai/go-distribution
+            version: "0.1.0"
+            language: go
+            archetype: recipes
+            description: <one sentence naming the release trinity it ships>
+
+          THE ENGINE BLOCK IS LOAD-BEARING AND NON-OBVIOUS (CLM-002).
+          `recipe apply` calls provisionedEngineBinding UNCONDITIONALLY before
+          Apply and requires the pack to declare EXACTLY ONE engine binding
+          with a non-nil `provision:` (cmd/backstop/recipe_apply.go:231-243,
+          :338-367) — a create-only recipe in a pack with zero such bindings
+          fails with a config error before the recipe ever runs. Declare ONE,
+          named `semgrep-godist` (NOT `semgrep`), mirroring the base-engines
+          semgrep binding field-for-field (packs/base-engines/pack.yml:22-40):
+            command: semgrep --sarif --quiet
+            input_mode: rule-flags
+            input_flag: "--config"
+            scope_kind: file-args
+            gate_type: lint
+            category: opinion
+            provision: {tool: semgrep, version: 1.96.0}
+            field_contract: requires [rule_path, standard],
+                            forbids [category, input_scope, validator]
+          The distinct name is deliberate: pack bindings OVERRIDE the embedded
+          base-engines defaults, and redefining `semgrep` would silently
+          change engine resolution for every OTHER pack installed in a
+          consumer project. Do not pin a version other than 1.96.0 without
+          checking engine.TrustedToolAllowlist() — the trust gate runs at both
+          parse and dispatch.
+
+          .github/workflows/tag-integrity.yml — copy VERBATIM from
+          /Users/bmanson/src/projects/backstop-go-pack/.github/workflows/tag-integrity.yml
+          (byte-identical across the existing pack repos; asserts pack.yml
+          parses, its version is strict semver, and on a tag push that the tag
+          equals that version). This is the pack-repo convention, and it is a
+          DIFFERENT workflow from the tag-integrity.yml the recipe ships to
+          consumers — do not conflate them. (CLM-026)
+
+          .gitignore — the pack repo carries NO go.mod, deliberately: payload
+          .go files must stay inert data rather than being compiled as part of
+          the pack module. Ignore only editor/OS noise.
+
+          Do NOT author rules, fixtures, or recipes here; later tasks own
+          those and will extend pack.yml.
+        files:
+          - /Users/bmanson/src/projects/backstop-go-distribution-pack/pack.yml
+          - /Users/bmanson/src/projects/backstop-go-distribution-pack/.github/workflows/tag-integrity.yml
+          - /Users/bmanson/src/projects/backstop-go-distribution-pack/.gitignore
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-026
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: Rules — captured fixtures, then the nine invariants"
+    tasks:
+      - id: TASK-002
+        type: test
+        title: "Capture the release-workflow fixture set from core's shipped trinity"
+        description: |
+          RED PHASE for the five workflow rules. Every fixture is CAPTURED,
+          never authored from imagination (ISSUE-101 requirement 9).
+
+          POSITIVES — byte copies of files proven in production on 2026-07-27/28:
+            fixtures/rules/valid/release-workflow.yml
+              <- /Users/bmanson/src/projects/backstop-core/.github/workflows/release.yml
+            fixtures/rules/valid/tag-integrity-workflow.yml
+              <- /Users/bmanson/src/projects/backstop-core/.github/workflows/tag-integrity.yml
+
+          SILENCE FIXTURE — a workflow that has nothing to do with releasing:
+            fixtures/rules/valid/unrelated-workflow.yml
+              <- /Users/bmanson/src/projects/backstop-core/.github/workflows/ci.yml
+          Its job is to prove the rules are SELF-SCOPING (their anchor regex
+          doubles as the trigger condition, so they need no `paths:` filter and
+          must stay silent on unrelated YAML). Reference it from a claim so it
+          does not trip `pack check`'s orphan-fixture warning.
+
+          NEGATIVES — each is the positive with ONE deliberate defect, so the
+          fixture isolates exactly the invariant its rule guards:
+            invalid/release-workflow-action-unpinned.yml
+              `version: "~> v2"` replaced with `version: latest`      (CLM-008)
+            invalid/release-workflow-branch-trigger.yml
+              a `branches: [main]` trigger added alongside the tag trigger
+                                                                      (CLM-009)
+            invalid/release-workflow-goreleaser-job-ungated.yml
+              the goreleaser job's `needs: [tag-integrity, require-green-ci]`
+              line deleted outright                                   (CLM-010)
+            invalid/release-workflow-permissions-broad.yml
+              top-level permissions widened (e.g. `contents: write`,
+              `actions: read`, `packages: write`)                     (CLM-011)
+            invalid/release-workflow-tap-token-unexported.yml
+              the `HOMEBREW_TAP_TOKEN:` export line deleted from the
+              goreleaser step's `env:` block                          (CLM-015)
+
+          SHARP EDGE, measured: deleting only the `HOMEBREW_TAP_TOKEN:` env
+          line leaves the surrounding COMMENT that names the same identifier,
+          and a naive `pattern-not-regex: HOMEBREW_TAP_TOKEN` then reads the
+          mutated file as compliant. Strip the comment too, and make the rule
+          in TASK-005 match the EXPORT FORM (`HOMEBREW_TAP_TOKEN:` followed by
+          a value) rather than the bare identifier.
+
+          Also delete the `needs:` line rather than emptying it — an empty
+          `needs:` is a second, different defect.
+        files:
+          - /Users/bmanson/src/projects/backstop-go-distribution-pack/fixtures/rules/valid/release-workflow.yml
+          - /Users/bmanson/src/projects/backstop-go-distribution-pack/fixtures/rules/valid/tag-integrity-workflow.yml
+          - /Users/bmanson/src/projects/backstop-go-distribution-pack/fixtures/rules/valid/unrelated-workflow.yml
+          - /Users/bmanson/src/projects/backstop-go-distribution-pack/fixtures/rules/invalid/release-workflow-action-unpinned.yml
+          - /Users/bmanson/src/projects/backstop-go-distribution-pack/fixtures/rules/invalid/release-workflow-branch-trigger.yml
+          - /Users/bmanson/src/projects/backstop-go-distribution-pack/fixtures/rules/invalid/release-workflow-goreleaser-job-ungated.yml
+          - /Users/bmanson/src/projects/backstop-go-distribution-pack/fixtures/rules/invalid/release-workflow-permissions-broad.yml
+          - /Users/bmanson/src/projects/backstop-go-distribution-pack/fixtures/rules/invalid/release-workflow-tap-token-unexported.yml
+        claims:
+          - CLM-003
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-015
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: test
+        title: "Capture the goreleaser-config and gitignore fixture sets"
+        description: |
+          RED PHASE for the four remaining rules. Runs in PARALLEL with
+          TASK-002 — disjoint files by construction.
+
+          POSITIVES — byte copies of shipped, proven files:
+            fixtures/rules/valid/goreleaser-config.yml
+              <- /Users/bmanson/src/projects/backstop-core/.goreleaser.yml
+            fixtures/rules/valid/dist-ignored.gitignore
+              <- the `dist/` stanza of
+                 /Users/bmanson/src/projects/backstop-core/.gitignore,
+                 captured with enough surrounding lines to be a realistic file
+
+          SILENCE FIXTURE:
+            fixtures/rules/valid/unrelated-config.yml — a YAML config that is
+            not a goreleaser config (capture backstop-core's backstop.yml).
+            Proves the goreleaser rules' anchor is specific enough not to fire
+            on arbitrary YAML. Reference it from a claim.
+
+          NEGATIVES — one deliberate defect each:
+            invalid/goreleaser-platforms-incomplete.yml
+              `goarch:` reduced to `[amd64]`, dropping arm64 — the founder-
+              ratified fourth platform                                (CLM-012)
+            invalid/goreleaser-ldflags-absent.yml
+              the `-X main.version={{.Version}}` ldflags entry removed (CLM-014)
+            invalid/goreleaser-brews-token-absent.yml
+              the `token:` line removed from the `brews[].repository`
+              block                                                   (CLM-013)
+            invalid/dist-not-ignored.gitignore
+              the positive gitignore with its `dist/` line removed     (CLM-019)
+
+          SHARP EDGE: the goreleaser fixtures still contain goreleaser's own
+          `{{ .Version }}` / `{{ .Env.X }}` templates. They are FIXTURE DATA
+          here — semgrep never interprets them, and they must be preserved
+          byte-for-byte because the anchor regexes match around them.
+
+          The `.gitignore` fixtures must be named with a `.gitignore` suffix
+          so the rule's `paths.include: [".gitignore", "*.gitignore"]` reaches
+          them — verified: semgrep matches both an explicit target and a
+          directory scan with that include list.
+        files:
+          - /Users/bmanson/src/projects/backstop-go-distribution-pack/fixtures/rules/valid/goreleaser-config.yml
+          - /Users/bmanson/src/projects/backstop-go-distribution-pack/fixtures/rules/valid/unrelated-config.yml
+          - /Users/bmanson/src/projects/backstop-go-distribution-pack/fixtures/rules/valid/dist-ignored.gitignore
+          - /Users/bmanson/src/projects/backstop-go-distribution-pack/fixtures/rules/invalid/goreleaser-platforms-incomplete.yml
+          - /Users/bmanson/src/projects/backstop-go-distribution-pack/fixtures/rules/invalid/goreleaser-ldflags-absent.yml
+          - /Users/bmanson/src/projects/backstop-go-distribution-pack/fixtures/rules/invalid/goreleaser-brews-token-absent.yml
+          - /Users/bmanson/src/projects/backstop-go-distribution-pack/fixtures/rules/invalid/dist-not-ignored.gitignore
+        claims:
+          - CLM-003
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-019
+        depends_on:
+          - TASK-001
+
+      - id: TASK-004
+        type: test
+        title: "Author scripts/falsify.sh — the direct-semgrep falsification harness that works around ISSUE-092"
+        description: |
+          `backstop pack test` CANNOT falsify this pack's rules, and the plan
+          must not pretend otherwise. packval reads a rule's source from the
+          `file:` key (pkg/packval/manifest.go:78); this pack, like every real
+          pack, declares `rule_path:`, so `rule.File == ""`, both guards at
+          phase3.go:62 and :76 are false, RunEngine is never called, and
+          phase 3 reports `pass` having executed nothing (ISSUE-092).
+
+          FIRST STEP OF THIS TASK: re-verify that on the current tree. Record
+          the finding in the script's header comment either way — if it has
+          been fixed, say so and keep the harness anyway as the explicit-target
+          falsifier.
+
+          Write scripts/falsify.sh (bash, `set -euo pipefail`, exit non-zero on
+          any failed expectation, and print one PASS/FAIL line per assertion).
+          It drives a table of (rule-file, semgrep-rule-id, fixture, expected)
+          rows and, for each:
+            1. runs `semgrep --metrics=off --quiet --json --config <rule-file>
+               <SINGLE EXPLICIT FIXTURE PATH>` — never a directory. A directory
+               scan silently skips files semgrep's targeting excludes, which is
+               one of the two measurement traps ISSUE-092 records.
+            2. counts results for the specific rule id and compares to
+               expected: NEGATIVE fixture >= 1, POSITIVE fixture == 0, SILENCE
+               fixture == 0.
+          It must ALSO, before the table runs, assert every rule file LOADS:
+          invoke semgrep against each rule file and fail if the output reports
+          an InvalidRuleSchemaError or any rule-parse error. This closes the
+          second trap — a schema-broken rule currently reads as zero findings,
+          indistinguishable from "clean", which would make every positive
+          assertion pass vacuously.
+
+          Run in PARALLEL with TASK-002 and TASK-003. The script is written
+          against the fixture and rule paths those tasks and TASK-005 create,
+          and is EXPECTED TO FAIL until TASK-005 lands the rules — that failure
+          is the red phase.
+        files:
+          - /Users/bmanson/src/projects/backstop-go-distribution-pack/scripts/falsify.sh
+        claims:
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-001
+
+      - id: TASK-005
+        type: implementation
+        title: "Author the nine semgrep rules and wire them into pack.yml"
+        description: |
+          GREEN PHASE. Author three semgrep rule files and the pack.yml
+          ruleset that binds them to claims and fixtures.
+
+          THE RULE IDIOM IS FIXED BY MEASUREMENT (see notes finding 5). Do NOT
+          attempt structural YAML patterns for the workflow-shape invariants:
+          semgrep's `...` does not traverse from a mapping into sequence items,
+          so a job block cannot be correlated with a step nested inside it, and
+          composing multiple `pattern-regex` entries INTERSECTS their ranges so
+          a whole-file `pattern-not-regex` never sees the file. Use ONE
+          whole-file anchor regex that also carries the trigger condition, plus
+          a whole-file `pattern-not-regex`. The proven shape:
+
+            patterns:
+              - pattern-regex: "(?s)^name:.*goreleaser/goreleaser-action.*$"
+              - pattern-not-regex: "(?s)^name:.*<required construct>.*$"
+
+          The anchor doubling as the trigger is what makes these SELF-SCOPING:
+          no `paths:` filter, and silent on YAML that is not a release
+          workflow. The goreleaser-config rules anchor on a goreleaser-specific
+          structural signature (e.g. `builds:` together with `goos:`), NOT on
+          `version: 2` alone, which is too weak to distinguish arbitrary YAML —
+          the silence fixture from TASK-003 is what proves the anchor is tight
+          enough.
+
+          rules/workflow/release-workflow.yml — five rules:
+            go-distribution.workflow.goreleaser-action-unpinned    ERROR
+              fires unless the goreleaser-action step declares a `version:`
+              input on the `~> v2` line. `@latest`, an omitted input, or a v3+
+              pin all fire. Do NOT match on the action's `@vN` ref: the pin
+              that matters is the `version:` input.                  (CLM-008)
+            go-distribution.workflow.non-tag-trigger                ERROR
+              fires when a release workflow's `on:` carries anything but a
+              `v*` tag push — a `branches:` or `pull_request:` trigger. (CLM-009)
+            go-distribution.workflow.goreleaser-job-ungated         ERROR
+              fires unless the file declares a `needs:` listing AT LEAST TWO
+              jobs. This is the pack's central blocker. Assert the SHAPE (two
+              or more dependencies), never the job NAMES — `tag-integrity` and
+              `require-green-ci` are core's names, and a rule keyed on them
+              would fail CLM-007.                                    (CLM-010)
+            go-distribution.workflow.permissions-too-broad          ERROR
+              fires when a release workflow grants any permission beyond
+              `contents: write` and `actions: read`.                 (CLM-011)
+            go-distribution.workflow.tap-token-not-exported         WARNING
+              fires when a workflow running goreleaser-action does not export
+              HOMEBREW_TAP_TOKEN in that step's `env:`. Match the EXPORT FORM
+              (`HOMEBREW_TAP_TOKEN:` plus a value), not the bare identifier —
+              a comment naming it must not satisfy the rule. This is the
+              enforceable single-file slice of the derived-env class; the
+              cross-file general form is deliberately not built. (CLM-015)
+
+          rules/goreleaser/goreleaser-config.yml — three rules:
+            go-distribution.goreleaser.platform-matrix-incomplete   ERROR
+              fires unless goos covers darwin AND linux and goarch covers
+              amd64 AND arm64.                                       (CLM-012)
+            go-distribution.goreleaser.version-ldflags-absent       ERROR
+              fires unless an ldflags entry injects a version symbol via
+              `-X <something>.version=`. Match the SHAPE — `main.version` is
+              core's symbol and a consumer's main package may differ. (CLM-014)
+            go-distribution.goreleaser.brews-token-absent           WARNING
+              fires when a `brews:` block is present without an explicit
+              `token:`. Non-blocking: a consumer who has not wired Homebrew
+              yet is un-adopted capability, not a broken promise.    (CLM-013)
+
+          rules/workspace/gitignore.yml — one rule:
+            go-distribution.workspace.gitignore-missing-dist        WARNING
+              `languages: [generic]`, `paths.include: [".gitignore",
+              "*.gitignore"]`, fires when no `dist/` entry is present. This is
+              ISSUE-101 requirement 6: goreleaser writes `dist/` into the
+              workspace and a diff-scoped gate then gates it as if it were a
+              source change — the exact false positive ISSUE-087's CI hit with
+              ast-grep.zip and gate-report.json.                     (CLM-019)
+
+          SEVERITY IS DECLARED IN THE RULE FILE, not pack.yml: semgrep's
+          per-rule `severity:` becomes the SARIF `level`, and `warning` is
+          non-blocking by contract while `error`/absent BLOCKS
+          (cmd/backstop/pack_severity_contract_test.go). Follow go-standards'
+          convention for the rest of the rule file: a `metadata.backstop`
+          sub-block with category, rationale, and references.
+
+          pack.yml — add `content.ruleset` with nine entries, each carrying
+          `id`, `standard` (the prose invariant), `rule_path`, `risk_class`,
+          `engine: semgrep-godist`, and one claim (clm-001..clm-009, in the
+          order listed in the notes' mandated-names section) with its captured
+          positive and negative fixtures. The semgrep field contract requires
+          `rule_path` AND `standard` and forbids `category`, `input_scope`,
+          `validator` — honor it. risk_class is `correctness` for the six
+          ERROR rules and `style` for the three WARNING rules; do NOT use
+          `security`, which would drag in packval phase 6's bypass-fixture and
+          fixture-independence obligations for no benefit here.
+
+          CLM-007 IS A REVIEW GATE ON THIS TASK: grep the finished rule files
+          for `backstop`, `backstop-ai`, `homebrew-tap`, `tag-integrity`,
+          `require-green-ci`, and `main.version`. Any hit that is not inside a
+          comment is a consumer literal and must be generalized.
+        files:
+          - /Users/bmanson/src/projects/backstop-go-distribution-pack/rules/workflow/release-workflow.yml
+          - /Users/bmanson/src/projects/backstop-go-distribution-pack/rules/goreleaser/goreleaser-config.yml
+          - /Users/bmanson/src/projects/backstop-go-distribution-pack/rules/workspace/gitignore.yml
+          - /Users/bmanson/src/projects/backstop-go-distribution-pack/pack.yml
+        claims:
+          - CLM-004
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-019
+        depends_on:
+          - TASK-002
+          - TASK-003
+          - TASK-004
+
+      - id: TASK-006
+        type: verification
+        title: "Falsify all nine rules by direct semgrep (pack check is not yet runnable — see below)"
+        description: |
+          Run `bash scripts/falsify.sh` from the pack repo root and require it
+          to exit 0 with every assertion PASS: each negative fixture yields
+          >= 1 finding for its rule, each positive yields exactly zero, each
+          silence fixture yields exactly zero, and every rule file loads
+          without a schema error. A rule that cannot be falsified does not
+          ship — if a negative fixture fails to fire, the RULE is wrong, not
+          the fixture.
+
+          DO NOT RUN `backstop pack check` OR `pack test` HERE — THEY CANNOT
+          PASS YET, AND THAT IS BY DESIGN. `archetype: recipes` makes packval
+          phase 4 emit a `recipes-required` ERROR while the `recipes:` index is
+          empty (pkg/packval/phase4.go:101-154), and the index cannot be
+          populated until a real recipe.yml exists, which TASK-008 delivers
+          (pack.ParseManifestFile validates the index against the pack root,
+          manifest.go:432-457). TASK-009 is the first point at which either
+          command can report `pass`. If you find yourself tempted to add a
+          placeholder recipe just to make `pack check` green here, stop: that
+          would be a decoy, and phase 4 would then demand an
+          `enforcement.rules` block naming rules for a recipe that does
+          nothing.
+
+          Consequence, and it is the point of this task: falsification is the
+          ONLY evidence the rules work, at this phase and in general. Even
+          once `pack test` runs in TASK-009, a green phase 3 means the
+          manifest is coherent and NOTHING about whether the rules fire, for
+          as long as ISSUE-092 is open (phase-3 fixture execution dead for
+          `rule_path:` packs — re-verified in TASK-004). Never report a green
+          `pack test` as rule verification.
+        files:
+          - /Users/bmanson/src/projects/backstop-go-distribution-pack/pack.yml
+          - /Users/bmanson/src/projects/backstop-go-distribution-pack/scripts/falsify.sh
+        claims:
+          - CLM-003
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-005
+
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: Recipe — the parameterized release-trinity payload"
+    tasks:
+      - id: TASK-007
+        type: test
+        title: "Author the version-starter table test payload and the recipe-apply verification harness"
+        description: |
+          RED PHASE for the recipe. Two artifacts, both written before the
+          payload they check.
+
+          (a) recipes/go-release/payload/version_test.go — the table test that
+          ships to consumers alongside the version.go starter. Mirror core's
+          cmd/backstop/version_test.go, generalized. MANDATED TEST FUNCTION
+          NAMES (they ship to every consumer, so they are part of the pack's
+          contract):
+            TestResolveVersion_LdflagsInjectionWins
+            TestResolveVersion_ModuleVersionFallbackForGoInstall
+            TestResolveVersion_PseudoVersionFallsBackToDev
+            TestResolveVersion_DirtyBuildFallsBackToDev
+            TestResolveVersion_DevelAndAbsentBuildInfoFallBackToDev
+          Between them they must cover: an injected ldflags value winning
+          outright; a released module version from ReadBuildInfo being
+          reported (the `go install ...@vX.Y.Z` path); and "dev" for each
+          rejected shape — a pseudo-version (the 14-digit-timestamp +
+          12-hex-char suffix a plain `go build` stamps since Go 1.24), a
+          `+dirty` build-metadata version, `(devel)`, an empty version, and
+          absent build info. The pseudo-version case is the one that was only
+          discovered by capturing real output during ISSUE-087; it is not
+          optional. `package main` — this file is data in the pack repo (which
+          carries no go.mod, so it is inert there) and becomes real Go only
+          after apply.
+
+          The test must exercise `resolveVersion(injected, info, ok)` as a
+          PURE FUNCTION of its arguments — that is what makes the whole matrix
+          testable without building a binary per case — and must also assert
+          that the package-level `version` symbol the starter declares exists
+          and defaults to "dev", since that symbol is what `-X` writes to.
+
+          (b) scripts/verify-recipe-apply.sh — the harness TASK-009 runs.
+          Against a throwaway scratch Go CLI project it must:
+            • create a minimal consumer (go.mod, cmd/<binary>/main.go,
+              backstop.yml, an existing .gitignore) in a temp dir;
+            • install the pack from the local path and run
+              `backstop recipe apply backstop-ai/go-distribution:go-release@1.0.0`
+              with the full `--param` set;
+            • assert all five payload files landed at their declared targets;
+            • assert TEMPLATE FIDELITY (CLM-017): the produced files contain
+              `${{ github.ref_name }}`, `${{ secrets.GITHUB_TOKEN }}`,
+              `${{ secrets.HOMEBREW_TAP_TOKEN }}`, `{{ .Version }}`,
+              `{{ .ProjectName }}`, `{{ .Os }}`, `{{ .Arch }}` and
+              `{{ .Env.HOMEBREW_TAP_TOKEN }}`, and contain no OTHER
+              `{{`-delimited span — i.e. every remaining placeholder is an
+              intended foreign template, never an unresolved param.
+              ASSERT THE NORMALIZED FORM, NOT BYTE EQUALITY WITH THE SOURCE:
+              the substituter emits the param's default, so a source
+              `{{.Version}}` arrives as `{{ .Version }}`. Both spellings mean
+              the same thing to goreleaser, but a byte-equality assertion
+              against core's file would be unsatisfiable by construction;
+            • run `actionlint` over both produced workflows and require ZERO
+              findings (CLM-021);
+            • run `goreleaser release --snapshot --clean` in the scratch
+              project and assert FOUR platform binaries were produced (CLM-020);
+            • run `goreleaser check` and tolerate EXACTLY ONE deprecation,
+              `brews`, on a config goreleaser itself calls valid (measured
+              exit 2 on v2.17.1 per PLAN-ISSUE-087's CLM-012 carve-out) — a
+              SECOND deprecation, or any "configuration is invalid" result,
+              FAILS the harness;
+            • run `go test ./...` in the scratch project so the applied
+              version starter and its table test actually pass (CLM-018);
+            • run scripts/falsify.sh's rule set against the PRODUCED files and
+              require zero errors — the recipe must emit a payload its own
+              rules accept.
+          Expected to fail until TASK-008 lands; that failure is the red phase.
+        files:
+          - /Users/bmanson/src/projects/backstop-go-distribution-pack/recipes/go-release/payload/version_test.go
+          - /Users/bmanson/src/projects/backstop-go-distribution-pack/scripts/verify-recipe-apply.sh
+        claims:
+          - CLM-016
+          - CLM-018
+        depends_on:
+          - TASK-001
+
+      - id: TASK-008
+        type: implementation
+        title: "Author recipe.yml and the four payload files derived from core's shipped trinity"
+        description: |
+          GREEN PHASE. recipes/go-release/recipe.yml plus the payload, plus the
+          `recipes:` index entry in pack.yml.
+
+          recipe.yml:
+            kind: scaffolding
+            version: "1.0.0"
+            enforcement:
+              rules: [all nine rule ids from TASK-005]
+          `kind: scaffolding` is deliberate on two counts. It triggers packval
+          phase 4's recipes-archetype teeth, which REQUIRE the
+          `enforcement.rules` block naming the rules that re-check what this
+          recipe establishes — precisely this pack's design (CLM-022). And it
+          means REGENERATE-BY-DEFAULT on re-apply: a consumer's later
+          divergence is overwritten unless it carries an active `@waiver`
+          (pkg/recipe/apply.go:348-402). That ratchet is what stops starters
+          from silently rotting, and the payload comments must say so, along
+          with the fact that a file the consumer already owns is NEVER
+          clobbered on first apply.
+
+          PARAMS — two families.
+
+          PROJECT PARAMS (required, no default; these are the consumer-edit
+          points ISSUE-101 asks to mark clearly):
+            binary_name        the binary/archive name and goreleaser
+                               project_name
+            main_package       e.g. ./cmd/<binary_name>
+            main_package_dir   e.g. cmd/<binary_name> — the version.go target
+            module_url         the canonical https://github.com/<org>/<repo>
+            tap_owner          the Homebrew tap's owner
+            tap_repository     default `homebrew-tap`. Homebrew strips the
+                               `homebrew-` prefix at resolution, so consumers
+                               type `<owner>/tap/<binary>` — say that in a
+                               payload comment.
+            app_description    the formula description
+            app_license        default `MIT`
+            ci_workflow_file   default `ci.yml` — the workflow the
+                               require-green-ci job queries by name
+          Defaults cannot reference other params (there is no expression
+          grammar), so anything derived is its own required param.
+
+          PASS-THROUGH TEMPLATE PARAMS — the mechanism this pack needs and the
+          machinery's sharpest edge. Substitute (pkg/recipe/substitute.go:31-62)
+          reads EVERY `{{ ... }}` span as a param name and hard-errors on an
+          undeclared one; our payloads legitimately carry GitHub Actions and
+          goreleaser templates that must reach disk verbatim. Because
+          substituted values are NEVER RESCANNED, declare each foreign template
+          as a param whose NAME is its inner text and whose DEFAULT is the same
+          text wrapped, e.g.
+
+            - name: ".Version"
+              required: false
+              default: "{{ .Version }}"
+
+          Declare all eight: `.Version`, `.ProjectName`, `.Os`, `.Arch`,
+          `.Env.HOMEBREW_TAP_TOKEN`, `github.ref_name`, `secrets.GITHUB_TOKEN`,
+          `secrets.HOMEBREW_TAP_TOKEN`. Note `{{.Version}}` and `{{ .Version }}`
+          trim to the same name, so one param covers both spellings; the
+          emitted form is whatever the default says. Comment this block
+          loudly — it is not self-evident, and a consumer who passes
+          `--param .Version=...` would rewrite an emitted template.
+
+          OPS — five `create` ops, in this order:
+            .goreleaser.yml
+            .github/workflows/release.yml
+            .github/workflows/tag-integrity.yml
+            {{ main_package_dir }}/version.go
+            {{ main_package_dir }}/version_test.go   (the TASK-007 payload)
+
+          PAYLOAD — derive each file from its core counterpart, replacing ONLY
+          the project-identity strings with params (CLM-016). Sources:
+            /Users/bmanson/src/projects/backstop-core/.goreleaser.yml
+            /Users/bmanson/src/projects/backstop-core/.github/workflows/release.yml
+            /Users/bmanson/src/projects/backstop-core/.github/workflows/tag-integrity.yml
+            /Users/bmanson/src/projects/backstop-core/cmd/backstop/version.go
+              PLUS cmd/backstop/root.go:15-20 — see the next paragraph.
+
+          THE VERSION STARTER IS SELF-CONTAINED, AND version.go ALONE IS NOT
+          ENOUGH (CLM-018). Core splits the pieces: `resolveVersion`,
+          `isReleasedModuleVersion`, and `effectiveVersion` live in version.go,
+          but the SYMBOL `-X` writes to — `var version = "dev"` — is declared
+          in cmd/backstop/root.go:20. A payload copied from version.go alone
+          does not compile in a consumer (`undefined: version`) and, worse, if
+          the consumer patched around that by declaring the var elsewhere with
+          a different name, `-X main.version=` would write nothing and every
+          release binary would silently report "dev". The starter therefore
+          declares BOTH in one file. Carry over root.go's comment explaining
+          that the raw stamp is not what callers read, and carry over its
+          `// nosemgrep: go.core.no-global-mutable-state` waiver with its
+          justification — a package-level var is the ONLY thing `-ldflags -X`
+          can write to, and consumers running go-standards (stash does, at
+          1.2.0) would otherwise take a global-mutable-state finding on a
+          construct the toolchain forces.
+
+          Preserve the load-bearing comments — `fetch-depth: 0` is required for
+          the ancestry query; the default GITHUB_TOKEN cannot push to another
+          repository; absence of a CI run must fail closed; the `-X` symbol
+          must match the `var version` declaration or every release binary
+          reports "dev". These comments are the hard-won part.
+
+          THREE PAYLOAD ADDITIONS THE SOURCES DO NOT CARRY:
+            • CLM-015(b) — a manual-verification note in release.yml, above
+              the goreleaser step: before the first real tag, cross-read
+              .goreleaser.yml's `{{ .Env.X }}` references against this
+              workflow's exports by hand. goreleaser resolves `.Env` strictly
+              and a missing export half-publishes — binaries and the GitHub
+              Release go out, the formula-publish step silently dies. No
+              automated check covers this; semgrep is single-file.
+            • CLM-019 — a comment block in .goreleaser.yml stating that
+              `dist/` MUST be added to the consumer's `.gitignore`, because
+              goreleaser writes it into the workspace and a diff-scoped gate
+              then gates it as a source change. `.gitignore` cannot be an op:
+              it is not one of the mergeable formats (json/yaml/toml/env), and
+              a `create` op would be preserved-not-written on a consumer that
+              already has one. The gitignore-missing-dist WARNING rule from
+              TASK-005 is what makes the omission loud.
+            • CLM-020 — a comment block stating that `goreleaser check`
+              requires a configured git remote and, with `brews:` present,
+              exits 2 on a config it simultaneously calls valid; the real
+              verification command is
+              `goreleaser release --snapshot --clean`, and exactly ONE
+              deprecation named `brews` is tolerated — anything else is real.
+              Include the formula-over-cask rationale: casks are macOS-only
+              and Linux `brew` must keep working; the `~> v2` pin is what makes
+              removal a deliberate move rather than an upstream surprise;
+              migrate via goreleaser's tap_migrations.json if that pin is ever
+              moved past v2.
+
+          pack.yml — add the top-level `recipes:` index:
+            recipes:
+              go-release: recipes/go-release
+          It is a distinct top-level key, not under `content:`, and pack
+          parsing fails loud if the directory is missing or has no recipe.yml.
+        files:
+          - /Users/bmanson/src/projects/backstop-go-distribution-pack/recipes/go-release/recipe.yml
+          - /Users/bmanson/src/projects/backstop-go-distribution-pack/recipes/go-release/payload/.goreleaser.yml
+          - /Users/bmanson/src/projects/backstop-go-distribution-pack/recipes/go-release/payload/release.yml
+          - /Users/bmanson/src/projects/backstop-go-distribution-pack/recipes/go-release/payload/tag-integrity.yml
+          - /Users/bmanson/src/projects/backstop-go-distribution-pack/recipes/go-release/payload/version.go
+          - /Users/bmanson/src/projects/backstop-go-distribution-pack/pack.yml
+        claims:
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-022
+        depends_on:
+          - TASK-007
+          - TASK-006
+
+      - id: TASK-009
+        type: verification
+        title: "Apply the recipe into a scratch project and prove the produced pipeline builds, lints, and self-gates"
+        description: |
+          Run `bash scripts/verify-recipe-apply.sh` and require exit 0 with
+          every assertion PASS. That covers, in one pass: the five files land;
+          all eight foreign templates survive byte-identically and no
+          unintended `{{` remains; both workflows are actionlint-clean;
+          `goreleaser release --snapshot --clean` produces four platform
+          binaries; `goreleaser check` reports exactly the `brews` deprecation
+          and nothing else; the applied version table test passes; and the
+          pack's own rules are green against the produced files.
+
+          Then run `backstop pack check` and `backstop pack test` from the pack
+          repo root — THE FIRST POINT IN THE PLAN AT WHICH EITHER CAN PASS,
+          because the `recipes:` index only became populatable with TASK-008's
+          recipe (see TASK-006). Both must report status `pass` with ZERO
+          errors (CLM-001). Phase 4's recipes-archetype enforcement check is
+          live here: a recipe missing its `enforcement.rules` block fails by
+          design (CLM-022). Resolve any orphan-fixture warning by referencing
+          the fixture from a claim rather than deleting it (CLM-004).
+
+          FAILURE MODES TO EXPECT AND FIX RATHER THAN WORK AROUND:
+            • "unresolvable placeholder {{ X }}" — a foreign template is
+              missing its pass-through param declaration. Add the param; do
+              not strip the template from the payload.
+            • a config error BEFORE the recipe runs, naming engine
+              provisioning — the pack's single provisioned binding is missing
+              or there is more than one (see TASK-001).
+            • actionlint findings on a produced workflow — fix the payload;
+              actionlint-clean is a floor, not a stretch goal.
+        files:
+          - /Users/bmanson/src/projects/backstop-go-distribution-pack/scripts/verify-recipe-apply.sh
+          - /Users/bmanson/src/projects/backstop-go-distribution-pack/recipes/go-release/recipe.yml
+        claims:
+          - CLM-001
+          - CLM-004
+          - CLM-017
+          - CLM-020
+          - CLM-021
+          - CLM-022
+        depends_on:
+          - TASK-008
+
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Consumption proof leg (a) — backstop-core in a detached worktree"
+    tasks:
+      - id: TASK-010
+        type: verification
+        title: "Prove the rules go GREEN on core's shipped trinity and RED on a mutation, in a discarded worktree"
+        description: |
+          THE PACK'S CENTRAL PROOF. backstop-core IS the reference
+          implementation, so the rules must accept its hand-written trinity
+          without a single finding — that is what demonstrates they assert
+          invariants rather than backstop-core's literals (CLM-007, CLM-023).
+
+          THE LIVE CHECKOUT IS NEVER MUTATED. This is a PROCEDURE, not a
+          committed script: it hardcodes a machine-specific path into a repo
+          that is about to be published, so it stays in the operator's hands.
+          Steps:
+            1. `git -C /Users/bmanson/src/projects/backstop-core worktree add`
+               a detached worktree at a temp path off the current HEAD;
+            2. in the worktree, `backstop pack add <local pack path>` and
+               confirm the lock records source_type `local`;
+            3. GREEN HALF — run semgrep DIRECTLY, exactly as
+               scripts/falsify.sh does, with the three shipped files as
+               EXPLICIT targets:
+                 semgrep --metrics=off --quiet --json \
+                   --config <pack>/rules/workflow/release-workflow.yml \
+                   <worktree>/.github/workflows/release.yml
+               and likewise for tag-integrity.yml, and for
+               rules/goreleaser/goreleaser-config.yml against
+               <worktree>/.goreleaser.yml, and rules/workspace/gitignore.yml
+               against <worktree>/.gitignore. Require ZERO findings of any
+               severity across all nine rules (CLM-023).
+               DO NOT USE THE GATE FOR THIS HALF, and the reason is specific,
+               not stylistic. A diff-scoped `backstop gate` on an UNMUTATED
+               worktree has an empty scope and would report green having
+               examined nothing — a vacuous pass, which is the exact failure
+               class this repo exists to prevent. And `backstop gate --file`
+               over the workflow files hits ISSUE-093, which is OPEN: `--file`
+               falsely REDs non-Go files whose directory holds no Go package,
+               and a repeated `--file` is silently dropped. Direct semgrep
+               sidesteps both and carries TASK-006's rigor.
+            4. confirm the already-installed go-standards and go-toolchain
+               packs STILL DISPATCH in that worktree — run `backstop gate
+               --all` and check their rules appear in the report. This step is
+               about ENGINE RESOLUTION, not about the go-distribution verdict
+               (step 3 owns that): the pack's binding is named `semgrep-godist`
+               rather than `semgrep` precisely so it does not override the
+               base-engines binding those packs resolve, and if their rules
+               stop running, that binding name is the first suspect (CLM-023);
+            5. MUTATION A — delete the goreleaser job's
+               `needs: [tag-integrity, require-green-ci]` line from the
+               worktree's release.yml and re-run the step-3 semgrep invocation
+               for that file; require >= 1 finding of
+               `release-workflow-goreleaser-job-ungated` at error severity
+               (CLM-024);
+            6. MUTATION B — drop `arm64` from the worktree's .goreleaser.yml
+               goarch list and re-run the step-3 invocation for that file;
+               require >= 1 finding of
+               `goreleaser-config-platform-matrix-incomplete` (CLM-024);
+            7. `git worktree remove --force` and confirm the live checkout's
+               `git status` is unchanged from before the run.
+          Step 7 is not optional cleanup — a leftover worktree with a mutated
+          release.yml is a live-repo hazard.
+
+          Runs in PARALLEL with phase 5; file sets are disjoint. The files
+          listed below are READ-ONLY proof targets in backstop-core: this task
+          writes nothing, in either repo.
+        files:
+          - /Users/bmanson/src/projects/backstop-core/.goreleaser.yml
+          - /Users/bmanson/src/projects/backstop-core/.github/workflows/release.yml
+          - /Users/bmanson/src/projects/backstop-core/.github/workflows/tag-integrity.yml
+        claims:
+          - CLM-007
+          - CLM-023
+          - CLM-024
+        depends_on:
+          - TASK-008
+
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: Consumption proof leg (b) — stash adopts the recipe"
+    tasks:
+      - id: TASK-011
+        type: test
+        title: "Extend verify-recipe-apply.sh to accept an already-applied consumer project, with an expected-warning allowlist"
+        description: |
+          RED PHASE for the stash leg: the assertions exist and fail before
+          anything is applied into stash.
+
+          Do NOT write a stash-specific proof script. A committed script
+          hardcoding /Users/bmanson/src/projects/stash would put a
+          machine-specific path and a reference to a private repo into an OSS
+          pack. Instead, GENERALIZE the harness TASK-007 already built:
+
+            scripts/verify-recipe-apply.sh --project <path>
+                                           [--expect-warning <rule-id>]...
+
+          With `--project`, the harness skips the scratch-project creation and
+          the apply, and runs its acceptance set against an ALREADY-APPLIED
+          consumer at that path: the five files exist; `go test ./...` passes;
+          `actionlint` over both workflows reports ZERO findings;
+          `goreleaser release --snapshot --clean` produces four platform
+          binaries; `.gitignore` contains `dist/`; and the pack's rules report
+          ZERO ERRORS.
+
+          `--expect-warning` is the part that matters and it must be exact-set,
+          not a floor. The harness fails if a warning fires that was not
+          declared, AND if a declared warning does not fire. Counting zero
+          errors is not enough: an unexpected warning is drift, and a
+          disappearing expected warning means a rule stopped firing — which
+          would otherwise read as "things got better".
+
+          Every path the harness touches comes from `--project`; no consumer
+          name, org, or absolute path may be baked into the script. That keeps
+          it publishable and makes it reusable by any consumer adopting the
+          pack, which is the point.
+
+          NO stash release, tag, or tap is asserted or attempted: stash's
+          publication coordinates are an open founder question.
+        files:
+          - /Users/bmanson/src/projects/backstop-go-distribution-pack/scripts/verify-recipe-apply.sh
+        claims:
+          - CLM-025
+        depends_on:
+          - TASK-009
+
+      - id: TASK-012
+        type: implementation
+        title: "Apply the recipe into stash with stash's params and adapt the consumer-edit points"
+        description: |
+          GREEN PHASE for the stash leg. Install the pack into stash from its
+          local path and run `backstop recipe apply
+          backstop-ai/go-distribution:go-release@1.0.0` with stash's values:
+            binary_name=stash
+            main_package=./cmd/stash
+            main_package_dir=cmd/stash
+            module_url=https://github.com/brandonmanson/stash
+            app_description=<stash's one-line description>
+            app_license=MIT
+            ci_workflow_file=ci.yml
+          The pass-through template params take their defaults and must not be
+          supplied.
+
+          THE TAP IS THE OPEN FOUNDER QUESTION, AND THE ANSWER IS TO NOT GUESS.
+          Where stash publishes — its own org/repo, and whether it shares
+          `backstop-ai/homebrew-tap` or gets its own — is still pending. So
+          after applying, REMOVE the `brews:` block from stash's
+          `.goreleaser.yml` and the `HOMEBREW_TAP_TOKEN` export from its
+          release.yml. That is a documented consumer-edit point, and the
+          result is the pack's un-adopted-capability signalling working as
+          designed: `goreleaser-config-brews-token-absent` and
+          `release-workflow-tap-token-not-exported` are WARNINGs, not errors,
+          so stash stays GREEN while being told, loudly, what it has not wired
+          yet (CLM-013). Do NOT invent tap coordinates to silence them.
+
+          Also: add `dist/` to stash's `.gitignore` (CLM-019 — the recipe
+          cannot do this as an op; see TASK-008), and record the pack in
+          stash's `backstop.yml` and `backstop.lock`.
+
+          stash has no `ci.yml` today, so the release workflow's
+          require-green-ci job will have nothing to query. That is stash's
+          gap, not this pack's — leave the job in place (removing it would
+          defeat the very invariant the pack blocks on) and note it for the
+          founder alongside the tap question. It does not affect the local
+          snapshot build, which is what this leg proves.
+        files:
+          - /Users/bmanson/src/projects/stash/.goreleaser.yml
+          - /Users/bmanson/src/projects/stash/.github/workflows/release.yml
+          - /Users/bmanson/src/projects/stash/.github/workflows/tag-integrity.yml
+          - /Users/bmanson/src/projects/stash/cmd/stash/version.go
+          - /Users/bmanson/src/projects/stash/cmd/stash/version_test.go
+          - /Users/bmanson/src/projects/stash/.gitignore
+          - /Users/bmanson/src/projects/stash/backstop.yml
+          - /Users/bmanson/src/projects/stash/backstop.lock
+        claims:
+          - CLM-013
+          - CLM-025
+        depends_on:
+          - TASK-011
+          - TASK-009
+
+      - id: TASK-013
+        type: verification
+        title: "Run the acceptance harness against stash and confirm the exact expected warning set"
+        description: |
+          Run, from the pack repo root:
+            bash scripts/verify-recipe-apply.sh \
+              --project /Users/bmanson/src/projects/stash \
+              --expect-warning goreleaser-config-brews-token-absent \
+              --expect-warning release-workflow-tap-token-not-exported
+          and require exit 0. Every assertion from TASK-011 must pass, and the
+          observed WARNING set must MATCH those two exactly — zero errors, and
+          no third warning.
+
+          stash is at /Users/bmanson/src/projects/stash: module
+          `github.com/brandonmanson/stash`, binary `stash` at `./cmd/stash`,
+          already a backstop consumer carrying go-standards 1.2.0 and
+          cobra-cli-standards 0.2.1. The `--project` path is supplied on the
+          command line, never baked into the committed script (TASK-011).
+
+          Then run `backstop gate` in stash and confirm its verdict is not
+          made worse by the adoption. If the gate goes red for a reason
+          unrelated to the release pipeline, that is a pre-existing stash
+          condition: report it, do not paper over it, and do not fix it here.
+        files:
+          - /Users/bmanson/src/projects/stash/.goreleaser.yml
+          - /Users/bmanson/src/projects/stash/.github/workflows/release.yml
+          - /Users/bmanson/src/projects/stash/.github/workflows/tag-integrity.yml
+        claims:
+          - CLM-021
+          - CLM-025
+        depends_on:
+          - TASK-012
+
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-6
+    name: "Phase 6: Publish at v0.1.0, file the residuals, verify consumability"
+    tasks:
+      - id: TASK-014
+        type: setup
+        title: "Commit the pack repo and tag it v0.1.0, locally"
+        description: |
+          Make the pack releasable. pack.yml already declares version `0.1.0`
+          from TASK-001, so no bump is needed — and the tag MUST equal it,
+          which is exactly what the repo's own tag-integrity workflow asserts
+          on a tag push (CLM-026).
+
+          Steps, all LOCAL:
+            • commit the pack repo in full;
+            • `git tag v0.1.0`.
+          DO NOT PUSH, and do not create the remote repository. Both belong to
+          TASK-015, which exists specifically so that gate is a visible node in
+          the DAG rather than an assumption — creating a public repo under the
+          org is a founder call.
+
+          Sanity-check before tagging: `backstop pack check` and
+          `backstop pack test` still pass from a clean checkout of what is
+          about to be committed, and no fixture, script, or payload file was
+          left untracked.
+        files:
+          - /Users/bmanson/src/projects/backstop-go-distribution-pack/pack.yml
+          - /Users/bmanson/src/projects/backstop-go-distribution-pack/.github/workflows/tag-integrity.yml
+        claims:
+          - CLM-026
+        depends_on:
+          - TASK-010
+          - TASK-013
+
+      - id: TASK-015
+        type: setup
+        title: "Orchestrator gate: publish v0.1.0 to backstop-ai/go-distribution (founder-gated push)"
+        description: |
+          THE HUMAN/ORCHESTRATOR GATE, made explicit in the DAG rather than
+          left as an assumption. TASK-014 deliberately refuses to push, so
+          without this node TASK-017 would depend on a remote no task in the
+          plan brings into existence — and an implementer reading the DAG
+          would either stall or push on its own authority.
+
+          Nothing in this task is the implementer's to do. The orchestrator:
+            • confirms with the founder that `backstop-ai/go-distribution`
+              should exist and at what visibility — this is a new public-facing
+              repo under the org, which is a founder call, not a mechanical
+              one;
+            • pushes `main` and the `v0.1.0` tag;
+            • confirms the repo's own tag-integrity workflow ran green on the
+              tag — it asserts the pushed tag equals pack.yml's version, and a
+              red run there means the tag must be deleted and recut, not
+              worked around.
+
+          The implementer's move on reaching this node is to STOP and report
+          that the pack is committed, tagged, and awaiting publication. Do not
+          push. Do not create the remote. Do not proceed to TASK-017 on the
+          assumption the push happened — TASK-017's first act is a remote
+          `pack add`, which fails loudly against a repo that is not there, and
+          that failure is a wasted cycle rather than a signal.
+        files:
+          - /Users/bmanson/src/projects/backstop-go-distribution-pack/pack.yml
+        claims:
+          - CLM-026
+        depends_on:
+          - TASK-014
+
+      - id: TASK-016
+        type: documentation
+        title: "File the three follow-on issues this plan deliberately deferred"
+        description: |
+          All three are real residuals with named causes, not hand-waving.
+          File each in backstop-core via
+          `./bin/backstop artifact new issue --slug <slug>` — the IDs are
+          assigned by the scaffold command, which is why no issue filename
+          appears in this task's file scope.
+
+          (1) slug `goreleaser-derived-env-cross-file-falsifier`. The general
+          derived-env invariant — every `{{ .Env.X }}` referenced in
+          `.goreleaser.yml` has a matching env export in `release.yml` — is a
+          CROSS-FILE correlation that semgrep cannot express, being
+          single-file. The escalation ladder's next rung is a custom script
+          engine, which was judged out of proportion for one rule in a pack
+          this size. What SHIPPED instead: the single-file
+          `release-workflow-tap-token-not-exported` WARNING covering the one
+          instance that actually burned ISSUE-087, plus a manual-verification
+          note in the recipe's release.yml payload. Cite ISSUE-101
+          requirement 5, ISSUE-087's half-published-release failure mode, and
+          this plan.
+
+          (2) slug `recipe-payload-foreign-template-escape`. The recipe
+          substituter (pkg/recipe/substitute.go:31-62) reads EVERY `{{ ... }}`
+          span as a param name and hard-errors on an undeclared one, with no
+          escape syntax. Any recipe whose payload legitimately emits foreign
+          templates — GitHub Actions `${{ ... }}`, goreleaser `{{ .X }}`, Helm,
+          Jinja — must declare a self-emitting pass-through param per template,
+          exploiting the fact that substituted values are never rescanned.
+          go-distribution needs eight of them. It works and it is honest, but
+          it is a workaround: propose a first-class escape and note the hazard
+          that `--param .Version=...` can rewrite an emitted template. Cite
+          SPEC-054 and this plan.
+
+          (3) slug `backstop-core-adopts-go-distribution-pack`. ISSUE-101's
+          Verification section names backstop-core ADOPTING the pack, but this
+          plan proves the rules in a DISCARDED WORKTREE and never installs the
+          pack durably — a deliberate omission, taken because mutating the live
+          repo was out of scope and because adding a pack to core's committed
+          backstop.yml / backstop.lock can move core's gate verdict for reasons
+          that have nothing to do with the trinity. That residual has to be
+          owned by an artifact rather than by this plan's prose. The issue
+          should carry what TASK-010 measured — rules green on the shipped
+          trinity, existing packs still dispatching — so the adoption starts
+          from evidence rather than re-deriving it, and should note that the
+          full hand-baked-CI retirement remains blocked on ISSUE-020's Linux
+          sandbox work, not on this pack. Cite ISSUE-101, ISSUE-020, and this
+          plan.
+
+          Also record for the founder, in the stash-facing issue or as a note
+          on ISSUE-101, the two open stash questions this plan deliberately
+          did not answer: where stash publishes (org/repo and whether it shares
+          `backstop-ai/homebrew-tap`), and that stash has no `ci.yml` for the
+          require-green-ci job to query.
+        files:
+          - /Users/bmanson/src/projects/backstop-core/issues/
+        claims:
+          - CLM-015
+        depends_on:
+          - TASK-006
+          - TASK-009
+
+      - id: TASK-017
+        type: verification
+        title: "Verify remote consumability at v0.1.0, then run the full gate and artifact validation"
+        description: |
+          POST-PUBLICATION PROOF (CLM-027). RUNS ONLY AFTER TASK-015's
+          orchestrator gate has actually pushed — every step below reaches the
+          remote, so starting before the push produces a clone failure, not a
+          verdict.
+
+          In a fresh detached worktree of backstop-core and in stash:
+            • `backstop pack remove backstop-ai/go-distribution` FIRST. This
+              is not hygiene: per ISSUE-095, `pack add <org>/<pack>@<version>`
+              silently no-ops when a pack of that name is already installed —
+              `isPackInstalledAndCurrent` checks only that a non-empty
+              directory and a lock entry exist under that name, never
+              comparing against the source just resolved. Skipping the remove
+              would leave the local install in place while reporting success,
+              and the whole remote proof would be vacuous.
+            • `backstop pack add backstop-ai/go-distribution@0.1.0`;
+            • assert the lock entry records `source_type: git`,
+              `git_ref: v0.1.0`, and a `content_hash` EQUAL to the one the
+              local install recorded — hash equality across install paths is
+              what proves the published tree is the tree that was proven;
+            • re-run the rule checks and require the same verdicts as
+              TASK-010 and TASK-013: green on core's trinity, green-with-the-
+              expected-warnings on stash.
+          Discard the core worktree afterward and leave stash's lock pointing
+          at the git source.
+
+          THEN, in /Users/bmanson/src/projects/backstop-core:
+            • `./bin/backstop gate` — the code side, confirming the live repo
+              is unchanged and still green after a plan that only ever read it;
+            • `./bin/backstop artifact validate --plan PLAN-ISSUE-101` and
+              `./bin/backstop artifact validate --all` — the artifact side,
+              covering this plan and the three issues TASK-016 filed.
+          Both must pass. Report the actual command output; do not assert
+          green without reading it.
+        files:
+          - /Users/bmanson/src/projects/backstop-core/plans/PLAN-ISSUE-101-go-distribution-pack.plan.yml
+          - /Users/bmanson/src/projects/backstop-go-distribution-pack/pack.yml
+          - /Users/bmanson/src/projects/stash/backstop.lock
+        claims:
+          - CLM-023
+          - CLM-025
+          - CLM-027
+        depends_on:
+          - TASK-015
+          - TASK-012
