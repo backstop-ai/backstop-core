@@ -1,0 +1,595 @@
+---
+plan_id: PLAN-ISSUE-104
+spec_id: ISSUE-104
+created: "2026-07-28"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./pkg/check/... ./cmd/backstop/... -race -count=1"
+coverage_threshold: 90
+
+notes: |
+  Implements ISSUE-104. SMALL, SURGICAL LANE: six tasks, two production files
+  (pkg/check/parsers.go, and one doc-comment line in pkg/gate/policy.go), their
+  tests, and a new captured-fixture directory. Nothing else is in scope.
+
+  ── THE DEFECT IN ONE PARAGRAPH ────────────────────────────────────────────
+  `parseSarif` resolves severity from exactly one place — `results[].level`
+  (`sarifSeverity(r.Level)`) — and the `sarifLog` struct never models
+  `runs[].tool.driver.rules` at all. Real semgrep does not put `level` on the
+  result; it states the rule's severity on the RULE DESCRIPTOR,
+  `tool.driver.rules[].defaultConfiguration.level`, joined to the result by
+  `ruleId`. So `r.Level` is always `""` for real semgrep output, and
+  `sarifSeverity("")` returns `"error"` by its (correct) fail-closed rule. Every
+  semgrep-based pack finding therefore blocks, whatever the pack author declared.
+  The fail-closed default is NOT the bug and does NOT change here — only the set
+  of places a level is looked for changes.
+
+  ── EMISSION SHAPE, RE-MEASURED WHILE PLANNING (2026-07-28) ────────────────
+  Independently reproduced against the semgrep on PATH (1.156.0), BOTH ways, so
+  the struct extension below is written against observed JSON and not memory:
+
+    rule `severity: WARNING`
+      result keys : [fingerprints, locations, message, properties, ruleId]
+      descriptor  : {"level": "warning"}
+    rule `severity: ERROR`
+      result keys : [fingerprints, locations, message, properties, ruleId]
+      descriptor  : {"level": "error"}
+
+  `level` is ABSENT from the result object in both directions — this is not a
+  value difference, it is a missing key. The descriptor lives at
+  `runs[0].tool.driver.rules[0]`, whose `id` equals the result's `ruleId`, and
+  the driver `name` is "Semgrep OSS" (NOT "semgrep") — do not key anything on
+  the driver name.
+
+  ── THE FIX SHAPE (3 lines of behavior, one new struct branch) ─────────────
+    1. Extend `sarifLog`'s run element with:
+         Tool struct { Driver struct { Rules []struct {
+             ID string `json:"id"`
+             DefaultConfiguration struct { Level string `json:"level"` }
+                 `json:"defaultConfiguration"`
+         } `json:"rules"` } `json:"driver"` } `json:"tool"`
+       Additive: every existing field keeps its shape, and a log with no driver
+       rules unmarshals to an empty slice, never an error.
+    2. Build a `ruleID -> defaultConfiguration.level` map ONCE PER RUN, inside
+       the `for _, run := range log.Runs` loop and before the results loop. Per
+       RUN, not per log: two runs may legitimately carry different rule sets, and
+       a log-wide map would let run A's severity leak onto run B's finding.
+    3. Resolve: `r.Level` if non-empty, ELSE the map lookup for `r.RuleID`, ELSE
+       `""`; hand the resolved string to `sarifSeverity` UNCHANGED. Do not touch
+       `sarifSeverity` itself.
+
+  ── FIXTURE HONESTY: TWO TIERS, LABELLED, NEITHER PRETENDING TO BE THE OTHER ─
+  The existing contract test builds its SARIF by hand with `"level":"warning"` on
+  the RESULT — a shape real semgrep never emits — which is why a test that locks
+  the contract end to end could not see this defect. That is the second violation
+  of the fixtures-from-real-output law in this neighbourhood, and re-fixing it is
+  half this lane, not a nicety.
+
+  But "capture everything" is not achievable honestly, and pretending otherwise
+  would be the same sin wearing better clothes: real semgrep ALWAYS emits a
+  descriptor level, so the both-absent case CANNOT be captured from it. Hence two
+  explicitly labelled tiers:
+
+    TIER A — CAPTURED TOOL OUTPUT (the pack-author contract).
+      Real `semgrep --sarif` bytes, unmodified, one NEW capture per direction
+      (descriptor warning, descriptor error). These drive
+      cmd/backstop/pack_severity_contract_test.go's warning and error cases, so
+      the ratified contract is locked on the wire shape a pack author actually
+      produces. THE BYTES ARE NEVER EDITED — not to tidy them, not to add a
+      provenance key, not to shorten a fingerprint. A fixture a human touched is
+      a fabrication with a good story.
+
+      THE RESULT-LEVEL DIRECTION NEEDS NO NEW CAPTURE — IT IS ALREADY COMMITTED.
+      `cmd/backstop/testdata/go-toolchain/fixtures/golangci-v2.sarif` is a real
+      golangci-lint capture (SPEC-034; the helper doc comment says so) carrying
+      TWO results with result-level `level` — errcheck at "error", ineffassign at
+      "warning" — and a driver with ONLY `name`, no `rules` array. That is exactly
+      the non-regression shape CLM-001 needs: a producer that states severity on
+      the result and has no descriptor to fall back to. pkg/check ALREADY reads
+      that directory via `readGoToolchainFixture`
+      (pkg/check/parse_pack_findings_test.go:15-19) — the very helper TASK-002
+      imitates — so this costs one function call and zero new fixtures. Use it.
+      Do not capture a second golangci-lint SARIF to prove what a committed one
+      already proves.
+
+    TIER B — ONE SPEC-DERIVED SHAPE FIXTURE, AND ONLY ONE.
+      The single shape no producer can emit is the CONFLICT: a result carrying
+      its own `level` WHILE its rule descriptor declares a DIFFERENT one. Real
+      output never contradicts itself — semgrep omits the result level entirely,
+      golangci emits no descriptor — so precedence can only be pinned on a
+      constructed input. That fixture stays hand-built and its doc comment MUST
+      say so, naming SARIF §3.27.10 as the construct it stands in for and stating
+      why no capture exists. Honest labelling is the whole difference between a
+      shape test and a fabricated capture.
+
+      The both-absent floor needs NOTHING NEW either: `sarifSampleJSON`
+      (pkg/check/fixtures_toolchain_test.go) already carries EXAMPLE003 — no
+      `level`, in a log with no driver rules — and the existing format test
+      already asserts it defaults to error. Extend that coverage rather than
+      fabricating a fourth JSON blob to say the same thing.
+
+  ── THE 1.96.0 QUESTION: RESOLVED WHILE PLANNING, NOT LEFT OPEN ────────────
+  ISSUE-104 left one item unverified — whether the semgrep backstop actually
+  PROVISIONS (1.96.0, `pkg/pack/engine/allowlist.go`) emits the same shape as the
+  1.156.0 on PATH. It was measured on 2026-07-28 and IT DOES:
+
+    semgrep 1.96.0, rule `severity: WARNING`
+      semanticVersion : 1.96.0   name: "Semgrep OSS"
+      result keys     : [fingerprints, locations, message, properties, ruleId]
+      descriptor      : {"level": "warning"}
+
+  Identical to 1.156.0: no result-level `level`, severity on the descriptor. The
+  defect is therefore not a version artifact, and the fix is correct against the
+  version that actually runs in the gate.
+
+  PROVEN CAPTURE RECIPE for 1.96.0 (uvx FAILS — three variants all died on
+  `ModuleNotFoundError: pkg_resources`; the Docker route needs a daemon that was
+  not running here. This venv route worked):
+    uv venv -p 3.11 .venv196
+    uv pip install --python .venv196/bin/python semgrep==1.96.0 setuptools
+    PATH="$PWD/.venv196/bin:/usr/bin:/bin" .venv196/bin/semgrep \
+      --config <rule> --sarif <target>
+
+  ⚠ THE PATH SCRUB IS LOAD-BEARING, NOT TIDINESS. Invoked with the ambient PATH,
+  the 1.96.0 CLI delegates to whatever newer `semgrep-core` it finds and emits
+  `semanticVersion: 1.156.0` — a capture that LOOKS pinned, is labelled 1.96.0 in
+  its filename, and was produced by a different engine. That is exactly the class
+  of fixture dishonesty this lane exists to correct, one level deeper. ALWAYS
+  assert the captured `semanticVersion` equals the version you claim.
+
+  ── SHARP EDGES ────────────────────────────────────────────────────────────
+  1. WHOLE-FILE ACTIVATION. Touching a file pulls ALL of its findings into scope
+     (no grandfathering on changed files). PRE-VERIFIED WHILE PLANNING, so the
+     implementer inherits evidence rather than a warning:
+       ./bin/backstop gate --file pkg/check/parsers.go  -> PASS, exit 0
+         (pack_engines ran for real: `pass (14329ms)`)
+       ./bin/backstop gate --file pkg/gate/policy.go    -> PASS, exit 0
+         (pack_engines `pass (38084ms)`; zero violations naming policy.go)
+     In both runs the 173 reported violations are ALL requirement_traceability
+     ADVISORIES against unrelated bundles — neither file contributes one. So
+     activating either file costs nothing TODAY. If either has acquired a finding
+     by the time this lane runs, FIX IT here — do not waive it, and do not drop
+     the doc-comment line to dodge the activation.
+  2. `gate --file` TAKES ONE FILE. ISSUE-093 (open): repeated `--file` is
+     silently dropped and non-Go directories crash. Run one invocation per file,
+     or use the full `./bin/backstop gate`. Never pass two `--file` flags and
+     believe the result.
+  3. `backstop code check` DOES NOT EXIST. Re-confirmed 2026-07-28:
+     `unknown command "code" for "backstop"`. The shipped top-level commands are
+     artifact, baseline, commands, completion, gate, help, pack, recipe, version,
+     waiver. Verification tasks below prescribe `go test` for the inner loop and
+     `./bin/backstop gate` for the outer one, because those are the commands that
+     exist. Report TRUE exit codes (`echo $?`); never mask non-zero behind a pipe.
+  4. REBUILD BEFORE THE FINAL GATE. `go build -o bin/backstop ./cmd/backstop/`.
+     A stale binary gates the OLD parser and reports a vacuous green — which,
+     for a lane whose entire subject is severity resolution INSIDE that binary,
+     would be a green that proves the opposite of what it claims.
+  5. OUT OF SCOPE, OBSERVED WHILE MEASURING, DO NOT FIX HERE: real semgrep emits
+     `fingerprints`, while `sarifLog` models `partialFingerprints` — so semgrep
+     findings fall back to snippet identity in the baseline. That is a separate
+     defect on a separate axis (identity, not severity). Note it, file it
+     separately if it matters; widening this lane to catch it would put a
+     baseline-identity change inside a severity fix, and the two would then have
+     to be reviewed as one thing.
+  6. THE CROSS-LANE ACCEPTANCE SIGNAL IS NOT RUN HERE (see below).
+
+  ── ACCEPTANCE BEYOND UNIT TESTS (cross-lane, executed by PLAN-ISSUE-101) ──
+  Unit tests prove the parser resolves severity. They do NOT prove the MEASURED
+  CONSUMER FLIP reverses, and that flip is what made this a defect rather than a
+  modelling gap: implementer-101 measured stash's gate going green -> RED purely
+  from adopting the go-distribution pack, because that pack's `level: warning`
+  advisory rule (`release-workflow-tap-token-not-exported`) arrived as
+  `severity: error`.
+
+  THE ACCEPTANCE SIGNAL: PLAN-ISSUE-101 TASK-013 re-run against stash —
+    bash scripts/verify-recipe-apply.sh --project /Users/bmanson/src/projects/stash \
+      --expect-warning release-workflow-tap-token-not-exported
+  requiring exit 0, and stash's `backstop gate` green with EXACTLY ONE
+  non-blocking warning (that one), zero errors, no second warning.
+
+  IT IS EXECUTED BY THAT LANE, NOT THIS ONE. That lane owns the pack repo, the
+  harness script, and the stash working tree; this lane owns core. TASK-006 hands
+  the signal off explicitly and states the unblock; PLAN-ISSUE-101's TASK-013 /
+  TASK-014 / TASK-015 (and its CLM-013/015/019/025, plus the held v0.1.0 tag)
+  come unblocked when this lane lands. This plan is NOT closed by that re-run
+  succeeding — it is closed by its own gate — but a green here with a still-red
+  stash means the diagnosis was wrong, and TASK-006 says so out loud.
+
+  ── CLAIM LEDGER (ISSUE-104 carries no CLM ids; this lane defines them) ────
+    CLM-001  when a SARIF result carries its own `level`, that value wins — the
+             descriptor is not consulted, so any producer that does state
+             severity on the result behaves exactly as it does today.
+    CLM-002  when `results[].level` is ABSENT, severity is resolved from the
+             producing rule's `tool.driver.rules[].defaultConfiguration.level`,
+             joined on `ruleId`, scoped PER RUN.
+    CLM-003  when neither source supplies a level, the fail-closed default is
+             unchanged: severity is "error". `sarifSeverity` is not modified.
+    CLM-004  the pack-author severity contract is locked on CAPTURED real semgrep
+             SARIF in both directions (descriptor warning -> non-blocking through
+             all three hops; descriptor error -> blocks), so the contract test can
+             no longer pass on a shape semgrep never emits.
+    CLM-005  the captured fixtures are durable and reproducible: unmodified tool
+             bytes, committed capture inputs, a capture script, and a
+             PROVENANCE.md recording tool version, exact command, date, and the
+             honest outcome of the 1.96.0 and result-level capture attempts.
+    CLM-006  the ratified severity-contract doc comment on `blocksVerdict` names
+             WHERE severity is resolved, so the next reader of the contract can
+             find the parse hop instead of rediscovering it from a red gate.
+    CLM-007  the measured consumer flip reverses: the PLAN-ISSUE-101 acceptance
+             re-run is handed off with its exact command and expected result, and
+             that lane's blocked tasks are named as unblocked.
+
+  ── VERIFICATION COMMANDS ──────────────────────────────────────────────────
+    inner:  go build ./... && go test ./pkg/check/... ./cmd/backstop/... -race -count=1
+    full:   go test ./... -race -count=1
+    final:  go build -o bin/backstop ./cmd/backstop/
+            ./bin/backstop gate
+            ./bin/backstop artifact validate --plan PLAN-ISSUE-104
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Capture the real semgrep emission shape, with provenance"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Capture real semgrep SARIF fixtures (both severity directions) with reproducible provenance"
+        description: |
+          Create cmd/backstop/testdata/semgrep/fixtures/ holding UNMODIFIED real
+          semgrep output plus everything needed to reproduce it. This location
+          follows the existing cross-package precedent: pkg/check already reads
+          cmd/backstop/testdata fixtures via a `../../cmd/backstop/testdata/...`
+          helper (`readGoToolchainFixture`, pkg/check/parse_pack_findings_test.go),
+          so ONE captured corpus serves both the parser unit tests and the
+          cmd/backstop contract test. Do not duplicate the bytes into two trees.
+
+          COMMIT THE CAPTURE INPUTS, not just the outputs:
+            capture/rule-warning.yml  — one semgrep rule, `severity: WARNING`
+            capture/rule-error.yml    — the same rule at `severity: ERROR`
+            capture/sample.go         — the trivial file the rule matches
+            capture.sh                — the exact commands, re-runnable
+          Then capture, from the semgrep on PATH, byte-for-byte into:
+            descriptor-warning.sarif
+            descriptor-error.sarif
+
+          RUN THE CAPTURE FROM THE FIXTURES DIRECTORY WITH A RELATIVE --config:
+            cd cmd/backstop/testdata/semgrep/fixtures
+            semgrep --config capture/rule-warning.yml --sarif capture/sample.go
+          An ABSOLUTE `--config` path bakes the capturing machine's home directory
+          into the emitted `ruleId` (reviewer-measured), which makes the fixture
+          unportable and its provenance a lie the moment anyone else re-runs
+          capture.sh. capture.sh must therefore `cd` to its own directory first
+          and use relative paths for BOTH the config and the target.
+
+          THE RULE MUST MATCH EXACTLY ONCE. `packFindingsAtLevel` hard-fatals
+          unless the dispatch yields exactly one violation, so a capture with two
+          matches reds the contract test for a reason that has nothing to do with
+          severity. Keep capture/sample.go minimal enough that the rule fires on
+          precisely one line, and VERIFY `len(runs[0].results) == 1` in each
+          committed fixture before moving on.
+
+          DO NOT EDIT THE CAPTURED BYTES. Not to pretty-print, not to trim the
+          `fingerprints` block, not to add a provenance key. Provenance lives
+          BESIDE the fixture, never inside it — that is what keeps "captured"
+          a true statement about the file.
+
+          PROVENANCE.md (sibling) records, per fixture: tool + version (from the
+          fixture's own `runs[].tool.driver.semanticVersion`, not just what the
+          shell reported), the exact command, the capture date, and the sha256 of
+          the committed bytes. It ALSO covers:
+            (a) THE PINNED VERSION, 1.96.0 — the one backstop provisions
+                (pkg/pack/engine/allowlist.go), which is NOT the 1.156.0 on PATH.
+                Capture it too, as descriptor-warning-1.96.0.sarif, with the
+                PROVEN RECIPE in the notes above (uv venv + PATH scrub; uvx does
+                not work, and the Docker route needs a running daemon). Planning
+                already measured 1.96.0 as shape-identical to 1.156.0, so this
+                capture CONFIRMS a known answer rather than discovering one — if
+                it comes back different, stop and report, because the premise of
+                the fallback would then be version-dependent.
+                ASSERT `semanticVersion == "1.96.0"` INSIDE the captured file
+                before committing it: without the PATH scrub the 1.96.0 CLI
+                silently delegates to a newer core and emits 1.156.0 under a
+                1.96.0 filename. If the capture cannot be obtained at all, record
+                the commands and errors verbatim and move on. THE 1.96.0 FIXTURE
+                IS CONDITIONAL: if it cannot be obtained, it is ABSENT BY DESIGN
+                and PROVENANCE.md carries the failed commands and their errors
+                verbatim in its place. That is a complete outcome, not a gap — the
+                fix reads result-level first and is correct under both shapes, and
+                planning already measured 1.96.0 as shape-identical. No task
+                depends on this file existing.
+
+          THERE IS NO SEPARATE RESULT-LEVEL CAPTURE TO MAKE. The real golangci-lint
+          SARIF that CLM-001 needs is already committed at
+          cmd/backstop/testdata/go-toolchain/fixtures/golangci-v2.sarif (see the
+          notes' TIER A section). Do not capture a second one.
+
+          ACCEPTANCE — VERIFY EACH COMMITTED FIXTURE BEFORE MOVING ON:
+            • exactly one result: `len(runs[0].results) == 1`
+            • NO `level` key on `runs[0].results[0]`
+            • `runs[0].tool.driver.rules[0].defaultConfiguration.level` equals the
+              rule's declared severity ("warning" / "error")
+            • the `ruleId` is the bare rule name — no absolute path fragment
+            • for the 1.96.0 capture, `semanticVersion == "1.96.0"`
+          A capture that already carries a result-level `level` means the rule or
+          the command drifted — investigate, do not proceed. That property is the
+          entire premise of the lane.
+        files:
+          - cmd/backstop/testdata/semgrep/fixtures/descriptor-warning.sarif
+          - cmd/backstop/testdata/semgrep/fixtures/descriptor-error.sarif
+          - cmd/backstop/testdata/semgrep/fixtures/descriptor-warning-1.96.0.sarif # CONDITIONAL — absent by design if 1.96.0 is unobtainable; PROVENANCE.md then carries the failed commands verbatim
+          - cmd/backstop/testdata/semgrep/fixtures/capture/rule-warning.yml
+          - cmd/backstop/testdata/semgrep/fixtures/capture/rule-error.yml
+          - cmd/backstop/testdata/semgrep/fixtures/capture/sample.go
+          - cmd/backstop/testdata/semgrep/fixtures/capture.sh
+          - cmd/backstop/testdata/semgrep/fixtures/PROVENANCE.md
+        claims:
+          - CLM-004
+          - CLM-005
+        depends_on: []
+
+  - id: phase-2
+    name: "Phase 2: Descriptor fallback, red-first against the real emission shape"
+    tasks:
+      - id: TASK-002
+        type: test
+        title: "Parser tests: descriptor fallback, result-level precedence, fail-closed floor (RED)"
+        description: |
+          Write the parser-level tests in pkg/check/parsers_test.go. They MUST FAIL
+          before TASK-004 — run them and RECORD THE ACTUAL FAILURE OUTPUT before
+          touching parsers.go. The expected red for the falsifier is precisely:
+          severity "error" where "warning" was expected, for a finding whose rule
+          descriptor declares warning.
+
+          TestParseSarif_DescriptorLevelSuppliesSeverityWhenResultLevelAbsent
+            (CLM-002, THE FALSIFIER) — parse the CAPTURED descriptor-warning.sarif
+            from TASK-001, read through the same `../../cmd/backstop/testdata/...`
+            relative-path helper style parse_pack_findings_test.go already uses.
+            Assert the single violation's Severity == "warning". Also parse
+            descriptor-error.sarif and assert "error" — so the fix cannot be
+            satisfied by a parser that simply stopped blocking.
+
+          TestParseSarif_ResultLevelWinsOverDescriptorLevel
+            (CLM-001) — two halves, and the first needs NO new fixture:
+              • NON-REGRESSION, TIER A, ALREADY COMMITTED: parse
+                `golangci-v2.sarif` through `readGoToolchainFixture` — a real
+                golangci-lint capture whose two results carry result-level
+                "error" and "warning" under a driver with no `rules` array — and
+                assert both severities are unchanged by this lane. That is the
+                producer class the fallback must not disturb, proven on real
+                bytes that are already in the tree.
+              • PRECEDENCE, TIER B, the one new hand-built fixture: a result
+                carrying `level` WHILE its ruleId's descriptor declares the
+                opposite. The result value must win. Doc-comment it as
+                spec-derived, name SARIF §3.27.10, and state that no producer
+                emits a self-contradicting log — which is exactly why this shape
+                cannot be captured.
+
+          TestParseSarif_NoLevelAnywhereDefaultsToError
+            (CLM-003) — neither result level nor descriptor level: severity is
+            "error". REUSE THE EXISTING `sarifSampleJSON` (fixtures_toolchain_
+            test.go), whose EXAMPLE003 result already has no `level` in a log with
+            no driver rules. Do not fabricate a new blob to restate a shape the
+            file already holds. This test is the fail-closed floor: it must remain
+            true, unchanged, forever.
+
+          TestParseSarif_DescriptorJoinIsPerRunAndByRuleID
+            (CLM-002) — a two-run log where run A's rule id matches a DIFFERENT
+            severity in run B: each result resolves against ITS OWN run's driver,
+            and a result whose ruleId is in no descriptor falls through to the
+            fail-closed default. Guards the per-run scoping the fix must have.
+
+          Existing tests in this file (Properties, the sarifSampleJSON format
+          test) must keep passing untouched — the change is additive.
+        files:
+          - pkg/check/parsers_test.go
+          - pkg/check/fixtures_toolchain_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on:
+          - TASK-001
+        test_names:
+          - TestParseSarif_DescriptorLevelSuppliesSeverityWhenResultLevelAbsent
+          - TestParseSarif_ResultLevelWinsOverDescriptorLevel
+          - TestParseSarif_NoLevelAnywhereDefaultsToError
+          - TestParseSarif_DescriptorJoinIsPerRunAndByRuleID
+
+      - id: TASK-003
+        type: test
+        title: "Re-fix the pack severity contract test onto captured real SARIF (RED)"
+        description: |
+          Rewrite cmd/backstop/pack_severity_contract_test.go's INPUT while keeping
+          its three test names and its end-to-end reach. Runs in parallel with
+          TASK-002 — disjoint files, same TASK-001 dependency.
+
+          Replace `packSarifAtLevel`'s hand-built JSON with a reader over the
+          TASK-001 captures for the two capturable directions:
+            TestPackFinding_WarningLevelSurvivesAsNonBlocking -> descriptor-warning.sarif
+            TestPackFinding_ErrorLevelBlocks                  -> descriptor-error.sarif
+          Both still drive the REAL runFindingsEngine and the REAL ApplyPolicy —
+          the three-hop reach (SARIF -> check.Violation.Severity -> the bridge's
+          gate.Violation.Severity -> the verdict) is why this test exists and it
+          does not shrink. Keep the per-hop assertion discipline: assert Severity
+          AT THE BRIDGE and then the verdict separately, because a dropped field
+          and a wrong policy read produce the same symptom and a reader must be
+          able to tell which hop broke.
+
+          TestPackFinding_AbsentLevelDefaultsToErrorAndBlocks keeps a hand-built
+          input — real semgrep cannot produce it — and its doc comment must now
+          SAY that plainly: this is a synthetic SARIF shape standing in for a
+          producer that omits `level` in both places, retained because the
+          fail-closed floor is the half most likely to rot.
+
+          UPDATE THE FILE'S HEADER COMMENT. It currently explains the three hops
+          without mentioning that severity may arrive on the rule descriptor.
+          State the resolution order (result level, else descriptor, else
+          fail-closed error) and record WHY the input changed: the previous
+          hand-built SARIF wrote `level` onto the RESULT, a shape semgrep never
+          emits, so the test locked the contract against an input the parser would
+          never receive and could not see ISSUE-104.
+
+          RED FIRST: with the captured input and the CURRENT parser, the warning
+          test MUST FAIL (severity "error" at the bridge). Run it and record that
+          failure before TASK-004. The error test passes either way — that is
+          expected and is not evidence of anything.
+        files:
+          - cmd/backstop/pack_severity_contract_test.go
+        claims:
+          - CLM-004
+        depends_on:
+          - TASK-001
+        test_names:
+          - TestPackFinding_WarningLevelSurvivesAsNonBlocking
+          - TestPackFinding_ErrorLevelBlocks
+          - TestPackFinding_AbsentLevelDefaultsToErrorAndBlocks
+
+      - id: TASK-004
+        type: implementation
+        title: "Resolve severity from the rule descriptor when the result omits level"
+        description: |
+          Make TASK-002 and TASK-003 green, exactly as specified in the notes'
+          FIX SHAPE section:
+            1. extend the `sarifLog` run element with tool.driver.rules[] carrying
+               `id` and `defaultConfiguration.level` (additive — no existing field
+               changes shape, and a log without a driver still unmarshals clean);
+            2. build the ruleID -> level map ONCE PER RUN, inside the runs loop,
+               before iterating results;
+            3. resolve `r.Level` -> map[r.RuleID] -> "" and pass the result to
+               `sarifSeverity` UNCHANGED.
+          `sarifSeverity` itself is NOT modified: everything that is not "warning"
+          still maps to error, so silence still reads as the strict answer.
+
+          Update `parseSarif`'s doc comment, which today says "Severity from level
+          (error/warning, default error when level absent)" — a sentence that is
+          now incomplete in the precise way that caused this defect. State the
+          resolution order and note that the descriptor join is per-run.
+
+          ALSO (CLM-006, one comment line, no behavior): in pkg/gate/policy.go, the
+          ratified severity-contract block above `blocksVerdict` cites
+          `pkg/check/parsers.go sarifSeverity` for the fail-closed rule but says
+          nothing about WHERE the level comes from. Add a line naming the
+          resolution order — result level, else the rule descriptor's
+          defaultConfiguration.level joined on ruleId, else the fail-closed error
+          — so the pack-facing contract documents the full path a declared
+          severity travels. Cite by SYMBOL, not line number (that comment block
+          already lost a citation to line drift once).
+
+          FILE SCOPE IS TWO PRODUCTION FILES. Both were pre-verified clean under
+          `gate --file` while planning (see SHARP EDGES), so whole-file activation
+          costs nothing today. If either now reports a finding, fix it here.
+        files:
+          - pkg/check/parsers.go
+          - pkg/gate/policy.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-006
+        depends_on:
+          - TASK-002
+          - TASK-003
+
+      - id: TASK-005
+        type: verification
+        title: "Inner-loop verification: both hops green, red-proof recorded"
+        description: |
+          Run, from the repo root, reporting TRUE exit codes:
+            go build ./...
+            go test ./pkg/check/... ./cmd/backstop/... -race -count=1
+            go test ./... -race -count=1
+          All green. The third command is not redundant: the severity field is
+          consumed in pkg/gate too, and a change to the value flowing into it can
+          break a test in a package this lane never opened.
+
+          THEN STATE THE RED-PROOF EXPLICITLY in the task's report: which tests
+          failed before TASK-004, with the observed severity value. A lane whose
+          entire claim is "this used to resolve wrong" is worth nothing without
+          the recorded before-state. If the red was never observed — if the tests
+          were written and passed immediately — say so, because that means the
+          fixture is not exercising the descriptor path and the falsifier is
+          vacuous.
+
+          (`backstop code check` does not exist — see SHARP EDGES. `go test` is
+          the inner loop here; the gate runs in phase 3.)
+        files:
+          - pkg/check/parsers.go
+          - pkg/check/parsers_test.go
+          - cmd/backstop/pack_severity_contract_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+        depends_on:
+          - TASK-004
+
+  - id: phase-3
+    name: "Phase 3: Full gate, artifact validation, and the cross-lane acceptance handoff"
+    tasks:
+      - id: TASK-006
+        type: verification
+        title: "Rebuild, full gate, artifact validate, and hand off the PLAN-ISSUE-101 acceptance signal"
+        description: |
+          THE BINARY FIRST, or the gate is vacuous:
+            go build -o bin/backstop ./cmd/backstop/
+          then, reporting TRUE exit codes for each:
+            ./bin/backstop gate
+            ./bin/backstop artifact validate --plan PLAN-ISSUE-104
+          VERIFY THE PROVENANCE IS STILL TRUE (CLM-005), because a provenance file
+          that drifted from its fixtures is worse than none — it asserts a
+          falsehood with a checksum next to it. Concretely:
+            • recompute sha256 for every committed .sarif in
+              cmd/backstop/testdata/semgrep/fixtures/ and confirm each matches the
+              value PROVENANCE.md records (a mismatch means the bytes were edited
+              after capture — the exact failure this lane exists to stop);
+            • confirm PROVENANCE.md has an entry for every committed fixture and
+              no entry for a file that is not there;
+            • confirm the 1.96.0 outcome is recorded EITHER as a committed capture
+              with `semanticVersion == "1.96.0"` OR as the verbatim failed
+              commands and errors. Silence on it is the one unacceptable state.
+            • re-run capture.sh and confirm it reproduces the committed bytes, or
+              record precisely why it cannot (a non-reproducible capture script is
+              a provenance claim nobody can check).
+
+          Both gate commands must be green. `gate` covers the code categories (pack_engines runs
+          the real engines over the changed files — parsers.go and policy.go are
+          both in diff scope now, whole-file activated); `artifact validate`
+          covers the artifact category, since this lane's plan file itself changed.
+          Do NOT pass repeated `--file` flags to narrow this (ISSUE-093: extras are
+          silently dropped, and a narrowed gate that silently checked one file is
+          the vacuous green this project exists to prevent).
+
+          THEN HAND OFF THE ACCEPTANCE SIGNAL (CLM-007). This lane does not run
+          it — PLAN-ISSUE-101 owns the pack repo, the harness, and the stash tree.
+          Report to that lane, verbatim enough to act on:
+
+            ISSUE-104 has landed in core. Rebuild your backstop binary, then
+            re-run PLAN-ISSUE-101 TASK-013:
+              bash scripts/verify-recipe-apply.sh \
+                --project /Users/bmanson/src/projects/stash \
+                --expect-warning release-workflow-tap-token-not-exported
+            Require exit 0, and stash's `backstop gate` green with EXACTLY ONE
+            non-blocking warning (that one) — zero errors, no second warning.
+            TASK-013 / TASK-014 / TASK-015 and CLM-013/015/019/025 are unblocked;
+            the held v0.1.0 tag may be cut once TASK-013 is observed green.
+
+          BE HONEST ABOUT WHAT THIS PLAN'S CLOSURE MEANS. This lane closes on its
+          OWN gate — the acceptance re-run happens elsewhere and later. If that
+          re-run does NOT flip back to green-with-one-warning, the diagnosis in
+          ISSUE-104 was incomplete and this lane's closure is not the last word:
+          say so rather than treating the handoff as the proof. Green unit tests
+          plus a still-red consumer means something upstream of the consumer is
+          still wrong.
+        files:
+          - pkg/check/parsers.go
+          - pkg/gate/policy.go
+          - plans/PLAN-ISSUE-104-sarif-severity-descriptor-fallback.plan.yml
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-004
+          - TASK-005
