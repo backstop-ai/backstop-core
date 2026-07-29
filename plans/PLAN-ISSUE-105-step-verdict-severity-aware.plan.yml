@@ -1,0 +1,852 @@
+---
+plan_id: PLAN-ISSUE-105
+spec_id: ISSUE-105
+created: "2026-07-29"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./pkg/gate/... ./cmd/backstop/... -race -count=1"
+coverage_threshold: 90
+
+notes: |
+  Implements ISSUE-105. SMALL, SURGICAL LANE (the PLAN-ISSUE-104 pattern): six
+  tasks, four production files, one new fixture consumer, two new test files.
+  Nothing else is in scope.
+
+  ── THE DEFECT IN ONE PARAGRAPH ────────────────────────────────────────────
+  Step builders decide PASS/FAIL by RAW COUNT — `if len(violations) > 0 { status
+  = "fail" }` — and never read `Violation.Severity`. The severity-aware predicate
+  (`blocksVerdict` / `blockingViolations`, pkg/gate/policy.go) has exactly ONE
+  production caller: inside `ApplyPolicy`, which only rewrites steps the consumer
+  has DECLARED a policy entry for (`p, ok := policy[s.StepName]; if !ok { out =
+  append(out, s); continue }`). So the ratified pack severity contract — a SARIF
+  `level: warning` is NON-BLOCKING BY CONTRACT — holds only for consumers who
+  happen to have written an `enforcement.policy` entry for that dimension.
+  backstop-core's own backstop.yml declares one for every policied dimension,
+  which is exactly why this never surfaced in dogfooding. ISSUE-105 measured it:
+  same tree, one config line, step `fail`/exit 1 without the entry versus
+  `warning`/exit 0 with it.
+
+  ── SITE INVENTORY, RE-MEASURED WHILE PLANNING (2026-07-29) ────────────────
+  `grep -n 'status = "fail"' --include=*.go pkg/ cmd/ | grep -v '_test\.go'`
+  returns TEN sites (all ten hand-verified). ANCHOR THE FILTER ON THE `.go`
+  SUFFIX: a bare `grep -v _test` matches the FILENAME `step_testverify.go` and
+  silently drops it from the inventory — and that file is a CLASS-3 site TASK-002
+  is chartered to lock, so the sloppy filter hides exactly the kind of site this
+  lane is auditing. They fall into three classes, and the class decides the
+  treatment:
+
+  CLASS 1 — RAW COUNT OVER SEVERITY-CARRYING VIOLATIONS. THE DEFECT. CONVERTED.
+    cmd/backstop/gate.go:862-865   pack_engines (the measured instance)
+    pkg/gate/step_delegate.go:57-60   artifact_validation
+    pkg/gate/step_delegate.go:105-107 code_check
+    pkg/gate/step_contract.go:62-65   contract_signature
+  Each counts a slice whose entries carry a severity resolved upstream from a
+  pack or a delegate, so a raw count is DISCARDING a declared value. These four
+  are ISSUE-105's inventory and this lane converts exactly these four.
+
+  CLASS 2 — ALREADY SEVERITY-AWARE. UNTOUCHED, NOT EVEN READ FOR EDIT.
+    pkg/gate/step_coverage.go:214-219, pkg/gate/status_drift.go:96-104,
+    pkg/gate/requirement_traceability.go:303-311 — each iterates and tests
+    `v.Severity` itself, so none of them can block on a declared warning. This
+    lane must not "unify" them into the helper: doing so would be a refactor
+    riding inside a defect fix, and the blast-radius diff below could no longer
+    be read.
+    NOT ALL THREE ARE COMPLETE, THOUGH — step_coverage.go's loop sets "fail" on
+    an error and NOTHING otherwise, so a coverage step whose findings are all
+    `warning` reports "pass" and the findings go silent (no "warning" status, no
+    StepsWarned, nothing in the summary line). That is the OPPOSITE failure to
+    ISSUE-105's — loud becoming silent rather than non-blocking becoming
+    blocking — and it is live in a class-2 site today. Filed by TASK-006, NOT
+    fixed here: changing it means introducing a "warning" status where a consumer
+    currently sees "pass", which is a reporting change and belongs with
+    ISSUE-100's renderer half, not inside a verdict fix.
+
+  CLASS 3 — RAW COUNT THAT IS PROVABLY EQUIVALENT (STRUCTURALLY WARNING-FREE).
+  UNTOUCHED, BUT LOCKED BY A REGRESSION TEST (TASK-002).
+    pkg/gate/step_waiver.go:150-153 — every entry is built by
+      `waiverDiagToViolation` (step_waiver.go:169-177), which HARDCODES
+      `Severity: "error"`.
+    pkg/gate/step_testverify.go:407-409 — the only violation constructed at that
+      site hardcodes `Severity: "error"` (step_testverify.go:402); the
+      capability-absent path builds its own `warning` StepResult separately
+      (step_testverify.go:446) and never reaches this count.
+    cmd/backstop/gate.go:1192-1195 — test_substantiveness. VERIFIED WHILE
+      PLANNING, and the verification changed the plan: the Q1 dispatch DOES carry
+      the pack's severity (`nonEmptySeverity(v.Severity)`,
+      pkg/gate/substantiveness_q1_dispatch.go:71), but the JOIN then throws it
+      away — `HollowFindingsToViolations` (pkg/gate/substantiveness_join.go:184)
+      and `NoTargetViolation` (:68) both HARDCODE `Severity: "error"` on the
+      violations the step actually returns. So the step's slice is structurally
+      error-only and the raw count discards nothing.
+
+  THE CLASS-3 PREMISE IS AN INVARIANT SOMEONE CAN BREAK IN ONE LINE, so it gets a
+  test rather than a comment (ISSUE-105's own words: a future edit to
+  waiverDiagToViolation emitting a non-error severity would silently reintroduce
+  this defect there). TASK-002 locks all three.
+
+  ── OUT OF SCOPE, FOUND WHILE MEASURING, FILE THEM DON'T FIX THEM ─────────
+  TWO sibling defects surfaced while auditing the inventory. Both are in the
+  severity-contract neighbourhood, NEITHER is ISSUE-105, and TASK-006 files them.
+
+  SIBLING 1 — THE SUBSTANTIVENESS JOIN DROPS A PACK-DECLARED SEVERITY. The value
+  survives Q1 dispatch and is then overwritten with a hardcoded "error" at
+  substantiveness_join.go:68/184. That is the SAME contract being broken on a
+  DIFFERENT axis — severity lost BEFORE the verdict, not ignored BY it — so a
+  pack that declares a `warning` substantiveness rule still blocks after this
+  lane lands. It is a sibling defect, not a side effect: fixing it means deciding
+  what severity a JOINED violation inherits when several findings feed one
+  violation, which is a modelling question this lane has no business answering
+  inside a verdict fix. Do NOT widen scope to catch it.
+
+  SIBLING 2 — A WARNING-ONLY COVERAGE STEP REPORTS "pass", SO THE FINDING GOES
+  SILENT. pkg/gate/step_coverage.go:214-219 sets "fail" when a violation is
+  error-severity and does nothing otherwise, so a coverage step carrying only
+  `warning` findings never reaches the "warning" status: it is not counted in
+  GateResult.StepsWarned, does not appear in the summary line, and reads as a
+  clean run. This is the INVERSE of ISSUE-105 (loud becoming silent, rather than
+  non-blocking becoming blocking) and it is live today in a site this lane
+  correctly classifies as already-severity-aware. Not fixed here for the same
+  reason ISSUE-100's renderer half is out of scope: it changes what a consumer
+  SEES on a currently-passing step, which is a reporting decision, not a verdict
+  one.
+
+  ── DESIGN DECISION 1: ONE SHARED EXPORTED HELPER, IN pkg/gate/policy.go ───
+  Inline `len(blockingViolations(v)) > 0` at four sites was rejected: it is not
+  reachable from cmd/backstop (unexported) and it re-states the tri-state status
+  mapping four times. The helper is:
+
+    // StepVerdict returns the status a step reports for the findings it produced.
+    func StepVerdict(violations []Violation) string
+      "fail"    — at least one entry BLOCKS (blocksVerdict: severity != warning)
+      "warning" — entries exist, none of them block (loud, non-blocking)
+      "pass"    — no entries
+
+  WHERE IT LIVES AND WHY: pkg/gate/policy.go, immediately beside `blocksVerdict`
+  and `blockingViolations`, which it is a thin wrapper over. That file already
+  holds the ratified severity-contract doc block, so the semantic and its single
+  authority stay in one place instead of the semantic living in policy.go and its
+  step-level twin living somewhere else. It is EXPORTED because cmd/backstop must
+  call it; cmd/backstop already imports pkg/gate and pkg/gate imports no
+  cmd/backstop, so the dependency is one-way and no cycle is possible. No new
+  file, no new package, no `internal/severity` shim.
+
+  THE TRI-STATE IS NOT A LIBERTY. Returning "pass" for a warning-only step would
+  make a surfaced non-blocking finding indistinguishable from a clean run: it
+  would stop incrementing GateResult.StepsWarned (pkg/gate/result.go), vanish
+  from the human summary line, and turn "loud, non-blocking" into "silent." The
+  measured RUN B produced status `warning`, and "warning" is already a
+  first-class non-failing status in NewGateResult — it is counted, it renders,
+  and it does NOT flip Pass. So "warning" is both the measured target and the
+  existing vocabulary; the helper mirrors ApplyPolicy's block path EXACTLY
+  (policy.go:180-189: `warning` when counted findings exist, `fail` when blocking
+  ones do), which is what makes DECISION 2 hold.
+
+  ── DESIGN DECISION 2: ApplyPolicy IS UNCHANGED, AND THE PASSTHROUGH IS NOW
+     CORRECT RATHER THAN MERELY HARMLESS ─────────────────────────────────────
+  The question ISSUE-105 leaves open is whether the no-entry passthrough
+  (policy.go:132-136) also needs routing, or whether the unscoped block path
+  (policy.go:171-190) needs changing. Answer: NEITHER. The layering, stated
+  explicitly so the reviewer can check the argument and not just the diff:
+
+    THE STEP is the FIRST and DEFAULT authority on its own verdict. After this
+    lane it decides severity-aware, so a step with NO policy entry is already
+    right and the passthrough is CORRECT — it preserves a severity-aware verdict
+    instead of preserving a severity-blind one. That is the whole fix: the
+    default stops being wrong, so the "leave it alone" branch stops being a hole.
+
+    THE POLICY LAYER is an OVERRIDE that re-scopes (baseline grandfathering,
+    per-source overrides) and RELAXES (warn/off) a verdict the step already
+    reached. It recomputes from `s.Violations` — the FULL, severity-blind
+    REPORTED set, which this lane does not touch — so it never double-filters:
+    there is no pre-filtered slice for it to filter again. `StepVerdict` and
+    ApplyPolicy's block path call the SAME `blocksVerdict` predicate and apply
+    the SAME tri-state mapping, so for level:block + applies-to:all-code the two
+    agree by construction and re-derivation is IDEMPOTENT. That property is the
+    unit-level twin of the A/B probe and TASK-002 locks it.
+
+  A route-everything-through-ApplyPolicy alternative was rejected: it would make
+  every step's verdict depend on a layer whose job is consumer configuration,
+  and a consumer with no config at all would still be relying on that layer to
+  supply a default it does not own. The severity contract belongs to the FINDING,
+  not to adopter configuration — which is the whole thesis of ISSUE-105.
+
+  WHAT THE HELPER MUST NOT SWALLOW. The ConfigErr branches at every converted
+  site construct their StepResult DIRECTLY with `Status: "fail"` and an
+  error-severity violation. They are NOT findings-count sites and they do NOT
+  route through StepVerdict. A config error is a broken execution, not a severity
+  question, and `ApplyPolicy` already refuses to relax it (policy.go:133 keeps
+  `s.ConfigErr` steps untouched). Leave those lines exactly as they are.
+
+  ── RED-FIRST ACCEPTANCE: THE A/B PROBE, AS A FIXTURE ─────────────────────
+  The existing end-to-end contract test (cmd/backstop/pack_severity_contract_test
+  .go) drives `verdictFor`, which hands ApplyPolicy a policy map that ALWAYS
+  contains a pack_engines entry — which is precisely why both ISSUE-104 and
+  ISSUE-105 shipped past it green. This lane adds the missing half: a fixture
+  CONSUMER with NO `enforcement.policy` table at all, driven through the REAL
+  shipped `runGate`, in three runs over ONE tree:
+
+    RUN A  no policy entry + declared-WARNING finding
+           -> exit 0, pack_engines status "warning", finding STILL REPORTED
+           -> RED TODAY (exit 1, status "fail"). This is the falsifier.
+    RUN B  policy entry present + the SAME warning finding
+           -> exit 0 (green today; non-regression, proves the fix did not move
+              the behavior consumers already have)
+    RUN C  no policy entry + declared-ERROR finding
+           -> exit 1 BOTH ways (proves the fix did not simply stop blocking)
+
+  ONLY THE POLICY LINE DIFFERS BETWEEN A AND B. Same fixture, same pack, same
+  bytes — the test writes the entry into backstop.yml for RUN B and that is the
+  entire delta, exactly as the ISSUE-105 probe measured it.
+
+  ── FIXTURE HONESTY ───────────────────────────────────────────────────────
+  The fake engine emits REAL CAPTURED SEMGREP BYTES, not hand-written SARIF.
+  ISSUE-104 landed `cmd/backstop/testdata/semgrep/fixtures/descriptor-warning
+  .sarif` and `descriptor-error.sarif` — unmodified semgrep output with the
+  severity on the RULE DESCRIPTOR and NO result-level `level`, with provenance
+  and sha256 in that directory's PROVENANCE.md. The new fixture COPIES those two
+  files verbatim and its engine `cat`s them, so the A/B probe runs the same wire
+  shape a real pack produces and exercises the ISSUE-104 parser hop and the
+  ISSUE-105 verdict hop together. TASK-003 asserts the copies are BYTE-IDENTICAL
+  to the canonical captures, so the copy cannot silently drift into a fabrication
+  (fixtures are captured, never fabricated — a copy that drifts is both).
+
+  ── SHARP EDGES ───────────────────────────────────────────────────────────
+  1. WHOLE-FILE ACTIVATION, PRE-MEASURED SO THE IMPLEMENTER INHERITS EVIDENCE.
+     One `./bin/backstop gate --file <f>` per production file, run 2026-07-29:
+       pkg/gate/policy.go        -> exit 0, PASS, zero violations naming the file
+       pkg/gate/step_delegate.go -> exit 0, PASS, zero violations naming the file
+       cmd/backstop/gate.go      -> exit 0, PASS, zero violations naming the file
+       pkg/gate/step_contract.go -> exit 1, ONE violation, and it is REAL:
+         [coverage_threshold] file pkg/gate/step_contract.go coverage 0/13
+         (statement) below threshold 90%
+     THREE OF THE FOUR TOUCHED FILES THEREFORE COST NOTHING TO ACTIVATE TODAY.
+     If any of them has acquired a finding by the time this lane runs, FIX IT
+     here — do not waive it, and do not drop an edit to dodge the activation.
+     THE step_contract.go COVERAGE HOLE IS THIS LANE'S TO CLOSE, NOT TO WAIVE.
+     Confirmed independently: `go tool cover -func` reports
+     StepContractSignatureScopedFunc at 0.0% — the ONLY function in the file, 13
+     statements, zero covered. Touching the file activates all of it (no
+     grandfathering on changed files). TASK-002 must therefore drive that
+     function to >= 90% statements — which needs THREE inputs, not one: a
+     violation-raising result, the scope-skip `continue` branch (a result whose
+     Entry.File is outside a non-all scope), and the nil/empty-violations return.
+     Do not waive it, do not baseline it, and do not dodge it by leaving the
+     status line inline in that file.
+  2. `gate --file` TAKES ONE FILE. ISSUE-093 (open): repeated `--file` is
+     silently dropped and a non-Go directory crashes it. One invocation per file,
+     or the full `./bin/backstop gate`. Never pass two and believe the result.
+  3. `backstop code check` DOES NOT EXIST. Re-confirmed 2026-07-29 against
+     `./bin/backstop --help`: the shipped top-level commands are artifact,
+     baseline, commands, completion, gate, help, pack, recipe, version, waiver.
+     Verification tasks prescribe `go test` for the inner loop and
+     `./bin/backstop gate` for the outer one because those exist. Report TRUE
+     exit codes (`echo $?`); never mask a non-zero behind a pipe.
+  4. REBUILD BEFORE THE FINAL GATE: `go build -o bin/backstop ./cmd/backstop/`.
+     A stale binary gates the OLD verdict logic and reports a vacuous green —
+     for a lane whose whole subject is a verdict computed INSIDE that binary,
+     that green would prove the opposite of what it claims.
+  5. THE FIXTURE GATE EMITS A SECOND WARNING BY DESIGN. A fixture consumer that
+     declares no `<lang>-toolchain` pack gets the non-failing "enforcement not
+     configured (0 toolchain packs)" warning step (cmd/backstop/gate.go:787).
+     So RUN A's assertion is "the pack_engines STEP is `warning` and the gate
+     exits 0", NOT "the run has exactly one warning". An assertion on a global
+     warning count will fail for a reason that has nothing to do with this fix.
+  6. ISSUE-100's RENDERER HALF IS NOT IN SCOPE. The step tally still counts
+     warnings among "violations" in the human output. That display question is
+     ISSUE-100's; this lane changes the VERDICT only, and the tally text may look
+     unchanged next to a now-passing step. Do not "fix" the renderer here.
+
+  ── BLAST-RADIUS DISCIPLINE (the PLAN-ISSUE-020 precedent) ────────────────
+  A full-gate verdict diff, before and after, on TWO consumers, with every flip
+  enumerated and every flip required to fit "was blocking a declared warning."
+  THE DOGFOOD PREDICTION IS ZERO FLIPS, and it holds for TWO different reasons —
+  state both, because a reader who checks only the first will find a hole that
+  is not there:
+    • THREE of the four converted dimensions are POLICIED. backstop-core's
+      backstop.yml declares `enforcement.policy` entries for artifact_validation,
+      contract_signature and pack_engines (among others), so ApplyPolicy already
+      overwrites those step statuses on every dogfood run and the step-level
+      change cannot reach the reported verdict.
+    • THE FOURTH, code_check, HAS NO PRODUCTION CALLER AT ALL — and it has no
+      policy entry either, so the policied argument does NOT cover it.
+      StepCodeCheckScopedFunc's Step-2 gate entry was REMOVED by the SPEC-040
+      keystone cutover (cmd/backstop/gate.go:750-755, closed ISSUE-018); lint,
+      build and test enforcement runs through pack_engines now. Converting it is
+      correctness maintenance on a function the gate does not currently wire, so
+      it cannot flip a dogfood verdict because it does not produce one.
+  Any flip in backstop-core's own gate is therefore a
+  SURPRISE and must be investigated as a new defect before this lane closes, not
+  waved through as expected churn. The fixture consumer supplies the flip that
+  SHOULD happen (pack_engines fail -> warning, RUN A).
+
+  ── CROSS-LANE ACCEPTANCE (referenced, NOT owned here) ────────────────────
+  PLAN-ISSUE-101 TASK-013 re-run against stash:
+    bash scripts/verify-recipe-apply.sh --project /Users/bmanson/src/projects/stash \
+      --expect-warning release-workflow-tap-token-not-exported
+  requiring exit 0 and stash's `backstop gate` green with EXACTLY ONE
+  non-blocking warning (that one), zero errors. That lane owns the pack repo, the
+  harness and the stash tree; this lane owns core and hands the signal off
+  (TASK-006). This plan closes on ITS OWN gate — but a green here with a
+  still-red stash means the diagnosis was incomplete, and TASK-006 says so out
+  loud rather than treating the handoff as proof.
+
+  ── CLAIM LEDGER (ISSUE-105 carries no CLM ids; this lane defines them) ───
+    CLM-001  ONE authority for "does this violation block": an exported
+             `gate.StepVerdict` wrapping the existing `blocksVerdict` predicate,
+             living beside it in pkg/gate/policy.go and reachable from
+             cmd/backstop over the existing one-way import. No second severity
+             semantic is introduced anywhere.
+    CLM-002  the four CLASS-1 raw-count sites compute their status through
+             StepVerdict, so a declared-`warning` finding no longer FAILS a step
+             whether or not the consumer declared a policy entry.
+    CLM-003  reporting is unchanged and non-blocking never means invisible:
+             StepResult.Violations keeps EVERY entry, and a step whose findings
+             are all non-blocking reports "warning" (counted in StepsWarned,
+             rendered, Pass untouched) — never "pass".
+    CLM-004  fail-closed is preserved: an error-severity finding, and a finding
+             with NO declared severity, still FAIL — with and without a policy
+             entry.
+    CLM-005  ApplyPolicy's behavior is unchanged, its no-entry passthrough is
+             correct because the step already decided severity-aware, and
+             re-deriving a level:block + applies-to:all-code verdict over the
+             full reported set is IDEMPOTENT with the step's own verdict.
+    CLM-006  ConfigErr branches keep their unconditional "fail" and never route
+             through StepVerdict: a config error is not a severity question.
+    CLM-007  the CLASS-3 sites stay raw-count and their structural premise is
+             LOCKED by a regression test — waiver diagnostics, test_verification
+             findings and substantiveness joined violations are all
+             error-severity by construction, so the ISSUE-105 pattern cannot
+             arrive there silently.
+    CLM-008  the policy-ABSENT consumer is covered end to end: a fixture whose
+             backstop.yml has no enforcement.policy, whose pack emits CAPTURED
+             real semgrep bytes, gated through the REAL shipped runGate, in the
+             measured A/B/C shape.
+    CLM-009  the blast radius is enumerated, not asserted: full-gate verdict
+             diffs before and after on backstop-core (predicted: zero flips) and
+             on the fixture consumer (predicted: exactly the RUN A flip), with
+             every flip fitting "was blocking a declared warning", and
+             step_contract.go's pre-existing coverage hole closed rather than
+             waived.
+
+  ── VERIFICATION COMMANDS ────────────────────────────────────────────────
+    inner: go build ./... && go test ./pkg/gate/... ./cmd/backstop/... -race -count=1
+    full:  go test ./... -race -count=1
+    final: go build -o bin/backstop ./cmd/backstop/
+           ./bin/backstop gate
+           ./bin/backstop artifact validate --plan PLAN-ISSUE-105
+
+phases:
+  - id: phase-1
+    name: "Phase 1: The policy-absent fixture consumer (the A/B probe, as a tree)"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Scaffold a fixture consumer with NO enforcement.policy whose pack emits captured semgrep bytes"
+        description: |
+          Create cmd/backstop/testdata/severity-policy-ab/ — a minimal, hermetic
+          consumer project the shipped `runGate` can be pointed at. MODEL IT ON
+          pkg/gate/testdata/waiver-e2e/, which is the committed precedent for
+          exactly this shape (a local fake FINDINGS pack, a POSIX fake engine
+          writing SARIF to a declared stdout_artifact, a backstop.lock with no
+          content hash, a specs/.gitkeep). Read that fixture before writing this
+          one; do not invent a second convention.
+
+          THE ONE THING THAT MAKES THIS FIXTURE DIFFERENT: backstop.yml declares
+          NO `enforcement:` block at all. That absence IS the fixture — it is the
+          population ISSUE-105 is about (a project adopting a pack before it has
+          written any per-dimension enforcement config). Do not add a policy
+          table "for completeness"; TASK-003 writes one in at runtime for RUN B.
+
+          Files, and what each is for:
+            backstop.yml       project + `packs: { backstop/severity-ab: local }`.
+                               NO enforcement block. This is load-bearing absence.
+            backstop.lock      one local entry, mirroring waiver-e2e's lock shape.
+            .backstop/packs/backstop/severity-ab/pack.yml
+                               a findings pack declaring ONE engine
+                               (`command: sh fake-engine.sh`,
+                               `stdout_artifact: findings.sarif`,
+                               `input_mode: none`, `scope_kind: project-wide`,
+                               `gate_type: findings`) and ONE declared rule whose
+                               id is LOWERCASE KEBAB-CASE — use
+                               `capture-sample-panic`, with `engine: fake-engine`
+                               and a `risk_class`.
+                               THE DECLARED ID MUST NOT COPY THE SARIF ruleId.
+                               The captured bytes report
+                               `capture.capture-sample-panic`, and a DOT IS
+                               ILLEGAL in a declared rule id: ValidateRuleID
+                               enforces `^[a-z][a-z0-9]*(-[a-z0-9]+)*$`
+                               (pkg/pack/coordinate.go:47-54) and ParseManifest
+                               HARD-ERRORS on a violation (manifest.go:329-331),
+                               so a dotted id makes the fixture unloadable and
+                               all three runs die as a ConfigErr long before any
+                               severity is read — a red that looks nothing like
+                               the defect under test.
+                               NOR DOES IT NEED TO MATCH. runFindingsEngine
+                               namespaces the SARIF-REPORTED ruleId directly
+                               (`pack.NamespacedRuleID(manifest.NormalizedName,
+                               v.Rule)`, cmd/backstop/pack_gate.go:734) with NO
+                               cross-check against the declared ruleset, and
+                               carries the severity through at :750. The declared
+                               rule exists to BIND THE ENGINE, nothing more; the
+                               violation will surface as
+                               `backstop/severity-ab/capture.capture-sample-panic`
+                               and that is correct.
+            fake-engine.sh     a POSIX script that copies ONE captured SARIF file
+                               to findings.sarif, selected by an environment
+                               variable (SEVERITY_AB_LEVEL=warning|error,
+                               defaulting to warning) — the same
+                               scenario-switch idiom waiver-e2e uses for
+                               WAIVER_E2E_SCENARIO. It must `cat` the committed
+                               bytes, NEVER echo SARIF it constructs inline.
+            descriptor-warning.sarif / descriptor-error.sarif
+                               VERBATIM copies of
+                               cmd/backstop/testdata/semgrep/fixtures/
+                               descriptor-{warning,error}.sarif (ISSUE-104's
+                               captured real semgrep output: severity on the RULE
+                               DESCRIPTOR, no result-level `level`). Copy the
+                               bytes with `cp` — do not re-indent, re-serialize,
+                               trim the fingerprints block, or "clean up" the
+                               paths. TASK-003 asserts byte-equality with the
+                               canonical captures.
+            capture/sample.go  the file the captured finding points at
+                               (`capture/sample.go`, line 7), copied from the same
+                               capture directory so the reported location resolves
+                               to a real file in the fixture tree.
+            specs/.gitkeep     keeps artifact_validation from tripping on a
+                               missing dir, as waiver-e2e does.
+            README.md          three sentences: what the fixture proves, why
+                               backstop.yml deliberately has no enforcement block,
+                               and where the SARIF bytes came from (pointing at
+                               cmd/backstop/testdata/semgrep/fixtures/PROVENANCE.md
+                               as the provenance of record for the copies).
+
+          ACCEPTANCE BEFORE MOVING ON — run it by hand, from the fixture dir:
+            SEVERITY_AB_LEVEL=warning sh fake-engine.sh && \
+              python3 -c "import json;d=json.load(open('findings.sarif'));\
+              print(len(d['runs'][0]['results']),\
+              d['runs'][0]['tool']['driver']['rules'][0]['defaultConfiguration']['level'])"
+          must print `1 warning`, and the error variant `1 error`. EXACTLY ONE
+          RESULT in each direction: a second finding would make the A/B status
+          diff ambiguous about which finding drove it. Then delete the generated
+          findings.sarif — it is engine OUTPUT, not fixture input, and must not
+          be committed.
+        files:
+          - cmd/backstop/testdata/severity-policy-ab/backstop.yml
+          - cmd/backstop/testdata/severity-policy-ab/backstop.lock
+          - cmd/backstop/testdata/severity-policy-ab/fake-engine.sh
+          - cmd/backstop/testdata/severity-policy-ab/descriptor-warning.sarif
+          - cmd/backstop/testdata/severity-policy-ab/descriptor-error.sarif
+          - cmd/backstop/testdata/severity-policy-ab/capture/sample.go
+          - cmd/backstop/testdata/severity-policy-ab/.backstop/packs/backstop/severity-ab/pack.yml
+          - cmd/backstop/testdata/severity-policy-ab/README.md
+        claims:
+          - CLM-008
+        depends_on: []
+
+  - id: phase-2
+    name: "Phase 2: Severity-aware step verdicts, red-first at both altitudes"
+    tasks:
+      - id: TASK-002
+        type: test
+        title: "pkg/gate unit tests: the helper, the four sites, policy idempotence, and the CLASS-3 lock (RED)"
+        description: |
+          Write the pkg/gate half. RUN IT AND RECORD THE ACTUAL FAILURE OUTPUT
+          BEFORE TASK-004 touches production code. Expected red: a step handed a
+          single `Severity: "warning"` violation reports "fail" where "warning"
+          was expected — and `StepVerdict` does not compile because it does not
+          exist yet, which is the correct starting state, not an obstacle to work
+          around by writing the helper here.
+
+          NEW FILE pkg/gate/step_verdict_severity_test.go:
+
+          TestStepVerdict_WarningOnlyFindingsReportWarningNotFail (CLM-001/003)
+            — the helper's core: a slice of only `warning` entries yields
+            "warning"; an empty slice yields "pass". Assert the tri-state
+            explicitly, including that warning-only is NOT "pass" — a "pass"
+            here would drop the step out of GateResult.StepsWarned and make the
+            finding silent, which is the failure mode this lane exists to avoid.
+
+          TestStepVerdict_BlockingSeverityFailsIncludingUnsetSeverity (CLM-004)
+            — an "error" entry yields "fail"; an entry with an EMPTY Severity
+            yields "fail" (fail-closed on absence, inherited from blocksVerdict
+            unchanged); a mixed slice (one warning + one error) yields "fail".
+
+          TestStepArtifactValidation_DeclaredWarningDoesNotFailWithoutPolicy
+          TestStepCodeCheck_DeclaredWarningDoesNotFailWithoutPolicy (CLM-002/003)
+            — drive StepArtifactValidationScopedFunc and StepCodeCheckScopedFunc
+            with a stub validator/checker returning ONE `warning` violation, with
+            NO policy layer involved at all. Assert status "warning", exit-
+            relevant Pass semantics via NewGateResult, AND that the violation is
+            still present in StepResult.Violations. Then the error twin: one
+            "error" violation still yields "fail".
+
+          TestDelegateSteps_ConfigErrorStillFailsRegardlessOfSeverity (CLM-006)
+            — a validator/checker returning a *ConfigError must still produce
+            status "fail" with ConfigErr set. The helper must not be in that
+            path. This is the guard against "severity-aware" quietly becoming
+            "relaxed".
+
+          TestStepContractSignature_DeclaredWarningDoesNotFailWithoutPolicy
+          (CLM-002) and TestStepContractSignature_ScopeSkipAndEmptyResults
+          (CLM-002/009)
+            — the second test is NOT optional and NOT padding: pkg/gate/
+            step_contract.go's only function is at 0.0% statement coverage today
+            (13 statements, measured 2026-07-29), and touching the file activates
+            ALL of it against the 90% threshold. Between the two tests, cover:
+            a result that raises a violation (warning -> "warning", error ->
+            "fail"), a result whose Entry.File is OUTSIDE a non-all GateScope
+            (the `continue`), and a call with no results at all (the `pass` +
+            non-nil empty slice return). Build the ContractEngineResult inputs
+            through whatever VerifyContractVerdict already consumes — read
+            pkg/gate/contract_verdict.go and its tests first; do not invent a
+            second way to construct one. VERIFY WITH `go tool cover -func` that
+            StepContractSignatureScopedFunc is >= 90% before calling this done.
+
+          TestClass3Sites_ViolationsAreErrorSeverityByConstruction (CLM-007)
+            — the regression lock for the three sites this lane deliberately does
+            NOT convert. Assert, at the constructor level so the test cannot rot
+            into a tautology over hand-built inputs:
+              • waiverDiagToViolation (pkg/gate/step_waiver.go) returns
+                Severity == "error" for both a malformed and a non-waivable
+                diagnostic;
+              • NoTargetViolation (pkg/gate/substantiveness_join.go) and
+                HollowFindingsToViolations return "error" on every violation they
+                emit, INCLUDING when the carried finding declares "warning" —
+                which documents the sibling defect TASK-006 files rather than
+                pretending it is not there;
+              • StepTestVerificationScopedFunc's missing-mandated-test violations
+                are error-severity.
+            The test's doc comment must state WHY it exists: these three raw
+            counts are correct ONLY because their inputs are structurally
+            warning-free, and a one-line edit elsewhere could silently make that
+            false — which is exactly how ISSUE-105 happened at the other four
+            sites.
+
+          EXTEND pkg/gate/policy_severity_test.go:
+
+          TestPolicy_BlockAllCodeAgreesWithStepVerdict (CLM-005)
+            — the unit twin of the A/B probe, and the proof that DECISION 2's
+            layering argument is real rather than asserted. For each of a
+            warning-only, an error-only and a mixed violation set: build a
+            StepResult whose Status came from StepVerdict, then run ApplyPolicy
+            with a `level: block, applies-to: all-code` entry for that step, and
+            assert the status is UNCHANGED. Then run ApplyPolicy with an EMPTY
+            policy map and assert it is unchanged too. Same answer with the entry
+            and without it — which is the defect, stated as an invariant.
+        files:
+          - pkg/gate/step_verdict_severity_test.go
+          - pkg/gate/policy_severity_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-009
+        depends_on: []
+        test_names:
+          - TestStepVerdict_WarningOnlyFindingsReportWarningNotFail
+          - TestStepVerdict_BlockingSeverityFailsIncludingUnsetSeverity
+          - TestStepArtifactValidation_DeclaredWarningDoesNotFailWithoutPolicy
+          - TestStepCodeCheck_DeclaredWarningDoesNotFailWithoutPolicy
+          - TestDelegateSteps_ConfigErrorStillFailsRegardlessOfSeverity
+          - TestStepContractSignature_DeclaredWarningDoesNotFailWithoutPolicy
+          - TestStepContractSignature_ScopeSkipAndEmptyResults
+          - TestClass3Sites_ViolationsAreErrorSeverityByConstruction
+          - TestPolicy_BlockAllCodeAgreesWithStepVerdict
+
+      - id: TASK-003
+        type: test
+        title: "The A/B/C end-to-end probe over the policy-absent consumer (RED)"
+        description: |
+          NEW FILE cmd/backstop/gate_severity_policyless_e2e_test.go. Runs in
+          PARALLEL with TASK-002 — disjoint files, no shared dependency.
+
+          REUSE THE SHIPPED HARNESS, DO NOT WRITE A SECOND ONE. cmd/backstop/
+          gate_waiver_e2e_test.go already provides `copyTree` (recursive fixture
+          copy preserving exec bits) and `runGateInDir` (chdir + the REAL
+          newGateCommand/runGate over `--all`, returning captured output and
+          error). Both are package-main test helpers, directly callable from this
+          file. A hand-rolled gate invocation here would be a different code path
+          than the one consumers run, which is the entire point of the probe.
+
+          Copy the TASK-001 fixture into a t.TempDir() per run so RUN B's config
+          edit cannot leak into RUN A.
+
+          TestGateCLI_DeclaredWarningDoesNotBlockWithoutPolicyEntry (CLM-008,
+          THE FALSIFIER — MUST FAIL BEFORE TASK-004)
+            — SEVERITY_AB_LEVEL=warning, backstop.yml untouched (no enforcement
+            block). Assert: runGate returns NIL error (exit 0); the pack_engines
+            step is present with status "warning"; and the finding is STILL in
+            the output. Today this returns a non-nil error and status "fail" —
+            record that exact output as the red proof.
+            ASSERT ON THE STEP, NOT ON A GLOBAL WARNING COUNT: the fixture
+            declares no toolchain pack, so the run also carries the non-failing
+            "enforcement not configured (0 toolchain packs)" warning step by
+            design (SHARP EDGE 5).
+
+          TestGateCLI_DeclaredWarningStaysNonBlockingWithPolicyEntry (CLM-008)
+            — the SAME fixture, SEVERITY_AB_LEVEL=warning, plus exactly one edit:
+            append
+              enforcement:
+                policy:
+                  pack_engines:
+                    level: block
+            to the copied backstop.yml. Assert exit 0 and pack_engines
+            "warning" — green TODAY and green after, which is the non-regression
+            half. The test's doc comment must state that the ONLY delta from the
+            previous test is that block, because that identity is what makes the
+            pair a probe rather than two unrelated assertions.
+
+          TestGateCLI_DeclaredErrorBlocksWithAndWithoutPolicyEntry (CLM-004/008)
+            — SEVERITY_AB_LEVEL=error, run BOTH configurations (no entry, and
+            with the same `level: block` entry). Both must return a non-nil error
+            and a "fail" pack_engines step, before AND after the fix. This is the
+            guard that the fix narrowed the verdict by SEVERITY and did not
+            simply stop blocking pack findings.
+
+          TestSeverityABFixture_SarifBytesAreTheCapturedSemgrepOutput (CLM-008)
+            — read the fixture's descriptor-warning.sarif and
+            descriptor-error.sarif and assert they are BYTE-IDENTICAL to
+            cmd/backstop/testdata/semgrep/fixtures/descriptor-{warning,error}
+            .sarif. A copied capture that drifts is a fabrication wearing a
+            provenance file's name; this keeps the copy honest for free.
+
+          IF THE FIXTURE GATE CANNOT REACH pack_engines AT ALL (e.g. the lock
+          verification or pack resolution rejects the fixture), FIX THE FIXTURE
+          AND SAY SO IN THE TASK REPORT — do not weaken the assertions to
+          whatever the run happens to produce. A probe that asserts the observed
+          output is not a probe.
+        files:
+          - cmd/backstop/gate_severity_policyless_e2e_test.go
+        claims:
+          - CLM-004
+          - CLM-008
+        depends_on:
+          - TASK-001
+        test_names:
+          - TestGateCLI_DeclaredWarningDoesNotBlockWithoutPolicyEntry
+          - TestGateCLI_DeclaredWarningStaysNonBlockingWithPolicyEntry
+          - TestGateCLI_DeclaredErrorBlocksWithAndWithoutPolicyEntry
+          - TestSeverityABFixture_SarifBytesAreTheCapturedSemgrepOutput
+
+      - id: TASK-004
+        type: implementation
+        title: "One severity-aware verdict helper, called from the four raw-count sites"
+        description: |
+          Make TASK-002 and TASK-003 green, and change nothing else.
+
+          1. pkg/gate/policy.go — ADD `StepVerdict`, immediately after
+             `blockingViolations` (its only two callers of interest are this
+             function and ApplyPolicy, and keeping them adjacent is what makes
+             "one authority" visible to the next reader):
+
+               func StepVerdict(violations []Violation) string
+                 len(violations) == 0                     -> "pass"
+                 len(blockingViolations(violations)) > 0  -> "fail"
+                 otherwise                                -> "warning"
+
+             Implement it OVER `blockingViolations` — do not re-derive the
+             severity test, do not inline `blocksVerdict`, and do not add a
+             second spelling of the predicate. Its doc comment states: the
+             tri-state and why warning-only is not "pass"; that it is the
+             STEP-LEVEL default verdict which ApplyPolicy may later re-scope or
+             relax; and that it deliberately mirrors the block path at
+             policy.go:180-189 so a policied and an unpoliced consumer reach the
+             same answer for level:block + applies-to:all-code.
+
+          2. pkg/gate/policy.go — EXTEND the ApplyPolicy doc comment (behavior
+             UNCHANGED, not one line of logic touched). It currently says a step
+             with no policy entry "is left unchanged, so the feature is opt-in
+             and backward compatible", which was true and was also the hole:
+             what it left unchanged used to be a severity-BLIND verdict. Record
+             that the step builders now decide severity-aware via StepVerdict, so
+             the passthrough preserves a CORRECT default rather than a blind one,
+             and that this layer re-derives from the FULL reported set (never a
+             pre-filtered one) so there is no double-filtering. Cite by SYMBOL,
+             not line number.
+
+          3. Replace the raw count with the helper at the four CLASS-1 sites:
+               pkg/gate/step_delegate.go   artifact_validation (~:57-60)
+               pkg/gate/step_delegate.go   code_check          (~:105-107)
+               pkg/gate/step_contract.go   contract_signature  (~:62-65)
+               cmd/backstop/gate.go        pack_engines        (~:862-865)
+             i.e. `status := StepVerdict(violations)` (gate.StepVerdict from
+             cmd/backstop). Keep the existing nil -> empty-slice normalization
+             exactly as it is: reporting shape does not change.
+
+          DO NOT TOUCH, and the reviewer should check that you did not:
+            • the ConfigErr branches at any of these sites — they construct
+              `Status: "fail"` directly and must keep doing so (CLM-006);
+            • pkg/gate/step_waiver.go, pkg/gate/step_testverify.go and
+              cmd/backstop/gate.go's test_substantiveness step (~:1192-1195) —
+              CLASS 3, structurally error-only, locked by TASK-002's test;
+            • step_coverage.go / status_drift.go / requirement_traceability.go —
+              CLASS 2, already severity-aware;
+            • ApplyPolicy's logic, applyScopedPolicy, blocksVerdict, or
+              blockingViolations — all unchanged.
+
+          FILE SCOPE IS FOUR PRODUCTION FILES. policy.go, step_delegate.go and
+          cmd/backstop/gate.go were each pre-verified clean under `gate --file`
+          while planning (SHARP EDGE 1), so activating them costs nothing today;
+          step_contract.go carries a REAL pre-existing coverage violation that
+          TASK-002 closes — verify it is closed HERE rather than discovering it
+          at the final gate. Any finding on a touched file is FIXED in this lane,
+          never waived.
+        files:
+          - pkg/gate/policy.go
+          - pkg/gate/step_delegate.go
+          - pkg/gate/step_contract.go
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-002
+          - TASK-003
+
+      - id: TASK-005
+        type: verification
+        title: "Inner loop green, red-proof recorded, blast-radius diff enumerated"
+        description: |
+          Run from the repo root, reporting TRUE exit codes:
+            go build ./...
+            go test ./pkg/gate/... ./cmd/backstop/... -race -count=1
+            go test ./... -race -count=1
+          The third is not redundant: a step status that changes from "fail" to
+          "warning" is observable in packages this lane never opened (anything
+          asserting on StepResult.Status or on StepsFailed/StepsWarned counts).
+          A test that breaks there is SIGNAL — read it before "fixing" it, because
+          it may be an existing test asserting the defect.
+
+          STATE THE RED-PROOF EXPLICITLY in the report: which tests failed before
+          TASK-004, with the observed status values. If the A/B falsifier
+          (TestGateCLI_DeclaredWarningDoesNotBlockWithoutPolicyEntry) passed
+          before the fix, SAY SO — that would mean the fixture is not reaching
+          the pack_engines verdict and the probe is vacuous.
+
+          THEN THE BLAST-RADIUS DIFF (CLM-009), which is the deliverable of this
+          task and not a formality:
+            ./bin/backstop gate --json > /tmp/gate-105-after.json   (after rebuild)
+          compared against the same command run from the PRE-CHANGE binary
+          (stash the working tree or build from HEAD into a temp path — record
+          which you did). Diff the per-step `status` fields and ENUMERATE EVERY
+          FLIP.
+          THE PREDICTION IS ZERO FLIPS FOR backstop-core, for the two reasons in
+          the notes' BLAST-RADIUS section: artifact_validation, contract_signature
+          and pack_engines are POLICIED in its backstop.yml (ApplyPolicy already
+          overwrites those statuses), and code_check has NO PRODUCTION CALLER
+          since the SPEC-040 cutover removed its Step-2 entry (cmd/backstop/
+          gate.go:750-755) — it has no policy entry, so do NOT reason about it as
+          if it were policied. A flip here does NOT fit the "was blocking a
+          declared warning" pattern by default — it means a step reached the
+          reported verdict by a path this plan did not model. Investigate it and
+          report it as a new defect rather than absorbing it.
+          Then the fixture consumer, which is where the flip SHOULD be: RUN A's
+          pack_engines goes fail -> warning and the gate exit goes 1 -> 0. That
+          flip fits the pattern exactly (it was blocking a declared warning) and
+          is the one this lane exists to produce.
+          Also confirm with `go tool cover -func` that
+          StepContractSignatureScopedFunc is now >= 90% (it was 0.0%), so the
+          activation debt is discharged and not deferred to the final gate.
+        files:
+          - pkg/gate/policy.go
+          - pkg/gate/step_delegate.go
+          - pkg/gate/step_contract.go
+          - cmd/backstop/gate.go
+          - pkg/gate/step_verdict_severity_test.go
+        claims:
+          - CLM-002
+          - CLM-004
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-004
+
+  - id: phase-3
+    name: "Phase 3: Full gate, artifact validation, and the cross-lane handoff"
+    tasks:
+      - id: TASK-006
+        type: verification
+        title: "Rebuild, full gate, artifact validate, hand off ISSUE-101, file the substantiveness-join sibling"
+        description: |
+          THE BINARY FIRST, or the gate is vacuous (SHARP EDGE 4):
+            go build -o bin/backstop ./cmd/backstop/
+          then, reporting TRUE exit codes for each:
+            ./bin/backstop gate
+            ./bin/backstop artifact validate --plan PLAN-ISSUE-105
+          `gate` covers the code categories (all four touched production files
+          are in diff scope and whole-file activated); `artifact validate` covers
+          the artifact category, since this plan file itself changed. Do NOT
+          narrow either with repeated `--file` (ISSUE-093: extras are silently
+          dropped, and a silently narrowed gate is the vacuous green this project
+          exists to prevent).
+
+          THEN HAND OFF THE CROSS-LANE ACCEPTANCE SIGNAL. This lane does not run
+          it — PLAN-ISSUE-101 owns the pack repo, the harness script and the
+          stash tree. Report to that lane, verbatim enough to act on:
+
+            ISSUE-105 has landed in core (step verdicts are severity-aware
+            without requiring a policy entry). Rebuild your backstop binary,
+            then re-run PLAN-ISSUE-101 TASK-013:
+              bash scripts/verify-recipe-apply.sh \
+                --project /Users/bmanson/src/projects/stash \
+                --expect-warning release-workflow-tap-token-not-exported
+            Require exit 0, and stash's `backstop gate` green with EXACTLY ONE
+            non-blocking warning (that one) — zero errors, no second warning.
+            With ISSUE-104 (severity resolved correctly) and ISSUE-105 (severity
+            actually read by the verdict) both landed, TASK-013/014/015 are
+            unblocked and the held go-distribution v0.1.0 tag may be cut once
+            TASK-013 is observed green.
+
+          BE HONEST ABOUT WHAT CLOSURE MEANS HERE. This plan closes on its OWN
+          gate; the acceptance re-run happens elsewhere and later. If that re-run
+          does NOT come back green-with-one-warning, the two-hop diagnosis
+          (ISSUE-104 then ISSUE-105) was incomplete and this lane's closure is
+          not the last word — say so plainly rather than treating the handoff as
+          the proof.
+
+          FILE THE TWO SIBLING DEFECTS, DO NOT FIX THEM (see OUT OF SCOPE in the
+          notes). Report both for follow-up issues authored through /issue, never
+          hand-written, and carry the file:line evidence across so the issue
+          author does not have to re-derive it:
+
+            SIBLING 1 — the substantiveness JOIN discards a pack-declared
+            severity. pkg/gate/substantiveness_q1_dispatch.go:71 preserves the
+            pack's value via nonEmptySeverity, and pkg/gate/substantiveness_join
+            .go:68 (NoTargetViolation) and :184 (HollowFindingsToViolations) then
+            hardcode `Severity: "error"` on the violations the step returns.
+            Consequence: a pack that declares a `warning` substantiveness rule
+            still blocks after this lane. Same contract, different axis —
+            severity lost BEFORE the verdict rather than ignored BY it — and
+            fixing it means deciding what severity a JOINED violation inherits
+            when several findings feed one violation.
+
+            SIBLING 2 — a warning-only coverage step reports "pass" and the
+            findings go silent. pkg/gate/step_coverage.go:214-219 sets "fail" on
+            an error-severity violation and does nothing otherwise, so a step
+            carrying only `warning` findings never reaches the "warning" status:
+            uncounted in GateResult.StepsWarned, absent from the summary line,
+            indistinguishable from a clean run. This is ISSUE-105 INVERTED (loud
+            becoming silent) and it sits in a site this lane correctly leaves
+            alone as already-severity-aware. It belongs with ISSUE-100's renderer
+            half, since fixing it changes what a consumer SEES on a step that
+            passes today.
+        files:
+          - pkg/gate/policy.go
+          - cmd/backstop/gate.go
+          - cmd/backstop/gate_severity_policyless_e2e_test.go
+          - plans/PLAN-ISSUE-105-step-verdict-severity-aware.plan.yml
+        claims:
+          - CLM-007
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-004
+          - TASK-005
