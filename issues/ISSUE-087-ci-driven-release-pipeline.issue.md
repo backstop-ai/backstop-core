@@ -6,16 +6,50 @@ issue:
   id: ISSUE-087
   title: "CI-Driven Release Pipeline — Tag-Triggered Cross-Platform Builds via goreleaser"
   type: enhancement
-  status: open
+  status: closed
   created: "2026-07-27"
+  closed: "2026-07-28"
 
 complexity:
   scope: cross-cutting
   uncertainty: known
   risk: moderate
+
+delivered_by: PLAN-ISSUE-087
 ---
 
 # CI-Driven Release Pipeline — Tag-Triggered Cross-Platform Builds via goreleaser
+
+## Resolution
+
+Delivered by PLAN-ISSUE-087 (status: completed) across five forced-order phases: (1) the
+module path rename (`github.com/bmanson/backstop-core` → `github.com/backstop-ai/backstop-core`),
+(2) version resolution surviving both the goreleaser ldflags path and the `go install @vX.Y.Z`
+`ReadBuildInfo` fallback, (3) the goreleaser config — cross-platform builds plus the Homebrew
+`brews:` block, (4) the tag-driven release and tag-integrity workflows, (5) lane close (token
+export + a derived-env falsifier). Commits `7f7f80c..e9f2061`.
+
+**The pipeline executed for real tonight, not just in dry-run.** Tag `v0.1.0` pushed against a
+green commit → tag-integrity checks passed → goreleaser built darwin/amd64, darwin/arm64,
+linux/amd64, linux/arm64 archives plus checksums → a GitHub Release was published → the
+Homebrew formula was pushed to `backstop-ai/homebrew-tap` via `HOMEBREW_TAP_TOKEN`. This was
+`release.yml`'s first-ever execution, and it ran green end to end through formula publication.
+
+**Honest residual, stated plainly rather than swept.** TASK-014's final consumer-side install
+legs — `brew install backstop-ai/tap/backstop` and
+`go install github.com/backstop-ai/backstop-core/cmd/backstop@v0.1.0` — are pending the
+repos' public-visibility flip, the founder-held audit gate on the full commit history (per the
+launch plan). The pipeline is proven end-to-end through formula publication; the consumer-side
+install proof necessarily lands post-flip, not before — a private tap and a private module path
+cannot be fetched by an external `brew`/`go install` regardless of how correctly the pipeline
+that populated them ran.
+
+Routed follow-ons that were closure preconditions are done: the Homebrew scope amendment
+recorded in this file's "Scope amendment" section (2026-07-28, formula-over-cask ratified,
+superseding the original "deferred post-launch" bullet), and the corresponding DIR-001 notes
+(linux/arm64 as a shipped fourth build target, the ratified `backstop-ai/homebrew-tap` tap
+coordinates superseding the stale `backstop-core/homebrew-backstop` name, and the `brews:`-vs-
+`homebrew_casks` migration-trigger note).
 
 ## Problem
 

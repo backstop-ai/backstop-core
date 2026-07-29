@@ -2,13 +2,46 @@
 plan_id: PLAN-ISSUE-087
 spec_id: ISSUE-087
 created: "2026-07-27"
-status: draft
+status: completed
 target_repo: backstop-core
 target_module: github.com/backstop-ai/backstop-core
 test_command: "go test ./... -race -count=1"
 coverage_threshold: 90
 
 notes: |
+  ══ CLOSED 2026-07-28. THE RELEASE PIPELINE IS REAL. ════════════════════════
+  Phases 1-5 committed: 7f7f80c, 8ffc2cd, 50b3ad5, 106f39c, a749de1, b82b399,
+  b8e1ad3, fd15a94, 433624c, e9f2061.
+
+  TASK-014 — THE DEFERRED-BY-DESIGN END-TO-END PROOF — EXECUTED. It was written
+  as a task that could not be run when the plan was authored (no remote existed),
+  explicitly so that a green plan could never be mistaken for a proven pipeline.
+  It has now run, first release, green end to end:
+
+    tag v0.1.0 -> tag-integrity checks -> goreleaser: four platform binaries plus
+    checksums -> GitHub Release -> formula pushed to backstop-ai/homebrew-tap
+
+  That is the whole chain this plan promised, exercised once, for real. The
+  deferral was worth what it cost: the plan spent a month unable to claim a proof
+  it did not have, and the claim it makes now is a fact rather than a design.
+
+  ⚠ WHAT IS STILL NOT PROVEN — THE CONSUMER INSTALL LEGS. `brew install` and
+  `go install` remain PENDING the public visibility flip, which is founder-held.
+  What is proven is FORMULA PUBLICATION: the tap received the formula. What is not
+  proven is that a stranger can run the install and get a working binary, because
+  nobody outside can reach the repository yet. Install proof gets APPENDED
+  POST-FLIP; until then this plan claims publication, not installability, and any
+  citation should say so. A formula nobody can install is a promise, not a
+  delivery.
+
+  CLM-012'S CARVE-OUT PROVED CORRECT IN PRODUCTION. The founder ruling of
+  2026-07-28 kept `brews:` rather than migrating to `homebrew_casks` to make
+  `goreleaser check` exit 0 — on the grounds that casks are macOS-only and the
+  migration would silently drop Linux `brew install`. goreleaser released fine
+  WITH the deprecation warning, exactly as the carve-out predicted. Trading a
+  working platform for a clean exit code would have been the wrong trade, and the
+  release run is the evidence rather than the argument.
+
   Implements ISSUE-087 — the launch-minimal slice of DIR-001. Four deliverables,
   in a forced order: the module path rename FIRST (everything downstream names the
   new path), then version resolution, then the goreleaser config, then the two

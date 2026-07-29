@@ -103,8 +103,14 @@ measured blast-radius check before landing) rather than folded into this issue �
 `pkg/gate/policy.go`'s severity handling, a different surface than this issue's renderer/tally
 scope. **ISSUE-100 retains only the original tally/render half** (`result.go:225`,
 `output.go:61,80`) described in the Problem section above; the Solution section's two options
-still apply to that half unchanged. *Placeholder: cite the PLAN-ISSUE-020 commit that fixes the
-policy-layer severity blindness here once it lands.*
+still apply to that half unchanged.
+
+**Fixed.** The verdict-defect half landed in two commits under PLAN-ISSUE-020's scope
+extension: `2e49745` (`pkg/gate/policy.go`'s `blocksVerdict` now honors `Violation.Severity` —
+an explicit `warning` is exempt from verdict computation; UNSET severity still blocks,
+fail-closed) and `3ac6e7f` (`cmd/backstop/pack_severity_contract_test.go`, the founder-ratified
+severity contract locked across all three hops — parser `sarifSeverity`, the
+`runFindingsEngine` bridge, and `blocksVerdict` — each falsified per-hop).
 
 ## Impact
 
