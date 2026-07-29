@@ -2,7 +2,7 @@
 plan_id: PLAN-ISSUE-101
 spec_id: ISSUE-101
 created: "2026-07-28"
-status: draft
+status: completed
 
 notes: |
   ─────────────────────────────────────────────────────────────────────────
@@ -211,11 +211,13 @@ notes: |
       goreleaser-config-brews-token-absent
       gitignore-missing-goreleaser-dist
 
-  ⚠ THE WARNING HALF OF THIS LEDGER DOES NOT HOLD YET — see AMENDMENT 4.
-  Until core's ISSUE-104 lands, all three WARNING rules BLOCK in fact, because
-  core never reads the severity real semgrep actually emits. The ledger above
-  is the intended and correct contract; it is currently unenforceable, and
-  that is a core defect, not a miscalibration in this pack.
+  ✓ THE WARNING HALF OF THIS LEDGER NOW HOLDS — AMENDMENT 4 DISCHARGED,
+  see AMENDMENT 5. It did NOT hold when this plan was written: core read only
+  the result-level SARIF severity, so all three WARNING rules blocked in fact.
+  ISSUE-104 and ISSUE-105 both closed and shipped in backstop-core v0.1.1, and
+  TASK-013 then observed the intended outcome — one loud, non-blocking warning
+  on stash. The ledger above was always the correct contract; it is now also
+  an enforced one.
 
   ─────────────────────────────────────────────────────────────────────────
   AMENDMENTS — 2026-07-28, from MEASURED stash-leg evidence
@@ -304,6 +306,85 @@ notes: |
   green-with-one-warning against fixed core. Publishing a pack whose
   non-blocking rules block would ship a broken contract to every future
   consumer, and it would be discovered by them rather than by us.
+
+  ✓ DISCHARGED — ISSUE-104 CLOSED (delivered by PLAN-ISSUE-104, commit
+  `a42b065`: parseSarif now resolves each result's severity through the rule
+  descriptor when the result carries no level). A SECOND defect surfaced in
+  the same lane and had to close with it: ISSUE-105, the step verdict ignoring
+  severity absent a policy entry (PLAN-ISSUE-105, commit `d7d777c`). Both
+  shipped in backstop-core v0.1.1. TASK-013 then re-ran and observed the
+  expected outcome — one loud, non-blocking warning on stash — and the hold
+  lifted. See AMENDMENT 5.
+
+  ─────────────────────────────────────────────────────────────────────────
+  AMENDMENT 5 — DELIVERY RECORD, 2026-07-29. PLAN COMPLETE.
+  ─────────────────────────────────────────────────────────────────────────
+  Verified against the tree and the published repo, not taken on report.
+
+  TASK-014 / TASK-015 — PUBLISHED.
+    commit `921bb14` "backstop-ai/go-distribution 0.1.0: the release trinity
+    as a pack", 30 files, tagged `v0.1.0`, remote
+    https://github.com/backstop-ai/go-distribution — visibility PUBLIC, after
+    an explicit founder go. The implementer held at prep exactly as TASK-015
+    directs and did NOT push; it then VERIFIED the landed commit matched its
+    own 30-file enumeration exactly, which is the right shape for a handoff
+    gate — the agent that staged the work confirms what the orchestrator
+    actually landed, rather than trusting that the handoff was lossless.
+
+    ⚠ SEQUENCING CORRECTION, FOUNDER-CAUGHT, AND THE MOST TRANSFERABLE
+    LESSON IN THIS PLAN. AMENDMENT 4 established that the pack must not ship
+    before ISSUE-104/105 landed — but "landed in core's tree" is NOT the
+    condition that matters to a consumer. A consumer runs a RELEASED BINARY.
+    So backstop-core v0.1.1 had to be released FIRST, so that the binaries
+    people actually install carry the severity fixes this pack's warning tier
+    depends on. The plan reasoned about source state and the founder caught
+    that consumers experience release state.
+    The root cause is structural and is now owned elsewhere: a pack CANNOT
+    DECLARE A CORE-VERSION FLOOR. `go-distribution` has a real dependency on
+    core >= 0.1.1 and no way to say so, so nothing refuses an install that
+    would silently mis-tier every warning. This is BUNDLE-020 (pack/core
+    version compatibility) with a live instance attached rather than a
+    hypothetical — which is worth more to that bundle than the pack was.
+
+  TASK-017 — REMOTE CONSUMABILITY PROVEN.
+    `pack remove` FIRST in both consumers, per the ISSUE-095 caveat this plan
+    predicted, then `pack add backstop-ai/go-distribution@0.1.0` in stash AND
+    in a fresh backstop-core worktree. Lock records `source_type: git`,
+    `git_ref: v0.1.0`, `content_hash:
+    d5835e18f33bff8c4878e257b0c716b1b300605355792a499485a122cd5a3b0d` — EQUAL
+    to the local install's hash, which is the assertion that proves the
+    published tree is the tree that was proven. Rules green off the REMOTE
+    install, with the needs-deletion control firing at ERROR — so the green is
+    a measurement and not an absence. The pack repo's own tag-integrity
+    workflow ran green on both pushes.
+
+  TASK-016 — THREE FILINGS, AND ONE DELIBERATE NON-FILING.
+    Re-derived against the current backlog rather than filed from this plan's
+    stale prose:
+      ISSUE-109  derived-env cross-file falsifier (CLM-015's residual)
+      ISSUE-110  recipe payload foreign-template escape — carrying a MEASURED
+                 finding this plan did not know: the substituter does NOT skip
+                 comments, so a foreign template inside a comment is scanned
+                 like any other text. That widens the problem beyond what
+                 AMENDMENT/notes finding (1) described.
+      ISSUE-111  backstop-core adopts the pack durably (the omission
+                 AMENDMENT/DELIBERATE OMISSIONS required be owned)
+    A FOURTH candidate — an auto-version recipe — was deliberately NOT filed.
+    It was routed as OQ-3 evidence into BUNDLE-031 instead, because filing it
+    would have pre-resolved a founder open question about where that machinery
+    lives. Correct call, and the harder one: filing is the reflex, and this
+    plan's own law is that the founder drives OQ resolution.
+    ISSUE-092 was re-verified STILL TRUE at `fec2c66`; the evidence was
+    attached to that existing issue rather than re-filed, which is the
+    existence-in-world discipline applied to a residual instead of to a plan.
+
+  CROSS-LANE — THE PROOF PAID FOR ITSELF TWICE.
+    TASK-013's green (one loud warning on stash) served as the ACCEPTANCE
+    EVIDENCE for both ISSUE-104 and ISSUE-105. The consumer-facing proof this
+    plan built to validate a pack turned out to be the only place the core
+    severity chain was exercised end to end, through a real engine, on a real
+    consumer. Worth remembering when the next pack's consumption proof looks
+    like overhead: it was the falsifier core's own fix needed.
 
   ─────────────────────────────────────────────────────────────────────────
   DELIBERATE OMISSIONS

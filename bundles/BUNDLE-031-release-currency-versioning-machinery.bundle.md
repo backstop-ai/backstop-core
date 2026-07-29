@@ -6,8 +6,9 @@ schema_version: bundle/v2
 
 bundle:
   name: release-currency-versioning-machinery
-  version: "0.1.0"
+  version: "0.1.1"
   created: "2026-07-29"
+  updated: "2026-07-29"
   category: infrastructure
 
 status:
@@ -214,6 +215,22 @@ standing principle constrains the space, it is cited so the founder can rule wit
   consumer of `go-distribution`, who has a git history and tags but NO artifact corpus at all? No
   lean — founder's, and it is the load-bearing architecture question of this bundle.
 
+  **Implementation-cost evidence for option (c), recorded 2026-07-29 — INPUT to this OQ, not a
+  resolution of it.** The implementer who had just built the `go-distribution` pack's first recipe
+  assessed the shape an auto-version capability would take there: it fits as a SECOND RECIPE — a
+  compute-next-semver payload plus a propose-or-tag-on-trigger workflow payload — with paired
+  enforcement rules. Two specifics reduce the estimated cost. First, the pack ALREADY declares the
+  provisioned engine binding that `recipe apply` demands, so a second recipe adds NO engine work.
+  Second, the trigger half is a WORKFLOW payload — exactly the artifact shape the pack's existing
+  rules already guard — so the enforcement half rides an established pattern rather than inventing
+  one. Two caveats travel with this evidence and are why it does not settle the question. It is
+  ASYMMETRIC: the core-command (a) and CI-workflow (b) options have NOT been assessed for cost by
+  anyone, so this is one measured option against two unmeasured ones, not a comparison. And it
+  speaks to COST, not to the EXPRESSIBILITY concern raised above — a recipe is a payload the
+  consumer applies, which is a different mechanism from a rule answering "how many commits since
+  the last tag," so the git-query-has-no-file-to-match problem is untouched by it. What it does
+  establish is that the pack home is cheap IF the mechanism fits.
+
 - **OQ-4 — THE PROPOSAL SURFACE AND THE TRIGGER.** Two coupled halves. The SURFACE: a standing
   GitHub issue that the proposer opens and updates in place (durable, commentable, visible from a
   phone — but external, and this repo does not otherwise use GitHub issues as a work surface); a
@@ -356,6 +373,20 @@ in the order they would most likely be built, not as committed scope.
   read on day 30," which is the practical form of the discipline-≠-ceremony principle.
 
 ## Version History
+
+- 0.1.1 (2026-07-29): Evidence append under OQ-3 — no OQ resolved, no design decision recorded,
+  maturity unchanged at `exploring`. Recorded implementer-101's measured assessment of the
+  pack-recipe option (c), made immediately after building the `go-distribution` pack's first
+  recipe: an auto-version capability fits as a SECOND recipe (compute-next-semver payload +
+  propose-or-tag-on-trigger workflow payload) with paired enforcement rules; the pack already
+  declares the provisioned engine binding `recipe apply` demands, so a second recipe adds no
+  engine work; and the trigger half is a workflow payload, the artifact shape the pack's existing
+  rules already guard. Recorded with two explicit caveats so it is not mistaken for a ruling: the
+  evidence is ASYMMETRIC (options (a) core command and (b) CI workflow remain unassessed by
+  anyone, so this is one measured option against two unmeasured), and it addresses COST rather
+  than the EXPRESSIBILITY concern OQ-3 raises — a consumer-applied recipe payload is a different
+  mechanism from a rule answering a git query, so "a git query has no file to match" is untouched
+  by it.
 
 - 0.1.0 (2026-07-29): Initial bundle at `exploring`. Founder framing (2026-07-29, preserved
   verbatim in Current Thinking): manual tag-driven releasing "goes directly against my 'eliminate
