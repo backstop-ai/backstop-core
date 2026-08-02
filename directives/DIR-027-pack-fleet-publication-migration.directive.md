@@ -5,7 +5,7 @@ created: "2026-07-26"
 schema_version: directive/v1
 
 directive:
-  status: queued
+  status: active
   source:
     - "BUNDLE-006"
     - "SPEC-055"
@@ -65,6 +65,41 @@ than core mechanism:
    relock` is explicitly NOT the vehicle for this (the arg-shape residual in
    ISSUE-074, cited here as related, is homed by a separate decision, not by
    this directive).
+
+   **Correction, 2026-08-02 (verified against `backstop.lock`):** the claim
+   above that `backstop-core` still resolves any pack locally is now false.
+   `backstop.lock` holds seven entries, and **all seven** are
+   `source_type: git` at `backstop-ai/*` coordinates, zero `local_path`
+   entries: `backstop-core-architecture@0.1.1`, `backstop-self@1.1.2`,
+   `cobra-cli-standards@0.2.1`, `go-contracts@1.2.0`, `go-standards@1.2.1`,
+   `go-substantiveness@1.2.0`, `go-toolchain@1.3.0`. What that does and does
+   not mean for this directive's own acceptance criteria:
+   - Thread 1 **tier 1 is delivered**: `go-contracts` and
+     `go-substantiveness` are published under the `name == coordinate`
+     convention and `backstop-core` consumes both remotely.
+   - Thread 1 **tier 2 is not delivered**. `packs/contracts` and
+     `packs/substantiveness` still exist on disk inside `backstop-core`,
+     and both still have live in-tree consumers — verified:
+     `pkg/pack/distribution/contracts_local_install.go` and
+     `cmd/backstop/gate_substantiveness_e2e.go` both still exist and
+     reference the vendored packs. The de-vendoring, the SPEC-037/SPEC-038
+     lineage sweep, and the directory deletion all remain open.
+   - This closes the local-resolution gap **for `backstop-core` only**.
+     `bclabs-portal`, `stash`, and `backstop-harness` were not re-verified
+     as part of this correction and their lock state is unknown as of this
+     writing — do not read this as fleet-wide completion of thread 3.
+   - The seventh lock entry, `backstop-ai/backstop-core-architecture@0.1.1`,
+     is a distinct pack from `backstop-harness-architecture-pack` discussed
+     in thread 2 below (verified on disk: the harness pack is still
+     `backstop-ai/backstop-harness-architecture-pack` at manifest `0.1.0`,
+     unpublished-tag state unchanged). `backstop-core-architecture`'s home
+     — whether it belongs to this directive, some other directive, or its
+     own — is an open founder question the backlog-PM escalated on
+     2026-08-02 and is not resolved by this correction.
+   - Thread 2 is otherwise untouched: `backstop-harness-toolchain-pack`
+     (manifest `0.1.3`) and `backstop-harness-architecture-pack` (manifest
+     `0.1.0`) both still carry the old `-pack` suffix, confirmed on disk at
+     `~/src/projects/`; the rename-vs-grandfather decision is still open.
 4. **Absorb the Clone-strip transitional asymmetry.** SPEC-055's
    `ExecGitCloner` installs remote packs `.git`-free while locally-sourced
    packs are untouched, so the two install paths diverge in what a pack

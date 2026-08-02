@@ -5,7 +5,7 @@ created: "2026-07-15"
 schema_version: directive/v1
 
 directive:
-  status: queued
+  status: active
   source:
     - "ISSUE-007"
     - "ISSUE-020"
@@ -796,6 +796,11 @@ position — the Linux/CI launch blocker — is delivered. Every remaining
 source is tier-2 except ISSUE-092. Whether DIR-024 should now be split,
 re-scoped, or repositioned is a founder call that backlog-pm has raised
 separately and has NOT acted on.
+
+Status correction (Brandon, 2026-08-02): this directive's status field now
+reads `active`, reflecting delivered work under it — the ISSUE-020
+Linux-sandbox/CI-gating half and the ISSUE-104/105 severity-contract hops —
+while the majority of its 16 cited sources remain open.
 
 ISSUE-107 was slotted by backlog-pm 2026-07-29 as a clear fit; this does
 NOT pre-empt the still-pending founder decision on whether the

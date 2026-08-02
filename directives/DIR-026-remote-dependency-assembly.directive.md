@@ -5,7 +5,7 @@ created: "2026-07-26"
 schema_version: directive/v1
 
 directive:
-  status: active
+  status: done
   source:
     - "BUNDLE-006"
     - "SPEC-055"
@@ -69,6 +69,32 @@ pack consumption (this directive), Linux/CI viability (ISSUE-020, under
 DIR-024), and CI-driven releases (DIR-001, tiered up 2026-07-27). Everything
 else — explicitly including `backstop init` (DIR-002) — is tier-2
 ergonomics: wanted, but not what makes backstop unusable if it slips.
+
+### Delivery status
+
+SPEC-055 (`implemented`, PLAN-SPEC-055 `completed`) and SPEC-056
+(`implemented`, PLAN-SPEC-056 `completed`) shipped the MECHANISM: a real
+production `GitCloner`, fail-closed constructors, and manifest-name identity
+gating with typed refusals. This repo's own `backstop.lock` now proves it —
+all seven pack entries are `source_type: git` at `backstop-ai/*`
+coordinates; remote consumption is the only way core installs packs today.
+`done` here means the mechanism is delivered, not that every pack-lifecycle
+defect is closed. Two sources cited above remain open:
+
+- **ISSUE-083** (`resolveGitURL` hardcodes the GitHub host) — open, and
+  deliberately so. It travels with the two founder-ratified guards recorded
+  in this file's Notes: it is post-launch (every launch pack is first-party
+  on `github.com/backstop-ai`, so host-generality has zero pre-launch
+  exposure), and it must not be planned at all until the founder picks
+  among its three candidate resolution models, since full-URL-as-coordinate
+  would reopen the `name == coordinate` convention. Those guards are why it
+  does not block this directive closing.
+- **ISSUE-095** (`pack add` silently no-ops converting an installed local
+  pack to a git source) — open, unguarded, a genuine residual.
+
+The fleet/ecosystem half of this work deliberately lives elsewhere: DIR-027's
+own Notes already draw the line — "DIR-026 stays scoped to the mechanism
+(SPEC-055); this directive is the fleet actually using it."
 
 ## Notes
 

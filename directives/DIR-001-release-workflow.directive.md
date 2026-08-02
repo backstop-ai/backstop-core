@@ -5,7 +5,7 @@ created: "2026-04-19"
 schema_version: directive/v1
 
 directive:
-  status: queued
+  status: done
   source:
     - "BUNDLE-003"
     - "ISSUE-087"
@@ -32,6 +32,33 @@ not the primary distribution mechanism; CI-driven releases are.
 - ID resolver fix (ISSUE-090): reconcile artifact-ID allocation against
   `max(git tags, local disk scan)` rather than tags alone, so it must land
   **before** the remote is added — see Notes
+
+### Delivery status
+
+Shipped: ISSUE-087 (`closed`) and PLAN-ISSUE-087 (`completed`) delivered the
+CI-driven release pipeline — `v0.1.0` and `v0.1.1` are tagged, the remote is
+live at `github.com/backstop-ai/backstop-core`, `.github/workflows/`
+holds `ci.yml`, `release.yml`, and `tag-integrity.yml`, and both install
+paths are proven on a real machine: `brew install` via the published
+`backstop-ai/homebrew-tap`, and `go install`.
+
+Not closed by this status change: ISSUE-090 stays cited above and remains
+`open`. Its situation has materially inverted since filing — it was written
+against this repo's actual state until launch, no configured remote, which
+is what made `FetchTags` fail and drove the tag-vs-disk divergence. The
+remote now exists, so the tag path is live again and the specific
+recurrence window the issue describes is closed for the moment. The
+resolver itself is still unfixed, so the latent defect stands the next time
+git ops fail (offline, auth failure, a new repo).
+
+Known correctness caveat on this `done` verdict: the Description bullet
+"GitHub Actions workflow: build on push to main" was not delivered as
+written — ISSUE-087 shipped tag-triggered releases instead, not
+push-to-main. `done` here should not be read as "every bullet as literally
+worded shipped." Separately, the baseline bullet ("the release workflow
+also generates the baseline artifact") is DIR-003's territory and its
+producer half did land, but that thread belongs to DIR-003, not detailed
+here.
 
 ## Notes
 
