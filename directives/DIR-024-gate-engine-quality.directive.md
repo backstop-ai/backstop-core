@@ -966,6 +966,18 @@ partially recaptures dead ISSUE-102's substance — the harness-baked
 classification-globs defect — and is the live home for that concern. Dead
 ISSUE-103's substance, `typescript-contracts` rejecting the bare-const
 variable-contract idiom as observed in `bclabs-portal`, is NOT recaptured
-anywhere and is NOT this directive's scope; if it resurfaces it needs a
-fresh ID (never 103), and DIR-022 ("Contracts Engine Hardening") is where it
-was reasoned to belong.
+anywhere in this repo — and that is correct, not a gap: it is a
+`typescript-contracts` PACK defect, not a backstop-core concern at all.
+Packs live OUTSIDE core by design, so no backstop-core issue should ever be
+filed for it, under any ID, fresh or otherwise. Its home is that pack's own
+tracking, `backstop-ai/typescript-contracts` (local working copy at
+`~/src/projects/backstop-typescript-contracts-pack-local` — verified
+present, though its `pack.yml` currently reads the pre-rename
+`name: backstop/contracts` at version 1.1.0, so whoever files there should
+first confirm they're working against current published repo state, not
+this stale mirror). **Correction, founder-ruled (Brandon, 2026-08-02),
+superseding this paragraph's earlier framing:** the prior reasoning that
+DIR-022 ("Contracts Engine Hardening") is where this belonged was the PM's
+original take from 2026-07-29, back when it was believed to be a core-side
+contracts-engine concern; that reasoning is superseded, and DIR-022 was
+never actually touched on its account.
