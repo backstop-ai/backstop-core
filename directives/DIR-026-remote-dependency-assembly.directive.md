@@ -11,6 +11,7 @@ directive:
     - "SPEC-055"
     - "SPEC-056"
     - "ISSUE-083"
+    - "ISSUE-095"
 ---
 
 ## Description
@@ -104,10 +105,77 @@ the BUNDLE-006 code-side seed work SPEC-055 and SPEC-056 didn't scope:
 - **Transactions and the parity suite** — the remaining BUNDLE-006 DDs not
   covered by SPEC-055 or SPEC-056. This is now the actual code-side
   remainder under this directive.
+- **ISSUE-095 (`pack add` silently no-ops a source conversion) — OPEN,
+  unspecced.** `pack add <org>/<pack>@<version>` against a name already
+  installed from a *local* source reports `Pack <name> is already
+  installed and up to date` (`cmd/backstop/pack_add.go:76`) and exits 0
+  while doing nothing: the lock keeps `source_type: local` and its
+  out-of-repo `local_path`, records no `source_coordinate`, and no clone
+  happens. The operator's evidence says the conversion succeeded; it did
+  not. Measured during the PLAN-ISSUE-020 fleet migration on
+  `backstop-ai/backstop-self@1.1.2` and `backstop-ai/go-standards@1.2.1`.
+  Root cause, and why it is this directive's: the short-circuit gate is
+  `isPackInstalledAndCurrent(projectDir, packName)`
+  (`pkg/pack/distribution/add.go:135-151`) — it answers "does a non-empty
+  dir exist at this name, and does the lock hold *an* entry for this
+  name," taking no other input. `LockEntry`
+  (`pkg/pack/distribution/lockfile.go:17-37`) carries `SourceType`,
+  `SourceCoordinate`, `Version` and `GitRef` — precisely the fields
+  SPEC-056 introduced and threaded through the lock lifecycle — and the
+  gate reads none of them. Critically, the git-branch call site
+  (`pkg/pack/distribution/command.go:242-244`) is the one SPEC-056
+  *deliberately moved* to sit after identity resolution, with an in-code
+  comment (`command.go:237-241`) explaining that it is keyed on the
+  install name and warning "do not optimize it back." So `packName`,
+  `version` and `gitRef` are all already resolved and in hand at the
+  moment of the short-circuit, and simply are not compared against the
+  entry the gate just found. This is the SPEC-056 identity surface with
+  one comparison missing — not a new surface — which is why it is homed
+  here rather than in DIR-023 (whose two threads are local-provenance
+  caching and registry-era detection) or DIR-027 (which explicitly
+  disclaims mechanism design: "Dependency, not scope"). The function
+  already documents the behavior it lacks: its own doc comment
+  (`add.go:128-134`) states that a pack "whose lock entry is
+  missing/**diverged** is NOT installed-and-current and must be
+  (re)installed." Divergence is written into the contract and never
+  implemented; the fix restores the function to its stated contract
+  rather than extending it. Wider than the issue's title, flagged for
+  the fix planner: the gate is *version*-blind by the same omission — it
+  accepts only `(projectDir, packName)`, and neither call site compares
+  the resolved version against `lf.Packs[packName].Version`. By
+  source-read (this half was NOT reproduced — the local→git half is the
+  measured one), a version-differing `pack add` on an already-installed
+  name reaches the same short-circuit and prints the same "already
+  installed and up to date" line. Whether `pack add` *should* convert a
+  version — as opposed to directing the operator to `pack
+  update`/`pack upgrade` — is a semantics question for whoever specs the
+  fix; the success message is false in either case. Blast radius,
+  measured today: `backstop-core`'s own `backstop.lock` now holds six
+  entries, all `source_type: git` under `backstop-ai` coordinates
+  (including the newly extracted `go-contracts` and
+  `go-substantiveness`) — its own migration completed *through* the
+  confirmed `pack remove` + `pack add` workaround. Live exposure is
+  therefore the remaining consumers (`bclabs-portal`, `stash`,
+  `backstop-harness`) and any future operator who does not already know
+  the workaround. Where it belongs in the remainder: with transactions
+  and the parity suite (BUNDLE-006 REQ-040/REQ-042), not as a standalone
+  thread — a hermetic lifecycle parity suite over
+  `add`/`update`/`upgrade`/`relock` is the shape that catches this class
+  of gate-blindness, and REQ-042 is still unspecced. No `PLAN-ISSUE-095`
+  exists and no other directive cites the issue. Effect on the
+  done-readiness question: this directive's Notes already flag, as a
+  founder call, whether DIR-026 is close enough to `done` pending only
+  transactions/parity — ISSUE-095 adds an open, unspecced,
+  operator-visible silent-failure defect to that inventory, so that call
+  should not be made against the pre-ISSUE-095 remainder.
 - **REQ-041 (legacy-hash migration), DEMOTED** — remove+re-add under
   DIR-027's fleet migration writes fresh lock entries, so the migration
-  mechanism's real-world exposure is now approximately zero; still seeded
-  here for BUNDLE-006 traceability, not treated as launch-blocking.
+  mechanism's real-world exposure is now approximately zero; that low
+  exposure is a consequence of a defect, not of a chosen workflow —
+  remove+re-add is not merely the convenient path, it is currently the
+  *only* path, since a bare re-add silently does nothing (ISSUE-095);
+  still seeded here for BUNDLE-006 traceability, not treated as
+  launch-blocking.
 
 `status` remains `active`. SPEC-055 and SPEC-056 are both implemented;
 what still holds this directive open is the remainder above —

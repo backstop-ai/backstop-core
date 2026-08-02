@@ -75,3 +75,9 @@ bundles:
     title: Pack Publishing Proxy (ambitious — post-launch, held deliberately)
   - id: BUNDLE-018
     title: Stash — Secure Local Resource Store (external repo)
+  # Appended on creation 2026-07-29 per the standing bundle-append grant.
+  # Position is APPEND ORDER, not a priority claim — the INBOX carries a
+  # PROPOSAL (2026-07-29) recommending it sit adjacent to BUNDLE-020, whose
+  # OQ-5 (shared spine or separate) it directly shares. Reorder to reprioritize.
+  - id: BUNDLE-031
+    title: Release Currency Versioning Machinery

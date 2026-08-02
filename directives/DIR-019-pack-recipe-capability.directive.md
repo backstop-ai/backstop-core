@@ -13,6 +13,7 @@ directive:
     - "ISSUE-081"
     - "ISSUE-080"
     - "ISSUE-085"
+    - "ISSUE-110"
 ---
 
 ## Description
@@ -73,6 +74,10 @@ recipe pack — this directive's own packs-only acceptance test). Zero packs
 in the published fleet declare a `recipes:` block in their `pack.yml` yet.
 With remote pack consumption (DIR-026) and the fleet migration (DIR-027)
 now underway, recipes are the sole remaining tier-1 launch long-pole.
+**Update (2026-07-29):** the "zero consumers" claim above is now stale —
+`backstop-ai/go-distribution` declares `recipes:` (`pack.yml:56-57`,
+`go-release: recipes/go-release`) and is the capability's first real
+consumer; see the correction below for what that does and does not close.
 
 Added to BACKLOG.yml immediately before DIR-002, since DIR-002 depends on
 it, but after DIR-001 (Release Workflow) and DIR-003 (Baseline
@@ -87,6 +92,15 @@ installed fleet declares a `recipes:` block in its `pack.yml`. The apply
 mechanism is complete (modulo ISSUE-079/081) but has zero consumers:
 BUNDLE-015's "CI recipe pack" consumer — the default-CI-wiring story that
 `backstop init` depends on — remains unbuilt.
+**Correction (2026-07-29):** "has zero consumers" is no longer accurate as
+written — `backstop-ai/go-distribution` now declares `recipes:` and is the
+capability's first real consumer, so the mechanism is proven outside core.
+That pack's payload is a RELEASE workflow, not the CI gate workflow this
+paragraph and BUNDLE-015 REQ-018 call for, so REQ-018 itself remains
+unbuilt and core's own `recipes/` is still the three empty `.gitkeep` dirs
+described above. Also note: the go-distribution pack's own directive home
+is UNRULED (escalated to Brandon under ISSUE-101) — it is not claimed as a
+deliverable of this directive.
 
 ISSUE-080's original two-problem report split on reconciliation (2026-07-26):
 the shared `ExitViolations`/`main.go` stderr-suppression root cause (dropped
@@ -138,3 +152,45 @@ Commits: `0c729bf` (TDD red, acceptance fixtures), `253c501` (phase 2 —
 recipes archetype lands at both parse seams), `419b71a` (phase 3 — clears
 the four dormant findings the diff scope activated), `40fc878` (close
 delivered).
+
+**ISSUE-110 (recipe substitution has no escape syntax) — filed 2026-07-29,
+open.** `pkg/recipe/Substitute` (`pkg/recipe/substitute.go:31-62`) reads
+EVERY `{{ ... }}` span as a param NAME, with no escape form. An undeclared
+name returns an error and NO string — the apply hard-fails rather than
+emitting partial output. That is deliberate (the doc comment's
+"deliberately NOT Turing-complete" framing, REQ-002), but it leaves any
+payload that must emit a FOREIGN `{{ }}` template verbatim — GitHub Actions
+`${{ }}`, goreleaser `{{ .X }}`, Helm, Jinja — with no first-class way to do
+it. The shipped workaround, proven in production by the
+`backstop-ai/go-distribution` pack: declare self-emitting pass-through
+params, one per foreign span, where the param NAME is the inner text and
+its DEFAULT is that same text re-wrapped in delimiters (e.g. name
+`.Version`, default `{{ .Version }}`). Eight such params exist in that
+pack. It works only because substituted values are never rescanned
+(`substitute.go:22-23`). It carries a live hazard: a caller passing
+`--param .Version=anything` rewrites the emitted foreign template instead
+of leaving it alone. NEW MEASURED FINDING, not previously recorded anywhere
+in this directive: the substituter is not comment-aware. It byte-scans the
+raw template for `{{`/`}}` regardless of `#` YAML comments or any other
+context, so a payload COMMENT that merely mentions a template in prose
+hard-fails the apply with the same "unresolvable placeholder" error as a
+real unresolved substitution. This cost a real debugging cycle; the
+in-production workaround is at
+`recipes/go-release/payload/release.yml:15-25` in the go-distribution pack,
+which writes the reference delimiter-less in prose with a note explaining
+why. Fix directions the issue records for a future spec/plan, none chosen:
+(1) a first-class escape form (triple-brace or backslash), (2) comment-
+aware skipping (narrower, and language-syntax-aware in a way the
+substituter deliberately is not), (3) do nothing and sanction the
+pass-through-param idiom as documented authoring surface.
+SEQUENCING/CONSOLIDATION NOTE: ISSUE-110 is adjacent to ISSUE-081 but
+distinct. ISSUE-081's remaining scope is Gap 3 alone (insert placement
+semantics) plus the residual `Op.Payload` facet; ISSUE-110 is a
+language-level gap in the substitution GRAMMAR with its own shipped
+workaround. The issue itself flags that the founder may prefer to
+consolidate it as ISSUE-081 "Gap 4" — record that as an OPEN founder call,
+do not decide it. Either way the work sits under this directive. PRIORITY
+within this directive, stated plainly: ISSUE-110 is authoring-surface
+polish, ranking BELOW ISSUE-080's recipe-specific remainder (this
+directive's highest-severity open item — silent data loss at exit 0), and
+roughly peer to ISSUE-081 Gap 3.
