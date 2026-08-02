@@ -94,23 +94,10 @@ than core mechanism:
      `backstop-ai/backstop-harness-architecture-pack` at manifest `0.1.0`,
      unpublished-tag state unchanged). `backstop-core-architecture`'s home
      — whether it belongs to this directive, some other directive, or its
-     own — is an open founder question the backlog-PM escalated on
-     2026-08-02 and is not resolved by this correction.
-
-     **Resolution, 2026-08-02 (founder ruling):** the home question above is
-     now settled — this directive is the home, as a fold-in, not a new
-     bundle. `backstop-ai/backstop-core-architecture@0.1.1` was adopted into
-     `backstop-core` (commit `7211a59`, "feat: adopt
-     backstop-ai/backstop-core-architecture 0.1.1 — package topology
-     enforced"), bringing this repo's `backstop.lock` to seven `source_type:
-     git` entries (verified: the lock entry above). It enforces package
-     topology via `go-arch-lint` v1.16.0, declared as an assume-present
-     Layer-0 analyzer — CI installs it pinned (`.github/workflows/ci.yml`),
-     and the local gate refuses loudly when it is absent. This directive's
-     scope over this pack is the fleet-inventory fact only — that core now
-     consumes a seventh pack with no citation, the same bookkeeping already
-     done for the other six above — not the pack's own topology rules or its
-     use of `go-arch-lint`, which are a pack-repo concern out of scope here.
+     own — was ruled and closed on 2026-08-02: no directive, issue, or
+     bundle tracks this pack — a clean pack addition with no defect and no
+     ongoing work needs no artifact, and `backstop.yml` + `backstop.lock` +
+     the adopting commit + CI are the complete self-verifying record.
    - Thread 2 is otherwise untouched: `backstop-harness-toolchain-pack`
      (manifest `0.1.3`) and `backstop-harness-architecture-pack` (manifest
      `0.1.0`) both still carry the old `-pack` suffix, confirmed on disk at
