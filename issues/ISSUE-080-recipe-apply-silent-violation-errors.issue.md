@@ -6,8 +6,11 @@ issue:
   id: ISSUE-080
   title: "`recipe apply` Drops a Malformed Waiver Token's Diagnostic and Silently Clobbers a Diverged File"
   type: bug
-  status: open
+  status: closed
   created: "2026-07-25"
+  closed: "2026-08-02"
+
+delivered_by: PLAN-ISSUE-080
 
 complexity:
   scope: contained
@@ -16,6 +19,44 @@ complexity:
 ---
 
 # `recipe apply` Drops a Malformed Waiver Token's Diagnostic and Silently Clobbers a Diverged File
+
+## Resolution
+
+The recipe-specific remainder left open after SPEC-055 (see below) is now
+delivered by commit `d222975` ("fix(ISSUE-080): malformed waiver tokens
+surface loud; apply reports its outcomes"), backed by `PLAN-ISSUE-080`
+(`status: completed`). Verified directly against `pkg/recipe/apply.go` and
+`cmd/backstop/recipe_apply.go`, 2026-08-02:
+
+- `WaiverReader` now returns a `DivergenceVerdict` carrying
+  `Diagnostics []waiver.Diagnostic` (`pkg/recipe/apply.go:63-65,85`), not a
+  bare bool — confirmed present at those lines.
+- `adjudicateDivergence` (`:497-533`) surfaces both `Malformed` and
+  `NonWaivable` diagnostics rather than only `.Suppressed`; `coveredDivergence`
+  (`:459-481`) accumulates diagnostics across every declared rule, not just
+  the first covering one.
+- **The silent-clobber branch is gone.** `preserveOrRegenerate` (function at
+  `:348`, the refusal branch at `:392-399`) now REFUSES on an uncovered
+  divergence plus a malformed diagnostic, returning an error that names the
+  file and the unparseable `@waiver` line and writes nothing — instead of
+  regenerating over the operator's edit at exit 0.
+- That error reaches `cmd/backstop/recipe_apply.go:85` →
+  `&ExitCodeError{Code: ExitViolations, ...}`, confirmed at that line, so
+  exit is 1, not 0.
+- Reporting gap closed too: `reportRecipeApply`
+  (`cmd/backstop/recipe_apply.go:117-147`) names written/preserved/
+  regenerated paths and emits per-diagnostic warnings on stderr.
+- Process-level guard exists and passes:
+  `TestRecipeApply_CLI_MalformedWaiverTokenSurfacesDiagnosticOnStderr`
+  (`cmd/backstop/recipe_apply_divergence_e2e_test.go:169`) — re-run
+  2026-08-02, drives the built binary, PASS.
+
+**Why this closure was overdue:** `directives/DIR-019-pack-recipe-capability.directive.md`
+still describes this issue as that directive's *highest-severity open item*
+("silent data loss at exit 0") as of its most recent update. That claim is
+stale — the fix (`d222975`) predates the directive note asserting it is
+still open. This issue's own file is corrected here; the directive text is
+left untouched — a separate pass is correcting DIR-019.
 
 ## Delivered by SPEC-055 (2026-07-26) — do not re-open
 

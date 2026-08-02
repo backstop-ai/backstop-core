@@ -6,8 +6,11 @@ issue:
   id: ISSUE-048
   title: "Reconcile Stranded Terminal Lineage — ISSUE-018 / ISSUE-036 Residual"
   type: technical-debt
-  status: open
+  status: closed
   created: "2026-07-08"
+  closed: "2026-08-02"
+
+resolved-by: 3a7a700
 
 complexity:
   scope: contained
@@ -16,6 +19,59 @@ complexity:
 ---
 
 # Reconcile Stranded Terminal Lineage — ISSUE-018 / ISSUE-036 Residual
+
+## Resolution
+
+All of this issue's scope — the four original problems and the two residual
+Problem-1 artifacts (ISSUE-018, ISSUE-036) the 2026-07-28 Scope update
+narrowed it to — is now delivered.
+
+**Problems 2/3 (terminal vocab + plan-task-test drift coverage), the
+keystone this issue's own scope narrowing depended on:** commit `3a7a700`
+("feat(ISSUE-048): obsoleted/resolved-by close vocab + plan-task-test drift
+coverage") landed the `obsoleted` terminal state and typed `obsoleted-by`
+pointer in `pkg/validate/terminal.go` — `isTerminalStatus` includes
+`"obsoleted"` in its terminal set at `:25`, `validateRetirementFields`
+requires a typed `obsoleted-by` via `validateTypedRetirementRef` at
+`:57-59`, and `extractObsoletedBy` reads the pointer at `:113`. All three
+mandated tests are present and pass: `TestClassifyArtifactStatus_ObsoletedIsRetiredTerminal`
+and `TestStatusDrift_ExcludesObsoletedArtifact`
+(`pkg/gate/artifact_status_obsoleted_test.go`), and
+`TestStatusDrift_CompletedPlanAbsentTaskTest_Blocks`
+(`pkg/gate/status_drift_plantests_test.go`) — re-run 2026-08-02, all green.
+
+**ISSUE-018 residual (CLM-007's 2 mandated tests):** resolved by repointing
+CLM-007 in-tree to the real, present, passing guard tests
+`TestCutover_NoCodeCheckStepInGateStepList` and
+`TestCutover_LintBuildTestRunThroughDispatchPackEngines`
+(`cmd/backstop/gate_cutover_step2_test.go:49,61`) — confirmed present at
+those exact lines. See ISSUE-018's own Resolution section for the
+mis-transcription history.
+
+**ISSUE-036 residual (CLM-008's 5 mandated pack claim ids):** the resolver
+gap this issue diagnosed (the drift resolver has no vocabulary for a
+pack-declared claim id, only Go test functions) was handed off to and
+delivered by ISSUE-098 (`closed`) — `PackClaimIndex` at
+`pkg/gate/pack_claims.go:32`, wired into the drift step at
+`cmd/backstop/gate.go:731`. Confirmed both land at the cited lines.
+ISSUE-036's own artifact was correctly left untouched, per the interim
+decision recorded in ISSUE-098: its five mandated claim ids resolve present
+on their own merits now that the resolver understands pack-side evidence,
+with no repoint needed.
+
+**Honest caveat:** the drift resolver's fix (ISSUE-098) was verified
+structurally here — code present at the cited lines, its own mandated tests
+passing — but a live `./bin/backstop gate` run confirming the
+`artifact_status_drift` violation count is actually 0 across the whole repo
+was **not** executed as part of this closure. Stating that plainly rather
+than implying a measured result.
+
+**Record-keeping drift, left as-is:**
+`plans/PLAN-ISSUE-048-obsoleted-resolvedby-vocab.plan.yml` is still
+`status: draft` even though the code it plans shipped in the very same
+commit (`3a7a700`) that authored the plan file. That plan file needs
+reconciling to `completed` (or otherwise) but is out of scope for this
+closure and was not edited here.
 
 ## Problem
 

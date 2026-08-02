@@ -112,6 +112,21 @@ clobbers an operator's manually-diverged edit to a recipe-owned file when the
 guarding `@waiver:` token carries a malformed reason code — a data-loss defect
 in `pkg/recipe/apply.go`'s waiver-divergence adjudication that `reportError`
 never touches, since it fails silently at exit 0.
+**Correction (2026-08-02):** ISSUE-080 is now `closed` (delivered by
+`PLAN-ISSUE-080`, commit `d222975`, 2026-08-02). The data-loss defect
+described in this paragraph is fixed: `preserveOrRegenerate`
+(`pkg/recipe/apply.go:392-399`) now REFUSES on an uncovered divergence
+carrying a malformed waiver diagnostic — it returns an error naming the file
+and the unparseable `@waiver` line and writes nothing; the silent-clobber-
+at-exit-0 branch this paragraph describes no longer exists in the code. The
+error reaches `cmd/backstop/recipe_apply.go:85` and becomes `ExitViolations`,
+so exit is 1, not 0. Guard test
+`TestRecipeApply_CLI_MalformedWaiverTokenSurfacesDiagnosticOnStderr`
+(`cmd/backstop/recipe_apply_divergence_e2e_test.go:169`) drives the built
+binary and PASSES (re-run 2026-08-02). This paragraph is left in place as
+the historical problem statement the fix closed — see the further
+correction below on the "Sequencing update" paragraph for what this means
+for this directive's priority ordering.
 
 **Sequencing update (2026-07-27) — ISSUE-079 closed, ISSUE-081 Gaps 1-2
 delivered.** The prior sequencing instruction ("ISSUE-079 next, ahead of
@@ -129,6 +144,37 @@ positions for Gaps 1 and 2 with Gap 3 explicitly left open, plus a residual
 (above), now this directive's **highest-severity open item** since it's
 silent data loss (regenerates a diverged file and exits 0 with no warning),
 ahead of ISSUE-081 Gap 3, which is authoring-surface polish by comparison.
+**Correction (2026-08-02) — ISSUE-080 delivered; "highest-severity open
+item" designation retired.** ISSUE-080 closed 2026-08-02 (`PLAN-ISSUE-080`,
+commit `d222975` — code evidence on the ISSUE-080 paragraph above). It is no
+longer open and is no longer a candidate for "next up" under this
+directive; a reader should not reach for it.
+
+Re-surveyed 2026-08-02 against this directive's actual `source:` list, by
+each cited issue's status on disk: ISSUE-079 closed, ISSUE-080 closed,
+ISSUE-085 closed. Open: ISSUE-081 (`status: open`, `risk: moderate` —
+narrowed to Gap 3 alone, insert placement semantics, plus a residual
+`Op.Payload` facet; Gaps 1 and 2 delivered by `PLAN-ISSUE-081`) and
+ISSUE-110 (`status: open`, `risk: safe` — recipe substitution has no escape
+syntax for foreign `{{ }}` templates, filed 2026-07-29). Between the two,
+ISSUE-081 carries the higher declared risk (`moderate` vs. `safe`), so
+**ISSUE-081 Gap 3 is now the highest-severity item among this directive's
+open cited issues.**
+
+But the largest uncovered scope under this directive is not an issue at
+all: **BUNDLE-015 REQ-018 (the CI recipe pack — this directive's own
+packs-only acceptance test) remains unbuilt.** Verified 2026-08-02:
+`recipes/` in this repo still contains only three empty `.gitkeep`
+placeholders (`go/`, `meta/`, `typescript/` — unchanged since the
+"Correction (2026-07-29)" note above), and no pack in the fleet ships a CI
+gate-workflow recipe — `backstop-ai/go-distribution`'s `recipes:` block is a
+RELEASE workflow, not the CI gate workflow REQ-018 calls for (see that same
+correction). REQ-018 is what this directive's own Description names as the
+blocking dependency for DIR-002 (`backstop init`): "`backstop init`'s spec
+cannot be written until the recipe capability it depends on exists." So,
+stated plainly: the highest-severity **open issue** under this directive is
+ISSUE-081 Gap 3; the largest **open scope gap**, and the one actually
+gating DIR-002, is BUNDLE-015 REQ-018.
 
 **ISSUE-085 (recipe-pack archetype gap) — delivered 2026-07-27.** A pack
 whose whole point is handing out scaffolds + recipes with no ruleset had no
@@ -194,3 +240,13 @@ within this directive, stated plainly: ISSUE-110 is authoring-surface
 polish, ranking BELOW ISSUE-080's recipe-specific remainder (this
 directive's highest-severity open item — silent data loss at exit 0), and
 roughly peer to ISSUE-081 Gap 3.
+**Correction (2026-08-02):** the "ranking BELOW ISSUE-080's recipe-specific
+remainder (this directive's highest-severity open item...)" clause above is
+stale — ISSUE-080 closed 2026-08-02 (`PLAN-ISSUE-080`, commit `d222975`;
+see the corrections on the ISSUE-080 paragraph and the "Sequencing update"
+paragraph above for the evidence). With ISSUE-080 out of the picture, this
+paragraph's own relative ordering still holds: ISSUE-081 Gap 3
+(`risk: moderate`) ranks above ISSUE-110 (`risk: safe`), and ISSUE-081 Gap 3
+is accordingly the highest-severity item among this directive's open cited
+issues. The larger open item overall is BUNDLE-015 REQ-018 (the CI recipe
+pack, unbuilt) — see the "Sequencing update" paragraph's correction above.
