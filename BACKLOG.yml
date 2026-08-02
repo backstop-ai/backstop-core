@@ -25,18 +25,24 @@
 # set is: recipes (DIR-019), remote pack consumption (DIR-026), Linux+CI
 # viability (DIR-024), and CI-driven releases (DIR-001) — see those
 # directives' Description/Notes for detail.
+#
+# UPDATE 2026-08-02: DIR-001 and DIR-026 have since been completed and
+# removed from the list per the convention below, so the paragraphs above
+# are history — two of the four named launch blockers are delivered and no
+# longer appear below.
 
+# Founder ruling (Brandon, 2026-08-02): BACKLOG.yml shows OPEN items only.
+# A directive that reaches status: done is removed from this list entirely
+# — not sunk to the bottom, not retained as a record. Delivery history
+# lives in the directive file's own status field and the artifacts that
+# delivered it; this list does not double as an audit log.
 directives:
   - id: DIR-019
     title: Pack Recipe Capability
-  - id: DIR-026
-    title: Remote Dependency Assembly
   - id: DIR-027
     title: Pack Fleet Publication & Migration
   - id: DIR-024
     title: Gate/Engine Quality
-  - id: DIR-001
-    title: Release Workflow
   - id: DIR-003
     title: Baseline Implementation
   - id: DIR-002
