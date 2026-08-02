@@ -21,6 +21,8 @@ directive:
     - "ISSUE-107"
     - "ISSUE-106"
     - "ISSUE-108"
+    - "ISSUE-112"
+    - "ISSUE-113"
 ---
 
 ## Description
@@ -609,6 +611,39 @@ directives' themes:
     contract violation blocks) is the expected floor, and core should show
     zero flips unless it declares a non-default severity on a contract
     entry.
+15. **Missing engine tool + no CrashGuard yields silently empty SARIF, a
+    vacuous `pack_engines` pass, and misleading downstream join violations
+    (ISSUE-112).** A findings engine whose tool is ABSENT from `PATH` fails
+    in the worst possible way when its binding carries no `CrashGuard`: the
+    runner's non-fatal `runErr` is discarded, the empty stdout flows through
+    convert (jq over empty stdin emits nothing), the lenient SARIF parse
+    reads zero findings, and `pack_engines` PASSES — while every downstream
+    consumer of that evidence is lied to. Two aggravators, both named in the
+    issue. First, the assume-present fail-loud in
+    `cmd/backstop/pack_gate_provision.go` EXEMPTS provision-declared tools
+    as "auto-provisioned," but provision is a TRUST ALLOWLIST PIN ONLY — no
+    code path installs anything, so provision-pinned tools (ast-grep,
+    semgrep) get NEITHER an install NOR a presence check. Second,
+    non-CrashGuard engines treat every non-zero/failed run as finding-free
+    (the `runErr` is discarded), so an exec-not-found error is
+    indistinguishable from a clean scan — even though `pkg/packval`'s
+    executor already fails loud on exactly this error class, giving the fix
+    an in-tree precedent to copy rather than invent. Direction:
+    presence-check provision-pinned tools exactly like assume-present ones
+    (fail loud, naming the tool and the install expectation, or implement
+    provisioning); make any `*exec.Error`-class failure (binary could not
+    start) fail loud for EVERY engine regardless of `CrashGuard`.
+16. **Classification matching zero test files should refuse loudly instead
+    of fabricating mass join violations (ISSUE-113).** When a pack's
+    classification globs match ZERO test files, the substantiveness join
+    silently emits a "does not call package X" violation for EVERY mandated
+    test — hundreds of misleading findings whose real cause (empty
+    classification) is named nowhere. Direction: extend the ISSUE-020
+    config-error refusal philosophy already delivered under this directive —
+    when mandated tests exist but the classifier matches zero test files (or
+    the substantiveness evidence set is empty while mandated tests exist),
+    the step REFUSES with a config-error naming its cause instead of
+    emitting per-test violations.
 
 ## Notes
 
@@ -837,3 +872,100 @@ in the paragraphs above: slotting ISSUE-108 here does NOT pre-empt the
 founder's pending decision on whether the gate-verdict-honesty cluster gets
 its own directive — if it does, this issue and the other DIR-024-slotted
 members move there together.
+Correction in place rather than a stale claim (verified against the corpus
+2026-08-02, not asserted): as of this writing ISSUE-104 and ISSUE-105 are
+both `status: closed`, and `PLAN-ISSUE-104` and `PLAN-ISSUE-105` are both
+`status: completed` (commit `87b12cf`, "close(ISSUE-104,105): severity-
+contract hops delivered — plans completed, issues closed"); ISSUE-106,
+ISSUE-107 and ISSUE-108 all now appear in this directive's own frontmatter
+`source:` list, immediately above. The one fragment of the original
+sentence that remains true: ISSUE-104 and ISSUE-105 are still cited by NO
+directive's frontmatter `source:` — they are named only in this file's
+prose.
+
+ISSUE-112 (slotted under the standing clear-fit grant, 2026-08-02) is a NEW
+member of the gate-verdict-honesty cluster (ISSUE-066, ISSUE-067, ISSUE-091,
+ISSUE-092, ISSUE-093, ISSUE-097, ISSUE-100, ISSUE-106) — the family where a
+verdict surface reads authoritative and silently isn't. With ISSUE-112 and
+ISSUE-113 the cluster now numbers TEN members. As with every prior slotting
+in this lineage, this does NOT pre-empt the still-pending founder decision
+on whether the cluster gets its own directive — if one is created, every
+DIR-024-slotted member moves together.
+Provenance is a FIRST-CONSUMER discovery, not a dogfood one: observed live
+in `bclabs-portal`'s first CI run on a GitHub runner, 2026-07-29 — ast-grep
+absent from `PATH` produced empty SARIF, `pack_engines` went green, the
+`test_substantiveness` join starved, and 397 false "does not call package"
+violations landed on innocent tests. Diagnosis took hours because nothing
+named the missing tool. A portal-side workaround shipped (explicit gitleaks
++ ast-grep installs in its CI workflow), so the filer is the blocked
+consumer working around the defect — in-flight coverage is nil by
+construction.
+The sharpest fact for whoever plans it, and it is a fleet-level asymmetry
+rather than one bug: the assume-present fail-loud in
+`cmd/backstop/pack_gate_provision.go` EXEMPTS provision-declared tools as
+"auto-provisioned," but provision is a TRUST ALLOWLIST PIN ONLY — no code
+path installs anything. So provision-pinned tools (ast-grep, semgrep)
+receive NEITHER an install NOR a presence check. The second half matters
+too: `pkg/packval`'s executor already fails loud on an exec-not-found
+error, but the gate dispatch path does not — the two paths disagree about
+what a missing binary means, so the fix has an existing in-tree precedent
+to copy rather than invent.
+Relationship to ISSUE-092 (`pack test` phase-3 fixtures cannot fail), which
+this directive already cites as its `risk: critical` first pick: both are
+false-green, but they sit at different layers — ISSUE-092 is the
+PACK-AUTHORING gate going vacuously green, ISSUE-112 is the CONSUMER gate
+going vacuously green. Fixing either does not close the other.
+
+ISSUE-113 (slotted under the standing clear-fit grant, 2026-08-02) carries
+an explicit founder ack recorded in the issue body: "Founder-ack'd (Brandon,
+2026-07-28) for slotting per PM flow (DIR-024 recommended)." This slot
+therefore executes a ruling rather than proposing one.
+It is the diagnosability sibling of ISSUE-112, and the two share one
+observed signature with two different root causes — hit twice in one week
+by `bclabs-portal`: (1) the published `typescript-substantiveness` 1.1.0
+shipping harness-baked classification globs, 397 false violations — staged
+in PM records as "ISSUE-102" but note that no `ISSUE-102` artifact exists
+in `issues/` as of this writing (verified: absent from the working tree and
+from git history alike; the PM inbox records that slot as decided but never
+applied; this flag is now RESOLVED, not outstanding — see the dead-ID
+paragraph immediately below for the founder ruling) — and (2) the
+missing-ast-grep case, which is ISSUE-112. Both cost
+hours; both would have been one line of output: "classification matched 0
+test files".
+Its direction explicitly EXTENDS the ISSUE-020 config-error refusal
+philosophy already delivered under this directive — when mandated tests
+exist but the classifier matches zero test files, the step REFUSES with a
+config-error naming its cause instead of emitting per-test violations. That
+makes it a continuation of shipped work in this directive, not a new
+mechanism.
+Sequencing note for a planner: ISSUE-112 and ISSUE-113 should be read as one
+arc and planned together, or ISSUE-113 immediately after ISSUE-112.
+ISSUE-112 makes the missing tool NAME ITSELF at the point of failure;
+ISSUE-113 makes the resulting empty evidence set REFUSE instead of
+fabricating per-test violations. Shipping only ISSUE-113 would convert one
+misleading failure mode into a different one without ever naming the absent
+binary; shipping only ISSUE-112 leaves the harness-baked-globs root cause
+(the never-filed, founder-ruled-dead "ISSUE-102" — see the dead-ID
+paragraph below) still producing the same silent mass-violation signature.
+
+Dead-ID correction, founder-ruled (Brandon, 2026-08-02): ISSUE-102 and
+ISSUE-103 are DEAD. Both were reasoned toward but never filed — no file in
+`issues/`, no add-commit anywhere in `git log --all --diff-filter=A`, and
+the on-disk ID sequence jumps straight from ISSUE-101 to ISSUE-104. Their
+git reservation tags (`backstop/issue/102`, `backstop/issue/103`) DO exist,
+though, so the numbers are consumed against artifacts nobody ever wrote.
+Ruling: do NOT refile either number under any circumstance; the burnt tags
+stay exactly as they are — a burnt-and-unused reservation tag still blocks
+re-issuance of that number, which is its whole purpose. This paragraph
+exists to head off one specific confusion: a reader who sees the issue
+corpus jump 101 → 104, or who follows this item's mention of the
+harness-baked-globs defect looking for a ticket, will find reservation tags
+with no artifacts behind them. That is intentional, not corruption, and not
+evidence of a lost or deleted file. ISSUE-113 (this same item, cited above)
+partially recaptures dead ISSUE-102's substance — the harness-baked
+classification-globs defect — and is the live home for that concern. Dead
+ISSUE-103's substance, `typescript-contracts` rejecting the bare-const
+variable-contract idiom as observed in `bclabs-portal`, is NOT recaptured
+anywhere and is NOT this directive's scope; if it resurfaces it needs a
+fresh ID (never 103), and DIR-022 ("Contracts Engine Hardening") is where it
+was reasoned to belong.
