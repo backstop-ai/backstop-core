@@ -38,7 +38,7 @@ jobs:
           # here would drift against go.mod silently.
           go-version-file: go.mod
 
-      - name: Install golangci-lint binary
+      - name: Install Layer-0 analyzer binaries
         # TWO FACTS, and consolidating these pins later brings the break back:
         #
         #  1. It must be a real BINARY on PATH. provisionEngines resolves the
@@ -51,6 +51,9 @@ jobs:
         run: |
           curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh \
             | sh -s -- -b "$(go env GOPATH)/bin" v2.6.0
+          # Declared by backstop-core-architecture as an assume-present Layer-0
+          # analyzer; the pack owns the command and requires this pinned version.
+          go install github.com/fe3dback/go-arch-lint@v1.16.0
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: Install provisioned engine tools at their allowlist pins
@@ -186,7 +189,7 @@ jobs:
       # without them and its first ever run (main, 30398137055) died exactly that way.
       # Job parity is asserted by TestCIWorkflow_BaselineJobInstallsTheSameToolsAsGate
       # so the two cannot silently diverge again.
-      - name: Install golangci-lint binary
+      - name: Install Layer-0 analyzer binaries
         # TWO FACTS, and consolidating these pins later brings the break back:
         #
         #  1. It must be a real BINARY on PATH. provisionEngines resolves the
@@ -199,6 +202,9 @@ jobs:
         run: |
           curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh \
             | sh -s -- -b "$(go env GOPATH)/bin" v2.6.0
+          # Declared by backstop-core-architecture as an assume-present Layer-0
+          # analyzer; the pack owns the command and requires this pinned version.
+          go install github.com/fe3dback/go-arch-lint@v1.16.0
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: Install provisioned engine tools at their allowlist pins

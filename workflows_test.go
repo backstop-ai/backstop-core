@@ -1074,7 +1074,7 @@ func TestCIWorkflow_LeavesNoUngitignoredDroppings(t *testing.T) {
 // TestCIWorkflow_BaselineJobInstallsTheSameToolsAsGate is the STRUCTURAL fix for how
 // the baseline job broke, rather than a fix for the breakage itself.
 //
-// The gate job installed golangci-lint and the provisioned engine tools; the baseline
+// The gate job installed its Layer-0 analyzers and provisioned engine tools; the baseline
 // job did not — and nothing noticed, because the baseline job had NEVER SUCCESSFULLY
 // RUN. Its first execution (main, 30398137055) failed at provisionEngines, which fails
 // loud when a Layer-0 tool is missing from PATH. Both jobs run a gate, so both need
@@ -1092,7 +1092,7 @@ func TestCIWorkflow_BaselineJobInstallsTheSameToolsAsGate(t *testing.T) {
 	}
 
 	// Every tool the gate job puts on PATH must also be on the baseline job's PATH.
-	for _, tool := range []string{"golangci-lint", "semgrep", "ast-grep"} {
+	for _, tool := range []string{"golangci-lint", "go-arch-lint", "semgrep", "ast-grep"} {
 		inGate := anyStep(gateJob, func(s workflowStep) bool { return strings.Contains(stepScript(s), tool) })
 		inBaseline := anyStep(baselineJob, func(s workflowStep) bool { return strings.Contains(stepScript(s), tool) })
 		if inGate && !inBaseline {

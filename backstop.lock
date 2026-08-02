@@ -1,4 +1,12 @@
 packs:
+    backstop-ai/backstop-core-architecture:
+        content_hash: 17e19916130d5b55c0659e13f4fa0e7bb52eaaf66e028965e40dad0ef76d1e89
+        git_ref: v0.1.1
+        install_date: 2026-08-01T20:29:02Z
+        name: backstop-ai/backstop-core-architecture
+        source_coordinate: backstop-ai/backstop-core-architecture
+        source_type: git
+        version: 0.1.1
     backstop-ai/backstop-self:
         content_hash: d8035e8489130744957ea1c6f9f5c1bcd564d1b21f564e7d2fc89b9f090286fc
         git_ref: v1.1.2
