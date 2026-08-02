@@ -68,12 +68,11 @@ than core mechanism:
 
    **Correction, 2026-08-02 (verified against `backstop.lock`):** the claim
    above that `backstop-core` still resolves any pack locally is now false.
-   `backstop.lock` holds seven entries, and **all seven** are
-   `source_type: git` at `backstop-ai/*` coordinates, zero `local_path`
-   entries: `backstop-core-architecture@0.1.1`, `backstop-self@1.1.2`,
-   `cobra-cli-standards@0.2.1`, `go-contracts@1.2.0`, `go-standards@1.2.1`,
-   `go-substantiveness@1.2.0`, `go-toolchain@1.3.0`. What that does and does
-   not mean for this directive's own acceptance criteria:
+   `backstop-core` no longer resolves any pack locally — every entry in
+   `backstop.lock` is `source_type: git` at a `backstop-ai/*` coordinate,
+   with zero `local_path` entries (see `backstop.lock` for the current set).
+   What that does and does not mean for this directive's own acceptance
+   criteria:
    - Thread 1 **tier 1 is delivered**: `go-contracts` and
      `go-substantiveness` are published under the `name == coordinate`
      convention and `backstop-core` consumes both remotely.
@@ -88,16 +87,6 @@ than core mechanism:
      `bclabs-portal`, `stash`, and `backstop-harness` were not re-verified
      as part of this correction and their lock state is unknown as of this
      writing — do not read this as fleet-wide completion of thread 3.
-   - The seventh lock entry, `backstop-ai/backstop-core-architecture@0.1.1`,
-     is a distinct pack from `backstop-harness-architecture-pack` discussed
-     in thread 2 below (verified on disk: the harness pack is still
-     `backstop-ai/backstop-harness-architecture-pack` at manifest `0.1.0`,
-     unpublished-tag state unchanged). `backstop-core-architecture`'s home
-     — whether it belongs to this directive, some other directive, or its
-     own — was ruled and closed on 2026-08-02: no directive, issue, or
-     bundle tracks this pack — a clean pack addition with no defect and no
-     ongoing work needs no artifact, and `backstop.yml` + `backstop.lock` +
-     the adopting commit + CI are the complete self-verifying record.
    - Thread 2 is otherwise untouched: `backstop-harness-toolchain-pack`
      (manifest `0.1.3`) and `backstop-harness-architecture-pack` (manifest
      `0.1.0`) both still carry the old `-pack` suffix, confirmed on disk at
