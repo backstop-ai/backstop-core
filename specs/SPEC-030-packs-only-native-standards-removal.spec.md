@@ -2,9 +2,9 @@
 title: "SPEC-030: Packs-Only — Native Standards Removal"
 number: SPEC-030
 created: "2026-06-16"
-status: draft
+status: implemented
 schema_version: spec/v1
-spec_version: 2.1.1
+spec_version: 2.2.0
 
 implementation:
   summary: >
@@ -309,27 +309,14 @@ contracts:
       - source: pkg/check/manifest.go
         name: defaultManifest
         kind: function
-  - file: cmd/backstop/gate.go
-    provides:
-      - name: (*realCodeChecker).runCheck
-        kind: method
-        signature: "func (c *realCodeChecker) runCheck(ctx context.Context, mode check.ScopeMode, files []string) ([]gate.Violation, error)"
-        notes: >
-          This method is the gate's check.Options construction site (the
-          assignment that today sets ManifestDir: filepath.Join(backstopDir,
-          "rules")). Its Options construction no longer sets ManifestDir;
-          semgrep rule config comes only from ExtraSemgrepConfigs (carried via
-          c.extraSemgrepConfigs, populated by mergePackRules in buildGateSteps).
-          buildGateSteps itself builds gate StepFuncs and constructs no
-          check.Options; it is unchanged by REQ-002 except that it no longer
-          supplies a ManifestDir.
-    consumes:
-      - source: cmd/backstop/pack_gate.go
-        name: loadInstalledPacks
-        kind: function
-      - source: cmd/backstop/pack_gate.go
-        name: mergePackRules
-        kind: function
+  # The cmd/backstop/gate.go contract block was REMOVED at spec_version 2.2.0.
+  # Its sole provides entry declared `(*realCodeChecker).runCheck` as PRESENT —
+  # the exact opposite of what this spec delivers. That symbol was deliberately
+  # DELETED (SPEC-040 keystone cutover); a grep of non-test source returns zero
+  # matches and cmd/backstop/cutover_deletion_test.go's
+  # TestCutover_RealCodeCheckerDeleted guards the absence. Nothing replaced it:
+  # the responsibility moved to pack-driven engine dispatch, so there is no
+  # successor symbol to re-declare. See Version History (2.2.0).
   - file: cmd/backstop/code_check.go
     provides: []
     consumes:
@@ -871,6 +858,51 @@ distinguish "rules enforced" from "rules vanished".
 
 ## Version History
 
+- **2.2.0** (2026-08-02) — Status → `implemented` (founder-approved closure), plus the one
+  contract removal that closure required. **Contract removed first, deliberately:** contract
+  enforcement activates only at terminal status (`contractsAreDue`,
+  `pkg/gate/step_testverify.go`), so a stale contracts block is inert while non-terminal and
+  goes LIVE on this flip. The `cmd/backstop/gate.go` block's sole `provides` entry declared
+  `(*realCodeChecker).runCheck` as PRESENT — the exact inverse of what this spec delivers.
+  That symbol was deliberately DELETED by the SPEC-040 keystone cutover: a grep of non-test
+  source returns zero matches for `realCodeChecker`, and
+  `cmd/backstop/cutover_deletion_test.go`'s `TestCutover_RealCodeCheckerDeleted` asserts that
+  absence as a standing guarantee. It was NOT replaced with a successor symbol, because
+  nothing replaced `realCodeChecker` — the responsibility moved to pack-driven engine dispatch
+  (`dispatchPackEngines`). Removing the entry emptied that file's `provides` list, so the
+  whole `cmd/backstop/gate.go` block was removed rather than left as a hollow shell; its two
+  `consumes` declarations went with it (`consumes` is not gate-enforced — `ExtractContractEntries`
+  reads `provides` only — and one of the two, `mergePackRules`, no longer exists either). The
+  entry was a leftover of **REQ-002**, retired at 2.0.0; the surviving REQ set
+  (REQ-001/005/006/007) makes no promise about `cmd/backstop/gate.go`. The surviving
+  `pkg/check/check.go` `semgrepExecutor` entry is an `absent: true` deletion guard and was
+  re-verified: zero non-test hits for `semgrepExecutor`, and its scope file
+  `pkg/check/check.go` still exists (an absence over a missing scope would be a loud config
+  error, not a silent pass).
+
+  **Delivery verified at closure — each item is an ABSENCE, so each is directly checkable:**
+  `pkg/compile/` does not exist (CLM-021); `.backstop/rules/` does not exist (CLM-013);
+  `standards/go/` does not exist (CLM-014); zero non-test hits for `ExtraSemgrepConfigs`,
+  `semgrepExecutor`, and `EnsureSemgrep` — the only matches are the deletion-guard scanners in
+  `pkg/check/semgrep_removal_test.go` (CLM-002/003/023). The dogfood pack is consumed
+  REMOTELY, not vendored: `backstop.yml` declares `backstop-ai/go-standards: 1.2.1` and
+  `backstop.lock` carries the matching entry with `git_ref: v1.2.1`,
+  `source_type: git`, `source_coordinate: backstop-ai/go-standards` (CLM-016/017). All
+  mandated tests exist as real functions — 12 tests across the 11 live claims
+  (CLM-017 mandates two).
+
+  **Known staleness recorded, NOT fixed:** the claim text throughout names the pack
+  `backstop/go-standards`, while the tree uses `backstop-ai/go-standards` — the DIR-027 fleet
+  migration renamed the namespace. Same pack, new namespace; the test constant was updated
+  accordingly (`cmd/backstop/dogfood_pack_test.go:13`,
+  `const dogfoodPackName = "backstop-ai/go-standards"`). The claims are deliberately left
+  unrewritten: the rename is a namespace migration recorded elsewhere, not a change in what
+  this spec delivered, and rewriting settled claim text at closure would obscure that.
+  Likewise NOT touched: the `cmd/backstop/code_check.go` contract block names a file that no
+  longer exists and consumes symbols that no longer exist (`check.Options`, `mergePackRules`).
+  It is inert under contract enforcement (`provides: []`), so it does not block this flip and
+  is left for a follow-up sweep rather than silently widened into this change. No requirement,
+  claim, or verification config was altered — contract removal + lifecycle transition only.
 - **2.1.1** (2026-07-07) — Migrated the spec-level target key from
   `implementation.package: pkg/check` to `implementation.subject: pkg/check`
   (ISSUE-047: the `test_substantiveness` noTarget guard is now language-neutral —

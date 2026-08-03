@@ -4,7 +4,7 @@ number: SPEC-018
 created: "2026-05-20"
 status: ready-for-implementation
 schema_version: spec/v1
-spec_version: 1.0.1
+spec_version: 1.1.0
 
 source:
   directive: DIR-011
@@ -175,14 +175,10 @@ contracts:
         kind: function
   - file: cmd/backstop/gate.go
     provides:
-      - name: gateCmd
-        kind: variable
-        signature: "var gateCmd *cobra.Command"
-        notes: "Registers --all and --file scope flags on the gate command"
       - name: newGateCommand
         kind: function
         signature: "func newGateCommand(jsonFlag *bool) *cobra.Command"
-        notes: "Cobra command registers --all and --file, defaults execution to diff mode, and validates --all/--file mutual exclusion before running gate steps"
+        notes: "The constructor IS the package-level surface for this file: it builds the Cobra gate command, registers --all and --file, defaults execution to diff mode, and validates --all/--file mutual exclusion before running gate steps. The command VALUE is a function-local (`gateCmd := newGateCommand(&jsonFlag)` in cmd/backstop/root.go, consumed by rootCmd.AddCommand there) and is therefore not a declarable contract symbol."
     consumes: []
   - file: pkg/gate/output.go
     provides:
@@ -284,6 +280,84 @@ by this spec.
 - CI environment auto-detection for mode selection
 
 ## Version History
+
+- **1.1.0** (2026-08-02) — **Delivery verified; closure BLOCKED on multi-target claim
+  subjects.** Status stays `ready-for-implementation`. A flip to `implemented` was attempted
+  in this edit and REVERTED — the claims mandate tests in TWO packages and the single
+  spec-level subject cannot express that; splitting claims is required and was not
+  authorized. See "Closure blocked" below. The one contract correction from that attempt is
+  KEPT, because it is correct independent of the status question.
+
+  **Delivery verified.** **Delivered by** commit `c976408`
+  ("feat: BUNDLE-008 — scope gate checks to changed files"), which added `pkg/gate/scope.go`,
+  the `cmd/backstop/gate.go` threading, and this spec's plan in one change. **Verified present
+  in the tree:** REQ-001 diff default with untracked files (`cmd/backstop/gate.go`
+  — `scopeMode := gate.GateScopeModeDiff` with no flags; `pkg/gate/scope.go` merge-base
+  cascade plus `git ls-files --others --exclude-standard`); REQ-002 `--all` →
+  `gate.GateScopeModeAll`; REQ-003 `--file` plus the mutual-exclusion refusal
+  (`"config: --all and --file are mutually exclusive"` returned as `ExitConfigError`, exit 2);
+  REQ-004 single computation (one `gate.ComputeGateScopeWithBase` call at gate start, threaded
+  to the steps — no step recomputes); REQ-005 (a)–(f) all threaded through `*GateScope`;
+  REQ-007 the summary line verbatim in `pkg/gate/output.go`
+  (`"Gate running against %d changed files (use --all for full sweep).\n"`); REQ-009 the
+  empty-diff message (`"Gate found no changed files; scoped checks have no files to inspect."`)
+  with the always-run structural steps intact. All 11 mandated tests exist as real functions.
+  **Contract correction (load-bearing, not cosmetic).** The `cmd/backstop/gate.go` contract
+  declared a package-level `gateCmd` (`kind: variable`, `signature: "var gateCmd
+  *cobra.Command"`). No such package-level variable has ever existed: `gateCmd` is a
+  FUNCTION-LOCAL in `cmd/backstop/root.go` (`gateCmd := newGateCommand(&jsonFlag)`, consumed
+  two dozen lines later by `rootCmd.AddCommand(...)`). A local is not a contract surface, so
+  that entry was unsatisfiable by construction. It is removed; the real declarable symbol on
+  this surface — the constructor `func newGateCommand(jsonFlag *bool) *cobra.Command`, read
+  verbatim from `cmd/backstop/gate.go` — was already declared alongside it, so the fix is a
+  de-duplication onto the true symbol, with the removed entry's note folded into the
+  constructor's. The ordering matters: contract enforcement activates only at terminal status
+  (`contractsAreDue`, `pkg/gate/step_testverify.go`), and only `provides` entries become
+  gate-dispatched `ContractEntry` records (`ExtractContractEntries`) — so the stale entry was
+  inert while `ready-for-implementation` and would have gone live, red, on the attempted flip.
+  With the flip reverted it is inert again, but the fix is RETAINED so the eventual closure is
+  clean on this dimension. The
+  three surviving `provides` signatures were re-read against the tree and match:
+  `type GateScope struct` and `func ComputeGateScope(projectRoot string, mode GateScopeMode,
+  files []string) (*GateScope, error)` (`pkg/gate/scope.go`), and
+  `func FormatHuman(result GateResult, noColor bool) string` (`pkg/gate/output.go`).
+  DIR-011 is this spec's own parent directive and is already `done` — the same work, not rival
+  work.
+
+  **Closure BLOCKED — root cause.** The attempted flip to `implemented` produced SIX new
+  `test_substantiveness` violations on a full gate run, all of the form `test function X does
+  not call package backstop`. This spec declares `implementation.package: cmd/backstop` and no
+  `subject:`; `implementationSubject` (`pkg/gate/step_testverify.go`) coalesces onto the
+  deprecated `package` alias, and `TargetPackageName` (`pkg/gate/substantiveness_join.go`)
+  reduces `cmd/backstop` to the opaque token `backstop`. But SPEC-018 is genuinely
+  MULTI-TARGET — it threads scope through BOTH `cmd/backstop` (flag registration, mutual
+  exclusion) and `pkg/gate` (`GateScope`, per-step filtering, output). Six of its eleven
+  mandated tests live in `package gate`: `TestGateScope_IncludesUntrackedFiles`,
+  `TestGateScope_ComputedOnce` and `TestGate_EmptyDiff` (`pkg/gate/scope_test.go`),
+  `TestGateSteps_FilterToChangedFiles` and `TestGateSteps_PackLockAlwaysRuns`
+  (`pkg/gate/step_delegate_test.go`), and `TestGateOutput_ScopeSummary`
+  (`pkg/gate/output_test.go`). None is colocated with `backstop` and none references it, so
+  the noTarget set-join raises for all six. The join is behaving exactly as designed and the
+  tests are substantive — they DO call the package they verify. The spec's single-target
+  metadata is what is wrong. The findings were dormant only because the noTarget join is
+  implemented-only (`ContractsAreDue`, applied in `buildTestSubstantivenessStep`,
+  `cmd/backstop/gate.go`, ISSUE-054); terminal-status enforcement is what woke them.
+
+  **Why the supported fix does not reach.** Per-claim `subject:` overrides exist for exactly
+  this case (ISSUE-047, honored in `ExtractMandatedTests`), and they resolve eight of the nine
+  claims: CLM-002 and CLM-003 are wholly `cmd/backstop` and would inherit the spec default;
+  CLM-004, CLM-005, CLM-006, CLM-007 and CLM-009 are wholly `pkg/gate` and would take
+  `subject: pkg/gate`; CLM-008 is already exempt via `kind: absence` (its test lives in
+  `pkg/validate/spec_test.go`). **CLM-001 is the blocker: it mandates BOTH
+  `TestGate_DefaultsToDiffMode` (`cmd/backstop/gate_test.go`, `package main`, referencing no
+  `gate.` symbol) and `TestGateScope_IncludesUntrackedFiles` (`pkg/gate/scope_test.go`,
+  `package gate`).** A subject is one value per claim: `pkg/gate` clears the second test and
+  raises a NEW noTarget on the first, while `cmd/backstop` leaves the second raised. Satisfying
+  both requires SPLITTING CLM-001 into a cmd-scoped claim and a gate-scoped claim — a change to
+  claim structure that was not authorized in this edit. Status is therefore reverted rather
+  than closed with a knowingly-red gate or with a subject that mis-describes the claim.
+  Closure unblocks once CLM-001 is split: every claim is then single-package and per-claim
+  subjects finish the job. No requirement, claim, or test-name text changed.
 
 - **1.0.1** (2026-07-07) — Marked CLM-008 `kind: absence`.
   `TestSpec010Req012Superseded` is a structural supersession assertion over

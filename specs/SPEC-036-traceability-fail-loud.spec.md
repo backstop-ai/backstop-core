@@ -4,7 +4,7 @@ number: SPEC-036
 created: "2026-06-22"
 status: draft
 schema_version: spec/v1
-spec_version: 1.1.0
+spec_version: 1.1.1
 
 implementation:
   summary: >
@@ -409,12 +409,27 @@ contracts:
       - name: DimensionSubstantiveness
         kind: constant
         signature: "DimensionSubstantiveness TraceabilityDimension = \"substantiveness\""
+        notes: >
+          NOT CURRENTLY EXPRESSIBLE — leave as written; do not reword to make the gate
+          pass. This constant is a member of a GROUPED `const ( … )` block
+          (pkg/gate/traceability_polarity.go:41-54). The go-contracts compiler
+          (`scripts/compile-signature.sh`) dispatches on the signature's LEADING TOKEN and
+          has no `const_spec`-aware pattern: a bare `Name Type = "v"` falls to the
+          struct-field branch (no match), and the `const `-prefixed form compiles to
+          `const Name = $$$`, which targets a `const_declaration` node and therefore does
+          not match a member inside a group either. No expressible signature form matches.
+          The fix belongs in the PACK (const_spec-aware compile path, bump, relock) — never
+          in this spec. In particular, do NOT collapse these three entries into the
+          enclosing `type TraceabilityDimension string` entry: that is a spec-side scar for
+          a pack-side defect and is explicitly unauthorized. See Version History 1.1.1.
       - name: DimensionCoverage
         kind: constant
         signature: "DimensionCoverage TraceabilityDimension = \"coverage\""
+        notes: "NOT CURRENTLY EXPRESSIBLE — same grouped-const compiler gap as DimensionSubstantiveness; leave as written, fix the go-contracts pack. See Version History 1.1.1."
       - name: DimensionContracts
         kind: constant
         signature: "DimensionContracts TraceabilityDimension = \"contracts\""
+        notes: "NOT CURRENTLY EXPRESSIBLE — same grouped-const compiler gap as DimensionSubstantiveness; leave as written, fix the go-contracts pack. See Version History 1.1.1."
       - name: PolarityClass
         kind: type
         signature: "type PolarityClass int"
@@ -423,7 +438,19 @@ contracts:
         signature: "func ClassifyDimension(cfg *config.Config, dim TraceabilityDimension, cap CapabilityState) PolarityClass"
       - name: CapabilityState
         kind: type
-        signature: "type CapabilityState struct { Present bool; Working bool; PackOrCommand string; Detail string }"
+        signature: "type CapabilityState struct { Present bool; Working bool; PackOrCommand string; Detail string; Stack string }"
+        notes: >
+          Corrected from four fields to five, verified against
+          pkg/gate/traceability_polarity.go:88-94. `Stack` is the cosmetic stack label
+          stamped by cmd/backstop's deriveCapabilityState from the SET of declared
+          toolchain-pack NAMES; it REPLACES the retired language-derived stack label —
+          pkg/gate no longer reads any config language field. This correction is a
+          DOCUMENTATION fix, not an enforcement fix: the go-contracts compiler renders a
+          `type ` signature as `type CapabilityState $$$`, which is FIELD-AGNOSTIC, so the
+          stale four-field text and the correct five-field text compile to the identical
+          pattern and both match. The drift could never have turned the gate red. It is
+          corrected because the spec should say what the code says, and it holds
+          regardless of this spec's status.
       - name: PolarityStepResult
         kind: function
         signature: "func PolarityStepResult(stepName string, dim TraceabilityDimension, class PolarityClass, cfg *config.Config, cap CapabilityState) StepResult"
@@ -745,6 +772,91 @@ summary surface is covered by a claim asserting the warned count appears in the
 
 ## Version History
 
+- **1.1.1** (2026-08-02, status stays `draft`) — **Delivery VERIFIED; closure BLOCKED on a
+  `go-contracts` pack expressiveness gap.** A closure flip to `implemented` was authored and
+  then REVERTED in this same revision. Do not simply re-flip it — read the blocker below
+  first. No requirement, claim, or exit-polarity text changed; one contract signature was
+  corrected.
+
+  **Why the revert (the blocker).** Contract enforcement extracts `provides` entries ONLY at
+  terminal status (`ExtractContractEntries` → `contractsAreDue`, `pkg/gate/step_testverify.go`),
+  so this spec's contracts block is inert while non-terminal and goes LIVE on exactly that
+  flip. Three entries — `DimensionSubstantiveness`, `DimensionCoverage`, `DimensionContracts` —
+  produce NO MATCH under the real `go-contracts` compiler, so flipping today would inject
+  three real, blocking `contract_signature` violations into the gate. Root cause is a PACK
+  EXPRESSIVENESS GAP in `backstop-ai/go-contracts`: `scripts/compile-signature.sh` dispatches
+  on the signature's LEADING TOKEN and has no `const_spec`-aware pattern. The three constants
+  are members of a GROUPED `const ( … )` block (`pkg/gate/traceability_polarity.go:41-54`),
+  and no expressible signature form matches one — the bare `Name Type = "v"` form falls
+  through to the struct-field branch (no match), and the `const `-prefixed form compiles to
+  `const Name = $$$`, which targets a `const_declaration` node, not a `const_spec` inside a
+  group. Per this repo's standing convention the fix belongs in the PACK: fix it, bump it,
+  relock — never as a spec-side scar. The interim workaround of replacing the three constant
+  entries with the enclosing `type TraceabilityDimension string` entry was considered and is
+  NOT authorized; the entries are left as written, with notes, precisely so the gap stays
+  visible. Closing anyway would trade a documentation defect for a live gate failure.
+
+  **What must happen before this spec can close.** `backstop-ai/go-contracts` gains a
+  `const_spec`-aware compile path (or an equivalent expressible form for a grouped-const
+  member), is version-bumped, and is relocked here. Once the three entries compile to a
+  pattern that matches, the flip to `implemented` is MECHANICAL — the delivery evidence
+  below already holds.
+
+  **Delivery evidence (verified in tree, unchanged by the revert).** Delivered by commit
+  `3fdf96e` ("feat(SPEC-036): implement traceability fail-loud (BUNDLE-009 Seed 1) —
+  impl-reviewed PASS"). The three mutually-exclusive polarity classes (`ClassBrokenDeclared` /
+  `ClassCapabilityAbsent` / `ClassDeclaredIntentUnmet`, plus `ClassNone` for
+  declared-and-working) at `pkg/gate/traceability_polarity.go:40-54`, with the classifier
+  `ClassifyDimension` at `:144-176`; broken-declared blocks (`:147-149` unknown gate_type,
+  `:158-162` present-but-not-working); capability-absent warn-and-pass (`:168-172`);
+  declared-intent-unmet blocks (`:154-157`); the waive suppressing class 2 ONLY (`:182-192`).
+  Wiring is live in `cmd/backstop/gate.go` — `wrapTraceabilityStep` applied to all three
+  dimensions at `:746` (substantiveness / coverage / contracts) with `deriveCapabilityState`
+  at `:377-397`. All 30 mandated tests exist as real functions.
+
+  **Contract correction — kept, and it is NOT an enforcement story.** The declared
+  `CapabilityState` signature was corrected from four fields to the five the tree carries
+  (`pkg/gate/traceability_polarity.go:88-94`): `Stack string` was added by SPEC-046 and
+  replaces the retired language-derived stack label — `pkg/gate` no longer reads any config
+  language field. **This drift would NOT have turned the gate red.** The compiler renders a
+  `type ` signature as `type CapabilityState $$$`, which is FIELD-AGNOSTIC: the stale
+  four-field text and the correct five-field text compile to the identical pattern and both
+  match. It was a DOCUMENTATION defect, not an enforcement risk — a distinct finding from the
+  grouped-const gap above, which is the real blocker. The correction is kept because it is
+  right regardless of status. Every other `provides` entry (`TraceabilityDimension`,
+  `PolarityClass`, `ClassifyDimension`, `PolarityStepResult`, `ToolchainPass`, `GateResult`,
+  `buildGateSteps`) was re-checked against the tree and matches.
+
+  **Known note-level staleness, recorded rather than rewritten:** the `buildGateSteps`
+  contract entry's note still describes the retired `cfg.Language` + baked-Go-analyzer
+  derivation. The SIGNATURE itself is accurate (`cmd/backstop/gate.go:647`), so the entry
+  cannot fail enforcement; only the prose is dated.
+
+  **Caveat 1 — REQ-003's stated MECHANISM was superseded; do NOT read the delivery evidence
+  as "REQ-003 shipped exactly as specified."** REQ-003 as written mandates deriving the
+  `CapabilityState` from `cfg.Language` joined against baked-Go-analyzer presence. The tree
+  derives it from INSTALLED-PACK presence instead —
+  `deriveCapabilityState(packs []*pack.Manifest, dim gate.TraceabilityDimension, stack string)`
+  (`cmd/backstop/gate.go:384`) — because the `language:` field was retired by the packs-only
+  cutover and all three baked analyzers were deleted (SPEC-037 substantiveness, SPEC-038
+  contracts, SPEC-041 coverage; SPEC-046 retired the language-derived stack label). The
+  REQ's INTENT — an undeclared dimension with no capability lands in class 2 (warn, exit 0),
+  never a silent pass and never a mis-applied analyzer — is delivered and enforced. Its
+  literal wording is not. Consequently `TestCapabilityState_NonGoProject_DerivesAbsentClass2`
+  (`cmd/backstop/gate_capability_test.go:17`) was rewritten to assert pack-keying (it now
+  discards the `typescript` config arm outright, `_ = tsCfg`) and no longer proves REQ-003
+  as literally worded. REQ text is deliberately left unchanged: this revision does not edit
+  requirements, and the drift is recorded rather than papered over. It should be reconciled
+  before or at closure.
+
+  **Caveat 2 — this spec is NOT superseded by SPEC-052.** They are homonyms, not rivals.
+  SPEC-036 is the POLARITY / CLASSIFICATION layer over the three traceability dimensions
+  (`pkg/gate/traceability_polarity.go`); SPEC-052 is the `requirement_traceability` GATE STEP
+  (`pkg/gate/requirement_traceability.go`) — a different file, a different subject, and a
+  different bundle. Neither replaces the other.
+
+  **Caveat 3 — DIR-021 being `queued` does not bear on this spec's closure.** That directive
+  scopes LATER traceability hardening, not this BUNDLE-009 Seed-1 delivery.
 - **1.1.0** (2026-06-22) — Corrective pass closing the spec-reviewer re-review FAIL on
   three issues. (1) **Wiring-verification gap:** the classifier-in-front-of-the-analyzer
   wiring lives in `cmd/backstop/gate.go`, outside the original `pkg/gate`/`pkg/config`
