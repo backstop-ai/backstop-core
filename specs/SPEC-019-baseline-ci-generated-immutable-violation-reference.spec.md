@@ -2,9 +2,9 @@
 title: "SPEC-019: Baseline — CI-Generated Immutable Violation Reference"
 number: SPEC-019
 created: "2026-05-25"
-status: ready-for-implementation
+status: implemented
 schema_version: spec/v1
-spec_version: 1.0.1
+spec_version: 1.1.0
 
 source:
   directive: DIR-012
@@ -503,6 +503,40 @@ changed-code regressions.
 
 ## Version History
 
+- **1.1.0** (2026-08-02) — Status → `implemented` (founder-approved closure). Delivered by
+  commit `528f20c` ("feat: add baseline gate support"), which landed both halves of the
+  subsystem in one change. **Producer verified present:** the `.github/workflows/ci.yml`
+  `baseline` job runs `./backstop baseline generate` and publishes the JSON via
+  `actions/upload-artifact` as `backstop-baseline-v1`. **Consumer verified present:**
+  `backstop baseline pull` exists (`cmd/backstop/baseline.go` — `Use: "pull"`, handler
+  `runBaselinePull`, registered through `newBaselineCommand` from `cmd/backstop/root.go`);
+  TTL caching is enforced on every gate run in `cmd/backstop/gate.go` via
+  `resolveBaselineCache` (fresh → use; expired → refresh; refresh fails → stale-with-warning;
+  none → skip with an actionable message) with `defaultBaselineTTL = 15 * time.Minute` in
+  `pkg/config/config.go`; differential reporting ("N new violations beyond baseline") is in
+  `pkg/gate/output.go`. All 24 mandated tests exist as real functions. Every declared
+  contract signature was re-verified against the tree at closure time — `BaselineArtifact`,
+  `LoadBaseline`, `WriteBaseline`, `CompareBaseline` (`pkg/gate/baseline.go`),
+  `buildGateSteps` (`cmd/backstop/gate.go`), `newBaselineCommand` / `runBaselinePull`
+  (`cmd/backstop/baseline.go`), and `Violation` (`pkg/gate/result.go`) — all match. That
+  re-verification is load-bearing rather than ceremonial: contract enforcement activates
+  when a spec becomes `implemented` (`pkg/gate/step_testverify.go`, `contractsAreDue`), so a
+  stale contracts block is inert while non-terminal and goes live on this flip. No
+  requirement, claim, or contract text changed — lifecycle transition only.
+
+  **Caveat 1 — two mandated tests are THIN and should not be mistaken for proof.**
+  `TestGate_BaselineCacheLifecycle_FreshCacheNoNetwork_Contract` and
+  `TestGate_BaselineCacheLifecycle_ExpiredRefreshAndOfflineFallback_Contract`
+  (`cmd/backstop/gate_test.go`) only assert that the gate exits 1, and the latter's
+  `for _, mode := range []string{"refresh", "offline-fallback"}` loop runs an identical body
+  twice while asserting nothing mode-specific. The production cache ladder behind REQ-007 /
+  CLM-006 is real and was read directly; these two tests are weak evidence for it. Their
+  presence satisfies the claim mechanically, not substantively.
+
+  **Caveat 2 — this closure is narrow.** It does NOT resolve ISSUE-086 (the question of the
+  published baseline's pack-engine quality), and it does NOT bear on DIR-003's
+  founder-ratified coverage-baseline-refresh hold, which remains in force. DIR-003 is
+  `active` because of that hold, not because this spec was unbuilt.
 - **1.0.1** (2026-07-07) — Marked CLM-013 and CLM-016 `kind: absence`. Both mandated
   tests are structural assertions over non-code files —
   `TestBaselinePathPresentInGitignore` reads the repo `.gitignore` and asserts the

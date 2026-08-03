@@ -2,7 +2,7 @@
 plan_id: PLAN-ISSUE-048
 spec_id: ISSUE-048
 created: "2026-07-08"
-status: draft
+status: completed
 target_repo: backstop-core
 target_module: github.com/bmanson/backstop-core
 test_command: "go test ./pkg/validate/... ./pkg/gate/... -race"
@@ -148,6 +148,86 @@ notes: |
     CLM-010 The new vocabulary is documented in the schemas: `obsoleted` +
             `obsoleted-by` in the issue/spec/plan schemas, `resolved-by` in the
             issue schema, and `test_names` as an optional plan-task field.
+
+  ── AS BUILT (status: completed, 2026-08-02) ─────────────────────────────
+  Delivered in a SINGLE commit, 3a7a700 ("feat(ISSUE-048): obsoleted/resolved-by
+  close vocab + plan-task-test drift coverage (DIR-016)") — which also authored
+  this plan file. That is WHY the status sat at `draft` for three weeks: there was
+  never a second commit in which to flip it. The flip is a bookkeeping correction,
+  not new delivery; the code has been in the tree since 2026-07-08.
+
+  1. TASK COVERAGE, RE-VERIFIED AGAINST THE TREE 2026-08-02 (not from the commit
+     message). Every task's declared file scope exists and carries its work:
+       TASK-001  7 obsoleted fixtures under pkg/validate/testdata/terminal_vocab/
+                 (issues 820/821/822, specs 820/821, plans 820/821) — all present.
+       TASK-002  8 resolved-by fixtures under pkg/validate/testdata/resolved_by/
+                 issues/ (830/831/832/833/834/835/836 + the 838 support target).
+       TASK-003  pkg/gate/testdata/status_drift_vocab/root/ with ISSUE-840-obsoleted
+                 and PLAN-SPEC-840-plantests / PLAN-SPEC-841-allpresent.
+       TASK-004  schema edits landed and are LOAD-BEARING where the plan said:
+                 issue/v1 status enum + obsoleted-by + resolved-by + the updated
+                 closed-requires-traceability note; spec/v1 status enum (:20) +
+                 obsoleted-by; plan/v1 status enum (:22), obsoleted-by in
+                 metadata.optional (:11), task_optional_keys ["test_names"] (:44).
+       TASK-005  pkg/validate/obsoleted_test.go, resolved_by_test.go,
+                 pkg/schema/terminal_states_test.go (plus an unplanned but
+                 additive resolved_by_internal_test.go).
+       TASK-006  terminal.go (isTerminalStatus :25 includes "obsoleted";
+                 validateRetirementFields :57-59 routes obsoleted through the
+                 SHARED validateTypedRetirementRef; extractObsoletedBy :113),
+                 issue.go (issueStatuses :23, close-pointer-conflict :375,
+                 resolved-by branch :404-409), plan.go (planStatuses :20),
+                 resolved_by.go (both regex singletons :39-40, the three rule ids,
+                 typedRefArtifactExists :107, isPullRequestURL :131).
+       TASK-008  pkg/gate/artifact_status_obsoleted_test.go,
+                 status_drift_plantests_test.go.
+       TASK-009  pkg/gate/artifact_status.go — obsoleted in the retired-terminal
+                 switch (:86), planFrontmatter TestNames (:324), and
+                 planTaskMandatedTests (:348) feeding the plan record's
+                 MandatedTests (:249). No status_drift.go change was needed, as
+                 the plan predicted.
+     Nothing in the task list describes work absent from the tree.
+
+  2. ALL 13 MANDATED TEST NAMES EXIST AND PASS — re-run 2026-08-02 with
+     `-race -count=1`, not taken on the commit message's word:
+       pkg/validate  TestObsoleted_RequiresObsoletedBy,
+                     TestObsoleted_ValidTerminalValidatesClean,
+                     TestResolvedBy_ValidCloseWithoutOwnClaimsOrPlan,
+                     TestResolvedBy_MalformedShape_Errors,
+                     TestResolvedBy_TypedRefMustExist,
+                     TestResolvedBy_MissingResolutionSection_Errors,
+                     TestResolvedBy_ConditionalNoRegression,
+                     TestResolvedBy_BothPointersConflict
+       pkg/schema    TestSchema_TerminalStates_IncludeObsoleted
+       pkg/gate      TestClassifyArtifactStatus_ObsoletedIsRetiredTerminal,
+                     TestStatusDrift_ExcludesObsoletedArtifact,
+                     TestResolveArtifactStatus_ParsesPlanTaskTestNames,
+                     TestStatusDrift_CompletedPlanAbsentTaskTest_Blocks
+     All PASS. This covers TASK-007 and TASK-010, the two middle verification
+     tasks, at the grain they specified.
+
+  3. WHAT THIS CLOSURE DOES **NOT** CLAIM — recorded so `completed` is not read as
+     more than it is. TASK-011 demands a full `backstop gate --json` run
+     confirming the artifact_status_drift dimension stays green over the REAL
+     repo. Commit 3a7a700's message asserts "gate exit 0 (0 new …); artifact
+     validate green" contemporaneously, but NO such full-repo gate run was
+     executed as part of this 2026-08-02 status reconciliation. The closure rests
+     on structural verification (code present at the cited sites) plus the 13
+     passing tests above — NOT on a fresh live drift-violation count of 0. If a
+     later reader needs that number, it must be measured, not inferred from here.
+
+  4. TWO COSMETIC DIVERGENCES, neither a work gap. (a) TASK-012's file list names
+     `ISSUE-830-resolved-valid.issue.md`; the fixture actually shipped as
+     `ISSUE-830-resolved-commit.issue.md` (a clearer name for the commit-ref
+     case). (b) TASK-011/TASK-012 prescribe bare `backstop gate` / `backstop
+     artifact validate`; the binary is invoked as `./bin/backstop`.
+
+  5. STILL OUT OF SCOPE, exactly as the plan's opening paragraph reserved: this
+     built the MECHANISM only. Applying the vocabulary to the 39 stranded
+     artifacts and resolved-by-closing the 5 fixed-directly issues remains
+     downstream author-agent work and is NOT covered by this `completed`.
+
+  Parent ISSUE-048 was closed 2026-08-02 on this same evidence.
 
 phases:
   # ═══════════════════════════════════════════════════════════════════════
