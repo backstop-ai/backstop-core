@@ -4,7 +4,7 @@ number: SPEC-018
 created: "2026-05-20"
 status: ready-for-implementation
 schema_version: spec/v1
-spec_version: 1.1.0
+spec_version: 1.2.0
 
 source:
   directive: DIR-011
@@ -113,38 +113,50 @@ supersedes:
 claims:
   - id: CLM-001
     requirement: REQ-001
-    text: Gate defaults to diff mode, includes tracked and untracked changes, and uses the merge-base cascade.
+    subject: cmd/backstop
+    text: Gate invoked with no scope flags defaults to diff mode.
     tests:
       - TestGate_DefaultsToDiffMode
+  - id: CLM-010
+    requirement: REQ-001
+    subject: pkg/gate
+    text: The diff-mode changed-file set is computed via the merge-base cascade and contains both tracked modifications and untracked files, so new files are never silently skipped.
+    tests:
       - TestGateScope_IncludesUntrackedFiles
   - id: CLM-002
     requirement: REQ-002
+    subject: cmd/backstop
     text: --all restores full-project sweep behavior.
     tests:
       - TestGate_AllFlagUsesFullSweep
   - id: CLM-003
     requirement: REQ-003
+    subject: cmd/backstop
     text: --file scopes file-scoped checks to explicit files, preserves always-run structural checks, and conflicts with --all.
     tests:
       - TestGate_FileFlagScopesExplicitFiles
       - TestGate_AllAndFileMutuallyExclusive
   - id: CLM-004
     requirement: REQ-004
+    subject: pkg/gate
     text: Gate computes the changed-file set once and shares it across steps.
     tests:
       - TestGateScope_ComputedOnce
   - id: CLM-005
     requirement: REQ-005
+    subject: pkg/gate
     text: Gate steps filter checks to the changed-file set in diff mode.
     tests:
       - TestGateSteps_FilterToChangedFiles
   - id: CLM-006
     requirement: REQ-006
+    subject: pkg/gate
     text: Pack lock verification and pack validators always run in every scope mode.
     tests:
       - TestGateSteps_PackLockAlwaysRuns
   - id: CLM-007
     requirement: REQ-007
+    subject: pkg/gate
     text: Human output includes the required diff-mode scope summary line; any file-mode summary is diagnostic only.
     tests:
       - TestGateOutput_ScopeSummary
@@ -156,6 +168,7 @@ claims:
       - TestSpec010Req012Superseded
   - id: CLM-009
     requirement: REQ-009
+    subject: pkg/gate
     text: Empty diffs report zero file-scoped violations while structural checks still run and can fail the gate.
     tests:
       - TestGate_EmptyDiff
@@ -280,6 +293,47 @@ by this spec.
 - CI environment auto-detection for mode selection
 
 ## Version History
+
+- **1.2.0** (2026-08-02) — **Multi-target claim modeling fixed; the 1.1.0 closure blocker is
+  cleared.** CLM-001 is SPLIT and every non-absence claim now carries an explicit per-claim
+  `subject:`. No requirement text, no test name, and no assertion changed — the two tests
+  CLM-001 mandated are redistributed, one per claim, and its three assertions are preserved
+  across the pair.
+
+  **The split.** CLM-001 asserted three things at once ("Gate defaults to diff mode, includes
+  tracked and untracked changes, and uses the merge-base cascade") over tests in two different
+  packages, so no single `subject:` could describe it. It is now:
+  - **CLM-001** (REQ-001, `subject: cmd/backstop`) — "Gate invoked with no scope flags defaults
+    to diff mode", verified by `TestGate_DefaultsToDiffMode`
+    (`cmd/backstop/gate_test.go`, `package main`).
+  - **CLM-010** (REQ-001, `subject: pkg/gate`) — the changed-file set is computed via the
+    merge-base cascade and contains BOTH tracked modifications AND untracked files, verified by
+    `TestGateScope_IncludesUntrackedFiles` (`pkg/gate/scope_test.go`, `package gate`), which
+    commits a tracked file, modifies it, adds an untracked one, and asserts
+    `ComputeGateScope(root, GateScopeModeDiff, nil)` contains both.
+  `CLM-010` is the next free id: the claim-id grammar is strictly `^CLM-\d{3}$`
+  (`claimIDRe`, `pkg/validate/spec.go`), so suffixed ids like `CLM-001a` are NOT
+  representable and appending is the only conforming split. Both halves still trace to REQ-001,
+  which retains both the "defaults to diff mode" and the tracked+untracked sentences — the
+  requirement was always the union of the two claims.
+
+  **Per-claim subjects.** Each claim's `subject:` was set from the VERIFIED on-disk location of
+  its own tests, not from intent: `cmd/backstop` for CLM-001/002/003 (all five of those tests
+  are in `cmd/backstop/gate_test.go`) and `pkg/gate` for CLM-004/005/006/007/009/010
+  (`pkg/gate/scope_test.go`, `step_delegate_test.go`, `output_test.go`). The `cmd/backstop`
+  subjects restate what those claims already inherited from `implementation.package`; they are
+  written out so the split is legible and so a future edit to the spec-level default cannot
+  silently retarget them. CLM-008 keeps `kind: absence` and deliberately takes NO subject — it
+  is pre-join skipped (`NoTargetViolationForTest`), which is why its
+  `pkg/validate/spec_test.go` home is not a mismatch. Every claim is now single-package, so
+  `TargetPackageName` reduces each subject to a token (`backstop`, `gate`) that the mandated
+  tests satisfy by colocation.
+
+  **PLAN-SPEC-018 is deliberately untouched.** It names "CLM-001 through CLM-009" in prose
+  acceptance lines. That plan is a completed historical record, its prose is not gate-consumed
+  (`requirement_traceability` joins bundle requirements to spec requirements and reads no
+  claims), and hand-editing artifacts is barred. The stale range is a cosmetic in a finished
+  artifact, not a live gap.
 
 - **1.1.0** (2026-08-02) — **Delivery verified; closure BLOCKED on multi-target claim
   subjects.** Status stays `ready-for-implementation`. A flip to `implemented` was attempted
