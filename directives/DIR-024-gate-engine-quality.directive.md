@@ -23,6 +23,8 @@ directive:
     - "ISSUE-108"
     - "ISSUE-112"
     - "ISSUE-113"
+    - "ISSUE-114"
+    - "ISSUE-115"
 ---
 
 ## Description
@@ -644,6 +646,150 @@ directives' themes:
     the substantiveness evidence set is empty while mandated tests exist),
     the step REFUSES with a config-error naming its cause instead of
     emitting per-test violations.
+17. **The delivered-but-open drift advisory is structurally unable to fire for
+    a plan (ISSUE-114).** `looksDelivered` (`pkg/gate/status_drift.go:75-85`)
+    returns false immediately when `len(rec.MandatedTests) == 0` — confirmed
+    live. So an artifact with no mandated tests can never trip the
+    `ClassNonTerminal` advisory branch of `ClassifyStatusDrift`
+    (`status_drift.go:31-71`), which is the warn-only "this looks delivered,
+    advance or close it" signal.
+    This is NOT a categorical exclusion of plans, and the fix must not be
+    scoped as if it were: `ResolveArtifactStatus` walks `plans/*.plan.yml` and
+    builds a full `KindPlan` record (`pkg/gate/artifact_status.go:241-257`,
+    confirmed), `ClassifyArtifactStatus` maps plan `draft`/`ready`/
+    `implementing` to `ClassNonTerminal`, and `ClassifyStatusDrift` iterates
+    records with NO kind filter at all. A plan reaches the classifier exactly
+    like a spec or issue does. The gap is in the DATA, not the routing.
+    The data channel is empirically dead. For specs/issues `MandatedTests`
+    comes from the structured `claims[].tests` walk (`claimsToMandatedTests`),
+    a field that is load-bearing from `ready` onward, so it is populated for
+    essentially every live spec/issue. For plans it comes from exactly one
+    source — the OPTIONAL per-task `test_names` field
+    (`planTaskMandatedTests`, `artifact_status.go:345-363`), introduced by
+    `PLAN-ISSUE-048` itself (`artifacts/plan/v1/schema.json`,
+    `task_optional_keys`). Independently confirmed: `grep -rn
+    "test_names\|TestNames" pkg/validate/` returns ZERO hits — nothing in
+    plan validation reads, requires, or acknowledges the field. It is
+    documentary at the schema level and mechanically optional.
+    Corpus measurement, re-run by backlog-pm 2026-08-02 against the live tree
+    (and a REFINEMENT of the issue's own figure — record it so a planner does
+    not trip): of 98 plans, 48 were non-terminal (`draft`/`ready`) and **zero**
+    carried a populated task-level `test_names`. 28 plan files contain the
+    STRING `test_names`; their statuses were 25 `completed`, 1 `obsoleted`, 1
+    `replaced`, and 1 `draft`. The issue states all 28 are `completed` — not
+    exactly true, but the substance was STRONGER than stated, not weaker:
+    `obsoleted`/`replaced` are `ClassRetiredTerminal` and excluded from the
+    dimension outright, and the single `draft` one was `PLAN-ISSUE-048` itself,
+    where every occurrence is PROSE in notes/task descriptions, never a
+    populated YAML key. So the only lever that can make `looksDelivered` true
+    for a plan was a field that in practice appeared only on already-terminal
+    plans — the advisory was structurally unable to fire for any plan in
+    `draft`/`ready`, no matter how obviously its code shipped.
+
+    **UPDATE (recorded, not silently rewritten — the numbers above stood at
+    filing time and are superseded by this measurement):** `PLAN-ISSUE-048`
+    itself closed to `status: completed` on 2026-08-02 (commit `a0e492b`),
+    and this note supersedes the corpus figures above with the founder's
+    re-measurement the same day: 98 plans total, **47** now non-terminal (one
+    fewer); of the 28 `test_names`-string files, statuses are now **26
+    `completed`, 1 `replaced`, 1 `obsoleted` — ZERO `draft`**; of those, **26**
+    carry a POPULATED task-level `test_names`, and **every one is terminal**
+    (24 `completed`, 1 `replaced`, 1 `obsoleted`). Verified independently:
+    `PLAN-ISSUE-048` itself has 0 of 12 tasks with a populated `test_names`
+    key — its 25 string occurrences remain prose only. The conclusion is no
+    longer merely re-counted, it is STRENGTHENED to universal: the only lever
+    that can make `looksDelivered` true for a plan is now, with no exception
+    left standing anywhere in the corpus, a field that appears only on
+    already-terminal plans. The advisory remains structurally unable to fire
+    for any plan in `draft`/`ready`/`implementing`, no matter how obviously
+    its code shipped.
+    Motivating instance, and it is close to self-referential:
+    `PLAN-ISSUE-048` WAS `status: draft` (confirmed at its line 5 at filing
+    time) while the machinery it specifies shipped in the same commit that
+    authored the plan — its task descriptions enumerate exact mandated test
+    names (e.g. `TestObsoleted_RequiresObsoletedBy`,
+    `TestResolvedBy_ValidCloseWithoutOwnClaimsOrPlan`,
+    `TestClassifyArtifactStatus_ObsoletedIsRetiredTerminal`,
+    `TestResolveArtifactStatus_ParsesPlanTaskTestNames`) and every one of
+    those functions exists today. That stranding — draft status, shipped
+    code — is what motivated this issue. The plan predicted its own blind
+    spot in its Phase 6 verification note: "no real plan carries test_names
+    yet, so this is additive." **UPDATE:** the prediction is now confirmed by
+    the plan's own closure — on 2026-08-02 it moved `draft` → `completed`
+    and produced NO drift signal in either direction: not the `ClassNonTerminal`
+    "looks delivered" advisory (it was never eligible, being terminal at
+    measurement) and not the `ClassSuccessTerminal` broken-promise check
+    either, because with no populated `test_names` it carried no
+    `MandatedTests` for that check to evaluate against. What was a predicted
+    blind spot is now an observed one, on the plan that named the field in
+    the first place.
+    Fix direction, kept as CONSTRAINT not design (the issue deliberately does
+    not prescribe): either make `test_names` load-bearing at plan-authoring
+    time (schema/planner-agent requires it alongside the existing prose
+    "mandated test names (exact)" convention, so the two representations
+    cannot drift), or give plans a task-claims-derived mandated-test concept
+    structurally parallel to spec/issue `claims[].tests`. Either way the
+    defect to close is that a plan's prose-declared mandated tests and its
+    machine-readable `MandatedTests` are two independent, unsynchronised
+    representations. A planner should also state explicitly whether making
+    the field mandatory is retroactive — 48 existing non-terminal plans would
+    need backfill, and a schema-required field that turns 48 artifacts
+    invalid is a corpus event, not a code change.
+    Verification bar so the fix is not itself a vacuous-green claim: a
+    regression fixture in which a NON-TERMINAL plan whose mandated tests are
+    all present DOES produce an `artifact_status_drift_advisory` warning. If
+    the only fixture proving the fix is a `completed` plan, it has re-proved
+    the already-working `ClassSuccessTerminal` path and nothing else.
+18. **Contract block drift is invisible until a spec closes — validation
+    happens at the worst possible moment (ISSUE-115).** `ExtractContractEntries`
+    (`pkg/gate/step_testverify.go`) skips any spec where
+    `!contractsAreDue(fm.Status)`, and `contractsAreDue` is literally
+    `status == "implemented"`. So a spec's `contracts:` block is INERT for its
+    entire `draft`/`ready-for-implementation` life and goes live only the
+    instant the spec closes. The code the contracts describe keeps evolving
+    the whole time with nothing checking it — staleness accumulates unobserved
+    and detonates at closure, i.e. someone closing a spec that shipped
+    correctly weeks ago gets a red gate for it.
+    Evidence, stated precisely and not inflated: in one closure pass on
+    2026-08-02, five specs were examined; SPEC-019 was clean (all 8 declared
+    signatures verified). Three were stale — SPEC-018 (declared a
+    package-level `var gateCmd` that never existed; the real surface,
+    `newGateCommand`, was already declared immediately below the stale entry,
+    so it was also a duplicate), SPEC-030 (declared
+    `(*realCodeChecker).runCheck`, a symbol whose DELETION is what that spec
+    delivered — `TestCutover_RealCodeCheckerDeleted` asserts its absence), and
+    SPEC-036 (`CapabilityState` declared with four fields; the tree has five).
+    Root-cause pattern worth preserving from SPEC-030: that contract entry
+    belonged to REQ-002, retired at spec_version 2.0.0 — the contract block
+    outlived the requirement that justified it. Retiring a requirement does
+    not retire its contracts.
+    Two findings widen the fix's target. (a) `consumes:` entries are never
+    enforced at all — extraction iterates `Provides` only — so that staleness
+    is PERMANENTLY invisible, not merely deferred to closure. Confirmed live:
+    SPEC-018 consumes `ComputeChangedFiles` from `pkg/check/scope.go`, which
+    exists nowhere in the repo; SPEC-030 carries a whole contract block for
+    `cmd/backstop/code_check.go`, a file that does not exist. (b) Not all
+    drift is equally dangerous: running the real `go-contracts` compiler
+    shows a `kind: type` signature renders field-agnostically (`type
+    CapabilityState $$$`), so SPEC-036's four-vs-five-field drift would NOT
+    have failed the gate — a documentation defect, not a blocking one —
+    while a declared symbol that doesn't exist at all (SPEC-018's var,
+    SPEC-030's deleted method) DOES fail. The surface splits into "wrong but
+    harmless" and "wrong and blocking," and a fix that only catches the
+    blocking kind still leaves the corpus lying.
+    Direction, recorded as the issue's recommendation and not a decision:
+    validate contract blocks against the tree at closure time, BEFORE the
+    status flip to `implemented` is accepted, so a spec cannot reach terminal
+    status carrying contracts that don't match. Natural home is wherever
+    artifact validation already runs. Left to the planner: whether
+    `consumes:` becomes enforced or is dropped as decorative — today it is
+    neither.
+    Scope boundary, stated so nobody folds it in: a separate defect found in
+    the same pass — the `go-contracts` pack's `compile-signature.sh` cannot
+    express a grouped `const ( … )` block member (no `const_spec` pattern),
+    which is why SPEC-036 could not close — is PACK work and gets no
+    backstop-core issue, per the same principle as the ISSUE-103 ruling.
+    Referenced here as related context only.
 
 ## Notes
 
@@ -986,3 +1132,72 @@ DIR-022 ("Contracts Engine Hardening") is where this belonged was the PM's
 original take from 2026-07-29, back when it was believed to be a core-side
 contracts-engine concern; that reasoning is superseded, and DIR-022 was
 never actually touched on its account.
+
+ISSUE-114 slotted by backlog-pm 2026-08-02 under the standing clear-fit
+grant. It is the ELEVENTH member of the gate-verdict-honesty cluster
+(ISSUE-066, 067, 091, 092, 093, 097, 100, 106, 112, 113, 114) — the family
+where a verdict surface reads authoritative and silently isn't. Restate the
+standing caveat exactly as the prior paragraphs do: this slot does NOT
+pre-empt the founder's still-pending decision on whether the cluster gets
+its own directive; if one is created, every DIR-024-slotted member moves
+there together.
+Its cluster variant is distinct and worth naming: prior members mis-report
+a verdict they DID compute (or compute one from data they misread).
+ISSUE-114 never computes anything for an entire artifact KIND — the
+dimension is silent by starvation, and a reader of a clean
+`artifact_status_drift_advisory` run reasonably concludes no plan looks
+delivered-but-open when in fact no plan CAN.
+Why DIR-024 and not DIR-021 ("Traceability Hardening & Corpus Drain"),
+recorded so the founder can redirect in one line rather than re-derive it:
+DIR-021 was considered and rejected. Its four threads are the
+requirement-traceability substrate (`ResolveSupports`, bundle→spec REQ
+chains, the advisory-gap drain) plus corpus drain, and its only adjacency
+here is thread 2, which cites ISSUE-048 as a per-artifact RECONCILIATION
+task (now closed, delivered 3a7a700). ISSUE-114 is a MECHANISM defect in the
+`artifact_status_drift` step, not a corpus item and not the traceability
+substrate. DIR-016 ("Directive/Issue/Plan Lifecycle Hardening"), the
+directive this dimension was born under and the natural home for the "make
+`test_names` load-bearing" fix direction, is `status: done`. And ISSUE-098 —
+the issue's own named sibling in this exact step family (drift resolver
+blind to pack claim IDs, `status: closed`) — is cited by NO directive, so it
+offers no counter-precedent.
+In-flight coverage is nil and established from the corpus rather than
+assumed: no plan, spec, or bundle cites ISSUE-114; no plan scaffold exists
+for it (newest file in `plans/` predates it by four days); the issue was
+filed 2026-08-02 (commit `a98f44e`) directly downstream of backlog-pm's own
+delivered-but-open sweep flag the same day.
+Priority, recorded in-directive with NO backlog reorder proposed: `type:
+bug`, warn-tier dimension, no consumer-facing blocking verdict is wrong. It
+must NOT displace ISSUE-092 (the `risk: critical` active false-green in the
+tool that gates the whole pack ecosystem) or the ISSUE-112/113 arc within
+this directive.
+One corpus-honesty item riding along, flagged and explicitly NOT this
+directive's scope, and now RESOLVED as an observation (recorded here rather
+than silently rewritten): `PLAN-ISSUE-048` was `status: draft` with its code
+shipped at filing time; it closed to `status: completed` on 2026-08-02
+(commit `a0e492b`), which was the corpus decision that remained pending for
+the founder. Its closure produced zero drift signal in either direction —
+confirming the wrinkle rather than merely predicting it — because with no
+populated `test_names` it carried no `MandatedTests` for the
+`ClassSuccessTerminal` broken-promise check either. That leaves the mechanism
+fix as the only thing still open here, independent of this now-settled
+instance.
+
+ISSUE-115 (slotted 2026-08-02 under the standing clear-fit grant; founder-
+confirmed the same day — Brandon: "ISSUE-115 → DIR-024: confirmed, standing
+grant applies, same as 112/113/114") rides along on thematic fit. It is
+`type: bug`, and while it echoes the gate-verdict-honesty cluster's shape —
+a check that should catch drift silently doesn't — its root cause is a
+different family: contract-block validation TIMING (checked only at spec
+closure, and `consumes:` never at all) rather than a severity/data-carrier
+defect inside an already-firing step verdict. Treat it as adjacent to, not
+a twelfth member of, the cluster (ISSUE-066, 067, 091, 092, 093, 097, 100,
+106, 112, 113, 114); the founder's still-pending decision on whether that
+cluster gets its own directive is unaffected either way — if it is
+created, only genuine cluster members move, and this item's membership
+would need its own call. It does not displace ISSUE-092 (`risk: critical`)
+or the ISSUE-112/113 arc within this directive. Scope note carried from
+the issue itself: the `go-contracts` pack's inability to express a grouped
+`const ( ... )` block member (blocking SPEC-036's closure) is explicitly
+OUT of this issue's and this directive's scope — pack work, same
+principle as the ISSUE-103 ruling recorded above.
