@@ -128,3 +128,17 @@ compensate for shared-tree risk during concurrent multi-agent work.
 - Distinct from ISSUE-067: ISSUE-067 is about a REAL test failure surfacing as an opaque crash;
   here there is no test failure at all — `go test` has zero Go code in scope and that legitimate
   no-op is what surfaces as the crash.
+
+## Additional evidence
+
+- Corroborated by the orchestrator (2026-08-02/03) while verifying SPEC-018's closure: `gate
+  --file specs/SPEC-018-gate-diff-scope.spec.md` crashed with the identical signature
+  (`dispatching findings engine "go-test" ... crashed: non-zero exit with no parseable findings:
+  exit status 1`). Control run against a different, already-shipped, unrelated spec
+  (`specs/SPEC-030-packs-only-native-standards-removal.spec.md`, implemented days prior) on the
+  live tree produced the same crash with the same signature — confirming the defect is universal
+  to `specs/` targets (a directory with no Go package, the same root cause already documented
+  above for directories generally) and is not tied to any one file's content or freshness. A
+  separate `go test ./...` run in an isolated detached worktree confirmed the underlying suite
+  itself is 100% clean (17 packages, zero failures) — the crash is purely a `--file`
+  dispatch-scoping defect, not a real test failure being surfaced.
