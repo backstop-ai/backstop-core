@@ -2,7 +2,7 @@
 title: "SPEC-018: Gate Diff Scoping — Changed-Files-Only Default"
 number: SPEC-018
 created: "2026-05-20"
-status: ready-for-implementation
+status: implemented
 schema_version: spec/v1
 spec_version: 1.2.0
 
