@@ -9,8 +9,8 @@ import (
 // SPEC-037 substantiveness pack split (BUNDLE-009 Seed 3). The PACK does the
 // language-specific work (Q1 hollow-test findings rule + Q2 referenced-symbol
 // extraction rule); this file consumes the FLAT pack-dispatch SARIF
-// ([]Violation with only {Rule, File, Message, Severity, SourcePack} — Line/region
-// dropped, no GateType field) and performs:
+// ([]Violation with {Rule, File, Line, Message, Severity, SourcePack} — no GateType
+// field) and performs:
 //   - routing substantiveness findings out of the flat pack_engines stream by the
 //     pack-declared substantiveness_role property (RouteSubstantivenessFindings, ISSUE-064),
 //   - keying extraction findings back to a MandatedTest by (FilePath, func) read
@@ -20,6 +20,14 @@ import (
 //     (TargetPackageName).
 // It re-bakes NO go/parser / go/ast: routing and keying are string/set operations
 // over pack SARIF, and the noTarget verdict is a pure set-membership test.
+//
+// ISSUE-116: this header PREVIOUSLY claimed the flat conversion dropped Line/region.
+// It does not — the shared pack dispatch (cmd/backstop/pack_gate.go:744-748)
+// deliberately PRESERVES the SARIF-reported start line on Violation.Line so the
+// SPEC-049 waiver reconciliation can byte-scan a finding's own line for a @waiver
+// token, and every join here must FORWARD it. HollowFindingsToViolations was written
+// against the stale claim and silently zeroed the field, which made inline
+// test_substantiveness waivers a no-op. Do not re-derive that bug from this comment.
 
 // ReferencedSymbolSet is the set of package/symbol names a single test references,
 // assembled from the Q2 extraction findings keyed to that test.
@@ -122,8 +130,10 @@ func RouteSubstantivenessFindings(violations []Violation) (hollow, extraction []
 // (FilePath, func) and assembles that test's ReferencedSymbolSet. The enclosing test
 // name and the referenced symbol come from each finding's STRUCTURED Properties
 // (`func`/`symbol`, ISSUE-062) — NOT parsed out of the free-text Message, NOT from
-// Line/region (dropped by the flat conversion), and NOT by re-walking the test AST
-// (Sharp Edge 2). Properties["func"] is compared to MandatedTest.FuncName VERBATIM, so
+// Line/region (which the flat conversion DOES carry, per the header's ISSUE-116 note,
+// but which is not a join key: this join is by structured identity, not by position),
+// and NOT by re-walking the test AST (Sharp Edge 2).
+// Properties["func"] is compared to MandatedTest.FuncName VERBATIM, so
 // the join is correct for a name containing spaces or quotes (a string-named it()/test()
 // description), not only a single-token Go TestXxx name. A test with no matching finding
 // yields an empty set, which the decision table handles unchanged (CLM-025/CLM-026).
@@ -179,7 +189,14 @@ func HollowFindingsToViolations(hollow []Violation) []Violation {
 			// path, so NormalizePath("", …) — the idempotent Clean+ToSlash+strip-"./"
 			// subset of the SINGLE helper — canonicalizes it. Any absolute path is
 			// handled by the Phase-1 identity chokepoint.
-			File:     NormalizePath("", v.File),
+			File: NormalizePath("", v.File),
+			// Carry the SARIF-reported start line so the SPEC-049 waiver
+			// reconciliation can byte-scan the finding's own line for a @waiver
+			// token (ISSUE-116) — matching what the shared pack dispatch already
+			// preserves at cmd/backstop/pack_gate.go:744-748. Safe for baseline
+			// grandfathering: Line is json:"-" and excluded from identity hashing
+			// (pkg/gate/result.go:81-88), so identity stays line-INDEPENDENT.
+			Line:     v.Line,
 			Message:  stripFuncToken(v.Message),
 			Severity: "error",
 		})

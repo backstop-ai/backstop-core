@@ -1,0 +1,503 @@
+---
+plan_id: PLAN-ISSUE-116
+spec_id: ISSUE-116
+created: "2026-08-09"
+status: completed
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./pkg/gate/... ./cmd/backstop/... ./pkg/waiver/... -race -count=1"
+coverage_threshold: 90
+
+notes: |
+  Implements ISSUE-116. ONE-LINE PRODUCTION FIX plus its docstring, two tests, two
+  verification passes. Five tasks, ONE production file. Nothing else is in scope.
+
+  ── THE DEFECT IN ONE PARAGRAPH ────────────────────────────────────────────
+  The shared pack dispatch (cmd/backstop/pack_gate.go:744-748) deliberately carries
+  the SARIF-reported start line onto gate.Violation.Line so the SPEC-049 waiver
+  reconciliation can byte-scan a finding's own line for a @waiver token.
+  `HollowFindingsToViolations` (pkg/gate/substantiveness_join.go:172-188) re-packages
+  each routed hollow finding into a `test_substantiveness` Violation and copies File,
+  Message and Severity — but NOT Line. Every hollow violation therefore reaches
+  `computeWaiverResult` (pkg/gate/step_waiver.go:89) with Line == 0, the adjudicator
+  scans line 0, and no token placed anywhere can ever match. `pack_engines` findings
+  ride the SAME dispatch and keep their Line, which is why `pack_engines` waivers work
+  and this one silently does not. The fix is `Line: v.Line` in the constructed
+  Violation.
+
+  ── MEASURED WHILE PLANNING, 2026-08-09 (do not re-derive; DO re-observe the red) ─
+  The whole chain was run end-to-end against HEAD through the REAL production path
+  (installed local pack -> real dispatchPackEngines -> real ast-grep -> convert ->
+  route -> join -> gate.Run with WithWaiver -> waiver.Adjudicate), using the existing
+  cmd/backstop e2e harness (gate_substantiveness_e2e.go). Observed, verbatim:
+
+    BEFORE the fix
+      violation rule=test_substantiveness file=subject_test.go LINE=0
+      STEP test_substantiveness  status=fail  (1 violation)
+      STEP waiver_resolution     status=pass  reason="clean — no active waivers"
+      ActiveWaivers=0
+    AFTER adding `Line: v.Line`
+      violation rule=test_substantiveness file=subject_test.go LINE=5
+      STEP test_substantiveness  status=pass  (0 violations)
+      STEP waiver_resolution     status=pass  reason="PASS · 1 waivers (test_substantiveness)"
+      ActiveWaivers=1
+
+  So the RED is real, deterministic, and observable at the exact acceptance surface
+  ISSUE-116 demands. The full `go test ./pkg/gate/... ./cmd/backstop/... ./pkg/waiver/...`
+  suite was ALSO run with the fix applied and is GREEN — no existing test depends on the
+  dropped Line. All probe files were removed and the fix reverted; HEAD is untouched.
+
+  RE-OBSERVE THE RED ANYWAY. Planning's measurement is evidence the tests CAN go red,
+  not a substitute for the implementer watching them do it. A test written after the
+  fix and never seen failing is worth nothing here.
+
+  ── THE UNUSED/DANGLING SYMPTOM IS THE SAME DEFECT, AND IT IS TESTABLE ─────
+  ISSUE-116 flags as "worth checking" that a non-matching `test_substantiveness`
+  token does not even surface in the unused/dangling bucket. It does not, and the
+  cause is this same line loss — not a second defect. `waiver.harvestWindow`
+  (pkg/waiver/adjudicate.go:205-230) builds its window from `windowLines(f)`, which
+  for Line == 0 yields exactly `[0]` (the `f.Line > 1` guard blocks the line-above),
+  and a LineReader asked for line 0 returns ok=false. NO token is harvested at all,
+  so it cannot even be CLASSIFIED as unused. Measured both ways on 2026-08-09 with a
+  deliberately mistyped rule-id on the finding's own line:
+
+    BEFORE: reason="clean — no active waivers"
+    AFTER : reason="clean — no active waivers; 1 unused/dangling (test_substantivenes)"
+
+  That is a durable, non-vacuous, RED-provable assertion, so this lane PINS it
+  (CLM-003) rather than leaving the issue's open question open. It costs one extra
+  test case in a file this lane is already creating and closes the "reads as not
+  recognized at all" half of the report.
+
+  ── SHARP EDGE: THE noTarget VIOLATION WILL KEEP THE STEP RED IF YOU IGNORE IT ─
+  The e2e harness's default workspace (newE2EWorkspace, gate_substantiveness_e2e.go:92-95)
+  writes a hollow test whose body calls `doSubject()`, and its spec mandates that test
+  against target package `gate`. That yields TWO test_substantiveness violations, not
+  one: the hollow finding AND a noTarget finding ("does not call package gate").
+  Measured on 2026-08-09. The noTarget finding is ISSUE-117's surface — it has NO line
+  at all and is explicitly OUT OF SCOPE here — so it will NOT be suppressed and the step
+  will NOT flip to pass while it is present.
+
+  THE FIX IS IN THE FIXTURE, NOT IN THE CODE: give the waiver workspace's hollow test a
+  body of `gate.Build()` instead of `doSubject()`. The referenced-symbol rule then
+  captures `gate`, the noTarget set-join is SATISFIED, and no noTarget violation is
+  raised — while the test stays genuinely hollow, because `Build` matches none of the
+  hollow rule's assertion vocabulary (require|assert|check|verify|expect|must|Fatal|
+  Error|Fail|Skip). Verified both properties on 2026-08-09: exactly one violation, and
+  it is the hollow one. DO NOT reach for `kind: absence`, and DO NOT touch the noTarget
+  path to make the step green — either would be silently implementing ISSUE-117.
+
+  ── SCOPE FENCE ────────────────────────────────────────────────────────────
+  IN : pkg/gate/substantiveness_join.go (one field + its docstrings), one new
+       cmd/backstop e2e test file, one added case in an existing pkg/gate unit test.
+  OUT: ISSUE-117 (noTarget findings carry no line — architecturally separate, already
+       filed). ISSUE-106 (the SAME function hardcodes Severity: "error", discarding the
+       pack-declared severity — open, unplanned, and a DIFFERENT field on a DIFFERENT
+       axis). Do not fix ISSUE-106 here even though your cursor will be on the exact
+       line: bundling a severity change into a line-carry fix makes both unreviewable
+       as one thing, and ISSUE-106 owns its own acceptance bar.
+
+  ── OBSERVED WHILE PLANNING, OUT OF SCOPE, WORTH FILING SEPARATELY ─────────
+  `dispatchAstGrepRule` (pkg/gate/substantiveness_q1_dispatch.go:62-76) has the SAME
+  omission: it builds its Violation without `Line`, so every finding it produces
+  carries Line == 0. Its own doc comment claims it "mirrors the production dispatch
+  (cmd/backstop dispatchPackEngines -> runFindingsEngine)" — and in this field it does
+  not. It is TEST GLUE ONLY (no production caller; confirmed by grep), so it cannot
+  cause the ISSUE-116 defect and fixing it is not required for any task below — which
+  is exactly why the acceptance test is sited in cmd/backstop over the real dispatch
+  rather than in pkg/gate over this glue. Note it, file it separately if it matters.
+  Do not widen this lane to catch it.
+
+  ── WHY THE ACCEPTANCE TEST LIVES IN cmd/backstop ──────────────────────────
+  ISSUE-116 requires the real reconciliation path, not `HollowFindingsToViolations`
+  called in a vacuum. `computeWaiverResult` is unexported, so the only honest reach is
+  `gate.New(WithSteps(...), WithWaiver(...)).Run(ctx)` — the shipped seam. And the
+  Line the waiver needs is put there by cmd/backstop's dispatch, which pkg/gate cannot
+  import. cmd/backstop already owns a real installed-pack harness that returns the
+  production StepResult; the acceptance test feeds that result into a waiver-enabled
+  gate Run. Every hop between the pack and the verdict is the real one.
+
+  ── CLAIM LEDGER (ISSUE-116 carries no CLM ids; this lane defines them) ────
+    CLM-001  HollowFindingsToViolations forwards each source hollow finding's Line
+             onto the test_substantiveness Violation it constructs — a finding
+             reported at line N yields a violation at line N, never 0.
+    CLM-002  an inline @waiver:test_substantiveness:<reason>:<expiry> placed on a
+             hollow finding's OWN reported line suppresses that finding through the
+             real production path, and the test_substantiveness step flips fail->pass
+             with exactly one active waiver.
+    CLM-003  the diagnostic trail is restored: a token on that same line whose rule-id
+             does NOT match the finding surfaces in the waiver step's unused/dangling
+             accounting instead of vanishing without a trace.
+    CLM-004  the stale "Line/region dropped" assumption is corrected EVERYWHERE
+             substantiveness_join.go states it, so the invariant is not re-broken by a
+             future change made against the same false comment.
+    CLM-005  non-regression: the conversion's Rule, File, Message and Severity
+             behavior is unchanged, and baseline identity is unperturbed — Line is
+             json:"-" and excluded from identity hashing by construction
+             (pkg/gate/result.go:81-88).
+
+  ── VERIFICATION COMMANDS ──────────────────────────────────────────────────
+    inner: go build ./... &&
+           go test ./pkg/gate/... ./cmd/backstop/... ./pkg/waiver/... -race -count=1
+    full:  go test ./... -race -count=1
+    final: go build -o bin/backstop ./cmd/backstop/
+           ./bin/backstop gate
+           ./bin/backstop artifact validate --plan PLAN-ISSUE-116
+           ./bin/backstop artifact validate --issue ISSUE-116
+
+  ── ENVIRONMENT / TOOLING FACTS (re-confirmed 2026-08-09) ──────────────────
+  1. `backstop code check` DOES NOT EXIST — `unknown command "code" for "backstop"`.
+     The shipped top-level commands are artifact, baseline, commands, completion,
+     gate, help, pack, recipe, version, waiver. `go test` is the inner loop here and
+     `./bin/backstop gate` is the outer one, because those are the commands that exist.
+  2. ast-grep 0.43.0 is on PATH (/usr/local/bin/ast-grep). Both test tasks below sit
+     behind the existing fail-loud guards (requireAstGrepE2E / requireAstGrep). NEVER
+     convert one to t.Skip — a skipped real-engine test is silent vacuous green, and
+     this package says so in three separate places already.
+  3. `gate --file` takes ONE file (ISSUE-093 open: repeated --file is silently dropped).
+     Run one invocation per file, or the full `./bin/backstop gate`.
+  4. REBUILD bin/backstop BEFORE THE FINAL GATE. A stale binary gates the OLD join and
+     reports a green that proves nothing about this change.
+  5. Report TRUE exit codes (`echo $?`); never mask a non-zero behind a pipe.
+
+  ── AS BUILT (status: completed, 2026-08-10) ─────────────────────────────
+  All five tasks delivered against ONE production file (pkg/gate/substantiveness_join.go),
+  one new cmd/backstop e2e test file, and one additive pkg/gate unit test. Promoted to
+  `completed` on explicit founder ruling, 2026-08-10 — TASK-005 deliberately withheld the
+  flip ("close-out and status promotion are not this lane's to take"), so this is the
+  authorization it was waiting on, not a self-promotion.
+
+  THE RED WAS RE-OBSERVED, NOT INHERITED. The working tree already carried a draft of the
+  fix and both tests when implementation began. That draft was treated as unproven: the
+  red-proof was rebuilt from scratch in a DETACHED WORKTREE at HEAD (production code
+  unfixed, only the two test files copied in), because a sibling worktree held live
+  uncommitted work and stashing the shared tree was unsafe. Observed pre-fix, verbatim:
+
+    TestQ1_HollowFindingsToViolations_ForwardsSourceLine (exit 1)
+      substantiveness_hollow_violation_test.go:76: violation[0].Line = 0, want 12
+        (the source finding's own line)
+      substantiveness_hollow_violation_test.go:76: violation[1].Line = 0, want 7
+        (the source finding's own line)
+      The Line-0 input case did NOT error — the honest pass-through holds on both sides
+      of the fix, which is what makes the assertion unsatisfiable by a constant.
+
+    TestE2E_SubstantivenessHollowWaiver_SuppressesFindingOnItsOwnLine (exit 1)
+      gate_substantiveness_waiver_e2e_test.go:168: the hollow violation must carry the
+        finding's reported Line so the waiver can byte-scan it; got Line=0 in
+        gate.Violation{Rule:"test_substantiveness", File:"subject_test.go",
+        Message:"test function TestE2EHollowSubject has no assertions (hollow)",
+        Severity:"error", SourcePack:"", ProjectWide:false, Line:0, ...}
+
+    TestE2E_SubstantivenessHollowWaiver_MismatchedRuleIDSurfacesAsUnused (exit 1)
+      gate_substantiveness_waiver_e2e_test.go:223: the mistyped token must surface in
+        the unused/dangling accounting instead of vanishing; got Reason="clean — no
+        active waivers"
+
+  The first e2e test fatals at assertion 2, so its downstream pre-fix state is invisible
+  from the failure alone; a throwaway worktree-only probe captured it and reproduced
+  planning's 2026-08-09 measurement EXACTLY:
+    BEFORE  violation LINE=0 · test_substantiveness status=fail (1 violation)
+            waiver_resolution reason="clean — no active waivers" · ActiveWaivers=0
+    AFTER   violation LINE=5 · test_substantiveness status=pass (0 violations)
+            waiver_resolution reason="PASS · 1 waivers (test_substantiveness)"
+            ActiveWaivers=1
+  Flipping that ONE file red->green in the same worktree is the red-proof; the probe was
+  never copied into the repo and the worktree was removed.
+
+  VERIFICATION (true exit codes, all 0)
+    go build ./...                                                     0
+    go test ./pkg/gate/... ./cmd/backstop/... ./pkg/waiver/... -race    0
+    go test ./... -race -count=1                                       0  (17/17 packages)
+    ./bin/backstop gate (after rebuilding bin/backstop)                0  PASS
+      Steps: 10 passed, 0 failed, 2 skipped, 2 warned. All 195 violations are the
+      PRE-EXISTING requirement_traceability_advisory (192) and
+      artifact_status_drift_advisory (3) warnings, unrelated to this change.
+    ./bin/backstop artifact validate --plan PLAN-ISSUE-116             0
+    ./bin/backstop artifact validate --issue ISSUE-116                 0
+  The dogfood watch item held: waiver_resolution stayed "clean — no active waivers" — the
+  pkg/gate/baseline_test.go token remains inert, as predicted, because the adjudicator
+  only harvests windows around actual findings and that test is not hollow.
+
+  REVIEW: impl-reviewer returned a CLEAN PASS — all claims verified independently, both
+  e2e tests and the unit test confirmed as TRUE FALSIFIERS, scope fence held, docstrings
+  correct.
+
+  SCOPE FENCE HELD. ISSUE-106 (hardcoded `Severity: "error"` on this exact literal) and
+  ISSUE-117 (noTarget findings carry no line) were both left untouched. The noTarget
+  sharp edge was solved in the FIXTURE via `gate.Build()`, never in code.
+  `dispatchAstGrepRule` (substantiveness_q1_dispatch.go) carries the SAME Line omission
+  but is test glue with no production caller — left alone per the plan; still worth
+  filing separately.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Red-first, then carry the line"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Behavioral acceptance: a waiver on a hollow finding's own line suppresses it through the real gate (RED)"
+        description: |
+          Create cmd/backstop/gate_substantiveness_waiver_e2e_test.go. It must FAIL
+          before TASK-003 — run it and RECORD THE ACTUAL FAILURE before touching
+          substantiveness_join.go. Runs in parallel with TASK-002 (disjoint files, no
+          dependency between them).
+
+          THIS IS THE ISSUE'S MANDATED ACCEPTANCE SHAPE: a real hollow finding with a
+          real File+Line, a real inline token on that exact line, run through the REAL
+          reconciliation path. Reuse the existing harness in-package — do NOT build a
+          parallel one and do NOT hand-construct a waiver.Finding:
+            requireAstGrepE2E(t)                    fail-loud engine guard
+            newE2EWorkspace(t.TempDir())            temp workspace + backstop.yml + spec
+            installSubstantivenessLocalPack(root)   REAL distribution.Add of packs/substantiveness
+            runProductionSubstantivenessStep()      REAL dispatch -> ast-grep -> route -> join
+          then feed the returned gate.StepResult into a waiver-enabled gate:
+            steps := []gate.StepFunc{
+              func(context.Context) gate.StepResult { return res },
+              gate.StepWaiverResolutionScopedFunc(nil),
+            }
+            gate.New(gate.WithSteps(steps), gate.WithWaiver(reader, nil, now)).Run(ctx)
+          `computeWaiverResult` is unexported; WithWaiver + Run IS the real path to it,
+          and the assertions below are about its output, not about the join in isolation.
+
+          THE FIXTURE. Overwrite ws.hollowFile (the harness writes it at
+          gate_substantiveness_e2e.go:92-95) with a variant whose test declaration line
+          carries the token and whose BODY CALLS `gate.Build()`:
+
+            package sample_test
+
+            import "testing"
+
+            func TestE2EHollowSubject(t *testing.T) { // @waiver:test_substantiveness:false-positive:2999-01-01
+              gate.Build()
+            }
+
+          Both details are load-bearing and both were measured on 2026-08-09:
+            • the finding is reported at the func DECLARATION line (line 5), which is
+              where the token must sit — a trailing comment on that line is exactly the
+              "exact line SARIF reports the finding at" case the issue describes;
+            • `gate.Build()` satisfies the noTarget set-join so the hollow finding is
+              the ONLY violation (see the notes' SHARP EDGE). With `doSubject()` there
+              are two, and the step cannot flip to pass no matter what the waiver does.
+          Say BOTH of these in the fixture's comment. A future reader who "tidies"
+          gate.Build() back to doSubject() will otherwise reintroduce a confusing red.
+
+          THE LineReader. A `func(file string, line int) (string, bool)` that opens the
+          file and returns the requested 1-indexed line. It MUST handle a
+          repo-relative path (the hollow violation's File arrives as `subject_test.go`,
+          canonicalized by NormalizePath) by joining it onto ws.root, and pass an
+          absolute path through unchanged — measured: the hollow and noTarget
+          violations arrive with different path shapes. `fileLineReader`
+          (pkg/gate/step_waiver_e2e_test.go:85-102) is the shape to copy; it lives in
+          another package, so re-declare it here rather than exporting it.
+
+          TestE2E_SubstantivenessHollowWaiver_SuppressesFindingOnItsOwnLine
+            (CLM-002, THE FALSIFIER). Assert, in this order, so a reader can tell WHICH
+            hop broke:
+              1. the production step yielded EXACTLY ONE violation and it is the hollow
+                 one (Rule == gate.StepTestSubstantiveness, message contains
+                 "has no assertions (hollow)"). A second violation means the fixture
+                 drifted — fail with the full violation dump, do not soldier on.
+              2. that violation's Line is NON-ZERO. This is the mechanism assertion at
+                 the integration surface; pre-fix it is 0 and this is where the red
+                 lands first.
+              3. after the gate Run, the test_substantiveness step carries ZERO
+                 violations and Status == "pass".
+              4. len(res.ActiveWaivers) == 1, and the waiver_resolution step's Reason
+                 contains "PASS · 1 waivers".
+            Expected pre-fix red: Line == 0, step still "fail" with 1 violation,
+            Reason "clean — no active waivers", ActiveWaivers 0.
+
+          TestE2E_SubstantivenessHollowWaiver_MismatchedRuleIDSurfacesAsUnused
+            (CLM-003). Same workspace shape, but the token names a rule-id that does
+            NOT match — use a deliberate near-miss such as
+            `@waiver:test_substantivenes:false-positive:2999-01-01` so the test also
+            documents the typo case a user will actually hit. Assert:
+              • the hollow violation is NOT suppressed (it still stands, step "fail") —
+                a non-matching token must never suppress anything;
+              • the waiver_resolution step's Reason reports it as unused/dangling
+                (measured post-fix: "clean — no active waivers; 1 unused/dangling
+                (test_substantivenes)").
+            Pre-fix this is red on the second assertion: the token is never harvested
+            at all, so the Reason is a bare "clean — no active waivers".
+
+          Header-comment the file with WHY it is in cmd/backstop and not pkg/gate: the
+          Line the waiver needs is placed by cmd/backstop's dispatch, and
+          computeWaiverResult is only reachable through the exported gate Run seam.
+        files:
+          - cmd/backstop/gate_substantiveness_waiver_e2e_test.go
+        claims:
+          - CLM-002
+          - CLM-003
+        depends_on: []
+        test_names:
+          - TestE2E_SubstantivenessHollowWaiver_SuppressesFindingOnItsOwnLine
+          - TestE2E_SubstantivenessHollowWaiver_MismatchedRuleIDSurfacesAsUnused
+
+      - id: TASK-002
+        type: test
+        title: "Unit pin: the join forwards Line, and changes nothing else (RED)"
+        description: |
+          Add ONE test to the existing pkg/gate/substantiveness_hollow_violation_test.go,
+          beside TestQ1_GateConsumesHollowFindings_RaisesViolation. Runs in parallel with
+          TASK-001 — disjoint files, no dependency. This COMPLEMENTS the behavioral test,
+          it does not replace it: the e2e proves the user-visible outcome, this pins the
+          exact mechanism so a future refactor that re-drops the field fails loudly and
+          locally instead of only at the far end of an installed-pack e2e.
+
+          TestQ1_HollowFindingsToViolations_ForwardsSourceLine (CLM-001, CLM-005).
+          Feed HollowFindingsToViolations a hollow partition carrying DISTINCT non-zero
+          lines (e.g. a_test.go:12 and b_test.go:7) plus one finding with Line 0, and
+          assert:
+            • each output violation's Line equals ITS OWN source finding's Line —
+              positionally, not "some violation somewhere has line 12". Two distinct
+              non-zero values are what makes the assertion unsatisfiable by a constant;
+            • the Line-0 input still yields Line 0 (a locationless finding is passed
+              through honestly, not defaulted to 1 or dropped from the output);
+            • Rule, File, Message and Severity are UNCHANGED for every violation —
+              still StepTestSubstantiveness, still the normalized File, still the
+              func=-stripped message, still "error". This is the CLM-005 half and it is
+              what keeps the fix from quietly becoming ISSUE-106's severity change.
+          Pre-fix red: the first assertion fails with Line 0 where 12 was expected.
+
+          Do not modify TestQ1_GateConsumesHollowFindings_RaisesViolation. Its existing
+          assertions must keep passing untouched — the change is additive.
+        files:
+          - pkg/gate/substantiveness_hollow_violation_test.go
+        claims:
+          - CLM-001
+          - CLM-005
+        depends_on: []
+        test_names:
+          - TestQ1_HollowFindingsToViolations_ForwardsSourceLine
+
+      - id: TASK-003
+        type: implementation
+        title: "Carry Line through the hollow join, and correct the stale docstrings that caused the omission"
+        description: |
+          One production file: pkg/gate/substantiveness_join.go. Two changes, no others.
+
+          1. THE FIX. In HollowFindingsToViolations (lines 172-188), add `Line: v.Line`
+             to the constructed Violation, alongside the existing File/Message/Severity.
+             That is the whole behavior change; it makes TASK-001 and TASK-002 green.
+             Comment it the way the dispatch site does (cmd/backstop/pack_gate.go:744-748):
+             the line is carried so SPEC-049 waiver reconciliation can byte-scan the
+             finding's own line, and it is safe for baseline grandfathering because Line
+             is json:"-" and excluded from identity hashing (pkg/gate/result.go:81-88).
+
+             DO NOT ALSO CHANGE Severity. `Severity: "error"` is hardcoded on this exact
+             literal and that is ISSUE-106's open defect, not this lane's (see the notes'
+             SCOPE FENCE). Leave it exactly as it is.
+
+          2. THE DOCSTRINGS (CLM-004). The false "Line is already gone" assumption is
+             stated TWICE in this file and both statements must go, or the next reader
+             re-derives the bug from the surviving one:
+               • the file header (lines 11-13) describes the flat stream it consumes as
+                 "[]Violation with only {Rule, File, Message, Severity, SourcePack} —
+                 Line/region dropped, no GateType field". Correct it: the shared pack
+                 dispatch PRESERVES the SARIF-reported start line (Violation.Line) for
+                 waiver reconciliation, and this join must FORWARD it. Keep the true
+                 half — there is still no GateType field.
+               • ReferencedSetForTest's doc comment (~line 125) contains the same claim
+                 as a parenthetical: "NOT from Line/region (dropped by the flat
+                 conversion)". The SENTENCE is still correct — that join really does key
+                 on structured Properties, not on region — so fix only the parenthetical
+                 justification, which is now false. Do not rewrite the surrounding
+                 reasoning.
+             Name ISSUE-116 in the header note. This is the comment that caused the
+             defect; the record of why it changed is the point.
+
+          WHOLE-FILE ACTIVATION: touching this file pulls all of its findings into gate
+          scope. If `./bin/backstop gate --file pkg/gate/substantiveness_join.go` reports
+          anything, FIX IT here — do not waive it, and do not drop the docstring edit to
+          dodge the activation.
+        files:
+          - pkg/gate/substantiveness_join.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+        depends_on:
+          - TASK-001
+          - TASK-002
+
+      - id: TASK-004
+        type: verification
+        title: "Inner-loop verification: both tests green, red-proof recorded"
+        description: |
+          Run from the repo root, reporting TRUE exit codes:
+            go build ./...
+            go test ./pkg/gate/... ./cmd/backstop/... ./pkg/waiver/... -race -count=1
+            go test ./... -race -count=1
+          All green. The third is not redundant — Violation.Line is read in more than
+          one place and a value that was previously always 0 is now sometimes not.
+          (Planning ran the first two packages' suites with the fix applied on
+          2026-08-09 and saw them green, so a failure here is new information, not an
+          expected baseline wobble. Report it, do not paper over it.)
+
+          THEN STATE THE RED-PROOF EXPLICITLY in the task report, per test name, with
+          the OBSERVED pre-fix values — not "it was red", but the actual Line value, the
+          actual step Status, and the actual waiver Reason string. This lane's entire
+          claim is "a waiver used not to work here"; without the recorded before-state
+          the acceptance tests are unfalsifiable. If either test passed the first time
+          it was run against unfixed code, STOP AND REPORT: that means the test is not
+          reaching the defect and the falsifier is vacuous.
+
+          (`backstop code check` does not exist — see the notes' ENVIRONMENT section.
+          `go test` is the inner loop; the gate runs in phase 2.)
+        files:
+          - pkg/gate/substantiveness_join.go
+          - pkg/gate/substantiveness_hollow_violation_test.go
+          - cmd/backstop/gate_substantiveness_waiver_e2e_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-005
+        depends_on:
+          - TASK-003
+
+  - id: phase-2
+    name: "Phase 2: Full gate and artifact validation"
+    tasks:
+      - id: TASK-005
+        type: verification
+        title: "Rebuild, full gate, and validate both artifacts"
+        description: |
+          THE BINARY FIRST, or the gate is vacuous — this lane's whole subject is a
+          field carried inside that binary's own join:
+            go build -o bin/backstop ./cmd/backstop/
+
+          Then, reporting TRUE exit codes:
+            ./bin/backstop gate
+            ./bin/backstop artifact validate --plan PLAN-ISSUE-116
+            ./bin/backstop artifact validate --issue ISSUE-116
+
+          Covers both work categories: code (the gate, over the changed Go files) and
+          artifacts (the plan and its source issue). If a per-file check is wanted for
+          the one production file, run it as a SINGLE invocation —
+          `./bin/backstop gate --file pkg/gate/substantiveness_join.go` — never two
+          --file flags (ISSUE-093).
+
+          A DOGFOOD NOTE WORTH WATCHING, NOT A BLOCKER: backstop-core now gates itself
+          with a working test_substantiveness waiver path for the first time. If the
+          full gate's waiver_resolution step reports NEW unused/dangling
+          test_substantiveness entries, that is this fix doing its job — tokens that
+          were previously invisible are now being adjudicated. pkg/gate/baseline_test.go:87-88
+          carries exactly such a token, inert because that test is not hollow, and
+          ISSUE-116 records it as inert. Expect it to stay silent; if it does not,
+          report what changed rather than deleting the token.
+
+          Leave `status: draft` unless the founder rules otherwise — close-out and
+          status promotion are not this lane's to take.
+        files:
+          - pkg/gate/substantiveness_join.go
+          - plans/PLAN-ISSUE-116-substantiveness-waiver-line-carry.plan.yml
+          - issues/ISSUE-116-substantiveness-waiver-line-loss-hollow-findings.issue.md
+        claims:
+          - CLM-002
+          - CLM-004
+        depends_on:
+          - TASK-003
+          - TASK-004

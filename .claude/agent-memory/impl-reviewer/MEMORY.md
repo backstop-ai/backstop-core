@@ -11,3 +11,4 @@
 - [SPEC-047 capstone review](project_spec047_capstone_review.md) — BUNDLE-012 Seed 5 FINAL; in-repo bun pack/policy/ratchet all sound+substantive, but REQ-005 external executed proof NEVER performed (fork unwired, still carries retired language:, no run-evidence) — FAIL on that one gap
 
 - [SPEC-048 dispatch fix PASS](project_spec048_dispatch_fix_pass.md) — findings-engine self-target + stdout_artifact fix; FIRST spec to close the provisioning gap right (real ExecCommandRunner over arg-sensitive committed fake, fails-pre-fix, depends on both fixes); net-neg 152→144, inherited reds only
+- [ISSUE-116 line-carry PASS](project_issue116_line_carry_pass.md) — reviewer-side red-proof via rsync-to-scratchpad revert; neuter a masking mechanism-Fatalf to prove the behavioral assert is independently red
