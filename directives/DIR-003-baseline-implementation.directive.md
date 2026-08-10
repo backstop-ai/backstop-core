@@ -58,3 +58,13 @@ Depends on DIR-001 (release workflow — CI must exist to generate baselines).
   evaluated it — the silent/vacuous green this project exists to prevent (see CLAUDE.md
   "Enforcement philosophy"). This is a hold, not a PM suggestion, and should not be lifted
   without an explicit founder go once ISSUE-086 lands.
+- **Founder-reaffirmed, 2026-08-10: the hold stands.** Brandon was asked directly whether to
+  lift the hold now that its stated CI precondition reads met (per the 2026-08-02 correction
+  above). He said keep it. The CI precondition being satisfied is not sufficient on its own —
+  the deeper, still-undemonstrated risk is the one the 2026-08-02 correction identified: a
+  baseline refresh could silently ratchet-clean a pack-engine dimension that was never
+  evaluated, indistinguishable in outward shape from one that ran and passed. That distinction
+  needs to actually be proven safe (e.g. a test/fixture demonstrating never-evaluated vs.
+  ran-and-clean are told apart) before anyone refreshes the baseline for real. This closes out
+  the 2026-08-02T14:10Z PM-inbox escalation asking for a ruling on lifting the hold — the
+  ruling is: not yet, precondition-met is not the same as risk-proven-safe.

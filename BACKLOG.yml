@@ -43,6 +43,8 @@ directives:
     title: Pack Fleet Publication & Migration
   - id: DIR-024
     title: Gate/Engine Quality
+  - id: DIR-032
+    title: Gate Verdict Honesty
   - id: DIR-003
     title: Baseline Implementation
   - id: DIR-002

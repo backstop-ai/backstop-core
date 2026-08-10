@@ -91,6 +91,37 @@ than core mechanism:
      (manifest `0.1.3`) and `backstop-harness-architecture-pack` (manifest
      `0.1.0`) both still carry the old `-pack` suffix, confirmed on disk at
      `~/src/projects/`; the rename-vs-grandfather decision is still open.
+
+   **Correction, 2026-08-10 (verified against `backstop.lock` and commit
+   `7211a59`, per founder ruling on the 2026-08-02 PM-inbox escalation):**
+   the six-pack enumeration above (`cobra-cli`, `contracts`, `go-standards`,
+   `go-toolchain`, `self`, `substantiveness`) is now stale as a count of
+   `backstop-core`'s own fleet — it never included
+   `backstop-ai/backstop-core-architecture` (v0.1.1), adopted into
+   `backstop-core` on 2026-08-02 via commit `7211a59` ("feat: adopt
+   backstop-ai/backstop-core-architecture 0.1.1 — package topology
+   enforced") and, per that commit's own message, the **seventh** pack in
+   the fleet. It enforces package-topology rules via `go-arch-lint` and has
+   gated every commit in `backstop-core` since adoption, yet had zero
+   artifact trail — no bundle, issue, or directive cited it — until this
+   correction. `backstop.lock` today holds exactly seven entries for
+   `backstop-core`, all `source_type: git` at `backstop-ai/*` coordinates
+   (no `local_path` anywhere, consistent with the 2026-08-02 correction
+   above): `backstop-core-architecture` (0.1.1), `backstop-self` (1.1.2),
+   `cobra-cli-standards` (0.2.1), `go-contracts` (1.2.0) — the renamed
+   `contracts` from thread 1 tier 1 — `go-standards` (1.2.1),
+   `go-substantiveness` (1.2.0) — the renamed `substantiveness`, also
+   thread 1 tier 1 — and `go-toolchain` (1.3.0).
+
+   **This is a distinct pack from thread 2's
+   `backstop-harness-architecture-pack`** — different repo, different
+   naming convention (`name == coordinate`, no `-pack` suffix, matching the
+   other ten), different consumer (`backstop-core`, not
+   `backstop-harness`), and unlike thread 2's pack it is already published
+   and fully remote (`source_type: git`) rather than unpublished. Do not
+   read thread 2's rename-vs-grandfather decision as covering this pack —
+   that decision is scoped to the harness architecture pack only, which
+   remains unpublished and untouched by this correction.
 4. **Absorb the Clone-strip transitional asymmetry.** SPEC-055's
    `ExecGitCloner` installs remote packs `.git`-free while locally-sourced
    packs are untouched, so the two install paths diverge in what a pack

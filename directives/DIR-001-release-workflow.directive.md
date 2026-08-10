@@ -10,6 +10,9 @@ directive:
     - "BUNDLE-003"
     - "ISSUE-087"
     - "ISSUE-090"
+    - "ISSUE-101"
+    - "ISSUE-109"
+    - "ISSUE-111"
 ---
 
 ## Description
@@ -32,6 +35,11 @@ not the primary distribution mechanism; CI-driven releases are.
 - ID resolver fix (ISSUE-090): reconcile artifact-ID allocation against
   `max(git tags, local disk scan)` rather than tags alone, so it must land
   **before** the remote is added — see Notes
+- Go-distribution pack lane (ISSUE-101, `closed`; ISSUE-109, `open`;
+  ISSUE-111, `open`): productizing the hand-written release trinity as the
+  `backstop-ai/go-distribution` pack and adopting it into backstop-core's
+  own `backstop.yml`/`backstop.lock` — founder-ruled home 2026-08-10, see
+  Notes
 
 ### Delivery status
 
@@ -182,3 +190,68 @@ here as follow-on scope/notes rather than reopening that issue:
   goreleaser's `tap_migrations.json` path — when we deliberately move that
   pin past the v2 line; goreleaser v3 shipping upstream cannot force it on
   its own.
+
+**Go-distribution pack lane — ISSUE-101 home ruling (founder, 2026-08-10).**
+The PM inbox escalated ISSUE-101's directive home four times without a
+ruling (`.backstop/pm/INBOX.md`, entries at 2026-07-29T01:35Z, 13:22Z,
+13:54Z, and 13:59Z) — the delay outlasted the work itself: PLAN-ISSUE-101
+went `completed` and the pack was tagged/published to a home nobody had
+yet ruled on. The founder has now ruled: **DIR-001 is the home.** This
+resolves four artifacts in one line, per the inbox's own framing that they
+all move together:
+
+- **ISSUE-101** ("Go Distribution Pack — Productize the Release Trinity",
+  now `closed`, delivered by `PLAN-ISSUE-101` `completed`) — productized
+  ISSUE-087's hand-written release trinity (goreleaser config, the release
+  and tag-integrity workflows, version stamping) as the published
+  `backstop-ai/go-distribution` pack (`v0.1.0`), proven against both
+  backstop-core itself and a first external consumer (`stash`), with hash
+  equality between local and remote install. This is the pack this
+  directive's "go-distribution pack framing" bullet (above, in the
+  2026-07-28 lane-close notes) anticipated — ISSUE-101 fulfills that
+  framing rather than opening new scope.
+- **ISSUE-109** ("Goreleaser Derived-Env Cross-File Falsifier", `open`) —
+  moves with ISSUE-101 because it is that issue's own filed residual
+  (`PLAN-ISSUE-101` TASK-016): the general invariant "every `.Env.<NAME>`
+  in `.goreleaser.yml` has a matching export in `release.yml`" is a
+  cross-file correlation semgrep (single-file) cannot enforce, so only a
+  narrow single-file WARNING rule shipped. Homed here and not at DIR-024
+  ("Gate/Engine Quality") because the inbox's own analysis is correct on
+  the point that matters for placement: whichever fix direction is chosen
+  (a pack-side script engine, or a core-side correlated-file-group input
+  mode) is downstream of ruling the pack's home first, and core's own
+  release plumbing — the thing actually burned by the failure mode this
+  issue tracks (ISSUE-087's half-published-release shape) — is squarely
+  DIR-001's charter, not DIR-024's general engine-quality catch-all.
+- **ISSUE-111** ("Backstop Core Adopts Go Distribution Pack", `open`) —
+  moves with ISSUE-101 for the same reason (also filed by TASK-016): it
+  asks whether backstop-core's own committed `backstop.yml`/`backstop.lock`
+  durably installs the `go-distribution` pack PLAN-ISSUE-101 proved only in
+  discarded worktrees. Adoption was measured verdict-neutral before this
+  ruling (zero findings against core's own trinity, other packs'
+  finding counts unchanged) — this is bounded, low-risk work, not an open
+  question.
+
+**BUNDLE-031 is expected to land here too, but is not yet cited.**
+BUNDLE-031 ("Release Currency Versioning Machinery", `exploring`) has its
+own open question, OQ-3, asking where its machinery should live, and names
+the `go-distribution` pack as one of three candidate homes. This ruling
+does not resolve OQ-3 — the founder drives bundle OQ resolution and
+maturity promotion, not this directive — but it does make DIR-001 the
+*likely* eventual directive home for BUNDLE-031 once/if it promotes past
+`exploring` and needs one, on the same reasoning that homed ISSUE-101 here.
+BUNDLE-031 itself is deliberately untouched by this ruling: not added to
+this directive's `source:` (it is a bundle still in `exploring`, not yet a
+citable delivered/committed artifact), and its own file, OQs, and maturity
+are unchanged.
+
+**Correction to this directive's own Notes, note-supersedes convention
+(2026-08-10).** The "go-distribution pack framing" bullet in the
+2026-07-28 lane-close notes above recorded only the founder's *framing*
+("that trinity fits perfectly as a go launch/go distribution pack") and
+explicitly stated "it is not new scope executed under this directive
+today." That framing has since been executed — ISSUE-101 built and shipped
+the pack it anticipated — so as of this ruling it is no longer merely
+aspirational framing; it is delivered, `source`-cited work. The original
+bullet is left intact above as accurate history of what was known
+2026-07-28; this paragraph is the dated correction.

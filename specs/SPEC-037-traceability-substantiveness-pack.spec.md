@@ -2,10 +2,10 @@
 title: "Traceability Substantiveness Pack"
 number: SPEC-037
 created: "2026-06-22"
-updated: "2026-07-07"
+updated: "2026-08-10"
 status: draft
 schema_version: spec/v1
-spec_version: 1.2.3
+spec_version: 1.2.4
 
 implementation:
   summary: >
@@ -248,19 +248,26 @@ requirements:
       be built into the binary, MUST NOT be embedded via `//go:embed` or any compiled-in
       asset, MUST NOT be reached through a baked code path or analyzer bridge, and MUST
       NOT be a production reliance on a `testdata` fixture (testdata may be used by tests
-      ONLY, never as the path a real gate run resolves the pack from). For dogfooding,
-      backstop-core MUST install the substantiveness pack into ITSELF as a LOCAL pack via
-      the existing distribution path: `pack add <local-source>` records it in backstop.yml
-      with the `local` source ("local" value) and writes a `local` lockfile entry (the
-      full local-pack support shipped in pkg/pack/distribution/{add,install,verify}.go;
-      `VerifyLock` SKIPS local packs, so a local source does not require a remote
-      artifact). backstop-core thereby GATES ITSELF on substantiveness through this
-      installed local pack — the dogfood (backstop's own gate going RED on a genuinely
-      hollow backstop test via the installed pack) IS the proof the path is real, not a
-      stub. The backstop-ai org MAY later PUBLISH this as a reference pack consumed
-      remotely, but that is out of scope here and changes nothing: the binary still ships
-      no substantiveness rules. This pins BUNDLE-009 REQ-010's "the backstop binary holds
-      no language/tool specifics for traceability" — the rules live in a pack, installed.
+      ONLY, never as the path a real gate run resolves the pack from). Those prohibitions
+      are absolute and are the whole of what this requirement forbids. For dogfooding,
+      backstop-core MUST install the substantiveness pack into ITSELF through the STANDARD
+      PACK DISTRIBUTION PATH (`pack add`), such that the pack is DECLARED in backstop.yml,
+      LOCKED in backstop.lock with a resolvable source, and lock verification PASSES.
+      EITHER source type SATISFIES this requirement: a LOCAL source (`pack add
+      <local-source>` → the `local` declaration value + a `local` source-type lockfile
+      entry; `VerifyLock` SKIPS local packs, so no remote artifact is required) OR a REMOTE
+      source (`pack add <org>/<pack>@<version>` → a `git` source-type lockfile entry
+      carrying the source coordinate and tag). The requirement is INSTALLED-AND-RESOLVABLE
+      via the distribution path, NOT `local` specifically; the local-pack support shipped in
+      pkg/pack/distribution/{add,install,verify}.go and the remote path shipped in
+      SPEC-055/SPEC-056 are both acceptable provisioning routes. backstop-core thereby GATES
+      ITSELF on substantiveness through this installed pack — the dogfood (backstop's own
+      gate going RED on a genuinely hollow backstop test via the installed pack) IS the
+      proof the path is real, not a stub. PUBLISHING these rules as a backstop-ai reference
+      pack consumed REMOTELY is therefore an ACCEPTED provisioning state, not a deviation,
+      and changes nothing about the invariant: the binary still ships no substantiveness
+      rules. This pins BUNDLE-009 REQ-010's "the backstop binary holds no language/tool
+      specifics for traceability" — the rules live in a pack, installed.
 
       CAPABILITY RE-KEY (live locus). SPEC-036 shipped deriveCapabilityState at
       cmd/backstop/gate.go:272, which derives every traceability dimension's
@@ -282,8 +289,10 @@ requirements:
       REAL-OVER-INSTALLED-PACK END-TO-END PROOF (closes the recurring pack-provisioning
       integration gap). Beyond REQ-005's spy on the dispatch SEAM (which proves the step
       CALLS the dispatcher but NOT that the whole pipeline runs over a real INSTALLED
-      pack), there MUST be a test that INSTALLS the substantiveness pack as a LOCAL pack
-      (per REQ-009: `pack add` a local source → declared + locked) and then runs the REAL
+      pack), there MUST be a test that INSTALLS the substantiveness pack through the
+      standard distribution path REQ-009 mandates — a LOCAL source is the appropriate choice
+      for a hermetic test workspace (`pack add` a local source → declared + locked), and
+      REQ-009 permits either source type — and then runs the REAL
       gate substantiveness path over it END TO END through the PRODUCTION pipeline: real
       pack resolution → real dispatchPackEngines → real ast-grep over real fixtures → real
       convert (ast-grep→SARIF via the convert script under the real macOS sandbox) →
@@ -581,11 +590,15 @@ claims:
   - id: CLM-031
     requirement: REQ-009
     text: >
-      backstop-core dogfood-installs the substantiveness pack into itself as a LOCAL pack:
-      after `pack add <local-source>`, backstop.yml declares the pack with the `local`
-      source value and the lockfile carries a `local` source-type entry, and VerifyLock
-      passes WITHOUT a remote artifact (local packs are skipped) — proving the local
-      provisioning path is the dogfood mechanism, not a remote fetch.
+      backstop-core dogfood-installs the substantiveness pack into itself through the
+      STANDARD PACK DISTRIBUTION PATH: after `pack add`, backstop.yml DECLARES the pack and
+      backstop.lock carries a RESOLVABLE entry for it, and lock verification PASSES. EITHER
+      source type satisfies this: a LOCAL install (the `local` declaration value + a `local`
+      source-type lock entry, which VerifyLock skips so no remote artifact is required) OR a
+      REMOTE install (a `git` source-type lock entry carrying the source coordinate and
+      tag). What is pinned is that the pack is INSTALLED AND RESOLVABLE via the distribution
+      path — NOT that its source is local, and never a baked, `//go:embed`ed, or
+      testdata-resolved provisioning.
     tests:
       - TestProvisioning_SubstantivenessInstalledAsLocalPack_DeclaredAndLocked
   - id: CLM-032
@@ -771,27 +784,32 @@ fixtures (Go substantiveness pack rules + the shared TypeScript proof pack
 substantiveness rules). The go/parser analyzer in `pkg/gate/step_testverify.go` is
 deleted.
 
-### Provisioning — the substantiveness pack is an INSTALLED local pack (REQ-009)
+### Provisioning — the substantiveness pack is an ORDINARY INSTALLED pack (REQ-009)
 
 First principle: anything that runs in a gate is INSTALLED from a pack; the binary ships
 ONLY a way to install packs and execute them. The substantiveness pack is therefore an
 ordinary installed pack — NOT built-in, NOT `//go:embed`-bundled, NOT a baked bridge, NOT
 a production reliance on `testdata` (testdata is a test-only convenience, never the path a
-real gate resolves the pack from). For dogfooding, backstop-core installs the pack into
-ITSELF as a LOCAL pack through the already-shipped distribution path
-(`pkg/pack/distribution/{add,install,verify}.go`):
+real gate resolves the pack from). Those prohibitions are absolute. For dogfooding,
+backstop-core installs the pack into ITSELF through the STANDARD distribution path
+(`pack add`), and EITHER source type satisfies REQ-009:
 
-- `pack add <local-source>` records the pack in `backstop.yml` with the `local` source
-  value and writes a `local`-source lockfile entry (`distribution.Add` →
+- **LOCAL** — `pack add <local-source>` records the pack in `backstop.yml` with the `local`
+  source value and writes a `local`-source lockfile entry (`distribution.Add` →
   `updateBackstopYml` → `yml.Packs[packName] = "local"`; lockfile `SourceType: "local"`).
-- `VerifyLock` SKIPS `local` packs (they are not under `packsDir`), so the dogfood install
-  needs no remote artifact — the local source IS the pack.
+  `VerifyLock` SKIPS `local` packs (they are not under `packsDir`), so a local install needs
+  no remote artifact — the local source IS the pack.
+- **REMOTE** — `pack add <org>/<pack>@<version>` clones the published pack at its tag through
+  the identity gate and writes a `git`-source lockfile entry carrying `source_coordinate`,
+  `git_ref`, and `content_hash`, verified by `VerifyLock` against the installed tree.
 
-backstop-core thus gates ITSELF on substantiveness via this installed local pack: the
+What REQ-009 pins is INSTALLED-AND-RESOLVABLE via the distribution path — declared in
+`backstop.yml`, locked in `backstop.lock`, lock verification passing — not `local`
+specifically. backstop-core thus gates ITSELF on substantiveness via the installed pack: the
 dogfood (backstop's own gate going RED on a genuinely hollow backstop test, through the
-installed pack) is the proof the path is real. The backstop-ai org MAY later publish the
-same rules as a remotely-consumed reference pack; that changes nothing here — the binary
-still ships no substantiveness rules.
+installed pack) is the proof the path is real. Publishing these rules as a backstop-ai
+reference pack consumed REMOTELY is an accepted provisioning state, not a deviation — the
+binary still ships no substantiveness rules either way.
 
 **CapabilityState keying after deletion (REQ-009 / CLM-035 / CLM-036).** SPEC-036 shipped
 `deriveCapabilityState` at `cmd/backstop/gate.go:272`, which keys every traceability
@@ -818,7 +836,8 @@ and Sharp Edges).
 
 REQ-005's spy proves the substantiveness STEP calls the dispatch seam; it does NOT prove
 the whole pipeline runs over a real INSTALLED pack. REQ-010 adds that proof: a test
-INSTALLS the substantiveness pack as a local pack (REQ-009) and runs the REAL gate path
+INSTALLS the substantiveness pack through the distribution path REQ-009 mandates — a LOCAL
+source being the appropriate choice for a hermetic test workspace — and runs the REAL gate path
 end to end — real pack resolution → real `dispatchPackEngines` → real ast-grep over real
 fixtures → real convert (ast-grep→SARIF via the convert script under the real macOS
 sandbox) → SARIF → gate route + set-join — asserting a genuinely hollow backstop test
@@ -953,9 +972,10 @@ by a stub (a pack emitting nothing fails the hollow-fixture claim).
    vocabulary in YAML) + a Q2 referenced-symbol extraction ast-grep query + Go fixtures
    (hollow / substantive / no-target / calls-target / same-package). The pack is an
    ORDINARY pack (no `//go:embed`, no baked tier); dogfood-install it into backstop-core
-   as a LOCAL pack via `pack add <local-source>` (declared `local` in backstop.yml +
-   `local` lockfile entry; `VerifyLock` skips local packs) so backstop-core gates itself
-   on substantiveness through the installed pack (REQ-009).
+   via the standard distribution path `pack add` — EITHER a local source (declared `local`
+   in backstop.yml + `local` lockfile entry; `VerifyLock` skips local packs) OR a published
+   remote coordinate (`git` lockfile entry with source coordinate + tag) — so backstop-core
+   gates itself on substantiveness through the installed, declared, locked pack (REQ-009).
 2. Add the substantiveness rule + `.test.ts` fixtures (hollow / substantive) to the
    shared TypeScript proof pack.
 3. Implement `pkg/gate/substantiveness_join.go`: `ReferencedSymbolSet`,
@@ -981,7 +1001,8 @@ by a stub (a pack emitting nothing fails the hollow-fixture claim).
    installed-pack keying, leave its coverage/contracts arms untouched, so `./cmd/backstop/`
    stays green (REQ-008 / CLM-037).
 6a. Add the REAL over-installed-pack end-to-end test (REQ-010): install the substantiveness
-   pack as a LOCAL pack, run the REAL gate path end to end (real pack resolution → real
+   pack via the distribution path (a LOCAL source, for a hermetic test workspace — REQ-009
+   accepts either source type), run the REAL gate path end to end (real pack resolution → real
    `dispatchPackEngines` → real ast-grep → real convert-under-sandbox → SARIF → route +
    set-join) over a genuinely hollow backstop test, and assert a REAL `test_substantiveness`
    violation — failing if the pack is not actually installed or not actually run (no stub,
@@ -1029,8 +1050,10 @@ claim. The TS proof claims are unsatisfiable by a stub (real ast-grep over real 
 riding the shared dispatch path).
 
 The PROVISIONING model is covered by a not-embedded-nor-testdata claim and an
-installed-as-local-pack claim (declared `local` + locked, VerifyLock passes without a
-remote artifact); the substantiveness CAPABILITY-keying is covered by a claim pinning the
+installed-via-the-distribution-path claim (declared in backstop.yml + locked with a
+resolvable source and lock verification passing — satisfied by EITHER a `local` entry, which
+VerifyLock skips so no remote artifact is needed, or a `git` entry carrying source coordinate
++ tag); the substantiveness CAPABILITY-keying is covered by a claim pinning the
 capability source to the INSTALLED pack at the live locus `deriveCapabilityState`
 (`cmd/backstop/gate.go:272`) (Present/Working iff installed; undeclared+absent → class-2,
 declared+absent → class-3 per SPEC-036), NOT the deleted baked analyzer, plus a
@@ -1122,18 +1145,40 @@ or by the seam spy alone.
   `testdata` pack or stubbing the dispatcher, leaving the REAL installed-pack path
   unproven — and that gap bit earlier seeds. A green Q1/Q2 unit suite over a `testdata`
   pack does NOT prove backstop gates itself on substantiveness via an INSTALLED pack. The
-  guard is REQ-010's over-installed-pack E2E (CLM-032..034): `pack add` a LOCAL pack and
-  run the WHOLE production pipeline, with a no-vacuous-green negative (uninstalled/unrun →
-  no violation). If the only "real" path in the suite resolves the pack from `testdata`,
-  the gap is re-opened — production must resolve the pack from the installed (local)
-  declaration, never from `testdata`.
+  guard is REQ-010's over-installed-pack E2E (CLM-032..034): `pack add` the pack (a LOCAL
+  source, for a hermetic test workspace) and run the WHOLE production pipeline, with a
+  no-vacuous-green negative (uninstalled/unrun → no violation). If the only "real" path in
+  the suite resolves the pack from `testdata`, the gap is re-opened — production must resolve
+  the pack from the INSTALLED declaration (local or remote), never from `testdata`.
 
 - **`//go:embed` / baked-tier temptation.** It is tempting to bundle the substantiveness
   rule YAML into the binary (embed, or a privileged "backstop ships built-in rules" tier)
   "so the dogfood always works." That is exactly the baked tier the zero-baked-checks rule
   eradicates and REQ-009 prohibits: the binary ships ONLY a way to install + execute packs.
-  The dogfood works because backstop-core INSTALLS the pack as a LOCAL pack, not because the
-  rules are compiled in. CLM-030 pins no-embed / no-testdata-in-production.
+  The dogfood works because backstop-core INSTALLS the pack through the distribution path
+  (local OR remote source — REQ-009 accepts either), not because the rules are compiled in.
+  CLM-030 pins no-embed / no-testdata-in-production; CLM-031 pins installed-and-resolvable.
+
+- **The source-type loosening is NOT a loosening of the anti-baking invariant (v1.2.4).**
+  REQ-009/CLM-031 originally hard-required a LOCAL install because that was the only
+  distribution path that existed when this spec was written; backstop-core's own
+  `go-substantiveness` pack now installs REMOTELY (`source_type: git`, coordinate
+  `backstop-ai/go-substantiveness`, tag `v1.2.0`) after the fleet-wide migration to published
+  coordinates. The requirement was amended to accept EITHER source type. The trap: reading
+  that amendment as general permission to relax provisioning. It is not — `//go:embed`, a
+  compiled-in asset, a baked analyzer bridge, and any production path resolving the pack from
+  `testdata` remain ABSOLUTELY prohibited, exactly as strictly as before. The ONLY thing that
+  moved is `local` → `local OR remote`; "installed, declared, locked, resolvable" is still
+  the bar, and a pack that is none of those still fails REQ-009.
+
+- **A green local-install test does NOT prove backstop-core's LIVE provisioning (v1.2.4).**
+  The mandated provisioning tests build scratch/temp projects (`t.TempDir()`, a separate E2E
+  workspace helper) and never read backstop-core's own `backstop.yml` / `backstop.lock` —
+  which is exactly how CLM-031 stayed green for months while backstop-core's actual
+  substantiveness pack silently migrated from `local` to `git` in commit `905120f`. Their
+  green proves the MECHANISM works, not that backstop-core uses it that way. Any future
+  claim intended to pin backstop-core's OWN dogfood state must read the repo's live
+  declaration/lock, not a fixture — otherwise the same drift recurs undetected.
 
 - **Capability-keying drift against SPEC-036 (open alignment, not silent).** SPEC-036 keys
   the substantiveness `CapabilityState` on `cfg.Language` + baked-Go-analyzer presence — the
@@ -1191,8 +1236,13 @@ or by the seam spy alone.
   `(FilePath, FuncName)` from the pack's own SARIF — with NO gate-side test-AST re-walk?
 - Is the substantiveness pack an ORDINARY INSTALLED pack — with NO `//go:embed` / baked
   tier and NO production code path resolving it from `testdata` — and does backstop-core
-  dogfood-install it into itself as a LOCAL pack (declared `local` in backstop.yml + `local`
-  lockfile entry, VerifyLock passing without a remote artifact)?
+  dogfood-install it into itself through the standard `pack add` distribution path, declared
+  in backstop.yml and locked with a RESOLVABLE source that lock verification passes (either
+  a `local` entry, which VerifyLock skips, or a `git` entry with source coordinate + tag)?
+- Does any check of the provisioning model assert on SOURCE TYPE where it should be
+  asserting on INSTALLED-AND-RESOLVABLE — i.e. would a correctly-installed REMOTE pack fail
+  a test that should pass, or would a `//go:embed`ed / testdata-resolved pack sneak past a
+  test that only checks "some lock entry exists"?
 - Is there a REAL over-installed-pack END-TO-END test that installs the pack as a local
   pack and runs the WHOLE production pipeline (real pack resolution → real
   `dispatchPackEngines` → real ast-grep → real convert-under-sandbox → SARIF → route +
@@ -1234,9 +1284,18 @@ or by the seam spy alone.
   delete) this spec repeats for substantiveness.
 - SPEC-038 (Seed 4, contracts) — shares the single TypeScript proof pack this spec adds
   substantiveness rules to.
-- `pkg/pack/distribution/{add,install,verify}.go` — the local-pack provisioning path
-  (REQ-009): `Add` records `local` source in backstop.yml + lockfile, `VerifyLock` SKIPS
-  `local` packs (verify.go line ~46–49), so a local source needs no remote artifact.
+- `pkg/pack/distribution/{add,install,verify}.go` — the pack provisioning path (REQ-009).
+  LOCAL: `Add` records the `local` source in backstop.yml + lockfile and `VerifyLock` SKIPS
+  `local` packs (verify.go line ~46–49), so a local source needs no remote artifact. REMOTE:
+  `Add` resolves the version, clones at the tag through the identity gate, and records a
+  `git` lock entry with `source_coordinate` / `git_ref` / `content_hash`. REQ-009 accepts
+  either — see SPEC-055 (remote pack assembly) and SPEC-056 (manifest name as install
+  identity) for the remote path.
+- `backstop.yml` / `backstop.lock` (live, as of 2026-08-10) — backstop-core's own
+  `backstop-ai/go-substantiveness` is installed REMOTELY (`source_type: git`, `git_ref:
+  v1.2.0`, `source_coordinate: backstop-ai/go-substantiveness`), migrated from the original
+  local install by commit `905120f` (fleet-wide move to published coordinates). This is the
+  reality v1.2.4 amended REQ-009/CLM-031 to describe.
 - SPEC-036 — shipped `deriveCapabilityState` (`cmd/backstop/gate.go:272`) deriving the
   `CapabilityState` from `cfg.Language` + baked-Go-analyzer presence, and the shipped test
   `TestCapabilityState_NonGoProject_DerivesAbsentClass2`
@@ -1251,6 +1310,38 @@ or by the seam spy alone.
 
 ## Version History
 
+- **1.2.4** (2026-08-10) — FOUNDER-RULED amendment reconciling the PROVISIONING model to
+  shipped reality (same class of text-only correction as 1.2.3, per align-predating-artifacts:
+  a live `draft` spec's text must not contradict shipped state). REQ-009 and CLM-031 were
+  written when a LOCAL install was the only distribution path that existed, and hard-required
+  `local` specifically (backstop.yml `local` declaration + `local` source-type lock entry +
+  VerifyLock passing without a remote artifact). Reality moved: backstop-core's own
+  `backstop-ai/go-substantiveness` pack now installs REMOTELY (`source_type: git`,
+  `source_coordinate: backstop-ai/go-substantiveness`, `git_ref: v1.2.0`), changed by commit
+  `905120f` ("feat(ISSUE-020): phase 1 — pack fleet to published coordinates") — a bulk
+  migration of ALL backstop-core packs to published coordinates, not a substantiveness-specific
+  decision. REQ-009's own text already anticipated remote publication as invariant-preserving,
+  so the no-baked-pack concern was never violated; only the `local`-specific wording was stale.
+  AMENDED: REQ-009 and CLM-031 now require the pack to be INSTALLED via the standard `pack add`
+  distribution path — DECLARED in backstop.yml, LOCKED with a resolvable source, lock
+  verification PASSING — with EITHER source type acceptable (`local`, which VerifyLock skips,
+  or `git` with coordinate + tag); remote publication is restated as an ACCEPTED provisioning
+  state rather than out-of-scope. UNCHANGED IN STRICTNESS: the prohibitions are verbatim as
+  strict as before — no baked-into-the-binary, no `//go:embed`/compiled-in asset, no baked
+  code path or analyzer bridge, no production reliance on `testdata`. Also reworded for
+  consistency: REQ-010's `per REQ-009` cross-reference and the E2E prose (a LOCAL source
+  remains the appropriate choice for a hermetic test workspace), the Implementation
+  provisioning subsection and processing step 1, the Verification provisioning summary, the
+  testdata-as-production and `//go:embed` Sharp Edges, one Review Question (plus one added),
+  and the distribution References. Added two Sharp Edges: the source-type loosening is NOT a
+  loosening of the anti-baking invariant, and a green local-install FIXTURE test does not
+  prove backstop-core's LIVE provisioning (the exact reason this drift went undetected — the
+  mandated tests run against `t.TempDir()` projects and never read the repo's own
+  backstop.yml/backstop.lock). NO requirement or claim added/removed, NO mandated-test name
+  renamed, `status` unchanged (`draft`). OPEN FOLLOW-ON: CLM-031's mandated test name
+  `TestProvisioning_SubstantivenessInstalledAsLocalPack_DeclaredAndLocked` still says
+  "AsLocalPack" and now contradicts the amended claim text; renaming it is real test-code work
+  that needs its own issue → plan before this spec can close as `implemented`.
 - **1.2.3** (2026-07-07) — Prose reconciliation to the shipped ISSUE-047 de-baking of
   `pkg/gate.TargetPackageName` (per the align-predating-artifacts rule this spec's REQ-008
   itself cites — a LIVE `draft` spec's text must not contradict shipped behavior). ISSUE-047

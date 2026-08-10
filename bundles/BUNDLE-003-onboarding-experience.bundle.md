@@ -6,9 +6,9 @@ schema_version: bundle/v2
 
 bundle:
   name: onboarding-experience
-  version: "0.6.0"
+  version: "0.7.0"
   created: "2026-04-09"
-  updated: "2026-07-13"
+  updated: "2026-08-10"
   category: feature
 
 status:
@@ -54,6 +54,190 @@ solution:
     never in core (a HARD INVARIANT).
     Binary + system-toolchain acquisition and baseline generation are owned elsewhere
     (DIR-001, BUNDLE-007) and are out of scope here.
+
+requirements:
+  - id: REQ-001
+    version: "1.0.0"
+    text: >
+      `backstop init` must take a consuming project from "the binary is present" to
+      first useful output in a single command, with no manual step required between
+      the two (DD-1).
+  - id: REQ-002
+    version: "1.0.0"
+    text: >
+      Bare `backstop init` must install the full opinionated base bundle without
+      prompting for any input, and must expose subtraction flags (`--only <cap>` /
+      `--no-<cap>`) as the only way to narrow that default set. Because it never
+      prompts, init must run identically in an interactive terminal and in a headless
+      or CI environment (OQ-2, DD-2).
+  - id: REQ-003
+    version: "1.0.0"
+    text: >
+      Init must generate the `backstop.yml` correct for the selected profile without
+      the consumer hand-writing policy. The full-SDLC greenfield profile gets a minimal
+      config (`project:` plus the artifact pipeline enabled). The pack-only profile must
+      additionally set `enforcement.policy` `level: off` for every SDLC dimension —
+      `test_verification`, `coverage_threshold`, `contract_signature`,
+      `test_substantiveness`, `artifact_status_drift` — because those dimensions
+      hard-error on a missing `specs/` directory rather than skipping (DD-2).
+  - id: REQ-004
+    version: "1.0.0"
+    text: >
+      Init must scaffold the `.backstop/`-rooted artifact layout in consumer repos,
+      leaving only `backstop.yml` / `backstop.lock` and `.backstop/` visible at the
+      repo root. backstop-core's own root-level artifact layout is a recognized
+      framework exception and must not be treated as a layout violation (OQ-1).
+  - id: REQ-005
+    version: "1.0.0"
+    text: >
+      Init must emit one canonical `.gitignore` covering the full set the validated
+      onboarding produced — `.backstop/packs/`, `.backstop/baseline.json`,
+      `.backstop/pack-config-provenance.json`, plus every path the installed packs
+      declare as generated output — so that ignore contents no longer diverge between
+      onboarded repos (DD-7).
+  - id: REQ-006
+    version: "1.0.0"
+    text: >
+      Init must run `git init` only when the target directory has no `.git`, and must
+      leave an existing repository's git state untouched (DD-11).
+  - id: REQ-007
+    version: "1.0.0"
+    text: >
+      Re-running init must converge and never clobber: it detects only
+      backstop-neutral facts (presence of `.git`, of `backstop.yml`, of the artifact
+      directories), adds only what is missing, overwrites no existing consumer file,
+      and reports its findings purely in backstop terms (OQ-6, DD-11, DD-14).
+  - id: REQ-008
+    version: "1.0.0"
+    text: >
+      Init must perform ZERO language, framework, or CI-platform detection. No
+      language, framework, or CI-platform name may appear in core CLI code on the init
+      path; that knowledge lives in packs as data and reaches init only through pack
+      manifests and recipes. The `backstop/self` pack enforces this (DD-13, OQ-5, OQ-6).
+  - id: REQ-009
+    version: "1.0.0"
+    text: >
+      Init must apply pack-supplied recipes through a single generic mechanism — copy
+      a template to the path the recipe itself declares — and must not interpret,
+      rewrite, or language-specialize template content. Every language-specific
+      artifact init produces (a first source file, toolchain config) must originate in
+      a pack recipe, never in core; init adds the backstop layer only and never
+      reimplements what an ecosystem scaffolder (`create-next-app`, `cargo new`, …)
+      already does (DD-12, DD-7, DD-14).
+  - id: REQ-010
+    version: "1.0.0"
+    text: >
+      Languages must enter a consumer project only via an explicit `pack add`;
+      multi-language projects are simply multiple packs. Init must have no concept of
+      a "primary language" and must never select packs on a project's inspected
+      identity (OQ-5, DD-11).
+  - id: REQ-011
+    version: "1.0.0"
+    text: >
+      Init must verify the toolchain actually RUNS by executing the pack-declared
+      test/compile entrypoint once and confirming success, rather than inferring
+      health from package-manager configuration or exit code. Evidence: pnpm 11.11
+      exited nonzero with `ERR_PNPM_IGNORED_BUILDS` while vitest ran fine — trusting
+      the package manager would have produced a false init failure (DD-6).
+  - id: REQ-012
+    version: "1.0.0"
+    text: >
+      Init must seed a gitignored local baseline at `.backstop/baseline.json` so a
+      solo or remoteless consumer gets the ratchet from day zero, and that local
+      baseline must be superseded without migration by the CI-generated baseline
+      BUNDLE-007 owns once a team adopts it (OQ-3, DD-10).
+  - id: REQ-013
+    version: "1.0.0"
+    text: >
+      The `baseline_comparison` message emitted on a remoteless repository must be
+      self-consistent — it must not simultaneously claim a baseline is required and
+      that none can exist (OQ-3).
+  - id: REQ-014
+    version: "1.0.0"
+    text: >
+      Init must capture the first gate run as the baseline and present it as
+      observation, not failure: findings grouped by category with counts, phrased as
+      what was noticed, and an exit code of 0 for "baseline captured" rather than 1
+      for "violations found" (DD-3).
+  - id: REQ-015
+    version: "1.0.0"
+    text: >
+      After init, an unflagged gate run must be diff-scoped — evaluating changed files
+      against the seeded baseline so inherited patterns are separated from introduced
+      ones — with full-codebase evaluation available on demand (DD-4).
+  - id: REQ-016
+    version: "1.0.0"
+    text: >
+      Init must wire CI by default by applying the selected variant from a CI recipe
+      pack that holds per-platform templates as data (`--ci github` as the default
+      variant, `--no-ci` to opt out). No `ci` verb may be added: the generated job
+      chains the existing platform-agnostic commands (`pack install` → `baseline pull`
+      → `gate`), which is what gives local and CI runs identical semantics (OQ-7,
+      DD-13).
+  - id: REQ-017
+    version: "1.0.0"
+    text: >
+      When no CI recipe pack is installed, the CI step of init must fail LOUDLY with
+      guidance naming the pack to add, while every other init step still completes.
+      There is no baked per-platform fallback, so silent success is unrepresentable
+      (OQ-7).
+  - id: REQ-018
+    version: "1.0.0"
+    text: >
+      Init must install its omakase base through portable git-ref pack references, so
+      the `backstop.lock` it commits contains no machine-specific paths. Local-path
+      packs a consumer adds afterward are restored on the same machine from a
+      gitignored local-provenance cache, and promoting one to shareable stays an
+      explicit git-ref step (OQ-4).
+  - id: REQ-019
+    version: "1.0.0"
+    text: >
+      Init's happy path must execute the transcribed hand-onboarding sequence
+      (scaffold via recipe → write profile-correct `backstop.yml` → create artifact
+      dirs → write `.gitignore` → add each pack → run the gate), and the acceptance
+      bar is the outcome that sequence already achieved by hand: on a fresh repo, init
+      followed by `backstop gate` reaches PASS with zero violations, for both the
+      full-SDLC greenfield and the pack-only profile (DD-8, DD-2).
+  - id: REQ-020
+    version: "1.0.0"
+    text: >
+      `backstop doctor` must exist as the diagnostic command for a setup that is off,
+      with one check per ranked sharp edge from the hand-onboarding write-ups, and
+      init must name it in the guidance it prints whenever a step it cannot complete
+      is diagnosable (DD-8 corollary, DD-9).
+  - id: REQ-021
+    version: "1.0.0"
+    text: >
+      `backstop version` must stamp the build commit and build date, and must never
+      report a bare `dev`, so a stale binary is identifiable on sight (DD-9).
+  - id: REQ-022
+    version: "1.0.0"
+    text: >
+      `pack add` and `gate` must compare the binary's capability against the features
+      the pack manifest declares it requires, and on skew must fail with a diagnostic
+      naming the binary as older than the pack requires — instead of surfacing the
+      downstream engine error (e.g. `declared stdout_artifact ... not produced`) that
+      gives no hint the binary is the cause (DD-9).
+  - id: REQ-023
+    version: "1.0.0"
+    text: >
+      `backstop doctor` must expose the REQ-011 toolchain-execution check as a
+      standalone, re-runnable diagnostic with actionable remediation, so a consumer
+      can diagnose a broken toolchain without re-running init (DD-6, doctor seed).
+  - id: REQ-024
+    version: "1.0.0"
+    text: >
+      `backstop doctor` must check the installed runtime/toolchain version against the
+      stack policy declared by the installed packs and warn on deviation. The policy
+      values are pack data — no runtime version may be baked into core. Evidence: the
+      dogfood machine ran only non-LTS Node against a documented Node-LTS stack
+      decision and nothing warned (doctor seed, DD-13).
+  - id: REQ-025
+    version: "1.0.0"
+    text: >
+      `backstop doctor` must validate a consumer repo's artifact layout against the
+      canonical `.backstop/`-rooted layout and report each deviation with the path it
+      expected (OQ-1, doctor seed).
 ---
 
 # Onboarding Experience
@@ -108,6 +292,74 @@ is a sharp edge the tool should absorb.
   onboarding is not one-size-fits-all. Full-SDLC and pack-only consumers need
   materially different config, and picking the wrong one silently produces the
   hard-error experience (see DD-2).
+
+## Draft Requirements
+
+REQ-001 through REQ-025 are carried in the frontmatter `requirements` block. Every one is
+derived from an already-resolved OQ, an existing DD, or a spec seed in this bundle — nothing
+below introduces scope that those did not already settle. They partition cleanly across the
+two spec seeds: **REQ-001..019 belong to `backstop init`**, **REQ-020..025 belong to
+`backstop doctor`**.
+
+### `backstop init` (REQ-001 – REQ-019)
+
+- **Shape of the command** (REQ-001, REQ-002): one command from binary to first value with no
+  manual step in between (DD-1); omakase base installed prompt-free with subtract-via-flags,
+  which is also what makes init headless/CI-safe (OQ-2).
+- **Profile correctness** (REQ-003): the headline two-profile fork — full-SDLC greenfield gets
+  a minimal config; pack-only additionally gets `enforcement.policy` `level: off` on all five
+  SDLC dimensions, because they hard-error rather than skip on a missing `specs/` (DD-2).
+- **What init writes** (REQ-004, REQ-005): the `.backstop/`-rooted consumer layout with
+  backstop-core's root layout as the explicit framework exception (OQ-1), and one canonical
+  `.gitignore` that ends the divergence observed across onboarded repos (DD-7).
+- **Thin-executor boundary** (REQ-008, REQ-009, REQ-010): zero language/framework/CI-platform
+  detection, no such literal in core init code, recipes applied by a generic
+  copy-template-to-declared-path mechanism, and languages entering only via explicit
+  `pack add` (DD-13, DD-12, OQ-5). REQ-009 is also where DD-14 lands: init adds the backstop
+  layer, ecosystem scaffolders own the project.
+- **Idempotency** (REQ-006, REQ-007): `git init` only when there is no `.git`; re-init
+  converges, never clobbers, and stays framework-blind (DD-11, OQ-6).
+- **Ground truth over configuration** (REQ-011): init executes the pack-declared toolchain
+  entrypoint once rather than trusting a package manager's exit code (DD-6).
+- **Baseline and scope** (REQ-012, REQ-013, REQ-014, REQ-015): seed a gitignored local
+  baseline day-zero (OQ-3), fix the self-contradictory remoteless message (OQ-3), frame the
+  first run as observation with exit 0 (DD-3), and make post-init default scope diff-based
+  (DD-4).
+- **CI** (REQ-016, REQ-017): wired by default via a CI recipe pack whose templates are data,
+  no `ci` verb (the job chains `pack install` → `baseline pull` → `gate`), and a loud but
+  non-blocking failure when no CI pack is present (OQ-7).
+- **Lock portability** (REQ-018): init's own installs use portable git-refs so the committed
+  lock carries no machine-specific paths; the gitignored local-provenance cache covers
+  locally-added packs (OQ-4).
+- **Acceptance** (REQ-019): the transcribed hand-onboarding sequence is the happy path, and
+  the bar is the outcome it already produced by hand — init then `backstop gate` reaching PASS
+  with zero violations on a fresh repo, for both profiles (DD-8).
+
+### `backstop doctor` (REQ-020 – REQ-025)
+
+- **The command** (REQ-020): one check per ranked sharp edge; init points at it rather than
+  absorbing diagnosis (DD-8 corollary).
+- **Version-skew diagnosability** (REQ-021, REQ-022): a real version stamp instead of bare
+  `dev`, and a binary-vs-pack capability comparison in `pack add` and `gate` that names the
+  stale binary instead of surfacing the downstream engine error. This was the highest-pain
+  sharp edge in the 2026-07-12 dogfood (DD-9).
+- **Standalone diagnostics** (REQ-023, REQ-024, REQ-025): re-run the toolchain-execution check
+  outside init (DD-6), check runtime version against pack-declared stack policy (the
+  unenforced Node-LTS observation), and validate the artifact layout against the canonical
+  `.backstop/` root (OQ-1).
+
+### Deliberately NOT requirements here
+
+- Baseline generation mechanics, binary distribution, and system-toolchain acquisition —
+  owned by BUNDLE-007 and DIR-001 (DD-10). REQ-012 and REQ-013 are init's *consumption* of
+  the baseline, not its machinery.
+- The pack-recipe capability itself, the concrete CI recipe pack, and the gitignored
+  local-provenance lock-schema change — consumed by REQ-009/REQ-016/REQ-018 but designed
+  elsewhere (see Out of Scope / Dependencies). The recipe capability remains a BLOCKING
+  dependency for the init spec.
+- The cascading `coverage_threshold` misdiagnosis when tests fail — recorded under
+  Observations as a pack-side messaging concern, not init scope.
+- Registry-era pack auto-detection — explicitly dissolved by OQ-5.
 
 ## Draft Design Decisions
 
@@ -427,6 +679,24 @@ here. These are recorded so spec authoring does not accidentally absorb them:
   built without), the CI recipe pack, the local-provenance lock change, local-first baseline
   seeding, registry-era detection, and the orthogonal bundle→spec promotion gate hole.
   Maturity unchanged: exploring — promotion is founder-triggered separately.
+- 0.7.0 (2026-08-10): **Draft Requirements authored** — 25 formal requirements
+  (REQ-001..025) added to frontmatter plus a matching `## Draft Requirements` section,
+  each derived from an already-resolved OQ, an existing DD, or a spec seed; no new scope
+  introduced. Partitioned non-overlappingly across the two seeds: REQ-001..019 to
+  `backstop init` (command shape and omakase, two-profile config, `.backstop/` layout,
+  canonical `.gitignore`, thin-executor boundary and generic recipe apply, `git init`
+  -if-needed and converge-not-clobber, toolchain-runs verification, local baseline +
+  observation framing + diff-scoped default, default CI via recipe pack with loud absent-pack
+  failure, portable-lock installs, and the transcribed-sequence acceptance bar), REQ-020..025
+  to `backstop doctor` (the command itself, version stamp, binary-vs-pack capability skew,
+  standalone toolchain check, pack-declared stack-policy version check, layout validation).
+  Recorded what is deliberately NOT a requirement here (baseline mechanics, binary
+  distribution, the recipe capability and CI recipe pack, the local-provenance lock change,
+  the pack-side cascading coverage message, registry-era detection). **One tension resolved
+  and flagged:** DD-7's literal `.gitignore` list contains TypeScript-specific paths, which
+  DD-13 forbids in core, so REQ-005 states the backstop-owned entries literally and defers
+  the rest to what installed packs declare as generated output. Maturity unchanged:
+  exploring — promotion remains founder-triggered.
 
 ## References
 

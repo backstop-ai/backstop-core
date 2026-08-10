@@ -12,18 +12,10 @@ directive:
     - "ISSUE-082"
     - "ISSUE-075"
     - "ISSUE-077"
-    - "ISSUE-092"
-    - "ISSUE-093"
     - "ISSUE-096"
-    - "ISSUE-097"
-    - "ISSUE-100"
     - "ISSUE-099"
     - "ISSUE-107"
-    - "ISSUE-106"
     - "ISSUE-108"
-    - "ISSUE-112"
-    - "ISSUE-113"
-    - "ISSUE-114"
     - "ISSUE-115"
 ---
 
@@ -114,103 +106,7 @@ directives' themes:
    running binary is older than the newest tracked `.go` file. Primarily a
    contributor on-ramp problem for this repo, not consumer-facing — a
    released install has only one binary copy and cannot diverge from itself.
-6. **`pack test` phase3 cannot fail — fixture execution is dead code for
-   every real pack (ISSUE-092).** `pkg/packval`'s `Rule` struct
-   (`manifest.go:75-88`) reads a rule's source file from YAML key `file:`,
-   but every real pack.yml declares it as `rule_path:` — which is what the
-   runtime gate parser (`pkg/pack/manifest.go:144`,
-   `RulePath string \`yaml:"rule_path"\``) consumes. The authoring-time
-   validator and the runtime parser are two independent manifest models
-   that have drifted; independently confirmed `rule_path`/`RulePath`
-   appears nowhere under `pkg/packval/` (grep clean). Consequence in
-   `phase3.go`'s `RunFixtures` (lines 28-113): `rule.File` unmarshals to
-   `""` for every real pack, so the `if rule.File != ""` guards at `:31`,
-   `:52-58`, `:62` and `:76` are all false — `executor.RunEngine` is never
-   invoked for any layer 1-2 semgrep rule declared via `rule_path:`.
-   `res.Errors` stays empty and `res.Status` stays `"pass"` (`:217-219`)
-   having executed zero fixture checks. Measured, not inferred:
-   implementer-087 rewrote a negative (violating) fixture to be fully
-   compliant — deleting the very violation it exists to catch — and
-   `pack test` still returned `phase3-fixtures: pass`, exit 0; removing a
-   rule's `paths: exclude` likewise fails nothing. Independently
-   reconfirmed by the issue author against
-   `.backstop/packs/backstop/go-standards`. Matters because `pack test` is
-   the pack-quality gate for the whole ecosystem, and phase3 is the
-   mechanism that enforces the fixtures-from-real-output/must-falsify
-   convention (founder law) — a pack whose rule never fires on anything can
-   ship green. Two measurement traps the fix must not reintroduce, both
-   recorded in the issue: (a) directory-scan vs explicit-file-list
-   divergence — semgrep's default ignores skip `*_test.go` on
-   directory-target scans, so restored fixture execution must dispatch
-   with explicit file targets the way the gate does, or it inherits
-   ISSUE-091's undercount; (b) an engine/schema error (e.g.
-   `InvalidRuleSchemaError`) currently surfaces as zero results and is
-   indistinguishable from a genuine clean run — the fix must make that
-   loud and distinct rather than foldable into either pass path. Scope not
-   yet verified, explicitly left to whoever plans it: the `tool_config`
-   fixture path (`phase3.go:116-143`, keyed on `tc.File`) and the layer-3
-   `rule.Validator` path. Any fix must land a regression fixture proving
-   phase3 CAN fail (a `rule_path:`-declared rule with a compliant negative
-   fixture must turn `pack test` red) — otherwise the fix is itself a
-   vacuous-green claim.
-7. **`gate --file` false-REDs non-Go files whose directory holds no Go
-   package (ISSUE-093).** `fileModeTestTarget`
-   (`cmd/backstop/pack_gate_filemode.go:31-45`) fires whenever the scope is
-   `GateScopeModeFile` and the dispatched binding declares
-   `PackageScoped: true`. go-toolchain's `go-test` engine declares
-   `package_scoped: true`
-   (`.backstop/packs/backstop/go-toolchain/pack.yml:86`) and
-   `crash_guard: true` (`:83`) — both confirmed present. It unconditionally
-   calls `goTestPackageSelector(scope.Files[0])`
-   (`pack_gate_filemode.go:44`), which derives a `go test` target from the
-   file's directory (`filepath.Dir` → `./` + dir) with NO check that the
-   directory contains any `.go` files. For `.github/workflows/ci.yml` the
-   target becomes `./.github/workflows`; `go test` there exits non-zero
-   with zero parseable findings, and `crash_guard` renders that legitimate
-   no-op as an engine CRASH violation. So a per-file verdict on a non-Go
-   file is not a property of the file: `--file README.md` PASSES only
-   because the repo root happens to hold a Go package. Repo topology, not
-   file correctness, decides the verdict. Reproduced on untracked-clean,
-   long-tracked, unmodified files by two independent parties
-   (implementer-087 during ISSUE-087 phase 4 on 2026-07-27, and the issue
-   author). Blast radius bound, and record it explicitly so nobody
-   over-scopes the fix: the DEFAULT diff-scoped gate is UNAFFECTED — it
-   stays green with those same `.yml` files in scope (measured). This is
-   the `--file` path only. Distinct from ISSUE-067, which is also about
-   the go-test engine surfacing an opaque crash: there the trigger is a
-   REAL test failure the converter cannot parse; here there is no test
-   failure at all and no Go code in scope. Same surfacing weakness,
-   different trigger — a fix to one does not close the other. The
-   secondary, independent defect in the same command surface: `--file` is
-   bound as a plain string (`cmd/backstop/gate.go:52`, `StringVar`) and
-   read as a string (`gate.go:77`, `cmd.Flags().GetString("file")`), while
-   the command's own `Use:` string advertises
-   `gate [--all | --file FILE [FILE...]]` (`gate.go:37`). Repeating
-   `--file` therefore silently overwrites rather than accumulating —
-   verified: `--file README.md --file .github/workflows/ci.yml` reports
-   "Gate running against 1 explicit files." A single `--file X` followed
-   by bare positional args DOES accumulate (`gate.go:92` appends
-   `args...`), so flag-repetition is the only broken shape. No error, no
-   warning, no output trace of the discarded value. An agent looping
-   `--file` calls believing the flag is repeatable verifies only its last
-   file while believing it verified all of them. Why it matters here
-   rather than as ergonomics: both defects corrupt the per-file "prove
-   each file you touched is clean" verification discipline that exists to
-   compensate for shared-tree risk during concurrent multi-agent work.
-   Neither is a false GREEN in the gate's own verdict (defect 1 fails
-   honest-loud, in the safe direction), but defect 2 IS a false coverage
-   claim — the operator believes N files were checked when 1 was.
-   Guidance for whoever plans it, kept as constraint not design: the fix
-   must preserve SPEC-034 REQ-010 / CLM-035 — file-mode test scoping is
-   PRESERVED, not dropped; a whole-module run in file mode is a regression
-   asserted by `filemode_scoping_test.go`. So the correct shape is a guard
-   on the derived target (or on crash-vs-no-op classification), not
-   removal of the file-mode override. And per this directive's own
-   zero-baked-language law, any "does this directory hold a Go package"
-   guard must not be a baked language check in core — it belongs to the
-   pack's declaration or to a generic no-op classification, not to a
-   `.go` literal in the CLI.
-8. **Self-pack rule imprecision forces un-adjudicated escapes in test files
+6. **Self-pack rule imprecision forces un-adjudicated escapes in test files
    (ISSUE-096).** The `backstop-ai/backstop-self` pack (v1.1.2, installed at
    `.backstop/packs/backstop-ai/backstop-self`, source repo
    `/Users/bmanson/src/projects/backstop-self-pack`) ships seven rule
@@ -282,139 +178,7 @@ directives' themes:
    sequence ISSUE-092 first, or substitute an explicit hand-run
    falsification (semgrep or `gate --file` against a known-violating
    non-test fixture) and say so in the plan.
-9. **Waiver tokens keyed to a dead pack namespace fail open, and the
-   harvest path cannot see them (ISSUE-097).** Two `@waiver:` tokens —
-   `cmd/backstop/pack_gate.go:888` and
-   `cmd/backstop/pack_gate_provision.go:119` — key the rule ID
-   `backstop/self/backstop.packs.backstop.self.rules.no-structural-name-split-on-spine`.
-   The pack path `backstop/self` exists nowhere: `backstop.lock` records
-   `backstop-ai/backstop-self` at 1.1.2 (`source_type: git`), and
-   `.backstop/packs/backstop-ai/backstop-self/` is the install. Fallout of
-   the 2026-07-27 pack rename.
-   Measured status is three things, not one: STALE (the namespace is
-   gone), INERT (the rule matches nothing at either site today —
-   `gate --file` returns zero, and PLAN-ISSUE-020's honesty pass
-   independently agreed via a whole-ruleset semgrep run), and FAIL-OPEN
-   (`waiver.Adjudicate` suppresses only on an EXACT rule-ID match,
-   `pkg/waiver/adjudicate.go:124`, so if the rule ever matches these lines
-   again the tokens will NOT suppress — the comments read as adjudicated,
-   and are decorative). Both carry expiry 2027-07-17, so even the expiry
-   warning will not surface them for a year.
-   The structural half, and the reason this is directive-worthy rather
-   than a two-line typo fix: **waiver harvest is finding-driven, not
-   tree-driven.** `Adjudicate` (`pkg/waiver/adjudicate.go:94-108`) only
-   reads the one-line-above/on-line association window of each finding it
-   is HANDED; a token on a line where no finding lands is never harvested
-   at all, so it does not even reach the `Unused` bucket (`:126-129`). The
-   same blindness holds on the CLI surface: `backstop waiver list` →
-   `runWaiverList` → `projectWaiverResult` (`cmd/backstop/waiver.go:78-119`)
-   builds its finding list by running the `pack_engines` and
-   `test_substantiveness` gate steps and feeding those violations to
-   `Adjudicate` — so it inherits the identical constraint. Both the
-   `waiver_resolution` gate step and `waiver list` therefore report "clean
-   — no active waivers" (`pkg/gate/step_waiver.go:188`) truthfully-as-
-   implemented and falsely-as-read. A rename-orphaned or hand-typo'd rule
-   ID is architecturally invisible, not merely unreported.
-   Scope, as two parts. (a) Re-key or remove the two tokens. (b) Give
-   `waiver_resolution` / `waiver list` the ability to name a waiver whose
-   rule-ID prefix matches no pack namespace in `backstop.lock`, WITHOUT
-   requiring a live finding at that location — which means harvesting
-   tokens from the tree for that cross-check, not only from finding-
-   adjacent windows. Per this repo's loud-≠-blocking rule this is a
-   WARNING, not a new gate failure: the enemy is the silent rot, not the
-   noisy staleness.
-   Constraint for whoever plans (a), which removes the issue's own open
-   caveat: the ID is not a matter of analogy. Core composes it as
-   `pack.NamespacedRuleID(manifest.NormalizedName, <engine-emitted rule
-   id>)` = `packName + "/" + ruleID` (`pkg/pack/coordinate.go:42-44`,
-   called at `cmd/backstop/pack_gate.go:734,868`), so the prefix MUST be
-   the manifest name `backstop-ai/backstop-self/`. The dotted tail is
-   engine-emitted; the closest LIVE evidence for its current shape is the
-   working post-rename semgrep suppression at
-   `cmd/backstop/version_test.go:168`
-   (`backstop.packs.backstop-ai.backstop-self.rules.no-baked-tool-exec`),
-   and the two live post-rename `@waiver:` tokens at
-   `cmd/backstop/artifact_validate.go:17` and
-   `pkg/pack/distribution/identity.go:38`. **Trap to avoid:**
-   `cmd/backstop/bun_ratchet_flip_test.go:128` builds a MIXED id
-   (`"backstop-ai/backstop-self/backstop.packs.backstop.self.rules." +
-   fragment`) and `pkg/gate/policy_perpack_test.go:29` still holds the
-   fully pre-rename form — both synthetic fixtures where any string works,
-   so neither is evidence of the real shape. Do not grep-and-copy from
-   them.
-   Bound the scope explicitly: this is the `@waiver:` channel only. The
-   parallel un-ledgered `// nosemgrep:` channel (78 suppressions across
-   `cmd/` + `pkg/`, consumed inside the engine and dropped by design at
-   `pkg/check/parsers.go:80,115`, two of them —
-   `pkg/pack/distribution/contracts_provisioning_test.go:26` and
-   `spec015_lineage_test.go:133` — carrying the same dead
-   `backstop.packs.backstop.self.*` id) is the same defect class in a
-   channel backstop does not adjudicate. It has no artifact and is NOT in
-   ISSUE-097's scope; noted in item 8 already. Do not fold it in without a
-   founder call.
-   Verification bar, so the fix is not itself a vacuous-green claim: a
-   fixture with a waiver token bound to a plausible-but-nonexistent pack
-   namespace, sitting where no finding lands, that the new check names.
-   If the check only fires when a finding is already present, it has
-   reimplemented today's blindness.
-10. **Step tallies count warnings as violations — the reporting half
-    remains after the verdict half was fixed (ISSUE-100).** `StepResult`'s
-    displayed count and `GateResult.total_violations` count every entry in
-    `StepResult.Violations` identically, regardless of `Violation.Severity`.
-    Two severity-blind call sites, both CONFIRMED LIVE in the current tree:
-    `pkg/gate/result.go:225` (`r.TotalViolations += len(s.Violations)`, the
-    JSON envelope's `total_violations`) and `pkg/gate/output.go:61,80`
-    (`violationCount := len(step.Violations)` → `fmt.Sprintf("  (%d
-    violations)", violationCount)`, the human table's per-step line).
-    Motivating measured instance (implementer-020-final, CI run
-    30389988184, 2026-07-28): `coverage_threshold` rendered `fail  (2
-    violations)` where the JSON proves one `severity: error` entry (the
-    real coverage shortfall) plus one `severity: warning` entry (a
-    coverage-exclusion suppression notice). One blocking problem displayed
-    as two. Systemic, not coverage-specific: any step emitting a
-    warning-severity violation rides the same blind count. The severity
-    distinction is populated correctly where violations are created
-    (`requirement_traceability.go:290,307,311`; `status_drift.go:99,103`)
-    — only the reporting layer discards it.
-    The sibling verdict-level defect is ALREADY FIXED, and this must be
-    recorded so nobody re-opens it. ISSUE-100's own Amendment section
-    describes a second defect where the policy layer blocked on a
-    `severity: warning` violation (CI run 30395875188), and states it was
-    split into PLAN-ISSUE-020's lane with a placeholder to cite the commit
-    "once it lands." Backlog-pm verified it landed: `pkg/gate/policy.go:73`
-    now reads `return !strings.EqualFold(strings.TrimSpace(v.Severity),
-    "warning")` — the policy layer is severity-aware, and the SARIF-level→
-    `Violation.Severity`→verdict mapping is locked end to end by
-    `cmd/backstop/pack_severity_contract_test.go` (file confirmed present).
-    The founder ratified the governing contract the same day: severity is
-    a pack-author contract, `level: warning` from any pack is non-blocking
-    by contract. PLAN-ISSUE-020 is `completed`. Therefore ISSUE-100's
-    remaining scope is the renderer/tally half ONLY (`result.go:225`,
-    `output.go:61,80`); it has no in-flight coverage — the lane that fixed
-    the verdict half is closed.
-    Recommended fix shape per the issue is (b) render-by-severity: keep
-    `Violations` as the single carrier (no shape change, no schema bump)
-    and split by `Severity` at the two counting sites — `total_violations`
-    counts `severity == "error"` (or gains a companion `total_warnings`),
-    and the human line becomes something like `(1 blocking, 1 notice)`.
-    Option (a) was NOT recommended, and the reason should stay on record:
-    moving warnings into a separate `Notices` slice is a shape change
-    touching every warning-emitting step, the JSON schema, and
-    `pkg/gate/baseline.go:218`, which currently walks `Violations`
-    including warnings for fingerprinting.
-    Housekeeping the planner should not have to discover: ISSUE-100's
-    Amendment still carries the literal text "*Placeholder: cite the
-    PLAN-ISSUE-020 commit that fixes the policy-layer severity blindness
-    here once it lands.*" That placeholder is now satisfiable and should be
-    filled via issue-author — flagged as an issue-file correction,
-    explicitly NOT part of this directive's scope.
-    This is the SEVENTH member of the gate-verdict-honesty cluster
-    (ISSUE-066, ISSUE-067, ISSUE-091, ISSUE-092, ISSUE-093, ISSUE-097,
-    ISSUE-100) — a surface that reads authoritative and silently isn't.
-    Per the established pattern in this directive's Notes, ISSUE-066/067/
-    091 remain cited by NO directive and the cluster's home is a founder
-    decision still pending; slotting ISSUE-100 here does not pre-empt it.
-11. **`gate` cannot emit the human table and JSON in one run — a measured
+7. **`gate` cannot emit the human table and JSON in one run — a measured
     2x CI cost (ISSUE-099).** `--json` is a plain boolean on the global
     `jsonFlag` (`cmd/backstop/gate.go:33,170-176`); when set,
     `gate.FormatJSON(result)` REPLACES the human-table render path rather
@@ -453,7 +217,7 @@ directives' themes:
     ergonomics/cost debt with a measured cost, NOT a correctness defect —
     nothing here produces a wrong verdict. It must NOT be treated as a
     member of the gate-verdict-honesty cluster.
-12. **Warning-only coverage step reads as pass (ISSUE-107).**
+8. **Warning-only coverage step reads as pass (ISSUE-107).**
     `StepCoverageThreshold`'s own verdict loop (`pkg/gate/step_coverage.go:
     213-219`) initializes `status := "pass"` and sets `"fail"` only when a
     violation has `Severity == "error"`. There is no else branch, so a
@@ -487,66 +251,7 @@ directives' themes:
     `"pass"` today will read `"warning"`. Expected blast radius is zero
     flips on backstop-core's own dogfood run (its policy entry already
     corrects it); the flip appears only on a policy-sparse consumer.
-13. **Substantiveness JOIN discards a pack-declared severity (ISSUE-106).**
-    The gate-side half of the SPEC-037 substantiveness pack split
-    (`pkg/gate/substantiveness_join.go`) throws away a pack's declared
-    severity one hop past where ISSUE-104/ISSUE-105 closed the same gap
-    elsewhere. Q1 dispatch preserves it correctly —
-    `Severity: nonEmptySeverity(v.Severity)` at
-    `pkg/gate/substantiveness_q1_dispatch.go:71`, where `nonEmptySeverity`
-    (`:110-113`) only defaults an EMPTY value to `"error"` and leaves a
-    declared `"warning"` intact (both confirmed present). The join then
-    overwrites it at two sites, both confirmed hardcoding
-    `Severity: "error"`: `HollowFindingsToViolations`
-    (`substantiveness_join.go:184`) on every routed hollow finding, and
-    `NoTargetViolation` (`substantiveness_join.go:68`), the noTarget
-    set-join decision table. Consequence: a pack declaring a
-    substantiveness rule at `level: warning` — an advisory by the
-    founder-ratified severity contract — blocks the gate anyway. Same
-    "loud ≠ blocking" violation ISSUE-104 (SARIF severity descriptor
-    fallback, commit `a42b065`) and ISSUE-105 (step verdicts
-    severity-aware without a policy entry, commit `d7d777c`) closed at the
-    parse and verdict layers; both commits are confirmed in HEAD's
-    lineage, and both fixes BYPASS this converter — the join runs
-    downstream of `StepVerdict`'s severity-aware sites and hands it
-    violations already flattened to `"error"`.
-    The two sites are NOT the same fix, and a plan must not treat them
-    uniformly. `HollowFindingsToViolations` is a 1:1 conversion (one
-    finding in, one violation out), so forwarding `v.Severity` instead of
-    the literal is a direct substitution needing no extra defaulting —
-    `nonEmptySeverity` upstream already guarantees non-empty.
-    `NoTargetViolation` converts no single input finding at all: it fires
-    on a SET-MEMBERSHIP test over `ReferencedSymbolSet`
-    (`substantiveness_join.go:26`), a `map[string]bool` carrying presence
-    only and no severity anywhere. So there is no severity to forward, and
-    resolving it requires an actual decision — either a new channel for
-    the rule to declare the noTarget severity, or a ruling that a
-    gate-SYNTHESIZED violation keeps a fixed severity by design because it
-    is a gate-computed defect rather than a pack-tunable advisory. That
-    decision must be stated explicitly in whatever plan lands, not left
-    implicit.
-    Test coupling the planner must not discover the hard way:
-    `TestClass3Sites_ViolationsAreErrorSeverityByConstruction`
-    (`pkg/gate/step_verdict_severity_test.go`, SITE 2 block at
-    `:282-308`) currently LOCKS the defect — backlog-pm read it directly:
-    it feeds `HollowFindingsToViolations` a finding with
-    `Severity: "warning"` and asserts the output is `"error"`, with an
-    inline comment naming this issue as "SIBLING 1 … Filed, not fixed
-    here." When the fix lands that test's premise INVERTS and must be
-    deliberately rewritten to assert preservation; a green test suite
-    would otherwise mean the old, now-wrong behavior is still locked. The
-    same test's SITE 1 and SITE 3 guards (`waiverDiagToViolation`,
-    `StepTestVerificationScopedFunc`) are genuinely warning-free by
-    construction and are not in scope. Blast-radius discipline per the
-    PLAN-ISSUE-020 precedent this family follows: measure substantiveness
-    step verdicts on the dogfood run and at least one fixture consumer
-    before and after; every flip must fit "was severity-blind-overwriting
-    a declared `warning`, should never have blocked."
-    Scope/priority: `type: bug`, `scope: contained`, `uncertainty: known`,
-    `risk: moderate`. It rides here on thematic fit and does NOT displace
-    ISSUE-092 (the `risk: critical` active false-green in the
-    pack-ecosystem gate) within this directive.
-14. **The contract-signature carrier cannot represent a pack-declared
+9. **The contract-signature carrier cannot represent a pack-declared
     severity at all (ISSUE-108).** `ContractEngineResult`
     (`pkg/gate/contract_verdict.go:31-36`) is the gate-side carrier of one
     pack engine probe result for one contract entry, and its fields are
@@ -613,134 +318,7 @@ directives' themes:
     contract violation blocks) is the expected floor, and core should show
     zero flips unless it declares a non-default severity on a contract
     entry.
-15. **Missing engine tool + no CrashGuard yields silently empty SARIF, a
-    vacuous `pack_engines` pass, and misleading downstream join violations
-    (ISSUE-112).** A findings engine whose tool is ABSENT from `PATH` fails
-    in the worst possible way when its binding carries no `CrashGuard`: the
-    runner's non-fatal `runErr` is discarded, the empty stdout flows through
-    convert (jq over empty stdin emits nothing), the lenient SARIF parse
-    reads zero findings, and `pack_engines` PASSES — while every downstream
-    consumer of that evidence is lied to. Two aggravators, both named in the
-    issue. First, the assume-present fail-loud in
-    `cmd/backstop/pack_gate_provision.go` EXEMPTS provision-declared tools
-    as "auto-provisioned," but provision is a TRUST ALLOWLIST PIN ONLY — no
-    code path installs anything, so provision-pinned tools (ast-grep,
-    semgrep) get NEITHER an install NOR a presence check. Second,
-    non-CrashGuard engines treat every non-zero/failed run as finding-free
-    (the `runErr` is discarded), so an exec-not-found error is
-    indistinguishable from a clean scan — even though `pkg/packval`'s
-    executor already fails loud on exactly this error class, giving the fix
-    an in-tree precedent to copy rather than invent. Direction:
-    presence-check provision-pinned tools exactly like assume-present ones
-    (fail loud, naming the tool and the install expectation, or implement
-    provisioning); make any `*exec.Error`-class failure (binary could not
-    start) fail loud for EVERY engine regardless of `CrashGuard`.
-16. **Classification matching zero test files should refuse loudly instead
-    of fabricating mass join violations (ISSUE-113).** When a pack's
-    classification globs match ZERO test files, the substantiveness join
-    silently emits a "does not call package X" violation for EVERY mandated
-    test — hundreds of misleading findings whose real cause (empty
-    classification) is named nowhere. Direction: extend the ISSUE-020
-    config-error refusal philosophy already delivered under this directive —
-    when mandated tests exist but the classifier matches zero test files (or
-    the substantiveness evidence set is empty while mandated tests exist),
-    the step REFUSES with a config-error naming its cause instead of
-    emitting per-test violations.
-17. **The delivered-but-open drift advisory is structurally unable to fire for
-    a plan (ISSUE-114).** `looksDelivered` (`pkg/gate/status_drift.go:75-85`)
-    returns false immediately when `len(rec.MandatedTests) == 0` — confirmed
-    live. So an artifact with no mandated tests can never trip the
-    `ClassNonTerminal` advisory branch of `ClassifyStatusDrift`
-    (`status_drift.go:31-71`), which is the warn-only "this looks delivered,
-    advance or close it" signal.
-    This is NOT a categorical exclusion of plans, and the fix must not be
-    scoped as if it were: `ResolveArtifactStatus` walks `plans/*.plan.yml` and
-    builds a full `KindPlan` record (`pkg/gate/artifact_status.go:241-257`,
-    confirmed), `ClassifyArtifactStatus` maps plan `draft`/`ready`/
-    `implementing` to `ClassNonTerminal`, and `ClassifyStatusDrift` iterates
-    records with NO kind filter at all. A plan reaches the classifier exactly
-    like a spec or issue does. The gap is in the DATA, not the routing.
-    The data channel is empirically dead. For specs/issues `MandatedTests`
-    comes from the structured `claims[].tests` walk (`claimsToMandatedTests`),
-    a field that is load-bearing from `ready` onward, so it is populated for
-    essentially every live spec/issue. For plans it comes from exactly one
-    source — the OPTIONAL per-task `test_names` field
-    (`planTaskMandatedTests`, `artifact_status.go:345-363`), introduced by
-    `PLAN-ISSUE-048` itself (`artifacts/plan/v1/schema.json`,
-    `task_optional_keys`). Independently confirmed: `grep -rn
-    "test_names\|TestNames" pkg/validate/` returns ZERO hits — nothing in
-    plan validation reads, requires, or acknowledges the field. It is
-    documentary at the schema level and mechanically optional.
-    Corpus measurement, re-run by backlog-pm 2026-08-02 against the live tree
-    (and a REFINEMENT of the issue's own figure — record it so a planner does
-    not trip): of 98 plans, 48 were non-terminal (`draft`/`ready`) and **zero**
-    carried a populated task-level `test_names`. 28 plan files contain the
-    STRING `test_names`; their statuses were 25 `completed`, 1 `obsoleted`, 1
-    `replaced`, and 1 `draft`. The issue states all 28 are `completed` — not
-    exactly true, but the substance was STRONGER than stated, not weaker:
-    `obsoleted`/`replaced` are `ClassRetiredTerminal` and excluded from the
-    dimension outright, and the single `draft` one was `PLAN-ISSUE-048` itself,
-    where every occurrence is PROSE in notes/task descriptions, never a
-    populated YAML key. So the only lever that can make `looksDelivered` true
-    for a plan was a field that in practice appeared only on already-terminal
-    plans — the advisory was structurally unable to fire for any plan in
-    `draft`/`ready`, no matter how obviously its code shipped.
-
-    **UPDATE (recorded, not silently rewritten — the numbers above stood at
-    filing time and are superseded by this measurement):** `PLAN-ISSUE-048`
-    itself closed to `status: completed` on 2026-08-02 (commit `a0e492b`),
-    and this note supersedes the corpus figures above with the founder's
-    re-measurement the same day: 98 plans total, **47** now non-terminal (one
-    fewer); of the 28 `test_names`-string files, statuses are now **26
-    `completed`, 1 `replaced`, 1 `obsoleted` — ZERO `draft`**; of those, **26**
-    carry a POPULATED task-level `test_names`, and **every one is terminal**
-    (24 `completed`, 1 `replaced`, 1 `obsoleted`). Verified independently:
-    `PLAN-ISSUE-048` itself has 0 of 12 tasks with a populated `test_names`
-    key — its 25 string occurrences remain prose only. The conclusion is no
-    longer merely re-counted, it is STRENGTHENED to universal: the only lever
-    that can make `looksDelivered` true for a plan is now, with no exception
-    left standing anywhere in the corpus, a field that appears only on
-    already-terminal plans. The advisory remains structurally unable to fire
-    for any plan in `draft`/`ready`/`implementing`, no matter how obviously
-    its code shipped.
-    Motivating instance, and it is close to self-referential:
-    `PLAN-ISSUE-048` WAS `status: draft` (confirmed at its line 5 at filing
-    time) while the machinery it specifies shipped in the same commit that
-    authored the plan — its task descriptions enumerate exact mandated test
-    names (e.g. `TestObsoleted_RequiresObsoletedBy`,
-    `TestResolvedBy_ValidCloseWithoutOwnClaimsOrPlan`,
-    `TestClassifyArtifactStatus_ObsoletedIsRetiredTerminal`,
-    `TestResolveArtifactStatus_ParsesPlanTaskTestNames`) and every one of
-    those functions exists today. That stranding — draft status, shipped
-    code — is what motivated this issue. The plan predicted its own blind
-    spot in its Phase 6 verification note: "no real plan carries test_names
-    yet, so this is additive." **UPDATE:** the prediction is now confirmed by
-    the plan's own closure — on 2026-08-02 it moved `draft` → `completed`
-    and produced NO drift signal in either direction: not the `ClassNonTerminal`
-    "looks delivered" advisory (it was never eligible, being terminal at
-    measurement) and not the `ClassSuccessTerminal` broken-promise check
-    either, because with no populated `test_names` it carried no
-    `MandatedTests` for that check to evaluate against. What was a predicted
-    blind spot is now an observed one, on the plan that named the field in
-    the first place.
-    Fix direction, kept as CONSTRAINT not design (the issue deliberately does
-    not prescribe): either make `test_names` load-bearing at plan-authoring
-    time (schema/planner-agent requires it alongside the existing prose
-    "mandated test names (exact)" convention, so the two representations
-    cannot drift), or give plans a task-claims-derived mandated-test concept
-    structurally parallel to spec/issue `claims[].tests`. Either way the
-    defect to close is that a plan's prose-declared mandated tests and its
-    machine-readable `MandatedTests` are two independent, unsynchronised
-    representations. A planner should also state explicitly whether making
-    the field mandatory is retroactive — 48 existing non-terminal plans would
-    need backfill, and a schema-required field that turns 48 artifacts
-    invalid is a corpus event, not a code change.
-    Verification bar so the fix is not itself a vacuous-green claim: a
-    regression fixture in which a NON-TERMINAL plan whose mandated tests are
-    all present DOES produce an `artifact_status_drift_advisory` warning. If
-    the only fixture proving the fix is a `completed` plan, it has re-proved
-    the already-working `ClassSuccessTerminal` path and nothing else.
-18. **Contract block drift is invisible until a spec closes — validation
+10. **Contract block drift is invisible until a spec closes — validation
     happens at the worst possible moment (ISSUE-115).** `ExtractContractEntries`
     (`pkg/gate/step_testverify.go`) skips any spec where
     `!contractsAreDue(fm.Status)`, and `contractsAreDue` is literally
@@ -820,40 +398,8 @@ ISSUE-020's urgency. Anyone working this directive top-down should land
 ISSUE-020 first — ISSUE-082 (and ISSUE-007) must not be picked up ahead of
 it.
 
-ISSUE-092 (backlog-pm slotted, 2026-07-27) does NOT ride along at the
-low-urgency tier the paragraphs above describe for ISSUE-007/082/075/077.
-It is `risk: critical`, it is an active false-green in the tool that gates
-the entire pack ecosystem, and it is live today for every pack in the
-fleet. There is also a cross-directive sequencing dependency worth
-recording: DIR-027 (position 3 in BACKLOG.yml, ahead of DIR-024 at position
-4) has a thread 5 and an acceptance criterion requiring every published
-pack repo to run `backstop pack check` + `backstop pack test` in CI on
-every push. While ISSUE-092 stands, that criterion is satisfiable with a
-vacuous signal — the fleet-wide CI gate DIR-027 is buying would be green by
-construction. ISSUE-092 should therefore be sequenced ahead of DIR-027
-thread 5's completion, notwithstanding DIR-024's own position 4 — recorded
-here as a sequencing note, not as a backlog reorder; the PM has proposed
-the coupling to the founder and no reorder is authorized. Within this
-directive, ISSUE-092 is the one source that legitimately competes with
-ISSUE-020 for first pick, on the strength of the DIR-027 coupling above —
-that is a founder call, not decided here. Finally, ISSUE-092 is a sibling
-of the gate-verdict-honesty cluster (ISSUE-066, ISSUE-067, ISSUE-091) —
-same failure family, a verdict surface that reads authoritative and
-silently isn't — and ISSUE-091 and the rest of that cluster are currently
-cited by no directive; that home decision is pending the founder and is
-not being slotted here.
-
-ISSUE-093 (backlog-pm slotted, 2026-07-28) is `risk: moderate`,
-`scope: contained`, `uncertainty: known` — it does NOT carry ISSUE-092's or
-ISSUE-020's urgency and must not displace either within this directive. It
-rides along on thematic fit. It is the FIFTH member of the
-gate-verdict-honesty cluster (ISSUE-066, ISSUE-067, ISSUE-091, ISSUE-092,
-ISSUE-093) — the family where a gate verdict surface reads authoritative
-and silently isn't. ISSUE-066, ISSUE-067 and ISSUE-091 remain cited by NO
-directive; whether that cluster gets its own directive is a founder
-decision still pending, and slotting ISSUE-093 here does not pre-empt it —
-if the founder creates a cluster directive, 092 and 093 move there
-together. A second, smaller pattern worth naming for the founder: the
+A second, smaller pattern worth naming for the founder, carried forward
+from the now-moved ISSUE-093 discussion: the
 `--file` repetition bug is the third instance of a CLI arg-shape defect
 where the accepted argument shape diverges from the advertised one —
 alongside ISSUE-089 (`artifact validate` discarding a positional path) and
@@ -896,208 +442,81 @@ does not block it — but an operator who reaches for `pack add` on the
 already-installed name will get the false "already installed and up to
 date" success line.
 
-ISSUE-097 (backlog-pm slotted, 2026-07-28) joins the gate-verdict-honesty
-cluster named above (ISSUE-066, ISSUE-067, ISSUE-091, ISSUE-092,
-ISSUE-093) — the sixth member sharing the same failure shape: a check
-reports clean because of what it cannot see, not because nothing is wrong.
-It has no in-flight coverage today, and that is documented rather than
-assumed: `plans/PLAN-ISSUE-020-linux-sandbox-gate-in-ci.plan.yml` names
-both stale tokens under a "PRE-EXISTING, NOT YOURS TO FIX" block and states
-"Do NOT fix them in this plan … ISSUE-097 owns them" — because re-keying a
-waiver changes which findings it suppresses, and that is a scope change
-dressed as a typo fix, not something to absorb incidentally into another
-plan. Intra-directive sequencing: part (a) (re-key or remove the two
-tokens) is a two-line mechanical fix, but whoever does part (b) (the
-harvest-blindness fix) should do (a) in the same change — fixing (a) alone
-leaves the blind spot that produced it in place for the next rename.
-Neither part competes with ISSUE-020 (the launch-blocking Linux/CI thread)
-for priority; nobody should work this directive strictly top-down. Causal
-link, so the fix lands in the right place: this is rename fallout from
-DIR-027's fleet migration (the 2026-07-27 `backstop/self` →
-`backstop-ai/backstop-self` rename), but DIR-027 owns publication,
-migration, and lock-state and explicitly disclaims mechanism design — the
-durable fix here is making an unbound waiver visible to the gate, which is
-gate/engine quality, so it stays homed in this directive rather than
-DIR-027.
-
-ISSUE-100 and ISSUE-099 (backlog-pm slotted, 2026-07-28) were both slotted
-under the standing clear-fit grant. Both are `scope: contained`,
-`uncertainty: known`, `risk: safe` — the lowest-risk pair this directive
-holds. Neither may displace ISSUE-092 (the `risk: critical` active
-false-green in the pack-ecosystem gate) within this directive. Why DIR-024
-and not elsewhere, for ISSUE-099 specifically: DIR-001 (Release Workflow)
-owns `ci.yml` and is where the measured cost is PAID, but the fix site is a
-gate CLI flag in `cmd/backstop/gate.go` — gate/engine surface, this
-directive's theme. DIR-001 has no charter claim on gate output flags. The
-precedent is this directive's own: ISSUE-082, ISSUE-077 and ISSUE-007 all
-ride here on thematic fit as non-correctness gate/engine items. The two are
-siblings in the same reporting-layer neighborhood but independent defects:
-100 is what the numbers say, 099 is how many runs it costs to get them.
-Fixing either does not close the other.
-A structural observation for the founder, stated as observation and NOT as
-a claim on scope: with ISSUE-020 now `closed` (delivered 2026-07-28), this
-directive's lede still says "Two gate/engine-quality gaps" while it
-enumerates ELEVEN, and the one source that justified its BACKLOG.yml
-position — the Linux/CI launch blocker — is delivered. Every remaining
-source is tier-2 except ISSUE-092. Whether DIR-024 should now be split,
-re-scoped, or repositioned is a founder call that backlog-pm has raised
-separately and has NOT acted on.
+ISSUE-099 (backlog-pm slotted, 2026-07-28) was slotted under the standing
+clear-fit grant. It is `scope: contained`, `uncertainty: known`, `risk:
+safe`. Why DIR-024 and not elsewhere: DIR-001 (Release Workflow) owns
+`ci.yml` and is where the measured cost is PAID, but the fix site is a gate
+CLI flag in `cmd/backstop/gate.go` — gate/engine surface, this directive's
+theme. DIR-001 has no charter claim on gate output flags. The precedent is
+this directive's own: ISSUE-082, ISSUE-077 and ISSUE-007 all ride here on
+thematic fit as non-correctness gate/engine items. It was originally
+discussed alongside its reporting-layer sibling ISSUE-100 ("100 is what the
+numbers say, 099 is how many runs it costs to get them") — ISSUE-100 has
+since moved to DIR-032 per the founder's 2026-08-10 cluster carve-out (see
+the dated note below); fixing either did not and does not close the other.
+A structural observation for the founder, now historical: with ISSUE-020
+`closed` (delivered 2026-07-28), this directive's lede once read "Two
+gate/engine-quality gaps" while it enumerated eleven, and every remaining
+source but ISSUE-092 was tier-2. That imbalance is what the 2026-08-10
+carve-out (below) resolved — ISSUE-092 and the rest of the
+gate-verdict-honesty cluster now live in DIR-032.
 
 Status correction (Brandon, 2026-08-02): this directive's status field now
 reads `active`, reflecting delivered work under it — the ISSUE-020
 Linux-sandbox/CI-gating half and the ISSUE-104/105 severity-contract hops —
 while the majority of its 16 cited sources remain open.
 
-ISSUE-107 was slotted by backlog-pm 2026-07-29 as a clear fit; this does
-NOT pre-empt the still-pending founder decision on whether the
-gate-verdict-honesty cluster gets its own directive. If that directive is
-created, all DIR-024-slotted cluster members move together.
-Provenance: ISSUE-107 was filed BY `PLAN-ISSUE-105` TASK-006 as a
-deliberately-deferred residual, not discovered independently.
-PLAN-ISSUE-105 is `status: completed` and its CLASS-2 inventory names this
-exact loop, explaining the deferral: fixing it introduces a `"warning"`
-status where consumers currently see `"pass"`, which is a reporting change
-that belongs with ISSUE-100's renderer half rather than inside a verdict
-fix. THE SEQUENCING CONSEQUENCE: ISSUE-107 and ISSUE-100 (already cited
-here) touch the same surface and should be planned together or 107 after
-100 — planning 107 alone means shipping a new `"warning"` state into a
-renderer that ISSUE-100 says still miscounts warnings as violations.
-Its sibling from the same audit — ISSUE-108 (contract carrier drops pack
-severity) — remains cited by NO directive as of this writing, as are
-ISSUE-104 and ISSUE-105 (both closed). Correction in place rather than a
-stale claim: this paragraph originally also named ISSUE-106 as cited by no
-directive; ISSUE-106 is now slotted into this same directive, immediately
-below — see that paragraph for detail. 107 is the only family member that
-inverts the failure direction.
-
-ISSUE-106 (backlog-pm slotted, 2026-07-29) was slotted under the standing
-clear-fit grant. It is the EIGHTH member of the gate-verdict-honesty
-cluster (ISSUE-066, ISSUE-067, ISSUE-091, ISSUE-092, ISSUE-093, ISSUE-097,
-ISSUE-100, ISSUE-106) — the family where a verdict surface reads
-authoritative and silently isn't. ISSUE-066/067/091 remain cited by NO
-directive and the cluster's home is a founder decision still pending;
-slotting ISSUE-106 here does not pre-empt it — if a cluster directive is
-created, every DIR-024-slotted member moves together.
-Within that cluster a tighter SUB-FAMILY has now formed, and it is the
-useful unit for sequencing: the pack-severity contract chain, filed hop by
-hop as each fix exposed the next carrier. Hop 1 ISSUE-104 (parse: SARIF
-severity falls back to the rule descriptor, `a42b065`), hop 2 ISSUE-105
-(verdict: step verdicts read severity without a policy entry, `d7d777c`) —
-both landed. Hop 3 ISSUE-106 is this item. Two further residuals from the
-same implementer-105 audit (2026-07-29) were filed alongside this one and
-are now ALSO cited by this directive, slotted by concurrent backlog-pm
-passes the same day: ISSUE-107 "Coverage Warning-Only Step Reads As Pass"
-(item 12) and ISSUE-108 "Contract Carrier Drops Pack Severity" (item 14).
-Recorded so nobody plans ISSUE-106 believing it is the last hop: whoever
-fixes the join should expect the same question ("what severity does a
-SYNTHESIZED, non-1:1 violation carry?") to recur in the coverage and
-contracts carriers, and answering it once, generally, may be cheaper than
-three site-local substitutions. That generalization is a founder/planner
-call, not decided here.
-Relationship to ISSUE-100 (item 10 above), so the two are not conflated:
-100 is the RENDERER half (tallies count warnings as violations) and 106 is
-a CARRIER half (severity destroyed before the renderer or the verdict ever
-sees it). They are independent — fixing either does not close the other —
-and 106 sits upstream of 100 in the data flow.
+ISSUE-107 was slotted by backlog-pm 2026-07-29 as a clear fit. It echoes
+the gate-verdict-honesty cluster's shape (a check that reads authoritative
+and silently isn't) but the founder's 2026-08-10 carve-out ruling (below)
+did not name it among the cluster's eleven members, so it stays homed here
+rather than moving to DIR-032. Provenance: ISSUE-107 was filed BY
+`PLAN-ISSUE-105` TASK-006 as a deliberately-deferred residual, not
+discovered independently. PLAN-ISSUE-105 is `status: completed` and its
+CLASS-2 inventory names this exact loop, explaining the deferral: fixing it
+introduces a `"warning"` status where consumers currently see `"pass"`,
+which is a reporting change that belongs with ISSUE-100's renderer half
+rather than inside a verdict fix. THE SEQUENCING CONSEQUENCE, now
+cross-directive: ISSUE-107 (here) and ISSUE-100 (moved to DIR-032) touch
+the same surface and should be planned together or 107 after 100 —
+planning 107 alone means shipping a new `"warning"` state into a renderer
+that ISSUE-100 says still miscounts warnings as violations. Its sibling
+from the same audit — ISSUE-108 (contract carrier drops pack severity,
+stays here too) — is cited by this directive, as is ISSUE-104 and
+ISSUE-105 (both closed, cited by no directive). 107 is the only family
+member that inverts the failure direction; ISSUE-106, its severity-carrier
+sibling, moved to DIR-032 with the rest of the cluster.
 
 ISSUE-108 (backlog-pm slotted, 2026-07-29) came in under the standing
 clear-fit grant alongside ISSUE-107, and the two must be read as one arc
 rather than two tickets. It is `type: bug`, `scope: contained`,
-`uncertainty: known`, `risk: moderate`; it does not compete with ISSUE-092
-(the `risk: critical` active false-green in the tool that gates the whole
-pack ecosystem) for first pick within this directive. It is the last of
-four residuals from the pack-severity contract family: ISSUE-104 (SARIF
-severity lost at the parser — fixed, `a42b065`), ISSUE-105 (step verdicts
-ignore severity absent a policy entry — fixed, `d7d777c`), ISSUE-106 (the
-substantiveness join discards a severity that exists upstream), ISSUE-107
-(the coverage step's warning-only finding set reads as pass), and this
-one. In-flight coverage is nil and that is established from artifacts, not
-assumed: `PLAN-ISSUE-105` is `completed`, and the session that completed it
-filed 106/107/108 together at its closure (commit `21e47ed`) as explicit
-hand-offs. Two corpus-honesty items ride along and are NOT this
-directive's scope, raised to the founder separately: ISSUE-104 and
-ISSUE-105 are both still `status: open` despite their fixes having landed
-(and `PLAN-ISSUE-104` is still `draft`), and no directive cites ISSUE-104,
-ISSUE-105, ISSUE-106 or ISSUE-108 today. Finally, per the standing pattern
-in the paragraphs above: slotting ISSUE-108 here does NOT pre-empt the
-founder's pending decision on whether the gate-verdict-honesty cluster gets
-its own directive — if it does, this issue and the other DIR-024-slotted
-members move there together.
+`uncertainty: known`, `risk: moderate`. It is the last of four residuals
+from the pack-severity contract family: ISSUE-104 (SARIF severity lost at
+the parser — fixed, `a42b065`), ISSUE-105 (step verdicts ignore severity
+absent a policy entry — fixed, `d7d777c`), ISSUE-106 (the substantiveness
+join discards a severity that exists upstream — moved to DIR-032 with the
+rest of the gate-verdict-honesty cluster, 2026-08-10), ISSUE-107 (the
+coverage step's warning-only finding set reads as pass, stays here), and
+this one. In-flight coverage is nil and that is established from
+artifacts, not assumed: `PLAN-ISSUE-105` is `completed`, and the session
+that completed it filed 106/107/108 together at its closure (commit
+`21e47ed`) as explicit hand-offs. Two corpus-honesty items ride along and
+are NOT this directive's scope, raised to the founder separately:
+ISSUE-104 and ISSUE-105 are both still `status: open` despite their fixes
+having landed (and `PLAN-ISSUE-104` is still `draft`), and no directive
+cites ISSUE-104 or ISSUE-105 today. ISSUE-108 was not among the eleven
+issues the founder named in the 2026-08-10 cluster carve-out, so it stays
+homed here despite the family-adjacency to ISSUE-106.
 Correction in place rather than a stale claim (verified against the corpus
 2026-08-02, not asserted): as of this writing ISSUE-104 and ISSUE-105 are
 both `status: closed`, and `PLAN-ISSUE-104` and `PLAN-ISSUE-105` are both
 `status: completed` (commit `87b12cf`, "close(ISSUE-104,105): severity-
-contract hops delivered — plans completed, issues closed"); ISSUE-106,
-ISSUE-107 and ISSUE-108 all now appear in this directive's own frontmatter
-`source:` list, immediately above. The one fragment of the original
-sentence that remains true: ISSUE-104 and ISSUE-105 are still cited by NO
-directive's frontmatter `source:` — they are named only in this file's
-prose.
-
-ISSUE-112 (slotted under the standing clear-fit grant, 2026-08-02) is a NEW
-member of the gate-verdict-honesty cluster (ISSUE-066, ISSUE-067, ISSUE-091,
-ISSUE-092, ISSUE-093, ISSUE-097, ISSUE-100, ISSUE-106) — the family where a
-verdict surface reads authoritative and silently isn't. With ISSUE-112 and
-ISSUE-113 the cluster now numbers TEN members. As with every prior slotting
-in this lineage, this does NOT pre-empt the still-pending founder decision
-on whether the cluster gets its own directive — if one is created, every
-DIR-024-slotted member moves together.
-Provenance is a FIRST-CONSUMER discovery, not a dogfood one: observed live
-in `bclabs-portal`'s first CI run on a GitHub runner, 2026-07-29 — ast-grep
-absent from `PATH` produced empty SARIF, `pack_engines` went green, the
-`test_substantiveness` join starved, and 397 false "does not call package"
-violations landed on innocent tests. Diagnosis took hours because nothing
-named the missing tool. A portal-side workaround shipped (explicit gitleaks
-+ ast-grep installs in its CI workflow), so the filer is the blocked
-consumer working around the defect — in-flight coverage is nil by
-construction.
-The sharpest fact for whoever plans it, and it is a fleet-level asymmetry
-rather than one bug: the assume-present fail-loud in
-`cmd/backstop/pack_gate_provision.go` EXEMPTS provision-declared tools as
-"auto-provisioned," but provision is a TRUST ALLOWLIST PIN ONLY — no code
-path installs anything. So provision-pinned tools (ast-grep, semgrep)
-receive NEITHER an install NOR a presence check. The second half matters
-too: `pkg/packval`'s executor already fails loud on an exec-not-found
-error, but the gate dispatch path does not — the two paths disagree about
-what a missing binary means, so the fix has an existing in-tree precedent
-to copy rather than invent.
-Relationship to ISSUE-092 (`pack test` phase-3 fixtures cannot fail), which
-this directive already cites as its `risk: critical` first pick: both are
-false-green, but they sit at different layers — ISSUE-092 is the
-PACK-AUTHORING gate going vacuously green, ISSUE-112 is the CONSUMER gate
-going vacuously green. Fixing either does not close the other.
-
-ISSUE-113 (slotted under the standing clear-fit grant, 2026-08-02) carries
-an explicit founder ack recorded in the issue body: "Founder-ack'd (Brandon,
-2026-07-28) for slotting per PM flow (DIR-024 recommended)." This slot
-therefore executes a ruling rather than proposing one.
-It is the diagnosability sibling of ISSUE-112, and the two share one
-observed signature with two different root causes — hit twice in one week
-by `bclabs-portal`: (1) the published `typescript-substantiveness` 1.1.0
-shipping harness-baked classification globs, 397 false violations — staged
-in PM records as "ISSUE-102" but note that no `ISSUE-102` artifact exists
-in `issues/` as of this writing (verified: absent from the working tree and
-from git history alike; the PM inbox records that slot as decided but never
-applied; this flag is now RESOLVED, not outstanding — see the dead-ID
-paragraph immediately below for the founder ruling) — and (2) the
-missing-ast-grep case, which is ISSUE-112. Both cost
-hours; both would have been one line of output: "classification matched 0
-test files".
-Its direction explicitly EXTENDS the ISSUE-020 config-error refusal
-philosophy already delivered under this directive — when mandated tests
-exist but the classifier matches zero test files, the step REFUSES with a
-config-error naming its cause instead of emitting per-test violations. That
-makes it a continuation of shipped work in this directive, not a new
-mechanism.
-Sequencing note for a planner: ISSUE-112 and ISSUE-113 should be read as one
-arc and planned together, or ISSUE-113 immediately after ISSUE-112.
-ISSUE-112 makes the missing tool NAME ITSELF at the point of failure;
-ISSUE-113 makes the resulting empty evidence set REFUSE instead of
-fabricating per-test violations. Shipping only ISSUE-113 would convert one
-misleading failure mode into a different one without ever naming the absent
-binary; shipping only ISSUE-112 leaves the harness-baked-globs root cause
-(the never-filed, founder-ruled-dead "ISSUE-102" — see the dead-ID
-paragraph below) still producing the same silent mass-violation signature.
+contract hops delivered — plans completed, issues closed"); ISSUE-107 and
+ISSUE-108 appear in this directive's own frontmatter `source:` list,
+immediately above (ISSUE-106 no longer does — see the note above). The one
+fragment of the original sentence that remains true: ISSUE-104 and
+ISSUE-105 are still cited by NO directive's frontmatter `source:` — they
+are named only in this file's prose.
 
 Dead-ID correction, founder-ruled (Brandon, 2026-08-02): ISSUE-102 and
 ISSUE-103 are DEAD. Both were reasoned toward but never filed — no file in
@@ -1112,7 +531,8 @@ exists to head off one specific confusion: a reader who sees the issue
 corpus jump 101 → 104, or who follows this item's mention of the
 harness-baked-globs defect looking for a ticket, will find reservation tags
 with no artifacts behind them. That is intentional, not corruption, and not
-evidence of a lost or deleted file. ISSUE-113 (this same item, cited above)
+evidence of a lost or deleted file. ISSUE-113 (moved to DIR-032 with the
+rest of the gate-verdict-honesty cluster, 2026-08-10 — see that directive)
 partially recaptures dead ISSUE-102's substance — the harness-baked
 classification-globs defect — and is the live home for that concern. Dead
 ISSUE-103's substance, `typescript-contracts` rejecting the bare-const
@@ -1133,56 +553,6 @@ original take from 2026-07-29, back when it was believed to be a core-side
 contracts-engine concern; that reasoning is superseded, and DIR-022 was
 never actually touched on its account.
 
-ISSUE-114 slotted by backlog-pm 2026-08-02 under the standing clear-fit
-grant. It is the ELEVENTH member of the gate-verdict-honesty cluster
-(ISSUE-066, 067, 091, 092, 093, 097, 100, 106, 112, 113, 114) — the family
-where a verdict surface reads authoritative and silently isn't. Restate the
-standing caveat exactly as the prior paragraphs do: this slot does NOT
-pre-empt the founder's still-pending decision on whether the cluster gets
-its own directive; if one is created, every DIR-024-slotted member moves
-there together.
-Its cluster variant is distinct and worth naming: prior members mis-report
-a verdict they DID compute (or compute one from data they misread).
-ISSUE-114 never computes anything for an entire artifact KIND — the
-dimension is silent by starvation, and a reader of a clean
-`artifact_status_drift_advisory` run reasonably concludes no plan looks
-delivered-but-open when in fact no plan CAN.
-Why DIR-024 and not DIR-021 ("Traceability Hardening & Corpus Drain"),
-recorded so the founder can redirect in one line rather than re-derive it:
-DIR-021 was considered and rejected. Its four threads are the
-requirement-traceability substrate (`ResolveSupports`, bundle→spec REQ
-chains, the advisory-gap drain) plus corpus drain, and its only adjacency
-here is thread 2, which cites ISSUE-048 as a per-artifact RECONCILIATION
-task (now closed, delivered 3a7a700). ISSUE-114 is a MECHANISM defect in the
-`artifact_status_drift` step, not a corpus item and not the traceability
-substrate. DIR-016 ("Directive/Issue/Plan Lifecycle Hardening"), the
-directive this dimension was born under and the natural home for the "make
-`test_names` load-bearing" fix direction, is `status: done`. And ISSUE-098 —
-the issue's own named sibling in this exact step family (drift resolver
-blind to pack claim IDs, `status: closed`) — is cited by NO directive, so it
-offers no counter-precedent.
-In-flight coverage is nil and established from the corpus rather than
-assumed: no plan, spec, or bundle cites ISSUE-114; no plan scaffold exists
-for it (newest file in `plans/` predates it by four days); the issue was
-filed 2026-08-02 (commit `a98f44e`) directly downstream of backlog-pm's own
-delivered-but-open sweep flag the same day.
-Priority, recorded in-directive with NO backlog reorder proposed: `type:
-bug`, warn-tier dimension, no consumer-facing blocking verdict is wrong. It
-must NOT displace ISSUE-092 (the `risk: critical` active false-green in the
-tool that gates the whole pack ecosystem) or the ISSUE-112/113 arc within
-this directive.
-One corpus-honesty item riding along, flagged and explicitly NOT this
-directive's scope, and now RESOLVED as an observation (recorded here rather
-than silently rewritten): `PLAN-ISSUE-048` was `status: draft` with its code
-shipped at filing time; it closed to `status: completed` on 2026-08-02
-(commit `a0e492b`), which was the corpus decision that remained pending for
-the founder. Its closure produced zero drift signal in either direction —
-confirming the wrinkle rather than merely predicting it — because with no
-populated `test_names` it carried no `MandatedTests` for the
-`ClassSuccessTerminal` broken-promise check either. That leaves the mechanism
-fix as the only thing still open here, independent of this now-settled
-instance.
-
 ISSUE-115 (slotted 2026-08-02 under the standing clear-fit grant; founder-
 confirmed the same day — Brandon: "ISSUE-115 → DIR-024: confirmed, standing
 grant applies, same as 112/113/114") rides along on thematic fit. It is
@@ -1190,14 +560,28 @@ grant applies, same as 112/113/114") rides along on thematic fit. It is
 a check that should catch drift silently doesn't — its root cause is a
 different family: contract-block validation TIMING (checked only at spec
 closure, and `consumes:` never at all) rather than a severity/data-carrier
-defect inside an already-firing step verdict. Treat it as adjacent to, not
-a twelfth member of, the cluster (ISSUE-066, 067, 091, 092, 093, 097, 100,
-106, 112, 113, 114); the founder's still-pending decision on whether that
-cluster gets its own directive is unaffected either way — if it is
-created, only genuine cluster members move, and this item's membership
-would need its own call. It does not displace ISSUE-092 (`risk: critical`)
-or the ISSUE-112/113 arc within this directive. Scope note carried from
-the issue itself: the `go-contracts` pack's inability to express a grouped
-`const ( ... )` block member (blocking SPEC-036's closure) is explicitly
-OUT of this issue's and this directive's scope — pack work, same
-principle as the ISSUE-103 ruling recorded above.
+defect inside an already-firing step verdict. It stays homed here rather
+than moving to DIR-032: the founder's 2026-08-10 carve-out (see below)
+named eleven specific cluster members and ISSUE-115 was not among them —
+treat it as adjacent to, not a twelfth member of, that cluster. Scope note
+carried from the issue itself: the `go-contracts` pack's inability to
+express a grouped `const ( ... )` block member (blocking SPEC-036's
+closure) is explicitly OUT of this issue's and this directive's scope —
+pack work, same principle as the ISSUE-103 ruling recorded above.
+
+**Cluster carve-out (Brandon, 2026-08-10):** the gate-verdict-honesty
+cluster — eleven issues sharing the shape "a gate step computes a result
+but reports the wrong verdict about it" — has moved to a new dedicated
+directive, DIR-032 "Gate Verdict Honesty". Eight of the eleven were cited
+here (ISSUE-092, 093, 097, 100, 106, 112, 113, 114) and moved with their
+Description/Notes prose; the other three (ISSUE-066, 067, 091) were named
+repeatedly in this file's Notes as cluster siblings but were never added to
+this directive's `source:` frontmatter, so they had no prior directive home
+at all and were added fresh to DIR-032. This directive keeps its
+non-cluster sources (ISSUE-007, 020, 082, 075, 077, 096, 099, 107, 108,
+115) — the ten items enumerated in the Description above, several of which
+are related to the cluster by theme (ISSUE-096, ISSUE-107, ISSUE-108,
+ISSUE-115) but were not named among DIR-032's eleven members and were
+deliberately left here rather than folded in unasked. See DIR-032's
+Description and Notes for the full cluster writeup and the founder ruling's
+rationale.
