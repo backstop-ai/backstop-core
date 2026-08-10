@@ -43,3 +43,18 @@ the conclusion was wrong. Iterate over `*/` and test `$d/.git` per pack.
 convention, each proven by a real remote `pack add`. The ecosystem gap for
 remote consumption is closed; the recipe half is not — still zero
 `recipes:` blocks fleet-wide. DIR-027 owns the residual fleet migration.
+
+**Recipe half PARTIALLY closed 2026-07-29 — re-verify before repeating the
+"zero consumers" line.** `backstop-ai/go-distribution`
+(`~/src/projects/backstop-go-distribution-pack`) declares
+`recipes: {go-release: recipes/go-release}` at `pack.yml:56-57` — the
+fleet's FIRST real recipes consumer. Two limits keep this from closing
+DIR-019: its payload is a **release** workflow, whereas BUNDLE-015 REQ-018
+wants a **CI gate** workflow pack (still unbuilt), and core's own
+`recipes/{go,meta,typescript}` are still `.gitkeep`-only. DIR-019's Notes
+carried the stale "zero consumers" claim in two paragraphs until corrected
+in place on 2026-07-29 (ISSUE-110 triage). First real use immediately
+surfaced authoring-surface gaps the mechanism spec never modeled —
+ISSUE-110 (substituter has no escape syntax and is not comment-aware) and
+ISSUE-109 — which is the pattern's real lesson: **the first consumer is
+the acceptance test, and it always files issues.**

@@ -1,6 +1,6 @@
 ---
 name: gostandards-rule-mechanics
-description: go-standards semgrep + go-toolchain rule quirks that fire on touched files under gate scope — comma-underscore AND single-underscore ignored-errors, constructor-injection FP, error-type-suffix FP, package-level test sentinel errors, the errcheck<->no-ignored-errors cleanup-defer pincer, and that go-toolchain analyses are package/repo-level not per-file
+description: go-standards semgrep + go-toolchain rule quirks that fire on touched files under gate scope — comma-underscore AND single-underscore ignored-errors, constructor-injection FP, error-type-suffix FP, package-level test sentinel errors, the errcheck<->no-ignored-errors cleanup-defer pincer, that error-wrapping-required needs BOTH multi-value arity AND an `if err != nil` guard (so widening a signature only fires ALREADY-GUARDED pass-throughs), and that go-toolchain analyses are package/repo-level not per-file
 metadata:
   type: feedback
 ---
@@ -96,15 +96,38 @@ zero where cleanly possible; where a rule-pincer or FP blocks (see above), prove
 (findings on files outside your `git status`) and report. See
 [[editing-file-pulls-it-into-gate-scope]] and [[netnegative_gate_baseline]].
 
-**`error-wrapping-required` is armed by the RETURN ARITY, not by the return itself.**
-Its `pattern-inside` is `func $F(...) (..., error)` — a MULTI-value error return. A
-function returning bare `error` can pass errors straight through (`return err`,
-`return gateErr`) and never fire. The moment you widen its signature to `(T, error)`,
-every one of those previously-clean pass-throughs becomes a net-new finding. Measured
-on `cmd/backstop/recipe_apply.go` (ISSUE-080): 0 findings at HEAD, 3 the instant
-`runRecipeApply` started returning `(recipe.ApplyResult, error)` — nothing about the
-error handling itself changed. Budget for wrapping every pass-through in a function
-whose arity you are about to widen, and attribute honestly by running the pack over
-the HEAD copy vs the current copy in a scratch dir (`git show HEAD:<path>`) instead
-of assuming the findings are inherited.
+**`error-wrapping-required` needs BOTH multi-value ARITY *and* an `if err != nil`
+GUARD — REFINED 2026-07-28 (implementer-020, ISSUE-020 phase 2).** Two real
+measurements, and the refinement is what reconciles them:
 
+- ISSUE-080, `cmd/backstop/recipe_apply.go`: 0 findings at HEAD, 3 the instant
+  `runRecipeApply` started returning `(recipe.ApplyResult, error)` — nothing about
+  the error handling itself changed.
+- ISSUE-020 phase 2, `pkg/gate/scope.go`: a widened path produced exactly ONE
+  finding — a NEW bare `return nil, err` — while FOUR pre-existing pass-throughs
+  stayed clean, INCLUDING the two that moved into the widened function
+  (`ComputeGateScope` -> `ComputeGateScopeWithBase`).
+
+The mechanism that explains both: the rule matches
+`if $ERR != nil { return ..., $ERR }` INSIDE `func $F(...) (..., error)`. BOTH
+halves are required. Arity alone arms nothing — it only decides whether an
+ALREADY-GUARDED `return err` becomes a matching `return x, err`. A pass-through with
+no `if err != nil` guard never matches at EITHER arity: scope.go's clean four are
+unconditional returns (`return newGateScope(...), err`, `return files, nil, err`)
+sitting in a switch case or after a non-error `if`, so widening the function around
+them changed nothing.
+
+So ISSUE-080 was not "widening arity fires every pass-through" — recipe_apply.go's
+pass-throughs were ALREADY inside `if err != nil { return err }` guards, and widening
+converted each into the matching multi-value shape. Predict the blast radius by
+counting GUARDED pass-throughs, not all of them: `grep -B1 'return .*err$'` and keep
+only those preceded by `if err != nil {`. Zero guarded pass-throughs means widening
+the arity costs nothing.
+
+Do NOT assume either way. The two measurements are on different files months apart
+and the rule text can change under us. Attribute by running the pack over the HEAD
+copy vs the current copy (`git show HEAD:<path>` into a scratch dir, then semgrep the
+WHOLE go-standards rule DIRECTORY, not just `go-core.yml` — a single rule file can
+miss findings the gate reports) and comparing counts. That HEAD-vs-NOW compare is
+what proved the scope.go finding net-new rather than inherited, and it is cheap
+enough that guessing is never worth it.

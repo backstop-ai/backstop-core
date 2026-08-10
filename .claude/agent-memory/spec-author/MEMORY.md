@@ -1,1 +1,2 @@
 - [New validation honors existing exemptions](feedback_new_validation_honors_exemptions.md) — a new corpus-wide pass must mirror terminal/live-work exemptions the per-artifact validators apply
+- [Claim subject is one package only](feedback_claim_subject_is_one_package_only.md) — a straddling claim has no satisfiable subject; split before it detonates at closure, detect via scratch-copy probe not a live flip

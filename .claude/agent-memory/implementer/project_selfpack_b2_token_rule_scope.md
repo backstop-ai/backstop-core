@@ -1,38 +1,38 @@
 ---
 name: selfpack-b2-token-rule-scope
-description: backstop/self Family B2 no-baked-language-token is the ONLY family without exclude *_test.go, so any test naming go.mod trips it; precedent fix is a line-scoped nosemgrep, and a founder posture decision is already escalated
+description: RESOLVED for B2 (it now excludes *_test.go); Family A no-baked-tool-exec is now the only self-pack family without a test exclusion, and its escape is the in-package execCommand parametric dispatch, not a nosemgrep
 metadata:
   type: project
 ---
 
-`backstop/self` rule `no-baked-language-token` (Family B2, `rules/no-baked.yml`)
-is a bare repo-wide `pattern-regex` with NO `paths:` block. Its four sibling
-families (B3 neutral-spine, B4 repo-layout, B5 name-split, B6 pack-name-keyed)
-ALL carry `exclude: ["*_test.go"]`. B2 does not — so it fires on ANY Go file
-naming `go.mod`, `package.json`, `tsconfig`, `Cargo.toml`, `requirements.txt`,
-`pom.xml`, `build.gradle`, or a foreign extension, test files included. (`.go`
-is deliberately omitted from B2's regex; `.sh` is not in it at all.)
+STATUS CORRECTED 2026-07-28. `backstop-ai/backstop-self` Family B2
+(`no-baked-language-token`, `rules/no-baked.yml`) HAS carried
+`paths.exclude: ["*_test.go"]` since the ISSUE-087 TASK-016 precision fix — the
+pack comment cites 16 measured rows, all in `*_test.go`, none a routing defect.
+The old advice (line-scoped nosemgrep for a test naming `go.mod`) is therefore
+obsolete for B2; do not reach for it.
 
-Measured 2026-07-27: all 12 files in backstop-core carrying a `"go.mod"`
-literal are `_test.go` files. ZERO production files bake it. They sit dormant
-only because file-level diff scope has not touched them — open any one and it
-goes blocking.
+**The family that still lacks a test exclusion is A — `no-baked-tool-exec`.**
+It excludes only `tests/smoke/**` (founder-ratified: that IS the binary-building
+harness). It matches `exec.Command("$TOOL", ...)` and
+`exec.CommandContext($CTX, "$TOOL", ...)` where `$TOOL` is a literal outside
+`git|gh|sh|/bin/sh|sandbox-exec` — so ANY test outside tests/smoke that builds
+or drives the Go toolchain (`exec.Command("go", "build", ...)`) goes blocking the
+moment its file enters diff scope. Several such call sites are dormant today
+(`pack_authoring_loop_test.go:18`, `version_test.go:169`).
 
-**Why:** backstop-core IS the module under test, so its own repo-meta tests must
-name its module file to assert on it. That is not the baked-routing-in-the-binary
-hazard B2 targets, but B2 cannot tell the difference without a path scope.
+**Why:** a test that compiles the binary under test is naming its own subject,
+not baking routing into the shipped binary — the same rationale the pack wrote
+for tests/smoke — but Family A has no path scope to tell the two apart.
 
-**How to apply:** when a new/touched test legitimately names `go.mod`, use the
-established in-repo precedent — a line-scoped
-`// nosemgrep: backstop.packs.backstop.self.rules.no-baked-language-token — <reason>`
-as in `pkg/pack/distribution/contracts_provisioning_test.go:26` and
-`spec015_lineage_test.go:133`. Do NOT obfuscate the literal (`"go" + ".mod"`) —
-that defeats the check textually while keeping the knowledge. Do NOT edit
-`.backstop/packs/backstop/self/` (installed, non-durable); the pack source is
-`local_path: ../backstop-self-pack`.
-
-The broader question — self-pack scoping over backstop-core's OWN test harness —
-is ALREADY ESCALATED and pending a founder posture decision, recorded in a
-`deferred` waiver at `tests/smoke/smoke_test.go:53,246`. Cite that escalation
-rather than re-opening it. Related: [[feedback_gostandards_rule_mechanics]],
-[[project_editing_file_pulls_it_into_gate_scope]].
+**How to apply:** the in-repo escape is the package-level parametric dispatch
+helper `execCommand(name string, args ...string) *exec.Cmd`
+(`cmd/backstop/root_test.go:360`), already used for a `go build` at
+`root_test.go:342` and gate-clean. Route the call through it — the rule's own
+message prescribes parametric dispatch. No nosemgrep, and never obfuscate the
+literal. The durable fix is a pack precision change (extend Family A's exclude
+the way B2 and tests/smoke were extended), which is a cross-repo change in
+`backstop-ai/backstop-self` and belongs to that pack's lane, not a consumer's.
+Related: [[feedback_gostandards_rule_mechanics]],
+[[project_editing_file_pulls_it_into_gate_scope]],
+[[project_packless_baseline_fails_at_pack_loading]].

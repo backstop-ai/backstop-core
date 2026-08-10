@@ -1,30 +1,41 @@
 ---
 name: struct-contract-compiler-gap
-description: contracts pack compile-signature.sh only handles func signatures; every `type X struct` contract reds under --file gate scope (pre-existing, codebase-wide)
+description: RESOLVED — the contracts pack compiler is kind-aware since ISSUE-036 (d5efd5b); `type X struct` contracts now COMPILE AND PASS. Kept as a correction because the old entry's advice ("your code is fine, ignore the red") would now hide a real finding.
 metadata:
   type: project
 ---
 
-The backstop/contracts pack's `scripts/compile-signature.sh` (the contract->ast-grep
-pattern compiler, SPEC-038) ONLY handles `func` signatures. Given a `type X struct`
-contract it strips `func `/`(`/`)` that aren't there and emits a malformed pattern,
-so the ast-grep presence query never matches -> `contract_signature` reds with
-"symbol X signature not found or mismatched ... expected \"type X struct\"".
+STATUS CORRECTED 2026-07-28. Both premises of the original entry are now FALSE. It is
+kept rather than deleted because its advice — "do not fix your struct; the pack cannot
+verify struct contracts" — would today tell you to ignore a finding that is REAL.
 
-**Why:** the compiler was written for function contracts; struct/type `kind: type`
-contracts were never wired into it. This is codebase-wide: `gate --file
-pkg/pack/manifest.go` reds on `type Manifest struct`, `type Content struct`,
-`type Ruleset struct`, etc. -- all PRE-EXISTING struct contracts, not anything a
-given change introduced. SPEC-043 added `type SourceClassifier struct` /
-`type Classification struct` which join the same failing population.
+WHAT WAS CLAIMED, AND WHAT IS TRUE NOW:
 
-**How to apply:** Do NOT panic or try to "fix" your struct definition when a
-`--file`-scoped gate reds on a `type X struct` contract -- your code is fine; the
-pack compiler can't verify struct contracts. The DIFF-scope gate (the
-gate-on-implement hook's mode, and the real enforcement path) does NOT hit this:
-with no `origin/main` remote the diff scope resolves empty, so no contract entries
-are in scope and `contract_signature` passes (full gate stays PASS, exit 0). The
-real fix belongs in the contracts pack (BUNDLE-009/SPEC-038 territory: teach
-compile-signature.sh to emit `type X struct { $$$ }` for `kind: type` contracts),
-NOT in consumer specs. Flag it; don't absorb it as scope creep. See
-[[feedback_netnegative_gate_baseline]].
+1. "compile-signature.sh only handles func signatures" — DISPROVEN. ISSUE-036 shipped
+   kind-awareness in d5efd5b. The installed
+   `.backstop/packs/backstop-ai/go-contracts/scripts/compile-signature.sh` dispatches on
+   SEVEN shapes: method (`func (recv T)`), func, type (with an `interface` sub-case
+   emitting `type X interface { $$$ }`, else `type X $$$`), const (`const X = $$$` — the
+   `=` is required or ast-grep errors), var (RHS-preserving), a bare struct FIELD wrapped
+   as `struct {\n$$$\n<field>\n$$$\n}`, and a func-shaped fallback.
+2. "every `type X struct` contract reds under --file gate scope" — RE-CHECKED EMPIRICALLY
+   and no longer true. `./bin/backstop gate --file pkg/pack/manifest.go` (the exact file
+   the old entry named, carrying `type Manifest struct`, `type Content struct`,
+   `type Ruleset struct`) now returns `contract_signature: pass, 0 violations`, exit 0.
+
+ALSO STALE IN THE ORIGINAL: its escape hatch reasoned that diff scope "resolves empty
+with no origin/main remote". backstop-core HAS had a real `origin/main` since 2026-07-28,
+so diff scope resolves normally and that sentence no longer describes anything.
+
+**Why:** this entry was written from a true observation and outlived its subject by two
+pack versions. A memory that names a script's capabilities is a claim about the version
+installed WHEN IT WAS WRITTEN — packs are versioned and external, so they move
+underneath it.
+
+**How to apply:** if a `type X struct` contract reds today, treat it as a REAL finding
+and read the message, rather than reaching for this entry. Before trusting any memory
+that describes pack-script behaviour, re-verify against the INSTALLED pack under
+`.backstop/packs/` (the source under `packs/` can differ from what the gate runs) — the
+two were byte-identical at 130 lines when this was checked, but that is a fact to
+confirm, not assume. Related: [[project_pack_copies_and_stale_gate_binary]],
+[[project_local_baseline_makes_gate_permissive]], [[feedback_netnegative_gate_baseline]].

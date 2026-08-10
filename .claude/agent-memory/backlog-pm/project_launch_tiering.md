@@ -1,28 +1,41 @@
 ---
 name: launch-tiering
-description: Founder-set launch razor (2026-07-25/26) — ONLY pack recipes and remote pack consumption block launch; Linux/CI viability was a third blocker; everything else including backstop init is tier-2
+description: Founder-set launch razor — FOUR blockers as of 2026-07-27 (recipes, remote pack consumption, Linux/CI viability, CI-driven releases); all four substantively delivered 2026-07-28; everything else including backstop init is tier-2
 metadata:
   type: project
 ---
 
-Brandon tiered the launch blockers on 2026-07-25/26 as a short closed list:
-**pack recipes** (BUNDLE-015 / DIR-019) and **remote pack consumption**
-(BUNDLE-006 / DIR-026), with **Linux/CI viability** (ISSUE-020, riding under
-DIR-024) named alongside them in DIR-024/DIR-026's own text. Everything else
-is tier-2 — explicitly including `backstop init` (DIR-002), which is wanted
-but is not what makes backstop unusable if it slips.
+The launch-blocker list is **four items, not two** (updated 2026-07-27; an
+earlier version of this memory said two and was stale for a full day):
 
-**Why:** the razor exists to stop the backlog's breadth from setting the
-launch date. Both tier-1 items are load-bearing for the distribution model
-itself, not features among many — without remote consumption "install a pack
-from its tap" is advertised-not-delivered, and without recipes `backstop
-init` has nothing to delegate scaffolding to.
+1. **pack recipes** — BUNDLE-015 / DIR-019
+2. **remote pack consumption** — BUNDLE-006 / DIR-026
+3. **Linux+CI viability** — ISSUE-020, riding under DIR-024
+4. **CI-driven releases** — DIR-001 / ISSUE-087, tiered up by the founder on
+   2026-07-27
 
-**How to apply:** when proposing BACKLOG.yml ordering, positions 1-3 are
-reserved for DIR-019 / DIR-026 / DIR-024 and the burden of proof is on any
-proposal that displaces them. When triaging a new issue, ask whether it
-blocks one of the two tier-1 capabilities before arguing its own severity —
-a `risk: critical` issue inside a tier-2 directive still ranks below tier-1
-work. Do not re-litigate the tiering; it is the founder's call. Related:
-[[mechanism-vs-ecosystem-gap]], which is the main way a tier-1 item can look
-done without being launchable.
+Everything else is tier-2, explicitly including `backstop init` (DIR-002).
+**All four were delivered and `v0.1.0` SHIPPED 2026-07-29T00:36Z** (release run
+`30411560553`: 4 platform archives + checksums + Homebrew formula). The razor's
+practical job now is guarding against *re-expansion* and framing post-launch
+work, not ranking a pre-launch queue. The remaining founder-held step is the
+7-repo visibility flip, gated on the content audit.
+
+**Why:** the razor exists to stop the backlog's breadth from setting the launch
+date. Each tier-1 item is load-bearing for the distribution model itself, not a
+feature among many.
+
+**How to apply:** BACKLOG.yml's own header comment is the authoritative record
+of the current blocker set — **read it before quoting a count from memory**, since
+the founder revises the tiering faster than memory gets rewritten. When triaging,
+ask whether an issue blocks a tier-1 capability before arguing its own severity: a
+`risk: critical` issue inside a tier-2 directive still ranks below tier-1 work. Do
+not re-litigate the tiering; it is the founder's call.
+
+**Corollary learned 2026-07-28, the expensive one:** a delivered blocker leaves
+its directive's *position* justified by something that no longer exists — DIR-024
+held position 4 purely on ISSUE-020, which closed, leaving ten tier-2 items ranked
+above DIR-001/DIR-003/DIR-002. After any blocker closes, re-check what its
+directive's ranking now rests on. Related: [[mechanism-vs-ecosystem-gap]] (how a
+tier-1 item looks done without being launchable) and
+[[launch-preconditions-are-not-backlog-items]].

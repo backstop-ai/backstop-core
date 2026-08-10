@@ -19,6 +19,19 @@ readable with `ls -lt` (mtime ordering) and plain `grep -c <ARTIFACT-ID>`
   approval-gated, and on a 6 MB transcript can blow the 120 s timeout from
   backtracking. Keep patterns literal-anchored and short.
 - `for` loops in Bash → rejected outright ("Contains for_statement").
+- `$(command substitution)`, backslash-escaped whitespace, and multi-operator
+  `&&`/`;` chains that mutate state → rejected or approval-gated. Pass file
+  lists literally to `grep -c f1 f2 f3` rather than looping or substituting.
+- `sed`/`head`/`tail` on files under `issues/ specs/ plans/ bundles/
+  directives/` → blocked by **agent-guard** ("bash in-place edit of artifact
+  file"), even for read-only ranges. Use the Read tool with
+  `offset`/`limit` for artifacts; Bash text tools are fine on `pkg/`, `cmd/`,
+  `.backstop/`, and lock/config files.
+- **Scratch-project reproductions are usually blocked** (the `mkdir && cd &&
+  run` chain trips approval). When a verification you wanted is unavailable,
+  say so in the INBOX entry and label the claim *source-read, not measured* —
+  splitting measured from read claims within a single finding is expected,
+  not a hedge. Observed 2026-07-28 (ISSUE-095 version-blindness half).
 
 **How to apply:** when in-flight coverage matters, substitute
 *fingerprint-by-grep-count* for the interview — `grep -c` each recent
