@@ -24,3 +24,5 @@
 - [SPEC-044 passed review](project_spec044_review.md) — multi-metric (path,metric) records, Seed 4; PASS, B1 4-arg sig matches 043, REQ-006 no-new-type verified vs live parser
 - [SPEC-047 review](project_spec047_review.md) — BUNDLE-012 Seed 5 bun pack+proof+ratchet; PASS w/ 2 prose should-fixes; REQ-007 per-pack policy key verified vs live (SourcePack exists, pack_engines premise holds), closes crosspass blocker #3
 - [SPEC-046 ready to plan](project_spec046_review1.md) — passed review #4; completeness contract reframed to mechanical guard+test_command over 4 pkgs (list illustrative); all 10 config.Config.Language readers enumerated, guard scope provably exhaustive
+- [projectRoot is always absolute](feedback_projectroot_is_always_absolute.md) — "root colocation is invocation-directory-dependent" is always a fabrication; check DiscoverConfigPathFrom
+- [SPEC-066 review #2 FAIL](project_spec066_review2.md) — 9/10 must-fixes landed; M9's replacement justification is a second fabrication (empirically disproven)

@@ -36,9 +36,26 @@
 # — not sunk to the bottom, not retained as a record. Delivery history
 # lives in the directive file's own status field and the artifacts that
 # delivered it; this list does not double as an audit log.
+#
+# REORDERED 2026-08-11 (founder-directed): DIR-002 (backstop init) moves
+# from position 6 to position 2, immediately after DIR-019. Verified today:
+# of the five directives previously ranked ahead of DIR-002, DIR-019 is the
+# only one carrying a REAL dependency into init — its unbuilt BUNDLE-015
+# REQ-018 (the CI recipe pack), which init's own resolved bundle design
+# (BUNDLE-003 OQ-7) needs for its "CI wired by default" commitment. It stays
+# at position 1 for that reason. DIR-027, DIR-024, DIR-032, and DIR-003 were
+# ranked ahead of init purely by prior priority calls with no real
+# dependency into init specifically — they are now explicitly deprioritized
+# below it, not because their own work stopped mattering, but because none
+# of them gate init. Founder's own words: "init is kind of the last
+# remaining missing piece before I can start to go more public with
+# backstop" — a launch-readiness call. Relative order among DIR-027/024/032/
+# 003 and everything below DIR-002 is unchanged from the prior list.
 directives:
   - id: DIR-019
     title: Pack Recipe Capability
+  - id: DIR-002
+    title: backstop init Command
   - id: DIR-027
     title: Pack Fleet Publication & Migration
   - id: DIR-024
@@ -47,8 +64,6 @@ directives:
     title: Gate Verdict Honesty
   - id: DIR-003
     title: Baseline Implementation
-  - id: DIR-002
-    title: backstop init Command
   - id: DIR-025
     title: Adoption Telemetry
   - id: DIR-021
