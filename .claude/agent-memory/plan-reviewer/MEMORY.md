@@ -18,3 +18,4 @@
 - [Gate source-string assertions](project_gate_source_string_assertions.md) — cmd/backstop tests string-match exact call forms in gate.go source (e.g. coverageRecordsProducer(packs, projectRoot)); rewiring a pinned call site reds them invisibly
 - [Nil-seam default needs reachable data](project_nil_seam_default_needs_reachable_data.md) — "nil seam = real path" fails if the lib can't reach the gate's args; waiver.Adjudicate is LINE-windowed
 - [Self-pack absence-claim tests](project_selfpack_absence_claim_tests.md) — backstop/self is external+gitignored (hard-fail test reds CI); most rule families are path-scoped away from new packages
+- [Verified enumeration + do-not-re-derive](project_verified_enumeration_do_not_rederive.md) — re-sweep any plan that publishes a "verified, do NOT re-derive" file:line list; omissions become DIRECTED misses

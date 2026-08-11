@@ -1,0 +1,1211 @@
+---
+plan_id: PLAN-ISSUE-110
+spec_id: ISSUE-110
+created: "2026-08-11"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./pkg/recipe/... ./cmd/backstop/... -race -count=1"
+coverage_threshold: 90
+
+notes: |
+  Implements ISSUE-110 — the recipe substitution grammar has no escape, so a
+  payload that must emit a FOREIGN `{{ }}`-delimited template verbatim has no
+  first-class way to say "leave this alone."
+
+  SMALL, SURGICAL LANE. TWO production files change: pkg/recipe/substitute.go
+  (the escape + the diagnostic) and pkg/recipe/manifest.go (one parse-time
+  rejection that closes the reserved prefix). apply.go is NOT touched — the
+  escape lives inside `Substitute`, the single door every consumer-facing field
+  already goes through (substituteField / renderPayload / relayedManual /
+  the fragment read, apply.go:592/614/829/910), so every call site inherits it
+  with no routing change. No CLI surface changes.
+
+  ── THE GAP IN ONE PARAGRAPH ───────────────────────────────────────────────
+  `Substitute` (substitute.go:31-62) reads EVERY `{{ ... }}` span as a param
+  NAME and hard-errors on an undeclared one, returning NO output. That is the
+  right policy for a typo and the wrong policy for a payload written in someone
+  else's template language. The shipped workaround, live in
+  `backstop-ai/go-distribution`, declares EIGHT self-emitting pass-through
+  params — a param whose NAME is the foreign template's inner text and whose
+  DEFAULT is that same text wrapped back in delimiters. It works only because
+  substituted values are NEVER RESCANNED (substitute.go:22-23). It is honest,
+  it is in production, and it is a workaround: one declaration per foreign span,
+  a hazard if a caller ever supplies `--param .Version=…`, and a param list in
+  which real consumer-edit points and machinery sit in one undifferentiated
+  block.
+
+  ── THE SECOND HALF OF THE ISSUE: PROSE IN A COMMENT ───────────────────────
+  The substituter is not comment-aware, so a payload COMMENT that merely
+  MENTIONS a template in prose fails the apply with the same error as a real
+  unresolved substitution. This cost a real debugging cycle and is visible in
+  production today: `recipes/go-release/payload/release.yml:15-25` in the pack
+  writes `.Env.<NAME>` DELIMITER-LESS with a note explaining that the delimiters
+  were dropped on purpose. A comment explaining a footgun cannot be written
+  without triggering the exact footgun it documents.
+
+  ═══════════════════════════════════════════════════════════════════════════
+  THE DESIGN DECISION — `{{! ... }}`, THE BANG-ESCAPE (plan-level, for review)
+  ═══════════════════════════════════════════════════════════════════════════
+  THE GRAMMAR, in full, and it is four sentences:
+
+    1. When the byte IMMEDIATELY following `{{` is `!`, the span is ESCAPED.
+    2. Exactly ONE `!` is consumed; everything from there to the first `}}` is
+       emitted VERBATIM, wrapped back in `{{` and `}}`.
+    3. No param lookup happens in an escaped span — no declaration is needed,
+       and no unresolvable-placeholder error can fire from one.
+    4. Everything else is unchanged: an unescaped span is still a param name,
+       an undeclared name still fails loud, a `{{` with no matching `}}` is
+       still copied through as literal text, and substituted values are still
+       never rescanned.
+
+  So `${{! github.ref_name }}` emits `${{ github.ref_name }}`, `{{! .Version }}`
+  emits `{{ .Version }}`, and a prose comment writes `{{! .Env.<NAME> }}` and
+  gets its delimiters back. ONE mechanism, BOTH halves of the issue.
+
+  ── WHY THE ESCAPE AND NOT COMMENT-AWARENESS (the issue's option 2) ────────
+  Rejected on this repo's FIRST PRINCIPLE: zero baked language/tool knowledge.
+  A comment-aware substituter must know `#` for YAML and shell, `//` and `/* */`
+  for Go/TS, `<!-- -->` for HTML/XML, `;` for ini, `%` for TeX — and must know
+  which one applies to the payload it is rendering, which means inferring a
+  language from a file extension inside core. That is precisely the baked
+  language branch CLAUDE.md calls a defect to eradicate, never to extend.
+
+  AND IT WOULD NOT EVEN SOLVE THE PROBLEM. Measured against the real production
+  payload: `recipes/go-release/payload/.goreleaser.yml` carries goreleaser's own
+  `{{ .Version }}` / `{{ .ProjectName }}` / `{{ .Os }}` / `{{ .Arch }}` at lines
+  81, 85, 88 and `{{ .Env.HOMEBREW_TAP_TOKEN }}` at 103 — every one of them in
+  LIVE CONFIG, not in a comment — INTERLEAVED with real backstop params
+  (`{{ binary_name }}`, `{{ tap_owner }}`, `{{ module_url }}`) that must still
+  resolve. Comment-awareness leaves that file exactly as broken as it is today.
+  The comment case is the NARROWER of the two, and the escape covers it as a
+  side effect of covering the wider one: prose is just text, and text gets an
+  escape like any other text.
+
+  ── WHY `{{!` AND NOT `\{{` ────────────────────────────────────────────────
+  `\{{` is the more conventional idiom (Handlebars/Mustache), and it was rejected
+  on backward compatibility. It RETROACTIVELY REASSIGNS TEXT THAT IS VALID AND
+  MEANINGFUL TODAY: a backslash immediately preceding a template currently
+  renders through as the literal backslash it is, and under `\{{` that same byte
+  becomes a marker the substituter eats — the payload silently loses a character
+  and the span stops resolving.
+
+  MEASURED, so the risk is stated at its true size (2026-08-11, against
+  `recipes/go-release/payload/release.yml` in the production pack): the file has
+  FIVE backslash-bearing lines (shell line continuations at :86/:87, a regex at
+  :55, `\n` escapes at :98/:99) and ZERO instances of a backslash IMMEDIATELY
+  PRECEDING `{{` — `grep -n '\{{'` returns nothing. So no shipped payload would
+  lose a character today. The hazard is PROSPECTIVE, not already-happening: the
+  two constructs are individually common in exactly this file's idiom, and `\{{`
+  would make their adjacency silently lossy forever after. That is a sound reason
+  to decline it and NOT a claim that something is broken right now.
+
+  It also needs escape-the-escape doubling rules (`\\{{`), which is a second
+  grammar — where `{{!`'s escape-of-the-escape falls out of the one rule it
+  already has.
+
+  `{{!` cannot change the meaning of anything that works today. A `{{!x}}` span
+  currently resolves ONLY IF a param is literally named `!x`, and:
+    * NO SUBSTITUTER INPUT contains the byte sequence `{{!` — no payload, no
+      fixture, no recipe manifest anywhere in this repo — verified 2026-08-11
+      with a FIXED-STRING grep (`grep -rnF '{{!'` over `recipes/`, `packs/`,
+      `pkg/recipe/` and `cmd/backstop/testdata/`), zero hits. Two precisions,
+      both deliberate. FIXED-STRING because `grep -rn '{{!'` is a BASIC-regex
+      search in which `{` is interval syntax — most implementations treat a lone
+      `{` literally, but `-F` is what was actually run and `-F` is what should be
+      re-run. SCOPED TO INPUTS because THIS PLAN DOCUMENT now contains `{{!`
+      dozens of times: it is prose ABOUT the escape and is never fed to
+      `Substitute`, so a bare full-tree grep is self-falsifying today while the
+      load-bearing claim — nothing the substituter will ever READ contains the
+      sequence — is untouched;
+    * NO SUBSTITUTER INPUT in the production `backstop-ai/go-distribution` pack
+      contains it either — the same fixed-string grep over that pack's
+      `recipes/` and `fixtures/`, zero hits;
+    * and TASK-010 makes it structurally impossible going forward by refusing an
+      `!`-leading param name at parse.
+  So the reinterpretation is not "unlikely to break someone" — it is closed.
+
+  ── WHY NOT `{{{ ... }}}` ──────────────────────────────────────────────────
+  Ambiguous against the grammar that already exists: `{{{ x }}}` parses TODAY as
+  a param named `{ x` — verified 2026-08-11 by running the shipped `Substitute`,
+  which errors `no declared param named "{ x"`. THE MECHANISM, stated correctly:
+  the open delimiter is the FIRST TWO braces only, so the THIRD OPENING BRACE IS
+  NOT CONSUMED — it is RETAINED as the first byte of the parsed span, which is
+  exactly why the name comes out as `{ x` with a literal leading `{`. The close
+  matches at the FIRST `}}`, so the only byte TrimSpace removes is the trailing
+  SPACE, and the THIRD CLOSING BRACE is consumed by NOTHING: it survives as
+  literal text after the span ends. So a triple-
+  brace form reinterprets a currently-parseable span rather than a currently-
+  impossible one. It also collides with brace-dense payloads (JSON, Jinja, Helm)
+  and offers no natural escape-of-the-escape.
+
+  ── THE ESCAPE IS SELF-ESCAPING, SO NOTHING IS UNWRITABLE ──────────────────
+  Because exactly one `!` is consumed per pass, `{{!! x }}` emits `{{! x }}` and
+  `{{!!! x }}` emits `{{!! x }}`. A payload that must emit the escape syntax
+  itself — a doc page ABOUT this feature, say — can. This falls out of the rule
+  rather than being bolted on, and it is why the rule is stated as "consume one
+  `!`" and not "strip leading `!`s".
+
+  ── THE ONE COLLISION, NAMED HONESTLY: HANDLEBARS/MUSTACHE COMMENTS ───────
+  `{{!` is NOT an unclaimed byte sequence in the wider world. It is literally
+  Handlebars/Mustache's COMMENT marker: `{{! comment }}` and `{{!-- comment --}}`.
+  The greps above prove only that no payload in this repo or in the production
+  pack contains it TODAY — they do not make it unowned syntax, and this plan
+  should not be read as claiming they do.
+
+  THE CONSEQUENCE, measured 2026-08-11 by running the exact algorithm TASK-009
+  mandates:
+    `{{!-- a mustache comment --}}`  →  `{{-- a mustache comment --}}`
+  A foreign COMMENT is silently converted into a live variable interpolation of
+  a variable named `-- a mustache comment --` in that same foreign language.
+  That is a semantic corruption of exactly the class of content this feature
+  exists to protect, and it is the sharpest edge in the design.
+
+  IT IS ALREADY REMEDIED BY THE MECHANISM ITSELF, verified in the same run:
+    `{{!!-- x --}}`  →  `{{!-- x --}}`
+  The escape-of-the-escape emits the Handlebars comment intact. So a payload
+  that must carry a real Mustache/Handlebars comment through writes `{{!!`, the
+  same way a payload that must carry a `{{ }}` span through writes `{{!`. This
+  is a COVERAGE AND DOCUMENTATION obligation, not a redesign: the grammar is
+  correct, the surprise is what needs closing. TASK-004 pins both bytes with a
+  test, TASK-009's doc comment names the interaction and the remedy, and
+  TASK-012 carries it into SPEC-054 so the permanent record states it.
+
+  This does NOT reopen the choice of marker. Every candidate collides with
+  SOMETHING (`\{{` is Handlebars' own escape, `{{{` is its triple-stash), and
+  `{{!` remains the only one that cannot change the meaning of any input this
+  substituter accepts today — the criterion the rejections below are decided on.
+
+  ── VERBATIM, NOT TRIMMED (a strict improvement over the workaround) ───────
+  The escaped span's inner bytes are emitted UNTRIMMED. `{{!.Version}}` emits
+  `{{.Version}}` and `{{! .Version }}` emits `{{ .Version }}` — byte-exact
+  either way. The pass-through workaround cannot do this: `{{.Version}}` and
+  `{{ .Version }}` trim to the SAME param name, so both spellings collapse onto
+  whichever one the `default:` happens to spell, and the produced file is
+  semantically-identical-but-not-byte-identical to the source. The pack's own
+  recipe.yml comment says exactly that (lines 55-61). The escape removes that
+  compromise.
+
+  ── THE MARKER IS POSITIONAL, DELIBERATELY ─────────────────────────────────
+  `!` is recognized ONLY as the byte immediately after `{{`. `{{ ! name }}` (a
+  space before the bang) is NOT an escape — it is a param named `! name`, which
+  TASK-010 refuses at parse, so it can only ever fail loud, and TASK-009's
+  upgraded diagnostic names `{{! … }}` in that failure. Lexical position beats
+  trimming here because the alternative is a grammar whose meaning depends on
+  whitespace, and this substituter's whole value is that it has no ambiguity to
+  litigate.
+
+  ── THE ONE HONEST COST ────────────────────────────────────────────────────
+  A payload carrying escapes is no longer a semantically-valid file of its own
+  foreign language: a `.goreleaser.yml` payload with `{{! .Version }}` is not a
+  runnable goreleaser config, whereas the pass-through workaround keeps the
+  payload byte-identical to its output. That property is real but already
+  partial — the same payload carries `{{ binary_name }}` in `project_name:`
+  today, so it is not a runnable config either way. THIS IS WHY THE WORKAROUND
+  STAYS FULLY SUPPORTED (REQ-003) AND THIS CHANGE IS PURELY ADDITIVE. Authors
+  choose per payload: keep the payload maximally lint-able (pass-through
+  params), or keep the recipe's param list honest (escapes). Nobody is migrated.
+
+  ── THE SPEC-067 RELATIONSHIP, STATED ACCURATELY ───────────────────────────
+  SPEC-067 (the CI recipe pack, from BUNDLE-015 REQ-018) was authored in parallel
+  and is the obvious candidate beneficiary — four CI platforms' worth of YAML,
+  and GitHub Actions is the language whose `${{ … }}` expressions are the exact
+  case this escape exists for. IT DOES NOT NEED THIS ESCAPE, AND THAT IS BY
+  DESIGN ON ITS SIDE. Read fresh 2026-08-11, SPEC-067 as it now stands:
+    * REQ-006 PROHIBITS the construct outright — "No payload may contain a
+      GitHub Actions `${{ ... }}` expression" — and routes around it: "The GitHub
+      template therefore reads `GITHUB_BASE_REF` / `GITHUB_EVENT_NAME` /
+      `GITHUB_SHA` as ordinary environment variables instead."
+    * Its design notes say so in as many words: "The GitHub template contains no
+      `${{ ... }}` expression at all, and that is a design decision, not an
+      accident of drafting… GitHub Actions exposes everything this template needs
+      as ordinary environment variables… so the template reads those instead and
+      the trap simply does not apply." GitLab (`$CI_*`), Bitbucket
+      (`$BITBUCKET_*`) and Jenkins (`${env.…}`, single-brace) never had it.
+    * It ENFORCES that choice with five mandated tests: CLM-044
+      (`TestCIRecipes_PayloadsCarryNoActionsExpressionAndOnlyDeclaredParams`)
+      plus CLM-040..043, one per platform
+      (`TestCIRecipes_{GitHubActions,GitLabCI,BitbucketPipelines,Jenkins}_`
+      `RenderedCarriesNoResidualPlaceholder`), each asserting NO literal `{{` or
+      `}}` survives in the rendered file.
+  So the two lanes are INDEPENDENT, in both directions. SPEC-067 is not blocked
+  on this plan and never was; and this plan must not be read as licensing
+  SPEC-067 to sprinkle escapes into its payloads — an escaped `{{! … }}` span
+  renders to `{{ … }}`, which is a literal `{{` in the output and would REDDEN
+  all five of those tests while violating REQ-006 head-on. The two designs solve
+  the same hazard by different legitimate routes: SPEC-067 avoids the construct,
+  this lane makes the construct expressible for authors who genuinely cannot.
+  The justification for doing this now therefore rests where it always actually
+  did — on the SHIPPED consumer, `backstop-ai/go-distribution`, which carries
+  eight pass-through params and a delimiter-less comment in production today —
+  not on a dependency SPEC-067 does not have.
+
+  ── SCOPE BOUNDARIES ───────────────────────────────────────────────────────
+    * NO apply.go change. The escape lives in the one function every field is
+      already routed through; adding per-field escape knowledge would rebuild
+      the routing bug ISSUE-079 just fixed.
+    * NO CLI change. `--param` semantics, `checkUndeclaredParams`, and every
+      exit-code path are untouched.
+    * NO migration of `backstop-ai/go-distribution` off its eight pass-through
+      params. That is a DIFFERENT repo, needs its own pack version bump, relock
+      and re-verification, and its correctness is proven here rather than
+      changed here. TASK-013 files it as a follow-on issue through `/issue`.
+    * NO comment awareness, no language inference, no file-extension routing —
+      see the rejection above. `Substitute` must remain able to render a payload
+      in a language nobody has thought of.
+    * NO expression grammar. An escaped span is emitted, never evaluated; the
+      not-Turing-complete property (REQ-002 of SPEC-054) is strengthened by this
+      change, not weakened, because "emit verbatim" is the maximally inert
+      treatment of a construct.
+
+  ── BLAST RADIUS (verified against the tree while planning, 2026-08-11) ────
+    pkg/recipe/substitute.go   — the whole scan loop, ~30 lines. The only file
+                                 whose BEHAVIOR changes for existing inputs is
+                                 this one, and only for inputs containing `{{!`
+                                 (zero such inputs exist) plus the appended
+                                 remedy sentence on the existing error.
+    pkg/recipe/manifest.go     — ONE new validator, `validateRecipeParams`,
+                                 called from ParseRecipeManifest alongside the
+                                 two that already run there (validateRecipeHeader
+                                 :130, validateRecipeOps :133). There is no
+                                 param validation today at all.
+  CALL SITES INHERITING THE ESCAPE, unchanged: apply.go:592 (substituteField —
+  target/anchor/snippet), :614 (renderPayload — create payload CONTENT), :829
+  (relayedManual — fail-SOFT, so an escape there cannot make a diagnostic
+  disappear), :910 (merge fragment CONTENT).
+  EXISTING TESTS THAT MUST STAY GREEN UNTOUCHED: substitute_test.go's three
+  Substitute-direct tests (TestSubstitute_ResolvesDeclaredParam,
+  TestSubstitute_NotTuringComplete_NoLogicEvaluated,
+  TestSubstitute_UndeclaredParamFailsLoud). The third asserts the error names
+  the undeclared param and returns "" — appending a remedy sentence keeps both
+  assertions true. No task may edit that file.
+
+  ── FIXTURE STRATEGY (feedback_fixtures_from_real_output) ──────────────────
+  The equivalence proof uses CAPTURED PRODUCTION BYTES, not a fabricated
+  example: verbatim copies of `recipes/go-release/payload/release.yml` and
+  `recipes/go-release/payload/.goreleaser.yml` from
+  `~/src/projects/backstop-go-distribution-pack`, plus MECHANICALLY DERIVED
+  escaped twins (every foreign span `{{ X }}` → `{{! X }}`; every REAL backstop
+  param left exactly as it is). The assertion is byte-equality of the two
+  renderings, which is only satisfiable if the escape is a true drop-in for the
+  workaround. A hand-written "example workflow" would have proven nothing about
+  the consumer that actually exists.
+  The Apply-level and CLI-level claims use SMALL COMMITTED RECIPES instead
+  (TASK-002/TASK-003), because SPEC-054's own recorded lesson is that a
+  `Substitute`-direct test can never prove what the APPLIER routes through it.
+  Both altitudes are needed and neither substitutes for the other.
+
+  ── VERIFICATION COMMANDS (`backstop code check` does NOT exist) ───────────
+    middle: go test ./pkg/recipe/... ./cmd/backstop/... -race -count=1
+    final:  go build -o bin/backstop ./cmd/backstop/   (REBUILD FIRST — a stale
+            binary gates the old code and the gate is then vacuous)
+            ./bin/backstop gate
+            ./bin/backstop artifact validate --plan PLAN-ISSUE-110
+            ./bin/backstop artifact validate --spec SPEC-054
+
+  ── REQUIREMENTS / CLAIMS (plan-local, derived from the issue) ─────────────
+    REQ-001: The grammar gains a first-class escape that emits a delimited span
+             verbatim, with no declaration and no lookup.
+      CLM-001  `{{! X }}` emits `{{ X }}` — inner bytes VERBATIM, no trim, no
+               normalization, exactly one `!` consumed — and the marker is
+               recognized ONLY at the byte immediately after `{{`.
+      CLM-002  An escaped span performs NO param lookup and is NEVER rescanned:
+               `{{! name }}` emits `{{ name }}` even when `name` IS declared,
+               and even when the param map is empty or nil.
+      CLM-003  The escape is self-escaping: `{{!! x }}` emits `{{! x }}`, so no
+               byte sequence is unwritable.
+      CLM-004  An escaped span with no closing `}}` is copied through literally,
+               bang included — the existing unterminated-span rule is unchanged.
+    REQ-002: The escape is language-agnostic and covers prose-in-a-comment
+             without any comment awareness anywhere in core.
+      CLM-005  The SAME span behaves IDENTICALLY inside and outside a comment in
+               every payload language: escaped renders verbatim everywhere,
+               unescaped-and-undeclared fails loud everywhere — proving no
+               positional exemption and no comment syntax was introduced.
+    REQ-003: The production pass-through-param workaround keeps working, byte
+             for byte.
+      CLM-006  The VERBATIM captured go-distribution payloads, rendered with
+               their eight declared pass-through params, still render exactly as
+               they do today.
+      CLM-007  The same payloads with every foreign span mechanically escaped,
+               rendered with the project params ONLY and NONE of the eight
+               pass-through params, produce BYTE-IDENTICAL output to CLM-006's.
+      CLM-008  Every pre-existing behavior is unchanged for input containing no
+               `{{!`: declared resolution, not-Turing-completeness, and fail-loud
+               on an undeclared name.
+    REQ-004: The reserved prefix is closed at parse time and the failure teaches
+             the escape.
+      CLM-009  A recipe declaring a param whose TRIMMED name begins with `!` is
+               refused at manifest parse, fail-loud, naming the recipe, the param
+               index and the name — because the escape makes such a param
+               unreachable by any spelling.
+      CLM-010  The unresolvable-placeholder error names `{{! … }}` as the remedy
+               for a foreign template, while still naming the undeclared param
+               and still returning NO output.
+    REQ-005: Proven through the shipped applier and the shipped CLI, not only
+             through Substitute-direct tests.
+      CLM-011  A committed recipe whose payload carries BOTH a real backstop
+               param and escaped foreign spans (in config AND in a comment)
+               applies end-to-end through the real `Apply`: the param resolves,
+               the foreign delimiters reach disk intact.
+      CLM-012  The shipped `backstop recipe apply` reproduces CLM-011 on disk at
+               exit 0.
+    REQ-006: The spec of record reflects the new grammar.
+      CLM-013  SPEC-054 gains the escaped-span row in its Substitution SEMANTICS
+               table, its `Substitute` contract note names the escape, and the
+               param-name reservation is recorded — authored through `/spec`,
+               never hand-edited.
+
+  Structure:
+    Phase 1: Fixture preconditions — captured production payloads + their
+             mechanically-escaped twins; one committed pkg recipe; one committed
+             CLI fixture recipe. Three parallel, file-disjoint setup tasks.
+    Phase 2: TDD red — five parallel, file-disjoint failing test tasks (grammar,
+             captured-payload equivalence, param-name parse, Apply e2e, CLI e2e).
+    Phase 3: TDD green — two SEQUENTIAL implementation tasks + package
+             verification. substitute.go (TASK-009) FIRST, because it declares
+             the `placeholderEscape` marker constant that manifest.go (TASK-010)
+             consumes; these two cannot run in parallel without a compile break
+             in pkg/recipe.
+    Phase 4: Spec reconciliation via /spec + comprehensive verification
+             (rebuilt binary, gate, artifact validate) + the two handoffs
+             (SPEC-067, the go-distribution migration follow-on).
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Fixture preconditions — real captured bytes, committed recipes
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Fixture Preconditions — Captured Production Payloads and Two Committed Recipes"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Capture the two production go-distribution payloads verbatim, plus their mechanically-escaped twins and a provenance record"
+        description: |
+          Create pkg/recipe/testdata/foreign-template/ — the CAPTURED corpus the
+          equivalence proof runs on. These bytes come from a REAL, IN-PRODUCTION
+          consumer; nothing here is written by hand as an "example".
+
+          SOURCE OF RECORD (read it, do not retype it):
+            ~/src/projects/backstop-go-distribution-pack/recipes/go-release/
+              payload/release.yml       — the GitHub Actions workflow
+              payload/.goreleaser.yml   — the goreleaser config
+            ~/src/projects/backstop-go-distribution-pack/recipes/go-release/
+              recipe.yml                — where the eight pass-through params and
+                                          the nine project params are declared
+
+          1. release-passthrough.yml   — `cp` of payload/release.yml. VERBATIM.
+             Do not re-indent, re-wrap, fix a typo, or normalize a line ending.
+             It carries: `${{ github.ref_name }}` (x2), `${{ secrets.GITHUB_TOKEN }}`
+             (x2), `${{ secrets.HOMEBREW_TAP_TOKEN }}`, `{{ .Env.HOMEBREW_TAP_TOKEN }}`
+             INSIDE A COMMENT, and the REAL param `{{ ci_workflow_file }}` (x4).
+             The delimiter-less prose at lines 15-25 is the comment workaround —
+             LEAVE IT AS IT IS in this file; it is the "before" state.
+
+          2. goreleaser-passthrough.yml — `cp` of payload/.goreleaser.yml, renamed
+             only to drop the leading dot (a dotfile in testdata/ is easy to lose).
+             VERBATIM otherwise. This is the load-bearing capture: it interleaves
+             goreleaser's `{{ .Version }}` / `{{ .ProjectName }}` / `{{ .Os }}` /
+             `{{ .Arch }}` / `{{ .Env.HOMEBREW_TAP_TOKEN }}` with REAL backstop
+             params (`{{ binary_name }}`, `{{ main_package }}`, `{{ tap_owner }}`,
+             `{{ tap_repository }}`, `{{ module_url }}`, `{{ app_description }}`,
+             `{{ app_license }}`) in the SAME FILE, mostly in live config rather
+             than comments — which is why comment-awareness was rejected.
+
+          3. release-escaped.yml / goreleaser-escaped.yml — the MECHANICAL twins.
+             Derive each from its capture by ONE transformation and no other:
+             every FOREIGN span `{{ X }}` becomes `{{! X }}` (bang inserted
+             immediately after the opening braces, nothing else moved). Every
+             REAL backstop param span is left byte-identical. Foreign spans are
+             exactly the eight names the recipe declares as pass-throughs:
+             `.Version`, `.ProjectName`, `.Os`, `.Arch`, `.Env.HOMEBREW_TAP_TOKEN`,
+             `github.ref_name`, `secrets.GITHUB_TOKEN`, `secrets.HOMEBREW_TAP_TOKEN`.
+             DO NOT restore the delimiter-less prose in release-escaped.yml and
+             DO NOT touch anything else: TASK-005's assertion is BYTE-EQUALITY of
+             the two renderings, and any other edit makes that assertion
+             unfalsifiable. (The prose-comment case is CLM-005's, proven
+             separately in TASK-004 across several comment syntaxes.)
+
+          4. PROVENANCE.md — where each file came from (repo, path, and the pack
+             version/commit as of capture), what the escaped twins' single
+             transformation is, and the standing instruction: if the upstream
+             payload changes, RE-CAPTURE it and RE-DERIVE the twin, never edit
+             these by hand. Follow the convention in
+             cmd/backstop/testdata/semgrep/fixtures/PROVENANCE.md.
+
+          ACCEPTANCE BEFORE MOVING ON — ONE RULE, RUN IT ON BOTH PAIRS: undoing
+          the single transformation must reproduce the capture EXACTLY, so both
+          diffs must be EMPTY.
+            diff <(sed 's/{{!/{{/g' release-escaped.yml)    release-passthrough.yml
+            diff <(sed 's/{{!/{{/g' goreleaser-escaped.yml) goreleaser-passthrough.yml
+          Empty output from BOTH, or the twin was not derived mechanically —
+          re-derive it, do not reconcile it by hand. (The delimiter-less prose
+          line is identical in both members of the release pair, so it cancels
+          out and contributes nothing to that diff.)
+        files:
+          - pkg/recipe/testdata/foreign-template/PROVENANCE.md
+          - pkg/recipe/testdata/foreign-template/release-passthrough.yml
+          - pkg/recipe/testdata/foreign-template/release-escaped.yml
+          - pkg/recipe/testdata/foreign-template/goreleaser-passthrough.yml
+          - pkg/recipe/testdata/foreign-template/goreleaser-escaped.yml
+        claims:
+          - CLM-006
+          - CLM-007
+        depends_on: []
+
+      - id: TASK-002
+        type: setup
+        title: "Add the committed `foreign-template` demo recipe to the pkg/recipe fixture pack"
+        description: |
+          TASK-007 needs a COMMITTED recipe it can drive through the real
+          `Apply`. Add a sibling to the existing demo pack — do not edit
+          `starter` or `templated-sites`, both of which are load-bearing evidence
+          for ISSUE-081 and PLAN-ISSUE-079 respectively.
+
+          1. pkg/recipe/testdata/packs/demo-org/demo-pack/pack.yml — add ONE
+             index line: `foreign-template: recipes/foreign-template`. Change
+             nothing else. (Safe: no test asserts that index's contents —
+             TestResolveRef_UndeclaredRecipeFailsLoud checks only the marker
+             wording and the requested id.)
+
+          2. recipes/foreign-template/recipe.yml — kind: templating (this recipe
+             exists to be applied once in a test; a scaffolding kind would drag
+             the regenerate/divergence machinery into a grammar test for no
+             reason), version 1.0.0, ONE create op, and EXACTLY ONE declared
+             param: `workflow_name` (required: false, default: "release").
+             THE PARAM LIST IS THE POINT. It declares NO pass-through params, so
+             if any escaped span in the payload were still treated as a name, the
+             apply fails loud and the test goes red — the fixture cannot pass by
+             accident.
+
+          3. recipes/foreign-template/payload/workflow.yml — SMALL (~15 lines),
+             hand-written for legibility (the byte-level production proof is
+             TASK-001's; this one is about the applier route). It must carry, in
+             one file:
+               * the REAL param `{{ workflow_name }}` in a value position;
+               * an escaped span in LIVE CONFIG: `${{! github.ref_name }}`;
+               * an escaped span in a bare `{{! }}` form with no `$` prefix, so
+                 the goreleaser shape is covered too: `{{! .Version }}`;
+               * an escaped span INSIDE a `#` comment, phrased as prose about a
+                 template — the exact thing that cannot be written today;
+               * an UNSPACED escaped span (`{{!.Os}}`) so the verbatim-not-trimmed
+                 property is exercised through the applier, not only in the unit
+                 test.
+
+          Confirm the existing parse/resolve suites still pass before handing off:
+            go test ./pkg/recipe/... -race -count=1 \
+              -run "TestRecipeDir|TestResolveRef|TestRecipeManifest|TestParseRecipeManifest"
+          They will pass: the recipe parses today (its escaped spans are only
+          text at parse time) and only the APPLY of it is red until TASK-009.
+        files:
+          - pkg/recipe/testdata/packs/demo-org/demo-pack/pack.yml
+          - pkg/recipe/testdata/packs/demo-org/demo-pack/recipes/foreign-template/recipe.yml
+          - pkg/recipe/testdata/packs/demo-org/demo-pack/recipes/foreign-template/payload/workflow.yml
+        claims:
+          - CLM-011
+        depends_on: []
+
+      - id: TASK-003
+        type: setup
+        title: "Add a `foreign` recipe to the committed CLI e2e fixture pack"
+        description: |
+          TASK-008 drives the SHIPPED `backstop recipe apply` binary, which reads
+          an INSTALLED pack out of the committed consumer project at
+          cmd/backstop/testdata/recipe-apply-e2e/ (staged into a temp root by
+          stageRecipeE2EProject, recipe_apply_e2e_test.go:45). That is a
+          different fixture tree from TASK-002's and it needs its own recipe.
+
+          Add to the installed pack `demo-org/recipe-pack`:
+            1. .backstop/packs/demo-org/recipe-pack/pack.yml — add ONE index
+               line: `foreign: recipes/foreign`. Nothing else changes; the
+               existing `rewrite` and `templated` entries and their pins are
+               untouched (TestRecipeApply_CLI_* and the exit-surfacing tests read
+               them).
+            2. recipes/foreign/recipe.yml — kind: templating, version 1.0.0, ONE
+               create op writing a declared target, ONE declared param
+               (`workflow_name`, required: false, with a default) and NO
+               pass-through params.
+            3. recipes/foreign/payload/workflow.yml — same shape as TASK-002's
+               payload: one real param, escaped spans in live config and in a
+               comment. Keep it small; the CLI test asserts on bytes it reads
+               back off the parsed manifest and the payload file, never on a
+               retyped literal.
+
+          The pack is INSTALLED (it lives under .backstop/packs/), so no lock or
+          backstop.yml change is required — mirror exactly how `templated` was
+          added for PLAN-ISSUE-079. Verify by hand from the fixture directory
+          that the new recipe parses before handing off.
+        files:
+          - cmd/backstop/testdata/recipe-apply-e2e/.backstop/packs/demo-org/recipe-pack/pack.yml
+          - cmd/backstop/testdata/recipe-apply-e2e/.backstop/packs/demo-org/recipe-pack/recipes/foreign/recipe.yml
+          - cmd/backstop/testdata/recipe-apply-e2e/.backstop/packs/demo-org/recipe-pack/recipes/foreign/payload/workflow.yml
+        claims:
+          - CLM-012
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: TDD red — five parallel, file-disjoint failing test tasks
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: TDD Red — The Grammar, the Captured Corpus, the Parse Rejection, Apply and the CLI"
+    tasks:
+      - id: TASK-004
+        type: test
+        title: "Failing pkg/recipe grammar tests: escaped spans, self-escaping, unterminated, comment-position independence, the remedy diagnostic, and the unchanged baseline (RED)"
+        description: |
+          Add pkg/recipe/substitute_escape_test.go. RUN IT AND RECORD THE ACTUAL
+          FAILURE OUTPUT before any production code is touched. Expected red:
+          every escaped case fails with "unresolvable placeholder … no declared
+          param named …" because the bang is currently just part of a name.
+
+          DO NOT EDIT pkg/recipe/substitute_test.go. Its three shipped tests are
+          the backward-compatibility baseline and must stay green untouched — a
+          test file edited in the same change that makes it pass proves nothing.
+
+          Mandated test names (exact):
+
+            - TestSubstitute_EscapedSpanEmitsForeignTemplateVerbatim
+              (CLM-001, CLM-002) — table-driven over the real foreign shapes:
+                * `${{! github.ref_name }}`            → `${{ github.ref_name }}`
+                * `{{! .Version }}`                    → `{{ .Version }}`
+                * `{{!.Version}}`                      → `{{.Version}}`   (UNTRIMMED
+                  — this case is what forbids a TrimSpace-then-rewrap
+                  implementation, which would emit `{{ .Version }}` and pass a
+                  weaker assertion)
+                * `{{!  spaced  }}`                    → `{{  spaced  }}`
+                * `{{!}}`                              → `{{}}`
+                * THE HANDLEBARS-COMMENT CASE, and it must be in the table
+                  precisely because the result is SURPRISING rather than wrong:
+                  `{{!-- a mustache comment --}}` → `{{-- a mustache comment --}}`,
+                  and `{{! comment }}` → `{{ comment }}`. `{{!` is Handlebars/
+                  Mustache's own comment marker, so escaping a Handlebars comment
+                  with ONE bang hands back a live interpolation in that language.
+                  Pin the exact bytes, and say in the case's comment that the
+                  remedy is the double bang, asserted in the self-escaping test —
+                  a reader who hits this in the wild must find it already known
+                  and already answered, not discover it.
+                * a template mixing an escaped span and a DECLARED param in one
+                  string → the param resolves AND the escape survives.
+              THE NO-LOOKUP FALSIFIERS, both required:
+                * `{{! name }}` with `name` DECLARED as "adopter" emits
+                  `{{ name }}`, NOT `adopter` — an implementation that resolves
+                  first and escapes second cannot pass;
+                * the same escaped inputs render identically with a nil param map
+                  and with an empty one — an escaped span cannot depend on the
+                  scope at all.
+              POSITIVE CONTROL in the same test: a declared unescaped param still
+              resolves, so an implementation that passes by refusing everything
+              fails here.
+              NEGATIVE CONTROL: `{{ ! name }}` — a SPACE before the bang — is NOT
+              an escape; it fails loud, because the marker is positional.
+
+            - TestSubstitute_EscapeIsSelfEscaping_OneBangConsumedPerPass
+              (CLM-003) — `{{!! x }}` → `{{! x }}`, `{{!!! x }}` → `{{!! x }}`,
+              and `{{!!}}` → `{{!}}`. Assert the count relationship, not just one
+              case: an implementation that strips ALL leading bangs passes the
+              single case and fails here, which is the point.
+              PLUS THE REAL-WORLD CASE THIS PROPERTY EXISTS TO SERVE:
+              `{{!!-- x --}}` → `{{!-- x --}}`, i.e. a payload that must emit a
+              genuine Handlebars/Mustache COMMENT verbatim writes the double
+              bang. Verified against the mandated algorithm 2026-08-11. Name it
+              in the test doc comment as the answer to the single-bang surprise
+              pinned in TestSubstitute_EscapedSpanEmitsForeignTemplateVerbatim,
+              so the two tests read as one story.
+
+            - TestSubstitute_UnterminatedEscapedSpanIsCopiedThrough
+              (CLM-004) — `prefix {{! never closed` is returned UNCHANGED, bang
+              included, with no error. The existing unterminated rule is not
+              special-cased by the escape.
+
+            - TestSubstitute_NoCommentAwareness_EscapeIsThePositionIndependentRemedy
+              (CLM-005) — THE COMMENT CLAIM, proven by symmetry rather than by
+              comment parsing. Table over four comment syntaxes in one test —
+              YAML/shell `#`, Go `//`, block `/* */`, HTML `<!-- -->` — and for
+              each, TWO assertions:
+                (a) the ESCAPED span renders verbatim inside the comment exactly
+                    as it does outside one;
+                (b) the UNESCAPED, UNDECLARED span STILL FAILS LOUD inside the
+                    comment — identically to outside.
+              (b) is the load-bearing half: it asserts that NO comment-awareness
+              was introduced. If someone later "helpfully" adds a `#`-skip, this
+              test goes red and the zero-baked-language violation is caught.
+              Say that in the test's doc comment, naming CLAUDE.md's first
+              principle, so the assertion is not mistaken for an oversight.
+
+            - TestSubstitute_UndeclaredPlaceholderErrorNamesTheEscape
+              (CLM-010) — an undeclared `{{ github.ref_name }}` still errors,
+              still returns "", still names `github.ref_name`, AND the message
+              now contains the literal escape form `{{!` so the author is told
+              the remedy in the failure itself. Assert all four properties; the
+              first three are the regression guard on the diagnostic upgrade.
+
+            - TestSubstitute_UnescapedGrammarIsUnchanged
+              (CLM-008) — the explicit backward-compatibility lock, at the
+              grammar level: the SELF-EMITTING PASS-THROUGH IDIOM still works.
+              Declare a param named `.Version` whose default is `{{ .Version }}`,
+              render `ldflags: -X main.version={{ .Version }}`, and assert the
+              output is `ldflags: -X main.version={{ .Version }}` — i.e. the
+              emitted value is NOT rescanned and NOT re-substituted, exactly as
+              substitute.go:22-23 promises. This is the one-line version of what
+              TASK-005 proves over the real payloads.
+        files:
+          - pkg/recipe/substitute_escape_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-008
+          - CLM-010
+        test_names:
+          - TestSubstitute_EscapedSpanEmitsForeignTemplateVerbatim
+          - TestSubstitute_EscapeIsSelfEscaping_OneBangConsumedPerPass
+          - TestSubstitute_UnterminatedEscapedSpanIsCopiedThrough
+          - TestSubstitute_NoCommentAwareness_EscapeIsThePositionIndependentRemedy
+          - TestSubstitute_UndeclaredPlaceholderErrorNamesTheEscape
+          - TestSubstitute_UnescapedGrammarIsUnchanged
+        depends_on:
+          - TASK-001
+
+      - id: TASK-005
+        type: test
+        title: "Failing captured-payload tests: the production workaround still renders, and the escaped twin renders BYTE-IDENTICALLY without it (RED)"
+        description: |
+          Add pkg/recipe/substitute_foreign_payload_test.go — the
+          backward-compatibility proof, run over TASK-001's CAPTURED PRODUCTION
+          BYTES rather than over anything written for the test.
+
+          Both tests share one params helper, and the helper is where the whole
+          argument lives, so build it deliberately:
+
+            projectParams()  — the NINE real consumer params the recipe declares
+                               (binary_name, main_package, main_package_dir,
+                               module_url, tap_owner, app_description,
+                               tap_repository, app_license, ci_workflow_file),
+                               with values that look NOTHING like a template, so
+                               a substitution that lands in the wrong place is
+                               visible in the diff.
+            passThroughParams() — the EIGHT self-emitting params, each name being
+                               the foreign template's inner text and each value
+                               that same text wrapped in `{{ }}`. Transcribe them
+                               from the captured recipe.yml, and say in a comment
+                               that this map IS the production workaround, quoted
+                               so the test documents what it is protecting.
+
+          Mandated test names (exact):
+
+            - TestSubstitute_CapturedGoDistributionPayloads_PassThroughWorkaroundStillRenders
+              (CLM-006) — for BOTH captures (release-passthrough.yml,
+              goreleaser-passthrough.yml): render with projectParams ∪
+              passThroughParams and assert (i) NO error, (ii) every foreign
+              template is present in the output WITH ITS DELIMITERS
+              (`${{ github.ref_name }}`, `{{ .Version }}`, `{{ .Env.HOMEBREW_TAP_TOKEN }}`,
+              …), (iii) every real param resolved to its supplied value, and
+              (iv) NO `{{ ci_workflow_file }}`-style backstop placeholder remains
+              anywhere in the output.
+              THIS TEST PASSES TODAY AND MUST NEVER GO RED. It is the guard on
+              the in-production consumer, and it is deliberately written BEFORE
+              the implementation so that "still works" is measured against the
+              shipped behavior rather than asserted afterwards.
+
+            - TestSubstitute_CapturedGoDistributionPayloads_EscapedFormEqualsPassThroughOutput
+              (CLM-007) — THE CRUX. For each pair, render the ESCAPED twin with
+              projectParams ONLY — passing NONE of the eight pass-through params —
+              and assert the result is BYTE-IDENTICAL to the workaround rendering
+              above. RED today: the escaped file fails loud on `{{! .Version }}`
+              because no param is named `! .Version`.
+              Two guards so the equality cannot be satisfied vacuously:
+                * assert both renderings are non-empty and CONTAIN at least one
+                  foreign template with delimiters (an implementation that
+                  errored to "" on both sides cannot pass);
+                * assert that rendering the escaped twin with the eight
+                  pass-through params ALSO supplied yields the SAME bytes — the
+                  escape must be indifferent to a param that shares the name,
+                  which is exactly the hazard the issue names (`--param
+                  .Version=anything` can no longer rewrite an escaped span).
+
+          Read every fixture with os.ReadFile from the testdata path; never
+          embed a copy of these payloads in the test source.
+        files:
+          - pkg/recipe/substitute_foreign_payload_test.go
+        claims:
+          - CLM-006
+          - CLM-007
+        test_names:
+          - TestSubstitute_CapturedGoDistributionPayloads_PassThroughWorkaroundStillRenders
+          - TestSubstitute_CapturedGoDistributionPayloads_EscapedFormEqualsPassThroughOutput
+        depends_on:
+          - TASK-001
+
+      - id: TASK-006
+        type: test
+        title: "Failing manifest test: a param name reserved by the escape is refused at parse (RED)"
+        description: |
+          Add pkg/recipe/manifest_paramname_test.go. There is no param validation
+          in ParseRecipeManifest today, so this is a new check with a new test
+          file rather than an extension of manifest_test.go (which stays
+          untouched).
+
+          Mandated test name (exact):
+
+            - TestParseRecipeManifest_EscapeReservedParamNameRefused
+              (CLM-009) — table-driven:
+                REFUSED: a param named `!x`, one named `! spaced` (the TRIMMED
+                  name is what is checked, so both spellings are caught), and one
+                  named `!` alone. For each, assert ParseRecipeManifest returns a
+                  non-nil error naming (i) the recipe label, (ii) the param INDEX,
+                  (iii) the offending name, and (iv) the reason — that `{{! … }}`
+                  is the escape, so a `!`-leading param could never be referenced.
+                ACCEPTED, and these are the load-bearing negative controls: a
+                  param named `.Version`, one named `secrets.GITHUB_TOKEN`, and
+                  one named `github.ref_name` — the EXACT production
+                  pass-through names — all parse fine. A validator that got
+                  greedy and rejected "unusual" param names would break the
+                  in-production pack, and this is where that is caught.
+                  Include a plain `binary_name` too.
+
+          Build each case from a small recipe.yml literal in the test (the
+          existing manifest tests' idiom), not from a committed fixture: this is
+          a parse-level check and a fixture would add a file for no coverage.
+        files:
+          - pkg/recipe/manifest_paramname_test.go
+        claims:
+          - CLM-009
+        test_names:
+          - TestParseRecipeManifest_EscapeReservedParamNameRefused
+        depends_on: []
+
+      - id: TASK-007
+        type: test
+        title: "Failing Apply test: escaped spans survive the real applier to disk, from a committed recipe (RED)"
+        description: |
+          Add pkg/recipe/apply_foreign_template_test.go. SPEC-054's own recorded
+          lesson is that a `Substitute`-direct test can never prove what the
+          APPLIER routes through it, so this claim is proven by driving the real
+          `Apply` over TASK-002's COMMITTED recipe — resolved through
+          loadFixtureCorpus (resolve_test.go:22) + ParseRecipeRef +
+          ResolveRecipe, never retyped inline.
+
+          Mandated test name (exact):
+
+            - TestApply_ForeignTemplateRecipe_EscapedSpansSurviveToDisk
+              (CLM-011) — resolve
+              `<fixture pack>:foreign-template@1.0.0`, apply in ModeDirect into a
+              staged temp root with the recipe's own declared defaults, then read
+              the written file back and assert:
+                * the REAL param resolved (no `{{ workflow_name }}` remains);
+                * `${{ github.ref_name }}` is present WITH delimiters and WITHOUT
+                  a bang — the bang is consumed, the braces are not;
+                * `{{ .Version }}` (bare, no `$`) is present with delimiters;
+                * `{{.Os}}` is present UNSPACED — the untrimmed property proven
+                  through the applier;
+                * the COMMENT line carries its template with real delimiters —
+                  the thing that is impossible today;
+                * NO `{{!` sequence remains anywhere in the written bytes (assert
+                  on the whole file, so a partially-consumed marker is caught);
+                * ApplyResult reports the write and returns no error.
+              Read the EXPECTED foreign spans off the payload file on disk rather
+              than hardcoding them, so the assertion cannot drift from the
+              fixture.
+              RED today: Apply fails loud with "unresolvable placeholder … no
+              declared param named \"! github.ref_name\"" and writes nothing.
+
+          Reuse the package's existing helpers (loadFixtureCorpus,
+          resolvedFromManifest / writeUnder, apply_core_test.go:83/99) rather
+          than declaring new ones.
+        files:
+          - pkg/recipe/apply_foreign_template_test.go
+        claims:
+          - CLM-011
+        test_names:
+          - TestApply_ForeignTemplateRecipe_EscapedSpansSurviveToDisk
+        depends_on:
+          - TASK-002
+
+      - id: TASK-008
+        type: test
+        title: "Failing CLI e2e: the shipped `backstop recipe apply` writes a file whose foreign templates are intact (RED)"
+        description: |
+          Add cmd/backstop/recipe_apply_foreign_template_e2e_test.go. Only a run
+          of the SHIPPED command over an INSTALLED pack proves the operator-facing
+          behavior; every pkg-level test supplies its own ApplyOptions.
+
+          Mandated test name (exact):
+
+            - TestRecipeApply_CLI_ForeignTemplateEscapeSurvivesToDisk
+              (CLM-012) — stage the committed consumer project with
+              stageRecipeE2EProject, resolve the installed pack + TASK-003's
+              `foreign` recipe with stagedRecipe (recipe_apply_e2e_test.go:61 —
+              the func; :56 is its doc comment),
+              run `recipe apply <ref>` through the same harness the sibling e2e
+              tests use, and assert:
+                * exit 0 and no error output;
+                * the declared target exists on disk beneath the staged root;
+                * its bytes carry the foreign templates WITH delimiters and
+                  WITHOUT bangs, and the real param resolved;
+                * no `{{!` remains anywhere beneath the project root — walk the
+                  tree with filepath.WalkDir over CONTENTS as well as names, the
+                  generalization of the ISSUE-079 walk.
+              Derive the target path and the expected spans from the PARSED
+              manifest and the payload file, following the existing e2e idiom;
+              retype nothing.
+              RED today: the command exits non-zero with the unresolvable-
+              placeholder failure and writes nothing.
+        files:
+          - cmd/backstop/recipe_apply_foreign_template_e2e_test.go
+        claims:
+          - CLM-012
+        test_names:
+          - TestRecipeApply_CLI_ForeignTemplateEscapeSurvivesToDisk
+        depends_on:
+          - TASK-003
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: TDD green — two SEQUENTIAL implementations (substitute.go declares
+  # the marker constant manifest.go consumes) + package verification
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: TDD Green — The Escape in Substitute, the Reserved Prefix in the Manifest"
+    tasks:
+      - id: TASK-009
+        type: implementation
+        title: "Implement the `{{!` escape and the remedy diagnostic in pkg/recipe/substitute.go"
+        description: |
+          Make Phases 2's grammar, captured-payload, Apply and CLI tests green by
+          changing ONE file. Everything else inherits it.
+
+          THE CHANGE, concretely:
+            1. Add an unexported marker constant beside the two delimiters —
+               `placeholderEscape = "!"` — so the grammar is stated once as data
+               and not as a magic byte inside the loop.
+            2. In the scan loop, AFTER locating `open` and the matching `end` (so
+               an unterminated span keeps its existing copy-through behavior),
+               test whether the body BEGINS with the marker. If it does:
+                 * write everything before the open delimiter, as today;
+                 * write `{{` + body[len(marker):end] + `}}` — the inner bytes
+                   VERBATIM, no TrimSpace anywhere on this path;
+                 * advance `rest` past the close and CONTINUE. No lookup, no
+                   error branch, no rescan of what was just written.
+               Exactly one marker byte is consumed by construction, which is what
+               makes `{{!!` self-escaping — do not write a loop that strips
+               leading bangs.
+            3. Leave the unescaped path EXACTLY as it is: TrimSpace, lookup,
+               fail-loud on undeclared. Do not refactor it while you are in here.
+            4. Extend the unresolvable-placeholder error with a remedy sentence
+               naming the escape — e.g. "…; if this is a foreign template that
+               should be emitted verbatim, escape it as {{! <text> }}". KEEP the
+               existing message shape ahead of it: the param name must still
+               appear, and the function must still return "" alongside the error.
+               TestSubstitute_UndeclaredParamFailsLoud (shipped, untouched) and
+               the CLI's ISSUE-081 assertion both read this message.
+            5. REWRITE THE DOC COMMENT, which is currently a precise description
+               of a grammar that is about to gain a rule. It must state: the
+               escape and its exact meaning; that exactly one `!` is consumed and
+               why (self-escaping); that the marker is POSITIONAL (immediately
+               after `{{`, so `{{ ! x }}` is not an escape); that an escaped span
+               is emitted and NEVER evaluated, which strengthens rather than
+               weakens the not-Turing-complete property; and that there is
+               deliberately NO comment-awareness, naming the zero-baked-language
+               reason so the next reader does not "fix" it.
+               IT MUST ALSO NAME THE HANDLEBARS INTERACTION IN ONE SENTENCE:
+               `{{!` is Handlebars/Mustache's own comment marker, so escaping a
+               Handlebars comment with a single bang emits a live interpolation
+               in that language (`{{!-- x --}}` → `{{-- x --}}`) — a payload that
+               must carry a real Handlebars comment through writes `{{!!--`,
+               which is the self-escaping rule doing its job. Say it here, in the
+               doc comment, because this is where a surprised reader looks first.
+
+          A stale doc comment here is not cosmetic — it is the artifact the next
+          author reads instead of the code, and it is what this repo means by a
+          broken promise.
+
+          Then run, and read the output:
+            go test ./pkg/recipe/... ./cmd/backstop/... -race -count=1
+        files:
+          - pkg/recipe/substitute.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-010
+          - CLM-011
+          - CLM-012
+        depends_on:
+          - TASK-004
+          - TASK-005
+          - TASK-007
+          - TASK-008
+
+      - id: TASK-010
+        type: implementation
+        title: "Refuse an escape-reserved param name at manifest parse in pkg/recipe/manifest.go"
+        description: |
+          Make TASK-006 green. Add `validateRecipeParams(m *RecipeManifest) error`
+          and call it from ParseRecipeManifest alongside the two validators that
+          already run there (validateRecipeHeader :130, validateRecipeOps :133),
+          BEFORE the ops validation — a malformed param schema should be reported
+          before op-level cross-checks that assume it.
+
+          THE ONE RULE, and only this one: a param whose TRIMMED name begins with
+          the escape marker is refused, fail-loud, naming the recipe label, the
+          param INDEX and the name, and explaining that `{{! … }}` is the escape
+          so such a param could never be referenced by any spelling. Use the same
+          marker constant TASK-009 introduces — the reservation and the grammar
+          must not be able to drift apart. THAT SHARED CONSTANT IS WHY THIS TASK
+          DEPENDS ON TASK-009 AND MUST NOT RUN BESIDE IT: `placeholderEscape` is
+          declared in substitute.go, so a manifest.go that references it before
+          TASK-009 lands does not fail its own test — it fails to COMPILE, and an
+          uncompilable package reddens every other test in pkg/recipe, hiding
+          whatever those tests were actually saying.
+
+          DO NOT ADD ANY OTHER PARAM-NAME RULE. No charset pattern, no length
+          bound, no kebab-case requirement. The in-production go-distribution pack
+          declares params named `.Version`, `github.ref_name` and
+          `secrets.GITHUB_TOKEN`; a tidier-looking validator would break a real
+          consumer, and TASK-006's negative controls exist to catch exactly that.
+          If you find yourself wanting one, that is a separate issue, not this
+          task.
+
+          Update the ParseRecipeManifest doc comment to name the third validator,
+          and the ParamSpec doc comment (manifest.go:84-90) to state the
+          reservation.
+        files:
+          - pkg/recipe/manifest.go
+        claims:
+          - CLM-009
+        depends_on:
+          - TASK-006
+          - TASK-009
+
+      - id: TASK-011
+        type: verification
+        title: "Package verification: both suites green, the shipped baseline untouched, coverage held"
+        description: |
+          Run, and report TRUE exit codes:
+            go test ./pkg/recipe/... ./cmd/backstop/... -race -count=1
+
+          Then verify the three properties this lane can silently violate:
+
+            1. THE SHIPPED BASELINE CARRIES NO CHANGE ATTRIBUTABLE TO THIS LANE.
+               `git diff --stat` on pkg/recipe/substitute_test.go,
+               manifest_test.go and apply_substitution_test.go. The rule is NOT
+               "no change at all" — it is that NO TASK IN THIS PLAN may edit
+               them, and none declares them in its `files`. If any shipped test
+               needed editing to go green, the escape changed behavior it
+               promised not to change — STOP and report rather than editing the
+               test.
+               ONE EXPECTED EXCEPTION, so a legitimate diff is not misread as a
+               failure: plans/PLAN-ISSUE-081-insert-placement-semantics.plan.yml
+               is in flight in this same tree and its own tasks DO edit
+               pkg/recipe/apply_substitution_test.go (it is in that plan's
+               declared file scope). If that file shows a diff, ATTRIBUTE IT
+               BEFORE JUDGING: read the diff, and if every hunk is
+               insert-placement work from the sibling lane and no hunk touches a
+               substitution/escape assertion, the guard HOLDS — say so
+               explicitly in the report rather than passing silently. Any hunk
+               that weakens or adjusts a substitution assertion is a STOP, from
+               whichever lane it came. substitute_test.go and manifest_test.go
+               have no such sibling claim and must be clean.
+            2. THE PRODUCTION WORKAROUND STILL RENDERS. Run the captured-payload
+               test alone and confirm both cases pass:
+                 go test ./pkg/recipe/ -race -count=1 \
+                   -run TestSubstitute_CapturedGoDistributionPayloads
+            3. COVERAGE. Confirm pkg/recipe still meets its floor:
+                 go test ./pkg/recipe/... -coverprofile=/tmp/recipe.cover && \
+                 go tool cover -func=/tmp/recipe.cover | tail -1
+               The new escape branch is exercised by TASK-004 and the new
+               validator by TASK-006, so a drop here means a branch nobody tests.
+
+          Do NOT run the full gate here — the binary has not been rebuilt yet and
+          a stale binary gates the old code. That is TASK-013's, deliberately
+          ordered after the spec reconciliation so one gate run covers both.
+        files:
+          - pkg/recipe/substitute.go
+          - pkg/recipe/manifest.go
+        claims:
+          - CLM-008
+        depends_on:
+          - TASK-009
+          - TASK-010
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Spec reconciliation + comprehensive verification and handoffs
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: SPEC-054 Reconciliation and Comprehensive Verification"
+    tasks:
+      - id: TASK-012
+        type: documentation
+        title: "Reconcile SPEC-054 with the new substitution grammar, through /spec"
+        description: |
+          SPEC-054 is `implemented` and is the spec of record for this machinery,
+          so the grammar change lands there or the code and the spec disagree.
+          DISPATCH `/spec` — never hand-edit the spec file (CLAUDE.md: all
+          artifact authoring routes through the purpose-built agents).
+
+          ⚠ SPEC-054 IS A SHARED ARTIFACT RIGHT NOW — READ IT, DO NOT TRUST THE
+          LINE NUMBERS BELOW. plans/PLAN-ISSUE-081-insert-placement-semantics.plan.yml
+          (also `draft`, also authored 2026-08-11, running in the same tree) ALSO
+          amends specs/SPEC-054-recipe-apply-and-manifest.spec.md — its TASK
+          pins `insert`'s PLACEMENT SEMANTICS and the direct-mode-only CLI scope,
+          a DIFFERENT section from this plan's SUBSTITUTION SEMANTICS. The two
+          amendments are genuinely ADDITIVE, not conflicting, and neither blocks
+          the other. But whichever lands second sees a spec whose line numbers,
+          spec_version and CLM allocation have MOVED. So: reconcile against
+          WHAT IS ON DISK at execution time, re-locate each section by its
+          HEADING rather than by the `~line` hints below, and let `/spec` allocate
+          CLM ids against the ids actually present — never against the ids this
+          plan or its sibling assumed. If the sibling's amendment is already in,
+          build on it; if it is not, do not pre-empt it.
+
+          Carry this brief across verbatim enough to act on:
+
+            1. SUBSTITUTION SEMANTICS TABLE (spec line ~1240) — add a row:
+               | escaped `{{! text }}` | emitted VERBATIM as `{{ text }}`, one
+               `!` consumed, no lookup | <new CLM> |
+               and a short paragraph under the table stating the positional
+               marker rule, the self-escaping property, and that the escape is
+               the ONLY mechanism — there is deliberately no comment-awareness,
+               for the zero-baked-language reason.
+            2. REQ-002's non-Turing framing — state that an escaped span is
+               EMITTED, never evaluated, so the escape strengthens the property
+               rather than opening an expression grammar.
+            3. THE `Substitute` CONTRACT ENTRY (spec line ~1087) — the signature
+               is UNCHANGED (`func Substitute(template string, params
+               map[string]string) (string, error)`); only its `notes` gains the
+               escape. Say so explicitly so the contract-signature dimension is
+               not asked to absorb a change that did not happen.
+            4. A NEW CLAIM for the escape, whose mandated tests are the exact
+               names delivered by TASK-004 and TASK-005, and A NEW CLAIM for the
+               param-name reservation naming TASK-006's test. The /spec agent
+               allocates the CLM ids — this plan does not, and must not, guess
+               them.
+            5. THE SUBSTITUTION SCOPE TABLE IS UNCHANGED. No `Op` field changed
+               its substituted/not-substituted status; the escape is a property
+               of the GRAMMAR, applying uniformly at every site that already goes
+               through Substitute. State this in the reconciliation so a reader
+               does not go looking for a scope change that is not there.
+            6. RECORD THE HANDLEBARS INTERACTION IN THE SPEC, not only in the code.
+             `{{!` is Handlebars/Mustache's own comment marker, so a single-bang
+             escape of a Handlebars comment emits a live interpolation in that
+             language (`{{!-- x --}}` → `{{-- x --}}`); the remedy is the double
+             bang (`{{!!-- x --}}` → `{{!-- x --}}`), which is the self-escaping
+             rule, not a special case. State it as a NAMED SHARP EDGE next to the
+             escaped-span row. This is the one surprising consequence of the
+             grammar and the spec is where a reader is entitled to find it.
+          7. Record the backward-compatibility guarantee: the self-emitting
+               pass-through-param idiom remains supported and is proven against
+               CAPTURED PRODUCTION BYTES, and no consumer is being migrated.
+
+          A version bump on SPEC-054 is expected; the /spec agent owns its shape.
+          Validate before handing on:
+            ./bin/backstop artifact validate --spec SPEC-054
+        files:
+          - specs/SPEC-054-recipe-apply-and-manifest.spec.md
+        claims:
+          - CLM-013
+        depends_on:
+          - TASK-011
+
+      - id: TASK-013
+        type: verification
+        title: "Rebuild, full gate, artifact validate, and the two handoffs (SPEC-067, the go-distribution migration)"
+        description: |
+          THE BINARY FIRST, or the gate is vacuous:
+            go build -o bin/backstop ./cmd/backstop/
+          then, reporting TRUE exit codes for each:
+            ./bin/backstop gate
+            ./bin/backstop artifact validate --plan PLAN-ISSUE-110
+            ./bin/backstop artifact validate --spec SPEC-054
+
+          `gate` covers the code categories (both production files are in diff
+          scope, and the new test and fixture files with them); `artifact
+          validate` covers the artifact category, since this plan file and
+          SPEC-054 both changed. Do NOT narrow either run with repeated `--file`
+          (ISSUE-093: extras are silently dropped, and a silently narrowed gate is
+          the vacuous green this project exists to prevent).
+
+          HANDOFF 1 — NOTIFY SPEC-067, AS AN AVAILABILITY NOTICE AND NOTHING
+          MORE. This is a FYI to an adjacent lane, NOT an instruction to change
+          anything. SPEC-067 has independently avoided ever needing the escape:
+          its REQ-006 forbids a `${{ ... }}` expression in any payload and reads
+          `GITHUB_BASE_REF` / `GITHUB_EVENT_NAME` / `GITHUB_SHA` as ordinary env
+          vars instead, as a stated design decision, and it pins that with five
+          tests (CLM-044 plus the four per-platform
+          `…_RenderedCarriesNoResidualPlaceholder` claims) that assert NO literal
+          `{{` or `}}` survives in rendered output. DO NOT tell it to adopt
+          escapes: a rendered `{{ … }}` is a literal `{{`, so an escape in a
+          SPEC-067 payload would violate REQ-006 and redden all five. Report:
+
+            ISSUE-110 has landed: recipe payloads now have a first-class escape.
+            Write `{{! <foreign text> }}` and the span is emitted as
+            `{{ <foreign text> }}` verbatim — no param declaration, no lookup, no
+            unresolvable-placeholder error. Prose in a comment works the same way.
+            SPEC-067 as scoped does NOT need this and should not adopt it: it has
+            already avoided pass-through params by using plain env vars instead of
+            `${{ }}` expressions in its GitHub template, and its own REQ-006 plus
+            five mandated tests require that no literal `{{`/`}}` reach a rendered
+            file — which an escaped span would produce by design. The mechanism
+            remains AVAILABLE to SPEC-067 or to any future CI-recipe author who
+            does need to emit real `${{ }}` or other foreign-template content
+            verbatim; it is simply not required by SPEC-067 as it stands. The
+            older pass-through-param idiom also still works unchanged.
+
+          HANDOFF 2 — FILE THE PACK MIGRATION, DO NOT DO IT. Report for a
+          follow-on issue authored through `/issue` (never hand-written), with
+          the evidence carried across so the author does not re-derive it:
+
+            `backstop-ai/go-distribution` can drop the eight self-emitting
+            pass-through params from recipes/go-release/recipe.yml:68-91 and
+            escape the foreign spans instead. ALL THREE payload files carry them,
+            and the enumeration must be complete or the migration hard-fails the
+            create ops it missed:
+              * payload/.goreleaser.yml — lines 81, 85, 88, 103
+                (`{{ .Version }}`, the four-span `name_template` at :85,
+                `{{ .ProjectName }}`/`{{ .Version }}` at :88, and
+                `{{ .Env.HOMEBREW_TAP_TOKEN }}` at :103).
+              * payload/release.yml — lines 52, 63, 79, 132, 139, AND :134. That
+                last one is a real DELIMITED span inside a comment
+                (`# {{ .Env.HOMEBREW_TAP_TOKEN }}. goreleaser resolves .Env from
+                the …`), resolved today by the same pass-through param as :103 —
+                it is NOT the delimiter-less note at :15-25 and dropping the
+                param without escaping :134 breaks the `release-workflow` op.
+              * payload/tag-integrity.yml — lines 41 and 52, `${{ github.ref_name }}`
+                twice. This file is a create op in its own right
+                (`tag-integrity-workflow`, recipe.yml:102-105) under the SAME
+                param set, so it fails identically if it is overlooked.
+            The migration can also restore the delimiters to the manual cross-read
+            note at release.yml:15-25 that had to be written delimiter-less. Byte-
+            equivalence of the two forms is already proven in core by
+            TestSubstitute_CapturedGoDistributionPayloads_EscapedFormEqualsPassThroughOutput
+            over verbatim captures of TWO of the three — release.yml and
+            .goreleaser.yml. tag-integrity.yml is not captured as a fixture and
+            does not need to be: its only foreign spans are `${{ github.ref_name }}`,
+            the identical shape already proven at release.yml:52/:63. It is a DIFFERENT REPO
+            needing its own version bump, relock and re-verification, it removes
+            the `--param .Version=…` hazard, and it is NOT urgent: the workaround
+            is proven to keep working.
+
+          BE HONEST ABOUT WHAT CLOSURE MEANS HERE. This lane closes on its own
+          gate. Neither handoff is executed here, and if SPEC-067's authoring
+          finds a foreign-template shape this grammar does not cover, that is a
+          real finding about this design and belongs back on ISSUE-110's lineage
+          rather than being worked around in a payload.
+        files:
+          - pkg/recipe/substitute.go
+          - pkg/recipe/manifest.go
+          - plans/PLAN-ISSUE-110-foreign-template-escape.plan.yml
+        claims:
+          - CLM-008
+          - CLM-013
+        depends_on:
+          - TASK-009
+          - TASK-010
+          - TASK-011
+          - TASK-012

@@ -1,0 +1,1122 @@
+---
+plan_id: PLAN-ISSUE-081
+spec_id: ISSUE-081
+created: "2026-08-11"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./pkg/recipe/... ./cmd/backstop/... -race -count=1"
+coverage_threshold: 90
+
+notes: |
+  Implements ISSUE-081 GAP 3 ONLY — insert placement semantics, plus the stated
+  position on SDLC-mediated mode's CLI reachability.
+
+  GAPS 1 AND 2 ARE ALREADY DELIVERED by the sibling plan
+  plans/PLAN-ISSUE-081-recipe-authoring-surface.plan.yml (status `completed`;
+  commits 00ef8f1, 0628705, 8c80b2c, da9d599; SPEC-054 v1.5.0). Nothing here
+  re-opens them: no task touches `fragment:` parsing, the fragment path contract,
+  or the `--param` flag's grammar. THE FILE NAME IS THE ONLY DISAMBIGUATOR — both
+  plans carry plan_id PLAN-ISSUE-081 because the schema derives the id from the
+  source artifact (`^PLAN-(SPEC|ISSUE)-[0-9]{3}$`) and ISSUE-081 legitimately
+  spawned two plans. Validate THIS one by path when the id is ambiguous.
+
+  ISSUE-081's remaining `Op.Payload` facet (form + templatability) stays OPEN and
+  is NOT decided here, for the reason the sibling plan recorded: payload has no
+  live contradiction across artifacts, so deciding it from this seat would settle
+  it on no evidence.
+
+  ═══════════════════════════════════════════════════════════════════════════
+  DESIGN DECISION 1 (made at planning time — INSERT PLACEMENT SEMANTICS)
+  ═══════════════════════════════════════════════════════════════════════════
+  ISSUE-081 Gap 3 left two readings equally consistent with SPEC-054's wording
+  and took no position. THIS PLAN TAKES ONE.
+
+    CHOSEN: **new-line-after-anchor-line** (the issue's second option).
+
+  PINNED SEMANTICS — the whole of it, so nothing is left to a reader's intuition
+  a second time:
+
+    1. The anchor match is unchanged: the FIRST occurrence of the substituted
+       anchor in the target (`strings.Index`). An absent anchor still hits the
+       injection limit and fails loud with the op's declared `manual:` VERBATIM
+       (REQ-011 / CLM-053) — untouched.
+    2. The SPLICE POINT is the START OF THE LINE FOLLOWING the line that contains
+       the anchor match's LAST byte. Formally:
+           anchorEnd := anchorAt + len(anchor)
+           nl        := index of the first '\n' at or after anchorEnd
+           spliceAt  := nl + 1                       (when nl exists)
+       If NO newline follows (the anchor's line is the file's last line and is
+       unterminated), the applier TERMINATES that line first ('\n' appended) and
+       splices at the new end of file, so the snippet still lands on its own line
+       and the file ends newline-terminated.
+    3. The snippet is spliced VERBATIM — every byte the author declared, leading
+       indentation included. There is NO trimming, NO de-indenting, and NO
+       stripping of a leading newline.
+    4. The snippet is NEWLINE-TERMINATED: exactly one '\n' is appended IF AND
+       ONLY IF the snippet does not already end with one. A snippet that already
+       ends in '\n' never gains a second.
+    5. Consequences that follow from 3+4 and are pinned as behavior, not
+       accidents:
+         * a snippet carrying its OWN leading '\n' yields a deliberate BLANK LINE
+           between the anchor's line and the snippet (the author asked for it);
+         * a snippet that is EMPTY after substitution yields a single blank line
+           following the anchor's line;
+         * a MULTI-LINE snippet lands as a block, its interior bytes untouched;
+         * an anchor whose matched text SPANS lines is governed by the line
+           containing its LAST matched byte;
+         * N inserts sharing one anchor each compute the SAME splice point (a
+           splice below the anchor's line never moves the anchor's line), so the
+           LAST op to run ends up NEAREST the anchor — the same declared-order
+           observability the current suite already relies on, preserved in kind.
+
+  WHY (b) AND NOT (a) — the reasoning, stated for review rather than buried:
+
+    * The issue's own live evidence. The 2026-07-26 sweep author wrote the
+      natural thing (anchor `"registrations": [`, snippet `    "live-entry",`)
+      and got `"registrations": [    "live-entry",` on one line. A default that
+      surprises the first person to use it, in the first realistic recipe, is the
+      wrong default — and "document it and let authors compensate with a leading
+      newline in Snippet" leaves every future author to rediscover the same trap
+      through trial, which is the exact complaint ISSUE-081 was filed about.
+    * The insert family is the LINE/TEXT tool; `transform` is the STRUCTURE tool.
+      A recipe that needs a structure-aware, mid-line edit has an op family for
+      it — `transform`, which dispatches an AST rewrite to an allowlisted engine.
+      Pinning insert to line granularity is a division of labor between families,
+      not a lost capability with nowhere to go.
+    * It is not a baked-language/tool assumption. A newline is universal text
+      structure, not language or toolchain knowledge — no format is parsed, no
+      tool is consulted, no language branch is introduced. The thin-executor
+      first principle is not in tension with this.
+
+  WHAT (b) COSTS — stated plainly, because it IS a cost and the reviewer should
+  weigh it, not discover it:
+
+    * MID-LINE SPLICING BECOMES UNREACHABLE THROUGH `insert`. Under (a) an author
+      could express both placements (inline by default, next-line by writing a
+      leading '\n'); under (b) only the next-line placement is expressible. This
+      is a deliberate narrowing.
+    * It has a concrete cost IN THIS REPO, swept against the tree 2026-08-11
+      (re-check it rather than taking it on trust): the committed `starter` and
+      `templated-sites` recipes splice
+      `'"{{ app_name }}"'` at anchor `'"registrations": ['` into a JSON document
+      whose array is `[]` ON ONE LINE. Under (b) that produces INVALID JSON, and
+      `TestApply_CommittedFixtureRecipe_SubstitutesEveryTemplatedSite` (ISSUE-079's
+      crux regression) json-decodes that output. The fixtures therefore MIGRATE —
+      the seeded document's array becomes multi-line with an existing entry, and
+      the declared snippet becomes the indented, comma-carrying form
+      `'    "{{ app_name }}",'`. That migration is not incidental churn: it turns
+      the committed corpus into the EXACT shape ISSUE-081's sweep used, and the
+      surviving seeded entry makes placement falsifiable (the spliced entry must
+      precede it).
+    * If mid-line splicing is later shown to be needed, the answer is a DECLARED
+      placement on the op (an authoring-surface addition, e.g. `placement:
+      inline|after-line`), filed as its own issue with its own evidence. It is
+      deliberately NOT smuggled in here: ISSUE-081 poses a binary choice, and
+      inventing a third option at plan time would decide an authoring-surface
+      question the issue never raised.
+
+  NOT A JUSTIFICATION, recorded to prevent a false one being inherited: SPEC-067
+  (the CI recipe pack, in flight, uncommitted) declares NO insert op — checked
+  2026-08-11. This decision has no in-flight downstream dependency; it rests on
+  the issue's evidence alone.
+
+  ═══════════════════════════════════════════════════════════════════════════
+  DESIGN DECISION 2 (made at planning time — SDLC-MEDIATED CLI REACHABILITY)
+  ═══════════════════════════════════════════════════════════════════════════
+    CHOSEN: **`backstop recipe apply` is DIRECT-MODE-ONLY BY DESIGN.**
+    SDLC-mediated mode is a LIBRARY-ONLY entry point for plan-driven callers.
+
+  Rationale: REQ-003 already says injection sites come from a plan/agent driving
+  the apply, not from an operator at a terminal — a site override supplied by
+  hand at the CLI has no artifact behind it and no traceability to a plan, which
+  is the whole point of the mediated mode. The position requires NO code change:
+  `cmd/backstop/recipe_apply.go:246` already hardcodes `Mode: recipe.ModeDirect`
+  and never sets `InjectionSites`. What was missing was the STATEMENT, so the
+  gap keeps being rediscovered as a possible bug.
+
+  BUT A STATED POSITION IN PROSE IS NOT FALSIFIABLE, so this plan does one thing
+  beyond documentation: a CLI-surface guard test that goes RED if anyone wires a
+  mode selector or an injection-site input onto the shipped command without
+  revisiting the position. That converts a paragraph into a tripwire, at the cost
+  of one small test file. No production code changes for this decision.
+
+  ═══════════════════════════════════════════════════════════════════════════
+  BLAST RADIUS (swept 2026-08-11 — RECONCILE against the tree, do not trust)
+  ═══════════════════════════════════════════════════════════════════════════
+  THE CHANGE IS ONE FUNCTION, `applyInsert` (pkg/recipe/apply.go:639-683; the
+  splice is at :674-675). Everything else below is corpus that ENCODES the old
+  placement and must move with it.
+
+  THIS ENUMERATION IS A STARTING POINT, NOT A CERTIFICATE. Before editing, and
+  again before reporting TASK-004 done, re-run
+
+      grep -rn "snippet:" --include="*_test.go" pkg/recipe/
+
+  and reconcile every hit against the list below: each one must be either named
+  here with a disposition or newly dispositioned by you. An earlier revision of
+  this plan asserted its enumeration was complete and MISSED SIX real sites, one
+  of them load-bearing — which is why the instruction is "re-run and reconcile"
+  rather than "do not re-derive". Line numbers drift with every edit; treat them
+  as hints and match on the surrounding text.
+
+  TESTS whose EXPECTATIONS encode the current inline splice:
+    * pkg/recipe/apply_opfamily_test.go:15  TestApply_InsertOp_AtAnchor — the
+      MANDATED test for SPEC-054 CLM-011 and the weak assertion the issue names
+      (`strings.Index` position checks + one `want` built for inline). Also
+      :70 TestApply_StepOp_RecognizedAndSequenced (snippet `"\nafter-the-step"`
+      at :85).
+    * pkg/recipe/apply_core_test.go — FOUR distinct clusters:
+      the declared-order snippets at :35,:41,:61,:67; the THREE failure-path
+      snippets at :568,:583,:599 inside
+      TestApply_InsertOp_FailsLoudOnUnreachableSite (:549); and the composition
+      snippet at :756 inside TestApplyAll_RunsRecipesSequentiallyInGivenOrder
+      (:738), whose `want` at :781 is a REAL output expectation.
+      `seedPayload` (:73) is `"# SLOTS\n# END\n"` and stays. Dispositions for all
+      four are in TASK-004.
+    * pkg/recipe/apply_modes_test.go:79 (direct-mode `want`), :384 (`wantSpliced`),
+      :466-469 (the supplied-ANCHOR case, whose anchor `"# END"` sits on the
+      seed's last line — under the pinned rule its splice lands at EOF, and the
+      falsifier `wantAtSecondMarker != wantSpliced` MUST still hold), plus the
+      snippets at :41,:147,:308,:531,:541.
+    * pkg/recipe/apply_multi_test.go:107 and :419 — the composed/interleaved
+      expectations that record EXECUTION order in the output bytes; snippets at
+      :30,:42,:54,:68,:354,:360,:372,:378.
+    * pkg/recipe/apply_substitution_test.go — `templatedSitesSeededSettings` (:50,
+      the `"registrations": []` seed that must become a multi-line array with a
+      surviving entry), the registrations decode assertions (:199-207), the
+      supplied-site expectation (:586-589, built as
+      `seedPayload[:spliceAt] + Snippet + rest`), the snippets at :456,:471,:543,
+      and the TWO failure-path snippets at :684 and :696 (`declaredManualRecipe`
+      and `undeclaredManualRecipe`, both `"\nspliced"`, both absent-anchor
+      manual-relay cases with no output expectation).
+    * pkg/recipe/apply_injection_limit_test.go:63 — snippet `"\nspliced"` on a
+      FAILURE path with no output assertion. It needs no change to pass; it is
+      migrated anyway so the corpus stops modelling the compensating leading
+      newline as normal authoring.
+
+  COMMITTED RECIPE FIXTURES that must migrate (the JSON mid-line case above):
+    * pkg/recipe/testdata/packs/demo-org/demo-pack/recipes/starter/recipe.yml
+      (op `register-app`, snippet `'"{{ app_name }}"'`)
+    * pkg/recipe/testdata/packs/demo-org/demo-pack/recipes/templated-sites/recipe.yml
+      (op `register-app`, same shape)
+
+  CHECKED AND EXPLICITLY NOT AFFECTED — do not touch, do not "fix":
+    * pkg/recipe/testdata/packs/demo-org/demo-pack/recipes/second/recipe.yml —
+      inserts after `<!-- overview -->` in a README (line-oriented; the pinned
+      rule is what its `manual:` already describes). `second` is RESOLVED by
+      resolve_test.go and never APPLIED, so no expectation encodes its output.
+    * cmd/backstop/testdata/recipes-archetype-pack/recipes/readme-badge/recipe.yml
+      — anchor `<!-- badges -->`, snippet with no compensating newline; the pack
+      is used for ARCHETYPE validation and is never applied. Under the pinned
+      rule its output finally matches its own manual text ("directly under the
+      badges comment"). No edit.
+    * pkg/pack/testdata/recipes/valid/recipes/{alpha,beta}/recipe.yml — parsed by
+      packval only, never applied.
+    * pkg/recipe/manifest_test.go:47 and pkg/recipe/manifest_opchecks_test.go:67,
+      :81,:262 — these DO appear in the reconciliation grep, and they are
+      PARSE-ONLY: every one feeds `ParseRecipeManifest` and asserts on parse
+      results (op ids, kinds, manual-required errors). No apply runs, no output
+      bytes are asserted, and their snippets carry no compensating leading
+      newline. Named here so the grep reconciliation can be fully accounted for
+      rather than leaving four unexplained hits. No edit.
+    * NO cmd/backstop test asserts insert output bytes (swept for `badge`,
+      `overview`, `registrations`, `anchor`: zero hits in cmd/backstop/*_test.go).
+    * pkg/recipe/substitute.go — the surface of the lane-adjacent in-flight
+      PLAN-ISSUE-110 (foreign template escape). This plan does not touch it, and
+      no task here may.
+
+  ═══════════════════════════════════════════════════════════════════════════
+  CAPTURED-FIXTURE DISCIPLINE (feedback_fixtures_from_real_output)
+  ═══════════════════════════════════════════════════════════════════════════
+  The crux regression is captured-fixture-driven, following the corpus already at
+  pkg/recipe/testdata/captured/ (CAPTURE-SOURCE-*.md records origin repo, path,
+  commit and sha256 for every fixture; filenames are NEUTRAL so no test names a
+  real language/tool filename — backstop/self Family B2).
+
+  THREE artifacts, and the distinction between them is load-bearing:
+    * the TARGET capture — a REAL anchor-bearing file copied byte-for-byte out of
+      a real project, never hand-authored;
+    * the OBSERVED capture — the bytes the CURRENT (pre-fix) applier really
+      produces over that target, captured by RUNNING it in the red phase. This
+      reproduces ISSUE-081's sweep result as evidence, and the post-fix test
+      asserts those bytes are NO LONGER produced. It is the falsifier: an
+      implementation that changed nothing fails against it.
+    * the EXPECTED file — the intended post-fix bytes, authored in the RED task
+      as the SPECIFICATION of the pinned semantics (it is what the test demands
+      before any code exists). It is NEVER regenerated from the fixed applier's
+      output; TASK-006 must make the applier match the file, not the file match
+      the applier. If they disagree, the disagreement is the finding.
+
+  ═══════════════════════════════════════════════════════════════════════════
+  SPEC-054 COUPLING (implemented spec, documentation-only amendment)
+  ═══════════════════════════════════════════════════════════════════════════
+  SPEC-054 is `implemented` at spec_version 1.5.0. This repo's established
+  convention for an implemented spec whose shipped behavior is being pinned or
+  narrowed is a DOCUMENTATION AMENDMENT ROUTED THROUGH /spec: prose/claims edits,
+  spec_version bumped, status stays `implemented` — exactly what the sibling plan
+  did at v1.5.0 (TASK-010, da9d599). No new spec artifact, no contract/version
+  fork.
+
+  CHECKED: no `signature:` string changes. `applyInsert` is unexported and
+  carries no contract entry; `Op`'s struct signature gains no field (the pinned
+  placement is BEHAVIOR, not surface — this is exactly why the declared
+  `placement:` field was rejected above); ApplyOptions and Apply are unchanged.
+  pkg/recipe/contract_signature_test.go will therefore not trip. Stated so the
+  implementer does not hunt a guard failure that will not come — but the spec
+  still moves in the SAME commit as the behavior, because a shipped placement and
+  a silent contract note are how Gap 3 happened.
+
+  ═══════════════════════════════════════════════════════════════════════════
+  VERIFICATION COMMANDS (`backstop code check` does NOT exist in this repo)
+  ═══════════════════════════════════════════════════════════════════════════
+    middle: go test ./pkg/recipe/... ./cmd/backstop/... -race -count=1
+    final:  go build -o bin/backstop ./cmd/backstop/   (REBUILD FIRST — a stale
+            binary gates the OLD code and reports a vacuous green)
+            ./bin/backstop gate
+            ./bin/backstop artifact validate --plan PLAN-ISSUE-081
+            ./bin/backstop artifact validate --spec SPEC-054
+  House constraints on every task: `-race -count=1` on every run (a cached PASS
+  over the pre-migration corpus is a vacuous green on exactly what changed);
+  TRUE process exits, never a skip standing in for a pass; report ACTUAL command
+  output, never an asserted pass.
+
+  ═══════════════════════════════════════════════════════════════════════════
+  REQUIREMENTS / CLAIMS (plan-local, derived from ISSUE-081 Gap 3)
+  ═══════════════════════════════════════════════════════════════════════════
+    REQ-001: Insert placement is pinned to new-line-after-anchor-line, with every
+             edge case stated rather than emergent.
+      CLM-001  an insert whose anchor sits MID-LINE places the snippet at the
+               START OF THE FOLLOWING LINE — asserted on the EXACT resulting
+               bytes against a captured expected file, with the captured pre-fix
+               inline-splice bytes asserted to be no longer produced.
+      CLM-002  the snippet is spliced VERBATIM (leading indentation preserved)
+               and newline-terminated: exactly one '\n' is appended iff it does
+               not already end with one, and a snippet already ending in '\n'
+               never gains a second.
+      CLM-003  a snippet carrying its own LEADING newline keeps its deliberate
+               blank line — no stripping, no normalization — and an empty
+               snippet yields a single blank line.
+      CLM-004  when the anchor's line is the file's last line and carries no
+               trailing newline, the applier terminates that line first, so the
+               snippet still lands on its own line and the file ends
+               newline-terminated.
+      CLM-005  an anchor whose matched text SPANS lines is governed by the line
+               containing its LAST matched byte.
+      CLM-006  N inserts sharing one anchor splice at the same computed point, so
+               the LAST op to run lands NEAREST the anchor (declared execution
+               order stays observable in the bytes), and only the FIRST anchor
+               occurrence is ever used.
+      CLM-007  an absent anchor still fails loud with the op's declared `manual:`
+               VERBATIM and writes nothing — the injection-limit path is
+               untouched by the placement change.
+    REQ-002: The corpus states the pinned semantics, and the mandated test can no
+             longer pass on a weak assertion.
+      CLM-008  the committed `starter` and `templated-sites` recipes declare the
+               canon authoring shape (an indented, comma-carrying snippet into a
+               multi-line array) and apply to VALID JSON end to end, with a
+               surviving seeded entry proving the spliced entry landed
+               immediately after the anchor's line rather than at EOF.
+      CLM-009  TestApply_InsertOp_AtAnchor asserts the EXACT bytes around the
+               splice point — presence-anywhere-near-the-anchor no longer passes
+               it — and every incidental expectation in the suite is rebuilt on
+               the pinned placement with no compensating leading newline left in
+               a declared snippet.
+    REQ-003: `backstop recipe apply` is direct-mode-only BY DESIGN, stated and
+             guarded.
+      CLM-010  the shipped `recipe apply` command exposes NO mode selector and NO
+               injection-site input: its local flag set is exactly the declared
+               one, and a mode/site-shaped argument is refused — so wiring
+               SDLC-mediated mode onto the CLI cannot happen silently.
+      CLM-011  SPEC-054 records BOTH positions at a bumped spec_version, status
+               `implemented`: the insert placement contract with its edge cases
+               (Op contract note + REQ text + op-family table + claims mandating
+               the delivered test names), and the direct-mode-only CLI scope with
+               SDLC-mediated mode named a library-only entry point for
+               plan-driven callers.
+
+  Structure:
+    Phase 1: Evidence + fixture precondition — capture the real target, capture
+             the CURRENT applier's inline-splice output as the defect evidence,
+             author the expected post-fix bytes, and migrate the two committed
+             recipes to the canon authoring shape. (The suite is RED between
+             phases 1 and 2 by design: migrating the committed snippets breaks
+             expectations that phase 2 rewrites. That is the red phase.)
+    Phase 2: TDD red — three parallel, file-disjoint test tasks (crux placement
+             tests + the strengthened mandated test; the incidental-expectation
+             migration; the CLI direct-mode-only guard).
+    Phase 3: TDD green — applyInsert implements the pinned semantics, then
+             package verification.
+    Phase 4: SPEC-054 amendment via /spec + comprehensive verification (rebuilt
+             binary, full gate, artifact validation).
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Evidence capture + committed-fixture precondition
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Evidence Capture and Committed-Fixture Precondition"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Capture the insert placement evidence: a real anchor-bearing target, the CURRENT applier's inline-splice output, and the expected post-fix bytes"
+        description: |
+          Build the captured-fixture corpus the crux regression runs on, under
+          pkg/recipe/testdata/captured/insert/, following the existing corpus
+          convention (see CAPTURE-SOURCE-create.md and
+          CAPTURE-SOURCE-merge-structured.md for the exact shape).
+
+          1. THE TARGET CAPTURE — `insert/target.json`.
+             Copy, BYTE-FOR-BYTE, a REAL file out of a REAL project that carries
+             a list/array opened on its own line (the anchor shape ISSUE-081's
+             sweep used).
+
+             TWO CONSTRAINTS ON WHICH REAL FILE YOU PICK — both are correctness
+             preconditions, not preferences, so check them BEFORE you capture:
+               (a) the array must be OPENED on its own line, so that line can
+                   serve as the anchor line;
+               (b) that array must carry AT LEAST ONE ENTRY on a line AFTER the
+                   anchor line, surviving the splice.
+             (b) is what makes the fixture work at all. The snippet these
+             fixtures use is the comma-carrying entry form (`    "live-entry",`),
+             and a trailing comma is only VALID JSON when something follows it —
+             an array captured as `[]`, or one opened and closed with nothing
+             between, yields an invalid document the moment the snippet is
+             spliced, and the expected file could not be valid JSON as step 3
+             requires. It is also what makes placement FALSIFIABLE in this
+             corpus: the spliced entry must land BEFORE the surviving entry, so
+             an applier that appended at EOF or spliced inline is caught by
+             position and not merely by well-formedness. This is the same
+             reasoning TASK-002 and TASK-004 apply to the committed fixtures —
+             it holds identically here.
+             If the file you would otherwise capture has an empty array, capture
+             a DIFFERENT real file that satisfies both constraints. Do NOT edit a
+             captured file to add an entry: a hand-edited capture is not a
+             capture, and the whole point of the corpus is that the bytes came
+             from somewhere real.
+
+             Prefer the standing capture-origin project already
+             named in CAPTURE-SOURCE-create.md; if it is unavailable to you,
+             capture from a real committed file in THIS repository instead and
+             say which, in the capture source doc. Do NOT hand-author it and do
+             NOT derive it from the applier's output. Record repo, real path,
+             commit sha and the sha256 of the captured bytes.
+             The fixture FILENAME must stay neutral — the captured bytes are the
+             capture, the name is not (backstop/self Family B2 forbids a baked
+             language/tool token in a name).
+
+          2. THE OBSERVED CAPTURE — `insert/inline-splice.observed.json`.
+             RUN THE CURRENT, UNMODIFIED APPLIER over that target with the anchor
+             and snippet ISSUE-081's sweep used (anchor: the line opening the
+             array; snippet: an INDENTED, comma-carrying entry, e.g.
+             `    "live-entry",` with NO leading newline) and save what it really
+             writes. Drive it through the real code path — a throwaway Go program
+             under the scratchpad calling recipe.Apply, or the real
+             `./bin/backstop recipe apply` over a scratch pack — not by reasoning
+             about what apply.go would do. These bytes must exhibit the defect:
+             the snippet spliced onto the anchor's own line. If they do not, STOP
+             and report — the premise of this plan is then wrong.
+             The capture harness itself is scratch; it is NOT committed.
+
+          3. THE EXPECTED FILE — `insert/after-anchor-line.expected.json`.
+             The intended POST-FIX bytes: the same target with the snippet
+             occupying the whole line immediately after the anchor's line,
+             indentation preserved, the rest of the document byte-identical to
+             the target capture. AUTHOR IT AS THE SPECIFICATION — it is what
+             TASK-003's test demands before any implementation exists, and
+             TASK-006 must make the applier match this file. It is NEVER
+             regenerated from a fixed applier's output.
+             It must be VALID JSON — which is exactly what the ≥1-surviving-entry
+             constraint in step 1 buys, since the snippet's trailing comma is
+             only valid with an entry after it — and the spliced entry must
+             PRECEDE that surviving entry, which is the positional falsifier. It
+             must also differ from the observed capture (assert that by eye now;
+             TASK-003 asserts it in code).
+
+          4. THE CAPTURE SOURCE DOC — `CAPTURE-SOURCE-insert.md`, in the same
+             form as its siblings: what each fixture is, where the target came
+             from (repo, path, commit, sha256), that the observed file is REAL
+             pre-fix output and the date it was captured, and that the expected
+             file is the authored specification rather than a capture — the one
+             asymmetry in this corpus, so state it explicitly rather than letting
+             a later reader assume all three were captured the same way.
+
+          Touch NOTHING else. This task adds files; it changes no behavior and no
+          existing test.
+        files:
+          - pkg/recipe/testdata/captured/CAPTURE-SOURCE-insert.md
+          - pkg/recipe/testdata/captured/insert/target.json
+          - pkg/recipe/testdata/captured/insert/inline-splice.observed.json
+          - pkg/recipe/testdata/captured/insert/after-anchor-line.expected.json
+        claims:
+          - CLM-001
+        depends_on: []
+
+      - id: TASK-002
+        type: setup
+        title: "Migrate the committed starter and templated-sites recipes to the canon insert authoring shape"
+        description: |
+          Both committed recipes splice `'"{{ app_name }}"'` at anchor
+          `'"registrations": ['`. That authoring shape only produces valid JSON
+          under the INLINE placement this plan retires (see the blast-radius note
+          — the merge op re-encodes the document before the insert runs, so a
+          one-line `[]` array is what the insert actually meets). Migrate both to
+          the shape the pinned semantics require, which is also the exact shape
+          ISSUE-081's own sweep used:
+
+            pkg/recipe/testdata/packs/demo-org/demo-pack/recipes/starter/recipe.yml
+            pkg/recipe/testdata/packs/demo-org/demo-pack/recipes/templated-sites/recipe.yml
+
+          In the `register-app` op of each, change ONLY the `snippet:` field to
+          the indented, comma-carrying entry form:
+
+              snippet: '    "{{ app_name }}",'
+
+          The trailing comma is load-bearing: the spliced entry precedes the
+          array's surviving seeded entry (TASK-004 seeds one), so without it the
+          document is invalid JSON. The leading indentation is preserved verbatim
+          by the applier and is what makes the output readable — it is also what
+          proves the applier does not de-indent.
+
+          Do NOT change either recipe's version (`starter` is pinned at 1.2.0 by
+          `starterPin`, `templated-sites` at 1.0.0 by `templatedSitesPin`), its
+          params, its op ids, its op ORDER, its anchor, its `manual:` text, or
+          any other op. Two fields, two files.
+
+          Do NOT touch `second/recipe.yml` or the archetype pack's
+          `readme-badge/recipe.yml` — both were checked and are correct under the
+          pinned rule (blast-radius note).
+
+          WHY SETUP AND NOT REFACTOR: this moves fixture bytes, not shipped
+          behavior. The suite goes RED here (expectations built for the old
+          snippet no longer hold); TASK-004 turns that red into the migrated
+          expectations. That is the intended red phase, not a defect.
+        files:
+          - pkg/recipe/testdata/packs/demo-org/demo-pack/recipes/starter/recipe.yml
+          - pkg/recipe/testdata/packs/demo-org/demo-pack/recipes/templated-sites/recipe.yml
+        claims:
+          - CLM-008
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: TDD red — three parallel, file-disjoint test tasks
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: TDD Red — Crux Placement Tests, Corpus Expectation Migration, CLI Direct-Mode Guard"
+    tasks:
+      - id: TASK-003
+        type: test
+        title: "Failing crux tests: the snippet lands on its own line after the anchor's line, asserted on EXACT bytes, plus every pinned edge case"
+        description: |
+          The heart of the red phase. Write these BEFORE any change to
+          applyInsert; every one of them must fail against the current applier
+          (except where noted), and each must fail for the RIGHT reason.
+
+          NEW FILE pkg/recipe/apply_insert_placement_test.go:
+
+            * TestApply_InsertOp_MidLineAnchorLandsOnTheFollowingLine (CLM-001) —
+              THE captured-fixture regression. Seed the consumer file from
+              testdata/captured/insert/target.json, run the recipe's insert op
+              with the captured anchor and snippet, and compare the resulting
+              bytes to testdata/captured/insert/after-anchor-line.expected.json
+              with a BYTE EQUALITY assertion — not `strings.Contains`, not an
+              index comparison. Then assert the output does NOT equal
+              testdata/captured/insert/inline-splice.observed.json, and say in
+              the failure message that those are the real pre-fix bytes
+              ISSUE-081's sweep produced. A test that only asserted equality with
+              the expected file would still be a strong test; the observed-file
+              inequality is what makes the REGRESSION explicit and self-documenting.
+              Guard the fixtures against silent decay: fail the test if the
+              expected and observed captures are byte-identical (the comparison
+              would be vacuous), and fail if the target capture does not contain
+              the anchor.
+            * TestApply_InsertOp_SnippetNewlineTerminationIsExactlyOne (CLM-002) —
+              two subtests over one seed: a snippet WITHOUT a trailing newline
+              gains exactly one, and a snippet ALREADY ending in '\n' gains none.
+              Assert full-file bytes both times, so a double newline is caught.
+              Include a snippet carrying LEADING INDENTATION and assert the
+              indentation survives byte-for-byte (no trimming, no de-indent).
+            * TestApply_InsertOp_LeadingNewlineSnippetKeepsItsBlankLine (CLM-003) —
+              a snippet declared as "\nvalue" produces a BLANK LINE between the
+              anchor's line and the value; an empty snippet produces a single
+              blank line. Both are the pinned behavior, asserted on exact bytes,
+              so a future "helpful" normalization that strips leading newlines
+              goes RED.
+            * TestApply_InsertOp_AnchorOnFinalUnterminatedLine (CLM-004) — a
+              target whose last line carries the anchor and NO trailing newline:
+              the applier terminates that line, the snippet lands on its own line,
+              and the file ends newline-terminated. Exact bytes.
+            * TestApply_InsertOp_MultiLineAnchorGovernedByItsLastLine (CLM-005) —
+              an anchor whose declared text itself contains a newline: the splice
+              lands after the line holding its LAST matched byte, not after its
+              first. Exact bytes.
+            * TestApply_InsertOp_RepeatedAnchorUsesTheFirstOccurrence (CLM-006) —
+              a target carrying the anchor TWICE: the splice lands after the
+              FIRST occurrence's line. Exact bytes; the second occurrence's
+              surroundings must be untouched.
+
+          REWRITE, in pkg/recipe/apply_opfamily_test.go, the MANDATED test
+          TestApply_InsertOp_AtAnchor (:15, SPEC-054 CLM-011). Keep the NAME —
+          the spec mandates it — and keep its subject (the snippet lands at the
+          anchor, not at EOF), but replace the weak assertion the issue names:
+          the `strings.Index`-based "snippet is somewhere between the anchor and
+          the trailing marker" checks go, and a FULL-FILE byte equality against
+          the pinned expected output takes their place (CLM-009). Drop the
+          compensating leading newline from the recipe's declared snippet — the
+          declared snippet becomes the author's real content and the applier
+          supplies the line. Keep an EOF falsifier: the seed's trailing `# END`
+          marker must still follow the snippet in the expected bytes, so an
+          applier that appended at EOF fails.
+          Migrate TestApply_StepOp_RecognizedAndSequenced (:70) in the same file
+          the same way — its snippet loses the compensating newline and its
+          expectation is rebuilt on the pinned placement. Its subject (a step op
+          is recognized and holds its sequence position) is unchanged.
+
+          For the recipes these tests declare inline, keep every non-snippet
+          field as it is; a test that quietly changed an anchor or a target would
+          be proving something else.
+
+          Run `go test ./pkg/recipe/... -race -count=1` and CONFIRM each new test
+          fails because the splice lands on the anchor's line (a byte mismatch),
+          not on a compile error or a missing fixture. Report which failed how.
+        files:
+          - pkg/recipe/apply_insert_placement_test.go
+          - pkg/recipe/apply_opfamily_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-009
+        test_names:
+          - TestApply_InsertOp_AtAnchor
+          - TestApply_InsertOp_MidLineAnchorLandsOnTheFollowingLine
+          - TestApply_InsertOp_SnippetNewlineTerminationIsExactlyOne
+          - TestApply_InsertOp_LeadingNewlineSnippetKeepsItsBlankLine
+          - TestApply_InsertOp_AnchorOnFinalUnterminatedLine
+          - TestApply_InsertOp_MultiLineAnchorGovernedByItsLastLine
+          - TestApply_InsertOp_RepeatedAnchorUsesTheFirstOccurrence
+          - TestApply_StepOp_RecognizedAndSequenced
+        depends_on:
+          - TASK-001
+
+      - id: TASK-004
+        type: test
+        title: "Migrate every incidental insert expectation in the suite onto the pinned placement, including the committed-fixture JSON seed"
+        description: |
+          These tests are not ABOUT placement — they are about declared order,
+          mode selection, determinism, multi-recipe composition and substitution
+          — but each builds its expectation from the old inline splice. Migrate
+          the expectations; do not change what each test is for.
+
+          THE RULE FOR THIS TASK: a declared snippet in a test-local recipe loses
+          its compensating leading "\n" (the applier supplies the line now), and
+          each expectation is rebuilt as
+              <everything through the anchor's line, including its newline>
+              + <snippet, newline-terminated>
+              + <the rest of the seed>.
+          You MAY add ONE small local helper in apply_core_test.go to build that
+          expectation from (seed, anchor, snippet), since five files repeat the
+          same construction. IT MUST NOT BE USED BY TASK-003's placement tests —
+          those pin the semantics against captured bytes precisely so no helper
+          can agree with a broken applier by re-implementing its logic. Say so in
+          the helper's doc comment.
+
+          FILE BY FILE. THE LINE NUMBERS BELOW WERE SWEPT 2026-08-11 AND ARE
+          HINTS, NOT A CERTIFICATE — they drift with every edit, and an earlier
+          revision of this plan claimed a complete enumeration while missing six
+          real sites. Before you edit, AND AGAIN BEFORE YOU REPORT THIS TASK
+          DONE, re-run
+
+              grep -rn "snippet:" --include="*_test.go" pkg/recipe/
+
+          and reconcile the hits against this list plus the blast-radius note's
+          "CHECKED AND EXPLICITLY NOT AFFECTED" section (which dispositions the
+          parse-only hits in manifest_test.go and manifest_opchecks_test.go).
+          Every hit must land in exactly one bucket: migrated here, deliberately
+          declared by TASK-003, or explicitly not affected. An unexplained hit is
+          a finding to report, not a hit to skip — this reconciliation is what
+          TASK-007's check (4) depends on being satisfiable.
+
+            * pkg/recipe/apply_core_test.go — FOUR clusters, and only the first
+              is obvious:
+
+              (i) the declared-order snippets at :35,:41,:61,:67 and the
+              expectations they feed. `seedPayload` ("# SLOTS\n# END\n", :73)
+              STAYS as it is: it is the shared seed for much
+              of the suite and the pinned rule works on it unchanged. The
+              ordering property is preserved by the pinned semantics (both ops
+              splice at the same point, so the LAST to run lands nearest the
+              anchor) — keep the test's own comment honest about WHY the observed
+              order is the reverse of the declared order (CLM-006).
+
+              (ii) TestApply_InsertOp_FailsLoudOnUnreachableSite (:549) —
+              THREE cases, snippets at :568,:583,:599, each `snippet: "\nline"`.
+              DISPOSITION: FAILURE PATH ONLY (target absent / no anchor declared
+              / anchor absent from target). No output expectation exists, so all
+              three still PASS unchanged under the pinned placement. Drop the
+              compensating leading "\n" from each anyway, so the corpus stops
+              modelling it as normal authoring, and change NOTHING else — the
+              `wantMessage` assertions are CLM-007's subject and the
+              injection-limit path is untouched by this plan.
+
+              (iii) TestApplyAll_RunsRecipesSequentiallyInGivenOrder (:738) —
+              snippet at :756 (`"\nfrom-the-second-recipe"`) feeding a REAL
+              output expectation at :781:
+
+                  want := "# SLOTS\nfrom-the-second-recipe\n# END\n"
+
+              THIS ONE IS LOAD-BEARING — it is the site the earlier enumeration
+              missed that would have gone RED with no task owning it. Apply this
+              task's rule: the declared snippet becomes
+              `"from-the-second-recipe"`. Then RE-DERIVE the `want` under the
+              pinned semantics rather than assuming it. Over the seed
+              "# SLOTS\n# END\n" the anchor "# SLOTS" ends at byte 7, its line's
+              newline is at 7, so the splice point is byte 8 and the output is
+                  "# SLOTS\n" + "from-the-second-recipe" + "\n" + "# END\n"
+              — byte-identical to the current `want`. That coincidence is
+              precisely why the site is easy to miss, so CONFIRM the equality by
+              RUNNING the test; do not assert it from this paragraph. If instead
+              the leading "\n" is left in the snippet, the same arithmetic yields
+              "# SLOTS\n\nfrom-the-second-recipe\n# END\n" and the `want` would
+              need a blank line — that outcome means the rule was not applied,
+              and is not a permissible variant. Either way the declared snippet
+              and the `want` must end up agreeing; a stale pair here is a RED
+              nobody owns.
+
+              (iv) nothing else in this file declares an insert snippet — the
+              grep reconciliation above is how you confirm that, not this
+              sentence.
+            * pkg/recipe/apply_modes_test.go — the direct-mode `want` (:79), the
+              mediated `wantSpliced` (:384), the supplied-ANCHOR expectation
+              (:466-469), and the snippets at :41,:147,:308,:531,:541. The
+              supplied-anchor case is the sharp one: its anchor `# END` sits on
+              the seed's LAST line, so under the pinned rule its splice lands at
+              EOF. Its falsifier (`wantAtSecondMarker == wantSpliced` is a fatal)
+              MUST still hold — verify it does, and if the migration ever made
+              the two expectations equal, that is a fixture defect to fix, never
+              a check to delete.
+            * pkg/recipe/apply_multi_test.go — the composed (:107) and
+              interleaved (:419) expectations, plus the snippets at
+              :30,:42,:54,:68,:354,:360,:372,:378. These record EXECUTION order
+              in the output bytes; that property survives the placement change
+              and must remain falsifiable after the migration.
+            * pkg/recipe/apply_substitution_test.go — the biggest edit:
+                - `templatedSitesSeededSettings` (:50) becomes a document whose
+                  `registrations` array is MULTI-LINE and already carries ONE
+                  entry (name it distinctly, e.g. via a new const beside
+                  `seededSiblingValue`). The surviving entry is what makes
+                  placement falsifiable: the spliced entry must PRECEDE it.
+                - the registrations assertions (:199-207) become: the decoded
+                  array has exactly TWO entries, `[0]` is the substituted
+                  app_name and `[1]` is the seeded entry — an applier that
+                  appended at EOF or spliced inline produces invalid JSON and
+                  fails the decode with a message that says so.
+                - the supplied-site expectation (:586-589), currently
+                  `seedPayload[:spliceAt] + Snippet + rest`, is rebuilt on the
+                  pinned placement.
+                - the snippets at :456,:471,:543 lose their compensating newline.
+                - THE TWO FAILURE-PATH SNIPPETS AT :684 AND :696 —
+                  `declaredManualRecipe` and `undeclaredManualRecipe`, both
+                  `snippet: "\nspliced"`, both feeding the absent-anchor
+                  manual-relay tests. DISPOSITION: same as the apply_core_test.go
+                  failure paths — no output expectation, so both still PASS
+                  unchanged under the pinned placement. Drop the compensating
+                  leading "\n" from each and touch NOTHING else in them: their
+                  `manual:` text and its substitute-or-relay-raw behavior are
+                  CLM-007's subject, not this plan's.
+                - `TestApply_CommittedStarterRecipe_MergesTheDeclaredFragmentPath`
+                  applies `starter` over the same seed and must still pass end to
+                  end with VALID JSON (CLM-008). Do NOT weaken its fragment
+                  assertions — they belong to the already-delivered Gap 1.
+            * pkg/recipe/apply_injection_limit_test.go — snippet at :63 loses its
+              compensating newline. No expectation changes (these are failure
+              paths); the file is in scope so the corpus stops modelling the
+              compensating shape as normal authoring. Do NOT touch the manual-text
+              assertions — CLM-007 says the injection-limit path is unchanged, and
+              this file is where that is proven.
+
+          Run `go test ./pkg/recipe/... -race -count=1`. Expect these to be RED
+          until TASK-006 lands, and confirm each failure is a BYTE MISMATCH at
+          the splice, not a decode error caused by a mis-migrated seed. Report
+          the failure shape per file.
+        files:
+          - pkg/recipe/apply_core_test.go
+          - pkg/recipe/apply_modes_test.go
+          - pkg/recipe/apply_multi_test.go
+          - pkg/recipe/apply_substitution_test.go
+          - pkg/recipe/apply_injection_limit_test.go
+        claims:
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+        test_names:
+          - TestApply_CommittedFixtureRecipe_SubstitutesEveryTemplatedSite
+          - TestApply_CommittedStarterRecipe_MergesTheDeclaredFragmentPath
+        depends_on:
+          - TASK-002
+
+      - id: TASK-005
+        type: test
+        title: "CLI guard: `recipe apply` exposes no mode selector and no injection-site input, by design"
+        description: |
+          Turn DESIGN DECISION 2 from a paragraph into a tripwire. This test
+          documents SHIPPED behavior, so unlike its siblings it should PASS on
+          first run — that is expected and must be reported as such, not dressed
+          up as a red. What earns it its place is falsifiability: it goes RED the
+          moment anyone wires SDLC-mediated mode onto the CLI without revisiting
+          the stated position.
+
+          NEW FILE cmd/backstop/recipe_apply_direct_mode_test.go, following the
+          established CLI-test shape (build the command through
+          NewRootCommand(), separated stdout/stderr buffers when asserting on a
+          stream).
+
+            * TestRecipeApply_CLI_IsDirectModeOnlyByDesign (CLM-010) —
+                - Walk the `recipe apply` command's LOCAL flag set and assert it
+                  equals the declared expected set exactly (today: `param`
+                  alone — cmd/backstop/recipe_apply.go:96 — plus whatever the
+                  root contributes as PERSISTENT flags, which this assertion must
+                  not conflate: assert on LocalFlags/Flags-minus-inherited, and
+                  say in a comment which you chose and why).
+                  Exactness is the point: a new flag on this command is a
+                  deliberate act, and this test makes it one.
+                - Assert that mode/site-shaped invocations are REFUSED: running
+                  `recipe apply <ref> --mode sdlc-mediated` and
+                  `recipe apply <ref> --injection-site op-id=path/to/file` each
+                  fail as an unknown flag, and NOTHING is written beneath the
+                  project root.
+                - Carry the POSITION in the test's doc comment, not just the
+                  assertions: `backstop recipe apply` is direct-mode-only by
+                  design; SDLC-mediated mode is a library-only entry point for
+                  plan-driven callers (REQ-003), because an injection site
+                  supplied by hand at a terminal has no plan behind it and no
+                  traceability. State that changing this test means changing that
+                  position, and that the position lives in SPEC-054.
+
+          Use the EXISTING cmd/backstop/testdata/recipe-apply-e2e project and its
+          `demo-org/recipe-pack:templated@1.0.0` recipe for the invocation cases —
+          it is create-only, so no engine tool is ever executed and the test stays
+          hermetic. Do NOT add a fixture project, do NOT modify
+          cmd/backstop/recipe_apply_e2e_test.go (out of this task's file scope);
+          if you need its staging helper, build a local one in this file over the
+          package-level `copyTree` helper, the same disposition the sibling plan
+          took.
+
+          Run `go test ./cmd/backstop/... -race -count=1` and report the actual
+          result, including that this test passes on the unchanged CLI.
+        files:
+          - cmd/backstop/recipe_apply_direct_mode_test.go
+        claims:
+          - CLM-010
+        test_names:
+          - TestRecipeApply_CLI_IsDirectModeOnlyByDesign
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: TDD green — applyInsert implements the pinned semantics
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: TDD Green — applyInsert Splices After the Anchor's Line"
+    tasks:
+      - id: TASK-006
+        type: implementation
+        title: "pkg/recipe/apply.go — applyInsert splices at the start of the line following the anchor's line, snippet verbatim and newline-terminated"
+        description: |
+          Make TASK-003's and TASK-004's tests pass. The change is confined to
+          the splice computation in `applyInsert` (apply.go:639-683; today's
+          splice is the two lines at :674-675).
+
+          Implement EXACTLY the pinned semantics from the plan notes — re-read
+          them before writing; every clause exists because a plausible
+          alternative is silently wrong:
+
+              anchorEnd := anchorAt + len(site.anchor)
+              // the anchor's line ends at the first newline at or after the
+              // anchor's LAST matched byte; a multi-line anchor is therefore
+              // governed by its final line
+              lineBreak := strings.IndexByte(content[anchorEnd:], '\n')
+              spliceAt  := anchorEnd + lineBreak + 1
+              // when the anchor's line is the file's last and is unterminated,
+              // terminate it first, then splice at the new end of file
+              // snippet: verbatim, plus exactly one '\n' iff it lacks one
+
+          Constraints:
+            * The anchor MATCH is unchanged — `strings.Index`, first occurrence.
+              Do not switch to a line-wise scan, and do not "improve" matching.
+            * NO trimming, NO de-indenting, NO stripping of a leading newline
+              from the snippet. TASK-003 pins all three; a normalization that
+              looks helpful fails them.
+            * Do NOT add a special case for an empty snippet. The pinned behavior
+              (a single blank line) is the consistent consequence of the general
+              rule and is asserted; a branch here would be an unstated policy.
+            * The injection-limit path (absent anchor → fail loud with the
+              declared `manual:` VERBATIM) is untouched, as is every substitution
+              step above the splice.
+            * Do NOT touch applyMerge, renderPayload, applyTransform, siteFor, or
+              pkg/recipe/substitute.go (the last is PLAN-ISSUE-110's surface).
+
+          DOCUMENT THE CONTRACT AT THE CALL SITE. `applyInsert`'s doc comment must
+          state the pinned semantics in full — the splice point, verbatim snippet
+          bytes, the newline-termination rule, the unterminated-last-line case,
+          the multi-line-anchor rule, the same-point stacking of repeated inserts
+          — and name ISSUE-081 Gap 3 as where the decision was made. The whole
+          reason this shipped ambiguous is that the code described WHAT it
+          spliced and never WHERE; a reader must not have to re-derive it from
+          the arithmetic.
+
+          After the change, run `go test ./pkg/recipe/... -race -count=1` and
+          report the actual output. Fix real failures in THIS task's file; if a
+          test's expectation is genuinely wrong, say so rather than reaching into
+          a file TASK-003 or TASK-004 owns.
+        files:
+          - pkg/recipe/apply.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-003
+          - TASK-004
+
+      - id: TASK-007
+        type: verification
+        title: "Package verification — both suites green under race, with the placement corpus proven end to end"
+        description: |
+          Run the full suites for both touched packages:
+
+              go test ./pkg/recipe/... ./cmd/backstop/... -race -count=1
+
+          `-count=1` is mandatory: a cached PASS over the pre-migration fixtures
+          would be a vacuous green on exactly the corpus this plan changed.
+
+          Confirm specifically, and report the ACTUAL output for each:
+
+            1. Every test named in TASK-003, TASK-004 and TASK-005 passes.
+            2. The captured regression really bites: temporarily reverting
+               applyInsert's splice to the old inline form must fail
+               TestApply_InsertOp_MidLineAnchorLandsOnTheFollowingLine against
+               BOTH captures (expected mismatch AND observed match). Verify this
+               by experiment and restore immediately — a regression test nobody
+               has seen fail is a claim, not a guard. Report what you saw.
+            3. The committed corpus applies to VALID output: both
+               TestApply_CommittedFixtureRecipe_SubstitutesEveryTemplatedSite
+               (ISSUE-079's crux regression) and
+               TestApply_CommittedStarterRecipe_MergesTheDeclaredFragmentPath
+               pass, and their json decodes succeed — the migrated seed plus the
+               comma-carrying snippet produce a valid document (CLM-008).
+            4. No compensating leading newline survives in a declared snippet:
+               grep `snippet: "\\n` and `snippet: '\\n` across pkg/recipe (tests
+               and testdata) and report the hits. The expected result is zero,
+               EXCEPT any snippet TASK-003 declares deliberately to prove the
+               leading-newline blank-line behavior (CLM-003) — name each such hit
+               and why it is intentional. "In scope" is not a disposition.
+            5. Gaps 1 and 2 are untouched: `git diff` shows no change to
+               `fragment:` parsing or its diagnostics, to the `--param` flag or
+               its rejections, and no change to pkg/recipe/substitute.go
+               (PLAN-ISSUE-110's surface).
+            6. The injection-limit behavior is unchanged: the absent-anchor tests
+               still fail loud with the declared manual text VERBATIM (CLM-007).
+
+          Fix real failures in the OWNING task's files. Do not widen a task's
+          file scope to make a test pass; if a fix needs a file no task owns, say
+          so rather than reaching for it.
+        files:
+          - pkg/recipe/apply.go
+          - pkg/recipe/apply_insert_placement_test.go
+          - pkg/recipe/apply_opfamily_test.go
+          - cmd/backstop/recipe_apply_direct_mode_test.go
+        claims:
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+        depends_on:
+          - TASK-005
+          - TASK-006
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: SPEC-054 amendment + comprehensive gate verification
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: SPEC-054 Amendment via /spec and Comprehensive Gate Verification"
+    tasks:
+      - id: TASK-008
+        type: documentation
+        title: "SPEC-054 — pin insert's placement semantics and state the direct-mode-only CLI scope"
+        description: |
+          SPEC-054 is `implemented` at spec_version 1.5.0 and currently describes
+          WHAT an insert splices while saying nothing about WHERE relative to line
+          boundaries (spec:275, :383-385, :1208, and the `Op` contract note at
+          :996). It is equally silent on whether `backstop recipe apply` is
+          direct-mode-only. Both positions ship in this change, so the spec moves
+          in the SAME commit — a documentation-only amendment, spec_version
+          bumped, status stays `implemented` (the convention the sibling plan
+          used at v1.5.0).
+
+          ROUTE THIS THROUGH THE SPEC AGENT — do NOT hand-edit the spec file
+          (CLAUDE.md: never hand-edit artifacts). Dispatch /spec (spec-author)
+          with these instructions:
+
+            * REQ TEXT for insert (spec:275 and the REQ-002 op description at
+              :67). "An insert op inserts the declared snippet at the declared
+              anchor" is the sentence that left Gap 3 open. Extend it to state
+              the placement: the snippet is spliced at the START OF THE LINE
+              FOLLOWING the line containing the anchor match's last byte; it is
+              spliced VERBATIM (leading indentation preserved) and newline-
+              terminated (exactly one '\n' appended iff it lacks one); when the
+              anchor's line is the file's last and is unterminated, that line is
+              terminated first. Name ISSUE-081 Gap 3 and the decision date
+              (2026-08-11) as the source.
+
+            * `Op` CONTRACT NOTE (spec:996). Snippet currently rides along
+              unqualified. Add the placement contract to it in the same voice the
+              Fragment clause now uses, including the four consequences a pack
+              author must be able to predict: a leading newline in Snippet is a
+              deliberate blank line (never stripped), an empty snippet is a blank
+              line, a multi-line anchor is governed by its LAST line, and N
+              inserts at one anchor stack at the same point so the LAST to run
+              lands nearest the anchor.
+
+            * OP-FAMILY TABLE (spec:1208). "snippet at declared anchor" becomes
+              "snippet on its OWN LINE following the anchor's line", with the
+              claim ids the new tests carry.
+
+            * CLM-011 (spec:381-385) — the mandated test stays
+              TestApply_InsertOp_AtAnchor, but its text must stop being
+              satisfiable by a presence check: restate it as the snippet landing
+              at the anchor with the EXACT resulting bytes asserted. Keep the id.
+
+            * NEW CLAIMS, mandating the delivered test names so the traceability
+              dimensions bind spec to tests:
+                - mid-line anchor lands on the following line, captured-fixture
+                  driven —
+                  TestApply_InsertOp_MidLineAnchorLandsOnTheFollowingLine;
+                - verbatim snippet + exactly-one-newline termination —
+                  TestApply_InsertOp_SnippetNewlineTerminationIsExactlyOne;
+                - a leading-newline snippet keeps its blank line, an empty
+                  snippet is one blank line —
+                  TestApply_InsertOp_LeadingNewlineSnippetKeepsItsBlankLine;
+                - the unterminated final line is terminated first —
+                  TestApply_InsertOp_AnchorOnFinalUnterminatedLine;
+                - a multi-line anchor is governed by its last line —
+                  TestApply_InsertOp_MultiLineAnchorGovernedByItsLastLine;
+                - the first anchor occurrence is used —
+                  TestApply_InsertOp_RepeatedAnchorUsesTheFirstOccurrence.
+
+            * THE DIRECT-MODE-ONLY POSITION, under REQ-003 beside CLM-015/CLM-017.
+              State it as a POSITION, not as an observation about today's code:
+              `backstop recipe apply` is scoped to DIRECT mode by design;
+              SDLC-mediated mode is a LIBRARY-ONLY entry point for plan-driven
+              callers, because an injection site supplied by hand at a terminal
+              has no plan behind it and no traceability to one. Add the claim
+              that the shipped command exposes no mode selector and no
+              injection-site input, mandating
+              TestRecipeApply_CLI_IsDirectModeOnlyByDesign. Also record it in
+              Sharp Edges: `cmd/backstop/recipe_apply.go` hardcoding
+              `Mode: recipe.ModeDirect` is the DESIGNED scope, not an unfinished
+              wiring — anyone about to "finish" it is changing a position and
+              must say so.
+
+            * SUBSTITUTION-SCOPE MATRIX (spec:1257-1259). The `Op.Anchor` and
+              `Op.Snippet` rows are CORRECT (both substituted before use) and
+              must not change. Placement is a separate axis from substitution
+              scope — if the matrix reads as if it covered placement, add one
+              sentence saying it does not and pointing at the op-family table.
+
+            * REFERENCES / VERSION HISTORY. Cite ISSUE-081 Gap 3 as the source of
+              both positions, and NARROW the standing ISSUE-081 reference rather
+              than removing it: Gap 3 is now closed, and the residual `Op.Payload`
+              facet (form + templatability) remains OPEN under ISSUE-081. Bump
+              spec_version per the spec agent's convention; status stays
+              `implemented`.
+
+          Do NOT restate this plan's tasks in the spec, and do NOT touch the
+          fragment/`--param` claims the sibling plan delivered — they are settled.
+          These are prose/claims edits only: no `signature:` string changes, so
+          pkg/recipe/contract_signature_test.go is unaffected.
+        files:
+          - specs/SPEC-054-recipe-apply-and-manifest.spec.md
+        claims:
+          - CLM-011
+        depends_on:
+          - TASK-007
+
+      - id: TASK-009
+        type: verification
+        title: "Comprehensive verification — rebuilt binary, full gate kill chain, artifact validation, scope boundary"
+        description: |
+          Final verification over BOTH work categories this plan touched: Go code
+          and artifacts.
+
+          1. REBUILD THE BINARY FIRST. A stale ./bin/backstop gates the OLD code
+             and reports a vacuous green:
+
+                 go build -o bin/backstop ./cmd/backstop/
+
+          2. Full kill chain, no filtering and no per-dimension selection:
+
+                 ./bin/backstop gate
+
+             Fix real violations in the owning task's files. Do not waive, do not
+             baseline, do not scope the run down. Violations in files THIS change
+             touched must be fixed outright — you touch it, you fix it; no
+             grandfathering on changed files.
+
+          3. Artifact validation for both artifacts this plan touched:
+
+                 ./bin/backstop artifact validate --plan PLAN-ISSUE-081
+                 ./bin/backstop artifact validate --spec SPEC-054
+
+             NOTE THE ID AMBIGUITY: two plans carry plan_id PLAN-ISSUE-081 (this
+             one and the completed
+             plans/PLAN-ISSUE-081-recipe-authoring-surface.plan.yml). Confirm
+             from the validator's own output WHICH file it reported on, and if it
+             did not cover this file, validate it by path. Report the verbatim
+             output either way; do not report a pass you cannot attribute to this
+             file.
+
+          4. Re-run both suites against the rebuilt tree:
+
+                 go test ./pkg/recipe/... ./cmd/backstop/... -race -count=1
+
+             Then confirm the traceability binding actually closed: every test
+             name TASK-008 mandated in SPEC-054 EXISTS in the tree. A mandated
+             name with no test is a broken promise the status-drift dimension
+             finds later; find it here.
+
+          5. Confirm the SCOPE BOUNDARY, since this plan deliberately leaves one
+             facet undecided and inherits two settled ones. `git diff` must show:
+               - NO change to `fragment:` parsing, its diagnostics, or the
+                 fragment path contract (Gap 1, delivered);
+               - NO change to the `--param` flag, its grammar or its rejections
+                 (Gap 2, delivered);
+               - NO parse-time or apply-time check added against `payload:` (the
+                 residual ISSUE-081 facet, still open on purpose);
+               - NO change to pkg/recipe/substitute.go (PLAN-ISSUE-110's surface);
+               - NO new field on `Op` — the placement is behavior, and a declared
+                 `placement:` field is the follow-on question this plan
+                 deliberately did not answer.
+
+          Report the actual command output for every step. Do not assert a pass
+          you did not run.
+        files:
+          - pkg/recipe/apply.go
+          - pkg/recipe/apply_insert_placement_test.go
+          - cmd/backstop/recipe_apply_direct_mode_test.go
+          - specs/SPEC-054-recipe-apply-and-manifest.spec.md
+          - pkg/recipe/testdata/captured/CAPTURE-SOURCE-insert.md
+        claims:
+          - CLM-001
+          - CLM-009
+          - CLM-010
+          - CLM-011
+        depends_on:
+          - TASK-006
+          - TASK-008

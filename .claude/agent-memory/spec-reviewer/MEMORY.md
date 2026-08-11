@@ -26,3 +26,5 @@
 - [SPEC-046 ready to plan](project_spec046_review1.md) — passed review #4; completeness contract reframed to mechanical guard+test_command over 4 pkgs (list illustrative); all 10 config.Config.Language readers enumerated, guard scope provably exhaustive
 - [projectRoot is always absolute](feedback_projectroot_is_always_absolute.md) — "root colocation is invocation-directory-dependent" is always a fabrication; check DiscoverConfigPathFrom
 - [SPEC-066 review #2 FAIL](project_spec066_review2.md) — 9/10 must-fixes landed; M9's replacement justification is a second fabrication (empirically disproven)
+- [packval phase 3 is inert](feedback_packval_phase3_is_inert.md) — rule_path vs file key mismatch: NO pack executes fixtures; "pack test proves it fires" is always vacuous
+- [SPEC-067 review #2 FAIL](project_spec067_review2.md) — basename globs verified vs real semgrep, but the phase-3 justification the fix introduced is fabricated

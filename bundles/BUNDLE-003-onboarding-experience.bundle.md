@@ -6,9 +6,9 @@ schema_version: bundle/v2
 
 bundle:
   name: onboarding-experience
-  version: "0.7.0"
+  version: "0.8.1"
   created: "2026-04-09"
-  updated: "2026-08-10"
+  updated: "2026-08-11"
   category: feature
 
 status:
@@ -206,10 +206,50 @@ requirements:
       init must name it in the guidance it prints whenever a step it cannot complete
       is diagnosable (DD-8 corollary, DD-9).
   - id: REQ-021
-    version: "1.0.0"
+    version: "1.1.0"
     text: >
-      `backstop version` must stamp the build commit and build date, and must never
-      report a bare `dev`, so a stale binary is identifiable on sight (DD-9).
+      `backstop version` must stamp the build commit and build date, so a stale binary is
+      identifiable on sight. Reporting a bare `dev` as the VERSION STRING of a non-release
+      build is CORRECT and must be preserved, not eliminated: `cmd/backstop/version.go`
+      deliberately refuses to report anything release-shaped for a locally built binary —
+      it rejects `(devel)`, any `+` build metadata (so `v0.11.0+dirty` is a tag plus
+      uncommitted changes, not a release), and Go pseudo-versions — precisely so a local
+      build cannot pretend to be an official release. What must become identifiable is the
+      BUILD, not the release: `dev` plus a commit and a build date distinguishes a fresh
+      dev build from a stale one, which is the diagnosability the dogfood incident actually
+      needed (DD-9 as corrected 2026-08-11).
+    versions:
+      - version: "1.0.0"
+        text: >
+          `backstop version` must stamp the build commit and build date, and must never
+          report a bare `dev`, so a stale binary is identifiable on sight (DD-9).
+      - version: "1.1.0"
+        text: >
+          `backstop version` must stamp the build commit and build date, so a stale binary is
+          identifiable on sight. Reporting a bare `dev` as the VERSION STRING of a non-release
+          build is CORRECT and must be preserved, not eliminated: `cmd/backstop/version.go`
+          deliberately refuses to report anything release-shaped for a locally built binary —
+          it rejects `(devel)`, any `+` build metadata (so `v0.11.0+dirty` is a tag plus
+          uncommitted changes, not a release), and Go pseudo-versions — precisely so a local
+          build cannot pretend to be an official release. What must become identifiable is the
+          BUILD, not the release: `dev` plus a commit and a build date distinguishes a fresh
+          dev build from a stale one, which is the diagnosability the dogfood incident actually
+          needed (DD-9 as corrected 2026-08-11).
+        correction: >
+          CORRECTION (2026-08-11, v0.8.1, founder-ruled). The v1.0.0 clause "must never report a
+          bare `dev`" was WRONG and is withdrawn: it contradicted a deliberate anti-spoofing
+          design already shipped in `cmd/backstop/version.go`, whose whole purpose is that a
+          non-release build reports `dev` rather than something that looks like a release.
+          Founder ruling, verbatim: "it can be dev for a local build if that's standard
+          practice." Verified against the code and the running binary the same day: `./bin/backstop
+          version` reports `backstop version dev`, and `resolveVersion` returns `dev` for every
+          input that is not an injected goreleaser stamp or a strictly released module version.
+          Nothing is lost by the withdrawal — the underlying stale-binary concern is carried by
+          the surviving build-commit/build-date clause above, by REQ-022 (which names the stale
+          binary as the cause instead of surfacing the downstream engine error — the exact
+          dogfood failure mode), and by REQ-028 (which stamps producing-binary identity onto every
+          result so a stale green can be quarantined). No NEW mechanism was ordered by the ruling
+          and none is invented here.
   - id: REQ-022
     version: "1.0.0"
     text: >
@@ -238,6 +278,108 @@ requirements:
       `backstop doctor` must validate a consumer repo's artifact layout against the
       canonical `.backstop/`-rooted layout and report each deviation with the path it
       expected (OQ-1, doctor seed).
+  - id: REQ-026
+    version: "1.0.0"
+    text: >
+      The schema cohort a binary reports must be derived from the CONTENT of its
+      embedded schemas, not from their names or count, so that any change to an
+      embedded schema's bytes changes the cohort identifier. Evidence (verified
+      2026-08-11): `computeCohortID` (`cmd/backstop/root.go`) builds the cohort string
+      from schema file PATHS alone — `11-schemas[adr/v1,...,spec/v1]` — so the in-place
+      revision of `bundle/v2` that BUNDLE-014 shipped (adding the `Draft`-prefixed
+      section names, `text:` in place of `statement:`, per-REQ `version:`, and
+      `bundle.updated`) left the reported cohort byte-identical. A name-derived cohort
+      cannot detect the skew that produced the false green in REQ-027, which is why
+      content-derivation is a requirement and not an implementation detail (DD-9).
+  - id: REQ-027
+    version: "1.0.0"
+    text: >
+      `backstop artifact validate` and `backstop gate` must assert the validating
+      binary's schema cohort against each artifact's declared `schema_version` and MUST
+      REFUSE to report green when they cannot prove the cohort covers the schema
+      features the artifact uses. A validator too old — or too new — for an artifact's
+      schema must fail loudly; "cannot determine" is a failure, never a pass. Evidence:
+      BUNDLE-001 in bclabs-portal was authored, promoted to `defined`, and revised five
+      times (0.2.0 → 0.2.5) across multiple sessions with `artifact validate` reporting
+      GREEN throughout, while violating the then-current `bundle/v2` schema in 41
+      places; the nonconformance surfaced instantly under a current binary. The only
+      schema cross-check performed today is `schema_version` PREFIX vs artifact type
+      (`pkg/validate/{bundle,spec,issue,adr}.go`) — nothing compares schema revisions.
+      This guard belongs in core's own validate/gate rather than any single harness,
+      because the skew bit in a different toolchain than the one that caught it (DD-9).
+  - id: REQ-028
+    version: "1.0.0"
+    text: >
+      Every `gate` and `artifact validate` result, in both human and `--json` form, must
+      record the version and schema cohort of the binary that produced it, so a stored
+      or forwarded result can be quarantined rather than projected as truth when it was
+      produced by a validator that could not have caught the violation. Evidence: gate
+      results already stamp `GitSHA` and `GeneratedAt` (`cmd/backstop/gate.go`) but carry
+      no binary identity, so a recorded green is indistinguishable from a green a stale
+      validator could not have withheld (DD-9).
+  - id: REQ-029
+    version: "1.0.0"
+    text: >
+      Artifact discovery must resolve the artifact root from configuration and apply
+      that one resolution uniformly across gate status resolution, validation reference
+      resolution, and scaffolding — so a consuming repo can hold the whole artifact
+      chain under `.backstop/` and be discovered, while backstop-core keeps the root
+      layout (the OQ-1 framework exception) by configuring the repo root. Evidence
+      (verified 2026-08-11, unchanged since the 2026-07-17 write-up): three independent
+      hardcodings of the root layout — `pkg/gate/artifact_status.go` joins projectRoot
+      with `specs`/`bundles`/`issues`/`directives`/`plans`; `pkg/validate/resolved_by.go`
+      maps BUNDLE→`bundles`, SPEC→`specs`, ISSUE→`issues`, DIR→`directives`;
+      `pkg/scaffold/scaffold.go` scaffolds into root `specs`/`issues`/`directives`/
+      `bundles`. No `artifact_root` key exists in the `backstop.yml` schema or loader.
+      REQ-004 is unimplementable — and actively harmful — until this lands (OQ-1).
+  - id: REQ-030
+    version: "1.0.0"
+    text: >
+      Artifact discovery must name the artifact root it actually scanned in gate output,
+      and must fail loudly when a configured artifact root does not exist on disk rather
+      than walking absent directories and reporting a passing dimension. An artifact root
+      that EXISTS but is empty remains a legitimate pass — the validated greenfield
+      profile reached gate PASS with empty artifact dirs and that outcome must not
+      regress. Evidence: backstop-runtime already placed `.backstop/bundles/` while its
+      `specs/` stayed at root; because the binary only discovers `projectRoot/bundles`,
+      those bundles are almost certainly not gated and nothing says so — the same
+      false-green family as REQ-027 (OQ-1).
+  - id: REQ-031
+    version: "1.0.0"
+    text: >
+      Init must never scaffold an artifact layout the installed binary's discovery
+      cannot resolve. Until REQ-029 ships, init must place consuming-repo artifacts at
+      the root layout discovery can see and state that the `.backstop/`-rooted layout is
+      not yet supported; REQ-004 is gated on REQ-029 and must not be implemented ahead of
+      it. Rationale: a repo that adopts the intended layout early gets its whole artifact
+      chain SILENTLY UNDISCOVERED, which is strictly worse than the divergence REQ-004
+      exists to end (OQ-1, REQ-029).
+  - id: REQ-032
+    version: "1.0.0"
+    text: >
+      Init must materialize and install the project-level dependencies the installed
+      packs' engines invoke but do not vendor, taking both the dependency set and the
+      install invocation from pack recipe data, and must do so before the REQ-011
+      toolchain-execution check runs. Neither dependency names nor package-manager
+      invocations may appear in core (DD-13). Evidence: step 1 of the pack-only
+      hand-onboarding was installing `eslint @eslint/js typescript-eslint typescript
+      vitest @vitest/coverage-v8` by hand — the pack ships rules and config, not
+      packages — and without that step REQ-011's verification cannot pass. Distinct from
+      DIR-001's scope: these are project-scoped dependencies a pack declares, not the
+      host binary or system runtime (DD-10, DD-12).
+  - id: REQ-033
+    version: "1.0.0"
+    text: >
+      The pack-only profile must not silently forfeit coverage enforcement. Because
+      REQ-003 sets `coverage_threshold` to `level: off` for a consumer that has no specs
+      to source thresholds from, init's pack-only profile must instead wire a
+      spec-independent coverage floor (a global and/or per-glob minimum under
+      `enforcement`) over the coverage records the installed packs already produce.
+      Evidence: `ts-coverage` emits per-file coverage records, but `coverage_threshold`
+      sources its thresholds from SDLC specs, so the pack-only consumer ends up holding
+      coverage data with no "fail under N%" knob. The knob itself is a core
+      enforcement-policy capability this bundle CONSUMES and does not design (see Out of
+      Scope / Dependencies) (DD-2).
 ---
 
 # Onboarding Experience
@@ -253,6 +395,37 @@ one write-up per profile (see References). Those two write-ups are the empirical
 requirements corpus. Both currently live as untracked field notes in other repos, so
 the load-bearing substance is lifted into the design decisions below (especially DD-8)
 rather than left to survive by citation alone.
+
+### Grounding pass, 2026-08-11 — requirements re-checked against the real dogfood evidence
+
+The 25 requirements authored on 2026-08-10 were derived from this bundle's own resolved OQs
+and DDs. On 2026-08-11 they were re-checked line by line against the two hand-onboarding
+source documents themselves, rather than against this bundle's summary of them:
+
+- `~/src/projects/backstop-packs/BACKSTOP-INIT-REQUIREMENTS.md` — the **pack-only** profile.
+- `~/src/projects/backstop-packs/BACKSTOP-INIT-DOGFOOD-FULL-SDLC.md` — the **full-SDLC
+  greenfield** profile (bclabs-portal, 2026-07-12, with a second version-skew instance
+  appended 2026-07-16 and the artifact-layout founder ruling appended 2026-07-17).
+
+Note the second document is the same corpus the References section lists as
+`bclabs-portal/docs/dogfood/init-sharp-edges.md`; it now lives in `backstop-packs/`
+alongside its pack-only sibling. Both remain untracked field notes — this bundle is still
+their durable home.
+
+Fifteen concrete findings were checked. Ten were already covered by REQ-001..025. Two were
+ruled out of scope with reasons recorded below (semgrep rule-id readability; `artifact new`
+number reservation). Eight new requirements (REQ-026..033) closed the remaining gaps, and the
+code state behind each was verified against HEAD on 2026-08-11 rather than trusted from notes
+written in July — `computeCohortID` is still path-derived, all three artifact-discovery
+hardcodings are still present, no `artifact_root` config key exists, and gate results still
+carry no producing-binary identity. The two serious ones (schema-cohort false green,
+artifact-root silent undiscovery) are generalized into DD-15.
+
+One finding was RETIRED by its own successor evidence: the pack-only document's recommendation
+that init write `onlyBuiltDependencies: [esbuild]` into `pnpm-workspace.yaml` was superseded
+three weeks later when pnpm 11.11 ignored that key entirely and the failure proved cosmetic.
+That reversal is precisely the argument for REQ-011 (verify the toolchain RUNS) — and writing
+a package-manager-specific key from core would violate DD-13 regardless.
 
 ### The current state
 
@@ -295,11 +468,22 @@ is a sharp edge the tool should absorb.
 
 ## Draft Requirements
 
-REQ-001 through REQ-025 are carried in the frontmatter `requirements` block. Every one is
-derived from an already-resolved OQ, an existing DD, or a spec seed in this bundle — nothing
-below introduces scope that those did not already settle. They partition cleanly across the
-two spec seeds: **REQ-001..019 belong to `backstop init`**, **REQ-020..025 belong to
-`backstop doctor`**.
+REQ-001 through REQ-033 are carried in the frontmatter `requirements` block. REQ-001..025 are
+each derived from an already-resolved OQ, an existing DD, or a spec seed in this bundle.
+REQ-026..033 were added in 0.8.0 by the grounding pass described under Current Thinking —
+each is a finding from the two hand-onboarding write-ups that none of the first 25 covered.
+
+They partition cleanly across **three** spec seeds:
+
+| Seed | Requirements |
+|---|---|
+| `backstop init` | REQ-001 – REQ-019, REQ-031, REQ-032, REQ-033 |
+| `backstop doctor` | REQ-020 – REQ-025 |
+| Trustworthy-green guards (core) | REQ-026 – REQ-030 |
+
+The third seed is new in 0.8.0. It exists because REQ-026..030 are changes to core's
+validate / gate / discovery paths that init and doctor both DEPEND on but neither OWNS —
+folding them into either seed would have made that seed's scope dishonest. See Spec Seeds.
 
 ### `backstop init` (REQ-001 – REQ-019)
 
@@ -334,19 +518,51 @@ two spec seeds: **REQ-001..019 belong to `backstop init`**, **REQ-020..025 belon
 - **Acceptance** (REQ-019): the transcribed hand-onboarding sequence is the happy path, and
   the bar is the outcome it already produced by hand — init then `backstop gate` reaching PASS
   with zero violations on a fresh repo, for both profiles (DD-8).
+- **Layout sequencing guard** (REQ-031, added 0.8.0): init must not scaffold a layout
+  discovery cannot resolve. REQ-004 is GATED on REQ-029; until that lands, init keeps
+  consuming-repo artifacts at root and says so. Without this, REQ-004 as written would ship
+  the exact silent-undiscovery failure the write-up warned against (DD-15).
+- **Pack-declared project dependencies** (REQ-032, added 0.8.0): init installs the devDeps a
+  pack's engines invoke but do not vendor, from pack recipe data, before REQ-011 runs. This
+  closes a hole BETWEEN two existing requirements — REQ-009 writes the toolchain config and
+  REQ-011 executes the toolchain, and nothing in between installed anything.
+- **Pack-only coverage floor** (REQ-033, added 0.8.0): REQ-003 turns `coverage_threshold`
+  off for the pack-only profile, which would otherwise leave that consumer holding coverage
+  records with no threshold to fail against. Init wires a spec-independent floor instead.
 
 ### `backstop doctor` (REQ-020 – REQ-025)
 
 - **The command** (REQ-020): one check per ranked sharp edge; init points at it rather than
   absorbing diagnosis (DD-8 corollary).
-- **Version-skew diagnosability** (REQ-021, REQ-022): a real version stamp instead of bare
-  `dev`, and a binary-vs-pack capability comparison in `pack add` and `gate` that names the
-  stale binary instead of surfacing the downstream engine error. This was the highest-pain
-  sharp edge in the 2026-07-12 dogfood (DD-9).
+- **Version-skew diagnosability** (REQ-021, REQ-022): a build-identity stamp (commit + build
+  date) alongside the version string, and a binary-vs-pack capability comparison in `pack add`
+  and `gate` that names the stale binary instead of surfacing the downstream engine error. This
+  was the highest-pain sharp edge in the 2026-07-12 dogfood (DD-9).
+  **CORRECTION (2026-08-11, v0.8.1, founder-ruled):** the phrase this bullet previously used —
+  "a real version stamp instead of bare `dev`" — is withdrawn. Bare `dev` IS the real answer for
+  a non-release build. See the REQ-021 v1.1.0 correction and DD-9 mechanic (a).
 - **Standalone diagnostics** (REQ-023, REQ-024, REQ-025): re-run the toolchain-execution check
   outside init (DD-6), check runtime version against pack-declared stack policy (the
   unenforced Node-LTS observation), and validate the artifact layout against the canonical
   `.backstop/` root (OQ-1).
+
+### Trustworthy-green guards (REQ-026 – REQ-030) — new in 0.8.0
+
+The doctor requirements above make version skew **diagnosable**. These make it **unable to
+certify**. The distinction is the whole point of DD-15: a misleading error stops you, but a
+false green propagates — promotions, hand-offs, and derived specs and plans accrue on a
+foundation that was never actually validated.
+
+- **Cohort integrity** (REQ-026, REQ-027, REQ-028): the reported cohort must be derived from
+  schema CONTENT (today it is derived from schema paths, so an in-place `bundle/v2` revision
+  is invisible); `validate` and `gate` must refuse green when they cannot prove their cohort
+  covers the artifact's schema; and every result must carry the producing binary's identity so
+  a stale green can be quarantined downstream. REQ-021/REQ-022 sit under `doctor` because they
+  are diagnostics a human runs; these three are guards that run unasked, on every validation.
+- **Artifact-root resolution** (REQ-029, REQ-030): discovery resolves the artifact root from
+  config through ONE resolver shared by gate, validate, and scaffold; discovery names the root
+  it scanned and fails loudly on a configured root that is absent — while an existing-but-empty
+  root stays a pass, preserving the validated greenfield outcome.
 
 ### Deliberately NOT requirements here
 
@@ -360,6 +576,19 @@ two spec seeds: **REQ-001..019 belong to `backstop init`**, **REQ-020..025 belon
 - The cascading `coverage_threshold` misdiagnosis when tests fail — recorded under
   Observations as a pack-side messaging concern, not init scope.
 - Registry-era pack auto-detection — explicitly dissolved by OQ-5.
+- The `enforcement.coverage.min_pct` knob ITSELF — a core enforcement-policy capability.
+  REQ-033 requires init to WIRE a spec-independent coverage floor for the pack-only profile;
+  designing the knob belongs to enforcement policy (see Out of Scope / Dependencies).
+- Semgrep's path-derived rule IDs (e.g.
+  `backstop/typescript-standards/backstop.packs...rules.security.ts.security.no-eval`) — a
+  core-side output/waiver-token readability cleanup, explicitly logged as cosmetic and
+  non-blocking in the pack-only write-up. Real, but it is gate-output ergonomics, not
+  onboarding; it needs its own issue.
+- `artifact new` number reservation (no gap-fill, no `--number`, stray reservation tags) — a
+  `pkg/scaffold` CLI defect, not init behavior. Recorded under Observations with its verified
+  root cause so it can be filed separately. REQ-020's "one check per ranked sharp edge" would
+  sweep a doctor-side orphan-tag check in by implication; whether to make that explicit is a
+  founder call, not one this pass took.
 
 ## Draft Design Decisions
 
@@ -437,7 +666,13 @@ two spec seeds: **REQ-001..019 belong to `backstop init`**, **REQ-020..025 belon
   transcribing "what the human did" is lower-risk than designing a new sequence.
 
 - **DD-9: Init and `doctor` make CLI/pack version skew diagnosable.** Two mechanics:
-  (a) `backstop version` stamps the build commit and date, never a bare `dev`; (b)
+  (a) `backstop version` stamps the build commit and date — **CORRECTED 2026-08-11 (v0.8.1,
+  founder-ruled): the original trailing clause "never a bare `dev`" is WITHDRAWN.** It
+  contradicted the shipped anti-spoofing design in `cmd/backstop/version.go`, which reports
+  `dev` for any non-release build on purpose so a local build cannot masquerade as a release.
+  Founder ruling: "it can be dev for a local build if that's standard practice." The mechanic
+  survives as build IDENTITY (commit + date) making a stale dev build distinguishable from a
+  fresh one — not as a prohibition on the string `dev`; (b)
   `pack add` and `gate` compare the binary's capability against the pack manifest's
   required features and fail loudly with "your backstop is older than this pack requires"
   instead of surfacing a downstream engine error. Evidence: the highest-pain sharp edge in
@@ -476,6 +711,27 @@ two spec seeds: **REQ-001..019 belong to `backstop init`**, **REQ-020..025 belon
   scaffolding.** `create-next-app`, `rails new`, `cargo new`, etc. produce the project;
   `backstop init` adds the backstop layer on top (converge-not-clobber, DD/OQ-6). Init never
   reimplements what an ecosystem scaffolder already does.
+
+- **DD-15 (added 0.8.0): A false green is a strictly worse failure than a loud error, and
+  onboarding is where both are manufactured.** DD-9 treats version skew as a DEBUGGING tax —
+  the 2026-07-12 instance produced a misleading error that cost most of a day. The 2026-07-16
+  instance produced something else: `artifact validate` reported GREEN across five revisions
+  and a promotion to `defined` on a bundle that violated its own schema in 41 places. A
+  misleading error at least stops you; a false green lets nonconformant governed state
+  propagate and accrue derived work on an invalid foundation. Two distinct mechanisms in this
+  bundle's evidence produce that class of failure, and both surface during onboarding, because
+  onboarding is exactly when a consumer's binary, packs, and layout are least likely to agree:
+  (a) **cohort skew** — the validator's embedded schemas silently predate the artifact's
+  (REQ-026, REQ-027, REQ-028); (b) **silent undiscovery** — the gate walks an artifact root the
+  consumer isn't using and reports a passing dimension over nothing (REQ-029, REQ-030).
+  Rationale for making this a decision rather than a note: it establishes the acceptance
+  posture for all five requirements — the correct behavior on "I cannot tell" is REFUSE, not
+  warn and not pass. That inverts the default this codebase otherwise favors
+  (loud-≠-blocking / warn-on-un-adopted-capability), and the inversion is deliberate: an
+  un-adopted capability is a missing benefit, whereas an unverifiable green is an active lie
+  about work that was already accepted on its strength. It also constrains init directly —
+  REQ-031 forbids init from scaffolding the layout (b) would silently swallow, even though
+  REQ-004 calls for that layout, until REQ-029 makes it discoverable.
 
 ## Open Questions
 
@@ -555,8 +811,19 @@ Maturity stays `exploring`; the founder triggers promotion separately.
 
 ## Spec Seeds
 
-Two non-overlapping seeds. Baseline, binary distribution, and toolchain acquisition are
-deliberately NOT seeds here — they belong to BUNDLE-007 and DIR-001 (DD-10).
+Three non-overlapping seeds, in suggested implementation order: **trustworthy-green guards →
+`backstop init` → `backstop doctor`**. Baseline, binary distribution, and toolchain
+acquisition are deliberately NOT seeds here — they belong to BUNDLE-007 and DIR-001 (DD-10).
+
+- **Trustworthy-green guards (core)** — new in 0.8.0, and FIRST in order. Covers: a
+  content-derived schema cohort (REQ-026), cohort assertion with refuse-to-green in
+  `artifact validate` and `gate` (REQ-027), producing-binary provenance on every result
+  (REQ-028), config-resolved artifact root shared by gate / validate / scaffold (REQ-029), and
+  scanned-root reporting with loud failure on an absent configured root (REQ-030). Rationale
+  for sequencing it first: REQ-004 (`.backstop/` layout) is unimplementable without REQ-029,
+  and every acceptance claim the other two seeds make is only as trustworthy as the validator
+  asserting it (DD-15). Touches `cmd/backstop/root.go`, `pkg/validate/`, `pkg/gate/
+  artifact_status.go`, `pkg/scaffold/`, and the `backstop.yml` schema — no init code.
 
 - **`backstop init` command** — the critical-path spec. Covers: omakase base install with
   subtract-via-flags (DD-2 / OQ-2), `git init`-if-needed + converge-not-clobber re-init
@@ -626,6 +893,22 @@ here. These are recorded so spec authoring does not accidentally absorb them:
   confirmation of that requirement outside the framework repo.
 - **Observation — `ledger_integrity: skipped (ledger not implemented)`.** Core already
   reserves the concept a consumer is about to implement.
+- **`artifact new` number reservation — out of scope here, but root-caused (2026-08-11).**
+  The write-up reports that `artifact new spec` cannot gap-fill a number, that git tags are
+  the undocumented reservation mechanism, and that an orphan tag got reused while a stray tag
+  one higher was created. Reading `pkg/scaffold/idresolver.go` explains the observed symptom
+  exactly: `GitTagResolver.Resolve` takes max+1 over `backstop/<type>/*` tags, CREATES the
+  annotated tag, and only THEN pushes it — and a push failure that is not a `TagConflictError`
+  (a remoteless repo, for instance) returns `FallbackError`, at which point `ResolveID` falls
+  through to `LocalScanResolver`, which numbers from FILES on disk. So the run leaves behind
+  the locally-created tag at max+1 while returning a lower, file-derived number. That is the
+  "produced SPEC-007, stray-tagged 008" pair. It is worth noting this fires hardest on exactly
+  the repo shape init targets — freshly created and remoteless. Still a `pkg/scaffold` defect
+  rather than an init requirement, so it is recorded here for a separate issue rather than
+  requirement-ized.
+- **Semgrep rule-id readability — out of scope here.** The pack-only write-up logs it as
+  cosmetic, core-side, and non-blocking; it degrades waiver tokens and gate output generally,
+  not onboarding specifically. Recorded so it is not lost, not adopted as init scope.
 - **Go-forward.** Derive the `backstop init` and `backstop doctor` specs directly from the
   two per-profile hand-onboarding checklists (DD-8), NOT by re-inventing the flow — after
   OQ-1 and OQ-2 are resolved and the bundle is promoted. Spec authoring is a
@@ -698,6 +981,52 @@ here. These are recorded so spec authoring does not accidentally absorb them:
   the rest to what installed packs declare as generated output. Maturity unchanged:
   exploring — promotion remains founder-triggered.
 
+- 0.8.0 (2026-08-11): **Grounding pass — requirements reconciled against the two
+  hand-onboarding source documents themselves**, rather than against this bundle's summary of
+  them. Fifteen concrete findings checked: ten already covered by REQ-001..025, two ruled out
+  of scope with reasons recorded (semgrep rule-id readability — cosmetic core output
+  ergonomics; `artifact new` number reservation — a `pkg/scaffold` defect, root-caused under
+  Observations), one retired by its own successor evidence (the `pnpm-workspace.yaml`
+  `onlyBuiltDependencies` recommendation, superseded when pnpm 11.11 ignored the key and the
+  failure proved cosmetic — which is the argument FOR REQ-011). **Eight new requirements
+  (REQ-026..033)**, each with its code state re-verified against HEAD on 2026-08-11 rather
+  than trusted from July notes. The two serious gaps: (1) **schema-cohort false green** —
+  REQ-026 content-derived cohort (`computeCohortID` is still path-derived, so BUNDLE-014's
+  in-place `bundle/v2` revision was invisible), REQ-027 refuse-to-green when cohort coverage
+  is unprovable (the only schema cross-check today is prefix-vs-artifact-type), REQ-028
+  producing-binary provenance on every result (gate stamps `GitSHA`/`GeneratedAt` but no
+  binary identity); (2) **artifact-root silent undiscovery** — REQ-029 config-resolved
+  artifact root through one resolver (all three hardcodings confirmed present; no
+  `artifact_root` key exists), REQ-030 scanned-root reporting with loud failure on an absent
+  configured root while existing-but-empty stays a pass. Plus REQ-031 (init must not scaffold
+  a layout discovery cannot see — REQ-004 is GATED on REQ-029), REQ-032 (install
+  pack-declared project devDeps from recipe data before REQ-011 runs — a hole BETWEEN REQ-009
+  and REQ-011), REQ-033 (pack-only coverage floor, since REQ-003 turns `coverage_threshold`
+  off). Added **DD-15** generalizing both false-green mechanisms and setting the acceptance
+  posture — on "I cannot tell", REFUSE rather than warn — a deliberate inversion of the
+  loud-≠-blocking default, justified because an unverifiable green is an active lie about
+  already-accepted work. Added a **third spec seed**, "Trustworthy-green guards (core)"
+  (REQ-026..030), sequenced FIRST; the seeds now partition as init REQ-001..019 + 031..033,
+  doctor REQ-020..025, guards REQ-026..030. Maturity unchanged: exploring — this pass changed
+  requirements content only; promotion remains founder-triggered, and the prior structural
+  assessment is untouched.
+- 0.8.1 (2026-08-11): **Single-requirement correction — REQ-021 → v1.1.0, founder-ruled.** The
+  clause "must never report a bare `dev`" was found to contradict shipped, deliberate behavior:
+  `cmd/backstop/version.go` reports `dev` for ANY non-release build on purpose (rejecting
+  `(devel)`, `+` build metadata, and Go pseudo-versions) so a local build cannot masquerade as an
+  official release — verified against the code and against `./bin/backstop version`, which prints
+  `backstop version dev`. Founder ruling: "it can be dev for a local build if that's standard
+  practice" — the CODE is right and the requirement text was wrong. REQ-021 keeps its
+  build-commit/build-date clause (build IDENTITY is what separates a stale dev build from a fresh
+  one) and withdraws the prohibition; the prior text is preserved under `versions:` with a dated
+  `correction`. Matching dated corrections applied to DD-9 mechanic (a) and the Current Thinking
+  version-skew bullet, which both repeated the withdrawn phrasing. **Nothing is lost:** the
+  2026-07-12 dogfood concern (a weeks-old binary reporting only `dev`, costing significant
+  debugging time) is carried by REQ-022 — which names the stale binary as the cause instead of
+  surfacing the downstream engine error, the exact observed failure mode — and by REQ-028, which
+  stamps producing-binary identity onto every result. No new mechanism was invented beyond the
+  one-line ruling. No requirement added or retired; no OQ resolved; maturity unchanged: exploring.
+
 ## References
 
 ### Requirements corpus (hand-onboarding write-ups — one per profile)
@@ -708,12 +1037,16 @@ treat them as transient. Their durable home is this bundle — DD-8 and the shar
 decisions/OQs/notes above lift the load-bearing substance in so it survives the docs being
 deleted.
 
-- **`bclabs-portal/docs/dogfood/init-sharp-edges.md`** — the **full-SDLC greenfield**
-  profile hand-onboarding (empty repo → `backstop gate` PASS, 2026-07-12). Its "Manual steps
-  performed" list is transcribed into DD-8 as init's happy-path sequence.
+- **`backstop-packs/BACKSTOP-INIT-DOGFOOD-FULL-SDLC.md`** — the **full-SDLC greenfield**
+  profile hand-onboarding (empty repo → `backstop gate` PASS, 2026-07-12; version-skew
+  instance #2 appended 2026-07-16; artifact-layout founder ruling appended 2026-07-17). Its
+  "Manual steps performed" list is transcribed into DD-8 as init's happy-path sequence; its
+  ranked sharp edges are the source of DD-9, DD-15, and REQ-026..031. Previously cited here
+  as `bclabs-portal/docs/dogfood/init-sharp-edges.md` — same corpus, relocated alongside its
+  pack-only sibling (path corrected 2026-08-11).
 - **`backstop-packs/BACKSTOP-INIT-REQUIREMENTS.md`** — the **pack-only** profile
   hand-onboarding (consumer adopting packs without SDLC artifacts). Source of the
-  `enforcement.policy` `level: off` requirement in DD-2.
+  `enforcement.policy` `level: off` requirement in DD-2, and of REQ-032 / REQ-033.
 
 ### Related artifacts
 

@@ -151,3 +151,46 @@ Not scoped here — for the eventual plan to weigh, at minimum:
   a duplicate.
 - Fixtures-from-real-output/must-falsify convention referenced above: recorded founder law, see
   agent memory `feedback_fixtures_from_real_output`.
+
+## Additional evidence
+
+- **Flip-the-switch reproduction (2026-08-11), reviewer, during specs/SPEC-067-ci-recipe-pack.spec.md
+  review.** Two-step hands-on demonstration against a copy of `backstop-self-pack`, confirming the
+  root cause diagnosed above end-to-end rather than just at the `rule.File` code-read level:
+  1. Replaced every violating fixture in the copy with an inert `package x` stub (i.e. a fixture
+     that violates nothing) and ran `backstop pack test`. Result: `phase3-fixtures: pass`,
+     `status: pass` — a pack whose fixtures no longer demonstrate any violation still reports its
+     fixture-execution phase as green. This is the false-green from the Problem section, observed
+     directly rather than inferred from code.
+  2. On the same copy, added `file: rules/no-baked.yml` alongside the existing `rule_path:` on one
+     rule entry, then re-ran `pack test`. Execution switched on immediately: 13 real errors surfaced
+     — 7× `[phase3-fixtures/semgrep-positive] positive fixture failed` and 6×
+     `[phase3-fixtures/semgrep-negative] negative fixture not triggered`. This directly confirms
+     `phase3.go`'s `rule.File != ""` guard is the live/dead switch for fixture dispatch described in
+     Root cause: populating the field the runtime parser doesn't even read is what turns the checker
+     on, and its absence (the real-world state of every pack.yml in this repo) is what turns it off.
+
+- **Possible secondary defect — polarity mismatch, unverified.** While reproducing the above, a
+  second and less certain issue surfaced: packval's `Fixtures.Positive`/`Fixtures.Negative` fields
+  are read by `phase3.go` as "positive fixture MUST fire the rule, negative fixture MUST NOT fire
+  the rule" — but the ecosystem's own directory-naming convention reads the opposite way in
+  practice. E.g. `backstop-self-pack/pack.yml:26-29` names its non-firing fixtures'
+  directory `fixtures/rules/valid/` and its firing (violating) fixtures' directory
+  `fixtures/rules/invalid/` — "valid" for what should NOT trigger a rule and "invalid" for what
+  SHOULD trigger it reads as the semantically inverted framing from "positive/negative" as those
+  words are used elsewhere (positive = present/matches, negative = absent/no-match). This has NOT
+  been traced through to confirm whether it is a real functional bug (i.e. packval's check is
+  wired backwards against what pack authors intend) or purely a naming-convention mismatch with no
+  behavioral consequence (i.e. the `positive:`/`negative:` YAML keys are assigned the right file
+  lists regardless of which directory name a pack author chose). Flagging for someone to trace
+  through packval's fixture-list assignment against real pack.yml declarations — not asserting a
+  defect here.
+
+- **Discovery context, not authority on the defect.** Found while reviewing
+  `specs/SPEC-067-ci-recipe-pack.spec.md` (in-progress, not yet implemented as of 2026-08-11) — that
+  spec's CLM-058 claims its rules are proven to fire correctly via `backstop pack test`, and that
+  claim turned out to be unverifiable against the live tool because of exactly this defect: a
+  `pack test` green tells you nothing about whether the rules it claims to validate actually ran.
+  Cited here only as the occasion the reviewer rediscovered this issue's already-diagnosed defect,
+  not as a second source of truth about the root cause — the flip-the-switch reproduction above is
+  the evidence; SPEC-067 is only how the reviewer got there.
