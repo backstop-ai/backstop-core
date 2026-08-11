@@ -32,9 +32,13 @@ implementation:
     invocation, and a diff base resolved from the platform's own environment variables.
     The pack additionally ships TWELVE semgrep enforcement rules (three per platform),
     each `paths:`-scoped by a BASENAME GLOB anchored on its recipe's target filename (the
-    only include form semgrep actually honours — a multi-segment path include matches
-    nothing, measured), which is what makes adopting the pack into backstop-core
-    verdict-neutral BY CONSTRUCTION rather than by measurement — bundle REQ-013's adoption-gating is NOT implemented yet, so path scoping
+    only include form that works under BOTH of the gate's real dispatch modes — measured
+    against the gate's own live path, `runFindingsEngine` at
+    `cmd/backstop/pack_gate.go:573`: under the DEFAULT diff-scoped gate, which hands
+    semgrep EXPLICIT FILE targets, a multi-segment path include matches NOTHING, while
+    under `--all`'s directory-target dispatch that same include DOES match its one file,
+    so only the basename form is reliable across both), which is what makes adopting the
+    pack into backstop-core verdict-neutral BY CONSTRUCTION rather than by measurement — bundle REQ-013's adoption-gating is NOT implemented yet, so path scoping
     is the only thing standing between an installed-but-unapplied recipe and someone
     else's red gate. OUT OF SCOPE and named as such: the OIDC emitter workflow and the
     cross-pack OIDC-audience parity check (the 2026-07-20 seed extension, which no bundle
@@ -196,11 +200,12 @@ requirements:
       `bitbucket-pipelines*.yml` (bitbucket-pipelines-gate); `Jenkinsfile*`
       (jenkins-gate). A MULTI-SEGMENT path include such as
       `.github/workflows/backstop-gate.yml` is PROHIBITED, and not as a style preference:
-      measured against real semgrep 1.156.0 in the invocation shape packval phase 3 uses
-      (`semgrep --sarif --quiet --config <rule> <target>`, cwd = the pack directory, inside
-      a git repository), that include matches ZERO files — not even the file it names —
-      so mandating it would mandate a rule that can never fire. Basename globs are the only
-      include form real semgrep honours here, which is the whole justification for the
+      measured against real semgrep 1.156.0 in the gate's own live dispatch shape
+      (`runFindingsEngine`, `cmd/backstop/pack_gate.go:573`, EXPLICIT FILE targets under the
+      DEFAULT diff-scoped gate), that include matches ZERO files — not even the file it
+      names — so mandating it would mandate a rule that never fires under the everyday bare
+      `backstop gate`. Basename globs are the only include form real semgrep honours across
+      BOTH of the gate's dispatch modes, which is the whole justification for the
       form. The trailing `*` is equally mandatory, and each fixture must be NAMED so its
       own rule's include glob matches it — `backstop-gate-missing-pack-install.yml`,
       `gitlab-ci-verdict-swallowed.yml`, `Jenkinsfile-shallow-clone`, and so on. That
@@ -976,10 +981,19 @@ own adoption of the pack verdict-neutral without measuring anything (REQ-002, CL
 core's only workflow is `ci.yml`, which no include set names.
 
 The glob form is not a stylistic choice and the spec is precise about it because the
-obvious form does not work. Measured against real semgrep 1.156.0 in packval phase 3's own
-invocation shape, an include of `.github/workflows/backstop-gate.yml` matches ZERO files —
-not even the file it names — while the basename form `backstop-gate.yml` matches. The
-basename glob is the only include form that works, and that fact alone justifies it.
+obvious form does not work. Measured against real semgrep in the GATE'S OWN live dispatch
+shape — `runFindingsEngine` (`cmd/backstop/pack_gate.go:573`) under the DEFAULT
+diff-scoped gate, which passes EXPLICIT FILE targets — an include of
+`.github/workflows/backstop-gate.yml` matches ZERO files, not even the file it names,
+while the basename form `backstop-gate.yml` matches. Confirmed on both semgrep 1.156.0 and
+on 1.96.0, the version `pkg/pack/engine/allowlist.go:22` actually pins and therefore what
+the gate provisions. That zero-match result is SPECIFIC TO THAT DISPATCH MODE: under
+`--all`, which passes the project root as a DIRECTORY target, the same multi-segment
+include DOES match its one file. The asymmetry is exactly why the basename form is
+mandated — it is the only include form that works under BOTH dispatch modes, so a rule
+written that way cannot be silently dead under whichever mode a consumer happens to run.
+(packval phase 3, were ISSUE-092 ever fixed, would use the same explicit-file invocation
+shape — but phase 3 never executes today, so it is not why this matters.)
 
 The trailing `*` and the matching fixture NAMES are justified separately and more weakly,
 and the spec is explicit about the difference. Were phase 3 executing fixtures, it would
@@ -1189,8 +1203,9 @@ differences from that precedent, both required here:
   because a rule that fired on any file shaped like a gate workflow would fire on files no
   recipe wrote — including backstop-core's own `ci.yml`, whose diagnostic capture step
   legitimately ends in `|| echo …`. Path scoping is what makes REQ-002's verdict-neutrality
-  structural. The exact include sets, all four measured against real semgrep 1.156.0 in
-  packval phase 3's invocation shape:
+  structural. The exact include sets, all four measured against real semgrep in the gate's
+  OWN live dispatch shape (`runFindingsEngine`, `cmd/backstop/pack_gate.go:573`, DEFAULT
+  diff-scoped gate = explicit file targets):
 
   | Recipe | `paths: include:` | Matches the deployed target | Matches its own fixtures | Matches core |
   | --- | --- | --- | --- | --- |
@@ -1200,10 +1215,14 @@ differences from that precedent, both required here:
   | `jenkins-gate` | `Jenkinsfile*` | `Jenkinsfile` | `Jenkinsfile-*` | no |
 
   One mechanical fact drives that whole column of globs and it is not negotiable: a
-  MULTI-SEGMENT include does not work. `.github/workflows/backstop-gate.yml` as an include
-  pattern matches zero files, not even the file it names, while the basename form matches.
-  Basename globs are the only include form real semgrep honours in this invocation shape,
-  so the form is forced.
+  MULTI-SEGMENT include is not reliable. Under the gate's DEFAULT diff-scoped dispatch,
+  which hands semgrep EXPLICIT FILE targets, `.github/workflows/backstop-gate.yml` as an
+  include pattern matches ZERO files — not even the file it names — while the basename
+  form matches. (Under `--all`, which passes the project root as a DIRECTORY target, that
+  multi-segment include DOES match its one file; the basename form matches under BOTH.)
+  Confirmed on semgrep 1.156.0 and on 1.96.0, the pinned version
+  (`pkg/pack/engine/allowlist.go:22`). Basename globs are the only include form that works
+  across both dispatch modes, so the form is forced.
 
   The trailing `*` and the fixture NAMING rule rest on a weaker, forward-looking
   justification and this spec states it as such. The mechanism they anticipate: packval
@@ -1367,11 +1386,17 @@ rather than papered over — see Sharp Edge 8 and the Review Questions.
    it.** `backstop-gate*.yml` matches that basename ANYWHERE in a consumer's tree: a
    consumer with an unrelated `deploy/backstop-gate.yml.bak`-shaped file, or a vendored copy
    under `third_party/`, gets it policed. That extra width is a real cost, wider than an
-   exact path include would be if exact paths worked. They do not: semgrep matches ZERO
-   files against a multi-segment include (measured, 1.156.0), so the natural tightening to
-   the real path silently stops the rule firing at all, which reads as a clean pack rather
-   than a dead one. The basename form is chosen because it is the only working form, not
-   because it is tight.
+   exact path include would be if exact paths worked reliably. They do not: under the
+   gate's DEFAULT diff-scoped dispatch (`runFindingsEngine`,
+   `cmd/backstop/pack_gate.go:573`, EXPLICIT FILE targets) semgrep matches ZERO files
+   against a multi-segment include — measured on 1.156.0 and on the pinned 1.96.0
+   (`pkg/pack/engine/allowlist.go:22`) — so the natural tightening to the real path
+   silently stops the rule firing at all, which reads as a clean pack rather than a dead
+   one. Under `--all`'s DIRECTORY-target dispatch the same multi-segment include WOULD
+   match its one file, which makes the trap worse rather than better: a tightened rule
+   would look alive under a full sweep and be dead under the everyday bare `backstop
+   gate`. The basename form is chosen because it is the only form that works under BOTH
+   dispatch modes, not because it is tight.
 
    What makes this genuinely sharp is that nothing catches the mistake for you. A
    mis-scoped include is NOT caught by `backstop pack test` today: phase 3's fixture
@@ -1381,6 +1406,23 @@ rather than papered over — see Sharp Edge 8 and the Review Questions.
    whether any rule fires. Anyone who edits these `paths:` blocks must verify firing by
    running semgrep against the fixture directly, and must not read the green pipeline as
    confirmation.
+
+   One dependency underneath all of this is worth recording explicitly, because it is
+   unstated elsewhere and currently TRUE rather than guaranteed. REQ-009 deliberately NAMES
+   each fixture so its own rule's include glob MATCHES it
+   (`backstop-gate-missing-pack-install.yml`, `Jenkinsfile-shallow-clone`, …) — and once a
+   consumer installs this pack, those glob-matching fixtures sit inside the consumer's own
+   tree at `.backstop/packs/backstop-ai/ci-workflows/fixtures/rules/invalid/`.
+   REQ-002/CLM-006 measures verdict-neutrality only over files TRACKED in backstop-core,
+   and installed packs are gitignored, so CLM-006 never looks at those fixtures at all.
+   They stay inert for a different reason, measured: semgrep SKIPS git-ignored paths, and
+   `.backstop/packs/` is gitignored (`.gitignore:41`), so even the DIRECTORY-target
+   dispatch of `backstop gate --all` never scans them. Verdict-neutrality therefore holds
+   today — but it holds on semgrep's git-ignore awareness PLUS the consumer keeping
+   `.backstop/packs/` gitignored, which is the standard state this repo's own conventions
+   assume and which nothing in this spec requires. A consumer who un-ignores their pack
+   directory would begin scanning this pack's own deliberate NEGATIVE fixtures and would
+   collect findings on them.
 
 9. **Rule severity is declared in the rule FILE, not the manifest.** semgrep's per-rule
    `severity:` becomes the SARIF level, and `warning` is non-blocking by contract while
