@@ -6,13 +6,13 @@ schema_version: bundle/v2
 
 bundle:
   name: onboarding-experience
-  version: "0.8.1"
+  version: "0.9.0"
   created: "2026-04-09"
-  updated: "2026-08-11"
+  updated: "2026-08-12"
   category: feature
 
 status:
-  maturity: exploring
+  maturity: defined
 
 problem:
   summary: >
@@ -738,7 +738,7 @@ foundation that was never actually validated.
 All seven open questions were driven to resolution by the founder in a 2026-07-13
 working session (recorded in 0.6.0 below). None remain open. They are kept here — marked
 RESOLVED with the decision and rationale — rather than deleted, so the reasoning survives.
-Maturity stays `exploring`; the founder triggers promotion separately.
+The founder ruled promotion to `defined` on 2026-08-12 (see Version History 0.9.0).
 
 - **OQ-1 (load-bearing) — RESOLVED: Canonical artifact-dir layout.** Decision: `.backstop/`
   is the artifact root for consumer repos; **backstop-core keeps the root layout as the
@@ -1026,6 +1026,18 @@ here. These are recorded so spec authoring does not accidentally absorb them:
   surfacing the downstream engine error, the exact observed failure mode — and by REQ-028, which
   stamps producing-binary identity onto every result. No new mechanism was invented beyond the
   one-line ruling. No requirement added or retired; no OQ resolved; maturity unchanged: exploring.
+- 0.9.0 (2026-08-12): **Promoted to `defined` — founder-ruled.** No content authored in this
+  pass: every structural requirement for `defined` was already in place from the prior passes —
+  33 requirements (REQ-001..033) across two authoring passes (0.7.0's 25 plus 0.8.0's 8
+  dogfood-grounded additions, with 0.8.1's REQ-021 correction), all 7 original open questions
+  resolved since 2026-07-13, and populated Draft Requirements / Draft Design Decisions (DD-1..15) /
+  Spec Seeds / Version History sections plus `solution.approach`. Promotion-readiness was verified
+  independently before the ruling by flipping maturity on a throwaway copy and running
+  `artifact validate` clean. This entry records the maturity change, the `bundle.updated` bump, and
+  a one-line correction to the Open Questions preamble, which still asserted maturity would stay
+  `exploring`. Unblocks `/spec` against the three seeds, in order: trustworthy-green guards →
+  `backstop init` → `backstop doctor`. Context: DIR-002 sits at BACKLOG position 1, and its
+  blocking dependency (BUNDLE-015 REQ-018, the CI recipe pack) was delivered via SPEC-067.
 
 ## References
 

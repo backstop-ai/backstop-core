@@ -1,6 +1,6 @@
 ---
 name: gate-verdict-honesty-cluster
-description: The recurring gate-verdict-honesty issue family (066/067/091/092/093/097/100/106/112/113/114 + the 104-108 severity-contract burst — ELEVEN as of 2026-08-02) — only 066/067/091 and 104/105 still uncited; slot new members into DIR-024 and keep the count current rather than re-litigating the new-directive question
+description: The recurring gate-verdict-honesty issue family — RESOLVED 2026-08-10 into its own directive DIR-032 (TWELVE members as of 2026-08-12, +118); slot new members into DIR-032 treating its CHARTER not its founder-enumerated roster as the boundary, restate the count, and re-read the directive after the agent returns
 metadata:
   type: project
 ---
@@ -19,21 +19,38 @@ count warnings as violations — **renderer half only**; its sibling verdict hal
 the policy layer blocking on a `severity: warning`, was FIXED 2026-07-28 at
 `pkg/gate/policy.go:73` under PLAN-ISSUE-020 and must not be re-opened).
 
-**Why:** the cluster's home has been an open founder question since
-2026-07-27 and my own recommendation has moved twice as members closed and new
-ones landed (4 → 2 → 4 → 5 in about 30 hours). 066/067/091 are still cited by
-no directive; 092 and 093 I slotted into DIR-024 "Gate/Engine Quality" under
-the standing grant, because DIR-024's charter is explicitly the catch-all for
-gate/engine-quality gaps and no second directive has a plausible claim.
+**HOME RESOLVED 2026-08-10 — the long-open founder question is answered.**
+Brandon carved the cluster out of DIR-024 into its own directive,
+**`DIR-032 "Gate Verdict Honesty"`** (`status: queued`), enumerating ELEVEN
+members and moving them together — including 066/067/091, which until then had
+no directive home at all. The old "slot into DIR-024, don't re-litigate"
+guidance below is HISTORY; do not act on it. DIR-024 "Gate/Engine Quality"
+still exists as the gate/engine catch-all and deliberately RETAINS four
+near-members (ISSUE-096, 099, 107, 108) — folding any of those into DIR-032 is
+a fresh founder call, never implied.
 
-**How to apply:** when a new member arrives, slot it into DIR-024 as a clear
-fit and say plainly in the INBOX that this does not pre-empt the pending
-cluster decision (if a cluster directive is created, all DIR-024-slotted
-members move together). Do NOT re-open the new-directive recommendation on my
-own initiative — append-to-DIR-024 works and is cheaper. DO restate the
-current member count and which members are still uncited, because Brandon's
-open ask was framed at four members and the shape keeps changing under it.
-Note DIR-027 is taken, so a standalone would need DIR-028.
+**How to apply:** slot a new member into DIR-032 under the standing grant.
+DIR-024 is the plausible alternative every time (it is the catch-all covering
+the same surface), so resolve it on **most-specific-wins** and say so in the
+INBOX — that reasoning is worth one line, not silence. Critically: treat
+DIR-032's **charter (the defect shape) as the membership boundary, NOT the
+founder's eleven-member roster.** Precedent for that reading is ISSUE-115 →
+DIR-024, which Brandon confirmed the same day ("standing grant applies, same as
+112/113/114"). Flag it as an optional ack; don't stall the slot on it. Always
+restate the running count, and preserve the founder's original eleven-member
+enumeration as HISTORY in the directive — never rewrite it into "the founder
+ruled twelve" (see [[project_corpus_note_supersedes]]).
+
+**Adding a member causes CROSS-REF DRIFT inside the directive — re-read it
+after directive-author returns, every time.** DIR-032 carries a "cluster's
+variants" map bucketing items by failure mode plus a Notes cold-pickup
+shortlist naming the members with measured consequences; both go stale the
+moment an item lands and neither is in the agent's default scope. On ISSUE-118
+I had to send a second pass for exactly this: the map still called item 11 "the
+odd one structurally" after item 12 joined its variant, and the opening
+defect-shape sentence enumerated only "an entire artifact kind" when item 12
+starves on a *diff shape*. Brief the agent on the map and the shortlist up
+front next time.
 
 **The severity-contract sub-family (ISSUE-104 → 108, filed 2026-07-29)** — five
 hops on ONE contract, *a pack-declared severity must survive to the verdict*:
@@ -118,6 +135,27 @@ corpus drain; its ISSUE-048 thread is per-artifact reconciliation, not
 mechanism), DIR-016 is `done`, and sibling ISSUE-098 is cited by no directive.
 Provenance is self-referential — it is the mechanism behind my own 15:20Z
 delivered-but-open flag on PLAN-ISSUE-048.
+
+**Member 12 (slotted into DIR-032 2026-08-12, count now TWELVE)** — ISSUE-118:
+`backstop gate` reports a full PASS while a mandated test genuinely fails,
+because **when a diff is entirely `_test.go` files no dimension runs the Go
+suite to a verdict.** Verified in-tree, reusable: `test_verification`
+(`step_testverify.go`) only name-matches and execs nothing;
+`test_substantiveness` reads the test BODY for assertions and never runs it;
+`coverage_threshold` is the ONE dimension that invokes `go test` and it exits
+early at `step_coverage.go:98` (`"no in-scope files to measure for coverage"`)
+whenever no in-scope PRODUCTION file changed. Same starvation variant as
+member 11 but far broader: 11 starves a warn-only advisory for one artifact
+kind, 12 starves the gate's central blocking promise for a common diff shape.
+**Two things worth carrying forward.** (1) It OVERLAPS member 1 (ISSUE-066) —
+066 is the gate running a too-narrow suite, 118 is it running none, and 066's
+stated fix subsumes 118 if "scope" includes test-only diffs; record that
+coupling in any slot so two planners don't derive it separately. (2) The
+practical dogfood consequence, which generalizes: **whenever in-flight work is
+producing a test-only diff, a green `backstop gate` on it is not evidence its
+tests pass** — check `git status` for the diff shape before repeating any
+gate-green claim, and say so in the INBOX when it hits an active lane (it hit
+DIR-019/SPEC-067 at BACKLOG position 1 the day it was filed).
 
 A *second*, smaller pattern is now forming with **no live home**: CLI
 **arg-shape** defects where the accepted argument shape diverges from the

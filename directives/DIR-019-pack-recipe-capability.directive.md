@@ -14,6 +14,9 @@ directive:
     - "ISSUE-080"
     - "ISSUE-085"
     - "ISSUE-110"
+    - "ISSUE-119"
+    - "SPEC-067"
+    - "PLAN-SPEC-067"
 ---
 
 ## Description
@@ -51,6 +54,18 @@ has been written and implemented against it (see below). The bundle still
 carries scope this directive has not yet delivered — the CI recipe pack
 consumer in particular (see Notes) — so the directive remains `active`
 pending that follow-on work.
+**Correction (2026-08-12):** the CI recipe pack consumer is no longer
+open scope — it is DELIVERED. SPEC-067 (`status: implemented`) specced it;
+`PLAN-SPEC-067` (`status: completed`) implemented it; the pack it specifies
+is published and live at `backstop-ai/ci-workflows@v0.1.0` (real GitHub
+tag) and is installed into backstop-core itself from that source
+(`backstop.yml`, `backstop.lock`) — a real external consumer, not a
+fixture. This directive's DIR-002 blocking-dependency claim, two paragraphs
+above, is correspondingly CLEARED: the recipe capability DIR-002's spec
+depends on now exists with a real CI-gate-workflow consumer proving it end
+to end, not just the language-scaffolding mechanism SPEC-054 proved. What
+remains open under this directive after this delivery is smaller residual
+work — see the Notes corrections below for the current, accurate picture.
 
 ### Delivery status
 
@@ -78,6 +93,13 @@ now underway, recipes are the sole remaining tier-1 launch long-pole.
 `backstop-ai/go-distribution` declares `recipes:` (`pack.yml:56-57`,
 `go-release: recipes/go-release`) and is the capability's first real
 consumer; see the correction below for what that does and does not close.
+**Correction (2026-08-12):** REQ-018 — named above as one of the 11
+remaining REQs — is no longer uncovered. It is DELIVERED: SPEC-067
+(`status: implemented`) + `PLAN-SPEC-067` (`status: completed`) built the
+CI recipe pack, published and live at `backstop-ai/ci-workflows@v0.1.0`,
+installed into this repo's own `backstop.yml`/`backstop.lock`. Coverage is
+now 14 of 24 REQs; see the corrections further below in these Notes for
+what remains of the other 10.
 
 Added to BACKLOG.yml immediately before DIR-002, since DIR-002 depends on
 it, but after DIR-001 (Release Workflow) and DIR-003 (Baseline
@@ -101,6 +123,17 @@ unbuilt and core's own `recipes/` is still the three empty `.gitkeep` dirs
 described above. Also note: the go-distribution pack's own directive home
 is UNRULED (escalated to Brandon under ISSUE-101) — it is not claimed as a
 deliverable of this directive.
+**Correction (2026-08-12):** REQ-018 is no longer unbuilt — it is
+DELIVERED. SPEC-067 (`status: implemented`) + `PLAN-SPEC-067`
+(`status: completed`) built the CI gate-workflow recipe pack this paragraph
+was waiting on; it is published and installed as
+`backstop-ai/ci-workflows@v0.1.0`. Note the delivery shape: like
+go-distribution, the CI recipe pack lives in its OWN external pack repo,
+not inside core's `recipes/` directory — core's `recipes/go`/`meta`/
+`typescript` remain the three empty `.gitkeep` placeholders described
+above, and that is now understood to be correct/expected rather than a gap,
+consistent with this project's "packs live outside core" invariant. Do not
+read the empty core `recipes/` dirs as evidence REQ-018 is still open.
 
 ISSUE-080's original two-problem report split on reconciliation (2026-07-26):
 the shared `ExitViolations`/`main.go` stderr-suppression root cause (dropped
@@ -175,6 +208,19 @@ cannot be written until the recipe capability it depends on exists." So,
 stated plainly: the highest-severity **open issue** under this directive is
 ISSUE-081 Gap 3; the largest **open scope gap**, and the one actually
 gating DIR-002, is BUNDLE-015 REQ-018.
+**Correction (2026-08-12):** the "largest uncovered scope" / "remains
+unbuilt" characterization above is stale. BUNDLE-015 REQ-018 is DELIVERED —
+SPEC-067 (`status: implemented`), `PLAN-SPEC-067` (`status: completed`),
+published pack `backstop-ai/ci-workflows@v0.1.0`, installed into this
+repo's own `backstop.yml`/`backstop.lock`. The DIR-002 blocking dependency
+this paragraph describes is CLEARED as a result — DIR-002's spec is no
+longer waiting on this directive for a proven CI-gate-workflow recipe
+consumer. What remains open under this directive is now smaller: ISSUE-081
+Gap 3 (`status: open`, plan `ready` but not implemented), ISSUE-110
+(`status: open`, plan `draft` but not implemented), and ISSUE-119 (filed
+2026-08-11, open, small — SPEC-067's own named follow-on). None of these
+is REQ-018-sized; see those issues' own paragraphs below for current
+status.
 
 **ISSUE-085 (recipe-pack archetype gap) — delivered 2026-07-27.** A pack
 whose whole point is handing out scaffolds + recipes with no ruleset had no
@@ -250,3 +296,110 @@ paragraph's own relative ordering still holds: ISSUE-081 Gap 3
 is accordingly the highest-severity item among this directive's open cited
 issues. The larger open item overall is BUNDLE-015 REQ-018 (the CI recipe
 pack, unbuilt) — see the "Sequencing update" paragraph's correction above.
+**Correction (2026-08-12):** the "larger open item overall is BUNDLE-015
+REQ-018 ... unbuilt" clause immediately above is itself now stale —
+REQ-018 is DELIVERED (SPEC-067 `implemented`, `PLAN-SPEC-067` `completed`,
+published pack `backstop-ai/ci-workflows@v0.1.0`; see the Description
+correction and the "Sequencing update" paragraph's 2026-08-12 correction
+above). With REQ-018 delivered, this paragraph's ISSUE-081-Gap-3-vs-
+ISSUE-110 ranking is unaffected and still holds — ISSUE-081 Gap 3 remains
+the highest-severity item among this directive's open cited issues; there
+is just no larger REQ-018-sized item still standing above it.
+
+**ISSUE-119 (recipe brownfield adoption silently wires no CI gate) — filed
+2026-08-11, open, type: enhancement, scope contained / uncertainty
+exploratory / risk moderate.** Surfaced during implementation of SPEC-067
+(the CI recipe pack — BUNDLE-015 REQ-018, at the time this directive's
+largest open item; SPEC-067 has since shipped — `status: implemented`,
+`PLAN-SPEC-067` `status: completed`, published pack
+`backstop-ai/ci-workflows@v0.1.0` — see the Description correction above),
+which named it as a deliberate follow-on rather than improvising a
+fix mid-implementation: Sharp Edge 2 of
+`specs/SPEC-067-ci-recipe-pack.spec.md`, and the Scope Fences + TASK-031 of
+`plans/PLAN-SPEC-067-ci-recipe-pack.plan.yml`. The defect: three of the CI
+pack's four platform targets — `.gitlab-ci.yml`, `bitbucket-pipelines.yml`,
+`Jenkinsfile` — are each their platform's ONLY conventional CI entry point,
+so any brownfield consumer that already has one hits `create`'s
+never-clobber rule. The apply reports `preserved … (the consumer's own
+file)`, and the consumer walks away with an adoption record and NO backstop
+gate in CI. Correct non-destructive behavior, genuinely bad outcome. Init's
+greenfield case is unaffected.
+MEASURED CORRECTION to the issue's own framing — record this plainly, it
+changes what the eventual spec/plan should do. The issue is titled "Recipe
+payloads have no merge/insert op" and its fix menu item 1 proposes adding "a
+`merge` or `insert` op kind". That premise is FALSE at the core level.
+`pkg/recipe` already ships a CLOSED five-member op allowlist — `create`,
+`merge`, `transform`, `insert`, `step` (`pkg/recipe/manifest.go:26-31`) —
+and `Apply` dispatches four of them for real (`pkg/recipe/apply.go:174-187`;
+`applyCreate` at :265, `applyInsert` at :639, `applyMerge` at :877; only
+`step` is reserved-not-executed, BUNDLE-019's). `merge` is fragment-based
+and additive by contract (see the `Op.Fragment` doc note and `ApplyAll`'s
+"merge is additive, so a co-write is composition rather than a conflict").
+So the real gap is NOT a missing core capability — it is that SPEC-067's
+REQ-003 deliberately PROHIBITED reaching for those ops in the initial cut
+("a gate workflow is a whole file the recipe owns, and an op family that
+edits a consumer's existing file would put a recipe-owned promise inside
+consumer-owned bytes"). The work is a PACK-authoring + policy decision on
+top of shipped core mechanism, not a core op-kind build. Scope it that way.
+Dependency this directive should sequence on: a brownfield merge/insert
+variant lands squarely on ISSUE-081 Gap 3 (insert placement semantics
+unpinned) — `applyInsert` splices at the byte offset immediately after the
+anchor's last matched character with no line-boundary consideration, so an
+insert of a CI job/step under an anchor currently lands INLINE. Gap 3 now
+has a `ready` plan
+(`plans/PLAN-ISSUE-081-insert-placement-semantics.plan.yml`, created
+2026-08-11). ISSUE-081 Gap 3 should land BEFORE ISSUE-119 is specced, or
+ISSUE-119 will re-derive the same placement question. Also relevant and
+already recorded in ISSUE-081: SDLC-mediated mode is CLI-unreachable
+(`cmd/backstop/recipe_apply.go:142` hardcodes `Mode: recipe.ModeDirect`),
+so every insert/transform site through the bare CLI is the recipe's own
+declared `target`/`anchor` — a brownfield variant driven from `backstop
+init` inherits that constraint.
+Second facet, independent of the op question and cheaper: the issue's item
+2 asks whether `create`'s never-clobber `preserved` outcome should surface
+LOUDER — a distinct warning that no gate was actually wired. Note that core
+already declines to record an adoption when nothing was materialized
+(`Apply`'s `own.materialized` guard, `pkg/recipe/apply.go`), so the honesty
+signal partly exists in the data; what is missing is the operator-facing
+surfacing. This facet is separable and could ship without the op work.
+Record it as such, take no position on which ships first.
+Third facet, an OPEN founder call — do NOT decide it: the issue's item 3
+asks whether this belongs to the recipe-capability layer generically (ANY
+`scaffolding`-kind recipe targeting a platform's singular conventional
+entry point has this problem) or is CI-recipe-pack-specific. Record it as
+an open question for whoever picks it up; note that the generic reading
+keeps it here under DIR-019 either way, so the home is not in question —
+only the scope is.
+PRIORITY within this directive, stated plainly: ISSUE-119 ranks BELOW
+BUNDLE-015 REQ-018 / SPEC-067 itself (it is that work's own follow-on and
+is meaningless before it lands) and BELOW ISSUE-081 Gap 3 (its
+dependency). It is roughly peer to ISSUE-110 (authoring-surface polish) but
+carries higher consequence, since the failure mode is a consumer who
+believes CI enforcement is live when it is not.
+**Correction (2026-08-12):** SPEC-067 has now landed (`status: implemented`,
+`PLAN-SPEC-067` `status: completed`, published pack
+`backstop-ai/ci-workflows@v0.1.0` — see the Description correction above),
+so the "meaningless before it lands" qualifier no longer applies — ISSUE-119
+is now actionable in principle. Its ranking below ISSUE-081 Gap 3 still
+holds, since Gap 3 (insert placement semantics) is this issue's own recorded
+dependency and remains unimplemented (plan `ready`, not yet built).
+
+**Status assessment (2026-08-12).** With REQ-018 delivered, this
+directive's largest scope gap is closed and its DIR-002 blocking
+dependency is cleared (see the Description correction). That is not,
+however, grounds to self-close this directive to `done`: three real,
+unimplemented items remain under its `source:` list — ISSUE-081 Gap 3
+(insert placement semantics; plan `ready`, i.e. planned and reviewed, but
+NOT implemented), ISSUE-110 (foreign-template escape; plan `draft`, i.e.
+through two review-fix rounds but never promoted past draft, and NOT
+implemented), and ISSUE-119 (brownfield-merge-gap; filed 2026-08-11, open,
+small, and itself blocked on ISSUE-081 Gap 3 landing first). All three are
+in-flight or queued work, not a backlog of ideas — that is squarely what
+`active` means. `queued` would understate progress already shipped
+(SPEC-054, SPEC-067, ISSUE-079/080/085 all delivered); `specced` would
+misdescribe a directive whose specs are already implemented and whose
+remaining work is issue-level cleanup, not a not-yet-implemented spec; and
+`done` would be a self-close this correction is explicitly not authorized
+to make while ISSUE-081/110 have real, unimplemented plans. **Status
+remains `active`** — this is a characterization correction, not a status
+transition.

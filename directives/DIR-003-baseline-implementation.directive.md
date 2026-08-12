@@ -11,6 +11,7 @@ directive:
     - "SPEC-010"
     - "ISSUE-056"
     - "ISSUE-086"
+    - "ISSUE-120"
 ---
 
 ## Description
@@ -20,6 +21,11 @@ Implement gate step 7 (baseline comparison) and the CI baseline generation workf
 Includes: `backstop baseline pull` command, `.backstop/baseline.json` caching, TTL logic (default 15 minutes), GitHub Actions artifact publishing, structural diff algorithm for violation identity. Per ISSUE-086, the CI `baseline` job must install packs before generating, so the published artifact reflects pack-engine findings rather than a structurally empty engine set.
 
 Depends on DIR-001 (release workflow — CI must exist to generate baselines).
+
+Per ISSUE-120, `backstop baseline pull`'s GitHub-Actions-specific knowledge (GitHub Actions
+runs/artifact lookup, `gh auth status`, GitHub-naming error strings) is a candidate zero-baked-
+platform-knowledge violation whose disposition — accepted narrow exception vs. an extracted
+provider seam — is an open founder decision this directive owns.
 
 ## Notes
 
@@ -68,3 +74,27 @@ Depends on DIR-001 (release workflow — CI must exist to generate baselines).
   ran-and-clean are told apart) before anyone refreshes the baseline for real. This closes out
   the 2026-08-02T14:10Z PM-inbox escalation asking for a ruling on lifting the hold — the
   ruling is: not yet, precondition-met is not the same as risk-proven-safe.
+- **ISSUE-120, filed 2026-08-11: `backstop baseline pull` bakes GitHub-Actions-specific
+  knowledge into core** — `ensureGitHubAuth` (shells out to `gh auth status`), the `Long` help
+  text's "Artifact lookup uses GitHub Actions runs and artifact naming semantics", and two
+  GitHub-naming error strings, all in `cmd/backstop/baseline.go`. This is a candidate
+  zero-baked-checks violation, not yet a ruling: it is NOT a re-litigation of SPEC-067's
+  CLM-050 (that claim's case-sensitive `github` scan is settled GREEN per the founder's
+  2026-08-11 v1.0.3 ruling, which exempted `github.com/`/`github\.com` module-path references
+  and deliberately left these five capitalized mentions out of scope). The open question the
+  issue raises and does not answer: keep the GitHub Actions coupling as a documented, narrow
+  accepted exception (baseline pull may inherently need to "talk to a CI provider's API" in a
+  way that isn't findings-engine-shaped), or extract a `baseline-pull` provider seam a pack or
+  config value supplies. That choice is an unmade founder decision. Precedent for the seam
+  option exists in-repo: pack distribution already removed a GitHub host assumption under
+  SPEC-056 DD-31 (see the comment at `pkg/pack/distribution/identity.go:216`) — read DD-31
+  first if planning this. Measured today: `pkg/validate/resolved_by.go:129`'s
+  `isPullRequestURL` is a weaker, GitHub-shaped instance (`/pull/`/`/pulls/` vs. GitLab's
+  `/merge_requests/` or Bitbucket's `/pull-requests/`) that should not be scope-crept into this
+  work; `pkg/gate/result.go:3` and `pkg/packval/sandbox_linux.go:21` are comment-only mentions;
+  `pkg/pack/distribution/lockfile.go:32` documents a GitHub property deliberately. Adjacent to
+  DIR-019: SPEC-067's four per-platform CI gate-workflow recipes (github-actions, gitlab-ci,
+  bitbucket-pipelines, jenkins) create backstop's first non-GitHub CI consumers, but none of
+  their rendered workflows invoke `baseline pull` — nothing breaks when they land. The real
+  consequence is narrower: a GitLab/Bitbucket/Jenkins consumer wired up by that recipe has no
+  path to adopt the baseline ratchet at all.

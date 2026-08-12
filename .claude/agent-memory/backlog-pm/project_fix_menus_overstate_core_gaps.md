@@ -21,6 +21,18 @@ project-wide script over any files it likes and emit SARIF with zero core
 change. The real blocker was governance (BUNDLE-021 OQ-3: are pack-declared
 engine commands sandboxed?), not mechanism.
 
+Second measured instance (ISSUE-119, 2026-08-11) — same shape, and note
+that here the false premise reached the TITLE: "Recipe payloads have no
+merge/insert op." `pkg/recipe` ships a CLOSED five-member op allowlist
+(`create`/`merge`/`transform`/`insert`/`step`, `manifest.go:26-31`) and
+`Apply` dispatches four for real (`apply.go:174-187`; only `step` is
+reserved for BUNDLE-019). The gap was a deliberate SPEC-level prohibition
+(SPEC-067 REQ-003 refused to put recipe-owned promises inside
+consumer-owned bytes), not a missing mechanism — so the work is
+pack-authoring + policy, not a core build. Lesson refinement: **a defer-
+filed issue's title is as unverified as its fix menu.** Grep the op/kind
+constant block, not just the prose.
+
 **Why:** the home ruling swings on it. "Core capability" routes to DIR-024 /
 a new engine directive and reads as a project; "pack-side, already
 dispatchable" routes to the pack's own home and reads as hours. Homing off

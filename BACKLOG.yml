@@ -51,11 +51,23 @@
 # remaining missing piece before I can start to go more public with
 # backstop" — a launch-readiness call. Relative order among DIR-027/024/032/
 # 003 and everything below DIR-002 is unchanged from the prior list.
+#
+# REORDERED 2026-08-12 (founder-directed): DIR-002 (backstop init) moves
+# from position 2 to position 1; DIR-019 (Pack Recipe Capability) drops to
+# position 2. DIR-019's real blocking scope for DIR-002 — the CI recipe pack
+# (BUNDLE-015 REQ-018) — was delivered 2026-08-12 (SPEC-067 implemented,
+# PLAN-SPEC-067 completed, backstop-ai/ci-workflows published at v0.1.0).
+# What remains open in DIR-019 (ISSUE-081 Gap 3, ISSUE-110, ISSUE-119) is
+# real but does NOT block DIR-002 — it was only ever ranked ahead because it
+# happened to be created there operationally, not because of a live
+# dependency at this position. With the dependency cleared, the founder is
+# making the position honest: DIR-002 moves to 1. Everything else keeps its
+# prior relative order.
 directives:
-  - id: DIR-019
-    title: Pack Recipe Capability
   - id: DIR-002
     title: backstop init Command
+  - id: DIR-019
+    title: Pack Recipe Capability
   - id: DIR-027
     title: Pack Fleet Publication & Migration
   - id: DIR-024

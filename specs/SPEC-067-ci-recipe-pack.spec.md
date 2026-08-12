@@ -3,9 +3,9 @@ title: "CI Recipe Pack"
 number: SPEC-067
 created: "2026-08-11"
 updated: "2026-08-11"
-status: draft
+status: implemented
 schema_version: spec/v1
-spec_version: 1.0.3
+spec_version: 1.0.4
 
 implementation:
   summary: >
@@ -1576,6 +1576,42 @@ rather than papered over — see Sharp Edge 8 and the Review Questions.
 
 ## Version History
 
+- **1.0.4** (2026-08-11) — **CLOSE-OUT: status `draft` -> `implemented`.** No requirement,
+  claim, contract, test or mechanism is added, removed or reworded; this entry records the
+  evidence the flip rests on. **Verification.** The impl-reviewer independently re-ran all
+  62 mandated tests (62 pass, 0 fail) and the full gate (green, exit 0), and then MUTATED
+  the delivered code — 13 separate deliberate mutations applied to the REAL installed pack,
+  each confirmed to turn its affected claim red with the expected message. Every claim in
+  this spec is therefore falsification-verified rather than read-verified, which is the bar
+  that matters for a spec whose whole subject is the difference between a check that fires
+  and a check that merely exists. **Publication.** The deliverable ships as
+  `backstop-ai/ci-workflows@v0.1.0`; the reviewer cloned that published tag fresh from
+  GitHub and confirmed it byte-identical to the copy installed under
+  `.backstop/packs/backstop-ai/ci-workflows/` that the mandated tests exercise, so the
+  tested artifact and the published artifact are the same bytes. **Core delta.** ZERO
+  backstop-core production code changed — the in-repo delta is the two fleet-declaration
+  lines (`backstop.yml`, `backstop.lock`) plus the mandated tests in `cmd/backstop`, exactly
+  as Implementation §5 scopes it. The `contracts` block's absence of any `provides:`
+  signature was confirmed ACCURATE rather than assumed: there is no new Go production symbol
+  for a presence probe to match, which is REQ-008's design landing rather than an omission.
+  **One non-blocking finding, routed OUT of this spec.** Two of the four platform recipes —
+  `gitlab-ci-gate` and `bitbucket-pipelines-gate`, the two whose `runner` param defaults to
+  the container image `debian:stable-slim` — render a job whose default base image lacks
+  `curl`, `git` and `ca-certificates`, so a real pipeline on the default runner would fail
+  at the CLI-install step before reaching the gate. It is filed as a native GitHub issue on
+  the pack's own repo — https://github.com/backstop-ai/ci-workflows/issues/1 (open, filed
+  2026-08-12), "gitlab-ci-gate and bitbucket-pipelines-gate default runner
+  (debian:stable-slim) lacks curl/git/ca-certificates the rendered pipeline itself requires"
+  — rather than as a backstop-core artifact issue, following the `backstop-ai/go-contracts#1`
+  precedent that pack-data defects are filed against the pack that owns the data. It is
+  explicitly NOT a SPEC-067 defect: nothing in this spec asserts that a rendered file
+  EXECUTES in a real pipeline. REQ-005 asserts parse-level validity of the rendered bytes
+  (YAML parse plus required top-level keys; structural well-formedness for the Jenkinsfile)
+  and REQ-004 asserts the five non-vacuity invariants are PRESENT in those bytes — runtime
+  executability is outside every requirement and every claim here, and no claim weakens or
+  changes as a result. Whoever picks that issue up should treat it as a pack-data fix
+  (runner default, or a documented prerequisite step) in a `ci-workflows` version bump, not
+  as a re-opening of this spec.
 - **1.0.3** (2026-08-11) — Scoped correction to CLM-050's module-path exemption, closing the
   conflict PLAN-SPEC-067 surfaced during planning. The finding: CLM-050 required every
   occurrence of `github` to fall inside the literal prefix `github.com/`, but

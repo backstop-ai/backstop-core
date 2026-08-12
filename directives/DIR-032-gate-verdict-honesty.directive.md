@@ -18,19 +18,20 @@ directive:
     - "ISSUE-112"
     - "ISSUE-113"
     - "ISSUE-114"
+    - "ISSUE-118"
 ---
 
 ## Description
 
 Carved out of DIR-024 "Gate/Engine Quality" per founder ruling (Brandon,
-2026-08-10). Eleven issues share one defect shape: **a gate step computes a
+2026-08-10). Twelve issues share one defect shape: **a gate step computes a
 result internally but reports the wrong verdict about it** — silent pass
 when it should block, a scoped-clean signal when the unscoped truth is red,
 an opaque crash where a legible finding belongs, or a dimension that never
-fires at all for an entire artifact kind. This is the "no vacuous green"
-invariant policing itself, and it is the exact failure mode the product
-sells against — worth a dedicated home rather than diffusion across a
-catch-all directive.
+fires at all for an entire artifact kind or an entire diff shape. This is
+the "no vacuous green" invariant policing itself, and it is the exact
+failure mode the product sells against — worth a dedicated home rather than
+diffusion across a catch-all directive.
 
 backlog-pm tracked this cluster growing from two issues (2026-07-26) to
 eleven (2026-08-02) inside DIR-024's Notes, escalating the cluster-home
@@ -57,9 +58,18 @@ The cluster's variants, so a planner does not read it as one uniform bug:
   renamed namespace, severity-blind tallies, a severity-discarding join, a
   silent-pass on a missing engine tool, and a mass of fabricated violations
   from an empty classification set.
-- **Item 11 (114)** is the odd one structurally: it never computes anything
-  for an entire artifact kind (plans), so it is silent by *starvation*
-  rather than misreport.
+- **Items 11 and 12 (114, 118)** are the *starvation* variant: neither
+  mis-reports a verdict it computed (that's items 4-10) — each never
+  computes anything at all for its trigger. Item 11 starves on an entire
+  ARTIFACT KIND: a plan never produces the delivered-but-open advisory,
+  full stop. Item 12 starves on a DIFF SHAPE: an entirely-`_test.go` change
+  never gets its suite run to a verdict by any dimension, regardless of
+  artifact kind. Item 12 is the higher-blast-radius of the two — item 11
+  starves a warn-only advisory, item 12 starves the gate's central blocking
+  pass/fail promise. Item 12 also sits with items 1-3 by SURFACE (it is a
+  test-verification defect and overlaps item 1's fix directly, per the
+  cross-reference in item 12 below) even though its failure MODE groups it
+  with item 11 here — a planner needs both facts.
 
 1. **Gate test verification runs the full package, not a plan's narrow
    `-run` filter (ISSUE-066).** A spec/plan `test_command` commonly scopes
@@ -382,17 +392,70 @@ The cluster's variants, so a planner does not read it as one uniform bug:
     artifact kind (silent by starvation), where items 4-10 mis-report a
     verdict they DID compute.
 
+12. **No gate dimension runs the Go suite to a verdict when a diff is
+    entirely test files (ISSUE-118).** `backstop gate` reports a full PASS
+    while a mandated test genuinely fails, reproducibly, on the same
+    tree/commit/binary: `go test ./cmd/backstop/... -race -run
+    TestCIRecipes` returns `--- FAIL:
+    TestCIRecipes_FleetDeclaresPackAtOneVersionInBothFiles`, exit 1, while
+    `./bin/backstop gate` reports `10 passed, 0 failed`, exit 0. Measured
+    2026-08-11 by the implementer during
+    `plans/PLAN-SPEC-067-ci-recipe-pack.plan.yml`, and surfaced rather than
+    hand-waved past. Three dimensions touch "did the test pass" and none
+    establishes a verdict for this diff shape: `test_verification`
+    (`pkg/gate/step_testverify.go`) only checks that a mandated test's NAME
+    is present in source (`ExtractMandatedTests` + `ResolveMandatedTestPaths`)
+    — I confirmed the file execs nothing, so a test that exists and is named
+    correctly satisfies it whether it passes, fails, or panics;
+    `test_substantiveness` only checks the test BODY carries real assertions,
+    and likewise never executes it, so a genuine assertion that currently
+    evaluates false still passes; `coverage_threshold`
+    (`pkg/gate/step_coverage.go`) is the ONE dimension that actually invokes
+    `go test`, but it exits early at `step_coverage.go:98` with `Status:
+    "pass", Reason: "no in-scope files to measure for coverage"` whenever the
+    scoped change touches no in-scope production file — verified verbatim in
+    the current tree. A 100%-`_test.go` diff hits that skip every time. This
+    is the variant of item 11's shape (silent by STARVATION, not misreport)
+    but far broader in blast radius: item 11 starves one artifact kind's
+    advisory, this starves the gate's central pass/fail promise for an
+    entire, common diff shape — and it is exactly the class of change most
+    likely to introduce a red test (a plan's final "make the failing test
+    pass" step, any test-hardening commit). Fix directions to weigh, kept as
+    constraint not design: (a) have `coverage_threshold` still run the
+    affected package's suite to a verdict, without scoring coverage, when the
+    diff is entirely test files; or (b) a new dimension (or a widened
+    `test_verification`) whose job is specifically "run every mandated test
+    and read its real exit code," independent of coverage scope. **Overlap a
+    planner must resolve before picking either: this item and item 1
+    (ISSUE-066) are two halves of one hole** — item 1 is the gate honoring a
+    narrow `-run` filter as the pass/fail bound, item 12 is the gate running
+    no suite at all; item 1's stated fix ("the gate's test step must run the
+    full test package(s) in the change's scope independent of the plan's
+    claim-mapping filter") would, if "scope" is read to include test-only
+    diffs, subsume item 12, and a fix for item 12 that ignores item 1
+    re-derives the same filter question. Plan them together, or item 12
+    immediately after item 1. Per the zero-baked-language law, any fix must
+    reach `go test` through the pack's declared engine, never a baked Go path
+    in core. Verification bar the issue states and that must not be
+    softened: a regression fixture in which a tree with a genuinely failing
+    mandated test and an entirely-test-file diff turns `backstop gate` RED —
+    a fixture that only re-proves the production-file-changed path proves
+    nothing. `type: bug`, `scope: cross-cutting`, `uncertainty: known`,
+    `risk: critical`.
+
 ## Notes
 
 Grouping rationale and priority, stated once rather than per-item: none of
-these eleven has an in-flight plan, so there is no top-down sequencing
+these twelve has an in-flight plan, so there is no top-down sequencing
 imposed by this directive beyond the intra-item notes above (e.g. items 9-10
 as one arc, item 7 alongside its non-member sibling ISSUE-107). Item 4
 (ISSUE-092, `risk: critical`, active false-green in the tool that gates the
-entire pack ecosystem) and item 3 (ISSUE-091, `risk: critical`, the gate's
-own `--all` mode already produced one wrong founder scope ruling) are the
-two with measured, already-realized consequences — a planner picking this
-directive up cold should look at those two first, not treat the list as
+entire pack ecosystem), item 3 (ISSUE-091, `risk: critical`, the gate's own
+`--all` mode already produced one wrong founder scope ruling), and item 12
+(ISSUE-118, `risk: critical`, a mandated test genuinely failing on the same
+tree/commit/binary that `backstop gate` reported full PASS on) are the three
+with measured, already-realized consequences — a planner picking this
+directive up cold should look at those three first, not treat the list as
 strict priority order. Items 1-3 (066/067/091) predate the other eight by
 roughly two weeks and were never blocked on anything; they simply had no
 directive to attach to until now.

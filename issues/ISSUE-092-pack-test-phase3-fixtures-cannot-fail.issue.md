@@ -194,3 +194,26 @@ Not scoped here — for the eventual plan to weigh, at minimum:
   Cited here only as the occasion the reviewer rediscovered this issue's already-diagnosed defect,
   not as a second source of truth about the root cause — the flip-the-switch reproduction above is
   the evidence; SPEC-067 is only how the reviewer got there.
+
+- **Second concrete instance — `backstop-ai/ci-workflows` pack, during SPEC-067 implementation
+  (2026-08-11).** The new pack's twelve semgrep enforcement rules are proven correct via DIRECT
+  semgrep invocation (`scripts/falsify.sh` in the implementation plan) and via the real
+  `backstop pack test` pipeline structurally (manifest parses, schema-valid, every recipe/rule/
+  engine binding well-formed) — but NOT via `pack test`'s fixture-EXECUTION phase, for the same
+  root cause diagnosed above: phase 3 never dispatches because no rule in the pack declares the
+  `file:` field packval's `Rule.File != ""` guard keys on (the pack, like every real pack in the
+  fleet, declares `rule_path:` instead). SPEC-067's own CLM-058 was deliberately narrowed (spec
+  version 1.0.2, then held at 1.0.3) to a STRUCTURAL-only claim for exactly this reason, and its
+  mandated test (`TestCIRecipes_InstalledPackClearsRealPackTestStructurally`) asserts nothing about
+  rule-firing behavior. The pack's fixtures ARE named to fall under their rule's include glob
+  (`backstop-gate-missing-pack-install.yml` and siblings) specifically so they become correct proof
+  the day this defect is fixed — recorded as forward-compatible groundwork, not present-day
+  protection. Not filed as a separate issue: same root cause, no distinct mechanism — this is
+  another concrete instance affected by the already-diagnosed defect above, not a new one. Cites
+  `specs/SPEC-067-ci-recipe-pack.spec.md` CLM-058 and its 1.0.2 Version History entry;
+  `plans/PLAN-SPEC-067-ci-recipe-pack.plan.yml` TASK-031(3) (slug
+  `ci-workflows-pack-rules-unproven-under-pack-test`, which directed this annotation rather than a
+  new filing). Also flags, for whoever fixes the root defect, that the fixture-POLARITY
+  disagreement recorded above (positive/negative vs. valid/invalid directory naming) remains
+  unresolved and should be settled before this pack's fixtures are trusted once execution is
+  restored.

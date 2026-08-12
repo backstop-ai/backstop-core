@@ -3,7 +3,7 @@ plan_id: PLAN-SPEC-067
 spec_id: SPEC-067
 spec_version: "1.0.3"
 created: "2026-08-11"
-status: draft
+status: completed
 test_command: "go test ./cmd/backstop/ -race -coverprofile=cover.out"
 coverage_threshold: 80
 
@@ -581,6 +581,160 @@ notes: |
   four include sets must match ZERO tracked files in backstop-core. Core's
   only workflow is `ci.yml`, which no include set names — but assert it,
   do not assume it, and re-assert it whenever a rule file changes.
+
+  ── AS BUILT (status: completed, 2026-08-11) ─────────────────────────────
+  ALL 32 TASKS ACROSS ALL SIX PHASES DELIVERED, including the phase-6
+  publication. `backstop-ai/ci-workflows` is live and PUBLIC at
+  github.com/backstop-ai/ci-workflows — a single commit, 0725e1e
+  ("backstop-ai/ci-workflows 0.1.0: four per-platform gate-workflow recipes"),
+  tagged v0.1.0 — and backstop-core has been converted off the interim local
+  install onto that published git source. The committed end state is the one
+  REQ-002 demands: `backstop.lock` carries `source_type: git`, `git_ref:
+  v0.1.0`, `version: 0.1.0`, `content_hash:
+  fe55e0ee260dc994c89009af041c3f6dff7577507b030e7f78499455bc7565ef`,
+  `install_date: 2026-08-12T02:33:47Z`, and `backstop.yml` declares
+  `backstop-ai/ci-workflows: 0.1.0`. NO local-source entry was ever committed.
+  Status promoted to `completed` at close-out after an independent
+  impl-reviewer pass; the working tree is NOT committed by this close-out.
+
+  THE RED-THEN-GREEN TRAIL, STAGE BY STAGE — the whole reason this plan ran
+  six phases instead of three. Each stage is what was OBSERVED, in order:
+
+    PHASE 2  All 62 mandated tests written first and RUN first. The measured
+             first run was RUN=62 FAIL=60 PASS=2 SKIP=0. The red was uniform
+             IN ITS CAUSE: 59 failures carried the harness's fail-loud refusal
+             verbatim, `installed pack not found at <path>`, and the 60th
+             (CLM-005) failed with a differently-worded message from the same
+             root cause, `backstop.yml declares no backstop-ai/ci-workflows
+             entry`. Never a t.Skip — the one failure mode this suite exists
+             to make impossible. Nothing was green on a stub. The 2 passes
+             were exactly the two the plan predicted to be immediately and
+             correctly green because neither resolves the pack: CLM-050's
+             source denylist, which the lane named explicitly (case-insensitive
+             literal hits: 0; lowercase `github` outside both module-path
+             spellings: 0 — not a regression, the amended claim holds), and
+             CLM-052's command-surface pin, which the lane did not name but
+             which is the only other claim that could pass unresolved. The
+             earlier "recorded not reconciled" note is retired: prediction and
+             measurement agree.
+    PHASE 3  Real rendered output, not a fixture written to match the code:
+             all four recipes applied for real (TASK-015) into a scratch
+             consumer through the SHIPPED `recipe apply`, and every phase-4
+             fixture is a byte copy of those bytes or that copy with EXACTLY
+             ONE deliberate defect. The Go suite was still red here, by design
+             — core had no installed pack yet.
+    PHASE 4  All twelve rules FALSIFIED by DIRECT semgrep (scripts/falsify.sh),
+             under BOTH dispatch shapes — the explicit-file targeting the
+             gate's default diff-scoped run uses AND the directory targeting
+             `--all` uses — because a rule proven under one shape is proven
+             under neither. `backstop pack test` was NOT accepted as firing
+             evidence anywhere (ISSUE-092; CLM-058 stayed structural).
+    PHASE 5  THE FLIP. Pack installed into the fleet from the local absolute
+             path (interim source, TASK-026) and all 62 went GREEN (TASK-027),
+             recorded test by test.
+    PHASE 6  The same 62 RE-CONFIRMED GREEN against the pack reinstalled from
+             the PUBLISHED REMOTE. That second run is the point: it proves the
+             published tree is the tree that was proven. ISSUE-095's silent
+             no-op was avoided as planned — `pack remove` first, then
+             `pack add backstop-ai/ci-workflows@0.1.0`.
+
+  THREE REAL IMPLEMENTATION DEFECTS WERE CAUGHT AND FIXED IN FLIGHT. None was
+  a plan error; each is the kind of thing only a real run surfaces:
+
+    (1) 33 HOLLOW TESTS, RESTRUCTURED. A third of the mandated suite was first
+        written in a shape that did not genuinely falsify. They were rebuilt
+        into tests that fail when the property fails — not patched to pass.
+        Writing 62 tests to mandated names is exactly the setting where hollow
+        tests hide, and they were found here rather than by a later reader.
+    (2) A RULE-NAME COLLISION WITH A CREDENTIALS-SCANNING CHECK, RENAMED. One
+        of this pack's rule names collided with an existing credentials-scanning
+        check; it was resolved by renaming on THIS pack's side rather than by
+        touching or weakening the incumbent. The twelve ids that shipped are
+        the `<platform>-gate-workflow-{missing-pack-install,verdict-swallowed,
+        shallow-clone}` set in pack.yml. (Recorded at the granularity the
+        implementation lane reported it.)
+    (3) A gate_type MISCLASSIFICATION, CAUGHT BY A PRE-EXISTING UNRELATED TEST.
+        The engine binding was first declared `gate_type: lint`, copied
+        field-for-field from the base-engines semgrep binding as this plan
+        instructed. `declaresToolchainMechanism` classifies any pack declaring
+        a lint/build/test/coverage engine as a TOOLCHAIN pack BY DECLARATION,
+        and `declaredToolchainStackLabel` then folds that pack's `language:`
+        into the reported stack — so this pack's honest `language: any` flipped
+        backstop-core's stack label from "go" to "any, go". An installed RULES
+        pack silently rewriting a label about the CONSUMER's toolchain. Fixed
+        to `gate_type: findings`, which is correct on its own merits and not a
+        workaround: the enum documents `findings` as the rule-fed stage, the
+        toolchain classifier deliberately excludes it, and the one other rules
+        pack declaring its own binding (backstop-ai/backstop-core-architecture)
+        already uses it. The reasoning is written into pack.yml at the binding,
+        where the next person to copy the base-engines block will read it.
+
+  RESIDUALS FILED — the plan's three, as amended by what was actually found,
+  plus two more:
+    ISSUE-118  ★ CRITICAL, AND NOT A PLANNED RESIDUAL — found by doing this
+               work. The gate reports a full PASS while a mandated test
+               GENUINELY FAILS: no gate dimension runs the Go suite to a
+               verdict when only test files change. This lane's own 62 tests
+               are the corpus that exposed it. A gate blind spot of exactly
+               the class this repo's enforcement philosophy names as the
+               enemy — silent, vacuous green.
+    ISSUE-119  Brownfield merge gap (TASK-031(1) / Sharp Edge 2). On a repo
+               that already owns `.gitlab-ci.yml`, `bitbucket-pipelines.yml`
+               or `Jenkinsfile`, `create`'s never-clobber rule preserves the
+               consumer's file and the apply writes nothing — the consumer
+               ends up with an adoption record and NO gate in CI. Correct
+               non-destructive behaviour, genuinely bad outcome. Nobody
+               improvised a `merge`/`insert` op mid-implementation.
+    ISSUE-120  cmd/backstop/baseline.go bakes GitHub-Actions knowledge
+               (TASK-031(2)) — scoped, as the plan required, as the
+               ARCHITECTURAL thin-executor question the CLM-050 ruling
+               deliberately did not answer, explicitly NOT as a reopening of
+               CLM-050, which measures GREEN on this tree at spec 1.0.3.
+    (ISSUE-092 annotation, not a new filing) TASK-031(3)'s
+               `ci-workflows-pack-rules-unproven-under-pack-test` residual was
+               recorded as a SECOND CONCRETE INSTANCE on the already-open
+               ISSUE-092 instead of a fourth issue — same root cause, no
+               distinct mechanism. It also carries forward the unresolved
+               fixture-POLARITY disagreement between packval phase 3 and
+               packs/contracts/pack.yml.
+    (fifth, reviewer-found; filed on the PACK repo, not the core ledger)
+               github.com/backstop-ai/ci-workflows/issues/1 — OPEN, created
+               2026-08-12T03:19:00Z, "gitlab-ci-gate and bitbucket-pipelines-
+               gate default runner (debian:stable-slim) lacks curl/git/
+               ca-certificates the rendered pipeline itself requires". A
+               RUNNER-IMAGE GAP in two of the four recipes: `gitlab-ci-gate`
+               and `bitbucket-pipelines-gate` both default `runner` to
+               `debian:stable-slim` (slashless by CLM-059..062's requirement),
+               while their payloads install the CLI with `curl` — so the
+               default image would fail on a consumer's FIRST run. Found by
+               the impl-reviewer AFTER the plan's own residual sweep. It
+               correctly carries NO ISSUE-1NN core ledger id: the defect is
+               entirely PACK DATA, not backstop-core code, and the pack repo
+               has no artifact-workflow infrastructure of its own — the same
+               precedent as backstop-ai/go-contracts#1 filed earlier the same
+               night. Verified live at this close-out edit; the residual is
+               filed, not outstanding.
+
+  INDEPENDENT IMPL-REVIEWER VERIFICATION — PASSED, AND IT WAS NOT A READ.
+  The reviewer ran the suite itself (62/62 confirmed on its own run, not on
+  this lane's report), MUTATION-TESTED the suite rather than reading it — 13
+  real code mutations introduced, all 13 correctly caught — confirmed the gate
+  green, and confirmed the PUBLISHED pack is byte-identical to the pack that is
+  installed and tested. Mutation testing is what separates "62 tests pass" from
+  "62 tests would notice"; this suite noticed.
+
+  SCOPE FENCES HELD. Zero backstop-core PRODUCTION Go code added or edited —
+  the delta is backstop.yml, backstop.lock, seven new
+  cmd/backstop/ci_recipes_*_test.go files, this plan, and the new issues. No
+  fifth recipe, no new command/subcommand/flag (CLM-052 pins the surface), no
+  recipe applied to backstop-core itself, `.github/workflows/ci.yml`
+  byte-unchanged, and no `.gitlab-ci.yml` / `bitbucket-pipelines.yml` /
+  `Jenkinsfile` at the repo root.
+
+  NOT DONE HERE, ON PURPOSE: flipping SPEC-067 to `implemented` is the
+  spec-author agent's move, and it is what retires the
+  pack-scaffolding-recipes REQ-018 traceability advisory and unblocks DIR-002 /
+  `backstop init`. Nothing in this close-out was committed.
 
 phases:
   # ═══════════════════════════════════════════════════════════════════════
