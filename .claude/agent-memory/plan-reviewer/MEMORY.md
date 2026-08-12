@@ -19,3 +19,5 @@
 - [Nil-seam default needs reachable data](project_nil_seam_default_needs_reachable_data.md) — "nil seam = real path" fails if the lib can't reach the gate's args; waiver.Adjudicate is LINE-windowed
 - [Self-pack absence-claim tests](project_selfpack_absence_claim_tests.md) — backstop/self is external+gitignored (hard-fail test reds CI); most rule families are path-scoped away from new packages
 - [Verified enumeration + do-not-re-derive](project_verified_enumeration_do_not_rederive.md) — re-sweep any plan that publishes a "verified, do NOT re-derive" file:line list; omissions become DIRECTED misses
+- [Pre-existing RED claim needs amendment node](project_preexisting_red_claim_needs_amendment_node.md) — claim red pre-work = founder blocker; demand an amendment node OR proof the spec already moved, then re-measure the amended predicate
+- [Captured-fixture source must exist](project_captured_fixture_source_must_exist.md) — verify each named fixture source exists AND has the asserted property; 'real X that never mentions Y' is often unobtainable and vacuous

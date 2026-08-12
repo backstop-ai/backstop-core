@@ -1,0 +1,2653 @@
+---
+plan_id: PLAN-SPEC-067
+spec_id: SPEC-067
+spec_version: "1.0.3"
+created: "2026-08-11"
+status: draft
+test_command: "go test ./cmd/backstop/ -race -coverprofile=cover.out"
+coverage_threshold: 80
+
+notes: |
+  ─────────────────────────────────────────────────────────────────────────
+  WHAT THIS PLAN BUILDS — TWO REPOS, ONE DELIVERABLE
+  ─────────────────────────────────────────────────────────────────────────
+  A NEW external pack, `backstop-ai/ci-workflows`, shipping FOUR per-platform
+  gate-workflow recipes as pure DATA, applied through the ALREADY SHIPPED
+  `backstop recipe apply` (SPEC-054, implemented). Plus the 62 mandated tests
+  in `cmd/backstop` that prove it through the REAL installed pack.
+
+  ZERO backstop-core PRODUCTION Go code is added or edited by this plan. Not
+  one line. If a task finds itself editing a non-test `.go` file under
+  `pkg/` or `cmd/`, it has misread the spec — STOP and report. REQ-008 makes
+  the ABSENCE of core code the acceptance evidence: four materially
+  different CI platforms flowing through one unchanged command, differing
+  only in the reference argument.
+
+  Every `files:` entry below is an ABSOLUTE path, because two repos are in
+  play and a bare relative path is ambiguous:
+
+    • /Users/bmanson/src/projects/backstop-ci-workflows-pack
+      THE PACK. DOES NOT EXIST YET — verified 2026-08-11, `ls` returns
+      "No such file or directory". TASK-001 creates it.
+    • /Users/bmanson/src/projects/backstop-core
+      Written ONLY at: backstop.yml, backstop.lock, six new *_test.go files
+      under cmd/backstop/, this plan file, and issues/ (TASK-031).
+
+  ─────────────────────────────────────────────────────────────────────────
+  SPEC VERSION — READ WHAT IS ON DISK
+  ─────────────────────────────────────────────────────────────────────────
+  This plan is written against specs/SPEC-067-ci-recipe-pack.spec.md at
+  spec_version 1.0.3, which is what the file on disk declares (re-read
+  2026-08-11, after the CLM-050 amendment described below landed). 1.0.3
+  changes exactly one thing relative to the 1.0.2 this plan was first drafted
+  against: CLM-050's and REQ-008(a)'s module-path exemption now recognizes
+  BOTH spellings of the reference. If the spec has since moved to 1.0.4+ the
+  implementer must re-read it before starting and report any requirement or
+  claim that this plan does not cover. Do not assume this plan is current
+  because it validates.
+
+  ─────────────────────────────────────────────────────────────────────────
+  ★ ENVIRONMENT AND TOOLING — MEASURED 2026-08-11, NOT ASSUMED ★
+  ─────────────────────────────────────────────────────────────────────────
+  (1) THE GATE NEEDS `~/go/bin` ON PATH, AND WITHOUT IT THE RED IS A PHANTOM.
+      Measured, both ways, on this tree, before any work in this plan:
+
+        $ ./bin/backstop gate
+        pack_engines  FAIL  required tool "go-arch-lint" not found on PATH
+        Steps: 2 passed, 1 failed          → exit 2
+
+        $ PATH="/Users/bmanson/go/bin:$PATH" ./bin/backstop gate
+        Steps: 10 passed, 0 failed, 2 skipped, 2 warned   → exit 0  PASS
+
+      `go-arch-lint`, `actionlint`, `ast-metrics` and `goreleaser` all live
+      in /Users/bmanson/go/bin, which the agent shell does not inherit. The
+      first form HALTS at step 3 of 14 and never reaches substantiveness,
+      coverage, contracts or waivers — a "green enough" reading is
+      impossible and a real finding in your own diff stays hidden. EVERY
+      gate invocation in this plan is written with the prefix. Do not
+      install anything; do not report an environment blocker.
+
+  (2) THE GATE BASELINE, VERBATIM, WITH THE PREFIX (2026-08-11, pre-work):
+
+        pack_lock_verification            pass
+        artifact_validation               pass
+        pack_engines                      pass   (173s)
+        test_verification                 pass
+        test_substantiveness              pass
+        coverage_threshold                pass   (no in-scope files)
+        contract_signature                pass
+        artifact_status_drift             pass
+        artifact_status_drift_advisory    ⚠ warning  (2 violations)
+        requirement_traceability          pass
+        requirement_traceability_advisory ⚠ warning  (210 violations)
+        waiver_resolution                 pass   (clean — no active waivers)
+        baseline_comparison               skipped
+        ledger_integrity                  skipped
+
+        Steps: 10 passed, 0 failed, 2 skipped, 2 warned
+        Total violations: 212        VERDICT: PASS (exit 0)
+
+      THE BAR FOR EVERY VERIFICATION TASK IS "PASS, AND NO NEW BLOCKING
+      VIOLATION". Both warned steps are ADVISORY and non-blocking: the two
+      status-drift advisories are SPEC-036/SPEC-037, the 210 traceability
+      advisories are unimplemented bundle requirements — including
+      pack-scaffolding-recipes REQ-018, the very requirement THIS spec
+      supports, which stops being advisory only when SPEC-067 flips to
+      `implemented` (a spec-author move AFTER this plan completes, not this
+      plan's work). Advisory counts may move by a small amount as artifacts
+      land; a count that moves must be EXPLAINED, and any step flipping from
+      pass to fail is this plan's regression.
+
+  (3) REBUILD `bin/backstop` BEFORE EVERY GATE RUN. Unconditionally, in
+      every verification task, even when the phase touched no Go file: the
+      binary statically links everything, and gating with a stale binary
+      produces a verdict about code that is not in it — which reads exactly
+      like a real result. `go build -o bin/backstop ./cmd/backstop` first,
+      every time.
+
+  (4) TRUE EXIT CODES, NEVER A GREP PIPE. Read `$?` from the command itself
+      (`cmd; echo $?`). A suite that fails to COMPILE emits no "FAIL" line,
+      so `go test ... | grep -q FAIL` reports success for a tree that does
+      not build. In zsh, `${PIPESTATUS[0]}` is the FIRST element (zsh arrays
+      are 1-indexed) — do not reach for it out of bash habit.
+
+  (5) `backstop gate --file` TAKES EXACTLY ONE FILE PER INVOCATION
+      (ISSUE-093). Never chain `--file a --file b`; run it twice.
+
+  (6) SEMGREP: 1.156.0 on PATH (/Library/Frameworks/Python.framework/
+      Versions/3.12/bin/semgrep); the pack pins 1.96.0 because that is what
+      `engine.TrustedToolAllowlist()` pins (pkg/pack/engine/allowlist.go:22)
+      and the trust gate runs at BOTH parse and dispatch — a different pin
+      is an exit-2 config error, not a preference. Falsification therefore
+      runs against 1.156.0 while the gate provisions 1.96.0. The spec
+      measured its include-glob findings on BOTH versions, so the form is
+      safe; if a rule ever behaves differently under the gate than under
+      scripts/falsify.sh, version skew is the FIRST suspect.
+
+  (7) Go 1.25.3 (`t.Chdir` available). `bin/backstop` exists and is current
+      as of the baseline above. `.backstop/packs/` is gitignored
+      (.gitignore:41) — that is why an installed pack's own deliberately
+      DEFECTIVE fixtures never reach the gate (semgrep skips git-ignored
+      paths). That is measured fact from the spec, and it is also the reason
+      nobody should "helpfully" un-ignore that directory.
+
+  ─────────────────────────────────────────────────────────────────────────
+  ★ CLM-050 — FOUND IN PLANNING, RULED ON, AMENDED, RESOLVED. READ BEFORE
+    TASK-004, THEN WRITE THAT TEST EXPECTING GREEN.
+  ─────────────────────────────────────────────────────────────────────────
+  THE OPERATIONAL INSTRUCTION FIRST, THE HISTORY SECOND, because the history
+  is the reason the exemption looks odd and the instruction is what the
+  implementer acts on:
+
+  ► WRITE TASK-004's CLM-050 TEST TO THE AMENDED CLM-050 (spec 1.0.3) AND
+    EXPECT IT TO PASS. Nothing about it is a tolerated red. Its predicate:
+      • the seven-literal denylist — `gitlab`, `bitbucket`, `jenkins`,
+        `Jenkinsfile`, `.github/workflows`, `.gitlab-ci`,
+        `bitbucket-pipelines` — matched CASE-INSENSITIVELY;
+      • plus the lowercase token `github` matched CASE-SENSITIVELY, exempt
+        when it opens a module-path reference in EITHER of its two
+        spellings: the plain `github.com/` or the regex-escaped
+        `github\.com`. Both denote the same module path and are equally
+        exempt.
+    RE-MEASURED against this predicate on this tree, 2026-08-11, after the
+    amendment landed — non-test `.go` files under `pkg/recipe/` and
+    `cmd/backstop/`:
+      case-insensitive literal hits ........................ 0
+      lowercase `github` outside both module-path spellings . 0
+    So the claim is GREEN on the tree as it stands. A red here is a NEW
+    finding — something has since introduced a platform literal into core
+    production source — and is reported as such, never absorbed.
+
+  ► THE GUARDRAILS THE AMENDMENT DID NOT REMOVE. All four remain forbidden,
+    and Sharp Edge 5 (1.0.3) says so in the spec's own words:
+      ✗ dropping `github` from the denylist — converts the strongest claim
+        in the spec into one that proves nothing about the platform the
+        first recipe targets;
+      ✗ making the `github` token match CASE-INSENSITIVELY — the ruling
+        explicitly declined this; it would turn a green claim red against
+        `baseline.go`'s five capitalized mentions, which this claim never
+        measured;
+      ✗ widening the exemption to "CI-platform-shaped literals generally" —
+        the alternative the founder REJECTED; it guts the claim;
+      ✗ editing cmd/backstop/baseline.go — this spec adds and edits NO core
+        production code, and a test made to pass by changing core is what
+        Review Question 4 warns about in a different key.
+
+  ► WHAT WAS FOUND AND WHAT WAS DECIDED (the record, so a future reader
+    understands why one exemption has two spellings). During planning, the
+    then-current CLM-050 (spec 1.0.2) required every occurrence of `github`
+    to fall inside the LITERAL prefix `github.com/`. Measured 2026-08-11,
+    that failed on exactly one real, pre-existing occurrence:
+      cmd/backstop/baseline.go:171
+        re := regexp.MustCompile(`github\.com[:/]([^/]+)/([^/.]+)(\.git)?$`)
+    — the characters after `github` are `\.com`, regex-escaped, so a
+    literal-prefix scan flags a line that is nothing but a module-path
+    reference. FOUNDER RULING, 2026-08-11: widen the exemption to recognize
+    BOTH spellings, keep the check case-sensitive and scoped to the
+    lowercase token, do NOT broaden to case-insensitive and do NOT adopt the
+    "CI-platform-shaped literals" alternative. The spec-author agent carried
+    that into SPEC-067 as spec_version 1.0.3 (CLM-050, REQ-008(a),
+    Implementation §5, Sharp Edge 5, Version History). The decision happened
+    DURING PLANNING and is already on disk, which is why this plan carries
+    no founder-gate node for it and TASK-004 has no red to tolerate.
+    (Separately measured then and still true: the same scan also found five
+    CAPITALIZED mentions in baseline.go — a "GitHub Actions" comment,
+    ensureGitHubAuth ×2, two error strings. The case-sensitive scope puts
+    them OUTSIDE this claim entirely; they neither pass nor fail it.)
+
+  ► THE ONE RESIDUAL, WHICH IS NOT CLM-050's. baseline.go's GitHub-Actions
+    artifact-API knowledge is arguably BAKED TOOL KNOWLEDGE in the thin
+    executor, a standing eradication target in its own right and a question
+    the CLM-050 amendment deliberately did not answer. TASK-031 files it as
+    an issue. It is NOT this plan's to fix, and filing it is not a licence
+    to touch the file.
+
+  ─────────────────────────────────────────────────────────────────────────
+  THE 62 CLAIMS → SIX TEST FILES (all `package main`, all in cmd/backstop)
+  ─────────────────────────────────────────────────────────────────────────
+  14 cross-platform claims + 12 per platform × 4 = 62. Exactly.
+
+    ci_recipes_harness_test.go        no mandated test — shared helpers only
+    ci_recipes_pack_identity_test.go  CLM-001..007, 057, 058          (9)
+    ci_recipes_mechanism_test.go      CLM-044, 049, 050, 051, 052     (5)
+    ci_recipes_github_actions_test.go CLM-008,012,016,020,024,028,
+                                      032,036,040,045,053,059        (12)
+    ci_recipes_gitlab_ci_test.go      CLM-009,013,017,021,025,029,
+                                      033,037,041,046,054,060        (12)
+    ci_recipes_bitbucket_pipelines_test.go
+                                      CLM-010,014,018,022,026,030,
+                                      034,038,042,047,055,061        (12)
+    ci_recipes_jenkins_test.go        CLM-011,015,019,023,027,031,
+                                      035,039,043,048,056,062        (12)
+
+  TEST NAMES ARE THE SPEC'S, VERBATIM. Do not rename, merge, split, or
+  table-drive them under a single parent — the status-drift dimension greps
+  for these exact identifiers, and a subtest inside a differently-named
+  parent does not exist as far as it is concerned.
+
+  ─────────────────────────────────────────────────────────────────────────
+  WHY THE RED IS LONG, AND WHAT "RED" MEANS AT EACH STAGE
+  ─────────────────────────────────────────────────────────────────────────
+  Every one of the 62 tests resolves the pack from
+  `.backstop/packs/backstop-ai/ci-workflows/` and FAILS LOUDLY when it is
+  absent (never skips — a skip here recreates exactly the vacuous green the
+  pack exists to prevent). The pack cannot be installed until it is COMPLETE,
+  because `pack add` validates through the whole packval pipeline and
+  phase 1 demands a non-empty `content` (Sharp Edge 7: a recipes-ONLY pack
+  fails validation). So:
+
+    PHASE 2 RED  — all 62 fail, uniformly, on "installed pack not found at
+                   <path>". Record the exact failure text and the count.
+                   A test that PASSES at this point is vacuous: fix it.
+    PHASE 3      — rendered output exists in a scratch consumer, but core
+                   still has no installed pack, so the Go suite is still red.
+                   The evidence at this stage is TASK-015's real apply.
+    PHASE 4      — rules falsified by DIRECT semgrep (pack test cannot do it,
+                   ISSUE-092). Go suite still red.
+    PHASE 5      — the pack is installed; ALL 62 GO GREEN HERE. This is the
+                   flip, and TASK-027 records it test-by-test.
+    PHASE 6      — the same 62 stay green against the pack re-installed from
+                   the PUBLISHED remote, which is what proves the published
+                   tree is the tree that was proven.
+
+  The implementer records the OBSERVED values at each stage in the task
+  report — actual failure text, actual counts — not the assertion "it was
+  red". TWO of the 62 are expected GREEN from the moment they are written,
+  because neither touches the pack: CLM-050 (the source denylist, green
+  against the amended claim as measured above) and CLM-052 (the registered
+  command surface, an anti-regression pin). Those two greens are correct,
+  not vacuous; every OTHER test passing before phase 5 is vacuous and must
+  be fixed.
+
+  ─────────────────────────────────────────────────────────────────────────
+  THE DEV LOOP — HOW TO RENDER AND ITERATE WITHOUT AN INSTALLED PACK
+  ─────────────────────────────────────────────────────────────────────────
+  `recipe apply` resolves the recipe out of an installed pack directory in a
+  consumer project; it does NOT require `pack add`, a lock entry, or a
+  validating pack. So phases 3 and 4 stage a scratch consumer by hand:
+
+    ROOT=$(mktemp -d)
+    mkdir -p "$ROOT/.backstop/packs/backstop-ai/ci-workflows"
+    cp -R /Users/bmanson/src/projects/backstop-ci-workflows-pack/. \
+          "$ROOT/.backstop/packs/backstop-ai/ci-workflows/"
+    printf 'project: scratch\npacks:\n  backstop-ai/ci-workflows: 0.1.0\n' \
+          > "$ROOT/backstop.yml"
+    cd "$ROOT" && /Users/bmanson/src/projects/backstop-core/bin/backstop \
+      recipe apply backstop-ai/ci-workflows:<id>@1.0.0 \
+      --param backstop_version=0.1.1
+
+  That is the same shape the mandated test harness uses (it copies the
+  INSTALLED pack instead of the source repo). `recipeProjectRoot()` resolves
+  the project from the discovered backstop.yml, so the apply writes into the
+  scratch tree and never into a working repository. Re-copy the pack after
+  every pack-side edit; a stale copy is the pack-side twin of a stale binary.
+
+  ─────────────────────────────────────────────────────────────────────────
+  FLEET ADOPTION: LOCAL FIRST, THEN THE PUBLISHED REMOTE
+  ─────────────────────────────────────────────────────────────────────────
+  REQ-002 wants backstop.yml and backstop.lock declaring the pack at the
+  same version so `backstop pack install` materializes it. The COMMITTED end
+  state must be a GIT source at v0.1.0, like every other entry in the lock —
+  a `source_type: local` entry pointing at `../backstop-ci-workflows-pack`
+  would be unresolvable on any CI runner that clones only backstop-core.
+
+  But the 62 tests need an installed pack BEFORE the pack is publishable
+  (publishing an unproven pack is the thing this repo does not do). So:
+    TASK-026  installs LOCALLY (`pack add <absolute path>`) — an INTERIM
+              working-tree state. `pack add` accepts an absolute path
+              (isLocalPath, add.go:96-105) and installs under the MANIFEST
+              NAME, i.e. exactly `.backstop/packs/backstop-ai/ci-workflows/`.
+    TASK-030  after publication, converts the entry to the git source at
+              v0.1.0 and asserts hash equality with the local install.
+  ⚠ NEVER COMMIT THE LOCAL-SOURCE ENTRY. If the plan stalls at the founder
+  gate (TASK-029), the honest state to leave behind is a working tree whose
+  backstop.yml/backstop.lock changes are UNCOMMITTED, and a report saying so.
+
+  ⚠ ISSUE-095 — `pack add <org>/<pack>@<version>` SILENTLY NO-OPS when a
+  pack of that name is already installed: `isPackInstalledAndCurrent` checks
+  only that a non-empty directory and a lock entry exist under that name and
+  never compares against the source just resolved. TASK-030 must therefore
+  `pack remove backstop-ai/ci-workflows` FIRST. Skipping the remove leaves
+  the LOCAL install in place while reporting success, and the entire remote
+  proof becomes vacuous.
+
+  ⚠ SHARP EDGE 6 — SPEC-066 edits the SAME two files. The edits are
+  independent map entries and compose, but whichever lands second must
+  RE-READ both files rather than write from a remembered baseline. Add ONE
+  entry; never regenerate either file wholesale. As of 2026-08-11 backstop.yml
+  declares seven packs and backstop.lock seven matching entries, all
+  `source_type: git`; SPEC-066 has no plan in flight in plans/.
+
+  ⚠ WHOLE-FILE ACTIVATION — touching backstop.yml or backstop.lock pulls
+  ALL of that file's findings into gate scope, not just the added lines. If
+  `PATH=... ./bin/backstop gate --file backstop.yml` reports anything, it is
+  fixed here, not waived. One `--file` per invocation (ISSUE-093).
+
+  ─────────────────────────────────────────────────────────────────────────
+  PACK-REPO BOOTSTRAPPING — THE PATTERN THE SIBLING PACKS ACTUALLY USED
+  ─────────────────────────────────────────────────────────────────────────
+  Read off /Users/bmanson/src/projects/backstop-go-distribution-pack, the
+  most recent and closest precedent (its git log is a SINGLE commit,
+  "backstop-ai/go-distribution 0.1.0: the release trinity as a pack", one
+  tag `v0.1.0`, remote `https://github.com/backstop-ai/go-distribution.git`):
+
+    1. `git init` locally at ~/src/projects/backstop-<name>-pack, branch
+       `main`. Author everything. NO remote, NO push, NO tag yet.
+    2. Prove it: `pack check`, `pack test`, direct-semgrep falsification,
+       and a real consumption leg.
+    3. Commit in full, then `git tag v<version>` — the tag MUST equal
+       pack.yml's `version`, which the repo's own
+       .github/workflows/tag-integrity.yml asserts on a tag push.
+    4. Creating the public repo under the org and pushing is a FOUNDER
+       CALL, made explicit as its own node in the DAG (TASK-029), never
+       taken on an implementer's authority.
+    5. Only then does a consumer `pack add backstop-ai/<name>@<version>`.
+  Copy .github/workflows/tag-integrity.yml VERBATIM from a sibling pack repo
+  — it is byte-identical across them. It is the PACK REPO's own CI and has
+  nothing to do with the workflows this pack's recipes ship.
+  The pack repo carries NO go.mod, deliberately: payload files must stay
+  inert data, never compiled as part of any module.
+
+  ─────────────────────────────────────────────────────────────────────────
+  DESIGN CONSTANTS THIS PLAN FIXES (so four parallel tasks agree)
+  ─────────────────────────────────────────────────────────────────────────
+  THE FOUR RECIPES:
+    id                          directory                          target
+    github-actions-gate         recipes/github-actions-gate        .github/workflows/backstop-gate.yml
+    gitlab-ci-gate              recipes/gitlab-ci-gate             .gitlab-ci.yml
+    bitbucket-pipelines-gate    recipes/bitbucket-pipelines-gate   bitbucket-pipelines.yml
+    jenkins-gate                recipes/jenkins-gate               Jenkinsfile
+  Each: `kind: scaffolding`, `version: "1.0.0"` (distinct from the pack's
+  0.1.0 — REQ-003 requires its own semver), ONE `create` op, non-empty
+  `enforcement.rules`. `merge`/`transform`/`insert`/`step` are PROHIBITED.
+
+  THE TWELVE RULE IDS — three per platform, prefix = the recipe id minus
+  the trailing `-gate`, i.e. the platform token:
+    github-actions-gate-workflow-missing-pack-install       ERROR
+    github-actions-gate-workflow-verdict-swallowed          ERROR
+    github-actions-gate-workflow-shallow-clone              ERROR
+    gitlab-ci-gate-workflow-missing-pack-install            ERROR
+    gitlab-ci-gate-workflow-verdict-swallowed               ERROR
+    gitlab-ci-gate-workflow-shallow-clone                   ERROR
+    bitbucket-pipelines-gate-workflow-missing-pack-install  ERROR
+    bitbucket-pipelines-gate-workflow-verdict-swallowed     ERROR
+    bitbucket-pipelines-gate-workflow-shallow-clone         ERROR
+    jenkins-gate-workflow-missing-pack-install              ERROR
+    jenkins-gate-workflow-verdict-swallowed                 ERROR
+    jenkins-gate-workflow-shallow-clone                     ERROR
+  All twelve ERROR: each names a BROKEN PROMISE (a file that says it gates
+  and does not), never un-adopted capability. Severity is declared in the
+  RULE FILE (semgrep `severity:` → SARIF level), not in pack.yml; `warning`
+  is non-blocking by contract, `error` and an ABSENT level both block, so an
+  omitted severity is silently indistinguishable from a deliberate ERROR
+  when reading the manifest alone (Sharp Edge 9). Write it explicitly.
+
+  THE FOUR `paths: include:` SETS — EXACT, NOT ILLUSTRATIVE:
+    github-actions-gate        backstop-gate*.yml
+    gitlab-ci-gate             .gitlab-ci*.yml  AND  gitlab-ci*.yml
+    bitbucket-pipelines-gate   bitbucket-pipelines*.yml
+    jenkins-gate               Jenkinsfile*
+  A MULTI-SEGMENT include (`.github/workflows/backstop-gate.yml`) is
+  PROHIBITED: measured against real semgrep in the gate's own DEFAULT
+  diff-scoped dispatch, which hands semgrep EXPLICIT FILE targets
+  (runFindingsEngine, cmd/backstop/pack_gate.go:573), it matches ZERO files
+  — not even the file it names — while matching under `--all`'s directory
+  dispatch. A "tightened" rule therefore looks alive under a full sweep and
+  is DEAD under the everyday bare `backstop gate`. Basename globs are the
+  only form that works under both. The trailing `*` and the fixture NAMING
+  rule are FORWARD-COMPATIBLE GROUNDWORK for ISSUE-092, explicitly NOT a
+  protection in force today — do not write them up as one.
+
+  THE THREE PARAMS — same NAMES in all four recipes (that sameness is
+  itself evidence the platform differences are data):
+    backstop_version   required: true, NO DEFAULT. A default silently pins
+                       whatever release was current when the recipe was
+                       authored. Its omission must fail EXIT 1 (CLM-049).
+    default_branch     required: false, default "main"
+    runner             required: false, per-platform default:
+                         github-actions-gate      ubuntu-latest
+                         gitlab-ci-gate           a SLASHLESS official image
+                                                  tag (e.g. debian:stable-slim)
+                         bitbucket-pipelines-gate the same slashless form
+                         jenkins-gate             an agent label; the empty
+                                                  label means "any agent"
+  THE SLASHLESS RULE IS LOAD-BEARING, not aesthetic: CLM-059..062 forbid any
+  organization-or-repository literal in the rendered file other than the
+  release coordinate and `actions/checkout`. An `org/image:tag` default
+  would BE such a literal and would red its own claim. Keep every runner
+  default free of `/`, and say why in a comment in each recipe.yml.
+
+  THE RELEASE COORDINATE — the one permitted download literal, matching what
+  .goreleaser.yml actually publishes (archives
+  `{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}`, i.e.
+  `backstop_<version>_<os>_<arch>.tar.gz`, and note goreleaser's `.Version`
+  carries NO leading v while the TAG does):
+    https://github.com/backstop-ai/backstop-core/releases/download/v<ver>/backstop_<ver>_linux_amd64.tar.gz
+  with `<ver>` supplied by `{{ backstop_version }}`. Verify the exact
+  filename against a real published release before shipping; a 404 in a
+  consumer's first CI run is the worst possible first impression.
+
+  NO `${{ ... }}` IN ANY PAYLOAD, ANYWHERE (REQ-006). The substituter reads
+  every `{{ ... }}` span as a param NAME and hard-errors on an undeclared
+  one, with no escape syntax. go-distribution works around that with
+  self-emitting pass-through params and records the workaround AS a
+  workaround — do not imitate it. GitHub Actions exposes everything these
+  templates need as ordinary environment variables: GITHUB_BASE_REF,
+  GITHUB_EVENT_NAME, GITHUB_SHA. GitLab ($CI_*), Bitbucket ($BITBUCKET_*)
+  and Jenkins (${env.…}, single brace) never had the problem.
+
+  THE FOUR ORDERED ACTIONS EVERY RENDERED FILE PERFORMS, in this order,
+  because CLM-024..027 compare BYTE OFFSETS and Review Question 9 asks
+  whether byte order and EXECUTION order agree (they must, per platform —
+  check Bitbucket's script list and Jenkins' stage order explicitly):
+    1. check out with the platform's full-history directive
+       (fetch-depth: 0 / GIT_DEPTH: "0" / clone.depth: full /
+        CloneOption shallow: false)
+    2. install the pinned backstop CLI from the release archive
+    3. `backstop pack install`   ← MUST precede the gate (ISSUE-020: a gate
+       over an empty pack directory reports capability_absent on every
+       dimension and passes having checked NOTHING)
+    4. resolve a base from the platform's own environment variables plus
+       `{{ default_branch }}`, exit non-zero when it does not resolve, then
+       `backstop gate --base "$BASE"` as the step whose exit code IS the
+       verdict — carrying no form from THE SWALLOW-FORM SET below, which is
+       stated once, there, and nowhere else.
+  Each of `backstop pack install` and `backstop gate` appears EXACTLY ONCE
+  in the rendered bytes (CLM-024..027 assert the count as well as the
+  order). On Bitbucket, a YAML anchor/alias reused across the pull-request
+  and branch pipelines keeps the literal text single-occurrence — use it.
+  Each payload also carries a COMMENTED ANCHOR marking where a consumer adds
+  its own Layer-0 toolchain setup, and — in the file itself, not only in the
+  README — the warning that `kind: scaffolding` REGENERATES the file on the
+  next apply and will eat edits made there unless a `@waiver` covers them
+  (Sharp Edge 3).
+
+  ─────────────────────────────────────────────────────────────────────────
+  ★ THE SWALLOW-FORM SET — STATED ONCE, AUTHORITATIVELY, HERE
+  ─────────────────────────────────────────────────────────────────────────
+  Every task that mentions a swallow form — the payload tasks (TASK-010..013),
+  the mandated Go tests (CLM-028..031 in TASK-005..008), the rule tasks
+  (TASK-020..023) and the fixture tasks (TASK-016..019) — uses EXACTLY this
+  set and nothing else. It is copied verbatim off the spec's CLM-028..031,
+  which is the authority; a rule or test whose set differs from its
+  platform's row below has diverged from the claim it is supposed to prove.
+
+    UNIVERSAL, all four platforms:  `|| true`, `|| exit 0`, a trailing `exit 0`
+    github-actions-gate       + `continue-on-error`            (CLM-028)
+    gitlab-ci-gate            + `allow_failure: true`          (CLM-029)
+    bitbucket-pipelines-gate  + nothing                        (CLM-030)
+    jenkins-gate              + `returnStatus: true`, `catchError`  (CLM-031)
+
+  ⚠ `|| echo` IS DELIBERATELY NOT IN THIS SET, and nobody adds it. It does
+  suppress a command's exit status, so the omission is a real judgment, not
+  an oversight: the spec fixes these four denylists claim-by-claim, and
+  widening one in the pack while the mandated Go test asserts the spec's
+  narrower list would put rule and claim into silent disagreement. The
+  concrete case that makes it tempting is backstop-core's own
+  `.github/workflows/ci.yml:147`, which ends a DIAGNOSTIC `backstop gate
+  --json` capture in `|| echo "…"` precisely so the capture cannot gate, and
+  gates for real in the very next step (`:155`, unguarded). Flagging that
+  shape would be a false positive on a documented, deliberate pattern. If
+  someone later concludes `|| echo` must block, that is a SPEC amendment
+  through the spec-author agent, touching CLM-028..031 and the four rules
+  together — never a unilateral widening of one rule file.
+
+  ─────────────────────────────────────────────────────────────────────────
+  SCOPE FENCES — DO NOT CROSS THESE
+  ─────────────────────────────────────────────────────────────────────────
+  ✗ NO fifth recipe. No OIDC / ingest / emitter recipe, no supabase, vercel
+    or nextjs provider recipe. CLM-003 tests for their absence.
+  ✗ NO new core command, subcommand or flag. The registered top-level set is
+    exactly: artifact, baseline, commands, completion, gate, help, pack,
+    recipe, version, waiver (measured 2026-08-11), and `recipe` registers
+    exactly one subcommand, `apply`. CLM-052 pins both.
+  ✗ NO applying any of the four recipes to backstop-core itself.
+    .github/workflows/ci.yml stays bespoke and BYTE-UNCHANGED, is not a
+    recipe target, and the repo root gains no .gitlab-ci.yml,
+    bitbucket-pipelines.yml or Jenkinsfile. CLM-007 tests exactly this.
+  ✗ NO adoption-gating, un-adopt, rev-guard, drift signals, compat matrix or
+    version-keyed variants (bundle REQ-011..REQ-017, REQ-020, REQ-022).
+  ✗ NO fixing ISSUE-092. `pack test` phase 3's fixture EXECUTION is a silent
+    no-op for every pack in the fleet; CLM-058 is a STRUCTURAL claim only.
+    Never write — in a test name, a comment, or a commit message — that a
+    green `pack test` is evidence any rule FIRES. It is not.
+  ✗ NO `merge`/`insert` op to rescue brownfield adoption. On a repo that
+    already owns `.gitlab-ci.yml` / `bitbucket-pipelines.yml` / `Jenkinsfile`,
+    `create`'s never-clobber rule preserves the consumer's file and the
+    consumer ends up with an adoption record and NO gate in CI (Sharp
+    Edge 2). That is correct non-destructive behaviour AND a genuinely bad
+    outcome. TASK-031 FILES it; nobody improvises a fix mid-implementation.
+  ✗ NO second `actions/*` action in the GitHub payload. `actions/checkout`
+    is permitted because `fetch-depth: 0` has no other expression; the
+    permission is CLOSED to that one literal.
+  ✗ NO hand-editing of any artifact. Issues, spec amendments and status
+    flips go through the purpose-built agents.
+
+  ─────────────────────────────────────────────────────────────────────────
+  FIXTURES ARE CAPTURED, NEVER AUTHORED
+  ─────────────────────────────────────────────────────────────────────────
+  Every positive fixture is a BYTE COPY of what a real `recipe apply`
+  actually rendered; every negative is that same file with EXACTLY ONE
+  deliberate defect. Nobody types an expected workflow by hand and calls it
+  a fixture — a fixture written to match the code proves only that the code
+  equals itself. Phase 4's capture tasks depend on TASK-015 precisely so the
+  bytes exist to copy. Fixture FILE NAMES are load-bearing (each must fall
+  under its rule's include glob) and are fixed per platform in the tasks
+  below.
+
+  ★ THE FOUR PLATFORMS ARE ASYMMETRIC ON THE SECOND POSITIVE, ON PURPOSE.
+  REQ-009 requires AT LEAST ONE positive and one negative per rule, and the
+  clean rendered payload from TASK-015 supplies the positive for all twelve.
+  A SECOND positive — a real, unrelated, non-recipe-rendered config of that
+  platform, the "silence" fixture — is this plan's addition and is NOT
+  spec-mandated. It exists for exactly ONE platform:
+    github-actions-gate  ✔ a real source exists IN THIS REPOSITORY —
+                           .github/workflows/ci.yml, a hand-written,
+                           non-recipe-rendered workflow. TASK-016 captures
+                           it.
+    gitlab-ci-gate       ✗ no real source. MEASURED 2026-08-11: `find
+    bitbucket-pipelines-gate ✗   /Users/bmanson/src/projects -maxdepth 3`
+    jenkins-gate         ✗   for `.gitlab-ci*.yml`, `bitbucket-pipelines*.yml`
+                             and `Jenkinsfile*` returns NOTHING. There is no
+                             GitLab, Bitbucket or Jenkins config anywhere on
+                             this machine to capture from.
+  The rule "fixtures are CAPTURED, never AUTHORED" is what forces the
+  asymmetry: hand-typing a plausible `.gitlab-ci.yml` to serve as a "real
+  unrelated pipeline" would be a fabricated fixture wearing a captured
+  fixture's name, which is worse than not having one. So TASK-017/018/019
+  ship the clean rendered payload as their single positive, and the
+  cross-platform silence sweep in TASK-025 step 2 — every platform's rules
+  run against every OTHER platform's fixtures, all silent — carries the
+  over-broadness evidence for those three. Do not invent the missing three;
+  if a real GitLab/Bitbucket/Jenkins config ever becomes available to
+  capture, adding it then is a pack revision, not a gap today.
+
+  ─────────────────────────────────────────────────────────────────────────
+  A GO TEST OF THE GLOBS MUST MATCH AGAINST filepath.Base — SHARP EDGE 10
+  ─────────────────────────────────────────────────────────────────────────
+  `filepath.Match` does NOT model semgrep's slashless-pattern semantics:
+  semgrep matches a slashless include against the file's BASENAME anywhere
+  in the tree, while filepath.Match requires the WHOLE path to match.
+  Measured: filepath.Match("backstop-gate*.yml",
+  ".github/workflows/backstop-gate.yml") = false; against
+  filepath.Base(path) = true. CLM-053..056's Go assertions MUST compare
+  against filepath.Base(path). Written the naive way the test fails against
+  a CORRECT pack, and the likely "repair" — widening the mandated pattern
+  until filepath.Match accepts a full path — replaces a working include with
+  one semgrep matches nothing against. The Go helper is a MODEL of semgrep's
+  behaviour; the only authority is semgrep, which is what scripts/falsify.sh
+  is for.
+  CLM-006 uses the same helper over `git ls-files` output: the union of the
+  four include sets must match ZERO tracked files in backstop-core. Core's
+  only workflow is `ci.yml`, which no include set names — but assert it,
+  do not assume it, and re-assert it whenever a rule file changes.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: The pack repository skeleton and the Go test harness
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Pack repo skeleton and the shared test harness (REQ-001)"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Create the ci-workflows pack repo with its single provisioned engine binding"
+        description: |
+          Create the repo at /Users/bmanson/src/projects/backstop-ci-workflows-pack
+          (`git init`, default branch `main`). It DOES NOT EXIST — verified
+          2026-08-11. No remote, no push, no tag: those are TASK-028/029.
+
+          pack.yml — identity and engine block ONLY. The `recipes:` index
+          lands in TASK-014 and `content.ruleset` in TASK-024, so this
+          manifest is DELIBERATELY INCOMPLETE and `pack check` will fail
+          until then (phase 1 demands a non-empty `content`; phase 4 errors
+          on an empty `recipes:` index under `archetype: recipes`). Do not
+          "fix" that by running pack check early or by padding the manifest.
+
+            name: backstop-ai/ci-workflows      ← THE INSTALL IDENTITY
+            version: "0.1.0"
+            language: any                        ← required documentation-only
+                                                   field; a gate workflow
+                                                   belongs to no language,
+                                                   which is the whole point
+            archetype: recipes
+            description: <one sentence: four per-platform gate-workflow
+                          recipes plus the rules that guard them>
+
+          THE ENGINE BINDING IS LOAD-BEARING TWICE (CLM-004):
+            (1) `recipe apply` calls provisionedEngineBinding
+                UNCONDITIONALLY before a recipe runs and requires the pack to
+                declare EXACTLY ONE binding carrying `provision:` — a
+                create-only recipes pack declaring none fails with a config
+                error before its first op executes;
+            (2) the twelve rules need semgrep anyway.
+          Declare exactly one, keyed `semgrep-ci` — NEVER the bare `semgrep`.
+          Pack bindings OVERRIDE the embedded base-engines defaults, so a
+          pack redefining `semgrep` silently changes engine resolution for
+          every OTHER pack installed in the same consumer project. That
+          coupling defect shows up in someone else's repository, not here.
+          Mirror the base-engines semgrep binding field-for-field:
+            command: semgrep --sarif --quiet
+            input_mode: rule-flags
+            input_flag: "--config"
+            scope_kind: file-args
+            gate_type: lint
+            category: opinion
+            provision: {tool: semgrep, version: 1.96.0}
+            field_contract: requires [rule_path, standard],
+                            forbids [category, input_scope, validator]
+          1.96.0 is not a preference: it is what
+          engine.TrustedToolAllowlist() pins (allowlist.go:22) and the trust
+          gate runs at BOTH parse and dispatch, so any other pin is an
+          exit-2 config error. Comment both facts in the file.
+
+          .github/workflows/tag-integrity.yml — copy VERBATIM from
+          /Users/bmanson/src/projects/backstop-go-distribution-pack/.github/workflows/tag-integrity.yml
+          (byte-identical across the sibling pack repos; it asserts pack.yml
+          parses, its version is strict semver, and on a tag push that the
+          tag equals that version). This is the PACK REPO's own CI and is a
+          DIFFERENT thing from the workflows this pack's recipes ship — do
+          not conflate them, and do not let it become a fifth payload.
+
+          .gitignore — editor/OS noise only. NO go.mod, deliberately.
+
+          README.md — what the pack is, the four recipe ids and targets, the
+          three params, and the two warnings a consumer needs BEFORE they
+          apply: brownfield never-clobber (Sharp Edge 2) and
+          regenerate-by-default at the toolchain anchor (Sharp Edge 3).
+
+          Author nothing else here. Recipes, payloads, rules and fixtures
+          belong to later tasks and will extend pack.yml.
+        files:
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/pack.yml
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/.gitignore
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/README.md
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/.github/workflows/tag-integrity.yml
+        claims:
+          - CLM-001
+          - CLM-004
+        depends_on: []
+
+      - id: TASK-002
+        type: setup
+        title: "Author the shared Go harness: resolve the REAL installed pack, stage a scratch consumer, drive the shipped command"
+        description: |
+          Create cmd/backstop/ci_recipes_harness_test.go, `package main`. It
+          carries NO mandated test name — it is the shared machinery the six
+          test files in Phase 2 use, and it is written FIRST so those files
+          compile. Follow the shape cmd/backstop/recipe_apply_e2e_test.go
+          already uses (stagedRecipe / executeCommand / copyTree), with ONE
+          substitution: the pack comes from the REAL install, not a fixture.
+
+          Helpers to provide, and the reasons they are shaped this way:
+
+          (1) ciPackRoot(t) — walk UP from the test's working directory
+              (cmd/backstop) to the repository root by finding backstop.yml,
+              then return <root>/.backstop/packs/backstop-ai/ci-workflows.
+              t.Fatalf when the directory or its pack.yml is missing, with a
+              message naming the resolved path AND the fix (`backstop pack
+              install`). NEVER t.Skip — a skip recreates exactly the vacuous
+              green this pack exists to prevent, and it is the single most
+              likely way this whole suite silently stops testing anything.
+
+          (2) ciParsedPack(t) — pack.ParseManifestFile over that pack.yml,
+              returning the manifest so every id, version, directory and
+              target is read from DATA rather than retyped as a test literal.
+              Any test that hardcodes a recipe version has broken the
+              property that the pack can be revved without editing core.
+
+          (3) ciStageConsumer(t) — copy the INSTALLED pack into a fresh
+              t.TempDir() at .backstop/packs/backstop-ai/ci-workflows, write
+              a minimal backstop.yml declaring it, and t.Chdir into that
+              root. recipeProjectRoot() resolves the project from the
+              discovered backstop.yml, so the apply writes into the scratch
+              tree and never into the working repository. t.Chdir makes the
+              test non-parallel — do NOT call t.Parallel anywhere in this
+              suite.
+
+          (4) ciApply(t, root, recipeID, version, params...) — build the ref
+              as `backstop-ai/ci-workflows:<id>@<version>` and drive
+              NewRootCommand() with `recipe apply <ref> --param k=v`
+              (repeatable StringArray). ONE invocation shape for all four
+              platforms; the reference argument is the ONLY thing that
+              differs. Return stdout AND the error so CLM-049 can inspect
+              both. Classify exit codes through *ExitCodeError — CLM-049
+              needs EXIT 1 (an op failure through the normal apply path),
+              explicitly NOT the exit-2 *check.ConfigError shape reserved
+              for malformed/duplicate/undeclared --param input.
+
+          (5) ciBasenameMatch(pattern, path) — filepath.Match(pattern,
+              filepath.Base(path)). SHARP EDGE 10: filepath.Match does NOT
+              model semgrep's slashless-pattern semantics, and a full-path
+              comparison asserts something semgrep never does. Document that
+              in the helper's doc comment, including the measured example
+              (".github/workflows/backstop-gate.yml" vs
+              "backstop-gate*.yml": false on the full path, true on the
+              basename), and state plainly that this helper is a MODEL of
+              semgrep's behaviour, not the behaviour itself.
+
+          (6) ciByteOffset(t, content, needle) — index of the single
+              occurrence, failing when the count is not exactly 1, so the
+              ordering claims assert count AND order in one place.
+
+          (7) ciTrackedFiles(t) — `git ls-files` from the repo root, for
+              CLM-006's union check.
+
+          Nothing platform-shaped is typed in this file beyond what the
+          parsed manifests supply. No stubs, no fake dispatch, no interface
+          seam standing in for the filesystem: a stub would pass whether or
+          not the pack exists, which is the exact failure mode this spec is
+          the acceptance test against.
+        files:
+          - /Users/bmanson/src/projects/backstop-core/cmd/backstop/ci_recipes_harness_test.go
+        claims:
+          - CLM-001
+          - CLM-051
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: All 62 mandated tests, RED — plus the falsification harness
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: The 62 mandated tests written RED, and the direct-semgrep falsifier"
+    tasks:
+      - id: TASK-003
+        type: test
+        title: "RED: pack identity, fleet declaration, enforcement-rule resolution, structural pack test (9 tests)"
+        description: |
+          Create cmd/backstop/ci_recipes_pack_identity_test.go, `package
+          main`, carrying EXACTLY these nine mandated names, verbatim:
+
+            TestCIRecipes_PackInstalledAndParseableAtExpectedPath        (CLM-001)
+            TestCIRecipes_RecipeIndexIsExactlyTheFourPlatforms           (CLM-002)
+            TestCIRecipes_PackShipsNoOIDCOrProviderRecipe                (CLM-003)
+            TestCIRecipes_SingleProvisionedEngineBindingUnderDistinctName (CLM-004)
+            TestCIRecipes_FleetDeclaresPackAtOneVersionInBothFiles       (CLM-005)
+            TestCIRecipes_PackRuleIncludePathsMatchNoTrackedCoreFile     (CLM-006)
+            TestCIRecipes_CoreAdoptsThePackWithoutApplyingAnyRecipe      (CLM-007)
+            TestCIRecipes_EveryDeclaredEnforcementRuleResolvesInThePackRuleset (CLM-057)
+            TestCIRecipes_InstalledPackClearsRealPackTestStructurally    (CLM-058)
+
+          What each asserts:
+          • CLM-001 — ciPackRoot + ParseManifestFile succeed; manifest name
+            == "backstop-ai/ci-workflows"; archetype == "recipes". ABSENCE
+            FAILS LOUDLY, never skips.
+          • CLM-002 — the `recipes:` key set is EXACTLY the four ids, and
+            each maps to a directory holding a readable recipe.yml. A fifth
+            id fails. Compare sorted sets, not membership.
+          • CLM-003 — DENYLIST over the same key set and the recipes/
+            directory listing: no id or directory containing oidc, ingest,
+            emitter, supabase, vercel or nextjs.
+          • CLM-004 — exactly ONE binding carries `provision:`; its key is
+            `semgrep-ci`; there is NO binding keyed `semgrep`; its pinned
+            version EQUALS engine.TrustedToolAllowlist()["semgrep"] read
+            from the package, not retyped as "1.96.0".
+          • CLM-005 — parse the repo's backstop.yml and backstop.lock, find
+            the `backstop-ai/ci-workflows` entry in BOTH, assert both exist
+            and their version strings are equal. Do not assert a particular
+            version — the pack may be revved.
+          • CLM-006 — union every `paths: include:` pattern across the
+            pack's rule files, run ciBasenameMatch over `git ls-files`
+            output, assert ZERO matches. On failure, report the offending
+            (pattern, file) pairs — a bare "expected 0 got 3" is unusable.
+          • CLM-007 — `.github/workflows/ci.yml` is byte-identical to its
+            committed HEAD content (read via `git show HEAD:...` or compare
+            against `git diff --quiet`), it is not any recipe's declared
+            target, and the repo root carries no .gitlab-ci.yml,
+            bitbucket-pipelines.yml or Jenkinsfile.
+          • CLM-057 — the union of the four recipes' `enforcement.rules`
+            resolves against the pack's declared ruleset ids, in BOTH
+            directions: every declared enforcement id exists as a rule, and
+            the ruleset declares exactly the twelve those lists name.
+            packval's archetype check is presence-only and never resolves
+            those strings, which is why this cross-reference is the spec's
+            obligation and not the pipeline's.
+          • CLM-058 — run the REAL pipeline:
+            executeCommand(NewRootCommand(), "pack", "test", "--format",
+            "json", <installed pack dir>), unmarshal packval.Result, assert
+            Status == "pass" and no phase reports an error. The test's doc
+            comment MUST state, in words, that this is a STRUCTURAL verdict
+            only and asserts NOTHING about rule firing — phase 3's fixture
+            execution is a silent no-op for every pack in the fleet pending
+            ISSUE-092. Anyone who later reads this test as firing evidence
+            should be stopped by the comment.
+
+          RUN THEM. Expected RED: all nine, on "installed pack not found".
+          Record the exact message and the count. A test that PASSES here is
+          vacuous — most likely it swallowed the missing-pack error.
+        files:
+          - /Users/bmanson/src/projects/backstop-core/cmd/backstop/ci_recipes_pack_identity_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-057
+          - CLM-058
+        test_names:
+          - TestCIRecipes_PackInstalledAndParseableAtExpectedPath
+          - TestCIRecipes_RecipeIndexIsExactlyTheFourPlatforms
+          - TestCIRecipes_PackShipsNoOIDCOrProviderRecipe
+          - TestCIRecipes_SingleProvisionedEngineBindingUnderDistinctName
+          - TestCIRecipes_FleetDeclaresPackAtOneVersionInBothFiles
+          - TestCIRecipes_PackRuleIncludePathsMatchNoTrackedCoreFile
+          - TestCIRecipes_CoreAdoptsThePackWithoutApplyingAnyRecipe
+          - TestCIRecipes_EveryDeclaredEnforcementRuleResolvesInThePackRuleset
+          - TestCIRecipes_InstalledPackClearsRealPackTestStructurally
+        depends_on:
+          - TASK-002
+
+      - id: TASK-004
+        type: test
+        title: "RED: substitution completeness, the required-param refusal, and the three-way zero-baked proof (5 tests)"
+        description: |
+          Create cmd/backstop/ci_recipes_mechanism_test.go, `package main`,
+          carrying EXACTLY these five mandated names, verbatim:
+
+            TestCIRecipes_PayloadsCarryNoActionsExpressionAndOnlyDeclaredParams (CLM-044)
+            TestCIRecipes_ApplyWithoutRequiredVersionParamFailsExitOneBeforeWriting (CLM-049)
+            TestCIRecipes_CoreProductionSourceCarriesNoPlatformLiteral   (CLM-050)
+            TestCIRecipes_AllFourPlatformsApplyThroughOneUnchangedInvocation (CLM-051)
+            TestCIRecipes_RegisteredCommandSurfaceUnchanged              (CLM-052)
+
+          • CLM-044 — for each of the four recipes: read the payload bytes,
+            assert NO `${{` appears anywhere, and that every `{{ ... }}`
+            span's trimmed inner text names a param that recipe DECLARES.
+            Both halves matter: the first keeps the pass-through-param
+            workaround out, the second makes the apply resolvable.
+          • CLM-049 — apply `github-actions-gate` with NO --param at all
+            into a staged consumer. Assert: the error is an *ExitCodeError
+            with Code == ExitViolations (EXIT 1), NOT a *check.ConfigError
+            (exit 2); the message NAMES `backstop_version`; and the declared
+            target DOES NOT EXIST afterwards, so the failure preceded any
+            write (renderPayload runs before writeRendered). Review
+            Question 4 is explicit that a test asserting exit 2 would be
+            "fixed" by changing core, which this spec forbids.
+          • CLM-050 — walk pkg/recipe/ and cmd/backstop/, SKIP `_test.go`
+            files, and assert BOTH halves of the AMENDED claim (spec 1.0.3 —
+            read its text before writing the test; the plan notes section
+            "★ CLM-050 — FOUND IN PLANNING, RULED ON, AMENDED, RESOLVED"
+            records why it reads the way it does):
+              (i) the literal set `gitlab`, `bitbucket`, `jenkins`,
+                  `Jenkinsfile`, `.github/workflows`, `.gitlab-ci`,
+                  `bitbucket-pipelines`, matched CASE-INSENSITIVELY, appears
+                  nowhere;
+              (ii) every occurrence of the lowercase token `github`, matched
+                  CASE-SENSITIVELY, opens a module-path reference in one of
+                  its TWO exempt spellings — the plain `github.com/` or the
+                  regex-escaped `github\.com`. Write both spellings into the
+                  exemption; a scan that knows only the first flags
+                  cmd/backstop/baseline.go:171's
+                  `regexp.MustCompile(`github\.com[:/]…`)`, which is a
+                  genuine module-path reference and exactly the false
+                  positive the amendment closed.
+            ★ THIS TEST IS EXPECTED TO PASS THE FIRST TIME IT RUNS. Measured
+            2026-08-11 against this exact predicate: zero hits on (i), zero
+            on (ii). That green is correct, not vacuous — the claim is an
+            absence claim over code this plan does not touch. If it is RED,
+            it is a NEW finding (a platform literal has entered core
+            production source): report it, and do not repair it by dropping
+            the token, by making the `github` match case-insensitive, by
+            widening the exemption to CI-shaped literals, or by editing
+            baseline.go — all four are named forbidden in the notes and in
+            the spec's Sharp Edge 5.
+          • CLM-051 — apply ALL FOUR through one identical invocation shape
+            built by ciApply, with the reference argument as the only
+            differing input, and assert all four succeed. Assert the shape
+            structurally too (same flag set, same param set), not just the
+            four successes — the claim is about the invocation, not the
+            outcome.
+          • CLM-052 — enumerate NewRootCommand().Commands() and assert the
+            top-level set is exactly: artifact, baseline, commands,
+            completion, gate, help, pack, recipe, version, waiver (measured
+            2026-08-11); and that `recipe` registers exactly one subcommand,
+            `apply`, with no new flag. Also assert no command or flag name
+            anywhere in the tree contains ci, workflow, github, gitlab,
+            bitbucket or jenkins.
+
+          RUN THEM. Expected RED: CLM-044, 049 and 051 only, all three on
+          "installed pack not found". CLM-050 and CLM-052 are expected GREEN
+          immediately and that is correct — neither depends on the pack:
+          CLM-050 is an absence claim over core source (see above) and
+          CLM-052 is an anti-regression pin on the command surface. Record
+          the observed result for each of the five by name, and record
+          CLM-050's two hit counts (both zero) as measured output rather
+          than as an assertion that it passed.
+        files:
+          - /Users/bmanson/src/projects/backstop-core/cmd/backstop/ci_recipes_mechanism_test.go
+        claims:
+          - CLM-044
+          - CLM-049
+          - CLM-050
+          - CLM-051
+          - CLM-052
+        test_names:
+          - TestCIRecipes_PayloadsCarryNoActionsExpressionAndOnlyDeclaredParams
+          - TestCIRecipes_ApplyWithoutRequiredVersionParamFailsExitOneBeforeWriting
+          - TestCIRecipes_CoreProductionSourceCarriesNoPlatformLiteral
+          - TestCIRecipes_AllFourPlatformsApplyThroughOneUnchangedInvocation
+          - TestCIRecipes_RegisteredCommandSurfaceUnchanged
+        depends_on:
+          - TASK-002
+
+      - id: TASK-005
+        type: test
+        title: "RED: the twelve GitHub Actions claims"
+        description: |
+          Create cmd/backstop/ci_recipes_github_actions_test.go, `package
+          main`, carrying EXACTLY these twelve mandated names, verbatim:
+
+            TestCIRecipes_GitHubActions_RecipeDeclarationShape            (CLM-008)
+            TestCIRecipes_GitHubActions_ApplyWritesOnlyItsDeclaredTarget  (CLM-012)
+            TestCIRecipes_GitHubActions_RenderedDeclaresFullHistory       (CLM-016)
+            TestCIRecipes_GitHubActions_RenderedInstallsPinnedBackstop    (CLM-020)
+            TestCIRecipes_GitHubActions_PackInstallPrecedesGate           (CLM-024)
+            TestCIRecipes_GitHubActions_GateVerdictNotSwallowed           (CLM-028)
+            TestCIRecipes_GitHubActions_ResolvesDiffBaseAndFailsWhenUnresolvable (CLM-032)
+            TestCIRecipes_GitHubActions_RenderedParsesAsWorkflowYAML      (CLM-036)
+            TestCIRecipes_GitHubActions_RenderedCarriesNoResidualPlaceholder (CLM-040)
+            TestCIRecipes_GitHubActions_ReapplyIsByteIdentical            (CLM-045)
+            TestCIRecipes_GitHubActions_RulesScopedByTargetBasenameGlob   (CLM-053)
+            TestCIRecipes_GitHubActions_RenderedCarriesNoToolchainOrConsumerLiteral (CLM-059)
+
+          Assertions, all against a REAL apply into a staged consumer:
+          • CLM-008 — recipe.yml declares kind scaffolding, its own semver
+            version, non-empty enforcement.rules, and EXACTLY ONE op: kind
+            create, target `.github/workflows/backstop-gate.yml`. Assert the
+            op count is 1 and that no op has kind merge/transform/insert/step.
+          • CLM-012 — snapshot the staged project's file set before and
+            after; the delta is exactly the declared target plus the adoption
+            record. Nothing else, at any depth.
+          • CLM-016 — the rendered checkout step declares `fetch-depth: 0`.
+            Assert through a YAML walk, not a substring, so an indented
+            comment cannot satisfy it.
+          • CLM-020 — the install step's URL carries the exact
+            `backstop_version` value the apply supplied (pass a distinctive
+            one, e.g. 9.9.9, so a hardcoded default cannot pass), and the
+            file carries no `latest`/unpinned install form.
+          • CLM-024 — ciByteOffset("backstop pack install") <
+            ciByteOffset("backstop gate"), each appearing EXACTLY once.
+          • CLM-028 — DENYLIST on the gate step: none of `|| true`,
+            `|| exit 0`, `continue-on-error`, or a trailing `exit 0` — the
+            github-actions-gate row of THE SWALLOW-FORM SET in the plan
+            notes, which is CLM-028 verbatim. Assert exactly those four;
+            neither add a term (`|| echo` is deliberately excluded) nor drop
+            one, since TASK-020's rule is written to the same list and the
+            two must not drift.
+          • CLM-032 — a base variable is assigned from GITHUB_BASE_REF /
+            GITHUB_EVENT_NAME (and `default_branch`), the SAME variable is
+            passed to `backstop gate --base`, and an unresolved base exits
+            non-zero. Assert the variable NAME matches between assignment
+            and use — a base resolved into one name and a gate reading
+            another is the exact silent-degradation this claim exists for.
+          • CLM-036 — parses via gopkg.in/yaml.v3 with top-level `on` and
+            `jobs`, at least one job declaring `runs-on` and a non-empty
+            `steps`. NOTE the YAML 1.1 `on:`→true pitfall: decode into a
+            yaml.Node or map[string]interface{} and check the KEY as
+            written; do not decode into a struct field named On.
+          • CLM-040 — no literal `{{` and no literal `}}` anywhere.
+          • CLM-045 — apply twice with identical params: the target is
+            byte-identical to what the first apply wrote, AND the second
+            run reports that nothing was written or preserved
+            (preserveOrRegenerate short-circuits on byte-equality and
+            returns Final: true WITHOUT writing — the CLI prints "nothing
+            was written or preserved"). Assert on the CLI's stdout for the
+            second half.
+          • CLM-053 — the three github rules' `paths: include:` set is
+            EXACTLY [backstop-gate*.yml]; no multi-segment pattern; via
+            ciBasenameMatch it matches `.github/workflows/backstop-gate.yml`,
+            matches this rule's own fixture names, and matches NEITHER the
+            other three platforms' targets NOR any tracked core file.
+          • CLM-059 — DENYLIST: no `actions/setup-`, `go install`,
+            `go build`, `npm `, `pnpm `, `yarn `, `pip `, `bundle install`,
+            `cargo `, `mvn `, `gradle`; and every org/repo-shaped literal
+            (regex `[\w.-]+/[\w.-]+`) is either the backstop release
+            coordinate or `actions/checkout` with any version suffix. The
+            permission is CLOSED to that one action — a second `actions/*`
+            fails.
+
+          RUN THEM. Expected RED: all twelve, "installed pack not found".
+        files:
+          - /Users/bmanson/src/projects/backstop-core/cmd/backstop/ci_recipes_github_actions_test.go
+        claims:
+          - CLM-008
+          - CLM-012
+          - CLM-016
+          - CLM-020
+          - CLM-024
+          - CLM-028
+          - CLM-032
+          - CLM-036
+          - CLM-040
+          - CLM-045
+          - CLM-053
+          - CLM-059
+        test_names:
+          - TestCIRecipes_GitHubActions_RecipeDeclarationShape
+          - TestCIRecipes_GitHubActions_ApplyWritesOnlyItsDeclaredTarget
+          - TestCIRecipes_GitHubActions_RenderedDeclaresFullHistory
+          - TestCIRecipes_GitHubActions_RenderedInstallsPinnedBackstop
+          - TestCIRecipes_GitHubActions_PackInstallPrecedesGate
+          - TestCIRecipes_GitHubActions_GateVerdictNotSwallowed
+          - TestCIRecipes_GitHubActions_ResolvesDiffBaseAndFailsWhenUnresolvable
+          - TestCIRecipes_GitHubActions_RenderedParsesAsWorkflowYAML
+          - TestCIRecipes_GitHubActions_RenderedCarriesNoResidualPlaceholder
+          - TestCIRecipes_GitHubActions_ReapplyIsByteIdentical
+          - TestCIRecipes_GitHubActions_RulesScopedByTargetBasenameGlob
+          - TestCIRecipes_GitHubActions_RenderedCarriesNoToolchainOrConsumerLiteral
+        depends_on:
+          - TASK-002
+
+      - id: TASK-006
+        type: test
+        title: "RED: the twelve GitLab CI claims"
+        description: |
+          Create cmd/backstop/ci_recipes_gitlab_ci_test.go, `package main`,
+          carrying EXACTLY these twelve mandated names, verbatim:
+
+            TestCIRecipes_GitLabCI_RecipeDeclarationShape                 (CLM-009)
+            TestCIRecipes_GitLabCI_ApplyWritesOnlyItsDeclaredTarget       (CLM-013)
+            TestCIRecipes_GitLabCI_RenderedDeclaresFullHistory            (CLM-017)
+            TestCIRecipes_GitLabCI_RenderedInstallsPinnedBackstop         (CLM-021)
+            TestCIRecipes_GitLabCI_PackInstallPrecedesGate                (CLM-025)
+            TestCIRecipes_GitLabCI_GateVerdictNotSwallowed                (CLM-029)
+            TestCIRecipes_GitLabCI_ResolvesDiffBaseAndFailsWhenUnresolvable (CLM-033)
+            TestCIRecipes_GitLabCI_RenderedParsesAsPipelineYAML           (CLM-037)
+            TestCIRecipes_GitLabCI_RenderedCarriesNoResidualPlaceholder   (CLM-041)
+            TestCIRecipes_GitLabCI_ReapplyIsByteIdentical                 (CLM-046)
+            TestCIRecipes_GitLabCI_RulesScopedByTargetBasenameGlob        (CLM-054)
+            TestCIRecipes_GitLabCI_RenderedCarriesNoToolchainOrConsumerLiteral (CLM-060)
+
+          Same assertion shapes as the GitHub file, with these platform
+          differences — read them off the spec, not off the GitHub file:
+          • declared target `.gitlab-ci.yml` (CLM-009, CLM-013).
+          • full history is `GIT_DEPTH` with value 0 (CLM-017). Assert the
+            VALUE through a YAML walk; GitLab wants it as a string "0", and
+            a YAML-typed 0 is equally acceptable — accept both, reject
+            absence and any non-zero.
+          • CLM-037 — parses as YAML declaring at least one job mapping
+            carrying a non-empty `script` list.
+          • CLM-029 — the swallow denylist here is the gitlab-ci-gate row of
+            THE SWALLOW-FORM SET in the plan notes: `allow_failure: true` in
+            place of `continue-on-error`, alongside the universal `|| true`,
+            `|| exit 0` and a trailing `exit 0`. Exactly those four.
+          • CLM-033 — base resolved from $CI_* variables (e.g.
+            CI_MERGE_REQUEST_TARGET_BRANCH_NAME, CI_DEFAULT_BRANCH) plus
+            `default_branch`.
+          • CLM-054 — the include set is EXACTLY the TWO basename globs
+            `.gitlab-ci*.yml` AND `gitlab-ci*.yml`, and nothing else. Two
+            patterns because the deployed target is dot-prefixed while the
+            fixture names this spec mandates are not, and one glob cannot
+            cover both spellings. Assert BOTH are present and no third
+            pattern is.
+          • CLM-060 — GitLab references no action or pipe at all, so the
+            permitted org/repo literal set is the release coordinate ALONE;
+            `actions/checkout` must NOT appear here.
+
+          RUN THEM. Expected RED: all twelve, "installed pack not found".
+        files:
+          - /Users/bmanson/src/projects/backstop-core/cmd/backstop/ci_recipes_gitlab_ci_test.go
+        claims:
+          - CLM-009
+          - CLM-013
+          - CLM-017
+          - CLM-021
+          - CLM-025
+          - CLM-029
+          - CLM-033
+          - CLM-037
+          - CLM-041
+          - CLM-046
+          - CLM-054
+          - CLM-060
+        test_names:
+          - TestCIRecipes_GitLabCI_RecipeDeclarationShape
+          - TestCIRecipes_GitLabCI_ApplyWritesOnlyItsDeclaredTarget
+          - TestCIRecipes_GitLabCI_RenderedDeclaresFullHistory
+          - TestCIRecipes_GitLabCI_RenderedInstallsPinnedBackstop
+          - TestCIRecipes_GitLabCI_PackInstallPrecedesGate
+          - TestCIRecipes_GitLabCI_GateVerdictNotSwallowed
+          - TestCIRecipes_GitLabCI_ResolvesDiffBaseAndFailsWhenUnresolvable
+          - TestCIRecipes_GitLabCI_RenderedParsesAsPipelineYAML
+          - TestCIRecipes_GitLabCI_RenderedCarriesNoResidualPlaceholder
+          - TestCIRecipes_GitLabCI_ReapplyIsByteIdentical
+          - TestCIRecipes_GitLabCI_RulesScopedByTargetBasenameGlob
+          - TestCIRecipes_GitLabCI_RenderedCarriesNoToolchainOrConsumerLiteral
+        depends_on:
+          - TASK-002
+
+      - id: TASK-007
+        type: test
+        title: "RED: the twelve Bitbucket Pipelines claims"
+        description: |
+          Create cmd/backstop/ci_recipes_bitbucket_pipelines_test.go,
+          `package main`, carrying EXACTLY these twelve mandated names,
+          verbatim:
+
+            TestCIRecipes_BitbucketPipelines_RecipeDeclarationShape        (CLM-010)
+            TestCIRecipes_BitbucketPipelines_ApplyWritesOnlyItsDeclaredTarget (CLM-014)
+            TestCIRecipes_BitbucketPipelines_RenderedDeclaresFullHistory   (CLM-018)
+            TestCIRecipes_BitbucketPipelines_RenderedInstallsPinnedBackstop (CLM-022)
+            TestCIRecipes_BitbucketPipelines_PackInstallPrecedesGate       (CLM-026)
+            TestCIRecipes_BitbucketPipelines_GateVerdictNotSwallowed       (CLM-030)
+            TestCIRecipes_BitbucketPipelines_ResolvesDiffBaseAndFailsWhenUnresolvable (CLM-034)
+            TestCIRecipes_BitbucketPipelines_RenderedParsesAsPipelinesYAML (CLM-038)
+            TestCIRecipes_BitbucketPipelines_RenderedCarriesNoResidualPlaceholder (CLM-042)
+            TestCIRecipes_BitbucketPipelines_ReapplyIsByteIdentical        (CLM-047)
+            TestCIRecipes_BitbucketPipelines_RulesScopedByTargetBasenameGlob (CLM-055)
+            TestCIRecipes_BitbucketPipelines_RenderedCarriesNoToolchainOrConsumerLiteral (CLM-061)
+
+          Platform differences:
+          • declared target `bitbucket-pipelines.yml`.
+          • full history is a `clone` block whose `depth` is `full`
+            (CLM-018), asserted through a YAML walk.
+          • CLM-038 — a `pipelines` block with at least one branch or
+            pull-request pipeline whose step declares a non-empty `script`.
+          • CLM-026 — ★ the payload is expected to use a YAML ANCHOR/ALIAS
+            so one step definition serves both the pull-request and branch
+            pipelines. That is what keeps `backstop pack install` and
+            `backstop gate` at exactly ONE literal occurrence each. Assert
+            the counts on the RAW BYTES (the claim is about byte offsets),
+            and separately confirm through the PARSED document that the
+            aliased step really is the step both pipelines run — Review
+            Question 9 asks whether byte order and EXECUTION order agree,
+            and an anchor is exactly where they could diverge.
+          • CLM-030 — swallow denylist: `|| true`, `|| exit 0`, trailing
+            `exit 0` — the bitbucket-pipelines-gate row of THE SWALLOW-FORM
+            SET in the plan notes, which adds no platform term to the
+            universal three.
+          • CLM-034 — base from $BITBUCKET_* variables (e.g.
+            BITBUCKET_PR_DESTINATION_BRANCH) plus `default_branch`.
+          • CLM-055 — include set EXACTLY [bitbucket-pipelines*.yml].
+          • CLM-061 — no pipe is referenced, so the permitted org/repo
+            literal set is the release coordinate alone.
+
+          RUN THEM. Expected RED: all twelve, "installed pack not found".
+        files:
+          - /Users/bmanson/src/projects/backstop-core/cmd/backstop/ci_recipes_bitbucket_pipelines_test.go
+        claims:
+          - CLM-010
+          - CLM-014
+          - CLM-018
+          - CLM-022
+          - CLM-026
+          - CLM-030
+          - CLM-034
+          - CLM-038
+          - CLM-042
+          - CLM-047
+          - CLM-055
+          - CLM-061
+        test_names:
+          - TestCIRecipes_BitbucketPipelines_RecipeDeclarationShape
+          - TestCIRecipes_BitbucketPipelines_ApplyWritesOnlyItsDeclaredTarget
+          - TestCIRecipes_BitbucketPipelines_RenderedDeclaresFullHistory
+          - TestCIRecipes_BitbucketPipelines_RenderedInstallsPinnedBackstop
+          - TestCIRecipes_BitbucketPipelines_PackInstallPrecedesGate
+          - TestCIRecipes_BitbucketPipelines_GateVerdictNotSwallowed
+          - TestCIRecipes_BitbucketPipelines_ResolvesDiffBaseAndFailsWhenUnresolvable
+          - TestCIRecipes_BitbucketPipelines_RenderedParsesAsPipelinesYAML
+          - TestCIRecipes_BitbucketPipelines_RenderedCarriesNoResidualPlaceholder
+          - TestCIRecipes_BitbucketPipelines_ReapplyIsByteIdentical
+          - TestCIRecipes_BitbucketPipelines_RulesScopedByTargetBasenameGlob
+          - TestCIRecipes_BitbucketPipelines_RenderedCarriesNoToolchainOrConsumerLiteral
+        depends_on:
+          - TASK-002
+
+      - id: TASK-008
+        type: test
+        title: "RED: the twelve Jenkins claims"
+        description: |
+          Create cmd/backstop/ci_recipes_jenkins_test.go, `package main`,
+          carrying EXACTLY these twelve mandated names, verbatim:
+
+            TestCIRecipes_Jenkins_RecipeDeclarationShape                  (CLM-011)
+            TestCIRecipes_Jenkins_ApplyWritesOnlyItsDeclaredTarget        (CLM-015)
+            TestCIRecipes_Jenkins_RenderedDeclaresFullHistory             (CLM-019)
+            TestCIRecipes_Jenkins_RenderedInstallsPinnedBackstop          (CLM-023)
+            TestCIRecipes_Jenkins_PackInstallPrecedesGate                 (CLM-027)
+            TestCIRecipes_Jenkins_GateVerdictNotSwallowed                 (CLM-031)
+            TestCIRecipes_Jenkins_ResolvesDiffBaseAndFailsWhenUnresolvable (CLM-035)
+            TestCIRecipes_Jenkins_RenderedIsStructurallyWellFormedDeclarativePipeline (CLM-039)
+            TestCIRecipes_Jenkins_RenderedCarriesNoResidualPlaceholder    (CLM-043)
+            TestCIRecipes_Jenkins_ReapplyIsByteIdentical                  (CLM-048)
+            TestCIRecipes_Jenkins_RulesScopedByTargetBasenameGlob         (CLM-056)
+            TestCIRecipes_Jenkins_RenderedCarriesNoToolchainOrConsumerLiteral (CLM-062)
+
+          Platform differences:
+          • declared target `Jenkinsfile` (no extension).
+          • full history is a checkout `CloneOption` whose `shallow` is
+            false (CLM-019) — a text assertion, since there is no parser.
+          • CLM-039 — STRUCTURAL, deliberately not a Groovy parse: balanced
+            braces across the WHOLE file plus the declarative blocks
+            `pipeline`, `agent`, `stages`, at least one `stage(`, and
+            `steps`. The test's doc comment must record WHY it is weaker
+            (Sharp Edge 4: no Groovy parser is reachable from a Go test
+            without a JVM dependency this repo does not carry) and must not
+            be read as "the Jenkinsfile is valid" — it is "not obviously
+            malformed". Count braces OUTSIDE string literals if practical;
+            if not, say so in the comment rather than pretending.
+          • CLM-031 — swallow denylist adds `returnStatus: true` and
+            `catchError` to the universal three — the jenkins-gate row of
+            THE SWALLOW-FORM SET in the plan notes.
+          • CLM-035 — base from ${env.CHANGE_TARGET} / ${env.BRANCH_NAME}
+            plus `default_branch`. Groovy's `${...}` is SINGLE-brace and
+            therefore invisible to the substituter — but assert CLM-043
+            (no `{{` / `}}`) all the same.
+          • CLM-056 — include set EXACTLY [Jenkinsfile*]. Note the glob has
+            no extension, so it also matches the fixtures named
+            `Jenkinsfile-*` — which is the point.
+          • CLM-062 — no plugin coordinate is referenced; permitted org/repo
+            literal set is the release coordinate alone. In particular the
+            checkout step must NOT carry a userRemoteConfigs URL: derive it
+            from `scm` (branches: scm.branches, userRemoteConfigs:
+            scm.userRemoteConfigs, extensions: scm.extensions + CloneOption)
+            so no consumer repository literal appears at all.
+
+          RUN THEM. Expected RED: all twelve, "installed pack not found".
+        files:
+          - /Users/bmanson/src/projects/backstop-core/cmd/backstop/ci_recipes_jenkins_test.go
+        claims:
+          - CLM-011
+          - CLM-015
+          - CLM-019
+          - CLM-023
+          - CLM-027
+          - CLM-031
+          - CLM-035
+          - CLM-039
+          - CLM-043
+          - CLM-048
+          - CLM-056
+          - CLM-062
+        test_names:
+          - TestCIRecipes_Jenkins_RecipeDeclarationShape
+          - TestCIRecipes_Jenkins_ApplyWritesOnlyItsDeclaredTarget
+          - TestCIRecipes_Jenkins_RenderedDeclaresFullHistory
+          - TestCIRecipes_Jenkins_RenderedInstallsPinnedBackstop
+          - TestCIRecipes_Jenkins_PackInstallPrecedesGate
+          - TestCIRecipes_Jenkins_GateVerdictNotSwallowed
+          - TestCIRecipes_Jenkins_ResolvesDiffBaseAndFailsWhenUnresolvable
+          - TestCIRecipes_Jenkins_RenderedIsStructurallyWellFormedDeclarativePipeline
+          - TestCIRecipes_Jenkins_RenderedCarriesNoResidualPlaceholder
+          - TestCIRecipes_Jenkins_ReapplyIsByteIdentical
+          - TestCIRecipes_Jenkins_RulesScopedByTargetBasenameGlob
+          - TestCIRecipes_Jenkins_RenderedCarriesNoToolchainOrConsumerLiteral
+        depends_on:
+          - TASK-002
+
+      - id: TASK-009
+        type: test
+        title: "Author scripts/falsify.sh — the direct-semgrep harness that works around ISSUE-092"
+        description: |
+          `backstop pack test` CANNOT falsify these rules: phase 3's
+          fixture-EXECUTION step is guarded on a manifest field real packs
+          do not declare, so it skips SILENTLY for every pack in the fleet
+          (ISSUE-092, open, risk critical). A green pipeline is a STRUCTURAL
+          verdict and says nothing about whether any rule fires. This script
+          is the only firing evidence this plan will have, and it is a
+          development aid — not a claim the spec makes.
+
+          Create scripts/falsify.sh in the pack repo, modelled on
+          /Users/bmanson/src/projects/backstop-go-distribution-pack/scripts/falsify.sh.
+          Requirements:
+          • Run semgrep with EXPLICIT FILE TARGETS, one (rule file, fixture)
+            pair per invocation — a directory scan silently drops files
+            semgrep's targeting excludes, which reads as "clean".
+          • Separately assert each rule file PARSES without schema error: an
+            InvalidRuleSchemaError currently reports as ZERO FINDINGS, which
+            is indistinguishable from a clean run. Fail loudly on it.
+          • Expected verdicts, table-driven, one line per pair:
+              NEGATIVE fixture → the rule FIRES exactly once
+              POSITIVE fixture → the rule is SILENT
+          • ALSO run each rule under the SECOND dispatch shape — the project
+            root as a DIRECTORY target — and report both results. The whole
+            include-glob mandate rests on basename globs working under BOTH
+            shapes; a harness that only ever tests one cannot notice the
+            trap Sharp Edge 8 describes.
+          • Exit non-zero on the first disagreement, printing the semgrep
+            command it ran verbatim so the failure is reproducible by hand.
+          • Take the pack root as an argument, defaulting to the script's
+            own repo, so it can be pointed at the INSTALLED copy too.
+          • `set -euo pipefail`, and never mask a semgrep exit code through
+            a pipe.
+
+          The rules and fixtures do not exist yet. That is deliberate: run
+          the script now and record that it reports MISSING inputs — a
+          harness that passes with nothing to check is the same vacuity in
+          miniature. Its first real run is TASK-025.
+        files:
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/scripts/falsify.sh
+        claims:
+          - CLM-053
+          - CLM-054
+          - CLM-055
+          - CLM-056
+        depends_on:
+          - TASK-001
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: The four recipes — declarations and payloads
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: The four recipes and their payloads (REQ-003..REQ-007, REQ-010)"
+    tasks:
+      - id: TASK-010
+        type: implementation
+        title: "Author the github-actions-gate recipe and its workflow payload"
+        description: |
+          Create recipes/github-actions-gate/recipe.yml and
+          recipes/github-actions-gate/payload/backstop-gate.yml in the pack
+          repo. Read the plan notes section "DESIGN CONSTANTS" — the params,
+          the four ordered actions, the release coordinate and the no-`${{`
+          rule are fixed there and all four platform tasks must agree.
+
+          recipe.yml:
+            kind: scaffolding          # packval phase 4 REQUIRES
+                                       # enforcement.rules for this kind, and
+                                       # that pairing IS the design: the
+                                       # recipe writes the invariant, the
+                                       # rule guards it. It also selects
+                                       # regenerate-by-default, which is what
+                                       # CLM-045's byte-identical property
+                                       # rests on.
+            version: "1.0.0"           # the RECIPE's own semver, distinct
+                                       # from the pack's 0.1.0
+            params: backstop_version (required, NO default),
+                    default_branch (default "main"),
+                    runner (default "ubuntu-latest")
+            ops: exactly ONE, kind create,
+                 target .github/workflows/backstop-gate.yml,
+                 payload payload/backstop-gate.yml
+            enforcement.rules:
+              - github-actions-gate-workflow-missing-pack-install
+              - github-actions-gate-workflow-verdict-swallowed
+              - github-actions-gate-workflow-shallow-clone
+
+          payload/backstop-gate.yml — the four ordered actions in ONE job:
+            1. actions/checkout@vN with `fetch-depth: 0`. This is the ONLY
+               third-party-looking literal permitted, and only because
+               `fetch-depth: 0` has no other expression. NO second action.
+            2. install backstop from the release archive at
+               `{{ backstop_version }}` — curl the tar.gz, verify it
+               downloaded, unpack, put it on PATH. `set -euo pipefail` in
+               every run block.
+            3. `backstop pack install`
+            4. resolve BASE from GITHUB_EVENT_NAME / GITHUB_BASE_REF plus
+               `{{ default_branch }}`, `git rev-parse --verify` it, exit
+               non-zero with a diagnostic when it does not resolve, then
+               `backstop gate --base "$BASE"` as the LAST step, unguarded.
+          NO `${{ ... }}` ANYWHERE — the substituter would read it as a param
+          name and hard-error. Use the plain environment variables; that is
+          why REQ-006 exists and why the go-distribution pass-through-param
+          workaround is not imitated here.
+          Include the commented TOOLCHAIN ANCHOR (where a consumer adds its
+          own Layer-0 setup) and, in the file itself, the regenerate-by-
+          default warning from Sharp Edge 3.
+
+          Do NOT touch pack.yml — TASK-014 owns the index. Do not author
+          rules or fixtures — Phase 4 owns those.
+          Sanity-render through the DEV LOOP in the plan notes before
+          declaring done; the authoritative check is TASK-015.
+        files:
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/recipes/github-actions-gate/recipe.yml
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/recipes/github-actions-gate/payload/backstop-gate.yml
+        claims:
+          - CLM-008
+          - CLM-016
+          - CLM-020
+          - CLM-024
+          - CLM-028
+          - CLM-032
+          - CLM-036
+          - CLM-040
+          - CLM-044
+          - CLM-045
+          - CLM-059
+        depends_on:
+          - TASK-001
+          - TASK-005
+
+      - id: TASK-011
+        type: implementation
+        title: "Author the gitlab-ci-gate recipe and its pipeline payload"
+        description: |
+          Create recipes/gitlab-ci-gate/recipe.yml and
+          recipes/gitlab-ci-gate/payload/gitlab-ci.yml. Same DESIGN
+          CONSTANTS; GitLab-specific shape:
+
+          recipe.yml: kind scaffolding, version "1.0.0", the three params
+          (runner default = a SLASHLESS official image tag — see the notes;
+          an `org/image` default would itself be the org/repo literal
+          CLM-060 forbids), ONE create op targeting `.gitlab-ci.yml`,
+          enforcement.rules =
+            gitlab-ci-gate-workflow-missing-pack-install,
+            gitlab-ci-gate-workflow-verdict-swallowed,
+            gitlab-ci-gate-workflow-shallow-clone.
+
+          payload/gitlab-ci.yml:
+            • `variables: GIT_DEPTH: "0"` — the full-history directive.
+            • one job in a `stages` list, `image: {{ runner }}`, and a
+              `script:` list executing, in order: pinned install from the
+              release archive at `{{ backstop_version }}`, base resolution
+              from $CI_MERGE_REQUEST_TARGET_BRANCH_NAME / $CI_DEFAULT_BRANCH
+              plus `{{ default_branch }}` with a non-zero exit when it does
+              not resolve, `backstop pack install`, then
+              `backstop gate --base "$BASE"` LAST.
+            • NO `allow_failure: true`, no `|| true`, no trailing `exit 0`.
+            • NO action or pipe reference of any kind — the only org/repo
+              literal permitted here is the release coordinate.
+            • toolchain anchor comment + the regenerate-by-default warning.
+          Note the `script:` entries execute in list order, so byte order
+          and execution order agree by construction — state that in a
+          comment, because CLM-025 asserts byte offsets and Review
+          Question 9 asks the question explicitly.
+
+          Do NOT touch pack.yml. Do not author rules or fixtures.
+        files:
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/recipes/gitlab-ci-gate/recipe.yml
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/recipes/gitlab-ci-gate/payload/gitlab-ci.yml
+        claims:
+          - CLM-009
+          - CLM-017
+          - CLM-021
+          - CLM-025
+          - CLM-029
+          - CLM-033
+          - CLM-037
+          - CLM-041
+          - CLM-044
+          - CLM-046
+          - CLM-060
+        depends_on:
+          - TASK-001
+          - TASK-006
+
+      - id: TASK-012
+        type: implementation
+        title: "Author the bitbucket-pipelines-gate recipe and its pipelines payload"
+        description: |
+          Create recipes/bitbucket-pipelines-gate/recipe.yml and
+          recipes/bitbucket-pipelines-gate/payload/bitbucket-pipelines.yml.
+
+          recipe.yml: kind scaffolding, version "1.0.0", the three params
+          (runner default = a SLASHLESS official image tag), ONE create op
+          targeting `bitbucket-pipelines.yml`, enforcement.rules =
+            bitbucket-pipelines-gate-workflow-missing-pack-install,
+            bitbucket-pipelines-gate-workflow-verdict-swallowed,
+            bitbucket-pipelines-gate-workflow-shallow-clone.
+
+          payload/bitbucket-pipelines.yml:
+            • top-level `clone: depth: full` — the full-history directive.
+            • `image: {{ runner }}`.
+            • a `pipelines:` block covering pull-requests AND the branch
+              `{{ default_branch }}`. ★ USE A YAML ANCHOR/ALIAS so ONE step
+              definition serves both: CLM-026 asserts that
+              `backstop pack install` and `backstop gate` each appear
+              EXACTLY ONCE in the bytes, and duplicating the step would
+              break that. The step's `script:` list runs: pinned install,
+              base resolution from $BITBUCKET_PR_DESTINATION_BRANCH /
+              $BITBUCKET_BRANCH plus `{{ default_branch }}` (non-zero exit
+              when unresolvable), `backstop pack install`, then
+              `backstop gate --base "$BASE"` LAST.
+            • NO `|| true`, `|| exit 0`, trailing `exit 0`; no pipe
+              reference; only the release coordinate as an org/repo literal.
+            • toolchain anchor comment + regenerate-by-default warning.
+          Confirm by rendering that the anchor/alias survives substitution
+          intact and that the aliased step is the step BOTH pipelines run —
+          byte order and execution order must agree (Review Question 9).
+
+          Do NOT touch pack.yml. Do not author rules or fixtures.
+        files:
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/recipes/bitbucket-pipelines-gate/recipe.yml
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/recipes/bitbucket-pipelines-gate/payload/bitbucket-pipelines.yml
+        claims:
+          - CLM-010
+          - CLM-018
+          - CLM-022
+          - CLM-026
+          - CLM-030
+          - CLM-034
+          - CLM-038
+          - CLM-042
+          - CLM-044
+          - CLM-047
+          - CLM-061
+        depends_on:
+          - TASK-001
+          - TASK-007
+
+      - id: TASK-013
+        type: implementation
+        title: "Author the jenkins-gate recipe and its declarative-pipeline payload"
+        description: |
+          Create recipes/jenkins-gate/recipe.yml and
+          recipes/jenkins-gate/payload/Jenkinsfile.
+
+          recipe.yml: kind scaffolding, version "1.0.0", the three params
+          (runner = the agent LABEL; the empty label means "any agent" — if
+          the implementer cannot confirm that on the Jenkins version they
+          target, pick a documented default and say why in a comment rather
+          than guessing silently), ONE create op targeting `Jenkinsfile`,
+          enforcement.rules =
+            jenkins-gate-workflow-missing-pack-install,
+            jenkins-gate-workflow-verdict-swallowed,
+            jenkins-gate-workflow-shallow-clone.
+
+          payload/Jenkinsfile — declarative pipeline:
+            pipeline { agent { label '{{ runner }}' } stages { … } }
+            • a checkout stage carrying a `CloneOption` with
+              `shallow: false` — DERIVED FROM `scm`:
+                checkout([$class: 'GitSCM',
+                          branches: scm.branches,
+                          userRemoteConfigs: scm.userRemoteConfigs,
+                          extensions: scm.extensions +
+                            [[$class: 'CloneOption', shallow: false,
+                              depth: 0, noTags: false]]])
+              A literal userRemoteConfigs URL would be a consumer-repository
+              literal and would red CLM-062.
+            • a gate stage whose `sh` block runs, in order: pinned install
+              from the release archive at `{{ backstop_version }}`, base
+              resolution from ${env.CHANGE_TARGET} / ${env.BRANCH_NAME} plus
+              `{{ default_branch }}` with a non-zero exit when unresolvable,
+              `backstop pack install`, then `backstop gate --base "$BASE"`.
+            • NO `returnStatus: true`, NO `catchError`, NO `|| true`,
+              `|| exit 0`, or trailing `exit 0` — the sh step's exit code
+              must fail the build.
+            • Groovy's `${...}` is SINGLE-brace and invisible to the
+              substituter, but keep `{{` / `}}` out of everything except the
+              three declared params.
+            • balanced braces across the whole file (CLM-039), toolchain
+              anchor comment, regenerate-by-default warning.
+            • stage ORDER is execution order — confirm it matches byte order
+              (CLM-027, Review Question 9).
+
+          Do NOT touch pack.yml. Do not author rules or fixtures.
+        files:
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/recipes/jenkins-gate/recipe.yml
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/recipes/jenkins-gate/payload/Jenkinsfile
+        claims:
+          - CLM-011
+          - CLM-019
+          - CLM-023
+          - CLM-027
+          - CLM-031
+          - CLM-035
+          - CLM-039
+          - CLM-043
+          - CLM-044
+          - CLM-048
+          - CLM-062
+        depends_on:
+          - TASK-001
+          - TASK-008
+
+      - id: TASK-014
+        type: implementation
+        title: "Populate pack.yml's recipes index with exactly the four platform ids"
+        description: |
+          Edit pack.yml, adding the top-level `recipes:` index — a DISTINCT
+          top-level key, NOT part of `content:`:
+
+            recipes:
+              github-actions-gate: recipes/github-actions-gate
+              gitlab-ci-gate: recipes/gitlab-ci-gate
+              bitbucket-pipelines-gate: recipes/bitbucket-pipelines-gate
+              jenkins-gate: recipes/jenkins-gate
+
+          EXACTLY these four (CLM-002). A fifth id of any kind is prohibited
+          by the spec — no OIDC/ingest/emitter recipe, no supabase/vercel/
+          nextjs provider recipe (CLM-003). Those belong to later specs and
+          their absence here is deliberate.
+
+          pack.ParseManifestFile VALIDATES the index against the pack root
+          and fails loud if a directory is missing or holds no recipe.yml,
+          which is why this task runs AFTER all four recipes exist rather
+          than being written up front.
+
+          `pack check` still fails at this point — phase 1 demands a
+          non-empty `content`, and the ruleset lands in TASK-024. Expected;
+          do not pad the manifest to make it pass early (Sharp Edge 7: a
+          recipes-ONLY pack fails validation, and a future maintainer
+          stripping the rules "because the recipes are the product" would
+          break `pack check` for a reason phase 4's diagnostics never
+          mention — comment that in the file while you are here).
+
+          Touch nothing else in pack.yml.
+        files:
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/pack.yml
+        claims:
+          - CLM-002
+          - CLM-003
+        depends_on:
+          - TASK-003
+          - TASK-010
+          - TASK-011
+          - TASK-012
+          - TASK-013
+
+      - id: TASK-015
+        type: verification
+        title: "Apply all four recipes for real into a scratch consumer and prove the rendered bytes"
+        description: |
+          THE FIRST REAL EVIDENCE IN THIS PLAN. Use the DEV LOOP staging
+          recipe from the plan notes; drive the SHIPPED command through
+          `bin/backstop` after rebuilding it:
+
+            go build -o bin/backstop ./cmd/backstop
+
+          For EACH of the four recipe ids, one identical invocation shape
+          with only the reference argument differing:
+
+            backstop recipe apply backstop-ai/ci-workflows:<id>@1.0.0 \
+              --param backstop_version=9.9.9
+
+          Use a DISTINCTIVE version value like 9.9.9 so a hardcoded default
+          cannot masquerade as a substitution. Then, per platform, confirm
+          against the RENDERED bytes and record the observed evidence — an
+          actual quoted line per invariant, not a checkmark:
+            (a) the full-history directive is present;
+            (b) the install URL carries 9.9.9 and no `latest`/unpinned form;
+            (c) `backstop pack install` byte offset < `backstop gate` byte
+                offset, each appearing exactly once, AND the platform's
+                EXECUTION order agrees (Bitbucket's aliased step, Jenkins'
+                stage order);
+            (d) no swallow form anywhere near the gate invocation;
+            (e) BASE is assigned from platform env vars, the same variable
+                is passed to `--base`, and the unresolvable path exits
+                non-zero;
+            (f) the three YAML targets PARSE (`python3 -c` or `yq`, or the
+                Go suite later — but parse them now, do not defer);
+                the Jenkinsfile has balanced braces and the declarative
+                blocks;
+            (g) NO literal `{{` or `}}` survives;
+            (h) only the declared target was written, plus the adoption
+                record — diff the staged tree before and after;
+            (i) the toolchain-anchor comment and the regenerate warning are
+                present in each rendered file.
+
+          THEN THE TWO BEHAVIOURAL CHECKS:
+            • RE-APPLY each recipe with identical params: the file is
+              byte-identical AND the CLI reports "nothing was written or
+              preserved" (preserveOrRegenerate short-circuits on
+              byte-equality and returns Final: true WITHOUT writing).
+            • Apply `github-actions-gate` with NO --param: expect EXIT 1
+              naming `backstop_version`, and the target file ABSENT
+              afterwards. Read the true exit code. If it is exit 2, the test
+              expectation is not what is wrong — report it, because the
+              shipped `effectiveParams`/`Substitute` path is what the spec
+              inherits and this plan changes no core code.
+
+          PRESERVE THE RENDERED OUTPUT — copy the four rendered files to a
+          scratch directory outside both repos. Phase 4's fixtures are BYTE
+          COPIES of exactly these bytes, and re-rendering later with
+          different params would produce fixtures that are not what any
+          consumer gets.
+
+          The Go suite is still RED at this point (core has no installed
+          pack). That is expected and is not this task's business.
+        files:
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/pack.yml
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/recipes/github-actions-gate/payload/backstop-gate.yml
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/recipes/gitlab-ci-gate/payload/gitlab-ci.yml
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/recipes/bitbucket-pipelines-gate/payload/bitbucket-pipelines.yml
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/recipes/jenkins-gate/payload/Jenkinsfile
+        claims:
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-045
+          - CLM-046
+          - CLM-047
+          - CLM-048
+          - CLM-049
+          - CLM-051
+        depends_on:
+          - TASK-014
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: The twelve rules, their captured fixtures, and falsification
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Twelve enforcement rules, captured fixtures, direct-semgrep falsification (REQ-009)"
+    tasks:
+      - id: TASK-016
+        type: test
+        title: "Capture the GitHub Actions fixture set from TASK-015's rendered bytes"
+        description: |
+          CAPTURED, NEVER AUTHORED. The positive fixture is a BYTE COPY of
+          what TASK-015's apply actually rendered; each negative is that
+          same file with EXACTLY ONE deliberate defect. A fixture typed to
+          match a rule proves only that the rule equals itself.
+
+          FILE NAMES ARE LOAD-BEARING: every one must fall under the rule's
+          include glob `backstop-gate*.yml` (forward-compatible groundwork
+          for ISSUE-092 — NOT a protection in force today; do not describe
+          it as one).
+
+            fixtures/rules/valid/backstop-gate-clean.yml
+              ← byte copy of the rendered .github/workflows/backstop-gate.yml
+            fixtures/rules/valid/backstop-gate-unrelated-workflow.yml
+              ← a byte copy of backstop-core's own
+                .github/workflows/ci.yml, renamed so it falls under the
+                include glob. THE SECOND POSITIVE: all three rules must stay
+                SILENT on it.
+                ★ WHAT THIS FIXTURE ACTUALLY IS, stated correctly because
+                an earlier draft of this plan described it wrongly: it is a
+                real, hand-written, NON-RECIPE-RENDERED workflow that DOES
+                gate. It is NOT a workflow that "never mentions `backstop
+                gate`" — measured 2026-08-11, ci.yml invokes it twice
+                (`:147` the diagnostic `--json` capture, `:155` the blocking
+                run) and names it once more in a comment (`:246`). That is
+                what makes it worth capturing: it TRIPS every rule's anchor
+                (each of the three anchors on the file invoking `backstop
+                gate`) and must still produce no finding, which is a real
+                over-broadness probe rather than a trivial one. A fixture
+                that never mentions the gate at all would satisfy the
+                anchors vacuously and prove much less.
+                WHY IT IS CLEAN, measured line by line, so a rule that fires
+                on it is known to be the rule's defect and not the fixture's:
+                  • `backstop pack install` at `:86`, BEFORE both gate
+                    invocations → missing-pack-install must not fire;
+                  • `fetch-depth: 0` at `:33` → shallow-clone must not fire;
+                  • no form from THE SWALLOW-FORM SET (plan notes) appears —
+                    its `|| echo` at `:147` is deliberately NOT in that set,
+                    and adding it there to "catch" this file is forbidden;
+                    the `exit 0` at `:139` is inside a comment, not a
+                    trailing statement → verdict-swallowed must not fire.
+                Capture it BYTE-FOR-BYTE at the commit under test and record
+                that commit in the task report; if core's ci.yml later
+                changes shape, this fixture is RE-CAPTURED, never patched.
+            fixtures/rules/invalid/backstop-gate-missing-pack-install.yml
+              ← the clean file with the `backstop pack install` step REMOVED
+            fixtures/rules/invalid/backstop-gate-verdict-swallowed.yml
+              ← the clean file with `continue-on-error: true` added to the
+                gate step (one defect, nothing else changed)
+            fixtures/rules/invalid/backstop-gate-shallow-clone.yml
+              ← the clean file with `fetch-depth: 0` removed
+
+          Diff each negative against the clean fixture and confirm the diff
+          is ONE hunk expressing ONE defect. A negative carrying two defects
+          cannot isolate which rule fired.
+        files:
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/fixtures/rules/valid/backstop-gate-clean.yml
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/fixtures/rules/valid/backstop-gate-unrelated-workflow.yml
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/fixtures/rules/invalid/backstop-gate-missing-pack-install.yml
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/fixtures/rules/invalid/backstop-gate-verdict-swallowed.yml
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/fixtures/rules/invalid/backstop-gate-shallow-clone.yml
+        claims:
+          - CLM-053
+        depends_on:
+          - TASK-015
+
+      - id: TASK-017
+        type: test
+        title: "Capture the GitLab CI fixture set from TASK-015's rendered bytes"
+        description: |
+          Same capture discipline as TASK-016. Names must fall under this
+          rule's include set — note it is TWO globs, `.gitlab-ci*.yml` AND
+          `gitlab-ci*.yml`, precisely because the deployed target is
+          dot-prefixed while these mandated fixture names are not. (A
+          dot-prefixed fixture name WOULD match and WOULD produce a finding
+          — that was measured — so the two-pattern set is justified by these
+          undotted names, not by any inability to dot-prefix.)
+
+            fixtures/rules/valid/gitlab-ci-clean.yml
+              ← byte copy of the rendered .gitlab-ci.yml. THE ONLY POSITIVE
+                FIXTURE FOR THIS PLATFORM, and that is deliberate — see the
+                notes section "FIXTURES ARE CAPTURED, NEVER AUTHORED". There
+                is NO second "unrelated pipeline" fixture here: REQ-009 asks
+                for at least one positive and one negative per rule, which
+                this satisfies, and MEASURED 2026-08-11 there is no real
+                `.gitlab-ci*.yml` anywhere under /Users/bmanson/src/projects
+                to capture one from. Authoring a plausible-looking one would
+                be a fabricated fixture, which this pack does not ship. The
+                over-broadness evidence for these three rules comes from
+                TASK-025 step 2's cross-platform silence sweep instead.
+            fixtures/rules/invalid/gitlab-ci-missing-pack-install.yml
+              ← clean, with the `backstop pack install` line removed
+            fixtures/rules/invalid/gitlab-ci-verdict-swallowed.yml
+              ← clean, with `allow_failure: true` added to the gate job
+            fixtures/rules/invalid/gitlab-ci-shallow-clone.yml
+              ← clean, with the GIT_DEPTH: "0" variable removed
+
+          One defect per negative; diff to confirm.
+        files:
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/fixtures/rules/valid/gitlab-ci-clean.yml
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/fixtures/rules/invalid/gitlab-ci-missing-pack-install.yml
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/fixtures/rules/invalid/gitlab-ci-verdict-swallowed.yml
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/fixtures/rules/invalid/gitlab-ci-shallow-clone.yml
+        claims:
+          - CLM-054
+        depends_on:
+          - TASK-015
+
+      - id: TASK-018
+        type: test
+        title: "Capture the Bitbucket Pipelines fixture set from TASK-015's rendered bytes"
+        description: |
+          Same capture discipline. Names fall under `bitbucket-pipelines*.yml`.
+
+            fixtures/rules/valid/bitbucket-pipelines-clean.yml
+              ← byte copy of the rendered bitbucket-pipelines.yml. THE ONLY
+                POSITIVE FIXTURE FOR THIS PLATFORM, for the reason the notes
+                give: no real `bitbucket-pipelines*.yml` exists anywhere
+                under /Users/bmanson/src/projects to capture a second one
+                from (measured 2026-08-11), and this pack does not author
+                fixtures. REQ-009's one-positive-one-negative floor is met.
+            fixtures/rules/invalid/bitbucket-pipelines-missing-pack-install.yml
+              ← clean, with the `backstop pack install` line removed
+            fixtures/rules/invalid/bitbucket-pipelines-verdict-swallowed.yml
+              ← clean, with `|| true` appended to the gate invocation
+            fixtures/rules/invalid/bitbucket-pipelines-shallow-clone.yml
+              ← clean, with the `clone: depth: full` block removed
+
+          One defect per negative; diff to confirm. Keep the anchor/alias
+          intact in every fixture that is not deliberately breaking it —
+          removing the anchor would be a second defect.
+        files:
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/fixtures/rules/valid/bitbucket-pipelines-clean.yml
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/fixtures/rules/invalid/bitbucket-pipelines-missing-pack-install.yml
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/fixtures/rules/invalid/bitbucket-pipelines-verdict-swallowed.yml
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/fixtures/rules/invalid/bitbucket-pipelines-shallow-clone.yml
+        claims:
+          - CLM-055
+        depends_on:
+          - TASK-015
+
+      - id: TASK-019
+        type: test
+        title: "Capture the Jenkins fixture set from TASK-015's rendered bytes"
+        description: |
+          Same capture discipline. Names fall under `Jenkinsfile*` — no
+          extension, which is exactly why the glob has none.
+
+            fixtures/rules/valid/Jenkinsfile-clean
+              ← byte copy of the rendered Jenkinsfile. THE ONLY POSITIVE
+                FIXTURE FOR THIS PLATFORM, for the reason the notes give: no
+                real `Jenkinsfile*` exists anywhere under
+                /Users/bmanson/src/projects to capture a second one from
+                (measured 2026-08-11), and a hand-typed "real declarative
+                pipeline" would be exactly the authored fixture this pack
+                refuses to ship. REQ-009's floor is met by this one positive
+                plus the three negatives.
+            fixtures/rules/invalid/Jenkinsfile-missing-pack-install
+              ← clean, with the `backstop pack install` line removed
+            fixtures/rules/invalid/Jenkinsfile-verdict-swallowed
+              ← clean, with `returnStatus: true` added to the sh step
+            fixtures/rules/invalid/Jenkinsfile-shallow-clone
+              ← clean, with `shallow: false` flipped to `shallow: true`
+
+          One defect per negative; diff to confirm, and keep the brace
+          balance intact in all five (an unbalanced fixture would fail for a
+          reason no rule is about).
+        files:
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/fixtures/rules/valid/Jenkinsfile-clean
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/fixtures/rules/invalid/Jenkinsfile-missing-pack-install
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/fixtures/rules/invalid/Jenkinsfile-verdict-swallowed
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/fixtures/rules/invalid/Jenkinsfile-shallow-clone
+        claims:
+          - CLM-056
+        depends_on:
+          - TASK-015
+
+      - id: TASK-020
+        type: implementation
+        title: "Author the three GitHub Actions enforcement rules"
+        description: |
+          Create rules/github-actions/gate-workflow.yml holding EXACTLY
+          three semgrep rules:
+            github-actions-gate-workflow-missing-pack-install   severity: ERROR
+            github-actions-gate-workflow-verdict-swallowed      severity: ERROR
+            github-actions-gate-workflow-shallow-clone          severity: ERROR
+
+          EVERY rule declares `languages: [yaml]` and:
+            paths:
+              include:
+                - "backstop-gate*.yml"
+          EXACTLY that one pattern. A multi-segment include such as
+          `.github/workflows/backstop-gate.yml` is PROHIBITED: under the
+          gate's DEFAULT diff-scoped dispatch (explicit FILE targets,
+          runFindingsEngine at cmd/backstop/pack_gate.go:573) it matches
+          ZERO files — not even the file it names — while matching under
+          `--all`'s directory dispatch, so the "obvious tightening" produces
+          a rule that looks alive under a full sweep and is dead under the
+          everyday bare `backstop gate`. Comment that in the file so the
+          next maintainer does not tighten it.
+
+          THE RULE IDIOM (the one measured to work on the go-distribution
+          pack): ONE whole-file anchor regex that ALSO carries the trigger
+          condition, paired with a whole-file `pattern-not-regex` at the
+          same span. Composing several narrow regexes under `patterns:`
+          INTERSECTS their ranges and collapses the match, so the negation
+          never sees the file.
+            missing-pack-install → anchor: the file invokes `backstop gate`;
+              not-regex: `backstop pack install` appears BEFORE it.
+            verdict-swallowed → anchor: `backstop gate` followed by a form
+              from THE SWALLOW-FORM SET in the plan notes — for this
+              platform exactly `|| true`, `|| exit 0`, a trailing `exit 0`,
+              or `continue-on-error` on the gate step, matching CLM-028's
+              denylist term for term. Use `pattern-either` of whole-file
+              regexes rather than nesting narrow ones under `patterns:`.
+              ⚠ DO NOT ADD `|| echo` (or any other form) to this rule. This
+              rule's own second positive fixture — a byte copy of core's
+              `.github/workflows/ci.yml`, TASK-016 — ends a diagnostic
+              `backstop gate --json` capture in `|| echo` deliberately, and
+              gates unguarded in the next step; adding the form would make
+              that fixture fire and would put this rule at odds with the
+              mandated CLM-028 test. Widening the set is a spec amendment,
+              not a rule edit.
+            shallow-clone → anchor: the file invokes `backstop gate`;
+              not-regex: `fetch-depth:` followed by 0.
+
+          Each rule carries a `message:` naming the broken promise and the
+          fix, and a `severity: ERROR` — an ABSENT severity ALSO blocks
+          (fail-closed) and is therefore indistinguishable from a deliberate
+          ERROR when reading the manifest alone (Sharp Edge 9). Say it.
+
+          Falsify as you go against TASK-016's fixtures with DIRECT semgrep
+          (scripts/falsify.sh) — `pack test` cannot do it (ISSUE-092), and
+          a green pipeline is not evidence any rule fires. Do NOT edit
+          pack.yml; TASK-024 wires the ruleset.
+        files:
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/rules/github-actions/gate-workflow.yml
+        claims:
+          - CLM-006
+          - CLM-053
+        depends_on:
+          - TASK-016
+
+      - id: TASK-021
+        type: implementation
+        title: "Author the three GitLab CI enforcement rules"
+        description: |
+          Create rules/gitlab-ci/gate-workflow.yml holding EXACTLY three
+          rules — gitlab-ci-gate-workflow-{missing-pack-install,
+          verdict-swallowed,shallow-clone} — all `severity: ERROR`,
+          `languages: [yaml]`, same whole-file anchor + pattern-not-regex
+          idiom as TASK-020.
+
+          THE INCLUDE SET IS TWO PATTERNS AND EXACTLY TWO:
+            paths:
+              include:
+                - ".gitlab-ci*.yml"
+                - "gitlab-ci*.yml"
+          The first matches the deployed dot-prefixed target, the second the
+          undotted fixture names REQ-009 mandates; one glob cannot cover
+          both spellings. No third pattern, and no multi-segment path.
+
+          Platform-specific trigger details:
+            shallow-clone → not-regex on `GIT_DEPTH:` followed by 0
+              (accept the quoted and unquoted spellings).
+            verdict-swallowed → the swallow forms here are exactly the
+              gitlab-ci-gate row of THE SWALLOW-FORM SET in the plan notes:
+              `|| true`, `|| exit 0`, a trailing `exit 0`, and
+              `allow_failure: true` — CLM-029's denylist, term for term.
+              Nothing else, and in particular not `|| echo`.
+
+          Falsify against TASK-017's fixtures with direct semgrep. Do NOT
+          edit pack.yml.
+        files:
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/rules/gitlab-ci/gate-workflow.yml
+        claims:
+          - CLM-006
+          - CLM-054
+        depends_on:
+          - TASK-017
+
+      - id: TASK-022
+        type: implementation
+        title: "Author the three Bitbucket Pipelines enforcement rules"
+        description: |
+          Create rules/bitbucket-pipelines/gate-workflow.yml holding EXACTLY
+          three rules — bitbucket-pipelines-gate-workflow-{missing-pack-
+          install,verdict-swallowed,shallow-clone} — all `severity: ERROR`,
+          `languages: [yaml]`, same idiom.
+
+            paths:
+              include:
+                - "bitbucket-pipelines*.yml"
+          Exactly that one pattern; no multi-segment path.
+
+          Platform-specific trigger details:
+            shallow-clone → not-regex on a `clone:` block whose `depth:` is
+              `full`.
+            verdict-swallowed → exactly the bitbucket-pipelines-gate row of
+              THE SWALLOW-FORM SET in the plan notes: `|| true`,
+              `|| exit 0`, a trailing `exit 0` — CLM-030's denylist, which
+              adds no platform-specific term. Nothing else, and in
+              particular not `|| echo`.
+          Mind the anchor/alias: the rules read the file as TEXT, so an
+          aliased step's script text appears once — make sure the anchor
+          regex does not accidentally require it twice.
+
+          Falsify against TASK-018's fixtures with direct semgrep. Do NOT
+          edit pack.yml.
+        files:
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/rules/bitbucket-pipelines/gate-workflow.yml
+        claims:
+          - CLM-006
+          - CLM-055
+        depends_on:
+          - TASK-018
+
+      - id: TASK-023
+        type: implementation
+        title: "Author the three Jenkins enforcement rules"
+        description: |
+          Create rules/jenkins/gate-workflow.yml holding EXACTLY three rules
+          — jenkins-gate-workflow-{missing-pack-install,verdict-swallowed,
+          shallow-clone} — all `severity: ERROR`.
+
+          THESE THREE DECLARE `languages: [generic]`, not yaml: a Jenkinsfile
+          is Groovy and the whole-file regex idiom needs no language support.
+
+            paths:
+              include:
+                - "Jenkinsfile*"
+          Exactly that one pattern — no extension, which is what lets it
+          match both the deployed `Jenkinsfile` and the `Jenkinsfile-*`
+          fixtures. No multi-segment path.
+
+          Platform-specific trigger details:
+            shallow-clone → not-regex on `shallow:` followed by `false`
+              within a CloneOption.
+            verdict-swallowed → exactly the jenkins-gate row of THE
+              SWALLOW-FORM SET in the plan notes: `returnStatus: true`,
+              `catchError`, `|| true`, `|| exit 0`, a trailing `exit 0` —
+              CLM-031's denylist plus the universal three. Nothing else, and
+              in particular not `|| echo`.
+
+          Falsify against TASK-019's fixtures with direct semgrep — generic
+          mode is where a mis-specified rule most often matches nothing
+          while looking healthy, so read the finding COUNT, not just the
+          exit code. Do NOT edit pack.yml.
+        files:
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/rules/jenkins/gate-workflow.yml
+        claims:
+          - CLM-006
+          - CLM-056
+        depends_on:
+          - TASK-019
+
+      - id: TASK-024
+        type: implementation
+        title: "Wire the twelve rules into pack.yml's content.ruleset with their captured fixtures"
+        description: |
+          Edit pack.yml, adding `content.ruleset` with `version: "1.0.0"` and
+          TWELVE rule entries — three per platform, ids exactly as fixed in
+          the plan notes and as named by the four recipes'
+          `enforcement.rules` (CLM-057 checks the correspondence in BOTH
+          directions: every declared enforcement id resolves, and the ruleset
+          declares exactly the twelve those lists name).
+
+          Each entry follows the shape the go-distribution pack established:
+            - id: <rule id>
+              standard: "<one sentence naming the invariant>"
+              rule_path: rules/<platform>/gate-workflow.yml
+              risk_class: correctness
+              engine: semgrep-ci
+              claims:
+                - id: clm-0NN
+                  text: "<what a violation means>"
+                  fixtures:
+                    positive: [ <clean fixture> (+ the silence fixture for
+                                the three GITHUB rules only) ]
+                    negative: [ <this rule's one defective fixture> ]
+
+          THE POSITIVE LISTS ARE ASYMMETRIC AND THAT IS CORRECT: the three
+          github-actions rules carry TWO positives (the clean rendered
+          payload plus backstop-gate-unrelated-workflow.yml, the captured
+          copy of core's own ci.yml); the nine gitlab / bitbucket / jenkins
+          rules carry ONE (their clean rendered payload). REQ-009 requires at
+          least one positive and one negative per rule, which all twelve
+          meet. The reason for the asymmetry is in the notes under "FIXTURES
+          ARE CAPTURED, NEVER AUTHORED": GitHub Actions is the only one of
+          the four platforms with a real, non-recipe-rendered config
+          available anywhere to capture from. Do not manufacture the missing
+          three to make the table look even.
+
+          ⚠ FIXTURE POLARITY IS AN OPEN QUESTION AND YOU DO NOT RESOLVE IT
+          HERE. packval phase 3 and SPEC-067 agree — POSITIVE is the clean
+          file the rule must stay SILENT on, NEGATIVE is the defective file
+          the rule must FIRE on — while the in-repo packs/contracts/pack.yml
+          declares the INVERSE, and nothing has ever caught the disagreement
+          because the execution that would surface it never runs (ISSUE-092).
+          Follow the spec's polarity (clean = positive), note in a comment
+          that the disagreement exists and is owned by ISSUE-092, and do NOT
+          flip anything on the strength of this spec alone.
+
+          `engine: semgrep-ci` on all twelve — never the bare `semgrep`.
+          `risk_class: correctness` on all twelve: each names a broken
+          promise.
+
+          Then run, in the pack repo, reading true exit codes — with the
+          GOPATH/bin PATH prefix and the ABSOLUTE path to core's freshly
+          built binary, the same form every other command in this plan uses
+          (a bare `backstop` here resolves to whatever is on PATH, which is
+          not necessarily the binary this work is proving):
+            cd /Users/bmanson/src/projects/backstop-ci-workflows-pack
+            PATH="/Users/bmanson/go/bin:$PATH" \
+              /Users/bmanson/src/projects/backstop-core/bin/backstop pack check .
+            PATH="/Users/bmanson/go/bin:$PATH" \
+              /Users/bmanson/src/projects/backstop-core/bin/backstop pack test .
+          Both must now PASS — this is the first point at which they CAN,
+          because phase 1 needs the ruleset and phase 4 needs the recipes
+          index. Their verdict is STRUCTURAL ONLY. Never write up a green
+          `pack test` as evidence that a rule fires.
+        files:
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/pack.yml
+        claims:
+          - CLM-004
+          - CLM-057
+        depends_on:
+          - TASK-003
+          - TASK-020
+          - TASK-021
+          - TASK-022
+          - TASK-023
+
+      - id: TASK-025
+        type: verification
+        title: "Falsify all twelve rules by direct semgrep under BOTH dispatch shapes, then clear the real pack pipeline"
+        description: |
+          THE ONLY FIRING EVIDENCE THIS PLAN PRODUCES. `backstop pack test`
+          cannot supply it (ISSUE-092: phase 3's fixture-execution step is a
+          silent no-op for every pack in the fleet), so this task is where
+          the twelve rules are actually falsified.
+
+          1. scripts/falsify.sh over all twelve (rule, fixture) pairs.
+             REQUIRED verdicts, recorded per pair with the observed finding
+             COUNT, not a checkmark:
+               each NEGATIVE fixture  → its rule fires EXACTLY once
+               each POSITIVE fixture  → its rule is SILENT
+               the ONE silence fixture (GitHub Actions only —
+               backstop-gate-unrelated-workflow.yml, the captured copy of
+               core's ci.yml) → all THREE github rules are silent on it,
+               which is the sharpest single datum in this step because that
+               file DOES invoke `backstop gate` and therefore trips every
+               anchor before being cleared on the merits. The other three
+               platforms have no silence fixture, deliberately and for the
+               reason the notes give; step 2 carries their over-broadness
+               evidence.
+             A rule that fires on a positive is over-broad; one that stays
+             silent on its negative is dead. Either is a stop-and-fix, in
+             the RULE, never in the fixture.
+
+          2. CROSS-PLATFORM SILENCE: run every platform's rules against
+             every OTHER platform's fixtures. All must be silent. This is
+             the scoping claim's teeth (CLM-053..056: "matches neither the
+             other three platforms' targets nor any file tracked in
+             backstop-core").
+
+          3. BOTH DISPATCH SHAPES, for every rule: explicit FILE targets
+             (what the DEFAULT diff-scoped gate does) AND a project-root
+             DIRECTORY target (what `--all` does). The basename-glob mandate
+             exists precisely because it is the only form that works under
+             both; a rule proven under only one is proven under neither.
+             Record both results.
+
+          4. SCHEMA PARSE: assert each of the four rule files parses without
+             an InvalidRuleSchemaError. A schema error currently reports as
+             ZERO FINDINGS, indistinguishable from a clean run.
+
+          5. In the pack repo, with the GOPATH/bin prefix and core's
+             absolute binary:
+               PATH="/Users/bmanson/go/bin:$PATH" \
+                 /Users/bmanson/src/projects/backstop-core/bin/backstop pack check .
+               PATH="/Users/bmanson/go/bin:$PATH" \
+                 /Users/bmanson/src/projects/backstop-core/bin/backstop pack test .
+             Both PASS, zero errors, and the write-up says STRUCTURAL: the
+             manifest parses, every declared recipe, rule and engine binding
+             is well-formed. Nothing about firing.
+
+          6. TRACKED-CORE NEUTRALITY, measured as a cross-check on the
+             structural claim: run the union of the four include sets over
+             `git ls-files` in backstop-core and confirm ZERO matches. The
+             file worth naming is `.github/workflows/ci.yml`, and BOTH
+             reasons it is safe should be recorded, because they are
+             independent:
+               (a) SCOPING — its basename is `ci.yml`, which no include set
+                   matches, so the rules never target it at all. This is the
+                   property CLM-006 asserts.
+               (b) CONTENT — measured 2026-08-11, it would ALSO be clean on
+                   the merits even if it were targeted: `backstop pack
+                   install` at `:86` precedes both gate invocations
+                   (`:147`, `:155`), `fetch-depth: 0` is declared at `:33`,
+                   and it carries no form from THE SWALLOW-FORM SET. Its
+                   `|| echo` at `:147` is NOT a swallow form in this spec
+                   (see the notes) and its `exit 0` at `:139` sits inside a
+                   comment.
+             Do not write up (b) as "a rule without path scoping would have
+             flagged it" — that was an earlier draft's claim and it is
+             false. If a rule DOES fire on ci.yml when pointed at it
+             directly, that is an over-broad rule to fix, not a fact about
+             ci.yml.
+
+          Record semgrep's version in the report (1.156.0 on PATH; the pack
+          pins 1.96.0, which is what the gate provisions). If any rule
+          behaves differently later under the gate than it does here,
+          version skew is the FIRST suspect.
+        files:
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/scripts/falsify.sh
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/pack.yml
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/rules/github-actions/gate-workflow.yml
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/rules/gitlab-ci/gate-workflow.yml
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/rules/bitbucket-pipelines/gate-workflow.yml
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/rules/jenkins/gate-workflow.yml
+        claims:
+          - CLM-006
+          - CLM-053
+          - CLM-054
+          - CLM-055
+          - CLM-056
+          - CLM-057
+          - CLM-058
+        depends_on:
+          - TASK-009
+          - TASK-024
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: backstop-core adopts the pack and the 62 tests go green
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: Fleet adoption and the green suite (REQ-002)"
+    tasks:
+      - id: TASK-026
+        type: implementation
+        title: "Install the pack into backstop-core's fleet from the local path (interim source)"
+        description: |
+          Run, from /Users/bmanson/src/projects/backstop-core:
+
+            ./bin/backstop pack add \
+              /Users/bmanson/src/projects/backstop-ci-workflows-pack
+
+          `pack add` accepts an absolute path (isLocalPath, add.go:96-105)
+          and installs under the MANIFEST NAME, so the pack lands at exactly
+          `.backstop/packs/backstop-ai/ci-workflows/` — the path the 62
+          tests resolve. It also validates through the whole packval
+          pipeline first, which is why this could not happen before TASK-024.
+
+          THIS IS AN INTERIM SOURCE. The lock entry will read
+          `source_type: local` with a project-relative `local_path`. That
+          entry MUST NOT BE COMMITTED — a local source is unresolvable on
+          any CI runner that clones only backstop-core. TASK-030 converts it
+          to the published git source at v0.1.0 after the founder gate.
+
+          Then verify the two fleet files by READING them (Sharp Edge 6:
+          SPEC-066 is editing the same two files; add ONE entry, never
+          regenerate either file wholesale, and re-read rather than writing
+          from a remembered baseline):
+            • backstop.yml `packs:` gains exactly one key,
+              `backstop-ai/ci-workflows`, at the pack's version;
+            • backstop.lock gains exactly one matching entry at the SAME
+              version string (CLM-005);
+            • the other seven entries are untouched, byte-for-byte.
+
+          DO NOT APPLY ANY RECIPE TO backstop-core (CLM-007).
+          `.github/workflows/ci.yml` stays byte-unchanged and the repo root
+          gains no `.gitlab-ci.yml`, `bitbucket-pipelines.yml` or
+          `Jenkinsfile`. Core adopts the PACK, never a recipe.
+
+          WHOLE-FILE ACTIVATION: touching these two files pulls all of their
+          findings into gate scope. REBUILD FIRST — unconditionally, exactly
+          as plan note (3) requires of EVERY gate run in this plan, with no
+          exception for "nothing Go changed since the last build". The rule
+          has no silent exceptions precisely because the judgment "nothing
+          relevant changed" is the one that goes wrong:
+
+            cd /Users/bmanson/src/projects/backstop-core
+            go build -o bin/backstop ./cmd/backstop
+            PATH="/Users/bmanson/go/bin:$PATH" ./bin/backstop gate --file backstop.yml
+            PATH="/Users/bmanson/go/bin:$PATH" ./bin/backstop gate --file backstop.lock
+
+          ONE file per invocation — ISSUE-093; never chain `--file a --file
+          b`. Any finding is fixed here, not waived.
+        files:
+          - /Users/bmanson/src/projects/backstop-core/backstop.yml
+          - /Users/bmanson/src/projects/backstop-core/backstop.lock
+        claims:
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-003
+          - TASK-025
+
+      - id: TASK-027
+        type: verification
+        title: "The flip: all 62 mandated tests green, and the gate verdict unchanged from baseline"
+        description: |
+          THIS IS WHERE THE RED OF PHASE 2 BECOMES GREEN. Rebuild first,
+          unconditionally, then read TRUE exit codes:
+
+            go build -o bin/backstop ./cmd/backstop
+            go test ./cmd/backstop/ -race -coverprofile=cover.out
+            PATH="/Users/bmanson/go/bin:$PATH" ./bin/backstop gate
+
+          REQUIRED RESULTS:
+          (1) ALL 62 mandated tests pass. Report them BY NAME — run with
+              `-run 'TestCIRecipes'` `-v` and paste the PASS lines. "The
+              suite is green" is not a report. Any test still red is either
+              a pack defect (fix the pack) or a test defect (fix the test);
+              it is never a reason to relax an assertion. There is NO
+              standing exception: CLM-050
+              (TestCIRecipes_CoreProductionSourceCarriesNoPlatformLiteral)
+              has been green since TASK-004 wrote it against the amended
+              claim (spec 1.0.3), and it must be green here too. A red on
+              CLM-050 at this point is a NEW regression — a platform literal
+              entered core production source during this plan, which this
+              plan forbids itself from doing — and is reported as such, not
+              repaired by weakening the test or editing core.
+          (2) Coverage for cmd/backstop is at or above 80 (the floor the
+              package already carries from SPEC-047; this spec adds no
+              production Go code, so it moves the number only through the
+              paths its tests exercise). Read it from cover.out, do not
+              assume.
+          (3) The gate VERDICT IS PASS and no step regressed from the
+              recorded baseline: 10 passed / 0 failed / 2 skipped / 2 warned.
+              ★ THE INTERESTING PART: `pack_engines` now dispatches TWELVE
+              NEW RULES over core's in-scope files. CLM-006 says the include
+              sets match nothing tracked, so the verdict must not move — and
+              this run is the MEASURED cross-check on that STRUCTURAL claim.
+              A new finding here means an include set is wider than the spec
+              mandates: fix the RULE, never waive, never narrow the tracked
+              set being measured.
+              Advisory counts may drift slightly as artifacts land; explain
+              any movement, and treat any step flipping pass→fail as this
+              plan's regression.
+          (4) `PATH=... ./bin/backstop pack test .backstop/packs/backstop-ai/ci-workflows`
+              passes STRUCTURALLY (this is CLM-058's subject, run from the
+              command line as well as through the Go test).
+
+          Report the observed numbers — test count, coverage figure, step
+          table, violation total — not the assertion that they were fine.
+        files:
+          - /Users/bmanson/src/projects/backstop-core/cmd/backstop/ci_recipes_harness_test.go
+          - /Users/bmanson/src/projects/backstop-core/cmd/backstop/ci_recipes_pack_identity_test.go
+          - /Users/bmanson/src/projects/backstop-core/cmd/backstop/ci_recipes_mechanism_test.go
+          - /Users/bmanson/src/projects/backstop-core/cmd/backstop/ci_recipes_github_actions_test.go
+          - /Users/bmanson/src/projects/backstop-core/cmd/backstop/ci_recipes_gitlab_ci_test.go
+          - /Users/bmanson/src/projects/backstop-core/cmd/backstop/ci_recipes_bitbucket_pipelines_test.go
+          - /Users/bmanson/src/projects/backstop-core/cmd/backstop/ci_recipes_jenkins_test.go
+        claims:
+          - CLM-001
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-050
+          - CLM-051
+          - CLM-052
+          - CLM-058
+        depends_on:
+          - TASK-004
+          - TASK-026
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 6: Publication, remote conversion, residuals, final verification
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-6
+    name: "Phase 6: Publish v0.1.0, convert the fleet entry to the remote, and verify everything"
+    tasks:
+      - id: TASK-028
+        type: setup
+        title: "Commit the pack repo and tag it v0.1.0, locally"
+        description: |
+          The pack is proven: recipes render, rules falsify, `pack check`
+          and `pack test` pass structurally, and the 62 mandated tests are
+          green against the installed copy. Now make it releasable.
+
+          pack.yml already declares `version: "0.1.0"` from TASK-001, so no
+          bump is needed — and the tag MUST equal it, which is exactly what
+          the repo's own .github/workflows/tag-integrity.yml asserts on a
+          tag push.
+
+          Steps, all LOCAL, in the pack repo:
+            • `git add -A` and commit in full — one commit, message naming
+              the pack, the version and what it ships;
+            • confirm NOTHING is left untracked (a fixture, a script or a
+              payload missed here becomes a pack that behaves differently
+              once cloned);
+            • re-run, from a CLEAN checkout of what was just committed, with
+              the same GOPATH/bin prefix and core's absolute binary every
+              other invocation in this plan uses:
+                PATH="/Users/bmanson/go/bin:$PATH" \
+                  /Users/bmanson/src/projects/backstop-core/bin/backstop pack check .
+                PATH="/Users/bmanson/go/bin:$PATH" \
+                  /Users/bmanson/src/projects/backstop-core/bin/backstop pack test .
+            • `git tag v0.1.0`.
+
+          DO NOT PUSH and DO NOT create the remote repository. Both belong
+          to TASK-029, which exists so that gate is a visible node in the
+          DAG rather than an assumption.
+        files:
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/pack.yml
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/.github/workflows/tag-integrity.yml
+        claims:
+          - CLM-001
+        depends_on:
+          - TASK-027
+
+      - id: TASK-029
+        type: setup
+        title: "Founder gate: create and publish backstop-ai/ci-workflows at v0.1.0"
+        description: |
+          THE HUMAN/ORCHESTRATOR GATE, made explicit rather than assumed.
+          TASK-028 deliberately refuses to push, so without this node
+          TASK-030 would depend on a remote that no task brings into
+          existence — and an implementer reading the DAG would either stall
+          or push on its own authority.
+
+          Nothing here is the implementer's to do. The founder/orchestrator:
+            • decides that `backstop-ai/ci-workflows` should exist and at
+              what visibility — a new public-facing repo under the org is a
+              founder call, not a mechanical one;
+            • notes that this pack INTRODUCES the cross-cutting naming
+              category for the published fleet (every other published
+              `backstop-ai/*` pack is language-prefixed or project-named),
+              which is a naming decision worth making deliberately once;
+            • creates the repo, pushes `main` and the `v0.1.0` tag;
+            • confirms the repo's own tag-integrity workflow ran GREEN on
+              the tag — it asserts the pushed tag equals pack.yml's version,
+              and a red run there means the tag is deleted and recut, never
+              worked around.
+
+          The implementer's move on reaching this node is to STOP and report
+          that the pack is committed, tagged and awaiting publication. Do
+          not push. Do not create the remote. Do not proceed to TASK-030 on
+          the assumption the push happened — TASK-030's first act reaches
+          the remote, and a clone failure is a wasted cycle, not a signal.
+        files:
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/pack.yml
+        claims:
+          - CLM-001
+        depends_on:
+          - TASK-028
+
+      - id: TASK-030
+        type: implementation
+        title: "Convert core's fleet entry from the local path to the published git source at v0.1.0"
+        description: |
+          RUNS ONLY AFTER TASK-029's push has actually happened. From
+          /Users/bmanson/src/projects/backstop-core:
+
+            ./bin/backstop pack remove backstop-ai/ci-workflows
+            ./bin/backstop pack add backstop-ai/ci-workflows@0.1.0
+
+          ⚠ THE REMOVE IS NOT HYGIENE. Per ISSUE-095, `pack add
+          <org>/<pack>@<version>` silently NO-OPS when a pack of that name
+          is already installed: isPackInstalledAndCurrent checks only that a
+          non-empty directory and a lock entry exist under that name, and
+          never compares against the source just resolved. Skipping the
+          remove leaves the LOCAL install in place while reporting success,
+          and the entire remote proof is vacuous.
+
+          Then assert, by reading backstop.lock:
+            • source_type: git
+            • git_ref: v0.1.0
+            • version: 0.1.0, matching backstop.yml's entry exactly (CLM-005)
+            • content_hash EQUAL to the hash the local install recorded —
+              hash equality across install paths is what proves the
+              PUBLISHED tree is the tree that was proven. Capture the local
+              hash BEFORE the remove so the comparison is possible.
+            • the other seven entries untouched, byte-for-byte, and
+              SPEC-066's entry preserved if it landed meanwhile (re-read;
+              never write from a remembered baseline).
+
+          If the identity gate refuses the add — manifest version not equal
+          to the tag, manifest absent/unparseable, or an unusable name — the
+          fix is in the PACK (recut the tag), never a flag on the add.
+        files:
+          - /Users/bmanson/src/projects/backstop-core/backstop.yml
+          - /Users/bmanson/src/projects/backstop-core/backstop.lock
+        claims:
+          - CLM-001
+          - CLM-005
+        depends_on:
+          - TASK-003
+          - TASK-029
+
+      - id: TASK-031
+        type: documentation
+        title: "File the residuals this plan deliberately does not fix"
+        description: |
+          All real, all with named causes. File each in backstop-core via
+          `./bin/backstop artifact new issue --slug <slug>` — the IDs are
+          assigned by the scaffold command, which is why no issue filename
+          appears in this task's file scope. Route the authoring through the
+          issue agent; never hand-edit an artifact.
+
+          (1) slug `ci-recipe-brownfield-merge-variant`. Sharp Edge 2: on a
+              repo that already owns `.gitlab-ci.yml`,
+              `bitbucket-pipelines.yml` or `Jenkinsfile`, `create`'s
+              never-clobber rule preserves the consumer's file and the apply
+              writes nothing — the consumer ends up with an adoption record
+              and NO gate in CI. Correct non-destructive behaviour, genuinely
+              bad outcome. Propose an `insert`/`merge` variant for brownfield
+              adoption. Cite SPEC-067 Sharp Edge 2 and BUNDLE-015.
+
+          (2) slug `core-baseline-bakes-github-actions-knowledge`. The
+              measured finding from this plan's notes: cmd/backstop/
+              baseline.go carries GitHub-Actions artifact-API knowledge (the
+              "GitHub Actions runs and artifact naming semantics" comment at
+              :34, ensureGitHubAuth at :111/:179, the GitHub-authentication
+              error strings at :168/:183, and the `github\.com[:/]` remote
+              regex at :171). Under the thin-executor law a baked
+              tool/platform branch is a defect to eradicate, not to extend.
+              ★ SCOPE THIS ISSUE CORRECTLY: it is NOT a CLM-050 problem.
+              CLM-050 was amended by founder ruling on 2026-08-11 (spec
+              1.0.3 — the module-path exemption now covers both the plain
+              `github.com/` and the regex-escaped `github\.com` spelling,
+              and the token stays case-sensitive), and the claim measures
+              GREEN on this tree. Say so in the issue, so nobody reopens a
+              settled question. What remains open is the separate,
+              architectural one the ruling deliberately did not answer:
+              whether core should carry GitHub-Actions knowledge at all.
+              The case-sensitive scope is exactly what leaves those
+              capitalized mentions unjudged by the claim — which is why the
+              question needs an issue of its own rather than a stricter
+              regex. Cite SPEC-067 REQ-008/CLM-050 at 1.0.3, its Sharp
+              Edge 5, and the 1.0.3 Version History entry recording the
+              ruling.
+
+          (3) slug `ci-workflows-pack-rules-unproven-under-pack-test`. The
+              twelve rules are proven well-formed and, by scripts/falsify.sh,
+              proven to fire — but `backstop pack test` proves NEITHER, and
+              will not until ISSUE-092 is fixed. Record that this pack's
+              fixtures are named under their include globs specifically so
+              they become correct the day phase 3 executes, and that the
+              fixture-POLARITY disagreement between packval's phase-3
+              semantics and packs/contracts/pack.yml remains unresolved and
+              must be settled before these fixtures are trusted. Cite
+              ISSUE-092 and SPEC-067 CLM-058.
+
+          Also record for the founder, as a note rather than an issue: the
+          spec's `follows:` gap — no CI-configuration or shell standard
+          exists in the in-repo `standards/` tree to bind these requirements
+          to, so none was invented. If a standards pack covering CI
+          configuration is adopted later, these requirements should be
+          re-bound to it.
+        files:
+          - /Users/bmanson/src/projects/backstop-core/issues/
+        claims:
+          - CLM-050
+          - CLM-058
+        depends_on:
+          - TASK-025
+          - TASK-027
+
+      - id: TASK-032
+        type: verification
+        title: "FINAL: rebuild, full suite, full gate, full artifact validation, against the PUBLISHED pack"
+        description: |
+          The comprehensive close-out, covering BOTH work categories — code
+          and artifacts. Rebuild unconditionally first; read TRUE exit codes
+          from each command; never pipe a verdict through grep.
+
+            cd /Users/bmanson/src/projects/backstop-core
+            go build -o bin/backstop ./cmd/backstop
+            go test ./cmd/backstop/ -race -coverprofile=cover.out
+            PATH="/Users/bmanson/go/bin:$PATH" ./bin/backstop gate
+            PATH="/Users/bmanson/go/bin:$PATH" ./bin/backstop pack test \
+              .backstop/packs/backstop-ai/ci-workflows
+            ./bin/backstop artifact validate --plan PLAN-SPEC-067
+            ./bin/backstop artifact validate --all
+
+          REQUIRED RESULTS, each reported with its observed output:
+          (1) ALL 62 mandated tests green — now against the pack installed
+              from the PUBLISHED REMOTE, not the local path. That is the
+              whole point of running them twice: it proves the published
+              tree is the tree that was proven. All 62 means all 62: there
+              is no carried-over known red in this plan, CLM-050 included
+              (it has been green since TASK-004, against the amended claim
+              at spec 1.0.3).
+          (2) cmd/backstop coverage at or above 80.
+          (3) The gate PASSES with no step regressed from the recorded
+              baseline (10 passed / 0 failed / 2 skipped / 2 warned). The
+              twelve new rules dispatch and find nothing in tracked core —
+              measured, not assumed.
+          (4) `pack test` over the INSTALLED pack passes STRUCTURALLY. Write
+              it up as structural. It is not firing evidence.
+          (5) Both artifact validations pass, covering this plan and the
+              issues TASK-031 filed.
+          (6) `git status` shows exactly the intended delta and NOTHING
+              else: backstop.yml, backstop.lock, the seven new
+              cmd/backstop/ci_recipes_*_test.go files, this plan, and the
+              new issues. No stray scratch file, no rendered workflow in the
+              repo root, no `.gitlab-ci.yml` / `bitbucket-pipelines.yml` /
+              `Jenkinsfile`, and `.github/workflows/ci.yml` byte-unchanged
+              (CLM-007). No production `.go` file modified — verify with
+              `git diff --name-only` and stop if any appears.
+
+          DO NOT COMMIT unless explicitly instructed. Report the results
+          verbatim, including anything that moved and why.
+
+          NOT THIS TASK'S WORK, named so nobody forgets it and nobody does
+          it here: flipping SPEC-067 to `implemented` (spec-author agent,
+          after this plan completes) is what retires the
+          pack-scaffolding-recipes REQ-018 traceability advisory, and
+          unblocks DIR-002 / `backstop init`, whose blocked state is the
+          reason this spec exists.
+        files:
+          - /Users/bmanson/src/projects/backstop-core/plans/PLAN-SPEC-067-ci-recipe-pack.plan.yml
+          - /Users/bmanson/src/projects/backstop-core/backstop.yml
+          - /Users/bmanson/src/projects/backstop-core/backstop.lock
+          - /Users/bmanson/src/projects/backstop-ci-workflows-pack/pack.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-050
+          - CLM-051
+          - CLM-052
+          - CLM-057
+          - CLM-058
+        depends_on:
+          - TASK-030
+          - TASK-031

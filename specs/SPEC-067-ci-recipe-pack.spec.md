@@ -5,7 +5,7 @@ created: "2026-08-11"
 updated: "2026-08-11"
 status: draft
 schema_version: spec/v1
-spec_version: 1.0.2
+spec_version: 1.0.3
 
 implementation:
   summary: >
@@ -173,8 +173,10 @@ requirements:
       three ways. (a) DENYLIST — no non-test Go file under `pkg/recipe/` or
       `cmd/backstop/` may contain the literals `gitlab`, `bitbucket`, `jenkins`,
       `Jenkinsfile`, `.github/workflows`, `.gitlab-ci` or `bitbucket-pipelines`
-      (case-insensitive), and every occurrence of `github` must fall inside the
-      `github.com/` module-path prefix. (b) ONE PATH — all four recipes must apply
+      (case-insensitive), and every occurrence of the lowercase token `github`
+      (matched CASE-SENSITIVELY) must fall inside a module-path reference in one of its
+      two spellings — the plain `github.com/` or the regex-escaped `github\.com`, which
+      denote the same thing and are both exempt. (b) ONE PATH — all four recipes must apply
       successfully through the SAME shipped `backstop recipe apply` invocation, the
       reference argument being the ONLY input that differs between them. (c) NO NEW
       SURFACE — the CLI's registered top-level command set must be unchanged by this spec,
@@ -687,8 +689,13 @@ claims:
     text: >
       DENYLIST — no non-test Go file under `pkg/recipe/` or `cmd/backstop/` contains
       `gitlab`, `bitbucket`, `jenkins`, `Jenkinsfile`, `.github/workflows`, `.gitlab-ci`
-      or `bitbucket-pipelines` (case-insensitive), and every occurrence of `github` falls
-      inside the `github.com/` module-path prefix
+      or `bitbucket-pipelines` (case-insensitive), and every occurrence of the lowercase
+      token `github` (matched CASE-SENSITIVELY) falls inside a module-path reference in
+      one of its two spellings — the plain `github.com/` or the regex-escaped
+      `github\.com`. Both spellings denote the same module path and are equally exempt;
+      the case-sensitive scope means capitalized mentions such as `GitHubActions` in
+      prose, identifiers or error strings are OUTSIDE this claim and neither pass nor
+      fail it
     tests:
       - TestCIRecipes_CoreProductionSourceCarriesNoPlatformLiteral
   - id: CLM-051
@@ -1290,9 +1297,13 @@ substitution: the pack comes from the REAL install, not from a fixture project.
    direct dependency); the Jenkinsfile check is structural; the ordering claims compare byte
    offsets within one file; the denylist claims scan the rendered text.
 5. **Source denylist (CLM-050)** walks `pkg/recipe/` and `cmd/backstop/`, skips `_test.go`
-   files, and searches for the literal set — with `github` matched only OUTSIDE the
-   `github.com/` module-path prefix, since every import in the repository contains that
-   string and a naive scan would report the whole tree.
+   files, and searches for the literal set — with the lowercase token `github` matched
+   CASE-SENSITIVELY and only OUTSIDE a module-path reference, since every import in the
+   repository contains that string and a naive scan would report the whole tree. The
+   module-path exemption covers BOTH spellings of the same reference: the plain
+   `github.com/` and the regex-escaped `github\.com` (the form
+   `cmd/backstop/baseline.go:171` uses inside a `regexp.MustCompile` pattern). Capitalized
+   mentions are outside the token the scan looks for at all.
 
 Every mandated test lives in `cmd/backstop` (package `main`), which is the spec's
 `implementation.subject`. No claim's tests straddle packages.
@@ -1364,10 +1375,23 @@ rather than papered over — see Sharp Edge 8 and the Review Questions.
 
 5. **The `github` denylist has one legitimate exception and it is the whole difficulty.**
    Every import path in the repository contains `github.com`. CLM-050 must therefore exempt
-   that prefix specifically, and an implementer who takes the shortcut of dropping `github`
-   from the denylist entirely converts the strongest claim in the spec into a claim that
-   proves nothing about the platform this pack's first recipe targets. The exemption is the
-   prefix `github.com/`, not the substring `github`.
+   that reference specifically, and an implementer who takes the shortcut of dropping
+   `github` from the denylist entirely converts the strongest claim in the spec into a claim
+   that proves nothing about the platform this pack's first recipe targets. The exemption is
+   the module-path reference, not the substring `github`.
+
+   The exemption has TWO spellings and a scan that knows only one is wrong in a way that
+   looks right. `cmd/backstop/baseline.go:171` writes the same module path REGEX-ESCAPED —
+   ``regexp.MustCompile(`github\.com[:/]...`)`` — so the characters following `github` are
+   `\.com`, not `.com/`. A literal-prefix scan flags this genuine module-path reference and
+   the claim fails on pre-existing, entirely innocent code. Both spellings are exempt.
+   Conversely, the token is matched CASE-SENSITIVELY, which is a deliberate narrowing and
+   not an oversight: `baseline.go` also carries five capitalized mentions (a "GitHub Actions"
+   comment, `ensureGitHubAuth` twice, and two error strings naming GitHub). Those are the
+   baseline-pull feature's own vocabulary, they are not what this claim was ever measuring,
+   and CLM-050 neither passes nor fails them. An implementer who "helpfully" makes the scan
+   case-insensitive turns a green claim red against code this spec does not govern; one who
+   widens the exemption to CI-platform-shaped literals generally guts the claim instead.
 
 6. **Two specs are editing `backstop.yml` and `backstop.lock` in the same window.**
    SPEC-066 adds `backstop-ai/go-distribution` to the same two files. The edits are
@@ -1552,6 +1576,29 @@ rather than papered over — see Sharp Edge 8 and the Review Questions.
 
 ## Version History
 
+- **1.0.3** (2026-08-11) — Scoped correction to CLM-050's module-path exemption, closing the
+  conflict PLAN-SPEC-067 surfaced during planning. The finding: CLM-050 required every
+  occurrence of `github` to fall inside the literal prefix `github.com/`, but
+  `cmd/backstop/baseline.go:171` writes that module path REGEX-ESCAPED —
+  ``regexp.MustCompile(`github\.com[:/]([^/]+)/([^/.]+)(\.git)?$`)`` — so a strict
+  literal-prefix reading failed one real, pre-existing occurrence that is genuinely nothing
+  but a module-path reference. **Founder ruling (2026-08-11):** widen the exemption to
+  recognize BOTH spellings of the same reference — the plain `github.com/` and the
+  regex-escaped `github\.com`. Everything else about the claim is untouched: the check stays
+  scoped to the literal lowercase token `github` matched CASE-SENSITIVELY, which was already
+  its scope. The ruling explicitly did NOT broaden the claim case-insensitively, so the five
+  capitalized mentions in `baseline.go` (a "GitHub Actions" comment, `ensureGitHubAuth` ×2,
+  two error strings) remain OUT of scope — they were never what the lowercase-token check
+  measured; and it explicitly did NOT adopt the rejected alternative of narrowing to
+  "CI-platform-shaped literals" generally, which would have let those five slide by a route
+  that also weakened the claim. **REQ-008(a)** carries the identical widening, since the
+  requirement states the same rule the claim proves and the two must not drift.
+  **CLM-050**'s mandated test name is UNCHANGED
+  (`TestCIRecipes_CoreProductionSourceCarriesNoPlatformLiteral`): the test's purpose — core
+  production source carries no platform literal — is exactly what it was, and only the
+  exemption predicate inside it moves. Prose: Implementation §5 and Sharp Edge 5 restate the
+  two-spelling exemption and record why the case-sensitive scope is a deliberate narrowing
+  rather than an oversight. No requirement, claim, contract or test is added or removed.
 - **1.0.2** (2026-08-11) — Honesty correction pass on 1.0.1's JUSTIFICATIONS; every
   requirement, claim and mandated mechanism from 1.0.1 is retained unchanged except where
   noted. The finding: `backstop pack test`'s phase-3 fixture-EXECUTION step never runs for
