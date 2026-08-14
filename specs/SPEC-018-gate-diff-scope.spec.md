@@ -38,12 +38,14 @@ requirements:
       The changed-file set must include both tracked modifications (vs
       merge-base) and untracked files so new files are never silently
       skipped.
+    supports: gate-diff-scope:REQ-001@1.0.0
 
   - id: REQ-002
     text: >
       backstop gate --all must run in full-project sweep mode, matching
       current behavior (ScopeModeAll). This is the flag for CI post-merge
       or when a comprehensive audit is needed.
+    supports: gate-diff-scope:REQ-002@1.0.0
 
   - id: REQ-003
     text: >
@@ -54,6 +56,7 @@ requirements:
       reality (e.g., generated files, external tool changes). --file and
       --all are mutually exclusive; specifying both must produce a config
       error (exit 2).
+    supports: gate-diff-scope:REQ-003@1.0.0
 
   - id: REQ-004
     text: >
@@ -61,6 +64,7 @@ requirements:
       across all gate steps. No step may independently re-compute the
       file set. This ensures consistency (every step sees the same files)
       and avoids redundant git operations.
+    supports: gate-diff-scope:REQ-004@1.0.0
 
   - id: REQ-005
     text: >
@@ -72,12 +76,14 @@ requirements:
       tests only in changed test files, (d) test substantiveness checks
       only changed test files, (e) coverage runs for changed packages,
       (f) contract signature checks only changed source files.
+    supports: gate-diff-scope:REQ-005@1.0.0
 
   - id: REQ-006
     text: >
       Pack lock verification (VerifyLock) and pack validators must
       always run in all scope modes (diff, file, all). These are
       structural checks on project shape, not per-file checks.
+    supports: gate-diff-scope:REQ-006@1.0.0
 
   - id: REQ-007
     text: >
@@ -86,12 +92,14 @@ requirements:
       for full sweep)." In --all mode, no scope summary is needed. In
       --file mode, any explicit-file count summary is diagnostic only and
       is not an acceptance requirement for BUNDLE-008/DIR-011.
+    supports: gate-diff-scope:REQ-007@1.0.0
 
   - id: REQ-008
     text: >
       This spec supersedes SPEC-010 REQ-012 ("gate accepts no scope
       flags"). Gate now accepts --all and --file. The original intent
       of REQ-012 (gate is comprehensive) is preserved via --all.
+    supports: gate-diff-scope:REQ-008@1.0.0
 
   - id: REQ-009
     text: >
@@ -102,6 +110,10 @@ requirements:
       if those always-run structural checks pass; if they fail, the gate
       fails and reports those structural violations even though scoped
       changed-file violations are zero.
+    supports:
+      - gate-diff-scope:REQ-005@1.0.0
+      - gate-diff-scope:REQ-006@1.0.0
+      - gate-diff-scope:REQ-007@1.0.0
 
 supersedes:
   - spec: SPEC-010
