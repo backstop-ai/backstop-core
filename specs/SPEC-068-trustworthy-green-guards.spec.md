@@ -5,7 +5,7 @@ created: "2026-08-13"
 updated: "2026-08-14"
 status: draft
 schema_version: spec/v1
-spec_version: 1.2.0
+spec_version: 1.2.3
 
 implementation:
   summary: >
@@ -193,7 +193,8 @@ requirements:
     text: >
       Every consumer of the artifact layout must read that one resolution, so a
       consuming repo can hold the whole artifact chain under `.backstop/` and be
-      discovered. Four consumers adopt it: gate status resolution
+      discovered. ~~Four consumers adopt it~~ FIVE consumers adopt it (see the
+      2026-08-14 correction below for the fifth): gate status resolution
       (`pkg/gate/artifact_status.go`, which today joins the project root with
       five literal directory names), CLI artifact discovery
       (`cmd/backstop/artifact_discover.go`, which today walks the project root
@@ -208,6 +209,34 @@ requirements:
       excluded, so a pack's own artifact-shaped files are never adopted as the
       consumer's corpus. backstop-core's unconfigured repo-root layout must be
       discovered exactly as it is today.
+      CORRECTION (2026-08-14, v1.2.1) — A FIFTH CONSUMER, FOUND DURING PLANNING.
+      The v1.2.0 clause enumerated exactly four consumers and MISSED a real
+      hardcoding that the other four fixes do not reach: `buildGateSteps`
+      (`cmd/backstop/gate.go:652`) computes `specDir := filepath.Join(projectRoot,
+      "specs")` and feeds it to FOUR gate dimensions — `test_verification`
+      (`gate.go:706`), `test_substantiveness` (`gate.go:710`), `coverage`
+      (`gate.go:718`) and `contracts` (`gate.go:721`). `specDir` MUST be the
+      resolved artifact root's spec directory — `Root.Dir(artifact.KindSpec)` —
+      exactly as the other four consumers read theirs, and every call site of
+      `buildGateSteps` (`gate.go:124`, `baseline.go:64`, `waiver.go:88`) must pass
+      the resolved root rather than leaving one of them on the project root.
+      WHY THIS IS A DEFECT AND NOT A REFINEMENT: `gate.ExtractMandatedTests`
+      (`pkg/gate/step_testverify.go:113-116`) does an `os.ReadDir` on `specDir` and
+      returns a wrapped error on a missing directory — it does NOT tolerate absence
+      the way the status walkers do. So once this spec's other fixes land, a
+      `.backstop/`-rooted consumer has `artifact_validation`, `status_drift` and
+      `requirement_traceability` correctly rooted while these four dimensions still
+      read a literal `<project>/specs` that does not exist, and the gate HARD-BREAKS
+      on them. That consumer is not hypothetical: SPEC-069's full-SDLC `backstop
+      init` profile writes `artifact_root: .backstop`, creates `.backstop/specs/`,
+      and DELIBERATELY leaves exactly these five dimensions enabled (it disables
+      them only for the narrower pack-only profile), so without this fix SPEC-068 and
+      SPEC-069 together ship a flagship-profile project whose gate breaks on four
+      dimensions the first time it runs. Absent-directory tolerance is NOT changed
+      here — the loud failure for a configured-but-absent root stays at the ROOT
+      (REQ-008), an EXISTING but empty spec directory still reads cleanly because
+      `os.ReadDir` of an empty directory succeeds, and SPEC-069's profile creates the
+      directory it configures.
     supports:
       - onboarding-experience:REQ-029@1.0.0
     follows:
@@ -223,7 +252,18 @@ requirements:
       this. A CONFIGURED artifact root that does not exist on disk must fail the
       run loudly rather than walking absent directories and reporting a passing
       dimension. An artifact root that EXISTS but is empty remains a legitimate
-      pass.
+      pass — SCOPED (2026-08-14, v1.2.2) to root resolution and the
+      `artifact_validation` dimension: an empty root must not itself be an error,
+      and the zero-artifact corpus must validate clean. It does NOT mandate an
+      aggregate `Pass: true` for a run over an empty root, since dimensions
+      unrelated to root resolution — notably the four REQ-007 spec-directory
+      consumers — may legitimately fail over the same tree. MECHANISM CORRECTED
+      (2026-08-14, v1.2.3): the v1.2.2 wording attributed that to those consumers
+      erroring on a spec directory that does not exist. Under the shape real
+      `backstop init` produces, the configured root's spec directory EXISTS and
+      is empty, so they read it cleanly; what may still fail over that tree is
+      whatever those dimensions independently require of a zero-artifact corpus.
+      The SCOPING is unchanged by this correction.
       Artifact-shaped files the gate's ARTIFACT-STATUS WALK would not reach must
       be SURFACED as ungated, each reported with its path, the directory it was
       expected in, and the resolved root. The status walk is the calibration
@@ -530,7 +570,8 @@ claims:
     tests:
       - TestLoadConfig_AbsentArtifactRootLeavesFieldEmpty
 
-  # REQ-007 — every one of the four consumers, plus both layout profiles end to end.
+  # REQ-007 — every one of the consumers, plus both layout profiles end to end.
+  # The fifth consumer (gate.go's specDir) is CLM-069, grouped with the 1.2.1 addition below.
   - id: CLM-043
     requirement: REQ-007
     subject: pkg/gate
@@ -614,7 +655,27 @@ claims:
   - id: CLM-056
     requirement: REQ-008
     subject: cmd/backstop
-    text: A configured artifact root that exists and is empty is a PASS, preserving the validated greenfield outcome
+    text: >
+      A configured artifact root that exists and is empty does not fail ROOT
+      RESOLUTION OR THE artifact_validation DIMENSION — ResolveRoot returns
+      normally and artifact_validation reports clean over the zero-artifact
+      corpus rather than erroring on the empty root — preserving the validated
+      greenfield outcome. NARROWED (2026-08-14, v1.2.2): this claim does NOT
+      assert that the whole gate run returns Pass: true. Other dimensions may
+      legitimately fail over the same fixture for reasons independent of root
+      resolution — with REQ-007's fifth consumer (CLM-069) the test_verification,
+      test_substantiveness, coverage and contracts dimensions read the resolved
+      root's SPEC DIRECTORY. MECHANISM CORRECTED (2026-08-14, v1.2.3): the
+      v1.2.2 wording illustrated that with ExtractMandatedTests erroring on a
+      spec directory that does not exist, which no longer describes the fixture
+      this claim's mandated test runs against — that fixture's spec directory
+      EXISTS and is empty, the shape real `backstop init` produces. Those four
+      dimensions therefore READ the spec directory cleanly here, and may still
+      report failure for reasons of their own over a zero-artifact corpus,
+      independent of root resolution. The NARROWING is unchanged by this
+      correction. The mandated test must therefore assert the
+      root-resolution/artifact_validation outcome specifically, never the
+      aggregate verdict.
     tests:
       - TestGate_ConfiguredEmptyArtifactRootPasses
   - id: CLM-057
@@ -692,6 +753,14 @@ claims:
     text: gate --json carries the artifact-root-configured fact as an explicit false for an UNCONFIGURED root rather than omitting the field, which is the default and the motivating shape
     tests:
       - TestGate_JSONCarriesArtifactRootConfiguredFalseWhenUnconfigured
+
+  # REQ-007 — the fifth consumer, added in 1.2.1 (see REQ-007's 2026-08-14 correction).
+  - id: CLM-069
+    requirement: REQ-007
+    subject: cmd/backstop
+    text: The spec directory buildGateSteps hands to the test_verification, test_substantiveness, coverage and contracts dimensions is the resolved artifact root's spec directory, so under a .backstop/-rooted project all four read the specs that exist instead of erroring on an absent project-root specs/
+    tests:
+      - TestBuildGateSteps_SpecDirectoryConsumersReadResolvedArtifactRoot
 
 contracts:
   - file: pkg/artifact/layout.go
@@ -915,7 +984,11 @@ contracts:
       - name: runGate
         kind: function
         signature: "func runGate(cmd *cobra.Command, args []string) error"
-        notes: "Resolves the artifact root ONCE per run (REQ-006/REQ-007), immediately after config load and project-root discovery (gate.go:65-80, which already holds cfg and projectRoot), and hands the resolved Root to realArtifactValidator and to both ResolveArtifactStatus call sites (:902, :983). It passes `\".\"` as projectRoot whenever DiscoverConfigPath fails (gate.go:77) — ResolveRoot's absolutization is what makes that safe. A *artifact.RootMissingError from this resolution is REQ-008's loud failure and exits non-zero; it is distinguished by TYPE, never by string match."
+        notes: "Resolves the artifact root ONCE per run (REQ-006/REQ-007), immediately after config load and project-root discovery (gate.go:65-80, which already holds cfg and projectRoot), and hands the resolved Root to realArtifactValidator, to both ResolveArtifactStatus call sites (:902, :983) and to buildGateSteps (:124). It passes `\".\"` as projectRoot whenever DiscoverConfigPath fails (gate.go:77) — ResolveRoot's absolutization is what makes that safe. A *artifact.RootMissingError from this resolution is REQ-008's loud failure and exits non-zero; it is distinguished by TYPE, never by string match."
+      - name: buildGateSteps
+        kind: function
+        signature: "func buildGateSteps(projectRoot string, root artifact.Root, scope ...*gate.GateScope) []gate.StepFunc"
+        notes: "SIGNATURE CHANGED (REQ-007, 2026-08-14 correction — the FIFTH consumer). `specDir := filepath.Join(projectRoot, \"specs\")` (gate.go:652) becomes `root.Dir(artifact.KindSpec)`; the four dimensions it feeds are unchanged in every other respect (test_verification :706, test_substantiveness :710, coverage :718, contracts :721). projectRoot STAYS as a separate parameter — it is the CODE directory those same steps walk for test files and the two are genuinely different roots under a `.backstop/` layout, so collapsing them would break test discovery. The variadic scope tail stays last. All three call sites pass the resolved root: gate.go:124 (from runGate's one resolution), baseline.go:64 and waiver.go:88 (which resolve it the same way runGate does, or a widened signature silently re-introduces the project-root default on two of three paths)."
     consumes:
       - source: pkg/artifact
         name: ResolveRoot
@@ -1005,7 +1078,7 @@ wider:
 | REQ-004 | `REQ-028@1.0.0` | Every gate and validate result records the producing binary's version and cohort |
 | REQ-005 | `REQ-021@1.1.0` | `version` stamps build commit and build date; the anti-spoofing bare `dev` version string is preserved |
 | REQ-006 | `REQ-029@1.0.0` | One layout table and one config-resolved artifact root — resolved to an ALWAYS-ABSOLUTE path — with `artifact_root` added to `backstop.yml` |
-| REQ-007 | `REQ-029@1.0.0` | Gate status resolution, CLI discovery, typed-ref resolution and scaffolding all read that one resolution |
+| REQ-007 | `REQ-029@1.0.0` | Gate status resolution, CLI discovery, typed-ref resolution, scaffolding, and the spec directory `buildGateSteps` feeds to the test_verification / test_substantiveness / coverage / contracts dimensions all read that one resolution |
 | REQ-008 | `REQ-030@1.1.0` | Gate names the scanned root and whether it was configured (`false` included), fails loudly on a configured root that is absent, and surfaces — per kind, not by root containment — the artifact-shaped files the STATUS WALK would not reach, over its own enumerated exclusion set, without adopting them |
 
 Bundle REQ-022 is IN THE SEED but is deliberately NOT pinned by this spec. See
@@ -1013,7 +1086,7 @@ Dependencies.
 
 ## Implementation
 
-Nine steps. Steps 1–2 are the new authorities; 3–6 are the consumers; 7–9 are the
+Ten steps. Steps 1–2 are the new authorities; 3–7 are the consumers; 8–10 are the
 output surfaces.
 
 1. **The layout authority — `pkg/artifact/layout.go` (REQ-006).** `pkg/artifact`
@@ -1078,7 +1151,24 @@ output surfaces.
    `artifact.LayoutFor` rather than held privately. `IDPrefix`, `DigitCount`,
    `DefaultStatus` and `BodySections` are scaffold's own and stay put.
 
-7. **The cohort — `pkg/schema/cohort.go` (REQ-001, REQ-003).**
+7. **The gate's spec directory (REQ-007, 2026-08-14 correction).**
+   `buildGateSteps` (`cmd/backstop/gate.go:647`) computes `specDir :=
+   filepath.Join(projectRoot, "specs")` at line 652 and hands it to four
+   dimensions — `test_verification` (`:706`), `test_substantiveness` (`:710`),
+   `coverage` (`:718`), `contracts` (`:721`). It takes the resolved `Root` and
+   `specDir` becomes `root.Dir(artifact.KindSpec)`. `projectRoot` STAYS a separate
+   parameter: those same steps use it as the CODE directory they walk for test
+   files, and under a `.backstop/` layout the artifact root and the code root are
+   genuinely different. All three call sites pass the resolved root —
+   `gate.go:124` from `runGate`'s single resolution, and `baseline.go:64` and
+   `waiver.go:88`, which resolve it the same way; leaving either of the latter two
+   on the project root would reinstate the defect on the baseline and waiver paths
+   while the gate path looked fixed. This consumer is not interchangeable with the
+   status walk: `gate.ExtractMandatedTests` (`pkg/gate/step_testverify.go:113-116`)
+   ERRORS on a missing directory rather than tolerating it, which is why a
+   `.backstop/`-rooted project hard-breaks on these four dimensions today.
+
+8. **The cohort — `pkg/schema/cohort.go` (REQ-001, REQ-003).**
    `ComputeCohort(fsys)` folds a sorted `path:file-digest` manifest into one ID
    and records a per-`<type>/v<N>` digest. `DigestFor` returns `ok=false` for an
    uncovered `schema_version`; `SchemaIdentity` renders
@@ -1087,7 +1177,7 @@ output surfaces.
    (`cmd/backstop/root.go:206`) is DELETED and the `version` command reads
    `Cohort.ID`.
 
-8. **Assertion and refusal (REQ-002).** In `ValidateArtifacts`
+9. **Assertion and refusal (REQ-002).** In `ValidateArtifacts`
    (`cmd/backstop/artifact_validate.go:113-214`), before loading a schema, look
    the artifact's declared `schema_version` up in the cohort. Uncovered ⇒ refuse
    with a diagnostic naming the artifact path, the declared `schema_version` and
@@ -1100,27 +1190,27 @@ output surfaces.
    gate inherits all of it through `realArtifactValidator` (`gate.go:1568-1578`),
    which delegates to this same function.
 
-9. **Result surfaces (REQ-003, REQ-004, REQ-008).** `GateResult` gains five
-   additive fields — binary version, cohort, schema identities, artifact root,
-   artifact-root-configured — placed alongside the `GitSHA`/`GeneratedAt` pair
-   ISSUE-059 added the same way, keeping `gate/v1` unchanged. Four take
-   `omitempty`; `ArtifactRootConfigured` does NOT, because `encoding/json` drops
-   a `false` bool under `omitempty` and `false` is both the default and REQ-008's
-   motivating state, so an `omitempty` there would emit no field at all in the
-   one case the requirement exists for. The validate envelope
-   (`cmd/backstop/output.go:47-52`) gains the equivalents plus an `artifacts`
-   array of per-artifact records — `GateResult.SchemaIdentities` is a flat
-   per-SCHEMA list and cannot express REQ-003's identity for EACH validated
-   artifact, so the validate side carries its own record type rather than
-   reusing it, and `artifacts_asserted` likewise omits `omitempty` so a zero
-   count stays legible. Both
-   renderings of each command read ONE resolved value, mirroring how the version
-   command already shares `reportedVersion` between its JSON and text branches
-   (`root.go:107`). Ungated-artifact findings are produced by
-   `gate.FindUngatedArtifacts` and returned through `realArtifactValidator`
-   so they land on the `artifact_validation` step, and they are marked
-   `ProjectWide` — see Sharp Edges, without it a diff-scoped run filters them
-   away.
+10. **Result surfaces (REQ-003, REQ-004, REQ-008).** `GateResult` gains five
+    additive fields — binary version, cohort, schema identities, artifact root,
+    artifact-root-configured — placed alongside the `GitSHA`/`GeneratedAt` pair
+    ISSUE-059 added the same way, keeping `gate/v1` unchanged. Four take
+    `omitempty`; `ArtifactRootConfigured` does NOT, because `encoding/json` drops
+    a `false` bool under `omitempty` and `false` is both the default and REQ-008's
+    motivating state, so an `omitempty` there would emit no field at all in the
+    one case the requirement exists for. The validate envelope
+    (`cmd/backstop/output.go:47-52`) gains the equivalents plus an `artifacts`
+    array of per-artifact records — `GateResult.SchemaIdentities` is a flat
+    per-SCHEMA list and cannot express REQ-003's identity for EACH validated
+    artifact, so the validate side carries its own record type rather than
+    reusing it, and `artifacts_asserted` likewise omits `omitempty` so a zero
+    count stays legible. Both
+    renderings of each command read ONE resolved value, mirroring how the version
+    command already shares `reportedVersion` between its JSON and text branches
+    (`root.go:107`). Ungated-artifact findings are produced by
+    `gate.FindUngatedArtifacts` and returned through `realArtifactValidator`
+    so they land on the `artifact_validation` step, and they are marked
+    `ProjectWide` — see Sharp Edges, without it a diff-scoped run filters them
+    away.
 
 Deliberately NOT in scope: any `init` or `doctor` code; the baseline artifact and
 its schema (BUNDLE-007 / DD-10 own it, and this spec does not add cohort fields
@@ -1205,7 +1295,21 @@ Two claim families deserve a note on how they must be proven:
    profile reached gate PASS with empty artifact dirs. The refusal is scoped
    strictly to "I found something I cannot prove I can validate." An implementer
    who tightens this into "empty is a failure" breaks the init seed's acceptance
-   bar before it is written.
+   bar before it is written. SCOPE, NARROWED 2026-08-14 (v1.2.2): the protected
+   outcome is ROOT RESOLUTION AND THE `artifact_validation` DIMENSION, not the
+   aggregate gate verdict. Once REQ-007's fifth consumer lands, the four
+   spec-directory dimensions read the resolved root's `specs/`, and the run over
+   that fixture may be RED on their account while the empty-root pass this edge
+   protects is fully intact. MECHANISM CORRECTED (2026-08-14, v1.2.3): the
+   v1.2.2 wording said an empty `.backstop/` has no `specs/` directory and that
+   `ExtractMandatedTests` (`pkg/gate/step_testverify.go:113-116`) errors loudly
+   on it. That describes a shape `backstop init` cannot produce and is NOT the
+   shape of the fixture behind CLM-056, whose `.backstop/specs/` EXISTS and is
+   empty; `os.ReadDir` succeeds on it, so those four dimensions read it cleanly
+   and any failure they report over that tree comes from the zero-artifact
+   corpus itself, not from root resolution. The SCOPE is unchanged by this
+   correction. An implementer who asserts `Pass: true` on the aggregate to
+   satisfy CLM-056 will find that assertion in direct conflict with CLM-069.
 
 6. **REQ-003's record choice buys cross-run detection, not in-run omniscience.**
    The bundle permits the digest to live on the artifact or on the validation
@@ -1392,7 +1496,13 @@ quarantine.
    revised? If not, the digest is covering the extension schema alone and misses
    half of what `LoadArtifactSchema` merges.
 6. Does a configured-but-absent artifact root fail, while a configured-and-empty
-   one passes? Both, in the same test file, or the distinction will drift.
+   one resolves and validates clean? Both, in the same test file, or the
+   distinction will drift. And does the empty-root test assert the ROOT
+   RESOLUTION / `artifact_validation` outcome rather than the aggregate
+   `Pass: true`? Asserting the aggregate over an empty `.backstop/` collides with
+   CLM-069, because a zero-artifact corpus can legitimately fail the four
+   spec-directory dimensions — and others — for reasons that have nothing to do
+   with root resolution.
 7. Do `artifact validate` and `gate` resolve the same artifact root when
    `validate` is invoked from a subdirectory of the project?
 8. Is `artifact_root` present in BOTH `pkg/config`'s struct and

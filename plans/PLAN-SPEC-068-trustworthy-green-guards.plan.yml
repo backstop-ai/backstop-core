@@ -1,0 +1,3236 @@
+---
+plan_id: PLAN-SPEC-068
+spec_id: SPEC-068
+spec_version: "1.2.3"
+created: "2026-08-14"
+status: draft
+test_command: "go test ./pkg/artifact/... ./pkg/schema/... ./pkg/config/... ./pkg/validate/... ./pkg/gate/... ./pkg/scaffold/... ./cmd/backstop/... -race -coverprofile=cover.out"
+coverage_threshold: 80
+
+notes: |
+  ─────────────────────────────────────────────────────────────────────────
+  WHAT THIS PLAN BUILDS (BUNDLE-003 guards seed, first of three)
+  ─────────────────────────────────────────────────────────────────────────
+  Two NEW authorities — pkg/artifact/layout.go (the one artifact-layout table
+  and the one root resolver) and pkg/schema/cohort.go (the content-derived
+  schema cohort) — then FIVE consumers adopt the layout authority, three
+  output surfaces adopt the cohort and the build identity, and one new scan
+  (FindUngatedArtifacts) surfaces the artifact-shaped files the gate's status
+  walk cannot reach.
+
+  THE FIFTH CONSUMER IS SPEC-068 v1.2.1's 2026-08-14 CORRECTION and it landed
+  in this plan AFTER the first review pass: `buildGateSteps`
+  (cmd/backstop/gate.go:652) hardcodes `filepath.Join(projectRoot, "specs")`
+  and feeds it to FOUR gate dimensions. It is CLM-069 and phase-7b, and it is
+  no longer on the reported-not-fixed list.
+
+  Everything here is CORE. There is no init code and no doctor code in this
+  plan. SPEC-069 (init) and SPEC-070 (doctor) CONSUME the signatures this plan
+  makes real — `artifact.ResolveRoot`, `artifact.Root`, `artifact.Kind`,
+  `gate.FindUngatedArtifacts`, `gate.UngatedArtifact` — so those names are
+  contract, not suggestion. If a signature has to change during
+  implementation, that is a STOP-AND-REPORT, not a local decision.
+
+  ─────────────────────────────────────────────────────────────────────────
+  VERIFICATION COMMAND REALITY — READ THIS BEFORE EVERY VERIFICATION TASK
+  ─────────────────────────────────────────────────────────────────────────
+  `backstop code check` DOES NOT EXIST (ISSUE-076). Any agent definition or
+  precedent telling you to run it is stale — verified against
+  `./bin/backstop --help` on 2026-08-14: the command set is artifact,
+  baseline, commands, gate, pack, recipe, version, waiver. The real loop is:
+
+      go build -o bin/backstop ./cmd/backstop     # ALWAYS — see below
+      go test <the packages this phase touched> -race -count=1
+      ./bin/backstop gate                          # the full kill chain
+
+  THE REBUILD IS UNCONDITIONAL, in every verification task, not "when cmd/
+  changed". bin/backstop statically links everything under pkg/ as well as
+  cmd/backstop, so a phase that adds only pkg/artifact/layout.go still changes
+  what the gate binary would contain. Running the gate against a stale binary
+  reports a verdict about code that is not in the binary, and it is
+  indistinguishable from a real green (that is the ISSUE-077 class).
+
+  TRUE EXIT CODES, NEVER A GREP PIPE. Read `$?` from the command itself.
+  `go test ... | grep -q FAIL` reports grep's status, and a tree that fails to
+  BUILD emits no FAIL line at all — so the pipe reports success for a tree
+  that does not compile.
+
+  ALL gate dimensions run at EVERY verification step (the no-check-filtering
+  razor). Verification tasks never scope or categorize what was touched.
+
+  THIS PLAN EDITS AN ARTIFACT SCHEMA (artifacts/backstop-yml/v1/schema.json),
+  so `./bin/backstop artifact validate --all` is part of the final phase, not
+  only `gate`.
+
+  ─────────────────────────────────────────────────────────────────────────
+  SANCTIONED TEST RETIREMENT — DO NOT DELETE ANYTHING ELSE
+  ─────────────────────────────────────────────────────────────────────────
+  Deleting `computeCohortID` (cmd/backstop/root.go:205-219) is a COMPILE BREAK
+  for exactly two tests, and this plan SANCTIONS their retirement in TASK-024:
+
+      TestCLI_ComputeCohortID_Empty      (cmd/backstop/root_test.go:323)
+      TestCLI_ComputeCohortID_NonEmpty   (cmd/backstop/root_test.go:329)
+
+  They call the function DIRECTLY and assert its literal path-derived output
+  ("empty", "1-schemas[spec/v1]"). Verified 2026-08-14: nothing in specs/
+  mandates either name, so they are unowned tests whose premise disappears
+  with their subject. Retiring them is authorized HERE, in the plan, precisely
+  so it is not an implementer quietly deleting tests to make a build pass.
+
+  NO OTHER TEST MAY BE DELETED OR WEAKENED. In particular
+  TestCLI_Version_HumanOutput (root_test.go:132) and TestCLI_Version_JSONOutput
+  (:148) are SPEC-005's CLM-022/CLM-023, they assert loose content and field
+  PRESENCE only, never the cohort string's shape, and they are the REGRESSION
+  FLOOR for the version rewrite. They must keep passing untouched. If you find
+  a THIRD test that will not compile, STOP AND REPORT IT rather than editing
+  it — the count is two, verified at HEAD, and a third means the edit set is
+  wider than this plan modelled.
+
+  ─────────────────────────────────────────────────────────────────────────
+  COMPILE-SAFETY — WHY THE PHASE ORDER IS WHAT IT IS
+  ─────────────────────────────────────────────────────────────────────────
+  Every phase boundary must hand off a tree that COMPILES and a suite that is
+  GREEN. Four orderings are load-bearing and must not be "optimized":
+
+  1. pkg/artifact (phase 2) LANDS BEFORE EVERY CONSUMER (phases 5, 7, 10).
+     Root, Kind, LayoutFor and ClassifyFilename are what those phases import.
+
+  2. pkg/config + the backstop.yml JSON schema (phase 3) LAND BEFORE THE
+     ENTRY-POINT WIRING (phase 7). The wiring reads cfg.ArtifactRoot, and the
+     schema is additionalProperties:false at the top level — adding only the
+     struct field passes the yaml decoder and then fails the JSON-schema pass
+     (spec Review Question 8).
+
+  3. pkg/schema/cohort.go (phase 4) LANDS BEFORE THE VERSION REWRITE (phase 6)
+     AND THE ASSERTION (phase 8). Both read Cohort.ID / DigestFor /
+     SchemaIdentity.
+
+  4. THE DISCOVERY SIGNATURE CHANGE (phase 7) LANDS BEFORE THE ASSERTION
+     (phase 8) AND THE GATE SURFACES (phase 9). DiscoverArtifacts gains a
+     `artifact.Root` parameter, which breaks its call sites in
+     artifact_validate.go (lines 126, 225, 238) and gate.go (line 1015). Doing
+     the assertion first means writing it against a root that has not been
+     resolved yet.
+
+  ─────────────────────────────────────────────────────────────────────────
+  THE EDIT SET — RE-DERIVED AGAINST THE CURRENT TREE ON 2026-08-14
+  ─────────────────────────────────────────────────────────────────────────
+  Signature changes and their real call sites, verified by grep, not assumed:
+
+    DiscoverArtifacts(root string, ...) → (root artifact.Root, ...)
+      callers: cmd/backstop/artifact_validate.go:126, :225, :238;
+               cmd/backstop/gate.go:1015
+      tests:   cmd/backstop/artifact_discover_test.go (the ONLY test file)
+
+    buildGateSteps(projectRoot string, scope ...*gate.GateScope)
+      → buildGateSteps(projectRoot string, root artifact.Root, scope ...*gate.GateScope)
+      THE FIFTH REQ-007 CONSUMER (SPEC-068 v1.2.1). `specDir :=
+      filepath.Join(projectRoot, "specs")` (gate.go:652) becomes
+      `root.Dir(artifact.KindSpec)`. projectRoot STAYS a separate parameter —
+      it is the CODE directory those same steps walk for test files, and under
+      a `.backstop/` layout the two are genuinely different roots, so
+      collapsing them breaks test discovery. The variadic scope tail stays
+      LAST, which is what lets the eight bare `buildGateSteps(dir)` call sites
+      keep omitting it.
+      production callers: cmd/backstop/gate.go:124 (from runGate's ONE
+               resolution, TASK-027 item 3), cmd/backstop/baseline.go:64,
+               cmd/backstop/waiver.go:88. ALL THREE, or the defect is
+               reinstated on the baseline and waiver paths while the gate path
+               looks fixed.
+      tests:   18 direct call sites in 13 files, counted by grep at HEAD
+               2026-08-14 and enumerated in TASK-046. UNLIKE the ValidateConfig
+               change below, this one IS compiler-forced — the parameter is
+               POSITIONAL, so every unrepaired site fails to build. The hazard
+               here is not omission, it is a LAZY repair: handing in
+               `artifact.Root{}` compiles and yields a RELATIVE "specs" from
+               Root.Dir, which reads against the test process's CWD rather
+               than the fixture. TASK-046 states the repair rule and TASK-048
+               greps for the zero-value shape.
+
+    scaffold.TargetDir(artifactType, projectRoot string)
+      → TargetDir(artifactType string, root artifact.Root)
+      callers: cmd/backstop/artifact_new.go:99
+      tests:   pkg/scaffold/filename_test.go, pkg/scaffold/source_test.go
+
+    ResolveArtifactStatus(artifactRoot string) — SIGNATURE UNCHANGED, MEANING
+      CHANGED. The parameter becomes the RESOLVED artifact root. Because the
+      signature does not move, the six existing test files that call it
+      (pkg/gate/artifact_status_test.go, artifact_status_bundle_test.go,
+      artifact_status_obsoleted_test.go, implemented_scope_test.go,
+      status_drift_plantests_test.go, cmd/backstop/status_drift_packclaims_test.go)
+      keep compiling and keep passing — they build a tree and hand in its root,
+      which IS the resolved root for an unconfigured project. Do NOT churn
+      them.
+
+    ValidateConfig GAINS `Root artifact.Root` — AND THIS IS THE ONE SIGNATURE
+      CHANGE IN THE PLAN THAT DOES NOT BREAK THE BUILD. Every call site is a
+      KEYED struct literal, so adding a field COMPILES SILENTLY and hands in a
+      zero-value artifact.Root{Path: ""}. That root resolves nothing, discovery
+      returns zero artifacts, and the run hits the
+      `return ValidateResult{Pass: true}` early return at
+      artifact_validate.go:129 — the exact false green this spec is named
+      after, silently reintroduced in this repo's OWN suite. Tests asserting a
+      SPECIFIC violation go visibly red and are caught. Tests shaped like
+      `for _, v := range result.Violations { t.Errorf(…) }` go VACUOUSLY GREEN
+      over an empty loop, and nothing reports it.
+
+      35 literals exist at HEAD, counted by grep on 2026-08-14:
+        cmd/backstop/artifact_validate_test.go             17   (test)
+        cmd/backstop/artifact_validate_output_test.go      10   (test)
+        cmd/backstop/artifact_validate_resolution_test.go   4   (test)
+        cmd/backstop/artifact_validate_edge_test.go         2   (test)
+        cmd/backstop/artifact_validate.go:318               1   (production)
+        cmd/backstop/gate.go:1573                           1   (production)
+
+      ALL 33 TEST LITERALS ARE REPAIRED IN TASK-027, which scopes those four
+      files for exactly that, and TASK-028 greps for a survivor. THE
+      COMPILE-BREAK TRIPWIRE IN THE RETIREMENT SECTION BELOW CANNOT SEE THIS —
+      these files compile either way — which is precisely why the repair is
+      MANDATED HERE instead of left to be noticed during implementation.
+
+    computeCohortID — DELETED. See the retirement section above.
+
+  ─────────────────────────────────────────────────────────────────────────
+  FIVE TRAPS THE SPEC'S SHARP EDGES NAME, RESTATED AS PLAN LAW
+  ─────────────────────────────────────────────────────────────────────────
+  A. THE SURFACING PREDICATE IS PER KIND, NOT ROOT CONTAINMENT (Sharp Edge 2).
+     A file deviates when it is not DIRECTLY in Root.Dir(kind). A containment
+     test passes every other test in the CLM-057..063 family and fails only
+     CLM-058, which is the motivating case (backstop-runtime puts
+     .backstop/bundles/ in a repo that configures no root, so those files are
+     INSIDE the default root). If CLM-058 is the only red, the predicate is
+     the bug.
+
+  B. THE EXCLUSION SET IS ENUMERATED, NOT INHERITED (REQ-008, Sharp Edge 12).
+     FindUngatedArtifacts excludes .git, vendor, node_modules, testdata,
+     prototype and .backstop/packs — and WALKS .backstop itself. It must NOT
+     be expressed as "whatever discovery skips": discovery skips .backstop
+     wholesale except when .backstop IS the root, and inheriting that by
+     reference makes the clause report NOTHING in the unconfigured case, which
+     is the case it exists for. This was a real review defect; do not regress
+     it. The five common names live in ONE shared place (TASK-005) and each
+     caller adds its own .backstop rule on top — one list, two rules, never
+     two hand-typed copies.
+
+  C. PATHS ARE ABSOLUTE BY CONTRACT (Sharp Edge 10). ResolveRoot absolutizes
+     projectRoot; FindUngatedArtifacts absolutizes its own projectRoot on
+     entry. runGate passes the literal "." whenever DiscoverConfigPath fails
+     (gate.go:77), and a relative root compared against an absolute walk path
+     yields either zero findings or one per artifact — both of which look like
+     a working implementation.
+
+  D. AN EXISTING-BUT-EMPTY ROOT IS A PASS (Sharp Edge 5). The refusal is
+     scoped strictly to "I found something I cannot prove I can validate."
+     Tightening "empty is suspicious" into "empty is a failure" breaks the
+     init seed's acceptance bar before it is written. Absent-and-configured
+     fails; existing-and-empty passes; both are tested in the same file.
+     "PASSES" HERE MEANS ROOT RESOLUTION AND artifact_validation, NOT the
+     aggregate verdict — CLM-056 was narrowed to exactly that in spec v1.2.2,
+     and TASK-036 says how to assert it.
+
+  E. LEAVE THE CAPABILITY PATTERN ALONE (Sharp Edge 11).
+     capabilities/CAP-001-pack-gate-enforcement/capability.yml is nested a
+     level deeper than the layout expects AND is named `capability.yml`, not
+     `CAP-001-….capability.yml`. It escapes ClassifyFilename's `.capability.yml`
+     suffix test today and must keep escaping it. "Improving" the pattern to
+     also match the bare name turns this repo's own gate red on a file nobody
+     asked you to touch.
+
+  ─────────────────────────────────────────────────────────────────────────
+  WHAT THIS PLAN DELIBERATELY DOES NOT DO
+  ─────────────────────────────────────────────────────────────────────────
+  - No capability-comparison or version-ORDERING mechanism anywhere. That is
+    BUNDLE-020's and its OQ-2/OQ-3 are open (spec Review Question 9). Bundle
+    REQ-022 is in this seed and is deliberately NOT pinned by SPEC-068.
+  - No .goreleaser.yml edit (Sharp Edge 8). REQ-005 is satisfied from
+    debug.BuildInfo VCS settings; injected commit/date are honored IF a
+    release path ever supplies them.
+  - No fix for the baked `vendor`/`node_modules` nouns in the discovery skip
+    list (Sharp Edge 12). It is a real zero-baked-language defect with its own
+    issue; putting it on this seed's critical path is what this plan refuses.
+  - REVERSED 2026-08-14 — THE FIFTH ROOT HARDCODING IS NOW IN SCOPE, and this
+    entry stays only so the reversal is legible. cmd/backstop/gate.go:652
+    (`specDir := filepath.Join(projectRoot, "specs")`) feeds FOUR gate
+    dimensions (test_verification :706, test_substantiveness :710, coverage
+    :718, contracts :721). An earlier revision of this plan DEFERRED it on the
+    correct ground that REQ-007 enumerated four consumers, no claim covered it
+    and no mandated test named it. SPEC-068 v1.2.1 removed that ground: REQ-007
+    now enumerates FIVE consumers, CLM-069 covers it, and
+    TestBuildGateSteps_SpecDirectoryConsumersReadResolvedArtifactRoot names it.
+    It is BUILT in phase-7b. The deferral reasoning was never "this is small,
+    skip it" — it was "this is unowned"; ownership arrived, so the work does.
+  - No edit to BUNDLE-003 (its REQ-022 ownership note is a bundle-agent job)
+    and no edit to SPEC-005 (its stale path-derived-cohort prose needs an
+    alignment pass through the artifact agents). Both are RECORDED, not fixed.
+  - No edit to SPEC-068 ITSELF, including the contradiction its own
+    Implementation step 2 carries about RootMissingError vs RootInvalidError.
+    THE PLAN FOLLOWS THE CONTRACT NOTE, NOT THE PROSE (see TASK-004/TASK-005
+    on CLM-035), and the prose correction is an artifact-agent job RECORDED in
+    TASK-044.
+  - No baseline-artifact schema change (BUNDLE-007 / DD-10 own it).
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Fixtures (setup only — no production code, no verification)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Cohort fixture filesystems and layout-profile fixture projects (setup only)"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Author the cohort fixture schema trees: in-place revision, set addition, set removal, base-schema revision"
+        description: |
+          Create pkg/schema/testdata/cohort/ — four sibling schema TREES that
+          ComputeCohort can be pointed at through an fs.FS (os.DirFS), so the
+          in-place-revision claims are provable WITHOUT editing the real
+          embedded schemas.
+
+          Trees to author, each mirroring the real `artifacts/<type>/v<N>/schema.json`
+          shape (plus `artifacts/base/schema.json`):
+
+            baseline/   — two extension schemas (a spec/v1-shaped and a
+                          bundle/v2-shaped file) plus a base schema. Each
+                          extension pins "schema_version": {"const": "<type>/v<N>"}
+                          and declares `extends` so LoadArtifactSchema's merge
+                          path is exercised.
+            revised/    — BYTE-IDENTICAL PATH SET to baseline/, with the
+                          bundle/v2 extension schema's CONTENT changed in place
+                          (add a required metadata key, exactly the shape
+                          BUNDLE-014's revision had). Its schema_version const
+                          is UNCHANGED. This pair is the whole point: same
+                          paths, different bytes.
+            added/      — baseline/ plus one additional extension schema.
+            base-revised/ — baseline/ with ONLY artifacts/base/schema.json
+                          changed. This is CLM-017's fixture: the extension
+                          schema is untouched, so an identity that covers only
+                          the extension will NOT change and the claim fails.
+
+          The set-REMOVAL case (CLM-003's second test) is derived from
+          baseline/ by pointing ComputeCohort at a sub-FS or by omitting one
+          file at test time — no separate tree is needed, and authoring one
+          would invite it to drift from baseline/.
+
+          These are DATA. No Go source is added by this task.
+        files:
+          - pkg/schema/testdata/cohort/baseline/artifacts/base/schema.json
+          - pkg/schema/testdata/cohort/baseline/artifacts/spec/v1/schema.json
+          - pkg/schema/testdata/cohort/baseline/artifacts/bundle/v2/schema.json
+          - pkg/schema/testdata/cohort/revised/artifacts/bundle/v2/schema.json
+          - pkg/schema/testdata/cohort/added/artifacts/adr/v1/schema.json
+          - pkg/schema/testdata/cohort/base-revised/artifacts/base/schema.json
+        claims:
+          - CLM-001
+          - CLM-003
+          - CLM-017
+        depends_on: []
+
+      - id: TASK-002
+        type: setup
+        title: "Author the layout-profile fixture projects: repo-root, .backstop-rooted, absent root, empty root, and the backstop-runtime shape"
+        description: |
+          Create cmd/backstop/testdata/layout-profiles/ — five fixture PROJECTS
+          that carry the whole REQ-007/REQ-008 matrix. Tests copy a fixture to
+          a t.TempDir() before running against it, so no test mutates the
+          fixture in place.
+
+            repo-root/
+              backstop.yml with NO artifact_root. specs/, bundles/, plans/
+              at the project root. This is backstop-core's own OQ-1 framework
+              exception, and it is CLM-051's control.
+
+            dotbackstop-root/
+              backstop.yml declaring `artifact_root: .backstop`. Its artifact
+              content under .backstop/specs/, .backstop/bundles/,
+              .backstop/plans/ must be BYTE-IDENTICAL to repo-root/'s — that
+              byte-identity is what makes CLM-052's "discovers an equivalent
+              corpus" an equality assertion rather than a vibe. It ALSO carries
+              .backstop/packs/test-org/sample-pack/specs/SPEC-999-installed-pack.spec.md,
+              an artifact-shaped file inside an installed pack tree, which
+              CLM-046 requires be neither discovered nor surfaced.
+
+            configured-absent-root/
+              backstop.yml declaring `artifact_root: .backstop` with NO
+              .backstop directory on disk. CLM-055's loud failure.
+
+            configured-empty-root/
+              backstop.yml declaring `artifact_root: .backstop` with
+              .backstop/ PRESENT, and .backstop/specs/ PRESENT AND EMPTY.
+              Both directories carry a .gitkeep — git cannot track an empty
+              directory. CLM-056's legitimate pass. D above: this and
+              configured-absent-root are a PAIR and their tests live in one
+              file or the distinction drifts.
+
+              THE EXISTING-BUT-EMPTY specs/ IS THE POINT, NOT INCIDENTAL. An
+              ABSENT .backstop/specs/ is not a state `backstop init` can
+              produce — REQ-007 says in those words that SPEC-069's profile
+              "creates the directory it configures" — so a fixture without it
+              models an unreachable shape. It also matters to CLM-069: with
+              specDir resolved to the artifact root's spec directory, the four
+              spec-reading dimensions call gate.ExtractMandatedTests, whose
+              os.ReadDir SUCCEEDS on an existing empty directory and ERRORS
+              loudly on an absent one (pkg/gate/step_testverify.go:113-116).
+              Modeling the existing-but-empty case is what makes this fixture
+              a real greenfield init output rather than a hard-fail no real
+              project reaches.
+
+            unconfigured-dotbackstop-bundles/
+              THE BACKSTOP-RUNTIME SHAPE, and the reason the surfacing
+              predicate is per kind. backstop.yml with NO artifact_root, and a
+              bundle at .backstop/bundles/BUNDLE-001-sample.bundle.md. The file
+              is INSIDE the default (project) root, so a root-containment test
+              reports nothing here — CLM-058 and CLM-065 both key on it.
+
+          Every artifact file must be minimally SCHEMA-VALID for its type, or
+          the equivalence assertions will compare two piles of violations
+          rather than two corpora.
+
+          THE SAMPLE SPEC IS PINNED `status: implemented` AND CARRIES AT LEAST
+          ONE CLAIM WITH A MANDATED TEST NAME — on BOTH sides of the matched
+          pair (repo-root/specs/SPEC-001-sample.spec.md AND
+          dotbackstop-root/.backstop/specs/SPEC-001-sample.spec.md, byte-identical
+          per CLM-052). THIS IS LOAD-BEARING FOR CLM-069, NOT COSMETIC.
+          test_verification applies an implemented-only scope BEFORE its
+          capability guard — filterDueMandatedTests / contractsAreDue
+          (pkg/gate/step_testverify.go:190-212) keeps a mandated test only when
+          its spec's status is exactly "implemented". A `draft` sample spec
+          yields ZERO mandated tests, the step takes the len==0 early return
+          (step_testverify.go:355-361) and reports a clean "pass" with zero
+          violations — BYTE-IDENTICAL to what it reports after reading an EMPTY
+          spec directory. TASK-045's positive arm cannot distinguish "read the
+          resolved root" from "read nothing" against a draft fixture, which is
+          precisely the vacuity this spec is named after.
+          Use a mandated test name that exists NOWHERE in this repository (e.g.
+          TestLayoutProfileSampleMandatedNeverExists) so no accidental match in
+          backstop-core's own tree can make the fixture's signal ambiguous.
+
+          THREE KNOCK-ONS OF `implemented`, ALL CHECKED 2026-08-14, NONE
+          BLOCKING, AND ALL THREE ARE INSTRUCTIONS TO WHOEVER WRITES TESTS OVER
+          THESE FIXTURES:
+            1. artifact_validation is UNAFFECTED. `implementation` and
+               `verification` nested blocks are required of EVERY spec by
+               artifacts/spec/v1/schema.json regardless of status, so
+               `implemented` adds no new required frontmatter key — the fixture
+               needed those blocks to be schema-valid as a draft too.
+            2. artifact_status_drift WILL REPORT A VIOLATION over both fixtures,
+               and that is EXPECTED. An implemented spec classifies
+               ClassSuccessTerminal (pkg/gate/artifact_status.go:95-98) and
+               computeDriftSurfaces (cmd/backstop/gate.go:946-959) checks its
+               mandated name for EXISTENCE with NO capability guard — unlike
+               test_verification, it does not short-circuit on a pack-less
+               project — so a fixture with no packs and no test files reports the
+               name as a broken promise. NO TEST OVER THESE FIXTURES MAY ASSERT
+               AN AGGREGATE result.Pass(). Assert per-dimension, which TASK-036
+               (CLM-056) and TASK-045 already do for their own reasons. If a
+               test needs an aggregate green over a fixture, that is a signal the
+               assertion is wrong, not that this pin is.
+            3. requirement_traceability keys coverage on implemented specs
+               (SupportsCoverage, pkg/gate/requirement_traceability.go:20-22), so
+               leave the sample spec's `supports` refs EMPTY and leave the paired
+               sample BUNDLE at a non-delivered status. An implemented spec with
+               no supports refs closes no bundle REQ and is inert to that
+               dimension; giving it refs would make these layout fixtures a
+               traceability fixture too, by accident.
+
+          THE MATCHED PAIR IS ENUMERATED IN files: BELOW, AND THAT IS THE
+          POINT. CLM-052 is an EQUALITY assertion — "a .backstop/-rooted
+          project discovers the same corpus a byte-identical repo-root project
+          does" — and an equality is only as real as the two sides being
+          genuinely byte-identical. Three kinds appear on each side (spec,
+          bundle, plan) so the comparison spans more than one layout entry;
+          the two sides carry the SAME filenames under the SAME type directory
+          names, differing ONLY in the `.backstop/` prefix. Author each pair by
+          COPYING the repo-root file to its dotbackstop-root counterpart, not
+          by retyping it: a stray whitespace difference makes the equality test
+          pass or fail for a reason that has nothing to do with layout
+          resolution, and it is invisible in review.
+
+          This task's file count is high for a task, and deliberately so —
+          every entry is inert DATA and the narrow-scope heuristic is about
+          blast radius in code. Leaving the corpus files undeclared to keep the
+          list short would hide the very files the claims compare.
+
+          These are DATA. No Go source is added by this task.
+        files:
+          - cmd/backstop/testdata/layout-profiles/repo-root/backstop.yml
+          - cmd/backstop/testdata/layout-profiles/repo-root/specs/SPEC-001-sample.spec.md
+          - cmd/backstop/testdata/layout-profiles/repo-root/bundles/BUNDLE-001-sample.bundle.md
+          - cmd/backstop/testdata/layout-profiles/repo-root/plans/PLAN-SPEC-001-sample.plan.yml
+          - cmd/backstop/testdata/layout-profiles/dotbackstop-root/backstop.yml
+          - cmd/backstop/testdata/layout-profiles/dotbackstop-root/.backstop/specs/SPEC-001-sample.spec.md
+          - cmd/backstop/testdata/layout-profiles/dotbackstop-root/.backstop/bundles/BUNDLE-001-sample.bundle.md
+          - cmd/backstop/testdata/layout-profiles/dotbackstop-root/.backstop/plans/PLAN-SPEC-001-sample.plan.yml
+          - cmd/backstop/testdata/layout-profiles/dotbackstop-root/.backstop/packs/test-org/sample-pack/specs/SPEC-999-installed-pack.spec.md
+          - cmd/backstop/testdata/layout-profiles/configured-absent-root/backstop.yml
+          - cmd/backstop/testdata/layout-profiles/configured-empty-root/backstop.yml
+          - cmd/backstop/testdata/layout-profiles/configured-empty-root/.backstop/.gitkeep
+          - cmd/backstop/testdata/layout-profiles/configured-empty-root/.backstop/specs/.gitkeep
+          - cmd/backstop/testdata/layout-profiles/unconfigured-dotbackstop-bundles/backstop.yml
+          - cmd/backstop/testdata/layout-profiles/unconfigured-dotbackstop-bundles/.backstop/bundles/BUNDLE-001-sample.bundle.md
+        claims:
+          - CLM-045
+          - CLM-046
+          - CLM-051
+          - CLM-052
+          - CLM-055
+          - CLM-056
+          - CLM-065
+          - CLM-069
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: The layout authority and the root resolver (REQ-006)
+  # Parallel-eligible with phases 1, 3 and 4 — file sets are disjoint.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: pkg/artifact — the one layout table and the one root resolver"
+    tasks:
+      - id: TASK-003
+        type: test
+        title: "RED: the layout table covers all seven kinds and classification is exclusive"
+        description: |
+          Write pkg/artifact/layout_test.go against the contract in SPEC-068:
+
+            func LayoutFor(kind Kind) (KindLayout, bool)
+            type KindLayout struct { Directory string; Extension string }
+            func Kinds() []Kind
+            func ClassifyFilename(name string) (Kind, bool)
+
+          TestLayout_EverySevenKindsResolveDirectoryAndExtension (CLM-038)
+            Drive the assertion from Kinds() — range over it, require a
+            non-empty Directory and Extension for every element, and require
+            len(Kinds()) == 7 with the exact set {spec, plan, adr, bundle,
+            issue, directive, capability}. Ranging over a hand-written list
+            instead tests the list, not the table, which is what the contract
+            note on Kinds() says the claim exists to prevent.
+
+          TestLayout_FilenameClassificationIsExclusiveAndRejectsNonArtifacts
+          (CLM-039)
+            For each kind, a well-formed filename classifies to exactly that
+            kind. Then assert EXCLUSIVITY structurally: for every filename in
+            the table of cases, exactly one Kind may claim it — iterate all
+            kinds, count matches, require 1. And assert ok=false for
+            non-artifact names: "README.md", "backstop.yml", "schema.json",
+            and — trap E — the bare "capability.yml", which must NOT classify
+            as a capability. LayoutFor on an unrecognized kind returns
+            ok=false, never a zero-value KindLayout (a zero Directory would
+            silently resolve to the root itself).
+
+          These tests MUST FAIL TO COMPILE at first: pkg/artifact has no
+          layout.go yet. That compile failure is this task's red.
+        files:
+          - pkg/artifact/layout_test.go
+        claims:
+          - CLM-038
+          - CLM-039
+        test_names:
+          - TestLayout_EverySevenKindsResolveDirectoryAndExtension
+          - TestLayout_FilenameClassificationIsExclusiveAndRejectsNonArtifacts
+        depends_on: []
+
+      - id: TASK-004
+        type: test
+        title: "RED: ResolveRoot across every root state, including the absolute-path guarantee"
+        description: |
+          Write pkg/artifact/root_test.go against the contract:
+
+            type Root struct { Path string; Declared string; Configured bool }
+            func ResolveRoot(projectRoot, declared string) (Root, error)
+            type RootMissingError struct { Declared string; Path string }
+            type RootInvalidError struct { Declared string; Reason string }
+            func (r Root) Dir(kind Kind) string
+
+          One test per root state, all built on t.TempDir():
+
+            TestResolveRoot_AbsentDeclarationResolvesToProjectRootUnconfigured
+              (CLM-031) declared=="" → Path == project root, Configured==false,
+              no error. This is the framework exception; it must not error.
+            TestResolveRoot_ConfiguredExistingDirectoryResolvesConfigured
+              (CLM-032) declared==".backstop" on an existing dir → Path is the
+              joined dir, Configured==true.
+            TestResolveRoot_ConfiguredAbsentRootReturnsTypedErrorNotFallback
+              (CLM-033) → errors.As a *RootMissingError, AND assert the
+              returned Root is NOT the project root. The fallback is the bug
+              this claim exists to forbid, so asserting only "err != nil"
+              leaves it undetected.
+            TestResolveRoot_ConfiguredEmptyDirectoryResolves (CLM-034) →
+              resolves cleanly. Pairs with CLM-033 above (trap D).
+            TestResolveRoot_ConfiguredRootThatIsAFileReturnsTypedError
+              (CLM-035) → errors.As a *RootInvalidError, and assert its Reason
+              field is populated and names not-a-directory. THIS IS
+              *RootInvalidError, NOT *RootMissingError, and the distinction is
+              load-bearing across plans. The spec's contract note on
+              RootInvalidError says so verbatim — "Covers absolute, escaping,
+              and not-a-directory declarations (CLM-035/036/037)" — and
+              RootMissingError carries no Reason field, so routing
+              not-a-directory there would leave the actual reason unnameable.
+              PLAN-SPEC-070 (doctor) branches on exactly these two types:
+              *RootMissingError → FAIL naming the DECLARED value,
+              *RootInvalidError → FAIL naming the REASON. Under the wrong type
+              a not-a-directory artifact_root would report to an operator as
+              "missing" and doctor could not say why. Assert the type with
+              errors.As and assert the Reason is non-empty, so a later
+              "simplification" back to RootMissingError goes red here.
+            TestResolveRoot_AbsoluteDeclaredRootRejected (CLM-036) and
+            TestResolveRoot_EscapingDeclaredRootRejected (CLM-037) →
+              errors.As a *RootInvalidError, each with its own Reason. Escaping
+              cases: "../outside" and "sub/../../outside". These three claims —
+              035, 036, 037 — are ONE error type with three Reasons, which is
+              what the contract note means.
+            TestResolveRoot_RelativeProjectRootResolvesToAbsolutePath (CLM-066)
+              → hand in "." (and a relative "./fixtures/x") and require
+              filepath.IsAbs(root.Path) and root.Path == filepath.Clean(abs).
+              Then require filepath.IsAbs(root.Dir(KindSpec)) too — the whole
+              point of the guarantee is that no consumer receives a relative
+              directory. This is the caller shape gate.go:77 produces.
+
+          NOTE THE DELIBERATE ASYMMETRY the contract records: the DECLARED
+          value is project-relative by rule (absolute is rejected) while the
+          RESOLVED Path is absolute by guarantee. Two different strings; a test
+          that conflates them will look like a contradiction.
+
+          Compile failure is this task's red.
+        files:
+          - pkg/artifact/root_test.go
+        claims:
+          - CLM-031
+          - CLM-032
+          - CLM-033
+          - CLM-034
+          - CLM-035
+          - CLM-036
+          - CLM-037
+          - CLM-066
+        test_names:
+          - TestResolveRoot_AbsentDeclarationResolvesToProjectRootUnconfigured
+          - TestResolveRoot_ConfiguredExistingDirectoryResolvesConfigured
+          - TestResolveRoot_ConfiguredAbsentRootReturnsTypedErrorNotFallback
+          - TestResolveRoot_ConfiguredEmptyDirectoryResolves
+          - TestResolveRoot_ConfiguredRootThatIsAFileReturnsTypedError
+          - TestResolveRoot_AbsoluteDeclaredRootRejected
+          - TestResolveRoot_EscapingDeclaredRootRejected
+          - TestResolveRoot_RelativeProjectRootResolvesToAbsolutePath
+        depends_on: []
+
+      - id: TASK-005
+        type: implementation
+        title: "GREEN: pkg/artifact/layout.go — Kind, LayoutFor, Kinds, ClassifyFilename, Root, ResolveRoot, the two typed errors, Dir"
+        description: |
+          Create pkg/artifact/layout.go with the full SPEC-068 contract surface.
+          ONE file, as the spec's implementation steps 1 and 2 specify.
+
+          THE IMPORT SET IS LOAD-BEARING. pkg/artifact imports only stdlib and
+          gopkg.in/yaml.v3 today, and that is exactly why every consumer —
+          pkg/gate, pkg/validate, pkg/scaffold, pkg/config, cmd/backstop — can
+          import it with no cycle. layout.go must add nothing beyond
+          path/filepath, os and strings. In particular it must NOT import
+          pkg/config: ResolveRoot takes the declared STRING, not a *Config, and
+          that is the decision that keeps the package importable everywhere.
+
+          The layout table (Directory, Extension) per kind, matching what the
+          codebase already recognizes in the three places this replaces:
+            spec→specs/.spec.md, plan→plans/.plan.yml, adr→adrs/.adr.md,
+            bundle→bundles/.bundle.md, issue→issues/.issue.md,
+            directive→directives/.directive.md,
+            capability→capabilities/.capability.yml
+          Directory is the bare NAME, never a path — joining it to a root is
+          Dir's job, which is what keeps the root in exactly one place.
+
+          ClassifyFilename subsumes cmd/backstop's artifactPatterns map
+          (artifact_discover.go:18-26) INCLUDING its adr special case (ADR-
+          prefix AND .adr.md suffix). Preserve it exactly; trap E depends on
+          the capability suffix test staying `.capability.yml`.
+
+          ResolveRoot: filepath.Abs the projectRoot FIRST, then Clean, so
+          Root.Path is absolute and cleaned for every caller (trap C). Empty
+          declared → {Path: absProjectRoot, Declared: "", Configured: false},
+          nil error. Non-empty declared → reject absolute and reject escaping
+          (compare the cleaned join against the cleaned project root with
+          filepath.Rel, not with string prefixes — a "..\" segment and a
+          sibling directory sharing a name prefix are different failures and a
+          prefix test conflates them) with *RootInvalidError; otherwise
+          {Path: joined, Declared: declared, Configured: true}.
+
+          THE TWO ERROR TYPES SPLIT ON *WHY*, NOT ON WHERE THE CHECK LIVES, and
+          the split is the spec's, verbatim on the RootInvalidError contract
+          note: "Covers absolute, escaping, and not-a-directory declarations
+          (CLM-035/036/037)." So, after os.Stat on the joined path:
+
+            - ABSENT from disk        → *RootMissingError{Declared, Path}
+                                        (CLM-033)
+            - EXISTS BUT IS NOT A DIR → *RootInvalidError{Declared,
+                                        Reason: "not a directory"} (CLM-035)
+
+          RootMissingError has NO Reason field, so putting not-a-directory
+          there makes the actual reason unnameable by any caller. This is not
+          an internal tidiness point: PLAN-SPEC-070's doctor branches on these
+          two types with errors.As — *RootMissingError → FAIL naming the
+          declared value, *RootInvalidError → FAIL naming the reason — so a
+          not-a-directory artifact_root routed to RootMissingError would be
+          reported to an operator as "missing" with no reason available. Every
+          *RootInvalidError this function returns carries a populated,
+          human-readable Reason (absolute / escaping / not a directory); a
+          bare-Reason RootInvalidError is a defect even though it compiles.
+
+          ALSO ADD, in this file, the SHARED NON-CORPUS DIRECTORY NAME LIST
+          (trap B / Sharp Edge 12): one exported deterministic accessor
+          returning the five common names — .git, vendor, node_modules,
+          testdata, prototype. It has ONE home because both CLI discovery
+          (TASK-027) and the ungated scan (TASK-040) need it and their two
+          rules differ only in how each treats .backstop. Two hand-typed copies
+          can drift, and a drift makes the set of files the gate picks up and
+          the set it reports leaving out disagree — the precise property the
+          shared ClassifyFilename predicate exists to guarantee. Do NOT put a
+          .backstop entry in the shared list; each caller adds its own rule.
+
+          SPEC/PLAN SURFACE MISMATCH, DELIBERATELY FLAGGED RATHER THAN DODGED.
+          This accessor is an ELEVENTH exported symbol in pkg/artifact/layout.go
+          and SPEC-068's contract block for that file declares only ten (Kind,
+          LayoutFor, KindLayout, Kinds, ClassifyFilename, Root, ResolveRoot,
+          RootMissingError, RootInvalidError, Dir). The contracts gate checks
+          declared-present and declared-absent, not undeclared-extra, so this
+          will not turn a dimension red — which is exactly why it has to be
+          written down instead of noticed later.
+
+          IT MUST BE EXPORTED; unexporting it is not an available way out. The
+          two callers live in DIFFERENT PACKAGES — cmd/backstop (TASK-027) and
+          pkg/gate (TASK-040) — so an unexported name cannot reach both, and
+          the only alternatives are the two hand-typed copies trap B forbids.
+          Sharp Edge 12 demands one list; one list across two packages is an
+          exported symbol.
+
+          THEREFORE: a COMPANION SPEC EDIT IS REQUIRED — add this accessor to
+          SPEC-068's contract block for pkg/artifact/layout.go, through the
+          artifact agents, never by hand. TASK-044 reports it to the founder
+          alongside Review Question 13 and Sharp Edge 7. It matters beyond
+          bookkeeping because SPEC-069 and SPEC-070 read SPEC-068's contract
+          block as the list of what pkg/artifact offers them, and a symbol
+          absent from that list reads as a symbol they may not depend on.
+        files:
+          - pkg/artifact/layout.go
+        claims:
+          - CLM-031
+          - CLM-032
+          - CLM-033
+          - CLM-034
+          - CLM-035
+          - CLM-036
+          - CLM-037
+          - CLM-038
+          - CLM-039
+          - CLM-066
+        depends_on:
+          - TASK-003
+          - TASK-004
+
+      - id: TASK-006
+        type: verification
+        title: "Verify pkg/artifact: the table is the only authority and Root.Path is absolute"
+        description: |
+          `backstop code check` DOES NOT EXIST (ISSUE-076) — do not run it.
+
+          Run, in order, reading TRUE exit codes:
+            1. go build -o bin/backstop ./cmd/backstop
+            2. go test ./pkg/artifact/... -race -count=1
+            3. go test ./... -race -count=1
+            4. ./bin/backstop gate
+
+          Then confirm by GREP, not by inspection:
+            - `go list -deps ./pkg/artifact | grep backstop-core` shows NO
+              backstop-core package other than pkg/artifact itself. An import
+              of pkg/config here is the cycle this design exists to avoid.
+            - `grep -n "filepath.Abs" pkg/artifact/layout.go` returns a hit
+              inside ResolveRoot. Trap C rides on it and nothing else asserts
+              it at this phase.
+            - `grep -rn "capability.yml" pkg/artifact/layout.go` shows the
+              suffix form `.capability.yml` only — trap E.
+        files:
+          - pkg/artifact/layout.go
+          - pkg/artifact/layout_test.go
+          - pkg/artifact/root_test.go
+        claims:
+          - CLM-038
+          - CLM-039
+          - CLM-066
+        depends_on:
+          - TASK-005
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: artifact_root reaches the config (REQ-006)
+  # Parallel-eligible with phases 1, 2 and 4 — file sets are disjoint.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: backstop.yml gains artifact_root — typed loader AND JSON schema"
+    tasks:
+      - id: TASK-007
+        type: test
+        title: "RED: artifact_root parses through the strict loader and passes the additionalProperties:false schema"
+        description: |
+          Write pkg/config/artifact_root_test.go. THREE tests, and the middle
+          one is the whole point of the pair:
+
+            TestLoadConfig_ArtifactRootParses (CLM-040)
+              A backstop.yml declaring `artifact_root: .backstop` loads with no
+              error and Config.ArtifactRoot == ".backstop". The decoder uses
+              KnownFields (config.go:36), so an unlisted key errors here.
+
+            TestLoadConfig_ArtifactRootAcceptedByJSONSchema (CLM-041)
+              The SECOND, independent strictness pass. Load the same config
+              through the path that runs the JSON-schema validation and require
+              no violation. artifacts/backstop-yml/v1/schema.json is
+              additionalProperties:false at the top level, so adding only the
+              Go struct field passes the yaml decoder and FAILS here (spec
+              Review Question 8). If this test can be made green by editing
+              only config.go, it is not testing the schema pass — find the code
+              path that applies the JSON schema and go through it.
+
+            TestLoadConfig_AbsentArtifactRootLeavesFieldEmpty (CLM-042)
+              A backstop.yml with no artifact_root leaves the field EMPTY.
+              Never a default of "." or ".backstop" — the default lives in
+              ResolveRoot's absent-declaration branch, and baking one here
+              would give the system two answers.
+        files:
+          - pkg/config/artifact_root_test.go
+        claims:
+          - CLM-040
+          - CLM-041
+          - CLM-042
+        test_names:
+          - TestLoadConfig_ArtifactRootParses
+          - TestLoadConfig_ArtifactRootAcceptedByJSONSchema
+          - TestLoadConfig_AbsentArtifactRootLeavesFieldEmpty
+        depends_on: []
+
+      - id: TASK-008
+        type: implementation
+        title: "GREEN: Config.ArtifactRoot plus the artifact_root property in the backstop.yml JSON schema"
+        description: |
+          Two edits, and BOTH are required (spec Review Question 8):
+
+          1. pkg/config/config.go — one additive field on Config:
+               ArtifactRoot string `yaml:"artifact_root,omitempty" json:"artifact_root,omitempty"`
+             It is the RAW DECLARED VALUE. No normalization, no absolutizing,
+             no default — resolution is pkg/artifact's job and duplicating any
+             part of it here gives the system a second answer.
+
+          2. artifacts/backstop-yml/v1/schema.json — an `artifact_root`
+             property under the top-level `properties` block, type string,
+             with a description saying it is a PROJECT-RELATIVE directory.
+             Do NOT add it to `required`.
+
+          Sharp Edge 9, recorded not softened: because the schema is
+          additionalProperties:false, a consumer config declaring artifact_root
+          HARD-FAILS on any binary predating this change. That is the
+          compatibility direction these guards exist to make legible.
+        files:
+          - pkg/config/config.go
+          - artifacts/backstop-yml/v1/schema.json
+        claims:
+          - CLM-040
+          - CLM-041
+          - CLM-042
+        depends_on:
+          - TASK-007
+
+      - id: TASK-009
+        type: verification
+        title: "Verify the config key: both strictness passes accept it, and this repo's own backstop.yml is unaffected"
+        description: |
+          `backstop code check` DOES NOT EXIST (ISSUE-076) — do not run it.
+
+          Run, in order, reading TRUE exit codes:
+            1. go build -o bin/backstop ./cmd/backstop
+            2. go test ./pkg/config/... -race -count=1
+            3. go test ./... -race -count=1
+            4. ./bin/backstop gate
+            5. ./bin/backstop artifact validate --all
+               This phase edits an ARTIFACT SCHEMA, so the artifact corpus must
+               be revalidated against it before the phase is called done.
+
+          Then confirm:
+            - `git diff backstop.yml` shows NOTHING. This repo declares no
+              artifact_root and must not gain one — its repo-root layout is the
+              OQ-1 framework exception and it stays unconfigured.
+            - `grep -n "artifact_root" artifacts/backstop-yml/v1/schema.json`
+              returns a hit under properties and NOT under required.
+        files:
+          - pkg/config/config.go
+          - artifacts/backstop-yml/v1/schema.json
+          - pkg/config/artifact_root_test.go
+        claims:
+          - CLM-040
+          - CLM-041
+        depends_on:
+          - TASK-008
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: The content-derived cohort (REQ-001, REQ-003 digest half)
+  # Parallel-eligible with phases 2 and 3 — file sets are disjoint.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: pkg/schema/cohort.go — the cohort becomes a function of schema BYTES"
+    tasks:
+      - id: TASK-010
+        type: test
+        title: "RED: cohort identity changes on bytes, is order-independent, and covers the base schema through extends"
+        description: |
+          Write pkg/schema/cohort_test.go against the contract:
+
+            type Cohort struct { ID string; Digests map[string]string }
+            func ComputeCohort(fsys fs.FS) (Cohort, error)
+            func (c Cohort) DigestFor(schemaVersion string) (string, bool)
+            func (c Cohort) SchemaIdentity(schemaVersion string) (string, bool)
+
+          Every test drives ComputeCohort through os.DirFS over the TASK-001
+          fixture trees — never by editing the real embedded schemas, which
+          would churn the whole corpus (spec Verification note).
+
+            TestComputeCohort_IDChangesOnInPlaceSchemaRevision (CLM-001)
+              baseline/ vs revised/. ASSERT THE PATH SETS ARE IDENTICAL FIRST
+              (walk both, compare sorted path lists) and only then assert the
+              IDs differ. Without that first assertion the test passes for a
+              path-derived implementation whose fixture happened to move a
+              file, which is the exact failure mode BUNDLE-014 produced.
+
+            TestComputeCohort_DeterministicAndOrderIndependent (CLM-002)
+              Two ComputeCohort calls over the same FS agree. Order-independence
+              is proven by folding a SORTED path:digest manifest — assert the
+              same ID from a second FS whose directory entries are presented in
+              a different order (an fstest.MapFS built from the same content
+              is the cheapest way to vary it).
+
+            TestComputeCohort_IDChangesOnSchemaSetAddition (CLM-003)
+              baseline/ vs added/.
+            TestComputeCohort_IDChangesOnSchemaSetRemoval (CLM-003)
+              baseline/ vs baseline-minus-one (built at test time).
+
+            TestComputeCohort_PerSchemaDigestForEveryEmbeddedSchema (CLM-004)
+              Every extension schema in the FS has a Digests entry keyed by the
+              `<type>/v<N>` identity artifacts declare in schema_version — NOT
+              by file path. Drive the expected key set from the fixture's
+              schema_version consts.
+
+            TestCohort_UnknownSchemaVersionReportsUncoveredNotZeroValue (CLM-005)
+              DigestFor("nope/v9") returns ok=false. Assert BOTH halves: ok is
+              false AND the returned string is empty. The forbidden shape is
+              ("", true) — an uncovered schema reading as covered-with-no-
+              content — and only asserting ok catches half of it.
+
+            TestCohort_SchemaIdentityCoversResolvedBaseSchema (CLM-017)
+              baseline/ vs base-revised/: the extension schema is untouched and
+              ONLY artifacts/base/schema.json changed, yet
+              SchemaIdentity("<type>/v<N>") must differ. LoadArtifactSchema
+              merges base into extension (pkg/schema/load.go:99-144), so an
+              identity covering the extension alone misses half of what
+              validation actually used. This is spec Review Question 5.
+
+          Compile failure is this task's red.
+        files:
+          - pkg/schema/cohort_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-017
+        test_names:
+          - TestComputeCohort_IDChangesOnInPlaceSchemaRevision
+          - TestComputeCohort_DeterministicAndOrderIndependent
+          - TestComputeCohort_IDChangesOnSchemaSetAddition
+          - TestComputeCohort_IDChangesOnSchemaSetRemoval
+          - TestComputeCohort_PerSchemaDigestForEveryEmbeddedSchema
+          - TestCohort_UnknownSchemaVersionReportsUncoveredNotZeroValue
+          - TestCohort_SchemaIdentityCoversResolvedBaseSchema
+        depends_on:
+          - TASK-001
+
+      - id: TASK-011
+        type: implementation
+        title: "GREEN: ComputeCohort folds a sorted path:digest manifest; DigestFor and SchemaIdentity read it"
+        description: |
+          Create pkg/schema/cohort.go.
+
+          ComputeCohort(fsys fs.FS): fs.WalkDir every *.json under artifacts/,
+          sha256 each file's BYTES, build a SORTED `path:digest` manifest, and
+          fold that manifest into one sha256 for Cohort.ID. Sorting is what
+          makes it deterministic and walk-order independent (CLM-002) while any
+          single byte still moves the ID (CLM-001). Adding or removing a file
+          changes the manifest and therefore the ID (CLM-003) for free — that
+          is the property, not a special case to code.
+
+          Digests is keyed by the `<type>/v<N>` identity artifacts DECLARE in
+          schema_version, not by path, so REQ-003's per-artifact record is a
+          lookup rather than a second computation. Derive the key from the
+          schema's own declared const where present; falling back to the path
+          shape is acceptable ONLY as a derivation of the same identity, never
+          as a second vocabulary.
+
+          Each per-schema digest MUST fold the extension schema AND the base
+          schema resolved through `extends` (CLM-017). If the extension
+          declares no extends, the base is not part of its identity.
+
+          DigestFor returns ok=false for an uncovered schema_version and MUST
+          NEVER return ("", true) — that shape is what would let an uncovered
+          schema read as covered-with-no-content, and REQ-002's refusal keys on
+          exactly this boolean.
+
+          SchemaIdentity renders `<schema_version>@<digest>` and returns the
+          same ok=false on uncovered.
+
+          The fs.FS parameter is not a testing convenience, it is the contract:
+          production passes backstopcore.SchemaFS, tests pass a fixture FS, and
+          that is what makes the in-place-revision claims provable at all.
+        files:
+          - pkg/schema/cohort.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-017
+        depends_on:
+          - TASK-010
+
+      - id: TASK-012
+        type: verification
+        title: "Verify the cohort: content-derived, order-independent, base-covering"
+        description: |
+          `backstop code check` DOES NOT EXIST (ISSUE-076) — do not run it.
+
+          Run, in order, reading TRUE exit codes:
+            1. go build -o bin/backstop ./cmd/backstop
+            2. go test ./pkg/schema/... -race -count=1
+            3. go test ./... -race -count=1
+            4. ./bin/backstop gate
+
+          Then confirm:
+            - `grep -n "sha256" pkg/schema/cohort.go` shows the digest is a
+              content hash, not a path join or a length count.
+            - `grep -rn "schemas\[" pkg/schema/cohort.go` returns NOTHING — the
+              old `N-schemas[…]` shape must not be reproduced here.
+            - Run TestComputeCohort_DeterministicAndOrderIndependent with
+              -count=5. A map-iteration order leak passes at -count=1 and fails
+              intermittently later, which is the worst place to find it.
+        files:
+          - pkg/schema/cohort.go
+          - pkg/schema/cohort_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-017
+        depends_on:
+          - TASK-011
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: The three consumers that need the TABLE (REQ-007)
+  # Depends on phase 2. Parallel-eligible with phases 3, 4 and 6.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: gate status resolution, typed-ref resolution and scaffolding read the shared layout"
+    tasks:
+      - id: TASK-013
+        type: test
+        title: "RED: ResolveArtifactStatus walks the RESOLVED root and takes its directory names from the shared table"
+        description: |
+          Write pkg/gate/artifact_status_root_test.go.
+
+            TestResolveArtifactStatus_WalksResolvedArtifactRoot (CLM-043)
+              Build a tree whose artifacts live under <tmp>/.backstop/specs,
+              .backstop/bundles, .backstop/issues, .backstop/directives,
+              .backstop/plans; call ResolveArtifactStatus(<tmp>/.backstop) and
+              require the records resolve. The SIGNATURE IS UNCHANGED — what
+              changed is that the argument is now the RESOLVED artifact root
+              rather than the project root. Also assert the negative:
+              ResolveArtifactStatus(<tmp>) over that same tree resolves ZERO
+              records, which is the behavior a .backstop/-rooted consumer gets
+              today and the reason this claim exists.
+
+            TestResolveArtifactStatus_TakesTypeDirectoriesFromSharedLayout
+              (CLM-044) Drive the expected directory names from
+              artifact.LayoutFor rather than from string literals, so the test
+              goes red if the production code keeps a private copy that drifts.
+              A test that hardcodes "specs" passes against both the shared table
+              and a fourth private copy, which is exactly what this claim is
+              about.
+
+          DO NOT touch the six existing ResolveArtifactStatus test files. They
+          hand in a project root that IS the resolved root for an unconfigured
+          project, so they keep compiling and keep passing; churning them would
+          destroy the regression floor for this change.
+        files:
+          - pkg/gate/artifact_status_root_test.go
+        claims:
+          - CLM-043
+          - CLM-044
+        test_names:
+          - TestResolveArtifactStatus_WalksResolvedArtifactRoot
+          - TestResolveArtifactStatus_TakesTypeDirectoriesFromSharedLayout
+        depends_on:
+          - TASK-006
+
+      - id: TASK-014
+        type: implementation
+        title: "GREEN: the five literal joins in artifact_status.go become shared-layout lookups"
+        description: |
+          Edit pkg/gate/artifact_status.go. ResolveArtifactStatus's parameter
+          is now the RESOLVED artifact root; the five literal
+          filepath.Join(projectRoot, "<dir>") calls at lines 171, 193, 211, 226
+          and 241 read their directory names from artifact.LayoutFor instead.
+          Rename the parameter to say so.
+
+          KEEP THE os.IsNotExist TOLERANCE at lines 382, 409 and 437. A missing
+          TYPE DIRECTORY under an existing root must stay a non-error — that
+          tolerance is precisely what preserves the empty-root pass (CLM-056,
+          trap D). Loud failure moves UP to the ROOT, in phase 9, where the
+          bundle's 0.10.0 correction says it belongs. An implementer who
+          "hardens" these three sites will break the init seed's acceptance bar
+          from three layers away.
+
+          The status walk stays NON-RECURSIVE (os.ReadDir, walkArtifactDir at
+          artifact_status.go:379-404). That is not an accident to fix — phase
+          10's surfacing scan is CALIBRATED against it, and making the walk
+          recursive would silently empty CLM-063's finding set.
+
+          Do not change the gate's CALL SITES here; runGate's root wiring is
+          TASK-027's, and splitting it keeps this task's blast radius inside
+          pkg/gate.
+        files:
+          - pkg/gate/artifact_status.go
+        claims:
+          - CLM-043
+          - CLM-044
+        depends_on:
+          - TASK-013
+
+      - id: TASK-015
+        type: test
+        title: "RED: typed-ref resolution reads the shared table and KEEPS its sibling anchoring"
+        description: |
+          Write pkg/validate/resolved_by_layout_test.go.
+
+            TestResolvedBy_TakesTypeDirectoriesFromSharedLayout (CLM-047)
+              For all FIVE typed-ref prefixes (BUNDLE, SPEC, ISSUE, PLAN, DIR)
+              a ref resolves to a real sibling artifact, with the expected
+              directory and extension DERIVED from artifact.LayoutFor in the
+              test rather than written as literals. Include DIR→directives
+              explicitly: it is the prefix that defeats any naive lowercase
+              coercion and it is the one most likely to be silently dropped.
+
+            TestResolvedBy_ResolvesUnderNonRootLayout (CLM-048)
+              An artifact whose SourcePath sits under <tmp>/.backstop/issues/
+              still resolves a sibling under <tmp>/.backstop/specs/. This is
+              the REGRESSION GUARD for Sharp Edge 4: typedRefArtifactExists
+              anchors on the CITING artifact's own SourcePath
+              (filepath.Join(dir, "..", typeDir), resolved_by.go:120) and
+              therefore ALREADY works under a .backstop/ layout. The bundle's
+              phrasing calls this file a root hardcoding; it is not. Feeding it
+              a configured root would BREAK this test.
+        files:
+          - pkg/validate/resolved_by_layout_test.go
+        claims:
+          - CLM-047
+          - CLM-048
+        test_names:
+          - TestResolvedBy_TakesTypeDirectoriesFromSharedLayout
+          - TestResolvedBy_ResolvesUnderNonRootLayout
+        depends_on:
+          - TASK-006
+
+      - id: TASK-016
+        type: implementation
+        title: "GREEN: resolvedByTypeDir keeps only prefix→Kind; directory and extension come from the shared table"
+        description: |
+          Edit pkg/validate/resolved_by.go. The private resolvedByTypeDir map
+          (lines 46-52) fuses THREE things in one literal: a typed-ref PREFIX
+          key, a directory, and an extension. Only the last two are layout.
+
+          After this change the local map holds prefix→artifact.Kind and NO
+          directory or extension string; typedRefArtifactExists reads both from
+          artifact.LayoutFor.
+
+          THE PREFIX MAP STAYS LOCAL, AND THAT IS THE INTENDED END STATE, not a
+          half-measure. LayoutFor is keyed by Kind and pkg/artifact deliberately
+          declares no prefix→kind function, because the five prefixes are the
+          resolved-by GRAMMAR's accepted vocabulary — they are what
+          resolvedByTypedRefRe matches — which is a validation concern, not a
+          layout fact. Do not "finish the job" by moving them.
+
+          DO NOT CHANGE THE ANCHORING. filepath.Join(dir, "..", typeDir) at
+          line 120 is sibling-relative to the citing artifact and already
+          handles the .backstop/ case (Sharp Edge 4). typedRefArtifactExists's
+          signature is unchanged.
+        files:
+          - pkg/validate/resolved_by.go
+        claims:
+          - CLM-047
+          - CLM-048
+        depends_on:
+          - TASK-015
+
+      - id: TASK-017
+        type: test
+        title: "RED: TargetDir places every kind under the resolved root"
+        description: |
+          Write pkg/scaffold/target_dir_test.go.
+
+            TestTargetDir_PlacesEveryKindUnderResolvedRoot (CLM-049)
+              Range over artifact.Kinds() — not a hand-written type list — and
+              for a Root resolved at <tmp>/.backstop require
+              TargetDir(<type>, root) == root.Dir(kind) for every one. Then
+              repeat with an UNCONFIGURED root at <tmp> and require the
+              repo-root placement is unchanged, which is the behavior
+              backstop-core itself depends on.
+
+              TargetDir's SECOND PARAMETER BECOMES artifact.Root, not a bare
+              projectRoot string, so a caller cannot accidentally hand it the
+              project root where the artifact root belongs. The compile break
+              is the point.
+        files:
+          - pkg/scaffold/target_dir_test.go
+        claims:
+          - CLM-049
+        test_names:
+          - TestTargetDir_PlacesEveryKindUnderResolvedRoot
+        depends_on:
+          - TASK-006
+
+      - id: TASK-018
+        type: test
+        title: "RED: artifact new writes into the resolved root"
+        description: |
+          Write cmd/backstop/artifact_new_root_test.go.
+
+            TestArtifactNew_WritesIntoResolvedRoot (CLM-050)
+              In a project declaring `artifact_root: .backstop`, running the
+              artifact new path produces a file under
+              <project>/.backstop/<typedir>/ and NOT under
+              <project>/<typedir>/. Assert BOTH: the file exists where expected
+              AND no file was created at the project-root location. A one-sided
+              assertion passes for an implementation that writes to both.
+
+              Then the control: in a project declaring no artifact_root, the
+              file lands at <project>/<typedir>/ exactly as it does today.
+        files:
+          - cmd/backstop/artifact_new_root_test.go
+        claims:
+          - CLM-050
+        test_names:
+          - TestArtifactNew_WritesIntoResolvedRoot
+        depends_on:
+          - TASK-006
+
+      - id: TASK-019
+        type: implementation
+        title: "GREEN: scaffold reads Directory from the shared table, TargetDir takes a Root, artifact new resolves one"
+        description: |
+          Three coordinated edits:
+
+          1. pkg/scaffold/scaffold.go — TargetDir(artifactType string, root
+             artifact.Root) string, returning root.Dir(kind). The `Directory`
+             values in ValidArtifactTypes (lines 35-89) stop being scaffold's
+             private copy and are read from artifact.LayoutFor. IDPrefix,
+             DigitCount, DefaultStatus, FileExtension and BodySections are
+             scaffold's OWN and STAY — this is a layout change, not a
+             refactor of the type config.
+
+          2. cmd/backstop/artifact_new.go:99 — resolve the artifact root once
+             from the loaded config (artifact.ResolveRoot(projectRoot,
+             cfg.ArtifactRoot)) and hand the Root to TargetDir. A resolution
+             error surfaces as a config error (exit 2); it must never fall back
+             to the project root, which is the silent-wrong-place failure
+             CLM-033 forbids one layer down.
+
+          3. pkg/scaffold/filename_test.go and pkg/scaffold/source_test.go —
+             MECHANICAL repair only. They call TargetDir with a bare string and
+             will not compile; hand them a Root resolved at the same directory.
+             Do not change what they assert. Verified 2026-08-14 these are the
+             only two test files that call it.
+        files:
+          - pkg/scaffold/scaffold.go
+          - cmd/backstop/artifact_new.go
+          - pkg/scaffold/filename_test.go
+          - pkg/scaffold/source_test.go
+        claims:
+          - CLM-049
+          - CLM-050
+        depends_on:
+          - TASK-017
+          - TASK-018
+
+      - id: TASK-020
+        type: verification
+        title: "Verify the three table consumers: no private type→directory copy survives"
+        description: |
+          `backstop code check` DOES NOT EXIST (ISSUE-076) — do not run it.
+
+          Run, in order, reading TRUE exit codes:
+            1. go build -o bin/backstop ./cmd/backstop
+            2. go test ./pkg/gate/... ./pkg/validate/... ./pkg/scaffold/... -race -count=1
+            3. go test ./... -race -count=1
+            4. ./bin/backstop gate
+
+          Then confirm the thing the unit tests cannot see — that the private
+          copies are GONE, not merely bypassed:
+            - `grep -n '"specs"\|"bundles"\|"issues"\|"directives"\|"plans"\|"adrs"\|"capabilities"' pkg/gate/artifact_status.go pkg/validate/resolved_by.go pkg/scaffold/scaffold.go`
+              returns NOTHING. A surviving literal is a fourth authority
+              waiting to drift.
+            - `grep -n "resolvedByTypeDir" pkg/validate/resolved_by.go` shows a
+              map whose value type carries NO dir or ext field.
+            - The six pre-existing ResolveArtifactStatus test files are
+              UNCHANGED: `git diff --stat pkg/gate/artifact_status_test.go
+              pkg/gate/artifact_status_bundle_test.go
+              pkg/gate/artifact_status_obsoleted_test.go
+              pkg/gate/implemented_scope_test.go
+              pkg/gate/status_drift_plantests_test.go
+              cmd/backstop/status_drift_packclaims_test.go` is empty.
+        files:
+          - pkg/gate/artifact_status.go
+          - pkg/validate/resolved_by.go
+          - pkg/scaffold/scaffold.go
+          - cmd/backstop/artifact_new.go
+        claims:
+          - CLM-043
+          - CLM-044
+          - CLM-047
+          - CLM-048
+          - CLM-049
+          - CLM-050
+        depends_on:
+          - TASK-014
+          - TASK-016
+          - TASK-019
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 6: version — build identity and the content-derived cohort (REQ-005, REQ-001)
+  # Depends on phase 4. Parallel-eligible with phases 5 and 7.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-6
+    name: "Phase 6: build identity on `version`, computeCohortID deleted"
+    tasks:
+      - id: TASK-021
+        type: test
+        title: "RED: resolveBuildIdentity across the whole matrix, with the anti-spoofing dev string preserved"
+        description: |
+          Write cmd/backstop/build_identity_test.go against the contract:
+
+            type BuildIdentity struct { Version string; Commit string; BuildDate string }
+            func resolveBuildIdentity(injectedVersion, injectedCommit, injectedDate string,
+                                      info *debug.BuildInfo, ok bool) BuildIdentity
+
+          It is a PURE FUNCTION of its arguments, mirroring the existing
+          resolveVersion (version.go:38), so the whole matrix is testable
+          without building a binary per case. Construct debug.BuildInfo values
+          directly, including Settings entries for vcs.revision, vcs.time and
+          vcs.modified.
+
+            TestResolveVersion_NonReleaseBuildStillReportsDev (CLM-026)
+              THE PRESERVATION TEST, and it is spec Review Question 3. Through
+              resolveBuildIdentity, assert .Version is bare "dev" for: a
+              "(devel)" Main.Version, a "+dirty"-bearing version, and a Go
+              pseudo-version — and that an injected release value and a real
+              released tag still win, in that precedence order. REQ-005 adds
+              fields AROUND resolveVersion; it must not alter its precedence or
+              its rejections, and resolveBuildIdentity must DELEGATE to it
+              rather than reimplement the predicate.
+
+            TestBuildIdentity_DirtyTreeMarkedOnCommitNotVersion (CLM-027)
+              vcs.modified=true → the dirty marker appears on .Commit and
+              .Version is UNCHANGED. Assert both halves; marking the version is
+              the spoofing failure this claim forbids.
+
+            TestBuildIdentity_InjectedStampTakesPrecedence (CLM-028)
+              A NON-EMPTY injected commit or date beats the recorded build
+              info. An EMPTY injected value does not — that is the whole
+              meaning of "when non-empty" and a naive assignment gets it wrong.
+
+            TestBuildIdentity_UnknownWhenNoInjectedStampAndNoVCSData (CLM-029)
+              No injected stamp and no VCS settings (the module-cache install,
+              Sharp Edge 8) → .Commit is exactly "unknown". Not "", not
+              omitted. Assert the literal.
+        files:
+          - cmd/backstop/build_identity_test.go
+        claims:
+          - CLM-026
+          - CLM-027
+          - CLM-028
+          - CLM-029
+        test_names:
+          - TestResolveVersion_NonReleaseBuildStillReportsDev
+          - TestBuildIdentity_DirtyTreeMarkedOnCommitNotVersion
+          - TestBuildIdentity_InjectedStampTakesPrecedence
+          - TestBuildIdentity_UnknownWhenNoInjectedStampAndNoVCSData
+        depends_on:
+          - TASK-012
+
+      - id: TASK-022
+        type: test
+        title: "RED: the version command reports the content-derived cohort plus commit and build date, in both renderings"
+        description: |
+          Write cmd/backstop/version_command_test.go, exercising the command
+          end to end (execute the cobra command and capture output).
+
+            TestVersionCommand_ReportsContentDerivedCohort (CLM-006)
+              The reported cohort is schema.ComputeCohort(SchemaFS).ID. Assert
+              POSITIVELY that the output contains that computed value, and
+              NEGATIVELY that it does not contain the old path-derived shape —
+              `-schemas[` must not appear. A presence-only assertion passes
+              while a legacy string survives alongside (spec Review Question 4).
+
+            TestVersionCommand_ReportsBuildCommitAndBuildDate (CLM-025)
+              The human rendering carries a commit and a build date for a
+              locally built binary.
+
+            TestVersionCommand_JSONCarriesBuildIdentity (CLM-030)
+              --json carries commit and build date ALONGSIDE the existing
+              version and schema_cohort keys. Assert the pre-existing keys are
+              still present — these are additive fields, and dropping one is a
+              silent break of SPEC-005's CLM-023.
+
+          DO NOT modify TestCLI_Version_HumanOutput (root_test.go:132) or
+          TestCLI_Version_JSONOutput (:148). They are SPEC-005's and they are
+          the regression floor for this rewrite: they assert loose content and
+          field PRESENCE only, never the cohort string's shape, so they must
+          keep passing untouched.
+        files:
+          - cmd/backstop/version_command_test.go
+        claims:
+          - CLM-006
+          - CLM-025
+          - CLM-030
+        test_names:
+          - TestVersionCommand_ReportsContentDerivedCohort
+          - TestVersionCommand_ReportsBuildCommitAndBuildDate
+          - TestVersionCommand_JSONCarriesBuildIdentity
+        depends_on:
+          - TASK-012
+
+      - id: TASK-023
+        type: implementation
+        title: "GREEN: BuildIdentity and resolveBuildIdentity in cmd/backstop/version.go"
+        description: |
+          Add BuildIdentity and resolveBuildIdentity to cmd/backstop/version.go,
+          plus the link-time injected commit/date package vars alongside the
+          existing `version` var.
+
+          resolveVersion, isReleasedModuleVersion, pseudoVersionSuffix and
+          releasedVersion are UNCHANGED. resolveBuildIdentity DELEGATES the
+          version string to resolveVersion — the anti-spoofing behavior is
+          REUSED, never reimplemented. If you find yourself copying the "+"
+          check or the pseudo-version regex, stop: that is the duplication
+          CLM-026 exists to prevent.
+
+          Commit and date come from info.Settings vcs.revision and vcs.time,
+          with vcs.modified appended to the COMMIT as a dirty marker. A
+          non-empty injected value takes precedence per field, independently —
+          an injected commit with no injected date must not blank the date.
+          When neither source supplies a commit, .Commit is the literal
+          "unknown".
+
+          Add an effective-build-identity accessor (the debug.ReadBuildInfo
+          caller) mirroring the existing effectiveVersion, so the command and
+          the result surfaces in phases 8 and 9 read ONE resolved value and
+          cannot report different versions than `backstop version` does
+          (CLM-024).
+
+          .goreleaser.yml is NOT this plan's file (Sharp Edge 8). Do not edit
+          it, and do not make the implementation depend on ldflags it does not
+          currently inject.
+        files:
+          - cmd/backstop/version.go
+        claims:
+          - CLM-026
+          - CLM-027
+          - CLM-028
+          - CLM-029
+        depends_on:
+          - TASK-021
+
+      - id: TASK-024
+        type: implementation
+        title: "GREEN: delete computeCohortID, rewrite versionCmd on the cohort and the build identity, retire the two orphaned tests"
+        description: |
+          Edit cmd/backstop/root.go:
+
+          1. DELETE computeCohortID (lines 205-219) entirely. No legacy cohort
+             string survives ANYWHERE — a second one would make the guard
+             optional (spec Review Question 4).
+
+          2. Rewrite versionCmd's RunE (lines 101-129): stop calling
+             ListSchemas/computeCohortID, read schema.ComputeCohort(SchemaFS).ID,
+             and render the build identity's commit and build date alongside the
+             version in BOTH branches.
+
+             PRESERVE THE RESOLVE-ONCE-SHARE-BOTH SHAPE at root.go:107. That
+             single `reportedVersion` shared between the JSON and text branches
+             is why the two renderings cannot drift, and it is the pattern
+             every other output surface in this plan is told to mirror. Extend
+             it — resolve the cohort and the build identity once, above the
+             branch — do not add a second resolution inside either arm.
+
+          3. Edit cmd/backstop/root_test.go to RETIRE exactly two tests:
+             TestCLI_ComputeCohortID_Empty (line 323) and
+             TestCLI_ComputeCohortID_NonEmpty (line 329). This retirement is
+             SANCTIONED HERE, in the plan, and nowhere else. They call the
+             deleted function directly and assert its literal path-derived
+             output; verified 2026-08-14, nothing in specs/ mandates either
+             name, so they are unowned tests whose premise disappears with
+             their subject. Delete them outright — do not rewrite them against
+             the new cohort, which would silently re-anchor SPEC-005-era
+             assertions onto a contract they were not written for.
+
+             EVERY OTHER TEST IN root_test.go IS UNTOUCHED. If a third test
+             fails to compile, STOP AND REPORT rather than editing it.
+        files:
+          - cmd/backstop/root.go
+          - cmd/backstop/root_test.go
+        claims:
+          - CLM-006
+          - CLM-025
+          - CLM-030
+        depends_on:
+          - TASK-022
+          - TASK-023
+
+      - id: TASK-025
+        type: verification
+        title: "Verify version: no legacy cohort survives, bare dev preserved, SPEC-005's floor still green"
+        description: |
+          `backstop code check` DOES NOT EXIST (ISSUE-076) — do not run it.
+
+          Run, in order, reading TRUE exit codes:
+            1. go build -o bin/backstop ./cmd/backstop
+            2. go test ./cmd/backstop/... -race -count=1
+            3. go test ./... -race -count=1
+            4. ./bin/backstop gate
+
+          Then confirm:
+            - `grep -rn "computeCohortID" --include='*.go' .` returns NOTHING.
+              This is spec Review Question 4 and a surviving call site anywhere
+              means the guard is optional.
+            - `grep -rn -- "-schemas\[" --include='*.go' .` returns NOTHING.
+            - `./bin/backstop version` and `./bin/backstop version --json` both
+              print a version, a cohort, a commit and a build date, and the two
+              agree field for field.
+            - `go test ./cmd/backstop/ -run 'TestCLI_Version_' -race -count=1`
+              passes, and `git diff cmd/backstop/root_test.go` shows ONLY the
+              removal of the two sanctioned tests.
+        files:
+          - cmd/backstop/version.go
+          - cmd/backstop/root.go
+          - cmd/backstop/root_test.go
+          - cmd/backstop/build_identity_test.go
+          - cmd/backstop/version_command_test.go
+        claims:
+          - CLM-006
+          - CLM-026
+          - CLM-030
+        depends_on:
+          - TASK-023
+          - TASK-024
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 7: CLI discovery on the resolved root (REQ-007)
+  # Depends on phases 1, 2, 3 and 5. Parallel-eligible with phase 6.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-7
+    name: "Phase 7: DiscoverArtifacts walks the resolved root — the fourth hardcoding, and the one that decides whether any of this does anything"
+    tasks:
+      - id: TASK-026
+        type: test
+        title: "RED: discovery walks .backstop when it is the root, still excludes installed packs, and both layout profiles reach the same corpus"
+        description: |
+          Extend cmd/backstop/artifact_discover_test.go (the ONLY test file
+          calling DiscoverArtifacts — verified 2026-08-14) and add
+          cmd/backstop/layout_profiles_e2e_test.go. Both use the TASK-002
+          fixtures, copied to a t.TempDir() before use.
+
+          In artifact_discover_test.go:
+
+            TestDiscoverArtifacts_WalksResolvedRootIncludingDotBackstop
+              (CLM-045) Against the dotbackstop-root fixture, discovery finds
+              the artifacts under .backstop/. TODAY THIS RETURNS ZERO —
+              artifact_discover.go:48 SkipDirs `.backstop` unconditionally —
+              and ValidateArtifacts then returns Pass:true on the empty set
+              (artifact_validate.go:129), which is the false green this whole
+              spec is named after (Sharp Edge 1).
+
+            TestDiscoverArtifacts_DotBackstopRootStillExcludesInstalledPacks
+              (CLM-046) The same fixture carries
+              .backstop/packs/test-org/sample-pack/specs/SPEC-999-installed-pack.spec.md.
+              It must NOT appear in the results. This is spec Review Question
+              1: several installed packs are themselves backstop repos with
+              their own artifacts, so the exclusion must become ROOT-RELATIVE
+              (always exclude .backstop/packs) rather than simply deleted.
+
+          The existing tests in this file call DiscoverArtifacts with a bare
+          string and will not compile once the signature takes an
+          artifact.Root; repair them MECHANICALLY (hand in a Root resolved at
+          the same directory) without changing what they assert.
+
+          In layout_profiles_e2e_test.go:
+
+            TestE2E_UnconfiguredRepoRootLayoutDiscoversUnchangedCorpus (CLM-051)
+              The repo-root fixture discovers exactly what it discovers today.
+              This is backstop-core's own framework exception and the
+              behavior-preservation floor for the whole change.
+
+            TestE2E_DotBackstopRootedProjectDiscoversEquivalentCorpus (CLM-052)
+              The dotbackstop-root fixture and the repo-root fixture — whose
+              artifact content is byte-identical — reach the SAME corpus:
+              compare the discovered sets by (type, path-relative-to-root)
+              after sorting, as an EQUALITY, not as a count. A count assertion
+              passes when two different files are found. This is the outcome
+              the init seed's REQ-004 depends on.
+        files:
+          - cmd/backstop/artifact_discover_test.go
+          - cmd/backstop/layout_profiles_e2e_test.go
+        claims:
+          - CLM-045
+          - CLM-046
+          - CLM-051
+          - CLM-052
+        test_names:
+          - TestDiscoverArtifacts_WalksResolvedRootIncludingDotBackstop
+          - TestDiscoverArtifacts_DotBackstopRootStillExcludesInstalledPacks
+          - TestE2E_UnconfiguredRepoRootLayoutDiscoversUnchangedCorpus
+          - TestE2E_DotBackstopRootedProjectDiscoversEquivalentCorpus
+        depends_on:
+          - TASK-002
+          - TASK-006
+          - TASK-009
+          - TASK-020
+
+      - id: TASK-027
+        type: implementation
+        title: "GREEN: DiscoverArtifacts takes a Root, ClassifyFilename replaces artifactPatterns, and both entry points resolve ONE root"
+        description: |
+          Four coordinated edits. This is the task that makes REQ-029 do
+          something instead of landing and changing nothing.
+
+          1. cmd/backstop/artifact_discover.go
+             DiscoverArtifacts(root artifact.Root, typeFilters []string) walks
+             root.Path. DELETE the private artifactPatterns map (lines 18-26)
+             in favor of artifact.ClassifyFilename — one predicate, shared with
+             phase 10's scan, so the set of files the gate picks up and the set
+             it reports leaving out are defined by the same rule.
+
+             The skip list at line 48 becomes ROOT-RELATIVE: the five shared
+             non-corpus names (TASK-005's list) still skip, `.backstop/packs`
+             ALWAYS skips regardless of where the root sits, and `.backstop`
+             itself is no longer skipped when it IS the root. Take the five
+             names from the shared accessor — do NOT retype them (trap B).
+
+             Sharp Edge 12, knowingly propagated, not fixed here: `vendor` and
+             `node_modules` are language nouns baked into core CLI code. That
+             is a real zero-baked-language defect with its own issue. This task
+             PRESERVES the behavior and centralizes the list; it does not
+             re-scope itself into fixing the invariant on this seed's critical
+             path.
+
+          2. cmd/backstop/artifact_validate.go — ValidateConfig gains
+             `Root artifact.Root`, the three DiscoverArtifacts call sites (126,
+             225, 238) and buildResolutionViolations take it, and
+             runArtifactValidate (line ~284) resolves the root from the loaded
+             config instead of using os.Getwd() as the corpus root.
+
+          2a. REPAIR ALL 33 EXISTING ValidateConfig LITERALS IN THE FOUR TEST
+             FILES SCOPED BELOW. This is the ONE signature change in the plan
+             that the compiler will not force you to finish, and skipping it
+             reintroduces the false green this spec exists to eliminate — in
+             this repo's own suite.
+
+             WHY IT IS INVISIBLE: every literal is KEYED
+             (`ValidateConfig{ProjectRoot: dir, All: true, SchemaFS: SchemaFS}`),
+             so adding a field compiles clean and hands in a zero-value
+             artifact.Root{Path: ""}. Discovery then walks nothing, finds zero
+             artifacts, and returns the `Pass: true` early return at
+             artifact_validate.go:129. A test asserting a SPECIFIC violation
+             goes visibly red — those are caught. A test shaped like
+             `for _, v := range result.Violations { t.Errorf(…) }` iterates an
+             EMPTY slice and PASSES, asserting nothing, forever. That second
+             shape is the whole reason this item exists, and it is exactly the
+             failure class REQ-002 and DD-15 are about.
+
+             THE REPAIR RULE, AND IT IS THE WHOLE RULE: every literal that sets
+             ProjectRoot must ALSO set Root, resolved with
+             artifact.ResolveRoot AT THE SAME DIRECTORY THAT LITERAL ALREADY
+             USES (its ProjectRoot value), with the resolution error checked.
+             Nothing about what any test ASSERTS changes — not a fixture, not
+             an expectation, not a test name. Counts verified 2026-08-14:
+             artifact_validate_test.go 17, artifact_validate_output_test.go 10,
+             artifact_validate_resolution_test.go 4 (four of these are
+             SINGLE-LINE inline literals passed straight to ValidateArtifacts,
+             easy to miss in a multi-line-only skim),
+             artifact_validate_edge_test.go 2.
+
+             THIS IS NOT THE "THIRD COMPILE BREAK" THE NOTES TELL YOU TO STOP
+             AND REPORT. That tripwire covers tests whose PREMISE disappears;
+             these tests' premises are intact and their repair is mechanical
+             and mandated here. If a literal genuinely cannot be given a Root
+             resolved at its own ProjectRoot, THAT is a stop-and-report.
+
+          3. cmd/backstop/gate.go — runGate resolves the artifact root ONCE per
+             run, immediately after config load and project-root discovery
+             (lines 65-80, which already hold cfg and projectRoot), and hands
+             the resolved value to realArtifactValidator, to the
+             DiscoverArtifacts call at line 1015, and to BOTH
+             ResolveArtifactStatus call sites (902, 983).
+
+             runGate passes the literal "." as projectRoot whenever
+             DiscoverConfigPath fails (gate.go:77) — ResolveRoot's
+             absolutization is what makes that safe (trap C). At this phase a
+             resolution error surfaces as a config error; REQ-008's LOUD,
+             type-distinguished failure on *artifact.RootMissingError is
+             TASK-037's and is not to be anticipated here with a string match.
+
+          4. THE TWO ROOTS ARE RECONCILED HERE (Sharp Edge 10, spec Review
+             Question 7). Before this task `artifact validate` roots at
+             os.Getwd() while `gate` roots at the backstop.yml directory, so a
+             validate run from a SUBDIRECTORY resolves a different corpus than
+             the gate — both green, about different things. After it, both
+             derive the root from the config-discovered project root through
+             the same resolver.
+        files:
+          - cmd/backstop/artifact_discover.go
+          - cmd/backstop/artifact_validate.go
+          - cmd/backstop/gate.go
+          - cmd/backstop/artifact_validate_test.go
+          - cmd/backstop/artifact_validate_output_test.go
+          - cmd/backstop/artifact_validate_resolution_test.go
+          - cmd/backstop/artifact_validate_edge_test.go
+        claims:
+          - CLM-045
+          - CLM-046
+          - CLM-051
+          - CLM-052
+        depends_on:
+          - TASK-026
+
+      - id: TASK-028
+        type: verification
+        title: "Verify discovery: .backstop is reachable, packs are not, and this repo's own corpus is unchanged"
+        description: |
+          `backstop code check` DOES NOT EXIST (ISSUE-076) — do not run it.
+
+          Run, in order, reading TRUE exit codes:
+            1. go build -o bin/backstop ./cmd/backstop
+            2. go test ./cmd/backstop/... -race -count=1
+            3. go test ./... -race -count=1
+            4. ./bin/backstop gate
+            5. ./bin/backstop artifact validate --all
+
+          Then confirm:
+            - `grep -n "artifactPatterns" cmd/backstop/artifact_discover.go`
+              returns NOTHING — the private pattern map is gone, not bypassed.
+            - `grep -n 'case "testdata"' cmd/backstop/artifact_discover.go`
+              shows the names coming from the shared accessor, not a retyped
+              literal list (trap B).
+            - Run `./bin/backstop artifact validate --all` from a SUBDIRECTORY
+              of this repo and confirm it reports the same corpus size as from
+              the root (spec Review Question 7). Before this change it would
+              not have.
+            - This repo's own artifact count is UNCHANGED versus HEAD~. A
+              silent gain means .backstop/packs leaked into the corpus; a
+              silent loss means the repo-root profile regressed.
+            - NO ValidateConfig LITERAL SETS ProjectRoot WITHOUT ALSO SETTING
+              Root. This one cannot be left to the compiler — the literals are
+              keyed, so an unrepaired site builds clean and validates an empty
+              corpus into a `Pass: true` (TASK-027 item 2a). Assert it by
+              count, both numbers read from the same tree:
+
+                grep -rho 'ValidateConfig{' cmd/backstop --include='*.go' | wc -l
+                grep -rn -A8 'ValidateConfig{' cmd/backstop --include='*.go' \
+                  | grep -c '[^t]Root:'
+
+              The two MUST be equal, and the first MUST be 35 (33 in the four
+              repaired test files, plus artifact_validate.go:318 and
+              gate.go:1573 in production) — verified at HEAD 2026-08-14. The
+              `[^t]` is doing real work: it excludes `ProjectRoot:`, whose
+              preceding character is `t`, so the second number counts only
+              genuine `Root:` keys. A first number other than 35 means the
+              literal set moved and the repair scope must be re-derived before
+              trusting the equality.
+            - THEN CONFIRM THE REPAIR WAS NOT VACUOUS: pick any ONE repaired
+              literal, blank its Root back to the zero value, and re-run that
+              file's tests. Some test in the file MUST go red. If the whole
+              file still passes with a zero-value Root, that file's tests were
+              never asserting on a discovered corpus and THAT is a
+              stop-and-report — it means the false green is already there and
+              predates this plan.
+        files:
+          - cmd/backstop/artifact_discover.go
+          - cmd/backstop/artifact_validate.go
+          - cmd/backstop/gate.go
+          - cmd/backstop/artifact_discover_test.go
+          - cmd/backstop/layout_profiles_e2e_test.go
+          - cmd/backstop/artifact_validate_test.go
+          - cmd/backstop/artifact_validate_output_test.go
+          - cmd/backstop/artifact_validate_resolution_test.go
+          - cmd/backstop/artifact_validate_edge_test.go
+        claims:
+          - CLM-045
+          - CLM-046
+          - CLM-051
+          - CLM-052
+        depends_on:
+          - TASK-027
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 7b: buildGateSteps' specDir — REQ-007's FIFTH consumer (CLM-069),
+  # added by SPEC-068 v1.2.1 after this plan's first review pass.
+  #
+  # WHY IT SITS HERE AND NOT AT THE END. runGate's ONE root resolution becomes
+  # available in TASK-027 (phase 7 item 3); this phase is the first point at
+  # which the resolved Root can be threaded into buildGateSteps at all. Landing
+  # it here also means phases 8, 9 and 10 — every phase that drives the gate
+  # over the .backstop/-rooted TASK-002 fixtures — run against a gate whose
+  # spec-reading dimensions are already correctly rooted. Deferring it to the
+  # end would have those phases write fixture-driven tests against a gate that
+  # hard-fails test_verification on every .backstop/-rooted fixture, and any
+  # accommodation they made for that failure would then have to be unwound.
+  #
+  # TASK IDS ARE IDENTIFIERS, NOT ORDINALS. TASK-045..TASK-048 appear before
+  # TASK-029 in execution order because renumbering forty existing tasks and
+  # every depends_on edge to preserve a cosmetic ordering is the riskier edit.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-7b
+    name: "Phase 7b: buildGateSteps takes the resolved Root — the fifth REQ-007 consumer, on all three call sites"
+    tasks:
+      - id: TASK-045
+        type: test
+        title: "RED: the four spec-reading dimensions read the resolved root's spec directory, and the project-root form fails"
+        description: |
+          Write cmd/backstop/gate_specdir_root_test.go — ONE new file, one
+          mandated test.
+
+            TestBuildGateSteps_SpecDirectoryConsumersReadResolvedArtifactRoot
+              (CLM-069) Copy the dotbackstop-root fixture (TASK-002) to a
+              t.TempDir(). Its specs live at .backstop/specs/ and there is NO
+              specs/ at the project root — that asymmetry IS the test.
+
+              Resolve the root the way runGate does — artifact.ResolveRoot on
+              the temp project root with the fixture's declared `.backstop` —
+              hand it to buildGateSteps alongside the project root, run the
+              returned steps, and require that NONE of the four spec-reading
+              dimensions reports a spec-directory read failure:
+              test_verification, test_substantiveness, coverage and contracts.
+              Then require POSITIVELY that the mandated test name declared in
+              .backstop/specs/SPEC-001-sample.spec.md was actually SEEN — an
+              absence-of-error assertion alone passes for a step that read an
+              empty directory, which is the vacuous shape this whole spec is
+              named after.
+
+              NAME THE POSITIVE SIGNAL EXACTLY, BECAUSE IT IS NOT "PASS": the
+              observable difference is test_verification's STATUS, and it is a
+              WARNING, not a clean pass. Trace it, because getting this wrong
+              silently reintroduces the vacuity:
+                - TASK-002 pins the fixture spec `status: implemented` with one
+                  mandated test name, so filterDueMandatedTests
+                  (step_testverify.go:190-212) keeps it and `len(mandated) != 0`.
+                - The fixture declares NO packs, so classifier.HasTestGlobs()
+                  and matcher.HasPatterns() are both false and the step returns
+                  testDiscoveryCapabilityAbsent — Status "warning", with a Reason
+                  NAMING the missing discovery inputs (step_testverify.go:366-368).
+                - Read an EMPTY spec directory instead and mandated is empty, so
+                  the step takes the len==0 early return BEFORE that guard
+                  (step_testverify.go:355-361) and returns Status "pass" with
+                  zero violations.
+              So assert test_verification's status is the capability-absent
+              WARNING and NOT "pass". That single assertion is what separates
+              "read the resolved root's spec directory and found the mandated
+              name" from "read an empty directory" — and it is why the fixture
+              spec MUST be `implemented`. A draft fixture makes both shapes
+              return the identical clean pass and this arm becomes decorative.
+              DO NOT reach for a mandated-test-FOUND assertion instead: with no
+              pack test globs nothing can be found, and adding a pack to the
+              fixture to make one findable widens these layout fixtures into
+              pack fixtures for no gain.
+
+              THE FALSIFICATION ARM IS PART OF THE TEST, NOT A SEPARATE ONE.
+              Run the SAME assembly a second time with the pre-fix root shape —
+              a Root whose Path is the project root rather than the resolved
+              `.backstop` — and require test_verification FAILS with the
+              extract error. gate.ExtractMandatedTests does os.ReadDir(specDir)
+              and returns a wrapped error on a missing directory
+              (pkg/gate/step_testverify.go:113-116), and the step converts that
+              into Status "fail" (step_testverify.go:338-345), so the failure is
+              observable without reaching into unexported state. Without this
+              arm the test passes on a build where specDir still comes from the
+              project root, because a repo that happens to have BOTH directories
+              cannot tell the two apart.
+
+          DO NOT "FIX" ExtractMandatedTests TO TOLERATE AN ABSENT DIRECTORY.
+          Its intolerance is the reason CLM-069 is a defect and not a
+          refinement (REQ-007's 2026-08-14 correction says so in those words),
+          and softening it would make this test unfalsifiable AND silently
+          convert every genuinely-missing spec directory into a pass.
+        files:
+          - cmd/backstop/gate_specdir_root_test.go
+        claims:
+          - CLM-069
+        test_names:
+          - TestBuildGateSteps_SpecDirectoryConsumersReadResolvedArtifactRoot
+        depends_on:
+          - TASK-002
+          - TASK-028
+
+      - id: TASK-046
+        type: test
+        title: "RED: repair all 18 direct buildGateSteps call sites for the widened signature"
+        description: |
+          MECHANICAL REPAIR ONLY. Every direct caller of buildGateSteps in the
+          test suite gains the new positional `root artifact.Root` argument.
+          NOTHING ABOUT WHAT ANY TEST ASSERTS CHANGES — not a fixture, not an
+          expectation, not a test name. No test is deleted; none of these is
+          the "third compile break" the retirement section tells you to stop
+          and report, because every one of these tests' premises is intact.
+
+          THE REPAIR RULE, AND IT IS THE WHOLE RULE: resolve the Root with
+          artifact.ResolveRoot AT THE SAME DIRECTORY THE CALL SITE ALREADY
+          PASSES AS projectRoot, with an empty declared value (these fixtures
+          configure no artifact_root), and check the error. That reproduces
+          exactly today's behavior for an unconfigured project — Root.Path is
+          the project root, Root.Dir(KindSpec) is <projectRoot>/specs — so
+          every one of these tests keeps asserting what it asserts today.
+
+          DO NOT PASS artifact.Root{}. It compiles, and Root.Dir(KindSpec) on a
+          zero-value Root yields the RELATIVE string "specs", which os.ReadDir
+          resolves against the TEST PROCESS'S working directory (cmd/backstop)
+          rather than the fixture. That is the same class of silent
+          misdirection as an unrepaired ValidateConfig literal, arrived at from
+          the opposite direction: the compiler forces you to write SOMETHING
+          here, and the shortest thing to write is the wrong one. TASK-048
+          greps for it.
+
+          THE 18 SITES, counted by grep at HEAD 2026-08-14 — 13 files:
+            gate_test.go                        3  (:206, :225, :242)
+            gate_buildsteps_test.go             2  (:22, :87)
+            gate_scope_test.go                  2  (:126, :269)
+            gate_step_order_test.go             2  (:57, :88)
+            gate_classifier_wiring_test.go      1  (:34)
+            gate_cutover_step2_test.go          1  (:18)
+            gate_discovery_e2e_test.go          1  (:42)
+            gate_language_retirement_test.go    1  (:53)
+            gate_wiring_test.go                 1  (:212)
+            pack_gate_test.go                   1  (:68)
+            requirement_traceability_gate_test.go 1 (:16)
+            standards_removal_test.go           1  (:115)
+            status_drift_gate_test.go           1  (:118)
+
+          SEVEN OF THE 18 CALL buildGateSteps WITH NO SCOPE ARGUMENT AT ALL
+          (the variadic tail), verified by grep at HEAD 2026-08-14:
+          gate_test.go:206/:225/:242, gate_buildsteps_test.go:22/:87,
+          gate_wiring_test.go:212, pack_gate_test.go:68. They still need the
+          Root, which is why the new parameter goes BEFORE the variadic and not
+          after it — a trailing parameter after a variadic is not expressible in
+          Go, and there is no "just add it at the end" option to be tempted by.
+
+          THREE SITES CARRY A NAME COLLISION, and it is worth naming so the
+          repair does not shadow anything: requirement_traceability_gate_test.go:14,
+          status_drift_gate_test.go:117 and gate_language_retirement_test.go:49
+          (whose gateStepOutcome does `root := t.TempDir()` and calls
+          buildGateSteps(root, …) at :53) all hold the project root in a local
+          STRING variable called `root`. Give the resolved artifact.Root a
+          different name at those three sites rather than renaming or reusing
+          the existing string — the string is still needed as the projectRoot
+          argument.
+
+          THIS FILE SET IS 13 FILES AND IT IS DELIBERATELY ONE TASK. The
+          package does not compile until EVERY site is repaired, so splitting
+          the set across tasks produces an intermediate state that no task owns
+          and no verification can run against. The narrow-scope heuristic is
+          about blast radius, and the blast radius of this task is one argument
+          per call site.
+        files:
+          - cmd/backstop/gate_test.go
+          - cmd/backstop/gate_buildsteps_test.go
+          - cmd/backstop/gate_scope_test.go
+          - cmd/backstop/gate_step_order_test.go
+          - cmd/backstop/gate_classifier_wiring_test.go
+          - cmd/backstop/gate_cutover_step2_test.go
+          - cmd/backstop/gate_discovery_e2e_test.go
+          - cmd/backstop/gate_language_retirement_test.go
+          - cmd/backstop/gate_wiring_test.go
+          - cmd/backstop/pack_gate_test.go
+          - cmd/backstop/requirement_traceability_gate_test.go
+          - cmd/backstop/standards_removal_test.go
+          - cmd/backstop/status_drift_gate_test.go
+        claims:
+          - CLM-069
+        depends_on:
+          - TASK-028
+
+      - id: TASK-047
+        type: implementation
+        title: "GREEN: buildGateSteps takes a Root, specDir comes from it, and all THREE production call sites pass one"
+        description: |
+          Three files. The signature is CONTRACT — SPEC-068 declares it
+          verbatim — so it is not a local decision:
+
+            func buildGateSteps(projectRoot string, root artifact.Root, scope ...*gate.GateScope) []gate.StepFunc
+
+          1. cmd/backstop/gate.go
+             - buildGateSteps (:647) takes the new parameter, and
+               `specDir := filepath.Join(projectRoot, "specs")` (:652) becomes
+               `specDir := root.Dir(artifact.KindSpec)`. The four dimensions it
+               feeds — test_verification (:706), test_substantiveness (:710),
+               coverage (:718), contracts (:721) — are unchanged in EVERY other
+               respect. Do not re-plumb them, do not rename specDir, do not
+               give any of them its own resolution.
+             - projectRoot STAYS a separate parameter and every existing use of
+               it inside buildGateSteps STAYS. It is the CODE directory those
+               same steps walk for test files (codeDir at :706/:710, the
+               coverage and pack-dispatch roots), and under a `.backstop/`
+               layout the code root and the artifact root are genuinely
+               different directories. Collapsing them would point test
+               discovery at `.backstop/` and find no source at all — a fix that
+               produces a different vacuous green than the one it removed.
+             - The call site at :124 passes runGate's ALREADY-RESOLVED root
+               (TASK-027 item 3). It does NOT resolve a second one. A second
+               resolution in the same run is the class of bug this whole spec
+               is about.
+             - THE SIXTH ROOT HARDCODING, IN THE SAME FILE AND OUTSIDE
+               buildGateSteps: runGate's terminal-exclusion notice at :188 does
+               its OWN `filepath.Join(projectRoot, "specs")` —
+               `if notice := terminalExclusionNotice(filepath.Join(projectRoot, "specs")); notice != ""`.
+               It becomes
+               `if notice := terminalExclusionNotice(root.Dir(artifact.KindSpec)); notice != ""`,
+               reading the SAME already-resolved root runGate threads to :124
+               (:188 is inside runGate, which spans :63-216, so the variable is
+               already in scope — no second resolution, no new plumbing).
+               terminalExclusionNotice itself (:218) is UNCHANGED: it keeps
+               taking a specDir string, and the caller keeps being the one that
+               knows where specs live.
+               THIS IS A CONSISTENCY FIX RIDING REQ-007'S GENERAL CLAUSE, NOT A
+               NEW CLAIM. CLM-069 establishes the pattern — everything reading a
+               spec directory reads the RESOLVED one — and the notice-computation
+               site is part of that same pattern even though it is not itself
+               claimed. Nothing here needs its own claim or its own test:
+               CountTerminalSpecs errors on a missing directory and
+               terminalExclusionNotice swallows that error (`if err != nil ||
+               count == 0 { return "" }`, :219-222), so under a `.backstop/`-rooted
+               project the "N retired artifacts excluded" line silently vanishes.
+               Purely informational — it never touches the verdict — but silent
+               is exactly the failure mode this spec is named after, and it is a
+               one-line change in a file this task already owns.
+               IT IS ALSO WHY TASK-048's GREP IS PASSABLE. That grep requires
+               `filepath.Join(projectRoot, "specs")` to be GONE from gate.go.
+               Fixing only :652 leaves :188 behind and the grep fails on a
+               correct implementation — both call sites, or neither.
+
+          2. cmd/backstop/baseline.go — runBaselineGenerate (:50-64) DISCARDS
+             the config it loads. VERIFIED AT HEAD 2026-08-14, :51 is
+             `if _, err := config.LoadConfig(); err != nil {` — the *Config goes
+             into `_`, so there is NO `cfg` variable in this function to read
+             from. It then discovers the config path separately and derives
+             projectRoot from it (`projectRoot := filepath.Dir(cfgPath)`, :58 —
+             NOT :63, which is the ruleSetChangeSeedingContext line).
+             SO THE EDIT IS TWO PARTS, AND THE FIRST IS NOT OPTIONAL:
+               a. BIND the config: :51 becomes `cfg, err := config.LoadConfig()`
+                  with the existing `if err != nil { return fmt.Errorf("baseline
+                  generate: config: %w", err) }` guard kept verbatim. (The
+                  `cfgPath, err := …` at :54 then reuses `err` by assignment
+                  rather than declaring it — a mechanical adjustment, no
+                  behavior change.)
+               b. Resolve the root from THAT cfg —
+                  `artifact.ResolveRoot(projectRoot, cfg.ArtifactRoot)` — after
+                  :58, and pass the resolved Root to buildGateSteps at :64.
+             THE DECLARED VALUE MUST BE cfg.ArtifactRoot, NOT A LITERAL "".
+             Passing "" compiles, and on backstop-core itself (which declares no
+             artifact_root) it even produces the identical correct answer — and
+             it reinstates the exact defect this task exists to remove the
+             moment anyone points `backstop baseline generate` at a
+             `.backstop/`-rooted project. TASK-048 greps for that shortcut.
+             A resolution failure returns the existing
+             `fmt.Errorf("baseline generate: …")` shape this function already
+             uses for its config failures — refusing to write a baseline from a
+             gate that could not be rooted is the same judgment the function
+             already makes about a gate that reported a config error, and for
+             the same reason: a baseline built from a gate that never really
+             ran ratchets the project against nothing.
+
+          3. cmd/backstop/waiver.go — runWaiverList (:57-67) derives projectRoot
+             exactly as runGate does, INCLUDING the literal "." fallback when
+             DiscoverConfigPath fails. IT LOADS NO CONFIG AT ALL. VERIFIED AT
+             HEAD 2026-08-14: the only `config.` reference in the entire file is
+             `cfgPath, discoverErr := config.DiscoverConfigPath()` at :58, and
+             neither projectWaiverResult nor buildWaiverPolicy loads one either
+             (they load PACKS). So unlike gate.go and baseline.go, this call
+             site has no cfg to read from and one must be LOADED HERE.
+             THE EDIT:
+               a. Inside the EXISTING `if discoverErr == nil` branch (:60-62),
+                  after `projectRoot = filepath.Dir(cfgPath)`, load the config
+                  at the path already discovered —
+                  `cfg, loadErr := config.LoadConfigFromPath(cfgPath)`. Use the
+                  PATH-SPECIFIC loader, not config.LoadConfig(): baseline.go
+                  calls LoadConfig() because it loads BEFORE discovering the
+                  path, whereas runWaiverList already holds cfgPath, and
+                  LoadConfig() would only redo that same discovery walk. A
+                  loadErr returns the ExitCodeError{Code: ExitConfigError,
+                  Message: fmt.Sprintf("config: %s", loadErr)} shape this
+                  function already uses for its scope and waiver failures.
+               b. Resolve ONE root from it —
+                  `artifact.ResolveRoot(projectRoot, cfg.ArtifactRoot)` — and
+                  thread the resolved Root through projectWaiverResult (:80) to
+                  the buildGateSteps call at :88, widening
+                  projectWaiverResult's signature to carry it rather than
+                  resolving inside the helper, so the command resolves ONE root
+                  per run the way runGate does. projectWaiverResult has exactly
+                  ONE caller (verified 2026-08-14), so this widening breaks
+                  nothing else.
+             THE DECLARED VALUE MUST BE cfg.ArtifactRoot. The ONLY path on
+             which it is legitimately empty is the no-config fallback — when
+             DiscoverConfigPath FAILS there is genuinely no configured root to
+             read, and that branch keeps the "." projectRoot and an empty
+             declared value because the project really is unconfigured. Writing
+             a literal "" on the CONFIGURED path instead of loading the config
+             is the shortcut TASK-048 greps for, and it would leave `backstop
+             waiver list` adjudicating over a step list that read a
+             `<project>/specs` that does not exist.
+             The "." fallback is safe because ResolveRoot absolutizes its
+             projectRoot (trap C) — the same property runGate depends on.
+
+          WHY ALL THREE AND NOT JUST THE GATE PATH: `backstop gate`,
+          `backstop baseline generate` and `backstop waiver list` assemble the
+          SAME step list. Fixing only :124 leaves a `.backstop/`-rooted project
+          whose gate is correctly rooted while its baseline generation and its
+          waiver adjudication still read a literal `<project>/specs` that does
+          not exist — so the baseline is built from a gate that hard-failed two
+          dimensions, and the waiver report adjudicates over a step list that
+          failed to produce the findings it is supposed to adjudicate. Both
+          would look like ordinary failures of the project, not of backstop.
+        files:
+          - cmd/backstop/gate.go
+          - cmd/backstop/baseline.go
+          - cmd/backstop/waiver.go
+        claims:
+          - CLM-069
+        depends_on:
+          - TASK-045
+          - TASK-046
+
+      - id: TASK-048
+        type: verification
+        title: "Verify the fifth consumer: no literal specs join survives, all three call sites pass a root, and no site passes a zero-value one"
+        description: |
+          `backstop code check` DOES NOT EXIST (ISSUE-076) — do not run it.
+
+          Run, in order, reading TRUE exit codes:
+            1. go build -o bin/backstop ./cmd/backstop
+            2. go test ./cmd/backstop/... -race -count=1
+            3. go test ./... -race -count=1
+            4. ./bin/backstop gate
+            5. ./bin/backstop gate --all
+            6. ./bin/backstop baseline generate  (or, if this repo's baseline
+               workflow makes a write undesirable at this point, run it against
+               a t.TempDir()-style throwaway copy — the point is that the
+               command ASSEMBLES STEPS without a nil/zero root, and that it is
+               exercised at all rather than only compiled)
+            7. ./bin/backstop waiver list
+
+          Then confirm by GREP, not by inspection:
+            - `grep -n 'filepath.Join(projectRoot, "specs")' cmd/backstop/gate.go`
+              returns NOTHING. The literal is GONE, not shadowed. THIS PASSES
+              ONLY IF BOTH SITES WERE FIXED — the one inside buildGateSteps
+              (:652) AND the terminal-exclusion notice inside runGate (:188),
+              both in TASK-047's item 1. At HEAD this grep returns TWO hits, so
+              a single-site fix leaves it returning one and this check fails on
+              an otherwise-correct implementation. If it returns anything,
+              re-read TASK-047 item 1 before touching this task's expectation.
+            - `grep -n "root.Dir(artifact.KindSpec)" cmd/backstop/gate.go`
+              returns exactly TWO hits — one inside buildGateSteps (the specDir
+              the four dimensions share) and one in runGate's
+              terminalExclusionNotice call. THREE OR MORE means a dimension grew
+              its own resolution, which is the thing this plan removes.
+            - `grep -rn "buildGateSteps(" cmd/backstop --include='*.go' | grep -v _test.go`
+              shows exactly THREE production call sites — gate.go, baseline.go,
+              waiver.go — and EVERY one passes a resolved root. Two hits means
+              a call site was missed and the defect is live on that path.
+            - `grep -rn "buildGateSteps(.*artifact.Root{}" cmd/backstop --include='*.go'`
+              returns NOTHING, and neither does a scan for a bare
+              `artifact.Root{}` composite literal anywhere in the repaired test
+              files. A zero-value Root compiles and yields a RELATIVE "specs"
+              read against the test process's CWD (TASK-046) — the lazy repair
+              this grep exists to catch.
+            - `grep -n 'ResolveRoot([^,]*, "")' cmd/backstop/gate.go cmd/backstop/baseline.go cmd/backstop/waiver.go`
+              returns NOTHING, and each of the THREE production resolutions —
+              runGate (TASK-027 item 3), runBaselineGenerate, runWaiverList —
+              is read to confirm its declared value is `cfg.ArtifactRoot` and
+              not a literal empty string.
+              WHY THIS GREP EXISTS, AND WHY THE ONES ABOVE DO NOT COVER IT: the
+              zero-value grep catches `artifact.Root{}` LITERALS only.
+              `artifact.ResolveRoot(projectRoot, "")` is a DIFFERENT shortcut —
+              it returns a well-formed Root rooted at the project directory, so
+              it compiles, passes the zero-value scan, and passes every command
+              run above, because backstop-core declares no artifact_root and a
+              hardcoded-empty declared value therefore produces the IDENTICAL
+              correct result here. It is the shortest thing that satisfies this
+              task while reinstating the defect on any `.backstop/`-rooted
+              consumer. Nothing else in this plan can see it, so it is checked
+              by reading the source.
+              THIS PROHIBITION IS PRODUCTION-ONLY — the three files named in
+              the grep. TASK-046's test-fixture call sites correctly pass an
+              empty declared value, because those fixtures genuinely configure
+              no artifact root; an empty declared value there is the accurate
+              input, not a shortcut. Do not "fix" them.
+            - `grep -c "buildGateSteps(" cmd/backstop/*_test.go | ...` — the
+              total across test files is 18 at HEAD. A DIFFERENT number means
+              the call-site set moved and the repair scope must be re-derived
+              before trusting anything above.
+
+          THEN CONFIRM THE REPAIR WAS NOT VACUOUS, the same way TASK-028 does
+          for the ValidateConfig literals: take the new
+          TestBuildGateSteps_SpecDirectoryConsumersReadResolvedArtifactRoot,
+          revert specDir to `filepath.Join(projectRoot, "specs")` locally, and
+          require it goes RED. If it still passes, the test is asserting
+          something other than what CLM-069 says and THAT is a
+          stop-and-report. Restore the fix afterward.
+
+          ONE THING THIS TASK DOES NOT ASSERT, deliberately: that a project
+          with NO spec directory anywhere now passes. It does not, and it did
+          not before — ExtractMandatedTests errors on an absent directory by
+          design and this plan does not change that (TASK-045). The claim is
+          that the directory those four dimensions read is the RESOLVED root's,
+          not that absence became tolerable.
+        files:
+          - cmd/backstop/gate.go
+          - cmd/backstop/baseline.go
+          - cmd/backstop/waiver.go
+          - cmd/backstop/gate_specdir_root_test.go
+        claims:
+          - CLM-069
+        depends_on:
+          - TASK-047
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 8: Assertion, refusal, and the per-artifact validation record
+  # (REQ-002, REQ-003, REQ-004 validate side)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-8
+    name: "Phase 8: validate refuses what it cannot prove, and records what it asserted"
+    tasks:
+      - id: TASK-029
+        type: test
+        title: "RED: uncovered schema_version refuses green; plans are schema-less; an empty existing root still passes"
+        description: |
+          Write cmd/backstop/artifact_validate_assertion_test.go.
+
+            TestValidateArtifacts_UncoveredSchemaVersionRefusesGreen (CLM-007)
+              An artifact declaring a schema_version absent from the binary's
+              cohort refuses. The diagnostic must name ALL THREE: the artifact
+              PATH, the declared SCHEMA_VERSION, and the cohort IDENTIFIER.
+              Assert all three substrings. Today's failure is a generic wrapped
+              `loading schema for %s` (artifact_validate.go:178) naming none of
+              them, so a test asserting only "it errored" passes against the
+              status quo.
+
+            TestValidateArtifacts_UncoveredSchemaVersionExitsNonZero (CLM-008)
+              The refusal is a non-zero exit, not a pass with zero violations.
+              DD-15 inverts this codebase's usual loud-≠-blocking default here
+              deliberately: on "I cannot tell", REFUSE.
+
+            TestValidateArtifacts_PlanRecordedAsSchemaless (CLM-009)
+              A plan routes by discovery type and carries no schema_version, so
+              its record has Schemaless=true and an EMPTY SchemaIdentity —
+              recorded as schema-less rather than silently counted as
+              cohort-covered.
+
+            TestValidateArtifacts_ZeroArtifactsUnderExistingRootStillPasses
+              (CLM-010) THE PROTECTED CASE (trap D). Zero artifacts under a
+              root that EXISTS is Pass:true — and the result carries
+              ArtifactsAsserted (0) and ScannedRoot (the root). Assert the
+              legibility pair, not just the pass: the early
+              `return ValidateResult{Pass: true}` at line 129 must stop being a
+              bare literal, and a test that checks only Pass leaves it a bare
+              literal.
+
+            TestValidateArtifacts_CoveredSchemaVersionsValidateUnchanged
+              (CLM-012) Every artifact whose schema_version IS covered
+              validates exactly as it does today — the assertion adds a guard,
+              it does not change accepted corpora. Run against the repo-root
+              fixture and compare violation sets before/after semantics.
+
+            TestValidateArtifacts_LeavesArtifactFilesUnmodified (CLM-018)
+              No artifact file is written or mutated by validation. Snapshot
+              content hashes AND modification times of every fixture artifact
+              before and after. This is what makes the RECORD, rather than the
+              artifact, the identity carrier (Sharp Edge 6).
+        files:
+          - cmd/backstop/artifact_validate_assertion_test.go
+        claims:
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-012
+          - CLM-018
+        test_names:
+          - TestValidateArtifacts_UncoveredSchemaVersionRefusesGreen
+          - TestValidateArtifacts_UncoveredSchemaVersionExitsNonZero
+          - TestValidateArtifacts_PlanRecordedAsSchemaless
+          - TestValidateArtifacts_ZeroArtifactsUnderExistingRootStillPasses
+          - TestValidateArtifacts_CoveredSchemaVersionsValidateUnchanged
+          - TestValidateArtifacts_LeavesArtifactFilesUnmodified
+        depends_on:
+          - TASK-012
+          - TASK-025
+          - TASK-028
+          - TASK-048
+
+      - id: TASK-030
+        type: test
+        title: "RED: the validate envelope carries a schema identity per artifact and the producing binary's identity"
+        description: |
+          Write cmd/backstop/validate_output_identity_test.go.
+
+            TestValidateOutput_JSONRecordsSchemaIdentityPerArtifact (CLM-013)
+              --json carries an `artifacts` array with one record PER validated
+              artifact, each with path, type and schema_identity of the form
+              `<schema_version>@<digest>`. Assert the CARDINALITY equals the
+              number of validated artifacts. A flat list of schema identities
+              cannot discharge this claim (spec Review Question 12) — the gate
+              side's per-SCHEMA list (CLM-016) is a genuinely different fact.
+
+            TestValidateOutput_HumanRecordsSameSchemaIdentityAsJSON (CLM-014)
+              The human rendering carries the SAME identities the JSON carries,
+              read from ONE resolved value. Run both renderings over one result
+              and compare the extracted identity sets for equality.
+
+            TestValidateOutput_SchemaIdentityChangesOnInPlaceRevision (CLM-015)
+              Validate the same artifact against a cohort built from the
+              TASK-001 baseline/ tree and then the revised/ tree: the
+              schema_version const is byte-identical on both sides and the
+              RECORDED IDENTITY must differ. This is the incident BUNDLE-014
+              produced, reproduced as a test.
+
+            TestValidateOutput_JSONCarriesBinaryIdentity (CLM-022) and
+            TestValidateOutput_HumanCarriesSameBinaryIdentityAsJSON (CLM-023)
+              The envelope carries the producing binary's version and cohort
+              identifier, and both renderings agree.
+
+            TestResultBinaryIdentity_MatchesVersionCommandOutput (CLM-024)
+              The version a RESULT reports equals the string `backstop version`
+              reports for the same binary. Compare the two outputs directly, in
+              one test — a shared constant asserted twice proves nothing.
+        files:
+          - cmd/backstop/validate_output_identity_test.go
+        claims:
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-022
+          - CLM-023
+          - CLM-024
+        test_names:
+          - TestValidateOutput_JSONRecordsSchemaIdentityPerArtifact
+          - TestValidateOutput_HumanRecordsSameSchemaIdentityAsJSON
+          - TestValidateOutput_SchemaIdentityChangesOnInPlaceRevision
+          - TestValidateOutput_JSONCarriesBinaryIdentity
+          - TestValidateOutput_HumanCarriesSameBinaryIdentityAsJSON
+          - TestResultBinaryIdentity_MatchesVersionCommandOutput
+        depends_on:
+          - TASK-012
+          - TASK-025
+          - TASK-028
+          - TASK-048
+
+      - id: TASK-031
+        type: implementation
+        title: "GREEN: ValidateArtifacts asserts the cohort, refuses on uncovered, and returns per-artifact records"
+        description: |
+          Edit cmd/backstop/artifact_validate.go.
+
+          ValidateResult gains ArtifactsAsserted int, ScannedRoot string and
+          Records []ArtifactValidationRecord. The four existing fields (lines
+          27-32) are UNCHANGED. Add:
+
+            type ArtifactValidationRecord struct {
+              Path string; Type string; SchemaVersion string
+              SchemaIdentity string; Schemaless bool
+            }
+
+          ValidateConfig gains the cohort alongside the Root TASK-027 added, so
+          the resolved root and the cohort TRAVEL WITH THE CONFIG rather than
+          being re-derived inside — that is what makes the CLI and the gate
+          incapable of asserting against different values.
+
+          In the per-artifact loop (lines 139-186), BEFORE loading a schema,
+          look the declared schema_version up in the cohort:
+            - uncovered → REFUSE, with a diagnostic naming the artifact path,
+              the declared schema_version and the cohort ID.
+            - covered → record `<schema_version>@<digest>` and validate exactly
+              as today.
+            - a PLAN → record Schemaless=true, no identity. It routes by
+              discovery type and declares no schema_version, and leaving an
+              empty SchemaIdentity to be read as covered-with-no-content is the
+              shape CLM-009 forbids.
+
+          THE ZERO-ARTIFACT EARLY RETURN AT LINE 129 STAYS A PASS (trap D) but
+          stops being a bare literal: it carries ArtifactsAsserted and
+          ScannedRoot so an empty pass reads as EMPTY rather than as VERIFIED.
+          Do not convert it into a failure; REQ-008 requires this outcome and
+          the init seed's acceptance bar depends on it.
+
+          NAMED HERE, FIXED IN TASK-032 — THE LOSSY CONVERSION AT LINES 353-356.
+          Widening ValidateResult accomplishes nothing on its own, because the
+          render path THROWS THE NEW FIELDS AWAY three lines before it prints:
+
+              // Convert to validate.ValidationResult for output formatting
+              valResult := validate.ValidationResult{
+                  Violations: result.Violations,
+              }
+              ... outputResult(cmd, &jsonFlag, valResult)
+
+          validate.ValidationResult has exactly ONE field (pkg/validate/result.go:12
+          — `Violations []Violation`), so ArtifactsAsserted, ScannedRoot,
+          Records and the binary identity are all dropped at this line and
+          CLM-013/014/022/023 can be "implemented" in the struct while
+          `artifact validate --json` shows none of them. Verified at HEAD:
+          `outputResult` (cmd/backstop/root.go:221-238) is the SOLE render path
+          for this command.
+
+          THIS TASK MUST NOT LEAVE THAT CONVERSION IN PLACE, but the rewrite of
+          the call site belongs to TASK-032, which introduces the entry point it
+          calls — TASK-032 scopes this file for exactly that edit and depends on
+          this task, so the sequence is: fields land here, the render path lands
+          there. Do not invent a local formatter here to close the loop early.
+        files:
+          - cmd/backstop/artifact_validate.go
+        claims:
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-012
+          - CLM-018
+        depends_on:
+          - TASK-029
+          - TASK-030
+
+      - id: TASK-032
+        type: implementation
+        title: "GREEN: the validate envelope gains the record array and the binary identity, read once by both renderings"
+        description: |
+          Edit cmd/backstop/output.go.
+
+          jsonEnvelope (lines 47-52) gains BinaryVersion, SchemaCohort,
+          ArtifactsAsserted, ScannedRoot and an Artifacts []jsonArtifactRecord
+          array. Add:
+
+            type jsonArtifactRecord struct {
+              Path string `json:"path"`; Type string `json:"type"`
+              SchemaIdentity string `json:"schema_identity,omitempty"`
+              Schemaless bool `json:"schemaless,omitempty"`
+            }
+
+          OMITEMPTY IS NOT UNIFORM AND THE EXCEPTION IS DELIBERATE.
+          ArtifactsAsserted carries NO omitempty: encoding/json drops a zero
+          int under omitempty, and ZERO is exactly the value that must stay
+          legible — an omitted count on an empty pass is the illegibility
+          REQ-002 names. The string and slice fields keep omitempty because
+          their empty value means genuinely absent.
+
+          This record type exists rather than reusing GateResult's flat
+          SchemaIdentities []string because CLM-013 requires an identity for
+          EACH validated artifact and a flat per-SCHEMA list cannot express
+          that binding. Collapsing the two would silently weaken this claim.
+
+          THE RENDER PATH — THE DESIGN CALL IS MADE HERE, NOT LEFT OPEN.
+          The spec left "widen the parameter or add a second method" to the
+          plan. THIS PLAN ADDS A SECOND ENTRY POINT AND LEAVES `outputResult`
+          ALONE. Concretely, in cmd/backstop/root.go, alongside the existing
+          `outputResult(cmd *cobra.Command, jsonFlag *bool, result
+          validate.ValidationResult) error` (root.go:221-238), add:
+
+              func outputValidateResult(cmd *cobra.Command, jsonFlag *bool,
+                                        result ValidateResult) error
+
+          shaped identically — one branch on jsonFlag, JSONFormatter on one
+          side, HumanFormatter on the other — but carrying the widened type, so
+          both formatters see ArtifactsAsserted, ScannedRoot, Records and the
+          binary identity. Give the two formatters a method that takes
+          ValidateResult; the existing FormatResult(validate.ValidationResult)
+          stays for the narrow callers.
+
+          WHY NOT WIDEN `outputResult`'S PARAMETER. Verified at HEAD: two tests
+          call it with a bare validate.ValidationResult —
+          TestCLI_OutputResult_UsesJSONFormatter (root_test.go:274) and
+          TestCLI_OutputResult_HumanMode (root_test.go:424) — so widening the
+          parameter is a compile break in BOTH. This plan sanctions the
+          retirement of exactly TWO tests (TestCLI_ComputeCohortID_Empty and
+          _NonEmpty) and says in its notes that a THIRD compile break is a
+          STOP-AND-REPORT. Widening would manufacture two more and put an
+          implementer in the position of editing SPEC-005-era tests to make a
+          build pass — the precise thing the retirement section exists to
+          prevent. There is also a live caller that SHOULD keep the narrow
+          type: artifact_validate.go:340 renders `configResult` on the
+          CONFIG-ERROR path, where no corpus was scanned and there is nothing
+          to report an asserted count or a scanned root about.
+
+          A SECOND ENTRY POINT IS NOT A SECOND RENDERING PATH. The invariant is
+          that the human and JSON renderings of ONE result read ONE resolved
+          value (CLM-014/CLM-023), mirroring how the version command shares
+          reportedVersion across its two branches (root.go:107) —
+          outputValidateResult branches on jsonFlag over a single
+          ValidateResult, so both sides read the same struct. Two formatting
+          paths that each RECOMPUTE are the drift this requirement forbids.
+
+          THEN REWRITE THE DROP SITE THIS TASK OWNS: replace the lossy
+          conversion at artifact_validate.go:353-356 (`valResult :=
+          validate.ValidationResult{Violations: result.Violations}`) and its
+          `outputResult(cmd, &jsonFlag, valResult)` on line 359 with a direct
+          `outputValidateResult(cmd, &jsonFlag, result)`. The conversion is
+          DELETED, not kept alongside — leaving it means the widened fields are
+          still discarded on the real path while the tests pass against the
+          formatter in isolation. The config-error call at line 340 is
+          UNCHANGED and keeps using outputResult.
+
+          The binary identity comes from TASK-023's accessor, so the version on
+          a result and the version `backstop version` prints are the same
+          string by construction (CLM-024).
+        files:
+          - cmd/backstop/output.go
+          - cmd/backstop/root.go
+          - cmd/backstop/artifact_validate.go
+        claims:
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-022
+          - CLM-023
+          - CLM-024
+        depends_on:
+          - TASK-030
+          - TASK-031
+
+      - id: TASK-033
+        type: verification
+        title: "Verify the refusal and the record: uncovered refuses, empty passes legibly, identities are per artifact"
+        description: |
+          `backstop code check` DOES NOT EXIST (ISSUE-076) — do not run it.
+
+          Run, in order, reading TRUE exit codes:
+            1. go build -o bin/backstop ./cmd/backstop
+            2. go test ./cmd/backstop/... -race -count=1
+            3. go test ./... -race -count=1
+            4. ./bin/backstop gate
+            5. ./bin/backstop artifact validate --all
+
+          Then confirm on the REAL corpus, which no fixture can stand in for:
+            - `./bin/backstop artifact validate --all --json | jq '.artifacts | length'`
+              equals the number of artifacts discovered, and every entry has a
+              schema_identity EXCEPT the plans, which carry schemaless:true.
+            - `./bin/backstop artifact validate --all --json | jq '.artifacts_asserted'`
+              is present and non-null.
+            - `grep -n "omitempty" cmd/backstop/output.go` shows
+              ArtifactsAsserted WITHOUT it. This is one word with a whole
+              legibility requirement riding on it.
+            - `git status --porcelain` after the suite shows no modified
+              artifact files — CLM-018 asserted in the fixture, confirmed on
+              the corpus.
+            - THE LOSSY CONVERSION IS GONE, NOT BYPASSED:
+              `grep -n "validate.ValidationResult{" cmd/backstop/artifact_validate.go`
+              shows NO conversion feeding the SUCCESS render path (the
+              config-error path at line ~340 legitimately keeps its narrow
+              type). Every jq assertion above passes through that one line, so
+              a surviving conversion turns all of them into assertions about a
+              formatter nothing calls.
+            - `git diff cmd/backstop/root_test.go` is EMPTY for this phase.
+              outputResult keeps its signature precisely so
+              TestCLI_OutputResult_UsesJSONFormatter and
+              TestCLI_OutputResult_HumanMode never have to be touched; a diff
+              here means the parameter was widened after all, and that is a
+              STOP-AND-REPORT.
+        files:
+          - cmd/backstop/artifact_validate.go
+          - cmd/backstop/output.go
+          - cmd/backstop/root.go
+          - cmd/backstop/artifact_validate_assertion_test.go
+          - cmd/backstop/validate_output_identity_test.go
+        claims:
+          - CLM-010
+          - CLM-013
+          - CLM-018
+          - CLM-022
+        depends_on:
+          - TASK-031
+          - TASK-032
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 9: The gate's result surfaces (REQ-004 gate side, REQ-008 naming
+  # and loud absence)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-9
+    name: "Phase 9: GateResult carries the producing binary and the scanned root; an absent configured root fails loudly"
+    tasks:
+      - id: TASK-034
+        type: test
+        title: "RED: GateResult carries binary identity and names the scanned root plus the configured flag"
+        description: |
+          Write pkg/gate/result_identity_test.go.
+
+            TestGateResult_CarriesProducingBinaryIdentity (CLM-019)
+              GateResult carries BinaryVersion and SchemaCohort as ADDITIVE
+              fields under the UNCHANGED gate/v1 schema, alongside the existing
+              GitSHA/GeneratedAt provenance (result.go:144-145). Assert
+              SchemaVersion is still exactly "gate/v1" — the additive-ness is
+              half the claim.
+
+            TestGateResult_NamesScannedArtifactRootAndConfiguredFlag (CLM-053)
+              GateResult carries ArtifactRoot and ArtifactRootConfigured.
+              Marshal a result whose ArtifactRootConfigured is FALSE and assert
+              the key `artifact_root_configured` IS PRESENT in the JSON with
+              value false. encoding/json drops a false bool under omitempty,
+              and false is the DEFAULT and the motivating state, so an
+              omitempty there makes REQ-008 unsatisfiable in --json for exactly
+              the case it was written for. Test the serialized bytes, not the
+              struct field — the struct field is present either way.
+        files:
+          - pkg/gate/result_identity_test.go
+        claims:
+          - CLM-019
+          - CLM-053
+        test_names:
+          - TestGateResult_CarriesProducingBinaryIdentity
+          - TestGateResult_NamesScannedArtifactRootAndConfiguredFlag
+        depends_on:
+          - TASK-033
+
+      - id: TASK-035
+        type: implementation
+        title: "GREEN: five additive fields on GateResult, and ArtifactRootConfigured carries no omitempty"
+        description: |
+          Edit pkg/gate/result.go. Add to GateResult, alongside the
+          GitSHA/GeneratedAt pair ISSUE-059 added the same way:
+
+            BinaryVersion          string   `json:"binary_version,omitempty"`
+            SchemaCohort           string   `json:"schema_cohort,omitempty"`
+            SchemaIdentities       []string `json:"schema_identities,omitempty"`
+            ArtifactRoot           string   `json:"artifact_root,omitempty"`
+            ArtifactRootConfigured bool     `json:"artifact_root_configured"`
+
+          NO EXISTING FIELD CHANGES TYPE OR MEANING and SchemaVersion stays
+          "gate/v1" — these are additive under an unchanged schema.
+
+          ArtifactRootConfigured DELIBERATELY CARRIES NO omitempty, and this is
+          the single most easily "cleaned up" line in the plan. Four of the five
+          are string/slice fields whose empty value means genuinely absent, so
+          omitempty is correct for them; a false bool under omitempty is
+          DROPPED ENTIRELY, and false is the default and the motivating state.
+          Spec Review Question 11 exists to catch a reviewer who normalizes it.
+        files:
+          - pkg/gate/result.go
+        claims:
+          - CLM-019
+          - CLM-053
+        depends_on:
+          - TASK-034
+
+      - id: TASK-036
+        type: test
+        title: "RED: gate output names the root, carries the identities, refuses like the CLI, and distinguishes absent from empty"
+        description: |
+          Write cmd/backstop/gate_identity_output_test.go, driving the gate
+          command over the TASK-002 fixtures.
+
+            TestGate_ArtifactValidation_UncoveredSchemaVersionRefusesGreen
+              (CLM-011) The gate INHERITS phase 8's refusal through its
+              artifact_validation step rather than passing where the CLI would
+              refuse. It delegates to the same ValidateArtifacts, so the point
+              of the test is that the delegation is intact.
+
+            TestGateOutput_JSONRecordsSchemaIdentities (CLM-016)
+              gate --json carries the per-SCHEMA identities its artifact
+              validation asserted. Different claim from CLM-013's per-ARTIFACT
+              records; do not conflate them.
+
+            TestGate_JSONOutputCarriesBinaryIdentity (CLM-020) and
+            TestGate_HumanOutputPrintsBinaryIdentity (CLM-021)
+              Both renderings carry the producing binary's version and cohort.
+
+            TestGate_HumanAndJSONOutputNameScannedArtifactRoot (CLM-054)
+              Both renderings NAME the artifact root actually scanned.
+
+            TestGate_ConfiguredAbsentArtifactRootFailsLoudly (CLM-055) and
+            TestGate_ConfiguredEmptyArtifactRootPasses (CLM-056)
+              THE PAIR, IN THIS ONE FILE, or the distinction drifts (spec
+              Review Question 6, trap D). configured-absent-root FAILS the run
+              loudly instead of walking absent directories and reporting a
+              passing dimension.
+
+              CLM-056 IS NARROWED (spec v1.2.2) AND THE TEST MUST BE TOO:
+              assert that configured-empty-root's ROOT RESOLUTION succeeds and
+              that the artifact_validation DIMENSION reports clean over the
+              zero-artifact corpus. DO NOT assert the AGGREGATE verdict
+              (result.Pass()). Other dimensions may legitimately fail over the
+              same fixture for reasons that have nothing to do with root
+              resolution, and an aggregate assertion here lands in direct
+              conflict with CLM-069 (spec Review Question 6). The fixture's
+              .backstop/specs/ EXISTS and is empty (TASK-002), which is what
+              real init produces and what lets ExtractMandatedTests read it
+              cleanly — but "reads cleanly" is a per-dimension fact, not a
+              promise about the run as a whole.
+
+            TestGate_JSONCarriesArtifactRootConfiguredFalseWhenUnconfigured
+              (CLM-068) Against a fixture with NO artifact_root, the JSON
+              carries `artifact_root_configured: false` — the KEY PRESENT with
+              value false. Assert against the raw JSON, not an unmarshalled
+              struct: unmarshalling reintroduces the field the bug omits.
+        files:
+          - cmd/backstop/gate_identity_output_test.go
+        claims:
+          - CLM-011
+          - CLM-016
+          - CLM-020
+          - CLM-021
+          - CLM-054
+          - CLM-055
+          - CLM-056
+          - CLM-068
+        test_names:
+          - TestGate_ArtifactValidation_UncoveredSchemaVersionRefusesGreen
+          - TestGateOutput_JSONRecordsSchemaIdentities
+          - TestGate_JSONOutputCarriesBinaryIdentity
+          - TestGate_HumanOutputPrintsBinaryIdentity
+          - TestGate_HumanAndJSONOutputNameScannedArtifactRoot
+          - TestGate_ConfiguredAbsentArtifactRootFailsLoudly
+          - TestGate_ConfiguredEmptyArtifactRootPasses
+          - TestGate_JSONCarriesArtifactRootConfiguredFalseWhenUnconfigured
+        depends_on:
+          - TASK-033
+
+      - id: TASK-037
+        type: implementation
+        title: "GREEN: runGate stamps identity and root on the result, FormatHuman prints them, and a *RootMissingError is the loud failure"
+        description: |
+          Edit cmd/backstop/gate.go AND pkg/gate/output.go.
+
+          0. THE HUMAN LINES ARE EMITTED FROM FormatHuman, IN pkg/gate/output.go
+             (output.go:25, `func FormatHuman(result GateResult, noColor bool)
+             string`), AND NOWHERE ELSE. CLM-021 (human output prints the
+             producing binary's version and cohort identifier) and CLM-054
+             (both renderings print the scanned artifact root) are RENDERING
+             claims, and gate's human rendering is produced entirely inside
+             FormatHuman — cmd/backstop/gate.go:182 does nothing but call it
+             and print the returned string. Add the lines to the FormatHuman
+             header block, reading them off the GateResult fields TASK-035 put
+             there (BinaryVersion, SchemaCohort, ArtifactRoot,
+             ArtifactRootConfigured).
+
+             DO NOT satisfy these claims with a cmd.Println in runGate next to
+             the FormatHuman call. That would be a SECOND RENDERING PATH, and
+             "both renderings read ONE resolved value" (REQ-003/REQ-004) is the
+             invariant that exists to forbid exactly that: the JSON side reads
+             the GateResult fields, so the human side must read the SAME fields
+             from the SAME struct, or the two can report different things about
+             one run. It is also how the lines stay visible to the tests that
+             already exercise FormatHuman directly (pkg/gate/output_test.go,
+             output_warning_test.go, scope_base_test.go) rather than only
+             through the command.
+
+             The gate.go:182 call site is UNCHANGED by this — it keeps printing
+             whatever FormatHuman returns. The existing terminalExclusionNotice
+             Println below it (gate.go:188) is NOT a precedent to copy: it is an
+             informational aside with no JSON counterpart, whereas these fields
+             have one and must not drift from it.
+
+          1. realArtifactValidator gains the resolved artifact root and the
+             cohort (line 1568) so the gate's artifact_validation step asserts
+             on the SAME values the CLI does rather than re-deriving them per
+             step. ValidateAll's signature is unchanged; it hands both into
+             ValidateConfig.
+
+          2. runGate populates GateResult's BinaryVersion, SchemaCohort,
+             SchemaIdentities, ArtifactRoot and ArtifactRootConfigured from the
+             once-per-run resolution TASK-027 established. Both renderings read
+             ONE resolved value.
+
+          3. THE LOUD FAILURE, DISTINGUISHED BY TYPE. A *artifact.RootMissingError
+             from the root resolution fails the run non-zero. Use errors.As —
+             NEVER a string match — because RootMissingError ("configured root
+             absent", REQ-008's loud failure) and RootInvalidError ("declared
+             value malformed", a config defect) are deliberately different
+             types so callers do not have to parse messages.
+
+             AN EXISTING-BUT-EMPTY ROOT IS NOT THIS CASE (trap D). The loud
+             failure lives at the ROOT; the type-directory walkers' os.IsNotExist
+             tolerance (artifact_status.go:382/409/437) stays, which is what
+             keeps an empty root a pass.
+        files:
+          - cmd/backstop/gate.go
+          - pkg/gate/output.go
+        claims:
+          - CLM-011
+          - CLM-016
+          - CLM-020
+          - CLM-021
+          - CLM-054
+          - CLM-055
+          - CLM-056
+          - CLM-068
+        depends_on:
+          - TASK-035
+          - TASK-036
+
+      - id: TASK-038
+        type: verification
+        title: "Verify the gate surfaces: the false bool survives serialization and gate/v1 is unchanged"
+        description: |
+          `backstop code check` DOES NOT EXIST (ISSUE-076) — do not run it.
+
+          Run, in order, reading TRUE exit codes:
+            1. go build -o bin/backstop ./cmd/backstop
+            2. go test ./pkg/gate/... ./cmd/backstop/... -race -count=1
+            3. go test ./... -race -count=1
+            4. ./bin/backstop gate
+            5. ./bin/backstop artifact validate --all
+
+          Then confirm on this repo, which is itself an UNCONFIGURED-root
+          project and therefore the motivating shape:
+            - `./bin/backstop gate --all --json | jq 'has("artifact_root_configured")'`
+              is `true` and `jq '.artifact_root_configured'` is `false`. Spec
+              Review Question 11; an omitempty makes the first line false.
+            - `./bin/backstop gate --all --json | jq -r '.schema_version'` is
+              exactly "gate/v1".
+            - `jq '.binary_version, .schema_cohort, .artifact_root'` are all
+              populated, and binary_version equals
+              `./bin/backstop version --json | jq -r .version`.
+            - `grep -n "RootMissingError" cmd/backstop/gate.go` shows an
+              errors.As, not a strings.Contains.
+            - THE HUMAN LINES COME FROM THE FORMATTER, NOT FROM THE COMMAND:
+              `grep -n "BinaryVersion\|SchemaCohort\|ArtifactRoot" pkg/gate/output.go`
+              returns hits inside FormatHuman, and
+              `grep -n "Println\|Printf" cmd/backstop/gate.go` shows NO new
+              print of a version, cohort or artifact root beside the
+              FormatHuman call. A second rendering path is the drift CLM-021
+              and CLM-054 exist to prevent, and it is invisible to a test that
+              only reads the command's combined stdout.
+        files:
+          - pkg/gate/result.go
+          - pkg/gate/output.go
+          - cmd/backstop/gate.go
+          - pkg/gate/result_identity_test.go
+          - cmd/backstop/gate_identity_output_test.go
+        claims:
+          - CLM-019
+          - CLM-053
+          - CLM-055
+          - CLM-056
+          - CLM-068
+        depends_on:
+          - TASK-035
+          - TASK-037
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 10: The surfacing scan (REQ-008) — the clause that actually closes
+  # the backstop-runtime case
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-10
+    name: "Phase 10: FindUngatedArtifacts — per-kind, enumerated exclusions, ProjectWide findings"
+    tasks:
+      - id: TASK-039
+        type: test
+        title: "RED: the per-kind predicate, on every shape including the one a containment test cannot see"
+        description: |
+          Write pkg/gate/ungated_artifacts_test.go against the contract:
+
+            func FindUngatedArtifacts(projectRoot string, root artifact.Root) ([]UngatedArtifact, error)
+            type UngatedArtifact struct { Path string; Kind artifact.Kind; ExpectedDir string; Root string }
+
+          Build trees with t.TempDir() so the walk starts inside a tree you
+          control. Every finding must carry Path, Kind, ExpectedDir
+          (== Root.Dir(Kind), where discovery WOULD have found it) and Root.
+
+            TestFindUngatedArtifacts_SurfacesFileOutsideItsExpectedTypeDirectory
+              (CLM-057) A .spec.md sitting in docs/ is surfaced, with
+              ExpectedDir naming specs/.
+
+            TestFindUngatedArtifacts_SurfacesInsideDefaultRootButWrongTypeDirectory
+              (CLM-058) THE CLAIM THAT SEPARATES A CORRECT IMPLEMENTATION FROM
+              A PLAUSIBLE ONE. An UNCONFIGURED root, with bundles at
+              .backstop/bundles/. Those files sit INSIDE the default root — the
+              project root contains itself — so a root-containment test reports
+              NOTHING here while passing every other test in this family. This
+              is the backstop-runtime shape the requirement was written for. If
+              this is your only red, the predicate is containment, not per
+              kind.
+
+            TestFindUngatedArtifacts_SurfacesFileOutsideConfiguredRoot (CLM-059)
+              With a CONFIGURED root, a file outside it is surfaced by the SAME
+              per-kind rule — one rule covers both shapes.
+
+            TestFindUngatedArtifacts_CorrectlyPlacedCorpusProducesNoFindings
+              (CLM-060) A corpus whose artifact-shaped files all sit directly
+              in their expected type directories produces ZERO findings. This
+              is why backstop-core passes without a framework-exception
+              carve-out — because its files are placed correctly, not because
+              it is exempt.
+
+            TestFindUngatedArtifacts_ReportsWithoutWideningRootOrTypeDirectories
+              (CLM-061) Surfacing reports without ADOPTING: after the scan the
+              scanned root and type directories are unchanged and the surfaced
+              files are not validated as corpus. Assert discovery over the same
+              tree still excludes them.
+
+            TestFindUngatedArtifacts_ExcludesEnumeratedNonCorpusTreesButWalksDotBackstop
+              (CLM-062) Plant artifact-shaped files under .git/, vendor/,
+              node_modules/, testdata/, prototype/ and .backstop/packs/ and
+              require ZERO findings from them — while an artifact-shaped file
+              directly under .backstop/ IS reachable by the scan. Both halves
+              in one test: the exclusions must not be so wide that the
+              unconfigured motivating case is excluded away before it can be
+              found (trap B).
+
+            TestFindUngatedArtifacts_NestedArtifactIsUngatedButStillDiscovered
+              (CLM-063) A .spec.md nested one level BELOW specs/ IS surfaced —
+              the status walk is non-recursive (os.ReadDir, walkArtifactDir at
+              artifact_status.go:379-404) so it genuinely never reaches it —
+              while remaining DISCOVERED and schema-validated by the recursive
+              CLI walk. Assert BOTH facts, and assert the finding does not
+              describe the file as undiscovered. Also assert a bare
+              SUBDIRECTORY inside a type directory is NOT itself a finding;
+              only artifact-shaped FILES' locations are judged.
+
+            TestFindUngatedArtifacts_RelativeAndAbsoluteProjectRootAgree
+              (CLM-067) Call it with the relative and the absolute form of ONE
+              project root and require IDENTICAL findings. A mixed pair yields
+              zero findings or one per artifact and both look like a working
+              implementation (trap C, spec Review Question 10).
+        files:
+          - pkg/gate/ungated_artifacts_test.go
+        claims:
+          - CLM-057
+          - CLM-058
+          - CLM-059
+          - CLM-060
+          - CLM-061
+          - CLM-062
+          - CLM-063
+          - CLM-067
+        test_names:
+          - TestFindUngatedArtifacts_SurfacesFileOutsideItsExpectedTypeDirectory
+          - TestFindUngatedArtifacts_SurfacesInsideDefaultRootButWrongTypeDirectory
+          - TestFindUngatedArtifacts_SurfacesFileOutsideConfiguredRoot
+          - TestFindUngatedArtifacts_CorrectlyPlacedCorpusProducesNoFindings
+          - TestFindUngatedArtifacts_ReportsWithoutWideningRootOrTypeDirectories
+          - TestFindUngatedArtifacts_ExcludesEnumeratedNonCorpusTreesButWalksDotBackstop
+          - TestFindUngatedArtifacts_NestedArtifactIsUngatedButStillDiscovered
+          - TestFindUngatedArtifacts_RelativeAndAbsoluteProjectRootAgree
+        depends_on:
+          - TASK-038
+
+      - id: TASK-040
+        type: implementation
+        title: "GREEN: FindUngatedArtifacts and UngatedArtifact in pkg/gate/artifact_status.go"
+        description: |
+          Add FindUngatedArtifacts and UngatedArtifact to
+          pkg/gate/artifact_status.go — the same file as ResolveArtifactStatus,
+          because the status walk is the scan's CALIBRATION POINT and the two
+          must be read together.
+
+          The algorithm, exactly:
+            1. filepath.Abs the projectRoot ON ENTRY. Root.Path is already
+               absolute by ResolveRoot's guarantee; comparing an absolute
+               Root.Dir(kind) against a relative walk path yields either zero
+               findings or one per artifact (trap C).
+            2. Walk projectRoot. Skip the ENUMERATED non-corpus trees: the five
+               shared names from TASK-005's accessor — .git, vendor,
+               node_modules, testdata, prototype — PLUS installed pack trees
+               under .backstop/packs. `.backstop` ITSELF IS WALKED, unlike in
+               discovery's skip set. Do not express this as "whatever discovery
+               skips" (trap B): discovery skips .backstop wholesale except when
+               it is the root, and inheriting that by reference makes this
+               clause report nothing in the unconfigured motivating case.
+            3. Classify each remaining file with artifact.ClassifyFilename —
+               the SAME predicate discovery uses, so the set the gate picks up
+               and the set it reports leaving out are defined by one rule.
+            4. Report every classified file whose PARENT DIRECTORY is not
+               Root.Dir(kind). PER KIND, NOT ROOT CONTAINMENT (trap A). The
+               helper is named FindUngatedArtifacts — renamed from an earlier
+               FindOutOfRootArtifacts — precisely so the name cannot re-suggest
+               containment.
+            5. Populate ExpectedDir = Root.Dir(Kind) and Root = root.Path.
+               ExpectedDir is what makes the report actionable rather than
+               merely accusatory, and it is the same string SPEC-070's REQ-025
+               consumes.
+
+          UNGATED IS NOT UNDISCOVERED and the report must not conflate them:
+          CLI discovery walks the resolved root RECURSIVELY, so a file nested
+          below its own type directory is discovered and schema-validated while
+          still being ungated by the non-recursive status walk. Every file in
+          the surfaced set IS ungated; describe it as such, and only say
+          undiscovered where discovery genuinely does not reach.
+
+          ALSO ADD, in pkg/gate, the conversion from []UngatedArtifact to
+          []Violation, with ProjectWide set to true on every one. It lives here,
+          in ONE place, so the marking cannot be forgotten at a call site —
+          TASK-042 consumes it and CLM-064 tests it.
+        files:
+          - pkg/gate/artifact_status.go
+        claims:
+          - CLM-057
+          - CLM-058
+          - CLM-059
+          - CLM-060
+          - CLM-061
+          - CLM-062
+          - CLM-063
+          - CLM-067
+        depends_on:
+          - TASK-039
+
+      - id: TASK-041
+        type: test
+        title: "RED: ungated findings survive diff-scoped filtering and reach the gate's output end to end"
+        description: |
+          Two files.
+
+          pkg/gate/ungated_scope_test.go:
+            TestUngatedArtifactFindings_SurviveDiffScopedFiltering (CLM-064)
+              Take findings from a real FindUngatedArtifacts run, convert them
+              through the production conversion TASK-040 added, and require
+              filterViolations (scope.go:302-326) KEEPS them under a diff scope
+              that contains none of the named files. filterViolations keeps a
+              violation only when it is ProjectWide or its File is in scope, and
+              an ungated finding names a file that is BY DEFINITION not in the
+              diff — so a bare `backstop gate` would silently drop exactly the
+              finding REQ-008 exists to surface (Sharp Edge 3). Drive the test
+              through the production conversion, not through a hand-built
+              Violation literal: a literal with ProjectWide:true proves only
+              that filterViolations works, which is already tested elsewhere.
+
+          cmd/backstop/gate_ungated_e2e_test.go:
+            TestGate_UngatedBundlesUnderDotBackstopSurfacedInOutput (CLM-065)
+              THE BACKSTOP-RUNTIME CASE, END TO END. Run the gate over the
+              unconfigured-dotbackstop-bundles fixture and require the output
+              names the bundles under .backstop/bundles — which discovery does
+              not reach AND the status walk does not gate — with the finding
+              naming BOTH facts. Run it DIFF-SCOPED (spec Review Question 2) so
+              the ProjectWide marking is exercised on the real path rather than
+              only in the unit test.
+        files:
+          - pkg/gate/ungated_scope_test.go
+          - cmd/backstop/gate_ungated_e2e_test.go
+        claims:
+          - CLM-064
+          - CLM-065
+        test_names:
+          - TestUngatedArtifactFindings_SurviveDiffScopedFiltering
+          - TestGate_UngatedBundlesUnderDotBackstopSurfacedInOutput
+        depends_on:
+          - TASK-038
+
+      - id: TASK-042
+        type: implementation
+        title: "GREEN: ValidateAll appends the ungated findings, ProjectWide-marked, from the single call site"
+        description: |
+          Edit cmd/backstop/gate.go. realArtifactValidator.ValidateAll keeps its
+          signature and WIDENS ITS RETURN SET: after converting
+          ValidateArtifacts' violations it appends
+          gate.FindUngatedArtifacts(projectRoot, root) through TASK-040's
+          ProjectWide-marking conversion, so the findings land on the
+          artifact_validation step.
+
+          THIS IS THE ONLY PLACE THE UNGATED SCAN IS INVOKED. A second call
+          site would let the two disagree about the root, which is the class of
+          bug this whole spec is about.
+
+          The ProjectWide marking is the structural exemption build/typecheck
+          findings already use. Without it filterViolations drops every finding
+          on a bare diff-scoped `backstop gate` — a one-line property with a
+          whole requirement riding on it (Sharp Edge 3).
+        files:
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-064
+          - CLM-065
+        depends_on:
+          - TASK-040
+          - TASK-041
+
+      - id: TASK-043
+        type: verification
+        title: "Verify the scan: per-kind not containment, one call site, and this repo still produces zero findings"
+        description: |
+          `backstop code check` DOES NOT EXIST (ISSUE-076) — do not run it.
+
+          Run, in order, reading TRUE exit codes:
+            1. go build -o bin/backstop ./cmd/backstop
+            2. go test ./pkg/gate/... ./cmd/backstop/... -race -count=1
+            3. go test ./... -race -count=1
+            4. ./bin/backstop gate
+            5. ./bin/backstop gate --all
+
+          Then confirm the properties no single unit test pins:
+            - `grep -rn "FindUngatedArtifacts(" cmd/ pkg/ --include='*.go' | grep -v _test.go`
+              shows exactly ONE production call site.
+            - `grep -rn "FindOutOfRootArtifacts" --include='*.go' .` returns
+              NOTHING — the old containment-suggesting name must not survive.
+            - THIS REPO PRODUCES ZERO UNGATED FINDINGS, and that is EVIDENCE,
+              not luck. Verified 2026-08-13 in the spec: every artifact-shaped
+              file in backstop-core outside the excluded trees sits directly in
+              its expected type directory — 116 issues, 102 plans, 51 specs,
+              27 directives, 26 bundles, 18 adrs, zero strays. Sixty-seven
+              further artifact-shaped files DO live under testdata/, prototype/
+              and .backstop/packs/, so if the gate FLOODS, the exclusion set is
+              broken, not the corpus.
+            - `capabilities/CAP-001-pack-gate-enforcement/capability.yml`
+              produces NO finding (trap E). It escapes because ClassifyFilename
+              matches `.capability.yml` and not a bare `capability.yml`. If it
+              is surfaced, someone "improved" the pattern.
+        files:
+          - pkg/gate/artifact_status.go
+          - cmd/backstop/gate.go
+          - pkg/gate/ungated_artifacts_test.go
+          - pkg/gate/ungated_scope_test.go
+          - cmd/backstop/gate_ungated_e2e_test.go
+        claims:
+          - CLM-058
+          - CLM-060
+          - CLM-062
+          - CLM-064
+          - CLM-065
+        depends_on:
+          - TASK-040
+          - TASK-042
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 11: Comprehensive verification — code AND artifacts
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-11
+    name: "Phase 11: Full kill chain over code and artifacts, plus the spec's Review Questions"
+    tasks:
+      - id: TASK-044
+        type: verification
+        title: "Full gate: whole-module suite, coverage floor, and the complete artifact corpus"
+        description: |
+          `backstop code check` DOES NOT EXIST (ISSUE-076) — do not run it.
+
+          THE COMPLETE VERIFICATION, in order, reading TRUE exit codes from
+          each command itself and never through a pipe:
+
+            1. go build -o bin/backstop ./cmd/backstop
+            2. go test ./pkg/artifact/... ./pkg/schema/... ./pkg/config/... \
+                 ./pkg/validate/... ./pkg/gate/... ./pkg/scaffold/... \
+                 ./cmd/backstop/... -race -coverprofile=cover.out
+               (the spec's own test_command; coverage floor 80)
+            3. go test ./... -race -count=1
+            4. ./bin/backstop gate
+            5. ./bin/backstop gate --all
+            6. ./bin/backstop artifact validate --all
+               THIS PLAN EDITED AN ARTIFACT SCHEMA
+               (artifacts/backstop-yml/v1/schema.json), so the artifact
+               dimension is not optional here.
+
+          ALL gate dimensions, never filtered to what was touched.
+
+          Then walk the spec's REVIEW QUESTIONS and answer each with a command
+          and its output, not an opinion:
+            1  packs still excluded under a .backstop root — the CLM-046 test.
+            2  ungated findings marked ProjectWide — the diff-scoped run.
+            2a predicate per kind, not containment — CLM-058's fixture.
+            3  resolveVersion unchanged for (devel)/+/pseudo-version.
+            4  computeCohortID actually deleted, no second cohort string.
+            5  identity changes when ONLY artifacts/base/schema.json is revised.
+            6  configured-absent fails while configured-empty RESOLVES AND
+               VALIDATES CLEAN — and the empty-root test asserts the
+               root-resolution / artifact_validation outcome, NOT the
+               aggregate Pass: true (spec v1.2.2's narrowing of CLM-056).
+            7  validate and gate resolve the same root from a subdirectory.
+            8  artifact_root in BOTH pkg/config and the backstop.yml schema.
+            9  NO capability-comparison or version-ORDERING mechanism was
+               introduced — that is BUNDLE-020's and its questions are open.
+            10 Root.Path absolute at every call site; relative and absolute
+               project roots agree, including the gate.go:77 "." fallback.
+            11 artifact_root_configured present as false when unconfigured.
+            12 validate --json carries an identity for EACH artifact.
+            14 the new diagnostics on version/validate/gate honor the
+               cobra-cli-standards stdout/stderr separation rule (CLI-004).
+               The pack declares no STD-CLI-NNN identifier this spec could bind
+               in `follows` — DO NOT INVENT ONE. Confirm the behavior and
+               ESCALATE the missing standard identifier.
+
+          FOUR ITEMS ARE REPORTED, NOT FIXED, and reporting them is part of
+          finishing. (A FIFTH — the `specDir` hardcoding at gate.go:652 — WAS
+          on this list and is NOT any more: SPEC-068 v1.2.1 added REQ-007's
+          fifth consumer and CLM-069, and phase-7b BUILDS it. Do not re-report
+          it as deferred.):
+            - Review Question 13: BUNDLE-003's Spec Seeds table still lists
+              REQ-022 under this seed while SPEC-068 pins seven of the eight.
+              That ownership note is a BUNDLE edit through the bundle agents.
+            - Sharp Edge 7: SPEC-005 still describes the path-derived cohort in
+              its REQ-006 prose and needs an alignment pass through the artifact
+              agents. It is a text change, not a test change.
+            - COMPANION SPEC EDIT REQUIRED (TASK-005): pkg/artifact/layout.go
+              gains an ELEVENTH exported symbol — the shared non-corpus
+              directory-name accessor Sharp Edge 12 / trap B demand — while
+              SPEC-068's contract block for that file declares only ten. It
+              MUST be exported (its two callers are in different packages,
+              cmd/backstop and pkg/gate) so unexporting is not an available
+              alternative, and the contracts gate will NOT catch it: that
+              dimension checks declared-present and declared-absent, never
+              undeclared-extra. Report the exact symbol name and signature the
+              implementation landed, so the spec-side addition goes through the
+              artifact agents rather than by hand. This one is not cosmetic —
+              SPEC-069 and SPEC-070 read SPEC-068's contract block as the list
+              of what pkg/artifact offers them.
+            - SPEC-068'S OWN PROSE CONTRADICTS ITS CONTRACT NOTE ON CLM-035.
+              The spec's Implementation step 2 (spec line ~1031) reads
+              "returns `*RootMissingError` for a configured root that is absent
+              OR IS NOT A DIRECTORY" — the direct opposite of the
+              RootInvalidError contract note ("Covers absolute, escaping, and
+              not-a-directory declarations (CLM-035/036/037)") that TASK-004
+              and TASK-005 correctly follow. THIS PLAN RESOLVED IT IN FAVOR OF
+              THE CONTRACT NOTE, and the tests it mandates pin that resolution.
+              But an implementer or reviewer reading the spec's Implementation
+              section gets the opposite instruction, and PLAN-SPEC-070's doctor
+              branches on the two types — so the drift is live, not editorial.
+              It is a SPEC-PROSE correction through the spec-author track, not
+              a code or test change. Report the exact contradicting sentence.
+          None of the four is edited by this plan. Surface all four to the
+          founder.
+
+          ONE ADDITIONAL CONFIRMATION THIS PHASE OWNS, because phase-7b landed
+          after the rest of the plan was written: `./bin/backstop gate --all`
+          over the dotbackstop-root fixture must show test_verification,
+          test_substantiveness, coverage and contracts reading
+          `.backstop/specs` — the fifth-consumer fix, exercised through the
+          shipped binary rather than only through buildGateSteps directly.
+          `./bin/backstop waiver list` and the baseline-generate path assemble
+          the SAME step list, so confirm those two here as well: they are the
+          two call sites a partial fix would have left behind.
+        files:
+          - pkg/artifact/layout.go
+          - pkg/schema/cohort.go
+          - pkg/gate/artifact_status.go
+          - pkg/gate/result.go
+          - pkg/gate/output.go
+          - cmd/backstop/gate.go
+          - cmd/backstop/baseline.go
+          - cmd/backstop/waiver.go
+          - cmd/backstop/artifact_validate.go
+          - cmd/backstop/output.go
+          - cmd/backstop/version.go
+          - cmd/backstop/root.go
+          - pkg/config/config.go
+          - artifacts/backstop-yml/v1/schema.json
+        claims:
+          - CLM-001
+          - CLM-006
+          - CLM-011
+          - CLM-013
+          - CLM-019
+          - CLM-024
+          - CLM-041
+          - CLM-051
+          - CLM-052
+          - CLM-058
+          - CLM-064
+          - CLM-068
+          - CLM-069
+        depends_on:
+          - TASK-042
+          - TASK-043
+          - TASK-047
+          - TASK-048
