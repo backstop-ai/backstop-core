@@ -1,0 +1,2755 @@
+---
+plan_id: PLAN-SPEC-070
+spec_id: SPEC-070
+spec_version: "1.1.1"
+created: "2026-08-14"
+status: draft
+test_command: "go test ./cmd/backstop/... -race -coverprofile=cover.out"
+coverage_threshold: 80
+
+notes: |
+  ─────────────────────────────────────────────────────────────────────────
+  WHAT THIS PLAN BUILDS
+  ─────────────────────────────────────────────────────────────────────────
+  `backstop doctor`: one cobra command in `cmd/backstop` plus ONE declared
+  check REGISTRY that every consumer reads. Two new non-test files
+  (`doctor.go`, `doctor_checks.go`), one one-line edit to `root.go`, and one
+  added function in `init.go`. SEVEN checks ship:
+
+    config-present   config-loads   git-repository   packs-installed
+    build-identity   toolchain-runs   artifact-layout
+
+  Nothing outside `cmd/backstop` is written by this plan. If a task finds
+  itself editing `pkg/artifact`, `pkg/gate`, `pkg/config` or `pkg/pack`, it
+  has misread the spec — those surfaces are SPEC-068's and are CONSUMED
+  here, never authored here. STOP and report.
+
+  ─────────────────────────────────────────────────────────────────────────
+  ★ CROSS-PLAN BLOCKING — READ BEFORE STARTING PHASE 4 ★
+  ─────────────────────────────────────────────────────────────────────────
+  Three of this spec's seven requirements consume surfaces that DO NOT EXIST
+  ON DISK as of 2026-08-14 (verified: `pkg/artifact` has no ResolveRoot,
+  `pkg/gate` has no FindUngatedArtifacts, `cmd/backstop/init.go` does not
+  exist, `cmd/backstop/version.go` has no BuildIdentity). They are being
+  built by two plans authored in parallel with this one:
+
+    plans/PLAN-SPEC-068-trustworthy-green-guards.plan.yml
+    plans/PLAN-SPEC-069-backstop-init.plan.yml
+
+  Both were EMPTY SCAFFOLDS when this plan was FIRST written, so its first
+  revision could cite no task id in either. BOTH ARE NOW FULLY POPULATED and
+  this revision cites their REAL gating task ids. The blocking is expressed as
+  PHASE ORDER, plus a named upstream task, plus an explicit precondition on
+  each blocked phase:
+
+    Phases 1–2  UNBLOCKED. REQ-001, REQ-002, REQ-003. They consume only
+                surfaces that exist at HEAD today. START HERE.
+
+    Phase 3     PARTIALLY BLOCKED on PLAN-SPEC-069 phase 14 — the SHARED
+                toolchain prober.
+                  • TASK-009 and TASK-026 (fixture DATA) are UNBLOCKED and
+                    may be authored immediately.
+                  • TASK-011 and TASK-012 are BLOCKED on PLAN-SPEC-069
+                    TASK-042 (the prober implementation), verified by its
+                    TASK-043 — which carries an explicit hand-off check that
+                    THIS plan is thereby unblocked.
+                SEQUENCING, confirmed with PLAN-SPEC-069's author: whichever
+                of the two plans lands SECOND REUSES the helper rather than
+                recreating it. If you arrive at TASK-012 and
+                pack_entrypoint_prober.go already exists, that is the
+                expected state — call it. If it does not, the block is real
+                and TASK-042 has not landed; report it rather than writing
+                the copy that would make you the second implementation.
+                Constant N states what doctor consumes and what it owns. This
+                blocking is NEW in this revision: `checkToolchainRuns`
+                previously reimplemented the prober's three execution steps,
+                and the founder ruled that a duplicate execution route is not
+                acceptable — doctor CALLS the shared helper.
+
+    Phase 4     BLOCKED on PLAN-SPEC-068 TASK-023 (`BuildIdentity` and
+                `resolveBuildIdentity` in cmd/backstop/version.go) and
+                TASK-024 (versionCmd rewritten onto them); its TASK-025 is
+                the verification that closes that phase.
+
+    Phase 5     BLOCKED on THREE PLAN-SPEC-068 tasks, all of them:
+                  • TASK-005 — pkg/artifact/layout.go: `Kind`, `LayoutFor`,
+                    `ClassifyFilename`, `Root`, `ResolveRoot`, `Root.Dir`,
+                    and the two typed errors. Verified by its TASK-006.
+                  • TASK-008 — `Config.ArtifactRoot` plus the `artifact_root`
+                    property in the backstop.yml JSON schema. Verified by its
+                    TASK-009.
+                  • TASK-040 — `FindUngatedArtifacts` and `UngatedArtifact`
+                    in pkg/gate/artifact_status.go. Verified by its TASK-043.
+
+    Phase 6     BLOCKED on PLAN-SPEC-069 TASK-045 (`newInitCommand`, the task
+                that CREATES cmd/backstop/init.go and registers it), verified
+                by its TASK-046; and on `pkg/initialize`'s `StepReport` /
+                `Outcome` existing, which its TASK-050 full gate closes out.
+
+  A CITED TASK ID IS A POINTER, NOT A GUARANTEE. Task numbering in a sibling
+  plan can move under revision exactly as this plan's did. Every blocked phase
+  below therefore still opens with a precondition that verifies the SURFACE in
+  COMPILED CODE — `go doc`/grep against the real package. The task id tells you
+  WHO owes it; the precondition tells you whether it has arrived.
+
+  ─────────────────────────────────────────────────────────────────────────
+  ★ cmd/backstop/root.go IS SHARED BY ALL THREE PLANS ★
+  ─────────────────────────────────────────────────────────────────────────
+  Three concurrent plans edit this one file, each adding ONE command
+  registration to the existing AddCommand call:
+
+    PLAN-SPEC-068  TASK-024 (versionCmd rewrite, deletes computeCohortID),
+                   TASK-032 (validate envelope), and its TASK-025/TASK-033/
+                   TASK-044 verification tasks list the file
+    PLAN-SPEC-069  TASK-045 (registers initCmd), verified by TASK-046
+    THIS PLAN      TASK-007 (registers doctorCmd)
+
+  The CONTENT risk is low — three additive, non-overlapping edits — but this
+  plan's phases 1–2 are marked UNBLOCKED and "START HERE", so TASK-007 can and
+  will edit root.go while both siblings are live. That is stated here rather
+  than assumed: expect to rebase or re-apply a one-line AddCommand edit, and if
+  root.go arrives already carrying a sibling's registration, ADD yours beside
+  it — never revert or rewrite theirs. This needs no hard sequencing block of
+  the kind cmd/backstop/init.go carries (phase 6), because init.go is a whole
+  FILE this plan does not create and root.go is a line this plan appends.
+
+  A blocked phase's FIRST task must begin by verifying the surface exists in
+  COMPILED CODE — `go doc`/grep against the real package, not against the
+  citing spec. If it does not, STOP and report the block; do not stub it, do
+  not write a local copy, do not "temporarily" define the type here. A local
+  definition of `ResolveRoot` or a hand-rolled artifact walk is the fourth
+  hardcoding bundle REQ-029 exists to delete (Review Question 1).
+
+  SIGNATURES AS RE-READ FROM THE SOURCE SPECS ON 2026-08-14 (SPEC-068 at
+  spec_version 1.2.0 `draft`, SPEC-069 at 1.3.0 `draft` — both later than
+  the 1.0.0 SPEC-070's Dependencies section was written against, so this
+  re-read is the one SPEC-070 demanded, and it is STILL a spec reading, not
+  a code reading):
+
+    pkg/artifact:
+      func ResolveRoot(projectRoot, declared string) (Root, error)
+      type Root struct { Path, Declared string; Configured bool }   // Path ABSOLUTE+cleaned
+      func (Root) Dir(kind Kind) string
+      func ClassifyFilename(name string) (Kind, bool)
+      func LayoutFor(kind Kind) (KindLayout, bool)
+      type RootMissingError struct { Declared string; Path string }
+      type RootInvalidError struct { Declared string; Reason string }
+    pkg/gate:
+      func FindUngatedArtifacts(projectRoot string, root artifact.Root) ([]UngatedArtifact, error)
+      type UngatedArtifact struct { Path string; Kind artifact.Kind; ExpectedDir string; Root string }
+    pkg/config:
+      Config.ArtifactRoot string `yaml:"artifact_root,omitempty"`
+    cmd/backstop/version.go:
+      type BuildIdentity struct { Version, Commit, BuildDate string }
+      func resolveBuildIdentity(injectedVersion, injectedCommit, injectedDate string, info *debug.BuildInfo, ok bool) BuildIdentity
+    pkg/initialize:
+      type Outcome int                                  ← VALUES NOT DECLARED IN SPEC-069
+      type StepReport struct { Step string; Outcome Outcome; Detail string }
+      type Result struct { Steps []StepReport; ... }
+      step identifier for the toolchain probe: "toolchain" (step 7 of ten)
+
+  THE ONE KNOWN HOLE: SPEC-069 declares `Outcome` as a type and never names
+  its CONSTANTS. `doctorGuidanceForSteps` must test for a FAILED outcome, so
+  phase 6 cannot be written until `pkg/initialize` exists and the failure
+  constant can be read off the compiled package. Read it; do not guess a
+  name like `OutcomeFail`.
+
+  ─────────────────────────────────────────────────────────────────────────
+  ★ REQ-024 IS CARVED OUT — DO NOT CLOSE IT FROM HERE ★
+  ─────────────────────────────────────────────────────────────────────────
+  Bundle REQ-024 (installed runtime vs pack-declared stack policy) is
+  DELIBERATELY not implemented. No pack-manifest stack-policy surface exists
+  (verified at HEAD: `pkg/pack/manifest.go` declares none), and creating one
+  is BUNDLE-004's territory. ISSUE-121 carries the gap.
+
+  NO TASK IN THIS PLAN MAY: add a `stack_policy:` block or field, probe a
+  runtime's version, hardcode an LTS list, or register an eighth check.
+  CLM-051 is the tripwire and it lands in phase 5
+  (TestDoctor_RegistersNoStackPolicyCheckAndReadsNoStackPolicySurface). A
+  task that "helpfully" closes REQ-024 reds that test and is scope creep,
+  not progress. The same prohibition covers the other tempting additions
+  named in the spec's Sharp Edges: orphan reservation tags (an explicitly
+  untaken founder call), gitleaks presence, `.gitignore` completeness.
+
+  ─────────────────────────────────────────────────────────────────────────
+  ★ ENVIRONMENT AND TOOLING — MEASURED 2026-08-14, NOT ASSUMED ★
+  ─────────────────────────────────────────────────────────────────────────
+  (1) THERE IS NO `backstop code check` COMMAND. Verified: `./bin/backstop
+      --help` lists artifact, baseline, commands, completion, gate, help,
+      pack, recipe, version, waiver. Every verification task below therefore
+      prescribes `backstop gate` (bare = diff-scoped vs merge-base plus
+      untracked) or `backstop gate --all`. Do not invent a subcommand.
+
+  (2) THE GATE NEEDS `~/go/bin` ON PATH. Measured on this machine today:
+      `go-arch-lint`, `actionlint`, `ast-metrics` and `goreleaser` live in
+      /Users/bmanson/go/bin, and that directory is NOT on the agent shell's
+      PATH (`go`, `golangci-lint`, `semgrep` are on it; the four above are
+      not). Without the prefix the gate HALTS at pack_engines with
+      `required tool "go-arch-lint" not found on PATH` and never reaches
+      substantiveness, coverage or contracts — a phantom red that hides real
+      findings. Every gate invocation below is written as:
+
+        PATH="/Users/bmanson/go/bin:$PATH" ./bin/backstop gate
+
+      Do not install anything; do not report an environment blocker.
+
+  (3) REBUILD `bin/backstop` BEFORE EVERY GATE RUN, unconditionally:
+      `go build -o bin/backstop ./cmd/backstop`. The binary statically links
+      everything; gating with a stale binary produces a verdict about code
+      that is not in it, and it reads exactly like a real result.
+
+  (4) TRUE EXIT CODES, NEVER A GREP PIPE. Read `$?` from the command itself
+      (`cmd; echo $?`). A suite that fails to COMPILE emits no "FAIL" line,
+      so `go test ... | grep -q FAIL` reports success for a tree that does
+      not build. In zsh `${PIPESTATUS[0]}` is the FIRST element (1-indexed).
+
+  (5) `backstop gate --file` TAKES EXACTLY ONE FILE PER INVOCATION
+      (ISSUE-093). Never chain `--file a --file b`; run it twice.
+
+  ─────────────────────────────────────────────────────────────────────────
+  DESIGN CONSTANTS THIS PLAN FIXES (so every task agrees)
+  ─────────────────────────────────────────────────────────────────────────
+  A. THE REGISTRY GROWS ACROSS PHASES, AND THAT IS DELIBERATE.
+     Phase 2 registers four checks, phase 3 a fifth, phase 4 a sixth, phase
+     5 the seventh. Every REQ-002 claim except CLM-051 is REGISTRY-RELATIVE
+     ("every registered check", "the same registry", "unique and kebab") and
+     therefore passes at four and at seven. CLM-051 is the ONLY absolute
+     assertion ("exactly the declared set") and it is mandated in PHASE 5,
+     the phase that completes the set. Do not write CLM-051's test early: it
+     would be red for three phases and the phase gates would be dishonest.
+
+  B. ONE RESULT PER CHECK, ALWAYS (CLM-009). `toolchain-runs` executing four
+     entrypoints returns ONE `doctorResult` whose Message enumerates each
+     entrypoint separately (CLM-035) and whose Status is the WORST outcome
+     among them (fail > warn > pass). It does not return four results, and
+     it does not register four checks.
+
+  C. REPORT ORDER IS DETERMINISTIC AT TWO LEVELS. The registry is a SLICE
+     (CLM-007). But `Manifest.Engines` is a `map[string]EngineSpec`
+     (pkg/pack/manifest.go:31), so `toolchain-runs` MUST sort the engine
+     keys (and iterate packs in the gathered slice order) before executing —
+     otherwise the per-entrypoint lines inside its one message ride Go map
+     iteration and CLM-007's byte-identical-across-runs assertion fails
+     intermittently. Sort by (pack name, engine key).
+
+  D. THE TRUST GATE HAS A SHAPE THAT DECIDES THE FIXTURES.
+     `checkEngineToolAllowed` (cmd/backstop/pack_gate.go:812) returns nil
+     IMMEDIATELY when `binding.Provision == nil` — the Layer-0 exemption.
+     So:
+       • a fixture binding with NO `provision:` block runs whatever it
+         declares (this is how the real go-toolchain pack declares
+         `go build` / `go test`), and
+       • CLM-037's "not on the trusted-tool allowlist" case is ONLY
+         reachable with a binding that DOES carry `provision:` naming a tool
+         absent from `engine.TrustedToolAllowlist()` (semgrep, ast-grep,
+         grep, rg, oxlint, bun, tsc, prettier). A fixture declaring
+         `command: curl ...` with no provision block would be ALLOWED and
+         the claim would prove nothing.
+
+  E. `splitCommand` IS `strings.Fields` (pack_gate.go:887). No quote
+     handling, no escaping, no shell. That is exactly what makes CLM-038
+     assertable: a declared command carrying `;` or `$(...)` tokenizes into
+     LITERAL argv entries. Assert BOTH directions — the literal-named side
+     effect exists, and the injected side effect does NOT.
+
+  F. THE SIDE-EFFECT CONVENTION FOR THE gate_type MATRIX (CLM-024..030).
+     The spec's Verification section and Review Question 2 forbid asserting
+     the selection LIST; "not executed" must be the ABSENCE of a real side
+     effect. Fixture packs therefore declare, one binding per gate_type,
+     a command that WRITES A DISTINCT FILE when it runs:
+
+       gate_type: test            command: go build -o test.marker ./...
+       gate_type: build           command: go build -o build.marker ./...
+       gate_type: lint            command: go build -o lint.marker ./...
+       gate_type: findings        command: go build -o findings.marker ./...
+       gate_type: coverage        command: go build -o coverage.marker ./...
+       gate_type: substantiveness command: go build -o subst.marker ./...
+       gate_type: contracts       command: go build -o contracts.marker ./...
+
+     `go` is present on PATH by definition in this repo and needs no
+     `provision:` block (constant D). The fixture project carries a
+     one-file Go module for `./...` to build. After the check runs, exactly
+     `test.marker` and `build.marker` exist on disk; the other five must
+     NOT. That is a real execution through the real dispatch path, and the
+     absence is a filesystem fact rather than a reading of the code.
+
+     NOTE the coverage row specifically: the real typescript-toolchain pack
+     declares near-identical vitest commands under `test` AND `coverage`
+     (Review Question 5). The fixture reproduces that trap — coverage's
+     command differs from test's only in the `-o` name — so a selection
+     keyed on the command STRING rather than the declared `gate_type` is
+     caught.
+
+  G. FIXTURE PROJECTS ARE MATERIALIZED INTO `t.TempDir()`, NOT GATED IN
+     PLACE. testdata holds TEMPLATES; the harness copies a template tree
+     into a fresh temp dir per test. Three reasons this is not optional:
+     git cannot track an empty directory (the no-config/no-git fixture),
+     a `.git` directory cannot be committed inside this repo, and the
+     toolchain fixtures WRITE marker files — an in-place fixture would
+     accumulate build output in the repo and make reruns non-hermetic.
+     `git init` is run by the harness for the cases that need a work tree.
+
+     ★ THERE IS EXACTLY ONE TEMPLATE ROOT, AND EVERY CORPUS IN EVERY PHASE
+       LIVES UNDER IT: `cmd/backstop/testdata/doctor/projects/<templateName>`.
+       `stageDoctorProject(t, templateName)` (TASK-002) resolves that path
+       and NO other, so a corpus authored in a SIBLING tree — a
+       `testdata/doctor/layout/` beside it, say — has no staging route at
+       all. Phase 5's layout corpora are therefore named
+       `projects/layout-<case>/` rather than parked in a `layout/` sibling:
+       one flat template namespace, one stager, no second copy helper.
+
+       THIS IS NOT TIDINESS, IT IS THE ONLY THING THAT MAKES PHASE 5
+       FALSIFIABLE. SPEC-068's `FindUngatedArtifacts` contract note states
+       that it SKIPS `testdata` among its non-corpus exclusion trees — that
+       exclusion is what keeps this repository's own 67 artifact-shaped
+       fixture files out of the deviation set. So an unstaged layout corpus
+       read IN PLACE (still under `testdata/`) yields ZERO deviations for
+       every case, and CLM-046 — the claim TASK-018 itself calls "the one
+       that matters most" — passes against nothing while reporting green.
+       The failure is silent, survives review, and looks exactly like a
+       correct implementation. TASK-018 carries the tripwire.
+
+  H. WHAT `loadInstalledPacks` ACTUALLY RETURNS (pack_gate.go:147-176),
+     because `packs-installed`'s three outcomes are read off it:
+       • config declares no packs  → EMPTY slice, NIL error   → WARN (CLM-054)
+       • declared pack dir missing → nil, error                → FAIL (CLM-017)
+       • pack.yml unparseable      → nil, error                → FAIL (CLM-017)
+       • all present and parseable → populated slice, nil      → PASS (CLM-064)
+     It loads `backstop.yml` ITSELF, which is exactly why the check must be
+     SKIPPED when the config is absent or unloadable (CLM-055) — otherwise
+     a config problem is re-reported under a pack heading.
+
+  I. THE CLEAN FIXTURE IS A CROSS-PHASE OBLIGATION. CLM-011
+     (TestDoctor_ExitZeroWhenNoCheckFails) asserts an ALL-PASSING run, and
+     the registry grows. Phase 3 MUST extend the clean fixture with a
+     passing toolchain entrypoint or CLM-011 goes red the moment
+     `toolchain-runs` registers; phase 5 MUST give it a layout the resolver
+     accepts. Each phase that adds a check owns keeping that fixture green,
+     and the fix is never `--check` filtering — a filtered run cannot stand
+     in for "a run whose checks all pass" (Sharp Edge: `--check` must never
+     become a way to claim green).
+
+  J. `doctorGuidance` LANDS IN PHASE 2, ITS INIT CALLER IN PHASE 6. The
+     lookup is pure doctor-side and has no init dependency, so decoupling it
+     lets CLM-058's two-reader assertion and CLM-020's
+     unregistered-id-yields-no-text test land while phase 6 is still
+     blocked. Caveat, and the reason this is called out: `.golangci.yml`
+     enables `unused`. Between phase 2 and phase 6 `doctorGuidance` has no
+     NON-test caller. golangci-lint's default `run.tests: true` counts a
+     test call site as usage, so the test written in TASK-004 is what keeps
+     it alive. If the linter flags it anyway, DO NOT add a fake caller and
+     DO NOT add a `//nolint` — move `doctorGuidance` into phase 6's task and
+     say so in the report.
+
+  K. FILE OWNERSHIP AND WHY THIS PLAN IS MOSTLY SEQUENTIAL. `doctor.go` and
+     `doctor_checks.go` are touched by every implementation task, so
+     phase-level parallelism (D-081) is genuinely unavailable — the
+     disjoint-file precondition cannot be met. Parallelism is therefore
+     INTRA-PHASE: the test tasks inside a phase write different files and
+     run concurrently, and so do the SETUP tasks — TASK-009 ‖ TASK-026 in
+     phase 3, TASK-017 ‖ TASK-027 in phase 5, each pair holding a strictly
+     disjoint fixture corpus with no dependency between them. Phases are
+     chained through their verification tasks. That is a property of the
+     surface, not a planning shortcut.
+
+  L. THE `consumes:` SPLIT MUST NOT REGRESS (spec 1.1.1's second
+     correction). `doctor.go` is the ONLY file that calls a LOADER —
+     `config.DiscoverConfigPath`, `config.LoadConfig`, `loadInstalledPacks`
+     — and it calls each exactly once, before the registry runs, carrying
+     every error as DATA on `doctorContext`. `doctor_checks.go` reads
+     `config.Config`, `pack.Manifest` and the `check.CommandRunner` the
+     context carries, and calls NO loader. A loader call inside a check is
+     the second abort path REQ-003 exists to forbid (Review Question 4) and
+     it will look like ordinary defensive error handling in review.
+
+  M. NO `--json` FLAG ON DOCTOR ITSELF. `newDoctorCommand(jsonFlag *bool)`
+     takes the ROOT persistent flag by pointer, exactly as
+     `newGateCommand(&jsonFlag)` and the nine `newPack*Command(&jsonFlag)`
+     do (root.go:25,42,91). A `BoolVar` on doctor's own flag set SHADOWS it:
+     `backstop doctor --json` would pass every test that types it and
+     `backstop --json doctor` — the form users type — would silently render
+     human text. CLM-061 asserts the ROOT position specifically.
+
+  N. ★ THE TOOLCHAIN EXECUTION PATH IS SHARED, NOT REBUILT. ★
+     `checkToolchainRuns` does NOT reimplement `checkEngineToolAllowed →
+     splitCommand → check.CommandRunner`. It CALLS the shared
+     `packEntrypointProber` that PLAN-SPEC-069 phase 14 (TASK-042, verified
+     by its TASK-043) lands in `cmd/backstop/pack_entrypoint_prober.go`.
+     Both files are `package main` in cmd/backstop, so this is a
+     package-internal call, not a cross-package import — nothing about this
+     plan's "nothing outside cmd/backstop is written here" rule changes.
+
+     THE SURFACE, READ FROM PLAN-SPEC-069's REVISED TASK-042 ON 2026-08-14
+     (a citation of a sibling PLAN, so the phase-3 precondition still
+     verifies it in COMPILED CODE before consuming it):
+
+       type entrypointOutcome int
+       const (
+         entrypointRefused       entrypointOutcome = iota // allowlist said no
+         entrypointPassed                                 // started, exit 0
+         entrypointUnstartable                            // could not START
+         entrypointExitedNonZero                          // started, exit != 0
+       )
+       type entrypointProbe struct {
+         PackName  string           // declaring pack's manifest name
+         EngineKey string           // the engines: map key
+         GateType  engine.GateType  // GateTypeTest or GateTypeBuild
+         Command   string           // the declared command string, VERBATIM
+         Outcome   entrypointOutcome
+         ExitCode  int              // meaningful only for ExitedNonZero
+         Output    []byte           // COMBINED stdout+stderr
+         Err       error            // refusal or start error; else nil
+       }
+       type packEntrypointProber struct {
+         Packs  []*pack.Manifest
+         Runner check.CommandRunner
+       }
+       func (p *packEntrypointProber) Probe(ctx context.Context) []entrypointProbe
+
+     WHAT THE SHARED PROBER OWNS, so doctor does not re-own any of it:
+       • selection by `engine.GateTypeTest` / `engine.GateTypeBuild` on the
+         DECLARED type, never the command string;
+       • the trust gate (`checkEngineToolAllowed`) BEFORE the splitter and
+         the runner, surfaced per-binding as `entrypointRefused`;
+       • `splitCommand` (strings.Fields — constant E still describes the
+         behaviour, it is simply invoked one layer down);
+       • DETERMINISTIC ORDER — Packs in slice order, `Engines` by SORTED
+         key. Constant C's requirement is therefore SATISFIED BY THE SHARED
+         PROBER. PLAN-SPEC-069's TASK-042 states that CLM-007 here is the
+         reason it sorts at all, so do not add a second sort in doctor and
+         do not assume the sort is optional;
+       • the (b)/(c) split, from the ONE mechanically honest signal — an
+         `*exec.ExitError` is `entrypointExitedNonZero` (its `ExitCode()`),
+         any other non-nil error is `entrypointUnstartable`. Doctor
+         attempts NO other classification. Two copies of that two-line
+         split is exactly how `init` and `doctor` come to disagree about
+         the same failure;
+       • ★ THE RUNNER METHOD. The prober enters `check.CommandRunner.Run`
+         (pkg/check/runner.go:17 — COMBINED stdout+stderr), NOT `RunStdout`
+         (:21 — stdout only), which is what `runFindingsEngine` calls at
+         pack_gate.go:648. THIS IS WHY THE SHARING MATTERS TO THIS PLAN
+         SPECIFICALLY: an earlier revision pointed `checkToolchainRuns` at
+         runFindingsEngine's pattern, which would have bound `RunStdout` —
+         and CLM-033 requires a nonzero exit's output captured VERBATIM
+         while TASK-026's own fixture is a `go build` failure whose
+         diagnostics are 100% on STDERR. Under `RunStdout` that capture is
+         EMPTY and CLM-033 passes only if its assertion is weak. Doctor
+         inherits `Run` by consuming the prober; it does not choose a method
+         and MUST NOT introduce one.
+
+     WHAT DOCTOR OWNS ON TOP, and it is all report vocabulary:
+       • the SKIP-FIRST branch on `ctx.PacksErr` (CLM-063) — the prober
+         never sees an ungathered pack set;
+       • constructing the prober from `ctx.Packs` / `ctx.Runner` and calling
+         `Probe` exactly once;
+       • the ROLLUP to ONE `doctorResult` (constant B): per-entrypoint lines
+         inside one message, Status = the WORST outcome;
+       • the outcome → `pass|warn|fail` mapping, including doctor's own
+         disposition of `entrypointRefused` (a check FAILURE here, whereas
+         init surfaces the same value as a CONFIG ERROR — this is precisely
+         why `Probe` returns no `error` and leaves disposition to the
+         caller);
+       • the EMPTY-slice case → outcome (d), WARN (CLM-034). The prober
+         deliberately does not decide absence;
+       • the remediation text, and pointing outcome (b) at THAT PACK's own
+         documented install steps while installing nothing;
+       • the registry entry.
+
+     A `checkEngineToolAllowed`, `splitCommand`, `exec.Command` or
+     `CommandRunner` call appearing in `doctor_checks.go` means the prober
+     was reimplemented rather than consumed. That is the founder-ruled
+     defect this constant exists to prevent, and it will look like ordinary
+     code in review.
+
+     ★ SPEC-070's OWN TEXT STILL DESCRIBES THE INLINE VERSION, AND TASK-028
+       IS WHAT FIXES IT. The founder ruling landed in this plan but never
+       reached the spec: SPEC-070 v1.1.1 still names
+       `checkEngineToolAllowed` and `splitCommand` as things
+       `checkToolchainRuns` calls directly — in five prose places and in
+       `doctor_checks.go`'s `contracts.consumes:` block. Nothing automated
+       catches that: `pkg/validate/contracts.go`'s `validateConsumesItem`
+       validates a consumes entry's SHAPE (source/name/kind present) and
+       never whether the named function is actually called, verified
+       2026-08-14. So the spec would ship contradicting its own delivered
+       implementation. TASK-028 (phase 3, documentation) dispatches the
+       amendment through the spec-author track; TASK-013(f) and TASK-025(g)
+       verify it landed. When spec text and this constant disagree, THIS
+       CONSTANT is current and the spec is the thing to fix.
+
+  O. FIXTURE PACKS LIVE INSIDE THEIR PROJECT'S `.backstop/packs/` TREE.
+     `loadInstalledPacks(projectRoot)` resolves a declared pack at
+     `<projectRoot>/.backstop/packs/<name>/pack.yml` and nowhere else
+     (pack_gate.go:147-176), and the harness stages a PROJECT template with
+     no pack-installing helper. A fixture pack parked in a shared directory
+     BESIDE the projects is unreachable, and the toolchain check then
+     reports outcome (d) for every case — which silently satisfies the
+     marker-ABSENCE claims (CLM-026..030) while nothing has run at all.
+     TASK-001's clean fixture already uses the correct shape; every fixture
+     in phase 3 matches it.
+
+  ─────────────────────────────────────────────────────────────────────────
+  CLAIM MAP — 64 claims, every one mapped
+  ─────────────────────────────────────────────────────────────────────────
+    REQ-001 (7)  CLM-001..006, 061          → phase 2
+    REQ-002 (7)  CLM-007..010, 058, 059     → phase 2
+                 CLM-051                     → phase 5 (registry complete)
+    REQ-003 (15) CLM-011..018, 052..057, 064 → phase 2
+    REQ-004 (3)  CLM-019, 020, 060          → phase 6 (CLM-020 also phase 2)
+    REQ-005 (3)  CLM-021..023               → phase 4
+    REQ-006 (16) CLM-024..038, 063          → phase 3
+    REQ-007 (13) CLM-039..050, 062          → phase 5
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: The fixture corpus and the shared harness. No production code.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Fixture projects and the shared test harness (REQ-003 groundwork)"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Author the four config-shaped fixture project templates the setup checks are proven against"
+        description: |
+          The spec's Verification section is explicit: the four setup checks
+          need fixture PROJECTS, not stubs, "because the property under test
+          is that doctor's context gathering survives each of them, and a
+          stubbed context proves nothing about the gathering that would
+          abort."
+
+          Create TEMPLATE trees under cmd/backstop/testdata/doctor/projects/.
+          They are templates, not gated fixtures — the harness (TASK-002)
+          copies one into a fresh t.TempDir per test (constant G).
+
+          (1) no-config/  — the empty-directory case. Git cannot track an
+              empty directory, so this template holds a single `.gitkeep`
+              and the harness deletes it after copying. NO backstop.yml, and
+              the harness does NOT `git init` for this one: it is the
+              simultaneous no-config + no-packs + no-git project CLM-057
+              requires the whole registry to survive.
+
+          (2) config-malformed/backstop.yml — a backstop.yml that DISCOVERS
+              but does not load or validate. This is the one file CLM-016
+              runs through BOTH `gate` and `doctor`, so it must genuinely
+              drive `runGate` to exit 2 today: verify that by running the
+              real command against the template before declaring the task
+              done, not by assuming a syntax error is enough. Record what
+              makes it fail in a comment beside it.
+
+          (3) config-missing-pack/backstop.yml — declares one pack
+              (`backstop/doctor-fixture`) with NO `.backstop/packs/` tree at
+              all, so `loadInstalledPacks` returns an error (constant H) and
+              `packs-installed` FAILS (CLM-017).
+
+          (4) config-no-packs/backstop.yml — a valid config declaring ZERO
+              packs, so `loadInstalledPacks` returns an EMPTY slice with a
+              NIL error and `packs-installed` WARNS (CLM-054). The
+              empty-slice-vs-error split is the whole distinction; get it
+              from the code at pack_gate.go:147-176, not from memory.
+
+          (5) clean/ — a valid backstop.yml declaring one pack, WITH that
+              pack really present at
+              `.backstop/packs/backstop/doctor-fixture/pack.yml`. This is
+              the all-passing project CLM-011 and CLM-053/CLM-056/CLM-064
+              ride, and phases 3 and 5 EXTEND it (constant I). Model the
+              pack.yml on cmd/backstop/testdata/go-toolchain/.backstop/packs/
+              backstop/go-toolchain/pack.yml — copy its shape (name,
+              version, language, archetype, description, content.ruleset)
+              so `pack.ParseManifestFile` accepts it. It declares NO engines
+              yet; phase 3 adds them.
+
+          Author no Go code here.
+        files:
+          - cmd/backstop/testdata/doctor/projects/no-config/.gitkeep
+          - cmd/backstop/testdata/doctor/projects/config-malformed/backstop.yml
+          - cmd/backstop/testdata/doctor/projects/config-missing-pack/backstop.yml
+          - cmd/backstop/testdata/doctor/projects/config-no-packs/backstop.yml
+          - cmd/backstop/testdata/doctor/projects/clean/backstop.yml
+          - cmd/backstop/testdata/doctor/projects/clean/.backstop/packs/backstop/doctor-fixture/pack.yml
+        claims:
+          - CLM-015
+          - CLM-017
+          - CLM-054
+          - CLM-064
+          - CLM-053
+          - CLM-057
+        depends_on: []
+
+      - id: TASK-002
+        type: setup
+        title: "Author the shared doctor test harness: materialize a fixture project, drive the real root command, read the true exit code"
+        description: |
+          Create cmd/backstop/doctor_harness_test.go, `package main`. It
+          carries NO mandated test name — it is the machinery every later
+          test file uses, written first so those files compile.
+
+          Follow the shape cmd/backstop/recipe_apply_e2e_test.go already
+          uses (staged fixture + executeCommand + copyTree) rather than
+          inventing a second style.
+
+          Helpers to provide, and why each is shaped this way:
+
+          (1) stageDoctorProject(t, templateName) string — copy
+              cmd/backstop/testdata/doctor/projects/<templateName> into
+              t.TempDir(), delete every `.gitkeep` RECURSIVELY, and return
+              the temp path. t.Fatalf (NEVER t.Skip) when the template is
+              missing: a skip recreates exactly the vacuous green doctor
+              exists to prevent.
+
+              ★ RECURSIVELY, not just at the template root. Phase 1's
+                `no-config` carries `.gitkeep` at its top level, but phase
+                5's `layout-empty-root` carries it at
+                `.backstop/.gitkeep` — a resolved artifact root that must
+                EXIST and be EMPTY (CLM-045). A top-level-only deletion
+                leaves that file in place, the root is no longer empty, and
+                CLM-045 asserts against the wrong condition. Walk the staged
+                tree and remove every `.gitkeep` you find.
+
+              ★ THIS IS THE ONLY STAGING ROUTE IN THE PLAN, AND
+                `testdata/doctor/projects/` IS THE ONLY TEMPLATE ROOT
+                (constant G). Every corpus in every phase — the four
+                config-shaped projects here, phase 3's toolchain matrix and
+                outcome fixtures, phase 5's `layout-*` corpora — is a
+                subdirectory of it and is staged through THIS helper. Do not
+                add a second copy helper, a second root, or a
+                corpus-directory parameter: one stager is what guarantees
+                every corpus is read from a temp dir rather than from inside
+                `testdata`, which for phase 5 is the difference between
+                CLM-046 being falsifiable and passing vacuously.
+
+          (2) gitInitProject(t, dir) — `git init` plus the minimum config
+              needed for `IsGitRepo()` to report true. Called explicitly by
+              the tests that want a work tree, so a test asserting the
+              NON-repo warn (CLM-018) cannot accidentally inherit one.
+              Note the trap: the temp dir must not be nested inside this
+              repository's own work tree, or `git rev-parse` walks UP and
+              reports true. t.TempDir() is /var/folders/... on darwin, which
+              is outside — assert that rather than assume it, by having the
+              helper verify `IsGitRepo()` is false before any test relies on
+              the non-repo case.
+
+          (3) runDoctorInProject(t, dir, args...) (stdout string, exitCode
+              int) — chdir into dir, build NewRootCommand(), execute with
+              the given args, and translate the returned error through
+              *ExitCodeError into a real integer exit code (0 when nil).
+              Every exit-matrix claim reads this integer; nothing may infer
+              an exit code from printed text.
+
+          (4) decodeDoctorJSON(t, stdout) — unmarshal the `--json` payload
+              into a map so CLM-003 can assert KEY PRESENCE (including a
+              `remediation` key on a PASSING check, which is what the
+              dropped `omitempty` buys — Review Question 12) rather than
+              just value equality.
+
+          (5) markerFiles(t, dir) []string — list the `*.marker` files in a
+              project directory, sorted. Phase 3's gate_type matrix reads
+              execution and non-execution off this (constant F).
+
+          Everything here is test-only. Do not create doctor.go yet.
+        files:
+          - cmd/backstop/doctor_harness_test.go
+        claims:
+          - CLM-011
+          - CLM-014
+          - CLM-018
+          - CLM-024
+          - CLM-026
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: The command, the registry, both renderings, the exit matrix,
+  #          and the four checks that diagnose what other commands refuse.
+  #          UNBLOCKED — consumes only surfaces that exist at HEAD.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: Command surface, the one registry, and the four setup checks (REQ-001, REQ-002, REQ-003)"
+    tasks:
+      - id: TASK-003
+        type: test
+        title: "RED: the command surface, its two renderings, and the --check selector"
+        description: |
+          Create cmd/backstop/doctor_command_test.go with the seven mandated
+          tests for REQ-001. All seven are RED until TASK-007.
+
+          TestDoctor_RegisteredAndDiscoverableInCommandTree (CLM-001) —
+            assert BOTH that `doctor` is on NewRootCommand()'s command list
+            AND that it appears in the `backstop commands` agent-discovery
+            JSON. The discovery tree is built by buildCommandTree from the
+            registered commands, so this passes with NO discovery-specific
+            code once the AddCommand edit lands; asserting only one of the
+            two would miss a command registered somewhere the tree does not
+            walk.
+
+          TestDoctor_BareRunReportsEveryRegisteredCheck (CLM-002) — compare
+            the reported id SET against the ids doctorRegistry() declares.
+            REGISTRY-RELATIVE by construction (constant A): it must pass at
+            four checks today and at seven after phase 5. Do NOT hardcode a
+            count and do not hardcode the seven ids here — CLM-051 owns the
+            absolute assertion, in phase 5.
+
+          TestDoctor_JSONPayloadCarriesSchemaVersionAndPerCheckFields
+          (CLM-003) — `schema_version: doctor/v1` plus, for EVERY check that
+            ran, the five keys id/title/status/message/remediation. Assert
+            key PRESENCE on a PASSING check whose remediation is empty: that
+            is the assertion the dropped `omitempty` exists for, and it is
+            the only one that catches a re-added tag.
+
+          TestDoctor_HumanAndJSONReportSameCheckSetAndStatuses (CLM-004) —
+            run the SAME fixture project twice, parse both renderings, and
+            compare set and per-check status. Both must come from one
+            []doctorResult; a test that constructs its own expectation twice
+            would pass over two renderers that agree only by accident.
+
+          TestDoctor_RootPositionJSONFlagRendersJSONPayload (CLM-061) — the
+            flag in ROOT position: `backstop --json doctor`. This is the
+            invocation a local BoolVar would break while every sub-command
+            -position test kept passing (constant M).
+
+          TestDoctor_CheckSelectorRunsOnlyTheNamedCheck (CLM-005) — one
+            result, and the other registered checks ABSENT from the payload.
+
+          TestDoctor_UnknownCheckSelectorFailsNamingRegisteredIDs (CLM-006)
+            — a loud error whose text names the registered ids, and a
+            NON-ZERO exit. Assert it is not an empty successful run: a
+            diagnostic that reports nothing and calls it fine is the exact
+            failure mode this claim exists for.
+        files:
+          - cmd/backstop/doctor_command_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-061
+        test_names:
+          - TestDoctor_RegisteredAndDiscoverableInCommandTree
+          - TestDoctor_BareRunReportsEveryRegisteredCheck
+          - TestDoctor_JSONPayloadCarriesSchemaVersionAndPerCheckFields
+          - TestDoctor_HumanAndJSONReportSameCheckSetAndStatuses
+          - TestDoctor_RootPositionJSONFlagRendersJSONPayload
+          - TestDoctor_CheckSelectorRunsOnlyTheNamedCheck
+          - TestDoctor_UnknownCheckSelectorFailsNamingRegisteredIDs
+        depends_on:
+          - TASK-001
+          - TASK-002
+
+      - id: TASK-004
+        type: test
+        title: "RED: the registry's structural guarantees, including the two source scans"
+        description: |
+          Create cmd/backstop/doctor_registry_test.go. Seven mandated tests.
+
+          TestDoctor_ReportOrderIsDeterministicAcrossRuns (CLM-007) — run
+            doctor N times over one fixture and assert the rendered check
+            order is BYTE-IDENTICAL. A slice registry makes this hold; a map
+            would make it flap. Run enough iterations that map iteration
+            would realistically reorder (>= 20), and include the
+            toolchain-runs message in the compared bytes once phase 3 lands
+            — constant C is what keeps that half deterministic.
+
+          TestDoctor_RegistryIDsAreUniqueAndKebabCase (CLM-008) — uniqueness
+            plus `^[a-z][a-z0-9]*(-[a-z0-9]+)*$`. Registry-relative.
+
+          TestDoctor_EveryCheckReturnsOneResultWithDeclaredStatus (CLM-009)
+            — invoke every registry entry's Run against a gathered context
+            and assert exactly ONE result whose Status is one of
+            pass|warn|fail|skipped. This is the claim that stops
+            toolchain-runs from returning one result per entrypoint
+            (constant B).
+
+          TestDoctor_AllConsumersEnumerateTheSameRegistry (CLM-010) — assert
+            the id set reachable through the `--check` selector, the human
+            renderer, the --json renderer and the exit-code computation are
+            the same set. Drive all four from real invocations rather than
+            from a shared helper the test itself wrote.
+
+          TestDoctor_RegistryHasNoCallSiteOtherThanRunDoctorAndGuidance
+          (CLM-058) — a SOURCE SCAN, `kind: absence`. Parse this package's
+            NON-test .go files (go/parser over cmd/backstop, skipping
+            _test.go) and find every call to `doctorRegistry(`. For each,
+            resolve the ENCLOSING function name. The permitted set is
+            exactly {runDoctor, doctorGuidance} and their roles are
+            distinct: runDoctor is the ONE that ENUMERATES (ranges over the
+            returned slice); doctorGuidance resolves a SINGLE id and returns
+            no set. Fail on a third call site, and fail on a SECOND
+            enumeration — a second `range` over doctorRegistry() outside
+            runDoctor is precisely what would let two consumers disagree
+            about the check set, which is the mechanism CLM-010 asserts.
+            Note the spec's 1.1.1 correction here: an earlier phrasing
+            demanded ONE call site and would have failed on arrival, because
+            doctorGuidance is a second one BY DESIGN.
+
+          TestDoctor_CheckIDsAppearOnlyAsDeclaredConstants (CLM-059) — a
+            SOURCE SCAN, `kind: absence`. Scan the same non-test files for
+            the seven id STRINGS ("config-present" … "artifact-layout") and
+            assert each appears in exactly one place: the declared const
+            block. A literal anywhere else — including in init.go's guidance
+            — fails. This is what makes a registry rename a compile-time
+            event instead of a silent desync (Review Question 6/11).
+
+          TestDoctorGuidance_UnregisteredIDYieldsNoPrintableText (CLM-020,
+            first half) — doctorGuidance("no-such-check") returns ("",
+            false). The other half of CLM-020 is init-side and lands in
+            phase 6; this half is pure doctor-side and lands now (constant
+            J). It is also the test call site that keeps `unused` quiet.
+        files:
+          - cmd/backstop/doctor_registry_test.go
+        claims:
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-058
+          - CLM-059
+          - CLM-020
+        test_names:
+          - TestDoctor_ReportOrderIsDeterministicAcrossRuns
+          - TestDoctor_RegistryIDsAreUniqueAndKebabCase
+          - TestDoctor_EveryCheckReturnsOneResultWithDeclaredStatus
+          - TestDoctor_AllConsumersEnumerateTheSameRegistry
+          - TestDoctor_RegistryHasNoCallSiteOtherThanRunDoctorAndGuidance
+          - TestDoctor_CheckIDsAppearOnlyAsDeclaredConstants
+          - TestDoctorGuidance_UnregisteredIDYieldsNoPrintableText
+        depends_on:
+          - TASK-001
+          - TASK-002
+
+      - id: TASK-005
+        type: test
+        title: "RED: the four setup checks, one condition each, with the skip rule that keeps one cause from failing four checks"
+        description: |
+          Create cmd/backstop/doctor_setup_checks_test.go. Nine mandated
+          tests, all driven through real fixture projects staged by the
+          harness — never through a hand-built doctorContext, because the
+          property under test is that the GATHERING survives each broken
+          project (spec Verification).
+
+          config-present:
+            TestDoctorConfigPresent_AbsentConfigFailsAsCheckResult (CLM-015)
+              — on the no-config project: status fail, message names the
+              DIRECTORY the search started from, remediation non-empty, and
+              — the load-bearing half — doctor still RAN, i.e. the other
+              registered checks all reported. A refuse-to-start would pass a
+              naive "did it say no backstop.yml" test.
+
+          config-loads:
+            TestDoctorConfigLoads_SkippedWhenNoConfigFound (CLM-052) — on
+              the same project: status SKIPPED, and the message names
+              `config-present` as the owner. Not fail.
+            TestDoctorConfig_PresentAndLoadableConfigPasses (CLM-053) — on
+              the clean project: both config checks pass.
+
+          packs-installed:
+            TestDoctorPacks_DeclaredPackMissingFromDiskFails (CLM-017)
+            TestDoctorPacks_NoDeclaredPacksWarnsRatherThanFailingOrPassing
+              (CLM-054) — assert WARN explicitly, and assert it is neither
+              pass nor fail: "backstop enforces nothing" is un-adopted
+              capability, which is loud and non-blocking.
+            TestDoctorPacks_SkippedWhenConfigAbsentOrUnloadable (CLM-055) —
+              on BOTH the no-config and the malformed-config projects.
+            TestDoctorPacks_AllDeclaredPacksPresentPassesNamingTheCount
+              (CLM-064) — the count appears in the message.
+
+          git-repository:
+            TestDoctorGit_NonRepositoryWarnsNamingWhatDegrades (CLM-018) —
+              WARN, and the message names BOTH consequences: the diff scope
+              falls back to a full sweep, and `artifact new` cannot reserve
+              an id. Assert the message content, not just the status — the
+              naming IS the claim. Per the spec's sharp edge, this test must
+              NOT assert exit 1 from a non-repo directory.
+            TestDoctorGit_RepositoryPasses (CLM-056) — harness gitInit.
+
+          THE SHAPE TO REJECT, stated once so no test enshrines it: on a
+          directory with no backstop.yml, exactly ONE check FAILS
+          (config-present). config-loads, packs-installed and (from phase 3)
+          toolchain-runs are SKIPPED, each naming its owner. Four failures
+          for one cause is what Review Question 9 asks about, and it would
+          also make CLM-016's exit comparison meaningless.
+        files:
+          - cmd/backstop/doctor_setup_checks_test.go
+        claims:
+          - CLM-015
+          - CLM-052
+          - CLM-053
+          - CLM-017
+          - CLM-054
+          - CLM-055
+          - CLM-064
+          - CLM-018
+          - CLM-056
+        test_names:
+          - TestDoctorConfigPresent_AbsentConfigFailsAsCheckResult
+          - TestDoctorConfigLoads_SkippedWhenNoConfigFound
+          - TestDoctorConfig_PresentAndLoadableConfigPasses
+          - TestDoctorPacks_DeclaredPackMissingFromDiskFails
+          - TestDoctorPacks_NoDeclaredPacksWarnsRatherThanFailingOrPassing
+          - TestDoctorPacks_SkippedWhenConfigAbsentOrUnloadable
+          - TestDoctorPacks_AllDeclaredPacksPresentPassesNamingTheCount
+          - TestDoctorGit_NonRepositoryWarnsNamingWhatDegrades
+          - TestDoctorGit_RepositoryPasses
+        depends_on:
+          - TASK-001
+          - TASK-002
+
+      - id: TASK-006
+        type: test
+        title: "RED: the exit-code matrix and the absence of any exit-2 path"
+        description: |
+          Create cmd/backstop/doctor_exit_test.go. Six mandated tests. Every
+          one reads the INTEGER exit code from the harness, never inferred
+          from printed text.
+
+          TestDoctor_ExitZeroWhenNoCheckFails (CLM-011) — the clean project.
+            Registry-relative and therefore a CROSS-PHASE obligation
+            (constant I): phase 3 and phase 5 must keep this project
+            all-passing as checks join. Never "fix" a later red here by
+            adding `--check`.
+          TestDoctor_ExitZeroWhenWarningsPresent (CLM-012) — the no-packs
+            project (packs-installed warns) or a non-repo staging. Warnings
+            are loud, not blocking.
+          TestDoctor_ExitZeroWhenChecksSkipped (CLM-013) — a project
+            carrying skips but no failure. NOTE: the no-config project also
+            FAILS config-present, so it cannot serve here; construct a
+            skip-without-failure case deliberately and say in a comment
+            which condition produces the skip.
+          TestDoctor_ExitOneWhenAnyCheckFails (CLM-014) — the missing-pack
+            project.
+          TestDoctor_UnparseableConfigExitsOneWhereGateExitsTwo (CLM-016) —
+            ONE test that runs the SAME staged config-malformed project
+            through BOTH commands: assert `gate` exits 2 AND `doctor` exits
+            1 with `config-loads` failing and carrying the loader's own
+            error text. The claim is about the DIFFERENCE; two separate
+            tests would let the gate half rot silently.
+          TestDoctor_NoExitConfigErrorPathAndFullRegistryRunsOnAnEmptyDirectory
+          (CLM-057) — THREE halves, one per conjunct of the claim, and the
+            third is the one a reviewer found missing on the first pass.
+            (a) a SOURCE SCAN of the doctor non-test files asserting no
+                `ExitConfigError` appears on any doctor path;
+            (b) a real run on the no-config/no-packs/no-git project
+                asserting EVERY registered check produced a result;
+            (c) a SOURCE SCAN of `cmd/backstop/doctor_checks.go` asserting it
+                contains NO loader call — no `config.LoadConfig`, no
+                `config.LoadConfigFromPath`, no `config.DiscoverConfigPath`,
+                no `loadInstalledPacks`. Same shape as the CLM-058/CLM-059
+                scans in TASK-004: go/parser over the file, resolve each
+                call's callee name, fail on any member of that set.
+
+            WHY (c) EXISTS AND WHY IT IS NOT REDUNDANT. CLM-057 has TWO
+            conjuncts: "no doctor code path returns ExitConfigError" AND "no
+            check gathers its own input by a route that can abort before the
+            registry runs". Halves (a) and (b) only cover the first. A check
+            that calls `config.LoadConfig` itself and converts the error into
+            its own `fail` result returns no ExitConfigError (so (a) stays
+            green) and still produces a result for every check (so (b) stays
+            green) — both existing halves pass while the second conjunct is
+            violated outright. That is constant L's `consumes:` split and
+            Review Question 4's second abort path, and it will read as
+            ordinary defensive error handling in review. Only a source scan
+            catches it. Half (b) alone would also pass over a command that
+            aborted after printing; half (a) alone would pass over a check
+            that panicked.
+
+            Scan `doctor_checks.go` SPECIFICALLY, not the whole package:
+            `doctor.go` is the file that legitimately calls all four loaders
+            exactly once, before the registry runs (constant L). A
+            package-wide scan would be red on arrival.
+        files:
+          - cmd/backstop/doctor_exit_test.go
+        claims:
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-016
+          - CLM-057
+        test_names:
+          - TestDoctor_ExitZeroWhenNoCheckFails
+          - TestDoctor_ExitZeroWhenWarningsPresent
+          - TestDoctor_ExitZeroWhenChecksSkipped
+          - TestDoctor_ExitOneWhenAnyCheckFails
+          - TestDoctor_UnparseableConfigExitsOneWhereGateExitsTwo
+          - TestDoctor_NoExitConfigErrorPathAndFullRegistryRunsOnAnEmptyDirectory
+        depends_on:
+          - TASK-001
+          - TASK-002
+
+      - id: TASK-007
+        type: implementation
+        title: "GREEN: doctor.go (types, id constants, registry, gathering, renderers, exit), the four setup checks, and the root wiring"
+        description: |
+          Three files, one coherent unit — they are written together because
+          the types live in doctor.go and the checks that return them live in
+          doctor_checks.go, so neither compiles alone.
+
+          cmd/backstop/doctor.go
+            • const block — the ONE id source (doctorCheckConfigPresent,
+              doctorCheckConfigLoads, doctorCheckGitRepository,
+              doctorCheckPacksInstalled, doctorCheckBuildIdentity,
+              doctorCheckToolchainRuns, doctorCheckArtifactLayout). Declare
+              ALL SEVEN NOW even though three have no entry yet: the
+              constants are the id source REQ-004 and CLM-059 key on, and
+              declaring them late would invite a literal in the meantime.
+            • type doctorCheck struct { ID, Title string; Run func(ctx
+              doctorContext) doctorResult }
+            • type doctorResult struct with the json tags EXACTLY as the
+              contract states — id/title/status/message/remediation, and
+              remediation carries NO omitempty (Review Question 12).
+            • func doctorRegistry() []doctorCheck — a SLICE literal, in
+              report order, holding the FOUR setup checks in this phase:
+              config-present, config-loads, git-repository, packs-installed.
+              Setup checks come first permanently, so a reader sees why a
+              later check skipped before reading the skip.
+            • func doctorGuidance(checkID string) (string, bool) — a keyed
+              single-id lookup returning the printable
+              `backstop doctor --check <id>` text, or ("", false). It must
+              NOT range over the registry (CLM-058: exactly one enumeration,
+              and it is runDoctor's).
+            • func runDoctor(cmd *cobra.Command, jsonFlag *bool, args
+              []string) error — gathers ONE doctorContext, enumerates the
+              registry ONCE, renders, and returns
+              *ExitCodeError{Code: ExitViolations} iff any status is fail.
+              NO branch returns ExitConfigError. The gathering mirrors
+              runGate's project-root fallback (gate.go:75-80) and INVERTS
+              its config handling (gate.go:67-73): errors are carried on the
+              context, never raised (constant L).
+            • func newDoctorCommand(jsonFlag *bool) *cobra.Command — takes
+              the ROOT persistent flag by pointer (constant M) and declares
+              exactly one flag of its own, `--check`. Selection FILTERS the
+              registry by id before running; an unknown id is an error
+              listing the registered ids, never an empty successful run.
+            • both renderers, consuming the same []doctorResult.
+
+          cmd/backstop/doctor_checks.go
+            • type doctorContext struct { ProjectRoot, SearchDir,
+              ConfigPath string; ConfigPathErr error; Config *config.Config;
+              ConfigErr error; Packs []*pack.Manifest; PacksErr error;
+              Runner check.CommandRunner }
+            • checkConfigPresent / checkConfigLoads / checkGitRepository /
+              checkPacksInstalled. NONE of them calls a loader (constant L).
+              git detection goes through
+              `(&check.DefaultGitExecutor{Dir: ctx.ProjectRoot}).IsGitRepo()`
+              — the existing exported detector, not a fourth `git rev-parse`
+              shell-out. packs-installed reads the empty-slice-vs-error
+              split documented in constant H.
+            • the SKIP rule: a check whose input could not be gathered is
+              SKIPPED with the OWNING check named in its message. One
+              condition, one owner.
+
+          cmd/backstop/root.go
+            • the single edit: add newDoctorCommand(&jsonFlag)'s result to
+              the existing AddCommand call at root.go:154 — the same
+              persistent-flag pointer gateCmd and the nine pack commands
+              already receive. NewRootCommand's signature is UNCHANGED and
+              nothing discovery-specific is added; buildCommandTree picks
+              doctor up because it is registered.
+
+          Run `PATH="/Users/bmanson/go/bin:$PATH" ./bin/backstop gate` after
+          this task as your own inner loop before handing off to TASK-008.
+        files:
+          - cmd/backstop/doctor.go
+          - cmd/backstop/doctor_checks.go
+          - cmd/backstop/root.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-061
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-058
+          - CLM-059
+          - CLM-020
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-052
+          - CLM-053
+          - CLM-017
+          - CLM-054
+          - CLM-055
+          - CLM-064
+          - CLM-018
+          - CLM-056
+          - CLM-057
+        depends_on:
+          - TASK-003
+          - TASK-004
+          - TASK-005
+          - TASK-006
+
+      - id: TASK-008
+        type: verification
+        title: "Verify phase 2: rebuild, diff-scoped gate, and the 29 phase-2 claims green"
+        description: |
+          1. `go build -o bin/backstop ./cmd/backstop` (constant 3).
+          2. `PATH="/Users/bmanson/go/bin:$PATH" ./bin/backstop gate` — the
+             bare, diff-scoped form. Read the true exit code (constant 4).
+          3. `go test ./cmd/backstop/... -race` and confirm all 29 phase-2
+             mandated tests are present and passing, by name.
+
+          THE BAR: gate PASS with no NEW blocking violation. The repo
+          carries advisory (non-blocking) warnings on artifact_status_drift
+          and requirement_traceability; an advisory COUNT that moves must be
+          EXPLAINED, and any step flipping pass→fail is this phase's
+          regression. Do not waive; do not narrow scope to make it green.
+
+          Also confirm by hand, because no test asserts it directly: the
+          registry currently holds FOUR entries and that is CORRECT at this
+          point (constant A). CLM-051's exactly-seven assertion is phase 5's.
+        files:
+          - cmd/backstop/doctor.go
+          - cmd/backstop/doctor_checks.go
+          - cmd/backstop/root.go
+        claims:
+          - CLM-002
+          - CLM-010
+          - CLM-057
+        depends_on:
+          - TASK-007
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: toolchain-runs. ★ PARTIALLY BLOCKED ON PLAN-SPEC-069 ★
+  #          The FIXTURES (TASK-009, TASK-026) are unblocked and parallel.
+  #          TASK-011 and TASK-012 consume the shared packEntrypointProber
+  #          PLAN-SPEC-069 TASK-042 lands (constant N) and wait for it.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: The toolchain-runs check — health by EXECUTION, never by configuration (REQ-006) [prober BLOCKED on SPEC-069]"
+    tasks:
+      - id: TASK-009
+        type: setup
+        title: "Author the gate_type matrix fixture PROJECT — seven gate_types with distinct side effects — and extend the clean project"
+        description: |
+          Everything here is fixture DATA. Constant F fixes the side-effect
+          convention; constant D fixes what the trust gate actually gates;
+          constant O fixes WHERE a fixture pack has to live.
+
+          ★ EVERY FIXTURE PACK LIVES INSIDE ITS PROJECT'S OWN
+            `.backstop/packs/<name>/pack.yml` — NOT in a shared pack
+            directory beside the projects. This is constant O and it is not
+            a style choice: `loadInstalledPacks(projectRoot)` resolves a
+            declared pack at `<projectRoot>/.backstop/packs/<name>/pack.yml`
+            and NOWHERE else (pack_gate.go:147-176, verified), and the
+            harness's `stageDoctorProject` copies a PROJECT template with no
+            pack-installing helper of any kind. A pack parked outside a
+            project tree is simply unreachable, and the check would report
+            outcome (d) — "no pack declares a toolchain entrypoint" — for
+            every matrix case, which is a VACUOUS GREEN on exactly the
+            marker-ABSENCE claims (CLM-026..030) this phase's headline
+            mechanism rests on: five of the seven matrix claims would pass
+            because nothing ran at all. TASK-001's clean fixture already
+            uses the correct shape
+            (`projects/clean/.backstop/packs/backstop/doctor-fixture/
+            pack.yml`); every fixture below matches it.
+
+          (1) projects/toolchain-matrix/ — the gate_type matrix.
+
+              backstop.yml declares ONE pack, `backstop/gate-type-matrix`,
+              present at
+              `.backstop/packs/backstop/gate-type-matrix/pack.yml`. That
+              manifest declares SEVEN engine bindings, one per declared
+              gate_type, each with a command that writes a DISTINCT marker
+              file when it runs:
+
+                test → go build -o test.marker ./...
+                build → go build -o build.marker ./...
+                lint / findings / coverage / substantiveness / contracts →
+                  the same shape with their own -o names (lint.marker,
+                  findings.marker, coverage.marker, subst.marker,
+                  contracts.marker).
+
+              None carries a `provision:` block (constant D: `go` needs
+              none, exactly as the real go-toolchain pack declares
+              `go build`). The COVERAGE binding's command must differ from
+              the TEST binding's only in the `-o` name — that reproduces the
+              real typescript-toolchain trap where near-identical vitest
+              commands sit under both types, so a selection keyed on the
+              command string instead of the declared gate_type is caught
+              (Review Question 5).
+
+              The project carries its OWN minimal Go module — `go.mod` plus
+              one trivial buildable `fixture.go` — because the marker
+              commands are `go build ... ./...` executed from the project
+              root. Without the module every marker command fails to build,
+              NO marker is ever written, and CLM-026..030's absence
+              assertions pass for the wrong reason while CLM-024/025's
+              presence assertions go red. The module is what makes the
+              matrix falsifiable in both directions.
+
+          (2) EXTEND cmd/backstop/testdata/doctor/projects/clean: its
+              existing pack manifest gains ONE passing `gate_type: test`
+              entrypoint, and the project gains the `go.mod` + `fixture.go`
+              that entrypoint needs to succeed. This is constant I's
+              obligation — without it CLM-011's all-passing assertion goes
+              red the moment toolchain-runs registers, and the wrong fix (a
+              `--check` filter) would be a filtering mechanism over a
+              diagnostic.
+
+          Model every pack.yml on
+          cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/
+          go-toolchain/pack.yml so `pack.ParseManifestFile` accepts it —
+          copy its shape (name, version, language, archetype, description,
+          content.ruleset) and RUN the parse against each authored manifest
+          before declaring this task done rather than assuming acceptance.
+
+          Markers must never land in-tree: fixtures are staged into
+          t.TempDir (constant G), so the repo needs no `*.marker` ignore
+          rule. VERIFY that with `git status --short` after the first run
+          rather than assuming it; if a marker does appear in-tree the
+          fixture is being gated in place and the harness is the fix.
+
+          THE FILE COUNT IS HIGH AND DELIBERATELY SO. Every entry is inert
+          DATA; the narrow-scope heuristic is about blast radius in CODE.
+          The corpus was split across TWO setup tasks (this one and
+          TASK-026) precisely to keep each list readable, and the two have
+          DISJOINT file sets with no dependency between them, so they are
+          parallel-eligible under D-081. Leaving corpus files undeclared to
+          keep a list short would hide the very files the claims read.
+          (PLAN-SPEC-068's TASK-002 sets this precedent for enumerating a
+          fixture corpus in full.)
+        files:
+          - cmd/backstop/testdata/doctor/projects/toolchain-matrix/backstop.yml
+          - cmd/backstop/testdata/doctor/projects/toolchain-matrix/.backstop/packs/backstop/gate-type-matrix/pack.yml
+          - cmd/backstop/testdata/doctor/projects/toolchain-matrix/go.mod
+          - cmd/backstop/testdata/doctor/projects/toolchain-matrix/fixture.go
+          - cmd/backstop/testdata/doctor/projects/clean/.backstop/packs/backstop/doctor-fixture/pack.yml
+          - cmd/backstop/testdata/doctor/projects/clean/go.mod
+          - cmd/backstop/testdata/doctor/projects/clean/fixture.go
+        claims:
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-028
+          - CLM-029
+          - CLM-030
+        depends_on:
+          - TASK-008
+
+      - id: TASK-026
+        type: setup
+        title: "Author the six outcome fixture PROJECTS: unstartable, nonzero-exit, un-allowlisted, metacharacters, multi-entrypoint, no-entrypoint, and the DD-6 package-manager case"
+        description: |
+          ★ ID NOTE: this task is numbered TASK-026 because it was ADDED to
+            phase 3 after the rest of the plan was numbered. Ids are unique
+            labels, not positions; it runs in phase 3, parallel-eligible
+            with TASK-009 (disjoint files, no dependency between them).
+
+          Every pack below lives inside ITS OWN project's
+          `.backstop/packs/<name>/pack.yml` — constant O, and TASK-009
+          states the full reason. A pack outside a project tree is
+          unreachable to `loadInstalledPacks` and the check would report
+          outcome (d) for every case.
+
+          (1) projects/toolchain-missing-executable/ — outcome (b),
+              CLM-032. backstop.yml declares `backstop/missing-executable`;
+              that pack declares ONE `gate_type: test` binding whose command
+              names an executable that does not exist
+              (`backstop-doctor-absent-tool-xyz`), with NO provision block
+              (constant D: no provision means the trust gate returns nil
+              immediately, so the failure is a genuine could-not-START, not
+              a refusal). No Go module: nothing here is meant to build.
+
+          (2) projects/toolchain-nonzero-exit/ — outcome (c), CLM-033.
+              A `gate_type: build` binding running `go build ./...` over a
+              module whose one source file DELIBERATELY does not compile, so
+              the command starts and exits nonzero with real compiler
+              output. Two things make this fixture load-bearing:
+                • the compiler writes its whole diagnostic to STDERR, which
+                  is why the shared prober binds `check.CommandRunner.Run`
+                  (combined output) and not `RunStdout` — see constant N. A
+                  fixture that also wrote to stdout would pass under BOTH
+                  methods and assert nothing;
+                • the broken `.go` file is safe to commit because the `go`
+                  tool IGNORES any directory named `testdata`, so it never
+                  enters this repository's own build or `go build ./...`.
+                  VERIFY that with a repo-root build after adding it.
+              Files: backstop.yml, the pack manifest, go.mod, and the
+              deliberately-broken `broken.go`.
+
+          (3) projects/toolchain-not-allowlisted/ — CLM-037. ONE
+              `gate_type: test` binding that DOES carry
+              `provision: {tool: curl, version: "8.0.0"}`. Only a
+              PROVISIONED tool reaches `engine.CheckToolAllowed`
+              (`checkEngineToolAllowed` returns nil immediately on a nil
+              Provision, pack_gate.go:812), so this is the ONLY fixture
+              shape that can red CLM-037. Comment that reason in the
+              manifest — the next reader will otherwise "simplify" it back
+              to a bare command and quietly make the claim unfalsifiable.
+
+          (4) projects/toolchain-shell-metacharacters/ — CLM-038. A
+              `gate_type: build` binding whose command embeds `;` and
+              `$(...)` tokens: a `-o` name containing a literal `$(...)`,
+              plus a trailing `; touch pwned.marker`. `splitCommand` is
+              `strings.Fields` (constant E), so every token becomes a
+              LITERAL argv entry. Carries go.mod + fixture.go so the
+              literal-named side effect is reachable — the test asserts both
+              that the literally-named artifact exists and that
+              `pwned.marker` does NOT.
+
+          (5) projects/toolchain-multi-entrypoint/ — CLM-035. backstop.yml
+              declares TWO packs (`backstop/entrypoint-alpha`,
+              `backstop/entrypoint-beta`), each installed under its own
+              `.backstop/packs/` path and each declaring ONE entrypoint with
+              its own marker. Two packs, not two engines in one pack: the
+              claim is about several PACKS each declaring an entrypoint.
+              Carries go.mod + fixture.go.
+
+          (6) projects/toolchain-no-entrypoint/ — outcome (d), CLM-034. One
+              pack declaring engines but NONE with `gate_type` test or
+              build (declare a `lint` binding, so the pack is not
+              engine-less and the warn is genuinely "no TOOLCHAIN
+              entrypoint" rather than "no engines"). No Go module.
+
+          (7) projects/toolchain-failing-package-manager/ — CLM-036, the
+              DD-6 evidence made concrete. Its declared entrypoint SUCCEEDS
+              (a marker-writing `gate_type: test` binding over its own Go
+              module) while a package-manager configuration sits on disk in
+              a failing state — a `package.json` naming dependencies with no
+              `node_modules` beside it. Doctor never reads that file; the
+              whole point is that the check PASSES anyway, because health
+              comes from execution and not from a file on disk. Do not add a
+              step that inspects the package.json — its presence is the
+              fixture's entire contribution.
+
+          CLM-063's fixture needs NO new file: it runs against phase 1's
+          `config-missing-pack` project, whose declared pack is absent from
+          disk, so `loadInstalledPacks` errors and the pack set is
+          ungathered.
+
+          Model every pack.yml on
+          cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/
+          go-toolchain/pack.yml, and RUN `pack.ParseManifestFile` against
+          each before declaring this task done.
+        files:
+          - cmd/backstop/testdata/doctor/projects/toolchain-missing-executable/backstop.yml
+          - cmd/backstop/testdata/doctor/projects/toolchain-missing-executable/.backstop/packs/backstop/missing-executable/pack.yml
+          - cmd/backstop/testdata/doctor/projects/toolchain-nonzero-exit/backstop.yml
+          - cmd/backstop/testdata/doctor/projects/toolchain-nonzero-exit/.backstop/packs/backstop/nonzero-exit/pack.yml
+          - cmd/backstop/testdata/doctor/projects/toolchain-nonzero-exit/go.mod
+          - cmd/backstop/testdata/doctor/projects/toolchain-nonzero-exit/broken.go
+          - cmd/backstop/testdata/doctor/projects/toolchain-not-allowlisted/backstop.yml
+          - cmd/backstop/testdata/doctor/projects/toolchain-not-allowlisted/.backstop/packs/backstop/not-allowlisted/pack.yml
+          - cmd/backstop/testdata/doctor/projects/toolchain-shell-metacharacters/backstop.yml
+          - cmd/backstop/testdata/doctor/projects/toolchain-shell-metacharacters/.backstop/packs/backstop/shell-metacharacters/pack.yml
+          - cmd/backstop/testdata/doctor/projects/toolchain-shell-metacharacters/go.mod
+          - cmd/backstop/testdata/doctor/projects/toolchain-shell-metacharacters/fixture.go
+          - cmd/backstop/testdata/doctor/projects/toolchain-multi-entrypoint/backstop.yml
+          - cmd/backstop/testdata/doctor/projects/toolchain-multi-entrypoint/.backstop/packs/backstop/entrypoint-alpha/pack.yml
+          - cmd/backstop/testdata/doctor/projects/toolchain-multi-entrypoint/.backstop/packs/backstop/entrypoint-beta/pack.yml
+          - cmd/backstop/testdata/doctor/projects/toolchain-multi-entrypoint/go.mod
+          - cmd/backstop/testdata/doctor/projects/toolchain-multi-entrypoint/fixture.go
+          - cmd/backstop/testdata/doctor/projects/toolchain-no-entrypoint/backstop.yml
+          - cmd/backstop/testdata/doctor/projects/toolchain-no-entrypoint/.backstop/packs/backstop/no-toolchain/pack.yml
+          - cmd/backstop/testdata/doctor/projects/toolchain-failing-package-manager/backstop.yml
+          - cmd/backstop/testdata/doctor/projects/toolchain-failing-package-manager/.backstop/packs/backstop/entrypoint-succeeds/pack.yml
+          - cmd/backstop/testdata/doctor/projects/toolchain-failing-package-manager/go.mod
+          - cmd/backstop/testdata/doctor/projects/toolchain-failing-package-manager/fixture.go
+          - cmd/backstop/testdata/doctor/projects/toolchain-failing-package-manager/package.json
+        claims:
+          - CLM-031
+          - CLM-032
+          - CLM-033
+          - CLM-034
+          - CLM-035
+          - CLM-036
+          - CLM-037
+          - CLM-038
+        depends_on:
+          - TASK-008
+
+      - id: TASK-010
+        type: test
+        title: "RED: the gate_type matrix — two executed, five not, proven by side effect"
+        description: |
+          Create cmd/backstop/doctor_toolchain_gatetype_test.go. Seven
+          mandated tests, all reading execution off the FILESYSTEM via the
+          harness's markerFiles helper.
+
+          TestDoctorToolchain_ExecutesTestGateTypeEntrypoint (CLM-024)
+          TestDoctorToolchain_ExecutesBuildGateTypeEntrypoint (CLM-025)
+            — assert the marker EXISTS after the check runs.
+
+          TestDoctorToolchain_DoesNotExecuteLintEngine (CLM-026)
+          TestDoctorToolchain_DoesNotExecuteFindingsEngine (CLM-027)
+          TestDoctorToolchain_DoesNotExecuteCoverageEngine (CLM-028)
+          TestDoctorToolchain_DoesNotExecuteSubstantivenessEngine (CLM-029)
+          TestDoctorToolchain_DoesNotExecuteContractsEngine (CLM-030)
+            — assert the marker is ABSENT. Do NOT assert the selection list,
+            do NOT assert on a recorded command log, and do NOT read the
+            implementation's slice of accepted gate types: Review Question 2
+            names asserting the list as testing the implementation against
+            itself. The absence of a file the fixture command WOULD have
+            created is the honest signal.
+
+          The coverage case carries the trap (constant F): its command is a
+          near-twin of the test binding's, so an implementation selecting on
+          the command string passes CLM-024 and reds CLM-028. That is the
+          point of the fixture — do not "clean up" the similarity.
+        files:
+          - cmd/backstop/doctor_toolchain_gatetype_test.go
+        claims:
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-028
+          - CLM-029
+          - CLM-030
+        test_names:
+          - TestDoctorToolchain_ExecutesTestGateTypeEntrypoint
+          - TestDoctorToolchain_ExecutesBuildGateTypeEntrypoint
+          - TestDoctorToolchain_DoesNotExecuteLintEngine
+          - TestDoctorToolchain_DoesNotExecuteFindingsEngine
+          - TestDoctorToolchain_DoesNotExecuteCoverageEngine
+          - TestDoctorToolchain_DoesNotExecuteSubstantivenessEngine
+          - TestDoctorToolchain_DoesNotExecuteContractsEngine
+        depends_on:
+          - TASK-009
+
+      - id: TASK-011
+        type: test
+        title: "RED: the four outcomes, the shared execution path, and the skip that protects outcome (d)"
+        description: |
+          ★ PRECONDITION: this file's tests drive doctor end to end, and
+            doctor's toolchain check CONSUMES the shared
+            `packEntrypointProber` (constant N) that PLAN-SPEC-069 TASK-042
+            lands. Confirm `cmd/backstop/pack_entrypoint_prober.go` exists
+            before writing these; if it does not, STOP and report the block.
+
+          ★ SCOPE: these tests assert DOCTOR's rollup, status mapping and
+            message content — not the prober's mechanics. PLAN-SPEC-069's
+            TASK-041 already owns selection-by-gate_type, the trust gate
+            ordering, the argv/no-shell property and the (b)/(c) split at
+            the prober level. Do NOT re-test those here as prober unit
+            tests; DO drive them through `backstop doctor` so the claims
+            below are asserted on the reported RESULT, which is what
+            SPEC-070 actually promises.
+
+          Create cmd/backstop/doctor_toolchain_outcomes_test.go. Nine
+          mandated tests.
+
+          TestDoctorToolchain_PassNamesPackAndCommandOnSuccess (CLM-031) —
+            outcome (a): the message names BOTH the pack and the command.
+          TestDoctorToolchain_MissingExecutableReportedAsOwedSetup (CLM-032)
+            — outcome (b): fail, classified as SETUP THE CONSUMER STILL
+            OWES, naming the pack and pointing at THAT PACK's own documented
+            install steps. Assert doctor installed nothing (no new files).
+          TestDoctorToolchain_NonZeroExitReportsOutputVerbatimWithoutInferringCause
+            (CLM-033) — outcome (c): the exit code and the captured output
+            VERBATIM. Assert the message contains no inferred cause. The
+            spec's sharp edge is the reason: the pnpm ERR_PNPM_IGNORED_BUILDS
+            evidence is exactly a nonzero exit whose obvious reading was
+            wrong, so a nonzero exit is NEVER reclassified as owed setup even
+            when it looks like a missing dependency.
+
+            ★★ THIS TEST IS ALSO THE CAPTURE-METHOD TRIPWIRE, AND IT IS
+            INVISIBLE IN A DIFF REVIEW. Drive TASK-026's
+            `toolchain-nonzero-exit` fixture, whose `go build` failure
+            writes its ENTIRE diagnostic to STDERR and NOTHING to stdout,
+            and assert the reported captured output is NON-EMPTY and
+            contains the compiler's own text. An implementation that bound
+            `check.CommandRunner.RunStdout` — which is what following
+            `runFindingsEngine`'s pattern would have produced
+            (pack_gate.go:648) — captures an EMPTY string here and passes
+            every other assertion in this file. Consuming the shared prober
+            binds `Run` (combined output) and settles this by construction,
+            but assert it anyway: an empty-string "verbatim" is a vacuous
+            green on the claim's whole point. If the fixture is ever changed
+            to also write to stdout it passes under BOTH methods and asserts
+            nothing.
+          TestDoctorToolchain_WarnsWhenNoPackDeclaresToolchainEntrypoint
+            (CLM-034) — outcome (d): WARN, never a silent pass.
+          TestDoctorToolchain_ReportsEachDeclaredEntrypointSeparately
+            (CLM-035) — several packs, each entrypoint reported separately
+            INSIDE the one result (constant B), in deterministic order
+            (constant C).
+          TestDoctorToolchain_PassesWhenEntrypointSucceedsDespiteFailingPackageManagerConfig
+            (CLM-036) — DD-6 made testable.
+          TestDoctorToolchain_RefusesCommandWhoseToolIsNotAllowlisted
+            (CLM-037) — the provisioned non-allowlisted fixture (constant
+            D). Assert REFUSAL, and assert the tool did not run.
+          TestDoctorToolchain_ShellMetacharactersArePassedAsLiteralArguments
+            (CLM-038) — assert BOTH directions (constant E): the literally
+            named side effect exists, and the INJECTED `pwned.marker` does
+            NOT. One direction alone is not proof that no shell ran.
+          TestDoctorToolchain_SkippedWhenPackSetCouldNotBeGathered (CLM-063)
+            — on the missing-pack project: SKIPPED naming `packs-installed`,
+            NOT a warn saying "no toolchain entrypoint declared". An
+            ungathered pack set must never be read as outcome (d).
+        files:
+          - cmd/backstop/doctor_toolchain_outcomes_test.go
+        claims:
+          - CLM-031
+          - CLM-032
+          - CLM-033
+          - CLM-034
+          - CLM-035
+          - CLM-036
+          - CLM-037
+          - CLM-038
+          - CLM-063
+        test_names:
+          - TestDoctorToolchain_PassNamesPackAndCommandOnSuccess
+          - TestDoctorToolchain_MissingExecutableReportedAsOwedSetup
+          - TestDoctorToolchain_NonZeroExitReportsOutputVerbatimWithoutInferringCause
+          - TestDoctorToolchain_WarnsWhenNoPackDeclaresToolchainEntrypoint
+          - TestDoctorToolchain_ReportsEachDeclaredEntrypointSeparately
+          - TestDoctorToolchain_PassesWhenEntrypointSucceedsDespiteFailingPackageManagerConfig
+          - TestDoctorToolchain_RefusesCommandWhoseToolIsNotAllowlisted
+          - TestDoctorToolchain_ShellMetacharactersArePassedAsLiteralArguments
+          - TestDoctorToolchain_SkippedWhenPackSetCouldNotBeGathered
+        depends_on:
+          - TASK-009
+          - TASK-026
+
+      - id: TASK-012
+        type: implementation
+        title: "GREEN: checkToolchainRuns CONSUMING the shared packEntrypointProber — doctor owns the rollup and nothing mechanical"
+        description: |
+          ★ PRECONDITION — VERIFY BEFORE WRITING A LINE ★
+          This task CONSUMES the shared toolchain execution helper
+          PLAN-SPEC-069 phase 14 builds (its TASK-042, verified by its
+          TASK-043). Confirm in COMPILED CODE, not in the sibling plan's
+          text:
+
+            ls cmd/backstop/pack_entrypoint_prober.go
+            grep -n "packEntrypointProber\|entrypointProbe\|entrypointOutcome" cmd/backstop/pack_entrypoint_prober.go
+
+          The expected surface is recorded in this plan's constant N,
+          re-read from PLAN-SPEC-069's revised TASK-042 on 2026-08-14 — a
+          citation of a sibling PLAN, not a fact. If the file is absent, or
+          if `Probe` no longer returns `[]entrypointProbe`, or if the
+          outcome constants have moved, STOP and report the block. Do NOT
+          write a local copy of the three execution steps "temporarily":
+          that duplicate is the defect this rewrite exists to remove.
+
+          WHY THIS IS A CROSS-PLAN DEPENDENCY AT ALL (the founder ruling):
+          an earlier revision of this task reimplemented
+          `checkEngineToolAllowed → splitCommand → shared CommandRunner`
+          inline — the exact three steps PLAN-SPEC-069's phase 14 already
+          builds for init's toolchain step. Two implementations of one
+          execution route drift; the runner-method question below is proof
+          they had already started to. Doctor CALLS the shared helper.
+
+          SPEC CONGRUENCE, stated because the wording differs. SPEC-070's
+          contract note for `checkToolchainRuns` reads "runs each through
+          checkEngineToolAllowed + splitCommand + the shared CommandRunner —
+          the same three steps runFindingsEngine takes ... so there is no
+          second execution path to audit", and REQ-006 requires execution to
+          go "through the SAME trusted-tool allowlist check and
+          command-splitting path the gate's engine dispatch uses ... doctor
+          must not introduce a second, weaker way to run pack-declared
+          commands". Calling those three steps THROUGH the shared prober
+          satisfies both more strictly than inlining them would: the three
+          steps still happen, in that order, and the count of execution
+          paths to audit goes from two to ONE rather than staying at two.
+          The contract's `checkToolchainRuns` SIGNATURE is unchanged; only
+          its body is a call instead of a loop.
+
+          ★ BUT SPEC-070's TEXT IS NOW STALE, AND TASK-028 FIXES IT — DO NOT
+            RE-INLINE THE STEPS TO MATCH THE SPEC. An earlier revision of
+            this task hedged that "nothing in SPEC-070's frontmatter needs
+            an edit" and that the contracts gate might read the
+            `checkEngineToolAllowed` / `splitCommand` `consumes:` entries as
+            direct call-site obligations. Both halves were checked
+            empirically on 2026-08-14 and both are now settled:
+
+              • The spec IS stale. SPEC-070 v1.1.1 still describes those two
+                symbols as things `checkToolchainRuns` calls directly, in
+                five prose places and in `doctor_checks.go`'s `consumes:`
+                block. This task FORBIDS both symbols from that file.
+              • The gate will NOT catch it. `pkg/validate/contracts.go`'s
+                `validateConsumesItem` checks only the structural SHAPE of a
+                consumes entry (source/name/kind present) — it never
+                verifies the named function is actually called. So the drift
+                ships silently and becomes exactly the stale predating
+                artifact this repo's own convention exists to prevent.
+
+            TASK-028 in this phase dispatches that spec amendment. When you
+            reach a spec sentence that contradicts this task, the SPEC is
+            what is wrong; report it into TASK-028 rather than writing the
+            inline copy that would make the spec true again.
+
+          cmd/backstop/doctor_checks.go — add checkToolchainRuns(ctx
+          doctorContext) doctorResult. It does FOUR things and nothing else:
+
+            (1) SKIP FIRST. If ctx.PacksErr != nil, return SKIPPED naming
+                `packs-installed`, BEFORE the prober is even constructed.
+                An ungathered pack set must never reach the prober and must
+                never read as "no entrypoint declared" (CLM-063).
+
+            (2) CONSTRUCT AND CALL, ONCE:
+
+                  probes := (&packEntrypointProber{
+                      Packs:  ctx.Packs,
+                      Runner: ctx.Runner,
+                  }).Probe(cmd context)
+
+                `Probe` takes a `context.Context` and NO projectRoot — the
+                working directory is a construction-time property of
+                `check.ExecCommandRunner{Dir: …}` (pkg/check/runner.go:28-30),
+                so `ctx.Runner` must already be rooted at ctx.ProjectRoot.
+                TASK-007 gathers it that way; confirm it rather than adding
+                a second rooting mechanism here.
+
+            (3) ROLL UP to ONE doctorResult (constant B): one line per
+                `entrypointProbe` inside the single message, Status = the
+                WORST outcome among them (fail > warn > pass). It returns
+                ONE result, not one per entrypoint, and registers ONE check
+                — CLM-009 is the guard.
+
+                Per-entrypoint line content, from the probe's own fields:
+                  entrypointPassed        → outcome (a): PASS, naming
+                    `PackName` and `Command` (CLM-031).
+                  entrypointUnstartable   → outcome (b): FAIL, classified as
+                    SETUP THE CONSUMER STILL OWES, naming the pack and
+                    pointing at THAT PACK's own documented install steps.
+                    Install nothing, invent no install command (CLM-032).
+                  entrypointExitedNonZero → outcome (c): FAIL, reporting
+                    `ExitCode` and `Output` VERBATIM, attributed to
+                    `PackName` and `Command` and to NOTHING ELSE. Infer no
+                    cause — the pnpm ERR_PNPM_IGNORED_BUILDS evidence is a
+                    nonzero exit whose obvious reading was wrong, so a
+                    nonzero exit is NEVER reclassified as owed setup even
+                    when it looks like a missing dependency (CLM-033).
+                  entrypointRefused       → FAIL for this check, carrying
+                    `Err`. Note the deliberate asymmetry: init surfaces this
+                    SAME value as a CONFIG ERROR. That divergence is why
+                    `Probe` returns no `error` and leaves disposition to the
+                    caller — do not "fix" it in either direction (CLM-037).
+
+            (4) An EMPTY probe slice with a successfully gathered pack set
+                is outcome (d) — WARN, stating that no installed pack
+                declares a toolchain entrypoint, never a silent pass
+                (CLM-034). The prober deliberately does not decide absence;
+                this is the caller's call and doctor's answer is WARN.
+
+          ★★ WHAT THIS FUNCTION MUST NOT CONTAIN — each one means the
+             prober was reimplemented rather than consumed, and none of them
+             will fail a test that only asserts output:
+               1. `checkEngineToolAllowed`
+               2. `splitCommand`
+               3. `exec.Command` / `exec.CommandContext`
+               4. any direct `ctx.Runner.Run` / `ctx.Runner.RunStdout` call
+               5. any walk of `Manifest.Engines` and any `GateType`
+                  comparison — SELECTION is the prober's
+               6. any sort of engine keys — constant C's determinism is the
+                  prober's obligation and it discharges it (PLAN-SPEC-069's
+                  TASK-042 sorts BECAUSE CLM-007 here demands it). A second
+                  sort here would be harmless today and misleading forever
+               7. any `*exec.ExitError` inspection — the (b)/(c) split is
+                  the prober's, from the one mechanically honest signal
+
+          ★★ AND THE RUNNER METHOD, WHICH IS THE POINT: doctor NAMES NO
+             RUNNER METHOD AT ALL. It inherits `check.CommandRunner.Run`
+             (combined stdout+stderr) because the shared prober binds it.
+             This matters concretely here: CLM-033 requires a nonzero exit's
+             output captured VERBATIM, and TASK-026's fixture for it is a
+             `go build` failure whose diagnostics are entirely on STDERR.
+             Had this task kept following `runFindingsEngine`'s pattern it
+             would have bound `RunStdout` (pack_gate.go:648, stdout only)
+             and captured NOTHING for exactly the failures CLM-033 exists to
+             surface. Consuming the prober resolves that by construction —
+             but VERIFY it rather than assuming the property transferred:
+             read the `Run` call site in pack_entrypoint_prober.go, and
+             assert non-empty captured output in TASK-011's CLM-033 test
+             against the stderr-only fixture.
+
+          cmd/backstop/doctor.go — insert the toolchain-runs entry into the
+          registry slice after packs-installed, built from the already
+          declared doctorCheckToolchainRuns constant. Registry is now five.
+
+          Do not touch the setup checks. Do not add a second execution
+          helper "for readability". Do not edit
+          cmd/backstop/pack_entrypoint_prober.go — it is PLAN-SPEC-069's
+          file and is not in this task's scope; if it needs a change, STOP
+          and surface it rather than editing across the plan boundary.
+        files:
+          - cmd/backstop/doctor_checks.go
+          - cmd/backstop/doctor.go
+        claims:
+          - CLM-024
+          - CLM-025
+          - CLM-026
+          - CLM-027
+          - CLM-028
+          - CLM-029
+          - CLM-030
+          - CLM-031
+          - CLM-032
+          - CLM-033
+          - CLM-034
+          - CLM-035
+          - CLM-036
+          - CLM-037
+          - CLM-038
+          - CLM-063
+        depends_on:
+          - TASK-010
+          - TASK-011
+
+      - id: TASK-028
+        type: documentation
+        title: "AMEND SPEC-070: retire the inline-execution language the prober rewrite obsoleted, via the spec-author track"
+        description: |
+          ★ ID NOTE: numbered TASK-028 because it was ADDED to phase 3 after
+            the plan was numbered. Ids are unique labels, not positions.
+
+          ★ THIS IS AN ARTIFACT-TRACK TASK, NOT A CODE TASK. It edits no
+            `.go` file. Per this repository's standing rule, artifacts are
+            NEVER hand-edited — route the change through the spec-author
+            agent (`/spec`, targeting SPEC-070), the same way every other
+            spec change in this repo is made. The freeform prose below is
+            the BRIEF for that agent, not text to paste into the file.
+
+          WHY THIS TASK EXISTS. TASK-012 was rewritten under a founder
+          ruling: `checkToolchainRuns` CONSUMES the shared
+          `packEntrypointProber` instead of reimplementing
+          `checkEngineToolAllowed → splitCommand → CommandRunner` inline.
+          SPEC-070's own text was never updated to match, so the spec now
+          describes an implementation this plan forbids — and the gate will
+          not catch the divergence:
+
+            • VERIFIED 2026-08-14 — `pkg/validate/contracts.go`'s
+              `validateConsumesItem` validates only that a consumes entry
+              has source/name/kind. It never checks whether the named symbol
+              is actually called by the declaring file. A `consumes:` entry
+              naming a function the file no longer calls is structurally
+              valid and passes the contracts dimension.
+            • So this drift ships SILENTLY unless a task removes it. That is
+              the "align predating artifacts — update via agents, openly"
+              convention: a stale spec that survives the work it described is
+              a defect, not a cosmetic mismatch.
+
+          THE FIVE PROSE OCCURRENCES, located in SPEC-070 v1.1.1 (line
+          numbers are a 2026-08-14 reading and will move — locate by TEXT):
+
+            ~650  the `checkToolchainRuns` contract `notes:` — "then runs
+                  each through checkEngineToolAllowed + splitCommand + the
+                  shared CommandRunner — the same three steps
+                  runFindingsEngine takes (pack_gate.go:573) minus the SARIF
+                  parse, so there is no second execution path to audit"
+            ~824  Implementation preamble — "the package that already holds
+                  loadInstalledPacks, checkEngineToolAllowed, splitCommand,
+                  and the command wiring"
+            ~883  Implementation §, checkToolchainRuns — "walks the gathered
+                  manifests, selects every engine binding whose GateType is
+                  … and for each: applies checkEngineToolAllowed, splits the
+                  declared command with splitCommand, and executes it once
+                  from the project root through the shared runner"
+            ~997  Sharp Edges — "It is bounded to the gate's own path —
+                  checkEngineToolAllowed, splitCommand, the shared runner,
+                  no shell"
+            ~1262 References — "runFindingsEngine (the three execution steps
+                  toolchain-runs reuses without the SARIF parse),
+                  checkEngineToolAllowed, and splitCommand"
+
+          WHAT THE AMENDMENT MUST DO:
+
+            (1) In `doctor_checks.go`'s `contracts.consumes:` block, DROP
+                the two entries `{source: cmd/backstop, name:
+                checkEngineToolAllowed}` and `{source: cmd/backstop, name:
+                splitCommand}`. They name functions that file no longer
+                calls.
+
+            (2) KEEP `engine.GateType` and `check.CommandRunner` in that
+                same consumes list. This is deliberate and must not be
+                over-corrected: the rollup may format `probe.GateType`, and
+                `doctorContext` still CARRIES the `check.CommandRunner` that
+                doctor hands to the prober. Only the two direct
+                function-call symbols go.
+
+            (3) ADD a consumes entry for the shared prober itself —
+                `{source: cmd/backstop, name: packEntrypointProber, kind:
+                type}` — so the spec names what `doctor_checks.go` actually
+                depends on now. Cite its file,
+                `cmd/backstop/pack_entrypoint_prober.go`, and its owner
+                (SPEC-069 / PLAN-SPEC-069 phase 14).
+
+            (4) REWORD all five prose occurrences and the
+                `checkToolchainRuns` contract note to describe CONSUMING the
+                shared `packEntrypointProber` — naming it explicitly rather
+                than saying "a shared helper". The substantive point to
+                preserve, because it is REQ-006's actual requirement and it
+                is satisfied MORE strictly now, not less: the three steps
+                still happen, in that order, one layer down, and the number
+                of execution routes to audit drops from two to ONE. The
+                Sharp Edges occurrence keeps its security claim verbatim in
+                force — allowlist first, `strings.Fields` splitting, no
+                shell — attributed to the prober.
+
+            (5) ADD a Version History entry recording the amendment, its
+                cause (the founder ruling that a duplicate execution route
+                is unacceptable) and its scope (text and contracts only — no
+                requirement, claim or mandated test name changes). Bump the
+                spec_version accordingly.
+
+          ★ WHAT THIS AMENDMENT MUST NOT DO. It changes NO requirement, NO
+            claim, and NO mandated test name. All 64 claims and their test
+            names stand exactly as this plan maps them — the behaviour
+            SPEC-070 promises is unchanged; only its account of HOW the
+            toolchain check executes is corrected. If the spec-author agent
+            proposes touching a REQ or a CLM, STOP and surface it: that
+            would silently move this plan's target mid-flight.
+
+          DONE MEANS: no occurrence of `checkEngineToolAllowed` or
+          `splitCommand` remains in SPEC-070 describing them as things
+          `checkToolchainRuns` calls (grep the spec to confirm — a residual
+          mention inside a purely historical Version History line is fine
+          and expected), and
+          `./bin/backstop artifact validate --spec SPEC-070` passes.
+        files:
+          - specs/SPEC-070-backstop-doctor.spec.md
+        claims:
+          - CLM-031
+          - CLM-037
+          - CLM-038
+        depends_on:
+          - TASK-012
+
+      - id: TASK-013
+        type: verification
+        title: "Verify phase 3: rebuild, diff-scoped gate, and the exit matrix STILL green with five checks registered"
+        description: |
+          1. `go build -o bin/backstop ./cmd/backstop`.
+          2. `PATH="/Users/bmanson/go/bin:$PATH" ./bin/backstop gate`.
+          3. `go test ./cmd/backstop/... -race`.
+
+          THREE THINGS TO CONFIRM BEYOND "the new tests pass":
+          (a) CLM-011 (TestDoctor_ExitZeroWhenNoCheckFails) is STILL green.
+              It now includes toolchain-runs, which is why TASK-009 extended
+              the clean fixture (constant I). If it is red, the fixture is
+              the fix — never a `--check` filter.
+          (b) CLM-007's byte-identical-order assertion is still green across
+              repeated runs, now that a map-backed engine set feeds the
+              report (constant C). Run the suite twice; a flap here is a
+              real defect, not flakiness.
+          (c) No marker file has landed inside the repository work tree
+              (`git status --short`). If any has, the fixture is being gated
+              in place instead of staged into t.TempDir (constant G).
+          (d) THERE IS EXACTLY ONE EXECUTION ROUTE. Grep
+              cmd/backstop/doctor_checks.go for `checkEngineToolAllowed`,
+              `splitCommand`, `exec.Command`, `.Run(` and `.RunStdout(` —
+              every one must be ABSENT, because the shared
+              `packEntrypointProber` owns all of them (constant N). A hit
+              means the prober was reimplemented rather than consumed, which
+              is the founder-ruled defect this phase was rewritten to
+              remove. It will not fail any test in this phase.
+          (e) `cmd/backstop/pack_entrypoint_prober.go` is UNMODIFIED by this
+              plan (`git diff` it against PLAN-SPEC-069's version). It is
+              that plan's file; doctor calls it and does not edit it.
+          (f) TASK-028's SPEC AMENDMENT LANDED. Grep
+              specs/SPEC-070-backstop-doctor.spec.md for
+              `checkEngineToolAllowed` and `splitCommand`: no remaining
+              occurrence may describe them as things `checkToolchainRuns`
+              calls, and `doctor_checks.go`'s `consumes:` block must no
+              longer name them (a purely historical Version History mention
+              is fine). Then run
+              `./bin/backstop artifact validate --spec SPEC-070`.
+              This one will NOT surface by itself — verified 2026-08-14 that
+              `validateConsumesItem` checks only a consumes entry's SHAPE,
+              never whether the named function is called — so the gate stays
+              green over the drift and only this manual check catches it.
+
+          THE BAR: gate PASS, no new blocking violation.
+        files:
+          - cmd/backstop/doctor_checks.go
+          - cmd/backstop/doctor.go
+        claims:
+          - CLM-024
+          - CLM-031
+          - CLM-063
+          - CLM-011
+        depends_on:
+          - TASK-012
+          - TASK-028
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: build-identity. ★ BLOCKED ON PLAN-SPEC-068 ★
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: The build-identity check — SURFACE it, never compare it (REQ-005) [BLOCKED on SPEC-068]"
+    tasks:
+      - id: TASK-014
+        type: test
+        title: "RED: build identity is reported, absence warns, and nothing is compared against a pack"
+        description: |
+          ★ PRECONDITION — VERIFY BEFORE WRITING A LINE ★
+          This phase consumes the build-identity stamp SPEC-068 adds to
+          cmd/backstop/version.go. As of 2026-08-14 it DOES NOT EXIST on
+          disk. Confirm in COMPILED CODE, not in SPEC-068's text:
+
+            grep -n "BuildIdentity\|resolveBuildIdentity" cmd/backstop/version.go
+
+          Expected (re-read from SPEC-068 1.2.0 — treat as a citation, not a
+          fact): `type BuildIdentity struct { Version, Commit, BuildDate
+          string }` and `func resolveBuildIdentity(injectedVersion,
+          injectedCommit, injectedDate string, info *debug.BuildInfo, ok
+          bool) BuildIdentity`. If the surface is absent or its shape has
+          moved, STOP and report the block. Do not stub it, do not define a
+          local copy, do not read vcs settings directly here — a second
+          resolver would make `backstop doctor` and `backstop version`
+          capable of disagreeing about the same binary, which is the exact
+          class of failure SPEC-068 exists to close.
+
+          Create cmd/backstop/doctor_build_identity_test.go. Three tests.
+
+          TestDoctorBuildIdentity_ReportsStampedVersionCommitDateAndCohort
+            (CLM-021) — all FOUR values present in the result: version
+            string, build commit, build date, schema cohort. The cohort is
+            the same value `version` renders (root.go:106-127); read it
+            through the same path, not by recomputing.
+          TestDoctorBuildIdentity_WarnsWhenBuildIdentityAbsent (CLM-022) —
+            WARN, never FAIL. This is the highest-ranked sharp edge (a
+            weeks-old binary reporting bare `dev`, whose skew was
+            misdiagnosed as a pack producer error) made visible; the binary
+            still runs, so blocking would be wrong.
+          TestDoctorBuildIdentity_PerformsNoPackCapabilityComparison
+            (CLM-023) — a SOURCE-level assertion: checkBuildIdentity reads
+            no pack manifest and performs no comparison. Capability-set
+            comparison is BUNDLE-020's mechanism via SPEC-068; doctor
+            surfaces what those stamp and re-decides nothing. Assert the
+            absence structurally (no ctx.Packs read inside the function),
+            not merely that today's output happens to lack a comparison.
+        files:
+          - cmd/backstop/doctor_build_identity_test.go
+        claims:
+          - CLM-021
+          - CLM-022
+          - CLM-023
+        test_names:
+          - TestDoctorBuildIdentity_ReportsStampedVersionCommitDateAndCohort
+          - TestDoctorBuildIdentity_WarnsWhenBuildIdentityAbsent
+          - TestDoctorBuildIdentity_PerformsNoPackCapabilityComparison
+        depends_on:
+          - TASK-013
+
+      - id: TASK-015
+        type: implementation
+        title: "GREEN: checkBuildIdentity reads the one resolved identity, and its registry entry"
+        description: |
+          cmd/backstop/doctor_checks.go — add checkBuildIdentity(ctx
+          doctorContext) doctorResult. It reads the resolved version string,
+          the build commit and build date SPEC-068 stamps, and the schema
+          cohort — the same values `version` renders — and REPORTS them.
+          Absent identity WARNS. It reads no pack manifest, executes
+          nothing, and compares nothing (CLM-023 is falsifiable only because
+          the function makes no pack read at all).
+
+          cmd/backstop/doctor.go — insert the build-identity entry after
+          packs-installed and before toolchain-runs, per the spec's declared
+          report order (the four setup checks, then build-identity,
+          toolchain-runs, artifact-layout). Registry is now six. Built from
+          the already-declared doctorCheckBuildIdentity constant.
+
+          If TASK-014's precondition check failed, this task does not run.
+        files:
+          - cmd/backstop/doctor_checks.go
+          - cmd/backstop/doctor.go
+        claims:
+          - CLM-021
+          - CLM-022
+          - CLM-023
+        depends_on:
+          - TASK-014
+          - TASK-013
+
+      - id: TASK-016
+        type: verification
+        title: "Verify phase 4: rebuild, diff-scoped gate, six checks registered, exit matrix still green"
+        description: |
+          1. `go build -o bin/backstop ./cmd/backstop`.
+          2. `PATH="/Users/bmanson/go/bin:$PATH" ./bin/backstop gate`.
+          3. `go test ./cmd/backstop/... -race`.
+
+          Confirm additionally: the registry now holds SIX entries in the
+          spec's declared order; CLM-011's all-passing fixture is still
+          green (build-identity passes on a stamped test binary, or warns —
+          and a WARN keeps exit 0, so CLM-011 survives either way, which is
+          worth confirming rather than assuming); and `backstop version` and
+          `backstop doctor --check build-identity` report the SAME version
+          string. That last one is not a mandated test, but a divergence
+          means a second resolver crept in.
+
+          THE BAR: gate PASS, no new blocking violation.
+        files:
+          - cmd/backstop/doctor_checks.go
+          - cmd/backstop/doctor.go
+        claims:
+          - CLM-021
+          - CLM-022
+          - CLM-023
+        depends_on:
+          - TASK-015
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: artifact-layout and the completed registry.
+  #          ★ BLOCKED ON PLAN-SPEC-068 ★
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: The artifact-layout check against the RESOLVED root, and the registry tripwire (REQ-007, CLM-051) [BLOCKED on SPEC-068]"
+    tasks:
+      - id: TASK-017
+        type: setup
+        title: "Author the layout fixture corpora — including the unconfigured .backstop/ shape no in-repo run can reveal"
+        description: |
+          ★ PRECONDITION — VERIFY BEFORE WRITING A LINE ★
+          Confirm in COMPILED CODE that SPEC-068's resolution shipped:
+
+            go doc ./pkg/artifact ResolveRoot
+            go doc ./pkg/artifact Root
+            go doc ./pkg/gate FindUngatedArtifacts
+            go doc ./pkg/gate UngatedArtifact
+            grep -n "ArtifactRoot" pkg/config/config.go
+
+          Expected shapes are recorded in this plan's notes (re-read from
+          SPEC-068 1.2.0 on 2026-08-14 — a citation, not a fact; the helper
+          has already been renamed once, from FindOutOfRootArtifacts). If
+          anything is absent or has moved, STOP and report the block.
+
+          ★ DIRECTORY NAMES BELOW ARE READ, NOT TYPED. Every path in this
+            task's `files:` uses the type-directory name this repository
+            uses TODAY (`specs`, `plans`, `adrs`, `bundles`, `issues`,
+            `directives`, `capabilities`). Those names are the SHARED
+            layout table's to declare — confirm each against
+            `artifact.LayoutFor(kind)` on the shipped package before
+            authoring, and adjust the fixture paths if the table diverges.
+            The prohibition on doctor holding a directory name (TASK-020)
+            is about the CHECK's source; fixture DATA necessarily sits at
+            concrete paths, and those paths must match what the table says
+            or the corpora test nothing.
+
+          ★ EVERY CORPUS BELOW IS A `projects/layout-<case>/` TEMPLATE, NOT
+            A `layout/<case>/` SIBLING TREE. `stageDoctorProject` (TASK-002)
+            resolves `cmd/backstop/testdata/doctor/projects/<templateName>`
+            and NOTHING ELSE, so a corpus authored beside that tree has no
+            staging route and TASK-018 would have to read it IN PLACE. That
+            is not a cosmetic difference: SPEC-068's `FindUngatedArtifacts`
+            SKIPS `testdata` among its non-corpus exclusion trees, so an
+            in-place read returns ZERO deviations for every case here and
+            CLM-046 — the claim TASK-018 calls "the one that matters most" —
+            passes against nothing. Constant G states the rule; these paths
+            obey it. Do not "reorganize" them back under a `layout/` sibling
+            for readability: the `layout-` prefix already carries the
+            grouping, and the flat namespace is what keeps ONE stager.
+
+          Author the fixture corpora under
+          cmd/backstop/testdata/doctor/projects/. Every artifact file must be
+          minimally SCHEMA-VALID for its type — a corpus of malformed files
+          compares piles of violations rather than layouts.
+
+          (1) layout-unconfigured-dot-backstop/ — NO `artifact_root` in
+              backstop.yml, artifacts living under `.backstop/`. THIS IS THE
+              MOTIVATING CASE and the reason the check exists: an
+              unconfigured root resolves to the PROJECT root, which contains
+              everything, so a root-CONTAINMENT test finds zero deviations
+              here while none of these files is discovered or gated. It must
+              report deviations naming the expected default path (CLM-046).
+              It carries REAL artifacts — a spec, a bundle and a plan under
+              `.backstop/` — because a corpus holding only a backstop.yml
+              has nothing to deviate and CLM-046, the plan's own "one that
+              matters most", would pass vacuously against an empty tree.
+              Three kinds, not one, so the deviation set spans more than a
+              single layout entry.
+          (2) layout-unconfigured-expected-layout/ — no configured root, the SAME
+              three artifacts in their expected directories at the project
+              root. Passes with NO warning (CLM-047). This is
+              backstop-core's own shape, arising from the rule rather than
+              from a special case naming this repository. Author these three
+              by COPYING corpus (1)'s files so the ONLY difference between
+              the two corpora is the `.backstop/` prefix — that is what
+              makes the pass/deviation split attributable to layout and
+              nothing else.
+          (3) layout-configured-root-clean/ and layout-configured-root-deviating/ — both
+              declare `artifact_root: .backstop`, and the SAME spec file is
+              a deviation in one and not in the other: in `clean` it sits at
+              `.backstop/specs/`, in `deviating` at the project root's
+              `specs/`. That difference is what proves the check consumes
+              the shared resolution rather than a root of its own (CLM-039),
+              and it doubles as CLM-043's control (an artifact in its
+              expected directory is not a deviation).
+          (4) layout-configured-root-missing/ — declares a root absent from
+              disk (CLM-049). backstop.yml only; the absence IS the fixture.
+          (5) layout-configured-root-invalid/ — an invalid declaration, e.g.
+              an absolute or escaping path, both of which SPEC-068 rejects
+              (CLM-050). Read which forms are invalid off the shipped
+              ResolveRoot, not off this list. backstop.yml only.
+          (6) layout-empty-root/ — a resolved root that EXISTS but is empty
+              (CLM-045). Git cannot track an empty directory, so it carries
+              `.backstop/.gitkeep`. The harness deletes `.gitkeep`
+              RECURSIVELY after staging (TASK-002), which is what this
+              corpus depends on and the no-config project does not: its
+              marker sits one level down at `.backstop/.gitkeep`, so a
+              top-level-only deletion would leave the resolved root
+              non-empty and CLM-045 would assert against the wrong
+              condition. Confirm the staged tree is genuinely empty at the
+              root before relying on this case.
+          (7) layout-absent-type-directory/ — CLM-044, and it is a SEPARATE corpus
+              from (6) because the two conditions are different: (6) is an
+              empty root, this is a root holding SOME type directories and
+              missing others. It carries one spec in `specs/` and no
+              `plans/`, `bundles/`, `adrs/`, `issues/`, `directives/` or
+              `capabilities/` directory at all. The absent directories must
+              produce no deviation.
+        files:
+          - cmd/backstop/testdata/doctor/projects/layout-unconfigured-dot-backstop/backstop.yml
+          - cmd/backstop/testdata/doctor/projects/layout-unconfigured-dot-backstop/.backstop/specs/SPEC-001-sample.spec.md
+          - cmd/backstop/testdata/doctor/projects/layout-unconfigured-dot-backstop/.backstop/bundles/BUNDLE-001-sample.bundle.md
+          - cmd/backstop/testdata/doctor/projects/layout-unconfigured-dot-backstop/.backstop/plans/PLAN-SPEC-001-sample.plan.yml
+          - cmd/backstop/testdata/doctor/projects/layout-unconfigured-expected-layout/backstop.yml
+          - cmd/backstop/testdata/doctor/projects/layout-unconfigured-expected-layout/specs/SPEC-001-sample.spec.md
+          - cmd/backstop/testdata/doctor/projects/layout-unconfigured-expected-layout/bundles/BUNDLE-001-sample.bundle.md
+          - cmd/backstop/testdata/doctor/projects/layout-unconfigured-expected-layout/plans/PLAN-SPEC-001-sample.plan.yml
+          - cmd/backstop/testdata/doctor/projects/layout-configured-root-clean/backstop.yml
+          - cmd/backstop/testdata/doctor/projects/layout-configured-root-clean/.backstop/specs/SPEC-001-sample.spec.md
+          - cmd/backstop/testdata/doctor/projects/layout-configured-root-deviating/backstop.yml
+          - cmd/backstop/testdata/doctor/projects/layout-configured-root-deviating/specs/SPEC-001-sample.spec.md
+          - cmd/backstop/testdata/doctor/projects/layout-configured-root-missing/backstop.yml
+          - cmd/backstop/testdata/doctor/projects/layout-configured-root-invalid/backstop.yml
+          - cmd/backstop/testdata/doctor/projects/layout-empty-root/backstop.yml
+          - cmd/backstop/testdata/doctor/projects/layout-empty-root/.backstop/.gitkeep
+          - cmd/backstop/testdata/doctor/projects/layout-absent-type-directory/backstop.yml
+          - cmd/backstop/testdata/doctor/projects/layout-absent-type-directory/specs/SPEC-001-sample.spec.md
+        claims:
+          - CLM-039
+          - CLM-043
+          - CLM-044
+          - CLM-045
+          - CLM-046
+          - CLM-047
+          - CLM-049
+          - CLM-050
+        depends_on:
+          - TASK-016
+
+      - id: TASK-027
+        type: setup
+        title: "Author the classification corpora: every artifact suffix, the bare capability.yml near-miss, the nested artifact, and the clean project's layout"
+        description: |
+          ★ ID NOTE: numbered TASK-027 because it was ADDED to phase 5 after
+            the plan was numbered. It runs in phase 5, parallel-eligible
+            with TASK-017 (disjoint files, no dependency between them).
+
+          ★ PRECONDITION: the same one TASK-017 states. Do not author until
+            SPEC-068's resolution is confirmed in COMPILED CODE, and read
+            every type-directory name off `artifact.LayoutFor(kind)` rather
+            than typing it from memory.
+
+          ★ SAME TEMPLATE-ROOT RULE AS TASK-017, and the same reason: both
+            corpora below are `projects/layout-<case>/` templates so
+            `stageDoctorProject` reaches them. A corpus parked in a
+            `testdata/doctor/layout/` sibling is unstageable, would be read
+            IN PLACE under `testdata/` — which `FindUngatedArtifacts`
+            excludes — and would report zero deviations while looking green
+            (constant G).
+
+          (1) layout-all-suffixes/ — one file per kind in the SEVEN-kind
+              vocabulary: `.spec.md`, `.plan.yml`, `.adr.md`, `.bundle.md`,
+              `.issue.md`, `.directive.md`, `.capability.yml`. All seven are
+              enumerated in `files:` below, because CLM-041's "none silently
+              unrecognized" is only assertable against a corpus that
+              actually contains all seven — a corpus holding a backstop.yml
+              and nothing else proves nothing about classification.
+
+              ★ ALL SEVEN SIT MISPLACED, TOGETHER, IN A SHARED `misc/`
+                DIRECTORY — NOT in their expected directories. This is the
+                whole point of the corpus and it must not be "corrected"
+                into a tidy layout. Placed correctly, all seven produce ZERO
+                deviations, and doctor's only observable output here IS the
+                deviation set — so a classifier that recognizes all seven
+                suffixes and one that recognizes NONE of them are
+                indistinguishable, and CLM-041's test cannot red on a broken
+                classifier. Misplaced, each file yields exactly one
+                deviation carrying its `UngatedArtifact.Kind`, so the
+                deviation set is SEVEN entries spanning seven distinct
+                kinds, and a classifier missing even one suffix (say
+                `.directive.md`) yields six and reds. `misc/` is chosen
+                because it is not a type directory under any reading of
+                `artifact.LayoutFor(kind)`; if the shipped table should ever
+                claim that name, pick another non-type directory rather than
+                scattering the files.
+
+              It ALSO carries a BARE `capability.yml`, nested one directory
+              deeper than the layout expects, which must NOT be reported
+              (CLM-062): this repository's own
+              capabilities/CAP-001-pack-gate-enforcement/capability.yml has
+              exactly that shape and escapes classification only because a
+              `.capability.yml` suffix test does not match a bare
+              `capability.yml`. Widening the pattern would red this
+              repository's own gate on a file neither spec was asked to
+              touch. Doctor adds no pattern of its own.
+
+              And it carries NON-artifact files — a `README.md` (markdown,
+              but no artifact suffix) and a `notes.txt` — for CLM-042. The
+              README is the load-bearing one: a classifier that keyed on
+              `.md` rather than on `.spec.md`/`.adr.md`/`.bundle.md`/
+              `.issue.md`/`.directive.md` would report it.
+
+              The near-miss and the non-artifact files DO NOT MOVE — only
+              the seven correctly-suffixed artifacts are misplaced. So the
+              deviation set for this corpus is exactly the seven, and
+              CLM-042's and CLM-062's tests read as absences WITHIN a
+              non-empty set rather than as an empty set, which is strictly
+              stronger: a classifier that reported the README or the bare
+              `capability.yml` would push the count past seven.
+
+          (2) layout-nested-artifact/ — an artifact ONE LEVEL BELOW its expected
+              directory (`specs/archive/SPEC-001-sample.spec.md`). It IS a
+              deviation: the status walk reads type directories with
+              os.ReadDir and SKIPS subdirectories
+              (pkg/gate/artifact_status.go:379-404), so a nested artifact is
+              exactly as ungated as one in the wrong tree. This corpus is
+              also where CLM-040's actual-path/expected-path pair and
+              CLM-048's both-remedies remediation are read, because it
+              produces exactly one unambiguous deviation.
+
+          (3) EXTEND the clean project (constant I) so its layout resolves
+              cleanly and CLM-011 stays green with seven checks registered.
+              Give it ONE artifact in its expected directory rather than no
+              artifacts at all: an empty corpus passes artifact-layout
+              trivially, and a trivial pass inside the fixture CLM-011 rides
+              is the kind of green this whole spec exists to distrust.
+              Nothing else about clean/ changes — its backstop.yml declares
+              no artifact_root, which is CLM-047's shape.
+        files:
+          - cmd/backstop/testdata/doctor/projects/layout-all-suffixes/backstop.yml
+          - cmd/backstop/testdata/doctor/projects/layout-all-suffixes/misc/SPEC-001-sample.spec.md
+          - cmd/backstop/testdata/doctor/projects/layout-all-suffixes/misc/PLAN-SPEC-001-sample.plan.yml
+          - cmd/backstop/testdata/doctor/projects/layout-all-suffixes/misc/ADR-001-sample.adr.md
+          - cmd/backstop/testdata/doctor/projects/layout-all-suffixes/misc/BUNDLE-001-sample.bundle.md
+          - cmd/backstop/testdata/doctor/projects/layout-all-suffixes/misc/ISSUE-001-sample.issue.md
+          - cmd/backstop/testdata/doctor/projects/layout-all-suffixes/misc/DIR-001-sample.directive.md
+          - cmd/backstop/testdata/doctor/projects/layout-all-suffixes/misc/CAP-001-sample.capability.yml
+          - cmd/backstop/testdata/doctor/projects/layout-all-suffixes/capabilities/CAP-002-bare-name/capability.yml
+          - cmd/backstop/testdata/doctor/projects/layout-all-suffixes/README.md
+          - cmd/backstop/testdata/doctor/projects/layout-all-suffixes/notes.txt
+          - cmd/backstop/testdata/doctor/projects/layout-nested-artifact/backstop.yml
+          - cmd/backstop/testdata/doctor/projects/layout-nested-artifact/specs/archive/SPEC-001-sample.spec.md
+          - cmd/backstop/testdata/doctor/projects/clean/specs/SPEC-001-sample.spec.md
+        claims:
+          - CLM-040
+          - CLM-041
+          - CLM-042
+          - CLM-048
+          - CLM-062
+        depends_on:
+          - TASK-016
+
+      - id: TASK-018
+        type: test
+        title: "RED: layout deviations decided PER KIND against the resolved root, with both remedies offered"
+        description: |
+          Create cmd/backstop/doctor_layout_test.go. Thirteen mandated
+          tests. Every one runs against a staged fixture corpus — neither
+          this spec nor SPEC-068 can prove this by dogfood, because
+          backstop-core is clean under BOTH the correct per-kind reading and
+          the wrong containment reading (measured: 116 issues, 102 plans, 51
+          specs, 27 directives, 26 bundles, 18 adrs, zero strays).
+
+          ★ STAGED MEANS `stageDoctorProject(t, "layout-<case>")`, WITH NO
+            NEW HELPER. TASK-017 and TASK-027 author every corpus below as a
+            `projects/layout-<case>/` template precisely so the harness's
+            ONE stager (TASK-002) reaches it. Do not add a second copy
+            helper, do not point a test at a path under
+            `cmd/backstop/testdata/`, and do not chdir into the template
+            tree. If a corpus you need appears to have no staging route,
+            that is a TASK-017/TASK-027 defect — STOP and surface it rather
+            than reading the corpus in place.
+
+          ★★ THE ZERO-DEVIATION TRIPWIRE, and it is invisible in a diff
+             review exactly as TASK-013(c)'s marker-file tripwire is.
+             SPEC-068's `FindUngatedArtifacts` SKIPS `testdata` among its
+             non-corpus exclusion trees — that exclusion is load-bearing for
+             this repository and is not going away. So if a layout corpus is
+             read IN PLACE instead of staged into t.TempDir, EVERY case
+             returns ZERO deviations, and the SIX absence-asserting tests go
+             green — the four asserting an EMPTY deviation set (CLM-043,
+             CLM-044, CLM-045, CLM-047) and the two asserting the absence of
+             a particular file WITHIN the set (CLM-042, CLM-062) — while the
+             deviation-REPORTING tests are the only ones that red. It looks
+             like a partially-working implementation, not like a staging bug.
+
+             So: whenever a deviation-expecting case reports ZERO
+             deviations, suspect IN-PLACE STAGING FIRST — before suspecting
+             the check, the resolver, or the fixture's contents. Confirm the
+             corpus path the test actually read is under t.TempDir() and NOT
+             under `cmd/backstop/testdata/`. CLM-046's test is where this
+             bites hardest: it is the claim this file calls "the one that
+             matters most", and an unstaged corpus makes it pass against
+             nothing at all.
+
+          TestDoctorLayout_ReportsAgainstResolvedArtifactRoot (CLM-039) —
+            declaring a DIFFERENT root changes which files are deviations.
+            That change is the proof the check consumes the shared
+            resolution.
+          TestDoctorLayout_DeviationReportsActualAndExpectedPath (CLM-040) —
+            BOTH paths; the expected one IS the UngatedArtifact.ExpectedDir.
+          TestDoctorLayout_ClassifiesEveryArtifactSuffix (CLM-041) — all
+            seven suffixes, none silently unrecognized. Against
+            layout-all-suffixes, where all seven artifacts sit MISPLACED in
+            a shared `misc/` directory (TASK-027), assert the deviation set
+            holds EXACTLY SEVEN entries whose `Kind` values are the seven
+            DISTINCT kinds — a set equality on kinds, not a count alone. A
+            classifier that misses one suffix reports six and reds, and it
+            reds NAMING the suffix it dropped. This is the assertion that
+            makes the claim falsifiable per-suffix: with the seven placed
+            CORRECTLY, a perfect classifier and one recognizing nothing both
+            report zero and the test proves nothing.
+          TestDoctorLayout_BareCapabilityYmlIsNotReportedAndDoctorAddsNoPattern
+            (CLM-062) — the near-miss pinned, plus the structural half: no
+            filename pattern of doctor's own. Same corpus, same shape as
+            CLM-042: assert the bare `capability.yml` is ABSENT FROM a
+            deviation set that is non-empty, never that the set is empty.
+          TestDoctorLayout_NonArtifactFilesAreNotReported (CLM-042) — reads
+            the SAME layout-all-suffixes corpus, whose deviation set is
+            non-empty by construction, so assert `README.md` and `notes.txt`
+            are ABSENT FROM the set, never that the set is empty.
+          TestDoctorLayout_ArtifactsInTheirExpectedDirectoryAreNotDeviations
+            (CLM-043) — reads layout-configured-root-clean (TASK-017 item
+            3), where the spec sits at `.backstop/specs/` under a declared
+            `artifact_root: .backstop` and the set IS empty. This corpus,
+            not layout-all-suffixes, is where the in-their-expected-
+            directory control lives.
+          TestDoctorLayout_AbsentTypeDirectoryIsNotADeviation (CLM-044)
+          TestDoctorLayout_EmptyArtifactRootPasses (CLM-045)
+          TestDoctorLayout_UnconfiguredRootReportsDotBackstopArtifactsAsDeviations
+            (CLM-046) — THE ONE THAT MATTERS MOST. A containment
+            implementation passes every other test in this file and reds
+            only this one. If an implementer "simplifies" to "outside the
+            resolved root", this is the test that catches it (Review
+            Question 3). Assert the deviation set is NON-EMPTY and names all
+            THREE staged artifacts (the spec, the bundle and the plan under
+            `.backstop/`) by path — not merely that the check did not pass.
+            A count assertion is what turns the in-place-staging tripwire
+            above from advice into a failing test.
+          TestDoctorLayout_UnconfiguredRootWithExpectedLayoutPassesWithoutWarning
+            (CLM-047) — no warning, because a warn-when-unconfigured rule
+            would fire forever in backstop-core and the fix for that must
+            never be a special case naming this repository inside core.
+          TestDoctorLayout_RemediationOffersBothMoveAndDeclareRoot (CLM-048)
+            — BOTH remedies, asserting NEITHER as correct. The choice is the
+            consumer's layout decision; SPEC-068's resolution is policy-FREE
+            and has no notion that `.backstop/` is canonical.
+          TestDoctorLayout_ConfiguredRootMissingFromDiskFails (CLM-049) —
+            FAIL naming the declared value.
+          TestDoctorLayout_InvalidRootDeclarationFailsNamingTheReason
+            (CLM-050) — FAIL naming the reason, DISTINCTLY from the missing
+            case. Distinguish by TYPE (*artifact.RootMissingError vs
+            *artifact.RootInvalidError), never by string match — assert the
+            two produce different messages so a single collapsed branch
+            fails.
+
+          A deviation is REPORTED, never repaired and never adopted. No test
+          may assert that doctor moved a file, scanned an out-of-root
+          artifact, or widened discovery.
+        files:
+          - cmd/backstop/doctor_layout_test.go
+        claims:
+          - CLM-039
+          - CLM-040
+          - CLM-041
+          - CLM-042
+          - CLM-043
+          - CLM-044
+          - CLM-045
+          - CLM-046
+          - CLM-047
+          - CLM-048
+          - CLM-049
+          - CLM-050
+          - CLM-062
+        test_names:
+          - TestDoctorLayout_ReportsAgainstResolvedArtifactRoot
+          - TestDoctorLayout_DeviationReportsActualAndExpectedPath
+          - TestDoctorLayout_ClassifiesEveryArtifactSuffix
+          - TestDoctorLayout_BareCapabilityYmlIsNotReportedAndDoctorAddsNoPattern
+          - TestDoctorLayout_NonArtifactFilesAreNotReported
+          - TestDoctorLayout_ArtifactsInTheirExpectedDirectoryAreNotDeviations
+          - TestDoctorLayout_AbsentTypeDirectoryIsNotADeviation
+          - TestDoctorLayout_EmptyArtifactRootPasses
+          - TestDoctorLayout_UnconfiguredRootReportsDotBackstopArtifactsAsDeviations
+          - TestDoctorLayout_UnconfiguredRootWithExpectedLayoutPassesWithoutWarning
+          - TestDoctorLayout_RemediationOffersBothMoveAndDeclareRoot
+          - TestDoctorLayout_ConfiguredRootMissingFromDiskFails
+          - TestDoctorLayout_InvalidRootDeclarationFailsNamingTheReason
+        depends_on:
+          - TASK-017
+          - TASK-027
+
+      - id: TASK-019
+        type: test
+        title: "RED: the registry holds exactly the seven declared ids and no stack-policy check"
+        description: |
+          Create cmd/backstop/doctor_registry_completeness_test.go with ONE
+          mandated test, and write it ONLY now — this is the phase in which
+          the registry becomes complete (constant A).
+
+          TestDoctor_RegistersNoStackPolicyCheckAndReadsNoStackPolicySurface
+            (CLM-051, kind: absence) — two halves, and both are needed:
+            (a) the registry's id set equals EXACTLY {config-present,
+                config-loads, git-repository, packs-installed,
+                build-identity, toolchain-runs, artifact-layout} — no more,
+                no fewer, so an eighth check cannot be added quietly;
+            (b) a SOURCE SCAN asserting the doctor non-test files read no
+                stack-policy surface (no `stack_policy` token, no runtime
+                version probe, no LTS list).
+
+          THIS IS THE TRIPWIRE ON BUNDLE REQ-024's CARVE-OUT. That
+          requirement is deliberately unimplemented: no pack-manifest
+          stack-policy surface exists (verified at HEAD in
+          pkg/pack/manifest.go), creating one is BUNDLE-004's territory, and
+          ISSUE-121 carries the gap. An implementer cannot close REQ-024
+          from the wrong artifact without this test going red — which is
+          exactly what it is for. It also catches the other tempting
+          additions the spec names: orphan reservation tags, gitleaks
+          presence, `.gitignore` completeness.
+        files:
+          - cmd/backstop/doctor_registry_completeness_test.go
+        claims:
+          - CLM-051
+        test_names:
+          - TestDoctor_RegistersNoStackPolicyCheckAndReadsNoStackPolicySurface
+        depends_on:
+          - TASK-017
+
+      - id: TASK-020
+        type: implementation
+        title: "GREEN: checkArtifactLayout consuming the shared resolution outright, completing the seven-entry registry"
+        description: |
+          cmd/backstop/doctor_checks.go — add checkArtifactLayout(ctx
+          doctorContext) doctorResult:
+
+            • `declared` comes from ctx.Config's ArtifactRoot field. A nil
+              or failed config yields the EMPTY declaration, which resolves
+              to the project root and must still produce a REPORT rather
+              than an error (REQ-003 — no path may abort).
+            • root, err := artifact.ResolveRoot(ctx.ProjectRoot, declared).
+              The typed failures are distinguished BY TYPE with errors.As:
+              *artifact.RootMissingError → FAIL naming the declared value;
+              *artifact.RootInvalidError → FAIL naming the reason. Never by
+              string match.
+            • deviations, err := gate.FindUngatedArtifacts(ctx.ProjectRoot,
+              root). Report each UngatedArtifact with BOTH its Path and its
+              ExpectedDir.
+            • Remediation states BOTH remedies — move the file, or declare
+              the root that makes its current location expected — and
+              asserts neither as correct.
+
+          ★ THE FOUR THINGS THIS FUNCTION MUST NOT CONTAIN ★ (Review
+          Question 1 — a single one of these makes it the FOURTH hardcoding
+          bundle REQ-029 exists to delete, and none of them will fail a test
+          that only asserts output):
+            1. any artifact directory NAME (`specs`, `plans`, `issues`,
+               `bundles`, `adrs`, `directives`, `capabilities`);
+            2. any artifact suffix or filename pattern;
+            3. any corpus WALK of its own;
+            4. any exclusion list (`testdata`, `vendor`, `node_modules`,
+               `.git`, `.backstop/packs`, `prototype`) — without the shared
+               helper's exclusions this repository alone contributes 67
+               artifact-shaped files that are deliberately not corpus.
+          All four come from the shared helper. That is what makes "what
+          doctor calls a deviation" and "what the gate calls ungated" ONE
+          predicate by construction rather than two implementations that
+          agree today.
+
+          AND THE FIFTH: do not reduce the predicate to root CONTAINMENT.
+          Deviation is PER KIND — not directly in `Root.Dir(kind)`. The
+          reduced form passes everywhere and detects the one thing it was
+          built for nowhere, and no in-repo run will show it.
+
+          cmd/backstop/doctor.go — add the artifact-layout entry LAST in the
+          registry slice, from the declared doctorCheckArtifactLayout
+          constant. The registry is now SEVEN and CLM-051 becomes
+          satisfiable.
+        files:
+          - cmd/backstop/doctor_checks.go
+          - cmd/backstop/doctor.go
+        claims:
+          - CLM-039
+          - CLM-040
+          - CLM-041
+          - CLM-042
+          - CLM-043
+          - CLM-044
+          - CLM-045
+          - CLM-046
+          - CLM-047
+          - CLM-048
+          - CLM-049
+          - CLM-050
+          - CLM-062
+          - CLM-051
+        depends_on:
+          - TASK-018
+          - TASK-019
+          - TASK-016
+
+      - id: TASK-021
+        type: verification
+        title: "Verify phase 5: rebuild, diff-scoped gate, seven checks registered, and the whole exit matrix still honest"
+        description: |
+          1. `go build -o bin/backstop ./cmd/backstop`.
+          2. `PATH="/Users/bmanson/go/bin:$PATH" ./bin/backstop gate`.
+          3. `go test ./cmd/backstop/... -race`.
+
+          Confirm additionally:
+          (a) CLM-051 is green — SEVEN entries, and the source scan finds no
+              stack-policy surface.
+          (b) CLM-011 is still green with all seven registered (constant I:
+              TASK-017 extended the clean fixture).
+          (c) CLM-057 is still green — the whole seven-entry registry
+              reports on the no-config/no-packs/no-git project, with exactly
+              ONE failure (config-present) and the rest skipped or warned
+              (Review Question 9).
+          (d) Run `./bin/backstop doctor` against backstop-core ITSELF and
+              read the artifact-layout result. It should PASS (this repo's
+              unconfigured root layout is clean, CLM-047's shape). A
+              deviation reported here on CAP-001's bare capability.yml means
+              a filename pattern crept in — fix the pattern, do not move the
+              file.
+
+          THE BAR: gate PASS, no new blocking violation.
+        files:
+          - cmd/backstop/doctor_checks.go
+          - cmd/backstop/doctor.go
+        claims:
+          - CLM-046
+          - CLM-047
+          - CLM-051
+        depends_on:
+          - TASK-020
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 6: init's guidance. ★ BLOCKED ON PLAN-SPEC-069 ★
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-6
+    name: "Phase 6: init names the registered check id, from the one id source (REQ-004) [BLOCKED on SPEC-069]"
+    tasks:
+      - id: TASK-022
+        type: test
+        title: "RED: a failed toolchain step names the toolchain check, and no other step attracts guidance"
+        description: |
+          ★ PRECONDITION — VERIFY BEFORE WRITING A LINE ★
+          This phase edits cmd/backstop/init.go, which SPEC-069 creates. As
+          of 2026-08-14 the file does not exist. Confirm in COMPILED CODE:
+
+            ls cmd/backstop/init.go
+            go doc ./pkg/initialize StepReport
+            go doc ./pkg/initialize Outcome
+
+          Two facts must be READ, not assumed (SPEC-070's Dependencies says
+          so explicitly, and this plan's notes record the known hole):
+            • the step IDENTIFIER for the toolchain probe (SPEC-069 1.3.0's
+              step table names it `toolchain`, step 7 of ten); and
+            • the `Outcome` CONSTANT that denotes a FAILED step — SPEC-069
+              declares `type Outcome int` and never names its values, so the
+              constant must come off the compiled package. Do not guess
+              `OutcomeFail`.
+          If init.go is absent, STOP and report the block.
+
+          Create cmd/backstop/init_doctor_guidance_test.go. Three mandated
+          tests (the fourth name for CLM-020 already landed in phase 2).
+
+          TestInit_ToolchainFailureNamesTheToolchainRunsCheckID (CLM-019) —
+            an init run whose `toolchain` StepReport is a FAILURE prints,
+            FROM cmd/backstop/init.go, `backstop doctor` together with the
+            registered id of the toolchain check. Assert the printed id
+            equals the doctorCheckToolchainRuns CONSTANT, not a literal
+            typed into the test — a test carrying its own literal is the
+            second string source REQ-004 exists to prevent.
+          TestInit_DoctorCheckIDsResolveToRegisteredChecks (CLM-020) — every
+            id init can print resolves through doctorGuidance to a
+            registered check.
+          TestInit_NoDoctorGuidanceForStepsNoRegisteredCheckDiagnoses
+            (CLM-060) — two cases: an all-succeeding run, and a run whose
+            ONLY failure is a step no registered check diagnoses. Both print
+            NO doctor guidance at all. This is what keeps doctor from
+            becoming the reason init violates SPEC-069's own
+            TestInit_ImplementsNoCIDetectionOrBespokeGuidance: the registered
+            check set is the TEST of "diagnosable", and it is narrow — no
+            registered check diagnoses a CI recipe ref that will not resolve
+            or a brownfield CI preserve, so init's CI steps must attract no
+            guidance.
+        files:
+          - cmd/backstop/init_doctor_guidance_test.go
+        claims:
+          - CLM-019
+          - CLM-020
+          - CLM-060
+        test_names:
+          - TestInit_ToolchainFailureNamesTheToolchainRunsCheckID
+          - TestInit_DoctorCheckIDsResolveToRegisteredChecks
+          - TestInit_NoDoctorGuidanceForStepsNoRegisteredCheckDiagnoses
+        depends_on:
+          - TASK-021
+
+      - id: TASK-023
+        type: implementation
+        title: "GREEN: doctorGuidanceForSteps in cmd/backstop/init.go, carrying no literal of its own"
+        description: |
+          cmd/backstop/init.go — add:
+
+            func doctorGuidanceForSteps(steps []initialize.StepReport) []string
+
+          It maps a FAILED `toolchain` step report to
+          doctorGuidance(doctorCheckToolchainRuns) and returns nothing for
+          every other step. It carries NO check-id literal and NO
+          guidance-text literal: both come from doctor.go (Review Question
+          11 — a hand-formatted "run backstop doctor --check toolchain-runs"
+          is the second literal REQ-004 exists to prevent, and it matches
+          the registry on the day it is written and silently stops matching
+          on the day someone renames the check).
+
+          WHY IT LIVES HERE, so it does not get "tidied" into pkg/initialize
+          later: doctorRegistry is unexported in package main, so
+          pkg/initialize cannot reach it and exporting it for that import
+          would INVERT the dependency. SPEC-069 already renders init's report
+          in this file from the initialize.Result its Runner.Run returns, so
+          this is a rendering concern in the layer that already renders.
+
+          Wire it into init's existing report rendering — the ONLY place
+          init text names doctor. Init's own steps and their failure text
+          belong to SPEC-069; what belongs here is that the id init prints
+          is a registered one and that no other step attracts guidance.
+
+          Touch doctor.go ONLY if doctorGuidance's shape needs correcting;
+          it should not. Do not add a check, do not change the registry.
+        files:
+          - cmd/backstop/init.go
+          - cmd/backstop/doctor.go
+        claims:
+          - CLM-019
+          - CLM-020
+          - CLM-060
+        depends_on:
+          - TASK-022
+          - TASK-021
+
+      - id: TASK-024
+        type: verification
+        title: "Verify phase 6: rebuild, diff-scoped gate, and SPEC-069's own guard still green"
+        description: |
+          1. `go build -o bin/backstop ./cmd/backstop`.
+          2. `PATH="/Users/bmanson/go/bin:$PATH" ./bin/backstop gate`.
+          3. `go test ./cmd/backstop/... -race`.
+
+          Confirm additionally, and this is the cross-spec obligation REQ-004
+          carries: SPEC-069's TestInit_ImplementsNoCIDetectionOrBespokeGuidance
+          is STILL GREEN. REQ-004's whole obligation toward that guard is
+          that doctor never becomes the reason init violates it. If it is
+          red, the fix is to narrow doctorGuidanceForSteps — never to weaken
+          SPEC-069's test.
+
+          Also confirm CLM-059 is still green: the source scan must find no
+          check-id literal in init.go.
+
+          THE BAR: gate PASS, no new blocking violation.
+        files:
+          - cmd/backstop/init.go
+          - cmd/backstop/doctor.go
+        claims:
+          - CLM-019
+          - CLM-060
+        depends_on:
+          - TASK-023
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 7: The full kill chain over everything.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-7
+    name: "Phase 7: Full-sweep verification — code and artifacts"
+    tasks:
+      - id: TASK-025
+        type: verification
+        title: "Full gate --all, artifact validate, coverage floor, and the 64-claim sweep"
+        description: |
+          1. `go build -o bin/backstop ./cmd/backstop`.
+          2. `PATH="/Users/bmanson/go/bin:$PATH" ./bin/backstop gate --all`
+             — the FULL sweep, not diff-scoped. Read the true exit code.
+          3. `PATH="/Users/bmanson/go/bin:$PATH" ./bin/backstop artifact validate`
+             — this plan and its spec are artifacts and both were written by
+             this work, and TASK-028 AMENDED the spec, so it must validate in
+             its amended form.
+          4. `go test ./cmd/backstop/... -race -coverprofile=cover.out` and
+             confirm cmd/backstop clears the 80% floor this spec declares.
+             80 is cmd/backstop's spec-derived floor, not a discount; the
+             90 constant is a fallback only.
+          5. Enumerate all 64 mandated test names from SPEC-070's claims and
+             confirm each EXISTS and PASSES. A name that does not exist is a
+             broken promise the status-drift dimension will find later; find
+             it here instead.
+
+          FINAL HONESTY CHECKS, none of which any single test covers:
+          (a) `./bin/backstop doctor` on backstop-core itself: seven checks
+              reported, in declared order, exit code consistent with the
+              statuses.
+          (b) `./bin/backstop --json doctor` — the ROOT flag position —
+              renders JSON (CLM-061's real-world form).
+          (c) `git status --short` shows no stray marker files, no staged
+              fixture output, no `.backstop/packs` churn.
+          (d) Nothing outside cmd/backstop was modified by this plan, and
+              INSIDE cmd/backstop nothing owned by a sibling plan was
+              modified either: `pack_entrypoint_prober.go` and
+              `init_toolchain.go` belong to PLAN-SPEC-069, `version.go` to
+              PLAN-SPEC-068. This plan's only sibling-shared edits are the
+              one AddCommand line in root.go and the one added function in
+              init.go.
+          (e) The registry holds exactly seven checks and no stack-policy
+              surface was added (bundle REQ-024 stays carved out, ISSUE-121
+              still owns the gap).
+          (f) ONE EXECUTION ROUTE, repo-wide. `checkEngineToolAllowed`,
+              `splitCommand` and any direct runner invocation appear in
+              `pack_entrypoint_prober.go` and NOT in `doctor_checks.go`
+              (constant N). Confirm too that `backstop doctor` and
+              `backstop init` report the SAME captured output for a
+              stderr-only entrypoint failure — a divergence there means one
+              of them acquired its own runner method, which is exactly the
+              drift the shared prober exists to make impossible.
+          (g) THE SPEC AGREES WITH THE CODE. TASK-028's amendment is in
+              SPEC-070: `doctor_checks.go`'s `consumes:` block names
+              `packEntrypointProber` and no longer names
+              `checkEngineToolAllowed` or `splitCommand`, the five prose
+              occurrences describe consuming the shared prober, and a
+              Version History entry records the change. The contracts gate
+              cannot assert this — `validateConsumesItem` checks a consumes
+              entry's shape only, never whether the symbol is called — so a
+              stale spec would sail through every automated dimension above.
+              Read it, do not infer it.
+          (h) EVERY FIXTURE CORPUS IS STAGED, NONE IS READ IN PLACE. All
+              corpora live under `cmd/backstop/testdata/doctor/projects/`
+              and reach tests only through `stageDoctorProject` (constant
+              G). Grep the doctor test files for any path literal containing
+              `testdata/doctor` outside that helper: a hit means some test
+              reads a corpus in place, which for the `layout-*` cases yields
+              zero deviations and a vacuous green on CLM-046.
+
+          THE BAR: `gate --all` PASS and `artifact validate` PASS, with no
+          new blocking violation. Do not waive, do not skip, do not narrow.
+        files:
+          - cmd/backstop/doctor.go
+          - cmd/backstop/doctor_checks.go
+          - cmd/backstop/init.go
+          - cmd/backstop/root.go
+          - plans/PLAN-SPEC-070-backstop-doctor.plan.yml
+          - specs/SPEC-070-backstop-doctor.spec.md
+        claims:
+          - CLM-002
+          - CLM-010
+          - CLM-051
+          - CLM-057
+          - CLM-061
+        depends_on:
+          - TASK-020
+          - TASK-023
+          - TASK-024
+          - TASK-028
