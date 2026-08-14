@@ -116,3 +116,38 @@ bundles:
   # OQ-5 (shared spine or separate) it directly shares. Reorder to reprioritize.
   - id: BUNDLE-031
     title: Release Currency Versioning Machinery
+  # Re-listed 2026-08-14 per founder ruling (relayed via team-lead): citation by a
+  # directive that has since reached `done` does NOT count as homed. BUNDLE-004 is
+  # cited by DIR-004, DIR-005 and DIR-009 — all three `done` — so its delivered
+  # scope (SPEC-013/014/015/016/017) is spent and nothing active carries
+  # pack-manifest surface design. Position is APPEND ORDER, not a priority claim;
+  # reorder to reprioritize. Visible dependent: ISSUE-121 "Pack manifest has no
+  # stack-policy surface, blocking doctor's runtime check" — BUNDLE-003 REQ-024
+  # (doctor warning when the installed runtime deviates from pack-declared stack
+  # policy) is unimplementable until this bundle designs the manifest field to
+  # declare that policy; SPEC-070 carved REQ-024 out for this reason. ISSUE-121 is
+  # deliberately cited by NO directive and rides this entry instead. The same
+  # ruling applies to BUNDLE-005 (`ready`) and BUNDLE-008 (`exploring`), which are
+  # in the identical state; the founder extended it to both on 2026-08-14 and they
+  # are re-listed immediately below.
+  - id: BUNDLE-004
+    title: Pack Manifest and Authoring (design owner of the pack-manifest surface; ISSUE-121 rides here)
+  # Re-listed 2026-08-14, same founder ruling extended (relayed via team-lead):
+  # citation by a directive that has since reached `done` does not count as homed.
+  # BUNDLE-005 is cited only by DIR-004 and DIR-009, both `done`. Position is
+  # APPEND ORDER, not a priority claim; reorder to reprioritize. Re-listed
+  # PROACTIVELY per the ruling, NOT because anything is currently blocked on it —
+  # this is the deliberate difference from BUNDLE-004, which came back carrying a
+  # live blocked requirement (ISSUE-121). Caveat recorded so a reader does not
+  # over-read this entry: BUNDLE-005's validation substance ships today as
+  # `pkg/packval`, and its one live residual defect (ISSUE-092, pack-test phase-3
+  # fixtures cannot fail) is ALREADY carried by DIR-024 and DIR-032 — so this
+  # entry marks unhomed intent, not uncarried work.
+  #
+  # BUNDLE-008 (Gate Diff Scoping) was re-listed here alongside BUNDLE-005 under
+  # the same ruling on 2026-08-14, then REMOVED again the same day once it
+  # reached `maturity: delivered` (its substance shipped via SPEC-018, now
+  # status: implemented and back-annotated with supports: refs) — a delivered
+  # bundle is not an open backlog slot.
+  - id: BUNDLE-005
+    title: Pack Validation — How an Agent Verifies Its Pack Output Is Correct
