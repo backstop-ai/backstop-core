@@ -5,7 +5,7 @@ created: "2026-08-13"
 updated: "2026-08-14"
 status: draft
 schema_version: spec/v1
-spec_version: 1.3.0
+spec_version: 1.3.1
 
 source:
   bundle: BUNDLE-003
@@ -1930,6 +1930,12 @@ contracts:
       - source: pkg/initialize
         name: Options
         kind: type
+  - file: cmd/backstop/recipe_apply.go
+    provides:
+      - name: runRecipeApply
+        kind: function
+        signature: "func runRecipeApply(ref string, projectRoot string, suppliedParams []string) (recipe.ApplyResult, string, error)"
+        notes: "REQ-035, declared 2026-08-14. A WIDENING of the SHIPPED function at recipe_apply.go:192, whose signature at HEAD is `func runRecipeApply(ref string, projectRoot string, suppliedParams []string) (recipe.ApplyResult, error)`. It now ALSO returns the resolved recipe's declared kind — `resolved.Manifest.Kind`, which this function already holds after its single `recipe.ResolveRecipe` call at recipe_apply.go:215. BEHAVIOR IS PRESERVED: the same steps in the same order, the same *check.ConfigError-vs-violation exit split, the same zero `recipe.ApplyResult` on every failure path (now paired with an empty kind), and the same `recordRecipeAdoption` tail. Its one caller is the cobra RunE at recipe_apply.go:74; the recipe-apply E2E tests drive the ASSEMBLED root command rather than this function, so they must stay green UNMODIFIED. The widening exists because `ApplyOutcome.RecipeKind` (pkg/initialize/seams.go) feeds REQ-035's three-class preserve classifier, and the only alternative — init's production RecipeApplier resolving the ref a SECOND time to read the kind — is a second derivation of 'which recipe is this', the exact hazard REQ-018 refuses for local-path classification and SPEC-056 settled with pack.ValidatePackName as 'one authority, not a copy'. This is the second and last edit this spec makes outside its two new packages; the other is the IsLocalPath export below. Nothing under pkg/recipe is touched, which REQ-009 forbids."
   - file: pkg/pack/distribution/add.go
     provides:
       - name: IsLocalPath
@@ -2040,7 +2046,7 @@ Claims are defined in frontmatter, one block per requirement.
 
 ### 1. Package layout
 
-Four new files across two packages, plus one one-line export in a third:
+Four new files across two packages, plus two small behavior-preserving edits to shipped files:
 
 - **`pkg/initialize/`** — the orchestration engine. `capability.go` holds the capability
   vocabulary and its resolution; `seams.go` holds the five injected dependency interfaces and
@@ -2052,9 +2058,19 @@ Four new files across two packages, plus one one-line export in a third:
 - **`cmd/backstop/init_toolchain.go`** — `packToolchainProber`, the concrete `ToolchainProber`.
   It lives in package `main` because that is where `checkEngineToolAllowed` and `splitCommand`
   are, and REQ-011 binds execution to those exact functions (§7).
-- **`pkg/pack/distribution/add.go`** — the sole edit outside the two new packages: `isLocalPath`
-  is exported as `IsLocalPath` so REQ-018 has one authority rather than a copy (§6). Behavior
-  unchanged.
+- **`pkg/pack/distribution/add.go`** — the first of two edits outside the two new packages:
+  `isLocalPath` is exported as `IsLocalPath` so REQ-018 has one authority rather than a copy (§6).
+  Behavior unchanged.
+- **`cmd/backstop/recipe_apply.go`** — the second: `runRecipeApply` is widened to ALSO return the
+  resolved recipe's declared kind, which `ApplyOutcome.RecipeKind` carries into REQ-035's
+  classifier (§10). Behavior is preserved — same steps, same order, same error classification, and
+  the existing recipe-apply E2E tests drive the assembled root command and stay green unmodified.
+  The function already holds the kind after its single `ResolveRecipe` call; the alternative,
+  resolving the ref a SECOND time inside init's applier, would be a second derivation of "which
+  recipe is this" — the hazard REQ-018 refuses for local-path classification (§6). *(Corrected
+  2026-08-14: this section previously named the `add.go` export as the SOLE edit outside the two
+  new packages. The second edit was identified while planning this spec, and both are now named
+  here and declared in `contracts`.)*
 
 `NewRunner` is a FAIL-CLOSED positional constructor that errors naming any nil dependency, the
 same shape `pkg/pack/distribution/command.go` uses for `NewAddCommand`. This is deliberate reuse

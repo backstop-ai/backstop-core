@@ -1,0 +1,3464 @@
+---
+plan_id: PLAN-SPEC-069
+spec_id: SPEC-069
+spec_version: "1.3.1"
+created: "2026-08-14"
+status: draft
+test_command: "go test ./pkg/initialize/... ./cmd/backstop/ -race -coverprofile=cover.out"
+coverage_threshold: 80
+
+notes: |
+  ─────────────────────────────────────────────────────────────────────────
+  WHAT THIS PLAN BUILDS
+  ─────────────────────────────────────────────────────────────────────────
+  `backstop init`: a NEW cobra command (cmd/backstop/init.go) over a NEW
+  orchestration package (pkg/initialize), plus — in package main — ONE
+  SHARED entrypoint prober (cmd/backstop/pack_entrypoint_prober.go), init's
+  thin `ToolchainProber` adapter over it (cmd/backstop/init_toolchain.go),
+  and the four remaining PRODUCTION SEAM ADAPTERS
+  (cmd/backstop/init_seams.go) that wire the Runner to the shipped pack,
+  recipe and gate assemblies.
+
+  EXACTLY FOUR EDITS TO EXISTING FILES, all behavior-preserving:
+    • pkg/pack/distribution/add.go — `isLocalPath` exported as `IsLocalPath`
+      (TASK-006), a rename, REQ-018's one authority.
+    • pkg/pack/distribution/command.go — the in-package caller of that
+      predicate, updated to the exported name in the SAME task (TASK-006).
+      A rename is not done until its callers compile.
+    • cmd/backstop/recipe_apply.go — `runRecipeApply` also returns the
+      resolved recipe's declared kind (TASK-053), so the production
+      RecipeApplier reads the kind off the resolve that already happened
+      instead of resolving the ref a second time.
+    • cmd/backstop/root.go — registers the init command (TASK-045).
+      ★ THIS FILE IS SHARED WITH SPEC-068 AND SPEC-070, which both register
+      commands there too. Same rule as cmd/backstop/init.go below: whichever
+      plan lands second EDITS the file the first left — add this plan's
+      registration line beside the sibling's, do not revert it, do not
+      reorder or reformat the surrounding registrations, and never recreate
+      the file from a remembered shape.
+  Everything else this plan touches is a new file.
+
+  21 requirements, 144 claims, 10 ordered steps. Read SPEC-069 in full before
+  starting; this plan does not restate it.
+
+  ─────────────────────────────────────────────────────────────────────────
+  ★ HARD PREREQUISITE — SPEC-068 MUST LAND FIRST. FOUR CLAIMS ARE
+    EXPECTED RED UNTIL IT DOES, FOR TWO DIFFERENT REASONS ★
+  ─────────────────────────────────────────────────────────────────────────
+  Do NOT debug these as your own bug, and do NOT "fix" them by dropping the
+  key or moving the layout:
+
+    CLM-021  TestInit_FullSdlcConfigRoundTripsThroughConfigLoad
+    CLM-022  TestInit_PackOnlyConfigRoundTripsThroughConfigLoad
+    CLM-026  TestInit_FullSdlcWritesArtifactRootPointingAtBackstopDir
+      → fail at CONFIG LOAD. The config init writes carries `artifact_root`,
+        rejected TWICE today: by config.Load's strict typed decode, and by
+        artifacts/backstop-yml/v1/schema.json's `additionalProperties: false`
+        over its six declared top-level properties. SPEC-068 REQ-006 adds the
+        key to BOTH. Spelling is CONFIRMED, not guessed (SPEC-069 Review
+        Question 3 / Sharp Edge 4).
+
+    CLM-103  TestInit_ArtifactsUnderTheScaffoldedRootAreDiscoveredAndGated
+      → fails at DISCOVERY, not at load. `.backstop` sits on the
+        unconditional skip list at cmd/backstop/artifact_discover.go:47-49.
+        This is the DELIBERATE TRIPWIRE that stops SPEC-069 being implemented
+        into a vacuous green. It goes green when SPEC-068's config-resolved
+        root lands.
+
+  SEQUENCING RULE FOR THIS PLAN. Phases 1-5 and 7-16 are implementable
+  against the current binary and must be fully green. Phase 6 (config) and
+  the CLM-103 half of phase 16 are the ONLY places these four reds may
+  appear. In those two places a verification task passes when EVERY OTHER
+  test is green and ONLY the named tests are red — write those exact test
+  names down in the verification output. This plan may NOT be marked
+  `completed`, and its final gate (TASK-050) may NOT be declared passing,
+  until SPEC-068 has landed and all four are green with no source change on
+  this side. If they need a source change on this side, SPEC-068 shipped a
+  different spelling and the two artifacts must be reconciled — loudly, not
+  patched around.
+
+  ─────────────────────────────────────────────────────────────────────────
+  ★ CONCURRENT SPEC, ONE SHARED FILE — SPEC-070 (backstop doctor) ★
+  ─────────────────────────────────────────────────────────────────────────
+  SPEC-070 DECLARES cmd/backstop/init.go in its own contracts and owns ONE
+  symbol there: `doctorGuidanceForSteps(steps []initialize.StepReport)
+  []string`. This plan owns everything else in that file (newInitCommand,
+  the flags, the report rendering, the exit-code mapping). Ownership is
+  SETTLED on both sides; what remains is an editor collision, not a design
+  question. TASK-045 carries the rules:
+
+    • whichever plan lands second EDITS the file the first created — it does
+      not recreate it, does not reformat it, and does not move or delete the
+      other spec's symbol;
+    • doctor guidance attaches to the TOOLCHAIN step ONLY and must never
+      reach either recipe step — CLM-085
+      (TestInit_ImplementsNoCIDetectionOrBespokeGuidance) is the guard, and
+      SPEC-070 explicitly defers to it;
+    • SPEC-070 mandates THREE tests asserting INIT's output
+      (TestInit_ToolchainFailureNamesTheToolchainRunsCheckID,
+      TestInit_DoctorCheckIDsResolveToRegisteredChecks,
+      TestInit_NoDoctorGuidanceForStepsNoRegisteredCheckDiagnoses). They are
+      NOT this plan's to write. If they already exist, leave them alone.
+
+  ★★ A SECOND SHARED SURFACE, AND IT IS NOT A COLLISION — IT IS ONE HELPER
+  WITH TWO CALLERS (founder ruling, 2026-08-14). SPEC-070's
+  `checkToolchainRuns` binds the SAME sequence this plan's toolchain step
+  binds — select bindings by `gate_type` test/build → `checkEngineToolAllowed`
+  → `splitCommand` → the shared `check.CommandRunner` — because both specs
+  were authored separately and neither named the other's mechanism. Two
+  independent copies of a pack-command EXECUTION path is exactly what REQ-011
+  forbids, and they would drift on the one thing they already disagree about
+  (runner method: this plan binds `Run`, SPEC-070 names none).
+
+  RESOLUTION: PHASE 14 BUILDS THE EXECUTION CORE ONCE, PACKAGE-NEUTRAL, AS
+  `packEntrypointProber` in cmd/backstop/pack_entrypoint_prober.go. This is
+  NOT a cross-package extraction — doctor's `doctor_checks.go` and init's
+  `init_toolchain.go` are both `package main` in cmd/backstop (forced there
+  because checkEngineToolAllowed and splitCommand are unexported), so the
+  helper is simply package-internal and directly callable by both.
+  PLAN-SPEC-070's toolchain-runs task CONSUMES `packEntrypointProber` once
+  this phase lands and MUST NOT build its own copy. That is why the
+  interface below is raw and report-free: `entrypointProbe` carries what
+  RAN and what HAPPENED, and nothing about how either caller words it.
+  Init's owed-setup vs verbatim classification and its exit-code mapping
+  stay in init_toolchain.go, layered ON TOP of the shared raw outcome;
+  doctor's one-result-per-check rollup stays in doctor_checks.go.
+
+  The runner-method divergence is thereby settled BY CONSTRUCTION rather
+  than by vigilance: the single shared prober enters `Run` (combined
+  stdout+stderr), so the two reports cannot disagree about an entrypoint
+  that diagnoses only on stderr. If a reader is tempted to give doctor its
+  own runner method, that is the drift this extraction exists to prevent.
+
+  SPEC CONGRUENCE: SPEC-069's contract for `packToolchainProber`
+  (cmd/backstop/init_toolchain.go, `struct { Packs []*pack.Manifest; Runner
+  check.CommandRunner }`, `Probe(projectRoot string) ([]initialize.StepReport,
+  error)`) is PRESERVED VERBATIM — it remains the concrete `ToolchainProber`
+  and the file the allowlist binding hangs on. What changed is only that its
+  execution body is now a call into the shared prober rather than a private
+  loop. No claim, no mandated test, and no contract signature moves.
+
+  ─────────────────────────────────────────────────────────────────────────
+  THE THREE TRAPS A STRUCTURALLY-CORRECT IMPLEMENTATION STILL WALKS INTO
+  ─────────────────────────────────────────────────────────────────────────
+  (1) `Run` vs `RunStdout` (Sharp Edge 15). Init's toolchain execution shares
+      checkEngineToolAllowed → splitCommand → check.CommandRunner with
+      runFindingsEngine and departs on EXACTLY ONE call: it enters the runner
+      through `Run` (combined stdout+stderr, pkg/check/runner.go:17), NOT
+      `RunStdout` (stdout only, :21, what runFindingsEngine calls at
+      pack_gate.go:648). Copying the sequence and the method together passes
+      every structural claim and empties case (c)'s captured output for the
+      failures case (c) exists to surface. CLM-122's fixture MUST be
+      stdout-EMPTY / stderr-ONLY; a fixture that also writes to stdout passes
+      under either method and asserts nothing.
+
+  (2) Scaffold-before-toolchain (Sharp Edge 18). Step 6 (scaffold) runs
+      BEFORE step 7 (toolchain) and that is load-bearing, not tidy. Grouping
+      "the two recipe steps" by moving scaffold down beside ci at step 9
+      reads as a cleanup and still satisfies any assertion that compares a
+      list of step names. CLM-138 asserts the scaffolded file is ON DISK at
+      the toolchain step's boundary and CLM-139 asserts the entrypoint's
+      verdict FLIPS — neither is satisfiable by the order alone.
+
+  (3) The scaffold step must NEVER borrow the CI step's sentence (Sharp Edge
+      19). ONE classifier, TWO callers, TWO sentences. "No backstop gate was
+      wired into this file" is an assertion about CI wiring and belongs to
+      the CI step's USER-OWNED class alone. CLM-144 requires one classifier;
+      CLM-140 requires the scaffold step's own wording. De-duplicating the
+      STRING along with the classifier makes init tell a consumer something
+      it cannot know.
+
+  ─────────────────────────────────────────────────────────────────────────
+  ★ VERIFICATION COMMANDS — MEASURED 2026-08-14, NOT ASSUMED ★
+  ─────────────────────────────────────────────────────────────────────────
+  (1) THERE IS NO `backstop code check` COMMAND, AND THERE IS A TEST THAT
+      KEEPS IT GONE. Verified: `./bin/backstop --help` lists artifact,
+      baseline, commands, completion, gate, help, pack, recipe, version,
+      waiver — no `code` subcommand — and
+      `cmd/backstop/code_check_removal_test.go` exists specifically to assert
+      it stays removed. Every verification task below therefore prescribes
+      `./bin/backstop gate` (bare = diff-scoped vs merge-base plus untracked)
+      or `./bin/backstop gate --all`. Do not invent a subcommand, and never
+      prescribe `go test`, `go vet` or `golangci-lint` directly — every check
+      comes from a pack, through the gate.
+
+  (2) THE GATE NEEDS `~/go/bin` ON PATH. Measured on this machine:
+      `go-arch-lint`, `actionlint`, `ast-metrics` and `goreleaser` live in
+      /Users/bmanson/go/bin, and that directory is NOT on the agent shell's
+      PATH (`go`, `golangci-lint`, `semgrep` are). Without the prefix the
+      gate HALTS at pack_engines with `required tool "go-arch-lint" not found
+      on PATH` and never reaches substantiveness, coverage or contracts — a
+      phantom red that hides real findings. Every gate invocation below is:
+
+        PATH="/Users/bmanson/go/bin:$PATH" ./bin/backstop gate
+
+      Do not install anything; do not report an environment blocker.
+
+  (3) REBUILD `bin/backstop` BEFORE EVERY GATE RUN, unconditionally:
+      `go build -o bin/backstop ./cmd/backstop`. The binary statically links
+      everything; gating with a stale binary produces a verdict about code
+      that is not in it, and it reads exactly like a real result.
+
+  (4) TRUE EXIT CODES, NEVER A GREP PIPE. Read `$?` from the command itself
+      (`cmd; echo $?`). A suite that fails to COMPILE emits no "FAIL" line,
+      so a `| grep -q FAIL` reports success for a tree that does not build.
+
+  (5) `backstop gate --file` TAKES EXACTLY ONE FILE PER INVOCATION
+      (ISSUE-093). Never chain `--file a --file b`; run it twice.
+
+  (6) ALWAYS `./bin/backstop`, NEVER A BARE `backstop`. Measured on this
+      machine: `which backstop` → /usr/local/bin/backstop → the Homebrew
+      cellar at 0.1.0, a months-old release containing none of this work.
+      A bare invocation gates the WRONG BINARY and the verdict reads exactly
+      like a real one. This holds for `gate` and for `artifact validate`
+      alike.
+
+  The final phase additionally runs `./bin/backstop artifact validate`.
+
+  ─────────────────────────────────────────────────────────────────────────
+  ★ THE FIVE SEAMS AND THEIR PRODUCTION IMPLEMENTATIONS (PHASE 15) ★
+  ─────────────────────────────────────────────────────────────────────────
+  pkg/initialize/seams.go declares FIVE interfaces. Every one of them needs a
+  CONCRETE production implementation or `backstop init` is a command that
+  cannot be constructed, and several claims are unfalsifiable against fakes
+  alone — a fake PackInstaller cannot produce a real `backstop.lock`
+  (CLM-086/CLM-088) and a fake RecipeApplier cannot land a payload
+  byte-identically (CLM-046/CLM-047/CLM-130). This is the project's standing
+  integration-gap failure: unit tests nail a package while the cross-package
+  wiring stays unproven.
+
+  ALL FIVE PRODUCTION IMPLEMENTATIONS LIVE IN `package main` UNDER
+  cmd/backstop, AND THE LOCATION IS FORCED FOR EVERY ONE OF THEM — the same
+  forcing the spec already states for ToolchainProber, applied consistently:
+
+    PackInstaller   → `newProductionAddCommand` (cmd/backstop/pack_wiring.go)
+                      is THE production assembly seam for the pack lifecycle;
+                      assembling a second AddCommand elsewhere is exactly the
+                      partial-wiring defect that file exists to end
+                      (ISSUE-073).
+    RecipeApplier   → `runRecipeApply` (cmd/backstop/recipe_apply.go) is the
+                      shipped resolve→apply path, and it depends on
+                      `loadInstalledPacks`, `provisionedEngineBinding`,
+                      `checkEngineToolAllowed`, `transformDispatch` and
+                      `recordRecipeAdoption` — ALL unexported in package main.
+                      CLM-046 says init applies recipes ONLY through the
+                      shipped path; a pkg/initialize re-implementation IS a
+                      second path.
+    GateRunner      → `buildGateSteps` (cmd/backstop/gate.go:647) assembles
+                      the whole ordered kill chain from installed packs and
+                      derived classifiers. It is unexported, and a second
+                      gate assembly would observe a different gate than
+                      `backstop gate` runs.
+    ToolchainProber → `packToolchainProber` (TASK-042), forced by
+                      checkEngineToolAllowed / splitCommand. Stated in the
+                      spec's own contract note.
+    BaselineSeeder  → THERE IS NO SEEDING MACHINERY AND THIS SPEC BUILDS
+                      NONE (REQ-012 is ISSUE-056's). Production wires a
+                      concrete seeder that reports the capability as ABSENT
+                      and writes NOTHING — see the sentinel note below.
+
+  ★ THE SENTINEL, AND WHY IT EXISTS. `NewRunner` is FAIL-CLOSED: it errors
+  naming any nil dependency. So "no seeder available" (CLM-062) CANNOT be
+  expressed as a nil field — that combination is unconstructable by design.
+  It is expressed as a VALUE: `initialize.ErrBaselineSeedingUnavailable`, a
+  sentinel declared in seams.go, returned by a seeder that has no machinery
+  behind it. The baseline step maps that sentinel to capability-absent and
+  does NOT fail the run. Production wires `unavailableBaselineSeeder`, whose
+  entire body returns the sentinel — it writes no `.backstop/baseline.json`
+  and computes no fingerprint, so CLM-060's absence claim holds over the
+  cmd/backstop half of the source set as well as the pkg/initialize half.
+
+  ─────────────────────────────────────────────────────────────────────────
+  TEST PLACEMENT IS DICTATED BY CLAIM SUBJECT, NOT BY CONVENIENCE
+  ─────────────────────────────────────────────────────────────────────────
+  97 claims carry the spec default subject `pkg/initialize` (spec line 51);
+  47 carry `subject: cmd/backstop`. Every task below lists its test_names;
+  do not relocate one across the package boundary on your own judgement.
+
+  ★ WHAT THE SUBJECT JOIN ACTUALLY REQUIRES, READ OFF THE SHIPPED CODE
+  rather than assumed. `pkg/gate/substantiveness_join.go:63 NoTargetViolation`
+  is an exhaustive four-row decision table over the token
+  `TargetPackageName(subject)` (:46 — `filepath.Base`, so `pkg/initialize`
+  reduces to `initialize`):
+
+      targetPkg == ""                            → SKIP
+      samePackage                                → satisfied
+      !samePackage && referenced[targetPkg]      → satisfied
+      !samePackage && !referenced[targetPkg]     → noTarget VIOLATION
+
+  So a mandated test satisfies its subject by living IN the subject package
+  OR by REFERENCING it. That second row is not a loophole — it is what lets
+  the five real-machinery claims below keep their `pkg/initialize` subject
+  while their mandated tests live in cmd/backstop, where the production
+  adapters are forced to live: those tests drive `initialize.NewRunner` /
+  `initialize.Options` directly, so `initialize` is in their referenced-symbol
+  set. Claims declaring `kind: absence` skip the join entirely
+  (`NoTargetViolationForTest`, :89).
+
+  THE FIVE, AND THEY ARE THE ONLY ONES MOVED: CLM-046, CLM-047 (recipe apply
+  through the shipped path, byte-identical payload), CLM-086, CLM-088 (real
+  `backstop.lock` entries, portable, no `local_path`) and CLM-130 (scaffold
+  recipe targets at recipe-declared paths). Each asserts behavior of REAL
+  MACHINERY that no fake can produce, so each is written in TASK-052 against
+  the real adapters. Do not also write them against the fakes in phases 8/10/
+  11 — a duplicate definition will not compile, and a same-named weaker copy
+  is the vacuous green this move exists to prevent.
+
+  Every REQ-011 toolchain claim is cmd/backstop, and that is FORCED:
+  checkEngineToolAllowed and splitCommand are unexported in package main, so
+  neither the shared `packEntrypointProber` nor the concrete ToolchainProber
+  over it can live in pkg/initialize without writing a second copy of both —
+  the exact second execution path REQ-011 forbids. That same forcing is what
+  makes the SPEC-070 sharing trivial: doctor's checks are in package main
+  for the identical reason, so both callers already sit beside the helper.
+  pkg/initialize holds the INTERFACE only, and the Runner's toolchain step is
+  exercised through a fake prober.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1 — Test-fixture pack sources. Four independent trees, no
+  # production code, fully parallel.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Fixture pack sources for acceptance, scaffold, and toolchain execution"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Author the SEVENTH hermetic-remote fixture pack: one gate_type lint engine with a real allowlisted command"
+        description: |
+          The acceptance runs (CLM-091/CLM-092) install a REAL pack by git ref
+          through newHermeticRemote. NONE of the six existing fixture sources
+          under cmd/backstop/testdata/hermetic-remote/ can serve — every one
+          declares its engine with `command: ""` on purpose, so nothing can
+          dispatch and a PASS over them asserts nothing; `invalid-pack` also
+          fails `pack check` and `fixture-fail-pack` fails `pack test`, and
+          `pack add` runs both pipelines unconditionally. Hence a seventh.
+
+          THE GATE TYPE IS LOAD-BEARING, NOT METADATA (Sharp Edge 16).
+          Declare `gate_type: lint`. gateTypeHasDedicatedStep
+          (cmd/backstop/pack_gate.go:107) returns true for substantiveness,
+          contracts and coverage ONLY, so a `lint` rule survives
+          excludeDedicatedStepRules (:123, called at gate.go:828) and
+          dispatches through the generic `pack_engines` path — a dimension
+          NEITHER acceptance profile disables (the pack-only profile turns off
+          exactly the five SDLC dimensions; pack_engines is not among them).
+          That is the whole reason the same engine is live under both
+          profiles, which is what makes CLM-112's can-go-red half provable.
+          Anyone re-tagging this field must re-derive the routing — both
+          acceptance tests keep passing while asserting nothing.
+
+          ENGINE SHAPE — copy packs/contracts' proven grep engine field for
+          field and lift it to lint:
+            command: grep -rn
+            input_mode: pattern-arg
+            input_flag: -e
+            scope_kind: file-args
+            category: opinion
+            gate_type: lint
+            convert: grep/to-sarif.sh
+            provision: {tool: grep, version: "*"}
+          Nothing is downloaded and no network is touched. The convert script
+          normalizes grep matches to SARIF; base it on
+          packs/contracts/grep/to-sarif.sh.
+
+          ONE RULE, carrying a distinctive marker pattern that appears NOWHERE
+          in a freshly-initialized project — use a high-entropy literal such
+          as BACKSTOP_ACCEPTANCE_MARKER_7F3A. Sharp Edge 17: that literal
+          necessarily appears in this pack.yml, which lands under
+          .backstop/packs/, so the acceptance PASS depends on the gitignore
+          step (step 5) keeping that tree out of the observe step's scope.
+          Choose the marker so a scope regression is DETECTABLE rather than
+          confusing, and say so in a comment in the manifest.
+
+          `pack add` runs pack check AND pack test unconditionally, so the
+          rule must declare claims with positive and negative fixtures that
+          genuinely falsify — a fixture CONTAINING the marker and one without.
+          Capture the fixture content from a real `grep -rn` run; do not
+          fabricate it.
+        files:
+          - cmd/backstop/testdata/hermetic-remote/acceptance-lint-pack/pack.yml
+          - cmd/backstop/testdata/hermetic-remote/acceptance-lint-pack/grep/to-sarif.sh
+          - cmd/backstop/testdata/hermetic-remote/acceptance-lint-pack/testdata/fixtures/marker-present.txt
+          - cmd/backstop/testdata/hermetic-remote/acceptance-lint-pack/testdata/fixtures/marker-absent.txt
+        claims:
+          - CLM-091
+          - CLM-092
+          - CLM-112
+        depends_on: []
+
+      - id: TASK-002
+        type: setup
+        title: "Author scaffold-RECIPE fixture packs at two declared kinds, for the scaffold step and its preserve classes"
+        description: |
+          CLM-130 needs a pack declaring a real `pkg/recipe` RECIPE — one
+          `create` op with a payload and a declared target. The existing
+          `scaffold-config-pack` fixture is NOT it: its `scaffolds:` block is
+          packval's `tier: complete` scaffold declaration, a DIFFERENT
+          mechanism.
+
+          Author TWO fixture pack sources, identical but for the declared
+          recipe `kind`, because the kind is one of the only two observables
+          REQ-035's classifier has:
+
+            scaffold-recipe-pack     — recipes[].kind: scaffolding
+                                       (empty Rule/CoveringWaiver pair here is
+                                        UNAMBIGUOUSLY user-owned: CLM-140)
+            scaffold-templating-pack — recipes[].kind: templating
+                                       (empty pair here is INDETERMINATE:
+                                        CLM-142)
+
+          Each declares one recipe with one `create` op writing one target at
+          a path the RECIPE names. The payload is arbitrary bytes chosen to
+          prove byte-identical landing; it is pack DATA, so a filename or
+          extension here does NOT put a literal in the init source set
+          CLM-131 scans.
+
+          Declare NO required-without-default param on either. Init supplies
+          no param to any apply (CLM-136); a required param would make these
+          fixtures untestable through init by construction.
+
+          ★★ BOTH PACKS MUST ACTUALLY PASS `pack check` AND `pack test`, AND
+          AS ORIGINALLY SCOPED THEY WOULD NOT HAVE. `pack add` runs both
+          pipelines UNCONDITIONALLY before install, so a fixture that fails
+          either cannot be installed and every claim riding on it dies with
+          it. Two shipped obligations are easy to miss, both verified against
+          the code rather than assumed:
+
+            (a) PHASE 1 CONTENT (pkg/packval/phase1.go:45). A pack with an
+                EMPTY `content.ruleset.rules` AND no `content.scaffolds` AND
+                no `content.sdk` fails structural validation with "content is
+                required". These are recipe-only packs, so they carry NO
+                ruleset — each must therefore declare a `content.scaffolds`
+                block. A BARE scaffold entry is enough (`id` and `path`
+                only): the directory must exist and hold a file, and it must
+                NOT be padded with `tier`/`sample_config`/`pairs_with`
+                authoring metadata. Padding is not harmless — `tier: complete`
+                makes packval phase 3 RENDER the scaffold, and `pairs_with`
+                is `code`-archetype vocabulary these packs deliberately do not
+                use. The shipped proof is
+                cmd/backstop/testdata/recipes-archetype-pack, whose bare
+                `service-base` scaffold passes both pipelines today; copy its
+                shape.
+
+            (b) PHASE 4 RECIPE ENFORCEMENT (pkg/packval/phase4.go:137-149).
+                Declare `archetype: recipes` on both — that is what these
+                packs ARE, and it is the archetype that imposes no ruleset and
+                no pairs_with obligation. It also switches ON
+                `checkRecipeEnforcement`: a `kind: scaffolding` or
+                `kind: implementing` recipe MUST declare `enforcement.rules`,
+                and an `enforcement:` block present with an EMPTY rules list
+                counts as ABSENT, not as a declaration. So
+                scaffold-recipe-pack's `kind: scaffolding` recipe declares a
+                non-empty `enforcement.rules` list. The strings inside are
+                never resolved or cross-referenced against anything (the
+                phase's own SCOPE GUARD says so), so one opaque rule id is
+                sufficient and no pack ruleset is needed to back it.
+                scaffold-templating-pack's `kind: templating` recipe carries
+                NO obligation — declaring enforcement.rules there anyway is
+                not an error, but leave it off, because the templating fixture
+                exists precisely to exercise the no-obligation branch.
+
+          FIXTURE LOCATION IS DELIBERATE, NOT A CROSS-PACKAGE REACH. These
+          sources live under cmd/backstop/testdata/hermetic-remote/ because
+          every consumer of them is a cmd/backstop test that installs them BY
+          GENUINE GIT REF through `newHermeticRemote`
+          (cmd/backstop/hermetic_remote_harness_test.go): TASK-052 (the real
+          RecipeApplier, CLM-130/CLM-046/CLM-047), TASK-044 (CLM-142/CLM-143)
+          and TASK-049 (acceptance). No pkg/initialize test reads this tree —
+          REQ-018 forbids a local-path `--pack` value, so a fixture consumed
+          through init must be publishable as a remote, and the harness that
+          publishes one is here.
+
+          Run `./bin/backstop pack check <dir>` and `./bin/backstop pack test
+          <dir>` against each of the two trees and paste both PASS results
+          before declaring this task done. A fixture nobody validated is the
+          failure mode this task exists to avoid.
+        files:
+          - cmd/backstop/testdata/hermetic-remote/scaffold-recipe-pack/pack.yml
+          - cmd/backstop/testdata/hermetic-remote/scaffold-recipe-pack/recipes/first-source/recipe.yml
+          - cmd/backstop/testdata/hermetic-remote/scaffold-recipe-pack/recipes/first-source/payload.txt
+          - cmd/backstop/testdata/hermetic-remote/scaffold-recipe-pack/scaffolds/first-source-base/placeholder.txt
+          - cmd/backstop/testdata/hermetic-remote/scaffold-templating-pack/pack.yml
+          - cmd/backstop/testdata/hermetic-remote/scaffold-templating-pack/recipes/first-source/recipe.yml
+          - cmd/backstop/testdata/hermetic-remote/scaffold-templating-pack/recipes/first-source/payload.txt
+          - cmd/backstop/testdata/hermetic-remote/scaffold-templating-pack/scaffolds/first-source-base/placeholder.txt
+        claims:
+          - CLM-130
+          - CLM-140
+          - CLM-142
+          - CLM-143
+        depends_on: []
+
+      - id: TASK-003
+        type: setup
+        title: "Author the DD-7 evidence fixture pack: one scaffold recipe AND one entrypoint that reds over an empty project"
+        description: |
+          CLM-139 binds DD-7's motivating evidence to a test rather than a
+          story: the SAME declared entrypoint that exits NON-ZERO over a
+          project with no source file exits ZERO over the same project once
+          the scaffold recipe has run, with the scaffolded file as the ONLY
+          difference between the two runs. That is the "a compiler run over an
+          empty repo can RED on no inputs" failure (observed: tsc TS18003),
+          and it is what regresses silently if a later refactor moves the
+          scaffold step after the toolchain step.
+
+          ONE pack source declaring BOTH:
+            • a recipe (one `create` op, one target, `kind: scaffolding`);
+            • one engine with `gate_type: test` (or `build`) whose declared
+              command exits non-zero when the recipe's declared target is
+              absent and zero when it is present.
+
+          THE PACK AUTHOR'S COMMAND IS WHAT ENCODES THE FAILURE, and core
+          supplies none of it — that is the point of the claim. Use an
+          allowlisted, hermetic, no-provisioning tool; a `grep`-shaped
+          presence probe over the recipe's declared target is sufficient and
+          keeps the fixture dependency identical to TASK-001's.
+
+          Also declare the entrypoint's own executable if the command needs
+          one, under this fixture's tree, and make it executable. Nothing here
+          may reach outside the fixture directory.
+
+          ★★ THE ENTRYPOINT ENGINE IS ALSO DISPATCHED BY INIT'S OWN OBSERVE
+          STEP, AND WITHOUT A CONVERT SCRIPT THAT DISPATCH IS A BROKEN-PACK
+          ERROR. This is the trap that makes an otherwise-correct fixture fail
+          in a way that looks like an init defect. `gateTypeHasDedicatedStep`
+          (cmd/backstop/pack_gate.go:107-114) returns true for substantiveness,
+          contracts and coverage ONLY — so a `test` (or `build`) engine
+          SURVIVES `excludeDedicatedStepRules` and dispatches through the
+          GENERIC pack_engines path as well. CLM-139's test installs this pack
+          through init, and init's step 10 (observe) runs the gate, so this
+          engine WILL be dispatched there. On that path the engine's stdout is
+          expected to be SARIF unless a `convert:` script is declared; with no
+          convert, `runFindingsEngine` hands raw output to the SARIF parse
+          (pack_gate.go:686-691 is the paired "broken pack: missing convert
+          script" failure for the declared-but-absent case).
+
+          So DECLARE A CONVERT SCRIPT for this engine, exactly as TASK-001
+          does for its lint engine, and ship it in this fixture's tree
+          (base it on packs/contracts/grep/to-sarif.sh). It normalizes the
+          presence-probe's output to SARIF for the findings dispatch and is
+          IGNORED by the toolchain path — `packEntrypointProber` (TASK-042)
+          reads exit status and combined output and never consults `convert`.
+          One fixture, two dispatch routes, and this is the field that keeps
+          the second one honest.
+
+          Do NOT declare `crash_guard: true`. It is an explicit opt-in field
+          (pkg/pack/manifest.go:104), not something derived from `gate_type`,
+          and turning it on would make the empty-project non-zero exit — the
+          very state CLM-139 sets up on purpose — a fail-loud gate error
+          during the observe step.
+
+          THE PACK MUST PASS `pack check` AND `pack test` (`pack add` runs
+          both unconditionally). Declare `archetype: enforcement`: it has a
+          real ruleset, so phase 1's content requirement is satisfied by
+          `content.ruleset.rules` and it must NOT declare `content.scaffolds`
+          (phase4 rejects scaffolds on an enforcement pack). Every rule needs
+          a valid `risk_class` (phase 1), and the rule needs positive and
+          negative fixtures that genuinely falsify, captured from a real run
+          — same bar as TASK-001. Under `archetype: enforcement`,
+          `checkRecipeEnforcement` does not run, so phase 4 imposes no
+          `enforcement.rules` obligation on this pack's `kind: scaffolding`
+          recipe — declare one ANYWAY. It is never an error, and it keeps the
+          fixture valid if a later reader flips the archetype to `recipes`.
+
+          Run `./bin/backstop pack check <dir>` and `./bin/backstop pack test
+          <dir>` and paste both PASS results before declaring this task done.
+        files:
+          - cmd/backstop/testdata/hermetic-remote/scaffold-entrypoint-pack/pack.yml
+          - cmd/backstop/testdata/hermetic-remote/scaffold-entrypoint-pack/recipes/first-source/recipe.yml
+          - cmd/backstop/testdata/hermetic-remote/scaffold-entrypoint-pack/recipes/first-source/payload.txt
+          - cmd/backstop/testdata/hermetic-remote/scaffold-entrypoint-pack/bin/entrypoint.sh
+          - cmd/backstop/testdata/hermetic-remote/scaffold-entrypoint-pack/grep/to-sarif.sh
+          - cmd/backstop/testdata/hermetic-remote/scaffold-entrypoint-pack/testdata/fixtures/target-present.txt
+          - cmd/backstop/testdata/hermetic-remote/scaffold-entrypoint-pack/testdata/fixtures/target-absent.txt
+        claims:
+          - CLM-139
+          - CLM-138
+        depends_on: []
+
+      - id: TASK-004
+        type: setup
+        title: "Author the toolchain-execution manifest and executable fixtures: the gate_type matrix and all four entrypoint cases"
+        description: |
+          REQ-011's claims need pack manifests written in the pack's OWN
+          declared YAML shape — parsed through pack.ParseManifest, never a
+          fabricated Go struct — so a manifest-schema change cannot leave
+          these tests passing against a shape no pack can produce.
+
+          MANIFEST FIXTURES:
+            gatetype-matrix-pack.yml   one engine per gate_type — test, build,
+                                       lint, findings, coverage,
+                                       substantiveness, contracts — so
+                                       CLM-053/054 (executed) and
+                                       CLM-055/118/119/120/121 (NOT executed)
+                                       are all asserted against one manifest.
+            entrypoint-cases-pack.yml  engines binding the four outcomes:
+                                       (a) zero exit; (b) executable that
+                                       CANNOT BE STARTED at all (absent or
+                                       non-executable path); (c) starts and
+                                       exits non-zero; plus TWO engines in one
+                                       pack, one failing and one passing, for
+                                       CLM-057's independence claim.
+            unallowlisted-tool-pack.yml  one entrypoint whose declared tool the
+                                       trusted-tool allowlist refuses, for
+                                       CLM-107. It must never be executed:
+                                       the trust gate sits BEFORE splitCommand
+                                       and before the runner.
+            metachar-command-pack.yml  one entrypoint whose command text
+                                       contains shell metacharacters, for
+                                       CLM-108 — passed through as literal
+                                       argv, no shell interprets it.
+            no-entrypoint-pack.yml     declares neither test nor build, for
+                                       CLM-058's capability-absent outcome.
+
+          EXECUTABLE FIXTURES — and ONE OF THEM IS THE TRIPWIRE:
+            bin/exit-zero.sh                  exits 0.
+            bin/exit-nonzero-stdout.sh        writes to stdout, exits non-zero.
+            bin/exit-nonzero-stderr-only.sh   writes its ENTIRE diagnostic to
+                                              STDERR, writes NOTHING to
+                                              stdout, exits non-zero.
+
+          ★ THAT LAST FIXTURE IS CLM-122 AND ITS SHAPE IS THE WHOLE CLAIM
+          (Sharp Edge 15). stdout MUST be empty. A fixture that writes
+          anything at all to stdout passes under BOTH `Run` and `RunStdout`
+          and therefore asserts nothing — the claim goes vacuous while looking
+          exactly like it is working. Put that sentence in a comment at the
+          top of the script.
+        files:
+          - cmd/backstop/testdata/init-toolchain/gatetype-matrix-pack.yml
+          - cmd/backstop/testdata/init-toolchain/entrypoint-cases-pack.yml
+          - cmd/backstop/testdata/init-toolchain/unallowlisted-tool-pack.yml
+          - cmd/backstop/testdata/init-toolchain/metachar-command-pack.yml
+          - cmd/backstop/testdata/init-toolchain/no-entrypoint-pack.yml
+          - cmd/backstop/testdata/init-toolchain/bin/exit-zero.sh
+          - cmd/backstop/testdata/init-toolchain/bin/exit-nonzero-stdout.sh
+          - cmd/backstop/testdata/init-toolchain/bin/exit-nonzero-stderr-only.sh
+        claims:
+          - CLM-053
+          - CLM-054
+          - CLM-055
+          - CLM-118
+          - CLM-119
+          - CLM-120
+          - CLM-121
+          - CLM-056
+          - CLM-105
+          - CLM-122
+          - CLM-057
+          - CLM-107
+          - CLM-108
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2 — ONE authority for local-path classification (REQ-018).
+  # Independent of pkg/initialize; runs in parallel with phases 3-4.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: Export the shipped local-path classifier so init calls one authority (REQ-018)"
+    tasks:
+      - id: TASK-005
+        type: test
+        title: "Pin the EXPORTED IsLocalPath's behavior across every form the shipped classifier recognizes"
+        description: |
+          Write a table test against `distribution.IsLocalPath` covering every
+          form the shipped predicate accepts (`/abs`, `./rel`, `../rel`, a
+          platform-absolute path) and every form it rejects (a bare
+          `org/pack@version` git ref). The test names the EXPORTED symbol, so
+          it will not compile until TASK-006 lands — that is the red.
+
+          This is a rename, not a reimplementation: the assertions must be
+          derived from what add.go:96 does TODAY, so a behavior change during
+          the rename fails here rather than in a consumer repo's lock file.
+          CLM-110's own mandated test lives in cmd/backstop (it asserts INIT's
+          decision equals this one) and is written in TASK-044; this task pins
+          the authority itself so the two cannot silently diverge.
+        files:
+          - pkg/pack/distribution/islocalpath_export_test.go
+        claims:
+          - CLM-110
+        depends_on: []
+
+      - id: TASK-006
+        type: refactor
+        title: "Rename isLocalPath to IsLocalPath and update in-package callers"
+        description: |
+          Export `isLocalPath` (pkg/pack/distribution/add.go:96) as
+          `IsLocalPath`. Update the in-package caller at command.go:164. This
+          is the ONLY edit this spec makes to pkg/pack/distribution and
+          BEHAVIOR IS UNCHANGED — no new form recognized, no form dropped.
+
+          Why this exists rather than init writing its own predicate: two
+          definitions of "is this a local path" drifting apart is not
+          hypothetical. A ref init classified remote and the add path
+          classified local produces exactly the machine-specific `local_path`
+          lock entry REQ-018 exists to prevent, and it fails nowhere near
+          init. SPEC-056 settled the same shape by making
+          pack.ValidatePackName "one authority, not a copy".
+
+          Do not add an alias, a wrapper, or a deprecated lowercase shim.
+        files:
+          - pkg/pack/distribution/add.go
+          - pkg/pack/distribution/command.go
+        claims:
+          - CLM-110
+          - CLM-087
+        depends_on:
+          - TASK-005
+
+      - id: TASK-007
+        type: verification
+        title: "Verify the local-path export"
+        description: |
+          Rebuild the binary (`go build -o bin/backstop ./cmd/backstop`), then run
+          `PATH="/Users/bmanson/go/bin:$PATH" ./bin/backstop gate` (bare =
+          diff-scoped vs merge-base plus untracked). Every existing
+          pkg/pack/distribution test must still pass — a rename that changes
+          behavior shows up here. Report the result; do not proceed on a red.
+        files:
+          - pkg/pack/distribution/add.go
+          - pkg/pack/distribution/command.go
+          - pkg/pack/distribution/islocalpath_export_test.go
+        claims:
+          - CLM-110
+          - CLM-087
+        depends_on:
+          - TASK-006
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3 — The capability vocabulary (REQ-002). The spine of the command.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: Capability vocabulary and resolution (REQ-002)"
+    tasks:
+      - id: TASK-008
+        type: test
+        title: "Test capability resolution: --only narrows to exactly the named set, and there is no eighth name"
+        description: |
+          Drive ResolveCapabilities directly.
+
+          TestInit_OnlyNarrowsToExactlyTheNamedCapabilities (CLM-011) —
+          `--only` is repeatable, narrows to EXACTLY the capabilities named
+          and to no others, and can never ADD, because its input is validated
+          against the same seven-name vocabulary.
+
+          TestInit_ScaffoldIsNotACapabilityName (CLM-132) — `scaffold` is
+          rejected as unrecognized exactly as any other eighth name would be.
+          The scaffold step is governed SOLELY by the presence of the
+          `--scaffold` flag; there is no `--no-scaffold` (Sharp Edge 8's
+          reasoning applied to a second flag).
+
+          The vocabulary is exactly seven: git, sdlc, gitignore, packs,
+          toolchain, baseline, observe. `backstop.yml` generation is NOT a
+          capability (it is unconditional), and neither CI nor scaffold is.
+
+          Cover both error shapes here too, at the function level:
+          `--only` combined with any `--no-<cap>` is an error (two
+          contradictory expressions of one set, mirroring the shipped
+          --file/--all exclusion in `backstop gate`), and an unrecognized name
+          errors listing all seven. Their exit-2 MAPPING is CLM-012/CLM-013,
+          whose mandated tests are cmd/backstop's and land in TASK-044.
+        files:
+          - pkg/initialize/capability_test.go
+        claims:
+          - CLM-011
+          - CLM-132
+        test_names:
+          - TestInit_OnlyNarrowsToExactlyTheNamedCapabilities
+          - TestInit_ScaffoldIsNotACapabilityName
+        depends_on: []
+
+      - id: TASK-009
+        type: implementation
+        title: "Implement Capability, DefaultCapabilities and ResolveCapabilities"
+        description: |
+          pkg/initialize/capability.go, per the spec's contracts:
+
+            type Capability string
+            func DefaultCapabilities() []Capability
+            func ResolveCapabilities(only []string, excluded []string) (map[Capability]bool, error)
+
+          ResolveCapabilities is the ONLY entry point that produces a
+          capability set. Order:
+            1. both `only` and `excluded` non-empty → error;
+            2. every supplied name checked against the seven-member
+               vocabulary, unrecognized → error listing all seven;
+            3. neither flag → all seven; `--only` → exactly the named subset;
+               `--no-` → the seven minus the named.
+
+          The seven names are backstop vocabulary, not tool or language nouns.
+          No eighth name exists anywhere in this file.
+        files:
+          - pkg/initialize/capability.go
+        claims:
+          - CLM-011
+          - CLM-132
+          - CLM-012
+          - CLM-013
+        depends_on:
+          - TASK-008
+
+      - id: TASK-010
+        type: verification
+        title: "Verify capability resolution"
+        description: |
+          Rebuild the binary (`go build -o bin/backstop ./cmd/backstop`), then run
+          `PATH="/Users/bmanson/go/bin:$PATH" ./bin/backstop gate` (bare =
+          diff-scoped vs merge-base plus untracked). Both mandated tests green,
+          no lint or build finding on the new file.
+        files:
+          - pkg/initialize/capability.go
+          - pkg/initialize/capability_test.go
+        claims:
+          - CLM-011
+          - CLM-132
+        depends_on:
+          - TASK-009
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4 — Shared types, the five seams, and THE ONE preserve classifier.
+  # Everything downstream hangs off this phase.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Seam types and the single preserve classifier (REQ-035 core)"
+    tasks:
+      - id: TASK-011
+        type: test
+        title: "Test the ONE preserve classifier over its three observable classes, and the shared test fakes"
+        description: |
+          Two deliverables in this task, both test-side.
+
+          (A) pkg/initialize/preserve_test.go — the classifier, driven
+          directly over recipe.PreservedDivergence values plus a declared
+          recipe kind. REQ-035's classes are the classes init can OBSERVE,
+          which are deliberately NOT the code's three producers:
+
+            WAIVER-COVERED  Rule and CoveringWaiver POPULATED, at ANY kind.
+            USER-OWNED      pair EMPTY, kind `scaffolding` or `implementing`.
+            INDETERMINATE   pair EMPTY, kind `templating`.
+
+          THE BRANCH ORDER IS THE TRAP AND AN EARLIER SPEC DRAFT FELL INTO IT:
+          preserveOrRegenerate (pkg/recipe/apply.go:348-390) tests
+          `!own.adopted` FIRST at :349 and returns immediately, so the kind
+          test at :357 is UNREACHABLE for any recipe no prior apply adopted. A
+          never-adopted `kind: templating` recipe therefore returns a value
+          BYTE-IDENTICAL to an adopted-and-materialized one. The kind does NOT
+          separate producer (a) from producer (b); it only settles the
+          empty-pair case for the two kinds where (b) is unreachable.
+
+            TestInit_ScaffoldingKindEmptyPairPreserveIsClassifiedUserOwned    CLM-123
+            TestInit_ImplementingKindEmptyPairPreserveIsClassifiedUserOwned   CLM-124
+            TestInit_HoldsExactlyOnePreserveClassifierSharedByBothRecipeSteps CLM-144
+
+          CLM-144's test is STRUCTURAL: assert the init source set holds
+          EXACTLY ONE classification of the Rule/CoveringWaiver pair against
+          the declared kind, and that both recipe steps call it. Two
+          classifiers drifting would let one step report a class the other
+          would not. CLM-125 (a populated pair OUTRANKS the kind at every kind,
+          `templating` included) is subject cmd/backstop and lands in TASK-044.
+
+          Do NOT reconstruct the applier's adoption bit. It is recipe-level
+          (apply.go:166), keyed by the UNEXPORTED adoptionKey, and
+          reconstructing it is a second derivation of a recipe's adoption
+          identity — the same hazard REQ-018 refuses for local-path
+          classification. Surfacing it would require editing pkg/recipe, which
+          REQ-009 forbids. The ambiguity is RECORDED, not engineered around.
+
+          (B) pkg/initialize/fakes_test.go — ONE shared set of fakes for the
+          five seams (PackInstaller, RecipeApplier, GateRunner,
+          ToolchainProber, BaselineSeeder), used by every step test in phases
+          5-12 and by the runner test in phase 13. One set, in one file, so
+          the package has no duplicate fake types and no per-file drift.
+
+          ★ WHAT THESE FAKES ARE FOR, AND WHAT THEY CANNOT PROVE. They exist
+          so each STEP's own logic — ordering, subtraction, classification,
+          report wording, the converge-never-clobber posture — is testable
+          without a network, a clone or a real gate run. They prove nothing
+          about the machinery behind the seam: a fake installer writes no
+          `backstop.lock`, a fake applier lands no byte, a fake gate runner
+          invents its own dimension counts. The five claims that assert real
+          machinery (CLM-046, CLM-047, CLM-086, CLM-088, CLM-130) are
+          therefore written in TASK-052 against the REAL adapters, and the
+          production implementations of the other four seams are TASK-054's.
+          If a step test here ever seems to prove one of those five, the fake
+          has grown behavior it should not have.
+        files:
+          - pkg/initialize/preserve_test.go
+          - pkg/initialize/fakes_test.go
+        claims:
+          - CLM-123
+          - CLM-124
+          - CLM-144
+        test_names:
+          - TestInit_ScaffoldingKindEmptyPairPreserveIsClassifiedUserOwned
+          - TestInit_ImplementingKindEmptyPairPreserveIsClassifiedUserOwned
+          - TestInit_HoldsExactlyOnePreserveClassifierSharedByBothRecipeSteps
+        depends_on:
+          - TASK-010
+
+      - id: TASK-012
+        type: implementation
+        title: "Implement the shared types, the five seam interfaces, and the single preserve classifier"
+        description: |
+          THREE files, exactly as the spec's contracts declare them.
+
+          pkg/initialize/initialize.go — the types only at this task:
+            Options{ProjectRoot, Capabilities, PackRefs, CIRecipeRef, ScaffoldRecipeRef}
+            Outcome int
+            StepReport{Step, Outcome, Detail}
+            Result{Steps, Observations, Preserved, BrokenPromise}
+            PreserveClass int
+            ClassifiedPreserve{Path, Class, Rule, CoveringWaiver}
+            DimensionCount{Dimension, Count}
+            Runner struct
+            NewRunner(packs, recipes, gates, tools, seeds) (*Runner, error)
+          NewRunner is FAIL-CLOSED and POSITIONAL — it errors naming any nil
+          dependency, the shape pkg/pack/distribution/command.go uses for
+          NewAddCommand. A half-wired runner is unconstructable rather than a
+          runtime nil-deref. `Runner.Run` is stubbed here and sequenced in
+          TASK-039; this task owns the file's TYPES.
+
+          TWO REF-SHAPED FIELDS AND NO REF-SHAPED CONSTRUCTOR. CIRecipeRef and
+          ScaffoldRecipeRef are whole OPAQUE strings, empty when the flag was
+          omitted, NEVER decomposed into pack/recipe/version parts anywhere.
+          A field holding a pack name or a version separately would be core
+          holding half a ref — the DD-13 bake REQ-016 v1.2.0 was corrected to
+          remove. Neither has a param companion.
+
+          `Preserved` carries CLASSIFIED preserves, not paths. A []string
+          discards the Rule/CoveringWaiver pair and the recipe kind, which are
+          the only two observables separating an accountable customization
+          from a brownfield gap from an unresolvable unknown — and reporting
+          all three as the brownfield gap is the false "no gate was wired"
+          this type exists to prevent.
+
+          pkg/initialize/seams.go — PackInstaller, RecipeApplier, GateRunner,
+          ToolchainProber, BaselineSeeder, and ApplyOutcome{Written,
+          Preserved []recipe.PreservedDivergence, RecipeKind}. ApplyOutcome
+          MUST surface the applier's own PreservedDivergence values with Rule
+          and CoveringWaiver INTACT plus the resolved recipe's declared kind;
+          all three are already exported at HEAD, so this widening touches no
+          file under pkg/recipe. ONE RecipeApplier, TWO callers: the interface
+          takes the ref as an opaque string precisely so the scaffold step
+          needed no new method, no per-step variant, and no place for core to
+          construct a ref part. ToolchainProber is an INTERFACE ONLY here —
+          its production implementation is TASK-042's, in package main. Every
+          OTHER seam's production implementation is TASK-054's, and every one
+          of those is in package main too; the plan notes give the forcing
+          reason for each.
+
+          ★ ONE SYMBOL BEYOND THE SPEC'S DECLARED CONTRACT, AND IT IS FORCED
+          BY TWO OTHER THINGS THE SPEC DOES DECLARE. Add to seams.go:
+
+            // ErrBaselineSeedingUnavailable is the sentinel a BaselineSeeder
+            // returns to say the capability has no machinery behind it
+            // (REQ-012 is ISSUE-056's). It is capability-ABSENT, never a
+            // broken promise.
+            var ErrBaselineSeedingUnavailable = errors.New(...)
+
+          Why it must exist: CLM-062 requires the baseline step to report a
+          gap "when no seeding implementation is available", and NewRunner is
+          FAIL-CLOSED — it errors naming any nil dependency. A nil
+          BaselineSeeder is therefore UNCONSTRUCTABLE, so "unavailable" cannot
+          be a nil field and must be a VALUE the seam returns. The sentinel is
+          the smallest thing that satisfies both declared behaviors at once.
+          It adds no capability and no machinery: production wires
+          `unavailableBaselineSeeder` (TASK-054), whose whole body returns it.
+          Do NOT instead special-case BaselineSeeder in NewRunner — that would
+          make ONE of the five dependencies silently optional and reopen
+          exactly the half-wired-runner hole the fail-closed constructor
+          closes.
+
+          pkg/initialize/preserve.go — the ONE classifier (CLM-144). The pair
+          outranks the kind; the kind is consulted only to split the
+          empty-pair case. Name the type for OBSERVABLE classes, never for
+          producers — naming it for producers re-asserts a discrimination init
+          cannot make.
+        files:
+          - pkg/initialize/initialize.go
+          - pkg/initialize/seams.go
+          - pkg/initialize/preserve.go
+        claims:
+          - CLM-123
+          - CLM-124
+          - CLM-144
+          - CLM-125
+        depends_on:
+          - TASK-011
+
+      - id: TASK-013
+        type: verification
+        title: "Verify the seam types and the preserve classifier"
+        description: |
+          Rebuild the binary (`go build -o bin/backstop ./cmd/backstop`), then run
+          `PATH="/Users/bmanson/go/bin:$PATH" ./bin/backstop gate` (bare =
+          diff-scoped vs merge-base plus untracked). All three classifier tests
+          green, the package compiles, and the contracts declared for
+          initialize.go and seams.go resolve. preserve.go carries no declared
+          contract of its own — do not expect one.
+        files:
+          - pkg/initialize/initialize.go
+          - pkg/initialize/seams.go
+          - pkg/initialize/preserve.go
+          - pkg/initialize/preserve_test.go
+        claims:
+          - CLM-123
+          - CLM-124
+          - CLM-144
+          - CLM-125
+        depends_on:
+          - TASK-012
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phases 5-12 are PARALLEL-ELIGIBLE. Each owns one step file plus its test
+  # file and touches nothing another phase touches. All depend on TASK-013.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: The git step — init only when there is no .git (REQ-006)"
+    tasks:
+      - id: TASK-014
+        type: test
+        title: "Test the git step: create when absent, leave an existing repository entirely untouched"
+        description: |
+          TestInit_CreatesGitRepositoryWhenNoneExists (CLM-036) — in a
+          directory with no `.git`, the step creates a git repository.
+
+          TestInit_ExistingGitRepositoryIsLeftUntouched (CLM-037) — in a
+          directory that IS already a repository, no git initialization runs
+          and HEAD, config and refs are byte-unchanged. Assert on all three,
+          not on "no error": a re-init that happened to be harmless still
+          fails this claim.
+
+          The only fact the step inspects is the presence of `.git`. Nothing
+          else in the project is read.
+        files:
+          - pkg/initialize/step_git_test.go
+        claims:
+          - CLM-036
+          - CLM-037
+        test_names:
+          - TestInit_CreatesGitRepositoryWhenNoneExists
+          - TestInit_ExistingGitRepositoryIsLeftUntouched
+        depends_on:
+          - TASK-013
+
+      - id: TASK-015
+        type: implementation
+        title: "Implement the git step"
+        description: |
+          pkg/initialize/step_git.go. Step 1 of the ten-step sequence, carried
+          by the `git` capability. `git init` ONLY when the target directory
+          contains no `.git`; otherwise report converged and touch nothing —
+          no re-init, no config write, no ref or HEAD mutation.
+        files:
+          - pkg/initialize/step_git.go
+        claims:
+          - CLM-036
+          - CLM-037
+        depends_on:
+          - TASK-014
+
+      - id: TASK-016
+        type: verification
+        title: "Verify the git step"
+        description: |
+          Rebuild the binary (`go build -o bin/backstop ./cmd/backstop`), then run
+          `PATH="/Users/bmanson/go/bin:$PATH" ./bin/backstop gate` (bare =
+          diff-scoped vs merge-base plus untracked). Both mandated tests green.
+        files:
+          - pkg/initialize/step_git.go
+          - pkg/initialize/step_git_test.go
+        claims:
+          - CLM-036
+          - CLM-037
+        depends_on:
+          - TASK-015
+
+  - id: phase-6
+    name: "Phase 6: The config step — profile-correct backstop.yml (REQ-003, REQ-033, REQ-015 config half)"
+    tasks:
+      - id: TASK-017
+        type: test
+        title: "Test profile derivation, the five-dimension matrix, the config round-trips, and the coverage-floor gap"
+        description: |
+          ★ THIS TASK CONTAINS THREE OF THE FOUR EXPECTED-RED CLAIMS. Read the
+          plan notes before you debug anything here.
+
+          The profile is READ OFF the resolved capability set — `sdlc` present
+          is full-SDLC, `sdlc` absent is pack-only — and NEVER off the project.
+
+          Full-SDLC:
+            TestInit_FullSdlcConfigLeavesAllFiveSdlcDimensionsEnforced   CLM-015
+            TestInit_FullSdlcWritesArtifactRootPointingAtBackstopDir     CLM-026  ← RED until SPEC-068
+            TestInit_FullSdlcConfigRoundTripsThroughConfigLoad           CLM-021  ← RED until SPEC-068
+            TestInit_FullSdlcEmitsNoCoverageFloorGapNotice               CLM-095
+
+          Pack-only — one claim per dimension, five dimensions, because a
+          matrix asserted in aggregate hides a missing member:
+            TestInit_PackOnlyDisablesTestVerification                    CLM-016
+            TestInit_PackOnlyDisablesCoverageThreshold                   CLM-017
+            TestInit_PackOnlyDisablesContractSignature                   CLM-018
+            TestInit_PackOnlyDisablesTestSubstantiveness                 CLM-019
+            TestInit_PackOnlyDisablesArtifactStatusDrift                 CLM-020
+            TestInit_PackOnlyConfigRoundTripsThroughConfigLoad           CLM-022  ← RED until SPEC-068
+            TestInit_PackOnlyReportsTheCoverageFloorGapWithoutFailing    CLM-094
+
+          Both profiles:
+            TestInit_GeneratedConfigNeverWritesTheRetiredLanguageKey     CLM-023
+            TestInit_ProjectNameComesFromDirectoryBasenameOnly           CLM-024
+            TestInit_InventsNoCoverageFloorEnforcementKey                CLM-093
+            TestInit_GeneratedConfigCarriesNoScopeOverride               CLM-071
+            TestInit_ExistingBackstopYmlIsPreservedNotOverwritten        CLM-038
+
+          CLM-021/CLM-022 assert against the SHIPPED config.Load AND the
+          shipped JSON-schema pass — not against a hand-rolled unmarshal. A
+          config init writes must never be one the binary refuses to read.
+          CLM-022 is listed even though the pack-only profile writes no
+          `artifact_root`, deliberately: it exercises the same loader and
+          schema pass, so it is diagnosed alongside its sibling rather than
+          looking like a distinct failure.
+
+          CLM-024's fixture must POPULATE the directory with differing
+          project-identity files and assert the `project:` value is unchanged
+          — nothing in the project is read to name it.
+
+          CLM-093 is REQ-033's tripwire (Sharp Edge 6): the generated
+          `enforcement` block contains ONLY keys the shipped schema declares.
+          The schema's `additionalProperties: false` over exactly security,
+          waiver_warning_days, semgrep_version, baseline_ttl, test_command,
+          toolchain, policy means a `coverage.min_pct`-shaped key would be
+          REJECTED at load. The tempting "fix" — adding the key to the schema
+          to make the requirement satisfiable — is init designing an
+          enforcement-policy surface, which the bundle excludes, and a schema
+          change made from the wrong artifact.
+        files:
+          - pkg/initialize/step_config_test.go
+        claims:
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-026
+          - CLM-038
+          - CLM-071
+          - CLM-093
+          - CLM-094
+          - CLM-095
+        test_names:
+          - TestInit_FullSdlcConfigLeavesAllFiveSdlcDimensionsEnforced
+          - TestInit_PackOnlyDisablesTestVerification
+          - TestInit_PackOnlyDisablesCoverageThreshold
+          - TestInit_PackOnlyDisablesContractSignature
+          - TestInit_PackOnlyDisablesTestSubstantiveness
+          - TestInit_PackOnlyDisablesArtifactStatusDrift
+          - TestInit_FullSdlcConfigRoundTripsThroughConfigLoad
+          - TestInit_PackOnlyConfigRoundTripsThroughConfigLoad
+          - TestInit_GeneratedConfigNeverWritesTheRetiredLanguageKey
+          - TestInit_ProjectNameComesFromDirectoryBasenameOnly
+          - TestInit_FullSdlcWritesArtifactRootPointingAtBackstopDir
+          - TestInit_ExistingBackstopYmlIsPreservedNotOverwritten
+          - TestInit_GeneratedConfigCarriesNoScopeOverride
+          - TestInit_InventsNoCoverageFloorEnforcementKey
+          - TestInit_PackOnlyReportsTheCoverageFloorGapWithoutFailing
+          - TestInit_FullSdlcEmitsNoCoverageFloorGapNotice
+        depends_on:
+          - TASK-013
+
+      - id: TASK-018
+        type: implementation
+        title: "Implement the config step: both profiles, the artifact_root key, and the coverage-floor gap report"
+        description: |
+          pkg/initialize/step_config.go. Step 2, UNCONDITIONAL — config
+          generation is not a capability; an init that does not write the
+          config produces nothing a consumer can use.
+
+          Both profiles write `project:` set to the target directory's
+          basename and NEVER write `language:` (retired by SPEC-046;
+          pkg/config absorbs it as a legacy key and ignores it, so writing it
+          emits a dead key that bakes a language into the first file a
+          consumer sees).
+
+          FULL-SDLC: `project:` plus `artifact_root: .backstop`, and NO other
+          top-level key. Sets NONE of the five SDLC dimensions to `off`.
+          The `artifact_root` spelling is CONFIRMED from SPEC-068 v1.2.0
+          REQ-006 (`Config.ArtifactRoot`, yaml tag `artifact_root`) — it is
+          not a guess. It will not load until SPEC-068 lands. Do not remove it
+          to get green.
+
+          PACK-ONLY: `enforcement.policy.<dim>.level: off` for EXACTLY five
+          dimensions — test_verification, coverage_threshold,
+          contract_signature, test_substantiveness, artifact_status_drift.
+          Those five hard-error on a missing specs/ directory rather than
+          skipping. Writes no `artifact_root`. Appends a GAP line to its
+          report naming the forfeited coverage enforcement and stating the
+          spec-independent floor knob does not exist — and does NOT fail the
+          run. The full-SDLC profile emits no such notice.
+
+          Nothing else is written into `enforcement`. No coverage-floor key of
+          any shape, and no key that changes, overrides or pins the gate's
+          default scope (REQ-015 is satisfied by not regressing it).
+
+          An existing backstop.yml is preserved BYTE-FOR-BYTE and reported as
+          already present.
+        files:
+          - pkg/initialize/step_config.go
+        claims:
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+          - CLM-020
+          - CLM-021
+          - CLM-022
+          - CLM-023
+          - CLM-024
+          - CLM-026
+          - CLM-038
+          - CLM-071
+          - CLM-093
+          - CLM-094
+          - CLM-095
+        depends_on:
+          - TASK-017
+
+      - id: TASK-019
+        type: verification
+        title: "Verify the config step, recording the three SPEC-068 reds by name"
+        description: |
+          Rebuild the binary (`go build -o bin/backstop ./cmd/backstop`), then run
+          `PATH="/Users/bmanson/go/bin:$PATH" ./bin/backstop gate` (bare =
+          diff-scoped vs merge-base plus untracked).
+
+          THIS IS THE ONE MIDDLE-PHASE VERIFICATION THAT MAY REPORT RED, and
+          only for EXACTLY these three tests:
+            TestInit_FullSdlcConfigRoundTripsThroughConfigLoad     (CLM-021)
+            TestInit_PackOnlyConfigRoundTripsThroughConfigLoad     (CLM-022)
+            TestInit_FullSdlcWritesArtifactRootPointingAtBackstopDir (CLM-026)
+
+          Write those three names into the verification output together with
+          the reason (SPEC-068 REQ-006 has not landed; `artifact_root` is
+          rejected by config.Load's strict decode AND the schema's
+          additionalProperties: false). ANY OTHER red is this plan's defect.
+          Do not waive, skip, or weaken these three, and do not drop the
+          `artifact_root` write to make them pass.
+        files:
+          - pkg/initialize/step_config.go
+          - pkg/initialize/step_config_test.go
+        claims:
+          - CLM-021
+          - CLM-022
+          - CLM-026
+          - CLM-093
+        depends_on:
+          - TASK-018
+
+  - id: phase-7
+    name: "Phase 7: The layout step — the .backstop/-rooted artifact directories (REQ-004)"
+    tasks:
+      - id: TASK-020
+        type: test
+        title: "Test the six-directory layout, the pack-only absence, and the two deliberate non-creations"
+        description: |
+          TestInit_FullSdlcScaffoldsAllSixArtifactDirectoriesUnderBackstop CLM-025
+            bundles, specs, plans, issues, adrs, directives — all six under
+            .backstop/.
+
+          TestInit_PackOnlyScaffoldsNoArtifactDirectories CLM-027
+            The pack-only profile creates no artifact directory anywhere.
+
+          TestInit_NeverCreatesRootLevelArtifactDirectories CLM-028 (denylist)
+            No root-level specs/, bundles/, plans/, issues/, adrs/ or
+            directives/ under EITHER profile. backstop-core's own root layout
+            is a framework exception init does not produce and does not
+            police.
+
+          TestInit_ScaffoldsNoCapabilitiesDirectory CLM-104 (denylist)
+            SIX OF SEVEN, DELIBERATELY. SPEC-068's layout table covers seven
+            artifact kinds; init scaffolds no capabilities/ at either location
+            (.backstop/capabilities/ or root). A capability artifact declares
+            a named contract at the pack↔core wire seam, has a
+            directory-per-artifact shape unlike the other six, is authored by
+            framework and pack authors, and is produced by no step of a
+            consuming project's onboarding — so pre-creating it would scaffold
+            a directory no verb in the flow init just ran can fill. This claim
+            makes that a decision the corpus RECORDS rather than an omission a
+            later reader "fixes".
+
+          TestInit_CreatesOnlyTheMissingArtifactDirectories CLM-039
+            When some directories already exist, only the missing ones are
+            created and the existing ones AND THEIR CONTENTS are untouched.
+        files:
+          - pkg/initialize/step_layout_test.go
+        claims:
+          - CLM-025
+          - CLM-027
+          - CLM-028
+          - CLM-104
+          - CLM-039
+        test_names:
+          - TestInit_FullSdlcScaffoldsAllSixArtifactDirectoriesUnderBackstop
+          - TestInit_PackOnlyScaffoldsNoArtifactDirectories
+          - TestInit_NeverCreatesRootLevelArtifactDirectories
+          - TestInit_ScaffoldsNoCapabilitiesDirectory
+          - TestInit_CreatesOnlyTheMissingArtifactDirectories
+        depends_on:
+          - TASK-013
+
+      - id: TASK-021
+        type: implementation
+        title: "Implement the layout step"
+        description: |
+          pkg/initialize/step_layout.go. Step 3, carried by the `sdlc`
+          capability. Creates exactly six directories under `.backstop/` for
+          the full-SDLC profile and nothing at all for the pack-only profile.
+
+          Steps 2 (config) and 3 (layout) are SEPARATE even though both belong
+          to the profile fork, because the pack-only profile writes a config
+          and creates no directories — folding them would make the pack-only
+          path express its difference as a conditional inside one step rather
+          than as a step that is simply absent.
+
+          Adds only what is missing. Overwrites nothing. Reads no file outside
+          backstop's own surface to decide.
+        files:
+          - pkg/initialize/step_layout.go
+        claims:
+          - CLM-025
+          - CLM-027
+          - CLM-028
+          - CLM-104
+          - CLM-039
+        depends_on:
+          - TASK-020
+
+      - id: TASK-022
+        type: verification
+        title: "Verify the layout step"
+        description: |
+          Rebuild the binary (`go build -o bin/backstop ./cmd/backstop`), then run
+          `PATH="/Users/bmanson/go/bin:$PATH" ./bin/backstop gate` (bare =
+          diff-scoped vs merge-base plus untracked). All five mandated tests
+          green.
+        files:
+          - pkg/initialize/step_layout.go
+          - pkg/initialize/step_layout_test.go
+        claims:
+          - CLM-025
+          - CLM-027
+          - CLM-028
+          - CLM-104
+        depends_on:
+          - TASK-021
+
+  - id: phase-8
+    name: "Phase 8: The packs step — explicit consumer act only, portable git refs only (REQ-010, REQ-018)"
+    tasks:
+      - id: TASK-023
+        type: test
+        title: "Test that packs enter only by --pack, in order, and that lock entries stay portable"
+        description: |
+          TestInit_WithoutPackFlagInstallsNothingAndSaysSo CLM-049
+            Bare init installs ZERO packs and SAYS SO, naming
+            `backstop pack add` as the way to add them. A silent skip fails.
+
+          TestInit_InstallsExactlyTheSuppliedPackRefsInOrder CLM-050
+            `--pack` is repeatable; exactly the refs supplied, in the order
+            supplied, and no others.
+
+          TestInit_PackSelectionIsUnaffectedByProjectContents CLM-052
+            Two fixture projects with DIFFERENT on-disk contents and the SAME
+            `--pack` arguments install the identical pack set. Nothing on disk
+            influences pack selection; init has no concept of a "primary
+            language" and holds no pack roster.
+
+          Classification calls the exported distribution.IsLocalPath (phase 2)
+          — never a predicate defined here. CLM-087 (the exit-2 refusal) and
+          CLM-110 (init's decision equals the shipped classifier's) are
+          cmd/backstop claims and land in TASK-044.
+
+          ★ CLM-086 AND CLM-088 ARE DELIBERATELY NOT HERE, AND THEIR MANDATED
+          TESTS MUST NOT BE WRITTEN IN THIS FILE. Both are assertions about a
+          REAL `backstop.lock` — a git-source entry carrying its source
+          coordinate (CLM-086), and no entry anywhere carrying a `local_path`
+          (CLM-088). This file drives the shared fakes (TASK-011 B), and a
+          fake PackInstaller writes no lock at all, so a version of those
+          tests written here could only assert that the fake recorded a
+          string: a green that proves nothing about lock portability, which is
+          the entire content of REQ-018. They are written in TASK-052 against
+          the REAL installer, over a pack installed by genuine git ref, and
+          they keep their `pkg/initialize` subject by referencing the
+          `initialize` package (see the subject-join note in the plan notes).
+        files:
+          - pkg/initialize/step_packs_test.go
+          - pkg/initialize/testdata/pack-selection-a/marker-a.txt
+          - pkg/initialize/testdata/pack-selection-b/marker-b.txt
+        claims:
+          - CLM-049
+          - CLM-050
+          - CLM-052
+        test_names:
+          - TestInit_WithoutPackFlagInstallsNothingAndSaysSo
+          - TestInit_InstallsExactlyTheSuppliedPackRefsInOrder
+          - TestInit_PackSelectionIsUnaffectedByProjectContents
+        depends_on:
+          - TASK-013
+
+      - id: TASK-024
+        type: implementation
+        title: "Implement the packs step over the PackInstaller seam"
+        description: |
+          pkg/initialize/step_packs.go. Step 4, carried by the `packs`
+          capability.
+
+          Before any install runs, EVERY ref is classified through the
+          exported distribution.IsLocalPath. A local filesystem path is
+          REFUSED as a config error naming the lock-portability reason and
+          pointing at `backstop pack add` after init. Define no predicate of
+          your own — one authority, not a copy.
+
+          Install exactly the supplied refs, in the supplied order, through
+          the PackInstaller seam. With no `--pack`, the step is a REPORTED
+          no-op: zero packs installed plus a line naming `backstop pack add`.
+          That mirrors the `--ci`-omitted posture and is what keeps a pack
+          roster out of core — there is nothing for init to install that a
+          consumer did not name.
+
+          No local-provenance cache and no pack-sources record: that half is
+          ISSUE-055's (CLM-089, asserted in TASK-047).
+        files:
+          - pkg/initialize/step_packs.go
+        claims:
+          - CLM-049
+          - CLM-050
+          - CLM-052
+          - CLM-087
+        depends_on:
+          - TASK-023
+
+      - id: TASK-025
+        type: verification
+        title: "Verify the packs step"
+        description: |
+          Rebuild the binary (`go build -o bin/backstop ./cmd/backstop`), then run
+          `PATH="/Users/bmanson/go/bin:$PATH" ./bin/backstop gate` (bare =
+          diff-scoped vs merge-base plus untracked). All three mandated tests
+          green. CLM-086 and CLM-088 are NOT verified here — they are
+          TASK-052's, over the real installer.
+        files:
+          - pkg/initialize/step_packs.go
+          - pkg/initialize/step_packs_test.go
+        claims:
+          - CLM-049
+          - CLM-050
+          - CLM-052
+        depends_on:
+          - TASK-024
+
+  - id: phase-9
+    name: "Phase 9: The gitignore step — three core literals plus pack-declared stdout_artifact (REQ-005)"
+    tasks:
+      - id: TASK-026
+        type: test
+        title: "Test the canonical .gitignore: the three literals, the pack-derived entries, the residue notice, and append-only"
+        description: |
+          TestInit_GitignoreCarriesTheThreeBackstopOwnedEntries CLM-029
+            Exactly `.backstop/packs/`, `.backstop/baseline.json`,
+            `.backstop/pack-config-provenance.json`.
+
+          TestInit_GitignoreIncludesEveryInstalledPackEngineStdoutArtifact CLM-030
+            For each installed pack, EVERY engine's declared
+            `stdout_artifact` (pkg/pack/manifest.go:97) appears as an entry,
+            sourced from the manifest rather than from any core list. This is
+            the only generated-output declaration a pack manifest carries.
+
+          TestInit_PackWithoutStdoutArtifactContributesNoGitignoreEntry CLM-031
+            An engine declaring none contributes nothing — init invents no
+            path for it.
+
+          TestInit_GitignoreHoldsNoToolOrLanguageSpecificPathFromCore CLM-032 (denylist)
+            The entry set is exactly the three backstop literals plus
+            pack-declared values. No language, framework or tool path from
+            core.
+
+          TestInit_ReportStatesTheUncoveredGitignoreResidue CLM-033
+            The report STATES the accepted residue in words:
+            `stdout_artifact` names what an engine writes for the gate to
+            READ, not everything a toolchain leaves on disk, so dependency
+            directories and native build output remain the consumer's to
+            ignore. Closing that residue needs a new pack-manifest field,
+            which is BUNDLE-004's surface.
+
+          TestInit_ExistingGitignoreIsAppendedToNeverRewritten CLM-034
+            Every pre-existing BYTE survives; no line is rewritten, reordered
+            or dropped.
+
+          TestInit_GitignoreEntryAlreadyPresentIsNotDuplicated CLM-035
+
+          Manifest fixtures are parsed through pack.ParseManifest, never
+          fabricated as Go structs.
+        files:
+          - pkg/initialize/step_gitignore_test.go
+        claims:
+          - CLM-029
+          - CLM-030
+          - CLM-031
+          - CLM-032
+          - CLM-033
+          - CLM-034
+          - CLM-035
+        test_names:
+          - TestInit_GitignoreCarriesTheThreeBackstopOwnedEntries
+          - TestInit_GitignoreIncludesEveryInstalledPackEngineStdoutArtifact
+          - TestInit_PackWithoutStdoutArtifactContributesNoGitignoreEntry
+          - TestInit_GitignoreHoldsNoToolOrLanguageSpecificPathFromCore
+          - TestInit_ReportStatesTheUncoveredGitignoreResidue
+          - TestInit_ExistingGitignoreIsAppendedToNeverRewritten
+          - TestInit_GitignoreEntryAlreadyPresentIsNotDuplicated
+        depends_on:
+          - TASK-013
+
+      - id: TASK-027
+        type: implementation
+        title: "Implement the gitignore step, APPEND-ONLY, from installed manifests"
+        description: |
+          pkg/initialize/step_gitignore.go. Step 5, carried by the `gitignore`
+          capability, and it runs AFTER the pack step — see TASK-038 for why
+          the order is load-bearing rather than tidy.
+
+          Entry set, in this order:
+            1. three literals stated in core;
+            2. for each installed pack manifest, for each engine in its
+               `engines:` map, the engine's declared `stdout_artifact` when
+               non-empty. Nothing derived, guessed or defaulted.
+
+          The write is APPEND-ONLY against an existing file — the same posture
+          pkg/pack/distribution/add.go's ensureGitignore already takes: read,
+          skip entries already present, append the rest, never rewrite.
+
+          The report states the accepted residue in words.
+        files:
+          - pkg/initialize/step_gitignore.go
+        claims:
+          - CLM-029
+          - CLM-030
+          - CLM-031
+          - CLM-032
+          - CLM-033
+          - CLM-034
+          - CLM-035
+        depends_on:
+          - TASK-026
+
+      - id: TASK-028
+        type: verification
+        title: "Verify the gitignore step"
+        description: |
+          Rebuild the binary (`go build -o bin/backstop ./cmd/backstop`), then run
+          `PATH="/Users/bmanson/go/bin:$PATH" ./bin/backstop gate` (bare =
+          diff-scoped vs merge-base plus untracked). All seven mandated tests
+          green.
+        files:
+          - pkg/initialize/step_gitignore.go
+          - pkg/initialize/step_gitignore_test.go
+        claims:
+          - CLM-029
+          - CLM-030
+          - CLM-032
+          - CLM-034
+        depends_on:
+          - TASK-027
+
+  - id: phase-10
+    name: "Phase 10: The CI step — the pinned ref verbatim, four fail-loud modes, three preserve classes (REQ-016, REQ-017, REQ-009, REQ-035)"
+    tasks:
+      - id: TASK-029
+        type: test
+        title: "Test --ci: verbatim passthrough, the honest skip, every shipped resolve error, and the CI step's preserve wording"
+        description: |
+          VERBATIM AND OPAQUE:
+            TestInit_CIRefIsPassedThroughVerbatim CLM-072 — byte-identical to
+              what the consumer typed. No trimming, completing, defaulting or
+              normalization.
+            TestInit_ArbitraryPackNameInTheCIRefIsDispatchedNormally CLM-078 —
+              a ref naming a pack that appears nowhere in core is dispatched
+              normally, BECAUSE core holds no allowlist of pack names.
+
+          THE HONEST SKIP:
+            TestInit_CIOmittedAttemptsNoRecipeResolution CLM-074 — no
+              resolution or apply is attempted AT ALL.
+            TestInit_CIOmittedReportsTheSkipAndHowToWireItLater CLM-075 —
+              states that no CI was wired and names `backstop recipe apply`
+              plus the pinned `<pack>:<recipe>@<version>` ref SHAPE.
+
+          ALL FIVE FAIL-LOUD RESOLVE ERRORS, EACH SURFACED VERBATIM AND
+          ATTRIBUTED TO THE CI STEP — init adds NO guidance of its own and
+          classifies none of them differently:
+            TestInit_UnpinnedCIRefSurfacesTheParseErrorVerbatim            CLM-079
+            TestInit_UninstalledPackInCIRefSurfacesTheResolveErrorVerbatim CLM-080
+            TestInit_UndeclaredRecipeInCIRefSurfacesTheResolveErrorVerbatim CLM-081
+            TestInit_PinMismatchInCIRefSurfacesTheResolveErrorVerbatim     CLM-082
+            TestInit_UnparseableRecipeManifestSurfacesTheResolveErrorVerbatim CLM-102
+          The fifth is a PACK DEFECT rather than a bad consumer ref, and the
+          claim is that init treats it identically. ParseRecipeRef accepts
+          ONLY `<pack>:<recipe>@<version>` with a MANDATORY strict-semver pin
+          — no "latest", no default version, no tolerance branch — so init
+          performs no pin defaulting anywhere.
+
+            TestInit_EveryOtherStepCompletesWhenTheCIStepFails CLM-083 — in
+              every failure mode, every other step still completes and is
+              reported with its own outcome.
+
+          ★ CLM-046 AND CLM-047 ARE DELIBERATELY NOT HERE, AND THEIR MANDATED
+          TESTS MUST NOT BE WRITTEN IN THIS FILE. "The target files written
+          are exactly the ones the RECIPE declared" and "arbitrary bytes land
+          byte-identical" are assertions about the SHIPPED resolve→apply path
+          actually running. This file drives the shared fakes (TASK-011 B),
+          and a fake RecipeApplier writes no file and lands no byte — it
+          returns whatever the fake was told to return, so a test of these two
+          claims written here asserts the fixture, not the applier. They are
+          written in TASK-052 against the REAL applier over a really-installed
+          pack, and keep their `pkg/initialize` subject by referencing the
+          `initialize` package (subject-join note in the plan notes).
+
+          THE CI STEP'S PRESERVE REPORT — same classifier (phase 4), CI
+          wording:
+            TestInit_UserOwnedPreserveNamesEveryPreservedFile      CLM-096
+            TestInit_UserOwnedPreserveStatesNoGateWasWired         CLM-097
+              ★ This sentence belongs to this class at THIS step alone.
+            TestInit_UserOwnedPreserveGivesTheConsumerANextAction  CLM-098
+            TestInit_TemplatingKindEmptyPairPreserveIsReportedAsIndeterminateGap CLM-113
+              ★ Names the file and states init CANNOT DETERMINE whether the
+              recipe's output is present, with a next action — and uses NO
+              "no gate was wired" language, because that is the half init
+              cannot know.
+            TestInit_WaiverCoveredPreserveNamesTheRuleAndCoveringToken CLM-115
+              ★ Accountable customization: names the rule AND the covering
+              token, reports no gap.
+            TestInit_PartialApplyWithAUserOwnedPreserveIsReportedAsAGap CLM-100
+            TestInit_ApplyWithNoPreservesIsReportedAsSuccess CLM-101
+
+          Exit codes for these classes are cmd/backstop claims (CLM-099,
+          CLM-114, CLM-116, CLM-117) and land in TASK-044.
+        files:
+          - pkg/initialize/step_ci_test.go
+        claims:
+          - CLM-072
+          - CLM-074
+          - CLM-075
+          - CLM-078
+          - CLM-079
+          - CLM-080
+          - CLM-081
+          - CLM-082
+          - CLM-102
+          - CLM-083
+          - CLM-096
+          - CLM-097
+          - CLM-098
+          - CLM-113
+          - CLM-115
+          - CLM-100
+          - CLM-101
+        test_names:
+          - TestInit_CIRefIsPassedThroughVerbatim
+          - TestInit_CIOmittedAttemptsNoRecipeResolution
+          - TestInit_CIOmittedReportsTheSkipAndHowToWireItLater
+          - TestInit_ArbitraryPackNameInTheCIRefIsDispatchedNormally
+          - TestInit_UnpinnedCIRefSurfacesTheParseErrorVerbatim
+          - TestInit_UninstalledPackInCIRefSurfacesTheResolveErrorVerbatim
+          - TestInit_UndeclaredRecipeInCIRefSurfacesTheResolveErrorVerbatim
+          - TestInit_PinMismatchInCIRefSurfacesTheResolveErrorVerbatim
+          - TestInit_UnparseableRecipeManifestSurfacesTheResolveErrorVerbatim
+          - TestInit_EveryOtherStepCompletesWhenTheCIStepFails
+          - TestInit_UserOwnedPreserveNamesEveryPreservedFile
+          - TestInit_UserOwnedPreserveStatesNoGateWasWired
+          - TestInit_UserOwnedPreserveGivesTheConsumerANextAction
+          - TestInit_TemplatingKindEmptyPairPreserveIsReportedAsIndeterminateGap
+          - TestInit_WaiverCoveredPreserveNamesTheRuleAndCoveringToken
+          - TestInit_PartialApplyWithAUserOwnedPreserveIsReportedAsAGap
+          - TestInit_ApplyWithNoPreservesIsReportedAsSuccess
+        depends_on:
+          - TASK-013
+
+      - id: TASK-030
+        type: implementation
+        title: "Implement the CI step over the RecipeApplier seam"
+        description: |
+          pkg/initialize/step_ci.go. Step 9, governed SOLELY by the presence
+          of `--ci`. It is NOT a capability: there is no `--no-ci` because
+          omission IS the opt-out (Sharp Edge 8), and adding `ci` to the
+          capability set would give one outcome two report paths and two
+          justifications. No `ci` verb or subcommand.
+
+          The step does exactly three things:
+            1. hands the `--ci` value to ParseRecipeRef byte-identically;
+            2. on ANY resolve failure, surfaces that error VERBATIM attributed
+               to the CI step, lets every other step complete, and marks the
+               step a broken promise;
+            3. on success, applies through the shipped path and reads the
+               result's Written and Preserved slices, running EVERY preserve
+               through the phase-4 classifier.
+
+          The shipped errors already name what was missing and what IS
+          available, which is precisely why init adds nothing. Init implements
+          NO CI DETECTION: it never enumerates installed packs looking for a
+          CI pack, never probes for a platform config file, and adds no
+          guidance text of its own (CLM-085, scanned in TASK-047 — and the
+          guard SPEC-070 defers to for keeping doctor guidance off this step).
+
+          Supply NO recipe param. A recipe declaring a param required with no
+          default cannot be applied by init at all; the shipped apply's own
+          error surfaces verbatim and the consumer finishes with
+          `backstop recipe apply --param`. Deriving one — most temptingly the
+          project basename already computed for `project:` — is core
+          constructing recipe INPUT, the same defect one layer in as core
+          constructing the `<pack>:` half of a ref (Sharp Edge 20).
+
+          Three live constraints inherited whole-cloth, none of which init may
+          work around: ISSUE-119 (brownfield CI adoption preserves rather than
+          wires — REQ-035 reports it honestly and does NOT fix it; init must
+          never edit the consumer's existing CI file), ISSUE-081 Gap 3
+          (`insert` placement is unpinned — do not depend on it), ISSUE-110
+          (no escape syntax for foreign `{{ }}` template content — a `--ci`
+          ref pointing at such a recipe fails at substitution time and init's
+          only correct move is to surface that failure).
+        files:
+          - pkg/initialize/step_ci.go
+        claims:
+          - CLM-072
+          - CLM-074
+          - CLM-075
+          - CLM-078
+          - CLM-079
+          - CLM-080
+          - CLM-081
+          - CLM-082
+          - CLM-102
+          - CLM-083
+          - CLM-096
+          - CLM-097
+          - CLM-098
+          - CLM-113
+          - CLM-115
+          - CLM-100
+          - CLM-101
+          - CLM-085
+        depends_on:
+          - TASK-029
+
+      - id: TASK-031
+        type: verification
+        title: "Verify the CI step"
+        description: |
+          Rebuild the binary (`go build -o bin/backstop ./cmd/backstop`), then run
+          `PATH="/Users/bmanson/go/bin:$PATH" ./bin/backstop gate` (bare =
+          diff-scoped vs merge-base plus untracked). All seventeen mandated
+          tests green. CLM-046 and CLM-047 are NOT verified here — they are
+          TASK-052's, over the real applier.
+        files:
+          - pkg/initialize/step_ci.go
+          - pkg/initialize/step_ci_test.go
+        claims:
+          - CLM-072
+          - CLM-079
+          - CLM-097
+          - CLM-113
+          - CLM-115
+        depends_on:
+          - TASK-030
+
+  - id: phase-11
+    name: "Phase 11: The scaffold step — DD-7's first source file, delivered by recipe (REQ-009, REQ-035)"
+    tasks:
+      - id: TASK-032
+        type: test
+        title: "Test --scaffold: verbatim passthrough, the honest skip, recipe-declared targets, and the scaffold step's OWN preserve wording"
+        description: |
+          DD-7 requires init to produce a first SOURCE file, and it does —
+          without core holding a single byte of it, because the file arrives
+          as a recipe payload the consumer named. `--scaffold` takes the FULL
+          PINNED REF and follows `--ci`'s governance shape exactly.
+
+            TestInit_ScaffoldRefIsPassedThroughVerbatim CLM-126 — byte-
+              identical, exactly as CLM-072 requires of `--ci`.
+            TestInit_ScaffoldOmittedAttemptsNoRecipeResolution CLM-127
+            TestInit_ScaffoldOmittedReportsTheSkipAndHowToDoItLater CLM-128 —
+              states that no source file was scaffolded and names
+              `backstop recipe apply` plus the pinned ref SHAPE. Not every
+              pack ecosystem ships a scaffold recipe; a skipped optional step
+              is not an error. DD-7's failure mode does not go unreported when
+              this step is skipped — it arrives at the toolchain step as
+              REQ-011's own case (b)/(c) report, which prints what the
+              entrypoint did and diagnoses nothing.
+            TestInit_UnresolvableScaffoldRefSurfacesTheResolveErrorVerbatim CLM-134
+              — the shipped error VERBATIM, attributed to the SCAFFOLD step;
+              init adds no guidance and classifies no resolve failure
+              differently; every other step still completes.
+            TestInit_ArbitraryPackNameInTheScaffoldRefIsDispatchedNormally CLM-137
+
+          ★ THE SCAFFOLD STEP'S USER-OWNED SENTENCE IS ITS OWN (Sharp Edge 19):
+            TestInit_ScaffoldUserOwnedPreserveNamesTheFileAndSaysNoSourceFileWasWritten CLM-140
+              — names every such file and states that the CONSUMER'S OWN FILE
+              WAS LEFT IN PLACE and the recipe's declared source file was
+              therefore NOT WRITTEN. Assert POSITIVELY on that wording AND
+              NEGATIVELY that the CI step's "no backstop gate was wired"
+              sentence does not appear: this step knows nothing about CI
+              wiring, and CLM-144's one-classifier requirement makes sharing
+              the STRING look like the same kind of de-duplication. It is not.
+
+          The scaffold step's exit-code and remaining preserve-class claims
+          (CLM-129, CLM-135, CLM-141, CLM-142, CLM-143) are cmd/backstop
+          claims and land in TASK-044.
+
+          ★ CLM-130 IS DELIBERATELY NOT HERE, AND ITS MANDATED TEST MUST NOT
+          BE WRITTEN IN THIS FILE. "The recipe's declared targets land at the
+          RECIPE-declared paths, byte-identical to the payload the PACK
+          declared" is an assertion about the shipped apply actually writing
+          files out of a really-installed pack. This file drives the shared
+          fakes (TASK-011 B); a fake applier declares its own return value, so
+          the claim would be asserting the fixture. It is written in TASK-052
+          against the REAL applier over TASK-002's scaffold-recipe-pack,
+          installed by genuine git ref — which is also why this task needs no
+          dependency on TASK-002.
+        files:
+          - pkg/initialize/step_scaffold_test.go
+        claims:
+          - CLM-126
+          - CLM-127
+          - CLM-128
+          - CLM-134
+          - CLM-137
+          - CLM-140
+        test_names:
+          - TestInit_ScaffoldRefIsPassedThroughVerbatim
+          - TestInit_ScaffoldOmittedAttemptsNoRecipeResolution
+          - TestInit_ScaffoldOmittedReportsTheSkipAndHowToDoItLater
+          - TestInit_UnresolvableScaffoldRefSurfacesTheResolveErrorVerbatim
+          - TestInit_ArbitraryPackNameInTheScaffoldRefIsDispatchedNormally
+          - TestInit_ScaffoldUserOwnedPreserveNamesTheFileAndSaysNoSourceFileWasWritten
+        depends_on:
+          - TASK-013
+
+      - id: TASK-033
+        type: implementation
+        title: "Implement the scaffold step through the SAME RecipeApplier seam and the SAME classifier"
+        description: |
+          pkg/initialize/step_scaffold.go. Step 6 — AFTER the pack step (a
+          recipe cannot resolve out of a pack that is not installed, which is
+          why DD-8's position 1 is unsatisfiable) and BEFORE the toolchain
+          step (which is the run that would hit DD-7's empty-project failure).
+
+          ONE seam, TWO callers. This step calls the SAME RecipeApplier the CI
+          step calls, with the ref ITS OWN flag supplied, and runs the returned
+          preserves through the SAME phase-4 classifier. Adding a scaffold
+          step required no new method, no per-step variant, and no place for
+          core to construct a ref part — that is what the opaque-string
+          interface bought.
+
+          WHAT IS PER-STEP IS THE SENTENCE ALONE. Class, gap-ness and exit code
+          are identical across the two steps. The CI step's "no backstop gate
+          was wired into this file" must never appear here.
+
+          Core constructs no part of the ref (not the pack name, not the recipe
+          id, not the version) and NO PART OF THE FILE: no template, no
+          payload, no filename, no extension, no path. What REQ-009 forbids is
+          core AUTHORING a language-specific artifact; what it REQUIRES is init
+          DELIVERING one through a pack.
+
+          No param, to this apply or the CI one.
+        files:
+          - pkg/initialize/step_scaffold.go
+        claims:
+          - CLM-126
+          - CLM-127
+          - CLM-128
+          - CLM-134
+          - CLM-137
+          - CLM-140
+        depends_on:
+          - TASK-032
+
+      - id: TASK-034
+        type: verification
+        title: "Verify the scaffold step"
+        description: |
+          Rebuild the binary (`go build -o bin/backstop ./cmd/backstop`), then run
+          `PATH="/Users/bmanson/go/bin:$PATH" ./bin/backstop gate` (bare =
+          diff-scoped vs merge-base plus untracked). All six mandated tests
+          green. Confirm in the output that step_scaffold.go contains no
+          second classification of the Rule/CoveringWaiver pair — CLM-144's
+          structural test is the enforcement, this is the eyeball. CLM-130 is
+          NOT verified here — it is TASK-052's, over the real applier.
+        files:
+          - pkg/initialize/step_scaffold.go
+          - pkg/initialize/step_scaffold_test.go
+        claims:
+          - CLM-126
+          - CLM-134
+          - CLM-140
+        depends_on:
+          - TASK-033
+
+  - id: phase-12
+    name: "Phase 12: The baseline and observe steps — one delegation seam, one observation (REQ-012, REQ-013, REQ-014)"
+    tasks:
+      - id: TASK-035
+        type: test
+        title: "Test baseline delegation and the observation framing"
+        description: |
+          BASELINE — a DELEGATION SEAM and nothing else. The gitignored local
+          baseline is ISSUE-056's; this spec designs none of that machinery.
+            TestInit_DelegatesBaselineSeedingExactlyOnce CLM-061 — when a
+              seeding implementation is supplied to the seam, init invokes it
+              EXACTLY ONCE and reports what it returned. Assert the call count.
+            TestInit_AbsentBaselineSeederIsReportedAsAGapWithoutFailing CLM-062
+              — with no seeder available, the step reports the gap NAMING
+              ISSUE-056 as its owner and does NOT fail the run. An un-adopted
+              capability is a missing benefit, not a broken promise — the
+              standing loud-≠-blocking rule. "No seeder available" is a seeder
+              returning `ErrBaselineSeedingUnavailable` (phase 4), NOT a nil
+              field: NewRunner is fail-closed and a nil seam is
+              unconstructable. Drive the sentinel through the seam, and assert
+              the step does not treat any OTHER error the same way — a seeder
+              that fails for a real reason is a delivered-step failure, not a
+              capability-absent report.
+
+          OBSERVE — findings are OBSERVATION, not failure.
+            TestInit_GateFindingsAreGroupedByDimensionWithCounts CLM-064 —
+              grouped by gate DIMENSION with a count per dimension, so the
+              report presents structure rather than a wall of findings.
+              Dimension names are backstop's universal vocabulary, so the
+              grouping introduces no tool or language noun.
+            TestInit_ObservationSummaryCarriesNoVerdictLanguage CLM-065 —
+              phrased as what was NOTICED. Assert the absence of failure and
+              violation verdict language in the summary.
+
+          Init must not paper over the remoteless `baseline_comparison`
+          message by rewriting, suppressing or substituting for it (REQ-013;
+          CLM-063's denylist scan lands in TASK-047).
+        files:
+          - pkg/initialize/step_baseline_test.go
+          - pkg/initialize/step_observe_test.go
+        claims:
+          - CLM-061
+          - CLM-062
+          - CLM-064
+          - CLM-065
+        test_names:
+          - TestInit_DelegatesBaselineSeedingExactlyOnce
+          - TestInit_AbsentBaselineSeederIsReportedAsAGapWithoutFailing
+          - TestInit_GateFindingsAreGroupedByDimensionWithCounts
+          - TestInit_ObservationSummaryCarriesNoVerdictLanguage
+        depends_on:
+          - TASK-013
+
+      - id: TASK-036
+        type: implementation
+        title: "Implement the baseline delegation step and the observe step"
+        description: |
+          pkg/initialize/step_baseline.go — step 8, carried by the `baseline`
+          capability. Calls BaselineSeeder.Seed EXACTLY ONCE and reports what
+          it returned. An error matching `ErrBaselineSeedingUnavailable`
+          (errors.Is, never a string compare) is the capability-ABSENT gap:
+          report it naming ISSUE-056 and do not fail the run. Any OTHER error
+          is a step that failed to deliver. WRITE NOTHING: no code here writes
+          .backstop/baseline.json or computes a fingerprint.
+
+          pkg/initialize/step_observe.go — step 10, carried by the `observe`
+          capability. Runs the gate ONCE through the GateRunner seam and
+          reduces its findings to []DimensionCount. Change no file under
+          pkg/gate (REQ-013) and do not rewrite, suppress or substitute for
+          the remoteless baseline_comparison message.
+
+          Pre-existing findings NEVER make init exit non-zero — that rule
+          governs the CLASSIFICATION of findings only. The exit-code
+          precedence between an observation and a failed step is TASK-039's
+          aggregation and TASK-045's mapping.
+        files:
+          - pkg/initialize/step_baseline.go
+          - pkg/initialize/step_observe.go
+        claims:
+          - CLM-061
+          - CLM-062
+          - CLM-064
+          - CLM-065
+        depends_on:
+          - TASK-035
+
+      - id: TASK-037
+        type: verification
+        title: "Verify the baseline and observe steps"
+        description: |
+          Rebuild the binary (`go build -o bin/backstop ./cmd/backstop`), then run
+          `PATH="/Users/bmanson/go/bin:$PATH" ./bin/backstop gate` (bare =
+          diff-scoped vs merge-base plus untracked). All four mandated tests
+          green.
+        files:
+          - pkg/initialize/step_baseline.go
+          - pkg/initialize/step_observe.go
+          - pkg/initialize/step_baseline_test.go
+          - pkg/initialize/step_observe_test.go
+        claims:
+          - CLM-061
+          - CLM-062
+          - CLM-064
+          - CLM-065
+        depends_on:
+          - TASK-036
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 13 — The Runner. Joins every step into ONE ordered sequence.
+  # This is where BOTH ordering deviations are proven by CONSEQUENCE.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-13
+    name: "Phase 13: Runner.Run — the transcribed ten-step sequence, subtraction, convergence, and the report (REQ-001, REQ-002, REQ-007, REQ-008, REQ-019)"
+    tasks:
+      - id: TASK-038
+        type: test
+        title: "Test the resolved-set execution, the step order BY ITS CONSEQUENCES, convergence, and framework-blindness"
+        description: |
+          RESOLVED SET, EXECUTED — one claim per subtraction flag, because a
+          matrix asserted in aggregate hides a missing member:
+            TestInit_BareRunResolvesAllSevenDefaultCapabilities        CLM-003
+            TestInit_NoGitSubtractsOnlyTheGitCapability                CLM-004
+            TestInit_NoSdlcSubtractsOnlyTheSdlcCapability              CLM-005
+            TestInit_NoGitignoreSubtractsOnlyTheGitignoreCapability    CLM-006
+            TestInit_NoPacksSubtractsOnlyThePacksCapability            CLM-007
+            TestInit_NoToolchainSubtractsOnlyTheToolchainCapability    CLM-008
+            TestInit_NoBaselineSubtractsOnlyTheBaselineCapability      CLM-009
+            TestInit_NoObserveSubtractsOnlyTheObserveCapability        CLM-010
+          Each asserts the named capability is removed AND the other six are
+          still resolved AND executed.
+            TestInit_ReportNamesEveryResolvedCapabilityWithAnOutcome   CLM-002
+              — every capability in the resolved set appears with an outcome,
+              so no step is silently absent from the account of what init did.
+
+          ★ ORDER, ASSERTED BY CONSEQUENCE — NOT BY A LIST OF NAMES:
+            TestInit_ExecutesTheTranscribedStepSequenceInOrder CLM-090 — git,
+              config, layout, packs, gitignore, scaffold, toolchain, baseline,
+              ci, observe. Subtracting a capability removes its step and
+              REORDERS NOTHING.
+            TestInit_GitignoreCarriesPackEntriesBecausePacksInstallFirst CLM-111
+              — DEVIATION 1. A `--pack` run on a fresh repo emits a
+              `.gitignore` that ALREADY CARRIES the installed pack's declared
+              stdout_artifact entries AT THE MOMENT the gitignore step
+              completes. Assert the FILE CONTENT at that boundary. The same
+              run with the two steps swapped would emit a file missing every
+              pack-derived entry — the cross-repo ignore divergence DD-7 exists
+              to end.
+            TestInit_ScaffoldedFileIsOnDiskBeforeTheToolchainStepRuns CLM-138
+              — DEVIATION 2, and Sharp Edge 18's guard. Assert the OBSERVABLE
+              STATE at the toolchain step's boundary: with both `--pack` and
+              `--scaffold` supplied, the scaffold recipe's declared file is
+              ALREADY ON DISK when the toolchain step executes its first
+              entrypoint. Use a fake ToolchainProber that stats the file at
+              Probe time. Asserting the step-name list alone is satisfiable
+              vacuously by the very refactor this claim exists to catch.
+
+          CONVERGE, NEVER CLOBBER:
+            TestInit_OverwritesNoPreExistingConsumerFile CLM-040 — every file
+              present before the run and not owned by backstop is
+              byte-identical after it.
+            TestInit_SecondRunConvergesAndWritesNothing CLM-041 — a second run
+              immediately after a first writes NO new file, changes NO existing
+              byte, and reports EVERY step as converged.
+            TestInit_ReadsOnlyBackstopNeutralFactsToDecideWhatToDo CLM-042
+              (denylist) — the facts inspected are exactly `.git`,
+              `backstop.yml`, the artifact directories and `.gitignore`. No
+              other path in the project is read to decide anything.
+
+          FRAMEWORK-BLIND:
+            TestInit_ReportUsesOnlyBackstopVocabulary CLM-043 — capability
+              names, gate dimensions, artifact paths; no ecosystem, language or
+              framework noun.
+            TestInit_BehaviorIsIdenticalAcrossDifferingEcosystemMarkers CLM-045
+              — two fixture projects differing ONLY in which ecosystem marker
+              files they contain produce identical reports, identical written
+              files and identical exit codes. The marker filenames live in
+              testdata, so they put no literal in the init source set CLM-044
+              scans.
+        files:
+          - pkg/initialize/runner_test.go
+          - pkg/initialize/testdata/ecosystem-marker-a/marker-a.manifest
+          - pkg/initialize/testdata/ecosystem-marker-b/marker-b.manifest
+        claims:
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-040
+          - CLM-041
+          - CLM-042
+          - CLM-043
+          - CLM-045
+          - CLM-090
+          - CLM-111
+          - CLM-138
+        test_names:
+          - TestInit_BareRunResolvesAllSevenDefaultCapabilities
+          - TestInit_NoGitSubtractsOnlyTheGitCapability
+          - TestInit_NoSdlcSubtractsOnlyTheSdlcCapability
+          - TestInit_NoGitignoreSubtractsOnlyTheGitignoreCapability
+          - TestInit_NoPacksSubtractsOnlyThePacksCapability
+          - TestInit_NoToolchainSubtractsOnlyTheToolchainCapability
+          - TestInit_NoBaselineSubtractsOnlyTheBaselineCapability
+          - TestInit_NoObserveSubtractsOnlyTheObserveCapability
+          - TestInit_ReportNamesEveryResolvedCapabilityWithAnOutcome
+          - TestInit_ExecutesTheTranscribedStepSequenceInOrder
+          - TestInit_GitignoreCarriesPackEntriesBecausePacksInstallFirst
+          - TestInit_ScaffoldedFileIsOnDiskBeforeTheToolchainStepRuns
+          - TestInit_OverwritesNoPreExistingConsumerFile
+          - TestInit_SecondRunConvergesAndWritesNothing
+          - TestInit_ReadsOnlyBackstopNeutralFactsToDecideWhatToDo
+          - TestInit_ReportUsesOnlyBackstopVocabulary
+          - TestInit_BehaviorIsIdenticalAcrossDifferingEcosystemMarkers
+        depends_on:
+          - TASK-016
+          - TASK-019
+          - TASK-022
+          - TASK-025
+          - TASK-028
+          - TASK-031
+          - TASK-034
+          - TASK-037
+
+      - id: TASK-039
+        type: implementation
+        title: "Implement Runner.Run: the fixed ten-step order, one StepReport per step, and the Result aggregation"
+        description: |
+          pkg/initialize/initialize.go — fill in Runner.Run over the step
+          functions phases 5-12 built. TEN steps, FIXED order, each producing
+          EXACTLY ONE StepReport:
+
+            1  git        (git)            2  config    (unconditional)
+            3  layout     (sdlc)           4  packs     (packs)
+            5  gitignore  (gitignore)      6  scaffold  (--scaffold)
+            7  toolchain  (toolchain)      8  baseline  (baseline)
+            9  ci         (--ci)          10  observe   (observe)
+
+          Subtracting a capability REMOVES ITS STEP and reorders nothing.
+          Steps 6 and 9 are flag-governed and are NOT capabilities.
+
+          ★ BOTH DEVIATIONS FROM DD-8'S TRANSCRIBED ORDER ARE DELIBERATE AND
+          NEITHER MAY BE "TIDIED":
+            Deviation 1 — gitignore AFTER packs, because REQ-005 made the
+              entry set a function of the INSTALLED packs' declared
+              stdout_artifact values; emitting it first is unsatisfiable.
+            Deviation 2 — scaffold at 6, not 1 and not beside ci at 9. Not at
+              1 because a recipe cannot resolve out of an uninstalled pack;
+              not at 9 because the toolchain step is exactly the run that hits
+              DD-7's empty-project failure. Grouping "the two recipe steps"
+              reads as a tidy-up and manufactures the failure DD-7 exists to
+              prevent (Sharp Edge 18).
+
+          Result aggregation: Steps, Observations, the CLASSIFIED Preserved
+          slice, and BrokenPromise. BrokenPromise is computed from THE REQUEST
+          — did the consumer ASK for something init then failed to deliver —
+          NOT from the resulting filesystem state (Sharp Edge 11). Two
+          structurally identical no-ops carry different verdicts: `--ci`
+          omitted vs `--ci` supplied-and-unresolvable both end with no CI
+          wired; "no packs supplied" vs "pack ref refused as local path" both
+          end with no packs. A refactor that computes the verdict from the
+          RESULT collapses these pairs.
+
+          Detect only backstop-neutral facts: the presence of `.git`, of
+          `backstop.yml`, of the artifact directories, of `.gitignore`. Read
+          no other path in the project to decide anything.
+        files:
+          - pkg/initialize/initialize.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-040
+          - CLM-041
+          - CLM-042
+          - CLM-043
+          - CLM-045
+          - CLM-090
+          - CLM-111
+          - CLM-138
+        depends_on:
+          - TASK-038
+
+      - id: TASK-040
+        type: verification
+        title: "Verify the Runner"
+        description: |
+          Rebuild the binary (`go build -o bin/backstop ./cmd/backstop`), then run
+          `PATH="/Users/bmanson/go/bin:$PATH" ./bin/backstop gate --all` —
+          the whole pkg/initialize surface is now assembled and a diff-scoped
+          run would miss cross-step regressions. All seventeen mandated tests green, plus every earlier
+          step test still green. The three SPEC-068 reds from TASK-019 remain
+          the only permitted failures; name them again in the output.
+        files:
+          - pkg/initialize/initialize.go
+          - pkg/initialize/runner_test.go
+        claims:
+          - CLM-002
+          - CLM-090
+          - CLM-111
+          - CLM-138
+        depends_on:
+          - TASK-039
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 14 — The entrypoint execution core, built ONCE and shared, plus
+  # init's thin adapter over it. Package main, and the location is FORCED.
+  # ★ PLAN-SPEC-070's toolchain-runs check CONSUMES this phase's
+  #   packEntrypointProber instead of building its own copy — see the
+  #   plan notes. Keep the shared interface report-free.
+  # Parallel-eligible with phases 5-13 (disjoint files).
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-14
+    name: "Phase 14: packEntrypointProber (shared) + packToolchainProber (init's adapter) — one execution route, and the ONE deliberate divergence (REQ-011)"
+    tasks:
+      - id: TASK-041
+        type: test
+        title: "Test entrypoint selection by gate_type, all four outcomes, the trust gate, argv safety, and the stderr-only tripwire"
+        description: |
+          All of these are cmd/backstop tests, and that is FORCED:
+          checkEngineToolAllowed and splitCommand are unexported in package
+          main, so the prober cannot live in pkg/initialize without a second
+          copy of both.
+
+          THEY ARE WRITTEN AGAINST INIT'S ADAPTER (`packToolchainProber`,
+          the spec-mandated ToolchainProber) and therefore drive the SHARED
+          `packEntrypointProber` TASK-042 extracts underneath it, end to end:
+          selection, the trust gate, the splitter, the runner and the
+          outcome split are all exercised through these fifteen. Do NOT
+          split them into "shared" and "init" suites — the mandated names are
+          SPEC-069's and the claim subjects are cmd/backstop. Any additional
+          direct test of the shared prober is optional and additive; none of
+          these fifteen may be dropped, weakened, or relocated because the
+          implementation is now two files instead of one.
+
+          SELECTION BY STAGE, NEVER BY TOOL — `gate_type` test and build are
+          backstop's own kill-chain vocabulary (pkg/pack/engine/gatetype.go
+          defines exactly seven), so selecting on them names a STAGE:
+            TestInit_ExecutesDeclaredTestEntrypointOnceAndPassesOnZeroExit  CLM-053
+            TestInit_ExecutesDeclaredBuildEntrypointOnceAndPassesOnZeroExit CLM-054
+              — executed EXACTLY ONCE each; assert the call count.
+            TestInit_LintGateTypeEngineIsNotExecuted            CLM-055
+            TestInit_FindingsGateTypeEngineIsNotExecuted        CLM-118
+            TestInit_CoverageGateTypeEngineIsNotExecuted        CLM-119
+            TestInit_SubstantivenessGateTypeEngineIsNotExecuted CLM-120
+            TestInit_ContractsGateTypeEngineIsNotExecuted       CLM-121
+              — five separate claims, one per non-entrypoint gate type,
+              because "only test and build" asserted in aggregate hides a
+              member.
+
+          THE FAILURE OUTCOME IS SPLIT IN TWO AND THE LABELS DIFFER:
+            TestInit_UnstartableEntrypointIsReportedAsOwedSetupAndExitsNonZero CLM-056
+              — case (b): the executable CANNOT BE STARTED AT ALL. Reported as
+              a SETUP step the consumer still owes, naming the pack whose
+              entrypoint could not run and pointing at THAT PACK's own
+              documented install steps. Invents no install command, installs
+              nothing.
+            TestInit_NonZeroEntrypointExitIsReportedVerbatimWithItsExitCode CLM-105
+              — case (c): STARTED and exited non-zero. Exit code plus captured
+              output VERBATIM, attributed to the pack and the command.
+            TestInit_NonZeroEntrypointExitClaimsNoCause CLM-106 (denylist)
+              — a case-(c) report does NOT use the owed-setup label, does NOT
+              name dependencies or a package manager, and attributes the
+              failure to nothing beyond the pack and the command. Treating any
+              non-zero exit as owed setup commits the exact exit-code
+              cause-inference bundle REQ-011 forbids, and re-enacts the pnpm
+              ERR_PNPM_IGNORED_BUILDS misdiagnosis that is the requirement's
+              own evidence.
+
+          ★★ TestInit_CapturedOutputIncludesStderrOnlyDiagnostics CLM-122 —
+          THE CAPTURE-METHOD TRIPWIRE, AND IT IS INVISIBLE IN A DIFF REVIEW
+          (Sharp Edge 15). Drive TASK-004's exit-nonzero-stderr-only.sh, whose
+          stdout is EMPTY, and assert the captured-output report is NON-EMPTY.
+          An implementation that copies runFindingsEngine's three steps AND
+          its method choice passes every structural claim here — the allowlist
+          is bound, no shell is invoked, no second execution path exists, the
+          exit code is right — and only this claim goes red. If your fixture
+          also writes to stdout, it passes under BOTH methods and asserts
+          nothing.
+
+          EXECUTION SAFETY IS BOUND, NOT ASSUMED:
+            TestInit_UnallowlistedEntrypointToolIsRefusedBeforeExecution CLM-107
+              — checkEngineToolAllowed runs BEFORE splitCommand and before the
+              runner. The command is NEVER handed to anything, and the refusal
+              surfaces as a CONFIG ERROR rather than as a toolchain pass or
+              fail. Assert non-execution, not just the error.
+            TestInit_EntrypointRunsAsArgvThroughTheSharedRunnerNeverAShell CLM-108
+              — shell metacharacters pass through as LITERAL arguments.
+
+          INDEPENDENCE AND ABSENCE:
+            TestInit_EachEntrypointOutcomeIsIndependentOfTheOthers CLM-057 —
+              one pack, two entrypoint engines, one failing and one passing:
+              two separately-reported outcomes, and the failing one does not
+              turn the passing one into a failure.
+            TestInit_NoDeclaredEntrypointReportsCapabilityAbsentWithoutFailing CLM-058
+              — capability-absent, and init does not fail the run for it.
+
+          CLM-056 and CLM-105 also carry an "init exits non-zero" half. Assert
+          it HERE on the StepReport's broken-promise Outcome, which is the
+          value the command's exit mapping reads; the end-to-end exit
+          assertion is TASK-044's.
+        files:
+          - cmd/backstop/init_toolchain_test.go
+        claims:
+          - CLM-053
+          - CLM-054
+          - CLM-055
+          - CLM-118
+          - CLM-119
+          - CLM-120
+          - CLM-121
+          - CLM-056
+          - CLM-105
+          - CLM-122
+          - CLM-106
+          - CLM-057
+          - CLM-107
+          - CLM-108
+          - CLM-058
+        test_names:
+          - TestInit_ExecutesDeclaredTestEntrypointOnceAndPassesOnZeroExit
+          - TestInit_ExecutesDeclaredBuildEntrypointOnceAndPassesOnZeroExit
+          - TestInit_LintGateTypeEngineIsNotExecuted
+          - TestInit_FindingsGateTypeEngineIsNotExecuted
+          - TestInit_CoverageGateTypeEngineIsNotExecuted
+          - TestInit_SubstantivenessGateTypeEngineIsNotExecuted
+          - TestInit_ContractsGateTypeEngineIsNotExecuted
+          - TestInit_UnstartableEntrypointIsReportedAsOwedSetupAndExitsNonZero
+          - TestInit_NonZeroEntrypointExitIsReportedVerbatimWithItsExitCode
+          - TestInit_CapturedOutputIncludesStderrOnlyDiagnostics
+          - TestInit_NonZeroEntrypointExitClaimsNoCause
+          - TestInit_EachEntrypointOutcomeIsIndependentOfTheOthers
+          - TestInit_UnallowlistedEntrypointToolIsRefusedBeforeExecution
+          - TestInit_EntrypointRunsAsArgvThroughTheSharedRunnerNeverAShell
+          - TestInit_NoDeclaredEntrypointReportsCapabilityAbsentWithoutFailing
+        depends_on:
+          - TASK-013
+          - TASK-004
+
+      - id: TASK-042
+        type: implementation
+        title: "Implement the SHARED packEntrypointProber and init's packToolchainProber adapter over it — allowlist gate, splitter, shared runner, entered through Run not RunStdout"
+        description: |
+          TWO FILES. The execution core is built ONCE and is package-neutral;
+          init's report vocabulary layers on top of it.
+
+          ═══ (A) cmd/backstop/pack_entrypoint_prober.go — THE SHARED CORE ═══
+
+          THIS IS THE ONE EXECUTION ROUTE FOR PACK-DECLARED TEST/BUILD
+          ENTRYPOINTS, AND IT HAS TWO CALLERS. PLAN-SPEC-070's
+          `checkToolchainRuns` (doctor's toolchain-runs check) CONSUMES this
+          type once this phase lands and does NOT build its own copy — both
+          files are `package main` in cmd/backstop, so this is a
+          package-internal helper, not a cross-package extraction. Keep the
+          surface RAW: it reports what ran and what happened, and knows
+          nothing about init's steps or doctor's check results.
+
+            // entrypointOutcome is the mechanically honest result of one
+            // declared entrypoint execution. It carries NO report vocabulary:
+            // "owed setup"/"verbatim" are init's words for these values,
+            // warn/fail/skip are doctor's.
+            type entrypointOutcome int
+
+            const (
+                entrypointRefused       entrypointOutcome = iota // allowlist said no; NEVER split, NEVER run
+                entrypointPassed                                 // started, exit 0
+                entrypointUnstartable                            // could not be STARTED at all
+                entrypointExitedNonZero                          // started, exited non-zero
+            )
+
+            // entrypointProbe is one selected binding's execution record.
+            type entrypointProbe struct {
+                PackName  string             // manifest name of the declaring pack
+                EngineKey string             // the engines: map key, for stable attribution
+                GateType  engine.GateType    // GateTypeTest or GateTypeBuild
+                Command   string             // the pack's declared command string, VERBATIM
+                Outcome   entrypointOutcome
+                ExitCode  int                // meaningful ONLY for entrypointExitedNonZero
+                Output    []byte             // combined stdout+stderr, from CommandRunner.Run
+                Err       error              // the refusal error or the start error; nil otherwise
+            }
+
+            type packEntrypointProber struct {
+                Packs  []*pack.Manifest
+                Runner check.CommandRunner
+            }
+
+            // Probe executes every declared test/build entrypoint EXACTLY
+            // ONCE, in deterministic order, and returns one entrypointProbe
+            // per selected binding. Zero selected bindings returns an empty
+            // slice: ABSENCE IS THE CALLER'S TO CLASSIFY (init reports
+            // capability-absent without failing, CLM-058; doctor warns,
+            // its outcome (d)). Probe itself never decides that.
+            func (p *packEntrypointProber) Probe(ctx context.Context) []entrypointProbe
+
+          NO ERROR RETURN, BY DESIGN. An allowlist refusal is per-binding
+          state (`entrypointRefused` + `Err`), not a whole-probe abort,
+          because the two callers must dispose of it differently: init
+          surfaces it as a CONFIG ERROR (CLM-107, exit 2) while doctor
+          surfaces it as that check's failure. A shared `error` return would
+          force one caller's disposition on the other, which is precisely the
+          init-flavored interface this extraction exists to avoid.
+
+          DETERMINISTIC ORDER IS PART OF THE SHARED CONTRACT: walk `Packs` in
+          SLICE order, and within each manifest walk `Engines` by SORTED KEY —
+          `Manifest.Engines` is a MAP (pkg/pack/manifest.go:31), so an
+          unsorted walk yields a different report on every run. Init does not
+          assert ordering today; SPEC-070's CLM-007 asserts BYTE-IDENTICAL
+          report order across repeated runs, and it is satisfiable only if the
+          shared prober sorts. Do not "simplify" the sort away.
+
+          NO projectRoot PARAMETER, AND THAT IS NOT AN OMISSION:
+          `check.CommandRunner` has no working-directory argument — the
+          directory is a CONSTRUCTION-TIME property of
+          `check.ExecCommandRunner{Dir: …}` (pkg/check/runner.go:28-30).
+          Init constructs its runner rooted at `Options.ProjectRoot` in
+          TASK-045; doctor's `ctx.Runner` is rooted at `ctx.ProjectRoot`.
+          Introducing a second rooting mechanism here would be a second
+          execution path in miniature.
+
+          THE (b)/(c) SPLIT LIVES HERE, ONCE. Both specs demand the same ONE
+          mechanically honest signal — the executable could not be STARTED
+          versus it started and exited non-zero — so classify it in the shared
+          prober: a non-nil error that is an `*exec.ExitError` is
+          `entrypointExitedNonZero` (take `ExitCode()` from it); a non-nil
+          error that is NOT is `entrypointUnstartable`. Attempt no other
+          classification, in either caller. Two copies of this two-line split
+          is how the two commands come to disagree about the same failure.
+
+          ═══ (B) cmd/backstop/init_toolchain.go — INIT'S THIN ADAPTER ═══
+
+          The spec contract is PRESERVED EXACTLY; only its body changes:
+
+            type packToolchainProber struct { Packs []*pack.Manifest; Runner check.CommandRunner }
+            func (p *packToolchainProber) Probe(projectRoot string) ([]initialize.StepReport, error)
+
+          It builds `&packEntrypointProber{Packs: p.Packs, Runner: p.Runner}`,
+          calls `Probe(ctx)`, and does NOTHING ELSE mechanical — no second
+          selection, no second allowlist call, no exec of its own. Everything
+          it adds is REPORTING, and all of it is init-specific:
+            • entrypointRefused    → CONFIG ERROR (the returned `error`;
+              CLM-107 asserts non-execution AND that it is neither a toolchain
+              pass nor a toolchain fail).
+            • entrypointPassed     → a delivered StepReport.
+            • entrypointUnstartable→ the OWED-SETUP report (CLM-056): names
+              the pack whose entrypoint could not run and points at THAT
+              PACK's own documented install steps.
+            • entrypointExitedNonZero → the VERBATIM report (CLM-105/CLM-106):
+              exit code plus `Output` verbatim, attributed to the pack and the
+              command and to NOTHING ELSE.
+            • an EMPTY probe slice → capability-absent, not a failure
+              (CLM-058).
+          `projectRoot` is init's: the reports name where the command ran.
+          Doctor's rollup (one result, per-entrypoint lines, worst outcome)
+          is the mirror-image layer on its own side and never lands here.
+
+          Selection is by engine.GateTypeTest and engine.GateTypeBuild
+          ONLY, in the SHARED prober. Then, per selected engine, EXACTLY
+          THREE STEPS:
+            checkEngineToolAllowed (cmd/backstop/pack_gate.go:812 — the
+            trusted-tool allowlist plus the lock-resolved version pin)
+            → splitCommand (pack_gate.go:887 — whitespace argv tokenization)
+            → the shared check.CommandRunner.
+          That is runFindingsEngine's sequence (pack_gate.go:573-600) minus
+          the SARIF parse. Introduce NO second, weaker way to run a
+          pack-declared command and NEVER run one through a shell: init
+          executes arbitrary pack-supplied command strings, so an unbound
+          execution path here is a hole in the trusted-tool invariant, not a
+          style preference. The trust gate sits BEFORE the splitter and the
+          runner. All three steps live in file (A) and nowhere else — the
+          adapter in file (B) must not call any of them.
+
+          ★★ ENTER THE RUNNER THROUGH `check.CommandRunner.Run`
+          (pkg/check/runner.go:17, COMBINED stdout+stderr), NOT `RunStdout`
+          (:21, stdout only), which is what runFindingsEngine calls at
+          pack_gate.go:648. This is the ONE deliberate divergence and the
+          shipped comments state both reasons: RunStdout exists so a tool's
+          stderr banner cannot corrupt the SARIF bytes on stdout; Run exists
+          for "the build/test executors whose violation messages may
+          legitimately include stderr" — which is exactly case (c). A failing
+          build or test entrypoint routinely writes its whole diagnostic to
+          stderr, so binding RunStdout prints an EMPTY "captured output
+          VERBATIM" for precisely the failures case (c) exists to surface.
+          Init parses nothing and renders to a human, so the contamination
+          hazard does not apply here while the lost-diagnostic hazard does.
+          The allowlist gate and the splitter are shared UNCHANGED. Put this
+          reason in a comment on the call site — CLM-122 is the tripwire, but
+          the comment is what stops the next reader "fixing" it.
+
+          ★ CROSS-SPEC, NOW SETTLED BY CONSTRUCTION: SPEC-070's
+          checkToolchainRuns binds the same three steps and names NO runner
+          method, which under two separate implementations was a live drift
+          risk (Sharp Edge 12) — the two reports would disagree on any
+          entrypoint that diagnoses only on stderr. Because the sequence AND
+          the method now live once, in `packEntrypointProber.Probe`, and
+          PLAN-SPEC-070's toolchain-runs task consumes it, there is no second
+          site to align. The `Run` call site is therefore the ONE place the
+          method is chosen for BOTH commands: comment it accordingly, and if
+          a future reader wants doctor to capture differently, that is a
+          spec-level conversation to surface, never a private second runner.
+
+          Each engine's outcome is ITS OWN command's exit status and nothing
+          adjacent: not a package-manager command (init runs none), not a
+          configuration file, not another engine's command in the same pack.
+          Outcomes are independent.
+
+          WHAT INIT CANNOT DISTINGUISH, STATED RATHER THAN PROMISED: a pack
+          declares ONE command per engine, so if the declared entrypoint is a
+          wrapper invocation, the exit status init reads IS the wrapper's.
+          Core cannot see past it and must not pretend to. The temptations to
+          "fix" this — wrapper-aware parsing of captured output, a second
+          probing command, a package-manager-shaped retry — all bake ecosystem
+          knowledge into core and would be caught by CLM-044/CLM-109 only if
+          the literal happened to be recognizable. The durable guard is the
+          POSTURE: case (c) reports and does not diagnose (Sharp Edge 13).
+        files:
+          - cmd/backstop/pack_entrypoint_prober.go
+          - cmd/backstop/init_toolchain.go
+        claims:
+          - CLM-053
+          - CLM-054
+          - CLM-055
+          - CLM-118
+          - CLM-119
+          - CLM-120
+          - CLM-121
+          - CLM-056
+          - CLM-105
+          - CLM-122
+          - CLM-106
+          - CLM-057
+          - CLM-107
+          - CLM-108
+          - CLM-058
+        depends_on:
+          - TASK-041
+
+      - id: TASK-043
+        type: verification
+        title: "Verify the shared prober and init's adapter over it"
+        description: |
+          Rebuild the binary (`go build -o bin/backstop ./cmd/backstop`), then run
+          `PATH="/Users/bmanson/go/bin:$PATH" ./bin/backstop gate` (bare =
+          diff-scoped vs merge-base plus untracked). All fifteen mandated tests
+          green. Explicitly confirm in the output that CLM-122's fixture has
+          EMPTY stdout — a passing CLM-122 over a fixture that writes to
+          stdout is a vacuous green, and it is the one failure mode this
+          phase cannot detect for itself.
+
+          THREE SHARING CHECKS BEYOND "the tests pass", because a green suite
+          cannot see them and PLAN-SPEC-070 depends on all three:
+          (a) cmd/backstop/init_toolchain.go calls NEITHER
+              checkEngineToolAllowed, NOR splitCommand, NOR any CommandRunner
+              method directly. If it does, the core did not actually get
+              extracted and doctor will end up with a second copy anyway.
+          (b) cmd/backstop/pack_entrypoint_prober.go imports and mentions
+              NOTHING from pkg/initialize and carries no init-shaped
+              vocabulary (no StepReport, no owed-setup wording, no exit
+              codes). An init-flavored "shared" helper is unusable by doctor
+              and will be re-forked on sight.
+          (c) `Run` is called EXACTLY ONCE in the two files, from the shared
+              prober, with the comment stating why it is not `RunStdout`.
+
+          Then STATE, in the verification output, that PLAN-SPEC-070's
+          toolchain-runs task is now unblocked to consume
+          `packEntrypointProber` — that hand-off is this phase's deliverable
+          as much as the fifteen tests are.
+        files:
+          - cmd/backstop/pack_entrypoint_prober.go
+          - cmd/backstop/init_toolchain.go
+          - cmd/backstop/init_toolchain_test.go
+        claims:
+          - CLM-105
+          - CLM-122
+          - CLM-106
+          - CLM-107
+          - CLM-108
+        depends_on:
+          - TASK-042
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 15 — PRODUCTION WIRING. The four remaining seams get their real
+  # implementations (TASK-052/053/054), and then the cobra command that
+  # constructs them (TASK-044/045). Without this phase every seam but
+  # ToolchainProber exists only as an interface and a fake, `backstop init`
+  # is unconstructable, and five claims about real machinery are
+  # unfalsifiable. THE FILE SPEC-070 ALSO DECLARES IS HERE (init.go).
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-15
+    name: "Phase 15: The production seam adapters and newInitCommand — real wiring, flags, report rendering, and the exit-code matrix (REQ-001, REQ-002, REQ-009, REQ-010, REQ-012, REQ-014, REQ-016, REQ-018, REQ-035)"
+    tasks:
+      - id: TASK-052
+        type: test
+        title: "Test the FOUR production seam adapters against real machinery: a real lock, a real apply, a real gate run, and the absent seeder"
+        description: |
+          ONE test file, cmd/backstop/init_seams_test.go, and every test in it
+          drives `initialize.NewRunner` / `initialize.Options` with the REAL
+          adapters TASK-054 builds — no fake from pkg/initialize/fakes_test.go
+          appears anywhere in it. Referencing `initialize` is also what
+          satisfies the subject join for the five moved claims, whose declared
+          subject stays `pkg/initialize` (plan notes, the subject-join
+          decision table).
+
+          ★ WHY THIS TASK EXISTS AT ALL. Phases 8, 10, 11 and 12 prove the
+          STEP logic over fakes, which is the right shape for step logic and
+          is genuinely not enough: a fake PackInstaller writes no
+          `backstop.lock`, a fake RecipeApplier lands no byte, a fake
+          GateRunner invents its own dimension counts. Every one of those
+          seams reaches real, already-shipped machinery in production, and
+          "unit tests nail the package while the cross-package wiring stays
+          unproven" is this project's recurring integration-gap failure. These
+          tests are the wiring proof.
+
+          ═══ REAL PackInstaller — CLM-086, CLM-088 ═══
+            TestInit_GitRefPackInstallLandsAsAPortableLockEntry CLM-086
+              Publish TASK-001's acceptance-lint-pack source as a hermetic
+              remote (`newHermeticRemote`,
+              cmd/backstop/hermetic_remote_harness_test.go — the
+              GIT_CONFIG_GLOBAL insteadOf redirect: a real shallow clone at a
+              real tag, no network) and run init with that GENUINE GIT REF as
+              `--pack`. Then READ `backstop.lock` off disk and assert the
+              entry is a git-source entry carrying its `source_coordinate`.
+              Assert against the file, not against a returned struct: the
+              COMMITTED lock is what REQ-018 is about.
+            TestInit_ProducesNoLockEntryCarryingALocalPath CLM-088 (denylist)
+              Over the same real run, NO entry in the lock carries a
+              `local_path` value. The distribution lock records `local_path`
+              only for `source_type: "local"`, so this is the assertion that
+              init's refusal (TASK-024) plus the real installer's behavior
+              actually compose into a portable lock.
+
+          ═══ REAL RecipeApplier — CLM-046, CLM-047, CLM-130 ═══
+            Install TASK-002's scaffold-recipe-pack the same way (hermetic
+            remote, real git ref), then run init with `--ci` / `--scaffold`
+            naming that pack's recipe at its pinned version.
+            TestInit_AppliesRecipesOnlyThroughTheShippedResolveApplyPath CLM-046
+              The target files written are EXACTLY the ones the RECIPE
+              declared — enumerate what landed and compare to the recipe's own
+              declared targets. Init contributes no path.
+            TestInit_RecipePayloadLandsByteIdentical CLM-047
+              The bytes on disk equal the pack's payload bytes EXACTLY. Read
+              both and compare byte slices; no normalization, no trimming, no
+              line-ending tolerance — tolerance here would hide precisely the
+              rendering/rewriting this claim forbids.
+            TestInit_ScaffoldRecipeTargetsLandAtTheRecipeDeclaredPaths CLM-130
+              The same two properties through the SCAFFOLD step's ref rather
+              than the CI step's, proving ONE seam with TWO callers reaches
+              the same shipped path.
+
+          ═══ REAL GateRunner — CLM-064 (real half) ═══
+            TestInitSeams_GateRunnerReducesARealGateRunToDimensionCounts
+              NOT a mandated name and deliberately so: CLM-064's mandated test
+              is TASK-035's, over the reduction logic. This one proves the
+              other half — that the production adapter runs the SAME assembled
+              kill chain `backstop gate` runs and that its `[]DimensionCount`
+              are derived from a real GateResult's steps, with dimension names
+              that are backstop's own vocabulary. Run it over the initialized
+              project from the PackInstaller case, so at least one dimension
+              is genuinely populated; a reduction asserted over an empty gate
+              result asserts nothing.
+
+          ═══ REAL BaselineSeeder — CLM-062 (production half) ═══
+            TestInitSeams_ProductionBaselineSeederReportsCapabilityAbsent
+              Also not a mandated name. The production seeder returns
+              `initialize.ErrBaselineSeedingUnavailable` and NOTHING ELSE
+              happens: assert with errors.Is, and assert NO
+              `.backstop/baseline.json` exists after a full init run and no
+              fingerprint file of any kind was written. REQ-012 is ISSUE-056's
+              and this test is what keeps that boundary honest once a
+              concrete type exists to be tempted into filling it.
+
+          ═══ THE CONSTRUCTOR IS FAIL-CLOSED, AND THAT MUST HOLD IN
+              PRODUCTION SHAPE ═══
+            TestInitSeams_NewRunnerRefusesEveryNilDependencyByName
+              Five sub-cases, one per seam, each passing the four real
+              adapters and one nil: NewRunner returns an error NAMING the nil
+              dependency. This is the property that makes a half-wired runner
+              unconstructable, and it is worth asserting where the real
+              adapters are, not only over fakes.
+
+          FIXTURES: this task adds none. It consumes TASK-001's and TASK-002's
+          published sources through the existing hermetic-remote harness,
+          which is why it depends on both.
+        files:
+          - cmd/backstop/init_seams_test.go
+        claims:
+          - CLM-046
+          - CLM-047
+          - CLM-086
+          - CLM-088
+          - CLM-130
+          - CLM-062
+          - CLM-064
+        test_names:
+          - TestInit_GitRefPackInstallLandsAsAPortableLockEntry
+          - TestInit_ProducesNoLockEntryCarryingALocalPath
+          - TestInit_AppliesRecipesOnlyThroughTheShippedResolveApplyPath
+          - TestInit_RecipePayloadLandsByteIdentical
+          - TestInit_ScaffoldRecipeTargetsLandAtTheRecipeDeclaredPaths
+        depends_on:
+          - TASK-040
+          - TASK-043
+          - TASK-001
+          - TASK-002
+
+      - id: TASK-053
+        type: refactor
+        title: "Return the resolved recipe's declared kind from runRecipeApply so ONE resolve feeds both the apply and the preserve classifier"
+        description: |
+          cmd/backstop/recipe_apply.go. `runRecipeApply(ref, projectRoot,
+          suppliedParams) (recipe.ApplyResult, error)` already resolves the
+          recipe (`recipe.ResolveRecipe`, :215) and therefore already HOLDS
+          `resolved.Manifest.Kind` — it just does not return it. Widen the
+          return so the caller gets the declared kind alongside the result.
+
+          WHY THIS IS A REFACTOR AND NOT AN OPTIONAL TIDY. `ApplyOutcome`
+          (seams.go) carries `RecipeKind`, because REQ-035's classifier splits
+          the empty Rule/CoveringWaiver pair on the recipe's declared kind.
+          The production RecipeApplier (TASK-054) must therefore report the
+          kind of the recipe that was actually applied. Its only two options
+          are: take it from the resolve that already happened, or call
+          `ParseRecipeRef` + `ResolveRecipe` a SECOND time to ask what kind it
+          was. The second is a second derivation of "which recipe is this
+          ref", drifting from the one the apply actually used — the same
+          one-authority-not-a-copy hazard REQ-018 refuses for local-path
+          classification and SPEC-056 settled for pack names. Take it from the
+          resolve.
+
+          BEHAVIOR IS UNCHANGED. No resolution order changes, no error text
+          changes, no param handling changes, nothing under pkg/recipe is
+          touched (REQ-009 forbids that). Update the existing caller in
+          `runRecipeApply`'s cobra command and keep every existing
+          recipe-apply test passing — an existing test going red here means
+          the widening changed behavior, and that is this task's own defect.
+        files:
+          - cmd/backstop/recipe_apply.go
+        claims:
+          - CLM-046
+          - CLM-047
+          - CLM-130
+        depends_on:
+          - TASK-052
+
+      - id: TASK-054
+        type: implementation
+        title: "Implement the four production seam adapters over the shipped assemblies — one file, no second path anywhere"
+        description: |
+          cmd/backstop/init_seams.go. FOUR small types, each of which does
+          exactly one thing: translate between a pkg/initialize seam and an
+          assembly that ALREADY EXISTS in package main. If any of these grows
+          logic of its own, it has become a second implementation of something
+          and the wrong thing is being built.
+
+          THE FILE IS IN cmd/backstop, AND FOR EVERY ADAPTER THE LOCATION IS
+          FORCED — the same forcing the spec states for `packToolchainProber`,
+          applied consistently. It is also inside the `cmd/backstop/init*.go`
+          glob TASK-048 scans, which is deliberate: these adapters are init
+          source and must answer to CLM-109 and CLM-059 like the rest of it.
+
+          ═══ initPackInstaller — PackInstaller ═══
+            Install(projectRoot, ref) error →
+            `newProductionAddCommand()` (cmd/backstop/pack_wiring.go), then
+            `.Run(ref, distribution.AddOptions{ProjectDir: projectRoot})`.
+            Construct NOTHING else. pack_wiring.go is THE production assembly
+            seam for the pack lifecycle; assembling a second AddCommand here
+            (or handing it a nil validator "because init already validated")
+            is exactly the partial-wiring defect that file exists to end —
+            ISSUE-073 shipped `pack add` with no cloner in it at all. Init
+            supplies no `Version`: the whole pinned ref is the consumer's, and
+            splitting a version out of it would be core holding half a ref.
+
+          ═══ initRecipeApplier — RecipeApplier ═══
+            Apply(projectRoot, ref) (initialize.ApplyOutcome, error) →
+            `runRecipeApply(ref, projectRoot, nil)` (TASK-053's widened
+            signature), then map: `ApplyResult.Written` → `Written`,
+            `ApplyResult.Preserved` → `Preserved` WITH Rule and CoveringWaiver
+            INTACT (dropping either is what collapses REQ-035's three classes
+            into one), and the returned declared kind → `RecipeKind`.
+            THE PARAM ARGUMENT IS NIL AND THAT IS CLM-136, NOT AN OVERSIGHT:
+            init supplies no recipe param to either apply, and the most
+            tempting derivation — the project basename already computed for
+            `project:` — is core constructing recipe INPUT (Sharp Edge 20).
+            Do not build a params map here, empty or otherwise, that a later
+            reader could fill.
+            SURFACE THE ERROR UNCHANGED. Every fail-loud resolve error
+            (CLM-079/080/081/082/102) is produced inside this path and must
+            reach the step VERBATIM — no wrapping that prepends init's own
+            guidance, no re-classification, no ConfigError/plain-error
+            re-shuffling. The step attributes it; the adapter does not
+            interpret it.
+
+          ═══ initGateRunner — GateRunner ═══
+            Run(projectRoot) ([]initialize.DimensionCount, error) →
+            `buildGateSteps(projectRoot)` (cmd/backstop/gate.go:647) →
+            `gate.New(...)` → `.Run(ctx)`, then reduce the returned
+            `GateResult.Steps` to one DimensionCount per gate dimension.
+            Use buildGateSteps; do NOT hand-assemble a step list. It is what
+            loads the installed packs and derives the SourceClassifier and
+            TestNameMatcher, and a second assembly would make init OBSERVE a
+            different gate than `backstop gate` RUNS — an observation that
+            disagrees with the command it is previewing is worse than no
+            observation. Dimension names come from the gate's own step
+            vocabulary, so this reduction introduces no tool or language noun
+            (CLM-043).
+            The gate's VERDICT is not consulted here. Findings are
+            OBSERVATION: a non-passing gate is not an error return, it is
+            counts. Returning an error on a red gate would make pre-existing
+            findings an init failure, which REQ-014 forbids in the one
+            sentence the whole exit-code matrix is organized around.
+
+          ═══ unavailableBaselineSeeder — BaselineSeeder ═══
+            Seed(projectRoot) (string, error) → returns
+            `("", initialize.ErrBaselineSeedingUnavailable)`. That is the
+            WHOLE body. This spec builds no seeding machinery: REQ-012 is
+            ISSUE-056's, and CLM-060 requires that nothing in the init source
+            set writes `.backstop/baseline.json` or computes a fingerprint.
+            The type exists because NewRunner is fail-closed and a nil seam is
+            unconstructable, so "capability absent" has to be a value. Do not
+            grow it into a real seeder here, and do not have it consult
+            anything on disk to decide.
+
+          NO SECOND EXECUTION PATH IS INTRODUCED BY ANY OF THE FOUR
+          (CLM-109). None of them constructs `exec.Command`, invokes a shell,
+          or calls `checkEngineToolAllowed` / `splitCommand` — the only
+          command execution on init's path is `packEntrypointProber`'s
+          (TASK-042), and the only pack-command execution these four reach is
+          whatever `runRecipeApply` and `buildGateSteps` already do inside the
+          shipped assemblies.
+        files:
+          - cmd/backstop/init_seams.go
+        claims:
+          - CLM-046
+          - CLM-047
+          - CLM-086
+          - CLM-088
+          - CLM-130
+          - CLM-062
+          - CLM-064
+          - CLM-136
+          - CLM-109
+        depends_on:
+          - TASK-052
+          - TASK-053
+
+      - id: TASK-044
+        type: test
+        title: "Test the command surface: flags, config errors, headless parity, the command tree, and every row of the exit-code matrix"
+        description: |
+          THE COMMAND, END TO END:
+            TestInit_SingleInvocationReachesFirstValue CLM-001 — ONE
+              invocation in an empty directory leaves backstop.yml, the
+              .backstop/ layout and a .gitignore on disk and prints ONE
+              report. No second command is required, and init must not
+              instruct the consumer to run a further command to complete a
+              step it itself claimed.
+
+          CONFIG ERRORS, EXIT 2:
+            TestInit_OnlyAndNoFlagsCombinedIsAConfigError CLM-012
+            TestInit_UnknownCapabilityNameIsAConfigErrorNamingTheValidSet CLM-013
+              — the message LISTS the seven valid names.
+            TestInit_LocalPathPackRefIsRefusedForLockPortability CLM-087 —
+              names the lock-portability reason and points at
+              `backstop pack add` after init.
+            TestInit_LocalPathClassificationMatchesTheShippedClassifier CLM-110
+              — EVERY form the shipped classifier accepts (`/abs`, `./rel`,
+              `../rel`, a platform-absolute path) is refused by init, and
+              every form it rejects (a bare `org/pack@version` git ref) is
+              accepted, so the two CANNOT DISAGREE about any ref.
+
+          NO PROMPT, NO STDIN:
+            TestInit_HeadlessRunIsIdenticalToInteractiveRun CLM-014 — with
+              stdin closed and no TTY: same files, same report, same exit code.
+
+          COMMAND TREE (denylist):
+            TestInit_AddsNoCIVerbToTheCommandTree CLM-077
+            TestInit_AddsNoScaffoldVerbOrNegationFlag CLM-133 — no
+              `--no-scaffold` flag and no `scaffold` verb or subcommand.
+              `--scaffold` is a flag on init and nothing else.
+
+          ★ THE EXIT-CODE MATRIX. The organizing rule is REQ-014's precedence
+          clause: pre-existing findings are NEVER an init failure, but an init
+          STEP that failed to deliver what it promised ALWAYS is.
+          Capability-absent outcomes are neither — nothing promised them.
+
+          EXIT 0:
+            TestInit_CleanGateAndAllStepsDeliveredExitZero              CLM-067
+            TestInit_PreExistingFindingsAloneExitZero                   CLM-066
+            TestInit_CIOmittedIsADeliberateNoOpExitingZero              CLM-076
+            TestInit_ScaffoldOmittedIsADeliberateNoOpExitingZero        CLM-129
+            TestInit_WaiverCoveredPreserveExitsZeroAndClaimsNoUnwiredGate CLM-116
+              — asserts BOTH halves: exits 0 AND carries no "no gate was
+              wired" language. The gate IS wired and the consumer accounted
+              for the divergence with a valid @waiver token. This is the false
+              report the undiscriminated reading produced.
+            TestInit_ApplyWithOnlyWaiverCoveredPreservesIsSuccessAndExitsZero CLM-117
+              — the accountable class is the ONLY preserve class that leaves
+              an apply successful.
+            TestInit_PopulatedWaiverPairIsWaiverCoveredAtEveryRecipeKind CLM-125
+              — THE PAIR OUTRANKS THE KIND, `templating` included. The kind is
+              consulted only to split the empty-pair case.
+            TestInit_ScaffoldWaiverCoveredPreserveIsSuccessAndExitsZero CLM-143
+
+          EXIT NON-ZERO:
+            TestInit_EveryCIResolveFailureExitsNonZero                  CLM-084
+            TestInit_UnresolvableScaffoldRefExitsNonZero                CLM-135
+              — the consumer asked for a source file and init did not deliver
+              one: a broken promise, not an un-adopted capability.
+            TestInit_UserOwnedPreserveExitsNonZeroDespiteSuccessfulApply CLM-099
+              — the underlying apply SUCCEEDED; the broken promise is what the
+              exit code carries.
+            TestInit_IndeterminatePreserveExitsNonZeroAndAssertsNoUnwiredGate CLM-114
+              — BOTH halves asserted together: an implementation that exits 0
+              fails, and one that borrows the USER-OWNED sentence fails.
+            TestInit_ScaffoldUserOwnedPreserveExitsNonZeroWithANextAction CLM-141
+            TestInit_ScaffoldTemplatingKindEmptyPairPreserveIsReportedAsIndeterminateGap CLM-142
+              — a gap naming the file, stating init cannot determine whether
+              the recipe's output is present, with a next action, exiting
+              non-zero. An implementation that asserts the output IS or is NOT
+              present fails.
+
+          PRECEDENCE, BOTH FACTS REPORTED IN FULL:
+            TestInit_BrownfieldPreserveWinsOverObservationOnTheExitCode CLM-068
+            TestInit_CIResolveFailureWinsOverObservationOnTheExitCode   CLM-069
+
+          NOT REGRESSING THE SCOPE DEFAULT:
+            TestInit_PostInitGateWithNoScopeFlagsIsDiffScoped CLM-070 — a
+              `backstop gate` run with no scope flags in a project init
+              produced resolves gate.GateScopeModeDiff.
+
+          ★ FIXTURE DEPENDENCY, STATED SO IT IS NOT A SURPRISE AT RUN TIME.
+          CLM-142 and CLM-143 are the two RECIPE-KIND rows of the preserve
+          matrix — `templating` empty-pair → indeterminate, and a populated
+          waiver pair → success at any kind — so they need recipes whose
+          DECLARED KIND differs. That is exactly the pair TASK-002 authors
+          (scaffold-templating-pack and scaffold-recipe-pack), which is why
+          this task depends on it. Install them the same way TASK-052 does:
+          published as a hermetic remote and installed by genuine git ref.
+          Do not hand-build a kind-carrying value in this file — the kind
+          would then come from the test rather than from a pack, and the
+          classifier's only two observables would both be test-supplied.
+        files:
+          - cmd/backstop/init_cmd_test.go
+        claims:
+          - CLM-001
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-066
+          - CLM-067
+          - CLM-068
+          - CLM-069
+          - CLM-070
+          - CLM-076
+          - CLM-077
+          - CLM-084
+          - CLM-087
+          - CLM-099
+          - CLM-110
+          - CLM-114
+          - CLM-116
+          - CLM-117
+          - CLM-125
+          - CLM-129
+          - CLM-133
+          - CLM-135
+          - CLM-141
+          - CLM-142
+          - CLM-143
+        test_names:
+          - TestInit_SingleInvocationReachesFirstValue
+          - TestInit_OnlyAndNoFlagsCombinedIsAConfigError
+          - TestInit_UnknownCapabilityNameIsAConfigErrorNamingTheValidSet
+          - TestInit_HeadlessRunIsIdenticalToInteractiveRun
+          - TestInit_AddsNoCIVerbToTheCommandTree
+          - TestInit_AddsNoScaffoldVerbOrNegationFlag
+          - TestInit_LocalPathPackRefIsRefusedForLockPortability
+          - TestInit_LocalPathClassificationMatchesTheShippedClassifier
+          - TestInit_CleanGateAndAllStepsDeliveredExitZero
+          - TestInit_PreExistingFindingsAloneExitZero
+          - TestInit_CIOmittedIsADeliberateNoOpExitingZero
+          - TestInit_ScaffoldOmittedIsADeliberateNoOpExitingZero
+          - TestInit_WaiverCoveredPreserveExitsZeroAndClaimsNoUnwiredGate
+          - TestInit_ApplyWithOnlyWaiverCoveredPreservesIsSuccessAndExitsZero
+          - TestInit_PopulatedWaiverPairIsWaiverCoveredAtEveryRecipeKind
+          - TestInit_ScaffoldWaiverCoveredPreserveIsSuccessAndExitsZero
+          - TestInit_EveryCIResolveFailureExitsNonZero
+          - TestInit_UnresolvableScaffoldRefExitsNonZero
+          - TestInit_UserOwnedPreserveExitsNonZeroDespiteSuccessfulApply
+          - TestInit_IndeterminatePreserveExitsNonZeroAndAssertsNoUnwiredGate
+          - TestInit_ScaffoldUserOwnedPreserveExitsNonZeroWithANextAction
+          - TestInit_ScaffoldTemplatingKindEmptyPairPreserveIsReportedAsIndeterminateGap
+          - TestInit_BrownfieldPreserveWinsOverObservationOnTheExitCode
+          - TestInit_CIResolveFailureWinsOverObservationOnTheExitCode
+          - TestInit_PostInitGateWithNoScopeFlagsIsDiffScoped
+        depends_on:
+          - TASK-040
+          - TASK-043
+          - TASK-007
+          - TASK-002
+
+      - id: TASK-045
+        type: implementation
+        title: "Implement newInitCommand and wire it into the command tree"
+        description: |
+          cmd/backstop/init.go — thin by construction, mirroring
+          cmd/backstop/recipe_apply.go. It holds four things and nothing else:
+          flag definitions, flag→Options translation, report rendering, and
+          exit-code mapping.
+
+          IT CONSTRUCTS THE RUNNER FROM THE ADAPTERS TASK-054 BUILT AND
+          BUILDS NONE OF ITS OWN: `initPackInstaller`, `initRecipeApplier`,
+          `initGateRunner` and `unavailableBaselineSeeder` (all
+          cmd/backstop/init_seams.go) plus `packToolchainProber`
+          (cmd/backstop/init_toolchain.go, TASK-042). Five arguments,
+          positional, in NewRunner's declared order. A NewRunner error is a
+          CONFIG error (exit 2) naming the nil dependency — surface it, do not
+          fall back to a partial runner, and do not substitute a fake for a
+          seam that failed to construct.
+
+          The toolchain prober's `Runner` is `check.ExecCommandRunner{Dir:
+          …}` rooted at the resolved project root — that is the ONLY place the
+          working directory is bound, because `check.CommandRunner` takes no
+          per-call directory (pkg/check/runner.go:28-30) and a second rooting
+          mechanism would be a second execution path in miniature (TASK-042).
+
+          FLAGS: `--no-<cap>` (seven), `--only <cap>` (repeatable),
+          `--pack <ref>` (repeatable), `--ci <pack>:<recipe>@<version>`,
+          `--scaffold <pack>:<recipe>@<version>`. Both ref flags carry WHOLE
+          OPAQUE STRINGS into Options. No param flag on either.
+
+          EXIT MAPPING: 0 / non-zero / 2, per the matrix TASK-044 pins.
+          Compute it from THE REQUEST, not from the resulting filesystem state
+          (Sharp Edge 11).
+
+          NEVER READ STDIN. Init does not prompt, so it must behave identically
+          with stdin closed and with no TTY.
+
+          cmd/backstop/root.go — register the command. Do NOT add a `ci` verb,
+          a `scaffold` verb, or a `--no-scaffold` flag.
+
+          ★★ SPEC-070 SHARES THIS FILE — READ THE PLAN NOTES BEFORE EDITING.
+          SPEC-070 owns exactly one symbol here, `doctorGuidanceForSteps`. If
+          it is already present: EDIT AROUND IT. Do not recreate the file, do
+          not reformat it, do not move or delete that function. If it is not
+          present yet, create the file with only this plan's symbols and leave
+          room. Doctor guidance attaches to the TOOLCHAIN step ONLY and must
+          never reach either recipe step — CLM-085 is the guard SPEC-070
+          explicitly defers to, and it is scanned in TASK-047. Do not write
+          SPEC-070's three mandated tests; they are not this plan's.
+        files:
+          - cmd/backstop/init.go
+          - cmd/backstop/root.go
+        claims:
+          - CLM-001
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-066
+          - CLM-067
+          - CLM-068
+          - CLM-069
+          - CLM-070
+          - CLM-076
+          - CLM-077
+          - CLM-084
+          - CLM-087
+          - CLM-099
+          - CLM-110
+          - CLM-114
+          - CLM-116
+          - CLM-117
+          - CLM-125
+          - CLM-129
+          - CLM-133
+          - CLM-135
+          - CLM-141
+          - CLM-142
+          - CLM-143
+        depends_on:
+          - TASK-044
+          - TASK-054
+
+      - id: TASK-046
+        type: verification
+        title: "Verify the command surface"
+        description: |
+          Rebuild the binary (`go build -o bin/backstop ./cmd/backstop`), then run
+          `PATH="/Users/bmanson/go/bin:$PATH" ./bin/backstop gate --all`. All
+          twenty-five of TASK-044's mandated tests green, AND all five of
+          TASK-052's real-adapter mandated tests green; the three SPEC-068
+          reds from TASK-019 remain the only permitted failures and must be
+          named again in the output.
+
+          Explicitly confirm the command tree gained NO `ci` verb, NO
+          `scaffold` verb, and NO `--no-scaffold` flag, and that
+          cmd/backstop/init.go carries no pack name, recipe id, version
+          literal, CI-platform name, or source-file payload.
+
+          THREE WIRING CHECKS BEYOND "the tests pass", because a green suite
+          cannot see any of them:
+          (a) every seam `newInitCommand` passes to NewRunner is a REAL
+              adapter — cmd/backstop/init.go references no type declared in
+              pkg/initialize/fakes_test.go and constructs no test double. A
+              command wired to a fake passes every unit test in the plan and
+              does nothing in a consumer's repo.
+          (b) cmd/backstop/init_seams.go assembles nothing of its own: it
+              calls `newProductionAddCommand`, `runRecipeApply` and
+              `buildGateSteps` and does not re-create what they build.
+          (c) TASK-053's widening left every pre-existing recipe-apply test
+              green. A red one there means behavior changed during a
+              refactor that promised it would not.
+        files:
+          - cmd/backstop/init.go
+          - cmd/backstop/init_seams.go
+          - cmd/backstop/init_seams_test.go
+          - cmd/backstop/recipe_apply.go
+          - cmd/backstop/root.go
+          - cmd/backstop/init_cmd_test.go
+        claims:
+          - CLM-001
+          - CLM-014
+          - CLM-077
+          - CLM-133
+          - CLM-110
+          - CLM-046
+          - CLM-047
+          - CLM-086
+          - CLM-088
+          - CLM-130
+          - CLM-062
+        depends_on:
+          - TASK-045
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 16 (FINAL) — the structural denylist scans over the COMPLETE source
+  # set, the acceptance runs with REAL packs, and the full kill chain.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-16
+    name: "Phase 16: Structural invariants over the complete source set, the real-pack acceptance runs, and the full gate"
+    tasks:
+      - id: TASK-047
+        type: test
+        title: "Scan the pkg/initialize half of the init source set — ten denylist claims over a GLOB-BOUNDED boundary"
+        description: |
+          These are DENYLIST claims whose entire content is that a literal is
+          ABSENT. They are written LAST on purpose: a scan authored before the
+          source exists is a vacuous green that only bites later.
+
+          ★ SHARP EDGE 10 — THE SCAN BOUNDARY IS THE CLAIM. Every one of these
+          scans "the init source set" = `cmd/backstop/init*.go` plus
+          `pkg/initialize/**`, EXCLUDING `_test.go`. A future implementer who
+          moves init logic into a helper OUTSIDE that glob (a new
+          pkg/initcore/, a function parked in cmd/backstop/root.go) silently
+          EMPTIES these claims without failing them. Define the boundary by
+          ENUMERATING THE GLOB at test time — never a hardcoded file list —
+          and assert the enumeration is NON-EMPTY before scanning, so an
+          empty-set scan fails loudly instead of passing trivially. Review
+          Question 5 asks the founder whether an import-graph assertion should
+          additionally pin it; until answered, the glob enumeration plus the
+          non-empty guard is the bar.
+
+            TestInit_SourceSetHoldsNoLanguageFrameworkOrPlatformLiteral CLM-044
+              — no language name, framework name, ecosystem-manifest filename,
+              or CI-platform name. The teeth of the zero-detection invariant.
+            TestInit_AuthorsNoSourceFileContentOfItsOwn CLM-048
+              — ★ WORDING MATTERS AND AN EARLIER SPEC DRAFT GOT IT WRONG
+              (Sharp Edge 21). The denylist is on core AUTHORING the content,
+              NEVER on init DELIVERING it through a pack recipe. Scan for a
+              source-file PAYLOAD, template body, filename or extension
+              literal. A test asserting "init writes no source file" would
+              re-delete the scaffold step and pass while doing it.
+            TestInit_SourceSetHoldsNoPackNameLiteralOrDefaultRoster CLM-051
+              — no pack-name literal and no default pack roster. Sharp Edge 7:
+              "omakase base bundle" is the seven-capability STEP set, NOT a
+              baked pack roster; a roster in core is the same defect REQ-016
+              v1.2.0 was corrected to remove, one layer up.
+            TestInit_SourceSetConstructsNoPartOfTheCIRef CLM-073
+              — no pack name, no recipe id, no version literal, no CI-platform
+              name.
+            TestInit_SourceSetConstructsNoPartOfTheScaffoldRefOrItsPayload CLM-131
+              — the same, plus no source-file payload, template body, filename
+              or extension.
+            TestInit_SuppliesNoRecipeParamToEitherApply CLM-136
+              — no param map is constructed and no value is derived from the
+              target directory's name or from anything init found on disk
+              (Sharp Edge 20).
+            TestInit_ImplementsNoBaselineSeedingMachinery CLM-060
+              — nothing writes .backstop/baseline.json or computes a
+              fingerprint. That machinery is ISSUE-056's.
+            TestInit_ChangesNoGatePackageFileAndDoesNotMaskTheRemotelessMessage CLM-063
+              — this implementation changes NO file under pkg/gate, and init
+              neither rewrites, suppresses nor substitutes for the remoteless
+              baseline_comparison message.
+            TestInit_ImplementsNoLocalProvenanceCache CLM-089
+              — no local-provenance cache, no pack-sources record, no
+              lock-schema change. That half is ISSUE-055's.
+            TestInit_ImplementsNoCIDetectionOrBespokeGuidance CLM-085
+              — init never enumerates installed packs looking for a CI pack,
+              never probes for a platform config file, and adds no guidance
+              text beyond attributing the surfaced error to the CI step. ★
+              SPEC-070 EXPLICITLY DEFERS TO THIS TEST to keep doctor guidance
+              off init's CI steps — it must remain a real assertion.
+        files:
+          - pkg/initialize/sourceset_scan_test.go
+        claims:
+          - CLM-044
+          - CLM-048
+          - CLM-051
+          - CLM-073
+          - CLM-131
+          - CLM-136
+          - CLM-060
+          - CLM-063
+          - CLM-089
+          - CLM-085
+        test_names:
+          - TestInit_SourceSetHoldsNoLanguageFrameworkOrPlatformLiteral
+          - TestInit_AuthorsNoSourceFileContentOfItsOwn
+          - TestInit_SourceSetHoldsNoPackNameLiteralOrDefaultRoster
+          - TestInit_SourceSetConstructsNoPartOfTheCIRef
+          - TestInit_SourceSetConstructsNoPartOfTheScaffoldRefOrItsPayload
+          - TestInit_SuppliesNoRecipeParamToEitherApply
+          - TestInit_ImplementsNoBaselineSeedingMachinery
+          - TestInit_ChangesNoGatePackageFileAndDoesNotMaskTheRemotelessMessage
+          - TestInit_ImplementsNoLocalProvenanceCache
+          - TestInit_ImplementsNoCIDetectionOrBespokeGuidance
+        depends_on:
+          - TASK-046
+
+      - id: TASK-048
+        type: test
+        title: "Scan the cmd/backstop half: no second execution path, and no dependency installation"
+        description: |
+          TestInit_SourceSetHoldsNoSecondCommandExecutionPath CLM-109 —
+            init's toolchain path introduces NO second execution route. The
+            source set contains no exec.Command construction, no shell
+            invocation, and no allowlist or command-splitting logic of its
+            own; it reaches the runner ONLY through the same
+            checkEngineToolAllowed → splitCommand → check.CommandRunner
+            sequence runFindingsEngine takes, differing from it in THE CAPTURE
+            METHOD ALONE (`Run` rather than `RunStdout`, CLM-122) and in
+            nothing else. Assert both halves: the sequence is bound AND the
+            method is `Run`.
+
+          TestInit_InstallsNoProjectDependencies CLM-059 —
+            init runs no package-manager or dependency-installation command
+            and writes nothing into the project beyond its own artifacts and
+            recipe-declared targets. Bundle REQ-032 was retired; the MVP is a
+            pack-authoring convention, so init REPORTS an uninstalled
+            toolchain rather than repairing it.
+
+          Same glob-bounded boundary rule as TASK-047: enumerate
+          `cmd/backstop/init*.go` at test time, assert the enumeration is
+          non-empty, then scan. The glob covers init.go, init_toolchain.go AND
+          init_seams.go — all three are init source and all three answer to
+          these two claims. Assert the enumeration contains init_seams.go
+          specifically: the production adapters are exactly where a second
+          execution path or a dependency-install shortcut would be most
+          tempting to add, since that file is the one that touches the pack
+          lifecycle.
+        files:
+          - cmd/backstop/init_sourceset_scan_test.go
+        claims:
+          - CLM-109
+          - CLM-059
+        test_names:
+          - TestInit_SourceSetHoldsNoSecondCommandExecutionPath
+          - TestInit_InstallsNoProjectDependencies
+        depends_on:
+          - TASK-046
+
+      - id: TASK-049
+        type: test
+        title: "The acceptance runs with REAL packs by git ref, the non-vacuity guard, the discovery tripwire, and DD-7's evidence"
+        description: |
+          ★ A PACKLESS ACCEPTANCE RUN DOES NOT SATISFY REQ-019. With zero packs
+          installed the gate has no pack engines to dispatch and the toolchain
+          step reports capability-absent, so a "PASS with zero violations"
+          would assert almost nothing. REQ-018 forbids a local-path `--pack`
+          value, so these runs PUBLISH TASK-001's fixture pack source as a
+          hermetic remote (newHermeticRemote,
+          cmd/backstop/hermetic_remote_harness_test.go — the GIT_CONFIG_GLOBAL
+          insteadOf redirect SPEC-055 built: a real clone at a real tag, no
+          network) and install it BY GENUINE GIT REF.
+
+            TestInit_FullSdlcFreshRepoWithRealPacksThenGateReachesPassWithZeroViolations CLM-091
+            TestInit_PackOnlyFreshRepoWithRealPacksThenGateReachesPassWithZeroViolations CLM-092
+              — fresh directory, `backstop init` (bare / `--no-sdlc`)
+              installing the fixture pack by git ref, then `backstop gate`:
+              PASS with ZERO violations, both profiles.
+
+          ★ THE NON-VACUITY GUARD, IN THREE PARTS — dispatch alone is too weak
+          a bar, because a fixture engine with no real content satisfies "an
+          engine ran" while asserting nothing (CLM-112):
+            TestInit_AcceptanceGateRunsDispatchedRealPackEngines
+              (1) the gate each acceptance claim asserts PASS over actually
+              DISPATCHED the installed pack's engine. A PASS from a gate with
+              zero dispatched pack engines cannot satisfy CLM-091 or CLM-092.
+            TestInit_AcceptanceDispatchedEngineCanProduceAViolation
+              (2) that engine is demonstrably CAPABLE of a violation: the same
+              pack, installed the same way, over a fixture project
+              deliberately containing the marker its rule flags, produces at
+              least one violation attributed to that engine. The acceptance
+              PASS is therefore a pack that CAN go red and did not.
+            TestInit_AcceptanceEngineCanProduceAViolationUnderBothProfiles
+              (3) that demonstration runs under BOTH profiles, because a
+              violation that cannot reach the verdict under the pack-only
+              profile's enforcement.policy would leave CLM-092 unfalsifiable
+              even with (1) and (2) satisfied.
+
+          Sharp Edge 17: the acceptance PASS quietly depends on the gitignore
+          step keeping .backstop/packs/ (which contains the pack's own
+          manifest, which necessarily contains the marker) out of the observe
+          step's scope. If a run subtracts the `gitignore` capability, or a
+          scope change stops honoring ignore entries, the pack finds its own
+          marker and the claim reds for a reason having nothing to do with
+          init. Note that dependency in the test.
+
+          The fixture pack declares no test or build engine, so the acceptance
+          runs' toolchain step reports capability-absent — deliberate and
+          stated. REQ-011's execution path is proven by phase 14's own claims.
+
+          ★ TestInit_ArtifactsUnderTheScaffoldedRootAreDiscoveredAndGated
+          CLM-103 — EXPECTED RED UNTIL SPEC-068 LANDS, and RED FOR A DIFFERENT
+          REASON than the config trio: this one fails at DISCOVERY, because
+          `.backstop` sits on the unconditional skip list at
+          cmd/backstop/artifact_discover.go:47-49. It is the DELIBERATE
+          TRIPWIRE that stops this spec being implemented into a vacuous
+          green: an artifact placed under the root init created must be
+          DISCOVERED and validated (non-zero artifact count), and a
+          deliberately INVALID artifact placed there must make validation
+          FAIL. Do not "fix" it by moving the layout, by writing a different
+          root, or by asserting a count of zero.
+
+          TestInit_ScaffoldedProjectTurnsAnEmptyProjectEntrypointFailureGreen
+          CLM-139 — DD-7's motivating evidence, bound to a test rather than to
+          a story. Using TASK-003's fixture pack: the declared entrypoint
+          exits NON-ZERO over a project with no source file and exits ZERO
+          over the same project once the scaffold recipe has run, with the
+          scaffolded file as the ONLY difference. This is what regresses
+          silently if a later refactor moves the scaffold step after the
+          toolchain step.
+        files:
+          - cmd/backstop/init_acceptance_test.go
+        claims:
+          - CLM-091
+          - CLM-092
+          - CLM-112
+          - CLM-103
+          - CLM-139
+        test_names:
+          - TestInit_FullSdlcFreshRepoWithRealPacksThenGateReachesPassWithZeroViolations
+          - TestInit_PackOnlyFreshRepoWithRealPacksThenGateReachesPassWithZeroViolations
+          - TestInit_AcceptanceGateRunsDispatchedRealPackEngines
+          - TestInit_AcceptanceDispatchedEngineCanProduceAViolation
+          - TestInit_AcceptanceEngineCanProduceAViolationUnderBothProfiles
+          - TestInit_ArtifactsUnderTheScaffoldedRootAreDiscoveredAndGated
+          - TestInit_ScaffoldedProjectTurnsAnEmptyProjectEntrypointFailureGreen
+        depends_on:
+          - TASK-046
+          - TASK-001
+          - TASK-003
+
+      - id: TASK-050
+        type: verification
+        title: "Run the FULL gate over the assembled implementation"
+        description: |
+          Rebuild the binary first — `go build -o bin/backstop ./cmd/backstop`
+          — then run `PATH="/Users/bmanson/go/bin:$PATH" ./bin/backstop gate
+          --all` (the full kill chain: pack lock, artifact validation, pack
+          engines, test verification, substantiveness, coverage, contracts,
+          status drift, requirement traceability, waiver resolution, baseline
+          comparison, ledger integrity). Read the true exit code from the
+          command itself; never infer it from a grep pipe, because a suite
+          that fails to COMPILE emits no FAIL line.
+
+          THE PATH-PREFIXED `./bin/` FORM IS LOAD-BEARING, NOT STYLE. A bare
+          `backstop` resolves to the Homebrew-installed release on PATH, which
+          contains NONE of this plan's code — it would render a confident
+          verdict about a binary this work never entered. Notes (2) and (3)
+          above measured both halves: the `~/go/bin` prefix and the rebuild.
+
+          THE BAR: PASS, with no new blocking violation, and coverage at or
+          above 80 for both pkg/initialize and cmd/backstop.
+
+          ★ THE FOUR SPEC-068 REDS ARE THE ONLY PERMITTED FAILURES, AND ONLY
+          UNTIL SPEC-068 LANDS: CLM-021, CLM-022, CLM-026 (config load) and
+          CLM-103 (discovery). Name all four in the output with their reason.
+          THIS PLAN MAY NOT BE MARKED `completed` AND THIS GATE MAY NOT BE
+          DECLARED PASSING WHILE ANY OF THE FOUR IS RED. Re-run this task
+          after SPEC-068 lands and confirm all four turn green WITH NO SOURCE
+          CHANGE ON THIS SIDE. If a source change is needed, SPEC-068 shipped
+          a different `artifact_root` spelling and the two artifacts must be
+          reconciled through their authors — do not patch around it.
+
+          No waivers, no .skip, no weakened assertion, no --no-verify.
+        files:
+          - pkg/initialize/initialize.go
+          - pkg/initialize/capability.go
+          - pkg/initialize/seams.go
+          - pkg/initialize/preserve.go
+          - cmd/backstop/init.go
+          - cmd/backstop/init_seams.go
+          - cmd/backstop/init_toolchain.go
+          - cmd/backstop/pack_entrypoint_prober.go
+        claims:
+          - CLM-021
+          - CLM-022
+          - CLM-026
+          - CLM-103
+          - CLM-091
+          - CLM-092
+          - CLM-044
+          - CLM-109
+        depends_on:
+          - TASK-045
+          - TASK-047
+          - TASK-048
+          - TASK-049
+
+      - id: TASK-051
+        type: verification
+        title: "Validate the artifacts this plan touches"
+        description: |
+          Run `./bin/backstop artifact validate` over the plan and its source
+          spec — the freshly built binary, never a bare `backstop`, which
+          resolves to the Homebrew release that predates this work.
+          The plan must validate structurally (task types, TDD ordering, gate
+          cadence, file exclusivity) and the spec's claim set must remain
+          fully mapped — 144 claims, every one referenced by at least one
+          task.
+
+          If SPEC-069 has moved past spec_version 1.3.1 by the time this runs,
+          re-read it and report any requirement or claim this plan does not
+          cover. Do not assume the plan is current because it validates.
+        files:
+          - plans/PLAN-SPEC-069-backstop-init.plan.yml
+          - specs/SPEC-069-backstop-init.spec.md
+        claims:
+          - CLM-090
+          - CLM-112
+        depends_on:
+          - TASK-045
+          - TASK-047
+          - TASK-048
+          - TASK-049
