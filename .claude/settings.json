@@ -87,9 +87,8 @@
   },
   "permissions": {
     "allow": [
-      "Write(.backstop/pm/**)",
       "Edit(.backstop/pm/**)",
-      "Write(.claude/agent-memory/backlog-pm/**)"
+      "Edit(.claude/agent-memory/backlog-pm/**)"
     ]
   }
 }

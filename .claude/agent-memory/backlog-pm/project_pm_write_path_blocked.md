@@ -115,6 +115,18 @@ scripted-write refusal is not universal for the PM queue — but Write/Edit
 remains the cheaper default, since a refusal costs a retry and the append
 costs nothing either way.
 
+**Expect "I don't see your changes" from teammates — it is almost never a failed
+write (2026-08-14).** Two causes, both benign: (1) `.backstop/pm/` is **gitignored**
+(`.gitignore:58`, deliberately — "the mechanism ships, the correspondence does not"), so
+`git status` can NEVER show INBOX.md or pending.log; (2) this repo has a **second
+worktree** (`../backstop-core-b010`) which has no `.backstop/pm/` at all and its own
+BACKLOG.yml, so a teammate checking from there gets silent grep AND clean git status.
+**How to apply:** don't re-do the work or assume a permission failure — re-verify in the
+main worktree and reply with `git check-ignore -v`, `git worktree list`, and absolute-path
+commands the teammate can run. Also worth watching: `HEAD` on main moves under you mid-
+session (other sessions commit), so an uncommitted BACKLOG.yml edit can get swept into an
+unrelated broad `git add` — flag it rather than committing it yourself.
+
 **Teammate roster is FLAT.** Spawning via `Agent` with a `name` parameter
 fails ("teammates cannot spawn teammates"), and `run_in_background: true`
 fails too. Omit `name` and pass `run_in_background: false`; several such calls

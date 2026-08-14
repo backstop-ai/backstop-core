@@ -12,6 +12,8 @@
 - [Gate-verdict-honesty cluster](project_gate_verdict_honesty_cluster.md) — got its OWN directive DIR-032 (2026-08-10); 12 members; slot by CHARTER not the founder's roster, fix the variants map after
 - [Never read subagent .output](feedback_never_read_subagent_output_files.md) — it's the raw ~100k-token JSONL transcript; grep the target file or re-run validate instead
 - [Concurrent PM triage races](project_concurrent_pm_triage_races.md) — sibling-issue bursts fire parallel PMs into ONE directive; re-read it after the agent returns, fix stale cross-refs in place
+- [pm-trigger hook misses CLI-scaffolded artifacts](project_pm_trigger_hook_misses_cli_scaffolded.md) — hook is PostToolUse(Write)-only; `artifact new`+Edit never fires it. Enumerate issues/ vs pending.log every sweep
+- [Homed-but-orphaned bundles](project_homed_but_orphaned_bundles.md) — BUNDLE-004/005/008 cited ONLY by `done` directives; check citers' status before calling a bundle homed. Also: pm-trigger hook can silently miss an artifact
 - [Orphaned issue backlog](project_orphaned_issue_backlog.md) — ~half of open issues cited by no directive; hook only catches post-install artifacts, compute uncited-open explicitly
 - [ISSUE-092 hollows acceptance bars](project_issue092_hollows_acceptance_bars.md) — any "passes pack test"/"fixtures falsify" criterion is vacuous while 092 lives; re-grep rule_path before citing
 - [Mechanism vs ecosystem](project_mechanism_vs_ecosystem_gap.md) — core capability lands green while zero packs/consumers use it; check the fleet, not just the tree

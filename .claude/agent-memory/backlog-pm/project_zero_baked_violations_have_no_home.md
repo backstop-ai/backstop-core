@@ -34,5 +34,22 @@ Two things worth carrying into any such triage:
 If a third or fourth such issue lands with no natural surface owner, that is the signal to
 recommend a successor directive to DIR-014 — do not create one unilaterally.
 
+**2026-08-14 — that threshold is now REACHED and the successor is escalated (awaiting a
+founder ruling).** Three live instances, one law, no owner: ISSUE-122 (`vendor`/`node_modules`
+in `cmd/backstop/artifact_discover.go`'s skip switch) and ISSUE-065 (`gate.go` selecting the
+contracts engine by the hardcoded key `ast-grep-contracts`, uncited since 2026-07-17) are cited
+by NO directive; ISSUE-120's accept-vs-extract-a-seam disposition is recorded in DIR-003 as an
+OPEN founder decision, not a settled home. Two more surface owners have since gone `done` —
+`DIR-017 "Pack CLI Hardening"` (owner of `cmd/backstop/artifact_*`) and `DIR-016` — so the
+"home by surface" fallback is itself running out of live homes. DIR-024's own Notes admit this
+about sibling ISSUE-089 ("currently has no live home"), and ISSUE-089 is not even in its
+`source:` list — quote that admission rather than re-deriving it.
+
+Also learned: the ENFORCEMENT half has a matching gap worth pairing with any successor
+directive. `backstop/self`'s `rules/no-baked.yml` cannot see skip-list/exclusion literals at
+all — `no-baked-language-token`'s regex covers file extensions and manifest filenames but no
+bare directory-convention words, and the four location-scoped families are `paths.include`-
+restricted to a fixed spine list. A whole coverage CLASS, not a one-file miss.
+
 Related: [[project_workaround_and_file_pattern]], [[project_mechanism_vs_ecosystem_gap]],
 [[project_concurrent_pm_triage_races]].
