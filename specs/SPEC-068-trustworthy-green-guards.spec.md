@@ -5,7 +5,7 @@ created: "2026-08-13"
 updated: "2026-08-15"
 status: implemented
 schema_version: spec/v1
-spec_version: 1.2.8
+spec_version: 1.2.9
 
 implementation:
   summary: >
@@ -1619,16 +1619,42 @@ quarantine.
 
 ## Version History
 
+- **1.2.9** (2026-08-15) — **Scope clarification to 1.2.8's gate sentence, and
+  nothing else.** No requirement, claim, contract, test or mechanism is added,
+  removed or reworded. The close-out entry named `./bin/backstop gate` without
+  stating its SCOPE, which could be misread as claiming the full-corpus sweep is
+  clean. The sentence below is narrowed to the DIFF-SCOPED gate — the scope
+  actually run and verified — and the `--all` picture is now stated explicitly
+  rather than left to inference.
 - **1.2.8** (2026-08-15) — **CLOSE-OUT: status `draft` -> `implemented`.** No
   requirement, claim, contract, test or mechanism is added, removed or reworded;
   this entry records the evidence the flip rests on. **Build and tests.**
   `go build ./...`, `go vet ./...` and `go test ./... -race -count=1` all clean
-  across 17 packages, zero failures. **Gate.** `./bin/backstop gate` reports
-  `pass: true` with every real dimension clean — `pack_engines`,
-  `test_verification`, `test_substantiveness`, `coverage_threshold`,
-  `contract_signature`, `artifact_status_drift`, `requirement_traceability`,
-  `waiver_resolution` — with only pre-existing advisory warnings remaining.
-  **Corpus.** `./bin/backstop artifact validate --all` reports `pass: true`
+  across 17 packages, zero failures. **Gate (DIFF-SCOPED).** The diff-scoped
+  `./bin/backstop gate` — bare, i.e. scoped to the diff vs merge-base plus
+  untracked files, which is the scope actually run and verified for this
+  close-out — reports `pass: true` with every real dimension clean —
+  `pack_engines`, `test_verification`, `test_substantiveness`,
+  `coverage_threshold`, `contract_signature`, `artifact_status_drift`,
+  `requirement_traceability`, `waiver_resolution` — with only pre-existing
+  advisory warnings remaining. This is deliberately NOT a claim about
+  `./bin/backstop gate --all`. The full-corpus sweep DOES surface violations —
+  `pack_engines`, `test_substantiveness`, `coverage_threshold` and
+  `contract_signature` all report findings — and those are pre-existing corpus
+  debt rather than breakage this implementation introduced: this spec's entire
+  contract surface, `pkg/artifact/layout.go`, appears ZERO times in that sweep's
+  output; the `contract_signature` findings are owned by SPEC-056, SPEC-057,
+  SPEC-042 and SPEC-047, every one of them already `implemented` — and therefore
+  already under contract enforcement — before this flip; and the `pack_engines`
+  and `test_substantiveness` findings sit in unrelated pre-existing files
+  carrying the established `accepted-risk` waiver pattern. That is this project's
+  standing "gate dogfood mostly dark" / "self-pack RED is roadmap" position, not
+  new debt from this work. One `--all` finding IS attributable to a file this
+  spec touched and is being fixed under separate lineage rather than papered over
+  here: `pkg/scaffold/idresolver.go` sits at 87.5% (77 of 88 statements), which
+  trips the 90% PER-FILE coverage ratchet that only the full sweep checks — a
+  different granularity from the 80 package-level floor this spec declares and
+  that both the diff-scoped gate and the impl-reviewer read. **Corpus.** `./bin/backstop artifact validate --all` reports `pass: true`
   over 347 artifacts. **Mandated tests.** All 71 mandated test names in this
   spec's `claims` block (70 as planned, plus CLM-070's
   `TestArtifactNew_IDNumberingContinuesUnderConfiguredRoot`, added in 1.2.7)
