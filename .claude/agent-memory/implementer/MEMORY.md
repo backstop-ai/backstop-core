@@ -68,3 +68,8 @@
 - [First consumer finds what dogfood hides](feedback_first_consumer_finds_what_dogfood_hides.md) — the reference repo's CONFIG is the blind spot; 2 core defects found by the first policy-sparse consumer; prove capability on a PLAINER second project
 - [Packs ship AFTER the core release](project_pack_ships_after_the_core_release.md) — a pack leaning on core BEHAVIOR can't declare a version floor (BUNDLE-020); publication order is the only mechanism
 - [Agent shell PATH misses GOPATH/bin](project_agent_shell_path_misses_gopath_bin.md) — a "go-arch-lint not found" pack_engines red is a phantom that HALTS the gate at step 3; prefix PATH=/Users/bmanson/go/bin
+- [Substantiveness join needs a CALL](project_substantiveness_subject_join_needs_a_call.md) — `pkg.Func()` in the test's OWN body; a selector or `var _ pkg.Iface = v` satisfies nothing and fires 2 more rules
+- [Path scans need symlink resolution](project_path_scans_need_symlink_resolution.md) — Abs is not enough; /var vs /private/var yields one finding per artifact, which looks correct
+- [Scope entry surfaces pack FPs](project_gate_scope_entry_surfaces_pack_false_positives.md) — a mandated mechanical repair drags a file's whole dormant finding set in; some need a PACK release, not code
+- [A resolver can't count its alternatives](feedback_a_resolver_cannot_count_its_own_alternatives.md) - re-calling a first-match resolver counts 0 or 1 only; assert against the TABLE plus a suffix-shadowing check
+- [Write path and read path share one root](project_write_path_and_read_path_must_share_one_root.md) - location tests stay green while id numbering restarts; replace the loose field, don't add beside it
