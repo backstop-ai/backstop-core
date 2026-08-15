@@ -1,0 +1,11 @@
+mode: atomic
+example.com/proj/passing.go:10.20,12.4 3 5
+example.com/proj/passing.go:12.4,15.10 4 2
+example.com/proj/passing.go:15.10,18.4 2 1
+example.com/proj/passing.go:18.4,20.2 1 0
+example.com/proj/failing.go:5.15,8.4 3 1
+example.com/proj/failing.go:8.4,12.10 4 0
+example.com/proj/failing.go:12.10,14.4 2 0
+example.com/proj/failing.go:14.4,16.2 1 1
+example.com/proj/iface.go:3.1,5.2 0 0
+example.com/proj/iface.go:7.1,9.2 0 0

@@ -1,5 +1,5 @@
 # Go
-bin/
+/bin/
 *.exe
 *.exe~
 *.dll
@@ -27,9 +27,9 @@ dist/
 
 # Node (for TypeScript packs)
 node_modules/
-cover.out
+/cover.out
 /backstop
-cover*.out
+/cover*.out
 
 # Scratch / handoff cruft — never committed (session-handoff-model)
 tmp/

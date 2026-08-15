@@ -1,0 +1,3 @@
+mode: atomic
+example.com/proj/iface.go:3.1,5.2 0 0
+example.com/proj/iface.go:7.1,9.2 0 0
