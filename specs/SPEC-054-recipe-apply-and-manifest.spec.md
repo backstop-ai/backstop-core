@@ -5,7 +5,7 @@ created: "2026-07-21"
 updated: "2026-07-27"
 status: implemented
 schema_version: spec/v1
-spec_version: 1.5.0
+spec_version: 1.5.1
 
 implementation:
   summary: >
@@ -1124,8 +1124,8 @@ contracts:
     provides:
       - name: runRecipeApply
         kind: function
-        signature: "func runRecipeApply(ref string, projectRoot string) (recipe.ApplyResult, error)"
-        notes: "Thin CLI wiring for `backstop recipe apply <pack:recipe@version>`: parses+resolves the ref, selects the pack's single provisioned engine binding from declared data, RUNS THE TRUST GATE (checkEngineToolAllowed → engine.CheckToolAllowed over resolveTrustedToolAllowlist, the SAME gate the enforcement dispatch uses — REQ-006) and only then builds the production TransformDispatch, so an un-allowlisted tool's command is never constructed; runs Apply and writes the adoption record. It RETURNS the applier's result alongside the error (ISSUE-080) because the success line is printed in the cobra RunE closure, from which the result was otherwise unreachable — so the CLI now reports what the apply ACTUALLY did from DATA rather than printing one static line: each WRITTEN target, marking any that overwrote a divergence no active waiver accounted for; each PRESERVED path with the covering token, or marked as the consumer's own file; and each non-fatal adjudication diagnostic as a `warning:` on STDERR while the report itself goes undivided to stdout. Every failure path returns the ZERO result alongside the error, matching Apply's own contract (a run either produces a verdict or it fails, never both). The ConfigError-vs-violation exit split is UNCHANGED. THIS FILE IS WHERE THE TRUST GATE LIVES — pkg/recipe cannot host it (no type there carries a tool or a locked version). ReadWaivers is left nil so apply.go's own real pkg/waiver read path is used rather than forking adjudication into a second implementation (REQ-004). The dogfoodable surface the E2E real-engine transform test (CLM-063) drives, proving the transform-dispatch seam runs a REAL allowlisted engine (ast-grep) end to end — a wired-but-no-op dispatch would fail it."
+        signature: "func runRecipeApply(ref string, projectRoot string, suppliedParams []string) (recipe.ApplyResult, string, error)"
+        notes: "Thin CLI wiring for `backstop recipe apply <pack:recipe@version>`: parses+resolves the ref, selects the pack's single provisioned engine binding from declared data, RUNS THE TRUST GATE (checkEngineToolAllowed → engine.CheckToolAllowed over resolveTrustedToolAllowlist, the SAME gate the enforcement dispatch uses — REQ-006) and only then builds the production TransformDispatch, so an un-allowlisted tool's command is never constructed; runs Apply and writes the adoption record. It RETURNS the applier's result alongside the error (ISSUE-080) because the success line is printed in the cobra RunE closure, from which the result was otherwise unreachable — so the CLI now reports what the apply ACTUALLY did from DATA rather than printing one static line: each WRITTEN target, marking any that overwrote a divergence no active waiver accounted for; each PRESERVED path with the covering token, or marked as the consumer's own file; and each non-fatal adjudication diagnostic as a `warning:` on STDERR while the report itself goes undivided to stdout. Every failure path returns the ZERO result alongside the error, matching Apply's own contract (a run either produces a verdict or it fails, never both). The ConfigError-vs-violation exit split is UNCHANGED. THIS FILE IS WHERE THE TRUST GATE LIVES — pkg/recipe cannot host it (no type there carries a tool or a locked version). ReadWaivers is left nil so apply.go's own real pkg/waiver read path is used rather than forking adjudication into a second implementation (REQ-004). The dogfoodable surface the E2E real-engine transform test (CLM-063) drives, proving the transform-dispatch seam runs a REAL allowlisted engine (ast-grep) end to end — a wired-but-no-op dispatch would fail it. SIGNATURE CORRECTED 2026-08-15 (v1.5.1) after TWO separate drifts, neither of which changed this spec's behavior. (1) `suppliedParams []string` is THIS spec's own v1.5.0 `--param` CLI surface (CLM-089..093): the parameter shipped, the declared string was never updated to match, so this half was stale against HEAD for weeks. (2) The third return — the resolved recipe's declared kind, taken from the single `ResolveRecipe` call this function already makes — is SPEC-069's REQ-035 widening, NOT this spec's work; SPEC-069 declares this same symbol with an identical string and owns the change. Two specs declaring one PRESENT symbol is the established shape here, not a conflict (`loadInstalledPacks` is declared by SPEC-017, SPEC-069 and SPEC-070); `absent: true` is reserved for DELETED symbols and does not apply. Because the contracts dimension matches declarations against the working tree and this spec is `implemented` while SPEC-069 is not yet, THIS is the enforced declaration — so it must name what the tree actually holds, or the gate trips on a symbol whose real owner is another spec."
     consumes:
       - source: pkg/recipe
         name: Apply
@@ -1660,6 +1660,21 @@ toward mock-heavy line-chasing of exactly the stubs this spec is at pains to avo
   spec: contract `notes:` prose is free to change, but a `signature:` string is load-bearing text —
   field names, types and ORDER are compared byte-wise, so an "improvement" to a signature line is a
   code change in disguise.
+- **`runRecipeApply` is declared by TWO specs, and the contracts dimension cannot tell you when only
+  one of them moves.** This spec and SPEC-069 both declare `cmd/backstop/recipe_apply.go`'s
+  `runRecipeApply` with, as of v1.5.1, identical signature strings. That duplication is intentional
+  and matches the corpus (`loadInstalledPacks` is declared by SPEC-017, SPEC-069 and SPEC-070), but
+  it is a maintenance trap: a `kind: function` entry compiles to an EXISTENCE-shaped ast-grep query,
+  so the gate confirms a function by that name exists and never compares the declared parameter or
+  return lists against the real ones. Both declarations can rot, in different directions, silently —
+  which is exactly how the v1.5.0 `--param` surface shipped with a stale string here and stayed
+  stale until an unrelated spec's implementation dragged the file into diff-scope. Two consequences
+  for anyone editing this symbol. FIRST, changing its shape means editing BOTH specs in the same
+  change; updating one leaves the other declaring a signature that no longer exists, with no red
+  anywhere. SECOND, do not "resolve" the duplication by deleting this entry or marking it
+  `absent: true` — `absent: true` asserts the symbol is GONE, so pointing it at a live function
+  inverts the guard into a false alarm the moment the real deletion guard is trusted. If ownership
+  genuinely needs to consolidate, that is a decision to escalate, not a tidy-up to perform here.
 
 - **The `--param` refusals are a CLI-LAYER policy, and they are deliberately stricter than the
   library.** `pkg/recipe.Apply` accepts any `Params` map: an undeclared key there is simply unused,
@@ -2114,3 +2129,30 @@ toward mock-heavy line-chasing of exactly the stubs this spec is at pains to avo
   ISSUE-081 stays in References, NARROWED: Gap 3 (insert placement semantics, SDLC-mediated CLI
   reachability) and the residual `Op.Payload` facet remain OPEN there. No requirement was removed
   and no existing test was dropped.
+- **1.5.1 (2026-08-15, implemented)** — CONTRACT-DECLARATION CORRECTION ONLY, in the shape of
+  1.2.1: one `signature:` string and its `notes:` prose. No requirement, claim, test name, verification
+  config or behavior changed, and nothing outside this spec's frontmatter was touched. The
+  `cmd/backstop/recipe_apply.go` entry for `runRecipeApply` declared
+  `func runRecipeApply(ref string, projectRoot string) (recipe.ApplyResult, error)`; it now declares
+  `func runRecipeApply(ref string, projectRoot string, suppliedParams []string) (recipe.ApplyResult, string, error)`.
+  The stale string had accumulated TWO drifts from DIFFERENT sources, which is why it is worth
+  recording rather than quietly fixing. (1) `suppliedParams []string` is THIS spec's OWN v1.5.0
+  `--param` CLI surface (CLM-089..093): the parameter shipped and the contract string was simply
+  never updated alongside it, so the declaration was stale against HEAD from v1.5.0 onward. (2) The
+  third return value — the resolved recipe's declared kind — is SPEC-069's REQ-035 widening and is
+  NOT this spec's work; SPEC-069 declares the same symbol with an identical string and carries the
+  rationale for the widening. Neither drift was detectable by the artifact tooling: the contracts
+  dimension compiles a `kind: function` entry to an existence-shaped ast-grep query that a stale and
+  a corrected declaration both satisfied while the source matched neither, and
+  `pkg/recipe/contract_signature_test.go`'s textual guard covers only `kind: type` entries for
+  `pkg/recipe/apply.go`, so it never saw this entry. The drift SURFACED only when PLAN-SPEC-069's
+  implementation edited `recipe_apply.go` and pulled the file into gate diff-scope, tripping
+  `contract_signature` — a spec inheriting a red from another spec's in-flight work.
+  TWO SPECS NOW DECLARE THIS ONE SYMBOL, deliberately: that is the established shape in this corpus
+  for a symbol several specs genuinely touch (`loadInstalledPacks` is declared by SPEC-017, SPEC-069
+  and SPEC-070), and `absent: true` was NOT used because it means DELETED — the symbol is present and
+  this spec still owns the trust-gate behavior described in its notes. Since the contracts dimension
+  matches declarations against the WORKING TREE, and this spec is `implemented` (enforced) while
+  SPEC-069 is not yet, this declaration is the one under enforcement and must name the shipped shape.
+  A Sharp Edge records the residual: when SPEC-069 lands, both declarations must move together, and
+  the ast-grep existence query will not catch it if only one does.

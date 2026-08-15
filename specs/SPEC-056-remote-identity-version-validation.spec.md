@@ -2,10 +2,10 @@
 title: "Remote Identity Version Validation"
 number: SPEC-056
 created: "2026-07-26"
-updated: "2026-07-27"
+updated: "2026-08-15"
 status: implemented
 schema_version: spec/v1
-spec_version: 1.1.1
+spec_version: 1.1.2
 
 implementation:
   summary: >
@@ -1032,7 +1032,7 @@ contracts:
       - name: AddCommand.Run
         kind: method
         signature: "func (c *AddCommand) Run(packRef string, opts AddOptions) (*AddResult, error)"
-        notes: "Reordered, not rewritten. The git branch becomes: ResolveEffectiveVersion (REQ-001) → Clone at the resolved tag → ValidateRemoteIdentity (REQ-002/003/006) → already-installed-and-current check keyed on the MANIFEST name → runValidationOnScratchCopy (REQ-008) → mutate. The already-current check moves AFTER identity resolution because it is keyed on the install name, which for a git pack is not knowable until the manifest is read; the local branch keeps its current position since a local pack's manifest is readable without cloning. Every install-path, backstop.yml-key, and lock-key use of the parsePackRef-derived name is replaced by identity.InstallName (REQ-003)."
+        notes: "Reordered, not rewritten. The git branch becomes: ResolveEffectiveVersion (REQ-001) → Clone at the resolved tag → ValidateRemoteIdentity (REQ-002/003/006) → already-installed-and-current check keyed on the MANIFEST name → RunValidationOnScratchCopy (REQ-008) → mutate. The already-current check moves AFTER identity resolution because it is keyed on the install name, which for a git pack is not knowable until the manifest is read; the local branch keeps its current position since a local pack's manifest is readable without cloning. Every install-path, backstop.yml-key, and lock-key use of the parsePackRef-derived name is replaced by identity.InstallName (REQ-003)."
       - name: InstallCommand.Run
         kind: method
         signature: "func (c *InstallCommand) Run(opts InstallOptions) (*InstallResult, error)"
@@ -1040,7 +1040,7 @@ contracts:
       - name: UpdateCommand.Run
         kind: method
         signature: "func (c *UpdateCommand) Run(packName string, opts UpdateOptions) (*UpdateResult, error)"
-        notes: "Five changes. It reads the pack's lock entry and resolves ONE coordinate through CoordinateForEntry, passing it to both ResolveLatestCompatible and the clone so the fallback warning is emitted once (REQ-005/CLM-055/056/059). It applies ValidateRemoteIdentity to the cloned tag before tamper detection or any mutation (REQ-002/CLM-023). It validates through runValidationOnScratchCopy rather than in place at command.go:539, which is the same contamination defect add had (REQ-008/CLM-083). It preserves the recorded coordinate when it rewrites the entry (REQ-004/CLM-048). And it carries divergence and fallback warnings out on UpdateResult.Warnings (REQ-011/CLM-068)."
+        notes: "Five changes. It reads the pack's lock entry and resolves ONE coordinate through CoordinateForEntry, passing it to both ResolveLatestCompatible and the clone so the fallback warning is emitted once (REQ-005/CLM-055/056/059). It applies ValidateRemoteIdentity to the cloned tag before tamper detection or any mutation (REQ-002/CLM-023). It validates through RunValidationOnScratchCopy rather than in place at command.go:539, which is the same contamination defect add had (REQ-008/CLM-083). It preserves the recorded coordinate when it rewrites the entry (REQ-004/CLM-048). And it carries divergence and fallback warnings out on UpdateResult.Warnings (REQ-011/CLM-068)."
       - name: UpgradeCommand.Run
         kind: method
         signature: "func (c *UpgradeCommand) Run(packRef string, opts UpgradeOptions) (*UpgradeResult, error)"
@@ -1049,10 +1049,10 @@ contracts:
         kind: function
         signature: "func recordGitPackInLock(projectDir, packName, version, contentHash, sourceCoordinate string) error"
         notes: "Gains the coordinate parameter so update and upgrade cannot rewrite an entry that silently loses it (REQ-004/CLM-048/049). A parameter rather than a read-modify-write inside the helper, so a caller that has no coordinate to preserve has to say so at the call site."
-      - name: runValidationOnScratchCopy
+      - name: RunValidationOnScratchCopy
         kind: function
-        signature: "func runValidationOnScratchCopy(validator Validator, packDir, sourceLabel string) error"
-        notes: "REQ-008, shared by add, update, and upgrade. Copies packDir into a temporary directory, runs RunPackCheck then RunPackTest against the COPY, and removes it on both paths (CLM-085/086). This is what keeps packval's sample_config rendering (phase3.go:143-168) out of the tree that is hashed and installed, and out of an operator's own working tree for a local-path add (CLM-081/082/087). sourceLabel is what a failure is REPORTED against — the coordinate and tag for a remote pack, the local path for a local one — because runPackvalPipeline quotes the directory it was handed (validator.go:66-71) and would otherwise show an operator a /var/folders scratch path (CLM-088/089). It takes the validator as a parameter rather than reading a receiver so all three commands share one implementation."
+        signature: "func RunValidationOnScratchCopy(validator Validator, packDir, sourceLabel string) error"
+        notes: "REQ-008, shared by add, update, and upgrade. Copies packDir into a temporary directory, runs RunPackCheck then RunPackTest against the COPY, and removes it on both paths (CLM-085/086). This is what keeps packval's sample_config rendering (phase3.go:143-168) out of the tree that is hashed and installed, and out of an operator's own working tree for a local-path add (CLM-081/082/087). sourceLabel is what a failure is REPORTED against — the coordinate and tag for a remote pack, the local path for a local one — because runPackvalPipeline quotes the directory it was handed (validator.go:66-71) and would otherwise show an operator a /var/folders scratch path (CLM-088/089). It takes the validator as a parameter rather than reading a receiver so all three commands share one implementation. NAME CORRECTED at 1.1.2: this spec declared the unexported `runValidationOnScratchCopy` through 1.1.1, but the symbol shipped EXPORTED in phase 7 (commit 575dbec) and was never unexported in any committed tree — the declaration was wrong from authoring, not stale from a later rename. Signature and behavior are unchanged."
     consumes:
       - source: pkg/pack/distribution
         name: ValidateRemoteIdentity
@@ -1365,7 +1365,7 @@ a legacy entry that lacks the field.
 `pack install`. This lands before anything produces a warning so no later pass can
 compute one with nowhere to put it.
 
-**Pass 5 — the scratch-copy validation seam.** `runValidationOnScratchCopy` in
+**Pass 5 — the scratch-copy validation seam.** `RunValidationOnScratchCopy` in
 `command.go`, and the validation calls in `AddCommand.Run` (`command.go:154`),
 `UpdateCommand.Run` (`command.go:539`), and `UpgradeCommand.Run` (`command.go:654`)
 all rewired through it, each passing the source label its failures should quote.
@@ -1507,7 +1507,7 @@ but only if it is applied to the local branch too and not just to the remote one
 (`validator.go:66-71`). Once that directory is a scratch temp dir, an unmodified
 implementation shows operators a `/var/folders/...` path that will not exist by the
 time they look at it. REQ-008 requires the failure to be reported against the
-original source instead — which is why `runValidationOnScratchCopy` takes a source
+original source instead — which is why `RunValidationOnScratchCopy` takes a source
 label rather than only a directory.
 
 **Moving the already-installed-and-current check changes when a no-op is detected.**
@@ -1637,6 +1637,25 @@ mistake "pre-mutation ordering" for "transactional".
 
 ## Version History
 
+- **1.1.2** (2026-08-15): Contract-declaration correction, documentary only — no
+  requirement, claim, behavior, or delivered code changed. The `command.go` contract
+  entry declared `func runValidationOnScratchCopy(validator Validator, packDir,
+  sourceLabel string) error`; the shipped symbol is and has always been the EXPORTED
+  `func RunValidationOnScratchCopy(validator Validator, packDir, sourceLabel string)
+  error`. Verified against the tree and against history: `git log -S` finds the
+  exported spelling introduced by phase 7's own commit `575dbec` and finds the
+  unexported spelling in NO commit, so this was an authoring-time error in the
+  declaration rather than drift from a later rename. Parameters, return, receiver-less
+  shape, file, and behavior are identical — only the leading letter's case was wrong.
+  Every in-spec prose reference to the symbol (implementation Pass 5, the sharp edge on
+  the source label, and 1.1.1's own phase-7 sentence) was corrected in the same pass so
+  body and frontmatter agree. The error survived nine months because `command.go` had
+  not entered gate diff-scope since delivery; it surfaced when an unrelated in-flight
+  edit for `backstop init` (PLAN-SPEC-069) touched the file and tripped
+  `contract_signature`. NOTE for future readers: `IsLocalPath` — raised alongside this
+  as a suspected second stale declaration — is NOT declared by this spec. It is
+  SPEC-069's contract (`add.go`), already declared there in its exported form; no edit
+  was warranted here.
 - **1.1.1** (2026-07-27): Status flip to `implemented`. Documentary only — no
   requirement, claim, contract, or behavior changed; the delivered contract is the one
   1.1.0 states. PLAN-SPEC-056 executed in full across all thirteen phases, commit series
@@ -1646,7 +1665,7 @@ mistake "pre-mutation ordering" for "transactional".
   (phase 3), `LockEntry.SourceCoordinate` landed ahead of its readers (phase 4),
   `pkg/pack/distribution/identity.go` as pure functions with nothing yet calling it
   (phase 5), `Warnings []string` carriers and the stderr renderer landed BEFORE anything
-  produced a warning (phase 6), `runValidationOnScratchCopy` in add, update and upgrade
+  produced a warning (phase 6), `RunValidationOnScratchCopy` in add, update and upgrade
   so validation can no longer contaminate what is installed or hashed (phase 7),
   `AddCommand.Run` reordered to resolve-clone-gate-then-mutate with every path on the
   MANIFEST name (phase 8), the source coordinate recorded verbatim and preserved by every

@@ -2,10 +2,10 @@
 title: "Backstop Init"
 number: SPEC-069
 created: "2026-08-13"
-updated: "2026-08-14"
-status: draft
+updated: "2026-08-15"
+status: implemented
 schema_version: spec/v1
-spec_version: 1.3.1
+spec_version: 1.3.4
 
 source:
   bundle: BUNDLE-003
@@ -270,6 +270,16 @@ requirements:
       command and must NEVER run one through a shell. A command whose tool the allowlist
       refuses is not executed at all: the trust gate sits BEFORE `splitCommand` and before the
       runner, and its refusal is reported as a config error rather than as a toolchain verdict.
+      WHAT THIS BINDS AND WHAT IT DOES NOT, STATED EXACTLY (clarified 2026-08-15). The hazard is
+      running ARBITRARY, PACK-SUPPLIED, consumer-influenced command strings outside the
+      trusted-tool allowlist, and every such command runs through the shared route above. It is
+      NOT a blanket ban on process creation inside the init source set: REQ-006's `git init`
+      (`pkg/initialize/step_git.go`) is a COMPILE-TIME-CONSTANT argv with no consumer or pack
+      input anywhere in it, and backstop's own use of git already sits outside that allowlist by
+      design — the allowlist governs PACK-DECLARED commands, which is why the pack-distribution
+      path invokes git the same way. Routing it through a new seam would add machinery without
+      adding safety, so it is bound instead by CLM-145's POSITIVE pin: exactly one construction,
+      in that named file, with a literal-only argv.
       THE RUNNER METHOD IS NAMED, AND IT IS THE ONE DELIBERATE DIFFERENCE FROM
       `runFindingsEngine`. Init enters the shared runner through `check.CommandRunner.Run`
       (`pkg/check/runner.go:17`, COMBINED stdout+stderr), NOT through `RunStdout`
@@ -940,6 +950,7 @@ claims:
   # ── REQ-009 — recipes applied only through the shipped generic mechanism ──
   - id: CLM-046
     requirement: REQ-009
+    subject: cmd/backstop
     text: >
       Init applies a recipe only by calling the shipped resolve+apply path, and the target
       files written are exactly the ones the recipe declared — init contributes no path
@@ -947,6 +958,7 @@ claims:
       - TestInit_AppliesRecipesOnlyThroughTheShippedResolveApplyPath
   - id: CLM-047
     requirement: REQ-009
+    subject: cmd/backstop
     text: >
       A recipe payload containing arbitrary bytes lands byte-identical on disk; init performs
       no rendering, rewriting, or specialization of payload content
@@ -1000,6 +1012,7 @@ claims:
       - TestInit_ScaffoldOmittedIsADeliberateNoOpExitingZero
   - id: CLM-130
     requirement: REQ-009
+    subject: cmd/backstop
     text: >
       With `--scaffold` supplied and resolvable, the recipe's declared targets land on disk at
       the paths the RECIPE declared, byte-identical to the payload the pack declared — init
@@ -1228,14 +1241,34 @@ claims:
     kind: absence
     subject: cmd/backstop
     text: >
-      DENYLIST — init's toolchain path introduces no second execution route: the init source
-      set contains no `exec.Command` construction, no shell invocation, and no allowlist or
-      command-splitting logic of its own; it reaches the runner only through the same
-      `checkEngineToolAllowed` → `splitCommand` → `check.CommandRunner` sequence
-      `runFindingsEngine` takes, differing from it in the CAPTURE METHOD alone (`Run` rather
-      than `RunStdout`, CLM-122) and in nothing else
+      DENYLIST — init's toolchain path introduces no second execution route. The `cmd/backstop`
+      half of the init source set (`cmd/backstop/init*.go`) contains no `exec.Command` or
+      `exec.CommandContext` construction, no `os/exec` import, no `exec.LookPath`, and no shell
+      invocation; it holds no allowlist or command-splitting logic of its own and does not call
+      `checkEngineToolAllowed` or `splitCommand` at all — it reaches the runner ONLY through the
+      shared `packEntrypointProber`, which binds the same `checkEngineToolAllowed` →
+      `splitCommand` → `check.CommandRunner` sequence `runFindingsEngine` takes (trust gate
+      BEFORE the splitter), differing from it in the CAPTURE METHOD alone (`Run` rather than
+      `RunStdout`, CLM-122) and in nothing else. THIS IS A BAN ON RUNNING PACK-SUPPLIED COMMAND
+      STRINGS OUTSIDE THAT ROUTE, which is the hazard it exists for — it is NOT a claim that the
+      whole init source set is exec-free. The `pkg/initialize` half holds exactly one exec
+      construction, `step_git.go`'s REQ-006 `git init`, whose argv is a compile-time constant with
+      no consumer or pack input in it; that one is governed by CLM-145's positive pin rather than
+      by this denylist
     tests:
       - TestInit_SourceSetHoldsNoSecondCommandExecutionPath
+  - id: CLM-145
+    requirement: REQ-011
+    subject: pkg/initialize
+    text: >
+      POSITIVE PIN — a structural (AST) scan of the WHOLE init source set finds EXACTLY ONE
+      `exec.Command`/`exec.CommandContext` construction; it lives in `pkg/initialize/step_git.go`
+      (REQ-006's `git init`); and every argument to it is a string literal or a `context.*` call,
+      never a variable. A second construction anywhere in the set, this one moving to another
+      file, or this one starting to interpolate ANY value a consumer or a pack supplied all fail
+      the scan
+    tests:
+      - TestInit_HoldsExactlyOneExecConstructionAndItTakesNoConsumerInput
   - id: CLM-058
     requirement: REQ-011
     subject: cmd/backstop
@@ -1457,6 +1490,7 @@ claims:
   # ── REQ-018 — portable git-ref installs; local provenance is ISSUE-055's ──
   - id: CLM-086
     requirement: REQ-018
+    subject: cmd/backstop
     text: >
       A git-ref `--pack` value installs and lands in `backstop.lock` as a git-source entry
       carrying its source coordinate
@@ -1482,6 +1516,7 @@ claims:
       - TestInit_LocalPathClassificationMatchesTheShippedClassifier
   - id: CLM-088
     requirement: REQ-018
+    subject: cmd/backstop
     kind: absence
     text: >
       DENYLIST — no lock entry init produces carries a `local_path` value, so the committed
@@ -1898,10 +1933,50 @@ contracts:
       - name: packToolchainProber
         kind: type
         signature: "type packToolchainProber struct { Packs []*pack.Manifest; Runner check.CommandRunner }"
-        notes: "REQ-011's concrete ToolchainProber — the file a plan hangs the allowlist binding on. Selects bindings by engine.GateTypeTest and engine.GateTypeBuild ONLY, then runs each through checkEngineToolAllowed -> splitCommand -> the shared check.CommandRunner: the same three steps runFindingsEngine takes (pack_gate.go:573-600) minus the SARIF parse, so there is no second execution path to audit and no shell anywhere. IT ENTERS THE RUNNER THROUGH Run, NOT RunStdout, and that is the one deliberate divergence from runFindingsEngine (which calls RunStdout at pack_gate.go:648): Run returns combined stdout+stderr — the method pkg/check/runner.go:17 documents as being for 'the build/test executors whose violation messages may legitimately include stderr' — and REQ-011 case (c) must report captured output VERBATIM, which a stdout-only capture would render empty for a failing entrypoint that diagnoses on stderr. Init parses nothing, so the SARIF-contamination reason RunStdout exists for does not apply here. CLM-122 is the tripwire. Mirrors SPEC-070's checkToolchainRuns deliberately — one check, two callers, one execution route."
+        notes: "REQ-011's concrete ToolchainProber, and A THIN ADAPTER OVER THE SHARED packEntrypointProber (cmd/backstop/pack_entrypoint_prober.go, declared below) — corrected 2026-08-15 to describe the SHIPPED shape. It performs NO mechanical step of its own: no binding selection, no allowlist call, no command splitting, no exec. The three execution steps REQ-011 binds — checkEngineToolAllowed -> splitCommand -> the shared check.CommandRunner — and the Run-not-RunStdout capture choice live in the shared prober and nowhere else, which is what keeps 'one execution route' true now that `backstop doctor` (SPEC-070) consumes the SAME type rather than a second copy. EVERYTHING THIS FILE ADDS IS REPORTING AND ALL OF IT IS INIT-SPECIFIC: it maps each raw entrypointProbe into an initialize.StepReport (case (a) delivered; case (b) owed setup; case (c) exit code plus captured output verbatim; zero selected bindings -> capability-absent) and surfaces an allowlist refusal as a *check.ConfigError rather than as a toolchain verdict. A nil Packs field means 'load the corpus INSTALLED AT PROBE TIME', which is the PRODUCTION case rather than a fallback: init's pack step installs during the same run. THE LOCATION IS STILL FORCED — checkEngineToolAllowed and splitCommand are unexported in package main, so neither the shared prober nor this adapter could live in pkg/initialize. CLM-122 remains the tripwire on the capture method, and it now reads the shared prober."
       - name: Probe
         kind: method
         signature: "func (p *packToolchainProber) Probe(projectRoot string) ([]initialize.StepReport, error)"
+      - name: toolchainReport
+        kind: function
+        signature: "func toolchainReport(probe entrypointProbe, projectRoot string) initialize.StepReport"
+        notes: "The init-side rendering of ONE raw probe, declared 2026-08-15 with the adapter split. This is where the (b)/(c) LABELS diverge — 'could not be STARTED' vs the exit code plus verbatim output — and where REQ-011's no-cause-claimed posture is enforced in prose rather than by a scan."
+    consumes:
+      - source: cmd/backstop
+        name: packEntrypointProber
+        kind: type
+      - source: cmd/backstop
+        name: loadInstalledPacks
+        kind: function
+      - source: pkg/check
+        name: CommandRunner
+        kind: interface
+      - source: pkg/check
+        name: ConfigError
+        kind: type
+      - source: pkg/pack
+        name: Manifest
+        kind: type
+      - source: pkg/initialize
+        name: StepReport
+        kind: type
+  - file: cmd/backstop/pack_entrypoint_prober.go
+    provides:
+      - name: entrypointOutcome
+        kind: type
+        signature: "type entrypointOutcome int"
+        notes: "Declared 2026-08-15 (TASK-042 extraction). Four values — entrypointRefused, entrypointPassed, entrypointUnstartable, entrypointExitedNonZero — carrying NO report vocabulary: 'owed setup' and 'verbatim' are init's words for these, warn/fail/skip are doctor's."
+      - name: entrypointProbe
+        kind: type
+        signature: "type entrypointProbe struct { PackName string; EngineKey string; GateType engine.GateType; Command string; Outcome entrypointOutcome; ExitCode int; Output []byte; Err error }"
+      - name: packEntrypointProber
+        kind: type
+        signature: "type packEntrypointProber struct { Packs []*pack.Manifest; Runner check.CommandRunner }"
+        notes: "THE ONE EXECUTION ROUTE for pack-declared test/build entrypoints, with TWO callers: init's packToolchainProber (above) and SPEC-070's doctor toolchain-runs check. Declared 2026-08-15: the spec originally hung the three execution steps on init_toolchain.go, and the implementation extracted them here the moment the second caller existed, because two copies of a pack-command EXECUTION path is exactly what REQ-011 forbids — and they would have drifted on the one thing the two specs already disagree about, the runner method. NOT a cross-package extraction: both callers are package main, forced there because checkEngineToolAllowed and splitCommand are unexported. NO projectRoot FIELD, and that is not an omission — check.CommandRunner has no working-directory argument (the directory is a construction-time property of check.ExecCommandRunner{Dir: ...}), so each caller roots its own runner and hands it in; a second rooting mechanism here would be a second execution path in miniature."
+      - name: Probe
+        kind: method
+        signature: "func (p *packEntrypointProber) Probe(ctx context.Context) []entrypointProbe"
+        notes: "Selects bindings by engine.GateTypeTest and engine.GateTypeBuild ONLY — by STAGE, never by tool — then runs each through checkEngineToolAllowed -> splitCommand -> the shared check.CommandRunner: the same three steps runFindingsEngine takes (pack_gate.go:573-600) minus the SARIF parse, with the trust gate BEFORE the splitter so a refused tool's command is never even tokenized. IT ENTERS THE RUNNER THROUGH Run, NOT RunStdout, and that is the one deliberate divergence from runFindingsEngine (which calls RunStdout at pack_gate.go:648): Run returns combined stdout+stderr — the method pkg/check/runner.go:17 documents as being for 'the build/test executors whose violation messages may legitimately include stderr' — and REQ-011 case (c) must report captured output VERBATIM, which a stdout-only capture would render empty for a failing entrypoint that diagnoses on stderr. Neither caller parses the output, so the SARIF-contamination reason RunStdout exists for does not apply while the lost-diagnostic hazard does; CLM-122 is the tripwire. NO ERROR RETURN, BY DESIGN: an allowlist refusal is PER-BINDING state (entrypointRefused plus Err) because init disposes of it as a config error while doctor disposes of it as that check's failure, and a shared error return would force one caller's disposition on the other. ZERO selected bindings returns an EMPTY SLICE — absence is the caller's to classify. DETERMINISTIC ORDER IS PART OF THE CONTRACT: Packs in slice order, Engines by SORTED KEY, because Manifest.Engines is a map and doctor's byte-identical-report claim is satisfiable only if this sorts."
     consumes:
       - source: cmd/backstop
         name: checkEngineToolAllowed
@@ -1909,12 +1984,12 @@ contracts:
       - source: cmd/backstop
         name: splitCommand
         kind: function
-      - source: cmd/backstop
-        name: loadInstalledPacks
-        kind: function
       - source: pkg/check
         name: CommandRunner
         kind: interface
+      - source: pkg/pack
+        name: Manifest
+        kind: type
       - source: pkg/pack/engine
         name: GateType
         kind: type
@@ -1935,13 +2010,13 @@ contracts:
       - name: runRecipeApply
         kind: function
         signature: "func runRecipeApply(ref string, projectRoot string, suppliedParams []string) (recipe.ApplyResult, string, error)"
-        notes: "REQ-035, declared 2026-08-14. A WIDENING of the SHIPPED function at recipe_apply.go:192, whose signature at HEAD is `func runRecipeApply(ref string, projectRoot string, suppliedParams []string) (recipe.ApplyResult, error)`. It now ALSO returns the resolved recipe's declared kind — `resolved.Manifest.Kind`, which this function already holds after its single `recipe.ResolveRecipe` call at recipe_apply.go:215. BEHAVIOR IS PRESERVED: the same steps in the same order, the same *check.ConfigError-vs-violation exit split, the same zero `recipe.ApplyResult` on every failure path (now paired with an empty kind), and the same `recordRecipeAdoption` tail. Its one caller is the cobra RunE at recipe_apply.go:74; the recipe-apply E2E tests drive the ASSEMBLED root command rather than this function, so they must stay green UNMODIFIED. The widening exists because `ApplyOutcome.RecipeKind` (pkg/initialize/seams.go) feeds REQ-035's three-class preserve classifier, and the only alternative — init's production RecipeApplier resolving the ref a SECOND time to read the kind — is a second derivation of 'which recipe is this', the exact hazard REQ-018 refuses for local-path classification and SPEC-056 settled with pack.ValidatePackName as 'one authority, not a copy'. This is the second and last edit this spec makes outside its two new packages; the other is the IsLocalPath export below. Nothing under pkg/recipe is touched, which REQ-009 forbids."
+        notes: "REQ-035, declared 2026-08-14. A WIDENING of the SHIPPED function at recipe_apply.go:192, whose signature at HEAD is `func runRecipeApply(ref string, projectRoot string, suppliedParams []string) (recipe.ApplyResult, error)`. It now ALSO returns the resolved recipe's declared kind — `resolved.Manifest.Kind`, which this function already holds after its single `recipe.ResolveRecipe` call at recipe_apply.go:215. BEHAVIOR IS PRESERVED: the same steps in the same order, the same *check.ConfigError-vs-violation exit split, the same zero `recipe.ApplyResult` on every failure path (now paired with an empty kind), and the same `recordRecipeAdoption` tail. Its one caller is the cobra RunE at recipe_apply.go:74; the recipe-apply E2E tests drive the ASSEMBLED root command rather than this function, so they must stay green UNMODIFIED. The widening exists because `ApplyOutcome.RecipeKind` (pkg/initialize/seams.go) feeds REQ-035's three-class preserve classifier, and the only alternative — init's production RecipeApplier resolving the ref a SECOND time to read the kind — is a second derivation of 'which recipe is this', the exact hazard REQ-018 refuses for local-path classification and SPEC-056 settled with pack.ValidatePackName as 'one authority, not a copy'. CORRECTED 2026-08-15: this note previously called itself 'the second and last edit this spec makes outside its two new packages', which the shipped change set contradicts. The full set outside pkg/initialize and cmd/backstop/init*.go is — this widening; cmd/backstop/root.go (registering the init command); the NEW production file cmd/backstop/pack_entrypoint_prober.go (the shared execution route, declared above); pkg/pack/distribution/add.go plus its one call site in command.go and a new export test (the IsLocalPath entry below); and cmd/backstop/ci_recipes_mechanism_test.go (SPEC-067's anti-regression pin, Sharp Edge 22). Nothing under pkg/recipe is touched, which REQ-009 forbids — that part was and remains true."
   - file: pkg/pack/distribution/add.go
     provides:
       - name: IsLocalPath
         kind: function
         signature: "func IsLocalPath(ref string) bool"
-        notes: "REQ-018. The SHIPPED classifier at add.go:96, EXPORTED (isLocalPath -> IsLocalPath, all in-package callers updated) so init calls the one authority instead of writing a second definition of 'is this a local path'. Behavior is UNCHANGED — this is a rename, not a reimplementation; the SPEC-056 precedent is pack.ValidatePackName as 'one authority, not a copy'. This is the ONLY edit this spec makes to pkg/pack/distribution."
+        notes: "REQ-018. The SHIPPED classifier at add.go:96, EXPORTED (isLocalPath -> IsLocalPath, all in-package callers updated) so init calls the one authority instead of writing a second definition of 'is this a local path'. Behavior is UNCHANGED — this is a rename, not a reimplementation; the SPEC-056 precedent is pack.ValidatePackName as 'one authority, not a copy'. CORRECTED 2026-08-15: this note previously called itself 'the ONLY edit this spec makes to pkg/pack/distribution'. The export necessarily carries its in-package call site with it — pkg/pack/distribution/command.go's AddCommand.Run now reads IsLocalPath — and the export is pinned by a new test file in that package (islocalpath_export_test.go). Three files, one rename, zero behavior change: no accepted form was dropped, no new form added, and there is deliberately no lowercase alias or deprecated shim."
 ---
 
 # SPEC-069: Backstop Init
@@ -2046,7 +2121,11 @@ Claims are defined in frontmatter, one block per requirement.
 
 ### 1. Package layout
 
-Four new files across two packages, plus two small behavior-preserving edits to shipped files:
+New files across two packages, plus small behavior-preserving edits to shipped files. *(Corrected
+2026-08-15: this list previously read "four new files … plus two small edits" and named the
+`add.go` export and the `runRecipeApply` widening as the only two. The shipped change set is
+larger; every member of it is named below and, where it carries surface, declared in
+`contracts`.)*
 
 - **`pkg/initialize/`** — the orchestration engine. `capability.go` holds the capability
   vocabulary and its resolution; `seams.go` holds the five injected dependency interfaces and
@@ -2055,22 +2134,33 @@ Four new files across two packages, plus two small behavior-preserving edits to 
 - **`cmd/backstop/init.go`** — the cobra command: flag definitions, flag→`Options` translation,
   report rendering, and exit-code mapping. It is thin by construction, mirroring
   `cmd/backstop/recipe_apply.go`.
-- **`cmd/backstop/init_toolchain.go`** — `packToolchainProber`, the concrete `ToolchainProber`.
-  It lives in package `main` because that is where `checkEngineToolAllowed` and `splitCommand`
-  are, and REQ-011 binds execution to those exact functions (§7).
-- **`pkg/pack/distribution/add.go`** — the first of two edits outside the two new packages:
-  `isLocalPath` is exported as `IsLocalPath` so REQ-018 has one authority rather than a copy (§6).
-  Behavior unchanged.
-- **`cmd/backstop/recipe_apply.go`** — the second: `runRecipeApply` is widened to ALSO return the
+- **`cmd/backstop/init_toolchain.go`** — `packToolchainProber`, the concrete `ToolchainProber`,
+  and a THIN ADAPTER over the shared prober below: it does init's reporting and nothing
+  mechanical. It lives in package `main` because that is where `checkEngineToolAllowed` and
+  `splitCommand` are, and REQ-011 binds execution to those exact functions (§7).
+- **`cmd/backstop/pack_entrypoint_prober.go`** — `packEntrypointProber`, THE one execution route
+  for pack-declared `test`/`build` entrypoints, holding the three bound steps and the
+  `Run`-not-`RunStdout` capture choice. It is deliberately report-free: init's step vocabulary and
+  SPEC-070 doctor's check vocabulary each layer on top of the raw outcomes, and the second caller
+  is the reason the core is here rather than inline in `init_toolchain.go` (§7).
+- **`cmd/backstop/root.go`** — registers the `init` command on the root command. No `ci` verb and
+  no `scaffold` verb: both steps are governed solely by their own flag's presence (§10, §8).
+- **`cmd/backstop/ci_recipes_mechanism_test.go`** — SPEC-067's anti-regression pin, edited twice:
+  `init` joins the enumerated top-level command set, and REQ-016's `--ci` flag gets a narrowly
+  keyed exemption from that pin's platform-token ban, whose narrowness is itself pinned by a
+  dedicated test (Sharp Edge 22).
+- **`pkg/pack/distribution/add.go`** (plus its one call site in `command.go` and a new export
+  test): `isLocalPath` is exported as `IsLocalPath` so REQ-018 has one authority rather than a
+  copy (§6). Behavior unchanged.
+- **`cmd/backstop/recipe_apply.go`** — `runRecipeApply` is widened to ALSO return the
   resolved recipe's declared kind, which `ApplyOutcome.RecipeKind` carries into REQ-035's
   classifier (§10). Behavior is preserved — same steps, same order, same error classification, and
   the existing recipe-apply E2E tests drive the assembled root command and stay green unmodified.
   The function already holds the kind after its single `ResolveRecipe` call; the alternative,
   resolving the ref a SECOND time inside init's applier, would be a second derivation of "which
-  recipe is this" — the hazard REQ-018 refuses for local-path classification (§6). *(Corrected
-  2026-08-14: this section previously named the `add.go` export as the SOLE edit outside the two
-  new packages. The second edit was identified while planning this spec, and both are now named
-  here and declared in `contracts`.)*
+  recipe is this" — the hazard REQ-018 refuses for local-path classification (§6). *(This edit was
+  identified while planning the spec, after an earlier draft named the `add.go` export as the sole
+  edit outside the two new packages.)*
 
 `NewRunner` is a FAIL-CLOSED positional constructor that errors naming any nil dependency, the
 same shape `pkg/pack/distribution/command.go` uses for `NewAddCommand`. This is deliberate reuse
@@ -2206,8 +2296,9 @@ is REFUSED as a config error (exit 2) naming the lock-portability reason and poi
 **That classification has exactly one authority and init does not become a second.** The shipped
 predicate is `isLocalPath` (`pkg/pack/distribution/add.go:96`) — the same one the add path
 already forks local from remote on. This spec EXPORTS it as `IsLocalPath` (a rename with no
-behavior change; in-package callers updated) and init calls it. That is the only edit this spec
-makes to `pkg/pack/distribution`. Writing init's own predicate would be a second definition of
+behavior change; in-package callers updated) and init calls it. What that touches in
+`pkg/pack/distribution` is the rename in `add.go`, its one call site in `command.go`, and a new
+test pinning the export — no behavior anywhere. Writing init's own predicate would be a second definition of
 "is this a local path", and the two drifting apart is not hypothetical: a ref init classified
 remote and the add path classified local would produce precisely the machine-specific
 `local_path` lock entry REQ-018 exists to prevent, and it would fail nowhere near init.
@@ -2267,6 +2358,30 @@ The concrete `ToolchainProber` therefore lives in `cmd/backstop/init_toolchain.g
 `splitCommand` are unexported in package `main`, so a `pkg/initialize` implementation could not
 reach them and would have to write a second copy of both, which is the thing this requirement
 forbids. `pkg/initialize` holds the interface only.
+
+**The three bound steps live in `cmd/backstop/pack_entrypoint_prober.go`, one file up from
+either caller, and `init_toolchain.go` is a thin adapter over it.** The moment SPEC-070's doctor
+needed the same execution — same selection, same gate, same splitter, same runner method — the
+choice was one shared route or two copies, and two copies of a pack-command execution path is
+precisely what this requirement forbids; they would have drifted on the one thing the two specs
+already disagree about, the capture method. The shared type is deliberately REPORT-FREE: it
+returns what RAN and what HAPPENED, and init's owed-setup-versus-verbatim classification and
+doctor's per-check rollup each layer on top on their own side. It returns no `error`, because an
+allowlist refusal is per-binding state that init disposes of as a config error while doctor
+disposes of it as a check failure, and it returns an EMPTY SLICE for zero selected bindings,
+because absence is the caller's to classify (init: capability-absent; doctor: warn). It walks
+packs in slice order and each manifest's engines by SORTED key — `Manifest.Engines` is a map, and
+doctor's byte-identical-report claim is satisfiable only if this sorts.
+
+**REQ-011's execution ban is about pack-supplied command strings, not about process creation.**
+The one exec construction in the whole init source set is REQ-006's `git init`
+(`pkg/initialize/step_git.go`), whose argv is a compile-time constant carrying no consumer or
+pack input — the same way the pack-distribution path already invokes git, outside an allowlist
+that governs pack-declared commands. It is pinned POSITIVELY rather than banned: CLM-145 asserts
+exactly one construction, in that file, with every argument a string literal or a `context.*`
+call, so the pin fails the moment a variable — a ref, a path fragment, a pack-declared string —
+reaches that argv. CLM-109 covers the `cmd/backstop` half as a flat denylist, where no such
+sanctioned construction exists.
 
 **What the verdict is taken from.** Each engine's outcome is its own command's exit status and
 nothing adjacent: not a package-manager command init ran itself (it runs none), not a
@@ -2519,11 +2634,14 @@ Test placement follows claim subject exactly, and no claim straddles packages:
   step's exit-code claims and its three preserve-class claims, CLM-139's
   entrypoint-over-a-scaffolded-project demonstration (it executes a declared entrypoint, so it
   lives where every other REQ-011 claim does), the two REQ-019 acceptance e2e claims, and
-  **every REQ-011 toolchain claim**. That last group is not a preference: the concrete
-  `ToolchainProber` lives in `cmd/backstop/init_toolchain.go` because the allowlist gate and the
-  command splitter it must bind to are unexported in package `main` (§7), so its tests live
-  there too. `pkg/initialize` holds only the `ToolchainProber` interface, and the Runner's
-  toolchain STEP is exercised through a fake prober.
+  **every REQ-011 toolchain claim except CLM-145**. That group is not a preference: the concrete
+  `ToolchainProber` and the shared `packEntrypointProber` it adapts both live in package `main`
+  because the allowlist gate and the command splitter they must bind to are unexported there
+  (§7), so their tests live there too. `pkg/initialize` holds only the `ToolchainProber`
+  interface, and the Runner's toolchain STEP is exercised through a fake prober. **CLM-145 is the
+  one REQ-011 claim subject to `pkg/initialize`**, and correctly so: it scans the WHOLE init
+  source set for exec constructions and its one sanctioned finding is `pkg/initialize/step_git.go`
+  — the AST scan is a `pkg/initialize` test, so that is its one satisfiable subject.
 
 Absence and structural claims carry `kind: absence` so the substantiveness noTarget join does not
 demand they reference the subject — a test proving a literal is ABSENT cannot reference the thing
@@ -2735,7 +2853,13 @@ a stated prerequisite.
    future implementer who moves init logic into a helper file outside that glob (a new
    `pkg/initcore/`, a function parked in `cmd/backstop/root.go`) silently empties the claims
    without failing them. The scan must be defined by a package/prefix set the implementation
-   cannot drift out of without also failing an import-graph assertion.
+   cannot drift out of without also failing an import-graph assertion. **The shared
+   `pack_entrypoint_prober.go` is a live instance of exactly this, handled deliberately rather
+   than accidentally:** it sits OUTSIDE the `init*.go` glob because it is package-neutral and has
+   two callers, so CLM-109's scan reads it EXPLICITLY — asserting the init half calls neither the
+   gate nor the splitter, AND that the shared file binds them in gate-before-splitter order and
+   enters the runner through `Run` exactly once. Absent that second half, moving the sequence out
+   of the glob would have satisfied the denylist by emptying it.
 
 11. **Two structurally-identical no-ops carry different exit codes and the distinction must survive
     refactoring.** `--ci` omitted (exit 0) and `--ci` supplied-but-unresolvable (non-zero) both end
@@ -2866,6 +2990,33 @@ a stated prerequisite.
     scan but a habit: when a spec requirement paraphrases a bundle requirement, the paraphrase is
     a diff to be reviewed, and a denylist claim derived from a paraphrase inherits whatever the
     paraphrase dropped.
+
+22. **REQ-016's `--ci` flag WEAKENS ANOTHER SPEC'S ANTI-REGRESSION PIN, and the weakening is
+    sanctioned — recorded here so a future reader can tell 'deliberate' from 'accidental'.**
+    `cmd/backstop/ci_recipes_mechanism_test.go` belongs to SPEC-067 (its REQ-006/REQ-007/REQ-008
+    proof). It pins the CLI's whole top-level command set by enumeration, and it independently bans
+    any command or flag ANYWHERE in the assembled tree from naming one of the tokens `ci`,
+    `workflow`, `github`, `gitlab`, `bitbucket`, `jenkins` — the guard against exactly the
+    platform-specific baking the zero-baked-language principle forbids. REQ-016 mandates a `--ci`
+    flag on `backstop init` BY NAME, so this spec's implementation had to touch that pin twice.
+    **First, the command-set enumeration.** `init` was added to the expected list. That is the pin
+    WORKING rather than the pin being wrong: the list is exhaustive precisely so every later spec
+    that adds core surface has to come here and say so by name, and an unexplained addition still
+    fails. **Second, the token ban.** A single exemption predicate, `ciSanctionedTokenFlag`, keyed
+    on the exact TRIPLE `token == "ci"` AND `commandPath == "backstop init"` AND `flagName == "ci"`.
+    The distinction is principled, not convenient: `github`/`gitlab`/`bitbucket`/`jenkins`/`workflow`
+    are PLATFORM names and core holding one is the bake the pin exists to prevent — none is
+    sanctioned anywhere, including on init. `ci` is different in kind: on init it names backstop's
+    OWN step, the one governed solely by that flag's presence, and its VALUE is a whole pinned
+    `<pack>:<recipe>@<version>` ref core never inspects (§10, CLM-136). **The hazard is that an
+    exemption inside an anti-regression pin is the classic way a pin quietly stops pinning** — added
+    narrowly for one real reason, then widened one plausible case at a time until the ban is
+    decorative. So the narrowness is itself pinned, by
+    `TestCIRecipes_TheSanctionedFlagExemptionIsExactlyOnePair`, which proves the predicate admits
+    that ONE pair and refuses seven concrete near-misses: `--github`, `--gitlab`, `--jenkins` and
+    `--workflow` on init; `--ci` on `recipe apply` and on `gate`; and a nested `ci` VERB under init.
+    Any future widening therefore has to defeat a test that says in its own failure message why it
+    exists.
 
 ## Review Questions
 
@@ -3068,3 +3219,123 @@ a stated prerequisite.
   artifacts, the second half of the vacuous-green composition.
 - `specs/SPEC-068-trustworthy-green-guards.spec.md` — the prerequisite seed.
 - `specs/SPEC-070-backstop-doctor.spec.md` — the sibling seed init delegates diagnosis to.
+
+## Version History
+
+*(Entries begin at 1.3.2. Versions 1.0.0–1.3.1 predate this section; their history is in git.)*
+
+- **1.3.4** (2026-08-15) — **CLOSE-OUT: status `draft` -> `implemented`.** No requirement,
+  claim, contract, test or mechanism is added, removed or reworded; this entry records the
+  evidence the flip rests on, and the evidence was re-verified in this session rather than
+  copied forward from the implementation report.
+  **Lineage.** `PLAN-SPEC-069-backstop-init.plan.yml` is `completed`. The implementation went
+  through TWO full independent impl-review passes, both of which returned FAIL on their first
+  reading; every finding was fixed, the fixes were independently red-proofed by MUTATION
+  testing (each reverted fix correctly reddened its test), and the delta re-review returned
+  CLEAN. Immediately before this flip the spec itself went through an accuracy-only pass
+  (1.3.1 -> 1.3.2) correcting a stale contract entry, two false exhaustive-edit-count notes,
+  an undocumented weakening of SPEC-067's platform-token pin, and CLM-109's over-broad exec
+  ban — see that entry for detail.
+  **Build and tests.** `go build ./...` and `go vet ./...` are clean across the repo. This
+  spec's own declared `test_command` — `go test ./pkg/initialize/... ./cmd/backstop/ -race` —
+  passes with zero failures.
+  **Mandated tests.** Every test name in this spec's `claims` block was confirmed PRESENT in
+  the tree by name at close-out time: 145 claims carrying 147 distinct test names (two claims
+  mandate two tests each), including CLM-145's
+  `TestInit_HoldsExactlyOneExecConstructionAndItTakesNoConsumerInput`, which 1.3.2 added to
+  the spec text for a test that already shipped. Zero missing. The impl-review rounds
+  established that none are hollow, by mutation rather than by presence.
+  **Coverage.** Measured at close-out against this spec's declared 80 floor:
+  `pkg/initialize` 95.8%, `cmd/backstop` 91.4%. Every new or edited file also clears the
+  repo's 80 per-file floor.
+  **Gate (DIFF-SCOPED).** The diff-scoped `./bin/backstop gate` — bare, i.e. scoped to the
+  diff vs merge-base plus untracked files, which is the scope actually run and verified for
+  this close-out — reports zero violations attributable to this spec's files across
+  `test_verification`, `test_substantiveness`, `coverage_threshold`, `contract_signature`,
+  `artifact_validation`, `artifact_status_drift`, `requirement_traceability` and
+  `waiver_resolution`. Following SPEC-068 1.2.9's precedent, this is deliberately NOT a claim
+  about `./bin/backstop gate --all`: residual findings in the wider corpus are pre-existing
+  and unrelated — ISSUE-125's known pack-rule false positive lives in a different plan's file,
+  and the remaining items are this project's standing repo-wide advisories ("gate dogfood
+  mostly dark" / "self-pack RED is roadmap"), not debt this implementation introduced.
+  **Contract enforcement.** Contract-signature enforcement activates at `implemented` status,
+  so `artifact validate` was re-run AFTER this flip and is the real test of the `contracts`
+  block — including the `pack_entrypoint_prober.go` entry 1.3.2 added — rather than a pre-flip
+  reading. `artifact validate` is clean on both this spec and `PLAN-SPEC-069`.
+  **Known open questions, expected and NOT resolved here.** Review Questions 1, 2, 4, 5, 6 and
+  7 remain open. They were accepted as open when the plan was approved for implementation;
+  their presence is the recorded state of this work, not a gap this closure papers over.
+  REQ-033 likewise remains the DOCUMENTED, UNSATISFIED GAP the `implementation.summary`
+  already names — the pack-only coverage floor forfeits rather than inventing an
+  enforcement-policy surface — and closing this spec does not close it.
+- **1.3.3** (2026-08-15) — **ACCURACY FIX, forced by the close-out: five claims declared a
+  subject their mandated tests do not sit in.** No requirement, contract, test or mechanism is
+  added, removed or reworded, and no test file changed — the only edit is a `subject:` line on
+  five claims. This was found by ATTEMPTING the flip in 1.3.4: `test_substantiveness` enforces
+  only specs at `implemented` status, so while this spec sat at `draft` the defect was
+  invisible, and the flip turned the diff-scoped gate RED with four violations.
+  **The defect.** CLM-046, CLM-047, CLM-086, CLM-088 and CLM-130 carried no `subject:` and so
+  inherited the spec-level `pkg/initialize`, but every one of their mandated tests lives in
+  `cmd/backstop/init_seams_test.go`, in package `main`. The substantiveness subject join
+  (`gate.NoTargetViolation`, `pkg/gate/substantiveness_join.go`, over
+  `testFileColocatedWithTarget`, `cmd/backstop/gate.go`) is satisfied by colocation with the
+  subject package OR by the test's own extracted referenced-symbol set naming it. Neither held:
+  the file's directory is `backstop`, not `initialize`, and those test BODIES touch the package
+  only through a composite literal (`initialize.Options{…}`) and a constant
+  (`initialize.OutcomeDelivered`), which the extraction does not record as a referenced symbol.
+  Only CLM-088 escaped, and only because `kind: absence` is exempt from the join — an exemption,
+  not a passing join, so it was mis-subjected exactly like the other four.
+  **Why `cmd/backstop` is the correct subject, not a workaround.** These five are the
+  production-adapter WIRING claims, and the adapters they prove — `initRecipeApplier`,
+  `initPackInstaller` — live in `cmd/backstop` by construction. The spec already said so for
+  their immediate neighbours: CLM-087 and CLM-110, the same requirement group and the same test
+  file, both declare `subject: cmd/backstop`. The five corrected here were an omission against
+  that established intra-spec pattern, not a different decision. The join basis moves from
+  incidental symbol reference to structural colocation; the tests, their assertions and their
+  rigor are untouched. No waiver was taken and no test was weakened.
+  **Known residue, deliberately NOT fixed here.** The header comment of
+  `cmd/backstop/init_seams_test.go` asserts that referencing `initialize` in the FILE satisfies
+  the join for these claims. That belief is what produced the defect — the join is per TEST
+  FUNCTION, not per file — and the comment is now false. Correcting it is a source edit with no
+  plan in flight, so it is surfaced rather than made here.
+- **1.3.2** (2026-08-15) — **ACCURACY FIXES ONLY: the spec catching up to the shipped code.**
+  No behavior is specified differently, no requirement is added or retired, and no test is added
+  or changed — the implementation was already correct, and where a code fix was owed it had
+  already been made and verified. These four corrections come from two independent impl-reviewer
+  passes over the completed, gate-green implementation of PLAN-SPEC-069.
+  **(1) The `init_toolchain.go` contract entry described a shape that no longer exists.** The
+  implementation extracted the shared toolchain-execution core into a new production file,
+  `cmd/backstop/pack_entrypoint_prober.go`, once SPEC-070's doctor became a second caller;
+  `init_toolchain.go` is now a thin reporting adapter. Its `consumes` block still declared
+  `checkEngineToolAllowed`, `splitCommand` and `pkg/pack/engine.GateType`, all three of which the
+  prober now owns, and its `notes:` still narrated the old inline flow. The `consumes` block now
+  matches what the file actually imports and calls, its notes describe the adapter, a contract
+  entry for `pack_entrypoint_prober.go` is declared (provides, consumes, and the design
+  constraints that keep it report-free and deterministic), and §7 and §1 say the same thing.
+  **(2) Two contract notes asserted exhaustive edit counts that were false.** `runRecipeApply`'s
+  claimed to be "the second and last edit this spec makes outside its two new packages" and
+  `IsLocalPath`'s claimed to be "the ONLY edit this spec makes to `pkg/pack/distribution`". The
+  real change set also includes `pkg/pack/distribution/command.go` (one call site), a new export
+  test in that package, `cmd/backstop/root.go` (command registration),
+  `cmd/backstop/ci_recipes_mechanism_test.go`, and the new `pack_entrypoint_prober.go`. Both
+  notes now enumerate what is actually touched instead of claiming a count, and §1's file list
+  was corrected the same way.
+  **(3) A sanctioned weakening of another spec's anti-regression pin was undocumented.** REQ-016
+  mandates a `--ci` flag by name, which SPEC-067's platform-token ban in
+  `cmd/backstop/ci_recipes_mechanism_test.go` forbids; the implementation added `init` to that
+  test's enumerated command set and a narrowly keyed exemption predicate. Sharp Edge 22 now
+  records why the exemption exists, the exact triple it is keyed on, why `ci` differs in kind
+  from the platform names (none of which is sanctioned anywhere), and the dedicated test that
+  pins its narrowness against seven near-misses.
+  **(4) CLM-109 stated an absolute exec ban the real code contradicts.** `pkg/initialize/step_git.go`
+  constructs `exec.CommandContext(context.Background(), "git", "init")` for REQ-006, while
+  CLM-109's shipped scan only ever covered the `cmd/backstop` half — so the claim was true of the
+  half scanned and false of the half that was not. The hazard REQ-011 actually guards is running
+  arbitrary, pack-supplied, consumer-influenced command strings outside the trusted-tool
+  allowlist, which a compile-time-constant `git init` is not (backstop's pack-distribution path
+  already invokes git the same way, outside an allowlist that governs pack-declared commands).
+  REQ-011 now states that boundary explicitly, CLM-109 is scoped to the `cmd/backstop` half it
+  actually scans, and the `pkg/initialize` half is governed by new CLM-145 — a POSITIVE pin
+  (`TestInit_HoldsExactlyOneExecConstructionAndItTakesNoConsumerInput`) asserting exactly one exec
+  construction, in that named file, with a literal-only argv, which is strictly stronger than the
+  flat ban it replaces. The claim is new to the spec text only: the test already ships and passes.

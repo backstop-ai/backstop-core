@@ -3,7 +3,7 @@ plan_id: PLAN-SPEC-069
 spec_id: SPEC-069
 spec_version: "1.3.1"
 created: "2026-08-14"
-status: draft
+status: completed
 test_command: "go test ./pkg/initialize/... ./cmd/backstop/ -race -coverprofile=cover.out"
 coverage_threshold: 80
 
@@ -313,6 +313,97 @@ notes: |
   for the identical reason, so both callers already sit beside the helper.
   pkg/initialize holds the INTERFACE only, and the Runner's toolchain step is
   exercised through a fake prober.
+
+  ── AS BUILT (status: completed, 2026-08-15) ─────────────────────────────
+  ALL 54 TASKS ACROSS ALL 16 PHASES DELIVERED. All 147 mandated test names in
+  this plan exist and are substantive — 146 as authored plus CLM-145's
+  TestInit_HoldsExactlyOneExecConstructionAndItTakesNoConsumerInput, added to
+  TASK-047 DURING the fix round (below). CLM-001..145 are all mapped. Status
+  promoted to `completed` after TWO independent impl-review passes plus one
+  targeted delta re-review; the working tree is NOT committed by this
+  close-out.
+
+  WHAT SHIPPED. New production files: cmd/backstop/init.go, init_seams.go,
+  init_toolchain.go, pack_entrypoint_prober.go; pkg/initialize/ —
+  capability.go, preserve.go, seams.go, initialize.go and the nine step files
+  (step_git, step_config, step_layout, step_packs, step_gitignore, step_ci,
+  step_scaffold, step_baseline, step_observe). The edit set to EXISTING files
+  held to what this plan modelled in kind — cmd/backstop/recipe_apply.go,
+  cmd/backstop/root.go, pkg/pack/distribution/add.go and command.go — plus
+  cmd/backstop/ci_recipes_mechanism_test.go, a test file the plan's prose did
+  not enumerate (see the spec-prose correction below).
+
+  BOTH FULL REVIEW PASSES FAILED ROUND ONE. Every finding was fixed and then
+  RED-PROOFED BY MUTATION, not asserted: for each fix the exact regression was
+  planted in a scratch copy, the mandated test confirmed to catch it, and the
+  plant reverted. The findings, and the class each belongs to:
+    (1) A HOLLOW MANDATED TEST for CLM-070 — proven hollow by mutation: it
+        handed itself the answer, so the assertion could not fail. This is the
+        exact failure mode the whole mandated-name mechanism exists to prevent,
+        and it passed a full green suite.
+    (2) A STALE SPEC CONTRACT, and FACTUALLY WRONG edit-count prose in the
+        spec (the "exactly four edits to existing files" framing did not match
+        what shipped). Both corrected through the spec agent — SPEC-069 bumped
+        1.3.1 → 1.3.2 — never by the implementer hand-editing the artifact.
+    (3) AN UNDOCUMENTED WEAKENING of ANOTHER spec's anti-regression pin. Caught
+        only because the reviewer read across the seam; a weakened sibling pin
+        is invisible from inside this plan's own green.
+    (4) LIVE NETWORK EGRESS in a mandated test — a hermeticity break that makes
+        the suite's verdict depend on the network.
+    (5) AN UNDOCUMENTED FIXTURE DEVIATION.
+    (6) A WHITESPACE-ONLY `--ci` / `--scaffold` VALUE silently treated as
+        omitted rather than as a parse error — the silent-acceptance class.
+    (7) AN EVADABLE CLASSIFIER-COUNT PIN: the count could be dodged purely by
+        how a string literal was spelled, so the pin did not actually bound
+        what it claimed to bound.
+    (8) AN ASYMMETRIC SOURCE-SET-SCAN GUARD: the cmd-side glob could silently
+        SHRINK without failing, so the denylist scan could quietly stop
+        covering files it was written to cover. Same class as (7) — a guard
+        that can be evaded without going red is not a guard.
+
+  THE DELTA RE-REVIEW WAS TARGETED, NOT A THIRD FULL PASS — aimed at exactly
+  the changed spots. It verified all six code-level fixes plus the parallel
+  spec-author pass, and returned CLEAN. Its one remaining observation is
+  PURELY COSMETIC: wording in step_observe.go's report text. Not a defect,
+  accepted as-is, deliberately not given its own fix round.
+
+  FINAL VERIFICATION — RUN, NOT ASSERTED. `go build ./...` clean, `go vet
+  ./...` clean, `go test ./... -race` fully green repo-wide, `./bin/backstop
+  gate` (diff-scoped) PASS at exit 0 with every core dimension green
+  (test_verification, test_substantiveness, coverage_threshold,
+  contract_signature, artifact_validation, artifact_status_drift,
+  requirement_traceability, waiver_resolution) and ZERO violations
+  attributable to this plan's files. `artifact validate` clean on SPEC-069
+  (v1.3.2) and on this plan. Coverage: pkg/initialize 95.5%, cmd/backstop
+  91.4%, and every new or edited file above this plan's 80% per-file floor.
+  NO WAIVERS ADDED, nothing skipped, nothing weakened to reach green.
+
+  RESIDUAL GATE FINDINGS, CONFIRMED NOT OURS: 23 warning-severity
+  constructor-injection findings in pkg/scaffold/idresolver_test.go — a
+  DIFFERENT plan's file, and the known go-standards pack false positive
+  already filed as ISSUE-125 — plus the standing repo-wide
+  requirement_traceability and status_drift advisories.
+
+  ★ KNOWN OPEN QUESTIONS, NOT BLOCKING THIS CLOSURE. Plan-review Questions
+  1, 2, 4, 6 and 7 were accepted as STANDING OPEN when this plan was approved
+  for implementation — they are not gaps discovered here. Question 5 is the
+  one that got MORE concrete rather than less: whether the denylist-scan
+  boundary should be pinned by an IMPORT-GRAPH assertion instead of a path
+  glob. It now has a live instance — cmd/backstop/pack_entrypoint_prober.go
+  ships OUTSIDE the `cmd/backstop/init*.go` glob the cmd-side scan uses — so
+  the source set and the scanned set are provably not the same set. That is
+  recorded here as inherited, unresolved scope, not as a defect of this
+  delivery; fix (8) above hardened the glob against SILENT SHRINKAGE, which
+  is a different property from the glob being the right boundary at all.
+  Do not treat any of these as a close-out blocker.
+
+  SPEC STATUS DRIFT WORTH FLAGGING. SPEC-069 is at v1.3.2 but its `status:`
+  is still `draft` at the time of this flip — unlike SPEC-068, whose flip to
+  `implemented` happened in a parallel dispatch. That flip is the spec agent's
+  move, not this close-out's, and it MATTERS beyond bookkeeping: contract
+  declarations are collected only for `implemented` specs, so SPEC-069's
+  contracts are not yet enforced by the contract dimension. Every green
+  reported above says nothing about them. Surfaced, not silently absorbed.
 
 phases:
   # ═══════════════════════════════════════════════════════════════════════
@@ -3158,7 +3249,7 @@ phases:
     tasks:
       - id: TASK-047
         type: test
-        title: "Scan the pkg/initialize half of the init source set — ten denylist claims over a GLOB-BOUNDED boundary"
+        title: "Scan the pkg/initialize half of the init source set — ten denylist claims plus one positive pin over a GLOB-BOUNDED boundary"
         description: |
           These are DENYLIST claims whose entire content is that a literal is
           ABSENT. They are written LAST on purpose: a scan authored before the
@@ -3218,6 +3309,18 @@ phases:
               text beyond attributing the surfaced error to the CI step. ★
               SPEC-070 EXPLICITLY DEFERS TO THIS TEST to keep doctor guidance
               off init's CI steps — it must remain a real assertion.
+            TestInit_HoldsExactlyOneExecConstructionAndItTakesNoConsumerInput CLM-145
+              — ★ THE ONE POSITIVE PIN IN THIS TASK, not a denylist. A
+              structural (AST) scan of the whole init source set finds
+              EXACTLY ONE exec.Command/exec.CommandContext construction, it
+              lives in pkg/initialize/step_git.go (REQ-006's `git init`), and
+              every argument to it is a string literal or a `context.*` call,
+              never a variable. A second construction anywhere in the set,
+              this one moving to another file, or this one interpolating ANY
+              consumer- or pack-supplied value all fail the scan. CLM-109
+              covers the cmd/backstop half as a flat denylist because no
+              sanctioned construction exists there; here the sanctioned one
+              must be pinned positively instead of banned.
         files:
           - pkg/initialize/sourceset_scan_test.go
         claims:
@@ -3231,6 +3334,7 @@ phases:
           - CLM-063
           - CLM-089
           - CLM-085
+          - CLM-145
         test_names:
           - TestInit_SourceSetHoldsNoLanguageFrameworkOrPlatformLiteral
           - TestInit_AuthorsNoSourceFileContentOfItsOwn
@@ -3242,6 +3346,7 @@ phases:
           - TestInit_ChangesNoGatePackageFileAndDoesNotMaskTheRemotelessMessage
           - TestInit_ImplementsNoLocalProvenanceCache
           - TestInit_ImplementsNoCIDetectionOrBespokeGuidance
+          - TestInit_HoldsExactlyOneExecConstructionAndItTakesNoConsumerInput
         depends_on:
           - TASK-046
 
