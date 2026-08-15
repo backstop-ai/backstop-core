@@ -2,9 +2,10 @@
 title: "Backstop Doctor"
 number: SPEC-070
 created: "2026-08-13"
-status: draft
+updated: "2026-08-15"
+status: implemented
 schema_version: spec/v1
-spec_version: 1.1.1
+spec_version: 1.1.5
 
 implementation:
   summary: >
@@ -582,15 +583,11 @@ contracts:
       - name: doctorCheck
         kind: type
         signature: "type doctorCheck struct { ID string; Title string; Run func(ctx doctorContext) doctorResult }"
-        notes: "One registry entry. ID is the stable lowercase-kebab identifier init prints (REQ-004) and --check selects on (REQ-001)."
+        notes: "One registry entry. ID is the stable lowercase-kebab identifier init prints (REQ-004) and --check selects on (REQ-001). The seven ids themselves are carried in source as the grouped untyped consts doctorCheckConfigPresent/doctorCheckConfigLoads/doctorCheckGitRepository/doctorCheckPacksInstalled/doctorCheckBuildIdentity/doctorCheckToolchainRuns/doctorCheckArtifactLayout, and those consts carry NO `provides` entry of their own: a member of a grouped `const (…)` block is structurally inexpressible to the contracts pack's signature compiler, which binds only a standalone `const NAME = value` — the capability gap is ISSUE-078, and the disposition SPEC-054 and SPEC-035 v1.1.2 already took applies unchanged, because declaring an unverifiable entry buys a red, not a guarantee. The one-id-source invariant those consts exist for is NOT left unenforced: CLM-059 is a `kind: absence` source scan asserting that no check id is written as a literal anywhere outside them, which pins the property the dropped entries would only have gestured at."
       - name: doctorResult
         kind: type
         signature: "type doctorResult struct { ID string `json:\"id\"`; Title string `json:\"title\"`; Status string `json:\"status\"`; Message string `json:\"message\"`; Remediation string `json:\"remediation\"` }"
         notes: "Status is one of pass|warn|fail|skipped (REQ-002). The json tags ARE the doctor/v1 payload's per-check shape (REQ-001) — one struct feeds both renderers so they cannot disagree (CLM-004). Remediation carries NO omitempty deliberately: REQ-001 requires the key present for every check that ran, so a passing check emits an empty string rather than dropping the key and making the payload's shape depend on its status (CLM-003)."
-      - name: doctorCheckIDs
-        kind: constant
-        signature: "const ( doctorCheckConfigPresent = \"config-present\"; doctorCheckConfigLoads = \"config-loads\"; doctorCheckGitRepository = \"git-repository\"; doctorCheckPacksInstalled = \"packs-installed\"; doctorCheckBuildIdentity = \"build-identity\"; doctorCheckToolchainRuns = \"toolchain-runs\"; doctorCheckArtifactLayout = \"artifact-layout\" )"
-        notes: "THE one id source (REQ-002, REQ-004). doctorRegistry builds its entries from these and no other code may write a check id as a literal (CLM-059), which is what makes a rename a compile-time event rather than a silent desync between the registry and init's guidance."
       - name: doctorRegistry
         kind: function
         signature: "func doctorRegistry() []doctorCheck"
@@ -647,7 +644,7 @@ contracts:
       - name: checkToolchainRuns
         kind: function
         signature: "func checkToolchainRuns(ctx doctorContext) doctorResult"
-        notes: "REQ-006. Selects bindings by engine.GateTypeTest and engine.GateTypeBuild ONLY, then runs each through checkEngineToolAllowed + splitCommand + the shared CommandRunner — the same three steps runFindingsEngine takes (pack_gate.go:573) minus the SARIF parse, so there is no second execution path to audit. It is SKIPPED when ctx.PacksErr is non-nil, naming packs-installed as the owner of that condition, so an ungathered pack set is never read as outcome (d) (CLM-063)."
+        notes: "REQ-006. It CONSUMES the shared packEntrypointProber (cmd/backstop/pack_entrypoint_prober.go) and owns no mechanical step of its own: selection by engine.GateTypeTest and engine.GateTypeBuild ONLY, and the three execution steps — the allowlist check, the command split, then the shared CommandRunner — happen one layer down inside the prober, in that order, the same three steps runFindingsEngine takes (pack_gate.go:573) minus the SARIF parse. Because init consumes that same type through its own thin adapter, there is exactly ONE execution route to audit rather than one per command. This function contributes the rollup: constructing the prober from ctx.Packs and ctx.Runner, calling Probe once, and mapping the returned probes onto the (a)/(b)/(c)/(d) outcomes and the single doctorResult. It is SKIPPED when ctx.PacksErr is non-nil, naming packs-installed as the owner of that condition, so an ungathered pack set is never read as outcome (d) (CLM-063)."
       - name: checkArtifactLayout
         kind: function
         signature: "func checkArtifactLayout(ctx doctorContext) doctorResult"
@@ -655,7 +652,7 @@ contracts:
       - name: doctorContext
         kind: type
         signature: "type doctorContext struct { ProjectRoot string; SearchDir string; ConfigPath string; ConfigPathErr error; Config *config.Config; ConfigErr error; Packs []*pack.Manifest; PacksErr error; Runner check.CommandRunner }"
-        notes: "Gathered ONCE before the registry runs and passed to every check; no check gathers its own input. That is why this file's `consumes` names the DATA types the checks read — `config.Config`, `pack.Manifest`, and the `check.CommandRunner` this struct carries and `checkToolchainRuns` invokes — and NOT the loaders that produce them: `pkg/config.LoadConfig` and `loadInstalledPacks` are consumed by `doctor.go`, the file that gathers (Implementation §2). A loader call appearing in this file is the defect REQ-003 exists to forbid — a second abort path before the registry. ConfigPathErr, ConfigErr and PacksErr are carried as DATA rather than raised, which is the mechanism behind REQ-003: every load failure reaches the checks as a condition to report, so no check can turn one into an exit-2 (CLM-057). SearchDir is the working directory discovery started from, which checkConfigPresent names in its failure; ConfigPath is empty exactly when ConfigPathErr is non-nil, which is the SKIP signal checkConfigLoads and checkPacksInstalled read."
+        notes: "Gathered ONCE before the registry runs and passed to every check; no check gathers its own input. That is why this file's `consumes` names the DATA types the checks read — `config.Config`, `pack.Manifest`, and the `check.CommandRunner` this struct carries and `checkToolchainRuns` hands to the shared `packEntrypointProber` — and NOT the loaders that produce them: `pkg/config.LoadConfig` and `loadInstalledPacks` are consumed by `doctor.go`, the file that gathers (Implementation §2). A loader call appearing in this file is the defect REQ-003 exists to forbid — a second abort path before the registry. ConfigPathErr, ConfigErr and PacksErr are carried as DATA rather than raised, which is the mechanism behind REQ-003: every load failure reaches the checks as a condition to report, so no check can turn one into an exit-2 (CLM-057). SearchDir is the working directory discovery started from, which checkConfigPresent names in its failure; ConfigPath is empty exactly when ConfigPathErr is non-nil, which is the SKIP signal checkConfigLoads and checkPacksInstalled read."
     consumes:
       - source: pkg/config
         name: Config
@@ -667,11 +664,9 @@ contracts:
         name: DefaultGitExecutor
         kind: type
       - source: cmd/backstop
-        name: checkEngineToolAllowed
-        kind: function
-      - source: cmd/backstop
-        name: splitCommand
-        kind: function
+        name: packEntrypointProber
+        kind: type
+        notes: "Declared in cmd/backstop/pack_entrypoint_prober.go, built by SPEC-069/PLAN-SPEC-069 phase 14 as THE ONE execution route for pack-declared test/build entrypoints. `checkToolchainRuns` constructs it from ctx.Packs and ctx.Runner and calls Probe once, consuming the same shared type `cmd/backstop/init_toolchain.go` consumes as a thin adapter. The three execution steps — allowlist check, command splitting, execution through check.CommandRunner.Run — plus the binding selection, the deterministic sorted-key walk, and the started-versus-exited-nonzero split all live INSIDE the prober, so this file names neither checkEngineToolAllowed nor splitCommand: it does not call them. That is the point of the extraction — the number of independent execution routes to audit is exactly one, not one per command. What this file adds on top of the raw []entrypointProbe is doctor's own rollup: the (a)/(b)/(c)/(d) mapping REQ-006 states and the one-result-per-check aggregation, which is the mirror image of init's owed-setup-versus-verbatim classification."
       - source: pkg/pack/engine
         name: GateType
         kind: type
@@ -821,8 +816,9 @@ say four things are broken when one is.
 ## Implementation
 
 Everything lands in `cmd/backstop` — the package that already holds
-`loadInstalledPacks`, `checkEngineToolAllowed`, `splitCommand`, and the command
-wiring — so no new package boundary is introduced for seven checks.
+`loadInstalledPacks`, the shared `packEntrypointProber` (SPEC-069's extracted
+execution route, `pack_entrypoint_prober.go`), and the command wiring — so no new
+package boundary is introduced for seven checks.
 
 1. **The registry (REQ-002).** `doctorRegistry() []doctorCheck` in `doctor.go`
    returns a SLICE literal of the seven checks in report order: `config-present`,
@@ -878,11 +874,17 @@ wiring — so no new package boundary is introduced for seven checks.
      values the `version` command renders (`root.go:106-127`) — and reports them.
      Absent build identity warns. It reads no pack manifest, executes nothing, and
      performs no comparison.
-   - `checkToolchainRuns` (REQ-006) walks the gathered manifests, selects every
-     engine binding whose `GateType` is `engine.GateTypeTest` or
-     `engine.GateTypeBuild`, and for each: applies `checkEngineToolAllowed`,
-     splits the declared command with `splitCommand`, and executes it once from
-     the project root through the shared runner. The five other declared gate
+   - `checkToolchainRuns` (REQ-006) constructs the shared `packEntrypointProber`
+     from the gathered manifests and `ctx.Runner` and calls `Probe` ONCE. The
+     prober walks those manifests, selects every engine binding whose `GateType`
+     is `engine.GateTypeTest` or `engine.GateTypeBuild`, and for each applies the
+     trusted-tool allowlist check, splits the declared command, then executes it
+     once from the project root through the shared runner — the same three steps
+     in the same order as before the extraction, just one layer down, and now the
+     SAME route `backstop init` takes through its own thin adapter, so the number
+     of independent execution routes to audit is one rather than two. What this
+     check adds is the rollup from the returned probes to a single
+     `doctorResult`. The five other declared gate
      types are not selected, and the whole check skips when `ctx.PacksErr` is
      non-nil rather than reading an ungathered pack set as "no entrypoint
      declared". The outcome mapping is (a)/(b)/(c)/(d) exactly as
@@ -994,12 +996,19 @@ by construction rather than by today's code happening to agree.
 
 - **Executing pack-declared commands is the sharpest thing doctor does.** The
   toolchain check runs consumer-supplied commands with ambient permissions. It is
-  bounded to the gate's own path — `checkEngineToolAllowed`, `splitCommand`, the
-  shared runner, no shell — so doctor adds no new attack surface, but it does add a
-  new TRIGGER for that surface: a user who has not run `gate` can now execute pack
-  commands by running a command whose name promises diagnosis. If BUNDLE-021 lands
-  a posture on pack command execution, this check is one of the call sites it must
-  cover, and a plan must not "simplify" it to a direct `exec.Command`.
+  bounded to the gate's own path, reached through the shared
+  `packEntrypointProber` — trusted-tool allowlist gate FIRST, then
+  `strings.Fields`-based splitting of the declared command, then the shared
+  runner, and never a shell — so doctor adds no new attack surface, but it does add
+  a new TRIGGER for that surface: a user who has not run `gate` can now execute pack
+  commands by running a command whose name promises diagnosis. Those guarantees are
+  now the PROBER's to hold rather than this check's own inline logic, which
+  strengthens rather than weakens them: one bounded route serves both `doctor` and
+  `init`, so there is a single place to audit and a single place a regression could
+  appear. If BUNDLE-021 lands a posture on pack command execution, this check is one
+  of the call sites it must cover, and a plan must not "simplify" it to a direct
+  `exec.Command` — nor re-inline the prober's steps here, which would recreate the
+  second execution route the extraction removed.
 
 - **"Outside the resolved root" is the WRONG test, and it fails silently on the
   exact repo shape this check exists for.** An unconfigured root resolves to the
@@ -1091,6 +1100,31 @@ by construction rather than by today's code happening to agree.
   in every non-repo directory, including deliberate ones. Making it silent would
   hide the id-reservation loss. The consequence a reviewer should hold this to:
   no test may assert exit 1 from a non-repo directory alone.
+
+- **Registering `doctor` edits ANOTHER SPEC'S ANTI-REGRESSION PIN, in a file no
+  task in this spec's plan declares — and both halves of that are correct.**
+  `cmd/backstop/ci_recipes_mechanism_test.go` belongs to SPEC-067 (its
+  REQ-006/REQ-007/REQ-008 proof). Its
+  `TestCIRecipes_RegisteredCommandSurfaceUnchanged` (CLM-052) enumerates the CLI's
+  ENTIRE top-level command set and asserts exact whole-set equality, so the
+  one-line `root.go` registration that makes `doctor` reachable necessarily turns
+  that test red until the expected set names it. It now does: `doctor` was added
+  to the pinned list and the attributing comment extended to read "`init` is
+  SPEC-069's and `doctor` is SPEC-070's, not this spec's." **The assertion was NOT
+  weakened** — no exemption predicate, no membership-only relaxation, still exact
+  whole-set equality — so an unexplained future addition still fails it. Only the
+  expected set grew by one, attributed by name. That is the pin working as its own
+  comment prescribes, not the pin being violated; SPEC-069 set the precedent for
+  `init` (its Sharp Edge 22) and this is the same move. **The non-obvious half:
+  this file appears in NO task's `files:` list in PLAN-SPEC-070**, so any
+  file-scope audit of that plan will report the edit as out of scope. That is an
+  inherent property of a whole-set anti-regression pin rather than a defect in the
+  plan's scoping — the pin lives in the spec that WROTE it, and every later spec
+  that adds a top-level command hits the identical mismatch, however honestly its
+  own file scope is drawn. A reviewer should read an out-of-scope touch of THIS
+  file, adding THIS spec's command by name with attribution, as expected; what
+  should still draw scrutiny is a touch that removes an entry, relaxes the equality
+  to a subset check, or adds a name without saying whose it is.
 
 ## Review Questions
 
@@ -1256,10 +1290,18 @@ by construction rather than by today's code happening to agree.
 - `cmd/backstop/gate.go:67-73` — `runGate`'s exit-2-on-config-failure, which
   doctor inverts; `gate.go:75-80` — its project-root fallback, which doctor
   mirrors.
-- `cmd/backstop/pack_gate.go:147-176,573,812,887` — `loadInstalledPacks` (whose
-  empty-slice-vs-error split is what `packs-installed` reads),
-  `runFindingsEngine` (the three execution steps `toolchain-runs` reuses without
-  the SARIF parse), `checkEngineToolAllowed`, and `splitCommand`.
+- `cmd/backstop/pack_gate.go:147-176,573` — `loadInstalledPacks` (whose
+  empty-slice-vs-error split is what `packs-installed` reads) and
+  `runFindingsEngine` (the three execution steps `toolchain-runs` reaches without
+  the SARIF parse).
+- `cmd/backstop/pack_entrypoint_prober.go` — `packEntrypointProber`, THE one
+  execution route for pack-declared test/build entrypoints, extracted by
+  SPEC-069/PLAN-SPEC-069 phase 14 and consumed BY NAME here. It holds the
+  selection, the allowlist gate, the command split, the runner call and the
+  started-versus-exited-nonzero classification, so `toolchain-runs` performs none
+  of them itself. `cmd/backstop/init_toolchain.go` is its other caller — a thin
+  adapter over the same type — which is what makes "one execution route, two
+  callers" true rather than aspirational.
 - `pkg/check/scope.go:37-48` — `DefaultGitExecutor.IsGitRepo`, the existing
   exported work-tree detector `git-repository` consumes; `pkg/gate/scope.go:220-222`
   — the gate's own warn-and-fall-back-to-`--all` behavior on a non-repo, which is
@@ -1279,6 +1321,193 @@ by construction rather than by today's code happening to agree.
 
 ## Version History
 
+- **1.1.5** (2026-08-15) — **CLOSE-OUT: status `draft` -> `implemented`.** No requirement,
+  claim, contract, test, or mechanism is added, removed, or reworded; all 64 claims and 65
+  mandated test names stand exactly as 1.1.3 left them. This entry records the evidence the
+  flip rests on, and that evidence was RE-VERIFIED in this session rather than copied forward
+  from the implementation report.
+  **Lineage.** `PLAN-SPEC-070-backstop-doctor.plan.yml` is `completed`, with all 28 tasks
+  across all 7 phases delivered. The implementation went through TWO independent impl-review
+  passes. The first returned FAIL on three findings, one of them a real SPEC CONTRADICTION
+  rather than a mechanical slip: `checkToolchainRuns` read an UNGATHERED pack set as outcome
+  (d), "no entrypoint declared", instead of SKIPPING — contradicting REQ-006's explicit
+  prohibition and Review Question 9's stated matrix. The other two were a guidance line
+  printed once per failing entrypoint instead of once per CHECK, and CLM-051's stack-policy
+  scan matching `lts` as a bare substring (false-positiving on `results`, `defaults`,
+  `faults`). All three were fixed and independently re-verified in a targeted delta re-review
+  that returned CLEAN. The blocker fix was FALSIFIED rather than asserted: reverting to the
+  narrower skip predicate in a scratch copy reds exactly the two new table rows while every
+  original row stays green, proving the fix load-bearing.
+  **Build and tests.** `go build ./...` and `go vet ./...` are clean across the repo. This
+  spec's own declared `test_command` — `go test ./cmd/backstop/... -race` — passes with zero
+  failures at close-out.
+  **Mandated tests.** Every test name in this spec's `claims` block was confirmed PRESENT in
+  the tree by name at close-out time, by scanning the tree rather than trusting the
+  implementation report: 64 claims carrying 65 distinct test names (one claim mandates two).
+  Zero missing. The two impl-review rounds established that none are hollow, by mutation
+  rather than by presence.
+  **Claim subjects — the SPEC-069 defect class, checked and ABSENT here.** Closing SPEC-069
+  surfaced a class of latent defect (its 1.3.3): a claim carrying no `subject:` inherits the
+  spec-level `implementation.subject`, and `test_substantiveness` enforces only at
+  `implemented` status, so a wrong inherited subject stays invisible until the flip. Every one
+  of this spec's 64 claims was audited against that: none declares a `subject:`, all 65
+  mandated tests live in `cmd/backstop`, and this spec's `implementation.subject` IS
+  `cmd/backstop` — so the substantiveness subject join is satisfied by structural colocation
+  for every claim, not by incidental symbol reference. Three claims additionally carry
+  `kind: absence` (CLM-051, CLM-058 and CLM-059) and are exempt from the join by design. The
+  defect does not recur here.
+  **Coverage.** Measured at close-out against this spec's declared 80 floor: `cmd/backstop`
+  91.9%. Every new or edited file also clears the repo's per-file floor.
+  **Gate (DIFF-SCOPED).** The diff-scoped `./bin/backstop gate` — bare, i.e. scoped to the
+  diff vs merge-base plus untracked files, which is the scope actually run and verified for
+  this close-out — exits 0 with every blocking dimension green AFTER the 1.1.4 fix:
+  `pack_lock_verification`, `artifact_validation`, `test_verification`, `test_substantiveness`,
+  `coverage_threshold`, `contract_signature`, `artifact_status_drift`,
+  `requirement_traceability` and `waiver_resolution` all pass with zero violations. Every
+  residual finding is a non-blocking warning and each was ATTRIBUTED rather than waved past:
+  23 `pack_engines` warnings, all 23 in `pkg/scaffold/idresolver_test.go` — a different plan's
+  file, and ISSUE-125's known constructor-injection false positive; 178
+  `requirement_traceability_advisory` and 2 `artifact_status_drift_advisory` entries, this
+  project's standing repo-wide advisories. Following SPEC-068 1.2.9's and SPEC-069 1.3.4's
+  precedent, this is deliberately NOT a claim about `./bin/backstop gate --all`: the full sweep
+  is red, and that red was PROVEN inherited rather than assumed — a HEAD control run with none
+  of this spec's code present reports the same ~194 violations.
+  **What the flip closed.** Bundle `onboarding-experience` REQ-020, REQ-023 and REQ-025 —
+  this spec's three `supports` targets — now have implemented-spec coverage and have dropped
+  out of the traceability advisory set. Two of the bundle's requirements in this neighbourhood
+  remain uncovered and are NOT this spec's to close: REQ-024, the carve-out named below, and
+  REQ-022, which moved to SPEC-068 at bundle v0.10.0 but carries no `supports` ref there
+  (SPEC-068 declares REQ-021 and REQ-026..029). The REQ-022 gap is surfaced here rather than
+  silently absorbed; it belongs to SPEC-068's seam.
+  **Contract enforcement — and the defect it caught.** Contract declarations are collected
+  only for `implemented` specs, so this flip is the first moment this spec's `contracts` block
+  — including the `doctor_checks.go` `consumes:` entry 1.1.2 rewrote around the shared
+  `packEntrypointProber` — is enforced at all. PLAN-SPEC-070's AS-BUILT block flagged exactly
+  that gap and said every green it reported was silent about it. It was right: the flip turned
+  `contract_signature` RED with one real violation, a provide naming a symbol Go cannot have.
+  That is fixed in 1.1.4 above, spec-side only, and the dimension is green after it. Both
+  `artifact validate` and the diff-scoped gate were therefore run AFTER the flip, not before,
+  and those post-flip runs are the readings recorded here.
+  **Known open items, expected and NOT resolved here.** (1) Bundle REQ-024 remains the
+  CARVED-OUT, UNOWNED gap this spec has named since 1.0.0: the pack-declared stack-policy
+  surface it would read does not exist and no bundle, directive, spec, or issue owns it, so it
+  carries no requirement and no claim here. Closing this spec does not close it, and CLM-051's
+  tripwire remains the mechanical guard against a future spec quietly adding a `stack_policy:`
+  block. (2) ISSUE-129 is OPEN and is explicitly not this spec's to fix: `backstop gate`'s
+  diff-scoped mode can report PASS while a real test in an UNCHANGED file is failing, because
+  the go-toolchain pack's go-test findings engine lacks the `exempt_from_scope_filter` flag its
+  go-build sibling has (`--all` is confirmed unaffected). This delivery is the live instance,
+  and it sits directly on the Sharp Edge 1.1.3 added: registering `doctor` as a top-level
+  command breaks SPEC-067's CLM-052 whole-command-set pin in a file no task's `files:` list
+  declares, and every diff-scoped gate run stayed green over that break until an unfiltered
+  `go test ./...` was run. The diff-scoped PASS recorded above should be read with that caveat
+  attached — the unfiltered repo-wide race run is what actually carries the verdict here.
+  (3) This spec's twelve Review Questions were framed as implementation-checkable probes and
+  were answered during review rather than left standing: the plan maps 1, 2, 4, 5, 6, 9, 11
+  and 12 onto named tasks, the impl-review round answered 9 against a real empty directory,
+  and 3, 8 and 10 were re-checked against the shipped source at close-out — `checkArtifactLayout`
+  delegates per-KIND deviation to `gate.FindUngatedArtifacts` and performs no root-containment
+  reduction of its own, `runDoctor` reports every setup condition through the one registry
+  enumeration with no pre-registry abort or print, and `newDoctorCommand` takes the root
+  persistent `--json` by pointer and declares only `--check`.
+- **1.1.4** (2026-08-15) — **ACCURACY FIX, forced by the close-out: one contract entry named
+  a symbol Go does not have.** No requirement, claim, mandated test, or mechanism is added,
+  removed, or reworded, and NO source file changed — the only edit is to this spec's
+  `contracts` block. Like SPEC-069's 1.3.3, this was found by ATTEMPTING the flip: contract
+  declarations are collected only for `implemented` specs, so while this spec sat at `draft`
+  the defect was structurally invisible, and the flip turned the diff-scoped
+  `contract_signature` dimension RED with exactly one violation.
+  **The defect.** `cmd/backstop/doctor.go` declared a single `kind: constant` provide named
+  `doctorCheckIDs`, whose signature was the whole seven-constant block
+  (`const ( doctorCheckConfigPresent = "config-present"; … )`). There is no `doctorCheckIDs`
+  symbol anywhere in the tree and there cannot be: a Go `const (...)` block is ANONYMOUS, so
+  the name was a documentation label for a group, written into a field that means "a symbol
+  that exists". The contract dimension proved it mechanically. `dispatchContractEntry`
+  (`cmd/backstop/gate.go`) hands the declared signature to the contracts pack's own compiler,
+  `.backstop/packs/backstop-ai/go-contracts/scripts/compile-signature.sh`, whose `const`
+  branch takes the token after `const ` as the name — so the group form compiles to the
+  pattern `const ( = $$$`, which matches nothing, in any file, ever. Verified by running the
+  compiler directly on both forms.
+  **The fix, and the wrong fix that was tried first and rejected on evidence.** The obvious
+  repair — split the group entry into seven single-constant entries, one per real constant,
+  each in the `const NAME = value` form the compiler documents — was made, run, and FOUND
+  INSUFFICIENT: the gate went from one violation to SEVEN. The compiler's emitted pattern
+  `const doctorCheckConfigPresent = $$$` binds only a STANDALONE const declaration and does
+  not reach a `const_spec` nested inside a parenthesized `const (…)` block. Verified directly
+  with ast-grep against both shapes: the same pattern matches `pkg/gate/result.go:44`'s
+  standalone `const StepRequirementTraceability = "requirement_traceability"` and matches
+  nothing in `doctor.go`'s grouped block. So the seven entries are DROPPED instead. That is
+  not this spec inventing an escape: it is the disposition SPEC-054 already took for
+  `KindScaffolding`/`OpCreate` and SPEC-035 v1.1.2 took for `CheckTypeFindings`, under the
+  rule those specs state and this one adopts — declaring an unverifiable entry buys a red, not
+  a guarantee. The reason is recorded on the `doctorCheck` contract note with the standing
+  forward reference, ISSUE-078, which tracks this exact gap (grouped const/var block members)
+  and folds it into ISSUE-052's relational-rule `input_mode` as the general fix.
+  **What is NOT weakened by dropping them.** The one-id-source invariant the constants exist
+  for keeps its real, purpose-built guard: CLM-059 is a `kind: absence` source scan asserting
+  that no check id appears as a literal anywhere outside those constants — a stronger property
+  than a signature-existence probe, and one that never depended on the contract dimension. NO
+  source file changed, no test changed, no assertion was weakened, and no waiver was taken.
+  Contorting `doctor.go` into seven standalone consts to satisfy a compiler limitation was
+  considered and rejected: it is a source edit with no plan in flight, and shaping code to fit
+  a check's expressive gap is the inverse of what the check is for.
+  **Why this was invisible until now, and where else it can hide.** The gap is not specific to
+  this spec. `pkg/validate/contracts.go` validates a provides entry's SHAPE — name, kind, and
+  signature present, kind in the allowed enum — and never whether the named symbol exists or
+  whether its signature is compilable, which is why `artifact validate` was clean on this entry
+  through four spec revisions and two plan-review rounds. Only the `implemented`-gated
+  `contract_signature` dimension probes the real file. So any spec that declares a const GROUP
+  under one invented label carries the same latent defect, and it will surface at its own
+  close-out and never before. This is the second distinct defect class in two consecutive
+  close-outs whose only trigger is the `draft` -> `implemented` flip — SPEC-069 1.3.3 was the
+  first, a claim inheriting the wrong `subject:` — which is worth stating plainly: the flip is
+  not bookkeeping, it is the moment two whole gate dimensions start reading the artifact for
+  the first time, and a close-out that does not RE-RUN the gate after flipping has verified
+  nothing about either.
+- **1.1.3** (2026-08-15): DOCUMENTATION-ONLY amendment recording an edit already
+  made and verified — no requirement, no claim, and no mandated test name added,
+  removed, or changed; all 64 claims stand exactly as PLAN-SPEC-070 maps them, and
+  no behavior, contract, or scope changed. One Sharp Edge is added: registering the
+  `doctor` command in `root.go` necessarily edits SPEC-067's anti-regression pin
+  `TestCIRecipes_RegisteredCommandSurfaceUnchanged` (CLM-052,
+  `cmd/backstop/ci_recipes_mechanism_test.go`), which asserts exact whole-set
+  equality over the CLI's top-level command set. `doctor` was added to the expected
+  set with an attributing comment naming this spec, mirroring what SPEC-069 did for
+  `init` (its Sharp Edge 22) and exactly what the pin's own comment prescribes. The
+  assertion itself was NOT weakened — no exemption, still whole-set equality — so an
+  unexplained future addition still fails. The edge also records the non-obvious
+  half implementer-070 flagged: the pin lives in a file NO task in PLAN-SPEC-070's
+  `files:` list declares, so an honest narrow file scope will always appear to
+  exclude it. That is an inherent property of a whole-set pin — every spec adding a
+  top-level command hits it — not a scoping defect in the plan. Verified at the time
+  of writing: `TestCIRecipes_RegisteredCommandSurfaceUnchanged` passes and
+  whole-repo `go test ./...` is clean.
+- **1.1.2** (2026-08-15): Contract and prose amendment ONLY — no requirement, no
+  claim, and no mandated test name added, removed, or changed; all 64 claims stand
+  exactly as PLAN-SPEC-070 maps them, and no behavior or scope changed. This spec's
+  text still described a PRE-EXTRACTION implementation shape: it named
+  `checkEngineToolAllowed` and `splitCommand` as things `checkToolchainRuns` calls
+  directly, in `cmd/backstop/doctor_checks.go`'s `consumes` block and in five prose
+  places (the `checkToolchainRuns` contract note, the Implementation preamble, the
+  Implementation entry for that check, Sharp Edges, References). SPEC-069/
+  PLAN-SPEC-069 phase 14 extracted those three steps into the shared
+  `packEntrypointProber` (`cmd/backstop/pack_entrypoint_prober.go`), which
+  `backstop init` reaches through a thin adapter and which `checkToolchainRuns`
+  now consumes as its second caller — a sequencing PLAN-SPEC-070 explicitly
+  anticipated and ordered this amendment behind, not a change of direction. Nothing
+  automated would have caught the drift: `pkg/validate/contracts.go`'s
+  `validateConsumesItem` checks a consumes entry's SHAPE (source/name/kind present)
+  and never whether the named symbol is actually called. So the two function entries
+  are dropped and `{source: cmd/backstop, name: packEntrypointProber, kind: type}`
+  takes their place; `engine.GateType` and `check.CommandRunner` STAY, since the
+  rollup still formats `probe.GateType` and `doctorContext` still carries the runner
+  handed to the prober. The substance of each prose passage is preserved: the three
+  steps still happen in that order (allowlist gate first, then splitting, then
+  execution), one layer down, and the security posture Sharp Edges asserts —
+  allowlist-gate-before-split, `strings.Fields`-based tokenization, no shell — remains
+  in force, now attributed to the prober rather than to inline logic in
+  `doctor_checks.go`. The audit surface shrinks accordingly: independent execution
+  routes go from two (doctor's inline flow plus init's) to exactly one.
 - **1.1.1** (2026-08-14): Second review round, two text-only corrections; no
   requirement and no claim added or removed. (1) CLM-058's predicate contradicted
   `doctorGuidance`'s own contract: four sites mandated ONE non-test call site for
