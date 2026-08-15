@@ -1,6 +1,7 @@
 # backlog-pm memory
 
 - [Report via SendMessage](feedback_report_via_sendmessage.md) — text output is INVISIBLE to the team lead; end every teammate task with SendMessage or it reads as going idle
+- [Verify the loss claim](feedback_verify_the_loss_claim.md) — mechanism real ≠ consequence real; go look for the file an issue says was "lost" before ranking off that claim
 
 - [PM write path](project_pm_write_path_blocked.md) — FULLY OPEN as of 2026-07-26; BACKLOG.yml is structurally directive-author-only; RENAMES need `main`; teammate roster is flat
 - [Interview tooling limits](project_interview_tooling_constraints.md) — `--fork-session` blocked in headless runs; transcript grep DOES work — fingerprint by artifact-ID counts, label it corpus-based
@@ -23,4 +24,5 @@
 - [Phantom filed issues](project_phantom_filed_issues.md) — INBOX ≠ proof of existence; 102/103 were never written yet have burnt tags. `ls issues/ISSUE-NNN-*` before citing any ID
 - [Zero-baked violations have no home](project_zero_baked_violations_have_no_home.md) — DIR-014 is done; home baked-platform issues by the SURFACE that owns the code, not the invariant
 - [Pack rule-precision family](project_pack_rule_precision_family.md) — pack-rule FPs home under DIR-024 by charter; ISSUE-061 in DIR-021 is a deadline exception, not precedent. 061+125 = one pack bump, waiver expires 2026-10-12
+- [Harness config has no home](project_harness_config_has_no_home.md) — `.claude/` agent-guard/hooks are orphaned (DIR-016 done, SPEC-003 deprecated); NO FIT by default, recommend direct fix not a directive
 - [Clean pack addition = no artifact](project_clean_pack_addition_no_artifact.md) — "consumed with zero citation" is NOT a gap absent a defect; don't restate in prose what backstop.lock already records

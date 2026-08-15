@@ -1,2 +1,4 @@
 - [New validation honors existing exemptions](feedback_new_validation_honors_exemptions.md) — a new corpus-wide pass must mirror terminal/live-work exemptions the per-artifact validators apply
 - [Claim subject is one package only](feedback_claim_subject_is_one_package_only.md) — a straddling claim has no satisfiable subject; split before it detonates at closure, detect via scratch-copy probe not a live flip
+- [kind:function contracts are existence-only](feedback_kind_function_contracts_existence_only.md) — gate never checks param/return lists; re-verify signatures by hand, edit every declaring spec on a shape change
+- [Omitted subject inherits wrong package](feedback_omitted_subject_inherits_wrong_package.md) — no `subject:` inherits the spec default even when the real test lives elsewhere; composite literals/constants don't count as symbol refs, kind:absence skips the join entirely
