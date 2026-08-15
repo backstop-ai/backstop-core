@@ -618,9 +618,18 @@ go-test scope-filter exemption; the only artifacts naming
 PLAN-ISSUE-070 (the closed sibling fix), PLAN-ISSUE-020, PLAN-ISSUE-027, and
 ISSUE-052/070/129 themselves. Standard workaround-and-file shape: the
 SPEC-070 implementer hit it, worked around it by hand-running the suite, and
-filed. Priority note, stated as observation and NOT as a reorder
-(backlog-pm has no reorder authority): this is the FOURTH `risk: critical`
-member of this directive with a measured, already-realized consequence,
-alongside item 3 (ISSUE-091), item 4 (ISSUE-092), and item 12 (ISSUE-118). A
-separate proposal for Brandon sits in `.backstop/pm/INBOX.md`; this
-directive's position in BACKLOG.yml is unchanged and must not be touched.
+filed. Priority note, stated at the time as observation and NOT as a
+reorder (backlog-pm has no reorder authority): this is the FOURTH `risk:
+critical` member of this directive with a measured, already-realized
+consequence, alongside item 3 (ISSUE-091), item 4 (ISSUE-092), and item 12
+(ISSUE-118). A separate proposal for Brandon sat in `.backstop/pm/INBOX.md`
+at the time this note was written.
+
+**Update (2026-08-15, founder-directed):** the founder acted on that
+proposal during a pre-public-launch backlog sweep. This directive moved
+from BACKLOG.yml position 5 to position 2 — see BACKLOG.yml's own
+"REORDERED 2026-08-15" comment for the full reasoning. The line above ("this
+directive's position in BACKLOG.yml is unchanged and must not be touched")
+is preserved as a record of backlog-pm's stance at the time it wrote this
+note; it no longer describes the current state and should not be read as
+still in force.

@@ -5,7 +5,7 @@ created: "2026-04-19"
 schema_version: directive/v1
 
 directive:
-  status: queued
+  status: active
   source:
     - "BUNDLE-003"
     - "ISSUE-122"
@@ -14,45 +14,50 @@ directive:
 
 ## Description
 
-Implement `backstop init` — the single command that takes a consuming project from zero to first value. Scaffolds `.backstop/` directory structure, creates `backstop.yml` and `backstop.lock` at root, detects language, auto-installs dependencies (semgrep, golangci-lint, ruff), wires the default language pack, runs the first gate, and captures the result as a baseline presented as observation ("here's what we noticed") not judgment.
+`backstop init` is the single command that takes a consuming project from
+zero to first value. Per BUNDLE-003 (`onboarding-experience`, v0.10.0,
+`defined`), init: `git init`-if-needed + install the omakase base (DD-11),
+scaffold the `.backstop/`-rooted artifact layout (OQ-1), generate
+`backstop.yml`, verify (not install) that the pack-declared toolchain
+entrypoint runs and report an uninstalled/failing one as setup the consumer
+still owes, naming the pack whose entrypoint could not run (REQ-011 v1.1.0),
+seed a local gitignored baseline (OQ-3), wire CI by default via a recipe
+pack (OQ-7), and capture the first gate result as observation ("here's what
+we noticed"), not judgment (DD-3/DD-4) — all with zero manual config steps,
+framework-blind throughout.
 
-Target: under 2 minutes from install to first useful output. Zero manual config steps.
+Init does **ZERO language/framework detection** — this is a HARD INVARIANT
+(DD-13): detection, framework recognition, and CI-platform knowledge live in
+packs as data, never in core. Languages enter a consumer project only via an
+explicit `pack add` (REQ-010), never by inspecting the project's identity —
+a language/framework name appearing in init's own code would itself be the
+bug, and `backstop/self` enforces it. There is no "default language pack"
+for init to wire; omakase is a fixed, framework-blind BASE bundle you
+subtract capabilities from via flags (DD-2/OQ-2), not a per-language
+default. Init also does not install a pack's devDependencies — the MVP is a
+docs-only dependency-install guide living in the relevant pack's own
+README, a pack-authoring convention, not a backstop-executed mechanism.
+
+Target: under 2 minutes from install to first useful output.
 
 Depends on DIR-001 (release workflow — users need the binary) and DIR-009 (pack smoke test — init wires packs, packs need to work).
 
-**Correction (2026-08-12).** The paragraph above describes init detecting a
-project's language, auto-installing its dependencies, and wiring "the
-default language pack." All three are stale and now contradict this
-directive's own source, BUNDLE-003 (`onboarding-experience`, v0.10.0,
-`defined`). BUNDLE-003's OQ-5 dissolved the language-detection framing
-entirely: init does **ZERO language/framework detection**; languages enter a
-consumer project only via an explicit `pack add` (REQ-010), never by
-inspecting the project's identity. This is now a HARD INVARIANT (DD-13):
-detection, framework recognition, and CI-platform knowledge live in packs as
-data, never in core — a language/framework name appearing in init's own code
-would itself be the bug, and `backstop/self` enforces it. There is
-consequently no "default language pack" for init to wire; omakase is a
-fixed, framework-blind BASE bundle you subtract capabilities from via flags
-(DD-2/OQ-2), not a per-language default.
-
+**History (2026-08-12 correction, kept for record).** This directive's
+Description originally read: "Scaffolds `.backstop/` directory structure,
+creates `backstop.yml` and `backstop.lock` at root, detects language,
+auto-installs dependencies (semgrep, golangci-lint, ruff), wires the default
+language pack, runs the first gate, and captures the result as a baseline
+presented as observation... not judgment." That framing — language
+detection, dependency auto-install, a default language pack — is stale and
+contradicted this directive's own source, BUNDLE-003. BUNDLE-003's OQ-5
+dissolved the language-detection framing entirely (now DD-13, above).
 Separately, "auto-installs dependencies (semgrep, golangci-lint, ruff)"
 described what became REQ-032 (pack-declared project dependency
 installation), which BUNDLE-003 **retired** in its 2026-08-12 v0.10.0 pass,
-founder-ruled. Init does not install a pack's devDependencies. The MVP is a
-docs-only dependency-install guide living in the relevant pack's own
-README — a pack-authoring convention, not a backstop-executed mechanism.
-Init's role is limited to verifying (not installing) that the pack-declared
-toolchain entrypoint runs, and reporting an uninstalled/failing one as setup
-the consumer still owes, naming the pack whose entrypoint could not run
-(REQ-011 v1.1.0).
-
-What init actually does, per BUNDLE-003: `git init`-if-needed + install the
-omakase base (DD-11), scaffold the `.backstop/`-rooted artifact layout
-(OQ-1), generate `backstop.yml`, verify the toolchain runs and report an
-uninstalled one as owed setup (REQ-011), seed a local gitignored baseline
-(OQ-3), wire CI by default via a recipe pack (OQ-7), and capture the first
-gate result as observation, not judgment (DD-3/DD-4) — all with zero manual
-config steps, framework-blind throughout.
+founder-ruled, in favor of the docs-only guide described above. The current
+Description (top of this section) reflects the corrected, current state;
+this paragraph is preserved only so a reader tracing history understands
+what changed and why.
 
 **Follow-on (2026-08-14): ISSUE-122.** `DiscoverArtifacts`
 (`cmd/backstop/artifact_discover.go:47-49`) bakes two ecosystem-specific

@@ -63,17 +63,40 @@
 # dependency at this position. With the dependency cleared, the founder is
 # making the position honest: DIR-002 moves to 1. Everything else keeps its
 # prior relative order.
+#
+# REORDERED 2026-08-15 (founder-directed): DIR-032 (Gate Verdict Honesty)
+# moves from position 5 to position 2, immediately after DIR-002. DIR-019,
+# DIR-027, and DIR-024 each drop one position (2->3, 3->4, 4->5) but keep
+# their relative order among themselves — none carries a REAL dependency
+# into DIR-032 or vice versa (same test the 2026-08-11 DIR-002 reorder
+# applied). DIR-032 was carved out of DIR-024 on 2026-08-10, but a
+# carve-out is not a blocking dependency, and neither DIR-019's recipe work
+# nor DIR-027's fleet-publication work gates or is gated by any of
+# DIR-032's 13 member issues. Trigger: a pre-public-launch backlog-pm sweep
+# (2026-08-15) found 4 of DIR-032's 13 members are P0 launch-relevance —
+# including ISSUE-112 (a findings engine whose tool is absent from PATH
+# silently reports empty SARIF as a clean pass — per the sweep, the single
+# most likely defect a fresh consumer hits) and ISSUE-129 (filed 2026-08-15:
+# a diff-scoped `backstop gate` — the default, only-blocking CI check — can
+# report full PASS while a real, currently-failing Go test sits outside the
+# diff's scope). Founder's own framing, relayed: these are false-verdict
+# bugs, the exact failure mode backstop exists to prevent — not deferrable
+# behind feature work with no live dependency into this cluster. DIR-002
+# stays at position 1: its own 2026-08-15 status fix to `active` reflects
+# that its remaining scope (ISSUE-122, ISSUE-124) is residual cleanup, not
+# a reason to hold anything else back, but there is no basis here to demote
+# it further. Relative order of everything from DIR-003 down is unchanged.
 directives:
   - id: DIR-002
     title: backstop init Command
+  - id: DIR-032
+    title: Gate Verdict Honesty
   - id: DIR-019
     title: Pack Recipe Capability
   - id: DIR-027
     title: Pack Fleet Publication & Migration
   - id: DIR-024
     title: Gate/Engine Quality
-  - id: DIR-032
-    title: Gate Verdict Honesty
   - id: DIR-003
     title: Baseline Implementation
   - id: DIR-025
