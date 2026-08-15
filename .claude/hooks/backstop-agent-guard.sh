@@ -28,7 +28,7 @@ if [[ "$TOOL_NAME" == "Bash" ]]; then
       && block "agent $AGENT_NAME: bash tee into artifact file; use the Write/Edit tools"
     echo "$CMD" | grep -qE "\b(cp|mv|install|rsync|touch|rm)\b[^|;]*($ART)" \
       && block "agent $AGENT_NAME: bash file-op on artifact file; use the Write/Edit tools"
-    echo "$CMD" | grep -qE "\b(sed|perl)\b[^|;]*-i[^|;]*($ART)" \
+    echo "$CMD" | grep -qE "\b(sed|perl)\b[^|;]*[[:space:]]-i[^|;]*($ART)" \
       && block "agent $AGENT_NAME: bash in-place edit of artifact file; use the Write/Edit tools"
     if echo "$CMD" | grep -qE "\b(python3?|ruby|node)\b"; then
       # open() only with an explicit write/append mode; bare open(...).read() stays free
