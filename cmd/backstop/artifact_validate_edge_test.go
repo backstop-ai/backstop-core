@@ -19,6 +19,7 @@ func TestArtifactValidate_ZeroArtifacts_Exit0_EmptyViolations(t *testing.T) {
 
 	cfg := ValidateConfig{
 		ProjectRoot: dir,
+		Root:        rootAtDir(t, dir),
 		SchemaFS:    SchemaFS,
 	}
 	result, err := ValidateArtifacts(cfg)
@@ -70,6 +71,7 @@ func TestArtifactValidate_Discover_ParseFailure_ConfigError(t *testing.T) {
 
 	cfg := ValidateConfig{
 		ProjectRoot: dir,
+		Root:        rootAtDir(t, dir),
 		SchemaFS:    SchemaFS,
 	}
 	_, err := ValidateArtifacts(cfg)

@@ -31,7 +31,7 @@ func coverageStepResultOverProject(t *testing.T, projectRoot string, files ...st
 	if err != nil {
 		t.Fatalf("ComputeGateScope: %v", err)
 	}
-	steps := buildGateSteps(projectRoot, scope)
+	steps := buildGateSteps(projectRoot, rootAtDir(t, projectRoot), scope)
 	for _, step := range steps {
 		res := step(context.Background())
 		if res.StepName == gate.StepCoverageThreshold {
@@ -60,8 +60,16 @@ func TestGate_BuildGateStepsConsumesMergedClassifierEndToEnd(t *testing.T) {
 	root := classifierE2EProjectRoot(t)
 	res := coverageStepResultOverProject(t, root, "app/foo.ts")
 
+	if res.StepName != gate.StepCoverageThreshold {
+		t.Fatalf("the assembled step under assertion is %q, want the coverage dimension %q", res.StepName, gate.StepCoverageThreshold)
+	}
 	if res.Status != "fail" {
 		t.Fatalf("a changed .ts source file with no record must RED the real assembled gate (vacuous-green closed), got %s: %#v", res.Status, res.Violations)
+	}
+	// The step result is carried into a real gate result, so the claim is about the
+	// VERDICT an operator gets and not merely about a struct field.
+	if summary := gate.NewGateResult([]gate.StepResult{res}); summary.Pass || summary.StepsFailed != 1 {
+		t.Errorf("the coverage step did not fail the gate it is part of: pass=%v stepsFailed=%d", summary.Pass, summary.StepsFailed)
 	}
 	if !violationPresentForFile(res.Violations, "app/foo.ts") {
 		t.Fatalf("expected a loud coverage violation for app/foo.ts from the live merged classifier, got %#v", res.Violations)
@@ -76,8 +84,14 @@ func TestGate_ClassifierMergesAcrossDeclaredToolchainPacks(t *testing.T) {
 	root := classifierE2EProjectRoot(t)
 	res := coverageStepResultOverProject(t, root, "app/foo.ts", "pkg/x/foo.go")
 
+	if res.StepName != gate.StepCoverageThreshold {
+		t.Fatalf("the assembled step under assertion is %q, want the coverage dimension %q", res.StepName, gate.StepCoverageThreshold)
+	}
 	if res.Status != "fail" {
 		t.Fatalf("both changed source files (no records) must RED via the merged union, got %s: %#v", res.Status, res.Violations)
+	}
+	if summary := gate.NewGateResult([]gate.StepResult{res}); summary.Pass || summary.StepsFailed != 1 {
+		t.Errorf("the coverage step did not fail the gate it is part of: pass=%v stepsFailed=%d", summary.Pass, summary.StepsFailed)
 	}
 	if !violationPresentForFile(res.Violations, "app/foo.ts") {
 		t.Errorf("the bun (.ts) glob member must be measured by the merged classifier, got %#v", res.Violations)
@@ -105,6 +119,15 @@ func TestGate_MergeSourceClassifierSourcesFromDeclaredPacksNotBridge(t *testing.
 	}
 
 	classifier := mergeSourceClassifier(packs)
+
+	// The CONTRAST that makes the three assertions below non-trivial: a classifier
+	// built from NO declared globs measures nothing, so "the merged one measures these
+	// files" is a statement about the merge rather than about IsMeasurableSource being
+	// permissive.
+	empty := gate.NewSourceClassifier(nil, nil)
+	if empty.IsMeasurableSource("app/foo.ts") || empty.IsMeasurableSource("pkg/x/foo.go") {
+		t.Fatal("a classifier with no declared source globs measures files anyway; the assertions below would hold for any classifier at all")
+	}
 
 	if !classifier.IsMeasurableSource("app/foo.ts") {
 		t.Errorf("the merged classifier (from declared packs) must measure the .ts source file app/foo.ts")

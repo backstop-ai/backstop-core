@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"runtime"
-	"strings"
 
 	"github.com/backstop-ai/backstop-core/pkg/config"
+	"github.com/backstop-ai/backstop-core/pkg/schema"
 	"github.com/backstop-ai/backstop-core/pkg/validate"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -15,7 +15,7 @@ import (
 // version is the raw link-time build stamp, set by goreleaser via
 // `-ldflags "-X main.version=..."`. It is NOT what callers should read: an
 // uninjected build leaves it "dev" while build info may still name a real
-// released version. Read effectiveVersion() (version.go) instead, which applies
+// released version. Read effectiveBuildIdentity() (version.go) instead, which applies
 // the injection-wins precedence and rejects VCS-synthesized pseudo-versions.
 var version = "dev" // nosemgrep: go.core.no-global-mutable-state — link-time build stamp; -ldflags -X can only write a package-level var, and it is never mutated at runtime
 
@@ -99,19 +99,22 @@ backstop by shelling out to CLI commands.`,
 		Short: "Print version and schema cohort information",
 		Long:  "Displays the CLI binary version, the embedded schema cohort identifier (derived from the set of embedded schema versions), and the Go version used to build the binary.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			schemas, err := ListSchemas()
+			// Resolved ONCE, above the branch, and shared by both renderings so the
+			// JSON payload and the text output cannot drift apart. Every field below
+			// obeys this shape; a second resolution inside either arm reintroduces the
+			// drift the shape exists to prevent.
+			cohort, err := schema.ComputeCohort(SchemaFS)
 			if err != nil {
-				return fmt.Errorf("listing schemas: %w", err)
+				return fmt.Errorf("computing schema cohort: %w", err)
 			}
-			schemaCohort := computeCohortID(schemas)
-			// Resolved ONCE and shared by both renderings so the JSON payload and
-			// the text output cannot drift apart.
-			reportedVersion := effectiveVersion()
+			identity := effectiveBuildIdentity()
 
 			if jsonFlag {
 				data := map[string]interface{}{
-					"version":        reportedVersion,
-					"schema_cohort":  schemaCohort,
+					"version":        identity.Version,
+					"commit":         identity.Commit,
+					"build_date":     identity.BuildDate,
+					"schema_cohort":  cohort.ID,
 					"go_version":     runtime.Version(),
 					"schema_version": "cli/v1",
 				}
@@ -121,8 +124,10 @@ backstop by shelling out to CLI commands.`,
 				}
 				cmd.Println(string(out))
 			} else {
-				cmd.Printf("backstop version %s\n", reportedVersion)
-				cmd.Printf("schema cohort: %s\n", schemaCohort)
+				cmd.Printf("backstop version %s\n", identity.Version)
+				cmd.Printf("commit: %s\n", identity.Commit)
+				cmd.Printf("built: %s\n", identity.BuildDate)
+				cmd.Printf("schema cohort: %s\n", cohort.ID)
 				cmd.Printf("go version: %s\n", runtime.Version())
 			}
 			return nil
@@ -202,22 +207,6 @@ func buildCommandTree(cmd *cobra.Command, parentPath string) []CommandDescriptor
 	return descriptors
 }
 
-// computeCohortID builds a cohort identifier from schema paths.
-func computeCohortID(schemas []string) string {
-	if len(schemas) == 0 {
-		return "empty"
-	}
-	// Use count and first/last schema as a lightweight cohort ID
-	parts := make([]string, 0, len(schemas))
-	for _, s := range schemas {
-		// Extract artifact-type/version from path
-		s = strings.TrimPrefix(s, "artifacts/")
-		s = strings.TrimSuffix(s, "/schema.json")
-		parts = append(parts, s)
-	}
-	return fmt.Sprintf("%d-schemas[%s]", len(schemas), strings.Join(parts, ","))
-}
-
 // outputResult formats and prints a result using the appropriate formatter.
 func outputResult(cmd *cobra.Command, jsonFlag *bool, result validate.ValidationResult) error {
 	if jsonFlag != nil && *jsonFlag {
@@ -230,6 +219,33 @@ func outputResult(cmd *cobra.Command, jsonFlag *bool, result validate.Validation
 	} else {
 		f := &HumanFormatter{}
 		out, err := f.FormatResult(result)
+		if err != nil {
+			return err
+		}
+		cmd.Print(out)
+	}
+	return nil
+}
+
+// outputValidateResult formats and prints the WIDENED validate result.
+//
+// It is a SECOND ENTRY POINT, not a second rendering path: it branches on jsonFlag over
+// ONE ValidateResult, so the human and JSON renderings read the same struct and cannot
+// drift. outputResult keeps its narrow parameter deliberately — the config-error path in
+// artifact_validate.go legitimately has no corpus to report an asserted count or a
+// scanned root about, and widening the shared function's parameter would break its
+// existing SPEC-005-era callers for nothing.
+func outputValidateResult(cmd *cobra.Command, jsonFlag *bool, result ValidateResult) error {
+	if jsonFlag != nil && *jsonFlag {
+		f := &JSONFormatter{}
+		out, err := f.FormatValidateResult(result)
+		if err != nil {
+			return err
+		}
+		cmd.Println(out)
+	} else {
+		f := &HumanFormatter{}
+		out, err := f.FormatValidateResult(result)
 		if err != nil {
 			return err
 		}

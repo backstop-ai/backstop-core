@@ -2,10 +2,10 @@
 title: "Trustworthy Green Guards"
 number: SPEC-068
 created: "2026-08-13"
-updated: "2026-08-14"
-status: draft
+updated: "2026-08-15"
+status: implemented
 schema_version: spec/v1
-spec_version: 1.2.3
+spec_version: 1.2.8
 
 implementation:
   summary: >
@@ -762,6 +762,16 @@ claims:
     tests:
       - TestBuildGateSteps_SpecDirectoryConsumersReadResolvedArtifactRoot
 
+  # REQ-007 — the ID-resolution fallback, added in 1.2.7. The write path always read the
+  # resolved root; the fallback SCAN did not, and the two disagreeing silently restarted
+  # numbering at 001 under a configured root.
+  - id: CLM-070
+    requirement: REQ-007
+    subject: cmd/backstop
+    text: Under a configured artifact root, artifact ID numbering continues from the artifacts already on disk rather than silently restarting at 001, because the ID-resolution fallback scan reads the same resolved root the write path writes into
+    tests:
+      - TestArtifactNew_IDNumberingContinuesUnderConfiguredRoot
+
 contracts:
   - file: pkg/artifact/layout.go
     provides:
@@ -785,6 +795,10 @@ contracts:
         kind: function
         signature: "func ClassifyFilename(name string) (Kind, bool)"
         notes: "The filename→kind authority replacing cmd/backstop's artifactPatterns map. Exclusive by construction (CLM-039): a filename matches at most one kind. Consumed by BOTH CLI discovery and the REQ-008 ungated-artifact scan, so the set of files the gate says it left out is defined by the same predicate as the set it picks up."
+      - name: NonCorpusDirNames
+        kind: function
+        signature: "func NonCorpusDirNames() []string"
+        notes: "ADDED 2026-08-14 (v1.2.4) — declared during PLAN-SPEC-068's implementation, which found this symbol NECESSARILY exported and absent from this contract block. Returns the shared non-corpus directory names no artifact corpus scan descends into, deterministically ordered: .git, vendor, node_modules, testdata, prototype. `.backstop` is DELIBERATELY ABSENT from the list, because its exclusion is ROOT-RELATIVE and each caller layers its own rule on top — CLI discovery skips `.backstop` wholesale EXCEPT when it IS the resolved root, while the REQ-008 ungated scan always walks it and excludes only `.backstop/packs` beneath it (see the FindUngatedArtifacts notes). It returns a COPY so a caller cannot mutate the shared list. EXPORTED for the same reason as the other symbols in this file: its consumers live in DIFFERENT packages — `cmd/backstop/artifact_discover.go` and `pkg/gate`'s ungated-artifact scan (`pkg/gate/artifact_status.go`) — and one hand-typed copy per caller is exactly the drift this file exists to prevent, since a drift would make the set of files the gate picks up and the set it reports leaving out disagree."
       - name: Root
         kind: type
         signature: "type Root struct { Path string; Declared string; Configured bool }"
@@ -792,7 +806,7 @@ contracts:
       - name: ResolveRoot
         kind: function
         signature: "func ResolveRoot(projectRoot, declared string) (Root, error)"
-        notes: "The ONE root resolution (REQ-006). Absolutizes projectRoot via filepath.Abs before joining, so the returned Root.Path is absolute even when the caller passes `\".\"` — which runGate does whenever DiscoverConfigPath fails (gate.go:77) while runArtifactValidate passes an absolute os.Getwd() (artifact_validate.go:284). Rejects an absolute or escaping DECLARED value (the declaration is project-relative by rule; the resolved Path is absolute by guarantee — these are different strings and the distinction is deliberate) and returns a typed error for a configured root that is absent or is not a directory. It takes the declared STRING rather than a *config.Config so pkg/artifact keeps its stdlib-only import set and every consumer can import it without a cycle."
+        notes: "The ONE root resolution (REQ-006). Absolutizes projectRoot via filepath.Abs before joining, so the returned Root.Path is absolute even when the caller passes `\".\"` — which runGate does whenever DiscoverConfigPath fails (gate.go:77) while runArtifactValidate passes an absolute os.Getwd() (artifact_validate.go:284). Rejects an absolute or escaping DECLARED value (the declaration is project-relative by rule; the resolved Path is absolute by guarantee — these are different strings and the distinction is deliberate) and returns a typed error for a configured root that is absent or is not a directory. CORRECTION (2026-08-14, v1.2.4) — WHICH typed error, made explicit, because this note previously implied the same wrong mapping as Implementation step 2 and the drift is LIVE (PLAN-SPEC-070's doctor branches on the two error types). The mapping is: ABSENT (os.IsNotExist) → *RootMissingError; ABSOLUTE, ESCAPING, and NOT-A-DIRECTORY → *RootInvalidError with a populated Reason. That matches the RootInvalidError contract note below (CLM-035/036/037) and was confirmed as the shipped, correct behavior during PLAN-SPEC-068's implementation, where CLM-035's mandated test pins not-a-directory to *RootInvalidError. It takes the declared STRING rather than a *config.Config so pkg/artifact keeps its stdlib-only import set and every consumer can import it without a cycle."
       - name: RootMissingError
         kind: type
         signature: "type RootMissingError struct { Declared string; Path string }"
@@ -883,7 +897,11 @@ contracts:
       - name: TargetDir
         kind: function
         signature: "func TargetDir(artifactType string, root artifact.Root) string"
-        notes: "SIGNATURE CHANGED (REQ-007): the second parameter becomes the resolved Root rather than a bare projectRoot string, so a caller cannot accidentally pass the project root where the artifact root belongs. The Directory values in ValidArtifactTypes (scaffold.go:35-89) stop being scaffold's private copy and are read from artifact.LayoutFor; the rest of ArtifactTypeConfig (IDPrefix, DigitCount, DefaultStatus, BodySections) is scaffold's own and stays."
+        notes: "SIGNATURE CHANGED (REQ-007): the second parameter becomes the resolved Root rather than a bare projectRoot string, so a caller cannot accidentally pass the project root where the artifact root belongs. The body is root.Dir(artifact.Kind(artifactType))."
+      - name: ArtifactTypeFor
+        kind: function
+        signature: "func ArtifactTypeFor(artifactType string) (ArtifactTypeConfig, bool)"
+        notes: "REPLACES the exported package-level ValidArtifactTypes map (2026-08-15 correction — this contract previously said the map was KEPT with its Directory values re-sourced from artifact.LayoutFor, which is not what shipped). The map is gone and Directory is REMOVED from ArtifactTypeConfig entirely, so no per-type directory field remains for LayoutFor to feed; callers needing a directory use artifact.LayoutFor / Root.Dir directly. A lookup function rather than a table because an exported package-level map is writable by every importer — the hazard go-standards' no-global-mutable-state names, raised as a pack finding during implementation. The rest of ArtifactTypeConfig (IDPrefix, DigitCount, DefaultStatus, FileExtension, BodySections) is scaffold's own and stays."
     consumes:
       - source: pkg/artifact
         name: Root
@@ -891,6 +909,16 @@ contracts:
       - source: pkg/artifact
         name: LayoutFor
         kind: function
+  - file: pkg/scaffold/idresolver.go
+    provides:
+      - name: IDOptions
+        kind: type
+        signature: "type IDOptions struct { Root artifact.Root; Executor GitExecutor; MaxRetries int }"
+        notes: "FIELD CHANGED (REQ-007, 2026-08-15 correction — an exported-API change the Implementation narrative did not originally describe): ProjectRoot string becomes Root artifact.Root. ResolveID's local-scan fallback counts existing artifacts to choose the next number, so it must read the SAME directory artifact new writes to; holding a project root let the two disagree, and under a configured .backstop root the fallback scanned a nonexistent <project>/specs, found nothing and silently restarted numbering at 001. Taking an artifact.Root — which ResolveRoot guarantees absolute — makes passing the wrong directory unrepresentable. Callers hoist the ResolveRoot call ABOVE ResolveID (cmd/backstop/artifact_new.go:92) so one resolved Root feeds both the ID scan and TargetDir."
+    consumes:
+      - source: pkg/artifact
+        name: Root
+        kind: type
   - file: pkg/validate/resolved_by.go
     provides:
       - name: typedRefArtifactExists
@@ -961,12 +989,13 @@ contracts:
     provides:
       - name: computeCohortID
         kind: function
+        absent: true
         signature: "func computeCohortID(schemas []string) string"
-        notes: "DELETED (REQ-001). It is the path-derived cohort at root.go:205-220 that BUNDLE-014's in-place bundle/v2 revision walked straight past. Deleting it is a COMPILE BREAK for TestCLI_ComputeCohortID_Empty (root_test.go:323) and TestCLI_ComputeCohortID_NonEmpty (root_test.go:329), which call it directly and assert its literal `1-schemas[spec/v1]` shape — see Sharp Edges. No legacy cohort string survives anywhere; a second one would make the guard optional."
-      - name: versionCmd
+        notes: "ABSENCE assertion (absent: true) — the signature value is documentary only; an absence entry is probed as a grep text-presence check keyed on the NAME over cmd/backstop/root.go, and the compiled ast-grep signature pattern is never used for it. DELETED (REQ-001). It is the path-derived cohort at root.go:205-220 that BUNDLE-014's in-place bundle/v2 revision walked straight past. Deleting it is a COMPILE BREAK for TestCLI_ComputeCohortID_Empty (root_test.go:323) and TestCLI_ComputeCohortID_NonEmpty (root_test.go:329), which call it directly and assert its literal `1-schemas[spec/v1]` shape — see Sharp Edges. No legacy cohort string survives anywhere; a second one would make the guard optional."
+      - name: NewRootCommand
         kind: function
-        signature: "RunE for the `version` command (root.go:95-133)"
-        notes: "REWRITTEN (REQ-001, REQ-005). It stops calling ListSchemas/computeCohortID and reads schema.ComputeCohort(SchemaFS).ID, and it renders BuildIdentity's commit and build date alongside the version in both branches. The existing resolve-once-share-both-renderings shape at root.go:107 is PRESERVED and extended — it is why the JSON and text outputs cannot drift. TestCLI_Version_HumanOutput (root_test.go:132) and TestCLI_Version_JSONOutput (:148) assert only loose content and field PRESENCE, never the cohort string's shape, so they keep passing across this rewrite and must keep passing — they are the regression floor for it."
+        signature: "func NewRootCommand() *cobra.Command"
+        notes: "SIGNATURE UNCHANGED; it is the declarable surface for this file's rewrite. `versionCmd` is a LOCAL variable inside this constructor (root.go:97) and its RunE is an inline closure — neither is a package-level declaration, so neither is nameable as a contract entry of its own; the constructor that builds them is. The `version` command's RunE is REWRITTEN (REQ-001, REQ-005). It stops calling ListSchemas/computeCohortID and reads schema.ComputeCohort(SchemaFS).ID, and it renders BuildIdentity's commit and build date alongside the version in both branches. The existing resolve-once-share-both-renderings shape at root.go:107 is PRESERVED and extended — it is why the JSON and text outputs cannot drift. TestCLI_Version_HumanOutput (root_test.go:132) and TestCLI_Version_JSONOutput (:148) assert only loose content and field PRESENCE, never the cohort string's shape, so they keep passing across this rewrite and must keep passing — they are the regression floor for it."
     consumes:
       - source: pkg/schema
         name: ComputeCohort
@@ -1101,9 +1130,25 @@ output surfaces.
 
 2. **The root resolver — same file (REQ-006).** `ResolveRoot(projectRoot,
    declared)` returns a `Root{Path, Declared, Configured}`. Rejects absolute and
-   escaping declarations with `*RootInvalidError`; returns `*RootMissingError`
-   for a configured root that is absent or is not a directory; resolves an empty
-   declaration to the project root marked unconfigured. `Root.Dir(kind)` is the
+   escaping declarations with `*RootInvalidError`; ~~returns `*RootMissingError`
+   for a configured root that is absent or is not a directory~~ returns
+   `*RootMissingError` for a configured root that is ABSENT (see the 2026-08-14
+   correction below); resolves an empty declaration to the project root marked
+   unconfigured.
+
+   > **CORRECTION (2026-08-14, v1.2.4) — NOT-A-DIRECTORY IS `*RootInvalidError`,
+   > NOT `*RootMissingError`.** The struck clause folded not-a-directory into
+   > `*RootMissingError`, contradicting `RootInvalidError`'s own contract note in
+   > this same spec ("Covers absolute, escaping, and not-a-directory
+   > declarations (CLM-035/036/037)"). The contract note is the correct one, and
+   > it is the SHIPPED behavior: confirmed during PLAN-SPEC-068's
+   > implementation, where the code and CLM-035's mandated test both pin
+   > not-a-directory to `*RootInvalidError` with a populated `Reason`. The
+   > authoritative mapping is: ABSENT → `*RootMissingError`; ABSOLUTE, ESCAPING,
+   > NOT-A-DIRECTORY → `*RootInvalidError`. This is not cosmetic — the drift is
+   > live downstream, because PLAN-SPEC-070's `backstop doctor` branches on
+   > exactly these two error types, so a reader who trusted the stale clause
+   > would route a not-a-directory root to the wrong diagnostic. `Root.Dir(kind)` is the
    only sanctioned way to name a type directory. Alongside it,
    `Config.ArtifactRoot` is added to `pkg/config` AND `artifact_root` is added to
    `artifacts/backstop-yml/v1/schema.json` — that schema is
@@ -1146,10 +1191,32 @@ output surfaces.
    (`filepath.Join(dir, "..", td.dir)`, line 120), which already works under a
    `.backstop/` layout. Only the duplicated table is the defect here.
 
-6. **Scaffolding (REQ-007).** `TargetDir` takes a `Root` instead of a project
-   root string, and `ValidArtifactTypes`' `Directory` values are read from
-   `artifact.LayoutFor` rather than held privately. `IDPrefix`, `DigitCount`,
-   `DefaultStatus` and `BodySections` are scaffold's own and stay put.
+6. **Scaffolding (REQ-007, 2026-08-15 correction).** `TargetDir` takes a `Root`
+   instead of a project root string. `IDPrefix`, `DigitCount`, `DefaultStatus`
+   and `BodySections` are scaffold's own and stay put. The other two changes went
+   further than this step originally described; the shipped shape is:
+
+   - `ValidArtifactTypes` is NOT kept with its `Directory` values merely
+     re-sourced. The exported package-level map is REPLACED by
+     `ArtifactTypeFor(artifactType string) (ArtifactTypeConfig, bool)`, and
+     `Directory` is REMOVED from `ArtifactTypeConfig` outright — there is no
+     per-type directory field left for anything to read `artifact.LayoutFor`
+     into, and callers needing a directory consume `artifact.LayoutFor` /
+     `Root.Dir` directly. Replacing the map rather than re-sourcing one field
+     also closed a `no-global-mutable-state` pack finding raised during
+     implementation (an exported package-level map is writable by every
+     importer), so this is a stronger change than de-duplicating a table.
+   - `IDOptions.ProjectRoot` (a bare project-root string) becomes
+     `IDOptions.Root` (`artifact.Root`) — an exported `pkg/scaffold` API change
+     this step did not originally mention at all. It closes a real write-path vs
+     ID-fallback-path root divergence found during impl-review: `ResolveID`'s
+     local-scan fallback counts existing artifacts to pick the next number, so
+     under a configured `.backstop` root it scanned a nonexistent
+     `<project>/specs`, found nothing, and silently RESTARTED numbering at 001
+     while the write below used the resolved root. Root resolution is therefore
+     hoisted ABOVE the `ResolveID` call in `cmd/backstop/artifact_new.go`
+     (`artifact_new.go:92`), so one resolved `Root` feeds both the ID scan and
+     `TargetDir`.
 
 7. **The gate's spec directory (REQ-007, 2026-08-14 correction).**
    `buildGateSteps` (`cmd/backstop/gate.go:647`) computes `specDir :=
@@ -1549,3 +1616,44 @@ quarantine.
 - `issues/ISSUE-056-local-first-baseline-seeding.issue.md`,
   `issues/ISSUE-055-local-provenance-cache-for-local-packs.issue.md` — the
   consumed-not-built halves of the bundle, neither of which is this seed's.
+
+## Version History
+
+- **1.2.8** (2026-08-15) — **CLOSE-OUT: status `draft` -> `implemented`.** No
+  requirement, claim, contract, test or mechanism is added, removed or reworded;
+  this entry records the evidence the flip rests on. **Build and tests.**
+  `go build ./...`, `go vet ./...` and `go test ./... -race -count=1` all clean
+  across 17 packages, zero failures. **Gate.** `./bin/backstop gate` reports
+  `pass: true` with every real dimension clean — `pack_engines`,
+  `test_verification`, `test_substantiveness`, `coverage_threshold`,
+  `contract_signature`, `artifact_status_drift`, `requirement_traceability`,
+  `waiver_resolution` — with only pre-existing advisory warnings remaining.
+  **Corpus.** `./bin/backstop artifact validate --all` reports `pass: true`
+  over 347 artifacts. **Mandated tests.** All 71 mandated test names in this
+  spec's `claims` block (70 as planned, plus CLM-070's
+  `TestArtifactNew_IDNumberingContinuesUnderConfiguredRoot`, added in 1.2.7)
+  were confirmed PRESENT in the tree by name at close-out time, and the
+  impl-reviewer ran real MUTATION tests against five of the trickiest claims —
+  each correctly reddened when the fix under test was reverted, so those claims
+  are falsification-verified rather than presence-verified. **Coverage.** Every
+  touched package sits well above the 80 floor this spec declares:
+  `pkg/artifact` 96.2, `pkg/schema` 94.7, `pkg/config` 90.4, `pkg/validate`
+  96.2, `pkg/gate` 93.4, `pkg/scaffold` 93.4, `cmd/backstop` 91.6.
+  **Pack releases.** Implementation required two real external pack releases,
+  both executed and verified on their public remotes:
+  `backstop-ai/backstop-core-architecture@0.1.2` and
+  `backstop-ai/backstop-self@1.1.3` — the architecture and self packs had to
+  learn the new one-layout-authority shape before core could go green against
+  them, which is the packs-only path working as designed rather than a
+  workaround. **Contract enforcement.** Contract-signature enforcement activates
+  at `implemented` status, so the corpus-wide validate above was re-run AFTER
+  this flip and is the real test of the `contracts` block, not a pre-flip
+  reading.
+- **1.0.0 through 1.2.7** — this spec records its own revision history INLINE
+  rather than in this section: each correction is stamped in the requirement,
+  claim or contract text it changed (see REQ-007's and REQ-008's
+  `CORRECTION (2026-08-14, v1.2.x)` clauses, CLM-056's narrowing, and the
+  `NonCorpusDirNames` and `ResolveRoot` contract notes). This section is opened
+  by the close-out entry above; earlier revisions are deliberately NOT
+  back-filled here, because restating them would duplicate — and risk drifting
+  from — the in-place text that is their authority.

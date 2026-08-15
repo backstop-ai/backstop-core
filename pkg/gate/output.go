@@ -33,6 +33,27 @@ func FormatHuman(result GateResult, noColor bool) string {
 	}
 	sb.WriteString(strings.Repeat("─", 60) + "\n")
 
+	// The producing binary and the root it scanned, read off the SAME GateResult fields
+	// the JSON rendering serializes. They are emitted HERE, in the formatter, and
+	// nowhere else: a Println beside the FormatHuman call site would be a SECOND
+	// rendering path, and "both renderings read one resolved value" exists precisely to
+	// forbid two surfaces that can disagree about one run.
+	//
+	// The configured flag is printed even when false, for the same reason its JSON tag
+	// carries no omitempty: unconfigured is the default and the motivating state.
+	if result.BinaryVersion != "" || result.SchemaCohort != "" || result.ArtifactRoot != "" {
+		if result.BinaryVersion != "" {
+			sb.WriteString(fmt.Sprintf("backstop version %s\n", result.BinaryVersion))
+		}
+		if result.SchemaCohort != "" {
+			sb.WriteString(fmt.Sprintf("schema cohort: %s\n", result.SchemaCohort))
+		}
+		if result.ArtifactRoot != "" {
+			sb.WriteString(fmt.Sprintf("artifact root: %s (configured: %t)\n", result.ArtifactRoot, result.ArtifactRootConfigured))
+		}
+		sb.WriteString(strings.Repeat("─", 60) + "\n")
+	}
+
 	if result.Scope != nil && result.Scope.Mode != GateScopeModeAll {
 		switch result.Scope.Mode {
 		case GateScopeModeFile:

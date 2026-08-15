@@ -19,6 +19,11 @@
       "description": "RETIRED (SPEC-046): no longer read by backstop; a project is described by its declared packs, not one baked language. Retained as an allowed-but-ignored legacy key so an existing backstop.yml carrying it still parses cleanly; never required",
       "minLength": 1
     },
+    "artifact_root": {
+      "type": "string",
+      "description": "PROJECT-RELATIVE directory holding the artifact chain (specs, plans, bundles, issues, directives, adrs, capabilities). ABSENT means the project root itself, marked unconfigured - the framework exception that keeps a repo-root layout working without configuring anything. An absolute value, or one escaping the project root, is rejected.",
+      "minLength": 1
+    },
     "runtimes": {
       "type": "array",
       "description": "Supported runtimes",

@@ -50,7 +50,7 @@ func gateStepOutcome(t *testing.T, ymlContent string) []string {
 	if err := os.WriteFile(filepath.Join(root, "backstop.yml"), []byte(ymlContent), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	steps := buildGateSteps(root, emptyDiffScope())
+	steps := buildGateSteps(root, rootAtDir(t, root), emptyDiffScope())
 	out := make([]string, 0, len(steps))
 	for _, step := range steps {
 		res := step(context.Background())

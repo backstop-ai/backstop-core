@@ -209,7 +209,7 @@ func TestBuildGateSteps_WiresTraceabilityWrappers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	steps := buildGateSteps(projectRoot)
+	steps := buildGateSteps(projectRoot, rootAtDir(t, projectRoot))
 	traceabilitySteps := map[string]bool{
 		gate.StepTestSubstantiveness: false,
 		gate.StepCoverageThreshold:   false,

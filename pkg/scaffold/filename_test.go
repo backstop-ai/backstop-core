@@ -2,54 +2,62 @@ package scaffold
 
 import (
 	"testing"
+
+	"github.com/backstop-ai/backstop-core/pkg/artifact"
 )
+
+// rootAt builds an UNCONFIGURED artifact.Root at path, which reproduces exactly the
+// behavior these tests asserted when TargetDir took a bare projectRoot string.
+func rootAt(path string) artifact.Root {
+	return artifact.Root{Path: path}
+}
 
 // --- Directory tests ---
 
 func TestArtifactNew_Directory_Spec(t *testing.T) {
-	got := TargetDir("spec", "/root")
+	got := TargetDir("spec", rootAt("/root"))
 	if got != "/root/specs" {
 		t.Fatalf("expected /root/specs, got %q", got)
 	}
 }
 
 func TestArtifactNew_Directory_Plan(t *testing.T) {
-	got := TargetDir("plan", "/root")
+	got := TargetDir("plan", rootAt("/root"))
 	if got != "/root/plans" {
 		t.Fatalf("expected /root/plans, got %q", got)
 	}
 }
 
 func TestArtifactNew_Directory_Issue(t *testing.T) {
-	got := TargetDir("issue", "/root")
+	got := TargetDir("issue", rootAt("/root"))
 	if got != "/root/issues" {
 		t.Fatalf("expected /root/issues, got %q", got)
 	}
 }
 
 func TestArtifactNew_Directory_ADR(t *testing.T) {
-	got := TargetDir("adr", "/root")
+	got := TargetDir("adr", rootAt("/root"))
 	if got != "/root/adrs" {
 		t.Fatalf("expected /root/adrs, got %q", got)
 	}
 }
 
 func TestArtifactNew_Directory_Directive(t *testing.T) {
-	got := TargetDir("directive", "/root")
+	got := TargetDir("directive", rootAt("/root"))
 	if got != "/root/directives" {
 		t.Fatalf("expected /root/directives, got %q", got)
 	}
 }
 
 func TestArtifactNew_Directory_Bundle(t *testing.T) {
-	got := TargetDir("bundle", "/root")
+	got := TargetDir("bundle", rootAt("/root"))
 	if got != "/root/bundles" {
 		t.Fatalf("expected /root/bundles, got %q", got)
 	}
 }
 
 func TestArtifactNew_Directory_Capability(t *testing.T) {
-	got := TargetDir("capability", "/root")
+	got := TargetDir("capability", rootAt("/root"))
 	if got != "/root/capabilities" {
 		t.Fatalf("expected /root/capabilities, got %q", got)
 	}

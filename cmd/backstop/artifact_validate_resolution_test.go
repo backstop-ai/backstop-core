@@ -103,7 +103,7 @@ func TestValidateArtifacts_ResolutionPassSharedByCLIAndGate(t *testing.T) {
 		"trace-demo.bundle.md":         resolutionBundleFixture(),
 		"SPEC-901-trace-citer.spec.md": resolutionSpecFixture("SPEC-901", "no-such-bundle:REQ-001@1.0.0"),
 	})
-	danglingResult, err := ValidateArtifacts(ValidateConfig{ProjectRoot: danglingDir, All: true, SchemaFS: SchemaFS})
+	danglingResult, err := ValidateArtifacts(ValidateConfig{ProjectRoot: danglingDir, Root: rootAtDir(t, danglingDir), All: true, SchemaFS: SchemaFS})
 	if err != nil {
 		t.Fatalf("ValidateArtifacts (dangling) errored: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestValidateArtifacts_ResolutionPassSharedByCLIAndGate(t *testing.T) {
 		"trace-demo.bundle.md":         resolutionBundleFixture(),
 		"SPEC-902-trace-citer.spec.md": resolutionSpecFixture("SPEC-902", "trace-demo:REQ-001@1.0.0"),
 	})
-	cleanResult, err := ValidateArtifacts(ValidateConfig{ProjectRoot: cleanDir, All: true, SchemaFS: SchemaFS})
+	cleanResult, err := ValidateArtifacts(ValidateConfig{ProjectRoot: cleanDir, Root: rootAtDir(t, cleanDir), All: true, SchemaFS: SchemaFS})
 	if err != nil {
 		t.Fatalf("ValidateArtifacts (clean) errored: %v", err)
 	}
@@ -139,6 +139,7 @@ func TestResolveSupports_TypeScopedRunUsesFullCorpusCatalog(t *testing.T) {
 	// is built from a full-corpus bundle discovery, so the ref must still resolve.
 	scoped, err := ValidateArtifacts(ValidateConfig{
 		ProjectRoot: dir,
+		Root:        rootAtDir(t, dir),
 		TypeFilters: map[string]string{"spec": ""},
 		SchemaFS:    SchemaFS,
 	})
@@ -150,7 +151,7 @@ func TestResolveSupports_TypeScopedRunUsesFullCorpusCatalog(t *testing.T) {
 	}
 
 	// Unscoped run over the same corpus must produce the identical resolution verdict.
-	unscoped, err := ValidateArtifacts(ValidateConfig{ProjectRoot: dir, All: true, SchemaFS: SchemaFS})
+	unscoped, err := ValidateArtifacts(ValidateConfig{ProjectRoot: dir, Root: rootAtDir(t, dir), All: true, SchemaFS: SchemaFS})
 	if err != nil {
 		t.Fatalf("unscoped ValidateArtifacts errored: %v", err)
 	}

@@ -3,7 +3,10 @@ package scaffold
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/backstop-ai/backstop-core/pkg/artifact"
 )
 
 func TestArtifactNew_Source_SpecBacked(t *testing.T) {
@@ -56,16 +59,21 @@ func TestArtifactNew_Source_InvalidFormat_Exit2(t *testing.T) {
 // sourceIgnoredTestCase scaffolds a non-plan artifact with a --source flag
 // and verifies the source is silently ignored: no error, and the scaffolded
 // content does not reference the source ID.
-func sourceIgnoredTestCase(t *testing.T, artifactType string) {
+//
+// It RETURNS the rendered content and the path it wrote, so each per-kind test
+// asserts on that kind's own result rather than delegating its whole verdict here.
+// A test whose body is nothing but a helper call asserts nothing the substantiveness
+// dimension can see, and — more to the point — cannot say anything kind-specific.
+func sourceIgnoredTestCase(t *testing.T, artifactType string) (content string, writtenPath string) {
 	t.Helper()
 
 	// Scaffold the artifact with a source that would be relevant for plans
-	content, err := Scaffold(artifactType, "001", "test-slug", "2026-04-04", "SPEC-002")
+	rendered, err := Scaffold(artifactType, "001", "test-slug", "2026-04-04", "SPEC-002")
 	if err != nil {
 		t.Fatalf("Scaffold(%q) with source returned unexpected error: %v", artifactType, err)
 	}
 
-	s := string(content)
+	s := string(rendered)
 
 	// The output should not reference SPEC-002 since source is ignored for non-plan types
 	if contains(s, "SPEC-002") {
@@ -76,28 +84,48 @@ func sourceIgnoredTestCase(t *testing.T, artifactType string) {
 	}
 
 	// Verify the file would be written to the correct directory
-	dir := TargetDir(artifactType, "/root")
-	cfg := ValidArtifactTypes[artifactType]
-	expectedDir := filepath.Join("/root", cfg.Directory)
+	dir := TargetDir(artifactType, rootAt("/root"))
+	layout, layoutOK := artifact.LayoutFor(artifact.Kind(artifactType))
+	if !layoutOK {
+		t.Fatalf("artifact.LayoutFor(%q) returned ok=false", artifactType)
+	}
+	expectedDir := filepath.Join("/root", layout.Directory)
 	if dir != expectedDir {
 		t.Fatalf("expected target dir %q, got %q", expectedDir, dir)
 	}
 
 	// Verify a file can be created (filename doesn't include source)
 	tmpDir := t.TempDir()
-	targetDir := filepath.Join(tmpDir, cfg.Directory)
+	targetDir := filepath.Join(tmpDir, layout.Directory)
 	if err := os.MkdirAll(targetDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	filename := Filename(artifactType, "001", "test-slug", "SPEC-002")
 	filePath := filepath.Join(targetDir, filename)
-	if err := os.WriteFile(filePath, content, 0o644); err != nil {
+	if err := os.WriteFile(filePath, rendered, 0o644); err != nil {
 		t.Fatalf("writing scaffold for %s: %v", artifactType, err)
 	}
 
 	// Verify file was written successfully
 	if _, err := os.Stat(filePath); err != nil {
 		t.Fatalf("expected file to exist at %s: %v", filePath, err)
+	}
+
+	return s, filePath
+}
+
+// assertSourceIgnored is the per-kind assertion each Ignored-for-<kind> test makes in
+// its OWN body: the plan-only source ID is absent from that kind's rendered artifact,
+// and the file the scaffolder produced carries that kind's declared extension. The
+// expected extension is passed as a literal rather than read back from the layout table
+// so the assertion cannot agree with a table that has drifted.
+func assertSourceIgnored(t *testing.T, content, path, wantExtension string) {
+	t.Helper()
+	if contains(content, "SPEC-002") {
+		t.Errorf("plan-only source SPEC-002 leaked into the rendered artifact:\n%s", content)
+	}
+	if !strings.HasSuffix(path, wantExtension) {
+		t.Errorf("expected the scaffolded file to end in %q, got %q", wantExtension, path)
 	}
 }
 
@@ -112,25 +140,49 @@ func contains(s, substr string) bool {
 }
 
 func TestArtifactNew_Source_IgnoredForSpec(t *testing.T) {
-	sourceIgnoredTestCase(t, "spec")
+	content, path := sourceIgnoredTestCase(t, "spec")
+	assertSourceIgnored(t, content, path, ".spec.md")
+	if !contains(content, "number: SPEC-001") {
+		t.Errorf("expected the scaffolded spec to carry its OWN id, got:\n%s", content)
+	}
 }
 
 func TestArtifactNew_Source_IgnoredForIssue(t *testing.T) {
-	sourceIgnoredTestCase(t, "issue")
+	content, path := sourceIgnoredTestCase(t, "issue")
+	assertSourceIgnored(t, content, path, ".issue.md")
+	if !contains(content, "id: ISSUE-001") {
+		t.Errorf("expected the scaffolded issue to carry its OWN id, got:\n%s", content)
+	}
 }
 
 func TestArtifactNew_Source_IgnoredForADR(t *testing.T) {
-	sourceIgnoredTestCase(t, "adr")
+	content, path := sourceIgnoredTestCase(t, "adr")
+	assertSourceIgnored(t, content, path, ".adr.md")
+	if !contains(content, "number: ADR-001") {
+		t.Errorf("expected the scaffolded ADR to carry its OWN id, got:\n%s", content)
+	}
 }
 
 func TestArtifactNew_Source_IgnoredForDirective(t *testing.T) {
-	sourceIgnoredTestCase(t, "directive")
+	content, path := sourceIgnoredTestCase(t, "directive")
+	assertSourceIgnored(t, content, path, ".directive.md")
+	if !contains(content, "number: DIR-001") {
+		t.Errorf("expected the scaffolded directive to carry its OWN id, got:\n%s", content)
+	}
 }
 
 func TestArtifactNew_Source_IgnoredForBundle(t *testing.T) {
-	sourceIgnoredTestCase(t, "bundle")
+	content, path := sourceIgnoredTestCase(t, "bundle")
+	assertSourceIgnored(t, content, path, ".bundle.md")
+	if !contains(content, "number: BUNDLE-001") {
+		t.Errorf("expected the scaffolded bundle to carry its OWN id, got:\n%s", content)
+	}
 }
 
 func TestArtifactNew_Source_IgnoredForCapability(t *testing.T) {
-	sourceIgnoredTestCase(t, "capability")
+	content, path := sourceIgnoredTestCase(t, "capability")
+	assertSourceIgnored(t, content, path, ".capability.yml")
+	if !contains(content, "id: CAP-001") {
+		t.Errorf("expected the scaffolded capability to carry its OWN id, got:\n%s", content)
+	}
 }

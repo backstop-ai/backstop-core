@@ -236,6 +236,7 @@ func TestArtifactValidate_Exit0_AllPass(t *testing.T) {
 	// Use default (no type flags) which validates all — only plan here
 	cfg := ValidateConfig{
 		ProjectRoot: dir,
+		Root:        rootAtDir(t, dir),
 		TypeFilters: map[string]string{"plan": ""},
 		SchemaFS:    SchemaFS,
 	}
@@ -344,6 +345,7 @@ Schema v99 doesn't exist.
 
 	cfg := ValidateConfig{
 		ProjectRoot: dir,
+		Root:        rootAtDir(t, dir),
 		TypeFilters: map[string]string{"spec": ""},
 		SchemaFS:    SchemaFS,
 	}
@@ -368,6 +370,7 @@ func TestArtifactValidate_Exit2_ParseFailure(t *testing.T) {
 
 	cfg := ValidateConfig{
 		ProjectRoot: dir,
+		Root:        rootAtDir(t, dir),
 		TypeFilters: map[string]string{"spec": ""},
 		SchemaFS:    SchemaFS,
 	}
@@ -393,6 +396,7 @@ func TestArtifactValidate_Exit2_PrecedesExit1(t *testing.T) {
 
 	cfg := ValidateConfig{
 		ProjectRoot: dir,
+		Root:        rootAtDir(t, dir),
 		SchemaFS:    SchemaFS,
 	}
 	_, err := ValidateArtifacts(cfg)
@@ -417,6 +421,7 @@ func TestArtifactValidate_Schema_LoadedFromEmbed(t *testing.T) {
 	// With the real embed FS, validation should succeed
 	cfg := ValidateConfig{
 		ProjectRoot: dir,
+		Root:        rootAtDir(t, dir),
 		TypeFilters: map[string]string{"spec": ""},
 		SchemaFS:    SchemaFS,
 	}
@@ -430,6 +435,7 @@ func TestArtifactValidate_Schema_LoadedFromEmbed(t *testing.T) {
 	emptyFS := fstest.MapFS{}
 	cfgEmpty := ValidateConfig{
 		ProjectRoot: dir,
+		Root:        rootAtDir(t, dir),
 		TypeFilters: map[string]string{"spec": ""},
 		SchemaFS:    emptyFS,
 	}
@@ -462,6 +468,7 @@ Schema v99 doesn't exist in embed.
 
 	cfg := ValidateConfig{
 		ProjectRoot: dir,
+		Root:        rootAtDir(t, dir),
 		TypeFilters: map[string]string{"spec": ""},
 		SchemaFS:    SchemaFS,
 	}
@@ -509,6 +516,7 @@ Missing sections.
 
 	cfg := ValidateConfig{
 		ProjectRoot: dir,
+		Root:        rootAtDir(t, dir),
 		TypeFilters: map[string]string{"spec": ""},
 		SchemaFS:    SchemaFS,
 	}
@@ -577,6 +585,7 @@ Missing sections.
 
 	cfg := ValidateConfig{
 		ProjectRoot: dir,
+		Root:        rootAtDir(t, dir),
 		TypeFilters: map[string]string{"spec": ""},
 		SchemaFS:    SchemaFS,
 	}
@@ -645,6 +654,7 @@ Missing sections.
 
 	cfg := ValidateConfig{
 		ProjectRoot: dir,
+		Root:        rootAtDir(t, dir),
 		TypeFilters: map[string]string{"spec": ""},
 		SchemaFS:    SchemaFS,
 	}

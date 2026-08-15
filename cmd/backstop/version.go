@@ -33,7 +33,7 @@ var releasedVersion = regexp.MustCompile(`^v\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$`)
 //  4. anything else yields "dev"
 //
 // It is a pure function of its arguments so the whole matrix is testable without
-// building a binary per case; effectiveVersion supplies the real inputs.
+// building a binary per case; effectiveBuildIdentity supplies the real inputs.
 func resolveVersion(injected string, info *debug.BuildInfo, ok bool) string {
 	if injected != "" && injected != "dev" {
 		return injected
@@ -69,10 +69,90 @@ func isReleasedModuleVersion(v string) bool {
 	return releasedVersion.MatchString(v)
 }
 
-// effectiveVersion is what the CLI reports: the link-time stamp when goreleaser
-// injected one, otherwise a released module version recorded by `go install`,
-// otherwise "dev".
-func effectiveVersion() string {
+// commit and buildDate are the link-time build stamps, injected the same way `version`
+// is. Neither is populated by any release path today (Sharp Edge 8: .goreleaser.yml is
+// deliberately not edited by SPEC-068), so both are empty in every build that exists —
+// they are honored IF a release path ever supplies them.
+var (
+	commit    = "" // nosemgrep: go.core.no-global-mutable-state — link-time build stamp; -ldflags -X can only write a package-level var, and it is never mutated at runtime
+	buildDate = "" // nosemgrep: go.core.no-global-mutable-state — link-time build stamp; -ldflags -X can only write a package-level var, and it is never mutated at runtime
+)
+
+// unknownBuildField is what a build identity reports for a field no source supplies.
+// It is a LITERAL rather than an empty string so a report never carries a blank where a
+// commit belongs — an empty field reads as "not rendered" and a caller cannot tell it
+// apart from a surface that forgot to print it.
+const unknownBuildField = "unknown"
+
+// BuildIdentity is the full identity of one binary: what it reports as its version,
+// which commit produced it, and when it was built.
+type BuildIdentity struct {
+	Version   string
+	Commit    string
+	BuildDate string
+}
+
+// resolveBuildIdentity decides the whole reported identity of a binary.
+//
+// The VERSION IS DELEGATED to resolveVersion, never reimplemented: the anti-spoofing
+// precedence and rejections are that function's, and REQ-005 adds fields AROUND them.
+// A copy of the "+" check or the pseudo-version regex here would be exactly the
+// duplication CLM-026 exists to prevent.
+//
+// Commit and date come from the vcs.revision and vcs.time build settings, with
+// vcs.modified appended to the COMMIT as a dirty marker — never to the version, which
+// would let a modified tree describe itself as something other than the release it was
+// cut from. A non-empty injected value wins PER FIELD, independently, so injecting only
+// a commit leaves the recorded date intact.
+//
+// It is a pure function of its arguments, mirroring resolveVersion, so the whole matrix
+// is testable without building a binary per case; effectiveBuildIdentity supplies the
+// real inputs.
+func resolveBuildIdentity(injectedVersion, injectedCommit, injectedDate string, info *debug.BuildInfo, ok bool) BuildIdentity {
+	identity := BuildIdentity{
+		Version:   resolveVersion(injectedVersion, info, ok),
+		Commit:    injectedCommit,
+		BuildDate: injectedDate,
+	}
+
+	var revision, buildTime string
+	dirty := false
+	if ok && info != nil {
+		for _, setting := range info.Settings {
+			switch setting.Key {
+			case "vcs.revision":
+				revision = setting.Value
+			case "vcs.time":
+				buildTime = setting.Value
+			case "vcs.modified":
+				dirty = setting.Value == "true"
+			}
+		}
+	}
+
+	if identity.Commit == "" && revision != "" {
+		identity.Commit = revision
+		if dirty {
+			identity.Commit += "-dirty"
+		}
+	}
+	if identity.BuildDate == "" {
+		identity.BuildDate = buildTime
+	}
+
+	if identity.Commit == "" {
+		identity.Commit = unknownBuildField
+	}
+	if identity.BuildDate == "" {
+		identity.BuildDate = unknownBuildField
+	}
+	return identity
+}
+
+// effectiveBuildIdentity is the ONE resolved identity every output surface reads, so no
+// two of them can report different versions than `backstop version` does. It is the only
+// debug.ReadBuildInfo caller in the package.
+func effectiveBuildIdentity() BuildIdentity {
 	info, ok := debug.ReadBuildInfo()
-	return resolveVersion(version, info, ok)
+	return resolveBuildIdentity(version, commit, buildDate, info, ok)
 }

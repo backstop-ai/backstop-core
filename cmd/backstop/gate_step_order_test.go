@@ -54,7 +54,7 @@ func TestGateCLI_StepOrder_WaiverBeforeBaseline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ComputeGateScope: %v", err)
 	}
-	names := stepNameOrder(t, buildGateSteps(temp, scope))
+	names := stepNameOrder(t, buildGateSteps(temp, rootAtDir(t, temp), scope))
 
 	waiverIdx := indexOf(names, gate.StepWaiverResolution)
 	baselineIdx := indexOf(names, gate.StepBaselineComparison)
@@ -85,7 +85,7 @@ func TestGateCLI_Ratchet_ActiveWaiverSubtractedBeforeBaseline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildWaiverPolicy: %v", err)
 	}
-	steps := buildGateSteps(temp, scope)
+	steps := buildGateSteps(temp, rootAtDir(t, temp), scope)
 	// An EMPTY baseline: any surviving finding is NEW and fails baseline.
 	emptyBaseline := &gate.BaselineArtifact{SchemaVersion: "baseline/v1", Violations: []gate.Violation{}}
 	g := gate.New(

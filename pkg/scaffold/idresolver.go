@@ -3,11 +3,12 @@ package scaffold
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/backstop-ai/backstop-core/pkg/artifact"
 )
 
 // GitExecutor abstracts git operations for testability.
@@ -51,9 +52,18 @@ func (e *RetriesExhaustedError) Error() string {
 
 // IDOptions holds configuration for ID resolution.
 type IDOptions struct {
-	ProjectRoot string
-	Executor    GitExecutor
-	MaxRetries  int
+	// Root is the RESOLVED artifact root, and it replaces what used to be a bare
+	// ProjectRoot string. The local-scan fallback below counts existing artifacts to
+	// pick the next number, so it must look in the SAME directory `artifact new`
+	// writes to. Holding a project root here let the two disagree: under a configured
+	// `.backstop` root the fallback scanned a nonexistent <project>/specs, found
+	// nothing, and silently restarted numbering at 001 while the write path correctly
+	// used the resolved root. Taking an artifact.Root — which ResolveRoot guarantees
+	// is absolute — makes handing in the wrong directory unrepresentable rather than
+	// merely discouraged.
+	Root       artifact.Root
+	Executor   GitExecutor
+	MaxRetries int
 }
 
 // GitTagResolver resolves the next available ID via git annotated tags.
@@ -79,7 +89,10 @@ func (r *GitTagResolver) Resolve(artifactType, slug string) (string, error) {
 		return "", &FallbackError{Reason: fmt.Sprintf("fetch failed: %v", err)}
 	}
 
-	cfg := ValidArtifactTypes[artifactType]
+	cfg, known := ArtifactTypeFor(artifactType)
+	if !known {
+		return "", fmt.Errorf("unknown artifact type: %s", artifactType)
+	}
 	pattern := fmt.Sprintf("backstop/%s/", artifactType)
 
 	tags, err := r.executor.ListTags(pattern + "*")
@@ -156,7 +169,10 @@ type LocalScanResolver struct{}
 
 // Resolve scans the target directory for existing artifacts and returns the next ID.
 func (r *LocalScanResolver) Resolve(artifactType, targetDir string) (string, error) {
-	cfg := ValidArtifactTypes[artifactType]
+	cfg, known := ArtifactTypeFor(artifactType)
+	if !known {
+		return "", fmt.Errorf("unknown artifact type: %s", artifactType)
+	}
 
 	entries, err := os.ReadDir(targetDir)
 	if err != nil {
@@ -218,14 +234,12 @@ func ResolveID(artifactType string, opts IDOptions) (string, error) {
 		return "", err
 	}
 
-	// Fallback to local scan
+	// Fallback to local scan, over the SAME resolved root the caller will write into.
 	if _, ok := err.(*FallbackError); ok {
-		cfg := ValidArtifactTypes[artifactType]
-		targetDir := filepath.Join(opts.ProjectRoot, cfg.Directory)
+		targetDir := opts.Root.Dir(artifact.Kind(artifactType))
 		localResolver := &LocalScanResolver{}
 		return localResolver.Resolve(artifactType, targetDir)
 	}
 
 	return "", err
 }
-

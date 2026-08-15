@@ -19,7 +19,7 @@ func TestBuildGateSteps_PackLoadingFailureYieldsSingleFailStep(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	steps := buildGateSteps(projectRoot)
+	steps := buildGateSteps(projectRoot, rootAtDir(t, projectRoot))
 	if len(steps) != 1 {
 		t.Fatalf("expected a single collapsed step, got %d", len(steps))
 	}
@@ -84,7 +84,7 @@ content:
 		t.Fatal(err)
 	}
 
-	steps := buildGateSteps(projectRoot)
+	steps := buildGateSteps(projectRoot, rootAtDir(t, projectRoot))
 	// Find the pack_engines step and run it; it must fail loud as a config error.
 	var found bool
 	for _, step := range steps {
@@ -139,7 +139,8 @@ func TestRunGate_HumanOutput_CollapsedPackFailure(t *testing.T) {
 // gate.ConfigError so the gate treats it as exit-2 config failure.
 func TestRealArtifactValidator_ValidateAll_ConfigErrorWrapped(t *testing.T) {
 	// An empty temp dir has no backstop.yml; ValidateArtifacts(All) errors.
-	v := &realArtifactValidator{projectRoot: filepath.Join(t.TempDir(), "nope")}
+	missing := filepath.Join(t.TempDir(), "nope")
+	v := &realArtifactValidator{projectRoot: missing, root: rootAtDir(t, missing)}
 	_, err := v.ValidateAll(context.Background())
 	if err == nil {
 		t.Fatal("expected a config error from ValidateAll on a missing project")
@@ -155,7 +156,7 @@ func TestRealArtifactValidator_ValidateAll_CleanProjectNoViolations(t *testing.T
 		"project: clean\nlanguage: go\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	v := &realArtifactValidator{projectRoot: projectRoot}
+	v := &realArtifactValidator{projectRoot: projectRoot, root: rootAtDir(t, projectRoot)}
 	violations, err := v.ValidateAll(context.Background())
 	if err != nil {
 		t.Fatalf("ValidateAll on a clean project: %v", err)

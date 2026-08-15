@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/backstop-ai/backstop-core/pkg/artifact"
 	"github.com/backstop-ai/backstop-core/pkg/config"
 	"github.com/backstop-ai/backstop-core/pkg/gate"
 	"github.com/spf13/cobra"
@@ -48,7 +49,8 @@ baseline publication and does not depend on local baseline cache TTL.`,
 }
 
 func runBaselineGenerate(_ *cobra.Command, _ []string) error {
-	if _, err := config.LoadConfig(); err != nil {
+	cfg, err := config.LoadConfig()
+	if err != nil {
 		return fmt.Errorf("baseline generate: config: %w", err)
 	}
 	cfgPath, err := config.DiscoverConfigPath()
@@ -56,12 +58,24 @@ func runBaselineGenerate(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("baseline generate: config: %w", err)
 	}
 	projectRoot := filepath.Dir(cfgPath)
+	// The DECLARED value is cfg.ArtifactRoot, never a literal "". On a project that
+	// configures no artifact root the two produce the identical answer, which is
+	// exactly why the shortcut is invisible here and reinstates the defect the moment
+	// this command is pointed at a `.backstop/`-rooted project.
+	artifactRoot, err := artifact.ResolveRoot(projectRoot, cfg.ArtifactRoot)
+	if err != nil {
+		// Refusing to write a baseline from a gate that could not be rooted is the
+		// same judgment this function already makes about a gate that reported a
+		// config error, and for the same reason: a baseline built from a gate that
+		// never really ran ratchets the project against nothing.
+		return fmt.Errorf("baseline generate: config: %w", err)
+	}
 	scope, err := gate.ComputeGateScope(projectRoot, gate.GateScopeModeAll, nil)
 	if err != nil {
 		return fmt.Errorf("baseline generate: scope: %w", err)
 	}
 	allowSeeding, changedFiles := ruleSetChangeSeedingContext(projectRoot, scope)
-	g := gate.New(gate.WithSteps(buildGateSteps(projectRoot, scope)), gate.WithScope(scope), gate.WithRuleSetChangeSeedingAllowed(allowSeeding), gate.WithRuleSetChangeFiles(changedFiles))
+	g := gate.New(gate.WithSteps(buildGateSteps(projectRoot, artifactRoot, scope)), gate.WithScope(scope), gate.WithRuleSetChangeSeedingAllowed(allowSeeding), gate.WithRuleSetChangeFiles(changedFiles))
 	result, gateExit := g.Run(context.Background())
 	// Exit 2 is a CONFIG error. An artifact built from a gate that never really ran is
 	// a vacuous baseline, and publishing one ratchets the project against nothing (the

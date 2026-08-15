@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/backstop-ai/backstop-core/pkg/artifact"
+	"github.com/backstop-ai/backstop-core/pkg/config"
 	"github.com/backstop-ai/backstop-core/pkg/scaffold"
 	"github.com/spf13/cobra"
 )
@@ -51,7 +53,7 @@ func newArtifactNewCommandWithDeps(deps scaffold.ArtifactNewDeps) *cobra.Command
 			artifactType := args[0]
 
 			// Validate type
-			if _, ok := scaffold.ValidArtifactTypes[artifactType]; !ok {
+			if _, ok := scaffold.ArtifactTypeFor(artifactType); !ok {
 				return &ExitCodeError{Code: ExitConfigError, Message: fmt.Sprintf("invalid artifact type: %q", artifactType)}
 			}
 
@@ -70,11 +72,33 @@ func newArtifactNewCommandWithDeps(deps scaffold.ArtifactNewDeps) *cobra.Command
 				}
 			}
 
+			// Resolve the artifact root ONCE, from the loaded config, BEFORE anything
+			// reads it. A project with no backstop.yml has no configured root to read,
+			// which is the same unconfigured state an absent artifact_root produces —
+			// so a config-load failure yields an empty declared value rather than an
+			// error, preserving the behavior of `artifact new` in a project that has no
+			// config at all. A RESOLUTION failure is different and is fatal: falling
+			// back to the project root would write the artifact to the silently wrong
+			// place.
+			//
+			// This resolution has to happen BEFORE ResolveID, not after: the ID's
+			// local-scan fallback counts existing artifacts to pick the next number, so
+			// it must read the same directory the write below uses or a configured root
+			// silently restarts numbering at 001.
+			declaredRoot := ""
+			if cfg, cfgErr := config.LoadConfigFromDir(deps.ProjectRoot); cfgErr == nil {
+				declaredRoot = cfg.ArtifactRoot
+			}
+			root, rootErr := artifact.ResolveRoot(deps.ProjectRoot, declaredRoot)
+			if rootErr != nil {
+				return &ExitCodeError{Code: ExitConfigError, Message: fmt.Sprintf("config: %s", rootErr)}
+			}
+
 			// Resolve ID via pkg/scaffold
 			id, err := scaffold.ResolveID(artifactType, scaffold.IDOptions{
-				ProjectRoot: deps.ProjectRoot,
-				Executor:    deps.Executor,
-				MaxRetries:  3,
+				Root:       root,
+				Executor:   deps.Executor,
+				MaxRetries: 3,
 			})
 			if err != nil {
 				if _, ok := err.(*scaffold.RetriesExhaustedError); ok {
@@ -96,7 +120,7 @@ func newArtifactNewCommandWithDeps(deps scaffold.ArtifactNewDeps) *cobra.Command
 			}
 
 			// Compute target directory and filename
-			targetDir := scaffold.TargetDir(artifactType, deps.ProjectRoot)
+			targetDir := scaffold.TargetDir(artifactType, root)
 			filename := scaffold.Filename(artifactType, id, slugFlag, sourceFlag)
 			filePath := filepath.Join(targetDir, filename)
 

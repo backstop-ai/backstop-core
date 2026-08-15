@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/backstop-ai/backstop-core/pkg/artifact"
 	"gopkg.in/yaml.v3"
 )
 
@@ -155,27 +156,43 @@ func (r *ArtifactStatusResolution) BackingPlan(artifactID string) (ArtifactStatu
 	return p, ok
 }
 
-// ResolveArtifactStatus walks projectRoot's issues/ specs/ plans/ directives/ directories
-// and returns one record per artifact carrying (id, kind, declared status, class,
-// mandated tests), plus the issue->plan linkage. Spec mandated tests are surfaced via the
-// reused ExtractMandatedTests machinery; issues use the identical claim->tests walk;
-// plans/directives carry status only. A missing directory is not an error (a repo need
-// not have all four); unparseable files are skipped.
-func ResolveArtifactStatus(projectRoot string) (*ArtifactStatusResolution, error) {
+// ResolveArtifactStatus walks the RESOLVED ARTIFACT ROOT's issues/ specs/ plans/
+// directives/ bundles/ directories and returns one record per artifact carrying (id,
+// kind, declared status, class, mandated tests), plus the issue->plan linkage. Spec
+// mandated tests are surfaced via the reused ExtractMandatedTests machinery; issues use
+// the identical claim->tests walk; plans/directives carry status only. A missing
+// directory is not an error (a repo need not have all five); unparseable files are
+// skipped.
+//
+// artifactRoot is the root artifact.ResolveRoot produced, NOT the project root. For an
+// unconfigured project the two are the same directory, which is why every caller that
+// predates SPEC-068 keeps working unchanged. Every type directory name and extension
+// comes from the SHARED artifact layout table; this walker carries no private copy.
+//
+// THE MISSING-DIRECTORY TOLERANCE in walkArtifactDir / walkPlanDir / walkBundleDir is
+// LOAD-BEARING and must not be "hardened": it is what keeps an existing-but-empty
+// artifact root a pass. The loud failure for a configured root that is ABSENT lives one
+// layer up, at the ROOT, where REQ-008 puts it.
+//
+// The walk is deliberately NON-RECURSIVE. That is the calibration point the REQ-008
+// ungated-artifact scan is defined against — making it recursive would silently empty
+// that scan's finding set.
+func ResolveArtifactStatus(artifactRoot string) (*ArtifactStatusResolution, error) {
 	res := &ArtifactStatusResolution{plansBySpecID: map[string]ArtifactStatusRecord{}}
+	root := artifact.Root{Path: artifactRoot}
 
 	// Specs: reuse ExtractMandatedTests for the claim->tests machinery (it groups tests
 	// per spec by SpecID). Terminal (retired) specs are dropped by ExtractMandatedTests,
 	// which is fine — retired specs are excluded from drift anyway; their records still
 	// get status/class below.
-	specDir := filepath.Join(projectRoot, "specs")
+	specDir := root.Dir(artifact.KindSpec)
 	specTests := map[string][]MandatedTest{}
 	if mts, err := ExtractMandatedTests(specDir); err == nil {
 		for _, mt := range mts {
 			specTests[mt.SpecID] = append(specTests[mt.SpecID], mt)
 		}
 	}
-	if err := walkArtifactDir(specDir, ".spec.md", func(path string, fm *artifactFrontmatter) {
+	if err := walkArtifactDir(specDir, extensionFor(artifact.KindSpec), func(path string, fm *artifactFrontmatter) {
 		id := fm.Number
 		res.Records = append(res.Records, ArtifactStatusRecord{
 			ID:            id,
@@ -190,7 +207,7 @@ func ResolveArtifactStatus(projectRoot string) (*ArtifactStatusResolution, error
 	}
 
 	// Bundles: status is nested under status.maturity, and joins use bundle.name.
-	if err := walkBundleDir(filepath.Join(projectRoot, "bundles"), func(path string, fm *bundleFrontmatter) {
+	if err := walkBundleDir(root.Dir(artifact.KindBundle), func(path string, fm *bundleFrontmatter) {
 		res.Records = append(res.Records, ArtifactStatusRecord{
 			ID:         fm.Number,
 			Kind:       KindBundle,
@@ -208,7 +225,7 @@ func ResolveArtifactStatus(projectRoot string) (*ArtifactStatusResolution, error
 	// walk, building MandatedTest records (reusing the MandatedTest type). Unlike specs,
 	// issues are resolved regardless of status so closed issues keep their mandated tests
 	// — the closed+absent BLOCK case depends on it.
-	if err := walkArtifactDir(filepath.Join(projectRoot, "issues"), ".issue.md", func(path string, fm *artifactFrontmatter) {
+	if err := walkArtifactDir(root.Dir(artifact.KindIssue), extensionFor(artifact.KindIssue), func(path string, fm *artifactFrontmatter) {
 		id := fm.Issue.ID
 		res.Records = append(res.Records, ArtifactStatusRecord{
 			ID:            id,
@@ -223,7 +240,7 @@ func ResolveArtifactStatus(projectRoot string) (*ArtifactStatusResolution, error
 	}
 
 	// Directives: status only (directive.status); no mandated tests.
-	if err := walkArtifactDir(filepath.Join(projectRoot, "directives"), ".directive.md", func(path string, fm *artifactFrontmatter) {
+	if err := walkArtifactDir(root.Dir(artifact.KindDirective), extensionFor(artifact.KindDirective), func(path string, fm *artifactFrontmatter) {
 		res.Records = append(res.Records, ArtifactStatusRecord{
 			ID:     fm.Number,
 			Kind:   KindDirective,
@@ -238,7 +255,7 @@ func ResolveArtifactStatus(projectRoot string) (*ArtifactStatusResolution, error
 	// Plans: whole-file YAML (.plan.yml). status + plan_id + spec_id, plus task test_names
 	// as MandatedTests (ISSUE-048). Index each plan by its spec_id for the issue->plan
 	// linkage.
-	if err := walkPlanDir(filepath.Join(projectRoot, "plans"), func(path string, fm *planFrontmatter) {
+	if err := walkPlanDir(root.Dir(artifact.KindPlan), func(path string, fm *planFrontmatter) {
 		rec := ArtifactStatusRecord{
 			ID:            fm.PlanID,
 			Kind:          KindPlan,
@@ -373,6 +390,22 @@ func bundleReqs(fm *bundleFrontmatter) []BundleReqVersion {
 	return out
 }
 
+// unknownKindExtension is what extensionFor yields for a kind the shared layout table
+// does not cover. It is deliberately unmatchable: an empty string would make every
+// strings.HasSuffix test true, turning a missing table entry into a walk over every file
+// in the directory rather than none.
+const unknownKindExtension = "\x00no-such-kind"
+
+// extensionFor reads one kind's file extension from the SHARED layout table, so no
+// extension string in this file is a private copy.
+func extensionFor(kind artifact.Kind) string {
+	layout, known := artifact.LayoutFor(kind)
+	if !known {
+		return unknownKindExtension
+	}
+	return layout.Extension
+}
+
 // walkArtifactDir reads every fenced-frontmatter artifact file with the given suffix in
 // dir, unmarshals its frontmatter, and invokes visit. A missing dir is a no-op (not an
 // error); unparseable files are skipped.
@@ -412,7 +445,7 @@ func walkPlanDir(dir string, visit func(path string, fm *planFrontmatter)) error
 		return fmt.Errorf("reading plan dir %s: %w", dir, err)
 	}
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".plan.yml") {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), extensionFor(artifact.KindPlan)) {
 			continue
 		}
 		path := filepath.Join(dir, entry.Name())
@@ -440,7 +473,7 @@ func walkBundleDir(dir string, visit func(path string, fm *bundleFrontmatter)) e
 		return fmt.Errorf("reading bundle dir %s: %w", dir, err)
 	}
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".bundle.md") {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), extensionFor(artifact.KindBundle)) {
 			continue
 		}
 		path := filepath.Join(dir, entry.Name())
@@ -455,6 +488,146 @@ func walkBundleDir(dir string, visit func(path string, fm *bundleFrontmatter)) e
 		visit(path, &fm)
 	}
 	return nil
+}
+
+// UngatedArtifact is one artifact-shaped file the status walk cannot reach: it is not
+// DIRECTLY in the type directory its own filename declares.
+//
+// ExpectedDir is where discovery WOULD have found it, and it is what makes the report
+// actionable rather than merely accusatory.
+type UngatedArtifact struct {
+	Path        string
+	Kind        artifact.Kind
+	ExpectedDir string
+	Root        string
+}
+
+// Message is the human-readable report for one ungated artifact.
+//
+// UNGATED IS NOT UNDISCOVERED, and this wording is load-bearing. CLI discovery walks
+// the resolved artifact root RECURSIVELY, so a file nested below its own type directory
+// is discovered and schema-validated while still being ungated by the NON-RECURSIVE
+// status walk. Every file in this set is ungated; only a file discovery genuinely
+// cannot reach is undiscovered, and this message never claims that.
+func (u UngatedArtifact) Message() string {
+	return fmt.Sprintf(
+		"artifact-shaped file %s is UNGATED: the artifact status walk reads %s directly and this file is not there",
+		u.Path, u.ExpectedDir)
+}
+
+// FindUngatedArtifacts walks projectRoot and reports every artifact-shaped file that is
+// not DIRECTLY inside the type directory its filename declares.
+//
+// THE PREDICATE IS PER KIND, NOT ROOT CONTAINMENT. A containment test passes almost
+// every case in this family and fails the motivating one: a project that configures no
+// artifact root and keeps bundles at .backstop/bundles/ has those files INSIDE the
+// default root, because the project root contains itself. Per-kind is what surfaces
+// them. The function is named FindUngatedArtifacts precisely so the name cannot
+// re-suggest containment.
+//
+// THE EXCLUSION SET IS ENUMERATED, NOT INHERITED. The five shared non-corpus names come
+// from artifact.NonCorpusDirNames, and installed pack trees under .backstop/packs are
+// excluded on top — but `.backstop` ITSELF IS WALKED, unlike in CLI discovery. Phrasing
+// this as "whatever discovery skips" would make the clause report NOTHING in the
+// unconfigured case, which is the case it exists for.
+//
+// It is CALIBRATED against the non-recursive status walk above. Making that walk
+// recursive would silently empty this function's finding set.
+func FindUngatedArtifacts(projectRoot string, root artifact.Root) ([]UngatedArtifact, error) {
+	// Absolutize on entry. Root.Path is already absolute by ResolveRoot's guarantee,
+	// and comparing an absolute expected directory against a relative walk path yields
+	// either zero findings or one per artifact — both of which look like a working
+	// implementation.
+	absProject, err := filepath.Abs(projectRoot)
+	if err != nil {
+		return nil, fmt.Errorf("resolving project root %q: %w", projectRoot, err)
+	}
+	// AND resolve symlinks, on BOTH sides of every comparison below. Absolutizing alone
+	// is not enough: os.Getwd returns a symlink-RESOLVED path, so a caller that passes
+	// "." (which runGate does whenever config-path discovery fails) produces walk paths
+	// under /private/var while a Root resolved from the same directory's /var form
+	// produces expected directories under /var. Nothing matches, and the result is one
+	// finding per artifact — which looks exactly like a working implementation.
+	absProject = resolveSymlinks(absProject)
+	root.Path = resolveSymlinks(root.Path)
+
+	nonCorpus := make(map[string]bool)
+	for _, name := range artifact.NonCorpusDirNames() {
+		nonCorpus[name] = true
+	}
+
+	var found []UngatedArtifact
+	walkErr := filepath.Walk(absProject, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			base := filepath.Base(path)
+			if nonCorpus[base] {
+				return filepath.SkipDir
+			}
+			// Installed pack trees are never the consumer's corpus, and keying on the
+			// PARENT name covers both layouts with one rule.
+			if base == "packs" && filepath.Base(filepath.Dir(path)) == ".backstop" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		kind, ok := artifact.ClassifyFilename(info.Name())
+		if !ok {
+			return nil
+		}
+		expected := root.Dir(kind)
+		if filepath.Dir(path) == expected {
+			return nil
+		}
+		found = append(found, UngatedArtifact{
+			Path:        path,
+			Kind:        kind,
+			ExpectedDir: expected,
+			Root:        root.Path,
+		})
+		return nil
+	})
+	if walkErr != nil {
+		return nil, fmt.Errorf("walking project root %s: %w", absProject, walkErr)
+	}
+
+	return found, nil
+}
+
+// resolveSymlinks returns path with symlinks resolved, or path unchanged when it cannot
+// be resolved (it may not exist yet, and a non-existent path is not an error here — the
+// walk below reports that in its own terms).
+func resolveSymlinks(path string) string {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return path
+	}
+	return resolved
+}
+
+// UngatedFindingsToViolations converts ungated-artifact findings into gate violations,
+// marking EVERY one ProjectWide.
+//
+// The conversion lives here, in ONE place, so the marking cannot be forgotten at a call
+// site. It is load-bearing rather than cosmetic: filterViolations keeps a violation only
+// when it is ProjectWide or its File is in the diff scope, and an ungated finding names
+// a file that is BY DEFINITION not in the diff — so without the marking a bare
+// `backstop gate` would silently drop exactly the findings this scan exists to surface.
+func UngatedFindingsToViolations(found []UngatedArtifact) []Violation {
+	out := make([]Violation, 0, len(found))
+	for _, f := range found {
+		out = append(out, Violation{
+			Rule:        StepArtifactValidation,
+			File:        f.Path,
+			Message:     f.Message(),
+			Severity:    "warning",
+			ProjectWide: true,
+		})
+	}
+	return out
 }
 
 // readFencedFrontmatter returns the YAML frontmatter bytes between the opening and closing

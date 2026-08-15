@@ -3,7 +3,7 @@ plan_id: PLAN-SPEC-068
 spec_id: SPEC-068
 spec_version: "1.2.3"
 created: "2026-08-14"
-status: draft
+status: completed
 test_command: "go test ./pkg/artifact/... ./pkg/schema/... ./pkg/config/... ./pkg/validate/... ./pkg/gate/... ./pkg/scaffold/... ./cmd/backstop/... -race -coverprofile=cover.out"
 coverage_threshold: 80
 
@@ -268,6 +268,143 @@ notes: |
     on CLM-035), and the prose correction is an artifact-agent job RECORDED in
     TASK-044.
   - No baseline-artifact schema change (BUNDLE-007 / DD-10 own it).
+
+  ── AS BUILT (status: completed, 2026-08-15) ─────────────────────────────
+  ALL 48 TASKS ACROSS ALL 12 PHASES DELIVERED (phases 1–11 plus the
+  late-added 7b). All 70 mandated test names in this plan exist and are
+  substantive; a 71st arrived mid-implementation with CLM-070, below. Status
+  promoted to `completed` after TWO independent impl-reviewer rounds — round
+  one FAILED on six fixable issues, round two verified every fix and returned
+  PASS. The working tree is NOT committed by this close-out.
+
+  SPEC DRIFT, AND THE ONE CLAIM THIS PLAN DID NOT CARRY. This plan was
+  authored against SPEC-068 v1.2.3 and the header still says so deliberately —
+  that is the version it was written against. The spec moved to v1.2.8 and
+  `status: implemented` DURING implementation, through the artifact agents,
+  never by the implementer:
+    • Two contract declarations were repaired before the status flip could
+      turn the contract dimension red — `computeCohortID` declared present for
+      a symbol this plan DELETES (now `absent: true`), and `versionCmd`'s
+      prose signature, which compiled to a pattern that could never match (now
+      `NewRootCommand` with a real signature). Contracts are collected only for
+      `implemented` specs, so every green gate run before the flip said nothing
+      about them. This was the impl-reviewer's highest-value round-one finding.
+    • Implementation step 6 was rewritten to record two shipped renames the
+      spec did not carry: `ValidArtifactTypes` → `ArtifactTypeFor` (with
+      `Directory` dropped entirely) and `IDOptions.ProjectRoot` →
+      `IDOptions.Root`.
+    • CLM-070 was ADDED under REQ-007, with test
+      TestArtifactNew_IDNumberingContinuesUnderConfiguredRoot, to cover the
+      ID-numbering defect described below — which no existing claim reached.
+      CLM-070 is mapped as-built into TASK-018 and TASK-019; the plan as
+      AUTHORED covered CLM-001..069, which was complete against v1.2.3.
+
+  TWO REAL PACK RELEASES, NEITHER ANTICIPATED BY THIS PLAN. Both are recorded
+  in backstop.yml and backstop.lock and both are cross-repo publishes:
+    • backstop-ai/backstop-self 1.1.2 → 1.1.3 (commit a9b0d05, "B1 excludes
+      *_test.go (the last family without it)"). `no-baked-tool-command` was
+      firing on `config.ToolchainPass{Command: "go test ./..."}` TEST FIXTURES.
+      Family B1 was the last family without the `*_test.go` exclusion its
+      siblings B2..B6 already carried — a genuine pack false positive, fixed in
+      the PACK and version-bumped, never worked around in core.
+    • backstop-ai/backstop-core-architecture 0.1.1 → 0.1.2 (commit c862d5d,
+      "allow gate and scaffold to depend on artifact"). Creating the ONE shared
+      layout authority in pkg/artifact necessarily creates new package edges
+      into it; the topology rule forbade them. The rule was corrected to
+      describe the architecture this plan established.
+
+  WHY THE PACK WORK HAPPENED AT ALL — A GATE-SCOPE EFFECT WORTH RECORDING.
+  Widening `buildGateSteps` (phase-7b) forced a MECHANICAL one-argument repair
+  in 13 test files, and touching them dragged each file's ENTIRE pre-existing
+  finding set into blocking diff scope: 4 `no-baked-tool-command` hits, 3
+  `test_substantiveness` subject-join hits, 4 errcheck, 3 staticcheck `unused`
+  helpers, and a staticcheck S1039 that was present in `.backstop/baseline.json`
+  and STILL blocked. All had lain dormant for months. `gate --all` is NOT a
+  superset here — it reports a different, repo-wide set and is the wrong
+  ratchet; the blocking set came from diff-scoped `gate --json`.
+
+  TWO REAL DEFECTS FOUND IN REVIEW ROUND TWO — both of the class where the
+  broken version looks exactly like the working one:
+    (1) THE WRITE PATH AND THE READ PATH DID NOT SHARE ONE ROOT (the defect
+        CLM-070 now covers). The id resolver's local-scan fallback took an
+        `IDOptions.ProjectRoot` STRING and built an `artifact.Root` literal
+        inline, bypassing `ResolveRoot`, while the WRITE path used the properly
+        resolved root. Under a configured `.backstop` artifact root the scan
+        read a nonexistent project-root directory, found nothing, and returned
+        the FIRST number — colliding with an artifact that already existed.
+        EVERY LOCATION TEST STAYED GREEN, because the file's location was
+        always correct; only the NUMBER was wrong, and no "where did it land"
+        assertion can see that. Fixed by REPLACING `ProjectRoot` with a typed
+        `artifact.Root` (it had exactly one use, so swapping removed the second
+        source of truth rather than leaving both) and moving root resolution
+        above the id-resolution call. Falsified, not merely observed: pre-fix
+        the guard produces SPEC-001, post-fix SPEC-003.
+    (2) SYMLINK RESOLUTION, macOS. `FindUngatedArtifacts` compared a walk path
+        against a separately-derived expected directory using only
+        `filepath.Abs`. `os.Getwd()` returns a symlink-RESOLVED path — which
+        `runGate` reaches whenever `DiscoverConfigPath` fails and it passes the
+        literal "." — so walk paths landed under `/private/var/...` while a Root
+        resolved from `t.TempDir()` stayed under `/var/...`. Nothing matched,
+        and the result is one finding per artifact (or none), BOTH of which are
+        indistinguishable from a working implementation. Fixed with
+        `resolveSymlinks` on BOTH sides in pkg/gate/artifact_status.go,
+        reporting consistently in the resolved vocabulary. This is trap C in
+        the plan's own list, and it is why that trap is written down.
+  Round one's other findings, all fixed and each falsified: a VACUOUS
+  EXCLUSIVITY LOOP that re-called a first-match resolver once per kind and so
+  could only ever count 0 or 1 (replaced with a table-row predicate check, a
+  cross-product check, and a whole-class suffix-shadowing check — injecting a
+  bogus `.md` kind turns both red naming every colliding pair); a CLM-065 e2e
+  that did not drive the real `backstop gate` command (it now does, diff-scoped,
+  with a companion proving the finding survives ONLY because of `ProjectWide`);
+  and two corrupted doc comments.
+
+  COVERAGE — A REGRESSION AVOIDED BY GOING PAST THE LITERAL FIX. The second
+  layout-authority finding (pkg/validate/delivered_by.go) could have been closed
+  with a literal swap. Instead `resolvePlansDir` now RETURNS the layout it
+  resolved, so there is one lookup, the glob's extension provably comes from the
+  same table row as the stat'd directory, and the duplicate guard is gone:
+  pkg/validate 88.6% → 90.6% on 3 FEWER statements. The reviewer re-measured
+  coverage independently and found two packages HIGHER than reported and none
+  inflated.
+
+  FINAL VERIFICATION — RUN, NOT ASSERTED. `go build`, `go vet` and
+  `go test ./... -race -count=1` clean across 17 packages;
+  `./bin/backstop gate` → `pass: true`; `./bin/backstop artifact validate --all`
+  → `pass: true` at 347 artifacts. The impl-reviewer re-ran all of it
+  independently on an rsync'd scratch copy rather than reading this lane's
+  report, and round one applied six real mutations, every one caught by the
+  CORRECT mandated test. The gate's 14 remaining `pack_engines` warnings were
+  independently confirmed PRE-EXISTING and false: 14 `isRepo:` at HEAD, zero
+  added by this diff — they surfaced purely from scope entry (see ISSUE-125).
+
+  THE "DOES NOT DO" LIST HELD, EXCEPT WHERE OWNERSHIP MOVED. BUNDLE-003,
+  SPEC-005, DIR-002 and DIR-024 WERE edited during this work — by the artifact
+  agents this plan named as the sanctioned route for each, never by the
+  implementer hand-editing an artifact. The scope fences that mattered held:
+  the two sanctioned test retirements were the only tests deleted, and no third
+  compile break appeared.
+
+  RESIDUALS FILED:
+    ISSUE-124  Residual hardcoded artifact-extension literals — the SEVENTH
+               hardcoding family. Sweeping for the delivered_by.go finding's
+               class turned up more of it outside the requested scope
+               (`.spec.md` literals in pkg/gate/step_testverify.go and four
+               pkg/validate files, plus a `filepath.Join(tmp, "specs")` in
+               gate_substantiveness_e2e.go). Left alone rather than widening
+               the change unasked; each needs its own verification.
+    ISSUE-125  go-standards `go.core.constructor-injection` (GO-005, WARNING,
+               non-blocking) matches field-name SUBSTRINGS rather than whole
+               words — its metavariable-regex `.*(repo|client|store|...).*`
+               fires on a mock literal whose field is named `isRepo`. The
+               third pack false positive found here, and the one NOT fixed by
+               a release: it was dodged in test scaffolding (assign fields
+               after an empty literal instead of composing a keyed one) and
+               filed for a precision edit on the pack's own schedule.
+
+  NOT DONE HERE, ON PURPOSE: nothing in this close-out was committed, and the
+  SPEC-068 flip to `implemented` was the spec agent's move in a parallel
+  dispatch, not this edit's.
 
 phases:
   # ═══════════════════════════════════════════════════════════════════════
@@ -1211,12 +1348,22 @@ phases:
 
               Then the control: in a project declaring no artifact_root, the
               file lands at <project>/<typedir>/ exactly as it does today.
+
+          AS BUILT — a second test joined this file in review round two:
+
+            TestArtifactNew_IDNumberingContinuesUnderConfiguredRoot (CLM-070)
+              Plants an EXISTING artifact under the configured root and asserts
+              the new one CONTINUES past it. A location assertion cannot see
+              this defect; only a numbering assertion can. CLM-070 did not
+              exist when this plan was authored — see the AS BUILT notes.
         files:
           - cmd/backstop/artifact_new_root_test.go
         claims:
           - CLM-050
+          - CLM-070
         test_names:
           - TestArtifactNew_WritesIntoResolvedRoot
+          - TestArtifactNew_IDNumberingContinuesUnderConfiguredRoot
         depends_on:
           - TASK-006
 
@@ -1246,14 +1393,25 @@ phases:
              will not compile; hand them a Root resolved at the same directory.
              Do not change what they assert. Verified 2026-08-14 these are the
              only two test files that call it.
+
+          AS BUILT — a FOURTH edit was required and was missed here. The id
+          resolver's local-scan fallback (pkg/scaffold/idresolver.go) built its
+          own artifact.Root inline from an IDOptions.ProjectRoot STRING,
+          bypassing ResolveRoot, so item 2's resolution fixed the WRITE path
+          while the READ path still counted under the project root and
+          restarted numbering at 001. Fixed in review round two: ProjectRoot
+          REPLACED by a typed Root, and resolution moved above ResolveID.
+          CLM-070.
         files:
           - pkg/scaffold/scaffold.go
           - cmd/backstop/artifact_new.go
+          - pkg/scaffold/idresolver.go
           - pkg/scaffold/filename_test.go
           - pkg/scaffold/source_test.go
         claims:
           - CLM-049
           - CLM-050
+          - CLM-070
         depends_on:
           - TASK-017
           - TASK-018

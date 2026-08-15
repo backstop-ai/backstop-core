@@ -32,21 +32,35 @@ var deliveredByRe = regexp.MustCompile(`^PLAN-ISSUE-[0-9]{3}$`) // nosemgrep: go
 // Filesystem access is static reads only (filepath.Dir/Join, os.Stat); this
 // helper never shells out — pkg/validate has no os/exec and keeps it that way
 // (liveness is ISSUE-042's gate job, CLM-009).
-func resolvePlansDir(art *artifact.ParsedArtifact) (string, bool) {
+func resolvePlansDir(art *artifact.ParsedArtifact) (string, artifact.KindLayout, bool) {
 	if art.SourcePath == "" {
-		return "", false
+		return "", artifact.KindLayout{}, false
 	}
 	dir := filepath.Dir(art.SourcePath)
 	if dir == "." || dir == "" {
 		// Base-only / directory-less path — cannot anchor a sibling plans/ dir.
-		return "", false
+		return "", artifact.KindLayout{}, false
 	}
-	plansDir := filepath.Join(dir, "..", "plans")
+	// Directory NAME and file EXTENSION both come from the shared layout table, never
+	// from literals — this file used to carry its own copy of "plans" and
+	// ".plan.yml", which is the second authority SPEC-068 REQ-006 exists to
+	// eliminate. The layout is returned to the caller rather than looked up twice, so
+	// the extension the glob uses provably comes from the same row as the directory
+	// that was just stat'd.
+	//
+	// The sibling ANCHORING stays: it is relative to the citing issue's own
+	// SourcePath, so it already works under a .backstop/ layout and must not be fed a
+	// configured root.
+	layout, ok := artifact.LayoutFor(artifact.KindPlan)
+	if !ok {
+		return "", artifact.KindLayout{}, false
+	}
+	plansDir := filepath.Join(dir, "..", layout.Directory)
 	info, err := os.Stat(plansDir)
 	if err != nil || !info.IsDir() {
-		return "", false
+		return "", artifact.KindLayout{}, false
 	}
-	return plansDir, true
+	return plansDir, layout, true
 }
 
 // validateDeliveredBy runs the static conditions that let a closed issue satisfy
@@ -72,7 +86,7 @@ func validateDeliveredBy(art *artifact.ParsedArtifact, deliveredBy, issueID stri
 	}
 
 	// 2. Resolve the plans/ dir relative to the issue's own path (CLM-011/012).
-	plansDir, ok := resolvePlansDir(art)
+	plansDir, planLayout, ok := resolvePlansDir(art)
 	if !ok {
 		return []Violation{{
 			Rule:     "issue/delivered-by-plans-unresolvable",
@@ -85,12 +99,16 @@ func validateDeliveredBy(art *artifact.ParsedArtifact, deliveredBy, issueID stri
 	// 3. Locate the named plan file (CLM-003). Glob only errors on a malformed
 	//    pattern; deliveredBy is regex-validated above (no glob metacharacters),
 	//    so an error here is treated the same as "no such plan file".
-	matches, err := filepath.Glob(filepath.Join(plansDir, deliveredBy+"-*.plan.yml"))
+	//    The EXTENSION comes from the layout resolvePlansDir already returned, and the
+	//    diagnostic renders that same value, so the message can never describe a
+	//    pattern the glob did not actually use.
+	planGlob := deliveredBy + "-*" + planLayout.Extension
+	matches, err := filepath.Glob(filepath.Join(plansDir, planGlob))
 	if err != nil || len(matches) == 0 {
 		return []Violation{{
 			Rule:     "issue/delivered-by-plan-not-found",
 			File:     art.Filename,
-			Message:  fmt.Sprintf("delivered_by '%s' names no plan file (%s-*.plan.yml) under %s", deliveredBy, deliveredBy, plansDir),
+			Message:  fmt.Sprintf("delivered_by '%s' names no plan file (%s) under %s", deliveredBy, planGlob, plansDir),
 			Severity: "error",
 		}}
 	}

@@ -15,7 +15,7 @@ import (
 // the built list — the observable for the Step-2 cutover assertions.
 func gateStepNames(t *testing.T, projectRoot string, scope *gate.GateScope) []string {
 	t.Helper()
-	steps := buildGateSteps(projectRoot, scope)
+	steps := buildGateSteps(projectRoot, rootAtDir(t, projectRoot), scope)
 	names := make([]string, 0, len(steps))
 	for _, step := range steps {
 		names = append(names, step(context.Background()).StepName)

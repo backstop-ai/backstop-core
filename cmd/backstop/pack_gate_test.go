@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/backstop-ai/backstop-core/pkg/baseengines"
-	"github.com/backstop-ai/backstop-core/pkg/gate"
 	"github.com/backstop-ai/backstop-core/pkg/pack"
 	"github.com/backstop-ai/backstop-core/pkg/pack/engine"
 )
@@ -65,7 +64,7 @@ packs:
 
 func TestGateIntegration_LockRunsFirst(t *testing.T) {
 	projectRoot := fixtureProjectRoot(t, "packgate-hash-mismatch")
-	steps := buildGateSteps(projectRoot)
+	steps := buildGateSteps(projectRoot, rootAtDir(t, projectRoot))
 	if len(steps) == 0 {
 		t.Fatal("expected steps")
 	}
@@ -366,14 +365,22 @@ func TestGateIntegration_MultiPackAttribution(t *testing.T) {
 func TestGateIntegration_SandboxSingleFileScope(t *testing.T) {
 	projectRoot := t.TempDir()
 	// Create source files
-	os.WriteFile(filepath.Join(projectRoot, "main.go"), []byte("package main\n"), 0o644)
-	os.WriteFile(filepath.Join(projectRoot, "util.go"), []byte("package main\n"), 0o644)
+	if err := os.WriteFile(filepath.Join(projectRoot, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("writing main.go: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectRoot, "util.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("writing util.go: %v", err)
+	}
 
 	// Create pack with single-file validator
 	packDir := filepath.Join(projectRoot, ".backstop", "packs", "test-org", "sf-pack")
-	os.MkdirAll(packDir, 0o755)
+	if err := os.MkdirAll(packDir, 0o755); err != nil {
+		t.Fatalf("creating pack dir: %v", err)
+	}
 	validatorScript := filepath.Join(packDir, "check.sh")
-	os.WriteFile(validatorScript, []byte("#!/bin/sh\nexit 1\n"), 0o755)
+	if err := os.WriteFile(validatorScript, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatalf("writing validator script: %v", err)
+	}
 
 	manifests := []*pack.Manifest{{
 		Name:           "test-org/sf-pack",
@@ -608,13 +615,4 @@ func copyDir(t *testing.T, src, dst string) {
 	if err != nil {
 		t.Fatalf("copy fixture %s -> %s: %v", src, dst, err)
 	}
-}
-
-func stepResultByName(result gate.GateResult, stepName string) *gate.StepResult {
-	for i := range result.Steps {
-		if result.Steps[i].StepName == stepName {
-			return &result.Steps[i]
-		}
-	}
-	return nil
 }

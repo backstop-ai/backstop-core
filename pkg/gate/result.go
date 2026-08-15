@@ -141,14 +141,36 @@ type GateResult struct {
 	// to be denormalized rather than re-looked-up. Populated on the CLI runGate path (empty
 	// on a non-repo, mirroring the baseline artifact); omitempty so they are additive under
 	// the unchanged gate/v1 schema.
-	GitSHA          string     `json:"git_sha,omitempty"`
-	GeneratedAt     string     `json:"generated_at,omitempty"`
-	Scope           *GateScope `json:"scope,omitempty"`
-	Pass            bool       `json:"pass"`
-	TotalViolations int        `json:"total_violations"`
-	StepsPassed     int        `json:"steps_passed"`
-	StepsFailed     int        `json:"steps_failed"`
-	StepsSkipped    int        `json:"steps_skipped"`
+	GitSHA      string `json:"git_sha,omitempty"`
+	GeneratedAt string `json:"generated_at,omitempty"`
+	// BinaryVersion and SchemaCohort name the binary that produced this result, and
+	// SchemaIdentities the per-SCHEMA identities its artifact validation asserted
+	// against. Added the same way GitSHA/GeneratedAt were: ADDITIVE fields under the
+	// UNCHANGED gate/v1 schema, so no existing consumer breaks.
+	//
+	// SchemaIdentities is deliberately per SCHEMA, not per artifact — the per-ARTIFACT
+	// record lives on the validate envelope, and the two are different facts.
+	BinaryVersion    string   `json:"binary_version,omitempty"`
+	SchemaCohort     string   `json:"schema_cohort,omitempty"`
+	SchemaIdentities []string `json:"schema_identities,omitempty"`
+	// ArtifactRoot is the directory this run actually scanned for artifacts, and
+	// ArtifactRootConfigured distinguishes "the consumer chose this root" from "nobody
+	// said, so it is the project root".
+	//
+	// ArtifactRootConfigured CARRIES NO omitempty AND THAT IS DELIBERATE. The four
+	// string/slice fields above take omitempty because their empty value means
+	// genuinely absent; a FALSE BOOL under omitempty is dropped from the JSON
+	// ENTIRELY, and false is both the default and the motivating state — a project
+	// that configures no artifact_root. Adding omitempty here would make the field
+	// unreadable in --json for precisely the case it was written for.
+	ArtifactRoot           string     `json:"artifact_root,omitempty"`
+	ArtifactRootConfigured bool       `json:"artifact_root_configured"`
+	Scope                  *GateScope `json:"scope,omitempty"`
+	Pass                   bool       `json:"pass"`
+	TotalViolations        int        `json:"total_violations"`
+	StepsPassed            int        `json:"steps_passed"`
+	StepsFailed            int        `json:"steps_failed"`
+	StepsSkipped           int        `json:"steps_skipped"`
 	// StepsWarned counts steps with the non-failing "warning" status (SPEC-036
 	// REQ-005). A warning is loud-but-passing: it is counted here and rendered in
 	// the FormatHuman summary line so a class-2 capability-absent advisory cannot

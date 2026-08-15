@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/backstop-ai/backstop-core/pkg/artifact"
 )
 
 // mockGitExecutor is a configurable mock for testing git tag operations.
@@ -312,6 +314,20 @@ func isFallbackError(err error) bool {
 	return ok
 }
 
+// resolvedRootAt resolves an UNCONFIGURED artifact root at dir through the REAL
+// ResolveRoot, rather than composing an artifact.Root literal. These fixtures declare no
+// artifact_root, so their project root IS their artifact root and what the tests assert
+// is unchanged — but going through the resolver is what makes them exercise the
+// absolute-path guarantee the ID fallback now depends on.
+func resolvedRootAt(t *testing.T, dir string) artifact.Root {
+	t.Helper()
+	root, err := artifact.ResolveRoot(dir, "")
+	if err != nil {
+		t.Fatalf("resolving an unconfigured artifact root at %s: %v", dir, err)
+	}
+	return root
+}
+
 // --- ResolveID integration tests ---
 
 func TestArtifactNew_ResolveID_GitSuccess(t *testing.T) {
@@ -321,9 +337,9 @@ func TestArtifactNew_ResolveID_GitSuccess(t *testing.T) {
 		isAvailable: true,
 	}
 	id, err := ResolveID("spec", IDOptions{
-		ProjectRoot: t.TempDir(),
-		Executor:    mock,
-		MaxRetries:  3,
+		Root:       resolvedRootAt(t, t.TempDir()),
+		Executor:   mock,
+		MaxRetries: 3,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -348,9 +364,9 @@ func TestArtifactNew_ResolveID_FallbackToLocalScan(t *testing.T) {
 		isAvailable: false,
 	}
 	id, err := ResolveID("spec", IDOptions{
-		ProjectRoot: tmpDir,
-		Executor:    mock,
-		MaxRetries:  3,
+		Root:       resolvedRootAt(t, tmpDir),
+		Executor:   mock,
+		MaxRetries: 3,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

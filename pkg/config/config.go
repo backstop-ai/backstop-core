@@ -29,6 +29,13 @@ type Config struct {
 	Enforcement Enforcement       `yaml:"enforcement,omitempty" json:"enforcement,omitempty"`
 	Packs       Packs             `yaml:"packs,omitempty" json:"packs,omitempty"`
 	Registries  map[string]string `yaml:"registries,omitempty" json:"registries,omitempty"`
+	// ArtifactRoot is the RAW DECLARED project-relative directory holding the artifact
+	// chain (SPEC-068 REQ-006). It is carried verbatim: no normalization, no
+	// absolutizing, no default. Resolution is artifact.ResolveRoot's job, and
+	// duplicating any part of it here would give the system a second answer — an ABSENT
+	// key resolves to the project root marked unconfigured, which is how a repo-root
+	// layout stays the framework exception without configuring anything.
+	ArtifactRoot string `yaml:"artifact_root,omitempty" json:"artifact_root,omitempty"`
 	// LegacyKeys absorbs retired/legacy top-level keys (the SPEC-046 `language:` key)
 	// so an existing backstop.yml carrying one parses cleanly under the strict
 	// (KnownFields) decoder rather than erroring — the field is GONE, not rejected

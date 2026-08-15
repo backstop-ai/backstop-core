@@ -2,8 +2,9 @@ package scaffold
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
+
+	"github.com/backstop-ai/backstop-core/pkg/artifact"
 )
 
 // ArtifactNewDeps holds injectable dependencies for the artifact new command.
@@ -14,9 +15,11 @@ type ArtifactNewDeps struct {
 }
 
 // ArtifactTypeConfig holds the configuration for a single artifact type.
+//
+// Note what is NOT here: the target directory. That is LAYOUT and comes from
+// artifact.LayoutFor, so scaffold carries no private copy of it. IDPrefix, DigitCount,
+// DefaultStatus, FileExtension and BodySections are scaffold's OWN and stay.
 type ArtifactTypeConfig struct {
-	// Directory is the target directory relative to the project root.
-	Directory string
 	// IDPrefix is the uppercase prefix for the artifact ID (e.g., "SPEC", "ADR").
 	IDPrefix string
 	// DigitCount is the number of zero-padded digits in the numeric ID.
@@ -29,76 +32,93 @@ type ArtifactTypeConfig struct {
 	BodySections []string
 }
 
-// ValidArtifactTypes maps artifact type names to their configuration.
-var ValidArtifactTypes = map[string]ArtifactTypeConfig{
-	"spec": {
-		Directory:     "specs",
-		IDPrefix:      "SPEC",
-		DigitCount:    3,
-		DefaultStatus: "draft",
-		FileExtension: ".spec.md",
-		BodySections:  []string{"Overview", "Requirements", "Implementation", "Verification"},
-	},
-	"plan": {
-		Directory:     "plans",
-		IDPrefix:      "PLAN",
-		DigitCount:    3,
-		DefaultStatus: "draft",
-		FileExtension: ".plan.yml",
-		BodySections:  nil, // Plan uses YAML phases, not markdown sections
-	},
-	"issue": {
-		Directory:     "issues",
-		IDPrefix:      "ISSUE",
-		DigitCount:    3,
-		DefaultStatus: "open",
-		FileExtension: ".issue.md",
-		BodySections:  []string{"Problem"},
-	},
-	"adr": {
-		Directory:     "adrs",
-		IDPrefix:      "ADR",
-		DigitCount:    4,
-		DefaultStatus: "draft",
-		FileExtension: ".adr.md",
-		BodySections:  []string{"Context", "Decision", "Consequences"},
-	},
-	"directive": {
-		Directory:     "directives",
-		IDPrefix:      "DIR",
-		DigitCount:    3,
-		DefaultStatus: "queued",
-		FileExtension: ".directive.md",
-		BodySections:  []string{"Description"},
-	},
-	"bundle": {
-		Directory:     "bundles",
-		IDPrefix:      "BUNDLE",
-		DigitCount:    3,
-		DefaultStatus: "idea",
-		FileExtension: ".bundle.md",
-		BodySections:  []string{"Overview", "Components"},
-	},
-	"capability": {
-		Directory:     "capabilities",
-		IDPrefix:      "CAP",
-		DigitCount:    3,
-		DefaultStatus: "draft",
-		FileExtension: ".capability.yml",
-		BodySections:  nil,
-	},
+// ArtifactTypeFor returns the scaffold configuration for an artifact type name and
+// reports whether the name is one scaffold recognizes.
+//
+// This is a function rather than an exported package-level table because a package-level
+// map is writable by every importer, which is the hazard go-standards'
+// no-global-mutable-state names. There is no dependency to inject here — the values are
+// a constant of the artifact vocabulary — so a lookup function IS the fix.
+func ArtifactTypeFor(artifactType string) (ArtifactTypeConfig, bool) {
+	switch artifactType {
+	case "spec":
+		return ArtifactTypeConfig{
+			IDPrefix:      "SPEC",
+			DigitCount:    3,
+			DefaultStatus: "draft",
+			FileExtension: ".spec.md",
+			BodySections:  []string{"Overview", "Requirements", "Implementation", "Verification"},
+		}, true
+	case "plan":
+		return ArtifactTypeConfig{
+			IDPrefix:      "PLAN",
+			DigitCount:    3,
+			DefaultStatus: "draft",
+			FileExtension: ".plan.yml",
+			BodySections:  nil, // Plan uses YAML phases, not markdown sections
+		}, true
+	case "issue":
+		return ArtifactTypeConfig{
+			IDPrefix:      "ISSUE",
+			DigitCount:    3,
+			DefaultStatus: "open",
+			FileExtension: ".issue.md",
+			BodySections:  []string{"Problem"},
+		}, true
+	case "adr":
+		return ArtifactTypeConfig{
+			IDPrefix:      "ADR",
+			DigitCount:    4,
+			DefaultStatus: "draft",
+			FileExtension: ".adr.md",
+			BodySections:  []string{"Context", "Decision", "Consequences"},
+		}, true
+	case "directive":
+		return ArtifactTypeConfig{
+			IDPrefix:      "DIR",
+			DigitCount:    3,
+			DefaultStatus: "queued",
+			FileExtension: ".directive.md",
+			BodySections:  []string{"Description"},
+		}, true
+	case "bundle":
+		return ArtifactTypeConfig{
+			IDPrefix:      "BUNDLE",
+			DigitCount:    3,
+			DefaultStatus: "idea",
+			FileExtension: ".bundle.md",
+			BodySections:  []string{"Overview", "Components"},
+		}, true
+	case "capability":
+		return ArtifactTypeConfig{
+			IDPrefix:      "CAP",
+			DigitCount:    3,
+			DefaultStatus: "draft",
+			FileExtension: ".capability.yml",
+			BodySections:  nil,
+		}, true
+	default:
+		return ArtifactTypeConfig{}, false
+	}
 }
 
-// TargetDir returns the full target directory path for the given artifact type.
-func TargetDir(artifactType string, projectRoot string) string {
-	cfg := ValidArtifactTypes[artifactType]
-	return filepath.Join(projectRoot, cfg.Directory)
+// TargetDir returns the full target directory for the given artifact type under the
+// RESOLVED artifact root.
+//
+// The second parameter is an artifact.Root, not a bare projectRoot string, so a caller
+// cannot accidentally hand it the project root where the artifact root belongs. The
+// directory name comes from the shared layout table via Root.Dir.
+func TargetDir(artifactType string, root artifact.Root) string {
+	return root.Dir(artifact.Kind(artifactType))
 }
 
 // Filename returns the filename for the given artifact type, ID, slug, and sourceID.
 // For plan types, sourceID determines the filename prefix (PLAN-SPEC- vs PLAN-ISSUE-).
 func Filename(artifactType string, id string, slug string, sourceID string) string {
-	cfg := ValidArtifactTypes[artifactType]
+	cfg, known := ArtifactTypeFor(artifactType)
+	if !known {
+		return ""
+	}
 
 	if artifactType == "plan" {
 		// Plan filenames use the source prefix and source's numeric ID.
@@ -132,7 +152,7 @@ func slugToTitle(slug string) string {
 
 // Scaffold renders the complete artifact content with frontmatter and body sections.
 func Scaffold(artifactType string, id string, slug string, date string, sourceID string) ([]byte, error) {
-	cfg, ok := ValidArtifactTypes[artifactType]
+	cfg, ok := ArtifactTypeFor(artifactType)
 	if !ok {
 		return nil, fmt.Errorf("unknown artifact type: %s", artifactType)
 	}
@@ -224,7 +244,7 @@ func Scaffold(artifactType string, id string, slug string, date string, sourceID
 
 	case "capability":
 		sb.WriteString(fmt.Sprintf("# Capability: %s\n", title))
-		sb.WriteString(fmt.Sprintf("# See artifacts/capability/v1/schema.json for format\n\n"))
+		sb.WriteString("# See artifacts/capability/v1/schema.json for format\n\n")
 		sb.WriteString("capability:\n")
 		sb.WriteString(fmt.Sprintf("  id: CAP-%s\n", id))
 		sb.WriteString(fmt.Sprintf("  title: %q\n", title))

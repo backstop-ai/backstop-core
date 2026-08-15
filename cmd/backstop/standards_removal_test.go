@@ -112,7 +112,7 @@ func TestGate_SucceedsWithoutStandards(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compute gate scope: %v", err)
 	}
-	g := gate.New(gate.WithSteps(buildGateSteps(dir, scope)))
+	g := gate.New(gate.WithSteps(buildGateSteps(dir, rootAtDir(t, dir), scope)))
 	result, exitCode := g.Run(context.Background())
 
 	// Anti-vacuous guard: the gate must actually have RUN. The original hollow

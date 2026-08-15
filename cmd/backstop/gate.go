@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -18,6 +19,7 @@ import (
 	"github.com/backstop-ai/backstop-core/pkg/gate"
 	"github.com/backstop-ai/backstop-core/pkg/pack"
 	"github.com/backstop-ai/backstop-core/pkg/pack/engine"
+	"github.com/backstop-ai/backstop-core/pkg/schema"
 	"github.com/backstop-ai/backstop-core/pkg/validate"
 	"github.com/backstop-ai/backstop-core/pkg/waiver"
 	"github.com/spf13/cobra"
@@ -79,6 +81,41 @@ func runGate(cmd *cobra.Command, args []string) error {
 		projectRoot = filepath.Dir(cfgPath)
 	}
 
+	// THE ONE ARTIFACT-ROOT RESOLUTION for this run. Every consumer below reads this
+	// value; a second resolution anywhere in the same run is the class of bug this
+	// whole spec is about. Note projectRoot is the literal "." whenever config-path
+	// discovery failed — ResolveRoot absolutizes it, which is what makes that safe.
+	artifactRoot, rootErr := artifact.ResolveRoot(projectRoot, cfg.ArtifactRoot)
+	if rootErr != nil {
+		// THE FAILURE IS DISTINGUISHED BY TYPE, never by string match. The two error
+		// types mean genuinely different things — a CONFIGURED root that is absent from
+		// disk (REQ-008's loud failure: the consumer said where its artifacts live and
+		// they are not there) versus a declared value that is malformed — and a caller
+		// that had to parse messages could not tell them apart. SPEC-070's doctor
+		// branches on exactly these two.
+		//
+		// An existing-but-EMPTY root is NEITHER of these: it resolves cleanly, and the
+		// type-directory walkers' os.IsNotExist tolerance is what keeps it a pass.
+		var missing *artifact.RootMissingError
+		if errors.As(rootErr, &missing) {
+			return &ExitCodeError{
+				Code:    ExitConfigError,
+				Message: fmt.Sprintf("config: configured artifact_root %q does not exist at %s — nothing was scanned", missing.Declared, missing.Path),
+			}
+		}
+		var invalid *artifact.RootInvalidError
+		if errors.As(rootErr, &invalid) {
+			return &ExitCodeError{
+				Code:    ExitConfigError,
+				Message: fmt.Sprintf("config: invalid artifact_root %q: %s", invalid.Declared, invalid.Reason),
+			}
+		}
+		return &ExitCodeError{
+			Code:    ExitConfigError,
+			Message: fmt.Sprintf("config: %s", rootErr),
+		}
+	}
+
 	allFlag, allErr := cmd.Flags().GetBool("all")
 	fileValue, fileErr := cmd.Flags().GetString("file")
 	baseValue, baseErr := cmd.Flags().GetString("base")
@@ -121,7 +158,7 @@ func runGate(cmd *cobra.Command, args []string) error {
 	// Build gate with step implementations.
 	var opts []gate.Option
 
-	steps := buildGateSteps(projectRoot, scope)
+	steps := buildGateSteps(projectRoot, artifactRoot, scope)
 	opts = append(opts, gate.WithSteps(steps))
 	opts = append(opts, gate.WithScope(scope))
 
@@ -166,6 +203,20 @@ func runGate(cmd *cobra.Command, args []string) error {
 	result.GitSHA = gitSHA(projectRoot)
 	result.GeneratedAt = time.Now().UTC().Format(time.RFC3339)
 
+	// SPEC-068 identity + root, stamped the same additive way. Every value here comes
+	// from a resolution this run ALREADY made — artifactRoot from the one root
+	// resolution above, the identity from the same accessor `backstop version` reads —
+	// so both renderings below read ONE resolved value and cannot report different
+	// things about one run.
+	identity := effectiveBuildIdentity()
+	result.BinaryVersion = identity.Version
+	result.ArtifactRoot = artifactRoot.Path
+	result.ArtifactRootConfigured = artifactRoot.Configured
+	if cohort, cohortErr := schema.ComputeCohort(SchemaFS); cohortErr == nil {
+		result.SchemaCohort = cohort.ID
+		result.SchemaIdentities = schemaIdentityList(cohort)
+	}
+
 	// Format output based on --json flag.
 	jsonFlag, jsonErr := cmd.Flags().GetBool("json")
 	if jsonErr != nil {
@@ -185,7 +236,11 @@ func runGate(cmd *cobra.Command, args []string) error {
 		// enforcement (ISSUE-031 CLM-017). Purely informational — it is NOT a
 		// warning or violation and does not affect the gate verdict; retirement
 		// is deliberate. Silent when zero (no noise).
-		if notice := terminalExclusionNotice(filepath.Join(projectRoot, "specs")); notice != "" {
+		// Reads the SAME already-resolved root threaded to buildGateSteps above — no
+		// second resolution. terminalExclusionNotice swallows a read error and returns
+		// "", so under a .backstop/-rooted project the "N retired artifacts excluded"
+		// line would otherwise vanish silently. Purely informational, never a verdict.
+		if notice := terminalExclusionNotice(artifactRoot.Dir(artifact.KindSpec)); notice != "" {
 			cmd.Println(notice)
 		}
 	}
@@ -644,12 +699,24 @@ func toolchainEnforcementStatus(declared []*pack.Manifest) (gate.StepResult, boo
 	}, true
 }
 
-func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFunc {
+// buildGateSteps assembles the ordered gate step list.
+//
+// projectRoot and root are DELIBERATELY SEPARATE and must stay so. projectRoot is the
+// CODE directory these steps walk for test files and coverage; root is the resolved
+// ARTIFACT root the spec-reading dimensions read. Under a `.backstop/` layout the two
+// are genuinely different directories, and collapsing them would point test discovery
+// at `.backstop/` and find no source at all — a different vacuous green than the one
+// this change removes.
+//
+// The scope tail stays LAST and variadic, which is what lets the call sites that omit
+// it keep omitting it; the new parameter therefore goes BEFORE it, since Go cannot
+// express a parameter after a variadic.
+func buildGateSteps(projectRoot string, root artifact.Root, scope ...*gate.GateScope) []gate.StepFunc {
 	var activeScope *gate.GateScope
 	if len(scope) > 0 {
 		activeScope = scope[0]
 	}
-	specDir := filepath.Join(projectRoot, "specs")
+	specDir := root.Dir(artifact.KindSpec)
 	packs, packErr := loadInstalledPacks(projectRoot)
 	if packErr != nil {
 		return []gate.StepFunc{
@@ -665,7 +732,7 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 	}
 
 	// Step 1: Artifact validation — delegates to ValidateArtifacts.
-	artifactValidator := &realArtifactValidator{projectRoot: projectRoot}
+	artifactValidator := &realArtifactValidator{projectRoot: projectRoot, root: root}
 
 	// Step 2 ("Code check") is GONE as a gate step (SPEC-040 REQ-001): lint/build/
 	// test now run only through dispatchPackEngines. The baked shared `go test ./...`
@@ -728,8 +795,8 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 	// The wiring emits TWO surfaces: the policied BLOCK step (StepArtifactStatusDrift) and
 	// the non-policied WARN advisory (StepArtifactStatusDriftAdvisory), so the WARN
 	// direction is structurally non-blocking (no policy can upgrade it).
-	driftBlockStep, driftAdvisoryStep := buildStatusDriftSteps(projectRoot, classifier, matcher, mergePackClaimIndex(packs))
-	traceBlockStep, traceAdvisoryStep := buildRequirementTraceabilitySteps(projectRoot)
+	driftBlockStep, driftAdvisoryStep := buildStatusDriftSteps(projectRoot, root, classifier, matcher, mergePackClaimIndex(packs))
+	traceBlockStep, traceAdvisoryStep := buildRequirementTraceabilitySteps(projectRoot, root)
 
 	// SPEC-036: wrap the three traceability analyzer steps with the polarity
 	// classifier so it runs IN FRONT OF each analyzer. The classifier derives the
@@ -892,14 +959,14 @@ func buildGateSteps(projectRoot string, scope ...*gate.GateScope) []gate.StepFun
 // walks all of projectRoot, NOT activeScope), so a stale-status artifact whose file is out
 // of the diff is still caught (CLM-007). No pass/fail is threaded and no suite is re-run
 // (CLM-005/008) — a present-but-failing mandated test is caught by the pack_engines step.
-func buildStatusDriftSteps(projectRoot string, classifier gate.SourceClassifier, matcher gate.TestNameMatcher, packClaims gate.PackClaimIndex) (gate.StepFunc, gate.StepFunc) {
+func buildStatusDriftSteps(projectRoot string, root artifact.Root, classifier gate.SourceClassifier, matcher gate.TestNameMatcher, packClaims gate.PackClaimIndex) (gate.StepFunc, gate.StepFunc) {
 	var (
 		once           sync.Once
 		blockResult    gate.StepResult
 		advisoryResult gate.StepResult
 	)
 	compute := func() {
-		res, err := gate.ResolveArtifactStatus(projectRoot)
+		res, err := gate.ResolveArtifactStatus(root.Path)
 		if err != nil {
 			// A resolve failure is a config error under the BLOCK name (it halts the gate);
 			// the advisory surface stays a clean pass so it never invents a false warning.
@@ -959,14 +1026,14 @@ func computeDriftSurfaces(projectRoot string, res *gate.ArtifactStatusResolution
 	return gate.SplitDriftResult(combined)
 }
 
-func buildRequirementTraceabilitySteps(projectRoot string) (gate.StepFunc, gate.StepFunc) {
+func buildRequirementTraceabilitySteps(projectRoot string, root artifact.Root) (gate.StepFunc, gate.StepFunc) {
 	var (
 		once           sync.Once
 		blockResult    gate.StepResult
 		advisoryResult gate.StepResult
 	)
 	compute := func() {
-		blockResult, advisoryResult = computeRequirementTraceabilitySurfaces(projectRoot)
+		blockResult, advisoryResult = computeRequirementTraceabilitySurfaces(projectRoot, root)
 	}
 	block := func(context.Context) gate.StepResult {
 		once.Do(compute)
@@ -979,8 +1046,8 @@ func buildRequirementTraceabilitySteps(projectRoot string) (gate.StepFunc, gate.
 	return block, advisory
 }
 
-func computeRequirementTraceabilitySurfaces(projectRoot string) (gate.StepResult, gate.StepResult) {
-	res, err := gate.ResolveArtifactStatus(projectRoot)
+func computeRequirementTraceabilitySurfaces(projectRoot string, root artifact.Root) (gate.StepResult, gate.StepResult) {
+	res, err := gate.ResolveArtifactStatus(root.Path)
 	if err != nil {
 		return gate.StepResult{
 			StepName:   gate.StepRequirementTraceability,
@@ -989,7 +1056,7 @@ func computeRequirementTraceabilitySurfaces(projectRoot string) (gate.StepResult
 			Violations: []gate.Violation{{Rule: gate.StepRequirementTraceability, Message: "resolving artifact status: " + err.Error(), Severity: "error"}},
 		}, gate.StepResult{StepName: gate.StepRequirementTraceabilityAdvisory, Status: "pass", Violations: []gate.Violation{}}
 	}
-	refs, err := collectTraceRefs(projectRoot)
+	refs, err := collectTraceRefs(root)
 	if err != nil {
 		return gate.StepResult{
 			StepName:   gate.StepRequirementTraceability,
@@ -1011,8 +1078,8 @@ func computeRequirementTraceabilitySurfaces(projectRoot string) (gate.StepResult
 	return gate.SplitTraceabilityResult(combined)
 }
 
-func collectTraceRefs(projectRoot string) ([]gate.TraceRef, error) {
-	discovered, err := DiscoverArtifacts(projectRoot, []string{"spec", "issue"})
+func collectTraceRefs(root artifact.Root) ([]gate.TraceRef, error) {
+	discovered, err := DiscoverArtifacts(root, []string{"spec", "issue"})
 	if err != nil {
 		return nil, fmt.Errorf("discovering spec/issue artifacts: %w", err)
 	}
@@ -1563,17 +1630,53 @@ func buildWaiverLineReader(projectRoot string, _ *gate.GateScope) waiver.LineRea
 	}
 }
 
+// schemaIdentityList renders a cohort's per-SCHEMA identities, sorted so a gate result
+// is byte-stable across runs.
+//
+// This is the per-SCHEMA surface. The per-ARTIFACT binding lives on the validate
+// envelope's record array and is a genuinely different fact — a flat list of schema
+// identities cannot express which artifact was validated against which schema.
+func schemaIdentityList(cohort schema.Cohort) []string {
+	out := make([]string, 0, len(cohort.Digests))
+	for version := range cohort.Digests {
+		if identity, ok := cohort.SchemaIdentity(version); ok {
+			out = append(out, identity)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 // realArtifactValidator implements gate.ArtifactValidator by calling
 // ValidateArtifacts with the embedded schema FS.
 type realArtifactValidator struct {
 	projectRoot string
+	root        artifact.Root
+	// cohort is the schema identity this validator asserts against. It is a FIELD
+	// rather than a per-call computation so the gate's artifact_validation step
+	// asserts on the same values the rest of the run reports. A zero cohort is
+	// resolved lazily below, which is what keeps the several test constructions of
+	// this struct working unchanged.
+	cohort schema.Cohort
 }
 
 func (v *realArtifactValidator) ValidateAll(_ context.Context) ([]gate.Violation, error) {
+	// The gate asserts against the SAME cohort the CLI does, computed from the same
+	// embedded schemas — the two cannot assert against different values.
+	cohort := v.cohort
+	if cohort.ID == "" {
+		computed, err := schema.ComputeCohort(SchemaFS)
+		if err != nil {
+			return nil, &gate.ConfigError{Err: fmt.Errorf("computing schema cohort: %w", err)}
+		}
+		cohort = computed
+	}
 	cfg := ValidateConfig{
 		ProjectRoot: v.projectRoot,
+		Root:        v.root,
 		All:         true,
 		SchemaFS:    SchemaFS,
+		Cohort:      cohort,
 	}
 
 	result, err := ValidateArtifacts(cfg)
@@ -1591,6 +1694,20 @@ func (v *realArtifactValidator) ValidateAll(_ context.Context) ([]gate.Violation
 			Severity: vv.Severity,
 		})
 	}
+
+	// THE ONE PLACE THE UNGATED SCAN IS INVOKED. A second call site would let two
+	// scans disagree about which root they measured against, which is the class of bug
+	// this whole spec is about.
+	//
+	// The findings arrive already ProjectWide-marked from the shared conversion, which
+	// is what keeps them alive through diff-scoped filtering — an ungated artifact is
+	// by definition a file nobody just edited.
+	ungated, ungatedErr := gate.FindUngatedArtifacts(v.projectRoot, v.root)
+	if ungatedErr != nil {
+		return nil, &gate.ConfigError{Err: fmt.Errorf("scanning for ungated artifacts: %w", ungatedErr)}
+	}
+	violations = append(violations, gate.UngatedFindingsToViolations(ungated)...)
+
 	return violations, nil
 }
 

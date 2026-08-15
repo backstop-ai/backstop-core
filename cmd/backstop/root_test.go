@@ -320,19 +320,6 @@ func TestCLI_Commands_ContainsJsonFlag(t *testing.T) {
 	}
 }
 
-func TestCLI_ComputeCohortID_Empty(t *testing.T) {
-	if got := computeCohortID(nil); got != "empty" {
-		t.Fatalf("computeCohortID(nil)=%q want empty", got)
-	}
-}
-
-func TestCLI_ComputeCohortID_NonEmpty(t *testing.T) {
-	got := computeCohortID([]string{"artifacts/spec/v1/schema.json"})
-	if !strings.Contains(got, "1-schemas[spec/v1]") {
-		t.Fatalf("unexpected cohort id: %s", got)
-	}
-}
-
 func TestCLI_Main_EntryPointCoverage(t *testing.T) {
 	// Coverage-only test: execute built binary to exercise main().
 	// Keep assertions simple and deterministic.

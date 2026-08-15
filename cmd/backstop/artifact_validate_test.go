@@ -1,7 +1,6 @@
 package main
 
 import (
-	"io/fs"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -40,6 +39,7 @@ Test.
 
 	cfg := ValidateConfig{
 		ProjectRoot: dir,
+		Root:        rootAtDir(t, dir),
 		TypeFilters: map[string]string{"spec": ""},
 		SchemaFS:    SchemaFS,
 	}
@@ -66,6 +66,7 @@ func TestArtifactValidate_Scope_SpecByID(t *testing.T) {
 
 	cfg := ValidateConfig{
 		ProjectRoot: dir,
+		Root:        rootAtDir(t, dir),
 		TypeFilters: map[string]string{"spec": "SPEC-002"},
 		SchemaFS:    SchemaFS,
 	}
@@ -92,6 +93,7 @@ func TestArtifactValidate_Scope_PlanAll(t *testing.T) {
 
 	cfg := ValidateConfig{
 		ProjectRoot: dir,
+		Root:        rootAtDir(t, dir),
 		TypeFilters: map[string]string{"plan": ""},
 		SchemaFS:    SchemaFS,
 	}
@@ -144,6 +146,7 @@ None.
 
 	cfg := ValidateConfig{
 		ProjectRoot: dir,
+		Root:        rootAtDir(t, dir),
 		TypeFilters: map[string]string{"adr": ""},
 		SchemaFS:    SchemaFS,
 	}
@@ -186,6 +189,7 @@ Test.
 
 	cfg := ValidateConfig{
 		ProjectRoot: dir,
+		Root:        rootAtDir(t, dir),
 		TypeFilters: map[string]string{"bundle": ""},
 		SchemaFS:    SchemaFS,
 	}
@@ -222,6 +226,7 @@ Test.
 
 	cfg := ValidateConfig{
 		ProjectRoot: dir,
+		Root:        rootAtDir(t, dir),
 		TypeFilters: map[string]string{"issue": ""},
 		SchemaFS:    SchemaFS,
 	}
@@ -266,6 +271,7 @@ None.
 
 	cfg := ValidateConfig{
 		ProjectRoot: dir,
+		Root:        rootAtDir(t, dir),
 		TypeFilters: map[string]string{"standard": ""},
 		SchemaFS:    SchemaFS,
 	}
@@ -309,6 +315,7 @@ Test.
 
 	cfg := ValidateConfig{
 		ProjectRoot: dir,
+		Root:        rootAtDir(t, dir),
 		TypeFilters: map[string]string{"spec": "", "plan": ""},
 		SchemaFS:    SchemaFS,
 	}
@@ -335,6 +342,7 @@ func TestArtifactValidate_Scope_DefaultAll(t *testing.T) {
 
 	cfg := ValidateConfig{
 		ProjectRoot: dir,
+		Root:        rootAtDir(t, dir),
 		TypeFilters: nil, // No filters = default all
 		SchemaFS:    SchemaFS,
 	}
@@ -359,6 +367,7 @@ func TestArtifactValidate_AllFlag_ValidatesEverything(t *testing.T) {
 
 	cfg := ValidateConfig{
 		ProjectRoot: dir,
+		Root:        rootAtDir(t, dir),
 		All:         true,
 		SchemaFS:    SchemaFS,
 	}
@@ -384,6 +393,7 @@ func TestArtifactValidate_AllFlag_PrecedesTypeFlags(t *testing.T) {
 	// --all with --spec should still validate everything
 	cfg := ValidateConfig{
 		ProjectRoot: dir,
+		Root:        rootAtDir(t, dir),
 		TypeFilters: map[string]string{"spec": ""},
 		All:         true,
 		SchemaFS:    SchemaFS,
@@ -409,6 +419,7 @@ func TestArtifactValidate_IDScope_SpecMatchesByNumber(t *testing.T) {
 
 	cfg := ValidateConfig{
 		ProjectRoot: dir,
+		Root:        rootAtDir(t, dir),
 		TypeFilters: map[string]string{"spec": "SPEC-002"},
 		SchemaFS:    SchemaFS,
 	}
@@ -435,6 +446,7 @@ func TestArtifactValidate_IDScope_PlanMatchesByPlanID(t *testing.T) {
 
 	cfg := ValidateConfig{
 		ProjectRoot: dir,
+		Root:        rootAtDir(t, dir),
 		TypeFilters: map[string]string{"plan": "PLAN-SPEC-001"},
 		SchemaFS:    SchemaFS,
 	}
@@ -462,6 +474,7 @@ func TestArtifactValidate_IDScope_IssueMatchesByNestedID(t *testing.T) {
 
 	cfg := ValidateConfig{
 		ProjectRoot: dir,
+		Root:        rootAtDir(t, dir),
 		TypeFilters: map[string]string{"issue": "ISSUE-101"},
 		SchemaFS:    SchemaFS,
 	}
@@ -489,6 +502,7 @@ func TestArtifactValidate_IDScope_IssueNotFound_Exit2(t *testing.T) {
 
 	cfg := ValidateConfig{
 		ProjectRoot: dir,
+		Root:        rootAtDir(t, dir),
 		TypeFilters: map[string]string{"issue": "ISSUE-999"},
 		SchemaFS:    SchemaFS,
 	}
@@ -532,6 +546,7 @@ func TestArtifactValidate_IDScope_NotFound_Exit2(t *testing.T) {
 
 	cfg := ValidateConfig{
 		ProjectRoot: dir,
+		Root:        rootAtDir(t, dir),
 		TypeFilters: map[string]string{"spec": "SPEC-999"},
 		SchemaFS:    SchemaFS,
 	}
@@ -578,6 +593,7 @@ This spec is missing required sections.
 
 	cfg := ValidateConfig{
 		ProjectRoot: dir,
+		Root:        rootAtDir(t, dir),
 		TypeFilters: map[string]string{"spec": ""},
 		SchemaFS:    SchemaFS,
 	}
@@ -643,10 +659,4 @@ func TestArtifactValidate_BackstopYml_Invalid_Exit2(t *testing.T) {
 	if exitCode != ExitConfigError {
 		t.Errorf("expected exit code %d for invalid backstop.yml, got %d", ExitConfigError, exitCode)
 	}
-}
-
-// testSchemaFS returns the embedded schema filesystem for use in tests.
-// This ensures tests use the same schemas as the production command.
-func testSchemaFS() fs.FS {
-	return SchemaFS
 }

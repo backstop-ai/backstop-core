@@ -123,7 +123,7 @@ content:
 		return vs, nil
 	}
 
-	steps := buildGateSteps(projectRoot, scope)
+	steps := buildGateSteps(projectRoot, rootAtDir(t, projectRoot), scope)
 	var packResult *gate.StepResult
 	for _, step := range steps {
 		res := step(context.Background())
@@ -266,7 +266,7 @@ func setDispatchSeam(t *testing.T, violations []gate.Violation) {
 // runPackEnginesStep builds the gate steps and returns the pack_engines StepResult.
 func runPackEnginesStep(t *testing.T, projectRoot string, scope *gate.GateScope) gate.StepResult {
 	t.Helper()
-	steps := buildGateSteps(projectRoot, scope)
+	steps := buildGateSteps(projectRoot, rootAtDir(t, projectRoot), scope)
 	for _, step := range steps {
 		res := step(context.Background())
 		if res.StepName == "pack_engines" {

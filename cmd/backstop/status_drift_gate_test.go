@@ -103,7 +103,7 @@ func driftStepsFor(t *testing.T, root string) (block, advisory gate.StepFunc) {
 	if mErr != nil {
 		t.Fatalf("mergeTestNameMatcher: %v", mErr)
 	}
-	return buildStatusDriftSteps(root, classifier, matcher, mergePackClaimIndex(packs))
+	return buildStatusDriftSteps(root, rootAtDir(t, root), classifier, matcher, mergePackClaimIndex(packs))
 }
 
 func runStep(step gate.StepFunc) gate.StepResult { return step(context.Background()) }
@@ -115,7 +115,7 @@ func runStep(step gate.StepFunc) gate.StepResult { return step(context.Backgroun
 // a pack step).
 func TestGate_StatusDriftStep_WiredIntoBuildGateSteps(t *testing.T) {
 	root := noPackProject(t)
-	steps := buildGateSteps(root, &gate.GateScope{Mode: gate.GateScopeModeDiff, Files: []string{}})
+	steps := buildGateSteps(root, rootAtDir(t, root), &gate.GateScope{Mode: gate.GateScopeModeDiff, Files: []string{}})
 
 	var names []string
 	for _, s := range steps {

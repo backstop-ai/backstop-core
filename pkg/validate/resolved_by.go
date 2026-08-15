@@ -40,15 +40,20 @@ var (
 	resolvedByCommitRe   = regexp.MustCompile(`^[0-9a-f]{7,40}$`)                        // nosemgrep: go.core.no-global-mutable-state — immutable compiled-regex singleton, package idiom
 )
 
-// resolvedByTypeDir maps a typed-ref prefix to the sibling artifact directory and
-// filename extension its files use (all artifacts are named <PREFIX>-NNN-slug.<ext>).
-// The existence check globs <parent>/<dir>/<REF>-*<ext>.
-var resolvedByTypeDir = map[string]struct{ dir, ext string }{ // nosemgrep: go.core.no-global-mutable-state — immutable lookup table, package idiom
-	"BUNDLE": {"bundles", ".bundle.md"},
-	"SPEC":   {"specs", ".spec.md"},
-	"ISSUE":  {"issues", ".issue.md"},
-	"PLAN":   {"plans", ".plan.yml"},
-	"DIR":    {"directives", ".directive.md"},
+// resolvedByTypeDir maps a typed-ref PREFIX to the artifact kind it names. It carries
+// NO directory and NO extension: those are LAYOUT and come from artifact.LayoutFor, so
+// this file holds no private copy of either.
+//
+// The prefix map stays LOCAL, and that is the intended end state rather than a
+// half-measure. The five prefixes are the resolved-by GRAMMAR's accepted vocabulary —
+// they are what resolvedByTypedRefRe matches — which is a validation concern, not a
+// layout fact, so pkg/artifact deliberately declares no prefix→kind function.
+var resolvedByTypeDir = map[string]artifact.Kind{ // nosemgrep: go.core.no-global-mutable-state — immutable lookup table, package idiom
+	"BUNDLE": artifact.KindBundle,
+	"SPEC":   artifact.KindSpec,
+	"ISSUE":  artifact.KindIssue,
+	"PLAN":   artifact.KindPlan,
+	"DIR":    artifact.KindDirective,
 }
 
 // validateResolvedBy runs the static structured-ref conditions that let a closed
@@ -113,16 +118,20 @@ func typedRefArtifactExists(art *artifact.ParsedArtifact, ref string) bool {
 		return false
 	}
 	prefix := strings.SplitN(ref, "-", 2)[0]
-	td, ok := resolvedByTypeDir[prefix]
+	kind, ok := resolvedByTypeDir[prefix]
 	if !ok {
 		return false
 	}
-	siblingDir := filepath.Join(dir, "..", td.dir)
+	layout, ok := artifact.LayoutFor(kind)
+	if !ok {
+		return false
+	}
+	siblingDir := filepath.Join(dir, "..", layout.Directory)
 	// ref has no glob metacharacters (typed-ref regex), so a Glob error can only
 	// mean a bad pattern we did not build — treat like zero matches. A non-existent
 	// or non-directory siblingDir also yields zero matches, so the glob result alone
 	// answers existence (no separate os.Stat needed).
-	matches, err := filepath.Glob(filepath.Join(siblingDir, ref+"-*"+td.ext))
+	matches, err := filepath.Glob(filepath.Join(siblingDir, ref+"-*"+layout.Extension))
 	return err == nil && len(matches) > 0
 }
 

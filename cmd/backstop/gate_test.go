@@ -203,7 +203,7 @@ func TestGateIntegration_ReadOnlyExecution(t *testing.T) {
 	}
 	before := fileModTimes(t, tracked)
 
-	g := gate.New(gate.WithSteps(buildGateSteps(projectRoot)))
+	g := gate.New(gate.WithSteps(buildGateSteps(projectRoot, rootAtDir(t, projectRoot))))
 	g.Run(context.Background())
 
 	after := fileModTimes(t, tracked)
@@ -222,7 +222,7 @@ language: go
 		t.Fatalf("rewrite backstop.yml: %v", err)
 	}
 
-	steps := buildGateSteps(projectRoot)
+	steps := buildGateSteps(projectRoot, rootAtDir(t, projectRoot))
 	for _, step := range steps {
 		result := step(context.Background())
 		if strings.Contains(result.StepName, "pack_") {
@@ -239,7 +239,7 @@ language: go
 		t.Fatalf("rewrite backstop.yml: %v", err)
 	}
 
-	g := gate.New(gate.WithSteps(buildGateSteps(projectRoot)))
+	g := gate.New(gate.WithSteps(buildGateSteps(projectRoot, rootAtDir(t, projectRoot))))
 	result, _ := g.Run(context.Background())
 	for _, step := range result.Steps {
 		for _, violation := range step.Violations {

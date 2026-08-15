@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/backstop-ai/backstop-core/pkg/artifact"
 	"github.com/backstop-ai/backstop-core/pkg/config"
 	"github.com/backstop-ai/backstop-core/pkg/gate"
 	"github.com/backstop-ai/backstop-core/pkg/waiver"
@@ -57,14 +58,31 @@ edits a waiver token — authoring is the human's or the runtime agent's job.`,
 func runWaiverList(cmd *cobra.Command, _ []string) error {
 	cfgPath, discoverErr := config.DiscoverConfigPath()
 	projectRoot := "."
+	// declaredRoot stays empty ONLY on the no-config fallback below, where the project
+	// genuinely has no configured root to read. On the configured path it is read from
+	// the config — writing a literal "" there would leave `waiver list` adjudicating
+	// over a step list that read a `<project>/specs` that does not exist.
+	declaredRoot := ""
 	if discoverErr == nil {
 		projectRoot = filepath.Dir(cfgPath)
+		// The PATH-SPECIFIC loader, not config.LoadConfig(): the path is already
+		// discovered here, and LoadConfig would only redo that same walk.
+		cfg, loadErr := config.LoadConfigFromPath(cfgPath)
+		if loadErr != nil {
+			return &ExitCodeError{Code: ExitConfigError, Message: fmt.Sprintf("config: %s", loadErr)}
+		}
+		declaredRoot = cfg.ArtifactRoot
+	}
+	// ResolveRoot absolutizes its projectRoot, which is what makes the "." fallback safe.
+	artifactRoot, rootErr := artifact.ResolveRoot(projectRoot, declaredRoot)
+	if rootErr != nil {
+		return &ExitCodeError{Code: ExitConfigError, Message: fmt.Sprintf("config: %s", rootErr)}
 	}
 	scope, scopeErr := gate.ComputeGateScope(projectRoot, gate.GateScopeModeAll, nil)
 	if scopeErr != nil {
 		return &ExitCodeError{Code: ExitConfigError, Message: fmt.Sprintf("config: %s", scopeErr)}
 	}
-	res, err := projectWaiverResult(projectRoot, scope)
+	res, err := projectWaiverResult(projectRoot, artifactRoot, scope)
 	if err != nil {
 		return &ExitCodeError{Code: ExitConfigError, Message: fmt.Sprintf("config: %s", err)}
 	}
@@ -77,7 +95,7 @@ func runWaiverList(cmd *cobra.Command, _ []string) error {
 // the RAW pack_engines + test_substantiveness findings from the assembled gate
 // steps (BEFORE any waiver subtraction), then runs the pure pkg/waiver.Adjudicate
 // with the production LineReader + Policy. It never mutates source.
-func projectWaiverResult(projectRoot string, scope *gate.GateScope) (waiver.Result, error) {
+func projectWaiverResult(projectRoot string, root artifact.Root, scope *gate.GateScope) (waiver.Result, error) {
 	policy, err := buildWaiverPolicy(projectRoot)
 	if err != nil {
 		return waiver.Result{}, fmt.Errorf("building waiver policy: %w", err)
@@ -85,7 +103,7 @@ func projectWaiverResult(projectRoot string, scope *gate.GateScope) (waiver.Resu
 	reader := buildWaiverLineReader(projectRoot, scope)
 
 	var findings []waiver.Finding
-	for _, step := range buildGateSteps(projectRoot, scope) {
+	for _, step := range buildGateSteps(projectRoot, root, scope) {
 		result := step(context.Background())
 		if result.StepName != gate.StepPackEngines && result.StepName != gate.StepTestSubstantiveness {
 			continue

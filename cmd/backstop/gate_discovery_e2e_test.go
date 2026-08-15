@@ -39,7 +39,7 @@ func testVerifyStepResultOverProject(t *testing.T, projectRoot string, files ...
 	if err != nil {
 		t.Fatalf("ComputeGateScope: %v", err)
 	}
-	steps := buildGateSteps(projectRoot, scope)
+	steps := buildGateSteps(projectRoot, rootAtDir(t, projectRoot), scope)
 	for _, step := range steps {
 		res := step(context.Background())
 		if res.StepName == gate.StepTestVerification {

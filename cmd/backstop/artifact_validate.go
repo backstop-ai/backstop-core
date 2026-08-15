@@ -6,8 +6,10 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/backstop-ai/backstop-core/pkg/artifact"
+	"github.com/backstop-ai/backstop-core/pkg/config"
 	"github.com/backstop-ai/backstop-core/pkg/schema"
 	"github.com/backstop-ai/backstop-core/pkg/validate"
 	"github.com/spf13/cobra"
@@ -17,10 +19,34 @@ import (
 // @waiver:backstop-ai/go-standards/backstop.packs.backstop-ai.go-standards.rules.core.go.core.error-type-suffix:false-positive:2026-10-12 pack rule fix pending — ValidateConfig is not an error type; rule misfires on a non-error struct
 type ValidateConfig struct {
 	ProjectRoot string            // Project root directory (from backstop.yml location)
+	Root        artifact.Root     // RESOLVED artifact root — where the corpus lives
 	TypeFilters map[string]string // Type name → optional artifact ID (empty string = all of type)
 	All         bool              // --all flag: validate everything
 	JSONOutput  bool              // --json flag
 	SchemaFS    fs.FS             // Embedded schema filesystem
+	// Cohort is the content-derived identity of the schema set this run asserts
+	// against. It TRAVELS WITH THE CONFIG rather than being re-derived inside, which
+	// is what makes the CLI and the gate incapable of asserting against different
+	// values. A zero Cohort disables the assertion — the pre-SPEC-068 semantics, kept
+	// reachable so the guard can be shown to be additive.
+	Cohort schema.Cohort
+}
+
+// ArtifactValidationRecord is what one artifact's validation ASSERTED: which file, of
+// which type, against which schema identity.
+//
+// It exists because REQ-003 binds an identity to EACH validated artifact. A flat
+// per-SCHEMA list (which is what the gate result carries) cannot express that binding —
+// collapsing the two would silently weaken the claim.
+type ArtifactValidationRecord struct {
+	Path           string
+	Type           string
+	SchemaVersion  string
+	SchemaIdentity string
+	// Schemaless marks an artifact that declares no schema_version at all — a plan,
+	// which routes by discovery type. It is recorded AS schema-less rather than left
+	// with an empty identity that would read as covered-with-no-content.
+	Schemaless bool
 }
 
 // ValidateResult holds the aggregated result of validating artifacts.
@@ -29,6 +55,12 @@ type ValidateResult struct {
 	ViolationsCount int
 	Violations      []validate.Violation
 	ArtifactsFound  int // Number of artifacts discovered and processed
+	// ArtifactsAsserted is how many artifacts this run actually asserted against the
+	// cohort, and ScannedRoot is the directory it scanned. Together they are what
+	// makes an EMPTY pass read as empty rather than as verified.
+	ArtifactsAsserted int
+	ScannedRoot       string
+	Records           []ArtifactValidationRecord
 }
 
 // ExitCodeError wraps an error with an exit code for CLI exit status handling.
@@ -123,17 +155,25 @@ func ValidateArtifacts(cfg ValidateConfig) (ValidateResult, error) {
 	// If All is set or no filters, discover all types (typeFilters = nil)
 
 	// Discover artifacts
-	discovered, err := DiscoverArtifacts(cfg.ProjectRoot, typeFilters)
+	discovered, err := DiscoverArtifacts(cfg.Root, typeFilters)
 	if err != nil {
 		return ValidateResult{}, fmt.Errorf("discovering artifacts: %w", err)
 	}
 
-	// Zero artifacts: return empty result (caller handles warning)
+	// Zero artifacts under a root that EXISTS is a legitimate PASS: the refusal below
+	// is scoped strictly to "I found something I cannot prove I can validate", never to
+	// absence. Tightening this into a failure would break `backstop init`'s acceptance
+	// bar from a layer away.
+	//
+	// It is no longer a bare `ValidateResult{Pass: true}` though — it names what it
+	// scanned and how much it asserted, so an empty pass reads as EMPTY rather than as
+	// VERIFIED.
 	if len(discovered) == 0 {
-		return ValidateResult{Pass: true}, nil
+		return ValidateResult{Pass: true, ScannedRoot: cfg.Root.Path}, nil
 	}
 
 	var allViolations []validate.Violation
+	var records []ArtifactValidationRecord
 	artifactsProcessed := 0
 
 	for _, da := range discovered {
@@ -166,6 +206,32 @@ func ValidateArtifacts(cfg ValidateConfig) (ValidateResult, error) {
 			}
 		}
 
+		// THE COHORT ASSERTION, BEFORE ANY SCHEMA IS LOADED. DD-15 inverts this
+		// codebase's usual loud-but-non-blocking default here on purpose: an artifact
+		// pinned to a schema_version this binary does not carry cannot be shown valid,
+		// and reporting a pass over it is the false green REQ-002 exists to remove.
+		//
+		// A plan declares no schema_version — it routes by discovery type — so it is
+		// recorded AS schema-less rather than measured against the cohort.
+		record := ArtifactValidationRecord{Path: da.Path, Type: da.Type}
+		if da.Type == "plan" {
+			record.Schemaless = true
+		} else {
+			record.SchemaVersion = declaredSchemaVersion(art)
+			if cfg.Cohort.ID != "" {
+				identity, covered := cfg.Cohort.SchemaIdentity(record.SchemaVersion)
+				if !covered {
+					// The diagnostic names all three of the artifact, the version it
+					// declared, and the cohort it was measured against — an operator
+					// who cannot see which cohort refused cannot act on the refusal.
+					return ValidateResult{}, fmt.Errorf(
+						"refusing to report a verdict for %s: it declares schema_version %q, which is not covered by this binary's schema cohort %s",
+						da.Path, record.SchemaVersion, cfg.Cohort.ID)
+				}
+				record.SchemaIdentity = identity
+			}
+		}
+
 		// Load schema from embedded FS (plans don't use schemas)
 		var sch *schema.Schema
 		if da.Type != "plan" {
@@ -182,6 +248,7 @@ func ValidateArtifacts(cfg ValidateConfig) (ValidateResult, error) {
 		// Run validation
 		result := validatorFn(art, sch)
 		allViolations = append(allViolations, result.Violations...)
+		records = append(records, record)
 		artifactsProcessed++
 	}
 
@@ -199,30 +266,47 @@ func ValidateArtifacts(cfg ValidateConfig) (ValidateResult, error) {
 	// identically to an unscoped run and to the gate (which delegates here). Placed
 	// in this shared walk — not a per-artifact validator — so a ref resolves against
 	// a bundle in a different file and the CLI and gate share one verdict.
-	resolutionViolations, err := buildResolutionViolations(cfg.ProjectRoot)
+	resolutionViolations, err := buildResolutionViolations(cfg.Root)
 	if err != nil {
 		return ValidateResult{}, fmt.Errorf("resolving supports refs: %w", err)
 	}
 	allViolations = append(allViolations, resolutionViolations...)
 
 	return ValidateResult{
-		Pass:            len(allViolations) == 0,
-		ViolationsCount: len(allViolations),
-		Violations:      allViolations,
-		ArtifactsFound:  artifactsProcessed,
+		Pass:              len(allViolations) == 0,
+		ViolationsCount:   len(allViolations),
+		Violations:        allViolations,
+		ArtifactsFound:    artifactsProcessed,
+		ArtifactsAsserted: artifactsProcessed,
+		ScannedRoot:       cfg.Root.Path,
+		Records:           records,
 	}, nil
 }
 
+// declaredSchemaVersion reads the raw schema_version an artifact declares, matching
+// ResolveSchemaPath's case-insensitive key lookup so the value the cohort is asked
+// about is the same value the schema loader routes on. An artifact declaring none
+// yields "", which the cohort reports as uncovered.
+func declaredSchemaVersion(art *artifact.ParsedArtifact) string {
+	for k, v := range art.Metadata {
+		if strings.EqualFold(k, "schema_version") || strings.EqualFold(k, "schema-version") {
+			return v
+		}
+	}
+	return ""
+}
+
 // buildResolutionViolations runs the SPEC-050 corpus resolution pass over the FULL
-// artifact corpus rooted at projectRoot, independent of any type-scoping filter.
+// artifact corpus under the RESOLVED ARTIFACT ROOT, independent of any type-scoping
+// filter.
 // It discovers every bundle to build the version-log catalog, harvests supports
 // refs from every spec/issue (terminal citers skipped inside the harvest), and
 // resolves each ref both directions plus version-log match. Files that fail to
 // parse are skipped here — the per-artifact loop (and the gate's unscoped run)
 // surface parse errors authoritatively — so a scoped CLI run does not error on an
 // unrelated malformed file.
-func buildResolutionViolations(projectRoot string) ([]validate.Violation, error) {
-	bundleDiscovered, err := DiscoverArtifacts(projectRoot, []string{"bundle"})
+func buildResolutionViolations(root artifact.Root) ([]validate.Violation, error) {
+	bundleDiscovered, err := DiscoverArtifacts(root, []string{"bundle"})
 	if err != nil {
 		return nil, fmt.Errorf("discovering bundles for resolution catalog: %w", err)
 	}
@@ -235,7 +319,7 @@ func buildResolutionViolations(projectRoot string) ([]validate.Violation, error)
 		bundles = append(bundles, art)
 	}
 
-	citerDiscovered, err := DiscoverArtifacts(projectRoot, []string{"spec", "issue"})
+	citerDiscovered, err := DiscoverArtifacts(root, []string{"spec", "issue"})
 	if err != nil {
 		return nil, fmt.Errorf("discovering citers for resolution: %w", err)
 	}
@@ -280,10 +364,24 @@ Exit codes: 0 (all pass), 1 (violations found), 2 (config error).`,
 				return fmt.Errorf("reading --json flag: %w", err)
 			}
 
-			// Determine project root from current directory (backstop.yml location)
-			cwd, err := os.Getwd()
+			// THE TWO ROOTS ARE RECONCILED HERE (Sharp Edge 10). This command used to
+			// root the corpus at os.Getwd() while `gate` rooted it at the backstop.yml
+			// directory, so a validate run from a SUBDIRECTORY resolved a different
+			// corpus than the gate did — both green, about different things. Both now
+			// derive the project root from config discovery and the artifact root from
+			// the same resolver.
+			cfgFile, err := config.LoadConfig()
 			if err != nil {
-				return fmt.Errorf("getting working directory: %w", err)
+				return &ExitCodeError{Code: ExitConfigError, Message: fmt.Sprintf("config: %s", err)}
+			}
+			cfgPath, discoverErr := config.DiscoverConfigPath()
+			projectRoot := "."
+			if discoverErr == nil {
+				projectRoot = filepath.Dir(cfgPath)
+			}
+			artifactRoot, rootErr := artifact.ResolveRoot(projectRoot, cfgFile.ArtifactRoot)
+			if rootErr != nil {
+				return &ExitCodeError{Code: ExitConfigError, Message: fmt.Sprintf("config: %s", rootErr)}
 			}
 
 			// Build type filters from flags
@@ -315,11 +413,20 @@ Exit codes: 0 (all pass), 1 (violations found), 2 (config error).`,
 				flagSet = true
 			}
 
+			// The cohort is computed ONCE here and travels with the config, so the
+			// identity this run asserts against is the identity it reports.
+			cohort, cohortErr := schema.ComputeCohort(SchemaFS)
+			if cohortErr != nil {
+				return &ExitCodeError{Code: ExitConfigError, Message: fmt.Sprintf("config: computing schema cohort: %s", cohortErr)}
+			}
+
 			cfg := ValidateConfig{
-				ProjectRoot: cwd,
+				ProjectRoot: projectRoot,
+				Root:        artifactRoot,
 				All:         allFlag,
 				JSONOutput:  jsonFlag,
 				SchemaFS:    SchemaFS,
+				Cohort:      cohort,
 			}
 
 			if flagSet && !allFlag {
@@ -351,16 +458,17 @@ Exit codes: 0 (all pass), 1 (violations found), 2 (config error).`,
 				cmd.PrintErrln("warning: no artifacts found to validate")
 			}
 
-			// Convert to validate.ValidationResult for output formatting
-			valResult := validate.ValidationResult{
-				Violations: result.Violations,
-			}
-
-			if err := outputResult(cmd, &jsonFlag, valResult); err != nil {
+			// The WIDENED result is rendered directly. It is deliberately not narrowed
+			// to a validate.ValidationResult first: that type carries only Violations,
+			// so converting here would discard the asserted count, the scanned root,
+			// the per-artifact records and the binary identity three lines before they
+			// are printed — leaving the fields implemented in the struct and invisible
+			// on the real path.
+			if err := outputValidateResult(cmd, &jsonFlag, result); err != nil {
 				return err
 			}
 
-			// Signal violations via exit code 1. Explained: outputResult already wrote
+			// Signal violations via exit code 1. Explained: the renderer already wrote
 			// the violation report above, so the human line would duplicate it
 			// (SPEC-055 REQ-011 / CLM-081). This applies to the VIOLATIONS return only —
 			// the ExitConfigError further up prints nothing the operator can act on

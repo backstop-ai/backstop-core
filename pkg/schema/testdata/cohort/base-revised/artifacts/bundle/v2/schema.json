@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "cohort-fixture-bundle-v2",
+  "title": "Cohort Fixture Bundle Schema v2",
+  "version": "2.0.0",
+  "extends": "cohort-fixture-base-v1",
+  "artifact_type": "bundle",
+  "filename_pattern": "^BUNDLE-[0-9]{3}-[a-z0-9-]+\\.bundle\\.md$",
+  "metadata": {
+    "required": ["title", "number", "created", "status", "schema_version"],
+    "properties": {
+      "number": { "pattern": "^BUNDLE-[0-9]{3}$" },
+      "schema_version": { "const": "bundle/v2" }
+    }
+  },
+  "required_sections": ["Overview"]
+}
