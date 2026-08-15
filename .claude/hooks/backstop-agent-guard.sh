@@ -52,8 +52,10 @@ wblock() { block "agent $AGENT_NAME not permitted to write $FILE_PATH"; }
 # not a second `case "$AGENT_NAME"` block — pkg/validate/agent_guard_roster_test.go
 # statically parses this file for the FIRST such block and stops at its first
 # `esac`, so a second one here would hide the real case statement below it.
-if [[ "$FILE_PATH" == .claude/agent-memory/*/* ]]; then
-  family="$(echo "$FILE_PATH" | sed -E 's#^\.claude/agent-memory/([^/]+)/.*#\1#')"
+# File paths arrive absolute (the Write/Edit tools require it), so match the
+# marker anywhere in the string, not just at its start.
+if [[ "$FILE_PATH" == *.claude/agent-memory/*/* ]]; then
+  family="$(echo "$FILE_PATH" | sed -E 's#.*\.claude/agent-memory/([^/]+)/.*#\1#')"
   [[ -n "$family" && "$AGENT_NAME" == "$family"* ]] && exit 0
 fi
 
