@@ -83,6 +83,12 @@ case "$AGENT_NAME" in
     if [[ "$FILE_PATH" == *.json || "$FILE_PATH" == *.yml ]]; then
       [[ "$FILE_PATH" == .backstop/* || "$FILE_PATH" == artifacts/* ]] && exit 0
     fi
+    # Test-fixture corpora under any testdata/ dir are exempt from the
+    # artifact-filename restriction below -- pkg/artifact's own exclusion set
+    # already treats testdata as outside the real corpus, so an
+    # artifact-SHAPED fixture there (SPEC-NNN-x.spec.md etc.) is never a real
+    # artifact and this guard has nothing to protect by refusing it.
+    [[ "$FILE_PATH" == */testdata/* ]] && exit 0
     wblock
     ;;
   spec-reviewer*|plan-reviewer*|impl-reviewer*|bundle-reviewer*) wblock ;;
