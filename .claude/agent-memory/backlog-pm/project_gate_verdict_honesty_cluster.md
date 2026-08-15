@@ -1,6 +1,6 @@
 ---
 name: gate-verdict-honesty-cluster
-description: The recurring gate-verdict-honesty issue family — RESOLVED 2026-08-10 into its own directive DIR-032 (TWELVE members as of 2026-08-12, +118); slot new members into DIR-032 treating its CHARTER not its founder-enumerated roster as the boundary, restate the count, and re-read the directive after the agent returns
+description: The recurring gate-verdict-honesty issue family — RESOLVED 2026-08-10 into its own directive DIR-032 (THIRTEEN members as of 2026-08-15, +129 the suppression variant); slot new members into DIR-032 treating its CHARTER not its founder-enumerated roster as the boundary, restate the count, update the variant map, and re-read the directive after the agent returns
 metadata:
   type: project
 ---
@@ -156,6 +156,38 @@ producing a test-only diff, a green `backstop gate` on it is not evidence its
 tests pass** — check `git status` for the diff shape before repeating any
 gate-green claim, and say so in the INBOX when it hits an active lane (it hit
 DIR-019/SPEC-067 at BACKLOG position 1 the day it was filed).
+
+**Member 13 (slotted 2026-08-15, count now THIRTEEN) is the THIRD variant** —
+ISSUE-129: a diff-scoped gate PASS coexisting with a genuinely failing Go test
+whose FILE is outside the diff. Neither mis-report (items 4-10) nor starvation
+(11-12): the engine computes the failure CORRECTLY, converts it to a real
+SARIF finding, and the finding is then **discarded post-hoc** —
+**suppression**. Verified in-tree and reusable: `pack_gate.go:730` stamps
+`ProjectWide` from `binding.ExemptFromScopeFilter`; `scope.go:302-326`
+(`filterViolations`) keeps a violation only if `ProjectWide` OR in-scope; the
+`go-toolchain` pack declares `exempt_from_scope_filter: true` on `go-build`
+and **nothing** on `go-test`. `--all` is unaffected (short-circuits on
+`GateScopeModeAll`) but CI's only BLOCKING job is diff-scoped, and the
+`baseline` job is post-merge-only with no pass/fail exit contract — so this
+merges to `main` unseen. **Generalizable triage rule this teaches: a
+per-binding flag that is declared rather than derived from `gate_type` is a
+silent-regression channel — when a defect turns on one engine's missing flag,
+always ask which OTHER engines lack it.** Do NOT let it collapse into item 12
+(ISSUE-118): 118 = suite never runs, test-only diffs; 129 = suite runs, fails,
+finding thrown away, ANY diff shape.
+
+**Ranking finding from that slot, still awaiting a founder ruling (raised as a
+PROPOSAL 2026-08-15, not applied):** DIR-032 sits at BACKLOG position 5 behind
+DIR-024, but **DIR-024's own Notes justify its rank "on the strength of
+ISSUE-020" — closed and delivered 2026-07-28**, and every source it retains
+post-carve-out is tier-2 by that file's own prose. DIR-032's lower rank is
+carve-out mechanics (the new directive was appended after its parent), not a
+founder priority call. Reusable both as the argument and as the method:
+**a directive's position rationale lives in its own Notes and can go stale
+silently when the issue that justified it closes — check the rationale, not
+just the position.** Recommended 032→3, with a minimal 032↔024 swap offered
+as the fallback; DIR-027's state was deliberately NOT re-grounded and that
+limit was stated rather than papered over.
 
 A *second*, smaller pattern is now forming with **no live home**: CLI
 **arg-shape** defects where the accepted argument shape diverges from the

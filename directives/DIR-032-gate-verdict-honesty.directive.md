@@ -19,19 +19,21 @@ directive:
     - "ISSUE-113"
     - "ISSUE-114"
     - "ISSUE-118"
+    - "ISSUE-129"
 ---
 
 ## Description
 
 Carved out of DIR-024 "Gate/Engine Quality" per founder ruling (Brandon,
-2026-08-10). Twelve issues share one defect shape: **a gate step computes a
+2026-08-10). Thirteen issues share one defect shape: **a gate step computes a
 result internally but reports the wrong verdict about it** — silent pass
 when it should block, a scoped-clean signal when the unscoped truth is red,
-an opaque crash where a legible finding belongs, or a dimension that never
-fires at all for an entire artifact kind or an entire diff shape. This is
-the "no vacuous green" invariant policing itself, and it is the exact
-failure mode the product sells against — worth a dedicated home rather than
-diffusion across a catch-all directive.
+an opaque crash where a legible finding belongs, a dimension that never
+fires at all for an entire artifact kind or an entire diff shape, or a
+finding that IS computed correctly and then discarded before verdict
+computation. This is the "no vacuous green" invariant policing itself, and
+it is the exact failure mode the product sells against — worth a dedicated
+home rather than diffusion across a catch-all directive.
 
 backlog-pm tracked this cluster growing from two issues (2026-07-26) to
 eleven (2026-08-02) inside DIR-024's Notes, escalating the cluster-home
@@ -41,8 +43,14 @@ DIR-024's `source:` frontmatter (ISSUE-092, 093, 097, 100, 106, 112, 113,
 114) and move here with their Description/Notes prose intact. The remaining
 three — ISSUE-066, ISSUE-067, ISSUE-091 — were named repeatedly in DIR-024's
 Notes as cluster siblings but were **never added to its `source:` list**;
-they had no directive home at all until now. All eleven are `status: open`
-today; none has an in-flight plan.
+they had no directive home at all until now. That accounts for the founder's
+2026-08-10 ruling, which enumerated eleven members. Items 12 (ISSUE-118) and
+13 (ISSUE-129) were **not** part of that ruling — both were slotted
+afterward by backlog-pm under the standing clear-fit grant, on charter fit
+against this directive's own description, not by the founder's original
+roster. All thirteen members are `status: open` today; none has an
+in-flight plan (verified 2026-08-15 for ISSUE-129 specifically: no plan in
+`plans/` targets it or the go-test scope-filter exemption it names).
 
 The cluster's variants, so a planner does not read it as one uniform bug:
 
@@ -70,6 +78,17 @@ The cluster's variants, so a planner does not read it as one uniform bug:
   test-verification defect and overlaps item 1's fix directly, per the
   cross-reference in item 12 below) even though its failure MODE groups it
   with item 11 here — a planner needs both facts.
+- **Item 13 (129) is the *suppression* variant**, distinct from both of the
+  above and not covered by either: the finding is computed CORRECTLY by the
+  engine, IS correctly converted to a violation, and is THEN discarded
+  post-hoc by a filter downstream of the step that produced it. That is
+  neither "mis-reports a verdict it computed" (items 4-10, where the verdict
+  itself is derived wrong from data the step has) nor "never computes
+  anything" (items 11-12, starvation, where nothing is ever produced): here
+  the truth is computed, is right, and is thrown away before status
+  computation ever sees it. A planner needs this distinction because the fix
+  site is not in the producing step at all — it is in a filter the producing
+  step never touches.
 
 1. **Gate test verification runs the full package, not a plan's narrow
    `-run` filter (ISSUE-066).** A spec/plan `test_command` commonly scopes
@@ -443,6 +462,101 @@ The cluster's variants, so a planner does not read it as one uniform bug:
     nothing. `type: bug`, `scope: cross-cutting`, `uncertainty: known`,
     `risk: critical`.
 
+13. **The go-toolchain pack's `go-test` engine is diff-scope-filtered: a
+    diff-scoped gate PASS can coexist with a real, currently-failing,
+    out-of-scope Go test (ISSUE-129).** `backstop gate` diff-scoped — the
+    DEFAULT invocation, and the only blocking check CI runs on a pull
+    request (`.github/workflows/ci.yml:155`, `./bin/backstop gate --base
+    "$BASE"`) — can report full PASS while a real, currently-failing Go test
+    sits in the tree, whenever the failing test's FILE is outside the diff's
+    scope. Holds both when the diff just broke that test and when it was
+    ALREADY red on `main` before the diff existed. Measured 2026-08-15
+    during `PLAN-SPEC-070` (backstop doctor) implementation: the implementer
+    registered the new `doctor` command in `cmd/backstop/root.go` —
+    plan-mandated and legitimate. `TestCIRecipes_RegisteredCommandSurfaceUnchanged`
+    (`cmd/backstop/ci_recipes_mechanism_test.go`, SPEC-067's CLM-052
+    anti-regression pin that enumerates the entire top-level command set by
+    name) went red instantly, BY DESIGN. That file was never in
+    PLAN-SPEC-070's diff. Every gate run through implementation, including a
+    final diff-scoped run against a freshly rebuilt binary, reported PASS.
+    The red test was caught only by a hand-run unfiltered `go test ./...`.
+    Root cause, confirmed live in the tree — cite the sites: `cmd/backstop/pack_gate.go:730`
+    stamps each bridged violation's `ProjectWide` from
+    `binding.ExemptFromScopeFilter` (SPEC-041's declared build-exemption
+    mechanism, resolved per-violation). `pkg/gate/scope.go:302-326`
+    (`filterViolations`) keeps a violation only when `ProjectWide` is true OR
+    `scope.Contains(violation.File)`. In
+    `.backstop/packs/backstop-ai/go-toolchain/pack.yml` the `go-build` engine
+    declares `exempt_from_scope_filter: true` (verified, with an inline
+    comment saying exactly why: "so an unchanged-file build break still REDs
+    a diff-scoped gate (SPEC-041 CLM-011)") while the `go-test` engine
+    declares NO such flag and therefore defaults false (verified — its
+    binding is command `go test`, `input_mode: none`, `scope_kind:
+    project-wide`, `project_target: "./..."`, `convert:
+    scripts/test-to-sarif.sh`, `crash_guard: true`, `gate_type: test`,
+    `package_scoped: true`, and no `exempt_from_scope_filter` key). So the
+    go-test failure IS computed, IS converted to SARIF by the pack script,
+    and is then silently dropped before status computation. The other `go
+    test` runner in the gate is structurally blind, so nothing catches the
+    miss: `pkg/gate/step_coverage.go`'s built-in `coverage_threshold` step
+    also runs `go test -coverprofile=...`, but it measures coverage
+    percentage only — a failing test still emits a usable profile, so
+    pass/fail never reaches that step's verdict. `--all` is NOT affected —
+    `filterViolations` short-circuits and returns every violation unchanged
+    when `scope.Mode == GateScopeModeAll` (`pkg/gate/scope.go:303`). But no
+    CI job runs an unfiltered suite as a blocking check either:
+    `.github/workflows/ci.yml` has exactly two jobs — `gate` (diff-scoped,
+    blocking, every push/PR) and `baseline` (`--all`-scoped but gated to
+    post-merge pushes on `main`, and `backstop baseline generate`
+    (`cmd/backstop/baseline.go:51`) is a snapshot generator with no pass/fail
+    exit contract, so it does not fail the workflow on RED). A cross-file
+    test break therefore merges to `main` behind a green PR gate with no
+    later blocking check to catch it. Relationship to ISSUE-070 (closed),
+    stated precisely so nobody re-opens it: ISSUE-070 fixed `pack_engines`
+    not applying the scope filter AT ALL. That fix is what makes this the
+    residual — the filter now runs correctly, keyed on
+    `ProjectWide`/`ExemptFromScopeFilter`, exactly as declared. ISSUE-129 is
+    about the DECLARATION, not the filter. Distinctness from item 12
+    (ISSUE-118) — this is the most important thing for a planner and must
+    not be blurred: both read as "gate reports PASS while a mandated/real
+    test genuinely fails," but the mechanisms are opposite and neither fix
+    closes the other. Item 12 is STARVATION: for an entirely-`_test.go` diff
+    no dimension ever runs the suite to a verdict at all (the
+    `coverage_threshold` early skip at `step_coverage.go:98`). Item 13 is
+    SUPPRESSION: the suite DOES run, DOES fail, and DOES produce a real
+    finding, which is then discarded by file-membership scope filtering —
+    and it fires regardless of diff shape (the repro's diff changed only a
+    production file, `root.go`). ISSUE-118's own root-cause analysis never
+    mentions the go-toolchain `go-test` engine, so these are
+    independently-discovered gaps in the same territory. Both stay open
+    until EACH has its own proof-of-fix regression fixture. Overlap with
+    item 1 (ISSUE-066) worth flagging: item 1 is the gate honoring a narrow
+    `-run` filter as the pass/fail bound; item 12 is no suite run at all;
+    item 13 is the suite's real failure filtered out by file scope. All
+    three are "the gate's pass/fail bound is derived from something other
+    than 'is the code green.'" Whoever plans any of them should read all
+    three and say which bound they are fixing. Direction, kept as
+    constraint not design: (a) decide whether `go-test` should declare
+    `exempt_from_scope_filter: true` like `go-build` — the whole-module
+    argument is that Go test failures, like build failures, legitimately
+    originate from a change to a file the failing test does not live in —
+    or whether something narrower is needed (e.g. a baseline compare
+    distinguishing "already red before this diff" from "this diff caused
+    it," so pre-existing red does not retroactively block unrelated PRs);
+    (b) audit EVERY other findings engine lacking the flag, since it is
+    declared per-binding and NOT derived from `gate_type`, so any future
+    pack engine can silently reintroduce this gap unless something asserts
+    intent engine-by-engine; (c) the fix lives in the PACK manifest
+    (`backstop-ai/go-toolchain`) if option (a) is chosen — per the
+    zero-baked-language law nothing about this may become a baked Go path in
+    core. Verification bar, which must not be softened: a regression fixture
+    in which a tree with a genuinely failing test in a file OUTSIDE the
+    current diff scope turns a diff-scoped `backstop gate` RED. A fixture
+    that only re-proves the `--all` path, or one that puts the failing test
+    inside the diff, proves nothing and is itself a vacuous-green claim.
+    `type: bug`, `scope: cross-cutting`, `uncertainty: known`, `risk:
+    critical`.
+
 ## Notes
 
 Grouping rationale and priority, stated once rather than per-item: none of
@@ -478,3 +592,35 @@ severity — same severity-contract family as item 8, same exclusion) all
 remain homed in DIR-024. If a future founder ruling wants to fold any of
 these four into this cluster, that is a fresh decision, not implied by this
 carve-out.
+
+ISSUE-129 ("go-test pack engine's failures are diff-scope-filtered") slotted
+by backlog-pm 2026-08-15 under the standing clear-fit grant. It is a
+POST-carve-out addition, same as item 12 before it: the founder's 2026-08-10
+ruling enumerated eleven members, and items 12 and 13 were both slotted
+afterward on charter fit, not by that original roster — a reader should not
+infer the founder named thirteen. Why DIR-032 and not DIR-024, as charter
+reasoning: DIR-024's own recent precedent draws this exact line (ISSUE-125's
+slot note there says "DIR-032 is verdict honesty: GO-005 reports exactly the
+verdict its regex earns, so the defect is rule precision, not a lying
+verdict"). Here the verdict IS a lie — the gate says PASS while holding a
+correctly-computed failure it discarded. DIR-027 "Pack Fleet Publication &
+Migration" owns publication/migration/lock-state and explicitly disclaims
+mechanism design, so the fact that the fix may land in a pack manifest
+(`backstop-ai/go-toolchain`) does not move it there — the same reasoning
+DIR-024 already recorded for ISSUE-096 and ISSUE-125. Also worth recording:
+the ISSUE-129 file itself checked BUNDLE-003's "trustworthy-green guards"
+seed (delivered as SPEC-068) and correctly found it does NOT own this — that
+seed's REQs are artifact/schema-cohort validation trustworthiness, not
+test-execution scope filtering. In-flight coverage is NIL and established
+from the corpus, not assumed: no plan in `plans/` targets ISSUE-129 or the
+go-test scope-filter exemption; the only artifacts naming
+`exempt_from_scope_filter` are SPEC-040/SPEC-041 and their completed plans,
+PLAN-ISSUE-070 (the closed sibling fix), PLAN-ISSUE-020, PLAN-ISSUE-027, and
+ISSUE-052/070/129 themselves. Standard workaround-and-file shape: the
+SPEC-070 implementer hit it, worked around it by hand-running the suite, and
+filed. Priority note, stated as observation and NOT as a reorder
+(backlog-pm has no reorder authority): this is the FOURTH `risk: critical`
+member of this directive with a measured, already-realized consequence,
+alongside item 3 (ISSUE-091), item 4 (ISSUE-092), and item 12 (ISSUE-118). A
+separate proposal for Brandon sits in `.backstop/pm/INBOX.md`; this
+directive's position in BACKLOG.yml is unchanged and must not be touched.

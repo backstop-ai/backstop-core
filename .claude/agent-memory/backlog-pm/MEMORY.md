@@ -10,7 +10,7 @@
 - [Launch tiering](project_launch_tiering.md) — FOUR blockers as of 2026-07-27 (recipes/remote-packs/Linux-CI/CI-releases), all delivered 2026-07-28; read BACKLOG.yml's header, not this count
 - [Launch preconditions ≠ backlog](project_launch_preconditions_not_backlog.md) — clean backlog ≠ sign-off; check secrets/visibility/tags AND re-verify right before reporting — readiness decays in minutes (v0.1.0 shipped 00:36Z)
 - [Note-supersedes convention](project_corpus_note_supersedes.md) — stale-looking artifact lines are often deliberately preserved with a correcting note below; read the whole file before flagging drift
-- [Gate-verdict-honesty cluster](project_gate_verdict_honesty_cluster.md) — got its OWN directive DIR-032 (2026-08-10); 12 members; slot by CHARTER not the founder's roster, fix the variants map after
+- [Gate-verdict-honesty cluster](project_gate_verdict_honesty_cluster.md) — DIR-032 (2026-08-10); 13 members (+129 suppression variant); slot by CHARTER not the founder's roster; fix the variants map; its rank rationale is stale
 - [Never read subagent .output](feedback_never_read_subagent_output_files.md) — it's the raw ~100k-token JSONL transcript; grep the target file or re-run validate instead
 - [Concurrent PM triage races](project_concurrent_pm_triage_races.md) — sibling-issue bursts fire parallel PMs into ONE directive; re-read it after the agent returns, fix stale cross-refs in place
 - [pm-trigger hook is wrong BOTH ways](project_pm_trigger_hook_misses_cli_scaffolded.md) — misses `artifact new`+Edit artifacts AND false-fires on testdata fixtures (rootless glob). Check path shape first; enumerate issues/ vs pending.log every sweep

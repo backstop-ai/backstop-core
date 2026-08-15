@@ -32,7 +32,22 @@ which is exactly why they pass it.
 fixtures fired three detached PM runs 7s apart. They were TASK output of
 `PLAN-SPEC-068-trustworthy-green-guards` (the plan names the paths verbatim in its file
 scope). **This recurs** — SPEC-069 (`init`) and SPEC-070 (`doctor`) also create fixture
-projects.
+projects. **Confirmed 2026-08-15T18:19Z**: SPEC-070's `cmd/backstop/testdata/doctor/projects/`
+fixtures fired two more runs 15s apart (only 2 of its 24 fixture projects are artifact-shaped).
+SPEC-069 (`init`) is still pending and will make three. Both 18:19Z lines were marked and one
+consolidated INBOX entry written by the FIRST sibling — the second sibling (me) lost the race,
+had already appended a duplicate INBOX entry, and deleted its own. **Check the INBOX for a
+sibling entry immediately before writing, not just after** — the race window is the whole triage.
+
+**Recurrence confirmed 2026-08-15T18:19Z, exactly as predicted:** two
+`cmd/backstop/testdata/doctor/projects/{layout-unconfigured-dot-backstop/.backstop,
+layout-unconfigured-expected-layout}/bundles/BUNDLE-001-sample.bundle.md` fixtures from
+`PLAN-SPEC-070-backstop-doctor` (file scope lines 2107/2111) fired two more runs 15s apart.
+Nothing had changed in the hook; the 2026-08-14 ask was still unruled. When this fires again,
+the entry writes itself in ~3 tool calls: confirm the path shape, `grep -rln` `plans/` for the
+path to name the plan, write ONE terse entry that **leads with the prediction record** (the
+recurrence is the finding; the root cause is already on file), mark the lines. Do not re-derive
+the root cause or re-read the corpus.
 
 Two mechanical details that matter when the fix is finally scoped: the dedupe guard is
 **per-path** (`grep -qF "$REL"`, line 24), so N fixture projects = N detached runs, never one;
