@@ -4,7 +4,7 @@ number: SPEC-005
 created: "2026-04-04"
 status: draft
 schema_version: spec/v1
-spec_version: 1.0.0
+spec_version: 1.0.1
 
 implementation:
   summary: >
@@ -79,10 +79,26 @@ requirements:
   - id: REQ-006
     text: >
       The backstop version command must print the CLI binary version, the
-      embedded schema cohort identifier (derived from the set of embedded
-      schema versions), and the Go version used to build the binary. When
+      embedded schema cohort identifier ~~(derived from the set of embedded
+      schema versions)~~, and the Go version used to build the binary. When
       --json is set, this information must be a JSON object with fields
       version, schema_cohort, and go_version.
+      CORRECTION (2026-08-14, v1.0.1) — THE COHORT IDENTIFIER IS CONTENT-DERIVED,
+      NOT PATH-DERIVED. The struck parenthetical described an identifier folded
+      from the SET of embedded schema paths/versions. SPEC-068 (REQ-001, REQ-003)
+      shipped `pkg/schema.ComputeCohort` (`pkg/schema/cohort.go`), which folds the
+      actual embedded schema BYTES: a sha256 over a SORTED `path:digest` manifest,
+      where each digest is a sha256 over that schema file's content (and, for a
+      schema that `extends` the base, over the base's content too). That
+      implementation supersedes the path-derived description here. WHY IT MATTERS
+      AND WHY IT IS NOT COSMETIC: a path-derived identifier cannot see an IN-PLACE
+      schema revision — BUNDLE-014 revised `bundle/v2` without adding a path, so
+      the paths were unchanged, the bytes were not, and a path-derived cohort
+      reported byte-identical before and after. SPEC-005's own future
+      implementation must transcribe the content-derived behavior and call
+      `schema.ComputeCohort` rather than compute an identifier from
+      `ListSchemas()`; `ListSchemas()` remains a path enumeration and is NOT the
+      cohort input. See also the corrected REQ-012 below.
     supports: cli:REQ-011@1.0.0
 
   - id: REQ-007
@@ -138,8 +154,15 @@ requirements:
       the pattern artifacts/*/v*/schema.json plus artifacts/base/schema.json.
       The embed directive must use an embed.FS type. A function must be
       provided that returns the list of embedded schema paths for
-      introspection (used by the version command to compute the cohort
-      identifier).
+      introspection ~~(used by the version command to compute the cohort
+      identifier)~~.
+      CORRECTION (2026-08-14, v1.0.1) — `ListSchemas()` IS NOT THE COHORT INPUT.
+      Per the REQ-006 correction above, SPEC-068 shipped a CONTENT-derived cohort
+      (`pkg/schema.ComputeCohort`, `pkg/schema/cohort.go`) that folds the embedded
+      schema BYTES out of the embedded `fs.FS` itself. The path enumeration this
+      requirement mandates remains valid as INTROSPECTION, but the version
+      command computes the cohort identifier by handing the embedded filesystem
+      to `schema.ComputeCohort`, not by folding this function's return value.
 
   - id: REQ-013
     text: >
@@ -532,7 +555,7 @@ contracts:
       - name: ListSchemas
         kind: function
         signature: "func ListSchemas() ([]string, error)"
-        notes: "Returns paths of all embedded schema files for cohort introspection"
+        notes: "Returns paths of all embedded schema files for cohort introspection. CORRECTION (2026-08-14, v1.0.1): introspection ONLY — the cohort identifier itself is content-derived by pkg/schema.ComputeCohort (SPEC-068, pkg/schema/cohort.go) over the embedded bytes, not folded from these paths."
     consumes: []
 
   - file: pkg/config/config.go
@@ -671,6 +694,12 @@ embedded filesystem as a package-level `embed.FS` variable. Provide a
 `ListSchemas()` function that walks the embedded FS and returns all schema
 file paths for cohort introspection.
 
+> **CORRECTION (2026-08-14, v1.0.1).** `ListSchemas()` is a path enumeration
+> only. The cohort IDENTIFIER is content-derived and is computed by
+> `pkg/schema.ComputeCohort` (shipped by SPEC-068, `pkg/schema/cohort.go`) from
+> the embedded schema bytes, not from this function's return value. See the
+> REQ-006 and REQ-012 corrections in frontmatter.
+
 ### Pass 2: Config Loader (pkg/config/config.go)
 
 Implement `DiscoverConfigPath()` which checks BACKSTOP_CONFIG env var first
@@ -702,7 +731,14 @@ Short and Long descriptions. The root command wires the --json persistent flag.
 ### Pass 6: Version Command
 
 Implement version command that reports CLI version, schema cohort identifier
-(computed from ListSchemas()), and Go runtime version. Supports --json output.
+~~(computed from ListSchemas())~~, and Go runtime version. Supports --json
+output.
+
+> **CORRECTION (2026-08-14, v1.0.1).** The identifier is computed by
+> `pkg/schema.ComputeCohort` over the embedded schema BYTES (sha256 of a sorted
+> `path:digest` manifest), per SPEC-068 REQ-001/REQ-003 and its shipped
+> `pkg/schema/cohort.go`. A `ListSchemas()`-derived identifier cannot see an
+> in-place schema revision, which is the defect SPEC-068 fixed.
 
 ### Pass 7: Commands Discovery
 

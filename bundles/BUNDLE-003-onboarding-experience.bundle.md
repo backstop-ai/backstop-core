@@ -6,9 +6,9 @@ schema_version: bundle/v2
 
 bundle:
   name: onboarding-experience
-  version: "0.10.2"
+  version: "0.10.3"
   created: "2026-04-09"
-  updated: "2026-08-13"
+  updated: "2026-08-14"
   category: feature
 
 status:
@@ -924,6 +924,22 @@ describes: core changes init and doctor both depend on but neither owns. Doctor 
 REQ-020/023/024/025, a clean independently-specable diagnostics command whose every requirement
 is a check it runs.
 
+**OWNERSHIP CORRECTION 2026-08-14 (v0.10.3) — the guards seed's 8 are owned 7-by-SPEC-068,
+1-unowned.** The table row above still reads "REQ-021, REQ-022, REQ-026 – REQ-030, REQ-034 | 8",
+which is the correct SEED partition and stays as written — but it must not be read as "SPEC-068
+covers these." SPEC-068 (Trustworthy Green Guards, v1.2.3) pins SEVEN of the eight: **REQ-021,
+REQ-026, REQ-027, REQ-028, REQ-029, REQ-030, REQ-034**. **REQ-022 is UNOWNED — blocked on
+BUNDLE-020.** REQ-022 v1.1.0 defers its mechanism wholly to BUNDLE-020 (Pack Core Version
+Compatibility), whose DD-4 is founder-resolved (capability-SET comparison, not version ordering)
+but whose **OQ-2** (where the comparison is enforced — add time, lock verification, or gate
+preflight) and **OQ-3** (failure posture) are both still OPEN, with BUNDLE-020 itself still
+`exploring`. SPEC-068 declined to pin it deliberately and says so in its own Dependencies section:
+specifying the diagnostic outcome with no producer would mean either shipping a stub renderer or
+answering another bundle's open questions — which this bundle's own consumption boundary forbids.
+**REQ-022's future owner is a delta spec against SPEC-068, written once BUNDLE-020 resolves OQ-2
+and OQ-3.** This is the same treatment REQ-033 carries as DANGLING and REQ-012 / REQ-013 / REQ-018
+carry as CONSUMED: the requirement stays in the seed, but no spec owns it yet.
+
 **Consumed-not-built requirements.** REQ-012, REQ-013 and REQ-018's local-provenance half are
 marked CONSUMED (0.10.0): the mechanisms belong to ISSUE-056 and ISSUE-055 respectively, both
 open on the issue→plan track and both already citing this bundle's own resolved OQ-3/OQ-4 as
@@ -1071,6 +1087,11 @@ foundation that was never actually validated.
   REQ-022 was also RESTATED this pass to stop pre-deciding BUNDLE-020's open questions — it now
   states the diagnostic outcome and consumes BUNDLE-020's capability-set mechanism (DD-4) rather
   than prescribing a version-ordering comparison BUNDLE-020 deliberately rejected.
+  **CORRECTED 2026-08-14 (v0.10.3) — these two are NOT jointly owned.** SPEC-068 (v1.2.3) pins
+  REQ-021 and leaves **REQ-022 UNOWNED**: its mechanism is BUNDLE-020's, and BUNDLE-020's OQ-2
+  (enforcement point) and OQ-3 (failure posture) are still open, so there is no producer for the
+  diagnostic REQ-022 describes. REQ-022's owner is a future delta spec against SPEC-068, not this
+  seed's first spec. See the ownership correction under Draft Requirements.
 
 ### Deliberately NOT requirements here
 
@@ -1996,6 +2017,26 @@ consumes and must not pre-empt.
   **Net requirement change: 33 → 33.** No requirements added or retired. Amended to new versions
   with dated corrections: REQ-014, REQ-016, REQ-017 (all → v1.1.0). Seed partition, requirement
   IDs, and implementation order are unchanged.
+- 0.10.3 (2026-08-14): **REQ-022 ownership note — the guards seed is owned 7-of-8, not 8-of-8.**
+  Narrow correction pass; no requirement added, retired, or amended; no seed re-partitioned; no OQ
+  resolved; maturity unchanged at `defined`.
+
+  **STALENESS — the Spec Seeds table read as if SPEC-068 covered all 8 guards requirements.**
+  SPEC-068 (Trustworthy Green Guards, v1.2.3) pins SEVEN: REQ-021, REQ-026, REQ-027, REQ-028,
+  REQ-029, REQ-030, REQ-034. REQ-022 was deliberately NOT pinned during spec authoring — its
+  v1.1.0 text defers the mechanism wholly to BUNDLE-020 (Pack Core Version Compatibility), whose
+  OQ-2 (enforcement point) and OQ-3 (failure posture) are still OPEN with BUNDLE-020 itself still
+  `exploring`. With no producer for the capability-gap diagnostic, specifying it would have meant
+  shipping a stub or answering BUNDLE-020's open questions, which this bundle's own consumption
+  boundary forbids. SPEC-068's Dependencies section records the deferral and names a delta spec
+  against itself as REQ-022's future owner, once OQ-2 and OQ-3 resolve. Found and confirmed during
+  PLAN-SPEC-068's implementation (its Review Question 13 flagged it report-not-fix, correctly: a
+  spec author reclassifying a requirement in its own source bundle is the drift the bundle-agent
+  convention exists to prevent). Two dated corrections added — one under Draft Requirements naming
+  the 7 SPEC-068 owns and marking REQ-022 unowned, one on the Version-skew guards bullet in the
+  guards Spec Seed. The seed partition itself is CORRECT and unchanged: REQ-022 belongs to this
+  seed; it simply has no spec owner yet, the same posture REQ-033 carries as DANGLING and
+  REQ-012 / REQ-013 / REQ-018 carry as CONSUMED.
 - 0.10.2 (2026-08-13): **Third-review follow-up — one blocker: REQ-016's `--ci` value shape did
   not match the recipe-ref API contract.** Narrow pass; nothing else in the bundle was touched
   and maturity is unchanged at `defined`.

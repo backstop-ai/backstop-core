@@ -9,6 +9,7 @@ directive:
   source:
     - "BUNDLE-003"
     - "ISSUE-122"
+    - "ISSUE-124"
 ---
 
 ## Description
@@ -66,6 +67,41 @@ sources generated/excluded paths today, rather than deleting the literals
 outright — deletion alone would let discovery walk into dependency trees and
 false-positive on artifact-shaped filenames there.
 
+**Follow-on (2026-08-14): ISSUE-124.** Six residual hardcoded artifact
+extension/directory literals survive SPEC-068's de-duplication of the
+artifact-layout table — four `strings.HasSuffix(..., ".spec.md")` checks in
+`pkg/gate/step_testverify.go` (120, 225, 520, 564), `pkg/validate/spec.go:751`
+(`.spec.md` slug derivation), `pkg/validate/adr.go:159` (`.adr.md`),
+`pkg/validate/bundle.go:275-278` (`.epic.bundle.md`/`.bundle.md`),
+`pkg/validate/supports_resolution.go:252` (`.issue.md`), and
+`cmd/backstop/gate_substantiveness_e2e.go:44` (a hardcoded `"specs"` dir in an
+e2e harness). Each bypasses `pkg/artifact`'s `LayoutFor`/`Root.Dir` — the ONE
+shared layout authority SPEC-068 established while closing six earlier copies
+of the same table (the sixth, `pkg/validate/delivered_by.go`, was fixed as an
+impl-reviewer finding during PLAN-SPEC-068's implementation; these residuals
+were deliberately left out of that plan's scope, each needing its own
+confirmation that it is a genuine artifact-type reference and not incidental
+string matching).
+
+Homed here because the failure mode is init's own deliverable: a project whose
+artifact root or per-type directory naming differs from the historical default
+— exactly what BUNDLE-003 OQ-1's `.backstop/`-rooted scaffolded layout produces —
+drifts out from under production validation and gate discovery SILENTLY, visible
+only as false-negative misses (an artifact file present on disk that the code
+meant to see never discovers) rather than a loud failure. Same reasoning that
+homed ISSUE-122 here: DIR-002 owns the BUNDLE-003 lane that established the
+layout authority via SPEC-068, and this is that authority's unfinished adoption.
+
+Note explicitly: `pkg/scaffold/scaffold.go`'s `FileExtension` entries are NOT in
+this class — PLAN-SPEC-068's TASK-019 deliberately sanctions them as scaffold's
+own local concern.
+
+Also carry the issue's own scoping caveat: where a caller needs only the
+extension and not the full directory, whoever plans this must confirm the shared
+authority exposes that granularity before doing a mechanical string swap — if it
+does not, closing that gap in the authority belongs to this fix too, since a
+partial authority invites the same drift straight back in.
+
 ## Notes
 
 - **Sequencing: ISSUE-122 must not be planned or implemented until SPEC-068
@@ -78,3 +114,11 @@ false-positive on artifact-shaped filenames there.
   re-derive a signature that is about to change out from under it. A future
   session should treat SPEC-068's implementation as a hard precondition for
   starting ISSUE-122's plan.
+- **Sequencing: ISSUE-124 also depends on SPEC-068 having landed**, and
+  should be planned together with — or immediately after — ISSUE-122, since
+  both are residual baked-literal fixes against the same artifact-discovery/
+  layout surface and would otherwise independently re-derive the same "what
+  does the authority expose to a non-`pkg/artifact` caller" question. As of
+  2026-08-14, SPEC-068 and PLAN-SPEC-068 both still carry `status: draft` on
+  disk while a closeout pass is in flight — verify their real status before
+  treating the precondition as met.

@@ -17,6 +17,7 @@ directive:
     - "ISSUE-107"
     - "ISSUE-108"
     - "ISSUE-115"
+    - "ISSUE-125"
 ---
 
 ## Description
@@ -368,6 +369,36 @@ directives' themes:
     which is why SPEC-036 could not close — is PACK work and gets no
     backstop-core issue, per the same principle as the ISSUE-103 ruling.
     Referenced here as related context only.
+11. **go-standards `constructor-injection` rule matches field-name substrings,
+    not whole words (ISSUE-125).** The `backstop-ai/go-standards` rule
+    `go.core.constructor-injection` (`rule_id: GO-005`, `severity: WARNING`)
+    constrains its `$FIELD` metavariable with `regex: (?i).*(repo|client|
+    store|db|database|cache|logger|service|gateway|adapter|provider).*` — an
+    unanchored, case-insensitive substring match. Any struct field whose NAME
+    MERELY CONTAINS one of those tokens fires the rule regardless of whether
+    it is a dependency. Verified live in the installed pack at
+    `.backstop/packs/backstop-ai/go-standards/rules/core/go-core.yml:49-56`
+    (independently re-read, not taken from the issue's prose). Live instance:
+    `pkg/scaffold/idresolver_test.go:16` declares `isRepo bool` on
+    `mockGitExecutor` — a "is this directory a git repo" flag — and `repo`
+    matches as a substring of `isRepo`, firing on all 15 table-driven struct
+    literals that set it. Because GO-005 is WARNING severity it does not
+    block the gate; classification per the founder's loud-≠-blocking law is
+    SIGNAL DEBT, not a correctness defect — no verdict is wrong, but every
+    hit is noise that trains reviewers to skim past GO-005 and erodes the
+    rule's real signal on genuine direct-wiring violations. It must NOT be
+    treated as a member of the gate-verdict-honesty cluster (DIR-032).
+    Fix location as constraint, not design: the change lives in the PACK repo
+    — source at `/Users/bmanson/src/projects/backstop-go-pack` (`name:
+    backstop-ai/go-standards`, `version: "1.2.1"`, working tree clean, tags
+    `v1.2.1`/`v1.2.0`) — plus a version bump and tag, then `pack update` in
+    this repo; the installed lock entry is `source_type: git`, `git_ref:
+    v1.2.1`. Never rename `isRepo` in core to satisfy an overly broad
+    pattern. One trap the issue names and a planner must not skip: Go field
+    names are camelCase, so a literal `\b` anchor does NOT reliably split
+    `isRepo` from `Repo` — any candidate regex must be falsified against
+    `isRepo`/`dbTimeout`-shaped names before landing, not merely confirmed to
+    still match bare `repo`/`db`.
 
 ## Notes
 
@@ -585,3 +616,41 @@ ISSUE-115) but were not named among DIR-032's eleven members and were
 deliberately left here rather than folded in unasked. See DIR-032's
 Description and Notes for the full cluster writeup and the founder ruling's
 rationale.
+
+ISSUE-125 slotted by backlog-pm 2026-08-15 under the standing clear-fit
+grant. `type: technical-debt`, `scope: isolated`, `uncertainty: known`,
+`risk: safe`. It rides here on thematic fit and displaces nothing.
+Why DIR-024 and not elsewhere, stated as charter reasoning: this is the
+ISSUE-096 precedent exactly — pack rule imprecision producing false findings
+on correct code, fixed in the pack repo because this repo dogfoods its rules
+as packs. DIR-027 owns which packs exist, where they are published and
+which lock points where, and explicitly disclaims mechanism design — it has
+no charter claim on rule CONTENT. DIR-005 (Extract go-standards Pack), the
+directive under which this pack was born, is `done`. DIR-032 is verdict
+honesty: GO-005 reports exactly the verdict its regex earns, so the defect
+is rule precision, not a lying verdict.
+A live adjacency the founder should rule on, recorded as an observation and
+NOT acted on: ISSUE-061 ("go-standards error-type-suffix rule misfires on
+non-error structs", GO-021) is the SAME defect class in the SAME pack — and
+is homed in DIR-021 (Traceability Hardening & Corpus Drain), where the
+directive's own text places it as a deadline-driven exception rather than a
+charter fit (DIR-021's four numbered threads are all traceability/corpus;
+ISSUE-061 is introduced separately under "Time pressure — carries a hard
+deadline"). Verified in tree 2026-08-15: ISSUE-061's defect is STILL LIVE at
+the installed v1.2.1 — the whole-file DOTALL `pattern-regex` is unchanged at
+`rules/core/go-core.yml:186` — and its inline waiver is still in place at
+`cmd/backstop/artifact_validate.go:19`, expiring **2026-10-12**, after which
+the gate goes RED on a false positive. Both rules are `severity: WARNING`
+and both live in the SAME file of the SAME pack at the SAME version, so ONE
+version bump + one `pack update` + one relock fixes both. Consequence for
+whoever sequences this: working ISSUE-125 alone means bumping the pack
+twice; working them together costs one bump and retires a hard deadline
+early. The founder may prefer to co-locate the two (move ISSUE-061 here, or
+ISSUE-125 to DIR-021) — that is a re-home call and is deliberately NOT made
+here.
+One corpus-honesty item riding along, not this directive's scope: ISSUE-061's
+file still cites the PRE-RENAME pack path and name
+(`.backstop/packs/backstop/go-standards/...`, `backstop/go-standards`). That
+path is GONE from the tree — the installed pack is `backstop-ai/go-standards`.
+The waiver comment in `artifact_validate.go` was updated to the renamed rule
+id but the issue file was not; route any correction through issue-author.
