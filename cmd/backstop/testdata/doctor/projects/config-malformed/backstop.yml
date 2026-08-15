@@ -1,0 +1,10 @@
+# A backstop.yml that DISCOVERS but does not load.
+#
+# WHAT MAKES IT FAIL: the `packs:` value is a SEQUENCE where the schema declares an
+# object, so the strict loader rejects it after finding the file. Discovery therefore
+# succeeds (the file exists and is named backstop.yml) while loading does not - which is
+# exactly the split CLM-016 needs: `backstop gate` turns this into exit 2 and
+# `backstop doctor` must turn the same file into a failing `config-loads` check at exit 1.
+project: doctor-malformed-fixture
+packs:
+  - backstop/doctor-fixture

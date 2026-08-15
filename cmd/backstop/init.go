@@ -213,4 +213,52 @@ func renderInitReport(cmd *cobra.Command, options initialize.Options, result ini
 			cmd.Printf("  %-40s %s\n", preserve.Path, preserve.Class)
 		}
 	}
+
+	for _, guidance := range doctorGuidanceForSteps(result.Steps) {
+		cmd.Printf("\n%s\n", guidance)
+	}
+}
+
+// doctorGuidanceForSteps is the ONLY place init text names `backstop doctor` (SPEC-070
+// REQ-004).
+//
+// WHY IT LIVES HERE, so it does not get "tidied" into pkg/initialize later: doctorRegistry
+// is unexported in package main, so pkg/initialize cannot reach it and exporting it for
+// that import would INVERT the dependency. This file already renders init's report from
+// the initialize.Result its Runner returns, so the guidance is a rendering concern in the
+// layer that already renders, driven by the same structured StepReport data.
+//
+// IT CARRIES NO CHECK-ID LITERAL AND NO GUIDANCE-TEXT LITERAL. Both come from doctor.go —
+// the declared constant and the one registry lookup — so a rename is a compile-time event.
+// A hand-formatted "run backstop doctor --check toolchain-runs" would match the registry on
+// the day it was written and silently stop matching the day someone renamed the check.
+//
+// THE DIAGNOSABLE SET IS NARROW, AND DELIBERATELY SO. Only a FAILED toolchain step
+// attracts guidance, because only the toolchain-execution failure has a registered check
+// that re-runs it standalone. No registered check diagnoses a CI recipe ref that will not
+// resolve or a brownfield preserve, so init's CI steps attract nothing — which is how
+// doctor avoids becoming the reason init violates SPEC-069's own no-bespoke-CI-guidance
+// guard.
+// GUIDANCE IS DEDUPED BY CHECK ID, because the probe reports one StepReport PER
+// ENTRYPOINT: two failing packs produce two failed `toolchain` steps, and the naive
+// append prints the identical "run backstop doctor --check toolchain-runs" line twice.
+// The advice is per CHECK, not per entrypoint — the one command re-runs all of them.
+func doctorGuidanceForSteps(steps []initialize.StepReport) []string {
+	var guidance []string
+	seen := map[string]bool{}
+	for _, step := range steps {
+		if step.Step != initialize.StepToolchain || step.Outcome != initialize.OutcomeBrokenPromise {
+			continue
+		}
+		if seen[doctorCheckToolchainRuns] {
+			continue
+		}
+		seen[doctorCheckToolchainRuns] = true
+		// The text is OBTAINED, never formatted here: an id no entry carries yields no
+		// text at all, so an unregistered check is unprintable rather than printed wrong.
+		if text, ok := doctorGuidance(doctorCheckToolchainRuns); ok {
+			guidance = append(guidance, text)
+		}
+	}
+	return guidance
 }

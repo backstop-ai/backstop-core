@@ -1,0 +1,4 @@
+# The trusted-tool refusal: a PROVISIONED tool that is not on the allowlist.
+project: doctor-toolchain-not-allowlisted-fixture
+packs:
+    backstop/not-allowlisted: local

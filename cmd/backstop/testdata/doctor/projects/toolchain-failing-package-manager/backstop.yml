@@ -1,0 +1,5 @@
+# DD-6 made concrete: the declared entrypoint SUCCEEDS while a package-manager
+# configuration sits on disk in a failing state. Health comes from EXECUTION.
+project: doctor-toolchain-failing-package-manager-fixture
+packs:
+    backstop/entrypoint-succeeds: local

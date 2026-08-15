@@ -1,0 +1,1 @@
+Not an artifact, and not even markdown. It must never appear in the deviation set.

@@ -1,6 +1,7 @@
 package initialize
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -387,5 +388,85 @@ func TestInit_ExistingBackstopYmlIsPreservedNotOverwritten(t *testing.T) {
 	}
 	if got := readFile(t, root, "backstop.yml"); got != original {
 		t.Fatalf("the existing backstop.yml was rewritten.\nbefore:\n%s\nafter:\n%s", original, got)
+	}
+}
+
+// TestInit_UnnameableProjectDirectoryIsABrokenPromiseNotASilentDefault covers the
+// generation-failure arm of the config step.
+//
+// Config generation is UNCONDITIONAL, so the one thing that must never happen when a
+// project cannot be named is a quiet substitution — an empty `project:`, a placeholder,
+// or a report that says the config was delivered when nothing was written. The failure
+// travels as OutcomeBrokenPromise carrying the naming reason, and NO file lands.
+//
+// The filesystem root is the directory whose basename is genuinely unusable: `filepath.
+// Base("/")` is the separator itself, which is exactly the case projectName refuses.
+func TestInit_UnnameableProjectDirectoryIsABrokenPromiseNotASilentDefault(t *testing.T) {
+	unnameable := string(filepath.Separator)
+
+	// Precondition, stated loudly rather than assumed: the step returns early and
+	// reports convergence if a backstop.yml is already there, which would make the
+	// assertion below about the wrong branch.
+	if _, err := os.Stat(filepath.Join(unnameable, "backstop.yml")); err == nil {
+		t.Skipf("%s exists on this machine, so stepConfig would converge instead of reaching generation", filepath.Join(unnameable, "backstop.yml"))
+	}
+
+	report := stepConfig(unnameable, allCapabilities(t))
+
+	if report.Outcome != OutcomeBrokenPromise {
+		t.Fatalf("config step reported %v (%s) for an unnameable project directory, want OutcomeBrokenPromise: an init that cannot name the project must say so, never substitute a default",
+			report.Outcome, report.Detail)
+	}
+	if report.Step != stepConfigName {
+		t.Fatalf("the failing report is attributed to step %q, want %q", report.Step, stepConfigName)
+	}
+	// The detail must carry the GENERATION reason, not a bare "failed": the whole point
+	// of a broken-promise report is that the consumer can act on it.
+	for _, fragment := range []string{"generating backstop.yml", "basename"} {
+		if !strings.Contains(report.Detail, fragment) {
+			t.Fatalf("the broken-promise detail does not mention %q, so it does not explain what failed.\ngot: %s", fragment, report.Detail)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(unnameable, "backstop.yml")); err == nil {
+		t.Fatalf("a backstop.yml was written at %s despite generation failing; a failed generation writes nothing", unnameable)
+	}
+}
+
+// TestInit_UnwritableProjectDirectoryIsABrokenPromiseNamingTheWrite covers the
+// write-failure arm, which is a DIFFERENT arm from generation failing.
+//
+// Generation succeeding and the write failing must not be reported as success. The two
+// arms are distinguished by what the detail says — "writing backstop.yml" rather than
+// "generating backstop.yml" — because a consumer's remedy differs: one is a permissions
+// problem in their own directory, the other is not.
+func TestInit_UnwritableProjectDirectoryIsABrokenPromiseNamingTheWrite(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: a read-only directory does not refuse a write, so the arm under test is unreachable")
+	}
+
+	project := filepath.Join(t.TempDir(), "unwritable-project")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatalf("creating the project directory: %v", err)
+	}
+	if err := os.Chmod(project, 0o555); err != nil {
+		t.Fatalf("making the project directory read-only: %v", err)
+	}
+	// Restored so t.TempDir's cleanup can remove the tree.
+	t.Cleanup(func() { _ = os.Chmod(project, 0o755) })
+
+	report := stepConfig(project, allCapabilities(t))
+
+	if report.Outcome != OutcomeBrokenPromise {
+		t.Fatalf("config step reported %v (%s) when backstop.yml could not be written, want OutcomeBrokenPromise",
+			report.Outcome, report.Detail)
+	}
+	if !strings.Contains(report.Detail, "writing backstop.yml") {
+		t.Fatalf("the detail does not attribute the failure to the WRITE, so it is indistinguishable from a generation failure.\ngot: %s", report.Detail)
+	}
+	if strings.Contains(report.Detail, "generating backstop.yml") {
+		t.Fatalf("a write failure is reported as a generation failure; the two arms point a consumer at different remedies.\ngot: %s", report.Detail)
+	}
+	if _, err := os.Stat(filepath.Join(project, "backstop.yml")); err == nil {
+		t.Fatal("a backstop.yml exists after the write was refused")
 	}
 }

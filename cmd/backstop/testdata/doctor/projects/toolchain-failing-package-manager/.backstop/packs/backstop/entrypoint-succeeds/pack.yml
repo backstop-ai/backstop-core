@@ -1,0 +1,14 @@
+name: backstop/entrypoint-succeeds
+version: 1.0.0
+language: go
+archetype: enforcement
+description: >
+  Fixture pack whose one toolchain entrypoint succeeds, in a project whose package-manager
+  configuration is in the failing state doctor never reads.
+engines:
+  succeeding-test:
+    command: go build -o ok.marker ./...
+    input_mode: none
+    scope_kind: project-wide
+    category: mechanism
+    gate_type: test

@@ -161,7 +161,13 @@ backstop by shelling out to CLI commands.`,
 	// are governed SOLELY by the presence of their own flag on init.
 	initCmd := newInitCommand()
 
-	rootCmd.AddCommand(artifactCmd, packCmd, gateCmd, baselineCmd, versionCmd, commandsCmd, waiverCmd, recipeCmd, initCmd)
+	// --- Top-level: doctor ---
+	// It takes the SAME persistent --json pointer gateCmd and the nine pack commands
+	// receive: declaring a local --json on doctor would shadow the root one and
+	// `backstop --json doctor` would silently render human text.
+	doctorCmd := newDoctorCommand(&jsonFlag)
+
+	rootCmd.AddCommand(artifactCmd, packCmd, gateCmd, baselineCmd, versionCmd, commandsCmd, waiverCmd, recipeCmd, initCmd, doctorCmd)
 
 	return rootCmd
 }

@@ -1,0 +1,6 @@
+# Several PACKS each declaring one entrypoint - not two engines in one pack, because the
+# claim is about per-pack attribution.
+project: doctor-toolchain-multi-entrypoint-fixture
+packs:
+    backstop/entrypoint-alpha: local
+    backstop/entrypoint-beta: local

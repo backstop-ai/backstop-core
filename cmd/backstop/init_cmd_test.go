@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -997,4 +998,66 @@ func runWaiverCoveredScenario(t *testing.T, fixture, flag string) (string, int) 
 	// SECOND run: the apply now finds recipe-owned output that diverged, and adjudicates
 	// the divergence as covered.
 	return runInitCommand(t, project, flag, recipeRef)
+}
+
+// TestInit_EveryFlagLookupFailureIsAConfigErrorCarryingNoOptions covers the flag
+// translation layer's refusal arms — one per lookup, exhaustively.
+//
+// initOptionsFromFlags is the ONLY place the command line becomes an initialize.Options,
+// and its whole contract is that nothing has been written when it refuses. A lookup that
+// fails must therefore produce (a) the ZERO Options — never a half-filled one a caller
+// could act on — and (b) a *check.ConfigError, which is what maps to exit 2, the code
+// that says "change the invocation" rather than "a promise was broken".
+//
+// The failure is induced by handing it a command missing exactly ONE of the flags it
+// reads, walking the reads in order, so every arm is exercised and none is reachable only
+// through the arm before it.
+func TestInit_EveryFlagLookupFailureIsAConfigErrorCarryingNoOptions(t *testing.T) {
+	defineOnly := func(flags *pflag.FlagSet) { flags.StringArray("only", nil, "") }
+	definePack := func(flags *pflag.FlagSet) { flags.StringArray("pack", nil, "") }
+	defineCI := func(flags *pflag.FlagSet) { flags.String("ci", "", "") }
+	defineScaffold := func(flags *pflag.FlagSet) { flags.String("scaffold", "", "") }
+
+	// The first negation flag the capability loop reads. Derived from the vocabulary,
+	// never spelled as a literal, so an eighth capability cannot silently change which
+	// flag this case is about.
+	firstNegation := "no-" + string(initialize.DefaultCapabilities()[0])
+
+	cases := []struct {
+		name        string
+		define      []func(*pflag.FlagSet)
+		missingFlag string
+	}{
+		{"only", nil, "only"},
+		{"pack", []func(*pflag.FlagSet){defineOnly}, "pack"},
+		{"ci", []func(*pflag.FlagSet){defineOnly, definePack}, "ci"},
+		{"scaffold", []func(*pflag.FlagSet){defineOnly, definePack, defineCI}, "scaffold"},
+		{firstNegation, []func(*pflag.FlagSet){defineOnly, definePack, defineCI, defineScaffold}, firstNegation},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := &cobra.Command{Use: "init"}
+			for _, define := range tc.define {
+				define(cmd.Flags())
+			}
+
+			options, err := initOptionsFromFlags(cmd)
+
+			if err == nil {
+				t.Fatalf("initOptionsFromFlags accepted a command with no %q flag; an unreadable flag must refuse, not fall through to a default", tc.missingFlag)
+			}
+			var configErr *check.ConfigError
+			if !errors.As(err, &configErr) {
+				t.Fatalf("the refusal is %T, want a *check.ConfigError: nothing has been written yet, so this is exit 2 (fix the invocation), not a broken promise.\ngot: %v", err, err)
+			}
+			if !strings.Contains(err.Error(), tc.missingFlag) {
+				t.Fatalf("the refusal does not name the flag it could not read.\nwant to contain: %s\ngot:             %s", tc.missingFlag, err.Error())
+			}
+			if options.ProjectRoot != "" || options.Capabilities != nil || options.PackRefs != nil ||
+				options.CIRecipeRef != "" || options.ScaffoldRecipeRef != "" {
+				t.Fatalf("a refusal returned a populated Options (%+v); a caller must not be handed a half-translated invocation", options)
+			}
+		})
+	}
 }

@@ -1,0 +1,4 @@
+# Outcome (d): the pack set was gathered and declares NO test or build engine.
+project: doctor-toolchain-no-entrypoint-fixture
+packs:
+    backstop/no-toolchain: local

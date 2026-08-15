@@ -1,0 +1,4 @@
+# Shell metacharacters are passed as LITERAL arguments, because doctor runs no shell.
+project: doctor-toolchain-shell-metacharacters-fixture
+packs:
+    backstop/shell-metacharacters: local

@@ -1,0 +1,5 @@
+# A configured root that is ABSENT from disk. The absence IS the fixture: the declared
+# directory does not exist here, and the resolution's typed missing-root failure is what
+# the check must report, naming the declared value.
+project: doctor-layout-configured-root-missing-fixture
+artifact_root: artifacts-that-do-not-exist

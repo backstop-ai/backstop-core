@@ -1,0 +1,5 @@
+# An INVALID root declaration. The resolver rejects an absolute path outright - the
+# declared value is project-relative by rule - and it must be reported DISTINCTLY from the
+# missing-root case, by error TYPE and never by string match.
+project: doctor-layout-configured-root-invalid-fixture
+artifact_root: /absolute/is/rejected

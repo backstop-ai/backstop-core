@@ -1,0 +1,4 @@
+# Outcome (c): the entrypoint starts and exits nonzero, with real compiler diagnostics.
+project: doctor-toolchain-nonzero-exit-fixture
+packs:
+    backstop/nonzero-exit: local

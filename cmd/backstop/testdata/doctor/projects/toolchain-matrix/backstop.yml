@@ -1,0 +1,8 @@
+# The gate_type matrix project. Its one pack declares SEVEN engine bindings, one per
+# declared gate_type, each writing a DISTINCT marker file when it runs. After
+# toolchain-runs executes, exactly test.marker and build.marker exist on disk and the
+# other five do NOT - which is what makes "not executed" a filesystem fact rather than a
+# reading of the implementation's selection list.
+project: doctor-toolchain-matrix-fixture
+packs:
+    backstop/gate-type-matrix: local

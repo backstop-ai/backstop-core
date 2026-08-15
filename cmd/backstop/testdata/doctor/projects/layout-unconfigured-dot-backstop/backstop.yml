@@ -1,0 +1,6 @@
+# ★ THE MOTIVATING CASE, and the reason artifact-layout exists at all.
+#
+# NO artifact_root is declared, so the resolved root is the PROJECT ROOT - which contains
+# everything. A root-CONTAINMENT test therefore finds ZERO deviations here while none of
+# these artifacts is discovered or gated. Deciding per KIND is what makes them visible.
+project: doctor-layout-unconfigured-dot-backstop-fixture

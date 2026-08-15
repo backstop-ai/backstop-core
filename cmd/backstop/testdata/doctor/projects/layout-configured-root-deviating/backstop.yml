@@ -1,0 +1,5 @@
+# Twin of layout-configured-root-clean: the SAME declared root, the SAME spec file, at the
+# PROJECT ROOT's specs/ instead of the declared root's. Under this declaration it is a
+# deviation; with no declaration it would not be.
+project: doctor-layout-configured-root-deviating-fixture
+artifact_root: .backstop

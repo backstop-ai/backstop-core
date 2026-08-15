@@ -1,0 +1,27 @@
+name: backstop/doctor-fixture
+version: 1.0.0
+language: go
+archetype: enforcement
+description: >
+  Fixture pack for the backstop doctor test corpus. It exists so a declared pack is
+  really present on disk and parseable, which is what makes packs-installed PASS on the
+  clean project, and so the clean project has ONE PASSING toolchain entrypoint - without
+  which the all-passing exit-zero claim reds the moment toolchain-runs registers.
+engines:
+  # No `provision:` block: `go` is a Layer-0 assume-present tool, exactly as the real
+  # go-toolchain pack declares `go build` / `go test`.
+  doctor-toolchain:
+    command: go build -o clean.marker ./...
+    input_mode: none
+    scope_kind: project-wide
+    category: mechanism
+    gate_type: test
+content:
+  ruleset:
+    version: 1.0.0
+    rules:
+      - id: doctor-fixture-toolchain
+        engine: doctor-toolchain
+        risk_class: correctness
+        category: toolchain
+        justification: Fixture rule binding the doctor fixture pack's toolchain entrypoint.

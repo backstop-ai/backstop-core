@@ -1,0 +1,4 @@
+# A root holding SOME type directories and missing others. Distinct from layout-empty-root,
+# whose root holds none at all: here specs/ exists while plans/, bundles/, adrs/, issues/,
+# directives/ and capabilities/ do not. The absent directories must produce no deviation.
+project: doctor-layout-absent-type-directory-fixture

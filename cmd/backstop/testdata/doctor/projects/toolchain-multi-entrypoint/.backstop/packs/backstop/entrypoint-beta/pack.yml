@@ -1,0 +1,14 @@
+name: backstop/entrypoint-beta
+version: 1.0.0
+language: go
+archetype: enforcement
+description: >
+  Second of two fixture packs each declaring one toolchain entrypoint, so each is executed
+  and reported separately.
+engines:
+  beta-build:
+    command: go build -o beta.marker ./...
+    input_mode: none
+    scope_kind: project-wide
+    category: mechanism
+    gate_type: build

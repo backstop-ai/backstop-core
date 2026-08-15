@@ -1,0 +1,6 @@
+# An artifact ONE LEVEL BELOW its expected directory. It IS a deviation: the status walk
+# reads type directories with os.ReadDir and SKIPS subdirectories, so a nested artifact is
+# exactly as ungated as one in the wrong tree. This corpus produces exactly one unambiguous
+# deviation, which is why the actual-path/expected-path pair and the both-remedies
+# remediation are read here.
+project: doctor-layout-nested-artifact-fixture

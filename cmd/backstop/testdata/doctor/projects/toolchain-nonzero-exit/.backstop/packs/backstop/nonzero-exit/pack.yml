@@ -1,0 +1,19 @@
+name: backstop/nonzero-exit
+version: 1.0.0
+language: go
+archetype: enforcement
+description: >
+  Fixture pack whose build entrypoint compiles a module that deliberately does not build,
+  so the command STARTS and exits nonzero with the compiler's whole diagnostic on STDERR.
+engines:
+  # ★ THE STDERR-ONLY PROPERTY IS THE POINT. The Go compiler writes its entire diagnostic
+  # to stderr and NOTHING to stdout, which is what makes this fixture the tripwire on the
+  # runner method: an implementation bound to RunStdout captures an EMPTY "verbatim"
+  # output here and passes every other assertion. Do not make this command also write to
+  # stdout - it would then pass under BOTH methods and assert nothing.
+  broken-build:
+    command: go build ./...
+    input_mode: none
+    scope_kind: project-wide
+    category: mechanism
+    gate_type: build

@@ -1,0 +1,11 @@
+# ★ THE NEAR-MISS, AND IT MUST KEEP ESCAPING CLASSIFICATION.
+#
+# A BARE `capability.yml`, nested one directory deeper than the layout expects - exactly
+# the shape of backstop-core's own capabilities/CAP-001-pack-gate-enforcement/capability.yml.
+# It escapes only because a `.capability.yml` SUFFIX test does not match a bare
+# `capability.yml`, and widening the pattern would red that repository's own gate on a file
+# neither SPEC-070 nor SPEC-068 was asked to touch. Doctor adds no filename pattern of its
+# own, so it inherits this behaviour by consuming the shared classifier.
+capability:
+  id: CAP-002
+  name: bare-name-near-miss

@@ -1,0 +1,6 @@
+# The all-passing project (CLM-011, CLM-053, CLM-056, CLM-064). It declares one pack that
+# is REALLY present under .backstop/packs/, and declares NO artifact_root - which is
+# CLM-047's shape, the unconfigured-root layout that must pass with no warning.
+project: doctor-clean-fixture
+packs:
+    backstop/doctor-fixture: local

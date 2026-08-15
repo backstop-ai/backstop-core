@@ -1,0 +1,6 @@
+# The SAME three artifacts as layout-unconfigured-dot-backstop, in their expected
+# directories at the project root. The ONLY difference between the two corpora is the
+# `.backstop/` prefix, which is what makes the pass/deviation split attributable to layout
+# and to nothing else. This is backstop-core's own shape, arising from the rule rather than
+# from a special case naming that repository.
+project: doctor-layout-unconfigured-expected-layout-fixture

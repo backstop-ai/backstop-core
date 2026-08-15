@@ -1,0 +1,7 @@
+# A resolved root that EXISTS and is EMPTY - a pass, which is the validated greenfield
+# outcome. Git cannot track an empty directory, so the template carries .backstop/.gitkeep
+# and the harness deletes every .gitkeep RECURSIVELY after staging. A top-level-only
+# deletion would leave that file in place, the root would not be empty, and this corpus
+# would assert against the wrong condition.
+project: doctor-layout-empty-root-fixture
+artifact_root: .backstop

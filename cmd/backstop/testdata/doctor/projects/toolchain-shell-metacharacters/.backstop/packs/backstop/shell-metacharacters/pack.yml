@@ -1,0 +1,31 @@
+name: backstop/shell-metacharacters
+version: 1.0.0
+language: go
+archetype: enforcement
+description: >
+  Fixture pack whose entrypoints embed shell metacharacters. splitCommand is
+  strings.Fields - no quote handling, no escaping, no shell - so every token becomes a
+  LITERAL argv entry.
+engines:
+  # DIRECTION 1: the SUBSTITUTION is never performed. With no shell, `go build` writes a
+  # file named LITERALLY `out$(whoami).marker`; under a shell the name would be expanded
+  # to the current user. The test asserts the literal name exists.
+  literal-substitution:
+    command: go build -o out$(whoami).marker ./...
+    input_mode: none
+    scope_kind: project-wide
+    category: mechanism
+    gate_type: build
+  # DIRECTION 2: the SEPARATOR is never honoured. `go env` accepts unknown names and
+  # exits zero, so with no shell this runs `go env GOOS ";" "touch" "pwned.marker"` and
+  # succeeds while creating nothing; under a shell it would create pwned.marker. The test
+  # asserts pwned.marker is ABSENT.
+  #
+  # BOTH DIRECTIONS ARE NEEDED. The literal name alone does not prove no shell ran, and
+  # an absent pwned.marker alone is also what a command that simply failed produces.
+  literal-separator:
+    command: go env GOOS ; touch pwned.marker
+    input_mode: none
+    scope_kind: project-wide
+    category: mechanism
+    gate_type: test

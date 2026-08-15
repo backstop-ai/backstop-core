@@ -390,6 +390,67 @@ func TestInitSeams_NewRunnerRefusesEveryNilDependencyByName(t *testing.T) {
 	}
 }
 
+// TestInitSeams_GateRunnerRefusesRatherThanObservingNothingWhenItsInputsAreUnusable
+// covers the adapter's REFUSAL arm.
+//
+// The observation step is the one place where "found nothing" and "could not look" are
+// easy to confuse, and confusing them is the vacuous-green failure this project cares
+// most about: a consumer whose config or artifact root is unusable must not be handed a
+// clean-looking init report with zero counts. Each sub-case makes ONE input unusable and
+// asserts the adapter returns an error that NAMES the stage that failed — and returns no
+// counts at all, so no caller can mistake the failure for an empty observation.
+func TestInitSeams_GateRunnerRefusesRatherThanObservingNothingWhenItsInputsAreUnusable(t *testing.T) {
+	cases := []struct {
+		name    string
+		prepare func(t *testing.T) string
+		mustSay string
+	}{
+		{
+			// No backstop.yml: init observes the gate against the config it wrote, so a
+			// missing one means there is nothing to observe against.
+			name:    "no configuration to run against",
+			prepare: func(t *testing.T) string { return t.TempDir() },
+			mustSay: "reading the configuration",
+		},
+		{
+			// A config that loads but declares an artifact root the shipped resolver
+			// refuses. The gate scans artifacts from that root, so an unresolvable root
+			// is not an empty scan.
+			name: "artifact root the shipped resolver refuses",
+			prepare: func(t *testing.T) string {
+				project := t.TempDir()
+				writeInitSeamsConfig(t, project, "project: escaping-root\nartifact_root: ../outside\n")
+				return project
+			},
+			mustSay: "resolving the artifact root",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			counts, err := initGateRunner{}.Run(tc.prepare(t))
+
+			if err == nil {
+				t.Fatalf("the gate runner returned no error; %q must be a refusal, not an observation of nothing", tc.name)
+			}
+			if counts != nil {
+				t.Fatalf("the gate runner returned %d dimension counts alongside its error; a failed observation reports NO counts, or a caller reads them as a clean gate", len(counts))
+			}
+			if !strings.Contains(err.Error(), tc.mustSay) {
+				t.Fatalf("the refusal does not name the stage that failed.\nwant to contain: %s\ngot:             %s", tc.mustSay, err.Error())
+			}
+		})
+	}
+}
+
+// writeInitSeamsConfig writes a backstop.yml verbatim into a project directory.
+func writeInitSeamsConfig(t *testing.T, projectRoot, contents string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(projectRoot, "backstop.yml"), []byte(contents), 0o644); err != nil {
+		t.Fatalf("writing the test backstop.yml: %v", err)
+	}
+}
+
 // requireSeamStep returns the named step's report or fails.
 func requireSeamStep(t *testing.T, result initialize.Result, name string) initialize.StepReport {
 	t.Helper()

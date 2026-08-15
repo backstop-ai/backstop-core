@@ -1,0 +1,14 @@
+# The CLASSIFICATION corpus: one file per kind in the seven-kind vocabulary, ALL SEVEN
+# MISPLACED TOGETHER in a shared misc/ directory.
+#
+# ★ THE MISPLACEMENT IS THE WHOLE POINT AND MUST NOT BE "CORRECTED" INTO A TIDY LAYOUT.
+# Placed correctly, all seven produce ZERO deviations, and the deviation set is doctor's
+# only observable output here - so a classifier recognizing all seven suffixes and one
+# recognizing NONE of them would be indistinguishable. Misplaced, each yields exactly one
+# deviation carrying its own Kind, so a classifier missing even one suffix reports six and
+# reds, naming the suffix it dropped.
+#
+# misc/ is chosen because it is not a type directory under any reading of the shared layout
+# table. If that table should ever claim the name, pick another non-type directory rather
+# than scattering the files.
+project: doctor-layout-all-suffixes-fixture

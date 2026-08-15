@@ -1,0 +1,4 @@
+# A VALID config declaring ZERO packs, so loadInstalledPacks returns an EMPTY slice with
+# a NIL error and packs-installed WARNS (CLM-054): backstop enforces nothing here, which
+# is un-adopted capability - loud, never a silent pass and never a failure.
+project: doctor-no-packs-fixture

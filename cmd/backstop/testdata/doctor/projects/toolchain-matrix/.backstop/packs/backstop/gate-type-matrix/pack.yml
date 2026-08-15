@@ -1,0 +1,60 @@
+name: backstop/gate-type-matrix
+version: 1.0.0
+language: go
+archetype: enforcement
+description: >
+  Fixture pack declaring one engine binding per declared gate_type, each writing its own
+  marker file. Only the test and build bindings are toolchain entrypoints; the other five
+  must never run, and their markers' ABSENCE is how that is proven.
+engines:
+  # NO `provision:` BLOCK ON ANY BINDING, DELIBERATELY. checkEngineToolAllowed returns
+  # nil immediately when Provision is nil - the Layer-0 exemption - which is how the real
+  # go-toolchain pack declares `go build` / `go test`. A binding here that carried one
+  # would be refused before it ever ran and the matrix would prove nothing.
+  matrix-test:
+    command: go build -o test.marker ./...
+    input_mode: none
+    scope_kind: project-wide
+    category: mechanism
+    gate_type: test
+  matrix-build:
+    command: go build -o build.marker ./...
+    input_mode: none
+    scope_kind: project-wide
+    category: mechanism
+    gate_type: build
+  matrix-lint:
+    command: go build -o lint.marker ./...
+    input_mode: none
+    scope_kind: project-wide
+    category: mechanism
+    gate_type: lint
+  matrix-findings:
+    command: go build -o findings.marker ./...
+    input_mode: none
+    scope_kind: project-wide
+    category: mechanism
+    gate_type: findings
+  # ★ THE COVERAGE ROW CARRIES THE TRAP AND MUST NOT BE "CLEANED UP". Its command differs
+  # from matrix-test's ONLY in the -o name, reproducing the real typescript-toolchain
+  # shape where near-identical vitest commands sit under both `test` and `coverage`. A
+  # selection keyed on the command STRING rather than the declared gate_type passes the
+  # test-executed claim and reds this one.
+  matrix-coverage:
+    command: go build -o coverage.marker ./...
+    input_mode: none
+    scope_kind: project-wide
+    category: mechanism
+    gate_type: coverage
+  matrix-substantiveness:
+    command: go build -o subst.marker ./...
+    input_mode: none
+    scope_kind: project-wide
+    category: mechanism
+    gate_type: substantiveness
+  matrix-contracts:
+    command: go build -o contracts.marker ./...
+    input_mode: none
+    scope_kind: project-wide
+    category: mechanism
+    gate_type: contracts

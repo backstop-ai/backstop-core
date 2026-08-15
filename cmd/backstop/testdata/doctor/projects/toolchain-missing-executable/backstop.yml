@@ -1,0 +1,4 @@
+# Outcome (b): the declared executable cannot be STARTED at all.
+project: doctor-toolchain-missing-executable-fixture
+packs:
+    backstop/missing-executable: local

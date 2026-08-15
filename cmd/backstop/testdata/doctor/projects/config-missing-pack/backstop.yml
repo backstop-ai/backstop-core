@@ -1,0 +1,7 @@
+# Declares one pack with NO .backstop/packs/ tree at all, so loadInstalledPacks returns
+# an ERROR ("declared pack ... is missing from ...") and packs-installed FAILS (CLM-017).
+# It is also CLM-063's fixture: an ungathered pack set must SKIP toolchain-runs rather
+# than read as "no entrypoint declared".
+project: doctor-missing-pack-fixture
+packs:
+    backstop/doctor-fixture: local

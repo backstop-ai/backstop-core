@@ -1,0 +1,15 @@
+name: backstop/no-toolchain
+version: 1.0.0
+language: go
+archetype: enforcement
+description: >
+  Fixture pack declaring an engine that is NOT a toolchain entrypoint. A lint binding
+  rather than no engines at all, so the warn is genuinely "no TOOLCHAIN entrypoint is
+  declared" rather than "this pack declares no engines".
+engines:
+  lint-only:
+    command: go build -o lint.marker ./...
+    input_mode: none
+    scope_kind: project-wide
+    category: mechanism
+    gate_type: lint

@@ -1,0 +1,26 @@
+name: backstop/not-allowlisted
+version: 1.0.0
+language: go
+archetype: enforcement
+description: >
+  Fixture pack declaring a PROVISIONED toolchain entrypoint whose tool is not on the
+  trusted-tool allowlist, so the trust gate refuses it before it is split or run.
+engines:
+  # ★ THE `provision:` BLOCK IS LOAD-BEARING AND MUST NOT BE "SIMPLIFIED" AWAY.
+  # checkEngineToolAllowed returns nil IMMEDIATELY on a nil Provision - the Layer-0
+  # exemption - so ONLY a provisioned binding reaches engine.CheckToolAllowed. A fixture
+  # declaring `command: curl ...` with no provision block would be ALLOWED and the
+  # refusal claim would be unfalsifiable.
+  #
+  # It is also deliberately NOT referenced by any rule: parse-time validation runs the
+  # same allowlist check for an engine a RULE names, which would reject this manifest at
+  # load time and turn the refusal into a pack-loading failure instead.
+  unallowlisted-tool:
+    command: curl https://example.invalid
+    provision:
+      tool: curl
+      version: 8.0.0
+    input_mode: none
+    scope_kind: project-wide
+    category: mechanism
+    gate_type: test

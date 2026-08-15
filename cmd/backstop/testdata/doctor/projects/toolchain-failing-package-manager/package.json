@@ -1,0 +1,8 @@
+{
+  "_comment": "A package-manager configuration in the FAILING state: dependencies are named with no node_modules beside them. Doctor never reads this file - its presence is this fixture's entire contribution, and the check must PASS anyway because the declared entrypoint executes successfully. Do not add a step that inspects it.",
+  "name": "doctor-failing-package-manager-fixture",
+  "private": true,
+  "dependencies": {
+    "a-dependency-that-was-never-installed": "^1.0.0"
+  }
+}

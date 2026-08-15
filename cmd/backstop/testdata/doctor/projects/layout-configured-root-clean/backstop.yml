@@ -1,0 +1,6 @@
+# A DECLARED root, with the spec in the directory that root expects. Its twin,
+# layout-configured-root-deviating, declares the SAME root and puts the SAME file at the
+# project root's specs/ instead - so the pair proves the check reports against the RESOLVED
+# root rather than one of its own.
+project: doctor-layout-configured-root-clean-fixture
+artifact_root: .backstop

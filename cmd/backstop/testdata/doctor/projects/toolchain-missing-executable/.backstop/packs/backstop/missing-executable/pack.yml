@@ -1,0 +1,17 @@
+name: backstop/missing-executable
+version: 1.0.0
+language: go
+archetype: enforcement
+description: >
+  Fixture pack whose one toolchain entrypoint names an executable that does not exist, so
+  the probe reports it as could-not-START rather than as a nonzero exit.
+engines:
+  # NO provision block, deliberately: with one, the trust gate would REFUSE this before it
+  # ever ran and the outcome would be a refusal rather than the genuine
+  # could-not-start this fixture exists to produce.
+  missing-tool:
+    command: backstop-doctor-absent-tool-xyz --run
+    input_mode: none
+    scope_kind: project-wide
+    category: mechanism
+    gate_type: test

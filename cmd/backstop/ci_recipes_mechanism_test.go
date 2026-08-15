@@ -337,13 +337,14 @@ func TestCIRecipes_RegisteredCommandSurfaceUnchanged(t *testing.T) {
 	}
 	sort.Strings(registered)
 
-	// `init` is SPEC-069's, not this spec's. This pin asserts that THE CI-RECIPES SPEC
-	// added no core surface, and it does that by enumerating the whole set — so every
-	// LATER spec that legitimately adds a command has to come here and say so, by name.
-	// That is the pin working, not the pin being wrong: an unexplained addition still
-	// fails, and the list stays an honest record of who added what.
+	// `init` is SPEC-069's and `doctor` is SPEC-070's, not this spec's. This pin asserts
+	// that THE CI-RECIPES SPEC added no core surface, and it does that by enumerating the
+	// whole set — so every LATER spec that legitimately adds a command has to come here
+	// and say so, by name. That is the pin working, not the pin being wrong: an
+	// unexplained addition still fails, and the list stays an honest record of who added
+	// what.
 	want := []string{
-		"artifact", "baseline", "commands", "completion", "gate", "help",
+		"artifact", "baseline", "commands", "completion", "doctor", "gate", "help",
 		"init", "pack", "recipe", "version", "waiver",
 	}
 	if strings.Join(registered, ",") != strings.Join(want, ",") {
