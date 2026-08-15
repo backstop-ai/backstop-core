@@ -46,6 +46,16 @@ FILE_PATH="$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
 
 wblock() { block "agent $AGENT_NAME not permitted to write $FILE_PATH"; }
 
+# Every family may additionally write its own agent-memory notes, regardless
+# of what artifact/source type it's otherwise scoped to (ISSUE-126). Checked
+# first so it composes with each family's own allow-list below.
+if [[ "$FILE_PATH" == .claude/agent-memory/*/* ]]; then
+  family="$(echo "$FILE_PATH" | sed -E 's#^\.claude/agent-memory/([^/]+)/.*#\1#')"
+  case "$AGENT_NAME" in
+    "$family"*) exit 0 ;;
+  esac
+fi
+
 case "$AGENT_NAME" in
   bundle-author*) [[ "$FILE_PATH" == *.bundle.md ]] && exit 0 || wblock ;;
   spec-author*) [[ "$FILE_PATH" == *.spec.md ]] && exit 0 || wblock ;;
