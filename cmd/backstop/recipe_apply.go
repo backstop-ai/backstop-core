@@ -71,7 +71,9 @@ before any command is built.`,
 				return rootErr
 			}
 
-			result, err := runRecipeApply(args[0], projectRoot, supplied)
+			// The declared kind is init's; `recipe apply` reports what the apply DID
+			// and has no use for it.
+			result, _, err := runRecipeApply(args[0], projectRoot, supplied)
 			if err != nil {
 				// A ConfigError is returned UNWRAPPED so it keeps its exit-2 shape
 				// (main.go maps an untyped error to ExitConfigError) and stays
@@ -189,22 +191,37 @@ func recipeProjectRoot() (string, error) {
 //
 // suppliedParams arrives as the raw repeated `--param key=value` arguments so the
 // rejections can quote what the operator actually typed.
-func runRecipeApply(ref string, projectRoot string, suppliedParams []string) (recipe.ApplyResult, error) {
+//
+// IT ALSO RETURNS THE RESOLVED RECIPE'S DECLARED KIND (SPEC-069 REQ-035). The kind is
+// already in hand after the single recipe.ResolveRecipe call below — this function just
+// did not return it. `backstop init` needs it because REQ-035's preserve classifier
+// splits an empty Rule/CoveringWaiver pair on the recipe's declared kind, so init's
+// RecipeApplier must report the kind of the recipe that was ACTUALLY APPLIED. Its only
+// alternative would be to call ParseRecipeRef + ResolveRecipe a SECOND time to ask what
+// kind it was — a second derivation of "which recipe is this ref", drifting from the one
+// the apply used, which is the exact one-authority-not-a-copy hazard REQ-018 refuses for
+// local-path classification. Take it from the resolve.
+//
+// BEHAVIOR IS OTHERWISE UNCHANGED: the same steps in the same order, the same
+// *check.ConfigError-versus-violation split, and the same ZERO recipe.ApplyResult on
+// every failure path — now paired with an EMPTY kind, because a run that resolved
+// nothing has no kind to report.
+func runRecipeApply(ref string, projectRoot string, suppliedParams []string) (recipe.ApplyResult, string, error) {
 	// Purely syntactic and needs no filesystem, so it runs first: a malformed
 	// invocation is reported without depending on the project being resolvable.
 	params, err := parseParamFlags(suppliedParams)
 	if err != nil {
-		return recipe.ApplyResult{}, fmt.Errorf("parsing --param flags: %w", err)
+		return recipe.ApplyResult{}, "", fmt.Errorf("parsing --param flags: %w", err)
 	}
 
 	parsed, err := recipe.ParseRecipeRef(ref)
 	if err != nil {
-		return recipe.ApplyResult{}, &check.ConfigError{Message: err.Error()}
+		return recipe.ApplyResult{}, "", &check.ConfigError{Message: err.Error()}
 	}
 
 	manifests, err := loadInstalledPacks(projectRoot)
 	if err != nil {
-		return recipe.ApplyResult{}, &check.ConfigError{Message: err.Error()}
+		return recipe.ApplyResult{}, "", &check.ConfigError{Message: err.Error()}
 	}
 	corpus := make(map[string]*pack.Manifest, len(manifests))
 	for _, manifest := range manifests {
@@ -214,7 +231,7 @@ func runRecipeApply(ref string, projectRoot string, suppliedParams []string) (re
 	packsDir := filepath.Join(projectRoot, ".backstop", "packs")
 	resolved, err := recipe.ResolveRecipe(parsed, corpus, filepath.Join(packsDir, filepath.FromSlash(parsed.Pack)))
 	if err != nil {
-		return recipe.ApplyResult{}, &check.ConfigError{Message: err.Error()}
+		return recipe.ApplyResult{}, "", &check.ConfigError{Message: err.Error()}
 	}
 	// AFTER resolution (the recipe's declared param schema is only knowable now)
 	// and BEFORE the apply, so a typo'd name is refused while nothing has been
@@ -222,7 +239,7 @@ func runRecipeApply(ref string, projectRoot string, suppliedParams []string) (re
 	// SDLC-mediated library caller are unchanged, because this is invocation
 	// hygiene rather than applier policy.
 	if err := checkUndeclaredParams(resolved.Manifest, params); err != nil {
-		return recipe.ApplyResult{}, fmt.Errorf("checking supplied params against %q: %w", ref, err)
+		return recipe.ApplyResult{}, "", fmt.Errorf("checking supplied params against %q: %w", ref, err)
 	}
 
 	// Resolution succeeded, so the pack IS in the corpus under this key.
@@ -230,7 +247,7 @@ func runRecipeApply(ref string, projectRoot string, suppliedParams []string) (re
 
 	binding, err := provisionedEngineBinding(packManifest)
 	if err != nil {
-		return recipe.ApplyResult{}, fmt.Errorf("select the transform engine for recipe %s: %w", ref, err)
+		return recipe.ApplyResult{}, "", fmt.Errorf("select the transform engine for recipe %s: %w", ref, err)
 	}
 
 	// TRUST GATE — the SAME check every pack-declared enforcement command clears
@@ -239,7 +256,7 @@ func runRecipeApply(ref string, projectRoot string, suppliedParams []string) (re
 	// is exactly ONE gate, and it runs HERE, before the dispatch closure below is
 	// built, mirroring runFindingsEngine's gate-before-command-construction order.
 	if gateErr := checkEngineToolAllowed(packManifest, binding); gateErr != nil {
-		return recipe.ApplyResult{}, fmt.Errorf("gate the transform engine for recipe %s: %w", ref, gateErr)
+		return recipe.ApplyResult{}, "", fmt.Errorf("gate the transform engine for recipe %s: %w", ref, gateErr)
 	}
 
 	result, err := recipe.Apply(resolved, recipe.ApplyOptions{
@@ -256,10 +273,10 @@ func runRecipeApply(ref string, projectRoot string, suppliedParams []string) (re
 		// either produces a verdict or it fails, never both. The wrap names the
 		// project the apply ran against, which the applier's own error — scoped to
 		// the recipe and the op — does not carry.
-		return recipe.ApplyResult{}, fmt.Errorf("apply into project %q: %w", projectRoot, err)
+		return recipe.ApplyResult{}, "", fmt.Errorf("apply into project %q: %w", projectRoot, err)
 	}
 
-	return result, recordRecipeAdoption(projectRoot, result)
+	return result, resolved.Manifest.Kind, recordRecipeAdoption(projectRoot, result)
 }
 
 // parseParamFlags turns the repeated `--param key=value` arguments into the

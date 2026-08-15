@@ -1,0 +1,28 @@
+# THE TRUST-GATE FIXTURE (SPEC-069 CLM-107).
+#
+# One declared entrypoint whose provisioned tool the trusted-tool allowlist REFUSES.
+# It must NEVER be executed: checkEngineToolAllowed sits BEFORE splitCommand and before
+# the runner, so the command is not even split, let alone handed to anything -- and the
+# refusal surfaces as a CONFIG ERROR rather than as a toolchain pass or fail.
+#
+# The command points at the real zero-exit executable ON PURPOSE. A command that could
+# not have run anyway would make the claim unfalsifiable: because this one WOULD have
+# succeeded, a recorded call is unambiguous proof the gate was bypassed.
+name: hermetic/unallowlisted-tool-pack
+version: 1.0.0
+language: neutral
+archetype: enforcement
+description: A declared entrypoint whose provisioned tool is not on the trusted-tool allowlist.
+engines:
+  refused-entrypoint:
+    command: bin/exit-zero.sh refused
+    input_mode: none
+    scope_kind: project-wide
+    gate_type: test
+    provision:
+      tool: not-a-trusted-tool
+      version: 9.9.9
+content:
+  ruleset:
+    version: 1.0.0
+    rules: []

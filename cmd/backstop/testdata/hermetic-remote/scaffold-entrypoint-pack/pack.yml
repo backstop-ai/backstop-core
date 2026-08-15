@@ -1,0 +1,87 @@
+# DD-7 EVIDENCE fixture pack SOURCE (SPEC-069 CLM-138/CLM-139).
+#
+# It declares BOTH halves of the evidence in one pack: a scaffold recipe that writes
+# one source file, and one `gate_type: test` ENTRYPOINT whose declared command exits
+# NON-ZERO over a project with no source file and ZERO over the same project once the
+# recipe has run. That is the "a compiler run over an empty repo can RED on no inputs"
+# failure (observed: tsc TS18003), and it is what regresses silently if a later
+# refactor moves init's scaffold step after its toolchain step.
+#
+# THE PACK AUTHOR'S COMMAND IS WHAT ENCODES THE FAILURE, and core supplies none of it.
+# The probe is grep-shaped: allowlisted, hermetic, no provisioning, and it reaches
+# nothing outside the consumer project. With `src/` absent grep exits non-zero; with
+# the recipe's declared target present and carrying the marker it exits zero.
+#
+# EXACTLY ONE ENGINE, AND THE COUNT IS FORCED. cmd/backstop/recipe_apply.go's
+# provisionedEngineBinding requires EXACTLY ONE provisioned engine binding before any
+# recipe applies, so a second provisioned engine here would make this pack's own
+# recipe unappliable. The one engine therefore serves both roles.
+#
+# THE CONVERT SCRIPT IS NOT OPTIONAL, and this is the trap that makes an otherwise
+# correct fixture fail in a way that looks like an init defect. gateTypeHasDedicatedStep
+# returns true for substantiveness, contracts and coverage ONLY, so a `test` engine
+# SURVIVES excludeDedicatedStepRules and is ALSO dispatched through the generic
+# pack_engines path -- which init's own observe step runs. On that path the engine's
+# stdout is expected to be SARIF unless a convert is declared. The convert normalizes
+# the probe's output for that route and is IGNORED by the toolchain route:
+# packEntrypointProber reads exit status and combined output and never consults it.
+# One fixture, two dispatch routes, and this field is what keeps the second one honest.
+#
+# ★ DELIBERATE DEVIATION FROM THE PLAN'S FILE LIST, RECORDED HERE RATHER THAN LEFT
+# UNDOCUMENTED. PLAN-SPEC-069 TASK-003 enumerates a `bin/entrypoint.sh` for this fixture,
+# and there is none: the entrypoint is the allowlisted `grep` command declared below.
+#
+# The omission is FORCED, not a shortcut. `provisionedEngineBinding`
+# (cmd/backstop/recipe_apply.go) requires this pack to declare EXACTLY ONE *provisioned*
+# engine binding before its own recipe can be applied at all, and a provisioned engine
+# must clear the trusted-tool allowlist. A `bin/entrypoint.sh` tool name is not on that
+# allowlist, so a script-based entrypoint here would make this pack's recipe unappliable
+# and CLM-139 untestable. The task's own prose anticipates this — it says to declare the
+# executable only "if the command needs one" and recommends exactly the grep-shaped
+# presence probe used below.
+#
+# `crash_guard` is deliberately NOT declared. It is an explicit opt-in field, not
+# something derived from gate_type, and turning it on would make the empty-project
+# non-zero exit -- the very state CLM-139 sets up on purpose -- a fail-loud gate error
+# during the observe step.
+name: hermetic/scaffold-entrypoint-pack
+version: 1.0.0
+language: neutral
+archetype: enforcement
+description: >
+  DD-7 evidence fixture pack SOURCE (SPEC-069): one scaffolding recipe plus one
+  declared test entrypoint whose verdict FLIPS on the scaffolded file's presence.
+recipes:
+  first-source: recipes/first-source
+engines:
+  entrypoint:
+    # Self-contained: input_mode none contributes no inputs, and scope_kind
+    # project-wide with NO project_target means the generic findings dispatch appends
+    # no scan target either, so the command that runs is exactly the command declared.
+    command: grep -rn BACKSTOP_SCAFFOLD_PRESENT_9C21 src
+    input_mode: none
+    scope_kind: project-wide
+    category: opinion
+    gate_type: test
+    convert: grep/to-sarif.sh
+    provision:
+      tool: grep
+      version: "*"
+content:
+  ruleset:
+    version: 1.0.0
+    rules:
+      - id: scaffolded-source-present
+        engine: entrypoint
+        risk_class: correctness
+        claims:
+          - id: scaffolded-source-present-detects-the-marker
+            text: >
+              The entrypoint's probe distinguishes a scaffolded source file from its
+              absence. The fixtures below are the falsification pair captured from a
+              real run of the declared command.
+            fixtures:
+              positive:
+                - path: testdata/fixtures/target-present.txt
+              negative:
+                - path: testdata/fixtures/target-absent.txt

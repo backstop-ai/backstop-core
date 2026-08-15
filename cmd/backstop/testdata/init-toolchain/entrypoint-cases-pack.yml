@@ -1,0 +1,54 @@
+# THE FOUR ENTRYPOINT OUTCOMES, IN ONE MANIFEST (SPEC-069 REQ-011).
+#
+# (a) STARTED, exit ZERO                       -> case-a-zero
+# (b) COULD NOT BE STARTED AT ALL              -> case-b-unstartable
+# (c) STARTED, exited NON-ZERO (stdout)        -> case-c-nonzero-stdout
+# (c) STARTED, exited NON-ZERO (STDERR ONLY)   -> case-c-nonzero-stderr-only
+#
+# (b) and (c) are SPLIT and their labels DIFFER, because bundle REQ-011 v1.1.0 forbids
+# inferring toolchain health from an exit code: treating any non-zero exit as owed
+# setup would re-enact the pnpm ERR_PNPM_IGNORED_BUILDS misdiagnosis that is the
+# requirement's own evidence. (b) is a setup step the consumer still owes; (c) reports
+# what happened and claims NO cause.
+#
+# INDEPENDENCE (CLM-057) rides on this same manifest: case-a-zero PASSES while the
+# case-c engines FAIL, in one pack, so a failing entrypoint turning a passing one into
+# a failure is directly falsifiable.
+#
+# case-b's command names a path that does not exist. That is the whole fixture: the
+# executable cannot be STARTED, so the runner's error is NOT an *exec.ExitError and the
+# shared prober classifies it unstartable rather than exited-non-zero.
+#
+# NO engine here declares a `provision`, so the trust gate is a no-op for them and the
+# claims under test are about execution rather than about the allowlist. The allowlist
+# refusal has its own fixture, unallowlisted-tool-pack.yml.
+name: hermetic/entrypoint-cases-pack
+version: 1.0.0
+language: neutral
+archetype: enforcement
+description: The four declared-entrypoint execution outcomes, bound one per engine.
+engines:
+  case-a-zero:
+    command: bin/exit-zero.sh case-a
+    input_mode: none
+    scope_kind: project-wide
+    gate_type: test
+  case-b-unstartable:
+    command: bin/no-such-entrypoint.sh
+    input_mode: none
+    scope_kind: project-wide
+    gate_type: test
+  case-c-nonzero-stdout:
+    command: bin/exit-nonzero-stdout.sh
+    input_mode: none
+    scope_kind: project-wide
+    gate_type: build
+  case-c-nonzero-stderr-only:
+    command: bin/exit-nonzero-stderr-only.sh
+    input_mode: none
+    scope_kind: project-wide
+    gate_type: test
+content:
+  ruleset:
+    version: 1.0.0
+    rules: []

@@ -1,0 +1,3 @@
+This fixture CONTAINS the acceptance marker, so the rule must fire on it.
+BACKSTOP_ACCEPTANCE_MARKER_7F3A
+Anything after the marker line is ordinary prose and is not part of the claim.

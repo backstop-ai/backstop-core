@@ -1,0 +1,19 @@
+# A `kind: scaffolding` recipe: it regenerates its own output on re-apply, so under
+# `archetype: recipes` packval phase 4's checkRecipeEnforcement REQUIRES it to declare
+# a non-empty enforcement.rules list. The strings inside are never resolved or
+# cross-referenced against anything (the phase's own SCOPE GUARD says so), so one
+# opaque rule id suffices and no pack ruleset is needed to back it.
+#
+# NO param is declared. Init supplies no recipe param to any apply (CLM-136), so a
+# param required with no default would make this fixture untestable through init by
+# construction.
+kind: scaffolding
+version: 1.0.0
+enforcement:
+  rules:
+    - recipe.first-source.present
+ops:
+  - id: create-first-source
+    kind: create
+    target: src/first-source.txt
+    payload: payload.txt

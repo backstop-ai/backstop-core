@@ -1,0 +1,7 @@
+NEGATIVE fixture: the state in which this pack's declared entrypoint FIRES. Captured
+from a real run of the declared command over a project holding no source file at all
+-- DD-7's motivating failure, reproduced with the pack author's own command:
+
+  $ grep -rn BACKSTOP_SCAFFOLD_PRESENT_9C21 src
+  grep: src: No such file or directory
+  exit=2

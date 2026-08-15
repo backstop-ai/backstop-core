@@ -156,7 +156,12 @@ backstop by shelling out to CLI commands.`,
 	// --- Namespace: recipe ---
 	recipeCmd := newRecipeCommand()
 
-	rootCmd.AddCommand(artifactCmd, packCmd, gateCmd, baselineCmd, versionCmd, commandsCmd, waiverCmd, recipeCmd)
+	// --- Top-level: init ---
+	// No `ci` verb, no `scaffold` verb, and no --no-scaffold flag: both of those steps
+	// are governed SOLELY by the presence of their own flag on init.
+	initCmd := newInitCommand()
+
+	rootCmd.AddCommand(artifactCmd, packCmd, gateCmd, baselineCmd, versionCmd, commandsCmd, waiverCmd, recipeCmd, initCmd)
 
 	return rootCmd
 }

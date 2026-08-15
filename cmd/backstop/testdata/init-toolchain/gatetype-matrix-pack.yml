@@ -1,0 +1,63 @@
+# THE GATE-TYPE SELECTION MATRIX (SPEC-069 REQ-011, CLM-053/054 and CLM-055/118/119/
+# 120/121).
+#
+# One engine per gate_type, so "init executes ONLY the test and build entrypoints" is
+# asserted against ONE manifest rather than against seven hand-built structs. It is
+# parsed through pack.ParseManifest -- the pack's OWN declared YAML shape -- so a
+# manifest-schema change cannot leave these tests passing against a shape no real pack
+# could produce.
+#
+# SELECTION IS BY STAGE, NEVER BY TOOL. `test` and `build` are backstop's own
+# kill-chain vocabulary (pkg/pack/engine/gatetype.go declares exactly seven), so
+# selecting on them names a STAGE of the chain and introduces no tool or language noun.
+#
+# Every command points at the SAME zero-exit executable on purpose: the claim under
+# test is WHICH engines are selected, so making the five non-entrypoint engines
+# runnable-but-unselected is what makes an over-broad selection visible as an extra
+# recorded call rather than as an incidental failure. Each carries a distinct argv
+# marker so a recorded call names the engine that produced it.
+name: hermetic/gatetype-matrix-pack
+version: 1.0.0
+language: neutral
+archetype: enforcement
+description: One engine per declared gate_type, for init's entrypoint-selection claims.
+engines:
+  matrix-test:
+    command: bin/exit-zero.sh matrix-test
+    input_mode: none
+    scope_kind: project-wide
+    gate_type: test
+  matrix-build:
+    command: bin/exit-zero.sh matrix-build
+    input_mode: none
+    scope_kind: project-wide
+    gate_type: build
+  matrix-lint:
+    command: bin/exit-zero.sh matrix-lint
+    input_mode: none
+    scope_kind: project-wide
+    gate_type: lint
+  matrix-findings:
+    command: bin/exit-zero.sh matrix-findings
+    input_mode: none
+    scope_kind: project-wide
+    gate_type: findings
+  matrix-coverage:
+    command: bin/exit-zero.sh matrix-coverage
+    input_mode: none
+    scope_kind: project-wide
+    gate_type: coverage
+  matrix-substantiveness:
+    command: bin/exit-zero.sh matrix-substantiveness
+    input_mode: none
+    scope_kind: project-wide
+    gate_type: substantiveness
+  matrix-contracts:
+    command: bin/exit-zero.sh matrix-contracts
+    input_mode: none
+    scope_kind: project-wide
+    gate_type: contracts
+content:
+  ruleset:
+    version: 1.0.0
+    rules: []

@@ -1,0 +1,6 @@
+POSITIVE fixture: the state in which this pack's declared entrypoint is SATISFIED.
+Captured from a real run of the declared command after the scaffold recipe ran:
+
+  $ grep -rn BACKSTOP_SCAFFOLD_PRESENT_9C21 src
+  src/first-source.txt:1:BACKSTOP_SCAFFOLD_PRESENT_9C21
+  exit=0

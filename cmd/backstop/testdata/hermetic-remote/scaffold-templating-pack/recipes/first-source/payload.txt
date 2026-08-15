@@ -1,0 +1,4 @@
+first source file, delivered by a pack recipe and never authored by core.
+	a tab-indented line, to prove the bytes land unnormalized
+trailing spaces follow this word   
+a line with "quotes" and a backslash \ and a colon: all preserved verbatim

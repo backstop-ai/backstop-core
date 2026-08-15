@@ -1,0 +1,3 @@
+Placeholder content for the bare scaffold entry declared in pack.yml. packval phase 1
+requires the declared scaffold path to exist and hold a file; nothing reads what is
+in it.

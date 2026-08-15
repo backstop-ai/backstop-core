@@ -161,7 +161,7 @@ func NewAddCommand(git GitCloner, validator Validator) (*AddCommand, error) {
 // constructor makes that absence unrepresentable — so an invalid pack can no
 // longer install cleanly.
 func (c *AddCommand) Run(packRef string, opts AddOptions) (*AddResult, error) {
-	isLocal := isLocalPath(packRef)
+	isLocal := IsLocalPath(packRef)
 	// packName is the pack's INSTALL IDENTITY and always comes from the MANIFEST
 	// (SPEC-056 REQ-003). coordinate is the requested org/repository, recorded verbatim
 	// and never used to build a path, a key, or an asset root.

@@ -1,0 +1,3 @@
+This fixture deliberately contains no acceptance marker, so the rule must stay
+silent on it. It is otherwise the same shape as its sibling: ordinary prose, a
+few lines long, non-empty (packval phase 2 rejects an empty fixture).

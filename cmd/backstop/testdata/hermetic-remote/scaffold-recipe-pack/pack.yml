@@ -1,0 +1,49 @@
+# SCAFFOLD-RECIPE fixture pack SOURCE (SPEC-069 CLM-130/CLM-140/CLM-046/CLM-047).
+#
+# This is a real `pkg/recipe` RECIPE pack, NOT a packval `tier: complete` scaffold
+# declaration -- the two are different mechanisms and the sibling
+# scaffold-config-pack fixture exercises the other one.
+#
+# Its ONLY difference from scaffold-templating-pack is its recipe's declared KIND,
+# because that kind is one of the two observables REQ-035's preserve classifier has:
+# here `scaffolding`, which makes an EMPTY Rule/CoveringWaiver pair UNAMBIGUOUSLY
+# user-owned (CLM-140); there `templating`, which makes the same pair INDETERMINATE
+# (CLM-142).
+#
+# The `content.scaffolds` entry is BARE on purpose -- id and path only. packval
+# phase 1 fails a pack with an empty ruleset AND no scaffolds AND no sdk ("content is
+# required"), and this is a recipe-only pack carrying no ruleset, so a scaffold entry
+# is what satisfies it. Do NOT pad it with tier/sample_config/pairs_with: `tier:
+# complete` makes packval phase 3 RENDER the scaffold, and pairs_with is `code`
+# archetype vocabulary this pack deliberately does not use.
+#
+# THE ENGINE BLOCK IS NOT DECORATION. cmd/backstop/recipe_apply.go's
+# provisionedEngineBinding requires EXACTLY ONE provisioned engine binding with a
+# non-empty command before any recipe applies, so a recipe pack with no engines
+# cannot be applied at all. One is declared, and it is never executed: no rule
+# declares it, so the pack_engines dispatch (which groups by the engines RULES name)
+# never reaches it.
+name: hermetic/scaffold-recipe-pack
+version: 1.0.0
+language: neutral
+archetype: recipes
+description: >
+  Recipe fixture pack SOURCE declaring one `kind: scaffolding` recipe with a single
+  create op, for SPEC-069's scaffold step and its USER-OWNED preserve class.
+recipes:
+  first-source: recipes/first-source
+engines:
+  recipe-engine:
+    command: grep -rn
+    input_mode: pattern-arg
+    input_flag: -e
+    scope_kind: file-args
+    category: opinion
+    gate_type: lint
+    provision:
+      tool: grep
+      version: "*"
+content:
+  scaffolds:
+    - id: first-source-base
+      path: scaffolds/first-source-base

@@ -1,0 +1,26 @@
+# THE CAPABILITY-ABSENT FIXTURE (SPEC-069 CLM-058).
+#
+# It declares neither a `test` nor a `build` engine, so there is nothing for init's
+# toolchain step to execute. That is capability-ABSENT, not a failure: an un-adopted
+# capability is a missing benefit, never a broken promise, so init reports it and does
+# not fail the run.
+name: hermetic/no-entrypoint-pack
+version: 1.0.0
+language: neutral
+archetype: enforcement
+description: A pack declaring no test and no build engine at all.
+engines:
+  only-lint:
+    command: bin/exit-zero.sh only-lint
+    input_mode: none
+    scope_kind: project-wide
+    gate_type: lint
+  only-findings:
+    command: bin/exit-zero.sh only-findings
+    input_mode: none
+    scope_kind: project-wide
+    gate_type: findings
+content:
+  ruleset:
+    version: 1.0.0
+    rules: []

@@ -1,0 +1,17 @@
+# The scaffold half of the DD-7 evidence. One create op, one declared target, and the
+# payload carries the exact marker this pack's entrypoint probes for -- which is what
+# makes the entrypoint's verdict FLIP on this recipe having run.
+#
+# `enforcement.rules` is declared even though `archetype: enforcement` means packval
+# phase 4's checkRecipeEnforcement never runs on this pack. It is never an error, and
+# it keeps the fixture valid if a later reader flips the archetype to `recipes`.
+kind: scaffolding
+version: 1.0.0
+enforcement:
+  rules:
+    - recipe.first-source.present
+ops:
+  - id: create-first-source
+    kind: create
+    target: src/first-source.txt
+    payload: payload.txt

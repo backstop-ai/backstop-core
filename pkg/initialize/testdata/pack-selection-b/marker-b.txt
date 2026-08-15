@@ -1,0 +1,3 @@
+Fixture project B for CLM-052 -- deliberately a different filename with different
+content from project A's marker, so the two projects are distinguishable by anything
+that looks at them.

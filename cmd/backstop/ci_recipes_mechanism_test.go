@@ -337,9 +337,14 @@ func TestCIRecipes_RegisteredCommandSurfaceUnchanged(t *testing.T) {
 	}
 	sort.Strings(registered)
 
+	// `init` is SPEC-069's, not this spec's. This pin asserts that THE CI-RECIPES SPEC
+	// added no core surface, and it does that by enumerating the whole set — so every
+	// LATER spec that legitimately adds a command has to come here and say so, by name.
+	// That is the pin working, not the pin being wrong: an unexplained addition still
+	// fails, and the list stays an honest record of who added what.
 	want := []string{
 		"artifact", "baseline", "commands", "completion", "gate", "help",
-		"pack", "recipe", "version", "waiver",
+		"init", "pack", "recipe", "version", "waiver",
 	}
 	if strings.Join(registered, ",") != strings.Join(want, ",") {
 		t.Errorf("the registered top-level command set is %v, want exactly %v", registered, want)
@@ -368,6 +373,9 @@ func TestCIRecipes_RegisteredCommandSurfaceUnchanged(t *testing.T) {
 		}
 		cmd.Flags().VisitAll(func(flag *pflag.Flag) {
 			for _, token := range banned {
+				if ciSanctionedTokenFlag(cmd.CommandPath(), flag.Name, token) {
+					continue
+				}
 				if ciNamesToken(flag.Name, token) {
 					t.Errorf("command %q declares flag --%s, which names the platform token %q", cmd.CommandPath(), flag.Name, token)
 				}
@@ -401,5 +409,55 @@ func ciWalkCommands(cmd *cobra.Command, visit func(*cobra.Command)) {
 	visit(cmd)
 	for _, sub := range cmd.Commands() {
 		ciWalkCommands(sub, visit)
+	}
+}
+
+// ciSanctionedTokenFlag reports whether a flag naming a banned token is one a LATER
+// spec explicitly mandates.
+//
+// EXACTLY ONE ENTRY, AND THE DISTINCTION IS PRINCIPLED RATHER THAN AN EXEMPTION OF
+// CONVENIENCE. `github`, `gitlab`, `bitbucket`, `jenkins` and `workflow` are PLATFORM
+// names — core holding one is the bake this pin exists to prevent, and none is
+// sanctioned here or anywhere. `ci` is different in kind: on `backstop init` it names
+// backstop's OWN step, the one governed solely by that flag's presence, and its VALUE
+// is a whole pinned <pack>:<recipe>@<version> ref that core never inspects. SPEC-069
+// REQ-016 mandates that flag by name.
+//
+// The check is keyed on the exact command path AND the exact flag name, so the
+// exemption cannot spread: a --ci flag on any other command, or a --github flag on
+// init, still fails.
+func ciSanctionedTokenFlag(commandPath, flagName, token string) bool {
+	return token == "ci" && commandPath == "backstop init" && flagName == "ci"
+}
+
+// TestCIRecipes_TheSanctionedFlagExemptionIsExactlyOnePair keeps the exemption above
+// from becoming a hole.
+//
+// An exemption inside an anti-regression pin is the classic way a pin quietly stops
+// pinning: it is added narrowly for one real reason and then widens, one plausible
+// case at a time, until the ban it guards is decorative. So the narrowness is asserted
+// here rather than asserted in a comment — the exemption admits EXACTLY the one pair a
+// later spec mandates, and every near-miss around it is still refused.
+func TestCIRecipes_TheSanctionedFlagExemptionIsExactlyOnePair(t *testing.T) {
+	if !ciSanctionedTokenFlag("backstop init", "ci", "ci") {
+		t.Fatal("the one flag SPEC-069 REQ-016 mandates is not sanctioned, so `backstop init --ci` cannot exist")
+	}
+
+	refused := []struct {
+		commandPath, flagName, token, why string
+	}{
+		{"backstop init", "github", "github", "a PLATFORM name on init is the exact bake this pin exists to prevent"},
+		{"backstop init", "gitlab", "gitlab", "likewise"},
+		{"backstop init", "jenkins", "jenkins", "likewise"},
+		{"backstop init", "workflow", "workflow", "likewise"},
+		{"backstop recipe apply", "ci", "ci", "the exemption is keyed on init ALONE; a --ci elsewhere is a second entry point"},
+		{"backstop gate", "ci", "ci", "likewise"},
+		{"backstop init ci", "ci", "ci", "a nested `ci` VERB under init is not the flag that was sanctioned"},
+	}
+	for _, tc := range refused {
+		if ciSanctionedTokenFlag(tc.commandPath, tc.flagName, tc.token) {
+			t.Fatalf("the exemption admits %q --%s (token %q), which it must not: %s",
+				tc.commandPath, tc.flagName, tc.token, tc.why)
+		}
 	}
 }

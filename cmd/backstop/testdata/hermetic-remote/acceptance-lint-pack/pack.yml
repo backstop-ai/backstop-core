@@ -1,0 +1,77 @@
+# The ACCEPTANCE fixture pack source (SPEC-069 REQ-019, CLM-091/CLM-092/CLM-112).
+#
+# WHY A SEVENTH FIXTURE SOURCE EXISTS. Every one of the six sibling sources in this
+# directory declares its engine with `command: ""` on purpose, so nothing can ever be
+# dispatched through them and a gate PASS over them asserts nothing. The acceptance
+# runs need a pack that REALLY dispatches, so this one declares a real, allowlisted,
+# hermetic command.
+#
+# THE GATE TYPE IS LOAD-BEARING, NOT METADATA (SPEC-069 Sharp Edge 16).
+# `lint` is chosen because gateTypeHasDedicatedStep (cmd/backstop/pack_gate.go)
+# returns true for substantiveness, contracts and coverage ONLY -- so a `lint` rule
+# survives excludeDedicatedStepRules and dispatches through the GENERIC pack_engines
+# path, a dimension NEITHER acceptance profile disables (the pack-only profile turns
+# off exactly the five SDLC dimensions, and pack_engines is not among them). That is
+# the only reason the same engine is live under both profiles, which is what makes
+# CLM-112's can-go-red half provable. Anyone re-tagging this field must RE-DERIVE the
+# routing: both acceptance tests keep passing while asserting nothing.
+#
+# THE MARKER AND ITS SCOPE DEPENDENCY (SPEC-069 Sharp Edge 17).
+# BACKSTOP_ACCEPTANCE_MARKER_7F3A is a high-entropy literal that appears nowhere in a
+# freshly-initialized project -- but it necessarily appears in THIS file, which lands
+# under `.backstop/packs/`. The acceptance PASS therefore depends on init's gitignore
+# step keeping that tree out of the observe step's scope. A run that subtracts the
+# `gitignore` capability, or a scope change that stops honoring ignore entries, has
+# the pack find its own manifest and the acceptance claim reds for a reason having
+# nothing to do with init. The literal is deliberately unmistakable so that failure
+# reads as a scope regression rather than as a confusing false positive.
+name: hermetic/acceptance-lint-pack
+version: 1.0.0
+language: neutral
+archetype: enforcement
+description: >
+  Acceptance fixture pack SOURCE (SPEC-069). One `gate_type: lint` engine with a
+  REAL allowlisted command (grep) and one rule carrying a distinctive marker
+  pattern, so `backstop init --pack` followed by `backstop gate` exercises genuine
+  generic dispatch under BOTH the full-SDLC and the pack-only profile. Nothing is
+  downloaded and no network is touched; the convert script normalizes grep's match
+  lines to SARIF with ordinary POSIX text tools.
+engines:
+  # Field-for-field the proven shape of packs/contracts' grep engine, lifted to
+  # `lint` so its findings ride the generic pack_engines dispatch instead of a
+  # dedicated step. The provision pins the tool name so the dispatch trust gate runs
+  # the allowlist check; grep is a Layer-0 tool, so version "*" means presence on the
+  # allowlist IS the trust requirement.
+  marker-lint:
+    command: grep -rn
+    input_mode: pattern-arg
+    input_flag: -e
+    scope_kind: file-args
+    category: opinion
+    gate_type: lint
+    convert: grep/to-sarif.sh
+    provision:
+      tool: grep
+      version: "*"
+content:
+  ruleset:
+    version: 1.0.0
+    rules:
+      - id: acceptance-marker
+        engine: marker-lint
+        risk_class: correctness
+        pattern: BACKSTOP_ACCEPTANCE_MARKER_7F3A
+        claims:
+          - id: acceptance-marker-detects-the-marker
+            text: >
+              The rule's pattern matches a file CONTAINING the marker and does not
+              match one without it. The two fixtures below are the falsification
+              pair: an implementation that matched everything, or nothing, fails one
+              of them.
+            fixtures:
+              # POSITIVE = the rule is satisfied (no marker, nothing to report).
+              positive:
+                - path: testdata/fixtures/marker-absent.txt
+              # NEGATIVE = the rule FIRES (the marker is present).
+              negative:
+                - path: testdata/fixtures/marker-present.txt

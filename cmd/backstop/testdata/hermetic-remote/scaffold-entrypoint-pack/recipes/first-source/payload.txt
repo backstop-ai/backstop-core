@@ -1,0 +1,3 @@
+BACKSTOP_SCAFFOLD_PRESENT_9C21
+The first source file this pack's recipe delivers. Its marker is what the pack's
+declared test entrypoint probes for.

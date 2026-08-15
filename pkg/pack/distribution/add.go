@@ -92,8 +92,17 @@ func parsePackRef(ref string) (string, string) {
 	return name, version
 }
 
-// isLocalPath determines if a pack reference is a local filesystem path.
-func isLocalPath(ref string) bool {
+// IsLocalPath determines if a pack reference is a local filesystem path.
+//
+// EXPORTED so there is exactly ONE authority on the question (SPEC-069 REQ-018).
+// `backstop init` refuses a local `--pack` value for lock portability and must reach
+// that verdict through the SAME predicate the add pipeline forks on: two definitions
+// drifting apart would let a ref init accepted be classified local downstream, which
+// is precisely the machine-specific `local_path` lock entry the refusal exists to
+// prevent. SPEC-056 settled the same shape by making pack.ValidatePackName "one
+// authority, not a copy". Behavior is UNCHANGED by the export — no form gained, none
+// dropped — and there is deliberately no lowercase alias or deprecated shim.
+func IsLocalPath(ref string) bool {
 	if strings.HasPrefix(ref, "/") || strings.HasPrefix(ref, "./") || strings.HasPrefix(ref, "../") {
 		return true
 	}

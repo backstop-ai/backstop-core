@@ -1,0 +1,7 @@
+Fixture project A for CLM-052. Its ONLY job is to differ, on disk, from its sibling
+project B while both are handed the SAME --pack arguments. If the resulting pack set
+ever differs between the two, something in init read the project to choose a pack --
+which is the "primary language" detection REQ-010 forbids.
+
+The marker filename and content are TESTDATA, so they put no literal in the init
+source set the denylist claims scan.

@@ -1,0 +1,10 @@
+Ecosystem marker fixture A for CLM-045. It stands in for the manifest file one
+ecosystem would leave in a project root -- a dependency declaration a detecting
+implementation would key on.
+
+Its sibling fixture B carries a DIFFERENT marker filename with different content. If
+init's report, its written files, or its verdict ever differ between the two, init has
+detected the ecosystem, which REQ-008 forbids outright.
+
+The filename lives here in testdata, so it puts no literal in the init source set the
+denylist claims scan.

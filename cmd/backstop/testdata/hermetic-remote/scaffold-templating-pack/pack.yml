@@ -1,0 +1,38 @@
+# SCAFFOLD-TEMPLATING fixture pack SOURCE (SPEC-069 CLM-142/CLM-143).
+#
+# IDENTICAL to its sibling scaffold-recipe-pack but for its recipe's declared KIND.
+# That single field is the whole point of the pair: `templating` is the kind for which
+# preserveOrRegenerate's producer (a) and producer (b) are INDISTINGUISHABLE from what
+# init can observe, so an EMPTY Rule/CoveringWaiver pair here is INDETERMINATE rather
+# than user-owned. A populated pair still OUTRANKS the kind (CLM-125/CLM-143).
+#
+# It declares NO recipe enforcement, and that is the exercised branch: packval phase 4
+# imposes the enforcement.rules obligation on `scaffolding` and `implementing` kinds
+# ONLY, and this fixture exists precisely to walk the no-obligation path.
+#
+# See the sibling manifest for why the bare `content.scaffolds` entry and the single
+# provisioned engine are both mandatory rather than decorative.
+name: hermetic/scaffold-templating-pack
+version: 1.0.0
+language: neutral
+archetype: recipes
+description: >
+  Recipe fixture pack SOURCE declaring one `kind: templating` recipe with a single
+  create op, for SPEC-069's INDETERMINATE preserve class.
+recipes:
+  first-source: recipes/first-source
+engines:
+  recipe-engine:
+    command: grep -rn
+    input_mode: pattern-arg
+    input_flag: -e
+    scope_kind: file-args
+    category: opinion
+    gate_type: lint
+    provision:
+      tool: grep
+      version: "*"
+content:
+  scaffolds:
+    - id: first-source-base
+      path: scaffolds/first-source-base

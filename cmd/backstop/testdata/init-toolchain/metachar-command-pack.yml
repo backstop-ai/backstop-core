@@ -1,0 +1,25 @@
+# THE ARGV-SAFETY FIXTURE (SPEC-069 CLM-108).
+#
+# The declared command text carries shell metacharacters. They must reach the process
+# as LITERAL argv entries: no shell is invoked anywhere on init's execution path, so
+# nothing expands `$(...)`, nothing treats `;` or `|` as a separator, and `&&` does not
+# chain a second command. The entrypoint echoes its argv, so the captured output is the
+# proof.
+#
+# Init executes arbitrary pack-supplied command strings, so an unbound execution path
+# here would be a hole in the trusted-tool invariant, not a style preference.
+name: hermetic/metachar-command-pack
+version: 1.0.0
+language: neutral
+archetype: enforcement
+description: A declared entrypoint whose command text carries shell metacharacters.
+engines:
+  metachar-entrypoint:
+    command: bin/exit-zero.sh a;b|c $(echo pwned) && echo chained
+    input_mode: none
+    scope_kind: project-wide
+    gate_type: test
+content:
+  ruleset:
+    version: 1.0.0
+    rules: []

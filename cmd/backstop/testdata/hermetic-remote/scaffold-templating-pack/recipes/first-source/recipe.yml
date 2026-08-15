@@ -1,0 +1,14 @@
+# A `kind: templating` recipe: one-shot, consumer-owned output with no regeneration
+# obligation, so packval phase 4 imposes NO enforcement.rules requirement on it.
+# Declaring one anyway would not be an error, and it is deliberately left off -- this
+# fixture exists to exercise the no-obligation branch.
+#
+# NO param is declared, for the same reason as the sibling: init supplies no recipe
+# param to any apply (CLM-136).
+kind: templating
+version: 1.0.0
+ops:
+  - id: create-first-source
+    kind: create
+    target: src/first-source.txt
+    payload: payload.txt
