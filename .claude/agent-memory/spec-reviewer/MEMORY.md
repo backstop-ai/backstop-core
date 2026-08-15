@@ -9,7 +9,7 @@
 
 - [Substantiveness dispatch seam](feedback_substantiveness_dispatch_seam.md) — SPEC-037 Q2 set-join needs per-test symbol extraction; existing dispatchPackEngines is a flat-violations path, not that
 - [SPEC-038 ready to plan](project_spec038_review1_fail.md) — passed review #2 (v1.1.0); Seed 4 contracts pack; four deletion-surface blockers closed + verified vs live code
-- [SPEC-037 ready to plan](project_spec037_review.md) — passed re-review (v1.2.1); 3 SPEC-036 capability re-key blockers closed + verified vs live code
+- [SPEC-037 delivered, NOT promotable](project_spec037_review.md) — all 37 tests pass, contracts clean, but flipping to implemented injects 10 new blocking noTarget violations
 - [SPEC-040 passed review](project_spec040_review.md) — BUNDLE-011 Seed 2 keystone cutover; PASS w/ one prose nit; TS-stack-reality + coverage-seam + golden + vacuous-green all verified vs main
 - [ProjectWide locus seam](feedback_projectwide_locus_seam.md) — "re-express build exemption" specs anchor to orphaned gate.go:1173; real locus is the engine path (ScopeKind→ProjectWide bridge that doesn't exist yet)
 - [Vestigial retain via test-liveness](feedback_vestigial_retain_via_test_liveness.md) — a spec retaining a branch "because tests exercise it" may preserve vestigial code; demand a PRODUCTION producer, not a tempdir fixture
@@ -28,3 +28,4 @@
 - [SPEC-066 review #2 FAIL](project_spec066_review2.md) — 9/10 must-fixes landed; M9's replacement justification is a second fabrication (empirically disproven)
 - [packval phase 3 is inert](feedback_packval_phase3_is_inert.md) — rule_path vs file key mismatch: NO pack executes fixtures; "pack test proves it fires" is always vacuous
 - [SPEC-067 review #2 FAIL](project_spec067_review2.md) — basename globs verified vs real semgrep, but the phase-3 justification the fix introduced is fabricated
+- [Flip injects noTarget](feedback_flip_injects_notarget.md) — "tests exist and pass" ≠ promotable; contract_signature AND the Q2 noTarget join are status-gated and inert until the flip

@@ -1,40 +1,51 @@
 ---
 name: spec037-review
-description: SPEC-037 v1.2.1 (BUNDLE-009 Seed 3, substantiveness pack) PASSED re-review; the 3 SPEC-036 capability re-key blockers are closed + verified vs live code
+description: SPEC-037 (substantiveness pack) is DELIVERED but NOT promotable — flipping to implemented injects 10 new blocking noTarget violations; contracts are clean
 metadata:
   type: project
 ---
 
-SPEC-037 v1.2.1 (specs/SPEC-037-traceability-substantiveness-pack.spec.md) PASSED backstop
-re-review 2026-06-23 and is READY TO PLAN. v1.2.0 had FAILED on the SPEC-036 capability
-re-key coupling (3 blockers); v1.2.1 closed all three. Validator PASS (10 REQ / 37 CLM,
-no dup ids, no orphan claims, both new tests bound once).
+SPEC-037 v1.2.4 (specs/SPEC-037-traceability-substantiveness-pack.spec.md) is DELIVERED
+in code but BLOCKED from `status: implemented`. Investigated 2026-08-15 (completeness
+audit, not a spec review). It PASSED spec review at v1.2.1 and is cleared to plan — that
+part still holds; the blocker is a promotion-time gate consequence.
 
-**The 3 v1.2.0 blockers, now CLOSED (verified vs live code, not just spec assertions):**
-1. Live locus named: REQ-009 + CLM-035 + Implementation + a NEW deriveCapabilityState
-   contract entry all name deriveCapabilityState (cmd/backstop/gate.go:272) as the function
-   whose SUBSTANTIVENESS arm re-keys onto installed-pack presence. Verified live: that
-   function IS dimension-uniform today (returns Present iff lang=="go" for all 3 dims,
-   string(dim) cosmetic) — so the premise + required split are exact.
-2. Existing-test-coupling closed: REQ-008 EXTENDED beyond pkg/gate to name the shipped
-   TestCapabilityState_NonGoProject_DerivesAbsentClass2 (cmd/backstop/gate_capability_test.go:17)
-   for MIGRATE; new CLM-037 (TestCapability_ShippedSpec036Test_MigratedForSubstantivenessRekey,
-   bound to REQ-008) pins: substantiveness arm -> installed-pack keying, coverage/contracts arms
-   UNCHANGED, ./cmd/backstop/ stays green. Verified: that test's goCfg fixture (no packs) makes
-   the substantiveness arm flip Present->Absent after re-key, so the migration is genuinely
-   required, correctly scoped, not a no-op claim.
-3. Dimension-asymmetry pinned: REQ-009 + CLM-036 (TestCapability_RekeyIsSubstantivenessOnly_
-   CoverageContractsUnchanged, bound to REQ-009) + a Sharp Edge state ONLY the substantiveness
-   arm re-keys; coverage descoped (BUNDLE-009 REQ-009), contracts keeps its baked analyzer
-   until SPEC-038 ships its pack. Verified live: step_contract.go still has baked
-   StepContractSignatureFunc -> contracts premise holds; re-keying contracts now would break
-   it pre-pack. align-predating-artifacts: SPEC-036 NOT revised, aligned via impl.
+**Delivery evidence (verified, not asserted):** all 37 mandated tests exist and PASS on a
+clean HEAD copy (`go test ./pkg/gate/ ./cmd/backstop/ -race`); the baked analyzer
+(`checkSubstantiveness`/`hasAssertions`/`assertionSelectors`/`callsTargetPackage`) is gone
+from `pkg/gate/step_testverify.go`; `backstop artifact validate --spec SPEC-037` passes.
 
-**Sound core (NOT re-litigated, already passed v1.2.0):** REQ-009 provisioning faithful to
-distribution.Add/VerifyLock; REQ-010 real over-installed-pack E2E genuinely unstubbable
-(ISSUE-028/029 shipped); set-join / strangler-before-deletion / Q1 hollow / TS rule intact.
+**BLOCKER — the Q2 noTarget set-join, not SPEC-036's pack-compiler gap.** Mandated tests
+enter the noTarget join ONLY at terminal status (`ContractsAreDue`, `buildTestSubstantivenessStep`
+cmd/backstop/gate.go:1177), so the flip is what turns it live. The spec's subject is
+`pkg/gate` → target token `gate`; its 26 pkg/gate tests pass via same-package, but 10 of
+its 11 `cmd/backstop` tests do NOT reference `gate` in the pack-extracted symbol set →
+10 NEW `test_substantiveness` violations. Verified empirically by running the installed
+`backstop-ai/go-substantiveness` ast-grep rules over the real test files and by confirming
+none of the 10 messages exist in `.backstop/baseline.json`. Policy is
+`test_substantiveness: applies-to new-code, level: block`, and new-code grandfathers
+against the BASELINE (pkg/gate/policy.go:219) — absent from baseline means it blocks.
 
-**How to apply:** SPEC-037 is cleared to plan. Re-walk only if version > 1.2.1. The capability
-re-key is the load-bearing cross-spec coupling — it overturns [[spec036-ready-to-plan]]'s
-deriveCapabilityState via impl (not a SPEC-036 rev). Sibling of [[project_spec038_review1_fail]]
-(shares the TS proof pack).
+**Root cause worth knowing:** the extraction rule counts CALL/selector references, not
+type-position ones. `TestWiring_SubstantivenessStepRoutesThroughDispatchSeam` genuinely
+exercises pkg/gate but its only `gate.` token is a closure parameter TYPE
+(`_ *gate.GateScope`) → not extracted. Cheapest correct fix is a per-claim
+`subject: cmd/backstop` on the wiring/capability/provisioning/E2E claims (those claims
+really do target the cmd wiring); `kind: absence` and test-body edits are the alternatives.
+
+**Second blocker, recorded by the spec itself (v1.2.4):** CLM-031's mandated test name
+`TestProvisioning_SubstantivenessInstalledAsLocalPack_DeclaredAndLocked` contradicts the
+amended claim text (which now accepts a `git` source); the live pack is remote
+(`git_ref: v1.2.0`). Renaming is test-code work needing its own issue → plan.
+
+**NOT a blocker (checked because SPEC-036 was blocked this way):** all 7 present contract
+entries compile through `backstop-ai/go-contracts` `compile-signature.sh` and MATCH live
+code — func params are metavar'd (`$$$PARAMS`), so the three drifted signatures
+(`RouteSubstantivenessFindings`, `deriveCapabilityState`, `buildTestSubstantivenessStep`)
+are DOCUMENTATION drift only. The `absent: true` `checkSubstantiveness` entry probes by
+grep on the NAME (Signature ignored) and the deletion comment deliberately never spells
+the literal → clean. Coverage is a no-op too: pkg/gate's floor is already 90 (SPEC-044).
+
+**How to apply:** do not promote SPEC-037 until the noTarget exposure is dispositioned.
+See [[spec036-ready-to-plan]] (sibling, BUNDLE-009 Seed 1, blocked on the grouped-const
+pack gap) and [[feedback_flip_injects_notarget]].
