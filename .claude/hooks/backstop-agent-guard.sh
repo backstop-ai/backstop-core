@@ -48,12 +48,13 @@ wblock() { block "agent $AGENT_NAME not permitted to write $FILE_PATH"; }
 
 # Every family may additionally write its own agent-memory notes, regardless
 # of what artifact/source type it's otherwise scoped to (ISSUE-126). Checked
-# first so it composes with each family's own allow-list below.
+# first so it composes with each family's own allow-list below. Deliberately
+# not a second `case "$AGENT_NAME"` block — pkg/validate/agent_guard_roster_test.go
+# statically parses this file for the FIRST such block and stops at its first
+# `esac`, so a second one here would hide the real case statement below it.
 if [[ "$FILE_PATH" == .claude/agent-memory/*/* ]]; then
   family="$(echo "$FILE_PATH" | sed -E 's#^\.claude/agent-memory/([^/]+)/.*#\1#')"
-  case "$AGENT_NAME" in
-    "$family"*) exit 0 ;;
-  esac
+  [[ -n "$family" && "$AGENT_NAME" == "$family"* ]] && exit 0
 fi
 
 case "$AGENT_NAME" in
