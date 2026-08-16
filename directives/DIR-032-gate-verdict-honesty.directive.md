@@ -24,6 +24,7 @@ directive:
     - "ISSUE-140"
     - "ISSUE-142"
     - "ISSUE-144"
+    - "ISSUE-146"
 ---
 
 ## Description
@@ -95,7 +96,21 @@ and 16 (ISSUE-142) — on charter fit against this directive's own description,
 not by the founder's original 2026-08-10 eleven-member roster. See item 17
 below and the Notes for the full provenance and the reasoning that keeps it
 here rather than in DIR-024, which took ISSUE-141 (item 17's closest sibling)
-on the opposite side of that same line hours earlier.
+on the opposite side of that same line hours earlier. **Correction (2026-08-16,
+later still):** the roster grew again, to EIGHTEEN, with item 18 (ISSUE-146),
+slotted by backlog-pm under the same standing clear-fit grant recorded above
+for items 12 (ISSUE-118), 13 (ISSUE-129), 14 (ISSUE-136), 16 (ISSUE-142) and
+17 (ISSUE-144) — on charter fit against this directive's own description, not
+by the founder's original 2026-08-10 eleven-member roster. Item 18 is a
+different LAYER than every prior `pack test`/`pack check` phase3 member (items
+4, 15, 16, 17): those are dispatch-machinery gaps — the check never runs, or
+runs against the wrong bytes, or misreads the wrong YAML key. Item 18 is an
+authoring-content gap — with the dispatch machinery now correctly fixed (by
+`PLAN-ISSUE-092`), the check runs exactly as declared, against exactly the
+bytes it should, and was authored from the start with a validator and fixture
+pair that carry no discriminating relationship — so it can never produce a
+red result regardless of how correctly everything upstream of it dispatches.
+See item 18 below and the Notes for the full distinction.
 
 The cluster's variants, so a planner does not read it as one uniform bug:
 
@@ -928,6 +943,91 @@ The cluster's variants, so a planner does not read it as one uniform bug:
     noted it "may fit DIR-032… alongside those siblings." `type: bug`,
     `scope: contained`, `uncertainty: known`, `risk: critical`.
 
+18. **`backstop pack new` scaffolds a sample validator that can never fail —
+    the generated fixture pair carries no discriminating relationship, so
+    `pack test` on a freshly-created pack reports PASS having verified nothing
+    (ISSUE-146).** `pkg/pack/scaffold.go:184` writes the sample sandbox
+    validator as a fixed literal: `"#!/bin/sh\n# Sample sandbox validator:
+    always passes...\nexit 0\n"`. All three `pack new` scaffold types
+    (`engine`, `mechanism`, `toolchain`) share this one code path. The
+    generated rule declares `validator: validators/<slug>.sh` with no
+    `layer:` field — an engine-model rule, dispatched through the
+    validator-only guard `if rule.Validator != ""` in `pkg/packval/phase3.go`
+    — and the paired negative fixture (`scaffold.go:186`,
+    `fixtures/invalid/example.txt`) carries no marker or property the
+    validator could ever check for: its content is structurally identical to
+    the positive fixture. Neither half of the pair — validator or fixture —
+    is wired to distinguish pass from fail.
+
+    **Why this was previously invisible, and why it is a true positive now:**
+    before `PLAN-ISSUE-092`'s fix to `pkg/packval/phase3.go` landed, the
+    validator-dispatch guards checked the retired `rule.Layer == 3` model,
+    which was false for this engine-model rule — the vacuous validator's
+    dispatch was dead code and never ran, so `pack test` on a fresh scaffold
+    reported PASS for a reason unrelated to the validator ever discriminating
+    anything. `PLAN-ISSUE-092` is landed; `pkg/packval/phase3.go`'s validator
+    branches are now gated only on `rule.Validator != ""`, with no `Layer`
+    check anywhere in the file. With dispatch now correctly firing, the
+    sample validator exits 0 on the negative fixture (which should fail),
+    and phase3 correctly reports `layer3 negative unexpectedly passed` — a
+    real, currently-firing red confirmed against the live tree 2026-08-16.
+    Two tests catch this now: `TestPackNew_ScaffoldPassesCheckAndTest`
+    (`cmd/backstop/pack_new_test.go`, all three pack types) and
+    `TestPackAuthoringLoop_EndToEnd`
+    (`cmd/backstop/pack_authoring_loop_test.go`) — deliberately left
+    un-weakened by `PLAN-ISSUE-092`, whose own ruling was that this red
+    belongs to a fix in `pkg/pack/scaffold.go`, outside that plan's file
+    scope.
+
+    **Distinct from every other phase3 member of this cluster (items 4, 15,
+    16, 17), and this is the load-bearing distinction a planner must not
+    blur:** those four are dispatch-machinery gaps — the check never runs at
+    all (items 4, 16), runs against the wrong bytes (item 17), or reads
+    clean off a run that never started (item 15). Fixing any of them makes a
+    real rule's fixture pair start being genuinely exercised. This item is
+    different in KIND, not degree: the dispatch now runs exactly as
+    declared, against exactly the right bytes — and still cannot discriminate,
+    because the validator and its negative fixture were authored from
+    scaffold-time with no discriminating relationship between them. No fix to
+    items 4, 15, 16, or 17 touches this at all, and this item's fix does not
+    touch `pkg/packval` — the issue is explicit that the defect is scoped to
+    what `pack new` generates, not to how it is checked.
+
+    **Impact, stated at ecosystem scope:** every pack ever scaffolded via
+    `backstop pack new` ships a sample rule whose validator structurally
+    cannot red — not rarely, never, because both the script and the fixture
+    are fixed literals with no discriminating relationship. A pack author who
+    runs `pack test` on a fresh scaffold and sees green has verified nothing
+    about their own enforcement logic. This is the one command whose entire
+    job is to hand a new pack author a working example to build from, and its
+    own help text (`cmd/backstop/pack_new.go:30`) overstates what it
+    delivers today ("a sample rule that passes pack check, pack test, and the
+    gate" — true only in the sense that it passes trivially).
+
+    Direction, kept as constraint not design, taken from the issue: the
+    generated validator and its paired negative fixture need to actually
+    discriminate — e.g. the validator greps its input for a marker string (or
+    checks some other genuine property) and exits non-zero when found; the
+    negative fixture carries that marker and the positive fixture does not.
+    Scoped to `pkg/pack/scaffold.go` (the `validator`, `positiveFixture`,
+    `negativeFixture` string literals and/or the generated `pack.yml`'s rule
+    declaration). Verification bar the issue states and that must not be
+    softened: `pack test` on a fresh scaffold must exercise a real pass/fail
+    signal, not an always-pass placeholder — a fix that leaves either fixture
+    non-discriminating is itself a vacuous-green claim.
+
+    Provenance: discovered during `PLAN-ISSUE-092` implementation (2026-08-16)
+    as an unanticipated second blocker — in scope for that plan to surface
+    (its own fix is what makes this rule's dispatch live for the first time),
+    out of scope for that plan to fix (`pkg/pack/scaffold.go` is outside its
+    file scope). Existence-in-world check performed by the issue's author
+    before filing: two closed issues matched textually on search
+    (`ISSUE-032`, the authoring-loop reboot that delivered the scaffold this
+    defect lives in but never addressed validator/fixture content; `ISSUE-049`,
+    an unrelated positional-argument defect on the same command) — neither is
+    a duplicate. `type: bug`, `scope: isolated`, `uncertainty: known`, `risk:
+    moderate`.
+
 ## Notes
 
 Grouping rationale and priority, stated once rather than per-item: four of
@@ -1215,3 +1315,46 @@ and this slot does not change its rank; the existing directive-crossing
 sequencing observation (DIR-024's item 13 gating DIR-032's item 4) already
 sits as a PROPOSAL in `.backstop/pm/INBOX.md` for Brandon and is not
 re-proposed here.
+
+ISSUE-146 ("`backstop pack new` ships a sample validator that always exits 0
+— no fresh pack ever discriminates") slotted 2026-08-16 under the standing
+clear-fit grant. It is a POST-carve-out addition, same as items 12-14 and
+16-17 before it — not part of the founder's original 2026-08-10 eleven-member
+roster; a reader should not infer the founder named eighteen.
+
+Why DIR-032 and not elsewhere: the charter sentence it matches is this
+directive's own lede — "a gate step computes a result internally but reports
+the wrong verdict about it" — `pack test` phase3 computes a verdict on the
+scaffolded rule (now correctly dispatching, post `PLAN-ISSUE-092`) and that
+verdict is PASS regardless of what the fixture actually contains, which is a
+vacuous-green lie about what was verified. DIR-024 was not seriously in
+competition here the way it was for ISSUE-141 (kept there) versus ISSUE-144
+(kept here) — this defect has no "shouts loudly" branch at all; the validator
+exits 0 unconditionally, so every path through it is silent.
+
+**The distinction this slot is explicitly asked to preserve, stated once
+so it is not re-litigated:** items 4, 15, 16, and 17 are all
+dispatch-machinery gaps on the `pack test`/`pack check` phase3 surface — the
+check fails to RUN (items 4, 16), runs against the wrong bytes (item 17), or
+reads a never-started run as a clean negative (item 15). ISSUE-146 is a
+different layer on the SAME surface: an authoring-content gap. The dispatch
+machinery for this specific rule shape (`validator:`, no `layer:`) is not
+broken — `PLAN-ISSUE-092`'s fix is exactly what makes it dispatch correctly
+today — and the check still cannot fail, because the content `pack new`
+generates was never given a discriminating relationship between validator and
+negative fixture. None of items 4/15/16/17's fixes touch this; this item's
+fix does not touch `pkg/packval` at all. A reader asking "can I trust `pack
+test`?" (the same question items 4/15/16/17 already sharpened) now has a
+fifth, categorically distinct answer: even where dispatch is fully correct,
+one specific generated rule was authored to never discriminate.
+
+Provenance: discovered during `PLAN-ISSUE-092` implementation (2026-08-16) as
+an unanticipated second blocker on the same investigation that surfaced items
+15-17 — in scope for that plan to surface, out of scope for it to fix
+(`pkg/pack/scaffold.go` is outside its file scope). In-flight coverage is
+NIL, established from the corpus: no plan in `plans/` targets ISSUE-146 or
+`pkg/pack/scaffold.go`'s validator/fixture literals as of this slotting.
+
+Priority note, stated as observation and explicitly NOT as a reorder
+(backlog-pm has no reorder authority): DIR-032 sits at BACKLOG.yml position 2
+and this slot does not change its rank.
