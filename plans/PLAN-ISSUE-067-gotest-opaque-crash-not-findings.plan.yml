@@ -1,0 +1,1390 @@
+---
+plan_id: PLAN-ISSUE-067
+spec_id: ISSUE-067
+created: "2026-08-16"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./cmd/backstop/... -run \"TestIssue067|TestFindingsEngine_|TestFixtureRunner_Producer\" -race"
+coverage_threshold: 90
+
+notes: |
+  ══ THE ISSUE'S PREMISE IS STALE. RE-DIAGNOSED AT HEAD, 2026-08-16. ══════════
+
+  ISSUE-067 was filed 2026-07-17 and says the root cause is:
+
+    "The converter (`scripts/test-to-sarif.sh`) is not extracting the `--- FAIL:`
+     / failure output into findings before the exit code is judged, so the exit
+     code wins and the real failures are discarded."
+
+  THAT IS FALSE AT HEAD, and it is false in a way that matters: fixing what the
+  issue describes would fix nothing. Measured directly against the committed
+  converter (`~/src/projects/backstop-go-toolchain-pack/scripts/test-to-sarif.sh`,
+  pack v1.5.0), a genuine assertion failure is ALREADY normalized into a located
+  SARIF finding:
+
+    $ go test ./...                      # a t.Fatal("boom") in sub/pkg/a_test.go
+    --- FAIL: TestFails (0.00s)
+        a_test.go:6: boom
+    FAIL	gotest-repro/sub/pkg	0.411s
+    $ go test ./... 2>&1 | sh scripts/test-to-sarif.sh
+    {"version":"2.1.0","runs":[{"results":[{"ruleId":"go-test","level":"error",
+     "message":{"text":"TestFails: boom"}, ... "startLine":6 ...}]}]}
+
+  One finding, named, located. `crash_guard` therefore does NOT fire for the
+  shape the issue's title describes. The issue's own Direction ("run `go test`
+  in `-json` mode and emit a per-failure finding") is likewise moot — the
+  per-failure finding already exists, without `-json`.
+
+  ── WHAT IS ACTUALLY BROKEN (measured, same session, same tree) ─────────────
+
+  The opaque crash is real. Its mechanism is ONE LEVEL BELOW the converter, and
+  no amount of converter work can reach it: THE BYTES CARRYING THE DIAGNOSTIC
+  NEVER ARRIVE. `go test` splits its output across two streams, and core reads
+  only one of them.
+
+    STREAM SPLIT, MEASURED (go 1.25.3):
+
+      compile error in a _test.go file
+        stdout : "FAIL\tgotest-repro/sub/pkg [build failed]\nFAIL"
+        stderr : "# gotest-repro/sub/pkg [gotest-repro/sub/pkg.test]"
+                 "sub/pkg/b_test.go:6:2: undefined: undefinedSymbol"
+
+      `go vet` failure during `go test`   → same split (diagnostic on stderr)
+      compile error via `go build ./...`  → stdout EMPTY; ALL of it on stderr
+      assertion failure                   → all on stdout, stderr empty
+
+  `ExecCommandRunner.RunStdout` (`pkg/check/runner.go:52`) captures stdout ONLY,
+  by deliberate design — SPEC-031 REQ-009/CLM-028 made it an explicit buffer so
+  "stderr cannot interleave into the bytes" of a SARIF-on-stdout engine. So for
+  every build/vet-shaped failure the located diagnostic is DISCARDED BEFORE THE
+  CONVERT RUNS. The converter is handed only `FAIL <pkg> [build failed]`, which
+  it ignores, so it emits `{"results":[]}` — and then, at
+  `cmd/backstop/pack_gate.go:792`:
+
+      if binding.CrashGuard && runErr != nil && len(checkViolations) == 0 {
+          return nil, fmt.Errorf("pack %s engine %q crashed: non-zero exit with
+              no parseable findings: %w", ...)
+
+  …produces EXACTLY the string the issue quotes. The guard is behaving correctly
+  on the evidence it was given; it was given the wrong evidence.
+
+  ── THE PART THE ISSUE DID NOT KNOW: go-build HAS NEVER WORKED AT ALL ───────
+
+  `go build ./...` writes NOTHING to stdout — every compiler diagnostic goes to
+  stderr (measured above). So the go-build findings engine's convert script,
+  `scripts/build-to-sarif.sh`, receives an EMPTY payload on every real run. It
+  has never once emitted a finding in production. Every compile error in
+  production Go code has been reported as `engine "go build" crashed`, not as a
+  located finding, for the entire life of the packs-only toolchain.
+
+  This is invisible in the test corpus because the corpus injects as STDOUT the
+  bytes production only ever produces on STDERR:
+  `cmd/backstop/testdata/go-toolchain/fixtures/go-build-errors.txt` is fed
+  through `fixtureRunner.RunStdout` (`pack_gate_gotoolchain_test.go:53`). The
+  unit tests pass; the wiring is broken. This is the standing
+  integration-gap class, and it is why component-level green never surfaced it.
+
+  ── SECOND-ORDER BLAST RADIUS (worse than "one engine reports badly") ───────
+
+  `runFindingsEngine` returning an error propagates out of `dispatchPackEngines`
+  (`pack_gate.go:310`) and aborts THE WHOLE PACK LOOP. One un-compilable test
+  file therefore discards every OTHER engine's findings in the same run, AND
+  leaves ISSUE-118's unfiltered test-verdict collector (`cmd/backstop/gate.go`,
+  the `collectedVerdicts` slice) EMPTY — so `MandatedTestFailures` has nothing
+  to join and `test_verification` cannot report the failing mandated test it was
+  built to report. ISSUE-118's fix is live and correct, and this defect starves
+  it. That is the honest statement of how these two interact: 118 is not a
+  partial fix of 067, and 067 is not subsumed by 118 — 067 is the supply failure
+  upstream of 118's join.
+
+  ── WHAT SURVIVES FROM THE ISSUE, UNCHANGED ────────────────────────────────
+
+  The issue's Direction sentence that DOES still hold, and is this plan's spine:
+  "Distinguish a genuine tool CRASH … from TEST FAILURES (tests ran, some failed
+  → findings, not a crash)." What changes is where the line falls. A compile or
+  vet error is NOT a crash — it is the single most precisely located diagnostic
+  the Go toolchain produces, and it is exactly what `build-to-sarif.sh` was
+  written to normalize. A crash is a run that produced no diagnostic at all.
+
+  The issue's other Direction item — "Fold in with ISSUE-066" — is DECLINED.
+  ISSUE-066 (a plan's narrow `-run` filter bounding what must pass) is a
+  different mechanism in a different layer; `PLAN-ISSUE-066` exists as an empty
+  scaffold and stays that lane's work. This plan does not touch `-run` handling.
+
+  ── EXISTENCE-IN-WORLD CHECK (performed before authoring) ───────────────────
+
+  Swept `plans/` and `issues/`, committed and working tree, for prior ownership
+  of this surface. NO artifact owns it, and no committed plan subsumes it:
+
+    * PLAN-ISSUE-066 is an EMPTY SCAFFOLD (`phases: []`) from the same batch as
+      this one — no substance to be subsumed by.
+    * PLAN-ISSUE-091 IS NOT A SCAFFOLD. Corrected 2026-08-16 after an earlier
+      draft of this plan asserted it was — that assertion was FALSE and is
+      retracted here. 091 is a substantive `status: draft` plan (uncommitted in
+      the working tree, like this one), 3 phases, 7 tasks, already through a
+      review round. Its Phase 2 ("TDD Green — Hand Every Non-Nil Scope Its
+      Explicit File List") edits `cmd/backstop/pack_gate.go` in TASK-004, and it
+      OWNS `cmd/backstop/pack_gate_scope_test.go` (TASK-003 inverts a shipped
+      assertion in it, preserving that assertion's mandated name).
+
+      IT IS NOT A DUPLICATE, and the two fixes are complementary rather than
+      contradictory: 091 changes HOW `cmdArgs` is COMPUTED (it collapses the
+      `GateScopeModeAll` directory target into the explicit in-scope file list,
+      inside the non-project-wide else-branch); this plan changes WHICH BINARY
+      RECEIVES those args (the producer swap at the `runner.RunStdout` call).
+      Neither plan asserts an arg shape the other contradicts — 067's
+      arg-preservation claim (CLM-001) is a claim of INVARIANCE under whatever
+      shaping is in force, so 091's collapse satisfies it rather than colliding
+      with it.
+
+      BUT THE CONTENTION IS REAL AND MUST BE HANDLED — both lanes edit the SAME
+      FUNCTION, `runFindingsEngine` in `cmd/backstop/pack_gate.go`, and both
+      touch `cmd/backstop/pack_gate_scope_test.go`'s surface (091 by editing it;
+      this plan by relying on TASK-007's harness alias to keep its
+      `byCmd["go build"]` registration resolving). Sequencing rules, same
+      pattern used for the other concurrent gate.go/pack_gate.go work in this
+      batch:
+        - RE-VERIFY 091's CURRENT STATE before starting. It may have advanced
+          past `draft` — possibly implemented and landed — since this note was
+          written. Read the plan's `status:` and `git log -- ` the file; do not
+          trust this paragraph as current.
+        - LOCATE BY NAME, NEVER BY LINE. Every line number this plan quotes for
+          `pack_gate.go` is stale by construction.
+        - RE-READ FRESH IMMEDIATELY BEFORE EDITING `runFindingsEngine`. Do not
+          edit from a copy read earlier in the session.
+        - WHICHEVER LANE LANDS SECOND verifies against the other's ACTUAL LANDED
+          DIFF, not against its plan's description of it. If this plan lands
+          second, confirm the producer swap still sits after 091's rewritten
+          `cmdArgs` computation and that the args reaching the producer are the
+          collapsed explicit file list.
+        - IF 091 LANDS FIRST, TASK-007's harness work must account for its edit
+          to `pack_gate_scope_test.go`; re-read that file before extending the
+          alias, and do not revert 091's inverted assertion.
+    * PLAN-ISSUE-118 (completed, 4dbf64b) built the verdict join. Its own
+      close-out is explicit that it "was designed to work without" a converter
+      correction, and it never touched stream capture. It is the CONSUMER this
+      defect starves, not an owner of it.
+    * PLAN-ISSUE-129 (completed, 2a18148) flipped `exempt_from_scope_filter` on
+      go-test — pack DATA on the same binding, zero overlap in mechanism.
+    * ISSUE-135 (open) owns the go-test converter's BARE-BASENAME `File` for
+      `--- FAIL:` positions. DISJOINT from this plan by construction: 135 is
+      about path fidelity of findings that ARE produced; this plan is about
+      findings that are never produced at all. This plan MUST NOT "improve"
+      basename handling on the `--- FAIL:` path — that is 135's, and touching it
+      would collide.
+    * ISSUE-134 (open) — doctor's blindness to findings-engine tools. Adjacent
+      (it would also miss a producer script), not overlapping.
+    * ISSUE-137 (open) — no automated guard keeps the in-repo go-toolchain
+      fixture in sync with the released pack. This plan RELIES on that lockstep
+      being maintained by hand and says so; it does not build the guard.
+
+  SEQUENCING AGAINST TONIGHT'S BATCH: ISSUE-112/113/118/122/129 all LANDED
+  (4dbf64b, 2a18148) and their plans are `completed`; nothing from that LANDED
+  batch is in flight against these files. What IS in flight is PLAN-ISSUE-091 —
+  see the corrected bullet above, which carries this plan's binding sequencing
+  rules for the shared `runFindingsEngine` surface. The live contention is
+  `cmd/backstop/gate.go` and `cmd/backstop/pack_gate.go`, which many agents have
+  edited tonight — this plan touches `pack_gate.go` ONLY, in
+  `runFindingsEngine`, and touches `gate.go` NOT AT ALL. Locate the edit site by
+  NAME (`runFindingsEngine`, the `payload := stdout` selection block), never by
+  the line numbers quoted in this plan: they have moved repeatedly tonight.
+
+  ── THE FIX: HONOR THE `producer` SEAM THAT ALREADY EXISTS ─────────────────
+
+  Core must NOT learn that "Go writes diagnostics to stderr" — that is baked
+  language knowledge and CLAUDE.md's first principle forbids it. Core must also
+  not start merging stderr into every engine's payload, which would re-open
+  CLM-028 and corrupt golangci's native SARIF stdout.
+
+  The seam already exists and is already pack DATA. `EngineBinding.Producer`
+  (`pkg/pack/engine/binding.go:197`) is an OPTIONAL pack-relative script that
+  runs UN-SANDBOXED via the runner IN PLACE of the plain engine command. The
+  coverage path honors it (`pack_gate.go:471`, `runCoverageEngine`). THE
+  FINDINGS PATH SILENTLY IGNORES IT: `runFindingsEngine` never reads
+  `binding.Producer` at all, so a pack that declares one gets the plain command
+  with no error and no warning — a declared-capability-silently-dropped defect
+  in its own right, and the enabling half of this one.
+
+  So:
+    CORE  — `runFindingsEngine` honors `binding.Producer`, symmetrically with
+            `runCoverageEngine`. One function, one file.
+    PACK  — go-toolchain declares `producer:` scripts on `go-test` and
+            `go-build` that run the tool with ITS OWN stderr folded into ITS OWN
+            stdout, and `test-to-sarif.sh` learns to normalize the compiler /
+            vet diagnostics that now arrive.
+
+  Core still reads clean stdout from the process it spawns; CLM-028 is intact.
+  The PACK owns the merge, because the PACK is what knows this tool splits its
+  output. All the Go knowledge stays in Go's pack.
+
+  ── ONE DELIBERATE ASYMMETRY WITH THE COVERAGE PRODUCER, AND WHY ────────────
+
+  The coverage producer is invoked with NO arguments (`pack_gate.go:482`) — it
+  shapes its own whole invocation. THE FINDINGS PRODUCER MUST NOT WORK THAT WAY.
+  The findings path owns scope contracts the coverage path has never had:
+
+    * the diff-scoped explicit file list, and ISSUE-010 CLM-003's ANTI-FALLBACK
+      rule (an empty target list means scan NOTHING, never the whole repo);
+    * `excludeTestdataPaths` (ISSUE-040);
+    * `fileModeTestTarget` — `gate --file` narrows a `package_scoped` test engine
+      to the changed file's package (SPEC-034 REQ-010/CLM-035);
+    * `ProjectTarget` vs self-targeting (SPEC-048 CLM-001).
+
+  If a producer were invoked bare, every one of those would silently evaporate
+  the moment a pack declared one. So on the findings path the producer REPLACES
+  THE TOOL, NOT THE ARG SHAPING: core computes `cmdArgs` exactly as it does
+  today and passes them to the producer script instead of to `cmdName`. The pack
+  script forwards `"$@"` to the tool. Every scope contract above survives
+  untouched, and the design is auditable as a one-line swap of the invoked name.
+
+  ══ THE EXACT ARG SHAPE THE PRODUCER RECEIVES — MEASURED, AND LOAD-BEARING ═══
+
+  READ THIS BEFORE WRITING EITHER PRODUCER SCRIPT. Getting it wrong makes the
+  gate PERMANENTLY AND OPAQUELY RED ON A CLEAN TREE, and the plan's own fixture
+  tests CANNOT catch it (`fixtureRunner.RunStdout` returns canned bytes keyed on
+  the command name and ignores the real args entirely, so every TASK-005 and
+  TASK-008 assertion stays green while production is broken).
+
+  `runFindingsEngine` builds its invocation as:
+
+      cmdName, cmdArgs := splitCommand(binding.Command)   // pack_gate.go
+      cmdArgs = append(cmdArgs, inputs...)
+      ... then the ScopeKind arg-shaping appends targets ...
+
+  `splitCommand` is a plain `strings.Fields` tokenizer: ONLY argv[0] becomes
+  `cmdName`. So for the `go-test` binding, whose `command:` is `go test`:
+
+      cmdName = "go"
+      cmdArgs = ["test", "./..."]          <- THE SUBCOMMAND IS IN THE ARGS
+
+  The swap replaces `cmdName` — "go" — with the producer path. The producer
+  therefore receives `["test", "./..."]`, NOT `["./..."]`. Its body must be:
+
+      go "$@" 2>&1                          # CORRECT
+
+  and must NOT be:
+
+      go test "$@" 2>&1                     # WRONG — DOUBLES THE SUBCOMMAND
+
+  MEASURED 2026-08-16 against go 1.25.3 on a genuinely GREEN throwaway module,
+  running each form with the real arg vector `test ./...`:
+
+      go test test ./... 2>&1
+        # test
+        package test is not in std (/usr/local/Cellar/go/1.25.3/libexec/src/test)
+        FAIL	test [setup failed]
+        ok  	b1probe/sub/pkg	0.384s
+        FAIL
+        exit=1                              <- NON-ZERO ON A GREEN TREE
+
+      go test ./... 2>&1                    (via `go "$@" 2>&1`)
+        ok  	b1probe/sub/pkg
+        exit=0                              <- CORRECT
+
+  With `crash_guard: true` on both bindings, the WRONG form makes every gate run
+  on a clean tree emit exactly the `engine "go test" crashed: non-zero exit with
+  no parseable findings` error this plan exists to eliminate — now unconditional
+  and undiagnosable, and discovered only AFTER TASK-009 pushes a public tag.
+
+  BECAUSE THE SUBCOMMAND ARRIVES IN `"$@"`, THE TWO PRODUCER SCRIPT BODIES ARE
+  BYTE-IDENTICAL. That is correct, not a smell: they are two files so the pack
+  can declare a distinct `producer:` per binding and so TASK-007's harness alias
+  can key canned output back to the right command. Their header comments differ;
+  their bodies do not.
+
+  THE FALSIFIER FOR THIS ENTIRE CLASS is TASK-005's
+  `TestIssue067_ProducerScriptsExitZeroOnAGreenTree`, which executes the real
+  scripts with the real arg vector against a real passing module and requires
+  exit 0. It is mandatory. No fixture-runner test can substitute for it.
+
+  ── SCOPE BEYOND THE ISSUE'S LETTER, DECLARED UP FRONT ──────────────────────
+
+  This plan fixes `go-build` as well as `go-test`. The issue names only go-test.
+  The justification is that they are ONE defect with one mechanism — go-build's
+  is strictly worse (100% of its diagnostics lost vs. a subset of go-test's) —
+  and the incremental cost is one producer script plus one declared key on the
+  same pack release. Fixing go-test while knowingly leaving `build-to-sarif.sh`
+  dead in production would be a half-fix of a critical-risk trust hole. If the
+  reviewer or founder disagrees, TASK-006's go-build half and CLM-007 are the
+  clean excision point.
+
+  EXPLICITLY OUT OF SCOPE, DO NOT ABSORB:
+    1. PANIC LOCATION. A panicking test already yields a NAMED finding
+       (`"TestPanics failed"`) with an empty file and line 0 — measured. The
+       trace lines are absolute, tab-indented and shaped `.go:7 +0x28` (no
+       trailing colon), so the converter's positional pattern correctly declines
+       them. Legible-but-unlocated is acceptable; making it located is
+       ISSUE-135's territory (path fidelity) and must not be attempted here.
+    2. BARE-BASENAME `File` on `--- FAIL:` positions — ISSUE-135, as above.
+    3. `-run` FILTER SEMANTICS — ISSUE-066.
+    4. A FIXTURE/RELEASE SYNC GUARD — ISSUE-137.
+    5. `-json` MODE. The issue proposed it; it is not needed and would discard
+       a working converter for a rewrite. If a future plan wants `-json`, it is
+       a separate decision with its own evidence.
+
+  ── REQUIREMENTS / CLAIMS (plan-local, derived from the re-diagnosis) ───────
+    REQ-001: The findings dispatch honors a pack-declared producer.
+      CLM-001  `runFindingsEngine` runs a declared `producer` script, resolved
+               under packRoot, un-sandboxed via the runner, IN PLACE of
+               `splitCommand(binding.Command)`'s tool — and passes it the SAME
+               shaped args the plain command would have received, so diff
+               scoping, testdata exclusion, ProjectTarget and file-mode package
+               scoping all survive unchanged.
+      CLM-002  a DECLARED-BUT-MISSING producer is a fail-loud broken-pack error
+               naming pack + path, mirroring the convert-missing error — never a
+               silent fall-back to the plain command.
+      CLM-003  the ISSUE-112 never-started refusal and the SPEC-034 CLM-010
+               crash-guard both still apply on the producer branch: a producer
+               that never started is refused, and a producer that ran, exited
+               non-zero and yielded zero parseable findings still fails loud.
+      CLM-004  an engine that declares NO producer takes a behaviourally
+               unchanged path — the existing corpus's assertions about invoked
+               command, args and payload selection hold as written.
+    REQ-002: Go's located diagnostics reach the converters.
+      CLM-005  the released `backstop-ai/go-toolchain` pack declares producer
+               scripts on `go-test` and `go-build` that fold the tool's stderr
+               into the payload, at a real tagged version validated by
+               `backstop pack test`; the in-repo fixture pack agrees with it.
+      CLM-006  a COMPILE failure in a `_test.go` file yields located findings
+               naming file, line and compiler message — not the opaque
+               `engine "go test" crashed: non-zero exit with no parseable
+               findings`.
+      CLM-007  a compile failure in production code reaches `build-to-sarif.sh`
+               through the go-build engine and yields located findings; the
+               converter that has never fired in production fires.
+    REQ-003: The converter widening is discriminating, not greedy.
+      CLM-008  a compiler/vet diagnostic OUTSIDE a `--- FAIL:` block becomes a
+               finding ONLY while a `# <import-path>` header is IN EFFECT, so a
+               test that itself writes a `file.go:12: something` -shaped line to
+               stderr manufactures NO finding. The header state is STICKY: it
+               persists across CONSECUTIVE diagnostic lines, so ALL diagnostics
+               reported under one header become findings, not just the first.
+      CLM-009  a non-zero run whose output names a `[build failed]` package
+               always yields at least one finding, so the zero-findings crash
+               path cannot be reached while the output still names a failure.
+      CLM-010  the shapes that already worked are unchanged byte-for-byte:
+               assertion failures keep their existing message/file/line, a
+               panicking test keeps its named-but-unlocated finding, and the
+               existing captured fixtures produce the same violation counts.
+    REQ-004: The gate downstream becomes honest.
+      CLM-011  a test-file compile break no longer aborts `dispatchPackEngines`,
+               so the other engines' findings survive and ISSUE-118's unfiltered
+               verdict collector is populated rather than starved.
+      CLM-012  a genuine crash — non-zero exit with no diagnostic output at all
+               — still fails loud with the crash-guard error.
+    REQ-005: Adoption.
+      CLM-013  backstop-core adopts the release: `backstop.lock` records the new
+               version + content hash, and the installed pack and the in-repo
+               fixture agree on the producer declarations.
+
+  ── SHARP EDGES ────────────────────────────────────────────────────────────
+
+  1. THE FIXTURE HARNESS KEYS CANNED OUTPUT ON THE COMMAND NAME, AND THE
+     PRODUCER SWAP CHANGES IT. `fixtureRunner.RunStdout`
+     (`pack_gate_gotoolchain_test.go`) looks up `byCmd["go test"]` /
+     `byCmd["go build"]` from `name + " " + args[0]`. Once the fixture pack
+     declares producers, the invoked name becomes an absolute script path and
+     every one of those lookups misses, returning `nil, nil` — silently zero
+     violations.
+
+     THE AFFECTED SET IS TEN FILES, RE-ENUMERATED AND RE-VERIFIED 2026-08-16
+     (an earlier draft of this plan published EIGHT and labelled the list
+     "verified"; that list was INCOMPLETE and is corrected here). Derived by
+     sweeping `cmd/backstop/*.go` for the literals `"go test"` / `"go build"`
+     and then keeping only the files that actually drive the go-toolchain
+     fixture pack through `fixtureRunner` / `goToolchainManifest` / `byCmd`:
+
+       AT RISK — register canned go-toolchain output under a command key, so the
+       lookup misses and the file goes quiet unless the harness alias covers it:
+         * `pack_gate_gotoolchain_test.go` — the densest user; also the file
+           TASK-007 edits to install the alias.
+         * `pack_gate_exempt_test.go`
+         * `filemode_scoping_test.go` — ALSO selects the invocation by
+           `c.name == "go" && c.args[0] == "test"`, which the swap breaks
+           independently of the byCmd lookup. TASK-007 re-grounds it explicitly.
+         * `golden_equivalence_test.go`
+         * `bridge_test.go`
+         * `gate_transitional_seams_test.go`
+         * `pack_gate_issue129_regression_test.go`
+         * `cutover_noregress_test.go`
+         * `pack_gate_scope_test.go` — MISSING FROM THE EARLIER LIST. It keys
+           `byCmd["go build"]` with `readFixture("go-build-errors.txt")` and is
+           genuinely at risk of going quiet. It is ALSO inside PLAN-ISSUE-091's
+           file scope (TASK-003), which is the second reason the corrected
+           PLAN-ISSUE-091 sequencing bullet above is binding.
+
+       NAMED FOR COMPLETENESS, CONFIRMED UNAFFECTED:
+         * `go_toolchain_engines_test.go` — MISSING FROM THE EARLIER LIST. Its
+           literals assert `binding.Command` as DATA (`b.Command != "go build"`)
+           and never route canned output, so the producer swap cannot reach it.
+           TASK-006 changes no `command:` value, so these assertions must keep
+           passing UNCHANGED; if one fails, TASK-006 edited a binding field it
+           was forbidden to touch — STOP.
+
+       SWEPT AND EXCLUDED, so the next reader does not re-add it:
+         * `sandbox_posture_test.go` — its `"go test"` literals are the SUBJECT
+           of a source-scanning guard test, and its own `fixtureRunner` is keyed
+           on `ast-grep scan`. Nothing to do with the go-toolchain dispatch.
+         * `pack_gate_filemode.go`, `pack_gate_filemode_test.go`,
+           `pack_gate_provision.go`, `pack_gate_findings_selftarget_test.go`,
+           `ci_recipes_harness_test.go` — carry a literal but never drive the
+           fixture pack's canned-output routing.
+
+     TASK-007 re-grounds ALL of this IN THE HARNESS — one alias in one file —
+     so no assertion in any at-risk file is weakened or deleted, and only
+     `filemode_scoping_test.go` needs a second, narrow edit for its own
+     name-based selector. THE ALIAS ALONE COVERS `pack_gate_scope_test.go`
+     WITHOUT EDITING IT, which is what keeps this plan out of 091's way.
+     Re-keying the at-risk files individually, or deleting the assertions that
+     go quiet, is the wrong fix and is forbidden.
+  2. THE ALIAS IS ITSELF A DRIFT HAZARD. A hand-written producer→command alias
+     in the test double can silently diverge from the real declaration. TASK-007
+     must pin it: assert the fixture manifest's declared producer basenames are
+     exactly the alias map's keys, so adding a producer to the pack without
+     teaching the harness fails loudly instead of going quiet. SCOPE THE
+     ENUMERATION TO FINDINGS-TYPED BINDINGS (`GateType != coverage`, the same
+     predicate `dispatchPackCoverage` routes on). The pack's pre-existing
+     `go-coverage` producer rides a different dispatch — invoked bare, output to
+     the records channel — so it has no place in a findings alias map; TASK-007
+     states this resolution explicitly.
+  3. FALSIFICATION IS ORDER-DEPENDENT AND THE WINDOW CLOSES. TASK-005's tests
+     run against the UNMODIFIED fixture pack and the UNMODIFIED converter, so
+     they MUST be observed RED first — specifically, the stdout-only capture
+     must yield ZERO findings and the dispatch must produce the literal
+     `crashed: non-zero exit with no parseable findings` error. That observed
+     RED output is ISSUE-067 reproduced, and it is what
+     `TestIssue067_StdoutOnlyCaptureYieldsAFindingNotTheOpaqueCrash` fails with
+     before the fix. Record it verbatim in the implementation record. Once
+     TASK-006 lands, that evidence is unrecoverable. If TASK-005 passes on first
+     run, the fixture was already changed or the test is not driving the real
+     path — STOP.
+  4. FIXTURES ARE CAPTURED, NEVER FABRICATED. TASK-001's fixtures must come from
+     real `go test` / `go build` runs against a real throwaway module, captured
+     with the streams kept honest (a merged capture AND a stdout-only capture of
+     the SAME run). A hand-written approximation of compiler output will encode
+     an assumption instead of falsifying one.
+  5. TWO DECLARATIONS IN LOCKSTEP. The released pack (external repo) and the
+     in-repo fixture at
+     `cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/`
+     must both carry the producers AND both carry the new scripts. The tests
+     read the FIXTURE; the gate runs the INSTALLED pack. Flipping only one
+     ships nothing or tests nothing. Nothing automated enforces this
+     (ISSUE-137).
+  6. THE PRODUCER SCRIPTS NEED SHEBANG + EXEC BIT. They are invoked directly by
+     path via the runner, exactly as `coverage-produce.sh` is (`-rwxr-xr-x`,
+     `#!/bin/sh`). A non-executable script fails as a never-started process —
+     which CLM-003 will correctly refuse, but the intent is that it not happen.
+     `git update-index` preserves the mode; verify the committed mode.
+  7. THE PRODUCER MUST PRESERVE THE TOOL'S EXIT STATUS. `crash_guard` and the
+     non-zero-exit contract both read `runErr`. A script that swallows the exit
+     code turns a failing suite into a clean-looking run — the exact vacuous
+     green this plan exists to close. Do NOT copy `coverage-produce.sh`'s
+     `|| true` / `exit 0` tail: that is correct for a coverage PROFILE producer
+     and catastrophic for a findings producer.
+  8. MERGING STDERR WIDENS THE CONVERTER'S INPUT. Anything a test writes to
+     stderr now reaches `test-to-sarif.sh`. CLM-008's `# <import-path>` header
+     requirement is the discriminator; it must be tested with a hostile fixture
+     (a test that prints a diagnostic-shaped line), not assumed.
+  8a. THE HEADER DISCRIMINATOR MUST BE STICKY, OR IT SILENTLY UNDER-REPORTS.
+     Go puts MULTIPLE diagnostics under ONE `#` header. Measured 2026-08-16,
+     go 1.25.3, a test file with three undefined symbols:
+
+       # b1probe/sub/pkg [b1probe/sub/pkg.test]
+       sub/pkg/b_test.go:6:2: undefined: undefinedOne
+       sub/pkg/b_test.go:7:2: undefined: undefinedTwo
+       sub/pkg/b_test.go:8:2: undefined: undefinedThree
+       FAIL	b1probe/sub/pkg [build failed]
+       FAIL
+
+     Three diagnostics, ONE header. A discriminator that checks only whether the
+     IMMEDIATELY-PRECEDING line was a header converts the FIRST diagnostic and
+     silently drops the other two — an under-report, which is the same failure
+     class this plan exists to close, just quieter. The header must therefore be
+     MODE STATE, not a one-line lookback: set it on a `#` line, keep it in
+     effect across every consecutive diagnostic line, and clear it on a
+     `--- FAIL:` line or on any line that matches neither shape. TASK-005's
+     `TestIssue067_MultipleDiagnosticsUnderOneHeaderAllBecomeFindings` is the
+     falsifier and asserts a COUNT, because a non-sticky implementation passes
+     every single-diagnostic test in this plan.
+  9. GO-BUILD'S CONVERTER IS NOT TO BE EDITED. `build-to-sarif.sh` already
+     parses the shape correctly — it has simply never received bytes. Editing it
+     would mean the fix was misdiagnosed. If a task finds itself changing it,
+     STOP and report.
+  10. THE GATE GETS STRICTLY LOUDER THE MOMENT THE LOCK UPDATES. Compile errors
+     that previously surfaced as one opaque crash will surface as N located
+     findings. Both are RED, so no new red class appears — but a tree with a
+     pre-existing compile break will now report differently. Run an unfiltered
+     suite before TASK-010's relock and resolve anything already red honestly,
+     never by waiver.
+  11. SHARED WORKING TREE. Other agents are active in this repo. Do not run a
+     full `go test ./...` or `backstop gate --all` while an implementer is
+     mid-flight in the same tree; prefer scoped runs and say plainly what was
+     and was not re-run.
+
+  Structure:
+    Phase 1: Setup — capture the real stream evidence as fixtures.
+    Phase 2: Core — `runFindingsEngine` honors a declared producer (TDD).
+    Phase 3: Pack data in the in-repo fixture — producer scripts + converter
+             widening (TDD), then re-ground the harness.
+    Phase 4: Release the pack externally and adopt it in the lock.
+    Phase 5: Comprehensive verification + codebase map.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Capture the real evidence
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Capture the Real go test / go build Stream Split as Fixtures"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Capture real merged and stdout-only go test / go build failure output"
+        description: |
+          Every later task's honesty rests on these bytes. They must be CAPTURED
+          from real tool runs, never hand-written — a fabricated approximation of
+          compiler output encodes the assumption instead of falsifying it.
+
+          Build a throwaway Go module OUTSIDE the repo (use the session scratchpad,
+          not `/tmp`, and not anywhere under backstop-core). Give it a package
+          BELOW the module root — `sub/pkg` — so the captures carry realistic
+          nested paths. Then capture each of the following, recording BOTH the
+          merged stream and the stdout-only stream of the SAME run:
+
+            a) COMPILE ERROR IN A TEST FILE. A `_test.go` calling THREE distinct
+               undefined symbols on three consecutive lines — three, not one,
+               because sharp edge 8a's sticky-header requirement can only be
+               falsified by a capture carrying MULTIPLE diagnostics under a
+               SINGLE `#` header, and a one-diagnostic capture would let a
+               non-sticky converter pass. Capture `go test ./... 2>&1` into
+               `go-test-build-failure.txt` and `go test ./... 2>/dev/null` into
+               `go-test-build-failure-stdout-only.txt`.
+               Reference shape MEASURED 2026-08-16 with go 1.25.3 — your capture
+               should match in structure:
+                 merged : "# b1probe/sub/pkg [b1probe/sub/pkg.test]"
+                          "sub/pkg/b_test.go:6:2: undefined: undefinedOne"
+                          "sub/pkg/b_test.go:7:2: undefined: undefinedTwo"
+                          "sub/pkg/b_test.go:8:2: undefined: undefinedThree"
+                          "FAIL\tb1probe/sub/pkg [build failed]"
+                          "FAIL"
+                 stdout : "FAIL\tb1probe/sub/pkg [build failed]"
+                          "FAIL"
+               Note the ONE header covering THREE diagnostics — that is the
+               shape TASK-005's multi-diagnostic test asserts a count against.
+               The stdout-only file is the FALSIFICATION ANCHOR: it is exactly
+               what core sees today. Pre-fix it yields zero findings and the
+               opaque crash; post-fix TASK-005 asserts it yields a finding
+               naming the package instead. It is also the source TASK-005's
+               CLM-009 floor test derives its payload from, so capture it
+               byte-faithfully — do not normalize whitespace.
+            b) VET FAILURE UNDER `go test`. A `t.Logf("%d", "string")`. Capture the
+               merged stream into `go-test-vet-failure.txt`. Its diagnostic also
+               sits under a `#`-prefixed header, which is what CLM-008 keys on.
+            c) BUILD ERROR VIA `go build`. A type error in a non-test file.
+               Capture `go build ./... 2>&1` into `go-build-stderr-capture.txt`
+               and confirm — recording the confirmation — that
+               `go build ./... 2>/dev/null` is EMPTY. That emptiness is the whole
+               of CLM-007's motivation and is worth stating in the file header.
+            d) HOSTILE STDERR. A PASSING test that writes a diagnostic-shaped line
+               to `os.Stderr`, e.g. `fmt.Fprintln(os.Stderr, "notes.go:12: check
+               this")`, alongside one genuinely failing test. Capture merged into
+               `go-test-hostile-stderr.txt`. CLM-008 is proved against this and
+               nothing else.
+
+          Write each capture verbatim into
+          `cmd/backstop/testdata/go-toolchain/fixtures/`. Prepend NOTHING to the
+          captured bytes — if provenance needs recording, put it in the task's
+          implementation record, not in the fixture (the converter reads these
+          byte-for-byte).
+
+          Do NOT modify the two fixtures that already exist
+          (`go-test-failures.txt`, `go-build-errors.txt`). They are the CLM-010
+          no-regression baseline and their violation counts must not move.
+        files:
+          - cmd/backstop/testdata/go-toolchain/fixtures/go-test-build-failure.txt
+          - cmd/backstop/testdata/go-toolchain/fixtures/go-test-build-failure-stdout-only.txt
+          - cmd/backstop/testdata/go-toolchain/fixtures/go-test-vet-failure.txt
+          - cmd/backstop/testdata/go-toolchain/fixtures/go-build-stderr-capture.txt
+          - cmd/backstop/testdata/go-toolchain/fixtures/go-test-hostile-stderr.txt
+        claims:
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: Core — honor a declared producer on the findings path
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: runFindingsEngine Honors a Pack-Declared Producer"
+    tasks:
+      - id: TASK-002
+        type: test
+        title: "TDD red: the findings dispatch must run a declared producer with the shaped args"
+        description: |
+          Add `cmd/backstop/pack_gate_producer_findings_test.go`. Drive the REAL
+          `dispatchPackEngines` / `runFindingsEngine` — no seam injection at the
+          dispatch level. Model the tests on `coverage_producer_dispatch_test.go`,
+          which already proves the same properties for the coverage path; that
+          file is the template for how a producer is asserted here, and reading it
+          first will save re-deriving the harness.
+
+          Use SYNTHETIC pack manifests (an `acme/*` pack in `t.TempDir()`), NOT
+          the go-toolchain fixture. This phase is about the general seam and must
+          contain no Go/tool literal in its subject — a `go test` command in these
+          tests would make the core change read as go-specific, which it is not.
+
+          Assert:
+            * `TestFindingsEngine_RunsDeclaredProducerInPlaceOfCommand` — the
+              runner is invoked with the packRoot-resolved producer PATH, and the
+              binding's own command tool is never invoked (CLM-001).
+            * `TestFindingsEngine_ProducerReceivesTheSameShapedArgsAsTheCommand` —
+              THE LOAD-BEARING ONE, and the point of departure from the coverage
+              producer (which is invoked bare). Assert across all four shapes:
+              a project-wide binding with a `project_target` gets that target; a
+              diff-scoped binding gets the explicit in-scope file list; a
+              testdata-only diff yields an EMPTY arg list and NOT the project root
+              (the ISSUE-010 CLM-003 anti-fallback); and a `package_scoped`
+              binding under a `GateScopeModeFile` scope gets the changed file's
+              package selector from `fileModeTestTarget` (CLM-001).
+            * `TestFindingsEngine_MissingDeclaredProducerFailsLoud` — a declared
+              path that does not exist (and a path that is a DIRECTORY) errors,
+              naming pack + path, and THE RUNNER IS NEVER REACHED (CLM-002).
+            * `TestFindingsEngine_ProducerNeverStartedIsRefused` — a producer whose
+              exec fails with the never-started shape is refused via the ISSUE-112
+              path, distinctly from the crash-guard message (CLM-003).
+            * `TestFindingsEngine_ProducerCrashGuardStillFiresOnZeroFindings` — a
+              `crash_guard` binding whose producer exits non-zero and converts to
+              zero findings still returns the crash error (CLM-003, CLM-012).
+            * `TestFindingsEngine_NoProducerDeclaredPathUnchanged` — a binding with
+              no producer invokes `splitCommand(binding.Command)`'s tool with
+              identical args, and its payload/convert/parse tail is untouched
+              (CLM-004).
+
+          FALSIFY FIRST. Before TASK-003 these must fail because
+          `runFindingsEngine` ignores `binding.Producer` entirely — the producer
+          test will observe the plain COMMAND being invoked. Record that observed
+          output. A test that passes now is not driving the real path.
+        files:
+          - cmd/backstop/pack_gate_producer_findings_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-012
+        test_names:
+          - TestFindingsEngine_RunsDeclaredProducerInPlaceOfCommand
+          - TestFindingsEngine_ProducerReceivesTheSameShapedArgsAsTheCommand
+          - TestFindingsEngine_MissingDeclaredProducerFailsLoud
+          - TestFindingsEngine_ProducerNeverStartedIsRefused
+          - TestFindingsEngine_ProducerCrashGuardStillFiresOnZeroFindings
+          - TestFindingsEngine_NoProducerDeclaredPathUnchanged
+        depends_on: []
+
+      - id: TASK-003
+        type: implementation
+        title: "Honor binding.Producer in runFindingsEngine, symmetrically with the coverage path"
+        description: |
+          Edit `cmd/backstop/pack_gate.go`, in `runFindingsEngine` ONLY. Locate the
+          site BY NAME — the `runner.RunStdout(context.Background(), cmdName,
+          cmdArgs...)` call that sits immediately before the never-started refusal
+          and the `payload := stdout` selection. Line numbers in this plan are
+          stale by construction; this file has been edited repeatedly.
+
+          THE CHANGE IS A SWAP OF THE INVOKED NAME, NOTHING ELSE. Leave every line
+          that computes `cmdArgs` exactly as it is — the trust gate,
+          `gatherEngineInputs`, the ScopeKind branch, `fileModeTestTarget`,
+          `excludeTestdataPaths`, the anti-fallback empty-list behavior. Then:
+
+            1. When `binding.Producer != ""`, resolve
+               `filepath.Join(packRoot, filepath.FromSlash(binding.Producer))` and
+               `os.Stat` it, erroring `broken pack %s: missing findings producer
+               script %s` when it is absent or a directory — mirroring the
+               convert-missing error's shape and the coverage producer's guard.
+               Return BEFORE the runner is reached (CLM-002).
+            2. Invoke `runner.RunStdout(ctx, producerPath, cmdArgs...)` instead of
+               `runner.RunStdout(ctx, cmdName, cmdArgs...)`. THE ARGS ARE THE SAME
+               ARGS (CLM-001). Write the comment explaining why this diverges from
+               `runCoverageEngine`'s bare invocation — the four scope contracts
+               named in this plan's notes — because the asymmetry will otherwise
+               read as an inconsistency to the next reader.
+            3. Everything downstream is UNCHANGED and must stay so: the
+               `runNeverStarted` refusal, the `stdout_artifact` selection, the
+               strict-SARIF shape guard, the convert, `ParsePackFindings`, the
+               crash-guard, and the ProjectWide/GateType stamping loop. The
+               producer branch produces `stdout` and `runErr` of the same kinds
+               the command branch does, so no downstream logic changes (CLM-003).
+
+          Do NOT refactor the shared run/convert tail into a helper, do NOT touch
+          `runCoverageEngine`, and do NOT touch `cmd/backstop/gate.go`. The gate
+          wiring file is under heavy concurrent edit and this fix has no business
+          in it.
+
+          Also correct the doc comment on `runFindingsEngine` — it currently says
+          "run the command via the clean-stdout runner" and must now name the
+          producer alternative, or it becomes a lie the moment this lands.
+        files:
+          - cmd/backstop/pack_gate.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-012
+        depends_on:
+          - TASK-002
+
+      - id: TASK-004
+        type: verification
+        title: "Gate the core producer change"
+        description: |
+          Run `backstop gate` (diff-scoped) and read the result. Then run the
+          phase's tests explicitly and read them:
+          `go test ./cmd/backstop/ -run "TestFindingsEngine_" -count=1 -v`,
+          confirming all six mandated names pass with zero skipped subtests.
+
+          Also confirm the coverage path did not move: `go test ./cmd/backstop/
+          -run "TestCoverageProducer|TestPackDispatch" -count=1`.
+
+          Do not run `backstop gate --all` here — that is Phase 5's job, and the
+          tree is shared.
+        files:
+          - cmd/backstop/pack_gate.go
+          - cmd/backstop/pack_gate_producer_findings_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+        depends_on:
+          - TASK-003
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: Pack data — producers + converter widening (in-repo fixture)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: go-toolchain Producers and the Widened Test Converter"
+    tasks:
+      - id: TASK-005
+        type: test
+        title: "TDD red: a test-file compile break must yield located findings, not an opaque crash"
+        description: |
+          Add `cmd/backstop/pack_gate_issue067_regression_test.go`. This is the
+          acceptance surface of the whole plan and it must drive REAL artifacts:
+          the real fixture manifest via `goToolchainManifest` + `onlyRules`, the
+          real converter via `stubSandboxedRunStdout` (which shells the actual
+          script), the real captured fixtures via `readFixture`, and the real
+          `dispatchPackEngines`.
+
+          Tests:
+            * `TestIssue067_StdoutOnlyCaptureYieldsAFindingNotTheOpaqueCrash` —
+              feed `go-test-build-failure-stdout-only.txt` (what core sees TODAY)
+              and assert the dispatch returns NO error and at least one finding
+              naming the `[build failed]` package. Give the runner a non-nil
+              error so the crash guard's `runErr != nil` precondition is met —
+              the point is that the guard is no longer REACHED, not that it is
+              disabled.
+
+              THIS IS THE PLAN'S CENTRAL FALSIFIER, AND IT IS RED FIRST LIKE
+              EVERY OTHER TEST HERE. Pre-fix it fails, and the failure output IS
+              the evidence sharp edge 3 requires you to record verbatim: the
+              literal `crashed: non-zero exit with no parseable findings` error,
+              observed against the UNMODIFIED converter. That capture is exactly
+              ISSUE-067 reproduced. Once TASK-006 lands it is unrecoverable, so
+              record it before touching the pack.
+
+              DO NOT ASSERT THIS PAYLOAD STILL CRASHES AFTER THE FIX. The
+              stdout-only capture is `FAIL\t<pkg> [build failed]` plus a bare
+              `FAIL` — output that NAMES A FAILED PACKAGE. CLM-009 says such a
+              run always yields at least one finding, so demanding a crash here
+              would directly contradict CLM-009's floor on the very same bytes,
+              and the two assertions could not both hold. CLM-012 is narrower by
+              its own wording — "no diagnostic output AT ALL" — and this capture
+              is not that. CLM-012's permanent pin is already held, on a
+              genuinely empty payload, by TASK-002's
+              `TestFindingsEngine_ProducerCrashGuardStillFiresOnZeroFindings`;
+              it does not need and must not get a second, conflicting pin here.
+            * `TestIssue067_TestFileCompileFailureYieldsLocatedFindingsNotCrash` —
+              feed the MERGED `go-test-build-failure.txt` and assert: no dispatch
+              error; at least one violation; and one violation whose File is the
+              nested path the compiler printed (`sub/pkg/b_test.go`-shaped, as
+              captured), whose Line is the compiler's line, and whose Message
+              carries the compiler text. Assert the rule is namespaced to the pack
+              (CLM-006).
+            * `TestIssue067_VetFailureYieldsLocatedFinding` — same against
+              `go-test-vet-failure.txt` (CLM-006).
+            * `TestIssue067_BuildFailureReachesTheBuildConverter` — drive the
+              `go-build` engine with `go-build-stderr-capture.txt` and assert
+              located violations come out. This is the claim that the converter
+              which has never fired in production now fires (CLM-007).
+            * `TestIssue067_DiagnosticShapedTestOutputManufacturesNoFinding` —
+              feed `go-test-hostile-stderr.txt` and assert the genuinely failing
+              test produces a finding while the passing test's
+              diagnostic-shaped stderr line produces NONE. Assert on the exact
+              violation set, not merely on a count (CLM-008).
+            * `TestIssue067_BuildFailedSummaryAlwaysYieldsAtLeastOneFinding` —
+              assert that a payload carrying ONLY the `[build failed]` summary,
+              with no `#` header and no positional line, yields at least one
+              finding naming the package. This is the floor that keeps a
+              partially-captured failure off the crash path (CLM-009).
+
+              DERIVE THE PAYLOAD FROM TASK-001's REAL CAPTURE — DO NOT HAND-SPELL
+              IT. Read `go-test-build-failure-stdout-only.txt` via `readFixture`
+              and select from it the line(s) containing `[build failed]`; feed
+              those bytes. That file IS this shape and nothing else (it is the
+              stdout half of the same real run), so it is the honest source. A
+              separately hand-typed `FAIL\t<pkg>\t[build failed]` literal is
+              exactly how the wrong byte shape gets reintroduced in the fixture
+              even after TASK-006 is corrected: the test would then agree with a
+              broken converter and pass vacuously. Derive the expected package
+              name from the same captured bytes too, rather than restating it.
+            * `TestIssue067_ExistingCapturedShapesUnchanged` — re-assert the
+              existing baselines: `go-test-failures.txt` still yields exactly its
+              current violations (including `TestNoPos`'s unlocated one) and
+              `go-build-errors.txt` still yields exactly 3. Read the current
+              counts from the existing tests rather than guessing (CLM-010).
+            * `TestIssue067_MultipleDiagnosticsUnderOneHeaderAllBecomeFindings` —
+              sharp edge 8a's falsifier, and THE ONLY TEST HERE THAT CATCHES A
+              NON-STICKY HEADER. Feed the merged `go-test-build-failure.txt`,
+              which carries three diagnostics under one `#` header, and assert
+              the violation COUNT is three and that all three lines are
+              represented — not merely that "a" finding came out. A converter
+              that resets header state after the first diagnostic passes every
+              other test in this plan and fails only this one (CLM-008).
+            * `TestIssue067_MultiEngineDispatchSurvivesOneEnginesCompileBreak` —
+              CLM-011's real assertion, which no test in this plan previously
+              made. Drive `dispatchPackEngines` with TWO engines in ONE dispatch:
+              the `go-test` engine fed the merged compile-failure capture, plus a
+              second, genuinely-working engine in the same manifest fed output
+              that yields findings. Assert BOTH: the dispatch returns NO error,
+              and the working engine's findings are present in the returned set.
+              This is the blast-radius claim — `dispatchPackEngines` returns
+              `nil, err` on the FIRST engine error, so before the fix the working
+              engine's findings are discarded entirely (CLM-011).
+            * `TestIssue067_VerdictCollectorIsPopulatedNotStarved` — the second
+              half of CLM-011, asserted DIRECTLY rather than narrated. Take the
+              violations from the multi-engine dispatch above, pass them through
+              `gate.RouteTestVerdictFindings`, and assert the returned slice is
+              NON-EMPTY — i.e. ISSUE-118's `collectedVerdicts` has something to
+              join. Before the fix the dispatch errors, `violations` is nil, and
+              the collector is starved; assert on the populated set, never on a
+              log line (CLM-011).
+            * `TestIssue067_ProducerScriptsExitZeroOnAGreenTree` — THE B1 CLASS
+              FALSIFIER, and the only test in this plan that executes the real
+              producer scripts. Every other test here routes through
+              `fixtureRunner`, which returns canned bytes and IGNORES the real
+              args, so all of them stay green even if the producer scripts are
+              catastrophically wrong. Write a minimal PASSING Go module into
+              `t.TempDir()`, then execute each committed producer script directly
+              with THE REAL ARG VECTOR core would hand it — `test`, `./...` for
+              the test producer and `build`, `./...` for the build producer,
+              subcommand included, exactly as `splitCommand` yields it — with the
+              temp module as the working directory. REQUIRE EXIT 0 FROM BOTH.
+              A producer whose body doubles the subcommand exits non-zero here
+              even though the tree is green, which is precisely the permanent,
+              opaque, clean-tree RED this test exists to prevent from ever being
+              tagged and pushed. Skipping this test for want of a Go toolchain is
+              not acceptable — the suite already requires one to run at all.
+            * `TestIssue067_FixturePackDeclaresExecutableProducersOnBothEngines` —
+              CLM-013's in-repo half, asserted rather than assumed. Parse the
+              fixture pack manifest and assert the `go-test` and `go-build`
+              bindings each declare a `producer:`, that each declared path
+              resolves under the pack root to a file that EXISTS, and that each
+              is executable (sharp edge 6 — a non-executable script fails as a
+              never-started process). Assert also that `golangci` and any other
+              findings binding declare NO producer, so the declaration cannot
+              spread by copy-paste into the engine that emits native SARIF
+              (CLM-013).
+
+          FALSIFICATION IS ORDER-DEPENDENT (sharp edge 3). ALL of these — with no
+          exceptions — MUST be observed RED against the UNMODIFIED fixture pack
+          and UNMODIFIED converter. Record the exact failing output. If any
+          passes now, the fixture was already changed or the test is not on the
+          real path — STOP and report.
+
+          NOTE ON THE RUNNER KEY: until TASK-006 declares producers, the fixture
+          harness resolves canned output by command name and these tests key on
+          `"go test"` / `"go build"` as the existing corpus does. TASK-007 moves
+          that resolution into the harness; do not pre-empt it here.
+        files:
+          - cmd/backstop/pack_gate_issue067_regression_test.go
+        claims:
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-013
+        test_names:
+          - TestIssue067_StdoutOnlyCaptureYieldsAFindingNotTheOpaqueCrash
+          - TestIssue067_TestFileCompileFailureYieldsLocatedFindingsNotCrash
+          - TestIssue067_VetFailureYieldsLocatedFinding
+          - TestIssue067_BuildFailureReachesTheBuildConverter
+          - TestIssue067_DiagnosticShapedTestOutputManufacturesNoFinding
+          - TestIssue067_BuildFailedSummaryAlwaysYieldsAtLeastOneFinding
+          - TestIssue067_ExistingCapturedShapesUnchanged
+          - TestIssue067_MultipleDiagnosticsUnderOneHeaderAllBecomeFindings
+          - TestIssue067_MultiEngineDispatchSurvivesOneEnginesCompileBreak
+          - TestIssue067_VerdictCollectorIsPopulatedNotStarved
+          - TestIssue067_ProducerScriptsExitZeroOnAGreenTree
+          - TestIssue067_FixturePackDeclaresExecutableProducersOnBothEngines
+        depends_on:
+          - TASK-001
+          - TASK-002
+
+      - id: TASK-006
+        type: implementation
+        title: "Declare go-test/go-build producers and widen the test converter, in the fixture pack"
+        description: |
+          All edits land in the IN-REPO FIXTURE pack under
+          `cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/`.
+          TASK-009 ports the identical content to the external repo; write the
+          content here as the authoritative version so the port is a copy, not a
+          re-derivation.
+
+          READ THE "EXACT ARG SHAPE THE PRODUCER RECEIVES" SECTION OF THIS PLAN'S
+          NOTES BEFORE WRITING EITHER SCRIPT. The subcommand arrives INSIDE
+          `"$@"` (core swaps only `cmdName`, which is `go`; `cmdArgs` is
+          `["test", "./..."]`). Writing `go test "$@"` doubles the subcommand and
+          makes the gate permanently, opaquely RED on a clean tree — measured,
+          and invisible to every fixture-runner test in this plan.
+
+          1. NEW `scripts/test-produce.sh` — POSIX sh, `#!/bin/sh`, executable.
+             Its whole job is to run the tool with ITS OWN stderr folded into ITS
+             OWN stdout, forwarding VERBATIM the full arg vector core shaped —
+             subcommand included. The body is exactly:
+
+               go "$@" 2>&1
+
+             NOT `go test "$@" 2>&1`. Verified 2026-08-16 against go 1.25.3 with
+             the real arg vector `test ./...`: the correct form exits 0 on a
+             green tree; the `go test "$@"` form exits 1 with `package test is
+             not in std` on that same green tree.
+
+             The exit status of that command is the script's exit status — the
+             tool's verdict must survive verbatim (sharp edge 7). Do NOT add
+             `|| true`, do NOT add `exit 0`, do NOT copy `coverage-produce.sh`'s
+             tolerant tail: that is right for a profile producer and catastrophic
+             here. Write a header comment stating WHY this producer exists — that
+             `go test` splits located diagnostics onto stderr while core captures
+             only stdout by design (SPEC-031 CLM-028), so the merge is the PACK's
+             job because the pack is what knows this tool's stream behavior — and
+             a second line stating that the subcommand is supplied by the caller
+             in `"$@"`, so the script must not repeat it.
+          2. NEW `scripts/build-produce.sh` — body BYTE-IDENTICAL to the above
+             (`go "$@" 2>&1`), because the `build` subcommand likewise arrives in
+             `"$@"` from `splitCommand("go build")`. That the two bodies are
+             identical is CORRECT and expected: they are separate files so the
+             pack can declare a distinct `producer:` per binding and so TASK-007's
+             harness alias can map each back to its command key. Only the header
+             comment differs — note there that `go build` writes NOTHING to
+             stdout, so without this producer `build-to-sarif.sh` receives an
+             empty payload on every run.
+
+             Do NOT "simplify" these into one shared script. The per-binding
+             declaration is what TASK-007's alias and its drift pin key on.
+          3. `pack.yml` — add `producer: scripts/test-produce.sh` to the `go-test`
+             binding and `producer: scripts/build-produce.sh` to `go-build`. Place
+             the key where the coverage engine places its own `producer:`, and
+             extend each binding's comment block to cite ISSUE-067. Change NOTHING
+             else on either binding: `command`, `input_mode`, `scope_kind`,
+             `project_target`, `convert`, `crash_guard`, `gate_type`,
+             `package_scoped` and `exempt_from_scope_filter` all stay exactly as
+             declared. Do NOT add a producer to `golangci` (it emits native SARIF
+             on stdout and merging stderr into it would corrupt the document) or
+             to `go-coverage` (it already has one).
+          4. `scripts/test-to-sarif.sh` — widen it, preserving the existing
+             `--- FAIL:` machinery UNTOUCHED:
+               (a) Maintain a STICKY `#`-header MODE FLAG — not a one-line
+                   lookback. OUTSIDE a `--- FAIL:` block, a line matching the
+                   compiler-diagnostic shape emits a finding ONLY while that flag
+                   is IN EFFECT. This is CLM-008's discriminator and it is what
+                   keeps a test's own stderr from manufacturing findings.
+
+                   THE FLAG'S LIFECYCLE IS LOAD-BEARING (sharp edge 8a). Go emits
+                   MANY diagnostics under ONE header — measured: three
+                   `sub/pkg/b_test.go:N:2: undefined: ...` lines under a single
+                   `# b1probe/sub/pkg [b1probe/sub/pkg.test]`. So:
+                     - SET the flag on a `#`-prefixed line.
+                     - KEEP it set across every CONSECUTIVE diagnostic line, so
+                       ALL N diagnostics under one header become N findings.
+                       Clearing after the first would convert only the first and
+                       silently drop the rest — an under-report, which is the
+                       same defect class this plan exists to close.
+                     - CLEAR it on a `--- FAIL:` line, and on any line matching
+                       neither the header shape nor the diagnostic shape (the
+                       `FAIL\t<pkg> [build failed]` summary, a blank line, `ok`
+                       lines, the trailing bare `FAIL`).
+                   Strip the optional column exactly as `build-to-sarif.sh` does;
+                   the two scripts should read as siblings on this shape.
+               (b) Track `FAIL\t<import-path> [build failed]` lines. NOTE THE
+                   EXACT BYTES, measured with `od -c` against real `go test`
+                   output: ONE TAB after `FAIL`, then the import path, then a
+                   SPACE — not a tab — before `[build failed]`. An awk pattern
+                   written with a tab there matches nothing, CLM-009's floor
+                   never fires, and a partially-captured failure falls straight
+                   back onto the opaque crash this plan exists to close. This is
+                   the same shape spelled in sharp edge 8a and in TASK-001's
+                   measured captures; do not re-derive it from memory.
+                   If the whole
+                   run produced NO results at all but at least one such line was
+                   seen, emit one finding per named package with the package in
+                   the message and no location, so a non-zero run whose output
+                   still names a failure can never reach the crash path (CLM-009).
+               (c) Leave the `--- FAIL:` path's file/line extraction ALONE. The
+                   bare-basename behavior there belongs to ISSUE-135; changing it
+                   here would collide with that lane and would break CLM-010.
+             Keep it POSIX awk (no gawk-only constructs) — it must run under the
+             macOS system awk inside the sandbox, as the header already warns.
+          5. Do NOT edit `scripts/build-to-sarif.sh` (sharp edge 9).
+
+          Verify the committed file modes are executable for both new scripts.
+        files:
+          - cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/pack.yml
+          - cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/scripts/test-produce.sh
+          - cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/scripts/build-produce.sh
+          - cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/scripts/test-to-sarif.sh
+        claims:
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-013
+        depends_on:
+          - TASK-005
+          - TASK-003
+
+      - id: TASK-007
+        type: refactor
+        title: "Re-ground the fixture harness for the producer indirection, and pin it against drift"
+        description: |
+          Declaring producers changes the NAME the dispatch invokes, and a large
+          existing corpus keys its canned output on the command name (sharp edge
+          1). Left alone, roughly eight test files silently observe zero
+          violations — assertions that pass by going quiet, which is the vacuous
+          green this whole plan is about.
+
+          FIX IT IN THE HARNESS, IN ONE PLACE. In
+          `cmd/backstop/pack_gate_gotoolchain_test.go`, extend
+          `fixtureRunner.RunStdout`'s key resolution: when the invoked name is a
+          path whose basename is a known producer script, resolve the canned
+          output under the command key that producer stands for. Keep the existing
+          `name + " " + args[0]` and bare-`name` lookups intact so every current
+          registration keeps working unchanged.
+
+          Then PIN THE ALIAS (sharp edge 2). Add
+          `TestFixtureRunner_ProducerAliasCoversEveryDeclaredProducer`: parse the
+          fixture manifest, collect the basename of every declared `producer:`
+          across its FINDINGS-typed engine bindings, and assert that set is
+          exactly the alias map's key set. Adding a findings producer to the pack
+          without teaching the double must then fail loudly instead of going
+          quiet.
+
+          SCOPE THE ENUMERATION TO FINDINGS BINDINGS — this is decided, not left
+          to the implementer. The fixture pack already declares a THIRD producer
+          today: `go-coverage` carries `producer: scripts/coverage-produce.sh`.
+          After this task's two additions there are three declared producers, and
+          an unscoped enumeration would demand `coverage-produce.sh` appear in the
+          FINDINGS alias map, where it is meaningless. The coverage producer is a
+          structurally different dispatch: `runCoverageEngine` (pack_gate.go)
+          invokes it BARE — `runner.RunStdout(ctx, producerPath)` with no args —
+          and its output goes to the coverage-RECORDS channel, never through the
+          `name + " " + args[0]` command-key resolution this alias exists to
+          double. Requiring it in the findings map would pin a relationship that
+          does not exist.
+
+          EXCLUDE IT WITH THE PRODUCTION PREDICATE, NOT A NAME. `dispatchPackCoverage`
+          routes solely on `binding.GateType != engine.GateTypeCoverage` — that
+          exact condition is what makes a binding "findings-typed." Filter the
+          enumeration on the same condition so the pin tracks the real routing
+          rule rather than a second, drifting definition of it.
+
+          THE ENUMERATION STAYS DERIVED FROM THE REAL MANIFEST. Read the
+          producers out of the parsed fixture `pack.yml`; never hardcode a list
+          of expected basenames. A newly-added FINDINGS producer must still break
+          this test — that is the whole point of the pin, and hardcoding would
+          make it inert exactly when it is needed.
+
+          Also re-ground `cmd/backstop/filemode_scoping_test.go`: its helper
+          selects the test invocation with `c.name == "go" && c.args[0] == "test"`,
+          which the swap breaks. Re-ground it on the PRODUCER path while keeping
+          what it proves — that file-mode scoping yields the changed file's
+          package selector — asserting on `c.args`, which this design deliberately
+          leaves unchanged. Do not weaken or delete the arg assertions; they are
+          the direct evidence for CLM-001's arg-preservation half.
+
+          THE ALIAS MUST COVER `cmd/backstop/pack_gate_scope_test.go` WITHOUT
+          EDITING IT. That file keys `byCmd["go build"]` against
+          `go-build-errors.txt` and is inside PLAN-ISSUE-091's declared file
+          scope; editing it here would collide with that lane. It is the specific
+          case to check first once the alias is in — confirm it still observes
+          its original non-zero violation count.
+
+          Then run the full `cmd/backstop` package. If a file OUTSIDE this task's
+          declared scope still asserts on the invoked command name, STOP and
+          report it rather than silently widening scope — it means the harness
+          alias did not cover a case this plan predicted it would. Sharp edge 1
+          enumerates the ten files this was verified against; walk that list.
+        files:
+          - cmd/backstop/pack_gate_gotoolchain_test.go
+          - cmd/backstop/filemode_scoping_test.go
+        claims:
+          - CLM-004
+          - CLM-010
+        test_names:
+          - TestFixtureRunner_ProducerAliasCoversEveryDeclaredProducer
+        depends_on:
+          - TASK-006
+
+      - id: TASK-008
+        type: verification
+        title: "Gate the pack-data change and prove the corpus did not go quiet"
+        description: |
+          Run `backstop gate` (diff-scoped) and read the result.
+
+          Then read the evidence that matters most for this phase:
+            * `go test ./cmd/backstop/ -run "TestIssue067" -count=1 -v` — all
+              TWELVE mandated names green, zero skipped subtests. Confirm by
+              NAME that `TestIssue067_ProducerScriptsExitZeroOnAGreenTree` RAN
+              and PASSED rather than being skipped: it is the only test in this
+              plan that executes the real producer scripts, and a skip there
+              re-opens the entire clean-tree-permanently-red failure class.
+              Likewise confirm
+              `TestIssue067_MultipleDiagnosticsUnderOneHeaderAllBecomeFindings`
+              ran, and state the violation count it observed.
+            * `go test ./cmd/backstop/ -run "TestFixtureRunner_Producer" -count=1`
+              — the alias drift pin from TASK-007.
+            * `go test ./cmd/backstop/ -count=1` — the whole package, because
+              sharp edge 1's failure mode is OTHER tests going quiet, and only a
+              full-package run surfaces it. Name explicitly which of sharp edge
+              1's ten enumerated files you confirmed still assert non-zero
+              violations, including `pack_gate_scope_test.go`, which the harness
+              alias must cover WITHOUT being edited.
+            * Confirm explicitly that the two pre-existing fixtures still yield
+              their original violation counts (CLM-010) — state the counts.
+
+          If any previously-passing test now passes for a DIFFERENT reason (zero
+          violations instead of the violations it asserted), that is a regression
+          even though it is green. Say so.
+        files:
+          - cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/pack.yml
+          - cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/scripts/test-to-sarif.sh
+          - cmd/backstop/pack_gate_issue067_regression_test.go
+        claims:
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+        depends_on:
+          - TASK-006
+          - TASK-007
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Release the pack externally and adopt it
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Release go-toolchain 1.6.0 and Adopt It in the Lock"
+    tasks:
+      - id: TASK-009
+        type: setup
+        title: "Port the producers and converter widening to the released go-toolchain pack"
+        description: |
+          THIS TASK RUNS IN AN EXTERNAL REPOSITORY. Packs live outside core by
+          design and this half of the fix is pack content, so the file scope names
+          that repo's path literally.
+
+          Working directory: /Users/bmanson/src/projects/backstop-go-toolchain-pack
+          (verified 2026-08-16: pack name `backstop-ai/go-toolchain`, version
+          1.5.0, HEAD 8f117a8, remote https://github.com/backstop-ai/go-toolchain.git).
+          Confirm all of it before editing. If the worktree is dirty or the
+          name/remote differs, STOP and report rather than improvising.
+
+          1. Copy TASK-006's content VERBATIM: the two new producer scripts, the
+             two `producer:` declarations in `pack.yml`, and the widened
+             `scripts/test-to-sarif.sh`. This must be a copy, not a
+             re-derivation — the fixture and the release are asserted to agree
+             (CLM-005/CLM-013) and two independent authorings will drift.
+             Preserve the executable bit on both new scripts.
+          2. Bump `version:` 1.5.0 -> 1.6.0. New declared behavior on two
+             bindings; minor, not patch.
+          3. Verify IN THAT REPO with `backstop pack check` and `backstop pack
+             test`. READ the output — do not assume. If the pack's own fixtures
+             encode the old converter behavior, update them there in the same
+             commit.
+          3a. MANDATORY PRE-PUSH GREEN-TREE PROOF. Before step 4, execute BOTH
+             released producer scripts directly, with the real arg vector core
+             hands them (`test ./...` and `build ./...`, subcommand included),
+             against a GENUINELY PASSING throwaway Go module, and REQUIRE EXIT 0
+             FROM BOTH. Paste the two commands and their exit codes into the
+             implementation record.
+
+             This duplicates TASK-005's
+             `TestIssue067_ProducerScriptsExitZeroOnAGreenTree` ON PURPOSE, and
+             the duplication is not ceremony: TASK-005 proves the IN-REPO FIXTURE
+             copy, this proves the COPY ABOUT TO BE PUBLICLY TAGGED. A producer
+             body that doubles the subcommand exits non-zero on a clean tree and,
+             once `crash_guard` sees it, makes every gate run in every consumer
+             permanently and opaquely RED — with a pushed tag behind it. This is
+             the last point at which that is cheap to catch. If either script
+             exits non-zero here, STOP; do not commit, do not tag, do not push.
+          4. Commit and tag following that repo's convention (see its git log:
+             subject `backstop-ai/go-toolchain 1.6.0: <summary>`, then tag
+             `v1.6.0`). Its CI asserts tag/version agreement on tag push, so a
+             mismatch fails loudly.
+          5. Push the commit AND the tag. This publishes to a public repo — an
+             action with reach beyond this working tree. Confirm with the founder
+             or team-lead before pushing unless that authorization has already
+             been given for this issue; do not treat this plan as the
+             authorization. Nothing downstream resolves without the tag: version
+             resolution is git-tag-based, so a bump with no matching `v1.6.0` tag
+             will not resolve via `pack update` in TASK-010.
+        files:
+          - /Users/bmanson/src/projects/backstop-go-toolchain-pack/pack.yml
+          - /Users/bmanson/src/projects/backstop-go-toolchain-pack/scripts/test-produce.sh
+          - /Users/bmanson/src/projects/backstop-go-toolchain-pack/scripts/build-produce.sh
+          - /Users/bmanson/src/projects/backstop-go-toolchain-pack/scripts/test-to-sarif.sh
+        claims:
+          - CLM-005
+        depends_on:
+          - TASK-006
+
+      - id: TASK-010
+        type: implementation
+        title: "Adopt go-toolchain 1.6.0 in backstop-core's lock"
+        description: |
+          BEFORE relocking, honor sharp edge 10: run an unfiltered `go test ./...`
+          and confirm the tree has no pre-existing compile or vet break. Once the
+          lock updates, such a break stops being one opaque crash and becomes N
+          located findings — a change in how it reads, and it must be resolved
+          honestly, never by waiver. If the tree is red, report and stop; do not
+          relock over it. If another agent is mid-flight in this shared tree,
+          say so rather than racing them.
+
+          Then `backstop pack update backstop-ai/go-toolchain` (or the repo's
+          established equivalent) so `backstop.lock` records version 1.6.0, the
+          new `git_ref: v1.6.0` and the new content hash. Read the command's
+          output; a hash mismatch or an unresolved tag is a stop condition, not
+          something to retry past.
+
+          VERIFY THE LOCKSTEP EXPLICITLY (CLM-013): read both
+          `.backstop/packs/backstop-ai/go-toolchain/pack.yml` and the in-repo
+          fixture `cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/
+          go-toolchain/pack.yml` and confirm each declares the same two
+          `producer:` values, and that both `test-to-sarif.sh` copies are
+          byte-identical. Nothing automated enforces this (ISSUE-137); state the
+          comparison you actually ran.
+
+          Touch no Go source in this task.
+        files:
+          - backstop.lock
+          - backstop.yml
+        claims:
+          - CLM-013
+        depends_on:
+          - TASK-005
+          - TASK-009
+
+      - id: TASK-011
+        type: verification
+        title: "Gate the adoption"
+        description: |
+          Run `backstop gate` (diff-scoped) and read the result. The installed
+          pack now carries the producers, so this is the first run in which the
+          REAL dispatch invokes the real producer scripts against the real
+          toolchain — the integration this plan exists to close. Confirm the run
+          completes without an engine dispatch error and report what the gate
+          actually said, not what it was expected to say.
+        files:
+          - backstop.lock
+          - backstop.yml
+        claims:
+          - CLM-005
+          - CLM-013
+        depends_on:
+          - TASK-010
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: Comprehensive verification
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: Full Kill Chain, Artifact Validation, and the Codebase Map"
+    tasks:
+      - id: TASK-012
+        type: verification
+        title: "Full unscoped verification: backstop gate --all plus artifact validation"
+        description: |
+          The comprehensive pass. Both commands, both read:
+
+            backstop gate --all
+            backstop artifact validate --plan PLAN-ISSUE-067
+            backstop artifact validate --issue ISSUE-067
+
+          `--all` is required because this plan changed the dispatch path every
+          findings engine flows through; a diff-scoped read cannot speak for it.
+          Artifact validation is required because this plan modifies artifact
+          files (this plan, and the issue if its status moves).
+
+          Also run the full suite with the race detector once the tree is quiet:
+          `go test ./... -race -count=1`, and report the package count.
+
+          This task also GATES TASK-013's documentation change, which is why it
+          depends on it: confirm `docs/CODEBASE-MAP.md` is included in the
+          `backstop gate --all` artifact/lint sweep and that the map's new
+          producer sentences match what actually landed in `runFindingsEngine`,
+          not what this plan proposed.
+
+          THE ACCEPTANCE STATEMENT, in the issue's own terms: a genuine test
+          regression must be distinguishable from an environmental tool crash on
+          the gate surface. State plainly which of these you observed and which
+          you are carrying from an earlier task rather than re-running. If other
+          agents are active in this shared tree, prefer honest partial evidence
+          over a raced full sweep and say which is which.
+
+          Any surprising finding — a dormant test that woke up, a pre-existing red
+          this made legible — gets filed as its own issue, not absorbed here and
+          not waived.
+        files:
+          - plans/PLAN-ISSUE-067-gotest-opaque-crash-not-findings.plan.yml
+          - issues/ISSUE-067-go-test-engine-opaque-crash-masks-failures.issue.md
+        claims:
+          - CLM-006
+          - CLM-007
+          - CLM-011
+          - CLM-012
+          - CLM-013
+        depends_on:
+          - TASK-003
+          - TASK-006
+          - TASK-007
+          - TASK-010
+          - TASK-013
+
+      - id: TASK-013
+        type: documentation
+        title: "Record the producer-on-findings-path seam in the codebase map"
+        description: |
+          `docs/CODEBASE-MAP.md` is auto-loaded context for every session, and its
+          Engines section currently describes the dispatch as command-plus-convert
+          with the producer mentioned only for coverage. Update it to state that
+          a findings engine may ALSO declare a `producer:` that replaces the tool
+          while keeping core's arg shaping, and note in one line why go-toolchain
+          uses it (the tool splits located diagnostics onto stderr; core captures
+          stdout by design, so the pack owns the merge).
+
+          Keep it to WHERE things are and what the seam IS — the map is
+          navigational, not a changelog. Two or three sentences.
+        files:
+          - docs/CODEBASE-MAP.md
+        claims:
+          - CLM-001
+          - CLM-005
+        depends_on:
+          - TASK-006
