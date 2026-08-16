@@ -5,7 +5,7 @@ created: "2026-06-22"
 updated: "2026-08-15"
 status: draft
 schema_version: spec/v1
-spec_version: 1.2.6
+spec_version: 1.2.7
 
 implementation:
   summary: >
@@ -594,6 +594,7 @@ claims:
       - TestProvisioning_SubstantivenessPackNotEmbeddedNorTestdata
   - id: CLM-031
     requirement: REQ-009
+    subject: cmd/backstop
     text: >
       backstop-core dogfood-installs the substantiveness pack into itself through the
       STANDARD PACK DISTRIBUTION PATH: after `pack add`, backstop.yml DECLARES the pack and
@@ -605,7 +606,7 @@ claims:
       path — NOT that its source is local, and never a baked, `//go:embed`ed, or
       testdata-resolved provisioning.
     tests:
-      - TestProvisioning_SubstantivenessInstalledAsLocalPack_DeclaredAndLocked
+      - TestProvisioning_SubstantivenessInstalledViaDistributionPath_LocalOrGit_DeclaredAndLocked
   - id: CLM-032
     requirement: REQ-010
     subject: cmd/backstop
@@ -1320,6 +1321,41 @@ or by the seam spy alone.
 
 ## Version History
 
+- **1.2.7** (2026-08-15) — **CLOSES THE CLM-031 RESIDUE carried forward since 1.2.4/1.2.5/1.2.6 —
+  both halves, together, in one edit.** CLM-031 was the last of the eleven `cmd/backstop`-resident
+  claims still inheriting the spec-level `implementation.subject: pkg/gate`, and the last carrier
+  of the stale `AsLocalPack` mandated-test name that 1.2.4's amendment left contradicting its own
+  claim text. Two changes, both to CLM-031's metadata only:
+  (1) **`subject: cmd/backstop` added.** Same defect and same fix as the nine siblings amended in
+  1.2.5 and the tenth (CLM-035) in 1.2.6. CLM-031's mandated test has NO join branch to the
+  inherited `pkg/gate` subject in either direction: its file's directory leaf is `backstop`, not
+  `gate`, so colocation fails, and its PACK-EXTRACTED referenced-symbol set is
+  `{add, distribution, filepath, os, strings, t}` — no `gate` reference at all, so the symbol
+  branch fails too. Unlike CLM-035's incidental pass, this one had no surviving branch: it was one
+  of the 10 blocking `test_substantiveness` noTarget violations the 1.2.5 scratch-copy flip
+  simulation reproduced. What CLM-031 actually pins — the `pack add` distribution path,
+  backstop.yml declaration, lockfile entry and `VerifyLock` — is exercised from `cmd/backstop` by
+  construction, so `cmd/backstop` is the correct subject, not a workaround.
+  (2) **Mandated test renamed** `TestProvisioning_SubstantivenessInstalledAsLocalPack_DeclaredAndLocked`
+  → `TestProvisioning_SubstantivenessInstalledViaDistributionPath_LocalOrGit_DeclaredAndLocked`,
+  discharging the OPEN FOLLOW-ON recorded in 1.2.4. The new name maps 1:1 onto the claim text as
+  amended in 1.2.4 — distribution-path install, EITHER source type, declared + locked +
+  VerifyLock passing — with no over- or under-claiming; the old name asserted `local`
+  specifically, which the amended claim no longer requires. The rename alone would NOT have
+  cleared the noTarget violation (the extracted symbol set is a property of the test BODY, not of
+  the function name), which is exactly why 1.2.5 recorded that whichever revision closes the
+  rename must land the `subject:` in the same edit. It does, here.
+  **What this revision does NOT do: the test body is untouched.** This is a spec-text-only edit,
+  identical in kind to 1.2.5 and 1.2.6 — it corrects the spec's own claim METADATA to match the
+  test name the implementation will land under. Rewriting the test body (and renaming the function
+  in `cmd/backstop`) is the plan's work, owned by PLAN-SPEC-037 phase-6a TASK-550/551, and has not
+  yet been executed. Until that lands, the spec names a test the tree does not yet declare — the
+  expected and intended intermediate state, invisible to the gate because `ContractsAreDue`
+  filters a `draft` spec's mandated tests out of the join entirely.
+  **No requirement, contract, mechanism, claim text or claim count changes.** No waiver was taken,
+  no test was weakened, `status` unchanged (`draft`). With this revision no affected claim carries
+  an unresolved `subject:` or a stale mandated-test name, so nothing in this family now blocks the
+  eventual promotion to `implemented`.
 - **1.2.6** (2026-08-15) — **HARDENING (PREVENTIVE, NOT CORRECTIVE): CLM-035's passing join was
   incidental, and is now structural.** Nothing was broken before this revision and nothing is
   fixed by it. CLM-035's mandated test
