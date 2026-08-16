@@ -6,16 +6,54 @@ issue:
   id: ISSUE-140
   title: "pkg/packval/executor.go's *exec.Error-only never-started check misses path-ful engine commands — silent vacuous pass on backstop pack test/check"
   type: bug
-  status: open
+  status: closed
   created: "2026-08-16"
+  closed: "2026-08-16"
 
 complexity:
   scope: contained
   uncertainty: known
   risk: critical
+
+delivered_by: PLAN-ISSUE-140
 ---
 
 # packval executor's narrow never-started check misses path-ful engine commands
+
+## Resolution
+
+Delivered by PLAN-ISSUE-140 (status: completed).
+
+`DefaultExecutor.RunEngine` (`pkg/packval/executor.go`) previously classified a broken run
+using a narrow `*exec.Error` type-assertion, which only catches a BARE command name that
+`LookPath` fails to resolve — it silently missed the path-ful never-started shape
+(`*fs.PathError` with `Op == "fork/exec"`, e.g. an absent, non-executable, or bad-interpreter
+`./scripts/checker.sh`-style command), reading those as finding-free passes instead of broken
+runs.
+
+**Fix:** a new shared predicate, `check.NeverStarted(runErr error) bool` (`pkg/check/never_started.go`),
+is now the SINGLE authority for "did the process even start" — matching both `*exec.Error` and
+`*fs.PathError{Op: "fork/exec"}` via `errors.As`, keyed on `Op` rather than errno so it stays
+thin-executor-clean. Both consumers that previously carried their own copy of this logic now
+delegate to it: `pkg/packval/executor.go`'s `RunEngine` (the actual defect fix — the `backstop
+pack test`/`pack check` path), and `cmd/backstop/pack_gate.go`'s real gate dispatch path, whose
+own duplicate `runNeverStarted` function was deleted outright rather than kept as a wrapper.
+
+**One authority, enforced going forward:** `pkg/check/never_started_single_authority_test.go` is
+a dedicated tripwire asserting neither consumer file reintroduces a private never-started
+predicate or a narrow `*exec.Error`-only reference — the exact drift that let this defect exist
+(ISSUE-112 widened the gate copy; the packval copy was never brought along).
+
+**Verification:** `check.NeverStarted`'s widened detection (the fork/exec permission-denied
+case) was mutation-tested to confirm it changes real behavior rather than being a cosmetic
+refactor. `go test ./pkg/check/... ./pkg/packval/... ./cmd/backstop/...` green, including
+`TestCheck_NeverStartedIsTheSingleAuthority`, `TestCheck_NeverStartedMatchesBothRealShapes`,
+`TestCheck_NeverStartedRejectsStartedProcess`, and ISSUE-112's five original gate-dispatch
+tests (`TestDispatch_UnstartableFindingsEngineFailsLoud`,
+`TestDispatch_UnstartableEngineFailsLoudWithoutCrashGuard`,
+`TestDispatch_NonZeroExitWithSarifStillReportsFindings`,
+`TestDispatch_UnstartableCoverageEngineFailsLoud`,
+`TestDispatch_UnstartableCoverageProducerFailsLoud`), all still passing.
 
 ## Problem
 

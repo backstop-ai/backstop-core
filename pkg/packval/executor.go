@@ -2,7 +2,6 @@ package packval
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -78,15 +77,18 @@ func (d *DefaultExecutor) RunEngine(packDir string, binding engine.EngineBinding
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	// A findings engine legitimately exits non-zero WHEN it reports findings, so the
-	// exit code is not the contract — the SARIF on stdout is. A run error that is an
-	// *exec.Error (the binary could not be started at all), however, is a broken run,
-	// not a finding-free pass — fail loud so a missing engine never reads as a clean
-	// negative (vacuous green).
+	// exit code is not the contract — the SARIF on stdout is. A run whose PROCESS
+	// NEVER STARTED, however, is a broken run and not a finding-free pass — fail loud
+	// so a missing engine never reads as a clean negative (vacuous green).
+	// check.NeverStarted is the single authority for that class, and it is a CLASS,
+	// not `runErr != nil`: binding.Command is pack DATA that may carry a path
+	// separator, and a path-ful command that cannot be exec'd never reaches LookPath,
+	// so it reports an *fs.PathError rather than the *exec.Error this check once
+	// matched alone (ISSUE-140).
 	runErr := cmd.Run()
-	var execErr *exec.Error
-	if errors.As(runErr, &execErr) {
+	if check.NeverStarted(runErr) {
 		return ExecutionResult{Passed: false, Output: stdout.String(), ExitCode: 1},
-			fmt.Errorf("engine %q failed to run: %w", binding.Command, runErr)
+			fmt.Errorf("engine %q never started: the process could not be executed — this is a broken run, not a finding-free pass; ensure the command is present and executable: %w", binding.Command, runErr)
 	}
 	findings, parseErr := check.ParsePackFindings(stdout.Bytes())
 	if parseErr != nil {

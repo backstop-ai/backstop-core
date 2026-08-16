@@ -2,13 +2,179 @@
 plan_id: PLAN-ISSUE-140
 spec_id: ISSUE-140
 created: "2026-08-16"
-status: draft
+status: completed
 target_repo: backstop-core
 target_module: github.com/backstop-ai/backstop-core
 test_command: "go test ./pkg/check/... ./pkg/packval/... ./cmd/backstop/... -race -count=1"
 coverage_threshold: 90
 
 notes: |
+  ══════════════════════════════════════════════════════════════════════════
+  AS-BUILT — CLOSED 2026-08-16. All 10 tasks delivered and verified.
+  ══════════════════════════════════════════════════════════════════════════
+
+  PROVENANCE NOTE, READ FIRST. This lane's code was UNCOMMITTED in the shared
+  working tree at close-out time (several sibling implementer lanes live in the
+  same tree), so this banner carries NO commit SHA for the implementation. The
+  files below ARE this lane's diff and nothing else — a future reader looking at
+  whatever batch commit eventually carries them must not attribute the other
+  lanes' files to PLAN-ISSUE-140. The plan itself was committed pre-implementation
+  at ef35010 ("plan(ISSUE-140): 2 review rounds, ready to implement"), which is the
+  authority for what was mandated up front versus what was repaired later.
+
+  Beware the same misreading trap this plan's own sibling hit: ISSUE-112's batch
+  commit message (4dbf64b) reads as though a narrow `*exec.Error` check was
+  "widened" there. It was not — that message describes cmd/backstop, while
+  pkg/packval's copy stayed narrow. THAT REMAINING NARROWNESS IS EXACTLY ISSUE-140,
+  and this lane is where it was actually fixed.
+
+  ── WHAT LANDED (verified by reading the tree at close, not transcribed) ───
+  THREE production files, as the plan predicted. Everything else is tests.
+
+  pkg/check/never_started.go — NEW. `func NeverStarted(runErr error) bool`, the
+    single authority. Matches BOTH shapes via errors.As: `*exec.Error`, and
+    `*fs.PathError` with `Op == "fork/exec"`. Keys on Op, never on the errno.
+    ISSUE-112's doc reasoning was RELOCATED here in full and amended exactly as
+    TASK-002 required: the now-false "deliberately WIDER than packval" sentence is
+    GONE, replaced by a two-consumer statement naming why the path-ful shape is
+    reachable on each (gate: os.Stat-guarded `filepath.Join(packRoot, …)` producer,
+    so `*exec.Error` is UNREACHABLE there; packval: `binding.Command` is
+    pack-declared DATA that may carry a path separator). The LookPath explanation,
+    the not-`runErr != nil` warning and the not-errno warning all survive.
+
+  pkg/packval/executor.go — THE DEFECT FIX. `DefaultExecutor.RunEngine`'s
+    classification is now `check.NeverStarted(runErr)`, replacing the
+    `var execErr *exec.Error; errors.As(...)` narrow form. The error message was
+    widened to NAME `binding.Command`, to say the process never started and that
+    this is "a broken run, not a finding-free pass", and to wrap `runErr` with %w
+    so the errno text survives (CLM-004's executor-local half). The `errors` import
+    became unused and was dropped; `os/exec` stays for `exec.Command` and
+    `*exec.ExitError` in `resultFromCmd`. 10 insertions / 8 deletions, entirely
+    inside `RunEngine` — the allowlist trust gate, `buildEngineArgv` and the
+    parse/`Passed: len(findings) > 0` tail are untouched, as scoped.
+
+  cmd/backstop/pack_gate.go — ONE AUTHORITY. `func runNeverStarted` DELETED
+    OUTRIGHT, no wrapper left behind. All THREE call sites now call
+    `check.NeverStarted` (one in `runFindingsEngine`, two in `runCoverageEngine`).
+    `io/fs` and `os/exec` imports removed as now-unused; `errors` retained (still
+    used elsewhere in the file). The call-site-local `runCoverageEngine` comment
+    was KEPT and updated to name `check.NeverStarted` instead of the deleted
+    symbol. `neverStartedError` (the gate-specific *check.ConfigError renderer)
+    is unchanged and stays in cmd/backstop, per TASK-008 item 5.
+    Verified at close: a repo-wide grep for `runNeverStarted` over *.go returns
+    ZERO hits.
+
+  TESTS (all four files new, 442 lines total):
+    pkg/check/never_started_test.go (115)
+    pkg/check/never_started_single_authority_test.go (114)
+    pkg/packval/executor_never_started_test.go (131)
+    pkg/packval/phase3_never_started_test.go (82)
+
+  ── THE TRIPWIRE IS AST-BASED, WHICH IS AN AS-BUILT IMPROVEMENT ────────────
+  TASK-007 asked for a source-reading tripwire and warned that a naive scan would
+  false-positive on the legitimate `*exec.ExitError` handling. The as-built solves
+  that more cleanly than the plan prescribed: `TestCheck_NeverStartedIsTheSingleAuthority`
+  parses both consumer sources with go/ast + go/parser rather than grepping, so the
+  call-site-local COMMENT in `runCoverageEngine` that legitimately mentions
+  `*exec.Error` is invisible to the check while a real code reference is not. Over
+  exactly the two files CLM-006 names (`../../cmd/backstop/pack_gate.go`,
+  `../packval/executor.go`) it asserts: no private never-started predicate declared;
+  no `*exec.Error` reference in CODE; and — the anti-vacuity half — that both files
+  actually CONTAIN `check.NeverStarted(`, so the tripwire proves DELEGATION rather
+  than mere absence.
+
+  ── FALSIFICATION: ALL FOUR REQUIRED REDS REPRODUCED VERBATIM AT HEAD ──────
+  The bar in the FALSIFICATION section was met in full, not approximated.
+
+    1. EXECUTOR RED — `TestExecutor_RunEngineRefusesPathfulUnstartableEngine`
+       failed at HEAD as "expected an error, got nil": a path-ful engine that never
+       started read as a finding-free pass. THAT NIL IS THE DEFECT ISSUE-140
+       REPORTS, and this is the load-bearing, order-independent evidence.
+    2. PHASE3 RED — `RunFixtures` over a negative fixture whose engine never started
+       returned Status "pass" with ZERO errors: the vacuous green, end to end
+       through the real production path with a real `&DefaultExecutor{}`.
+       ⚠ ORDER-SENSITIVITY NOTE, RESOLVED HONESTLY: the plan flagged that this
+       observation is only available if PLAN-ISSUE-092 has not landed. It had NOT
+       — 092 was still `draft` when the red was taken, so the clean-pass baseline
+       was genuinely PLAN-092's pre-state and was OBSERVED, not manufactured. The
+       plan's contingency branch was not needed.
+    3. BARE-NAME CONTINUITY — `TestExecutor_RunEngineRefusesBareAbsentEngine` passed
+       at HEAD and still passes, confirming the pre-existing `*exec.Error` shape was
+       not traded away for the new one.
+    4. TRIPWIRE RED — three failures at HEAD naming
+       cmd/backstop/pack_gate.go's local `runNeverStarted`.
+
+  BEYOND THE BAR: the shared predicate itself was MUTATION-TESTED. Narrowing
+  `check.NeverStarted` back to `*exec.Error`-only redded PRECISELY the fork/exec
+  subtest and nothing else, then was restored. That is direct evidence the new
+  half of the predicate is the half doing the work, rather than being carried by
+  the old half.
+
+  ── CROSS-PLAN BOUNDARY: HELD, WITH ZERO LEAKAGE ───────────────────────────
+  The ruling ceding pkg/packval/phase3.go to PLAN-ISSUE-092 was honored across
+  every review round: this lane's file scope never included phase3.go and its
+  phase3-LEVEL test is TEST-ONLY, asserting on Status/Errors and on the rule/claim
+  being NAMED — deliberately never on the `Check` string, so PLAN-092's re-homing
+  of engine errors onto a dedicated engine-error Check cannot red it.
+  (At close-out, pkg/packval/phase3.go DOES carry an uncommitted diff in the shared
+  tree — that is PLAN-ISSUE-092's live implementation lane, not this one's. This
+  lane wrote none of it.)
+
+  Also confirmed clean: no collision with PLAN-ISSUE-091, which only READS the
+  predicate; and PLAN-ISSUE-141 was explicitly told that all edits to executor.go
+  are FINAL and that file will not be reopened. ISSUE-141 was itself FILED BY THIS
+  PLAN'S OWN PLANNER as PLAN-ISSUE-092's hard blocking prerequisite, and has since
+  been resolved as its own plan.
+
+  ── ARCHITECTURE: THE PLAN'S PREDICTION HELD EXACTLY ───────────────────────
+  ZERO diff to
+  `.backstop/packs/backstop-ai/backstop-core-architecture/architecture/backstop-core.yml`
+  — re-verified at close. No new project import edge was needed: `packval → check`
+  and `cli → check` were both already declared AND already exercised, exactly as
+  the architecture analysis argued. The plan stated that an implementer finding
+  themselves editing that file had homed the predicate wrong; the file was never
+  opened.
+
+  ── GATE EVIDENCE ─────────────────────────────────────────────────────────
+  A full `./bin/backstop gate --all` was taken in a DETACHED WORKTREE built from
+  that worktree's own source (not the shared tree, which had contending lanes live
+  — MEMORY: no-verify-race-with-active-implementer), with `go-arch-lint` correctly
+  on PATH. pack_engines EXECUTED FOR REAL — 478s, 76 findings across the sweep —
+  and the ARCHITECTURE dimension returned ZERO findings. That is a real green, not
+  a skipped or capability-absent dimension, which is the distinction that matters
+  for this lane specifically.
+
+  Carried rather than re-run at close-out: the per-phase gate and `go test` results
+  from TASK-003 / TASK-006 / TASK-009, and the ISSUE-112 unmodified-bodies check.
+  Re-verified directly by the closer against the working tree instead: the three
+  production diffs, the four new test files, the ZERO-hit `runNeverStarted` grep,
+  the four `check.NeverStarted` call sites, the empty architecture-policy diff, and
+  the empty diff on cmd/backstop/dispatch_unstartable_engine_test.go (ISSUE-112's
+  five shipped tests are byte-unmodified, which is CLM-006's behavior-preservation
+  evidence). The full suite was NOT re-run here — sibling lanes are live in this
+  tree and a racing run would report on their state, not this lane's.
+
+  ── AS-BUILT DELTAS ───────────────────────────────────────────────────────
+  1. The single-authority tripwire is AST-based rather than the string-scan the
+     plan sketched. Strictly better on the exact false-positive the plan feared;
+     recorded because the mechanism differs from the prose.
+  2. No commit SHA is recorded for the implementation — it was uncommitted at
+     close (see PROVENANCE NOTE).
+
+  ── ISSUE-140 IS NOT FULLY CLOSED BY THIS LANE ────────────────────────────
+  Stated in the plan and reaffirmed at close: ISSUE-140's acceptance is "fails
+  loud, NAMING the broken command", and that is delivered JOINTLY.
+  THIS lane produces the naming error inside `RunEngine` (CLM-004).
+  PLAN-ISSUE-092's CLM-005 renders it into the operator-visible phase-3 output;
+  until then `RunFixtures` still discards the executor's error text and an operator
+  sees an anonymous message. ISSUE-140 SHOULD NOT BE CLOSED on this plan's
+  completion alone — PLAN-ISSUE-092 must land first. PLAN-092 records the same
+  composition requirement from its side.
+
+  ══════════════════════════════════════════════════════════════════════════
+  ORIGINAL PLAN NOTES (as authored — historical record, not updated)
+  ══════════════════════════════════════════════════════════════════════════
+
   Implements ISSUE-140. Direct sibling of ISSUE-112 / PLAN-ISSUE-112, which fixed
   this SAME error-shape defect class on the `backstop gate` dispatch path and landed
   in 4dbf64b. This lane fixes it on the OTHER command — `backstop pack test` /
