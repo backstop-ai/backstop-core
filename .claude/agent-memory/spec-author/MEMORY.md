@@ -6,3 +6,4 @@
 - [Verify the guarantee is reachable](feedback_verify_guarantee_is_reachable.md) — a claim whose enforcing check is guard-skipped for its subject is vacuous from inception; grep every call site before asserting a trust guarantee
 - [Close-out must re-run the gate AFTER the flip](feedback_close_out_must_rerun_gate_after_flip.md) — `implemented` is what activates contract_signature + test_substantiveness; a pre-flip green proves nothing about either
 - [Presence claims need a live consumer](feedback_presence_claims_need_a_live_consumer.md) — "X is in the map" is only real if some path reads that key; a dead entry's t.Fatalf blocks the cleanup that removes it
+- [Layer-0 tool missing from PATH masks the gate](feedback_layer0_tool_missing_masks_gate.md) — exit 2 at pack_engines ABORTS before test_substantiveness/contract_signature ever report; check `$(go env GOPATH)/bin` before believing it

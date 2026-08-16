@@ -12,4 +12,6 @@
 
 - [SPEC-048 dispatch fix PASS](project_spec048_dispatch_fix_pass.md) — findings-engine self-target + stdout_artifact fix; FIRST spec to close the provisioning gap right (real ExecCommandRunner over arg-sensitive committed fake, fails-pre-fix, depends on both fixes); net-neg 152→144, inherited reds only
 - [ISSUE-116 line-carry PASS](project_issue116_line_carry_pass.md) — reviewer-side red-proof via rsync-to-scratchpad revert; neuter a masking mechanism-Fatalf to prove the behavioral assert is independently red
+- [ISSUE-082 allowlist deletion review](project_issue082_allowlist_review.md) — 8-mutation scratchpad red-proof recipe for deletion+prose work; absence asserts need presence+count or they pass on an empty map; grep removed prose for stranded siblings
+- [GitRef pointer-message pattern](project_gitref_pointer_message_pattern.md) — `%v` on lockfile `entry.GitRef` (*string) prints a heap address in 4 test sites; mutate the ref expectation and READ the message, not just red/green
 - [SPEC-070 doctor PASS (1 fix round)](project_spec070_doctor_review.md) — BUNDLE-003 Seed 3; nil-XErr ≠ gathered (toolchain skip predicate missed no-config/bad-config); Review Questions caught what mandated tests didn't — RUN them; concurrent `.claude/worktrees/` poisons gate+`go test ./...`

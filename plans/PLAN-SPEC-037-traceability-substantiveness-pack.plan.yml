@@ -3,12 +3,117 @@ plan_id: PLAN-SPEC-037
 spec_id: SPEC-037
 spec_version: 1.2.7
 created: "2026-06-22"
-status: draft
+status: completed
 target_module: pkg/gate
 test_command: "go test ./pkg/gate/ ./cmd/backstop/ -race -coverprofile=cover.out"
 coverage_threshold: 80
 
 notes: |
+  ═══════════════════════════════════════════════════════════════════════════
+  ★ CLOSED 2026-08-15 — status `draft` -> `completed`. ALL PHASES LANDED. ★
+  ═══════════════════════════════════════════════════════════════════════════
+  Every phase of this plan is delivered and SPEC-037, its source, flipped to
+  `implemented` at v1.2.8 in commit a1b717c. Nothing below this banner changed:
+  the phases, tasks, claim mappings and prose are the plan AS AUTHORED, preserved
+  as the historical record. This banner is the AS-BUILT layer over them.
+
+  ── WHAT LANDED, BY PHASE ──────────────────────────────────────────────────
+  Phases 1 through 7 (the substantiveness pack build-out: pack rules + Go/TS
+  fixtures, the gate-side set-join and consumption seam, Q1 through real ast-grep,
+  the strangler-equivalence pass, the spy-verified wiring, the substantiveness-only
+  capability re-key, the installed-local-pack provisioning + unstubbable E2E, and
+  the baked-analyzer deletion) all landed in earlier sessions in the order this plan
+  prescribes — the strangler proved parity BEFORE the deletion, as Sharp Edge 3
+  requires.
+
+  Phase 6a — the CLM-031 mandated-test rename, and the LAST outstanding claim in
+  this plan — landed in this session across two commits:
+    18f0927  feat(SPEC-037): phase-6a — CLM-031 two-arm mandated test, real red-proof
+             TASK-550 + TASK-551 together. Added the git-source arm, folded both
+             source types into the single renamed function
+             TestProvisioning_SubstantivenessInstalledViaDistributionPath_LocalOrGit_DeclaredAndLocked,
+             deleted the superseded local-only function, and corrected the file-header
+             doc comment's pre-amendment "LOCAL pack" framing. One file changed
+             (cmd/backstop/gate_substantiveness_provisioning_test.go); NO production
+             code moved, exactly as the phase's scope fence required.
+    4906704  fix(test): print the real GitRef value instead of a pointer address
+             The round-2 review fix, below.
+
+  ── PHASE 6a FIX-ROUND HISTORY (2 impl-review rounds) ──────────────────────
+  ROUND 1 found ONE real defect, and notably a DIAGNOSTIC one rather than a
+  mechanical slip: the git-arm's lock-entry check formatted `entry.GitRef` — a
+  `*string` — with a bare `%v` in its `t.Errorf`. Harmless on the nil branch, but on
+  the branch that actually fires for a real regression (the lock recording the WRONG
+  tag) it printed the pointer's memory address, e.g. `git_ref = 0xc00047e8b0, want
+  v1.1.0`, instead of the wrong ref a developer needs to diagnose the failure. A test
+  that fails uselessly is a real finding even though it can never fail falsely. Fixed
+  in 4906704 by splitting the check into a nil branch and a dereferenced `%q`
+  comparison on the mismatch branch.
+  ROUND 2 confirmed CLEAN — no should-fixes.
+
+  ── FOLLOW-ON FILED, NOT ABSORBED: ISSUE-132 ───────────────────────────────
+  While fixing the round-1 defect, the SAME `%v`-on-a-`*string` shape was found at
+  THREE other, PRE-EXISTING sites elsewhere in the codebase. Those are OUT OF THIS
+  PLAN'S SCOPE — this plan's phase 6a touches one file and changes no production
+  code — so they were filed as ISSUE-132 rather than swept in. Fixing them here would
+  have widened a one-file reconciliation phase into an unrelated cleanup.
+
+  ── SURFACED, NOT FIXED: STALE `deriveCapabilityState` CONTRACTS (ISSUE-133) ─
+  SPEC-037's own close-out re-verified its `contracts` block by hand (a `kind:
+  function` contract compiles to an EXISTENCE-ONLY query, so a drifted parameter list
+  never goes red) and corrected four stale signatures in SPEC-037 text. In doing so it
+  surfaced that SPEC-046 (`implemented`) and SPEC-038 (`draft`) BOTH declare
+  `deriveCapabilityState` with the same stale `cfg *config.Config` shape. Editing
+  another spec's contracts block is outside this plan's scope, so the divergence was
+  SURFACED rather than absorbed; it is now filed as ISSUE-133. The general lesson is
+  worth keeping visible: a multiply-declared symbol means a shape change must edit
+  EVERY declaring spec, or the untouched ones rot silently with no red anywhere.
+
+  ── EVIDENCE AT CLOSE ──────────────────────────────────────────────────────
+  RE-VERIFIED INDEPENDENTLY AT THIS CLOSE-OUT (not carried from the spec's report):
+    • All 37 mandated test names in SPEC-037's claims block exist in the tree, scanned
+      by `func <name>(` — zero missing.
+    • `go build ./...` and `go vet ./pkg/gate/ ./cmd/backstop/` clean.
+    • The renamed CLM-031 test RUNS BOTH ARMS and passes — `local-source` and
+      `git-source` both execute, NEITHER SKIPS. The skip check matters specifically:
+      TASK-550 warned that the hermetic harness's own `requireGit` calls `t.Skip`, and
+      a skipped `t.Run` subtest leaves the PARENT test green, so "passes" alone would
+      not have proven the git arm ran. It ran.
+    • The superseded name `SubstantivenessInstalledAsLocalPack` survives in NO `.go`
+      file — the rename is fully landed, not half-landed (TASK-552 check (b)).
+  CARRIED FROM SPEC-037's OWN CLOSE-OUT, run minutes earlier in this session:
+    • `go test ./pkg/gate/ ./cmd/backstop/ -race` exits 0 — pkg/gate ok 47.9s,
+      cmd/backstop ok 209.5s.
+    • Coverage vs this plan's 80 floor: pkg/gate 93.4%, cmd/backstop 91.9%.
+    • Diff-scoped `./bin/backstop gate` PASSES, exit 0, every blocking dimension at
+      ZERO violations. `test_substantiveness` and `contract_signature` read 0 for the
+      FIRST TIME here: both activate only at `implemented`, and SPEC-037 was `draft`
+      until a1b717c, so this is their first real enforcement pass on this spec — a
+      pre-flip green would have proven nothing about either.
+    • `./bin/backstop artifact validate --spec SPEC-037` passes at `implemented`.
+  Those suite/gate readings were NOT re-run here on purpose: other agents are active
+  in this shared tree and a redundant full-suite run risks racing them. What was
+  re-run above is the targeted, non-racing subset.
+
+  ── AS-BUILT DELTAS ────────────────────────────────────────────────────────
+  (1) THE VERIFICATION TASKS BELOW PRESCRIBE `backstop code check`, WHICH NO LONGER
+      EXISTS. This plan was authored before that command was removed (ISSUE-018), and
+      its absence is now asserted by a shipped test. Every verification task in phases
+      2 through 6a should be read as `backstop gate` (diff-scoped) or `backstop gate
+      --file <path>`; that is what actually ran. The task text is left unedited as the
+      historical record — do NOT copy those command strings into a new plan.
+  (2) `spec_version` is deliberately LEFT AT 1.2.7, the revision this plan was last
+      authored against, matching the sibling convention (PLAN-SPEC-068 sits at 1.2.3
+      against a 1.2.9 spec; PLAN-SPEC-069 at 1.3.1 against 1.3.4). SPEC-037 v1.2.8 was
+      a close-out-only revision that added no requirement, claim or mandated test, so
+      nothing in this plan was re-planned against it.
+  (3) TASK-460's second mandated test name is superseded, as its own inline
+      [SUPERSEDED IN PART BY PHASE 6a] marker says. The END-STATE name is the phase-6a
+      one. Both names appear in the prose below ON PURPOSE — that prose is the
+      enumerated, permitted historical-survivor set TASK-551 (3) defines, not a
+      half-landed rename.
+  ═══════════════════════════════════════════════════════════════════════════
+
   Implements SPEC-037 (BUNDLE-009 Seed 3 — substantiveness as a PACK). Eradicates the
   baked-in Go substantiveness analyzer in pkg/gate/step_testverify.go and re-implements
   its two questions across the PACK / GATE / BINARY split: Q1 hollow-test becomes an

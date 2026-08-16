@@ -1,1 +1,2 @@
 - [Extending a shipped plan](project_extending_a_shipped_plan.md) — reconciliation phases must open with a `test` task (only type that may depend on a verification task); spec+test-rename land in one commit
+- [Plan close-out convention](project_plan_closeout_convention.md) — AS-BUILT banner prepended to notes, tasks never rewritten, spec_version left pinned to the authored-against revision
