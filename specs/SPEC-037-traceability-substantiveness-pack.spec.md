@@ -3,9 +3,9 @@ title: "Traceability Substantiveness Pack"
 number: SPEC-037
 created: "2026-06-22"
 updated: "2026-08-15"
-status: draft
+status: implemented
 schema_version: spec/v1
-spec_version: 1.2.7
+spec_version: 1.2.8
 
 implementation:
   summary: >
@@ -684,10 +684,10 @@ contracts:
         signature: "func NoTargetViolation(funcName, targetPkg string, referenced ReferencedSymbolSet, samePackage bool) (Violation, bool)"
       - name: TargetPackageName
         kind: function
-        signature: "func TargetPackageName(implementationPackage string) string"
+        signature: "func TargetPackageName(subject string) string"
       - name: RouteSubstantivenessFindings
         kind: function
-        signature: "func RouteSubstantivenessFindings(violations []Violation, hollowRuleID, extractionRuleID string) (hollow, extraction []Violation)"
+        signature: "func RouteSubstantivenessFindings(violations []Violation) (hollow, extraction []Violation)"
       - name: ReferencedSetForTest
         kind: function
         signature: "func ReferencedSetForTest(extraction []Violation, test MandatedTest) ReferencedSymbolSet"
@@ -696,10 +696,10 @@ contracts:
     provides:
       - name: buildTestSubstantivenessStep
         kind: function
-        signature: "func buildTestSubstantivenessStep(specDir, codeDir, projectRoot string, scope *gate.GateScope) gate.StepFunc"
+        signature: "func buildTestSubstantivenessStep(specDir, codeDir, projectRoot string, scope *gate.GateScope, classifier gate.SourceClassifier, matcher gate.TestNameMatcher) gate.StepFunc"
       - name: deriveCapabilityState
         kind: function
-        signature: "func deriveCapabilityState(cfg *config.Config, dim gate.TraceabilityDimension) gate.CapabilityState"
+        signature: "func deriveCapabilityState(packs []*pack.Manifest, dim gate.TraceabilityDimension, stack string) gate.CapabilityState"
     consumes:
       - source: cmd/backstop
         name: resolveDispatchPackEngines
@@ -1321,6 +1321,112 @@ or by the seam spy alone.
 
 ## Version History
 
+- **1.2.8** (2026-08-15) — **CLOSE-OUT: status `draft` -> `implemented`**, plus the one
+  accuracy fix the flip forced. No requirement, claim, mandated test, or mechanism is added,
+  removed, or reworded; all 37 claims and 37 mandated test names stand exactly as 1.2.7 left
+  them, and NO source file changed. The evidence below was RE-VERIFIED in this session rather
+  than copied forward from the implementation report.
+  **Lineage.** This spec's implementation is complete across all phases, ending with phase-6a
+  (TASK-550/551), which landed CLM-031's mandated-test rename — the OPEN FOLLOW-ON recorded in
+  1.2.4 and the last outstanding item of the eleven-claim subject-join fix chain that 1.2.5,
+  1.2.6 and 1.2.7 worked through. Phase-6a took TWO independent impl-review passes. Round 1
+  found one real defect, and a diagnostic one rather than a mechanical slip: a `*string`
+  formatted with a bare `%v` on its mismatch branch, so the failure message printed a POINTER
+  ADDRESS instead of the value that mismatched — a test that fails uselessly. It was fixed
+  (commit 4906704), and the same shape was found at three OTHER pre-existing sites elsewhere
+  in the codebase and filed as ISSUE-132 rather than absorbed here; those three are explicitly
+  NOT this spec's to fix. Round 2 confirmed clean.
+  **Build and tests.** `go build ./...` and `go vet ./pkg/gate/ ./cmd/backstop/` are clean.
+  This spec's own declared `test_command` — `go test ./pkg/gate/ ./cmd/backstop/ -race` — was
+  RUN AT CLOSE-OUT and exits 0 with zero failures: `pkg/gate` ok in 47.9s, `cmd/backstop` ok in
+  209.5s.
+  **Coverage.** Measured at close-out against this spec's declared 80 floor, from that same
+  run: `pkg/gate` 93.4%, `cmd/backstop` 91.9%. Both clear it.
+  **Mandated tests.** All 37 test names in this spec's `claims` block were confirmed PRESENT in
+  the tree BY NAME at close-out, by scanning for each `func <name>(` rather than trusting the
+  implementation report — 26 in `pkg/gate`, 11 in `cmd/backstop`, zero missing. That scan is
+  what confirms CLM-031 now resolves to the RENAMED function
+  `TestProvisioning_SubstantivenessInstalledViaDistributionPath_LocalOrGit_DeclaredAndLocked`
+  and that the stale `...AsLocalPack` name 1.2.7 removed survives nowhere.
+  **Claim subjects — the defect class this spec's own close-out surfaced, now discharged.**
+  Every one of the 37 claims was re-audited against the subject join at close-out. Eleven carry
+  an explicit `subject: cmd/backstop` (CLM-015/016/017, CLM-030/031, CLM-032/033/034,
+  CLM-035/036/037) and all eleven of their mandated tests do live in `cmd/backstop`; the other
+  26 carry no `subject:` and correctly inherit the spec-level `implementation.subject:
+  pkg/gate`, where all 26 of their tests live. No claim in this spec carries `kind: absence`,
+  so not one of the 37 is exempt from the join — every one is really enforced from this flip
+  onward. This is the SECOND spec in which the class was found and the one that made it
+  generalizable: a claim with no explicit `subject:` silently inherits the spec-level package,
+  and `test_substantiveness` filters `draft` specs out through `ContractsAreDue` before the
+  join ever runs, so a wrong inherited subject is STRUCTURALLY INVISIBLE until the
+  `implemented` flip. Here it hid ten real `noTarget` violations (1.2.5) behind an eleventh
+  that passed only INCIDENTALLY, on a symbol-reference branch that a refactor could have
+  removed (CLM-035, 1.2.6). Two further traps make it worse than it looks: only
+  package-qualified CALL/selector references are extracted, so composite literals, constants
+  and type positions do NOT rescue a mis-subject; and `kind: absence` claims skip the join
+  entirely, so they "pass" without being checked. The durable lesson — detect this by forcing
+  `implemented` on an ISOLATED SCRATCH COPY and running the real join, never by flipping the
+  live tree to find out — is recorded at
+  `.claude/agent-memory/spec-author/feedback_omitted_subject_inherits_wrong_package.md`.
+  **The accuracy fix the flip forced: four contract signatures had drifted from the shipped
+  source.** Contract declarations are collected only for `implemented` specs, so while this
+  spec sat at `draft` its `contracts` block was never enforced at all. Re-verifying it BY HAND
+  against the real source — which is the only way, because a `kind: function` contract entry
+  compiles to an EXISTENCE-ONLY query that confirms the symbol exists and never compares
+  parameter or return lists — found four declared signatures stale. `TargetPackageName`'s
+  parameter was still named `implementationPackage` (the source says `subject`, renamed when
+  ISSUE-047 de-baked the repo-layout assumption); `RouteSubstantivenessFindings` still declared
+  two `hollowRuleID, extractionRuleID string` parameters it no longer takes;
+  `buildTestSubstantivenessStep` was missing the `classifier gate.SourceClassifier, matcher
+  gate.TestNameMatcher` parameters SPEC-045 added; and `deriveCapabilityState` still declared
+  `cfg *config.Config, dim` where the source takes `packs []*pack.Manifest, dim, stack string`
+  after SPEC-046. All four are corrected here, SPEC-TEXT ONLY — no source moved to meet the
+  spec. Because the check is existence-only, none of these would EVER have gone red; they are
+  fixed because they were wrong, not because anything failed.
+  **Gate (DIFF-SCOPED), run AFTER the flip.** The bare `./bin/backstop gate` — diff vs
+  merge-base plus untracked, the scope actually verified for this close-out — exits 0 with
+  every blocking dimension green: `pack_lock_verification`, `artifact_validation`,
+  `pack_engines`, `test_verification`, `test_substantiveness`, `coverage_threshold`,
+  `contract_signature`, `artifact_status_drift`, `requirement_traceability` and
+  `waiver_resolution`, all with ZERO violations. `test_substantiveness` and
+  `contract_signature` are the two that only activate at `implemented`, so this post-flip run
+  is the first real reading either has ever given on this spec — a pre-flip green would have
+  proven nothing about either, which is exactly why the flip was applied first and the gate run
+  second. `./bin/backstop gate --file cmd/backstop/gate_substantiveness_provisioning_test.go`
+  likewise exits 0. Every residual finding is a non-blocking warning and each was ATTRIBUTED
+  rather than waved past: 173 `requirement_traceability_advisory` and 2
+  `artifact_status_drift_advisory`, this project's standing repo-wide advisories, and neither
+  drift advisory names this spec. Following SPEC-068 1.2.9, SPEC-069 1.3.4 and SPEC-070 1.1.5,
+  this is deliberately NOT a claim about `./bin/backstop gate --all`, which carries standing
+  pre-existing debt unrelated to this spec. `./bin/backstop artifact validate --spec SPEC-037`
+  passes at `implemented`.
+  **A verification-methodology note worth carrying forward.** The first post-flip gate run
+  exited 2 at `pack_engines` — `go-arch-lint` "not found on PATH" — and the gate ABORTED there,
+  never reaching `test_substantiveness` or `contract_signature`. The tool was in fact installed
+  the whole time; `$(go env GOPATH)/bin` simply was not on the invoking shell's PATH. A
+  Layer-0 assume-present tool missing from PATH therefore masks every downstream dimension
+  behind a failure that looks nothing like a spec defect, and a close-out that stopped at that
+  exit-2 would have recorded either a false defect or, worse, no reading at all for the two
+  dimensions the flip exists to activate.
+  **What the flip closed.** BUNDLE-009 `stack-aware-traceability` REQ-002, REQ-003, REQ-007,
+  REQ-008 and REQ-010 — this spec's five `supports` targets — now have implemented-spec
+  coverage and have dropped OUT of the traceability advisory set, confirmed against the
+  post-flip run. Five of the bundle's ten requirements remain uncovered and none are this
+  spec's to close: REQ-001 (SPEC-036, still `draft`), REQ-004/005/006 (SPEC-038, still
+  `draft`), and REQ-009, the COVERAGE arm, which BUNDLE-009 descoped with no in-bundle
+  replacement and which no spec owns. REQ-007 and REQ-010 are shared with SPEC-038; this flip
+  closes them, and SPEC-038's own remaining seam is unaffected.
+  **Known open items, expected and NOT resolved here.** (1) `PLAN-SPEC-037` remains at `draft`
+  and its close-out is a separate, still-pending action — this entry asserts nothing about the
+  plan's status, and the plan is one of the two `artifact_status_drift_advisory` entries above.
+  (2) ISSUE-132 is OPEN for the three sibling `%v`-on-pointer diagnostic sites outside this
+  spec's scope. (3) SPEC-046 (`implemented`) and SPEC-038 (`draft`) BOTH declare
+  `deriveCapabilityState` with the same stale `cfg *config.Config` signature this revision just
+  corrected here. Two specs declaring one symbol is an accepted pattern in this corpus, but it
+  means a shape change must edit every declaring spec or the untouched ones rot silently with
+  no red anywhere — which is precisely what happened. Editing another spec's contracts block is
+  outside this close-out's scope, so the divergence is SURFACED here rather than absorbed, and
+  is owed a follow-on.
 - **1.2.7** (2026-08-15) — **CLOSES THE CLM-031 RESIDUE carried forward since 1.2.4/1.2.5/1.2.6 —
   both halves, together, in one edit.** CLM-031 was the last of the eleven `cmd/backstop`-resident
   claims still inheriting the spec-level `implementation.subject: pkg/gate`, and the last carrier
