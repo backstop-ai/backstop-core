@@ -2,13 +2,96 @@
 plan_id: PLAN-ISSUE-082
 spec_id: ISSUE-082
 created: "2026-08-15"
-status: draft
+status: completed
 target_repo: backstop-core
 target_module: github.com/backstop-ai/backstop-core
 test_command: "go test ./... -race -count=1"
 coverage_threshold: 90
 
 notes: |
+  ══ CLOSED 2026-08-15. THE REMOVAL SHIPPED IN d534e2a. ══════════════════════
+  All five claims CLM-001..CLM-005 are met. The as-built matches the plan below
+  with NO deltas — every task landed as written, including the three assertion
+  corrections the two prerequisite spec amendments prescribed.
+
+  WHAT LANDED (d534e2a, "feat(ISSUE-082): remove unreachable tool-allowlist
+  entries, correct doc claim") — 4 files, exactly the planned scope:
+    pkg/pack/engine/allowlist.go                   five entries + their comment
+                                                   blocks + the nosemgrep gone;
+                                                   doc comment narrowed to the
+                                                   Provision/lock-pin guarantee
+    pkg/pack/engine/allowlist_reachability_test.go NEW, +82 lines, both new
+                                                   falsifiers (its own file, per
+                                                   SPEC-038 Sharp Edge 16)
+    pkg/pack/engine/allowlist_grep_test.go         CLM-016 rename + rg dropped +
+                                                   file header corrected
+    cmd/backstop/bun_pack_engines_test.go          allowlist coupling removed,
+                                                   count RE-GROUNDED on
+                                                   len(m.Engines) != 5, all three
+                                                   overclaiming doc comments fixed
+
+  ── EVIDENCE, AS VERIFIED AT CLOSE BY AN INDEPENDENT IMPL-REVIEW ───────────
+  SUBSTANTIVENESS PROVEN BY REAL MUTATION, NOT BY INSPECTION. The reviewer ran
+  8 separate mutations across all five mandated tests — both new falsifiers and
+  the corrected pre-existing three — and every one produced the expected
+  failure. Notably it deliberately PLANTED a `// @waiver:` comment in
+  allowlist.go to prove TestAllowlist_FileCarriesNoSuppression genuinely closes
+  the second suppression mechanism a plan-reviewer specifically demanded be
+  closed. That is the one assertion in this lane that could have been vacuous
+  and was measured not to be.
+
+  ALL FIVE CLAIMS verified against real code, not against the plan's own prose.
+  DIFF-SCOPED GATE: PASS, exit 0, zero blocking violations.
+  gate --all: red on pack_engines / test_substantiveness / contract_signature —
+  and ZERO of those violations cite any file this plan touched. The reviewer
+  re-verified that independently rather than inheriting the implementer's claim,
+  which is the correct standard for a "pre-existing debt" assertion. TASK-005
+  predicted a removal's blast radius lives outside its own diff; it was checked,
+  and it is clean.
+  artifact_status_drift: PASS — no broken promise for either prerequisite spec
+  (SPEC-047 v1.2.1, SPEC-038 v1.2.2, both committed in 9394aeb ahead of the
+  implementation). The rename resolved; the two preserved bun test names
+  resolved. That dimension is precisely why this plan needed spec amendments
+  before it could exist, so its green is the load-bearing signal here.
+  Whole-repo `go test ./...` is clean.
+
+  ── ONE UNRELATED FAILURE FOUND AND FIXED SEPARATELY ───────────────────────
+  The reviewer surfaced a pre-existing, unrelated failure
+  (TestCIWorkflow_LeavesNoUngitignoredDroppings). It is NOT this plan's work and
+  was fixed on its own in cb08b06. Recorded here only so a future reader who
+  bisects across this range does not attribute it to the allowlist removal.
+
+  ── SURFACED, DELIBERATELY OUT OF SCOPE ────────────────────────────────────
+  (1) THE SAME OVERCLAIM SURVIVES IN THREE SIBLING FILES. This plan narrowed the
+  doc comment on TrustedToolAllowlist() itself and fixed the test-file comments
+  in its own file scope, but the identical "covers any pack-declared command"
+  framing still reads at:
+      cmd/backstop/pack_gate.go:42-44     resolveTrustedToolAllowlist doc comment
+                                          ("the trust floor every pack-declared
+                                          command's tool must satisfy")
+      cmd/backstop/recipe_apply.go:53-56  USER-FACING CLI help text ("the same
+                                          gate every pack-declared enforcement
+                                          command clears")
+      cmd/backstop/allowlist_test_helpers_test.go:44-45  ("A tool absent from
+                                          this map may not be run by any
+                                          pack-declared command")
+  The recipe_apply.go one is the sharpest — it is the only surviving instance a
+  USER reads, not just a maintainer. A separate issue-author dispatch is filing
+  these. They were correctly left out: they fall outside this plan's declared
+  file scope, and widening scope mid-flight to chase them would have been the
+  D-080 violation, not the fix.
+  (2) ISSUE-082 ITSELF STAYS `status: open`. This plan does not mandate closing
+  it, and the project's practice is a `## Resolution` section rather than forcing
+  a status flip where there is no further lineage to close against. FLAGGING, NOT
+  ACTING: the honest reading is that ISSUE-082 is NOT fully resolved yet — its
+  own Problem statement is about the allowlist's claim being untrue, and item (1)
+  above means three instances of that untrue claim, including a user-facing one,
+  are still in the tree. Closing the issue now would record a resolution wider
+  than what shipped. Recommend it stay open until the sibling-file sweep lands,
+  then close with a `## Resolution` naming both commits. That is a call for the
+  founder, not for this close-out.
+  ═══════════════════════════════════════════════════════════════════════════
+
   ══ PREREQUISITE LINEAGE — READ THIS BEFORE TOUCHING allowlist.go ═══════════
   This plan was BLOCKED when first scoped and is executable only because two
   specs were amended first, on 2026-08-15, by spec-author, at the founder's
