@@ -178,8 +178,38 @@ should make the schema/compiler boundary honest about what `kind: constant`
   two blocks" framing used earlier in this issue's References section was incidental, not the
   actual cause — worth correcting if that framing resurfaces elsewhere.)
 
-  Practical consequence: this dormant, pre-existing false-RED is currently blocking
-  PLAN-ISSUE-129 — an unrelated, pack-data-only fix — from reaching a clean gate. It only
-  surfaced now because PLAN-ISSUE-129's unrelated edit put this fixture file into diff scope.
-  An interim waiver citing ISSUE-053 is being applied to that specific violation elsewhere in
-  that plan's implementation, pending this issue's real fix.
+  Practical consequence: this dormant, pre-existing false-RED blocked PLAN-ISSUE-129 — an
+  unrelated, pack-data-only fix — from reaching a clean gate. It only surfaced because
+  PLAN-ISSUE-129's unrelated edit put this fixture file into diff scope.
+
+  **Correction (2026-08-16):** the sentence above this one, in the original 2026-08-16
+  annotation, claimed "an interim waiver citing ISSUE-053 is being applied to that specific
+  violation elsewhere in that plan's implementation, pending this issue's real fix." That never
+  actually happened. The PLAN-ISSUE-129 implementer tried exactly this, ran the real gate, and
+  found the `@waiver` token was never harvested: the violation still fired while
+  `waiver_resolution` reported clean/no-active-waivers. The cause is not the Line=0 or
+  absolute-path bugs noted below (those are real but moot here) — it's that `contract_signature`
+  is a STRUCTURAL dimension, deliberately excluded from `waivableDimension()`
+  (`pkg/gate/step_waiver.go:66-68`, "The waivable surface is EXACTLY pack_engines +
+  test_substantiveness") per SPEC-049 REQ-010's exhaustive waivable-surface matrix (spec lines
+  923-938). The same non-waivable-by-design treatment applies to `artifact_status_drift`,
+  `test_verification`, and `artifact_validation` (CLM-042/044/065), with a stated rationale
+  (BUNDLE-013 DD-11): structural dimensions already have first-class accountable lifecycles
+  (retire/replace/resolved-by/obsoleted), not inline waivers. This was never a coverage gap —
+  `CLM-043` → `TestGateWaiver_Scope_ContractSignatureNotWaivable`
+  (`pkg/gate/step_waiver_scope_test.go:48-54`) is an existing, passing, mandated test that
+  already asserts contract_signature findings survive waiver reconciliation. The implementer's
+  attempt rested on a wrong assumption about how to reach a "last resort," not a gap this issue
+  needs to close. The correct accountable path for a genuine contract_signature red, per
+  SPEC-049's matrix, is retire/replace/resolved-by/obsoleted on the artifact/spec side — not
+  `@waiver`. PLAN-ISSUE-129 (closed) correctly did NOT leave an inert waiver token in the repo
+  once this was discovered: the red is accepted and documented as a known, pre-existing residual
+  outside that plan's scope, not suppressed.
+
+  **Real, still-latent bugs found during this investigation (moot for contract_signature, since
+  it never reaches the waiver adjudicator, but worth recording for whichever waivable dimension
+  next needs Line/File handling):** `contract_verdict.go` never sets `Violation.Line` on a
+  contract_signature mismatch, and `Violation.File` stays absolute rather than
+  project-root-relative because `NormalizePath` is a no-op when called with an empty
+  `projectRoot`. Neither caused this false-RED and neither should be read as the reason
+  contract_signature is unwaivable — that reason is the structural-dimension exclusion above.
