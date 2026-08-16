@@ -153,3 +153,33 @@ should make the schema/compiler boundary honest about what `kind: constant`
   sits in the same gate-correctness cluster as ISSUE-036/037/038
 - CLAUDE.md — "don't force-fit a check onto an artifact it wasn't built to
   verify" / no-vacuous-green, no-false-pressure first principles
+
+## Additional evidence
+
+- **Confirmed live recurrence (2026-08-16), during PLAN-ISSUE-129's diff-scoped gate run.**
+  This is the exact re-audit the "Important nuance" section above called for — ISSUE-051 is
+  now `status: closed` (plan `completed`) and SPEC-042 is `status: implemented`, so the
+  re-audit trigger this issue already named is live, and this annotation *is* that re-audit.
+  This is no longer latent/exploratory: it is a **confirmed, blocking recurrence**.
+
+  The real false-RED: `contract_signature` reported `symbol go-coverage-rule signature not
+  found or mismatched … expected "rule id: go-coverage, engine: go-coverage, gate_type:
+  coverage"` against
+  `cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/pack.yml`. All
+  three facts the signature asserts are genuinely present in that file — the `go-coverage`
+  engine block (around line 65) and the `go-coverage` rule entry (around lines 136-137) — in a
+  structurally valid pack.yml, not a malformed or incomplete fixture.
+
+  Root cause confirmed directly (not inferred): `packs/contracts/scripts/compile-signature.sh`
+  is a Go-source-syntax compiler only. SPEC-042's signature string doesn't start with a Go
+  keyword, so the compiler falls through to its struct-field wrap path and emits a Go
+  `struct{...}` ast-grep pattern — a pattern that can never match a `.yml` file, independent of
+  whether the asserted facts are co-located or split across blocks. (Note: the "split across
+  two blocks" framing used earlier in this issue's References section was incidental, not the
+  actual cause — worth correcting if that framing resurfaces elsewhere.)
+
+  Practical consequence: this dormant, pre-existing false-RED is currently blocking
+  PLAN-ISSUE-129 — an unrelated, pack-data-only fix — from reaching a clean gate. It only
+  surfaced now because PLAN-ISSUE-129's unrelated edit put this fixture file into diff scope.
+  An interim waiver citing ISSUE-053 is being applied to that specific violation elsewhere in
+  that plan's implementation, pending this issue's real fix.

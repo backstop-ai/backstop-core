@@ -1,3 +1,4 @@
+- [E2E fixture already loud at HEAD](project_e2e_fixture_already_loud_at_head.md) — "observe the silent pass at HEAD" tasks must name the fixture field (nil/non-nil Provision etc.) that makes HEAD silent; an adjacent guard often refuses first → green-at-HEAD acceptance test
 - [Fail-loud consumption-path trace](project_fail_loud_consumption_path.md) — for ISSUE-003/005/008-family config-error plans, trace every executor-construction path, not just the guard site
 - [Retirement-claim scope](project_retirement_claim_scope.md) — "retire/replace X" claims must scope the file where X is DEFINED, not just the new call site; check test_command covers added test packages
 - [Dispatch consumer edges](project_dispatch_consumer_edges.md) — consumer-impl tasks must depends_on the impl of every symbol they import, not just their own test; validator misses this
@@ -22,3 +23,8 @@
 - [Pre-existing RED claim needs amendment node](project_preexisting_red_claim_needs_amendment_node.md) — claim red pre-work = founder blocker; demand an amendment node OR proof the spec already moved, then re-measure the amended predicate
 - [Captured-fixture source must exist](project_captured_fixture_source_must_exist.md) — verify each named fixture source exists AND has the asserted property; 'real X that never mentions Y' is often unobtainable and vacuous
 - [Contract signature-block drift](project_contract_signature_block_drift.md) — a signature/field change strands `signature:` in EVERY implemented spec contracts block naming it; grep specs/ for the symbol, not just the cited spec
+- [De-baking sweeps ALL specs](project_debake_literal_sweeps_all_specs.md) — removing a baked literal? grep specs/ corpus-wide for the LITERAL and for the SYMBOL; planners grep only the spec they think owns it
+- [New guard predicate: measure existing fixtures](project_new_guard_predicate_measure_existing_fixtures.md) — run the real engine over EVERY pre-existing fixture and evaluate the proposed guard on the measured counts; precision arguments miss legit inputs
+- [Injected-param call sites unfalsified](project_injected_param_callsite_unfalsified.md) — "every call site populates X" is not proven by walk/merge tests; demand a real-command test or it's a blocker
+- [Mandated-name premise needs spec status](project_mandated_name_premise_needs_spec_status.md) — "renaming this test reds status_drift" is false for `replaced` (excluded) and `draft` (not due) specs; only `implemented` enforces
+- [Traceability step can't report off-corpus](project_traceability_step_cannot_report_offcorpus.md) — refs whose citing path isn't in the NON-RECURSIVE status walk are dropped; "traceability reports no planted file" is a vacuous falsifier

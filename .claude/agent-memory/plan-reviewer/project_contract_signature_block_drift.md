@@ -17,10 +17,20 @@ contracts dimension checks declared-vs-real, and specs at `status: implemented` 
 ones it enforces (see [[project_gate_scoped_to_implemented]] in user memory). A plan
 adding a parameter or a field drifts them all at once.
 
+**The second axis planners miss: REQUIREMENT PROSE restates the same shape.** Grep the
+bare SYMBOL, not `name: <Symbol>` — a spec's REQ text can carry an exhaustive, unhedged
+struct literal (SPEC-043 REQ-001:59-60 `type Classification struct { Source []string;
+Test []string }`, restated again in its design section at :540-541) far from any
+contracts block. Same drift, not gate-enforced, and planners write "do NOT touch this
+spec's requirements" while their own mandated sweep returns the hit. A plan that
+mandates a corpus-wide sweep and then pre-dismisses one of its hits is contradicting
+itself — flag it. (PLAN-ISSUE-122 round 4: reconciled SPEC-043:301 and forbade :59-60.)
+
 **How to apply:** for every symbol whose signature the plan changes, run
-`grep -rn "name: <Symbol>" specs/` and check each hit — `provides:` entries carry a
-`signature:` and DO drift; `consumes:` entries carry only name/kind and do NOT. Verify
-each owning spec's `status:`. Then confirm the plan's spec-author reconciliation task
+`grep -rn "name: <Symbol>" specs/` AND `grep -rn "<Symbol>" specs/` — `provides:`
+entries carry a `signature:` and DO drift; `consumes:` entries carry only name/kind and
+do NOT; requirement/design prose restating the shape DOES drift. Verify each owning
+spec's `status:`. Then confirm the plan's spec-author reconciliation task
 names every drifted entry, not just the headline one. Related:
 [[project_signature_change_package_fanout]] (the test-file compile fanout of the same
 change) and [[project_repurposed_test_claim_text_drift]] (claim TEXT that still asserts
