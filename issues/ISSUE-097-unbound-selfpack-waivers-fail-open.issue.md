@@ -49,19 +49,60 @@ pass (2026-07-28). Measured status, independently confirmed here:
 
 - **STALE** — the rule-ID prefix (`backstop/self/...`) references a pack path
   that no longer exists in `backstop.lock` or `.backstop/packs/`.
-- **INERT** — the rule currently matches nothing at either waiver site.
-  `./bin/backstop gate --file cmd/backstop/pack_gate.go` and
-  `--file cmd/backstop/pack_gate_provision.go` both PASS with zero
-  `pack_engines` violations (re-run during authoring, 2026-07-28) — the same
-  conclusion implementer-020-final reached independently via a whole-self-pack-
-  ruleset semgrep run, two engines agreeing.
-- **FAIL-OPEN** — if a future rule change or code change ever makes
-  `no-structural-name-split-on-spine` match this code again, these two waivers
-  will NOT suppress the finding: `pkg/waiver.Adjudicate` only suppresses on an
-  EXACT rule-ID match (`pkg/waiver/adjudicate.go:124`), and the token's ID can
-  never equal a real finding's ID again. `backstop gate` would go red with no
-  warning that a waiver "should" have covered it — the two comments read as
-  live suppression but are decorative.
+- ~~**INERT** — the rule currently matches nothing at either waiver site.~~
+  **CORRECTED 2026-08-16 — this was false; see "Correction" below.** The
+  original `--file`-scoped measurement was confounded: under real directory
+  dispatch the rule DOES fire at both sites today.
+- **FAIL-OPEN, and not merely hypothetically** — `pkg/waiver.Adjudicate` only
+  suppresses on an EXACT rule-ID match (`pkg/waiver/adjudicate.go:124`), and
+  the token's pre-rename ID can never equal a real (post-rename) finding's ID
+  again. As corrected below, the underlying finding is not a future
+  possibility — it is produced RIGHT NOW under directory-scoped gate
+  dispatch (`gate --all`, or a bare `gate` on a stale/pre-fix binary), and
+  these two waivers do not suppress it. `backstop gate` goes red under that
+  dispatch shape with no warning that a waiver "should" have covered it — the
+  two comments read as live suppression but are decorative.
+
+### Correction (2026-08-16) — the original INERT measurement was confounded
+
+The original "INERT" claim above was based solely on
+`./bin/backstop gate --file cmd/backstop/pack_gate.go` and
+`--file cmd/backstop/pack_gate_provision.go` reporting zero `pack_engines`
+violations. That measurement is **not evidence the rule doesn't fire** — it
+is evidence of a *separate* defect: explicit-file (`--file`) dispatch is
+blind to this specific rule because the rule's `paths.include` glob is
+directory-prefixed, and explicit-file dispatch does not evaluate
+directory-scoped `paths.include` globs the way directory-scoped dispatch
+does. This is exactly PLAN-ISSUE-091's own documented "THIRD DIVERGENCE"
+defect (explicit-file dispatch missing directory-scoped rules that directory
+dispatch catches) — discovered independently during PLAN-ISSUE-091 review on
+2026-08-16, which is what surfaced this false premise here.
+
+Under directory-scoped dispatch (`gate --all`, or the pre-fix behavior a
+bare `gate` on cmd/backstop uses today) the rule **does** fire at both
+sites, verified first-hand tonight:
+
+1. A real semgrep 1.156.0 run directly against `cmd/backstop` (directory
+   target) produces exactly 2 findings, ruleId
+   `backstop.packs.backstop-ai.backstop-self.rules.no-structural-name-split-on-spine`.
+2. `runFindingsEngine` namespaces this via `pack.NamespacedRuleID` using the
+   pack's current, post-rename normalized name, producing the real finding
+   ID `backstop-ai/backstop-self/backstop.packs.backstop-ai.backstop-self.rules...`.
+3. Both `@waiver:` tokens key the pre-rename string
+   `backstop/self/backstop.packs.backstop.self.rules...` — this does not
+   match the finding's real ID.
+4. `pkg/waiver/adjudicate.go`'s exact-match adjudication therefore suppresses
+   NEITHER finding — they surface as live, unwaived violations under
+   directory-scoped gate dispatch right now, not merely in some future
+   scenario.
+
+The pre-rename/post-rename path-mismatch diagnosis in the rest of this
+Problem section (the "STALE" bullet, and the re-keyed-ID construction in
+Solution part (a)) was correct and stands unchanged — only the "therefore
+it's INERT" conclusion, which rested on the confounded `--file`-only
+measurement, was wrong. This also strengthens the acceptance criteria below:
+re-keying isn't merely defensive against a hypothetical future match, it
+fixes an active fail-open happening under `gate --all` today.
 
 ### Root cause of the detection gap — waiver harvest is finding-driven, not tree-driven
 
@@ -179,6 +220,14 @@ to see the token, unlike today's `Adjudicate`/`waiver list` path.
   blocking" detection fix is eventually built for solution part (b): the fix should surface
   regardless of gate scope, not just on a full sweep.
 
+- 2026-08-16: **Correction** to the entry above and to the original "INERT" claim in the Problem
+  section — see "Correction (2026-08-16)" under Problem for the full mechanism. Short version:
+  the original `gate --file` measurement was confounded by PLAN-ISSUE-091's THIRD DIVERGENCE
+  (explicit-file dispatch blind to this rule's directory-prefixed `paths.include`), not evidence
+  the rule doesn't fire. Under directory-scoped dispatch the rule fires at both sites and neither
+  waiver suppresses it — verified via a direct semgrep run plus tracing `runFindingsEngine`'s
+  namespacing through to the exact (non-matching) token strings.
+
 ## References
 
 - `cmd/backstop/pack_gate.go:888` — first stale waiver token
@@ -213,3 +262,7 @@ to see the token, unlike today's `Adjudicate`/`waiver list` path.
   tokens' notes
 - PLAN-ISSUE-020 (`plans/PLAN-ISSUE-020-linux-sandbox-gate-in-ci.plan.yml`),
   TASK-020 — the honesty pass that surfaced this defect
+- PLAN-ISSUE-091 — source of the "THIRD DIVERGENCE" defect (explicit-file
+  dispatch blind to directory-scoped `paths.include` rules) that explains why
+  the original `gate --file`-based INERT measurement in this issue was
+  confounded and false; discovered during its review on 2026-08-16
