@@ -245,8 +245,10 @@ func TestProvisioning_SubstantivenessInstalledViaDistributionPath_LocalOrGit_Dec
 		if entry.SourceCoordinate == "" {
 			t.Error("the lock entry carries no source_coordinate; without it a fresh clone cannot resolve where the pack came from")
 		}
-		if entry.GitRef == nil || *entry.GitRef != "v1.1.0" {
-			t.Errorf("lock entry git_ref = %v, want v1.1.0", entry.GitRef)
+		if entry.GitRef == nil {
+			t.Error("lock entry carries no git_ref; a remote install must record the tag it cloned")
+		} else if *entry.GitRef != "v1.1.0" {
+			t.Errorf("lock entry git_ref = %q, want %q", *entry.GitRef, "v1.1.0")
 		}
 		if entry.ContentHash == "" {
 			t.Error("the lock entry carries no content hash; there would be nothing for a later install to verify against")
