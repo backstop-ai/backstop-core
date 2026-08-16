@@ -1,7 +1,7 @@
 ---
 plan_id: PLAN-SPEC-037
 spec_id: SPEC-037
-spec_version: 1.2.1
+spec_version: 1.2.7
 created: "2026-06-22"
 status: draft
 target_module: pkg/gate
@@ -185,6 +185,70 @@ notes: |
   and would conflict; reference-and-reapply only. The wip was BLOCKED on the now-fixed substrate
   (multi-rule dispatch, sandboxed convert), and PREDATES the REQ-009/REQ-010 provisioning +
   capability-re-key + E2E delta, so those tasks are NEW work with no wip to reuse.
+
+  ===================================================================
+  CLM-031 AMENDMENT RECONCILIATION — THE SPEC EDIT AND THE TEST RENAME MOVE TOGETHER
+  (SPEC-037 v1.2.4 + v1.2.5 + v1.2.6; Phase 6a)
+  ===================================================================
+  THE SPEC HALF HAS ALREADY LANDED (v1.2.7, commit f9569df) AND THE TREE IS RIGHT NOW IN THE
+  HALF-LANDED STATE THIS PHASE EXISTS TO CLOSE: SPEC-037's CLM-031 already names the NEW mandated
+  test, and no Go function by that name exists yet. Phase 6a is the outstanding half. Until it
+  lands, SPEC-037 mandates a function that is not there — invisible today only because
+  ContractsAreDue filters a `draft` spec's tests out of test_verification and test_substantiveness
+  entirely (see TASK-552, which asserts the pairing by hand for exactly that reason).
+  Phases 1-6 above describe the ORIGINAL build, in which CLM-031 hard-required a LOCAL install
+  and TASK-460 therefore mandated the test name
+  TestProvisioning_SubstantivenessInstalledAsLocalPack_DeclaredAndLocked. Two later spec
+  revisions invalidated that name and that test body, and Phase 6a is where they are reconciled:
+
+    - v1.2.4 AMENDED CLM-031 (and REQ-009) to accept EITHER source type — a `local` install OR a
+      REMOTE (`git`) install carrying the source coordinate and tag. What is pinned is that the
+      pack is INSTALLED AND RESOLVABLE through the standard `pack add` distribution path, NOT
+      that its source is local. The mandated test's NAME ("AsLocalPack") and its BODY (a
+      t.TempDir() local add asserting SourceType == "local" and nothing else) now CONTRADICT the
+      claim they are supposed to falsify. v1.2.4 recorded the rename as owed follow-on work.
+    - v1.2.5 added `subject: cmd/backstop` to nine claims whose mandated tests live in
+      cmd/backstop rather than the spec-level `implementation.subject: pkg/gate`, and
+      DELIBERATELY LEFT CLM-031 OUT because it is coupled to this rename. CLM-031's mandated
+      test extracts the symbol set {add, distribution, filepath, os, strings, t} — no `gate`
+      reference — so the substantiveness subject join (gate.NoTargetViolationForTest over
+      testFileColocatedWithTarget) fails for it on BOTH available bases. The rename ALONE does
+      not clear that noTarget violation, and the `subject:` line alone does not make the name
+      honest. SPEC-037 cannot promote to `implemented` until BOTH land.
+    - v1.2.6 then gave CLM-035 the same `subject: cmd/backstop` as a PREVENTIVE hardening (its
+      join was passing only incidentally, on a `gate.`-qualified call inside the test body that a
+      refactor could remove), and restated that CLM-031 is now the SOLE remaining claim carrying
+      no `subject:`. Phase 6a is what closes that residue — there is nothing else left behind it.
+
+  WHY THE PAIRING MATTERS. A mandated test name lives in two places — the spec's claims[].tests
+  entry and the Go function itself — and the gate's test_verification resolves one against the
+  other the moment SPEC-037 flips to `implemented`. Either half alone leaves the spec naming a
+  function that does not exist (or a function no claim mandates), which is precisely the drift
+  class this repo blocks on. The precedent followed here is SPEC-038 v1.2.2 / PLAN-ISSUE-082
+  TASK-002: the spec-author amended the mandated name (TestAllowlist_GrepAndRgPresentPinned →
+  TestAllowlist_GrepPresentPinned) in a spec commit, and the plan's task carried the code-side
+  rename verbatim. This plan is the code side of that pair — the spec side is already committed,
+  so Phase 6a is not optional cleanup, it is the half that closes an open gap.
+
+  WHAT ALREADY LANDED IN SPEC-037 v1.2.7 (commit f9569df) — the delta Phase 6a is the counterpart
+  to, recorded here so the plan explains itself without requiring the reader to diff the spec
+  (three edits, no more):
+    (1) CLM-031 gained `subject: cmd/backstop`, for the same reason the other nine did: the units
+        it pins (the distribution path driven through cmd/backstop's own production add seam)
+        live in cmd/backstop, so colocation is the honest join basis.
+    (2) CLM-031's claims[].tests entry changed from
+        TestProvisioning_SubstantivenessInstalledAsLocalPack_DeclaredAndLocked to
+        TestProvisioning_SubstantivenessInstalledViaDistributionPath_LocalOrGit_DeclaredAndLocked.
+        The new name is derived from the amended claim text, not invented: "via distribution
+        path" is what v1.2.4 says is pinned, "LocalOrGit" is the claim's own EITHER/OR, and
+        "DeclaredAndLocked" is carried over unchanged because that half of the claim did not
+        move.
+    (3) A v1.2.7 Version History entry recording both, and closing out the v1.2.4/v1.2.5/v1.2.6
+        OPEN FOLLOW-ON and "residue unchanged" prose so the spec no longer describes the rename
+        as owed.
+  NOTHING ELSE IN SPEC-037 CHANGED. No requirement was reworded, no claim added or removed, no
+  other mandated name moved, and `status` stayed as it was — promotion is a separate decision,
+  and it stays blocked until Phase 6a supplies the function CLM-031 now names.
 
 phases:
   # ═══════════════════════════════════════════════════════════════════════
@@ -914,6 +978,14 @@ phases:
               proving the dogfood mechanism is the local provisioning path, not a remote fetch.
           Drives the REAL distribution.Add / VerifyLock path over the packs/substantiveness/ source
           (TASK-004) in a temp workspace.
+
+          [SUPERSEDED IN PART BY PHASE 6a — READ BEFORE IMPLEMENTING] The second name above is the
+          PRE-AMENDMENT one. SPEC-037 v1.2.4 loosened CLM-031 to accept either source type and
+          v1.2.5 left its `subject:` fix coupled to the rename, so the END-STATE mandated name is
+          TestProvisioning_SubstantivenessInstalledViaDistributionPath_LocalOrGit_DeclaredAndLocked
+          with a two-arm body (see notes CLM-031 AMENDMENT RECONCILIATION and Phase 6a). This task
+          is left as written because it is the historical record of what shipped; Phase 6a is where
+          the name and body are reconciled. CLM-030's test above is unaffected and does NOT move.
         files:
           - cmd/backstop/gate_substantiveness_provisioning_test.go
         claims:
@@ -1125,6 +1197,209 @@ phases:
           - TASK-501
 
   # ═══════════════════════════════════════════════════════════════════════
+  # Phase 6a: Reconcile CLM-031's mandated test to the v1.2.4 amendment (rename + both source types)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-6a
+    name: "Phase 6a: CLM-031 Amendment Reconciliation — Both Source Types, Then Rename (SPEC-037 v1.2.4/v1.2.5)"
+    description: |
+      Bring CLM-031's mandated test back into agreement with the claim it is supposed to falsify.
+      See notes CLM-031 AMENDMENT RECONCILIATION for the full why; the short version is that
+      v1.2.4 loosened CLM-031 from "installed as a LOCAL pack" to "installed and resolvable via
+      the standard distribution path, EITHER source type", and the test kept the old name and a
+      local-only body. The artifact half is ALREADY DONE — SPEC-037 v1.2.7 (commit f9569df) gave
+      CLM-031 `subject: cmd/backstop` and repointed its mandated test name — so this phase is the
+      outstanding code half, and until it lands the spec names a function that does not exist.
+
+      ORDERING MIRRORS THIS PLAN'S OWN STRANGLER SHAPE (Phase 4 proves, Phase 6 deletes): TASK-550
+      ADDS the missing git-source arm and proves it, TASK-551 then folds both arms into the single
+      renamed mandated function and deletes the superseded one. Adding-then-consolidating is what
+      keeps the new remote coverage observable on its own merits instead of arriving fused to a
+      rename, where a silently-broken git arm would be indistinguishable from a naming change.
+
+      SCOPE FENCE: this phase touches ONE file,
+      cmd/backstop/gate_substantiveness_provisioning_test.go, and changes NO production code. The
+      distribution path already supports both source types — backstop-core's own substantiveness
+      pack has installed remotely since commit 905120f — so there is nothing to implement, only
+      coverage to add and a name to correct. Phase 6a runs after Phase 5b's verification (TASK-463)
+      because it edits the file that phase produced.
+    tasks:
+      - id: TASK-550
+        type: test
+        title: "Add CLM-031's missing GIT-SOURCE arm under the amended mandated name (both source types)"
+        description: |
+          Write the amended CLM-031 test in cmd/backstop/gate_substantiveness_provisioning_test.go
+          under the END-STATE mandated name (SPEC-037 v1.2.7, prescribed in the notes):
+
+            TestProvisioning_SubstantivenessInstalledViaDistributionPath_LocalOrGit_DeclaredAndLocked
+
+          It carries TWO subtests, one per source type, because the amended claim is a DISJUNCTION
+          ("EITHER source type satisfies this") and a test that exercises only the local half
+          leaves the half the amendment was written for completely unfalsified. Both arms assert
+          the SAME three properties the claim names — backstop.yml DECLARES the pack, backstop.lock
+          carries a RESOLVABLE entry, VerifyLock PASSES — and then the source-type specifics:
+
+            t.Run("local-source", …) — the existing arm, PRESERVED IN SUBSTANCE. distribution.Add
+            over the packs/substantiveness/ source in a t.TempDir() project; lock entry SourceType
+            == "local"; VerifyLock passes WITHOUT a remote artifact (local packs are skipped).
+            TIGHTEN ONE ASSERTION WHILE MOVING IT: the current check is
+            `strings.Contains(yml, "local")` over the WHOLE backstop.yml, which passes on the word
+            "local" appearing anywhere in the file. Assert the declaration LINE for
+            backstop/substantiveness carries the local value instead — read updateBackstopYml
+            (pkg/pack/distribution/add.go) for the exact shape it writes rather than guessing at it.
+
+            t.Run("git-source", …) — NEW, and the whole point of this task. Publish
+            packs/substantiveness/ as a hermetic remote and install it BY GIT REF through the same
+            production seam. The harness already exists and MUST be reused rather than rebuilt:
+              - FIRST, FAIL LOUD IF GIT IS ABSENT — do NOT let the arm skip. The harness's own
+                requireGit (hermetic_remote_harness_test.go) calls t.Skip, and a SKIPPED t.Run
+                subtest leaves the PARENT test PASSING: the suite would report this mandated test
+                green with the git arm never having executed, which is the vacuous green this
+                whole spec exists to prevent. Guard with an explicit
+                `if _, err := exec.LookPath("git"); err != nil { t.Fatalf(…) }` BEFORE calling
+                newHermeticRemote, so the harness's t.Skip is unreachable. This is the same
+                posture TASK-461 takes on ast-grep (t.Fatal, NOT t.Skip) and for the same reason:
+                CLM-031 is a claim about the distribution path, and the distribution path IS git —
+                an environment without it cannot make a statement about this claim either way.
+              - Create the consumer project with newConsumerProject(t) (the harness helper), NOT a
+                bare t.TempDir(). updateBackstopYml (pkg/pack/distribution/add.go) READS
+                backstop.yml and returns the read error when it is missing, so an add into an
+                empty directory fails before it declares anything; the local arm gets past this
+                only because it writes a minimal backstop.yml itself. newConsumerProject writes
+                exactly that minimal file and is the harness's own answer to this.
+              - newHermeticRemote(t, <abs path to packs/substantiveness>, "v1.1.0") — the fixture
+                source is a plain tree (no .git), which is what the harness requires. v1.1.0 is the
+                manifest's own declared version; the harness rewrites pack.yml's version to the tag
+                anyway, so the two cannot drift.
+              - redirectPackURL(t, remoteE2EOrg, "substantiveness", remote.Path), then
+                assertPackURLRedirected(t, remoteE2EOrg, "substantiveness", remote) BEFORE any
+                other assertion. The redirect is keyed on the exact URL productionPackURL builds; a
+                mismatched pair does not fail, it MISSES, and the arm quietly reaches the network
+                and passes for the wrong reason. Proving the redirect landed is not optional
+                ceremony — it is what makes this arm hermetic.
+              - add.Run(remoteE2EOrg+"/substantiveness@1.1.0",
+                distribution.AddOptions{ProjectDir: <the newConsumerProject dir>}) over the SAME
+                newProductionAddCommand() the local arm uses. The in-process add path
+                inherits the test process env, so GIT_CONFIG_GLOBAL reaches the git child;
+                cmd/backstop/init_seams_test.go's TestInit_GitRefPackInstallLandsAsAPortableLockEntry
+                is the working precedent for exactly this combination.
+            Assert on the arm's lock entry: SourceType == "git", a NON-EMPTY SourceCoordinate, GitRef
+            == "v1.1.0", a NON-EMPTY ContentHash, and VerifyLock PASSING over the materialized
+            .backstop/packs tree. Read the lock OFF DISK (distribution.ReadLockfile) rather than
+            trusting the value Add returns — the committed lock is what REQ-009 is about.
+
+          SHARP EDGE — THE LOCK KEY IS THE MANIFEST NAME, NOT THE COORDINATE (SPEC-056). The
+          hermetic remote is served at <org>/substantiveness while packs/substantiveness/pack.yml
+          declares `name: backstop/substantiveness`. That divergence is DIAGNOSTIC, NOT A REFUSAL:
+          the add succeeds, reports the divergence loudly, and installs under the MANIFEST name —
+          so both arms look up the same lock key, "backstop/substantiveness". Do not "fix" the
+          divergence by renaming the fixture or the manifest, and do not expect the add to fail.
+          This mirrors production, where the real coordinate (backstop-ai/go-substantiveness)
+          already differs from the manifest name.
+
+          DO NOT TOUCH (verified in scope, flag if tempted): CLM-030's
+          TestProvisioning_SubstantivenessPackNotEmbeddedNorTestdata in this same file is
+          unaffected — v1.2.5 already gave CLM-030 its `subject: cmd/backstop` and its name and
+          body are honest. The E2E harness (cmd/backstop/gate_substantiveness_e2e.go) and the
+          CLM-032/033/034 tests stay LOCAL-sourced: v1.2.4 explicitly restated that a local source
+          remains the right choice for a hermetic E2E workspace, and broadening them is scope creep
+          against claims that were not amended.
+
+          RED-PROOF BEFORE MOVING ON: run this plan's test_command and observe the git-source arm
+          actually exercising a clone (the redirect assertion is the receipt). A remote arm that
+          was never observed doing real work is the same vacuous green this spec exists to prevent.
+        files:
+          - cmd/backstop/gate_substantiveness_provisioning_test.go
+        claims:
+          - CLM-031
+        depends_on:
+          - TASK-463
+        test_names:
+          - TestProvisioning_SubstantivenessInstalledViaDistributionPath_LocalOrGit_DeclaredAndLocked
+      - id: TASK-551
+        type: refactor
+        title: "Delete the superseded local-only test and reconcile the file's local-only framing"
+        description: |
+          With both arms proven under the new name, remove what they supersede.
+
+            (1) DELETE TestProvisioning_SubstantivenessInstalledAsLocalPack_DeclaredAndLocked and
+                its doc comment. Its local-source substance now lives in the "local-source" subtest;
+                leaving it would mean two functions asserting the same thing, one of them under a
+                name SPEC-037 v1.2.7 no longer mandates.
+            (2) CORRECT THE FILE-HEADER DOC COMMENT (top of
+                gate_substantiveness_provisioning_test.go), which currently reads that backstop-core
+                "dogfood-installs it into itself as a LOCAL pack … (declared `local` + locked,
+                VerifyLock passes without a remote artifact)". That is the pre-amendment claim
+                restated as fact; rewrite it to the amended one — installed and resolvable through
+                the standard distribution path, either source type. Leaving it makes the file
+                contradict the test directly beneath it, which is the same defect this phase exists
+                to close, one comment lower.
+            (3) PROVE THE OLD NAME SURVIVES NOWHERE IN CODE: grep the tree for
+                SubstantivenessInstalledAsLocalPack. The only surviving hits permitted after this
+                phase are HISTORICAL PROSE that is SUPPOSED to name it, and the enumeration is
+                exhaustive on purpose — anything outside it is a half-landed rename:
+                  - SPEC-037's Version History residue prose: the v1.2.4 OPEN FOLLOW-ON paragraph,
+                    the v1.2.5 "Known residue, deliberately NOT fixed here" paragraph, the v1.2.6
+                    "Residue unchanged" paragraph, and the new v1.2.7 entry recording the rename
+                    (which necessarily names both the old and the new function).
+                  - This plan's own prose: the notes section CLM-031 AMENDMENT RECONCILIATION, and
+                    TASK-460's historical record plus its [SUPERSEDED IN PART BY PHASE 6a] pointer.
+                  - Agent memory under .claude/agent-memory/ (spec-reviewer's SPEC-037 notes).
+                ANY hit in a .go file, and any hit in SPEC-037's claims[].tests, means the rename
+                is half-landed. Note that these permitted survivors are prose ABOUT the rename;
+                none of them is a live reference that resolves to a function.
+
+          THE SPEC HALF IS ALREADY COMMITTED (v1.2.7, f9569df) — DO NOT RE-EDIT IT. CLM-031 already
+          carries `subject: cmd/backstop` and already names the new test. Confirm that is still true
+          rather than changing it (TASK-552 asserts it mechanically), and if any of it is missing,
+          STOP and route the correction to a spec-author dispatch — never hand-edit the spec. The
+          rename in this task is what makes the already-committed spec text true; the subject line
+          without it leaves CLM-031's noTarget violation exactly where v1.2.5 found it.
+        files:
+          - cmd/backstop/gate_substantiveness_provisioning_test.go
+        claims:
+          - CLM-031
+        depends_on:
+          - TASK-550
+      - id: TASK-552
+        type: verification
+        title: "Verify the reconciled CLM-031 test AND that the spec half actually landed"
+        description: |
+          Run `backstop code check` over the diff scope to confirm cmd/backstop builds, lints clean,
+          and the reconciled provisioning test passes on BOTH arms: the local install declares +
+          locks + verifies, the git-source install lands a `git` lock entry carrying its coordinate
+          and tag and verifies against the materialized tree, and the superseded local-only function
+          is gone. Also confirms nothing else in the file regressed — CLM-030's not-embedded /
+          not-testdata test still passes untouched. Then run
+          `backstop artifact validate --spec SPEC-037 --plan PLAN-SPEC-037`.
+
+          NOW ASSERT THE PAIRING BY HAND, BECAUSE NO GATE DIMENSION CAN SEE IT. This is the one
+          check that must not be delegated to the kill chain, and the reason is specific: both
+          dimensions that would normally catch a spec/test mismatch — test_verification and
+          test_substantiveness — filter their inputs through ContractsAreDue, which admits only
+          `implemented` specs, and SPEC-037 is still `draft`. pkg/validate/spec.go has no
+          mandated-test-existence check either. So a HALF-LANDED rename passes the FULL gate
+          silently: green code check, green artifact validate, green Phase 7 — with SPEC-037 still
+          naming a function that no longer exists. That invisible-while-draft class is the exact
+          defect this entire fix chain traces back to (it is why v1.2.5's ten misjoined claims went
+          unnoticed for months), so this phase must not close by reproducing it. Confirm all three:
+            (a) SPEC-037's CLM-031 claims[].tests entry names
+                TestProvisioning_SubstantivenessInstalledViaDistributionPath_LocalOrGit_DeclaredAndLocked
+                and a Go function by exactly that name exists in cmd/backstop.
+            (b) NO .go file anywhere in the tree still names
+                SubstantivenessInstalledAsLocalPack (prose survivors are enumerated in TASK-551).
+            (c) SPEC-037's CLM-031 carries `subject: cmd/backstop`. Without it the rename is
+                cosmetic: the extracted symbol set is still {add, distribution, filepath, os,
+                strings, t} with no `gate`, so the noTarget violation v1.2.5 diagnosed survives a
+                perfectly-executed rename, and SPEC-037 still cannot promote.
+          Any of the three failing means the phase is NOT done, regardless of what the gate reports.
+        files:
+          - cmd/backstop/gate_substantiveness_provisioning_test.go
+        claims:
+          - CLM-031
+        depends_on:
+          - TASK-551
+
+  # ═══════════════════════════════════════════════════════════════════════
   # Phase 7: Final comprehensive verification (full gate + artifact validate)
   # ═══════════════════════════════════════════════════════════════════════
   - id: phase-7
@@ -1137,10 +1412,14 @@ phases:
       contracts) AND `backstop artifact validate`. Confirms all 37 claims hold end-to-end: the baked
       analyzer is gone, the pack path enforces (hollow RED / substantive GREEN, Go + TS), the
       set-join is gate-side and language-agnostic, the wiring is spy-proven, the substantiveness pack
-      is an INSTALLED local pack (not embedded / not testdata-as-production) gating backstop on
-      itself end-to-end with no vacuous green, the substantiveness-only capability re-key landed with
-      coverage/contracts unchanged, the strangler ran before the deletion, and the existing tests
-      (including the shipped SPEC-036 capability test) were migrated without dropping coverage.
+      is an INSTALLED pack resolvable through the standard distribution path from EITHER source type
+      (not embedded / not testdata-as-production) gating backstop on itself end-to-end with no
+      vacuous green, the substantiveness-only capability re-key landed with coverage/contracts
+      unchanged, the strangler ran before the deletion, and the existing tests (including the
+      shipped SPEC-036 capability test) were migrated without dropping coverage. It runs after
+      Phase 6a, so the CLM-031 provisioning test it gates is the reconciled two-arm one under its
+      amended mandated name, and the SPEC-037 text `artifact validate` reads is the v1.2.7 text
+      that names it.
     tasks:
       - id: TASK-600
         type: verification
@@ -1174,6 +1453,7 @@ phases:
           - TASK-463
           - TASK-501
           - TASK-502
+          - TASK-551
       - id: TASK-601
         type: verification
         title: "Run backstop artifact validate over the pack manifests and fixtures"
@@ -1197,3 +1477,4 @@ phases:
         depends_on:
           - TASK-463
           - TASK-501
+          - TASK-551
