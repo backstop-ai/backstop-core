@@ -4,7 +4,7 @@ number: SPEC-041
 created: "2026-06-24"
 status: implemented
 schema_version: spec/v1
-spec_version: 1.2.0
+spec_version: 1.3.0
 
 implementation:
   summary: >
@@ -38,8 +38,9 @@ implementation:
     the ENGINE PATH: build the `binding.exempt_from_scope_filter → gate.Violation.ProjectWide`
     bridge in cmd/backstop/pack_gate.go (it does NOT exist today — pack_gate.go:411 uses
     `ScopeKind` only for `./...`-arg-shaping and NEVER sets `ProjectWide`). The build-pass
-    exemption becomes "the go-build engine declares `exempt_from_scope_filter: true`";
-    golangci/go-test declare it false. CRITICALLY, the baked `cv.Pass == check.CheckTypeBuild`
+    exemption becomes "the go-build engine declares `exempt_from_scope_filter: true`"; the
+    go-test engine declares it true on the SAME whole-module reasoning (ISSUE-129), and
+    golangci declares it false. CRITICALLY, the baked `cv.Pass == check.CheckTypeBuild`
     setter at gate.go:1173 (`checkViolationsToGate`) is NOT edited in place — it is orphaned
     once SPEC-040 deletes its only caller `realCodeChecker`, so this spec REPLACES its
     behavior on the engine path and catalogs it DELETED. The exempt value is resolved
@@ -175,9 +176,13 @@ requirements:
       from `ScopeKind` (`ScopeKind` stays arg-shaping-only — it keeps appending
       `./...`/ProjectTarget); (b) in the engine dispatch, stamp each produced
       `gate.Violation.ProjectWide` from ITS PRODUCING binding's
-      `exempt_from_scope_filter` value. The go-build engine declares
-      `exempt_from_scope_filter: true`; golangci(lint) and go-test declare it FALSE (or
-      unset). It is PROHIBITED for `ProjectWide` to be decided by any `CheckType` enum
+      `exempt_from_scope_filter` value. The go-build AND go-test engines declare
+      `exempt_from_scope_filter: true` — a failing whole-module test, like a build break,
+      can legitimately originate from a change to a file the failing test does not live in,
+      so a diff-scoped gate MUST NOT discard it (ISSUE-129); golangci(lint) declares it
+      FALSE (or unset), and remains the project-wide-scope engine that proves the exempt
+      property is NOT derived from `ScopeKind`. It is PROHIBITED for `ProjectWide` to be
+      decided by any `CheckType` enum
       identity comparison. The exempt value MUST be resolved PER-VIOLATION (each
       violation carries its producing binding's value) and MUST NOT be aggregated to a
       gate-type level (see REQ-007).
@@ -320,7 +325,7 @@ claims:
   - id: CLM-011
     requirement: REQ-004
     subject: pkg/pack
-    text: The engine binding (pkg/pack/engine) gains an `exempt_from_scope_filter bool` property DECOUPLED from ScopeKind; the go-build engine declares it true, golangci(lint) and go-test declare it false/unset — asserted against the declared binding records
+    text: The engine binding (pkg/pack/engine) gains an `exempt_from_scope_filter bool` property DECOUPLED from ScopeKind; the go-build AND go-test engines declare it true while golangci(lint) declares it false/unset — asserted against the declared binding records, with golangci the non-exempt engine that holds the decoupling proof (all three share ScopeKindProjectWide yet their exempt values diverge)
     tests:
       - TestExemption_BindingDeclaresExemptFromScopeFilterDecoupledFromScopeKind
   - id: CLM-012
@@ -340,9 +345,9 @@ claims:
       - TestExemption_LintViolationUnchangedFileIsFiltered
   - id: CLM-015
     requirement: REQ-004
-    text: A go-test violation in an UNCHANGED file IS scope-filtered out of a diff-scoped gate through filterViolations — exempt_from_scope_filter is false for go-test, so ProjectWide is false and the unchanged-file violation is dropped
+    text: A go-test failure in an UNCHANGED file still REDs a diff-scoped gate END-TO-END through the engine path — exempt_from_scope_filter is true for go-test, so its violation arrives with ProjectWide set and SURVIVES filterViolations (pkg/gate/scope.go), exactly as a go-build break does; a whole-module test failure is never silently discarded because the failing test's file is outside the diff (ISSUE-129)
     tests:
-      - TestExemption_TestViolationUnchangedFileIsFiltered
+      - TestExemption_TestFailureUnchangedFileStillRedsDiffScoped
   - id: CLM-016
     requirement: REQ-004
     text: A findings (semgrep/ast-grep) violation in an UNCHANGED file IS scope-filtered out of a diff-scoped gate through filterViolations — exempt_from_scope_filter is false/unset for findings engines, so ProjectWide is false and the unchanged-file violation is dropped
@@ -351,7 +356,7 @@ claims:
   - id: CLM-017
     requirement: REQ-004
     subject: pkg/pack
-    text: ScopeKind stays arg-shaping-only and DECOUPLED — golangci/go-build/go-test all remain ScopeKindProjectWide (each still appends its ./... ProjectTarget) while ONLY go-build is exempt_from_scope_filter; the two properties are independent and a test asserts ScopeKind is not consulted for the ProjectWide decision
+    text: ScopeKind stays arg-shaping-only and DECOUPLED — golangci/go-build/go-test all remain ScopeKindProjectWide (each still appends its ./... ProjectTarget) while go-build and go-test are exempt_from_scope_filter and golangci is NOT; golangci is the project-wide-scope engine that carries the decoupling proof (one ScopeKind value maps to BOTH exempt and non-exempt bindings), and a test asserts ScopeKind is not consulted for the ProjectWide decision
     tests:
       - TestExemption_ScopeKindDecoupledFromExemptDecision
   # REQ-007 — per-violation exempt resolution + conflict tiebreak
@@ -434,7 +439,7 @@ contracts:
       - name: ExemptFromScopeFilter
         kind: variable
         signature: "ExemptFromScopeFilter bool"
-        notes: "NEW (REQ-004/CLM-011): an explicit declared property on EngineBinding, DECOUPLED from ScopeKind (which stays arg-shaping-only). When true, violations produced by this binding are exempt from diff-scope filtering (mapped to gate.Violation.ProjectWide on the engine path, C-1). The DefaultRegistry go-build entry declares it true; golangci and go-test declare it false/unset (CLM-017). It is the declared replacement for the deleted baked `cv.Pass == check.CheckTypeBuild` identity check."
+        notes: "NEW (REQ-004/CLM-011): an explicit declared property on EngineBinding, DECOUPLED from ScopeKind (which stays arg-shaping-only). When true, violations produced by this binding are exempt from diff-scope filtering (mapped to gate.Violation.ProjectWide on the engine path, C-1). The go-build and go-test engines declare it true; golangci declares it false/unset (CLM-017). It is the declared replacement for the deleted baked `cv.Pass == check.CheckTypeBuild` identity check."
     consumes: []
   - file: cmd/backstop/pack_gate.go
     provides:
@@ -517,7 +522,8 @@ Three deliverables, all from RDQ-6:
    `cmd/backstop/pack_gate.go`** — a bridge that **does not exist today** (pack_gate.go:411
    uses `ScopeKind` only to shape `./...` and never sets `ProjectWide`). The build-pass
    exemption is then simply "the go-build engine declares `exempt_from_scope_filter:
-   true`"; golangci(lint) and go-test declare it false. The exempt value is resolved
+   true`"; go-test declares it true on the same whole-module reasoning (ISSUE-129), and
+   golangci(lint) declares it false. The exempt value is resolved
    **per-violation** (each violation carries its producing binding's value), never
    aggregated. This is consistent with SPEC-035's tool-neutral gate-TYPE direction; no
    `CheckType` enum identity drives scope.
@@ -567,7 +573,7 @@ tracing to a BUNDLE-011 requirement via `supports`. Mapping:
 | REQ-001 | REQ-011 | Eradicate `pkg/gate/step_coverage.go`; re-implement coverage language-agnostic over the SPEC-040 toolchain test runner; no baked `go test` / Go-coverage parsing / go.mod knowledge survives. |
 | REQ-002 | REQ-011 | Eradicate the baked shared runner `cmd/backstop/shared_testrun.go` + its wiring; no baked shared `go test` runner survives. |
 | REQ-003 | REQ-011 | Coverage stays NON-vacuous at FILE granularity: a real per-FILE shortfall still REDs; per-changed-FILE enforcement (never rescued by aggregation — a low-coverage file hidden in a high-coverage directory still fails); an in-scope changed path with no record that is NOT pack-declared-excluded is a loud error, never a silent pass. |
-| REQ-004 | REQ-012 | Introduce the `exempt_from_scope_filter` engine-binding property (decoupled from `ScopeKind`) and build the `exempt_from_scope_filter → Violation.ProjectWide` bridge on the engine path (`pack_gate.go`); go-build declares it true, golangci/go-test false. NOT anchored to the soon-dead `checkViolationsToGate`/gate.go:1173. |
+| REQ-004 | REQ-012 | Introduce the `exempt_from_scope_filter` engine-binding property (decoupled from `ScopeKind`) and build the `exempt_from_scope_filter → Violation.ProjectWide` bridge on the engine path (`pack_gate.go`); go-build and go-test declare it true (whole-module reasoning, ISSUE-129), golangci false. NOT anchored to the soon-dead `checkViolationsToGate`/gate.go:1173. |
 | REQ-005 | REQ-013 | Produce the CheckType-consumer catalog scoped to GATE-SEMANTIC consumers (scope-filter/dispatch/verdict, excluding cosmetic `.Pass.String()` display): the new engine-path bridge (C-1), the genuinely-DELETED sites (C-2/C-3), and the SURVIVING `pkg/check` `CheckType` sites (C-4…C-8) with their real post-cutover role. |
 | REQ-006 | REQ-013 | The catalog is machine-enforced complete over a precisely-defined scan scope: a guard test FAILS on any keying site absent from the catalog AND any stale catalog entry. |
 | REQ-007 | REQ-012 | The exempt value is resolved per-violation (each violation carries its producing binding's value), never aggregated; in a true file+line+rule conflict with differing values the exempting (louder) value wins. |
@@ -595,7 +601,7 @@ the REQ-006 stale-entry guard reds.
 
 | # | Site | Keys on | Post-cutover source |
 | --- | --- | --- | --- |
-| C-1 | `cmd/backstop/pack_gate.go` (engine dispatch) — NEW `binding.exempt_from_scope_filter → gate.Violation.ProjectWide` stamp (REQ-004) | exempt property (per-binding) | **Declared engine property** — the SOLE live `ProjectWide` locus after the cutover. go-build declares `exempt_from_scope_filter: true`; golangci/go-test false. No `CheckType` identity. |
+| C-1 | `cmd/backstop/pack_gate.go` (engine dispatch) — NEW `binding.exempt_from_scope_filter → gate.Violation.ProjectWide` stamp (REQ-004) | exempt property (per-binding) | **Declared engine property** — the SOLE live `ProjectWide` locus after the cutover. go-build and go-test declare `exempt_from_scope_filter: true`; golangci false. No `CheckType` identity. |
 | C-2 | `cmd/backstop/gate.go:1173` `checkViolationsToGate` — `ProjectWide: cv.Pass == check.CheckTypeBuild` | build identity | **DELETED** — orphaned once `realCodeChecker` (its only caller) is deleted by SPEC-040. Its scope-filtering behavior is REPLACED by C-1 on the engine path, not edited in place. |
 | C-3 | `cmd/backstop/gate.go:~487` `newSharedTestRunner` + `realCodeChecker.sharedRunner` + `buildCoverageStep(..., sharedTest)` | test feed | **DELETED** (REQ-002): coverage's input becomes the declared toolchain test pass (REQ-001); the shared runner is eradicated. |
 | C-4 | `cmd/backstop/code_check.go:187,229` — `Pass: check.CheckTypeFindings` stamping | findings identity | **Findings pack engine** — findings already run through the pack engine (registry.go:310; registry.go:229 builds executors only for lint/build/test). Stamping persists; its source is the findings engine. |
@@ -656,7 +662,9 @@ steps the planner must map tasks to:
 5. **`exempt_from_scope_filter` property + engine-path ProjectWide bridge (REQ-004).**
    Add `ExemptFromScopeFilter bool` to the engine binding (`pkg/pack/engine/binding.go`),
    DECOUPLED from `ScopeKind` (which keeps driving `./...`-arg-shaping only). Declare it
-   `true` on the go-build engine, `false`/unset on golangci and go-test. In the engine
+   `true` on the go-build AND go-test engines (a whole-module test failure, like a build
+   break, can originate from a change to a file the failing test does not live in —
+   ISSUE-129), and `false`/unset on golangci. In the engine
    dispatch (`cmd/backstop/pack_gate.go`), stamp each produced `gate.Violation.ProjectWide`
    from ITS producing binding's `ExemptFromScopeFilter` value — this bridge does NOT exist
    today (pack_gate.go:411 reads `ScopeKind` only for arg-shaping and never sets
@@ -698,9 +706,9 @@ steps the planner must map tasks to:
 Claims (CLM-NNN) are enumerated in the `claims:` frontmatter, each mapping a REQ to
 mandated test names. Every requirement carries at least one passing and one failing/edge
 claim. The exempt matrix (REQ-004) covers all four engine classes end-to-end through
-`filterViolations`: go-build (`exempt_from_scope_filter: true` → ProjectWide → unchanged-
-file break still REDs) versus golangci/go-test/findings (`false` → unchanged-file
-violation filtered out), so no cell is untested. REQ-007 pins the per-violation resolution
+`filterViolations`: go-build and go-test (`exempt_from_scope_filter: true` → ProjectWide →
+an unchanged-file break/test failure still REDs) versus golangci/findings (`false` →
+unchanged-file violation filtered out), so no cell is untested. REQ-007 pins the per-violation resolution
 and the true-conflict tiebreak.
 
 ## Sharp Edges
@@ -757,15 +765,19 @@ and the true-conflict tiebreak.
    not exist today) and CLM-013 guards it END-TO-END through `filterViolations`: an
    unchanged-file build break must still RED a diff-scoped gate via the engine path.
 
-6. **The declared exempt must not over- or under-exempt.** Post-bridge, go-build is
-   exempt; golangci/go-test/findings are not. An over-broad property marking lint or test
-   exempt would leak out-of-scope violations into a diff-scoped gate; an under-broad one
-   dropping build's exemption would let real build breakage be scope-filtered away. The
-   matrix claims (CLM-013…CLM-016) pin all four through `filterViolations`, not just at the
-   stamp site. Note the live ScopeKind contradiction this resolves: golangci/go-build/
-   go-test are ALL `ScopeKindProjectWide` on `main` (binding.go:274/290/299) for
-   arg-shaping — `exempt_from_scope_filter` is DECOUPLED so ScopeKind stays project-wide
-   for all three while only go-build is filter-exempt (CLM-017).
+6. **The declared exempt must not over- or under-exempt.** Post-bridge, go-build and
+   go-test are exempt; golangci and findings are not. An over-broad property marking LINT
+   exempt would leak an out-of-scope severity gradient into a diff-scoped gate; an
+   under-broad one dropping build's OR test's exemption would let real breakage be
+   scope-filtered away (exactly the ISSUE-129 defect: a genuinely failing test outside the
+   diff silently discarded, so a diff-scoped PASS coexisted with a red suite). The line is
+   drawn on failure semantics, not gate type: a build break and a test failure are binary
+   "the code is broken" signals with no soft mode, while lint is a gradient. The matrix
+   claims (CLM-013…CLM-016) pin all four through `filterViolations`, not just at the stamp
+   site. Note the live ScopeKind contradiction this resolves: golangci/go-build/go-test are
+   ALL `ScopeKindProjectWide` for arg-shaping — `exempt_from_scope_filter` is DECOUPLED so
+   ScopeKind stays project-wide for all three while golangci alone stays non-exempt, which
+   is what keeps the decoupling observable after go-test flips (CLM-017).
 
 7. **Multiple build passes with differing exempt values must resolve per-violation.** Two
    toolchain bindings (e.g. across packages or stacks) can both produce "build" violations
@@ -804,10 +816,11 @@ These probe risks not fully pinned by claims; the impl-reviewer should verify ea
    `Violation.ProjectWide` from `binding.exempt_from_scope_filter`), and NOT merely an
    edit/assertion against `checkViolationsToGate`/gate.go:1173? The latter is orphaned by
    SPEC-040 and passes trivially. Confirm the bridge is exercised END-TO-END through
-   `filterViolations` (a go-build break in an UNCHANGED file still REDs a diff-scoped gate;
-   lint/test/findings violations in unchanged files ARE filtered) — not just asserted at
-   the stamp site. Confirm `ScopeKind` is unchanged (still project-wide for all three Go
-   engines) and decoupled from the exempt decision.
+   `filterViolations` (a go-build break AND a go-test failure in an UNCHANGED file each
+   still RED a diff-scoped gate; lint/findings violations in unchanged files ARE filtered)
+   — not just asserted at the stamp site. Confirm `ScopeKind` is unchanged (still
+   project-wide for all three Go engines) and decoupled from the exempt decision, with
+   golangci the non-exempt project-wide engine that keeps that decoupling observable.
 
 4. Is `exempt_from_scope_filter` resolved PER-VIOLATION (each violation carries its
    producing binding's value), with NO gate-type-level aggregation, and does the
@@ -850,6 +863,11 @@ These probe risks not fully pinned by claims; the impl-reviewer should verify ea
   this spec is where that baked coverage is finally eradicated.
 - SPEC-035 (pack-declared-engines-trusted-allowlist) — LANDED. The tool-neutral
   gate-TYPE direction REQ-004's declared-property exemption is consistent with.
+- ISSUE-129 (go-test engine scope-filtered cross-file) — the defect that inverted the
+  go-test exemption: a diff-scoped `backstop gate` (the default, and CI's only blocking
+  check) computed a real `go test` failure and then discarded it because the failing
+  test's file sat outside the diff. Founder-equivalent ruling: go-test declares
+  `exempt_from_scope_filter: true`, matching its go-build sibling.
 - Code (verified on `main` 2026-06-24): `pkg/gate/step_coverage.go` (baked Go coverage
   analyzer, KEPT by SPEC-038 REQ-009 — eradicated here); `cmd/backstop/shared_testrun.go`
   (`newSharedTestRunner` — eradicated here); `cmd/backstop/gate.go:~487`
@@ -872,6 +890,37 @@ These probe risks not fully pinned by claims; the impl-reviewer should verify ea
 
 ## Version History
 
+- **1.3.0** (2026-08-15) — **INVERTS the go-test exemption behavior per ISSUE-129**
+  (founder-equivalent ruling, recorded in PLAN-ISSUE-129). This is a real behavior-
+  description change, not an accuracy correction: the go-test findings engine now declares
+  `exempt_from_scope_filter: true`, matching its go-build sibling, on the whole-module
+  reasoning that a Go test failure — exactly like a build failure — can legitimately
+  originate from a change to a file the failing test does not live in. Under the old
+  declaration a genuinely failing test outside the current diff was computed and then
+  silently discarded by `filterViolations`, so a diff-scoped `backstop gate` (the default
+  invocation, and the only blocking check CI runs on a PR) could report PASS over a red
+  suite. Changes: **CLM-015** inverted — it asserted "a go-test violation in an UNCHANGED
+  file IS scope-filtered out ... exempt_from_scope_filter is false for go-test" and now
+  asserts the unchanged-file test failure SURVIVES `filterViolations` and REDs the
+  diff-scoped gate; its mandated test is renamed
+  `TestExemption_TestViolationUnchangedFileIsFiltered` →
+  `TestExemption_TestFailureUnchangedFileStillRedsDiffScoped`, chosen for exact structural
+  symmetry with the existing build-side twin
+  `TestExemption_BuildBreakUnchangedFileStillRedsDiffScoped` (CLM-013). **CLM-011** and
+  **CLM-017** — which prove `exempt_from_scope_filter` is an independent per-binding flag
+  and NOT derived from `scope_kind` — are RE-GROUNDED, not weakened: their proof was
+  "go-build exempt, go-test not, both `ScopeKindProjectWide`", and after the flip go-build
+  and go-test agree, so **golangci** (also `scope_kind: project-wide`, still non-exempt) is
+  now the pair-partner that holds the decoupling proof. The decoupling survives because one
+  ScopeKind value still maps to BOTH exempt and non-exempt bindings. The exempt matrix stays
+  complete over all four engine classes: go-build (CLM-013) and go-test (CLM-015) exempt and
+  surviving the filter, golangci (CLM-014) and findings (CLM-016) non-exempt and filtered.
+  REQ-004, the implementation summary, the REQ→bundle mapping table, catalog row C-1, the
+  `ExemptFromScopeFilter` contract note, Implementation pass 5, the Verification matrix
+  paragraph, Sharp Edge 6, and Review Question 3 are all aligned to match. Per this
+  project's spec-first convention (SPEC-038 v1.2.2 / SPEC-037 v1.2.7), this spec edit lands
+  as its own commit; PLAN-ISSUE-129's implementer carries the code-side rename and the pack
+  manifest change verbatim afterward. No test file is touched by this revision.
 - **1.2.0** (2026-07-06) — Marked the CheckType-consumer catalog claims `kind: absence` (the
   per-claim annotation added by ISSUE-035) to reflect their structural/catalog-scan nature and
   clear the `test_substantiveness` gate's noTarget ("does not call package gate") false-flag on
