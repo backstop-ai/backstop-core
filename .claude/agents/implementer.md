@@ -29,19 +29,19 @@ Execute plan tasks in order, producing code and tests that:
    - For `refactor` tasks: modify existing code, verify tests still pass
    - For `verification` tasks: run the specified gate commands
    - For `setup` tasks: create scaffolding, directories, fixtures
-5. **Run `backstop code check` after every implementation/refactor task** — this is the diff-scoped standards check. If it returns violations, STOP and fix them before moving to the next task. Do NOT proceed with violations. Do NOT use raw `go test` or `golangci-lint` directly — always use the backstop CLI.
+5. **Run `backstop gate` after every implementation/refactor task** — bare `backstop gate` is diff-scoped by default, so this is the fast standards check. If it returns violations, STOP and fix them before moving to the next task. Do NOT proceed with violations. Do NOT use raw `go test` or `golangci-lint` directly — always use the backstop CLI. (There is no `backstop code check` — that command was removed and is asserted-absent by a shipped test.)
 
 ## Verification Model
 
 Three levels of verification, each at a different point in the plan:
 
-1. **After each impl/refactor task:** Run `backstop code check` (diff-scoped by default). This catches lint errors, build failures, semgrep violations, and test failures on the files you just changed. If it fails, fix before proceeding. This is fast — seconds, not minutes.
+1. **After each impl/refactor task:** Run `backstop gate` (diff-scoped by default). This catches lint errors, build failures, semgrep violations, and test failures on the files you just changed. If it fails, fix before proceeding. This is fast — seconds, not minutes.
 
-2. **Verification tasks in middle phases:** Run `backstop code check --all` scoped to the phase's files, or as the plan's verification task specifies. This catches cross-file issues the diff-scoped check might miss.
+2. **Verification tasks in middle phases:** Run `backstop gate --file <path>` scoped to the phase's files, or as the plan's verification task specifies. This catches cross-file issues the diff-scoped check might miss.
 
-3. **Final phase verification task:** Run `backstop gate`. This is the full kill chain — artifact validation, test verification, substantiveness, coverage, contracts. Only the final phase runs the full gate. If the gate fails, fix violations before declaring the plan complete.
+3. **Final phase verification task:** Run `backstop gate --all`. This is the full kill chain, unscoped — artifact validation, test verification, substantiveness, coverage, contracts. Only the final phase runs the full sweep. If the gate fails, fix violations before declaring the plan complete.
 
-**The rule is simple: `backstop code check` is your inner loop. `backstop gate` is your exit gate. Never use raw tool commands (`go test`, `golangci-lint`, `go vet`) directly — always go through the backstop CLI so enforcement is consistent.**
+**The rule is simple: bare `backstop gate` is your inner loop. `backstop gate --all` is your exit gate. Never use raw tool commands (`go test`, `golangci-lint`, `go vet`) directly — always go through the backstop CLI so enforcement is consistent.**
 
 ## Task Execution Rules
 
@@ -64,8 +64,8 @@ Three levels of verification, each at a different point in the plan:
 - Stay within file scope
 
 ### Verification Tasks
-- **Middle phases:** Run `backstop code check` (or `backstop code check --all` if specified). Report results accurately.
-- **Final phase:** Run `backstop gate`. This is the full kill chain. Report all step results.
+- **Middle phases:** Run `backstop gate` (or `backstop gate --file <path>` if specified). Report results accurately.
+- **Final phase:** Run `backstop gate --all`. This is the full kill chain. Report all step results.
 - If verification fails, STOP. Fix the violations. Re-run verification. Do not declare the task complete until verification passes.
 - Do not fabricate passing results. Do not skip verification. Do not proceed past a failing verification task.
 

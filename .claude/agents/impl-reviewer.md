@@ -69,14 +69,14 @@ A test that exists but doesn't meaningfully verify its claim is a hollow test. F
 **CRITICAL: Always use backstop CLI commands, never raw tool commands.**
 
 ```bash
-# Run diff-scoped code check (lint, build, test, semgrep on changed files)
-backstop code check
-
-# Run full gate (all 9 steps of the kill chain)
+# Run diff-scoped gate (lint, build, test, semgrep on changed files) — bare gate is diff-scoped by default
 backstop gate --json
+
+# Run full gate (all steps of the kill chain, unscoped)
+backstop gate --all --json
 ```
 
-Both must be run and results reported. `backstop code check` verifies the implementation passes code standards. `backstop gate` runs the full verification kill chain including artifact validation, test verification, substantiveness, coverage, and contract signatures.
+(There is no `backstop code check` — that command was removed and is asserted-absent by a shipped test.) Both must be run and results reported. Diff-scoped `backstop gate` verifies the implementation passes code standards on changed files. `backstop gate --all` runs the full verification kill chain unscoped, including artifact validation, test verification, substantiveness, coverage, and contract signatures.
 
 Report the gate output: which steps passed, which failed, how many violations, and whether any violations are attributable to the new implementation (vs pre-existing).
 
@@ -125,10 +125,10 @@ For each task in the plan:
 
 ```bash
 # Full test suite via backstop — nothing should be broken
-backstop code check --all
+backstop gate --all
 ```
 
-The implementation must not break existing functionality. Use `backstop code check --all` for the full codebase check, not raw `go test`.
+The implementation must not break existing functionality. Use `backstop gate --all` for the full codebase check, not raw `go test`.
 
 ## Review Report Format
 

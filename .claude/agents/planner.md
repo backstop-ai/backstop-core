@@ -63,22 +63,22 @@ setup → test → implementation → verification
 
 ## Gate Cadence and Verification Commands
 
-**CRITICAL: All verification tasks must use backstop CLI commands, never raw tool commands.** Do not prescribe `go test`, `golangci-lint`, or `go vet` directly. Always use `backstop code check` or `backstop gate`.
+**CRITICAL: All verification tasks must use backstop CLI commands, never raw tool commands.** Do not prescribe `go test`, `golangci-lint`, or `go vet` directly. Always use `backstop gate` (there is no `backstop code check` — that command was removed and is asserted-absent by a shipped test; reaching for it produces an unexecutable task).
 
 ### Three verification levels:
 
-1. **Middle-phase verification tasks:** Use `backstop code check` (diff-scoped by default) or `backstop code check --all` for broader scope. This is the fast inner loop that catches lint, build, test, and semgrep violations.
+1. **Middle-phase verification tasks:** Use `backstop gate` (diff-scoped by default — the fast inner loop that catches lint, build, test, and semgrep violations) or `backstop gate --file <path>` to narrow to one file.
 
-2. **Final-phase verification tasks:** Use `backstop gate`. This is the full kill chain — artifact validation, code check, test verification, substantiveness, coverage, contracts. Only the final phase runs the full gate.
+2. **Final-phase verification tasks:** Use `backstop gate --all`. This is the full kill chain, unscoped — artifact validation, findings engines, test verification, substantiveness, coverage, contracts.
 
-3. **The implementer also runs `backstop code check` after every impl/refactor task** (this is in the implementer agent definition, not something the plan needs to specify — but the plan's verification tasks should NOT duplicate this by prescribing per-task checks).
+3. **The implementer also runs `backstop gate` after every impl/refactor task** (this is in the implementer agent definition, not something the plan needs to specify — but the plan's verification tasks should NOT duplicate this by prescribing per-task checks).
 
 ### Gate cadence rules:
 
 - Every phase with implementation OR refactor tasks must also contain at least one verification task
-- Middle-phase verification tasks prescribe: `backstop code check` or `backstop code check --all`
-- The final phase must contain comprehensive verification using `backstop gate`:
-  - If the plan touches `.go` files → final phase runs `backstop gate` (covers code verification)
+- Middle-phase verification tasks prescribe: `backstop gate` or `backstop gate --file <path>`
+- The final phase must contain comprehensive verification using `backstop gate --all`:
+  - If the plan touches `.go` files → final phase runs `backstop gate --all` (covers code verification)
   - If the plan touches artifact files (`.spec.md`, `.plan.yml`, etc.) → final phase also runs `backstop artifact validate`
 - Verification tasks must depend on at least one implementation or refactor task
 
