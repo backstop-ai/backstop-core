@@ -55,6 +55,20 @@ tests (`TestDispatch_UnstartableFindingsEngineFailsLoud`,
 `TestDispatch_UnstartableCoverageEngineFailsLoud`,
 `TestDispatch_UnstartableCoverageProducerFailsLoud`), all still passing.
 
+**Composition note (added 2026-08-16):** this issue's own Expected behavior (see Notes below)
+states "pack test/pack check fails loud, NAMING the broken command." PLAN-ISSUE-140 fully
+delivered the "fails loud" half of that criterion — `RunEngine` now returns a real error instead
+of a silent pass for a never-started engine, verified above. The "naming the broken command" half
+in OPERATOR-VISIBLE phase-3 output composes with a separate plan, PLAN-ISSUE-092's CLM-005, which
+renders the executor's error text into phase-3's reported output. As of this note, PLAN-ISSUE-092
+has not yet fully landed (its final phase is blocked on PLAN-ISSUE-141, in progress) — so an
+operator running `pack test`/`pack check` today may still see the failure without the command name
+populated in the visible message, even though the underlying fix (fail loud, not silently pass) is
+real and complete. This composition was correctly anticipated in PLAN-ISSUE-140's own design (its
+CLM-004 scoped narrowly to the executor-local error construction for exactly this reason) — this
+note exists so a future reader of ISSUE-140 alone, without cross-referencing the plan, isn't
+misled into thinking full operator-visible command-naming is live today.
+
 ## Problem
 
 `DefaultExecutor.RunEngine` (`pkg/packval/executor.go:62-97`, the command dispatch behind
