@@ -1,0 +1,1893 @@
+---
+plan_id: PLAN-ISSUE-091
+spec_id: ISSUE-091
+created: "2026-08-16"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./cmd/backstop/... -run \"TestIssue091|TestPackEngines_AllScope|TestPackEngines_DiffScope_RuleDirEngine\" -race"
+coverage_threshold: 80
+
+notes: |
+  ══ PREMISE RE-VERIFIED AT HEAD 1902644, 2026-08-16 — THE DEFECT IS LIVE ════
+  ONE HEAD CITATION GOVERNS THIS ENTIRE NOTES BLOCK: 1902644. Every
+  HEAD-dependent measurement below (Probe B, the argv counts, the gitignore
+  count, the THIRD DIVERGENCE, the existence-in-world grep) was taken there.
+  Probe A is scratch-tree-only and is HEAD-independent.
+
+  THE MEASUREMENT PREMISE, RESTATED AGAINST CURRENT REALITY (do not trust the
+  earlier "nothing but artifact commits have landed" phrasing — it was true when
+  written and is now false):
+    * A REAL CODE COMMIT HAS LANDED since 1902644 — PLAN-ISSUE-139's fix
+      (`pkg/initialize/sourceset_scan_test.go`, +235/-33). It is in a DIFFERENT
+      PACKAGE from every reading above, so the `cmd/backstop` numbers are
+      unaffected. It is named here so a re-reader does not have to decide
+      whether an unexplained code commit invalidates the probes.
+    * TWO FILES THIS PLAN MEASURES ARE MODIFIED IN THE WORKING TREE RIGHT NOW:
+      `cmd/backstop/pack_gate.go` (PLAN-ISSUE-140's in-flight work — it replaced
+      `runNeverStarted` with `check.NeverStarted` and shifted the file by ~112
+      lines) and `cmd/backstop/filemode_scoping_test.go` (PLAN-ISSUE-067's
+      in-flight work). CONSEQUENCE: every `pack_gate.go` LINE NUMBER anywhere in
+      this plan is a navigation hint that has already drifted at least once and
+      will drift again. LOCATE BY NAME, NEVER BY LINE — that discipline is
+      already stated for `gate.go` below and it applies with equal force to
+      `pack_gate.go` and to TASK-007's set-diff criterion.
+    * The SUBSTANCE of the readings was re-verified after those landings: real
+      semgrep 1.156.0, self-pack rules, directory dispatch on `cmd/backstop`
+      still yields exactly the two THIRD-DIVERGENCE rows, unsuppressed. Only
+      their line numbers moved.
+  ISSUE-091 was filed 2026-07-27. Tonight's DIR-032 batch (ISSUE-112/113/118/
+  122/129/130) touched `cmd/backstop/pack_gate.go` heavily, so the premise was
+  re-tested empirically rather than trusted. RESULT: the defect REPRODUCES
+  UNCHANGED. The scope-dispatch branch in `runFindingsEngine` is untouched by
+  tonight's work — none of those six issues altered the arg-shaping else-branch.
+
+  ── WHAT WAS MEASURED (real semgrep 1.156.0 on PATH, real installed pack rules) ──
+  Probe A — the mechanism, isolated in a scratch tree:
+    a `*_test.go` containing a rule violation, scanned two ways with the SAME
+    rule file:
+      directory target      -> 0 findings
+      explicit file target  -> 1 finding
+    `semgrep --verbose` names the cause outright:
+      "Skipped by .semgrepignore: root_test.go, sub/foo_test.go"
+
+  ── MEASUREMENT DISCIPLINE: EVERY COUNT CARRIES A PACK SET *AND* A LAYER ────
+  A bare count in this plan is not reproducible, and TWO independent axes make
+  one ambiguous. State BOTH, every time, everywhere — notes and tasks alike.
+
+    AXIS 1 — THE PACK SET. go-standards alone and the four semgrep packs yield
+    different numbers. Name which set produced the number.
+
+    AXIS 2 — THE MEASUREMENT LAYER. This is the axis that cost two full review
+    rounds, and it is the more dangerous of the two. THERE ARE THREE LAYERS, NOT
+    TWO — an earlier revision named only the first two and wrongly called the
+    second one "what the gate prints":
+      * LAYER 1 — RAW SARIF ROWS — every `results[]` entry semgrep's `--sarif`
+        formatter emits. This is NOT what the gate reports, and a predicted gate
+        reading must NEVER be stated in this layer.
+      * LAYER 2 — SUPPRESSION-FILTERED ("ACTIVE") ROWS — layer 1 minus the rows
+        `parseSarif` drops for carrying an in-source `nosemgrep` suppression.
+        This is what the FINDINGS ENGINE hands the gate. It is NOT yet the
+        gate's verdict.
+      * LAYER 3 — WAIVER-ADJUDICATED ROWS — layer 2 after `pkg/waiver.Adjudicate`
+        removes rows covered by a live, MATCHING `@waiver:` token (the swap at
+        `pkg/gate/gate.go`, locate the waiver-result assignment BY NAME). THIS
+        is what `backstop gate` actually prints and what its pass/fail verdict
+        is computed from. A predicted GATE reading belongs in this layer.
+
+    WHICH LAYER EVERY NUMBER IN THIS PLAN IS MEASURED AT, stated once so no task
+    has to re-derive it: every count in the notes and in every task is LAYER 2
+    unless the line explicitly says RAW. For THIS plan's file scope, LAYER 2 AND
+    LAYER 3 ARE EQUAL — verified, not assumed, and the verification is worth
+    reading because the obvious guess is wrong:
+
+      The only `@waiver:` tokens anywhere near this plan's measured rows are the
+      two sitting one line above the THIRD DIVERGENCE findings — on `splitCommand`
+      in `cmd/backstop/pack_gate.go` and on `engineToolName` in
+      `cmd/backstop/pack_gate_provision.go` (locate BY FUNCTION NAME; both files
+      are being edited by other lanes). Both key the rule id
+      `backstop/self/backstop.packs.backstop.self.rules.no-structural-name-split-on-spine`.
+      THEY DO NOT SUPPRESS ANYTHING. That prefix is the PRE-RENAME pack path.
+      The installed pack is `backstop-ai/backstop-self`, and a real finding from
+      it carries `backstop-ai/backstop-self/backstop.packs.backstop-ai.
+      backstop-self.rules.no-structural-name-split-on-spine` — semgrep's own
+      emitted `ruleId` (confirmed by running the pack's rule file against
+      `cmd/backstop` directly) namespaced by `pack.NamespacedRuleID(manifest.
+      NormalizedName, ...)` in `runFindingsEngine`. `Adjudicate` suppresses ONLY
+      on an EXACT rule-id string match (locate the "Exact rule-id match" comment
+      in `pkg/waiver/adjudicate.go`); a non-matching token suppresses nothing and
+      is classified `Unused` instead. This is the already-filed ISSUE-097
+      ("Unbound Selfpack Waivers Fail Open"), which named these exact two tokens.
+      SO: the two THIRD-DIVERGENCE rows ARE printed by `gate --all` today, at
+      layer 3, and every "8 active rows" figure in this plan is simultaneously a
+      layer-2 and a layer-3 figure.
+
+      COROLLARY WORTH KNOWING BEFORE YOU READ ISSUE-097: that issue calls both
+      tokens "INERT — the rule currently matches nothing at either waiver site,"
+      measured via `gate --file <path>`. THAT MEASUREMENT WAS CONFOUNDED by the
+      very defect this plan documents. `--file` is explicit-file dispatch, the
+      exact shape the THIRD DIVERGENCE proves is blind to this rule. Under
+      directory dispatch the rule fires at both sites. The tokens are not inert;
+      they are FAILING OPEN RIGHT NOW on the `--all` path. TASK-006 records this.
+
+    LAYERS 1 AND 2 DIVERGE BY CONSTRUCTION, and the mechanism is shipped behavior, not
+    an accident. semgrep's `--sarif` formatter EMITS `nosemgrep`-suppressed
+    findings as results carrying `suppressions: [{"kind":"inSource"}]` rather
+    than dropping them — UNLIKE `--json`, which drops them outright. The two
+    formatters disagree, and backstop uses `--sarif`. `parseSarif` in
+    `pkg/check/parsers.go` (locate the `len(r.Suppressions) > 0` guard BY NAME,
+    not by line) then SKIPS every result carrying a suppression — the shipped
+    ISSUE-017 mechanism, and `parseSarif` is the exact parser `runFindingsEngine`
+    feeds through `check.ParsePackFindings`. So a RAW row count OVERSTATES the
+    gate's output by exactly the number of live `// nosemgrep` annotations in
+    scope. Both halves VERIFIED at HEAD: the parser read directly, and a real
+    semgrep run whose suppressed rows were dumped and counted.
+    EVERY COUNT BELOW AND IN EVERY TASK IS LAYER 2 (ACTIVE) unless the line
+    explicitly says RAW — and per the verification above, for this plan's scope
+    that number is also the LAYER 3 (gate-printed) number.
+
+  Probe B — the real repo, real INSTALLED pack rules, `cmd/backstop` subtree.
+  RE-MEASURED FROM SCRATCH at HEAD 1902644 (2026-08-16) during plan revision,
+  semgrep 1.156.0, with BOTH layers computed side by side from the same SARIF.
+
+    B1 — go-standards ALONE (`--config` on its three rule files: rules/core/
+    go-core.yml, rules/test/go-test.yml, rules/security/go-security.yml):
+        ACTIVE  directory target `cmd/backstop`      -> 6 findings
+        ACTIVE  explicit file list (testdata pruned) -> 7 findings
+        (RAW, recorded ONLY so a re-measurement can cross-check its own
+         plumbing: 9 and 11. THE SUPPRESSED-ROW COUNT IS PER RUN, NOT SHARED:
+         3 suppressed rows separate the directory count (9 raw -> 6 active),
+         4 separate the explicit-file count (11 raw -> 7 active). The fourth
+         is `hermetic_fixtures_test.go:33` — visible only under explicit-file
+         dispatch, and the very row the RETRACTED section below exists to
+         explain (it is a WORKING suppression, not a broken annotation).
+         Do NOT quote the raw pair as a gate expectation anywhere.)
+      MISSED BY THE DIRECTORY SHAPE — 4 ACTIVE rows, all
+      `go.core.no-global-mutable-state` on `*_test.go`:
+        allowlist_test_helpers_test.go:142
+        cutover_noregress_test.go:138
+        gate_transitional_seams_test.go:102
+        strangler_guard_test.go:18
+      REPORTED ONLY BY THE DIRECTORY SHAPE — 3 ACTIVE rows, all inside
+      `testdata/`:
+        go.security.no-hardcoded-credentials @ testdata/dogfood_enforcement/known_bad.go:11
+        go.core.no-panic-in-library-code    @ testdata/semgrep/fixtures/capture/sample.go:7
+        go.core.no-panic-in-library-code    @ testdata/severity-policy-ab/capture/sample.go:7
+      NET, go-standards alone, ACTIVE layer: +4 gained, -3 lost = +1 (6 -> 7).
+
+    B2 — ALL FOUR SEMGREP-ENGINE PACKS installed (backstop-self, ci-workflows,
+    cobra-cli-standards, go-standards; the other four installed packs —
+    backstop-core-architecture, go-contracts, go-substantiveness, go-toolchain —
+    declare go-arch-lint / ast-grep / grep / native-toolchain engines and do not
+    participate in a semgrep measurement):
+        ACTIVE  directory target                     -> 8 findings
+        ACTIVE  explicit file list (testdata pruned) -> 8 findings
+        (RAW, cross-check only: 11 and 14. PER-RUN suppressed-row counts:
+         3 for the directory run (11 raw -> 8 active), 6 for the explicit-file
+         run (14 raw -> 8 active). These are two separate per-run counts, NOT
+         one shared set of six — the de-duplicated union across both runs
+         happens to be 6, which is why an earlier phrasing collapsed them.)
+      MISSED BY THE DIRECTORY SHAPE — 5 ACTIVE rows: the four B1 rows PLUS one
+      `no-baked-tool-exec` row from backstop-self, also on a `*_test.go`:
+        pack_authoring_loop_test.go:18
+      REPORTED ONLY BY THE DIRECTORY SHAPE — 5 ACTIVE rows: the three
+      `testdata/` rows from B1, PLUS the two THIRD-DIVERGENCE rows:
+        no-structural-name-split-on-spine @ cmd/backstop/pack_gate.go, on the
+          `strings.Fields` call inside `splitCommand` (IDENTIFY BY FUNCTION
+          NAME — this file is under concurrent edit and the line has already
+          moved once mid-review)
+        no-structural-name-split-on-spine @ cmd/backstop/pack_gate_provision.go,
+          on the `strings.Fields` call inside `engineToolName`
+      NET, four packs, ACTIVE layer: +5 gained, -5 lost = ZERO. Eight active
+      rows before the fix, eight after. THIS NET-ZERO IS THE MOST MISREADABLE
+      NUMBER IN THIS PLAN — TASK-007 states it explicitly so an implementer who
+      sees an unchanged count of 8 does not conclude the fix silently failed.
+      AN UNCHANGED TOTAL IS NOT AN UNCHANGED SET. The under-report is real and
+      is NOT one rule's quirk — it is every rule the engine's default ignore set
+      hides, across packs; the count merely happens to be offset by the
+      deliberate `testdata/` pruning and the third divergence.
+
+  ── RETRACTED: THE "BROKEN nosemgrep ANNOTATION" FINDING WAS FALSE ──────────
+  An earlier revision of this plan claimed `cmd/backstop/hermetic_fixtures_test
+  .go:33` carries a `// nosemgrep: go.core.no-global-mutable-state` annotation
+  that "DOES NOT SUPPRESS", blamed "prose trailing the rule id" as the cause,
+  and instructed the implementer to REPORT the annotation as broken and to count
+  it as a fifth newly-appearing row. ALL OF THAT IS WITHDRAWN.
+
+  It was a LAYER ERROR, exactly the class the discipline note above now guards.
+  The row IS present in the raw explicit-scope SARIF — but it carries
+  `suppressions: [{"kind":"inSource"}]`. semgrep DOES suppress it, `parseSarif`
+  DOES drop it, and the gate never reports it. THE ANNOTATION WORKS.
+
+  The stated CAUSE is independently false as well, falsified directly at HEAD in
+  a scratch tree: a `// nosemgrep: <rule-id> — <em-dash prose>` annotation and a
+  BARE `// nosemgrep` with no rule id and no prose at all BOTH emit
+  `suppressions: [{"kind":"inSource"}]`, while an unannotated sibling on the next
+  line emits none. Trailing prose does not break the annotation.
+
+  THE SAME RETRACTION covers two further rows an earlier revision predicted would
+  newly appear and which WILL NOT: `version_test.go:238` and `version_test.go:264`
+  (backstop-self `no-baked-tool-exec`) are likewise genuinely suppressed. That is
+  why B2's miss list names ONE backstop-self row, not three.
+
+  There is nothing broken here to repair and nothing to report. Do not chase it.
+
+  ── THE ISSUE'S DIAGNOSIS IS REFINED, NOT OVERTURNED ────────────────────────
+  The issue hypothesized that semgrep's `paths.include` GLOB RESOLUTION differs
+  between directory-walk and explicit-file dispatch. That is NOT the mechanism.
+  Falsified directly: a rule with NO `paths:` block at all still yields 0 under a
+  directory target and 1 under an explicit file target. The real cause is the
+  engine's DEFAULT IGNORE FILE — semgrep ships a built-in `.semgrepignore` that
+  excludes test files, and it applies that ignore set ONLY when discovering files
+  itself (directory walk). An explicitly-named target bypasses it. The include
+  glob is a red herring; the ignore-set asymmetry is the defect.
+
+  This REFINEMENT MATTERS for the fix. A glob problem would be the pack's to fix
+  (rewrite `paths.include`). An engine-default-ignore problem is BACKSTOP's,
+  because it is a property of WHICH DISPATCH SHAPE backstop chooses — and no pack
+  can opt out of a directory target backstop hands it.
+
+  ── THE ISSUE'S NAMED FALSIFIER IS RETIRED; A CURRENT ONE REPLACES IT ───────
+  The issue's concrete falsifier was `cmd/backstop/artifact_new_test.go`'s five
+  `code, _ :=` sites under `go.core.no-ignored-errors`. That rule has since
+  gained `paths: exclude: ["*_test.go"]` in go-standards, so it now fires on
+  NEITHER scope and can no longer falsify anything. The plan does NOT chase it.
+  Probe B's `go.core.no-global-mutable-state` hits are the live replacement, and
+  TASK-002 pins a self-contained fixture rather than repo content so the proof
+  cannot rot the same way.
+
+  ── SECOND DIVERGENCE, FOUND WHILE VERIFYING (founder-visible) ──────────────
+  ISSUE-091 names only the UNDER-report. The measurement surfaced an equal-and-
+  opposite OVER-report: `--all` reports planted fixture violations inside
+  `testdata/`, which the diff-scoped path deliberately suppresses (ISSUE-040,
+  `excludeTestdataPaths`, applied only in the diff branch today). Both halves have
+  ONE cause — two dispatch shapes — and ONE cure. Fixing the under-report without
+  the over-report would mean keeping two code paths, which is what produced the
+  divergence in the first place. So this plan cures both, and TASK-006 makes the
+  behavior change explicit rather than letting it land silently.
+
+  ── THIRD DIVERGENCE, FOUND DURING REVISION — A LOSS, NOT A GAIN ────────────
+  Measured at HEAD 1902644 while re-running Probe B and RE-CONFIRMED against the
+  current working tree. Both rows survive ALL THREE layers — no `nosemgrep`
+  suppression, and no MATCHING waiver (see the layer-3 verification under AXIS 2:
+  the `@waiver:` tokens sitting directly above both findings key a pre-rename
+  pack path and suppress nothing). Both are genuinely printed by `gate --all`
+  today. `--all` reports TWO rows that the explicit-file shape does NOT report,
+  and they are NOT inside `testdata/`:
+      backstop-self no-structural-name-split-on-spine
+        @ cmd/backstop/pack_gate.go, `strings.Fields` inside `splitCommand`
+      backstop-self no-structural-name-split-on-spine
+        @ cmd/backstop/pack_gate_provision.go, `strings.Fields` inside
+          `engineToolName`
+  (LOCATE BOTH BY FUNCTION NAME. Line numbers are deliberately omitted: these
+  two files are under concurrent edit by other lanes and the `pack_gate.go`
+  address has already drifted by ~112 lines once during this plan's review.)
+  Cause, isolated: that rule carries a `paths.include:` list of repo-relative
+  directory-prefixed globs (`cmd/backstop/pack_gate*.go`, `pkg/gate/*.go`, ...).
+  Handed a DIRECTORY target the rule fires; handed the SAME file explicitly it
+  does not — reproduced with the file passed alone, and with targets spanning two
+  top-level directories, so it is not a common-root artifact. Whatever semgrep's
+  internal path-resolution rule is, the observable contract is: a `paths.include`
+  glob naming a directory prefix is satisfied under directory dispatch and
+  unsatisfied under explicit-file dispatch.
+
+  FOUR CONSEQUENCES, none of which change this plan's fix:
+    1. The DIFF-SCOPED gate ALREADY has this blind spot today — it has always
+       dispatched explicit files. `no-structural-name-split-on-spine` is, in
+       practice, dead on the diff-scoped path right now. That is a PRE-EXISTING
+       defect this plan did not create and does not fix.
+    2. This plan's fix EXTENDS that blindness to `--all`, costing 2 currently-
+       reported ACTIVE rows in `cmd/backstop` alone (four-pack set). The
+       implementer WILL see them disappear from `gate --all` and must not read
+       that as a mistake. These two losses are half of why B2's net is zero.
+    3. It does NOT falsify CLM-008. CLM-008 asserts all-scope and file-scope
+       agree OVER THE SAME FILES — which this makes MORE true, not less. What it
+       falsifies is the looser reading that `--all` only ever gains rows. It
+       does not: it gains many and loses these two.
+    4. IT SILENCES THE ONE SIGNAL THAT THE TWO STALE WAIVER TOKENS ARE DEAD.
+       This is a SECOND gate-output change from the same two rows, in a DIFFERENT
+       dimension (`waiver_resolution`), and it moves the OPPOSITE way from what a
+       first reading suggests — so read it carefully.
+       Today, under `--all`: each finding lands one line BELOW its `@waiver:`
+       token, so `harvestWindow` (window = finding line + the line above) DOES
+       read both tokens. Their rule-ids do not match the finding's, so
+       `Adjudicate` files them under `Unused`, and `waiverReason`
+       (`pkg/gate/step_waiver.go`) renders them in the "N unused/dangling"
+       clause. That clause is presently the ONLY place in the whole system where
+       these two dead tokens are visible.
+       After this fix: the rule goes blind under explicit-file dispatch, so NO
+       finding lands in either window, so `Adjudicate` never harvests the tokens
+       at all — and a token that was never harvested cannot even reach the
+       `Unused` bucket. The unused/dangling count attributable to them goes from
+       2 to 0, and both tokens become architecturally invisible: exactly the
+       fail-open end state ISSUE-097 describes.
+       THE IMPLEMENTER MUST NOT READ THAT AS AN IMPROVEMENT. A dangling-waiver
+       count dropping to zero because the evidence disappeared is a LOSS of
+       honesty, not a cleanup. Do NOT delete, re-key, or "fix" the two tokens as
+       part of this plan — re-keying is ISSUE-097's owned work and doing it here
+       would silently absorb the very signal TASK-006 is filing. TASK-007
+       instructs a before/after reading of the `waiver_resolution` dimension so
+       this prediction is checked rather than assumed, and TASK-006 appends it to
+       ISSUE-097 as evidence.
+  The correct disposition is to SURFACE it, not absorb it. Do NOT add path
+  rewriting, an `--include`-style flag, or a directory-target fallback to win
+  those rows back — that re-introduces the two-code-paths disease this plan
+  exists to cure, and it is a PACK-CONTRACT question (how a pack expresses path
+  scoping so it survives BOTH dispatch shapes) belonging in its own issue.
+  TASK-006 files it.
+
+  ── runFindingsEngine HAS THREE PRODUCTION CONSUMERS, TWO OF THEM AFFECTED ──
+  All three reach it through `resolveDispatchPackEngines()`. Enumerated at HEAD
+  so the implementer does not verify only the obvious one. EVERY `gate.go` LINE
+  NUMBER BELOW IS A NAVIGATION HINT, NOT AN ADDRESS — that file has been edited
+  by many agents tonight and its numbers move constantly. Locate each consumer
+  by the NAME given alongside it (`buildTestSubstantivenessStep`, the
+  `resolveDispatchPackEngines()` call inside the `pack_engines` step, the
+  contract engine's own `GateScopeModeFile` construction) and treat a mismatched
+  line as expected drift, not as a discrepancy worth reporting:
+
+    1. THE pack_engines STEP — `cmd/backstop/gate.go:978`, passing `activeScope`.
+       The obvious consumer, and the one the Probe B numbers above describe.
+       AFFECTED.
+
+    2. THE test_substantiveness STEP — `buildTestSubstantivenessStep`, wired at
+       `cmd/backstop/gate.go:829` with the SAME `activeScope`, dispatching at
+       `gate.go:1292`. ALSO AFFECTED, and easy to miss. The installed
+       `backstop-ai/go-substantiveness` pack declares `scope_kind: file-args`,
+       so it takes the very else-branch this plan collapses. Its engine is
+       ast-grep, which has no `.semgrepignore`-equivalent test-file default — so
+       the UNDER-report half does not apply to it. But the TESTDATA-PRUNING half
+       is NEW to it: under `--all` its dispatch flips from a bare `projectRoot`
+       to the explicit repo-wide file list AND newly acquires
+       `excludeTestdataPaths`, which drops `pkg/gate/testdata/substantiveness-
+       pack/fixtures/**` and every other testdata path from its own scan.
+       EXPECTED-GOOD: substantiveness violations unchanged or fewer, because the
+       pruned paths are inert fixtures that were never mandated tests and whose
+       hollow-test findings the mandated-test set-join discards anyway.
+       STOP-AND-REPORT: any substantiveness violation that APPEARS where none
+       was before, or any real mandated test that stops being evaluated — either
+       would mean the pruning reached live test files, which it must not.
+       NOTE the substantiveness E2E (`gate_substantiveness_e2e.go`, its
+       `runProductionSubstantivenessStep`) passes `nil`, not an all-scope, so it
+       rides the preserved nil branch and must stay green untouched.
+
+    3. THE CONTRACT ENGINE — `cmd/backstop/gate.go:1647`. It builds its OWN
+       `GateScopeModeFile` scope from the contract's single target, so it already
+       takes the explicit-file branch and this fix cannot change it. UNAFFECTED —
+       leave it alone, and do not "harmonize" it.
+
+  ── SCOPE DISCIPLINE: THE ARGV SHARP EDGE IS NAMED, NOT ENGINEERED AROUND ───
+  Handing `--all` an explicit file list makes argv proportional to repo size.
+  MEASURED at HEAD 1902644, STATING THE CONVENTION because it moves the number:
+  REPO-RELATIVE paths (which is what actually ships — `resolveGateScopeAll`
+  stores `filepath.Rel(projectRoot, path)`, so the dispatched args are relative,
+  not absolute), TESTDATA-PRUNED (which is what the collapsed branch actually
+  hands over): 1,173 files, 49,822 bytes of joined paths, against an ARG_MAX of
+  1,048,576 — roughly 21x headroom. An earlier revision quoted ~12x from a
+  REPO-RELATIVE but UNPRUNED count taken at a different tree state (1,615
+  files / 82,362 bytes); the same measure at HEAD gives 1,634 files / 79,494
+  bytes, ~13x. THE DELTA BETWEEN ~13x AND ~21x IS THE TESTDATA PRUNING, not a
+  path-convention difference — both readings are repo-relative. (A genuinely
+  ABSOLUTE-path unpruned count would be ~150KB, ~7x, matching neither; the
+  82,362-byte figure averages 51 bytes per path against a 42-byte repo-root
+  prefix, which is what shows it was never absolute.) The CONCLUSION is robust
+  under any of these and does not depend on which is used. Only the PRUNED
+  REPO-RELATIVE figure describes what the collapsed branch actually dispatches.
+  No chunking, no `--include-from`, no
+  argument-file indirection is built: that would be designing for a repo that
+  does not exist. The failure mode if a repo ever does exceed it is ALREADY LOUD,
+  not silent — Go returns E2BIG from `os.StartProcess` as an `*fs.PathError` with
+  `Op: "fork/exec"`, which `runNeverStarted` classifies and `neverStartedError`
+  turns into a `*check.ConfigError` (exit 2). See TASK-004's sharp-edge note —
+  including its pointer to PLAN-ISSUE-140, which is renaming that predicate.
+
+  ── EXISTENCE-IN-WORLD (re-run at HEAD 1902644; TWO earlier enumerations here
+     were INCOMPLETE — first four hits, then six — and are corrected) ────────
+  No artifact owns this surface. THE COMPLETE, VERIFIED result of
+  `grep -rl ISSUE-091 plans/ specs/ issues/ directives/` is THIRTEEN files, not
+  four and not six. Every one is enumerated below with its disposition, so this
+  does not have to be re-derived a fourth time. (Note the grep is over four
+  directories including `issues/`, which is why the issue itself and its sibling
+  cluster appear — an enumeration limited to plans/ + directives/ will look
+  "complete" and be wrong.)
+
+  OWNERS AND NEAR-NEIGHBOURS (the four that carry real coordination weight):
+    1. plans/PLAN-ISSUE-091-…plan.yml — THIS PLAN.
+    2. directives/DIR-032-gate-verdict-honesty.directive.md — lists ISSUE-091
+       as roster item 3, with no in-flight plan of its own. This plan is that
+       roster item's delivery. The closest thing to an owner, and it points HERE.
+    3. plans/PLAN-ISSUE-067-gotest-opaque-crash-not-findings.plan.yml — IN
+       FLIGHT AND ACTIVELY EXECUTING. COMMITTED at 17fac05 ("plan(ISSUE-067):
+       4 review rounds, ready to implement"); its `status:` field still reads
+       `draft`, but its implementer is running RIGHT NOW against both files
+       this plan shares scope with (`cmd/backstop/pack_gate.go` and
+       `cmd/backstop/filemode_scoping_test.go`). Do NOT read `draft` as "not
+       started" — the field lags the lane. See the reciprocal fence below;
+       orthogonal, but it edits the same function, and the fence's re-read-fresh
+       protocol is LIVE, not precautionary.
+    4. plans/PLAN-ISSUE-092-pack-test-phase3-fixtures-cannot-fail.plan.yml — IN
+       FLIGHT. Cites ISSUE-091 only as a MEASUREMENT TRAP its own pack-test
+       fixture path must not fall into (it asserts `pack test` dispatches FILE
+       targets, not a directory scan, so it does not inherit this undercount).
+       Neither owns nor collides: its file scope is the packval fixture path,
+       not `runFindingsEngine`. No action needed in either direction.
+
+  BENIGN CROSS-REFERENCES (nine; each was opened and read — none owns, plans, or
+  claims this surface, and none needs action from this plan):
+    5. issues/ISSUE-091-…issue.md — THE ISSUE ITSELF, this plan's own source.
+    6. plans/PLAN-ISSUE-020-linux-sandbox-gate-in-ci.plan.yml (status:
+       completed) — **THIS DISPOSITION WAS WRONG IN EVERY EARLIER REVISION AND
+       IS CORRECTED HERE.** Two prior revisions filed it as "cites ISSUE-091 as
+       a known hazard it routes AROUND — avoidance, not ownership, no action
+       needed." That is FALSE. PLAN-ISSUE-020 did not merely route around the
+       hazard: it MANDATED A TEST AND ITS CITATION, and shipped both. Its own
+       words (line ~3042): "`TestCIWorkflow_BlockingJobNeverUsesAllOrFileScope`
+       — no `--all` and no `--file` on the gate invocation. ISSUE-091 (`--all`
+       under-reports vs diff) and ISSUE-093 (`--file` crashes on non-Go
+       directories, repeated `--file` silently dropped) are the reasons; **cite
+       both in the test comment so the constraint survives its authors**." It
+       also lists ISSUE-091 among its RESIDUALS AT CLOSE ("ISSUE-091 and
+       ISSUE-093 UNCHANGED, which is precisely why CI runs diff+base scope and
+       never `--all` or `--file`").
+       So this fix RETRACTS A COMPLETED PLAN'S DELIVERED, MANDATED RATIONALE —
+       the same class as PLAN-ISSUE-010's superseded CLM-004 prose, which
+       TASK-006 item 1 already handles. It gets the SAME treatment: FILED, never
+       silently absorbed. See TASK-006 item 4, and TASK-004 corrections 7-9,
+       which correct the three in-tree sites that mandate encoded.
+    7. plans/PLAN-ISSUE-087-ci-driven-release-pipeline.plan.yml — same shape as
+       020: routes around the hazard rather than fixing it.
+    8. issues/ISSUE-092-pack-test-phase3-fixtures-cannot-fail.issue.md — names
+       ISSUE-091 as the same FAILURE FAMILY and as a trap its own fixture
+       dispatch must avoid; explicitly says it is a DIFFERENT defect.
+    9. issues/ISSUE-093-gate-file-nongo-directory-crash.issue.md — sibling
+       listing only, in the gate-verdict-honesty cluster roll-call.
+   10. issues/ISSUE-094-ci-repo-wide-sweep-debt-inventory.issue.md — the one
+       benign reference with downstream consequence: it names ISSUE-091 as its
+       EXPLICIT RETIREMENT TRIGGER (its sweep stays on hand-baked whole-repo
+       golangci-lint until ISSUE-091 closes, then switches to `gate --all`).
+       Still not an owner of this fix — it CONSUMES the fix. TASK-006 and
+       TASK-007 both route the newly-visible debt into it rather than opening a
+       new tracker.
+   11. issues/ISSUE-099-gate-cannot-emit-json-and-human-together.issue.md —
+       cites ISSUE-091 in a code comment example ("NEVER the all-scope flag")
+       and as a cross-reference. Avoidance, not ownership.
+   12. issues/ISSUE-118-gate-blind-spot-mandated-test-fails-gate-passes.issue.md
+       — sibling listing only, in the cluster roll-call. Already DELIVERED
+       tonight; its work touched `pack_gate.go`, which is why this plan's
+       premise was re-tested empirically rather than trusted.
+   13. issues/ISSUE-129-go-test-engine-scope-filtered-cross-file.issue.md —
+       sibling listing only, in the cluster roll-call.
+
+  NONE of items 5-13 declares a plan, a file scope, or a claim over
+  `runFindingsEngine`'s scope-dispatch branch. There is no collision and no
+  subsumption among them. (Item 6's disposition was CORRECTED above: 020 does
+  not own this surface either, but it is far from benign — it shipped a mandated
+  test encoding the defect as permanent.)
+
+  ── THE ARTIFACT-DIRECTORY GREP IS NOT THE WHOLE SWEEP: THREE SOURCE SITES ──
+  The enumeration above is `grep -rl ISSUE-091 plans/ specs/ issues/
+  directives/` — deliberately restricted to ARTIFACT directories, which is the
+  right scope for an ownership question and the WRONG scope for a
+  goes-stale-on-landing question. A SOURCE-level grep outside those directories
+  finds THREE MORE sites, none of which any earlier revision had in any task's
+  file scope, and ALL of which state the defect as STILL LIVE:
+
+    S1. `.github/workflows/ci.yml` (~line 150) — the comment on the BLOCKING
+        gate step: "Diff-scoped with an explicit base. NEVER the all-scope flag
+        (ISSUE-091: it under-reports against diff scope) and never the per-file
+        flag (ISSUE-093: …)".
+    S2. `workflows_test.go` (repo root, package `backstopcore_test`, ~line 725)
+        — the doc comment on
+        `TestCIWorkflow_BlockingJobNeverUsesAllOrFileScope`: "ISSUE-091: `--all`
+        is NOT a superset of diff scope — it under-reports, with findings on
+        files it reports zero for, so a job scoped with `--all` blocks on a
+        strictly smaller set than the diff it is gating."
+    S3. `workflows_test.go` (~line 740) — NOT a comment: a LIVE IN-CODE MAP
+        VALUE, `"--all": "ISSUE-091 — `--all` under-reports against diff
+        scope"`, used as the `%s` rationale in the test's `t.Errorf` message.
+
+  ALL THREE GO FALSE the moment this plan lands. CLM-008 makes `--all` AGREE
+  with a diff-scoped run over the same files, and `--all` covers strictly MORE
+  files — so "under-reports against diff scope" becomes the opposite of true.
+  S1-S3 are exactly the sites PLAN-ISSUE-020 mandated (item 6 above). TASK-004
+  corrections 7, 8 and 9 fix their TEXT.
+
+  ⚠ WHAT THIS PLAN DELIBERATELY DOES **NOT** DECIDE. ISSUE-091 is the SOLE
+  stated justification for the `--all` HALF of CI's blocking-job scope ban
+  (ISSUE-093 independently covers the `--file` half and is UNAFFECTED — do not
+  touch it). Post-fix, the `--all` ban has no stated reason left in the artifact
+  record; and ISSUE-094 separately names "closing ISSUE-091" as its OWN explicit
+  trigger to switch its sweep to `gate --all`. WHETHER CI'S BLOCKING JOB MAY NOW
+  SAFELY USE `--all` IS A GENUINE FOUNDER-LEVEL POLICY CALL THAT THIS FIX
+  CREATES, AND IT MUST NOT BE DECIDED INSIDE THIS PLAN. TASK-006 item 4 FILES
+  it. Concretely, corrections 7-9 are TEXT-ONLY: they do NOT change the map's
+  `"--all"` KEY, the test's assertions, its pass/fail logic, or the workflow's
+  actual gate invocation. The ban STAYS IN FORCE and stays enforced; only the
+  now-false rationale text is corrected.
+
+  No subsumption: no phase of any committed plan delivers this fix.
+  PLAN-ISSUE-040 introduced `excludeTestdataPaths` but scoped it explicitly to
+  the diff branch, so the `--all` half named above is genuinely unowned.
+
+  ── RECIPROCAL FENCE WITH PLAN-ISSUE-067 (both in flight tonight) ───────────
+  NOT A DUPLICATION. The two fixes are orthogonal and complementary:
+    * PLAN-ISSUE-091 (this plan) changes HOW `cmdArgs` is COMPUTED — it
+      collapses the `GateScopeModeAll` directory target into the explicit
+      in-scope file list, inside `runFindingsEngine`'s non-project-wide
+      else-branch.
+    * PLAN-ISSUE-067 changes WHICH BINARY RECEIVES those args — a producer swap
+      at the `runner.RunStdout` call, honoring the existing `producer` seam.
+  067's CLM-001 is an arg-PRESERVATION claim — invariance under whatever shaping
+  is in force — so this plan's collapse SATISFIES it rather than contradicting
+  it. Neither plan asserts an arg shape the other denies.
+
+  THE FENCE WAS ONE-DIRECTIONAL AND IS NOW RECIPROCAL. PLAN-ISSUE-067's notes
+  already name this plan and carry a full sequencing protocol; this plan named
+  nothing back, so an implementer starting from THIS side had no warning. The
+  contention, stated from this side:
+    * SHARED FUNCTION: both lanes edit `runFindingsEngine` in
+      `cmd/backstop/pack_gate.go`. LOCATE BY NAME, NEVER BY LINE — every line
+      number quoted in either plan is stale by construction.
+    * SHARED TEST FILE: this plan OWNS `cmd/backstop/pack_gate_scope_test.go`
+      (TASK-003 inverts a shipped assertion in it, preserving that assertion's
+      mandated name). PLAN-ISSUE-067's TASK-007 relies on that file's harness
+      alias to keep its `byCmd["go build"]` registration resolving. 067's own
+      note is explicit: "if 091 lands first, TASK-007's harness work must
+      account for its edit to pack_gate_scope_test.go." TASK-003 must therefore
+      NOT delete or restructure the shared harness helpers it reuses — only the
+      `all scope` subtest body and two doc comments change, which is already
+      what TASK-003 specifies.
+    * SECOND SHARED TEST FILE, NEWLY CONTENDED BY THIS REVISION:
+      `cmd/backstop/filemode_scoping_test.go`. TASK-004's comment correction 5
+      puts it in THIS plan's file scope, and PLAN-ISSUE-067 ALSO declares it —
+      its harness task re-grounds that file's `c.name == "go" && c.args[0] ==
+      "test"` invocation selector onto the producer path. THE TWO EDITS DO NOT
+      OVERLAP IN SUBSTANCE: 067 rewrites the helper's command selection and
+      keeps the arg assertions; this plan changes ONE inline comment inside
+      `TestFileMode_ProjectWideModeStillWholeModule` and touches no code in the
+      file. Note the ASYMMETRY 067 could not have anticipated: 067's own note
+      deliberately avoids editing `pack_gate_scope_test.go` because that file is
+      in this plan's scope — it made a one-sided concession, and this revision
+      has now entered a file 067 owns. So whichever lane lands second, RE-READ
+      the file fresh and preserve the other's edit; do not revert a helper
+      re-grounding to restore a comment, or vice versa. If a genuine conflict
+      appears, STOP and report rather than resolving it unilaterally.
+      (`plans/PLAN-SPEC-034-…plan.yml` also names the file, but that is a
+      long-delivered cutover plan, not an in-flight lane.)
+    * THIRD FILE ADDED BY THIS REVISION, AND IT IS **NOT** CONTENDED:
+      `cmd/backstop/ci_recipes_harness_test.go` (TASK-004's comment correction
+      6). VERIFIED at HEAD — PLAN-ISSUE-067 names this file only in PROSE, in
+      the list of files that "carry a literal but never drive the fixture
+      pack's canned-output routing", i.e. explicitly as work it does NOT do; it
+      is in NO `files:` block of 067. The only other plan naming the file is
+      `plans/PLAN-SPEC-067-ci-recipe-pack.plan.yml`, `status: completed`. So
+      this is a clean, uncontended addition — no fence protocol needed for it,
+      unlike the two files above.
+    * RE-VERIFY 067's CURRENT STATE before starting TASK-004. Its `status:`
+      field read `draft` at this revision even though its implementer was
+      already executing, so the FIELD IS NOT THE SIGNAL — `git log --` the two
+      shared files and read the working tree. Do not trust this paragraph or
+      that field.
+    * RE-READ `runFindingsEngine` FRESH immediately before editing. Do not edit
+      from a copy read earlier in the session.
+    * WHICHEVER LANE LANDS SECOND verifies against the other's ACTUAL LANDED
+      DIFF, not against its plan's description of it. If THIS plan lands second,
+      confirm the producer swap still sits AFTER the rewritten `cmdArgs`
+      computation and that the args reaching the producer are the collapsed
+      explicit file list.
+  067 touches `cmd/backstop/gate.go` NOT AT ALL (its own note says so), so this
+  plan's addition of `gate.go` to TASK-004's file scope does not collide with
+  it. VERIFIED at HEAD: no other plan in the working tree carries
+  `cmd/backstop/gate.go` in a `files:` block with a non-completed status that is
+  in flight tonight.
+
+  ── CLAIM LEDGER (ISSUE-091 carries no CLM ids; this plan defines them) ─────
+  Every CLM referenced by any task's `claims:` array is defined here, in full,
+  and nowhere else. A task's prose may elaborate a claim; it never introduces
+  one. If an assertion is not in this ledger it is not a claim of this plan.
+
+    CLM-001  ALL-SCOPE DISPATCHES ITS EXPLICIT FILE LIST. Under a non-nil scope
+             whose Mode is `GateScopeModeAll`, `runFindingsEngine` appends the
+             scope's own (testdata-pruned) file list as the engine's scan
+             targets, and does NOT append `projectRoot`. The all-scope file list
+             already exists on the scope object — `ComputeGateScopeWithBase`'s
+             all arm fills it via `resolveGateScopeAll`/`newGateScope`; the
+             dispatch was simply ignoring it. Asserted over the production scope
+             resolver, never a hand-built GateScope literal.
+
+    CLM-002  THE DEFECT, AT THE REAL ENGINE. An all-scope dispatch through the
+             real production path (`dispatchPackEngines` + a real
+             `check.ExecCommandRunner` + a real installed pack + the real engine
+             binary) REPORTS a rule violation living in a `*_test.go` file —
+             the finding it drops today. This is the verdict-honesty claim;
+             CLM-001 alone is an arg-shape assertion and cannot stand in for it.
+
+    CLM-003  ALL-SCOPE PRUNES `testdata` SEGMENTS. The file list handed over
+             under all-scope passes through `excludeTestdataPaths`, so a path
+             with a `testdata` directory SEGMENT is not a scan target — the same
+             ISSUE-040 treatment the diff scope has had, now applied to both
+             scopes instead of one. This is the cure for the over-report half,
+             and it is subtractive by design.
+
+    CLM-004  ANTI-FALLBACK, EXTENDED TO ALL-SCOPE. A non-nil scope whose
+             (post-pruning) file list is EMPTY appends ZERO scan targets. The
+             engine scans nothing and yields nothing. It must NEVER fall through
+             to the `projectRoot` directory target. This is ISSUE-010's CLM-003
+             contract, now covering the all-scope path it previously excluded,
+             and it is the single guard whose failure would silently restore the
+             whole defect.
+
+    CLM-005  THE NIL-SCOPE BRANCH IS PRESERVED, AND IS NOT A GRANDFATHER CLAUSE.
+             A `nil` scope has no file list to substitute, so it retains exactly
+             one scan target: `projectRoot`. This is the honest behavior for a
+             caller that supplied no scope, and it is what keeps the fix
+             surgical — the nil-scope callers (`baseline_identity_dispatch_e2e`,
+             the substantiveness E2E's `runProductionSubstantivenessStep`) stay
+             green untouched. It doubles as the NEGATIVE CONTROL: a fix that
+             replaced the directory target unconditionally satisfies CLM-001..004
+             and violates this one.
+
+    CLM-006  ONE DISPATCH PATH, ENGINE-SHAPE-AGNOSTIC AND PACK-AGNOSTIC. The
+             collapsed branch is the SINGLE site that shapes scan targets for
+             every non-project-wide engine, and it behaves identically for BOTH
+             declared input shapes — rule-flags (semgrep-shaped, `--config` per
+             rule file) and config-file (ast-grep-shaped, one `--config`
+             sgconfig) — because the defect is a property of the DISPATCH SHAPE,
+             not of any pack or tool. Operationally: TASK-001's dispatch-shape
+             tests are parameterized across both manifest shapes rather than
+             asserted once, and CLM-007's rewritten comment states the rationale
+             in tool-agnostic terms so no engine name is baked at the site. The
+             claim is what makes the fix a thin-executor fix rather than a
+             semgrep fix that happens to compile.
+
+    CLM-007  THE COMMENT TELLS THE TRUTH, TOOL-AGNOSTICALLY. The comment block
+             above the collapsed branch no longer asserts that a directory target
+             and the file list that directory contains are equivalent inputs. It
+             states the real rationale — an engine handed a directory performs
+             its OWN discovery under its OWN default ignore set, which backstop
+             can neither see nor override — WITHOUT naming any tool, engine, or
+             language literal, cites ISSUE-091, and preserves the ISSUE-010
+             CLM-003 anti-fallback note and the SPEC-034 REQ-010/CLM-034 Ratified
+             Design Constraint 3 reference.
+
+    CLM-008  `--all` AND A DIFF-SCOPED RUN AGREE OVER THE SAME FILES. Dispatched
+             twice over the identical file set — once via a `GateScopeModeAll`
+             scope, once via a `GateScopeModeFile` scope naming those files — the
+             two finding sets are EQUAL, compared as sorted (File, Rule, Line)
+             tuples. This is the property ISSUE-091 actually demands, and it is
+             stronger than either count alone. It is scoped to "over the same
+             files": it does NOT claim `--all` only ever gains rows relative to
+             its own pre-fix output (see THIRD DIVERGENCE).
+
+    CLM-009  THE CONSEQUENCES ARE FILED, NOT ABSORBED. Every consequence this
+             fix creates that falls outside its scope is recorded in a
+             first-class artifact rather than buried in a completed plan or a
+             commit message: PLAN-ISSUE-010's superseded CLM-004 prose, the
+             deliberate loss of `testdata/` visibility under `--all`, the
+             path-scoped-rule blindness of the THIRD DIVERGENCE, the RETRACTION
+             OF PLAN-ISSUE-020'S MANDATED `--all` BAN RATIONALE together with
+             the founder-level CI-scope policy question it opens (filed
+             UNRESOLVED — this plan corrects the stale rationale TEXT at three
+             source sites and changes no CI behavior), and the newly-visible
+             repo-wide debt (which routes into the EXISTING ISSUE-094 rather
+             than a further tracker). Filing is via `artifact new issue` + the
+             issue-author agent; none of it is hand-written, none of it is fixed
+             here, and the policy question is DEFERRED TO THE FOUNDER rather
+             than decided by any agent in this lane.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: TDD Red — falsify the divergence at the dispatch shape AND at
+  # the real engine, and invert the shipped assertion that pins the defect.
+  # All three tasks are parallel-eligible: disjoint files, no dependencies.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: TDD Red — Prove the All-Scope Dispatch Divergence"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Dispatch-shape falsifiers: all-scope must receive the explicit file list"
+        description: |
+          Create `cmd/backstop/pack_gate_issue091_regression_test.go`. These are
+          ARG-SHAPE tests over the real `dispatchPackEngines` with a recording
+          runner — they prove WHAT backstop hands the engine. They are necessary
+          but NOT sufficient on their own; TASK-002 supplies the real-engine proof
+          that the shape change actually changes the finding set. Do not treat
+          either task as redundant with the other.
+
+          Build on the harness ALREADY in `cmd/backstop/pack_gate_scope_test.go`
+          — do not invent a parallel one. Reuse, by name:
+            * `semgrepScopeManifest(t)`      — rule-flags (semgrep-shaped) manifest
+            * `astGrepLikeScopeManifest(t)`  — config-file (ast-grep-shaped) manifest
+            * `scopeTargetRunner`            — recording runner
+            * its `scanTargets(t)` helper    — extracts the appended scan targets
+          If any of these has been renamed since this plan was authored, locate
+          the current equivalent BY READING THE FILE — do not guess, and do not
+          fork a copy.
+
+          Write these four tests:
+
+          1. `TestIssue091_AllScopeDispatchesExplicitFileListNotProjectRoot`
+             (CLM-001). Populate a `t.TempDir()` projectRoot with a small tree
+             containing at least one `*_test.go` file and one plain `.go` file in
+             a SUBDIRECTORY (nesting matters — it is what a naive basename-only
+             fix would miss). Derive a REAL scope via
+             `gate.ComputeGateScope(projectRoot, gate.GateScopeModeAll, nil)` —
+             do NOT hand-construct a GateScope literal, because the claim is about
+             what the production scope resolver yields. Assert the recorded scan
+             targets equal the scope's own file list, and assert explicitly that
+             `projectRoot` is NOT among the targets. Run it for BOTH manifest
+             shapes (rule-flags and config-file) — the defect is per-dispatch-
+             shape, not per-pack, and `runFindingsEngine`'s branch serves both.
+             FAILS pre-fix: the recorded target is the bare projectRoot directory.
+
+          2. `TestIssue091_AllScopeExcludesTestdataPaths` (CLM-003). Same setup,
+             but plant a file under a `testdata/` directory segment inside the
+             temp projectRoot. Assert the testdata path is NOT among the scan
+             targets while the non-testdata siblings ARE. This pins the inverse
+             over-report half. FAILS pre-fix for a different reason than test 1
+             (pre-fix there is exactly one target, the directory, so the testdata
+             path is neither included nor excluded — it is delegated to the
+             engine). Assert on the CURRENT target list, not on absence alone, so
+             the test cannot pass vacuously against an empty target list.
+
+          3. `TestIssue091_AllScopeEmptyFileListAppendsNoTarget` (CLM-004). An
+             EMPTY `t.TempDir()` projectRoot yields an all-scope with zero files.
+             Assert ZERO scan targets are appended — the engine scans nothing and
+             yields nothing. It must NOT fall back to the projectRoot directory.
+             This is the ISSUE-010 CLM-003 anti-fallback contract, now extended to
+             cover all-scope; it is the single most important guard in this file,
+             because a fallback here would silently restore the whole defect.
+
+          4. `TestIssue091_NilScopeStillTargetsProjectRoot` (CLM-005). A `nil`
+             scope has NO file list to substitute, so it MUST retain the
+             projectRoot directory target. This is not a grandfather clause — it
+             is the honest behavior for a caller that supplied no scope. Assert
+             exactly one target, equal to projectRoot. This test PASSES pre-fix
+             and post-fix by design: it is the guard that the fix is surgical and
+             does not disturb the nil-scope callers that
+             `baseline_identity_dispatch_e2e_test.go` depends on.
+
+          CLM-006 IS WHAT MAKES THIS FILE PARAMETERIZED, NOT REPETITIVE. All
+          FOUR tests run against BOTH manifest shapes — `semgrepScopeManifest`
+          (rule-flags) and `astGrepLikeScopeManifest` (config-file) — not test 1
+          alone. The claim is that ONE dispatch site serves every non-project-wide
+          engine shape regardless of pack or tool, so asserting it for one shape
+          proves half of it. Use a table/subtest over the two manifest builders
+          so adding a third shape later is a one-line addition; do not copy-paste
+          eight test bodies.
+
+          NEGATIVE CONTROL, not optional: at least one assertion must FAIL if the
+          fix over-reaches — test 4 is that control. A fix that replaced the
+          projectRoot target unconditionally would pass tests 1-3 and fail 4.
+        files:
+          - cmd/backstop/pack_gate_issue091_regression_test.go
+        test_names:
+          - TestIssue091_AllScopeDispatchesExplicitFileListNotProjectRoot
+          - TestIssue091_AllScopeExcludesTestdataPaths
+          - TestIssue091_AllScopeEmptyFileListAppendsNoTarget
+          - TestIssue091_NilScopeStillTargetsProjectRoot
+        claims:
+          - CLM-001
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        depends_on: []
+
+      - id: TASK-002
+        type: test
+        title: "Real-engine e2e: an all-scope run must report the test-file finding it drops today"
+        description: |
+          Create `cmd/backstop/pack_gate_issue091_e2e_test.go` with
+          `TestIssue091_AllScopeReportsTestFileFindings_RealEngine` (CLM-002,
+          CLM-008).
+
+          THIS IS THE LOAD-BEARING TASK. TASK-001 proves backstop changed what it
+          HANDS the engine; only this proves the engine's REPORTED FINDINGS
+          changed. Without it, "fixed" would be an arg-shape assertion dressed up
+          as a verdict-honesty fix — precisely the vacuous-green class ISSUE-091
+          belongs to.
+
+          Model it on the existing real-engine precedent in
+          `cmd/backstop/dogfood_enforcement_test.go`
+          (`TestDogfoodPack_FlagsKnownGoViolation`): resolve the binary with
+          `exec.LookPath`, and `t.Skip` with a clear reason when it is absent.
+          Match that skip convention exactly — a hard failure on a machine
+          without the engine is not this test's job.
+
+          TWO PREMISES, TWO DIFFERENT POLARITIES — do not collapse them into one
+          guard. The engine BINARY and the installed PACK are separate
+          preconditions, and only one of them may be skipped:
+            * MISSING BINARY -> `t.Skip`, as above. Environmental, and TASK-005
+              already forbids reporting this plan verified on a skipped e2e, so
+              a skip cannot masquerade as a pass.
+            * MISSING PACK -> `t.Fatal`, with its OWN named check and its OWN
+              message. The positive assertion depends on the gitignored
+              `backstop-ai/go-standards` pack being installed under
+              `.backstop/packs/`. If that pack is absent, the load-bearing "the
+              `*_test.go` finding is reported" assertion fails for a reason
+              INDISTINGUISHABLE from the defect being unfixed — a false negative
+              that reads as "the fix does not work". Stat the pack's declared
+              rule file (resolve it from the pack's own `pack.yml` rule_path;
+              do not hard-code a rules/ path that a pack release may move) and
+              fail with a message naming the pack and pointing at
+              `backstop pack install`. A silent skip here is WRONG: an absent
+              pack in this repo is a broken working tree, not a portability
+              condition, and packs being gitignored is by design (they are
+              reinstallable from `backstop.lock`), not a durability gap.
+
+          Construction, precisely:
+            * Build the fixture tree in `t.TempDir()`, NOT under the repo's
+              `cmd/backstop/testdata/`. This is REQUIRED, not stylistic: this
+              plan makes the all-scope path prune `testdata` segments, so a
+              fixture living under `testdata/` would be filtered out of its own
+              test's scope and the test would pass vacuously with zero findings.
+            * Plant TWO files that both violate the SAME real rule from the
+              installed `backstop-ai/go-standards` pack: one named `*_test.go`
+              and one plain `.go` sibling. `go.core.no-global-mutable-state` is
+              the rule Probe B (see notes) confirmed still fires on test files
+              under explicit dispatch — verify it still does before relying on
+              it, and if the pack has moved on, pick another rule that has NO
+              `paths:` restriction and record which one in the test comment.
+              Do NOT use `go.core.no-ignored-errors`: it now excludes
+              `*_test.go` and would prove nothing.
+            * Drive the REAL production path: `dispatchPackEngines` with a real
+              `&check.ExecCommandRunner{Dir: projectRoot}` and an all-scope from
+              `gate.ComputeGateScope`. Do not shortcut to a bare `exec.Command`
+              semgrep invocation — the claim is about backstop's dispatch, and a
+              direct invocation would bypass the very branch under change.
+
+          Assertions:
+            * POSITIVE: the returned violations include a finding whose File is
+              the `*_test.go` fixture. This is the assertion that FAILS pre-fix —
+              confirm it fails before writing the fix, and record the observed
+              pre-fix count in the task's completion note, LABELLED WITH ITS
+              LAYER. Any count taken here is inherently the ACTIVE layer:
+              `dispatchPackEngines` returns violations that have already passed
+              through `parseSarif`, so suppressed rows are gone before the test
+              ever sees them. Say "ACTIVE" explicitly anyway — the plan's
+              measurement discipline applies to every count without exception,
+              and an unlabelled number is what caused a wrong prediction once.
+              Keep the fixture free of `nosemgrep` annotations so the two layers
+              coincide for this test and the count cannot be ambiguous.
+            * CONTROL: the plain `.go` sibling is ALSO reported, both pre- and
+              post-fix. If the control ever stops firing, the fixture or the rule
+              is broken and the positive assertion is meaningless — the test must
+              say so rather than silently degrading.
+            * SUPERSET (CLM-008): run the same dispatch a second time with a
+              `GateScopeModeFile` scope naming the SAME two files, and assert the
+              two finding sets are EQUAL. This is the property ISSUE-091 actually
+              demands — that `--all` is not a stranger to the diff-scoped gate —
+              and it is stronger than either count alone. Compare on
+              (File, Rule, Line) tuples, sorted; do not compare raw slices, whose
+              order is engine-determined.
+        files:
+          - cmd/backstop/pack_gate_issue091_e2e_test.go
+        test_names:
+          - TestIssue091_AllScopeReportsTestFileFindings_RealEngine
+        claims:
+          - CLM-002
+          - CLM-008
+        depends_on: []
+
+      - id: TASK-003
+        type: test
+        title: "Invert the shipped assertion that pins the defect, preserving its mandated name"
+        description: |
+          `cmd/backstop/pack_gate_scope_test.go` contains a shipped test whose
+          `all scope` subtest ASSERTS THE DEFECT verbatim:
+          `TestPackEngines_AllScope_RestoresWholeRepoScan` fails with
+          "GateScopeModeAll must scan projectRoot exactly" unless the bug is
+          present. It cannot survive the fix unchanged.
+
+          THE TEST NAME MUST SURVIVE — and the reason is THIS PLAN, not a prior
+          one. Be precise about the enforcement premise, because an earlier
+          revision overstated it. `TestPackEngines_AllScope_RestoresWholeRepoScan`
+          IS named in `plans/PLAN-ISSUE-010-pack-engines-diff-scope.plan.yml`
+          (status: completed), but only in that plan's task-description PROSE —
+          PLAN-ISSUE-010 carries NO `test_names:` field anywhere (verified:
+          `grep -c test_names` on that file returns 0). And
+          `pkg/gate/artifact_status.go:321-341` builds a plan's MandatedTests
+          SOLELY from `phases[].tasks[].test_names`; its own comment says plans
+          predating the field "carry no MandatedTests". So PLAN-ISSUE-010
+          contributes ZERO gate-enforced mandated tests, and a rename would NOT
+          red `status_drift` — do not claim it would.
+          THE REAL, LOAD-BEARING REASON IS THIS PLAN'S OWN DECLARATION: TASK-003
+          below declares `test_names: [TestPackEngines_AllScope_RestoresWholeRepoScan]`.
+          Once PLAN-ISSUE-091 lands, that name becomes gate-enforced for the
+          FIRST TIME, by this plan's own doing — renaming it would break THIS
+          plan's promise, checked by `status_drift` against THIS plan.
+          REWRITE THE BODY, KEEP THE NAME — and note that the name stays
+          ACCURATE, because its surviving `nil scope` subtest genuinely does
+          restore the whole-repo scan.
+
+          Do this:
+            1. Leave the `t.Run("nil scope", ...)` subtest EXACTLY as it is. It
+               remains true and is now the sole reason the test's name is correct.
+            2. Invert `t.Run("all scope", ...)`. Its projectRoot is a bare
+               `t.TempDir()`, so the all-scope file list is EMPTY; post-fix the
+               correct assertion is that ZERO scan targets are appended (the
+               anti-fallback contract), NOT that projectRoot is the single
+               target. Do not merely relax the assertion to "not projectRoot" —
+               assert the exact expected target list, or the subtest becomes
+               unfalsifiable.
+            3. Rewrite the test's doc comment. It currently reads "scope==nil AND
+               scope.Mode==GateScopeModeAll both restore the whole-repo
+               projectRoot scan, the explicit --all escape hatch." That sentence
+               is now false in its second half. State the post-fix truth and cite
+               ISSUE-091, keeping the ISSUE-010 CLM-004 lineage reference so the
+               history stays traceable.
+            4. DISCLAIM THE NAME on
+               `TestPackEngines_DiffScope_RuleDirEngineAllScopeUsesProjectRoot`.
+               READ ITS COMMENT BODY FIRST — at HEAD it already reads "(CLM-004
+               for the config-file findings engine class): with a nil scope, the
+               config-file engine (ast-grep shape) restores the whole-repo
+               projectRoot scan target." That body is ACCURATE post-fix and needs
+               NO correction; there is no false claim in it to hunt for. Do not
+               improvise one, and do not stall looking for it. What is misleading
+               is the test's IDENTIFIER — "AllScope" in the name, while the body
+               passes `nil`.
+               DO NOT RENAME IT HERE — but understand the REAL reason, because
+               two earlier revisions of this plan gave a FALSE one and it must
+               not be reinstated. This test is NOT the broken-promise hazard
+               step 1's test is. VERIFIED at HEAD by grepping the identifier
+               across `plans/ specs/ issues/ directives/`: PLAN-ISSUE-010 does
+               NOT name
+               `TestPackEngines_DiffScope_RuleDirEngineAllScopeUsesProjectRoot`
+               anywhere, and the ONLY artifact in the repo that names it is THIS
+               plan. (The two PLAN-ISSUE-010-named tests THIS TASK EDITS are
+               `…_EmptyIntersectionScansNothing` and
+               `…_AllScope_RestoresWholeRepoScan` — handled elsewhere in this
+               task, at steps 5 and 1-3 respectively. That is NOT the full set:
+               PLAN-ISSUE-010 names FOUR MORE `TestPackEngines_*` tests living
+               in THIS SAME FILE — named, like every test name in that plan, in
+               its task-description PROSE and NOT in a `test_names:` block
+               (PLAN-ISSUE-010 has none):
+               `…_DiffScope_FindingsEngineScansChangedFilesOnly`,
+               `…_DiffScope_ExcludesUntouchedFileViolations`,
+               `…_DiffScope_IncludesUntrackedChangedFiles` and
+               `…_ProjectWideToolchainStaysProjectWide`. All four are LEFT
+               UNTOUCHED by this plan and are UNAFFECTED by the fix — they are
+               still PLAN-ISSUE-010 promises and are NOT freely renameable.
+               Do not read their absence from this task's steps as absence of an
+               owner.) So a rename of the AllScopeUsesProjectRoot test would
+               break no promise. It is simply OUT OF SCOPE for a comment-only
+               step, and would churn a test whose body this plan does not
+               otherwise touch. Leave the identifier alone on THAT basis, not on
+               a lineage basis.
+               ADD one sentence to the comment disclaiming the name: despite
+               "AllScope" in the identifier, this test exercises the NIL-scope
+               path (deliberately preserved by ISSUE-091, see CLM-005), so the
+               name no longer describes an `--all` codepath. Do NOT write into
+               that comment that the name is kept "for continuity with
+               PLAN-ISSUE-010" — that lineage is FALSE, and stating it in-tree
+               would propagate this plan's own retracted error into the code. If
+               the body has changed since authoring and no longer passes `nil`,
+               report rather than improvising.
+
+            5. CORRECT THE DOC COMMENT on
+               `TestPackEngines_DiffScope_EmptyIntersectionScansNothing` — the
+               second comment in this file carrying the retracted equivalence,
+               and the one two earlier revisions of this plan missed because the
+               claim WRAPS ACROSS A LINE BREAK and single-line greps do not see
+               it. At HEAD it ends: "it must NOT silently fall back to scanning
+               projectRoot. The full-repo scan is reachable only via --all." That
+               last sentence is FALSE post-fix: "the full-repo scan" means
+               "scanning projectRoot", and post-fix that is reachable ONLY via a
+               NIL scope — `--all` no longer produces it. Rewrite the final
+               sentence to say the projectRoot directory scan is reachable only
+               via a NIL scope, cite ISSUE-091, and keep the CLM-003 tag and the
+               anti-fallback sentence before it EXACTLY as they are. This is a
+               COMMENT-ONLY edit: the test's name, body and assertions are
+               correct and must stay untouched.
+
+          Do NOT touch the ISSUE-040 `DiffScope_*Testdata*` tests in this file.
+          They cover the diff branch, which this plan leaves behaviorally
+          unchanged, and they are the reference the new all-scope testdata test
+          is modeled on. (That fence names the `*Testdata*` family only —
+          `TestPackEngines_DiffScope_EmptyIntersectionScansNothing` is NOT in it,
+          and step 5 above deliberately edits its comment.)
+
+          SO: TWO comment corrections in this task (steps 3 and 5) plus one
+          name-disclaiming addition (step 4, NOT counted as a correction — it
+          adds a sentence, it retracts nothing). TASK-004 carries NINE more in
+          other files. ELEVEN CORRECTIONS TOTAL across TASK-003 + TASK-004
+          (2 + 9). THIS ARITHMETIC HAS BEEN WRONG IN EVERY PRIOR REVISION —
+          "five, complete this time" for TASK-004's set, then a stated total of
+          "seven" against an enumeration that already added to eight. Both
+          numbers below and in TASK-004 are stated from the ENUMERATIONS, not
+          carried forward: count the numbered items, do not trust a remembered
+          total. If you add or remove a correction, RECOMPUTE BOTH STATEMENTS.
+        files:
+          - cmd/backstop/pack_gate_scope_test.go
+        test_names:
+          - TestPackEngines_AllScope_RestoresWholeRepoScan
+        claims:
+          - CLM-001
+          - CLM-004
+          - CLM-005
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: TDD Green — one branch collapse in runFindingsEngine.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: TDD Green — Hand Every Non-Nil Scope Its Explicit File List"
+    tasks:
+      - id: TASK-004
+        type: implementation
+        title: "Collapse the all-scope directory target into the explicit file list"
+        description: |
+          Edit `runFindingsEngine` in `cmd/backstop/pack_gate.go` — locate it BY
+          NAME, not by line number (this file moved substantially during tonight's
+          ISSUE-112/113/118/122 batch, and any line citation is already suspect).
+
+          The change is inside the `else` arm of the
+          `if binding.ScopeKind == engine.ScopeKindProjectWide` conditional — the
+          rule-fed / config-file findings-engine arm. Today that arm reads, in
+          substance: if `scope == nil || scope.Mode == gate.GateScopeModeAll`,
+          append `projectRoot`; else append `excludeTestdataPaths(scope.Files)...`.
+
+          Change the condition so ONLY a nil scope takes the directory branch:
+
+              if scope == nil {
+                  cmdArgs = append(cmdArgs, projectRoot)
+              } else {
+                  cmdArgs = append(cmdArgs, excludeTestdataPaths(scope.Files)...)
+              }
+
+          That is the entire behavioral change. Resist enlarging it. In
+          particular do NOT: add a semgrep flag, add an engine-name special case,
+          introduce a mode-keyed lookup, or touch `pkg/gate/scope.go`. The
+          all-scope file list ALREADY EXISTS on the scope object — verified at
+          HEAD, `ComputeGateScopeWithBase`'s `GateScopeModeAll` arm calls
+          `resolveGateScopeAll` and stores the result via `newGateScope`, which
+          normalizes each path to the repo-relative form the diff branch already
+          passes. The dispatch was simply ignoring it.
+
+          REWRITE THE COMMENT BLOCK above the branch. The existing comment asserts
+          the very equivalence this issue disproves ("A nil scope or
+          GateScopeModeAll is the explicit whole-repo escape hatch ... scan
+          projectRoot exactly as before"). Replace it with the real rationale,
+          stated TOOL-AGNOSTICALLY (CLM-007) — this is core, and a `semgrep`
+          literal here would be baked tool knowledge:
+            * A directory target and the file list that directory contains are
+              NOT equivalent inputs. Handed a directory, an engine performs its
+              OWN discovery and applies its OWN default ignore set; handed
+              explicit paths, it typically bypasses that ignore set. Backstop
+              cannot see, predict, or override a given engine's default ignores,
+              so it must not depend on them agreeing with its own scope.
+            * Therefore every scope that HAS a file list hands that list over, so
+              all scopes traverse ONE engine code path and `--all` is a genuine
+              superset of a diff-scoped run over the same files.
+            * A nil scope has no list and keeps the directory target — the honest
+              behavior for a caller that supplied no scope, not a grandfather
+              clause.
+            * Cite ISSUE-091, and preserve the existing ISSUE-010 CLM-003
+              anti-fallback note: an empty list appends NOTHING and must never
+              fall through to the directory branch. The collapsed form preserves
+              that by construction, and saying so is what stops a future reader
+              from "helpfully" restoring a fallback.
+            * Preserve the surrounding SPEC-034 REQ-010/CLM-034 Ratified Design
+              Constraint 3 reference — that constraint (a rule-fed engine must
+              get a scan target) is INTACT and unchallenged; only the claim that
+              the target may be the whole directory is being retracted.
+
+          THE CORRECTIONS ARE A SET OF NINE IN THIS TASK, NOT ONE — and ELEVEN
+          across the plan (9 here + 2 in TASK-003's steps 3 and 5, inside
+          `cmd/backstop/pack_gate_scope_test.go`). The branch comment above is
+          correction 1; EIGHT more follow, numbered 2-9 below. COUNT THE
+          NUMBERED ITEMS; do not trust a remembered total. Corrections 2-6 are
+          stale-equivalence text in `cmd/backstop/`; corrections 7-9 are the
+          three SOURCE sites outside `cmd/backstop/` that state ISSUE-091 as
+          still-live (see the notes' "THREE SOURCE SITES" section).
+
+          THIS COUNT HAS BEEN WRONG IN EVERY PRIOR REVISION — "one", then
+          "three", then "a set of five, complete this time", then "six" stated
+          against a plan-wide total of "seven" that the enumeration itself
+          contradicted. Two causes, both still live: the stale claims WRAP
+          ACROSS LINE BREAKS so single-line greps miss them, and the earlier
+          sweeps were scoped to artifact directories and `cmd/backstop/` only.
+          If you re-sweep, sweep with a TWO-LINE WINDOW and sweep the WHOLE
+          REPO, not one package. All nine here must be corrected in this task,
+          or the code will contradict itself and a future reader will trust the
+          stale sentence.
+
+          CORRECTION 2, SAME FILE, EASY TO MISS: the doc comment on
+          `excludeTestdataPaths` itself (locate it BY NAME — it is well below
+          `runFindingsEngine`). It currently reads "Applied only INSIDE
+          runFindingsEngine's diff-scope else branch; a testdata-only diff
+          filters to an empty slice and the caller appends nothing." The first
+          clause is FALSE the moment the branch collapses — which is the whole
+          point of this change — and it is the sentence a future reader would
+          trust when reasoning about `--all`. Rewrite it to say the filter is
+          applied to EVERY scope that carries a file list (all-scope included),
+          and keep the second clause: an all-testdata file list filters to an
+          empty slice and the caller appends nothing, which is CLM-004 restated
+          at the filter. Leave the rest of that comment — the segment-equality
+          semantics, the `testdata_util.go` non-match note, the ISSUE-040
+          citation, the `go help packages` universal-convention rationale —
+          EXACTLY as it is; none of it changes and it is deliberately
+          tool-agnostic.
+
+          CORRECTION 3, SAME FILE: the `dispatchPackEngines` DOC COMMENT — the
+          long block documenting the engine fan-out, well ABOVE
+          `runFindingsEngine`. Locate it BY NAME (the paragraph beginning "The
+          scope parameter carries the gate's changed-file diff scope"). It
+          currently asserts, verbatim: "A nil scope or a GateScopeModeAll scope
+          is the explicit whole-repo escape hatch; `backstop code check` and
+          `gate --all` pass that sentinel." BOTH halves of that sentence are
+          wrong after this change and one was ALREADY wrong before it:
+            * the GateScopeModeAll half is exactly the claim CLM-007 retracts;
+            * `backstop code check` NO LONGER EXISTS — the command was removed
+              and its absence is asserted by a shipped test. Do not preserve the
+              reference, and do not "fix" it by naming some replacement command.
+          Rewrite so only a NIL scope is described as the whole-repo path, drop
+          the removed-command clause entirely, and keep the rest of the
+          paragraph (the ISSUE-010 diff-scope rationale, and the note that the
+          project-wide toolchain branch is unaffected by scope) unchanged.
+
+          CORRECTION 4, DIFFERENT FILE — `cmd/backstop/gate.go`, which is why
+          that file is in this task's scope. Inside the `pack_engines` step, the
+          comment IMMEDIATELY ABOVE the `resolveDispatchPackEngines()(...)` call
+          (locate BY that call, not by line number — this file has been edited
+          by many agents and every line citation is stale by construction). It
+          currently reads: "Thread the gate's diff scope (activeScope) so
+          rule-fed findings engines scan only the changed files, not the whole
+          repository (ISSUE-010). A nil activeScope or GateScopeModeAll restores
+          the whole-repo sweep; the project-wide toolchain passes stay
+          project-wide regardless." The middle sentence asserts the retracted
+          equivalence. Correct it to say a NIL activeScope restores the
+          whole-repo sweep and an all-scope now hands over its own explicit
+          file list; keep the ISSUE-010 citation and the project-wide-toolchain
+          clause verbatim.
+
+          THIS IS THE ONLY EDIT THIS TASK MAKES TO `cmd/backstop/gate.go` — a
+          comment, nothing more. Do NOT change any dispatch, scope, or step
+          wiring in that file. Its three `runFindingsEngine` consumers are
+          enumerated in this plan's notes precisely so they are understood and
+          LEFT ALONE.
+
+          CORRECTION 5, THIRD FILE — `cmd/backstop/filemode_scoping_test.go`,
+          which is why that file is in this task's scope. Inside
+          `TestFileMode_ProjectWideModeStillWholeModule`, the inline comment on
+          the `dispatchPackEngines(..., nil, runner)` call (locate BY that call,
+          not by line number) reads:
+
+              // nil scope == whole-repo escape hatch (gate --all / code check).
+
+          It packs BOTH retracted assertions into one line: it equates a nil
+          scope with `gate --all` (the exact equivalence CLM-007 retracts —
+          post-fix an all-scope does NOT take the nil branch), and it names
+          `backstop code check`, WHICH NO LONGER EXISTS (same removed command as
+          correction 3; its absence is asserted by a shipped test). Rewrite it to
+          say only that a nil scope is the whole-repo path — drop the `gate
+          --all` equivalence and the removed command, and do not substitute some
+          replacement command name.
+
+          THIS IS THE ONLY EDIT THIS TASK MAKES TO
+          `cmd/backstop/filemode_scoping_test.go` — one comment. Do NOT change
+          the test's body, its name, its assertions, or its `nil` argument: that
+          test exercises the PROJECT-WIDE toolchain branch, which this fix does
+          not touch, and it must stay green untouched. Only its comment is
+          wrong.
+
+          CORRECTION 6, FOURTH FILE — `cmd/backstop/ci_recipes_harness_test.go`,
+          which is why that file is in this task's scope. THIS IS THE MOST
+          CONSEQUENTIAL OF THE SIX, because it does not merely assert the
+          retracted equivalence — post-fix its final two clauses are exactly
+          INVERTED, so a reader who trusts it draws the opposite conclusion from
+          the truth. Locate the doc comment on `ciGlobScopingProblems` BY NAME.
+          It currently reads, in substance: under the gate's DEFAULT diff-scoped
+          dispatch, which hands semgrep EXPLICIT FILE targets, a multi-segment
+          include matches ZERO files — "while matching under `--all`'s directory
+          dispatch. A rule tightened that way looks alive under a full sweep and
+          is dead under the everyday bare `backstop gate`."
+
+          Post-fix `--all` HAS NO DIRECTORY DISPATCH. Such a rule is dead under
+          BOTH shapes, not "alive under a full sweep and dead under the bare
+          gate". Rewrite ONLY those trailing clauses: state that a multi-segment
+          include matches ZERO files under EVERY scope that carries a file list
+          (diff-scoped AND `--all` alike, since ISSUE-091 collapsed them onto one
+          explicit-file dispatch), so a rule tightened that way is uniformly
+          dead — it does not even have the misleading full-sweep liveness it had
+          before. Cite ISSUE-091. Keep the CLM-053..056 reference, the
+          `wantInclude` / whole-set-comparison explanation, and the "is a
+          failure" framing EXACTLY as they are — the reason the check exists is
+          unchanged and arguably strengthened. Note for the founder that this
+          comment is INDEPENDENT IN-TREE CORROBORATION of the THIRD DIVERGENCE:
+          someone documented the same path-glob-vs-dispatch-shape mechanism here
+          before this plan existed (TASK-006 item 3 cites it).
+
+          THIS IS A COMMENT-ONLY EDIT and it breaks NO test. Verified at HEAD:
+          `ciGlobScopingProblems` is a STATIC include-set audit — it reads
+          recipe manifests and compares string sets, and never dispatches an
+          engine — so its LOGIC is entirely unaffected by this plan's change. Do
+          NOT change the function's body, its signature, its comparison
+          semantics, or any caller. Only the comment is wrong.
+
+          ══ CORRECTIONS 7-9: THE THREE SOURCE SITES OUTSIDE `cmd/backstop/` ══
+          READ THE NOTES' "THREE SOURCE SITES" SECTION BEFORE TOUCHING THESE.
+          These three state ISSUE-091 as a STILL-LIVE DEFECT and all go FALSE
+          the moment this plan lands (CLM-008 makes `--all` AGREE with a
+          diff-scoped run over the same files, and `--all` covers strictly MORE
+          files — so "under-reports against diff scope" inverts). They are the
+          in-tree residue of PLAN-ISSUE-020's MANDATE (see notes item 6), which
+          is why TASK-006 item 4 files their supersession rather than absorbing
+          it here.
+
+          ⚠ THE HARD FENCE ON ALL THREE — READ THIS BEFORE EDITING ANYTHING.
+          These are TEXT-ONLY edits. Whether CI's blocking job may now safely
+          use `--all` is a FOUNDER-LEVEL POLICY CALL this fix creates, and it is
+          EXPLICITLY NOT THIS PLAN'S TO MAKE. Therefore, across corrections 7-9:
+            * DO NOT change the workflow's actual gate invocation. CI stays
+              diff/base scoped.
+            * DO NOT change the `"--all"` MAP KEY, remove the entry, or alter
+              the test's assertions, loop, or pass/fail logic. The ban stays IN
+              FORCE and stays ENFORCED.
+            * DO NOT touch the ISSUE-093 / `--file` half ANYWHERE. It is
+              independent of this fix and remains true verbatim.
+            * DO NOT write that the ban should be lifted, or that `--all` is now
+              safe for CI. State only that ISSUE-091 IS FIXED and that its
+              historical under-report no longer independently justifies the
+              `--all` half of the ban — then point at the follow-on.
+          Any temptation to go further than the text is the policy call. Stop
+          and let TASK-006 item 4 file it.
+
+          CORRECTION 7, FIFTH FILE — `.github/workflows/ci.yml`, which is why
+          that file is in this task's scope. The comment on the BLOCKING gate
+          step (locate it BY the step named "Run the gate" and its
+          `./bin/backstop gate --base "$BASE"` run line, NOT by line number).
+          It currently reads: "Diff-scoped with an explicit base. NEVER the
+          all-scope flag (ISSUE-091: it under-reports against diff scope) and
+          never the per-file flag (ISSUE-093: it crashes on non-Go directories
+          and silently drops repeats)." The ISSUE-091 parenthetical is false
+          post-fix. Rewrite ONLY that parenthetical: keep "NEVER the all-scope
+          flag", and replace its reason with a statement that ISSUE-091's
+          under-report is FIXED and the flag stays out of the blocking job
+          pending a founder decision (cite ISSUE-091 as fixed). Keep the
+          ISSUE-093 clause, the "Diff-scoped with an explicit base" sentence,
+          and the "THIS is the blocking invocation" paragraph EXACTLY as they
+          are. Change NO `run:` line, NO step name, NO `if:`, and nothing in any
+          other job.
+
+          CORRECTION 8, SIXTH FILE — `workflows_test.go` (REPO ROOT, package
+          `backstopcore_test` — NOT under `cmd/backstop/`), which is why that
+          file is in this task's scope. The DOC COMMENT on
+          `TestCIWorkflow_BlockingJobNeverUsesAllOrFileScope` (locate BY NAME).
+          Its ISSUE-091 paragraph currently reads: "ISSUE-091: `--all` is NOT a
+          superset of diff scope — it under-reports, with findings on files it
+          reports zero for, so a job scoped with `--all` blocks on a strictly
+          smaller set than the diff it is gating." Post-fix that is inverted.
+          Rewrite ONLY that paragraph to say ISSUE-091 is FIXED — `--all` now
+          dispatches its own explicit file list and AGREES with a diff-scoped
+          run over the same files (CLM-008) — so the historical under-report no
+          longer independently justifies keeping `--all` out of the blocking
+          job, and whether the `--all` half of this constraint should now lift
+          is an OPEN FOUNDER DECISION (point at the follow-on issue TASK-006
+          item 4 files). Keep the ISSUE-093 paragraph and the "pins the two
+          scope flags out of the blocking invocation" opening EXACTLY as they
+          are.
+
+          ⚠ CORRECTION 8 HAS A SECOND SENTENCE TO FIX, TWO LINES BELOW THE
+          FIRST, AND EARLIER REVISIONS OF THIS PLAN LISTED IT AS PRESERVE-
+          VERBATIM. The comment's closing sentence reads: "Diff scope with an
+          explicit base is the only shape that is both complete and stable.
+          (CLM-020)". That goes FALSE the moment this fix lands: post-fix
+          `--all` is BOTH complete (it agrees with a diff-scoped run over the
+          same files, CLM-008) AND stable, so diff+explicit-base is no longer
+          the ONLY such shape. (`--file` remains unstable per ISSUE-093 and is
+          unaffected either way.) Leaving it would be worse than a merely stale
+          line: it sits immediately after the new text above, so the comment
+          would read as the open founder question being ANSWERED IN THE
+          NEGATIVE by the very next sentence, in-tree — precisely what the hard
+          fence above exists to prevent.
+          REWRITE that sentence, TEXT-ONLY and fence-compliant: say that
+          diff scope with an explicit base is the shape CI's blocking job
+          actually uses today, and that it stays that way pending the founder
+          decision. Do NOT assert it is the only complete-and-stable shape, and
+          do NOT assert the reverse (that `--all` is now an equally good or
+          better choice for CI) — that is the policy call. KEEP the `(CLM-020)`
+          citation on the rewritten sentence; do not drop it.
+          With this, correction 8 edits TWO sentences in one doc comment. It is
+          still ONE correction for the eleven-correction count below — do not
+          renumber, and do not recompute the total on account of it.
+
+          CORRECTION 9, SAME FILE, AND IT IS **NOT** A COMMENT — this is the one
+          most likely to be mishandled. Inside that same test's body, the flag
+          map carries a LIVE IN-CODE STRING used as the `%s` rationale in its
+          `t.Errorf`: `"--all": "ISSUE-091 — `--all` under-reports against diff
+          scope"`. Change ONLY THE VALUE STRING to state accurate post-fix
+          rationale (ISSUE-091 fixed; `--all` held out of the blocking job
+          pending a founder decision). DO NOT change the `"--all"` KEY, do not
+          remove the map entry, do not touch the `"--file"` entry, and do not
+          alter the loop, the `strings.Contains` check, or the `t.Errorf` call.
+          The test must keep failing on exactly the same condition it fails on
+          today — only the message it prints changes.
+
+          COVERAGE NOTE FOR CORRECTIONS 8 AND 9: `workflows_test.go` lives at the
+          REPO ROOT in package `backstopcore_test`, so it is NOT reached by
+          `go test ./cmd/backstop/...`. TASK-005 runs the root package's tests
+          explicitly for this reason — do not assume the `cmd/backstop` sweep
+          covers it.
+
+          SHARP EDGE — argv growth, named and accepted, NOT engineered around.
+          Under `--all` the file list is now every file the walk yields, so argv
+          grows with repo size. Measured at HEAD 1902644, STATING THE CONVENTION
+          because it moves the number — REPO-RELATIVE paths (what actually
+          ships: `resolveGateScopeAll` stores `filepath.Rel(projectRoot, path)`)
+          and TESTDATA-PRUNED (what the collapsed branch actually hands over):
+          1,173 files / 49,822 bytes against ARG_MAX 1,048,576 (~21x headroom).
+          An earlier revision quoted ~12x from a REPO-RELATIVE but UNPRUNED
+          count at a different tree state (1,615 files / 82,362 bytes; the same
+          measure at HEAD gives 1,634 / 79,494, ~13x). BOTH readings are
+          repo-relative — the delta between ~13x and ~21x is the TESTDATA
+          PRUNING, not a path-convention difference. A genuinely absolute-path
+          unpruned count would be ~150KB (~7x) and matches neither. The
+          CONCLUSION is robust under any of them. Build NO chunking, NO
+          argument-file indirection, NO size threshold — that is speculative
+          machinery for a repo that does not exist. The overflow path is already
+          LOUD: Go surfaces E2BIG from `os.StartProcess` as an `*fs.PathError`
+          with `Op: "fork/exec"`, which `runNeverStarted` already classifies and
+          `neverStartedError` converts to a `*check.ConfigError` (exit 2) — a
+          refusal, never a finding-free pass. VERIFY that classification by
+          reading the predicate before relying on it. CONCURRENCY POINTER:
+          PLAN-ISSUE-140 is in flight tonight and DELETES the local
+          `runNeverStarted` from this same file, replacing its three call sites
+          with `check.NeverStarted` in `pkg/check`. If that has already landed by
+          the time you read this, the function to read is `check.NeverStarted` —
+          same classification, same `*fs.PathError` / `Op: "fork/exec"` shape,
+          new home. Do not re-introduce a local predicate under either name, and
+          do not treat the rename as a conflict with this task: this plan does
+          not touch that call site. If E2BIG turns out NOT to reach that path
+          under either name, STOP and report — do not build a workaround inside
+          this task; that is a separate issue.
+
+          SECOND SHARP EDGE — the all-scope walk does not honor `.gitignore`,
+          while an engine's directory discovery typically does. So a handful of
+          gitignored files become explicit targets that were previously skipped.
+          Measured at HEAD (file COUNT, not a findings count — no layer applies):
+          7 such files, ZERO of them `.go`
+          (`backstop`, `bin/backstop`, `cover.out`, three `tmp/*.md`, one
+          `directives/*.md`). This is real but negligible, and it is the correct
+          direction (louder, not quieter). Do NOT add gitignore filtering to fix
+          it — that would duplicate git's semantics inside a thin executor. If the
+          implementer observes findings from these files, report them; do not
+          suppress them.
+        files:
+          - cmd/backstop/pack_gate.go
+          - cmd/backstop/gate.go
+          - cmd/backstop/filemode_scoping_test.go
+          - cmd/backstop/ci_recipes_harness_test.go
+          - .github/workflows/ci.yml
+          - workflows_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+        depends_on:
+          - TASK-001
+          - TASK-002
+          - TASK-003
+
+      - id: TASK-005
+        type: verification
+        title: "Gate the changed dispatch and confirm every Phase 1 test is genuinely green"
+        description: |
+          BUILD FIRST, THEN GATE — and use `./bin/backstop`, never bare
+          `backstop`. A bare `backstop` resolves to the Homebrew-installed
+          binary on PATH, which predates this plan's own fix and would report
+          PRE-fix behavior as if it were the post-fix result. Run
+          `go build -o ./bin/backstop ./cmd/backstop` immediately before the
+          sweep — do not reuse whatever `./bin/backstop` happens to already
+          exist, since it can be stale relative to your own in-progress edits.
+
+          Run `./bin/backstop gate --file cmd/backstop/pack_gate.go` and read the
+          result, then `./bin/backstop gate --file cmd/backstop/gate.go` (TASK-004's
+          comment correction 4 lives there). Then run `./bin/backstop gate`
+          (diff-scoped) so the remaining new/edited files — including
+          `cmd/backstop/filemode_scoping_test.go`,
+          `cmd/backstop/ci_recipes_harness_test.go`,
+          `.github/workflows/ci.yml` and root `workflows_test.go`, which carry
+          TASK-004's corrections 5-9 — are covered by the same sweep.
+
+          Then confirm the mandated tests actually pass, with real counts and
+          ZERO skips:
+
+              go test ./cmd/backstop/ -race -count=1 -v \
+                -run "TestIssue091|TestPackEngines_AllScope|TestPackEngines_DiffScope_RuleDirEngine"
+
+          Read the output. A `SKIP` on
+          `TestIssue091_AllScopeReportsTestFileFindings_RealEngine` means the
+          engine was absent and the load-bearing proof DID NOT RUN — that is not a
+          pass. Install the engine and re-run, or report the blocker explicitly.
+          Do not report this plan as verified on a skipped e2e.
+
+          Also run the two neighbours most likely to be disturbed, since they
+          exercise the nil-scope path this fix deliberately preserves:
+
+              go test ./cmd/backstop/ -race -count=1 \
+                -run "TestBaselineIdentity|TestSarifFingerprint"
+
+          These assert that a full-scope invocation targets an ABSOLUTE
+          projectRoot directory. They pass `nil`, not an all-scope, so they MUST
+          stay green untouched. If either fails, the fix over-reached into the
+          nil-scope branch — fix the code, do NOT edit those tests.
+
+          THEN RUN THE ROOT PACKAGE EXPLICITLY. `workflows_test.go` (TASK-004
+          corrections 8 and 9) lives at the REPO ROOT in package
+          `backstopcore_test`, so NONE of the `./cmd/backstop/` runs above reach
+          it:
+
+              go test . -race -count=1 -run "TestCIWorkflow"
+
+          `TestCIWorkflow_BlockingJobNeverUsesAllOrFileScope` MUST STILL PASS —
+          correction 9 rewrote only its `t.Errorf` rationale string, never its
+          key, its loop, or its assertions, and correction 7 changed only a
+          comment in `.github/workflows/ci.yml`, never a `run:` line. A FAILURE
+          here means an edit crossed the text-only fence and silently made the
+          founder-level policy call TASK-006 item 4 exists to defer: revert to
+          the text-only edit and report. Do NOT "fix" it by relaxing the test.
+
+          Record the before/after finding counts from TASK-002's e2e in the task
+          note, each LABELLED WITH ITS LAYER (both are ACTIVE — they come out of
+          `dispatchPackEngines`, downstream of `parseSarif`). "Tests pass" is not
+          the evidence this issue needs; "the all-scope run now reports the
+          test-file finding it previously dropped" is.
+        files:
+          - cmd/backstop/pack_gate.go
+          - cmd/backstop/gate.go
+          - cmd/backstop/pack_gate_issue091_regression_test.go
+          - cmd/backstop/pack_gate_issue091_e2e_test.go
+          - cmd/backstop/pack_gate_scope_test.go
+          - cmd/backstop/filemode_scoping_test.go
+          - cmd/backstop/ci_recipes_harness_test.go
+          - .github/workflows/ci.yml
+          - workflows_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-008
+        depends_on:
+          - TASK-004
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: Surface the consequences, then verify everything.
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: Follow-Ons and Comprehensive Verification"
+    tasks:
+      - id: TASK-006
+        type: documentation
+        title: "File the follow-ons this fix creates rather than absorbing them"
+        description: |
+          FOUR consequences fall outside this plan's scope and must be SURFACED,
+          not silently absorbed. File each as its own issue via the proper route —
+          `./bin/backstop artifact new issue --slug <kebab>` to reserve the ID,
+          then the issue-author agent. Do NOT hand-write the issue files, and do
+          NOT fold any of the four consequences into this plan's tasks.
+
+          1. `PLAN-ISSUE-010`'s CLM-004 prose is now SUPERSEDED. That completed
+             plan describes `--all` as restoring the whole-repo projectRoot scan
+             and names `TestPackEngines_AllScope_RestoresWholeRepoScan` as the
+             test delivering it. The test name survives (TASK-003 preserved it)
+             and the nil-scope half of the claim survives, but the all-scope half
+             is retracted by ISSUE-091. Completed plans are never rewritten, so
+             the correction belongs in a new issue that records the supersession
+             and cites both artifacts. Include the specific sentence that went
+             stale so a future reader can find it.
+             STATE THE ENFORCEMENT SCOPE ACCURATELY: this is a CLAIM-PROSE
+             retraction only. PLAN-ISSUE-010 declares no `test_names:` block —
+             it names its tests in task-description prose — so no gate-enforced
+             mandated test is at stake, and no promise breaks. Say so explicitly
+             in the filing so the next reader does not go hunting for one.
+
+          2. `gate --all` NO LONGER REPORTS FINDINGS INSIDE `testdata/`. This is a
+             deliberate, founder-visible BEHAVIOR CHANGE, not a bug fix, and it is
+             subtractive: at HEAD it removes 3 real ACTIVE rows (post-
+             suppression-filter — what the gate actually prints) from a
+             `cmd/backstop` sweep, under either pack set, since all three are
+             go-standards rows; they are enumerated in this plan's notes. State
+             the pack set, subtree and layer if the issue quotes the number at
+             all. The rationale is ISSUE-040's
+             — a `testdata` directory is inert data by universal convention, and
+             planted negative fixtures are not real findings — now applied
+             consistently to both scopes instead of only one. The issue should
+             note that anyone who has been using `gate --all` to audit fixture
+             content loses that view, and ask the founder whether that view is
+             worth a separate flag. Do not build such a flag here.
+
+             THIS ITEM ALSO CARRIES A COMPLETED-PLAN CLAIM RETRACTION, and it
+             gets the SAME treatment items 1 and 4 get — recorded in the issue,
+             never by rewriting the completed plan.
+             `plans/PLAN-ISSUE-040-testdata-findings-exclusion.plan.yml`
+             (status: completed) CLM-005 states, verbatim:
+             "The nil-scope / GateScopeModeAll whole-repo escape hatch is
+             unchanged (still scans projectRoot; NOT testdata-filtered), and the
+             exact-segment match does not exclude look-alike paths (e.g.
+             `testdata_util.go`)."
+             ISSUE-091 falsifies BOTH halves of that for the ALL-SCOPE arm: post-
+             fix `--all` no longer takes the nil-scope escape-hatch shape the
+             claim describes, and it IS now testdata-filtered. Quote that
+             sentence verbatim in the filing so a future reader can find it. Note
+             that the nil-scope arm and the look-alike-path clause both SURVIVE
+             unchanged — the retraction is scoped to `GateScopeModeAll`.
+             Note also that PLAN-ISSUE-040's TASK-001 mandated a "re-assert
+             unaffected" assertion, delivered as the `all scope` subtest that
+             THIS plan's TASK-003 step 2 inverts. Like item 1, this is a CLAIM-
+             PROSE retraction ONLY and NOT a broken mandated-test promise:
+             PLAN-ISSUE-040, exactly like PLAN-ISSUE-010, declares no
+             `test_names:` block, so no mandated test name is at stake in EITHER
+             filing. There is no asymmetry between the two items — do not write
+             one into the issue. Say so explicitly in the filing so the next
+             reader does not go hunting for a mandated test.
+
+          3. PATH-SCOPED PACK RULES GO DARK UNDER EXPLICIT-FILE DISPATCH — the
+             THIRD DIVERGENCE in this plan's notes, and the one with the widest
+             blast radius. A rule whose `paths.include:` names repo-relative
+             directory-prefixed globs fires under a directory target and does NOT
+             fire when the same file is handed over explicitly. Measured at HEAD
+             on backstop-self's `no-structural-name-split-on-spine` at the
+             `strings.Fields` call inside `splitCommand`
+             (`cmd/backstop/pack_gate.go`) and inside `engineToolName`
+             (`cmd/backstop/pack_gate_provision.go`) — CITE BOTH BY FUNCTION
+             NAME, not by line, since both files are under concurrent edit —
+             reproduced with the file passed alone. The issue must say plainly that this is PRE-EXISTING:
+             the diff-scoped gate has always dispatched explicit files, so that
+             rule is already effectively dead there TODAY — this plan did not
+             create the hole, it only extends it to `--all` and thereby makes it
+             visible. Frame it as a PACK-CONTRACT question (how does a pack
+             express path scoping such that it survives BOTH dispatch shapes?),
+             not as a core arg-shaping bug, and do NOT propose a fix in the
+             filing. Include the exact reproduction commands so the next reader
+             does not have to rediscover the mechanism.
+             CITE THE INDEPENDENT IN-TREE CORROBORATION: the doc comment on
+             `ciGlobScopingProblems` in `cmd/backstop/ci_recipes_harness_test.go`
+             already documents this exact mechanism — that a multi-segment
+             include "matches ZERO files ... under the gate's DEFAULT
+             diff-scoped dispatch, which hands semgrep EXPLICIT FILE targets."
+             It was written by someone else, before this plan existed, from a
+             different starting point, which makes it corroborating evidence
+             rather than a restatement of this plan's own measurement — quote it
+             as such. (TASK-004's correction 6 updates that comment's trailing
+             `--all` clauses; the filing should quote the mechanism half, which
+             is unchanged and correct.) Severity is the founder's
+             call, but note honestly that any pack rule using directory-prefixed
+             `paths.include` is currently a silent no-op on the diff-scoped gate
+             — the vacuous-green class.
+
+          4. ★ FOUNDER DECISION REQUIRED — MAY CI'S BLOCKING JOB NOW USE
+             `--all`? This is the ONE follow-on that is not merely a record: it
+             is a live policy question this fix CREATES, and TASK-004
+             corrections 7-9 deliberately refuse to answer it. File it, DO NOT
+             RESOLVE IT, and do not let the implementer resolve it either.
+
+             THE SUBSTANCE, which the filing must state in full:
+               * ISSUE-091 was the SOLE stated justification for the `--all`
+                 HALF of CI's blocking-job scope ban. ISSUE-093 independently
+                 covers the `--file` half and is UNAFFECTED — the `--file` ban
+                 keeps its reason and is not in question.
+               * PLAN-ISSUE-020 (status: completed) MANDATED that ban's test AND
+                 its citation. Quote its instruction verbatim:
+                 "`TestCIWorkflow_BlockingJobNeverUsesAllOrFileScope` — no
+                 `--all` and no `--file` on the gate invocation. ISSUE-091
+                 (`--all` under-reports vs diff) and ISSUE-093 … are the
+                 reasons; cite both in the test comment so the constraint
+                 survives its authors." Also cite its RESIDUALS AT CLOSE entry
+                 ("ISSUE-091 and ISSUE-093 UNCHANGED, which is precisely why CI
+                 runs diff+base scope and never `--all` or `--file`"). This is
+                 the SAME CLASS as item 1 — a completed plan's delivered,
+                 mandated rationale retracted by a later fix — and it gets the
+                 same treatment: recorded in a new issue, never by rewriting the
+                 completed plan.
+               * ISSUE-094 ALREADY NAMES CLOSING ISSUE-091 AS ITS OWN EXPLICIT
+                 TRIGGER to switch its sweep to `gate --all`. So a second
+                 artifact is already waiting on this same event. Cite it, and
+                 note it is a CONSUMER of the decision, not its owner — do not
+                 fold this question into ISSUE-094, which owns the debt
+                 INVENTORY, not CI's scope policy.
+               * STATE THE CURRENT DISPOSITION PLAINLY: the ban REMAINS IN FORCE
+                 and REMAINS ENFORCED by an unmodified test. This plan changed
+                 only the now-false rationale TEXT at the three sites (notes,
+                 "THREE SOURCE SITES"; TASK-004 corrections 7-9). Nothing about
+                 CI's actual behavior changed.
+               * FRAME THE QUESTION, do not answer it: with the under-report
+                 fixed, is diff+base still the right blocking scope, or should
+                 the blocking job move to `--all`? Note honestly that this is
+                 NOT a free lift — TASK-007's sweep will surface the repo-wide
+                 debt volume (ISSUE-094's territory), and the THIRD DIVERGENCE
+                 (item 3) means `--all` is not strictly louder in every respect.
+                 Both bear on the answer and neither is this plan's to weigh.
+             Raise it for founder review AFTER this plan lands. It is a taste/
+             policy call about CI strategy — exactly the class that escalates.
+
+          All four NEW issues should cite DIR-032 (Gate Verdict Honesty) as their
+          home so the backlog PM can slot them against the existing cluster.
+
+          ── FIFTH ITEM, AND IT IS AN APPEND — NOT A NEW ISSUE ────────────────
+          ★ ROUTE TO THE EXISTING `issues/ISSUE-097-unbound-selfpack-waivers-
+          fail-open.issue.md`. DO NOT FILE A NEW ISSUE FOR THIS. ISSUE-097
+          already owns this exact class AND these exact two tokens by name, and
+          it has already been appended to once today with related evidence — a
+          second tracker would be a duplicate. Add ANOTHER dated evidence entry
+          under its existing "Additional evidence" heading (append, never rewrite
+          the issue's Problem or Solution sections).
+
+          WHAT THE ENTRY MUST SAY. Two findings are in play, but ONLY THE SECOND
+          IS THIS TASK'S TO WRITE. Read both — the first is the premise the
+          second rests on:
+
+            (i) ALREADY ROUTED ELSEWHERE — DO NOT RE-FILE, DO NOT RE-DERIVE.
+                ISSUE-097's recorded "INERT — the rule currently matches nothing
+                at either waiver site" is FALSE. That reading was taken with
+                `./bin/backstop gate --file <path>`, which is explicit-file
+                dispatch — the exact shape this plan's THIRD DIVERGENCE proves is
+                blind to the rule's directory-prefixed `paths.include` globs.
+                Under DIRECTORY dispatch the rule fires at BOTH sites, so the two
+                tokens are FAILING OPEN TODAY. That is true independently of
+                whether this plan ever lands, so it was dispatched to a dedicated
+                issue-author on 2026-08-16 rather than deferred to this task.
+                YOUR JOB IS ONLY TO CONFIRM IT LANDED before appending (ii) —
+                (ii) reads as nonsense against an issue still asserting the rule
+                matches nothing. If the correction is absent, append (ii) anyway
+                and SAY SO in your report; do not write the correction yourself.
+
+           (ii) ★ THE ENTRY THIS TASK OWNS AND MUST WRITE.
+                PLAN-ISSUE-091's FIX WILL MAKE BOTH TOKENS NEWLY ORPHANED —
+                and, counter-intuitively, will REDUCE their visibility rather
+                than raise it. Today the live findings pull both tokens into
+                `harvestWindow`, so they surface in the `waiver_resolution`
+                dimension's "N unused/dangling" clause. Post-fix no finding lands
+                in either window, nothing harvests them, and they cannot even
+                reach the `Unused` bucket — the count attributable to them goes
+                2 -> 0. Record that as the concrete, dated instance of the
+                structural blind spot ISSUE-097's "harvest is finding-driven, not
+                tree-driven" section already describes, and note that it
+                STRENGTHENS the case for the tree-driven scan that issue proposes.
+
+          Say explicitly in the entry that PLAN-ISSUE-091 deliberately did NOT
+          re-key or remove the tokens — that remains ISSUE-097's own owned work
+          (its Solution part (a)) — so a later reader does not mistake this
+          plan's silence for an oversight.
+
+          WHAT NOT TO FILE — the newly-visible repo-wide debt from TASK-007's
+          sweep ALREADY HAS AN OWNER. `issues/ISSUE-094-ci-repo-wide-sweep-debt-
+          inventory.issue.md` (open, no plan) owns exactly "repo-wide debt a
+          diff-scoped gate makes invisible", names ISSUE-091 as its explicit
+          retirement trigger, and carries a recorded founder ruling on the format
+          (Brandon, 2026-07-28: ONE rolling inventory issue with a per-file
+          checklist inside it, NOT one issue per violating file — the volume makes
+          per-file filings spam). Do NOT open a third tracker for it. See
+          TASK-007.
+        files:
+          - issues/
+        claims:
+          - CLM-009
+        depends_on:
+          - TASK-004
+
+      - id: TASK-007
+        type: verification
+        title: "Full kill chain: gate --all and artifact validation"
+        description: |
+          BUILD FIRST, AND USE `./bin/backstop` — this is load-bearing HERE
+          above all. A bare `backstop` resolves to the Homebrew-installed binary
+          on PATH, which predates this plan's fix: it would print the PRE-fix
+          numbers unchanged, and the "NET ZERO confirms the fix" reading below
+          would then be FALSE CONFIRMATION — exactly the vacuous-green class this
+          plan exists to eliminate, reproduced inside its own verification.
+          Run `go build -o ./bin/backstop ./cmd/backstop` immediately before the
+          sweep — do not reuse whatever `./bin/backstop` happens to already
+          exist, since it can be stale relative to your own in-progress edits.
+
+          Run the unscoped sweep and read every dimension:
+
+              ./bin/backstop gate --all
+
+          Note the reflexive property of this run: it is the FIRST `--all` sweep
+          executed through the fixed dispatch, so it will legitimately report
+          findings on `*_test.go` files across the repo that no previous `--all`
+          run has ever shown. THAT IS THE FIX WORKING, NOT A REGRESSION.
+
+          THE PREDICTED READING. Every number below states its PACK SET, its
+          SUBTREE, and its MEASUREMENT LAYER — all three, because a count is
+          not reproducible without them and the LAYER in particular has already
+          caused two wrong predictions in this plan's history. All figures are
+          LAYER 2 (suppression-filtered / "ACTIVE"), measured at HEAD 1902644
+          (Probe B, see notes). RAW SARIF row counts are NOT a valid prediction
+          of gate output and must never be quoted here.
+
+          THESE FIGURES ARE ALSO VALID AT LAYER 3 (waiver-adjudicated — what
+          `gate --all` actually prints), and that equality is VERIFIED, not
+          assumed: see the layer-3 verification under AXIS 2 in this plan's
+          notes. No `@waiver:` token in this scope matches any finding's rule-id,
+          so waiver adjudication removes nothing here and layer 2 == layer 3.
+          If you change any file in scope in a way that adds a waiver, this
+          equality stops holding and the figures must be re-derived at layer 3.
+
+            * go-standards ALONE, `cmd/backstop` subtree, ACTIVE layer:
+              4 `go.core.no-global-mutable-state` rows on `*_test.go` newly
+              appear; 3 `testdata/` rows disappear.
+              NET +1: 6 active rows before, 7 after.
+
+            * ALL FOUR installed semgrep packs, `cmd/backstop` subtree, ACTIVE
+              layer: 5 rows newly appear (those 4, plus one backstop-self
+              `no-baked-tool-exec` row at `pack_authoring_loop_test.go:18`);
+              3 `testdata/` rows disappear; AND 2
+              `no-structural-name-split-on-spine` rows ALSO disappear — the
+              rows on the `strings.Fields` calls inside `splitCommand`
+              (`pack_gate.go`) and `engineToolName` (`pack_gate_provision.go`),
+              the THIRD DIVERGENCE. Expected, do not chase.
+              NET ZERO: 8 rows before, 8 after — and per the layer note above
+              this is the LAYER 3 / gate-printed figure too, because the two
+              `@waiver:` tokens adjacent to those last two rows key a stale
+              pre-rename rule-id and suppress nothing.
+
+          ⚠ READ THE NET-ZERO CAREFULLY — IT IS THE MOST MISREADABLE NUMBER IN
+          THIS PLAN. Under the four-pack set on `cmd/backstop`, the TOTAL is
+          UNCHANGED at 8 both before and after the fix. THAT IS THE FIX WORKING,
+          NOT A SILENT FAILURE. Five rows entered and five left; an unchanged
+          TOTAL is not an unchanged SET. Do NOT conclude the change did not take
+          effect because the count did not move — DIFF THE SETS, not the counts.
+
+          DIFF ON (File, Rule) IDENTITY, NOT ON LINE NUMBERS. Do not build the
+          criterion out of `path:line` tuples: `cmd/backstop/pack_gate.go` and
+          `cmd/backstop/filemode_scoping_test.go` are both being edited by other
+          lanes right now, and `pack_gate.go` alone shifted ~112 lines mid-review.
+          A line-keyed diff would report phantom churn from a neighbouring lane's
+          commit. Where two rows share a (File, Rule) pair, disambiguate by the
+          ENCLOSING FUNCTION NAME (e.g. `splitCommand` vs `engineToolName`), not
+          by address. Treat a moved line on an otherwise-matching row as expected
+          drift.
+
+          CONFIRMATION CRITERION: the four-pack `cmd/backstop` total is 8 AND the
+          five named gains are present AND the five named losses are absent. All
+          five losses ARE genuinely in pre-fix `gate --all` output — the three
+          `testdata/` rows and BOTH THIRD-DIVERGENCE rows — so their absence is a
+          real, checkable signal, not a vacuous one. (This was worth stating: an
+          earlier review round suspected the two THIRD-DIVERGENCE rows were
+          waiver-suppressed and therefore never in gate output to begin with,
+          which would have made half this criterion prove nothing. That suspicion
+          was checked and is FALSE — the adjacent `@waiver:` tokens key a
+          pre-rename rule-id and match nothing. See AXIS 2.)
+
+          A COUNT THAT MOVED IS NOT AUTOMATICALLY A PHANTOM. Investigate a moved
+          count only after ruling out the two legitimate causes: (1) another
+          lane's concurrent edit added or removed a violating line in
+          `cmd/backstop` between the pre-fix and post-fix readings — re-take the
+          pre-fix reading at your own HEAD before drawing any conclusion; and
+          (2) a row moved between layers, which for this scope should not happen
+          but is worth confirming rather than assuming. Only a count change that
+          survives both explanations, with the set diff disagreeing with the ten
+          named rows, is the condition worth escalating.
+
+          THREE ROWS AN EARLIER REVISION PREDICTED WILL NOT APPEAR, by design —
+          `hermetic_fixtures_test.go:33`, `version_test.go:238` and
+          `version_test.go:264` are all genuinely `nosemgrep`-suppressed and are
+          dropped by `parseSarif`. Their absence is CORRECT and is already
+          accounted for in the figures above. See the RETRACTED note in this
+          plan's notes. Do not treat any of the three as a missing row, and do
+          NOT report any `nosemgrep` annotation as broken — none is.
+
+          The repo-wide figure will be substantially larger than any of these,
+          since `cmd/backstop` is one subtree. Do NOT restate these numbers as
+          the repo-wide expectation, and do NOT quote a count without saying
+          which pack set, which subtree, and which layer produced it.
+
+          ALSO READ THE `waiver_resolution` DIMENSION, BEFORE AND AFTER. This is
+          a SECOND gate-output change this fix causes, in a dimension no other
+          part of this task looks at, and it is a PREDICTION TO CHECK — not a
+          measured fact. Per THIRD DIVERGENCE consequence 4, the two
+          `no-structural-name-split-on-spine` findings currently drag their two
+          adjacent stale `@waiver:` tokens into the adjudicator's harvest window,
+          where they land in the "N unused/dangling" clause of the
+          `waiver_resolution` reason line. Post-fix those findings are gone, so
+          nothing harvests the tokens and their contribution to that count should
+          fall to zero.
+            * EXPECTED: the unused/dangling count drops by exactly 2, and the two
+              `backstop/self/...no-structural-name-split-on-spine` entries leave
+              the clause. Report the before and after strings verbatim.
+            * IF THE PREDICTION IS WRONG in either direction — the tokens were
+              never in the clause pre-fix, or they are still there post-fix —
+              REPORT IT, do not adjust anything. It would mean the harvest window
+              or the unused classification behaves differently than this plan
+              read it, which is information ISSUE-097 needs.
+          DO NOT re-key, delete, or otherwise "clean up" the two tokens to make
+          the numbers tidier. They are ISSUE-097's owned work; TASK-006 appends
+          this reading to that issue as evidence.
+
+          ALSO CHECK THE SECOND AFFECTED CONSUMER, which a `--all` sweep exercises
+          but which no task in this plan targets directly: the
+          `test_substantiveness` step (`buildTestSubstantivenessStep`, notes
+          section "THREE PRODUCTION CONSUMERS"). Its dispatch newly acquires
+          `excludeTestdataPaths` under `--all`. Compare its dimension result
+          against the pre-fix reading:
+            * EXPECTED-GOOD, report and move on: substantiveness violations
+              unchanged, or fewer because inert `testdata/` fixture paths
+              (including `pkg/gate/testdata/substantiveness-pack/fixtures/**`)
+              are no longer scanned. Those were never mandated tests and the
+              mandated-test set-join discarded their findings anyway.
+            * STOP AND REPORT, do not adjust the fix to make it go away: a
+              substantiveness violation APPEARING where none was before, or a
+              real mandated test no longer being evaluated. Either means the
+              pruning reached live test files, which it must not.
+
+          Handle the surfaced backlog HONESTLY and within scope:
+            * Violations on files THIS PLAN TOUCHED must be FIXED — the
+              no-grandfather-on-changed-files rule applies in full.
+            * Violations on files this plan did NOT touch are pre-existing debt
+              that the gate was previously blind to. Do NOT fix them here, do NOT
+              waive them, and above all do NOT narrow the fix to make them
+              disappear. Suppressing newly-visible truth to get a green would
+              recreate exactly the defect this plan closes.
+              THIS INVENTORY ALREADY HAS AN OWNER — DO NOT FILE A NEW ISSUE FOR
+              IT. `issues/ISSUE-094-ci-repo-wide-sweep-debt-inventory.issue.md`
+              (open, no plan) owns "repo-wide debt a diff-scoped gate makes
+              invisible", and it names ISSUE-091 as its EXPLICIT RETIREMENT
+              TRIGGER: its scope section says the advisory sweep stays on
+              hand-baked whole-repo `golangci-lint` until ISSUE-091 is fixed, at
+              which point it switches to `backstop gate --all`. Closing ISSUE-091
+              is precisely the event ISSUE-094 has been waiting on. So: enumerate
+              the debt, report it to the founder, and route the enumeration into
+              ISSUE-094 following ITS recorded format — the founder ruling
+              (Brandon, 2026-07-28) is ONE rolling inventory issue carrying a
+              per-file checklist inside its body, explicitly NOT one issue per
+              violating file, because a per-file pattern would spam the
+              tracker at this volume. Cite ISSUE-094 by id in the report.
+              Amending ISSUE-094 itself is an issue-author job, not an inline
+              edit — hand it the inventory, do not hand-write into the file.
+            * If the sweep's sheer volume makes the gate unusable pending triage,
+              say so plainly and escalate — that is a founder judgment call about
+              baseline strategy, not an implementer decision.
+
+          Then validate the artifacts this plan produced or referenced:
+
+              ./bin/backstop artifact validate --plan PLAN-ISSUE-091
+              ./bin/backstop artifact validate --issue ISSUE-091
+
+          Finally confirm the full package still builds and passes — BOTH the
+          command package AND the repo-root package, since TASK-004 corrections
+          8 and 9 edited root `workflows_test.go`, which `./cmd/backstop/...`
+          does not reach:
+
+              go test ./cmd/backstop/... -race -count=1
+              go test . -race -count=1
+
+          Report actual command output, not a summary of intent. If another agent
+          is active in this shared worktree, say which readings were carried from
+          an earlier non-racing pass rather than re-run, and do not present a
+          carried reading as a fresh one.
+        files:
+          - cmd/backstop/pack_gate.go
+          - cmd/backstop/gate.go
+          - cmd/backstop/pack_gate_issue091_regression_test.go
+          - cmd/backstop/pack_gate_issue091_e2e_test.go
+          - cmd/backstop/pack_gate_scope_test.go
+          - cmd/backstop/filemode_scoping_test.go
+          - cmd/backstop/ci_recipes_harness_test.go
+          - .github/workflows/ci.yml
+          - workflows_test.go
+          - plans/PLAN-ISSUE-091-gate-all-underreports-test-findings.plan.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-004
+          - TASK-005
