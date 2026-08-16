@@ -63,6 +63,19 @@ notes: |
   mandated test's file WAS in the diff: not starvation, not out-of-scope — an
   unresolvable reported path, silently filtered.
 
+  ── THE EVIDENCE IS ALREADY COMMITTED. DO NOT CAPTURE A SECOND COPY. ───────
+  The above was measured during planning to CONFIRM the mechanism, but this repo
+  already carries a committed, real capture of exactly the same property:
+  `cmd/backstop/testdata/go-toolchain/fixtures/go-test-failures.txt` — real
+  `go test` stdout for package `github.com/example/project/pkg/widget`, reporting
+  its failures as the BARE BASENAMES `widget_test.go` / `gadget_test.go`, plus a
+  THIRD failure (`TestNoPos`) that carries no position block at all. It is read by
+  nine test files today, and `cmd/backstop/gotoolchain_convert_test.go` already
+  runs the REAL committed converter (`cmd/backstop/testdata/go-toolchain/.backstop/
+  packs/backstop/go-toolchain/scripts/test-to-sarif.sh`) over it via the existing
+  `convertScript` / `runConvertScriptDirect` helpers. That fixture IS this lane's
+  falsifier, unchanged. See sharp edge 14 — do not add a second one.
+
   ── RELATIONSHIP TO ISSUE-129 (asked for explicitly; here is the reasoning) ─
   ISSUE-129's fix — declaring `exempt_from_scope_filter: true` on the go-test
   binding — sets `ProjectWide: true` at `pack_gate.go:730`, which makes
@@ -93,6 +106,21 @@ notes: |
   NON-mandated test failures. THIS LANE MUST NOT TOUCH `exempt_from_scope_filter`,
   the go-toolchain pack, or `filterViolations`. See the SCOPE FENCE.
 
+  NAME THE FENCE FOR WHAT IT ACTUALLY FENCES. TASK-009 seams `dispatchPackEnginesFn`
+  entirely, so NO real binding declaration — `exempt_from_scope_filter` included —
+  can reach that test; the seam decides `ProjectWide` itself. Its assertion that
+  pack_engines' own reported violations stay filtered therefore fences the
+  SCOPE-FILTER CODE PATH generally, not ISSUE-129 specifically. Label the assertion
+  and its comment that way ("the scope-filter path is unchanged by this lane"), NOT
+  "the ISSUE-129 fence" — a comment naming ISSUE-129 as the excluded thing would be
+  false, and would mislead the next reader into thinking the seam tests a
+  declaration it structurally cannot see. NOTE ALSO, measured at HEAD 2026-08-16:
+  the in-repo fixture `cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/
+  go-toolchain/pack.yml` ALREADY carries `exempt_from_scope_filter: true` on its
+  go-test engine (PLAN-ISSUE-129 TASK-004 landed in the working tree). Because
+  TASK-009 seams the dispatch, that flip cannot perturb this lane — which is
+  exactly why the seam is the right choice here.
+
   ── THE THREE OPTIONS THE ISSUE ASKED A PLAN TO WEIGH, DECIDED ─────────────
   Option 1 — "make coverage_threshold run the affected package's suite to a verdict
     when the diff is all test files": REJECTED, and it must not be revisited. It is
@@ -121,8 +149,12 @@ notes: |
   assembled order (`gate.go:939-943`). `test_verification` routes that stream to the
   test-verdict subset BY DECLARED GATE TYPE, and joins it against the due mandated
   tests BY NAME — boundary-anchored containment of the mandated test's own function
-  name in the finding's message. A hit is a BLOCKING violation attributed to the
-  MANDATED TEST'S resolved file, never to the finding's unresolvable path. No
+  name in the finding's message. A hit is a BLOCKING, NON-WAIVABLE violation
+  (severity `critical`; see sharp edge 3 for why that exact word and not `error`)
+  attributed to the MANDATED TEST'S resolved file, never to the finding's
+  unresolvable path. The join also runs ABOVE the test-discovery capability guard —
+  and UNSCOPED there, deliberately — so a project missing test globs cannot swallow
+  it (CLM-010, sharp edge 15). No
   test-verdict engine declared anywhere + due mandated tests present ⇒ a distinct
   NON-blocking capability-absent advisory instead of a silent pass.
 
@@ -153,10 +185,29 @@ notes: |
      (`mandated_test_failed`), so no existing baseline entry suppresses it. That is
      deliberate: a failing mandated test is the one thing a ratchet must never
      inherit. Do not add it to any baseline in this lane.
-  3. Waivability is DECLARED, not baked (`pkg/waiver/policy.go` reads
-     `non_waivable` from backstop.yml) — so this lane does NOT make the new rule
-     non-waivable in code. Note it in the hand-off as a config recommendation for
-     the founder; do not edit backstop.yml here.
+  3. NON-WAIVABILITY IS DECIDED AND MUST BE APPLIED, NOT RECOMMENDED. An earlier
+     draft of this plan said to "recommend a `non_waivable` flag in backstop.yml."
+     THAT IS STRUCTURALLY IMPOSSIBLE and must not be reintroduced: measured at HEAD
+     2026-08-16, there is NO `non_waivable` key in backstop.yml at all. The
+     production waiver policy is `waiver.NewDeclaredPolicy(nonWaivableRules,
+     []string{"critical"})` (`cmd/backstop/gate.go:1602`, fallback `:186`), whose
+     rule list is HARVESTED FROM PACK MANIFESTS ONLY (`pkg/pack/manifest.go:163`,
+     `Rule.NonWaivable`) — and `mandated_test_failed` is CORE-emitted, so there is
+     no pack manifest for it to be declared in. It has exactly one available route
+     to non-waivability: the SEVERITY set, which is hardcoded to `{"critical"}`.
+     THEREFORE: emit `mandated_test_failed` at `Severity: "critical"`. This is
+     load-bearing on two axes and both were checked:
+       • BLOCKING — `blocksVerdict` (`pkg/gate/policy.go:80-82`) is
+         `!EqualFold(Severity, "warning")`, so `critical` blocks exactly as `error`
+         does. The block is not weakened by the choice.
+       • NON-WAIVABLE — `critical` is already in the hardcoded severity set, so the
+         rule inherits non-waivability through an EXISTING mechanism. No new
+         mechanism, no config edit, no pack.
+     This matches how the project treats "the gate silently reports the wrong
+     verdict" (DIR-032's whole reason for existing): non-negotiable. Do NOT edit
+     backstop.yml, do NOT add a rule list to core, and do NOT downgrade to `error`
+     "for consistency" — the downgrade silently makes a failing mandated test
+     waivable, which is the one thing this lane exists to prevent.
   4. The advisory and the block are DIFFERENT SEVERITIES on purpose. A missing
      test-verdict engine is UN-ADOPTED CAPABILITY ⇒ warning, exit 0. A mandated
      test that ran and failed is a BROKEN PROMISE ⇒ error, blocking. That is the
@@ -180,9 +231,17 @@ notes: |
      `engine.GateTypeTest.String()` — never a `"test"` literal in a second place.
      `pkg/gate` may import `pkg/pack/engine`; there is no cycle (`pkg/pack` does not
      import `pkg/gate`, and `pkg/gate` already imports `pkg/pack`).
-  9. `.backstop/packs/` IS GITIGNORED. No test may depend on the go-toolchain pack
-     being installed. That is why TASK-001 captures the converter's REAL output into
-     committed testdata and every later test reads THAT.
+  9. ONLY THE ROOT `.backstop/packs/` IS GITIGNORED — TESTDATA PACKS ARE TRACKED.
+     The `.gitignore:41` pattern is `.backstop/packs/`, which contains a mid-pattern
+     separator and is therefore ANCHORED TO THE REPO ROOT. Verified 2026-08-16:
+     `git check-ignore -v cmd/backstop/testdata/test-verdict-e2e/.backstop/packs/
+     acme/probe/pack.yml` exits 1 (NOT ignored), and `git ls-files` confirms the
+     go-toolchain fixture's pack.yml and all four convert scripts are TRACKED. So a
+     test MUST NOT depend on the ROOT install (`.backstop/packs/backstop-ai/...`),
+     but MAY freely depend on a committed pack under `cmd/backstop/testdata/`. That
+     is what makes TASK-001 possible without capturing anything new. Still run
+     `git status --short` after adding a fixture and confirm the new files appear —
+     a silently-ignored fixture is a green locally and a red in CI.
   10. `backstop code check` DOES NOT EXIST (removed by PLAN-ISSUE-018 and pinned
      absent by a shipped test). The verification tasks below use `./bin/backstop
      gate` / `gate --all` and `go test`, because those are the commands that exist.
@@ -190,13 +249,214 @@ notes: |
      the old code and its green proves nothing.
   12. Other agents are working in this tree concurrently. Do not `git stash`, do not
      revert files you did not write, and report TRUE exit codes (`echo $?`).
+  13. THE WORD `bridged` IS A TRIPWIRE IN `cmd/backstop/gate.go`. A SHIPPED test,
+     `TestGate_BridgedInputRemovedFromGateWiring`
+     (`cmd/backstop/gate_bridge_deletion_test.go`, SPEC-046 CLM-006), asserts
+     `!strings.Contains(readFileStr(t, "gate.go"), "bridged")` over the WHOLE FILE
+     — comments included, with no identifier lexing. TASK-010's collector wiring is
+     the most natural place in the world to write "the bridged pack findings" or
+     "the bridge that stamps ProjectWide", and either phrasing REDs a test this lane
+     never touched, in a way whose failure message ("the `bridged` manifest list
+     must be removed…") points at a completely unrelated concern and will burn time.
+     RULE: in `cmd/backstop/gate.go`, no identifier, string, or comment may contain
+     the substring `bridged`. Say "dispatched findings", "the dispatch stream", "the
+     stamp site". `bridge` (no `d`) is fine and already appears there; `pack_gate.go`
+     carries no such guard. Grep the file for `bridged` before you finish TASK-010.
+  14. DO NOT CREATE A SECOND `go test` FAILURE FIXTURE.
+     `cmd/backstop/testdata/go-toolchain/fixtures/go-test-failures.txt` already
+     exists, already has BOTH load-bearing properties (bare-basename positions and a
+     no-position failure), and `cmd/backstop/bridge_test.go:75` asserts an EXACT
+     count of 8 dispatched violations keyed to it (3 build + 3 test + 2 lint). Eight
+     other test files read it too. Adding a near-duplicate fixture would leave two
+     capture provenances to keep honest; EDITING that file (adding results, renaming
+     tests) breaks the 8-violation assertion and several message-exact assertions in
+     `gotoolchain_convert_test.go`. Read it, reuse it verbatim, add nothing to it.
+  15. THE DISCOVERY-CAPABILITY EARLY RETURN WOULD SWALLOW THE VERDICT IF LEFT ALONE.
+     `step_testverify.go:366-368` returns `testDiscoveryCapabilityAbsent(...)` when
+     the project lacks test globs OR test-name patterns — BEFORE the mandated-test
+     loop the verdict join would otherwise sit in. A project with a real, working
+     test-verdict engine but no declared test globs would therefore still miss a
+     failing mandated test: a narrower instance of the exact defect this lane
+     exists to close. THIS LANE CLOSES IT (CLM-010) rather than documenting it,
+     because the cost is a reorder inside one function already in scope: the join
+     needs only `mandated` and `verdicts` — it consumes NEITHER the classifier NOR
+     the matcher — so it can run ABOVE the guard and its violations be carried out
+     WITH the advisory.
+     THE DISCOVERY-ABSENT PATH IS DELIBERATELY UNSCOPED — READ THIS BEFORE
+     "RESTORING SYMMETRY". `MandatedTest.FilePath` is written in exactly ONE place,
+     `ResolveMandatedTestPaths` (`step_testverify.go:613`), which lives BELOW the
+     discovery guard. Above the guard `mt.FilePath` is therefore always `""`, and
+     `GateScope.Contains` (`scope.go:171-177`) returns FALSE for `""` in diff mode.
+     So applying the surrounding step's scope guard on this path would keep a
+     mandated test only when its SPEC FILE happened to be in the diff — and in a
+     diff whose changed files are ENTIRELY test files, which is the canonical
+     ISSUE-118 shape this entire lane exists to fix, the spec file is NOT in the
+     diff and the verdict would be DROPPED anyway. The guard would silently eat
+     the very defect it sits inside the fix for.
+     THE DECISION: on the discovery-capability-absent path the verdict join is NOT
+     SCOPE-FILTERED AT ALL — no `FilePath` check, no `SpecFile` check, project-wide
+     equivalent, regardless of the run's scope mode. Path resolution IS the absent
+     capability on that path, so there is no honest thing to scope against; and
+     this project's settled preference (the exempt-conflict reasoning in
+     `pack_gate.go`, and DIR-032's whole premise) is that a silently-dropped
+     verdict is strictly worse than an occasionally-noisier one. The residual is
+     therefore NOISE, not silence: on a narrow diff this path may report a failing
+     mandated test whose files are nowhere near the diff. That is accepted and
+     deliberate. Attribution on this path also falls back to the mandated test's
+     SPEC FILE (FilePath is empty), which is a degraded LOCATION on a verdict that
+     is still reported and still blocks — not a missed verdict. CLM-010 holds as
+     written precisely because of this decision; narrowing here would void it.
+  16. THREE SIBLING LANES EDIT `cmd/backstop/gate.go` THIS CYCLE, AND ONE OF THEM
+     EDITS THE SAME TWO FUNCTIONS. Re-verified against each plan's current content
+     2026-08-16. Only PLAN-ISSUE-112 shares a FUNCTION with this lane; the other two
+     are listed because they shift the line numbers this plan cites, which is what
+     makes every citation here an anchor rather than an address:
+
+       PLAN-ISSUE-112 (engine tool missing / silent vacuous) — SAME FUNCTIONS.
+         TASK-004 edits `cmd/backstop/gate.go:895-909` — INSIDE `packValidatorStep`,
+         the same function TASK-010 here edits (~:914-928) — and TASK-007 edits
+         `cmd/backstop/pack_gate.go:649-654/705-708`, inside `runFindingsEngine`,
+         roughly 25 lines above TASK-003's stamp site (~:730). SEMANTICALLY
+         compatible (112 threads dispatch-error surfacing; this lane adds a stamp and
+         a collector — different concerns, no shared state) but TEXTUALLY
+         conflicting: same functions, adjacent lines.
+       PLAN-ISSUE-122 (baked ecosystem literals) — SAME FILE, DIFFERENT FUNCTIONS,
+         CLOSEST NEIGHBOR. Its TASK-008 edits `cmd/backstop/gate.go:735` (the
+         `realArtifactValidator` construction site) and derives its exclusion set
+         from the pack load beside `mergeSourceClassifier` (:755) — both inside
+         `buildGateSteps`' preamble, roughly 18-38 lines ABOVE the ~:773
+         `StepTestVerificationScopedFunc` call site TASK-010 here rewires. Same
+         TASK-008 also edits :1674, :1705, :1081 and :1049; TASK-009 touches gate.go
+         again. No shared declaration, but the nearest textual neighbor this lane
+         has, and 122 landing first shifts ~:773 itself.
+       PLAN-ISSUE-113 (zero-match classification refusal) — SAME FILE, DIFFERENT
+         FUNCTION. It edits the Q2 noTarget loop inside `buildTestSubstantivenessStep`
+         (declared :1158; 113 cites :1236-1253). Well below every line this lane
+         writes, but it also carries the `bridged`-substring tripwire that governs
+         the whole file — see sharp edge 13.
+
+     NO FUNCTION IS EDITED BY TWO LANES except `packValidatorStep`/`runFindingsEngine`
+     with 112. WHICHEVER IMPLEMENTER LANDS SECOND MUST RE-READ BOTH FILES FRESH
+     IMMEDIATELY BEFORE EDITING and re-derive its edit against what is actually there
+     — the line numbers quoted throughout this plan are HEAD-of-2026-08-16 anchors,
+     not a patch. If a described anchor is not where this plan says it is, that means
+     another lane landed first; find the construct by NAME (`packValidatorStep`, the
+     `ProjectWide: exempt` stamp, `activeScope.FilterViolations`, the
+     `StepTestVerificationScopedFunc` call inside `buildGateSteps`) and proceed. Do
+     not apply a stale diff, and do not "fix" another lane's changes.
+     PLAN-ISSUE-112's own notes carry a maintained four-lane cross-reference map of
+     every gate.go region in flight; consult it before editing rather than
+     re-deriving the picture.
+  17. TASK-003's NEW `Violation.GateType` FIELD FALSIFIES PROSE IN AN ALREADY-
+     `implemented` SPEC AND IN THREE CODE FILES — FOURTEEN LOCATIONS, NOT SIX.
+     NOTHING IN THIS LANE FIXES THEM, BY DESIGN — THE HAND-OFF ROUTES THEM.
+     The moment `GateType` exists on `gate.Violation`, FOURTEEN pieces of settled
+     prose that assert the field does NOT exist become factually wrong. The list
+     below is a COMPLETE re-sweep, re-derived at review round 7 and verified line
+     by line against HEAD 2026-08-16 (`git show HEAD:<path>`), NOT against the
+     working tree — `substantiveness_join.go` is currently dirty from an in-flight
+     lane, so its worktree line numbers (13 / 214 / 280) do NOT match the HEAD
+     anchors quoted here. Re-derive before editing; see sharp edge 16.
+
+     TIER A — FLAT NON-EXISTENCE ASSERTIONS. These say the field does not exist,
+     full stop. They become OUTRIGHT FALSE STATEMENTS OF FACT about the type, not
+     asides, and they are the strongest reason the record must be complete:
+
+       specs/SPEC-037-…spec.md:179-180   — "carries NEITHER a gate_type
+         discriminator (gate.Violation / check.Violation have no GateType field —
+         confirmed) NOR per-test finding identity"
+       specs/SPEC-037-…spec.md:911-913   — "`gate.Violation` and `check.Violation`
+         have NO `GateType` field … So the gate cannot route or key substantiveness
+         findings by gate_type"
+       specs/SPEC-037-…spec.md:1112-1117 — Sharp Edge 5's heading and body: "a
+         flat, gate_type-less, identity-less stream" / "carries NO `gate_type`
+         (neither `gate.Violation` nor `check.Violation` has a `GateType` field)" /
+         "a reviewer/implementer who tries to ISOLATE substantiveness findings by
+         `gate_type` will find no such field"
+       specs/SPEC-037-…spec.md:1245-1246 — "(NOT by a gate_type field, which the
+         violation does not carry)"
+       pkg/gate/substantiveness_join.go:12 — the FILE-HEADER docstring: "([]Violation
+         with {Rule, File, Line, Message, Severity, SourcePack} — no GateType field)"
+       pkg/gate/substantiveness_join.go:181 — `HollowFindingsToViolations`' docstring:
+         "The Violation carries no gate_type field (none exists — Sharp Edge 5)"
+       pkg/gate/substantiveness_join_test.go:137 — "no gate_type field is consulted
+         (none exists)"
+       pkg/gate/substantiveness_hollow_violation_test.go:11 — "The Violation carries
+         NO gate_type field (Sharp Edge 5)"
+
+     TIER B — PARENTHETICAL RATIONALE ATTACHED TO A STILL-TRUE BEHAVIORAL CLAIM.
+     Here the surrounding assertion (this router does not consult gate_type)
+     survives; only the stated REASON goes false:
+
+       specs/SPEC-037-…spec.md:185       — "(the violation carries no gate_type)"
+       specs/SPEC-037-…spec.md:515       — CLM-024's own claim text: "no gate_type
+         field is consulted (the violation carries none)"
+       specs/SPEC-037-…spec.md:777-778   — REQ-007's prose: "since the violation
+         carries no gate_type"
+       specs/SPEC-037-…spec.md:920       — "No `gate_type` field is consulted (the
+         violation carries none)"
+       specs/SPEC-037-…spec.md:1631-1632 — version history, same phrasing
+       pkg/gate/substantiveness_join.go:115-116 — `RouteSubstantivenessFindings`'
+         docstring: "NO gate_type field is consulted — the Violation carries none
+         (Sharp Edge 5 / REQ-007 / CLM-024)"
+
+     DO NOT COLLAPSE THESE TWO TIERS BACK INTO "it's only the parenthetical."
+     That framing is true of Tier B and FALSE of Tier A: eight of the fourteen
+     assert absolute absence, and no amount of behavioral continuity rescues a
+     sentence that says the field does not exist once it does. An earlier round of
+     this plan made exactly that over-generalization from an incomplete six-item
+     list; the count and the tiering are the correction.
+
+     ONE ADJACENT SPOT THAT IS *NOT* FALSIFIED — DO NOT ADD IT TO THE LIST, BUT DO
+     MENTION IT. `specs/SPEC-037-…spec.md:1123-1124` says "If the dispatch is later
+     changed to carry gate_type natively, that is a separate enhancement; this spec
+     consumes the flat stream as it exists today." That sentence is not wrong — it
+     PREDICTED this lane and is now SATISFIED by it. The follow-up should point it
+     at the delivered change rather than leave it forward-looking. Likewise
+     `:1047-1048` ("NOT gate_type") stays TRUE on the gate_type half.
+     FROZEN RECORDS ARE OUT OF THE UNIT. `PLAN-SPEC-037` (:142/:146/:149/:535/:649),
+     `PLAN-ISSUE-116` (:396/:399) and `ISSUE-116` (:133) repeat the same phrasing,
+     but both plans are `status: completed` and the issue is quoting a past
+     docstring verbatim. Completed artifacts are historical records, not live
+     assertions, and this project does not rewrite delivered plan tasks. Do not
+     touch them and do not let the follow-up churn them.
+     NO GATE DIMENSION CAN CATCH ANY OF THIS. It is prose — not a signature, not a
+     mandated test name, not a contract — so status_drift, traceability and
+     contracts all pass over it. Left unrouted it sits silently false indefinitely,
+     and the next reader of `substantiveness_join.go` learns a fact about
+     `Violation` that stopped being true. That is precisely why the record has to
+     be COMPLETE rather than representative.
+     THE CALL — ALL FOURTEEN CORRECTIONS RIDE THE SAME FOLLOW-UP; NONE ARE MADE
+     HERE, INCLUDING THE FIVE CODE COMMENTS. The `pkg/gate` comments are core-code
+     prose this plan is otherwise near, so folding them into TASK-003 was
+     considered and REJECTED for three reasons, each of which the complete sweep
+     STRENGTHENS rather than weakens: (a) `pkg/gate/substantiveness_join.go` is
+     edited THIS CYCLE by PLAN-ISSUE-113's TASK-004, which mandates specific
+     comment content in that same file — and the sweep found THREE separate
+     falsified comments in that one file (:12, :115-116, :181), not one, so
+     taking it into TASK-003's scope means three times the merge surface against
+     a live lane, on top of the `gate.go`/`pack_gate.go` collisions sharp edge 16
+     already tracks, for comments; (b) TASK-003's two-file fence and its "if your
+     diff touches a third file, you have left the task" rule are load-bearing
+     against exactly this kind of drift, and the code half alone is now THREE
+     files (`substantiveness_join.go`, `substantiveness_join_test.go`,
+     `substantiveness_hollow_violation_test.go`) — TASK-003 would become a
+     five-file task; (c) correcting some comments while nine SPEC-037 spots stay
+     false is WORSE than one coherent amendment — it leaves the corpus half-true
+     with no record of why, and the larger the true count, the worse a partial fix
+     reads. All fourteen are ONE reconciliation unit. See hand-off item 8.
 
   ── SCOPE FENCE ────────────────────────────────────────────────────────────
   IN : pkg/gate/result.go (one field + docstring), cmd/backstop/pack_gate.go (one
        stamp), pkg/gate/test_verdict_join.go (new), pkg/gate/step_testverify.go
        (the join + one advisory), cmd/backstop/gate.go (collector wiring),
-       pkg/gate/step_coverage.go (one attributed skip reason), five test files, one
-       testdata fixture pair, docs/CODEBASE-MAP.md.
+       pkg/gate/step_coverage.go (one attributed skip reason), five test files,
+       ONE derived SARIF artifact under pkg/gate/testdata/test-verdict/, TWO new
+       committed E2E workspace fixtures under cmd/backstop/testdata/, and
+       docs/CODEBASE-MAP.md.
+  OUT: `cmd/backstop/testdata/go-toolchain/fixtures/go-test-failures.txt` and every
+       file under `cmd/backstop/testdata/go-toolchain/` — READ ONLY, never edited
+       (sharp edge 14, and PLAN-ISSUE-129 owns that pack.yml).
   OUT: ISSUE-129 in its entirety — `exempt_from_scope_filter`, the go-toolchain
        pack manifest, `filterViolations`, and the pack_engines step's own filtered
        output. A cross-file (out-of-diff) failing test is NOT this lane's
@@ -210,6 +470,25 @@ notes: |
        work without it.
   OUT: flipping ISSUE-118's status, and any BACKLOG/directive edit. Close-out is
        not this lane's to take.
+  OUT: SPEC-037's NINE "the Violation carries no gate_type" / "has no GateType
+       field" prose spots (:179-180, :185, :515, :777-778, :911-913, :920,
+       :1112-1117, :1245-1246, :1631-1632), and the FIVE `pkg/gate` code comments
+       that repeat them across THREE files (`substantiveness_join.go:12`,
+       `:115-116` and `:181`; `substantiveness_join_test.go:137`;
+       `substantiveness_hollow_violation_test.go:11`). TASK-003 falsifies all
+       fourteen; none are corrected here. Sharp edge 17 has the full reasoning and
+       the tiering, hand-off item 8 routes them. Do NOT hand-edit the spec, and do
+       NOT quietly fix any of the five comments in passing. Also OUT: the same
+       phrasing in `PLAN-SPEC-037`, `PLAN-ISSUE-116` and `ISSUE-116` — completed
+       artifacts are frozen records, not live assertions.
+  OUT: CLM-024's PRE-EXISTING rule-ID-vs-property drift (ISSUE-064 residue —
+       CLM-024's text and SPEC-037:916-917's declared signature still say routing
+       is "by NAMESPACED RULE-ID convention", while `RouteSubstantivenessFindings`
+       takes no rule-ID args and switches on
+       `v.Properties[substantivenessRoleProperty]`). That drift predates this plan
+       and is NOT caused by it. Do not fix it here and do not treat it as this
+       lane's to close; hand-off item 8 discloses it so the follow-up is not
+       misled into re-asserting it.
 
   ── CLAIM LEDGER (ISSUE-118 carries no CLM ids; this lane defines them) ────
     CLM-001  every bridged pack finding carries its producing binding's DECLARED
@@ -220,7 +499,9 @@ notes: |
              the DECLARED gate type ALONE — never a pack name, rule name, message
              shape, or command sniff.
     CLM-003  a due mandated test NAMED by a test-verdict finding produces a
-             BLOCKING `mandated_test_failed` violation attributed to that mandated
+             `mandated_test_failed` violation at severity `critical` — BLOCKING
+             (blocksVerdict: anything but "warning") and NON-WAIVABLE through the
+             existing hardcoded critical severity set — attributed to that mandated
              test's own resolved file (or its spec file when unresolved), never to
              the finding's reported path.
     CLM-004  the join is PATH-INDEPENDENT: a real go-test finding whose SARIF uri
@@ -241,6 +522,11 @@ notes: |
              ZERO new violations (the check cannot be satisfied by a constant).
     CLM-009  name matching is boundary-anchored: a finding naming TestFooBar
              neither satisfies nor implicates a mandate for TestFoo.
+    CLM-010  the verdict join is NOT swallowed by the test-DISCOVERY capability
+             early return: a project with a working test-verdict engine but no
+             declared test globs / test-name patterns still BLOCKS on a failing
+             mandated test, carrying the discovery advisory alongside it rather
+             than instead of it (sharp edge 15).
 
   ── VERIFICATION COMMANDS ──────────────────────────────────────────────────
     inner: go build ./... && go test ./pkg/gate/... ./cmd/backstop/... -race -count=1
@@ -256,47 +542,76 @@ phases:
     tasks:
       - id: TASK-001
         type: setup
-        title: "Capture REAL go-test failure output and its REAL converted SARIF into committed testdata"
+        title: "Derive the pkg/gate SARIF artifact by running the committed converter over the committed go-test capture"
         description: |
-          Create `pkg/gate/testdata/test-verdict/`, holding the two artifacts every
-          later test reads. Both must be CAPTURED FROM REAL TOOL OUTPUT, never
-          hand-written — this repo's convention (`feedback_fixtures_from_real_output`)
-          is that a fabricated fixture proves nothing because it cannot falsify.
+          NO NEW CAPTURE. NO NEW STDOUT FIXTURE. NO POST-EDITING OF ANY FIXTURE.
+          Read sharp edge 14 first, then read the two files it names.
 
-          `go-test-failure.stdout.txt` — real `go test ./...` stdout from a throwaway
-          module OUTSIDE this repo (use a temp dir; do NOT create a failing test
-          inside this tree). Give the module a package in a SUBDIRECTORY, not at the
-          root — the bare-basename property is invisible at the root. Planning
-          captured exactly this on 2026-08-15 and you should reproduce it:
+          The real captured `go test` failure output this lane needs is ALREADY
+          committed at
+          `cmd/backstop/testdata/go-toolchain/fixtures/go-test-failures.txt`, and it
+          already carries both load-bearing properties verbatim:
+            • BARE-BASENAME POSITIONS — `widget_test.go:31` and `gadget_test.go:12`
+              for a package whose import path is
+              `github.com/example/project/pkg/widget`, so neither reported path can
+              ever match a diff scope's canonicalized repo-relative file set. This
+              is CLM-004's falsifier and it needs no new capture.
+            • A NO-POSITION FAILURE — `TestNoPos` fails with no `file:line` block at
+              all, normalizing to `File: ""`, `Line: 0`. A finding with NO path
+              whatsoever is the strongest possible case for a path-independent join.
+          Its three failing test names are `TestWidgetFrobnicate`, `TestGadgetSpin`,
+          and `TestNoPos`. None of them names a live test in this repo, so a later
+          task may mandate them freely; and they already contain the PREFIX
+          COLLISIONS CLM-009 needs, in BOTH directions, with no edit:
+            • finding-longer-than-mandate: a mandate for `TestWidget` must NOT be
+              satisfied by the finding naming `TestWidgetFrobnicate`;
+            • mandate-longer-than-finding: a mandate for `TestGadgetSpinner` must
+              NOT be satisfied by the finding naming `TestGadgetSpin`.
+          DO NOT EDIT THAT FILE. `cmd/backstop/bridge_test.go:75` asserts an exact
+          count of 8 dispatched violations over it, and
+          `cmd/backstop/gotoolchain_convert_test.go` asserts exact message strings
+          ("TestWidgetFrobnicate: expected 5, got 7", "TestNoPos failed"). Adding,
+          renaming, or reordering a result REDs shipped tests this lane must leave
+          alone.
 
-              --- FAIL: TestAddIsWrong (0.00s)
-                  a_test.go:7: got 3 want 4
-              FAIL
-              FAIL	example.com/tv/sub/pkg	0.360s
+          THE ONE THING THIS TASK PRODUCES is a derived SARIF artifact so
+          `pkg/gate`'s pure join tests have real converter output without reaching
+          across into `cmd/backstop`'s testdata:
 
-          `go-test-failure.sarif.json` — that stdout piped through the SHIPPED
-          converter at `.backstop/packs/backstop-ai/go-toolchain/scripts/
-          test-to-sarif.sh`. Planning's capture, which yours must match in shape:
+            pkg/gate/testdata/test-verdict/go-test-failure.sarif.json
 
-              {"version":"2.1.0","runs":[{"results":[{"ruleId":"go-test",
-               "level":"error","message":{"text":"TestAddIsWrong: got 3 want 4"},
-               "locations":[{"physicalLocation":{"artifactLocation":
-               {"uri":"a_test.go"},"region":{"startLine":7}}}]}]}]}
+          GENERATE IT, DO NOT WRITE IT. Run the REAL committed converter over the
+          REAL committed capture — both are tracked in this repo (sharp edge 9), so
+          this is reproducible by anyone with a clean checkout and needs no
+          `.backstop/packs/` install:
 
-          If the pack is not installed, install it or run the converter from
-          `packs/` — but the file you commit must be REAL converter output. Add a
-          short `README.md` in that directory recording HOW both were produced, the
-          date, and the ONE property that makes them load-bearing: the artifact uri
-          is the BARE BASENAME `a_test.go` while the file actually lives at
-          `sub/pkg/a_test.go`, so it can never match a diff scope by path.
+              cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/scripts/test-to-sarif.sh \
+                < cmd/backstop/testdata/go-toolchain/fixtures/go-test-failures.txt \
+                > pkg/gate/testdata/test-verdict/go-test-failure.sarif.json
 
-          Rename the test in the fixture to a name no real test in this repo uses
-          (e.g. `TestFixtureMandatedFailure`) so a name-join test can mandate it
-          without colliding with a live test name. Keep a second result in the SARIF
-          naming `TestFixtureMandatedFailureExtended` — captured the same way — so
-          CLM-009's boundary-anchoring has a real prefix-collision to defend against.
+          (If the script reads its input differently than stdin, mirror exactly what
+          `runConvertScriptDirect` in `cmd/backstop/gotoolchain_testhelpers_test.go`
+          does — that helper is the shipped definition of "run this converter." Do
+          not reimplement it and do not hand-assemble the JSON.)
+
+          Commit the output BYTE-FOR-BYTE as the script emitted it. Do not
+          pretty-print it, do not reorder keys, do not rename a test inside it, do
+          not append a result. `feedback_fixtures_from_real_output` is not satisfied
+          by "looks like real output" — the whole point is that the artifact could
+          FALSIFY the implementation, which it can only do if the tool actually
+          produced it. If you find yourself editing this file after generating it,
+          stop: the design is wrong, not the fixture.
+
+          Add `pkg/gate/testdata/test-verdict/README.md` recording, tersely: the
+          exact command above; the date; that the SOURCE of truth is the
+          cmd/backstop capture and this file is DERIVED from it (so a future edit to
+          either must regenerate this one); and the two properties that make it
+          load-bearing — bare-basename uris for a subpackage, plus one result with
+          no location at all.
+
+          Then run `git status --short` and CONFIRM both new files appear as
+          untracked/added (sharp edge 9). Report what the converter actually emitted.
         files:
-          - pkg/gate/testdata/test-verdict/go-test-failure.stdout.txt
           - pkg/gate/testdata/test-verdict/go-test-failure.sarif.json
           - pkg/gate/testdata/test-verdict/README.md
         claims:
@@ -321,10 +636,16 @@ phases:
           `"*"` in `pkg/pack/engine/allowlist.go`, so the trust gate at
           `pack_gate.go:587` passes), `input_mode: none`, `scope_kind: project-wide`,
           NO convert (so the payload reaches `ParsePackFindings` unchanged), and
-          `gate_type: test`. Inject a fake `check.CommandRunner` whose `RunStdout`
-          returns the bytes of `pkg/gate/testdata/test-verdict/go-test-failure.sarif.json`
-          — the REAL converter output captured in TASK-001. Follow the existing
-          in-package runner-fake convention; do not invent a second one.
+          `gate_type: test`. For the payload, use the EXISTING in-package helpers
+          rather than reaching for the pkg/gate copy: feed the fake
+          `check.CommandRunner` the output of `runConvertScriptDirect(convertScript(
+          t, "test-to-sarif.sh"), readFixture(t, "go-test-failures.txt"))` — i.e.
+          run the REAL committed converter over the REAL committed capture at test
+          time, exactly as `TestGoToolchainConvert_TestToSarif_DirectFindings`
+          already does. That is three real hops (capture → converter → parser) with
+          nothing hand-built. Use the existing `fixtureRunner` convention
+          (`cmd/backstop/pack_gate_gotoolchain_test.go`); do not invent a second
+          runner fake, and do NOT copy or edit `go-test-failures.txt`.
 
           TestPackDispatch_StampsDeclaredGateTypeOnBridgedViolations (CLM-001):
             1. every returned violation's `GateType` equals `engine.GateTypeTest.String()`;
@@ -373,9 +694,28 @@ phases:
           principle that governs ProjectWide governs this — per-violation, from ITS
           producing binding, with no gate-type-level aggregation and no name sniff.
 
+          SEQUENCING (sharp edge 16): PLAN-ISSUE-112's TASK-007 edits
+          `cmd/backstop/pack_gate.go:649-654/705-708` — inside `runFindingsEngine`,
+          roughly 25 lines above this stamp site. Compatible concern, conflicting
+          text. Re-read `pack_gate.go` fresh and find the `ProjectWide: exempt`
+          stamp BY NAME rather than by the `~:730` anchor quoted here; if it has
+          moved, that lane landed first and you merge on top of it.
+
           Nothing else changes. No consumer is added in this task; no routing, no
           join, no step wiring. If your diff touches a third file, you have left the
           task.
+
+          YOU WILL NOTICE THAT THIS FIELD MAKES NEARBY DOCSTRINGS FALSE — FOURTEEN
+          OF THEM, NOT ONE. Adding `GateType` contradicts FIVE comments across
+          THREE `pkg/gate` files (`substantiveness_join.go` at :12, :115-116 and
+          :181; `substantiveness_join_test.go:137`;
+          `substantiveness_hollow_violation_test.go:11`) plus NINE spots in
+          SPEC-037. Eight of the fourteen assert the field does not exist AT ALL,
+          so they go flatly false, not merely stale. That is KNOWN and deliberately
+          NOT yours to fix — sharp edge 17 has the complete list and explains why
+          all fourteen travel together in one follow-up instead. Leave every one of
+          them exactly as you found it and confirm in the hand-off that you did.
+          Do not "helpfully" fix the one in the file you are already looking at.
         files:
           - pkg/gate/result.go
           - cmd/backstop/pack_gate.go
@@ -418,12 +758,18 @@ phases:
           record the actual failure. Table-driven where it helps, but keep each claim
           separately named so a reader can tell WHICH property broke.
 
-          Feed the REAL captured SARIF from TASK-001 wherever a finding is needed:
+          Feed the REAL derived SARIF from TASK-001 wherever a finding is needed:
           parse `pkg/gate/testdata/test-verdict/go-test-failure.sarif.json` through
-          the shipped `check.ParsePackFindings` and stamp `GateType: "test"` on the
-          results, so the test's inputs are real converter output rather than
-          hand-built structs. Hand-built violations are acceptable ONLY for the
-          negative/routing cases where no real payload exists.
+          the shipped `check.ParsePackFindings` and stamp
+          `GateType: engine.GateTypeTest.String()` on the results, so the test's
+          inputs are real converter output rather than hand-built structs. That
+          payload yields three findings: `TestWidgetFrobnicate` (message
+          "TestWidgetFrobnicate: expected 5, got 7", File the bare basename
+          `widget_test.go`), `TestGadgetSpin` (bare basename `gadget_test.go`), and
+          `TestNoPos` (message "TestNoPos failed", File "" and Line 0 — NO location
+          at all). Hand-built violations are acceptable ONLY for the negative and
+          routing cases where no real payload exists (there is no real fixture for
+          a `lint`-typed or empty-GateType violation, so construct those).
 
           TestRouteTestVerdictFindings_RoutesByDeclaredGateTypeOnly (CLM-002):
             a mixed stream (gate types test / lint / build / coverage / empty) yields
@@ -434,34 +780,49 @@ phases:
             non-pack-produced violation) and assert it is NOT routed.
 
           TestMandatedTestFailures_BlocksOnNamedFailingMandatedTest (CLM-003):
-            a due mandated test named `TestFixtureMandatedFailure` plus the captured
-            finding yields exactly one violation with Rule `mandated_test_failed`,
-            Severity `error`, a message that names the test, its spec id and claim
-            id, and the finding's own message text so the failure detail is not lost.
+            a due mandated test named `TestWidgetFrobnicate` plus the derived
+            findings yields exactly one violation with Rule `mandated_test_failed`,
+            SEVERITY `critical` (sharp edge 3 — assert the literal string; `error`
+            is WRONG here and silently makes the rule waivable), a message that
+            names the test, its spec id and claim id, and the finding's own message
+            text ("TestWidgetFrobnicate: expected 5, got 7") so the failure detail
+            is not lost. Add a second sub-case asserting the SAME for a mandate on
+            `TestNoPos`, whose finding has NO location whatsoever — proving the join
+            never needs a path to exist at all.
 
           TestMandatedTestFailures_AttributesToMandatedTestFileNotFindingPath
             (CLM-003, CLM-004): with the mandated test resolved to
             `pkg/gate/some_test.go` and the finding's reported path the bare basename
-            `a_test.go`, the violation's File is the MANDATED TEST'S file. Then the
-            same case with FilePath empty: File falls back to the spec file. Assert
-            explicitly that the violation's File is NEVER `a_test.go` — that is the
-            unresolvable path whose leakage into identity/scope would re-open the
-            defect.
+            `widget_test.go`, the violation's File is the MANDATED TEST'S file. Then
+            the same case with FilePath empty: File falls back to the spec file.
+            Assert explicitly that the violation's File is NEVER `widget_test.go`
+            and never `""` — an unresolvable path leaking into identity/scope is
+            what re-opens the defect.
 
           TestMandatedTestFailures_BareBasenamePathStillBlocks (CLM-004, THE
-            FALSIFIER FOR THIS PHASE): the same captured finding, with a diff scope
+            FALSIFIER FOR THIS PHASE): the same derived findings, with a diff scope
             whose files are entirely test files and which does NOT contain
-            `a_test.go` by path, still yields the blocking violation. Header-comment
-            this test with the captured evidence: the shipped converter emits
-            `"uri":"a_test.go"` for a file at `sub/pkg/a_test.go`, so any
-            path-keyed join is unfixable by construction.
+            `widget_test.go` by path, still yields the blocking violation.
+            Header-comment this test with the committed evidence: the shipped
+            converter emits `"uri":"widget_test.go"` for a package whose import path
+            is `github.com/example/project/pkg/widget`, so any path-keyed join is
+            unfixable by construction — and `TestNoPos` has no uri to key on at all.
 
-          TestMandatedTestFailures_BoundaryAnchoredNameMatch (CLM-009):
-            a mandate for `TestFixtureMandatedFailure` is NOT satisfied or implicated
-            by a finding naming `TestFixtureMandatedFailureExtended` (the second
-            captured result), and vice versa. Cover both directions and a case where
-            the name appears mid-message surrounded by non-identifier characters
-            (which MUST match).
+          TestMandatedTestFailures_BoundaryAnchoredNameMatch (CLM-009): both
+            directions, using the prefix collisions the committed fixture already
+            supplies (sharp edge 14 / TASK-001):
+              • FINDING LONGER THAN MANDATE — a mandate for `TestWidget` is NOT
+                satisfied or implicated by the finding naming
+                `TestWidgetFrobnicate`;
+              • MANDATE LONGER THAN FINDING — a mandate for `TestGadgetSpinner` is
+                NOT satisfied or implicated by the finding naming `TestGadgetSpin`.
+            Plus a POSITIVE control on the pure helper: the name appearing
+            mid-message surrounded by non-identifier characters (a colon, a space, a
+            parenthesis) MUST match — otherwise the anchoring is over-tight and the
+            join silently stops firing. The helper is a pure string function, so
+            these three constructed inputs are testing the function's contract, not
+            asserting anything about real tool output shape; that is why they need
+            no captured fixture.
 
           TestMandatedTestFailures_PassingSuiteYieldsNoViolations (CLM-008):
             (a) an empty verdict stream, (b) a verdict stream whose findings name
@@ -510,7 +871,14 @@ phases:
           `MandatedTestFailures(mandated []MandatedTest, verdicts []Violation, scope
           *GateScope) []Violation` — for each mandated test, if any routed verdict
           finding NAMES it, emit one `mandated_test_failed` Violation:
-            • Severity `error` (a broken promise blocks — sharp edge 4);
+            • Severity `critical` — NOT `error`. Read sharp edge 3 in full before
+              writing this line. `critical` blocks identically (`blocksVerdict` is
+              `!EqualFold(Severity,"warning")`) AND is the ONLY route by which a
+              core-emitted rule can reach the production waiver policy's
+              non-waivable set, which is severity-keyed to `{"critical"}` and
+              otherwise harvested exclusively from pack manifests. Docstring must
+              state that reason, so a future "normalize to error" cleanup can see
+              what it would be turning off;
             • File = `NormalizePath(scope root, mt.FilePath)`, falling back to
               `mt.SpecFile` when FilePath is empty — NEVER the finding's File;
             • Message names the mandated test, its spec id, its claim id, and carries
@@ -521,9 +889,21 @@ phases:
               emitting duplicates.
           Apply the SAME scope guard the surrounding step already applies (keep when
           `scope.Contains(mt.FilePath)` OR `scope.Contains(mt.SpecFile)`; all-mode
-          and nil scope keep everything) so behavior is consistent with name-presence
+          keeps everything) so behavior is consistent with name-presence
           verification — and comment WHY (sharp edge 5: out-of-diff failures are
           ISSUE-129's surface, deliberately not absorbed here).
+
+          A NIL `scope` MEANS "DO NOT SCOPE-FILTER AT ALL" AND IS A LOAD-BEARING
+          PART OF THE CONTRACT, NOT A DEFENSIVE NIL CHECK. Document it in the
+          function's docstring in exactly those terms: `MandatedTestFailures(mandated,
+          verdicts, nil)` returns a violation for every named mandated test,
+          project-wide. That is the call shape TASK-010 uses on the
+          discovery-capability-absent path, where `mt.FilePath` is structurally
+          empty and `GateScope.Contains("")` is false in diff mode — so applying the
+          guard there would drop the verdict in exactly ISSUE-118's own all-test-file
+          diff shape (sharp edge 15). Say that in the docstring so a later reader
+          cannot "tidy up" the nil branch into a scoped one without seeing what it
+          turns off.
 
           Name matching is a helper — `verdictNamesTest(message, funcName string)
           bool` — implementing BOUNDARY-ANCHORED containment: the name must not be
@@ -531,6 +911,11 @@ phases:
           (letter/digit/underscore). Pure string work; no regex compilation per call,
           no language noun. Docstring must record why the join is by NAME and not by
           path, citing the captured bare-basename evidence.
+
+          BOTH functions must be callable with NO classifier and NO matcher — they
+          take neither. That is not incidental: it is what lets TASK-010 run the
+          join ABOVE the test-discovery capability guard and close CLM-010 (sharp
+          edge 15). Do not add a classifier/matcher parameter "for symmetry."
 
           Do not import or reference anything from `cmd/backstop`. Do not touch any
           existing file in this task.
@@ -610,6 +995,39 @@ phases:
             behaviors are byte-for-byte what they were. If an existing test in
             `pkg/gate` already pins one of these, assert the NEW surface does not
             perturb it rather than duplicating the old assertions.
+
+          TestTestVerification_VerdictSurvivesDiscoveryCapabilityAbsent (CLM-010,
+            sharp edge 15): a due mandated test, a routed verdict finding NAMING it,
+            and a DISCOVERY capability that is ABSENT (no test globs, or no
+            test-name patterns — cover both) ⇒ the step is `fail`, carrying BOTH the
+            existing `test_verification_capability_absent` warning AND the
+            `mandated_test_failed` critical violation. Assert the advisory is still
+            present and still severity `warning` (it is a real, still-true statement
+            about the project), and that the step's Status is `fail` because the
+            verdict blocks. Assert the verdict violation's File is the mandated
+            test's SPEC FILE — path resolution has not run on this path, so that is
+            the expected (degraded) LOCATION on a verdict that is nonetheless
+            reported and blocking.
+
+            THE SCOPE MODE IS THE POINT OF THIS TEST — DO NOT WRITE IT WITH A NIL OR
+            ALL-MODE SCOPE. A nil/all scope passes trivially and leaves the real hole
+            invisible. Drive this case with a DIFF-MODE `GateScope` whose Files are
+            ENTIRELY test files and contain NEITHER the mandated test's spec file NOR
+            any file the mandated test would resolve to — i.e. exactly ISSUE-118's own
+            shape. Assert the `mandated_test_failed` violation is STILL emitted and the
+            step is STILL `fail`. Assert the diff-scope property explicitly in the test
+            body (the spec file is not among the scope files), so a later edit cannot
+            quietly widen the diff and void the case. Add a sub-case, or a second
+            table row, that ALSO runs the same input under all-mode and asserts the
+            same outcome — the discovery-absent path must be scope-mode-INSENSITIVE
+            (sharp edge 15: it is deliberately unscoped, project-wide equivalent).
+            If a scope guard is ever reintroduced on that path, THIS is the test that
+            must go red.
+
+            Falsifier for this one: at HEAD the step returns
+            `testDiscoveryCapabilityAbsent` at `step_testverify.go:366-368` and never
+            reaches any join, so this test must be RED before TASK-010 for a reason
+            distinct from the others.
         files:
           - pkg/gate/step_testverify_verdict_test.go
         claims:
@@ -617,6 +1035,7 @@ phases:
           - CLM-005
           - CLM-006
           - CLM-008
+          - CLM-010
         depends_on:
           - TASK-007
         test_names:
@@ -624,6 +1043,7 @@ phases:
           - TestTestVerification_VerdictCapabilityAbsentWhenNoTestEngineDeclared
           - TestTestVerification_VerdictPresentAndGreenIsCleanPass
           - TestTestVerification_NamePresenceBehaviorUnchanged
+          - TestTestVerification_VerdictSurvivesDiscoveryCapabilityAbsent
 
       - id: TASK-009
         type: test
@@ -642,38 +1062,178 @@ phases:
           for "it does not compile yet"; get to a run where the gate really returns
           PASS and say so.
 
+          ── THE WORKSPACE MUST BE A REAL GATE-ABLE PROJECT. READ THIS FIRST. ──
+          A naive "temp dir with a specs/ folder" CANNOT PRODUCE A RUN AT ALL, and
+          an earlier draft of this plan got this wrong. The chain, measured at HEAD
+          2026-08-16:
+            • `packValidatorStep` only exists when `len(packs) > 0`
+              (`cmd/backstop/gate.go:859` — zero declared packs returns early), so
+              the workspace MUST declare a pack, and the collector has nothing to
+              populate it otherwise;
+            • but once a pack is declared, `lockStep` is prepended FIRST
+              (`gate.go:939-943`) and `verifyPackLock` (`pack_gate.go:178-209`)
+              fails with `missing_lockfile` when `backstop.lock` is absent —
+              returning `ConfigErr: true`, at which point `Gate.Run`
+              (`pkg/gate/gate.go:161-165`) BREAKS OUT before `test_verification`
+              ever executes. A missing lock does not weaken the test; it deletes it.
+          This is exactly why `cmd/backstop/testdata/go-toolchain/` — which has NO
+          backstop.lock — is only ever used by tests that collect step NAMES rather
+          than verdicts. Do not repeat that limitation, and do not add a lock to
+          that directory (PLAN-ISSUE-129 owns it; see sharp edge 14).
+
+          BUILD TWO NEW COMMITTED WORKSPACE FIXTURES INSTEAD. Both are minimal and
+          purpose-built; neither reuses the go-toolchain fixture tree.
+
+            cmd/backstop/testdata/test-verdict-e2e/          (verdict engine PRESENT)
+              backstop.yml    — declares the one pack below
+              backstop.lock   — ONE entry, `source_type: local`. THIS IS THE KEY
+                                DETAIL: `distribution.VerifyLock`
+                                (`pkg/pack/distribution/verify.go:47-49`) SKIPS
+                                local entries entirely — no `content_hash` is
+                                computed or compared for them — while
+                                `detectExtraUnlocked` is still satisfied because the
+                                entry exists. So the lock is valid, stable, and
+                                CANNOT go stale when any pack.yml changes. Do NOT
+                                pin a content hash; a pinned hash is a time bomb
+                                (and would collide with PLAN-ISSUE-129's in-flight
+                                edits to the other fixture).
+              .backstop/packs/acme/verdict-probe/pack.yml — a REAL manifest
+                                declaring (use exactly this org/name in both
+                                fixtures, so backstop.yml, the lock key and the
+                                install path all agree):
+                · `classification.source` + `classification.test` globs and
+                  `test_name_patterns`, so the test-DISCOVERY capability is PRESENT
+                  and the run reaches the mandated-test loop rather than the
+                  discovery advisory (that path is TASK-008's, not this test's);
+                · ONE engine with `gate_type: test`, `command: grep` (allowlisted
+                  with `"*"` in `pkg/pack/engine/allowlist.go`, always on PATH, and
+                  `Provision == nil` so `provisionEngines` merely resolves it),
+                  `input_mode: none`, `scope_kind: project-wide`;
+                · a `content.ruleset` rule binding that engine.
+              DO NOT copy the go-toolchain fixture pack for this: its engines
+              declare `go` AND `golangci-lint`, and `provisionEngines`
+              (`cmd/backstop/pack_gate_provision.go:54`) fails the whole step with a
+              `*check.ConfigError` when an assume-present Layer-0 tool is missing
+              from PATH. `golangci-lint` is not guaranteed present on a dev machine
+              or in CI, which would make this acceptance test flaky for a reason
+              that has nothing to do with the defect.
+
+            cmd/backstop/testdata/test-verdict-absent-e2e/   (verdict engine ABSENT)
+              Identical in every respect EXCEPT its single engine declares
+              `gate_type: lint`. Same globs, same patterns, same `command: grep`,
+              same local-source lock. This is the fixture that makes CLM-006's
+              branch STRUCTURALLY REACHABLE: capability presence must be derived
+              from the REAL declared bindings read out of `dispatchPacks`, so a
+              seam-only injection cannot exercise it — a workspace with no
+              `gate_type: test` declaration anywhere is the only honest input.
+
+          Confirm with `git status --short` that both fixture trees (including their
+          `.backstop/packs/` contents) show up as new files — sharp edge 9 explains
+          why they are NOT gitignored, but verify rather than assume.
+
+          ── THE TESTS ──────────────────────────────────────────────────────
           TestE2E_GateRedsOnFailingMandatedTestInTestOnlyDiff (CLM-005, CLM-004,
-          CLM-003). Build it from the pieces that already exist in this package —
-          do NOT stand up a parallel harness:
-            • a temp workspace with a `specs/` dir holding ONE `implemented` spec
-              that mandates `TestFixtureMandatedFailure`, and a test file under a
-              SUBDIRECTORY declaring that function, so the mandated test both exists
-              and is name-verifiable;
-            • a `GateScope` in diff mode whose Files are ENTIRELY test files — the
-              mandated test's own file and nothing else. Assert this property
-              explicitly in the test body (every scope file is classified as a test
-              file), so a future edit cannot quietly turn it into a mixed diff and
-              void the whole fixture;
-            • the dispatch seam `dispatchPackEnginesFn` overridden to return the
-              violations parsed from the TASK-001 captured SARIF, stamped
-              `GateType: "test"` — i.e. REAL converter output with its REAL
-              bare-basename path, arriving exactly as production would deliver it.
-              Restore the seam with `t.Cleanup`.
+          CLM-003). Copy `testdata/test-verdict-e2e/` into `t.TempDir()` (never
+          mutate committed testdata), then add to the copy:
+            • a `specs/` dir holding ONE spec that VALIDATES and is `implemented`,
+              mandating `TestWidgetFrobnicate`. It must genuinely validate —
+              `steps[0]` is artifact validation and a broken spec would make the
+              run red for the wrong reason, hollowing out assertion 1. Model it on
+              an existing minimal spec fixture in this repo rather than inventing
+              frontmatter, and assert in the test body that the artifact-validation
+              step itself is clean;
+            • a test file under a SUBDIRECTORY of the workspace declaring `func
+              TestWidgetFrobnicate(t *testing.T)`, matching the fixture pack's
+              declared test glob and test-name pattern, so the mandated test both
+              EXISTS and is name-verifiable — the "exists, is substantive, and is
+              RED" case that reads as a pass today;
+            • a `GateScope` in diff mode whose Files are ENTIRELY test files — that
+              one file and nothing else. Assert this property explicitly in the test
+              body (every scope file is classified as a test file by the fixture
+              pack's own classifier), so a future edit cannot quietly turn it into a
+              mixed diff and void the whole fixture.
+          Override the dispatch seam `dispatchPackEnginesFn` to return the
+          violations parsed from `pkg/gate/testdata/test-verdict/
+          go-test-failure.sarif.json` (TASK-001's derived REAL converter output),
+          stamped `GateType: engine.GateTypeTest.String()` and `ProjectWide: false`
+          — real converter output with its real bare-basename paths, arriving
+          exactly as production delivers it. Restore the seam with `t.Cleanup`.
+          NOTE THE DELIBERATE SPLIT and header-comment it: the PACK MANIFEST SET is
+          REAL (read off disk, so the `gate_type: test` capability is genuinely
+          declared and genuinely discovered), while only the dispatch OUTPUT is
+          seamed (a `grep` engine cannot be made to emit go-test SARIF, and TASK-002
+          already drives the real bridge over the same real bytes). Between TASK-002
+          and this test, every hop from captured tool output to gate verdict is
+          covered by something real.
+
           Then run the ASSEMBLED steps (`buildGateSteps` → `gate.New(...).Run(ctx)`),
           not the individual step function — the point is that the collector is
           populated by pack_engines and read by test_verification in the shipped
           order. Assert:
             1. the overall result does NOT pass, and the process-level verdict maps
-               to a non-zero exit;
+               to a non-zero exit — AND that no step reports `ConfigErr`, which
+               would mean the run aborted early rather than reaching the verdict;
             2. the `test_verification` step carries a `mandated_test_failed`
-               violation naming `TestFixtureMandatedFailure`;
+               violation naming `TestWidgetFrobnicate`, at severity `critical`;
             3. that violation's File is the mandated test's own path, NOT
-               `a_test.go`;
+               `widget_test.go`;
             4. the `pack_engines` step's OWN violations are unchanged by this lane —
-               the captured finding is still filtered out of pack_engines' reported
-               set exactly as it is today. This is the ISSUE-129 fence, asserted:
-               if a later change to the scope filter makes pack_engines red too,
-               this assertion tells the next reader which lane did it.
+               the seamed finding is still filtered out of pack_engines' reported
+               set exactly as it is today. Label this the SCOPE-FILTER FENCE, not
+               "the ISSUE-129 fence": the seam replaces dispatch wholesale, so no
+               binding declaration (`exempt_from_scope_filter` included) can reach
+               this test at all. What it pins is that THIS lane leaves
+               `activeScope.FilterViolations` and pack_engines' reported set alone.
+               If a later change makes pack_engines red here too, this assertion
+               tells the next reader which lane did it.
+
+          TestE2E_VerdictCapabilityAbsentIsAdvisoryNotSilentPass (CLM-006). The same
+          construction over `testdata/test-verdict-absent-e2e/`, with the dispatch
+          seam returning NO test-typed violations. This is the branch a seam-only
+          injection cannot reach, which is why the second fixture exists.
+
+          ASSERT ON THE STEP RESULT, NOT ON `result.Pass`. Do NOT assert the OVERALL
+          gate passes. `buildGateSteps` assembles twelve steps unconditionally
+          (`cmd/backstop/gate.go:826-843`), including `driftBlockStep`,
+          `requirement_traceability` and `ledger_integrity` — and this fixture MUST
+          carry an `implemented` spec mandating a test, since that is the only input
+          that reaches the capability-absent branch at all, which is precisely the
+          kind of input those three steps have opinions about. Hanging CLM-006 on
+          eleven unrelated dimensions being globally clean over a hand-built
+          workspace is a flake waiting to happen and is NOT what CLM-006 claims.
+          Assert exactly what CLM-006 says, scoped to the dimension that makes it:
+            • the `test_verification` step's Status is `warning`;
+            • its violations include one with Rule
+              `test_verification_verdict_capability_absent` at severity `warning`;
+            • it emits NO `mandated_test_failed` violation;
+            • EVERY violation the `test_verification` step reports is non-blocking
+              under `blocksVerdict`'s rule (severity EqualFold `"warning"`) — assert
+              over the step's whole violation set, not just the advisory, so an
+              extra blocking finding sneaking into this dimension fails the claim;
+            • `ConfigErr` is false on that step, and the run actually REACHED it
+              (an aborted run would leave it absent — assert the step is present by
+              name rather than inferring from an empty violation list);
+            • the name-presence check still reported cleanly.
+          FOLLOW THE IN-TREE PRECEDENT for this exact situation — BUT COPY ONLY THE
+          SHAPE, NOT THE WHOLE ASSERTION. `cmd/backstop/init_acceptance_test.go`
+          declares a named, SANCTIONED closed rule set at `:51-57`
+          (`acceptanceCapabilityAbsentRules`) and checks every reported violation
+          against it in a step/violation loop at `:107-115`, failing with a message
+          that names the dimension and the rule. THAT is the shape to copy. (The
+          construction itself — `buildGateSteps` + `gate.New(...).Run(ctx)` — lives
+          in a different function, `acceptanceGate` at `:74-102`.)
+          ★ BE EXPLICIT ABOUT WHAT YOU ARE NOT COPYING. The precedent function
+          `assertAcceptanceBar` (`:104-122`) ALSO asserts `result.Pass` (`:116`) and
+          `result.StepsFailed == 0` (`:119`) in addition to its closed-set loop.
+          THIS TASK DELIBERATELY DOES NOT — for the reason documented immediately
+          above: `buildGateSteps` assembles twelve steps unconditionally, and
+          unrelated dimensions (drift, requirement traceability, ledger integrity)
+          have opinions about this fixture's implemented-spec-with-a-mandated-test
+          shape, which is the very input that reaches the branch under test. Take
+          the closed-set + loop + named-failure-message shape; leave the whole-gate
+          `Pass`/`StepsFailed` assertions behind. An earlier revision of this plan
+          cited `:104-121` for this precedent, which pointed at a range whose second
+          half is exactly the bare-`Pass` pattern this task exists to avoid.
 
           Header-comment the file with WHY the acceptance test lives in cmd/backstop
           (the collector wiring, the step ordering, and `buildGateSteps` are all
@@ -685,14 +1245,22 @@ phases:
           converter output to gate verdict is covered by something real.
         files:
           - cmd/backstop/gate_test_only_diff_verdict_e2e_test.go
+          - cmd/backstop/testdata/test-verdict-e2e/backstop.yml
+          - cmd/backstop/testdata/test-verdict-e2e/backstop.lock
+          - cmd/backstop/testdata/test-verdict-e2e/.backstop/packs/acme/verdict-probe/pack.yml
+          - cmd/backstop/testdata/test-verdict-absent-e2e/backstop.yml
+          - cmd/backstop/testdata/test-verdict-absent-e2e/backstop.lock
+          - cmd/backstop/testdata/test-verdict-absent-e2e/.backstop/packs/acme/verdict-probe/pack.yml
         claims:
           - CLM-003
           - CLM-004
           - CLM-005
+          - CLM-006
         depends_on:
           - TASK-007
         test_names:
           - TestE2E_GateRedsOnFailingMandatedTestInTestOnlyDiff
+          - TestE2E_VerdictCapabilityAbsentIsAdvisoryNotSilentPass
 
       - id: TASK-010
         type: implementation
@@ -717,11 +1285,42 @@ phases:
             • otherwise append `MandatedTestFailures(mandated, verdicts, scope)` to
               the violations and recompute status. Order the violations so
               name-presence findings come first, then verdict findings.
-          Do not change the existing capability guard, the due-filter, or the
-          scoping. Update the step's doc comment to say the dimension now answers
-          BOTH "does the mandated test exist" and "did it pass" — the old comment
-          claims only the former and is exactly the false assurance ISSUE-118
-          reported.
+
+          AND — CLM-010, sharp edge 15 — THE JOIN MUST ALSO RUN ON THE
+          DISCOVERY-CAPABILITY-ABSENT PATH. At HEAD, `step_testverify.go:366-368`
+          returns `testDiscoveryCapabilityAbsent(...)` BEFORE anything else, so a
+          project with a working verdict engine but no declared test globs would
+          still swallow a failing mandated test. Compute the join ABOVE that guard
+          (it takes neither the classifier nor the matcher, so it is callable
+          there), and when the guard fires, return the advisory result with those
+          verdict violations APPENDED and the status recomputed — the advisory stays
+          `warning` severity and still says what it says, but a blocking verdict
+          alongside it makes the step `fail`. `ConfigErr` stays false.
+
+          CALL IT AS `MandatedTestFailures(mandated, verdicts, nil)` ON THIS PATH —
+          NIL SCOPE, NO SCOPE FILTERING AT ALL. Do NOT pass the step's `scope`
+          here, and do NOT hand-roll a FilePath/SpecFile check as a "consistency"
+          gesture. Above the guard `ResolveMandatedTestPaths` has not run, so
+          `mt.FilePath` is structurally `""`, and `GateScope.Contains("")` is false
+          in diff mode — a scoped call would keep a mandated test only when its SPEC
+          FILE happened to land in the diff, which in an all-test-file diff (the
+          canonical ISSUE-118 shape) it does not. The guard would silently drop the
+          exact verdict this lane exists to surface, and CLM-010 would not hold.
+          Comment this at the call site in those terms — that the unscoped call is
+          deliberate, that path resolution IS the absent capability here so there is
+          nothing honest to scope against, that the accepted cost is NOISE (a
+          possibly out-of-diff verdict) chosen over SILENCE, and that attribution
+          falls back to the mandated test's SPEC FILE for the same reason: a degraded
+          location on a verdict that is still reported and still blocks.
+          `TestTestVerification_VerdictSurvivesDiscoveryCapabilityAbsent` pins this
+          under a diff-mode scope; if you narrow it, that test goes red, and that is
+          the intended alarm rather than a test to adjust.
+
+          Do not change the existing capability guard's CONDITION, the due-filter,
+          or the scoping. Update the step's doc comment to say the dimension now
+          answers BOTH "does the mandated test exist" and "did it pass" — the old
+          comment claims only the former and is exactly the false assurance
+          ISSUE-118 reported.
 
           `cmd/backstop/gate.go` — declare the collector in `buildGateSteps` BEFORE
           the test_verification step is built (~:773): a small struct (or a pointer
@@ -740,6 +1339,28 @@ phases:
           verdict engine declared, which must reach the advisory rather than an
           unqualified pass.
 
+          ── TWO HAZARDS IN `cmd/backstop/gate.go` SPECIFICALLY ─────────────
+          (a) THE WORD `bridged` IS FORBIDDEN IN THIS FILE — sharp edge 13. A
+              shipped guard, `TestGate_BridgedInputRemovedFromGateWiring`
+              (`gate_bridge_deletion_test.go`), does a bare
+              `strings.Contains(gate.go, "bridged")` over the WHOLE FILE, comments
+              included. The obvious comment for this wiring ("collect the bridged
+              pack findings before the filter") REDs it, with an error message about
+              SPEC-046's deleted manifest list that will read as unrelated and cost
+              you an hour. Use "dispatched findings" / "the dispatch stream" / "the
+              stamp site". `bridge` without the `d` is fine and already appears
+              there. Before declaring this task done, run:
+                  grep -n bridged cmd/backstop/gate.go   # must print nothing
+          (b) PLAN-ISSUE-112 EDITS `packValidatorStep` TOO — sharp edge 16. Its
+              TASK-004 rewrites `gate.go:895-909`, immediately above the lines this
+              task touches (~:914-928). The concerns do not conflict; the TEXT does.
+              RE-READ `cmd/backstop/gate.go` FRESH immediately before editing and
+              locate the constructs by NAME (`packValidatorStep`,
+              `resolveDispatchPackEngines()`, `activeScope.FilterViolations`) rather
+              than by the line numbers quoted here — those are HEAD-of-2026-08-16
+              anchors. If they have moved, PLAN-ISSUE-112 landed first: merge on top
+              of what is there, do not revert or "restore" its comment rewrite.
+
           DO NOT add a second `resolveDispatchPackEngines()` call. DO NOT change
           `filterViolations`, `excludeDedicatedStepRules`, or any pack manifest.
         files:
@@ -750,6 +1371,7 @@ phases:
           - CLM-005
           - CLM-006
           - CLM-008
+          - CLM-010
         depends_on:
           - TASK-008
           - TASK-009
@@ -778,6 +1400,7 @@ phases:
           - CLM-003
           - CLM-005
           - CLM-006
+          - CLM-010
         depends_on:
           - TASK-010
 
@@ -926,11 +1549,97 @@ phases:
             2. any real failing mandated test this newly surfaced in the repo;
             3. that ISSUE-129 remains OPEN and untouched, with the out-of-diff
                failing-test case still unaddressed by design;
-            4. the sharp-edge-3 recommendation for the founder: consider declaring
-               `mandated_test_failed` non-waivable in backstop.yml (this lane did
-               not edit config);
+            4. that `mandated_test_failed` ships at severity `critical` and is
+               therefore ALREADY non-waivable via the existing severity-keyed policy
+               (`waiver.NewDeclaredPolicy(rules, []string{"critical"})`) — NO
+               backstop.yml edit was made and none is needed. Do NOT hand off a
+               "consider adding non_waivable to backstop.yml" recommendation: there
+               is no such key, and an earlier draft of this plan was wrong to say so
+               (sharp edge 3). If you found evidence to the contrary while
+               implementing, say exactly what you found rather than restoring the
+               old recommendation;
             5. that ISSUE-118's status was NOT flipped — close-out is not this
-               lane's to take.
+               lane's to take;
+            6. whether `TestE2E_VerdictCapabilityAbsentIsAdvisoryNotSilentPass`
+               exercised a genuinely pack-derived capability signal (the
+               `test-verdict-absent-e2e` fixture declaring no `gate_type: test`
+               binding), not a seam-injected one — and if you had to change that
+               design, why;
+            7. which of the four sibling lanes — PLAN-ISSUE-112, PLAN-ISSUE-113,
+               PLAN-ISSUE-122, PLAN-ISSUE-129 — had already landed in
+               `cmd/backstop/gate.go` and `cmd/backstop/pack_gate.go` when you
+               edited them, and whether you had to merge against their diffs
+               (sharp edge 16). Name each one you found and each one you did not;
+               "112 hadn't landed" is not an answer about 113, 122 or 129;
+            8. A FOLLOW-UP IS OWED TO spec-author, AND THIS LANE DID NOT TAKE IT.
+               State plainly that TASK-003's new `gate.Violation.GateType` field
+               falsified FOURTEEN pieces of prose — nine in SPEC-037 and five code
+               comments across THREE `pkg/gate` files — that all fourteen were left
+               untouched on purpose (sharp edge 17), and confirm you did not quietly
+               correct any of the five code comments, including the ones in files
+               you were already editing. Route it as follows:
+
+                 TO spec-author — amend SPEC-037 (status `implemented`) at ALL NINE
+                 spots: :179-180, :185, :515 (CLM-024's claim text), :777-778,
+                 :911-913, :920, :1112-1117 (Sharp Edge 5), :1245-1246 and
+                 :1631-1632 (version history). The single substantive correction is
+                 the same everywhere: `gate.Violation` now DOES carry a `GateType`
+                 field (ISSUE-118), and substantiveness routing still deliberately
+                 does not consult it — it partitions by the pack-declared
+                 `substantiveness_role` property (ISSUE-062/064). Note that this is
+                 NOT uniformly "just a parenthetical": eight of the fourteen (sharp
+                 edge 17's Tier A) assert flat non-existence and need the sentence
+                 reworked, not a clause swapped. Also update :1123-1124, which
+                 already anticipated this change as "a separate enhancement" — it is
+                 not false, it is now SATISFIED, and should name ISSUE-118.
+
+                 WHAT THIS FOLLOW-UP MUST PROTECT — narrowly. CLM-024's MANDATED
+                 TEST NAME (`TestRoute_PartitionsSubstantivenessByRuleID_FromFlatStream`)
+                 MUST NOT CHANGE, and CLM-024 MUST NOT be weakened, renumbered or
+                 retired. The routing BEHAVIOR is genuinely unchanged by this lane.
+                 That is the whole of the protection; nothing here asserts that
+                 CLM-024's prose is otherwise accurate.
+
+                 SEPARATE, PRE-EXISTING, OUT OF THIS LANE'S SCOPE — DISCLOSED SO THE
+                 FOLLOW-UP IS NOT MISLED. CLM-024's claim text (:509-515) and the
+                 declared signature at :916-917 still say routing is "by NAMESPACED
+                 RULE-ID convention (matching the pack's hollow-test and extraction
+                 rule IDs in `pack.NamespacedRuleID` form)" and show
+                 `RouteSubstantivenessFindings(violations, hollowRuleID,
+                 extractionRuleID)`. The shipped code takes NO rule-ID arguments and
+                 switches on `v.Properties[substantivenessRoleProperty]`; the
+                 mandated test's own comment already says so
+                 (`substantiveness_join_test.go:136-137` — "ISSUE-064 — no longer by
+                 rule ID"). :184-188, :776-777, :1047-1048 and :1244-1245 repeat the
+                 stale rule-ID phrasing too. THIS DRIFT IS ISSUE-064 RESIDUE. It
+                 PREDATES this plan, this plan does not cause it, and this plan does
+                 not fix it. Do NOT re-assert the rule-ID phrasing as accurate while
+                 amending, and do NOT expand this reconciliation to fix it — but the
+                 follow-up should know it is there so it does not freeze it in place.
+                 If it warrants its own artifact, that is the founder's call.
+
+                 IN THE SAME FOLLOW-UP — correct the FIVE code comments that repeat
+                 the same false rationale, across THREE files:
+                 `pkg/gate/substantiveness_join.go` at :12 (file header), :115-116
+                 (`RouteSubstantivenessFindings`) and :181
+                 (`HollowFindingsToViolations`);
+                 `pkg/gate/substantiveness_join_test.go:137`; and
+                 `pkg/gate/substantiveness_hollow_violation_test.go:11`. All are
+                 prose edits with no behavior change. SEQUENCE THEM AFTER
+                 PLAN-ISSUE-113's TASK-004 LANDS — that lane edits
+                 `substantiveness_join.go` and mandates comment content in it, and
+                 three of the five corrections are in that one file, so going first
+                 would collide three times over.
+
+                 LINE NUMBERS ARE HEAD-OF-2026-08-16 ANCHORS. `substantiveness_join.go`
+                 was dirty in the worktree when this plan was written (the same
+                 comments sat at :13/:214/:280 there). Re-derive every anchor against
+                 the tree you actually edit; find each comment by the construct it
+                 documents, not by line number.
+
+               This is a real, gate-invisible falsehood (no dimension checks prose),
+               so it is the founder's to triage, not yours to close. File it; do
+               not implement it.
         files:
           - pkg/gate/test_verdict_join.go
           - pkg/gate/step_testverify.go
@@ -947,6 +1656,7 @@ phases:
           - CLM-007
           - CLM-008
           - CLM-009
+          - CLM-010
         depends_on:
           - TASK-010
           - TASK-013
