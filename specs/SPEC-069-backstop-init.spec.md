@@ -1315,8 +1315,15 @@ claims:
     requirement: REQ-013
     kind: absence
     text: >
-      DENYLIST — this spec's implementation changes no file under `pkg/gate`, and init neither
-      rewrites, suppresses, nor substitutes for the remoteless `baseline_comparison` message
+      DENYLIST — no `.go` file under `pkg/gate` (every file including `_test.go`, `testdata/`
+      excluded as fixture INPUT rather than gate source) references init: no `pkg/initialize`
+      import path, no `initialize.` selector, and no accommodation prose naming `backstop init`,
+      SPEC-069, or `initGateRunner`. The property is asserted from gate SOURCE CONTENT, not from
+      a working-tree change snapshot — content is attributable to this lane, a snapshot taken in
+      a tree shared by concurrent lanes is not (ISSUE-139). Consuming the gate's exported API
+      from `cmd/backstop` is not a violation; only gate source knowing about init is. And init
+      neither rewrites, suppresses, nor substitutes for the remoteless `baseline_comparison`
+      message
     tests:
       - TestInit_ChangesNoGatePackageFileAndDoesNotMaskTheRemotelessMessage
   # ── REQ-014 — observation framing and exit-code precedence ──
@@ -2852,8 +2859,12 @@ a stated prerequisite.
    exit code down to a warning, the labels still stay split, because they answer a different
    question (WHAT HAPPENED) than the exit code does (DID INIT DELIVER).
 
-10. **Absence claims are only as good as their scan boundary.** Every DENYLIST claim here scans "the
-   init source set" — `cmd/backstop/init*.go` plus `pkg/initialize/**`, excluding `_test.go`. A
+10. **Absence claims are only as good as their scan boundary.** Nearly every DENYLIST claim here
+   scans "the init source set" — `cmd/backstop/init*.go` plus `pkg/initialize/**`, excluding
+   `_test.go`. (CLM-063 is the deliberate inverse: it scans `pkg/gate`'s own source for
+   references to init, because a property about what gate source may not know is only
+   answerable from gate content — its boundary is that package, and it too must fail loudly on
+   an empty enumeration.) A
    future implementer who moves init logic into a helper file outside that glob (a new
    `pkg/initcore/`, a function parked in `cmd/backstop/root.go`) silently empties the claims
    without failing them. The scan must be defined by a package/prefix set the implementation
