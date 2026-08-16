@@ -1,4 +1,5 @@
 - [E2E fixture already loud at HEAD](project_e2e_fixture_already_loud_at_head.md) — "observe the silent pass at HEAD" tasks must name the fixture field (nil/non-nil Provision etc.) that makes HEAD silent; an adjacent guard often refuses first → green-at-HEAD acceptance test
+- [Short-circuit-dependent guard](project_shortcircuit_dependent_guard.md) — "the existing mandated test already covers this" is often FALSE: an earlier predicate branch (`+dirty`) short-circuits, so the guard is green at HEAD with the defect live; measure it
 - [Fail-loud consumption-path trace](project_fail_loud_consumption_path.md) — for ISSUE-003/005/008-family config-error plans, trace every executor-construction path, not just the guard site
 - [Retirement-claim scope](project_retirement_claim_scope.md) — "retire/replace X" claims must scope the file where X is DEFINED, not just the new call site; check test_command covers added test packages
 - [Dispatch consumer edges](project_dispatch_consumer_edges.md) — consumer-impl tasks must depends_on the impl of every symbol they import, not just their own test; validator misses this
