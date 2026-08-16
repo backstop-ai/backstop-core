@@ -3,7 +3,9 @@ package packval
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/backstop-ai/backstop-core/pkg/check"
@@ -90,7 +92,34 @@ func (d *DefaultExecutor) RunEngine(packDir string, binding engine.EngineBinding
 		return ExecutionResult{Passed: false, Output: stdout.String(), ExitCode: 1},
 			fmt.Errorf("engine %q never started: the process could not be executed — this is a broken run, not a finding-free pass; ensure the command is present and executable: %w", binding.Command, runErr)
 	}
-	findings, parseErr := check.ParsePackFindings(stdout.Bytes())
+	// Apply the binding's declared convert BEFORE parsing (ISSUE-141). packval's
+	// executor previously handed raw stdout to the parser, so a pack whose engine
+	// emits non-SARIF output and ships a reshaper died at the parse on output the
+	// convert would have made parseable.
+	//
+	// ORDER: strictly after the never-started refusal above. A process that never
+	// started produced no bytes, so running a convert over its empty stdout would
+	// manufacture a convert-step failure to describe an engine that never ran.
+	//
+	// NO IMPORT: SandboxedRunStdout is same-package. cmd/backstop's convert reaches
+	// it through resolveSandboxedRunStdout, whose production value IS this function
+	// — the gate side has always called INTO this package for its convert, so both
+	// paths carry the same sandboxing guarantee rather than two approximations.
+	payload := stdout.Bytes()
+	if binding.Convert != "" {
+		convertPath := filepath.Join(packDir, filepath.FromSlash(binding.Convert))
+		if info, statErr := os.Stat(convertPath); statErr != nil || info.IsDir() {
+			return ExecutionResult{Passed: false, Output: stdout.String(), ExitCode: 1},
+				fmt.Errorf("engine %q declares a convert script that is missing or not a file: %s", binding.Command, convertPath)
+		}
+		converted, convErr := SandboxedRunStdout(convertPath, nil, packDir, payload)
+		if convErr != nil {
+			return ExecutionResult{Passed: false, Output: stdout.String(), ExitCode: 1},
+				fmt.Errorf("engine %q: convert step (%s) failed: %w", binding.Command, binding.Convert, convErr)
+		}
+		payload = converted
+	}
+	findings, parseErr := check.ParsePackFindings(payload)
 	if parseErr != nil {
 		return ExecutionResult{Passed: false, Output: stdout.String(), ExitCode: 1},
 			fmt.Errorf("engine %q produced no parseable SARIF: %w", binding.Command, parseErr)

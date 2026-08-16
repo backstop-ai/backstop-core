@@ -2,13 +2,178 @@
 plan_id: PLAN-ISSUE-141
 spec_id: ISSUE-141
 created: "2026-08-16"
-status: draft
+status: completed
 target_repo: backstop-core
 target_module: github.com/backstop-ai/backstop-core
 test_command: "go test ./pkg/packval/... -race -count=1"
 coverage_threshold: 90
 
 notes: |
+  ══════════════════════════════════════════════════════════════════════════════
+  AS-BUILT — CLOSED 2026-08-16. status: draft → completed.
+  ══════════════════════════════════════════════════════════════════════════════
+  The tasks, claims and sharp edges BELOW this banner are the AUTHORED record of
+  what was planned and are deliberately left unrewritten. This banner is what
+  reconciles them to what actually shipped. Verified against the working tree at
+  close-out, not transcribed from a report.
+
+  ── WHAT SHIPPED ───────────────────────────────────────────────────────────
+  pkg/packval/executor.go — `DefaultExecutor.RunEngine` now applies the binding's
+  declared `Convert` before `check.ParsePackFindings`, exactly as TASK-002
+  specified and PURELY ADDITIVELY. The inserted stage sits strictly between the
+  `check.NeverStarted(runErr)` refusal (PLAN-ISSUE-140's, untouched) and the
+  parse call (SE1 honored):
+
+      payload := stdout.Bytes()
+      if binding.Convert != "" {
+          convertPath := filepath.Join(packDir, filepath.FromSlash(binding.Convert))
+          if info, statErr := os.Stat(convertPath); statErr != nil || info.IsDir() { ... refuse ... }
+          converted, convErr := SandboxedRunStdout(convertPath, nil, packDir, payload)
+          if convErr != nil { ... refuse, naming the convert step ... }
+          payload = converted
+      }
+      findings, parseErr := check.ParsePackFindings(payload)
+
+  Two imports added (`os`, `path/filepath`). Error wording follows RunEngine's own
+  `engine %q ...` subject, not the gate's `pack %s ...` (SE7):
+    - CLM-003 refusal: `engine %q declares a convert script that is missing or not
+      a file: <resolved path>` — names the RESOLVED path, and the `||info.IsDir()`
+      arm covers the directory case.
+    - CLM-004 refusal: `engine %q: convert step (%s) failed: %w` — attributes to
+      the CONVERT STEP by name, never to "produced no parseable SARIF".
+  Every refusal returns `ExecutionResult{Passed:false, Output:stdout.String(),
+  ExitCode:1}`, matching the sibling refusals in the same function.
+
+  pkg/packval/executor_convert_test.go — NEW FILE, all six mandated test names
+  present and none renamed:
+    TestPackVal_EngineConvert_NonSarifPipesThroughConvert
+    TestPackVal_EngineConvert_NativeSarifNoConvert
+    TestPackVal_EngineConvert_MissingScriptFailsLoud
+    TestPackVal_EngineConvert_ConvertFailureAttributedToConvertStep
+    TestPackVal_EngineConvert_RunsThroughSandboxedRunStdout
+    TestPackVal_EngineConvert_NoDriftFromGateDispatch
+
+  ── FALSIFICATION BAR: MET, WITH ONE LEGITIMATE EXCEPTION ──────────────────
+  5 of the 6 mandated tests reproduced the predicted RED at pre-fix tree state.
+  The observed pre-fix failure for
+  TestPackVal_EngineConvert_NonSarifPipesThroughConvert was the plan's predicted
+  mode verbatim: the raw non-SARIF payload reached `check.ParsePackFindings`
+  unconverted and surfaced as RunEngine's
+  `engine %q produced no parseable SARIF: ...` refusal.
+
+  THE SIXTH — TestPackVal_EngineConvert_NativeSarifNoConvert (CLM-002) —
+  CORRECTLY PASSED PRE-FIX, and that is not a falsification miss. It is the
+  no-convert non-regression guard: its whole purpose is that a SARIF-native
+  binding with `Convert == ""` parses stdout byte-for-byte as it always did.
+  Making it fail first would have required breaking the behavior it exists to
+  protect. The implementer flagged this as an exception to TASK-001's blanket
+  "MUST FAIL on the current tree" instruction and reported it rather than
+  manufacturing a false red. That was the right call, and the plan's blanket
+  wording — not the implementation — is what was imprecise here.
+
+  ── PLATFORM GUARD (SE2): CORRECT, NOT DARWIN-ONLY ─────────────────────────
+  The convert-executing tests guard with
+  `if err := sandboxPlatformSupported(runtime.GOOS); err != nil { t.Skipf(...) }`
+  — the same-package predicate, NOT the forbidden `runtime.GOOS != "darwin"`
+  copy that would have skipped on the Linux CI that gates merges. The test file
+  carries an inline comment recording why that spelling was rejected.
+  PLATFORMS THE TESTS ACTUALLY RAN ON: darwin (this host — full suite run, zero
+  skips among the six). Linux execution is by construction rather than by
+  observation from this host: the guard skips only where `sandboxPlatformSupported`
+  reports no sandbox implementation, and pkg/packval/sandbox_linux.go supplies one
+  (Landlock + seccomp), so the tests execute for real on CI. That is the design
+  intent SE2 demanded, and the first CI run on this change is its confirmation.
+  No injectable sandbox seam was added (SE3 honored) — the convert runs through
+  the production `SandboxedRunStdout`.
+
+  ── CLM-006 DRIFT GUARD: WINDOWED, NOT VACUOUS ─────────────────────────────
+  TestPackVal_EngineConvert_NoDriftFromGateDispatch windows the cmd/backstop/
+  pack_gate.go half to `runFindingsEngine`'s body specifically —
+  `windowFunc(t, gateSrc, "func runFindingsEngine(")`, located BY FUNCTION NAME
+  and read to the next top-level `func`. This is the non-vacuous form the plan
+  required: `runCoverageEngine` carries an independent convert block with all
+  three of the same mechanisms, so a whole-file scan could not have failed even
+  if `runFindingsEngine`'s block were deleted outright. The guard is a CONTENT
+  scan — no `git status`, no `git diff`, no tree-state or line-number assertion —
+  which is what makes it safe in this shared tree. Its failure message names
+  residual R1 as the planned consolidation.
+
+  cmd/backstop/pack_gate.go was READ ONLY here and is absent from every task's
+  `files` list. It IS modified in the working tree at close-out, but that is
+  PLAN-ISSUE-140's uncommitted work (its diff removes the local `runNeverStarted`
+  predicate in favour of `check.NeverStarted`) — verified, and not this lane's.
+
+  ── ARCHITECTURE: NOTHING TO CROSS, AS PREDICTED ───────────────────────────
+  Confirmed at close-out: NO architecture-policy edit was required and NO new
+  import edge was added. `SandboxedRunStdout` is same-package, exactly as the
+  plan's pre-authoring policy read predicted, so the ISSUE-141 Direction's
+  "can this be shared / does packval need its own copy" question dissolved
+  rather than being answered with a wall or a second implementation.
+
+  ── VERIFICATION AT CLOSE-OUT ──────────────────────────────────────────────
+    - `go test ./pkg/packval/... -race -count=1` — ok (~49.5s). All six mandated
+      tests PASS, none skipped on this host.
+    - PLAN-ISSUE-140's tests unaffected and unchanged — this lane inserted into
+      their function without disturbing them.
+    - TASK-003 diff-scoped gate over this lane's two files — PASS (10 passed /
+      0 failed / 2 skipped / 2 warned; the warns are pre-existing corpus-level
+      advisories unrelated to this lane).
+    - TASK-002's pre-edit SNAPSHOT diff (NOT `git diff` against HEAD, which would
+      have shown PLAN-ISSUE-140's legitimate uncommitted work intermixed)
+      confirmed this lane's contribution is the inserted convert stage plus its
+      comment and nothing else.
+    - TASK-005 (`backstop gate --all`) was still RUNNING at the moment this
+      banner was written and is tracked separately by the team lead. This
+      close-out does NOT claim a green full sweep — that result stands or falls
+      on its own report. `backstop artifact validate --plan PLAN-ISSUE-141` is
+      clean.
+
+  ── THE THREE RESIDUALS: ALL STILL OPEN ────────────────────────────────────
+  Restated so they are not misread as delivered. None was resolved by this lane.
+
+    (R1) SINGLE-AUTHORITY CONSOLIDATION — STILL OPEN. Two call sites apply
+         Convert: `runFindingsEngine` (cmd/backstop/pack_gate.go) and `RunEngine`
+         here. FILED as ISSUE-143
+         (`issues/ISSUE-143-packval-gate-convert-dual-implementation.issue.md`),
+         filed during this plan's authoring phase — confirmed present at
+         close-out. Do NOT re-file. CLM-006's windowed drift guard holds the line
+         until that consolidation is planned.
+
+    (R2) `binding.StdoutArtifact` STILL UNHONORED by packval's `RunEngine` — a
+         binding declaring a stdout_artifact still feeds the wrong bytes to the
+         convert. FILED as ISSUE-144
+         (`issues/ISSUE-144-packval-executor-ignores-stdout-artifact.issue.md`),
+         also filed during authoring — confirmed present at close-out. Do NOT
+         re-file.
+
+    (R3) SPEC-032 / PLAN-SPEC-032 RECONCILIATION — OPEN ROUTING ITEM, NOT A
+         FILED ISSUE. This lane adopted SPEC-032's CLM-014 / CLM-015 mandated
+         test names VERBATIM
+         (TestPackVal_EngineConvert_NativeSarifNoConvert and
+         TestPackVal_EngineConvert_NonSarifPipesThroughConvert); both now EXIST
+         and are SATISFIED in pkg/packval/executor_convert_test.go. Both
+         SPEC-032 and PLAN-SPEC-032 nevertheless remain `status: draft` —
+         verified at close-out — so their prose now understates what is built.
+         Reconciling them is spec-author work on draft artifacts and is outside
+         an issue lane's remit. Routing to a spec-author pass is RECOMMENDED and
+         NOT YET ACTIONED.
+
+  ── DOWNSTREAM: A REAL BLOCKING DEPENDENCY, NOW SATISFIED ──────────────────
+  PLAN-ISSUE-092's TASK-015 (its final verification phase) carries a HARD
+  STOP-AND-REPORT prerequisite on this plan landing — it names ISSUE-141
+  explicitly and instructs its implementer to hand the lane back rather than
+  route around it. That precondition is now genuinely satisfied: `binding.Convert`
+  is applied inside `RunEngine` before `check.ParsePackFindings`, proven by a real
+  converter run through the real sandbox over real engine bytes, not by a stub.
+  The dependent lane is being notified separately; no action is owed from here.
+
+  ── NOT DONE, ON PURPOSE ───────────────────────────────────────────────────
+  `spec_version` is left ABSENT — this plan was authored against ISSUE-141 as it
+  stood on 2026-08-16 and nothing repins it. ISSUE-141's own frontmatter remains
+  `status: open`; flipping an issue's status is issue-author work, not a plan
+  close-out's.
+  ══════════════════════════════════════════════════════════════════════════════
+
   Implements ISSUE-141: `DefaultExecutor.RunEngine` (pkg/packval/executor.go — the
   command dispatch behind `backstop pack test` / `backstop pack check` phase-3
   fixtures) never applies a binding's declared `Convert` script, so a pack whose
