@@ -2,10 +2,10 @@
 title: "Traceability Substantiveness Pack"
 number: SPEC-037
 created: "2026-06-22"
-updated: "2026-08-10"
+updated: "2026-08-15"
 status: draft
 schema_version: spec/v1
-spec_version: 1.2.4
+spec_version: 1.2.5
 
 implementation:
   summary: >
@@ -426,6 +426,7 @@ claims:
       - TestTS_SubstantivenessRidesSharedDispatch_NotStub
   - id: CLM-015
     requirement: REQ-005
+    subject: cmd/backstop
     text: >
       buildTestSubstantivenessStep reaches the substantiveness pack's findings +
       extraction through the REAL resolveDispatchPackEngines() / dispatchPackEnginesFn
@@ -436,6 +437,7 @@ claims:
       - TestWiring_SubstantivenessStepRoutesThroughDispatchSeam
   - id: CLM-016
     requirement: REQ-005
+    subject: cmd/backstop
     text: >
       An UNWIRED substantiveness step (one that never reaches dispatchPackEnginesFn)
       FAILS the wiring test — the spy on the real dispatchPackEnginesFn seam records zero
@@ -445,6 +447,7 @@ claims:
       - TestWiring_UnwiredSubstantivenessStep_FailsDispatchSpy
   - id: CLM-017
     requirement: REQ-005
+    subject: cmd/backstop
     text: >
       The substantiveness step does not re-implement dispatch or call the deleted
       go/parser analyzer: the wiring test asserts the verdict originates from the
@@ -567,6 +570,7 @@ claims:
       - TestSubstantiveness_ScopeAwareThroughPackPath_Preserved
   - id: CLM-037
     requirement: REQ-008
+    subject: cmd/backstop
     text: >
       The shipped SPEC-036 test TestCapabilityState_NonGoProject_DerivesAbsentClass2
       (cmd/backstop/gate_capability_test.go:17), which asserts the OLD baked-analyzer
@@ -579,6 +583,7 @@ claims:
       - TestCapability_ShippedSpec036Test_MigratedForSubstantivenessRekey
   - id: CLM-030
     requirement: REQ-009
+    subject: cmd/backstop
     text: >
       The substantiveness pack is provisioned as an ORDINARY INSTALLED pack, not a baked
       tier: no `//go:embed` (or other compiled-in asset) carries the substantiveness rule
@@ -603,6 +608,7 @@ claims:
       - TestProvisioning_SubstantivenessInstalledAsLocalPack_DeclaredAndLocked
   - id: CLM-032
     requirement: REQ-010
+    subject: cmd/backstop
     text: >
       REAL over-installed-pack end-to-end: with the substantiveness pack INSTALLED as a
       local pack, a genuinely hollow backstop `*_test.go` source run through the WHOLE
@@ -614,6 +620,7 @@ claims:
       - TestE2E_SubstantivenessInstalledLocalPack_RealGate_HollowRed
   - id: CLM-033
     requirement: REQ-010
+    subject: cmd/backstop
     text: >
       The end-to-end proof FAILS if the substantiveness pack is not actually installed or
       not actually run: with the local pack declaration/lock ABSENT (or the real ast-grep
@@ -624,6 +631,7 @@ claims:
       - TestE2E_SubstantivenessUninstalled_NoVacuousGreen
   - id: CLM-034
     requirement: REQ-010
+    subject: cmd/backstop
     text: >
       The end-to-end pipeline exercises BOTH the multi-rule ast-grep dispatch (the
       substantiveness pack's Q1 hollow + Q2 extraction rules both dispatch, per ISSUE-028)
@@ -650,6 +658,7 @@ claims:
       - TestCapability_SubstantivenessKeyedOnInstalledPack_NotBakedAnalyzer
   - id: CLM-036
     requirement: REQ-009
+    subject: cmd/backstop
     text: >
       The re-key is DIMENSION-ASYMMETRIC: deriveCapabilityState's COVERAGE and CONTRACTS
       arms MUST NOT re-key to an installed pack — coverage was descoped (its analyzer is
@@ -1310,6 +1319,48 @@ or by the seam spy alone.
 
 ## Version History
 
+- **1.2.5** (2026-08-15) — **ACCURACY FIX: nine claims declared a subject their mandated tests
+  do not sit in.** No requirement, contract, mechanism or mandated-test NAME is added, removed
+  or reworded, and no test file changed — the only edit is a `subject:` line on nine claims.
+  **The defect.** No claim in this spec carried an explicit `subject:`, so all of them inherited
+  the spec-level `implementation.subject: pkg/gate` → target token `gate`. That is correct for
+  the 26 mandated tests that live in `pkg/gate` (satisfied by colocation), but 11 of this spec's
+  37 mandated tests live in `cmd/backstop` instead, and 10 of those 11 do not reference `gate`
+  in the PACK-EXTRACTED referenced-symbol set. The subject join
+  (`gate.NoTargetViolationForTest` → `gate.NoTargetViolation`,
+  `pkg/gate/substantiveness_join.go`, over `testFileColocatedWithTarget`,
+  `cmd/backstop/gate.go`) is satisfied by colocation with the subject package OR by the test's
+  own extracted symbol set naming it, and neither held: those files' directory leaf is
+  `backstop`, not `gate`, and the extraction rule (`referenced-symbol-go.yml` in
+  `backstop-ai/go-substantiveness`) records only package-qualified CALL/selector references — a
+  TYPE-position mention such as the closure parameter `_ *gate.GateScope` in
+  `TestWiring_SubstantivenessStepRoutesThroughDispatchSeam` is not recorded, even though that
+  test genuinely exercises the gate. The eleventh, CLM-035's
+  `TestCapability_SubstantivenessKeyedOnInstalledPack_NotBakedAnalyzer`, does make a real
+  `gate.`-qualified call and so joins successfully; it is left as-is.
+  **Why this was invisible.** `test_substantiveness` filters mandated tests through
+  `ContractsAreDue` before the join (`buildTestSubstantivenessStep`, `cmd/backstop/gate.go`), so
+  a `draft` spec's tests never enter it. Confirmed by simulating the flip on an ISOLATED SCRATCH
+  COPY of the repo (never the live tree): forcing `status: implemented` with no other change
+  produced exactly 10 new blocking `test_substantiveness` noTarget violations, one per affected
+  test, none of them present in `.backstop/baseline.json` — and the policy for this dimension is
+  `applies-to: new-code, level: block`, which grandfathers against the BASELINE, so absence from
+  the baseline means they block.
+  **Why `cmd/backstop` is the correct subject, not a workaround.** These are the WIRING
+  (CLM-015/016/017), PROVISIONING (CLM-030), CAPABILITY-REKEY (CLM-036, CLM-037) and E2E
+  (CLM-032/033/034) claims, and every unit they pin — `buildTestSubstantivenessStep`,
+  `deriveCapabilityState`, the dispatch seam, the installed-pack provisioning and the real-gate
+  end-to-end path — lives in `cmd/backstop` by construction. The join basis moves from a subject
+  the tests never had to structural colocation with the subject they actually target; the tests,
+  their assertions and their rigor are untouched. No waiver was taken and no test was weakened.
+  **Known residue, deliberately NOT fixed here.** CLM-031 is the tenth affected claim and is
+  left untouched in this revision because its mandated test name
+  `TestProvisioning_SubstantivenessInstalledAsLocalPack_DeclaredAndLocked` is already recorded
+  (1.2.4, above) as needing its own issue → plan for the rename. That rename alone will NOT
+  clear CLM-031's noTarget violation — the test's extracted symbol set is
+  `{add, distribution, filepath, os, strings, t}` and contains no `gate` regardless of what the
+  function is called — so whichever plan closes the rename MUST also add `subject: cmd/backstop`
+  to CLM-031, or this spec still cannot promote to `implemented`.
 - **1.2.4** (2026-08-10) — FOUNDER-RULED amendment reconciling the PROVISIONING model to
   shipped reality (same class of text-only correction as 1.2.3, per align-predating-artifacts:
   a live `draft` spec's text must not contradict shipped state). REQ-009 and CLM-031 were
