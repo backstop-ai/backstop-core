@@ -23,7 +23,19 @@ restricts only artifact-file globs, so heredocs into `agent-memory` pass freely)
 this at the issue's implied severity would have bought a compounding-silent-loss framing
 for what is actually a retry-tax policy inconsistency.
 
-**How to apply:** any issue whose priority argument is a loss/impossibility claim gets one
+**Second instance — "this test is failing right now" (ISSUE-130, 2026-08-15).** Same shape,
+different verb: the issue's urgency rested on a mandated regression test "failing right now on
+`main`." I ran it — it PASSED. The mechanism was real (the regex genuinely misses Go's
+tagged-repo pseudo-version shape), but the failure is CONDITIONAL on a pristine working tree:
+any untracked or uncommitted file makes Go stamp `+dirty`, which the code rejects on an earlier
+branch, so the fallback returns the correct value and the test goes green. The reporter's own
+untracked issue file was enough to mask it. A test-status claim is a *timestamped observation of
+one tree state*, not a property — and "is failing on main" reads to the founder as a red-CI
+emergency. Run the named test before repeating the claim; if it disagrees, the disagreement
+itself is usually the most useful thing in the entry.
+
+**How to apply:** any issue whose priority argument is a loss/impossibility/currently-broken
+claim gets one
 cheap falsification pass before the INBOX entry — `ls`/`find -newermt`/`git ls-files` on
 the thing that allegedly can't exist. Costs one tool call. When the consequence collapses,
 say so in the entry as the headline finding, not a footnote: the founder is ranking off

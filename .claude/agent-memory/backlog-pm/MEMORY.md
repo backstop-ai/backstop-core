@@ -1,7 +1,7 @@
 # backlog-pm memory
 
 - [Report via SendMessage](feedback_report_via_sendmessage.md) — text output is INVISIBLE to the team lead; end every teammate task with SendMessage or it reads as going idle
-- [Verify the loss claim](feedback_verify_the_loss_claim.md) — mechanism real ≠ consequence real; go look for the file an issue says was "lost" before ranking off that claim
+- [Verify the loss claim](feedback_verify_the_loss_claim.md) — mechanism real ≠ consequence real; go look for the "lost" file / RUN the "failing right now" test before ranking off that claim
 
 - [PM write path](project_pm_write_path_blocked.md) — FULLY OPEN as of 2026-07-26; BACKLOG.yml is structurally directive-author-only; RENAMES need `main`; teammate roster is flat
 - [Interview tooling limits](project_interview_tooling_constraints.md) — `--fork-session` blocked in headless runs; transcript grep DOES work — fingerprint by artifact-ID counts, label it corpus-based

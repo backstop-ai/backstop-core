@@ -1,0 +1,1 @@
+- [Extending a shipped plan](project_extending_a_shipped_plan.md) — reconciliation phases must open with a `test` task (only type that may depend on a verification task); spec+test-rename land in one commit
