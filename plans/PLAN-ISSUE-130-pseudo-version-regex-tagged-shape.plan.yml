@@ -2,13 +2,140 @@
 plan_id: PLAN-ISSUE-130
 spec_id: ISSUE-130
 created: "2026-08-16"
-status: draft
+status: completed
 target_repo: backstop-core
 target_module: github.com/backstop-ai/backstop-core
 test_command: "go test ./cmd/backstop/ -run 'TestPseudoVersionSuffix|TestResolveVersion|TestVersion_Ldflags' -count=1"
 coverage_threshold: 90
 
 notes: |
+  ═════════════════════════════════════════════════════════════════════════
+  AS-BUILT — CLOSED 2026-08-16. Everything below this banner is the plan AS
+  AUTHORED, preserved verbatim as the historical record. This banner is the
+  layer over it, not a replacement for it.
+  ═════════════════════════════════════════════════════════════════════════
+
+  DELIVERED in 1b3c5cf, "fix(ISSUE-130): pseudoVersionSuffix now matches all
+  3 Go pseudo-version forms". A SINGLE-LANE commit — unlike the overnight
+  batches around it, this one contains this lane's work and nothing else, so
+  its diffstat IS the lane's diffstat: exactly the two files this plan
+  scoped, +133/-10.
+
+    cmd/backstop/version.go        +15/-4   (TASK-002)
+    cmd/backstop/version_test.go  +118/-10  (TASK-001)
+
+  All five tasks executed. CLM-001..CLM-005 are met. No task was dropped, no
+  file outside the declared scope was touched, and the recommended pattern was
+  adopted verbatim rather than re-derived into something else:
+
+      var pseudoVersionSuffix = regexp.MustCompile(`[-.]\d{14}-[0-9a-f]{12}`)
+
+  (version.go:28 — located by NAME per sharp edge 7; the `:17` anchor this
+  plan quoted had already moved by implementation time, which is why the plan
+  said not to trust it.)
+
+  ── THE FALSIFICATION PASS CAME BACK EXACTLY AS PREDICTED ──────────────────
+  TASK-003's revert-the-regex pass is the evidence this lane is judged on, and
+  it produced the split the plan named in advance rather than a blanket red:
+  with the regex reverted to `-\d{14}-[0-9a-f]{12}` and the tests left in
+  place, the TWO form-1 rows PASSED and the THREE form-2/form-3 rows FAILED,
+  across BOTH tables —
+  TestPseudoVersionSuffix_MatchesAllDocumentedGoPseudoVersionForms and
+  TestResolveVersion_PseudoVersionFallsBackToDev. The new metadata-stripped
+  assertion inside TestVersion_LdflagsInjectionReachesBuiltCLI also fired.
+  A blanket red would have meant the tests were coupled to something other
+  than the regex; a form-1-only pass is the signature of a genuine one-
+  character defect, and that is what was observed.
+
+  ── AN INCONCLUSIVE NEGATIVE RESULT, CORRECTLY DISCARDED ───────────────────
+  Recorded because the DISCIPLINE is the finding, not the experiment. The
+  implementer additionally attempted a clean-tree end-to-end CLI proof in a
+  detached worktree — build the binary from a pristine checkout and observe
+  what `backstop version` reports. It did not prove anything: the detached
+  worktree drove a DIFFERENT branch of version resolution, the `(devel)`
+  sentinel path, never reaching the pseudo-version regex at all. The
+  implementer named it as inconclusive and did NOT count it as evidence,
+  which is the right call — an experiment that misses the code path under
+  test is not a weak result, it is no result. The gap it was reaching for was
+  already closed by TASK-001(3b)'s metadata-stripped assertion, which asks
+  the clean-tree question ("would this still be rejected?") from inside a
+  dirty tree and therefore needs no pristine checkout to be meaningful.
+
+  ── EVIDENCE AT CLOSE ──────────────────────────────────────────────────────
+  CARRIED FROM THE IMPLEMENTATION SESSION (verified there, not re-run at
+  close — other lanes were live in this shared worktree, and re-running a
+  full sweep here would have produced noise, not evidence;
+  cf. sharp edge 7 and TASK-004's own contended-tree instruction):
+    * FULL `-race` SUITE GREEN: 18/18 packages, TRUE_EXIT=0 (fulltest.log).
+      This is the reading TASK-004 asked for, and it matters here because
+      this lane changes a string that FOUR output surfaces read (sharp
+      edge 4).
+    * DIFF-SCOPED `backstop gate` CLEAN, with ONE exception the implementer
+      surfaced rather than absorbed: a pre-existing `contract_signature`
+      finding on
+      cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/pack.yml
+      — a file this lane never touched, last modified by an unrelated commit,
+      and an instance of ISSUE-053's class. Not caused here, not fixed here,
+      named here. That is the sharp-edge-7 "say so rather than racing it"
+      behaviour working as intended.
+    * `gate --all` READ WHOLE-REPO DEBT, NOT THIS LANE'S: 127 findings across
+      the repository, ZERO of them on either of this lane's two files. This
+      is consistent with the pre-existing debt level observed throughout the
+      same night's broader work across several concurrent lanes. It is not
+      attributable to this fix and was correctly not chased from inside it.
+
+  RE-VERIFIED AT CLOSE (targeted, non-racing):
+    * BOTH PINNED TEST NAMES SURVIVE BYTE-IDENTICAL — sharp edge 1's whole
+      point. `TestResolveVersion_PseudoVersionFallsBackToDev`
+      (version_test.go:134) and `TestVersion_LdflagsInjectionReachesBuiltCLI`
+      (:299) are present at their exact original spellings, bodies rewritten
+      as the plan permitted. The `artifact_status_drift` obligation that
+      completed PLAN-ISSUE-087 and PLAN-ISSUE-101 hold over these two names
+      is therefore intact.
+    * The new always-on guard exists under a NEW name, not by renaming
+      either pinned test:
+      `TestPseudoVersionSuffix_MatchesAllDocumentedGoPseudoVersionForms`
+      (version_test.go:101).
+    * `recordedModuleVersion` landed as specified beside the existing
+      helpers (version_test.go:261), carrying the
+      `backstop.packs.backstop-ai.backstop-self.rules.no-baked-tool-exec`
+      nosemgrep annotation in the neighbours' form with a test-harness-execs-
+      the-compiler rationale — copied, not invented, per TASK-001(3a).
+
+  ── AS-BUILT DELTAS ────────────────────────────────────────────────────────
+  1. SHARP EDGE 4 HELD; NOTHING WAS OWED. The plan hedged that if any of the
+     four identity-observing test files (version_command_test.go,
+     doctor_build_identity_test.go, gate_identity_output_test.go,
+     validate_output_identity_test.go) broke, it would mean that surface had
+     baked an expectation about the version STRING SHAPE and should be
+     reported rather than patched. None broke. All four compare against
+     `effectiveBuildIdentity()` itself and were left unedited — the two-file
+     diffstat above is the proof. The contingency never fired.
+  2. SHARP EDGE 6 HELD: NO SPEC AMENDMENT WAS OWED, AND NONE WAS MADE. Both
+     pinned names were mandated by PLANS (ISSUE-087, ISSUE-101), not by any
+     spec, so nothing in `specs/` moved. This is unusual for this repo — the
+     more common close-out shape is a paired spec amendment — and it is
+     recorded here so a future reader does not go looking for one.
+  3. THE ISSUE'S OWN DIAGNOSIS WAS RIGHT BUT INCOMPLETE, AND THAT IS A
+     FINDING. ISSUE-130 predicted a regex correction (correct) and asserted
+     that `TestVersion_LdflagsInjectionReachesBuiltCLI` was a sufficient
+     regression guard (INCOMPLETE — the guard is short-circuit-dependent: the
+     `+dirty` rejection fires before the regex is ever consulted, so it can
+     only discriminate on a pristine checkout). Half this lane's test work
+     exists to close that, via the metadata-stripped assertion and the pure
+     unit table. TASK-005 flagged this for ISSUE-130's resolution rather than
+     letting it be quietly dropped.
+
+  ── FOLLOW-ONS ─────────────────────────────────────────────────────────────
+  None filed by this lane. The one out-of-lane finding it surfaced (the
+  `contract_signature` violation on the go-toolchain fixture pack.yml) is an
+  instance of the already-tracked ISSUE-053 class, so it needed naming, not a
+  new issue.
+
+  ─────────────────────────────────────────────────────────────────────────
+  PLAN AS AUTHORED FOLLOWS.
+  ─────────────────────────────────────────────────────────────────────────
+
   Implements ISSUE-130. FIVE tasks, TWO phases, ONE production file, ONE test
   file. The deliverable is that `pseudoVersionSuffix` rejects ALL THREE
   pseudo-version forms the Go toolchain actually produces — not just the one

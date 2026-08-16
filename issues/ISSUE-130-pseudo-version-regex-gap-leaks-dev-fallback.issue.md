@@ -6,16 +6,45 @@ issue:
   id: ISSUE-130
   title: "Pseudo Version Regex Gap Leaks Dev Fallback"
   type: bug
-  status: open
+  status: closed
   created: "2026-08-15"
+  closed: "2026-08-16"
 
 complexity:
   scope: isolated
   uncertainty: known
   risk: safe
+
+delivered_by: PLAN-ISSUE-130
 ---
 
 # Pseudo Version Regex Gap Leaks Dev Fallback
+
+## Resolution
+
+Delivered by PLAN-ISSUE-130 (status: completed), commit `1b3c5cf`. `pseudoVersionSuffix` was
+widened from matching only Go's no-preceding-tag pseudo-version form
+(`-\d{14}-[0-9a-f]{12}`, requiring a bare `-` immediately before the 14-digit timestamp) to
+matching all three pseudo-version forms documented at https://go.dev/ref/mod#pseudo-versions —
+the character immediately preceding the timestamp is now checked against the class `[-.]`
+rather than a hard-coded `-`, since forms 2 and 3 insert a counter segment (`0.` or `pre.0.`)
+between the dash and the timestamp. The regex now correctly rejects the tagged pseudo-version
+form this repo's own real tags produce (`vX.Y.(Z+1)-0.<ts>-<hash>`), which the old regex
+silently accepted as a genuine release because its permissive pre-release group matched the
+leftover digits/hex as if they were a real prerelease suffix.
+
+**Correction to this issue's own "Direction" section below:** it claimed the existing
+`TestVersion_LdflagsInjectionReachesBuiltCLI` regression test was a sufficient guard for the
+fix. That was not correct — the test only fails on a genuinely clean working tree, because an
+unrelated `+dirty` short-circuit in `isReleasedModuleVersion` rejects the build-info version
+before the pseudo-version regex is ever reached, so any uncommitted or untracked file in the
+tree masked the defect indefinitely (a CI clone or fresh checkout is required to exercise the
+regex at all). The fix adds a metadata-stripped assertion to that integration test so it bites
+even in a dirty tree, plus a fast pure-unit test
+(`TestPseudoVersionSuffix_MatchesAllDocumentedGoPseudoVersionForms`) that exercises the regex
+directly against all five documented pseudo-version/release shapes with no `+` in any input to
+short-circuit past — closing the coverage gap the original test's short-circuit dependence had
+left open.
 
 ## Problem
 
