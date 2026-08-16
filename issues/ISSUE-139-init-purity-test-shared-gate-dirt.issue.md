@@ -6,16 +6,31 @@ issue:
   id: ISSUE-139
   title: "TestInit_ChangesNoGatePackageFileAndDoesNotMaskTheRemotelessMessage blames all pkg/gate dirt on init and its own skip guard is unreachable"
   type: bug
-  status: open
+  status: closed
   created: "2026-08-16"
+  closed: "2026-08-16"
 
 complexity:
   scope: isolated
   uncertainty: known
   risk: safe
+
+delivered_by: PLAN-ISSUE-139
 ---
 
 # init purity test misattributes shared pkg/gate dirt, and its own skip guard cannot fire when it would matter
+
+## Resolution
+
+`TestInit_ChangesNoGatePackageFileAndDoesNotMaskTheRemotelessMessage` (`pkg/initialize/sourceset_scan_test.go`) previously asserted purity via an unattributable `git status --porcelain -- pkg/gate` snapshot of the shared working tree — a check that any concurrent, independently-scoped lane touching `pkg/gate` could trip with a false "this implementation changed files under pkg/gate" fatal, and whose own non-vacuity skip guard was ordered after that fatal check, making it unreachable in the one steady state (init committed and clean) it existed to protect.
+
+Fixed by inverting the scan direction: the test now directly scans whether `pkg/gate`'s own SOURCE (not git status) references `init`, via new `initReferencesIn` (raw-byte regexp over `.go` files, `testdata/` excluded) and `gatePackageFiles` (`filepath.Walk`) helpers. This reads file content only — never working-tree state — so it is attributable to init specifically and holds identically whether the tree is clean or carries another lane's legitimate, in-scope dirt. Confirmed working correctly in the wild: a genuinely dirty sibling `pkg/gate` from a concurrent lane during implementation did not falsely fatal the test.
+
+The issue's own first-listed preferred direction for Part 1 — a static check that init's source files import or reference no `pkg/gate` symbol — was examined and ruled out: `cmd/backstop/init_seams.go` is legitimately part of the init source set and imports `pkg/gate` (REQ-014 requires init to run the gate through the same `buildGateSteps` assembly `backstop gate` uses). REQ-013 forbids *changing* files under `pkg/gate`, not *consuming* its exported API, so that direction would have forced deleting required gate wiring or waiving the check. The delivered fix instead scans `pkg/gate`'s own files for references to `initialize`/`pkg/initialize`/`backstop init`/`SPEC-069`/`initGateRunner` — the trace a leak of gate machinery into init's story would actually leave — rather than scanning init's imports.
+
+This was not a live failing test at fix time — the tree was clean at HEAD, so the old check passed vacuously (no dirt, so no fatal, then the unreachable skip guard was itself skipped over trivially since there was nothing to attribute). The defect was a false negative under vacuous-pass conditions and a false positive under concurrent-dirt conditions, not an active red; a reader re-running the issue's original repro steps at HEAD would not have reproduced a failing test.
+
+Delivered by `plans/PLAN-ISSUE-139-init-purity-test-shared-gate-dirt.plan.yml` (`status: completed`). SPEC-069 CLM-063's wording amendment to match the inverted scan is tracked separately, outside this issue's closeout.
 
 ## Problem
 

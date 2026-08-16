@@ -6,7 +6,6 @@ import (
 	"go/printer"
 	"go/token"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -300,44 +299,115 @@ func TestInit_ImplementsNoBaselineSeedingMachinery(t *testing.T) {
 	})
 }
 
+// initReferenceMatcher recognizes gate source knowing about init: the init package's
+// module path, a selector on its package name, and the prose markers an accommodation
+// note carries.
+//
+// The bare package name is word-boundaried and the selector form REQUIRES its trailing
+// `.`, which is what separates `initialize.DimensionCount` from `initialized` — and
+// what keeps `initial`, `initialCapacity` and `func init()` out.
+var initReferenceMatcher = regexp.MustCompile(`(?i)pkg/initialize|\binitialize\.|\bbackstop init\b|\bSPEC-069\b|\binitGateRunner\b`)
+
+// initReferencesIn returns every substring of body showing that gate source knows about
+// init. An empty result means the file is clean.
+//
+// ★ THIS ONE READS RAW BYTES, AND THE ASYMMETRY WITH initSourceCode IS DELIBERATE — do
+// not "fix" it into consistency. Everywhere else in this file a denylist reads
+// COMMENT-STRIPPED code, because a comment explaining why a construct is forbidden must
+// not be mistaken for the construct. Here the opposite holds: an accommodation COMMENT
+// in gate source naming init ("special-cased for `backstop init`") IS the leak worth
+// catching, so stripping comments would delete the evidence.
+func initReferencesIn(body string) []string {
+	return initReferenceMatcher.FindAllString(body, -1)
+}
+
+// gatePackageFiles enumerates every `.go` file under pkg/gate — INCLUDING `_test.go`,
+// since a gate test that knows about init is the same leak — and fails loudly on an
+// empty enumeration (Sharp Edge 10: the scan boundary is the claim, and a walk that
+// silently resolved to nothing after a package move would leave CLM-063 passing over an
+// empty set).
+//
+// ★ testdata/ IS SKIPPED, AND THE SKIP IS LOAD-BEARING RATHER THAN AN OPTIMIZATION.
+// pkg/gate/testdata/ holds synthetic fixture PROJECTS — miniature repos carrying
+// invented artifact IDs that exist to drive gate behavior. They are test INPUT, not gate
+// source, and a fixture exercising the gate against an init-created project may
+// legitimately contain the words "backstop init" in a fixture spec or README. Fataling
+// on that would blame fixture DATA for a property only gate SOURCE can violate. Do not
+// simplify this into a plain recursive walk.
+func gatePackageFiles(t *testing.T) []string {
+	t.Helper()
+
+	root := filepath.Join(repositoryRoot(t), "pkg", "gate")
+	var files []string
+	walkErr := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			if info.Name() == "testdata" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.HasSuffix(path, ".go") {
+			files = append(files, path)
+		}
+		return nil
+	})
+	if walkErr != nil {
+		t.Fatalf("enumerating pkg/gate: %v", walkErr)
+	}
+	if len(files) == 0 {
+		t.Fatal("the pkg/gate enumeration is EMPTY; the scan boundary resolved to nothing, so this claim would pass while checking no file at all")
+	}
+	return files
+}
+
 // TestInit_ChangesNoGatePackageFileAndDoesNotMaskTheRemotelessMessage (SPEC-069
 // CLM-063).
 //
-// Two halves. This implementation changes NO file under pkg/gate — asserted against
-// GIT, because that is the only place "was this file changed" is actually recorded —
-// and init neither rewrites, suppresses nor substitutes for the remoteless
-// `baseline_comparison` message.
+// Two halves. No file under pkg/gate knows about init — REQ-013 puts that package off
+// limits to this implementation — and init neither rewrites, suppresses nor substitutes
+// for the remoteless `baseline_comparison` message.
 func TestInit_ChangesNoGatePackageFileAndDoesNotMaskTheRemotelessMessage(t *testing.T) {
-	t.Run("no file under pkg/gate is modified", func(t *testing.T) {
-		if _, err := exec.LookPath("git"); err != nil {
-			t.Skip("git is not on PATH; this half of the claim is recorded in git and nowhere else")
-		}
+	t.Run("no file under pkg/gate knows about init", func(t *testing.T) {
+		// ★ THE SCAN RUNS IN THE OPPOSITE DIRECTION FROM THE OBVIOUS ONE, AND THE REASON
+		// IS ATTRIBUTION (ISSUE-139). This half used to ask "did anything under pkg/gate
+		// CHANGE", read from a `git status` snapshot. That question is unanswerable here:
+		// this repository is worked by concurrent sessions sharing ONE working tree, so a
+		// snapshot shows every lane's uncommitted work and attributes it to whoever
+		// happens to run the test. It fataled on other lanes' work, and once this lane
+		// committed it went quiet and checked nothing at all.
+		//
+		// Asked the other way the question IS answerable from file CONTENT alone:
+		// pkg/gate has no legitimate reason to name init. The dependency runs the other
+		// way, through cmd/backstop, by design. So an import of pkg/initialize, an
+		// `initialize.` selector, or a comment accommodating `backstop init` inside
+		// pkg/gate is attributable to init and to nothing else — and the assertion holds
+		// identically whether the tree is clean or carries another lane's work.
+		//
+		// ★ THE ACCEPTED RESIDUAL, STATED RATHER THAN PAPERED OVER. This does NOT catch
+		// an init lane editing a pkg/gate file without ever mentioning init — a wording
+		// tweak to an unrelated gate message, say. No test running inside a shared
+		// working tree can attribute such an edit to a lane; believing otherwise is what
+		// produced ISSUE-139. That residual is left to diff-scoped `backstop gate` and to
+		// review, where change sets are actually observable.
+		//
+		// NOTE what this does NOT forbid: CONSUMING the gate's exported API.
+		// cmd/backstop/init_seams.go legitimately imports pkg/gate to build
+		// initGateRunner, because REQ-014 requires init to run the gate once and routes
+		// it through the SAME assembly `backstop gate` uses. REQ-013 forbids CHANGING
+		// files under pkg/gate, never calling into them.
 		repo := repositoryRoot(t)
-
-		// ★ THE BASELINE IS THE WORKING TREE VERSUS HEAD, NOT A MERGE BASE, AND THE
-		// DIFFERENCE IS ATTRIBUTION. A merge-base diff carries every commit anyone
-		// landed since the branch point — in a shared working tree that includes other
-		// sessions' work under pkg/gate, which this claim would then blame on THIS
-		// implementation. The working tree against HEAD is exactly this change set.
-		status := exec.Command("git", "status", "--porcelain", "--", "pkg/gate")
-		status.Dir = repo
-		changed, err := status.Output()
-		if err != nil {
-			t.Skipf("git could not report the working tree: %v", err)
-		}
-		if strings.TrimSpace(string(changed)) != "" {
-			t.Fatalf("this implementation changed files under pkg/gate:\n%s\nREQ-013 forbids it: the self-consistency of the remoteless baseline_comparison message is pure gate machinery owned elsewhere.",
-				changed)
-		}
-
-		// NON-VACUITY. Once this work is committed the working tree is clean and the
-		// assertion above would pass while checking nothing, so require the change set
-		// to actually contain this spec's own files.
-		own := exec.Command("git", "status", "--porcelain", "--", "pkg/initialize")
-		own.Dir = repo
-		mine, ownErr := own.Output()
-		if ownErr != nil || strings.TrimSpace(string(mine)) == "" {
-			t.Skip("this spec's own files are no longer uncommitted, so a working-tree comparison can no longer attribute anything; re-run this before committing")
+		for _, path := range gatePackageFiles(t) {
+			relative, relErr := filepath.Rel(repo, path)
+			if relErr != nil {
+				relative = path
+			}
+			for _, match := range initReferencesIn(readWholeFile(t, path)) {
+				t.Fatalf("%s references init: %q.\nREQ-013 puts pkg/gate off limits to this implementation — the self-consistency of the remoteless baseline_comparison message is pure gate machinery, owned by ISSUE-056. Gate machinery that knows about init is init reaching into that package to make its own story come out right.",
+					relative, match)
+			}
 		}
 	})
 
@@ -346,6 +416,138 @@ func TestInit_ChangesNoGatePackageFileAndDoesNotMaskTheRemotelessMessage(t *test
 		// substituting for it in its own report. It holds none of its text.
 		assertAbsentFromText(t, `(?i)(missing origin remote|baseline pull|remote baseline fetch|no cached baseline)`,
 			"Init must neither rewrite, suppress nor substitute for the gate's own remoteless baseline_comparison message. Reproducing its text here is the first step toward replacing it.")
+	})
+}
+
+// TestInit_GatePurityClaimDependsOnNoSharedWorkingTreeState (ISSUE-139 CLM-002).
+//
+// A STRUCTURAL REGRESSION GUARD ON THE CLAIM ABOVE, rather than a reviewer being
+// trusted to notice a re-introduction. ISSUE-139 has two halves and this pins both:
+//
+//   - Part 1 — a `git status` snapshot taken inside a working tree shared by
+//     concurrent sessions cannot attribute a change to a lane, so an assertion built
+//     on one fails whoever happens to run it.
+//   - Part 2 — the non-vacuity skip that compensated for the snapshot sat AFTER the
+//     fatal it was meant to soften, so it was unreachable in exactly the state it was
+//     written for.
+//
+// The rule is absolute on both counts: the mandated test reads no working-tree state
+// at all, and carries no skip at all.
+func TestInit_GatePurityClaimDependsOnNoSharedWorkingTreeState(t *testing.T) {
+	const mandated = "TestInit_ChangesNoGatePackageFileAndDoesNotMaskTheRemotelessMessage"
+
+	path := filepath.Join(repositoryRoot(t), "pkg", "initialize", "sourceset_scan_test.go")
+	fset := token.NewFileSet()
+	// Parsed WITHOUT ParseComments, so a comment DISCUSSING git or skips cannot trip
+	// either assertion — the same asymmetry initSourceCode applies.
+	parsed, err := parser.ParseFile(fset, path, nil, 0)
+	if err != nil {
+		t.Fatalf("parsing %s: %v", path, err)
+	}
+
+	var body *ast.BlockStmt
+	for _, decl := range parsed.Decls {
+		fn, isFunc := decl.(*ast.FuncDecl)
+		if isFunc && fn.Name.Name == mandated && fn.Body != nil {
+			body = fn.Body
+		}
+	}
+	if body == nil {
+		t.Fatalf("%s declares no %s with a body. The claim this test guards has been renamed or removed, and walking nothing would pass vacuously.",
+			filepath.Base(path), mandated)
+	}
+
+	execUses := []string{}
+	skips := []string{}
+	ast.Inspect(body, func(node ast.Node) bool {
+		selector, isSelector := node.(*ast.SelectorExpr)
+		if !isSelector {
+			return true
+		}
+		receiver, isIdent := selector.X.(*ast.Ident)
+		if !isIdent {
+			return true
+		}
+		switch receiver.Name {
+		case "exec":
+			execUses = append(execUses, "exec."+selector.Sel.Name)
+		case "t":
+			if selector.Sel.Name == "Skip" || selector.Sel.Name == "Skipf" {
+				skips = append(skips, "t."+selector.Sel.Name)
+			}
+		}
+		return true
+	})
+
+	// THE TWO HALVES ARE INDEPENDENT SUBTESTS ON PURPOSE. A single body fataling on
+	// the first would hide the second behind it, and ISSUE-139's two parts are
+	// separate defects that must each be able to report themselves.
+	t.Run("reads no shared working-tree state", func(t *testing.T) {
+		if len(execUses) != 0 {
+			t.Fatalf("%s reads shared working-tree state through %v.\nISSUE-139 Part 1: a working-tree snapshot taken in a tree shared with concurrent sessions cannot attribute a change to a lane, so an assertion built on one fails whoever happens to run it. Assert a property of file CONTENT instead.",
+				mandated, execUses)
+		}
+	})
+
+	t.Run("carries no skip", func(t *testing.T) {
+		if len(skips) != 0 {
+			t.Fatalf("%s calls %v.\nISSUE-139 Part 2: the skip that compensated for the working-tree snapshot sat AFTER the fatal it softened, so it was unreachable in precisely the state it was written for. The replacement claim holds in every tree state, so the rule is NO skip at all rather than a correctly-ordered one.",
+				mandated, skips)
+		}
+	})
+}
+
+// TestInitReferenceScan_DiscriminatesGateSourceThatKnowsAboutInit (ISSUE-139 CLM-001,
+// CLM-003).
+//
+// THE FALSIFICATION HALF, and the reason the purity claim above is not vacuous.
+// initReferencesIn IS that claim — a predicate that matched nothing would leave it
+// walking 108 files while checking none of them, passing silently forever.
+//
+// ★ DRIVEN OVER SYNTHETIC SOURCE STRINGS, NEVER OVER REAL REPOSITORY FILES. This
+// test's verdict must not move when either pkg/gate or pkg/initialize changes;
+// otherwise it would stop being a test of the predicate and become a second copy of
+// the scan it exists to falsify.
+//
+// The NEGATIVE half is not optional. `pkg/gate` legitimately holds `initial`,
+// `initialized`, `initialCapacity` and `func init()`; a predicate that fired on any of
+// them would red the whole package and force whoever hit it to weaken this back to
+// uselessness.
+func TestInitReferenceScan_DiscriminatesGateSourceThatKnowsAboutInit(t *testing.T) {
+	t.Run("catches gate source that knows about init", func(t *testing.T) {
+		leaks := map[string]string{
+			"an import of the init package": "\t\"github.com/backstop-ai/backstop-core/pkg/initialize\"",
+			"a selector use":                "\tcounts []initialize.DimensionCount",
+			"an accommodation comment":      "// special-cased so backstop init reports a clean baseline step",
+			"a bare package-name use":       "\trunner := initialize.GateRunner{}",
+			"a spec-id accommodation note":  "// tolerated for SPEC-069's single gate run",
+			"a named init seam":             "\tif step == initGateRunner {",
+		}
+		for what, body := range leaks {
+			t.Run(what, func(t *testing.T) {
+				if matches := initReferencesIn(body); len(matches) == 0 {
+					t.Fatalf("initReferencesIn found NOTHING in %q, which is %s.\nGate source that knows about init is exactly the leak REQ-013 exists to catch, and a predicate blind to it leaves the purity claim passing over every file while checking none.",
+						body, what)
+				}
+			})
+		}
+	})
+
+	t.Run("ignores neighbouring words gate source legitimately holds", func(t *testing.T) {
+		innocent := map[string]string{
+			"an adjective":           "\t// the initial scope is the diff against the merge base",
+			"a past participle":      "\tif !initialized {",
+			"a package initializer":  "func init() {\n\tregisterSteps()\n}",
+			"a camelCase identifier": "\tinitialCapacity := len(findings)",
+		}
+		for what, body := range innocent {
+			t.Run(what, func(t *testing.T) {
+				if matches := initReferencesIn(body); len(matches) != 0 {
+					t.Fatalf("initReferencesIn matched %v in %q, which is %s.\nA predicate that fires on ordinary gate source would red the whole package and force whoever hit it to weaken this claim back to uselessness.",
+						matches, body, what)
+				}
+			})
+		}
 	})
 }
 
