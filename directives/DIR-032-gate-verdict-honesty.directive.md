@@ -738,6 +738,25 @@ consequences — a planner picking this directive up cold should look at
 those three first, not treat the list as strict priority order. Items 1-3
 (066/067/091) predate the other eight by roughly two weeks and were never
 blocked on anything; they simply had no directive to attach to until now.
+**Correction (2026-08-16, later same day):** both the opening sentence and
+the shortlist above are now stale. Opening sentence: the roster is now
+FIFTEEN, not fourteen (item 15, ISSUE-140), and the four plans named
+(PLAN-ISSUE-112, -113, -118, -129) are no longer in flight — all four
+reached `status: completed` and their issues (ISSUE-112, 113, 118, 129)
+reached `status: closed` the same day, per the "overnight P0 batch"
+closeout (see the "In-flight execution note" correction below for detail).
+The remaining count is therefore ELEVEN plan-free members, not ten — items
+1-3, 5-8, 14, and the new item 15. Shortlist: item 12 (ISSUE-118) is now
+DELIVERED and closed and drops off a cold-pickup shortlist by definition —
+its consequence was real but is no longer live. Items 3 (ISSUE-091) and 4
+(ISSUE-092) remain `status: open` and stay on the shortlist. **Item 15
+(ISSUE-140, `risk: critical`) belongs alongside item 4** — both sit on the
+same `pack test`/`pack check` surface, and a reader asking "can I trust
+`pack test`?" needs both: item 4 is why fixtures can't falsify at all
+(phase3 never dispatches for any `rule_path:`-declared rule), item 15 is
+why a fixture that DOES dispatch can still read clean when the engine
+command never started. The refreshed cold-pickup shortlist is items 3, 4,
+and 15.
 
 **In-flight execution note (2026-08-16):** the four plans above
 (PLAN-ISSUE-112, PLAN-ISSUE-113, PLAN-ISSUE-118, PLAN-ISSUE-129) are not
