@@ -89,9 +89,6 @@ func TestBunPack_TscTypecheckDeclaredAsBuild(t *testing.T) {
 	if !containsAll(spec.Binding.Command, "--noEmit") {
 		t.Errorf("typecheck must run tsc as a typecheck-only pass (--noEmit), got %q", spec.Binding.Command)
 	}
-	if _, ok := engine.TrustedToolAllowlist()[firstToken(spec.Binding.Command)]; !ok {
-		t.Errorf("the typecheck engine's tool %q must be on the trusted-tool allowlist", firstToken(spec.Binding.Command))
-	}
 }
 
 // TestBunPack_BunTestDeclaredAsTest proves the bun pack declares a `bun test`
@@ -163,37 +160,29 @@ func TestBunPack_PrettierIntroducesNoFormatGateDimension(t *testing.T) {
 }
 
 // TestBunPack_EngineCommandsRunThroughDeclaredTrustSubstrate proves every bun
-// engine's tool (oxlint/bun/tsc/prettier) is on engine.TrustedToolAllowlist() and
-// every command is read from the pack's declared engines: block, NOT a
-// baked-into-the-binary command string (CLM-007, the thin-executor first
-// principle).
+// engine's command is read from the pack's declared engines: block as DATA, NOT a
+// baked-into-the-binary command string, and that the pack declares exactly the
+// five engines REQ-001 mandates (CLM-007, the thin-executor first principle).
 func TestBunPack_EngineCommandsRunThroughDeclaredTrustSubstrate(t *testing.T) {
 	m := bunToolchainManifest(t)
-	allowlist := engine.TrustedToolAllowlist()
-	if len(m.Engines) == 0 {
-		t.Fatal("the bun pack must declare its engines as DATA (engines: block), not rely on baked binary commands")
+	// The engine count is pack DATA and the structural guard on REQ-001's "exactly
+	// five engines": each of CLM-001..CLM-006 asserts one NAMED engine is present,
+	// so nothing else here would catch a sixth engine being silently added. This
+	// fails loudly on zero too, before the loop below can run vacuously.
+	if len(m.Engines) != 5 {
+		t.Fatalf("the bun pack must declare its engines as DATA (engines: block), exactly five of them per REQ-001, got %d: %v", len(m.Engines), engineKeysOf(m.Engines))
 	}
-	// Derive every dispatched tool from the pack-DECLARED command (never a baked Go
-	// literal) and prove it clears the trust floor. This both proves CLM-007 (every
-	// command rides the allowlist) AND that TASK-006 added the bun tools — the tool
-	// set is read from the pack, not asserted against a hardcoded list.
-	tools := map[string]bool{}
+	// Every dispatched command is read from the pack DECLARATION, never a baked Go
+	// literal — so a malformed or absent declaration must falsify here.
 	for name, spec := range m.Engines {
 		cmd := spec.Binding.Command
 		if cmd == "" {
 			t.Errorf("engine %q has an empty command — every command must be pack-DECLARED DATA", name)
 			continue
 		}
-		tool := firstToken(cmd)
-		tools[tool] = true
-		if _, ok := allowlist[tool]; !ok {
-			t.Errorf("engine %q dispatches tool %q which is NOT allowlisted — the command must clear the declared-engine trust floor", name, tool)
+		if firstToken(cmd) == "" {
+			t.Errorf("engine %q declares command %q whose first token (the tool) is empty — a malformed declaration cannot dispatch", name, cmd)
 		}
-	}
-	// The five engines collapse to exactly four distinct tools (bun runs both test
-	// and coverage), each allowlisted — the bun toolchain is fully trust-gated.
-	if len(tools) != 4 {
-		t.Errorf("expected the bun pack's five engines to dispatch four distinct allowlisted tools (oxlint/prettier/bun/tsc), got %d: %v", len(tools), tools)
 	}
 }
 

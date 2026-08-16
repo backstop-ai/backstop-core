@@ -3,12 +3,16 @@ package engine
 import "fmt"
 
 // TrustedToolAllowlist returns the backstop-OWNED {tool -> pinned version}
-// allowlist: the trust floor every pack-declared command must satisfy before
-// backstop will run it (REQ-002). A tool ABSENT from this map may not be run by
-// any pack-declared command, no matter what a pack declares — this is the
-// non-negotiable security gate that ships ATOMICALLY with the pack-declared
-// bindings (Sharp Edge 1). It lives in pkg/pack/engine beside the binding so the
+// allowlist: the trust floor for tools BACKSTOP ITSELF downloads and pins on the
+// user's behalf (REQ-002). It ships ATOMICALLY with the pack-declared bindings
+// (Sharp Edge 1) and lives in pkg/pack/engine beside the binding so the
 // validate-time, provision-time, and dispatch-time checks all consume ONE source.
+//
+// SCOPE — this map is consulted ONLY for engine bindings carrying a non-nil
+// Provision block. Every call site of CheckToolAllowed returns early when a
+// binding declares no provision, so a pack-declared command run against a
+// Layer-0/runtime tool the pack invokes directly is outside this gate's reach by
+// construction; the Provision/lock path is the whole of what this map governs.
 //
 // The pinned version here is the REQUIRED version; the gate compares it against
 // the version the caller reads from the existing backstop.lock / Provision
@@ -21,32 +25,14 @@ func TrustedToolAllowlist() map[string]string {
 		// the trust floor, the lock is the proof a build is actually pinned there.
 		"semgrep":  "1.96.0",
 		"ast-grep": "0.43.0",
-		// grep / ripgrep are the text-presence engines the contracts absence probe
-		// rides (SPEC-038 REQ-005/CLM-016). They are pack-DECLARED (no
-		// DefaultRegistry entry); the allowlist is what lets a pack-declared grep
-		// command clear the trust floor. A version of "*" pins to "present" — grep
-		// is a POSIX/Layer-0 tool whose version backstop does not introduce or
-		// auto-provision (unlike semgrep/ast-grep, which ride the lock pin), so the
-		// trust requirement is presence on the allowlist, matched by the assumed
-		// "*" lock value the dispatch gate supplies for an un-provisioned tool.
+		// grep is the text-presence engine the contracts absence probe rides
+		// (SPEC-038 REQ-005/CLM-016). It is pack-DECLARED (no DefaultRegistry entry)
+		// and provisioned by the contracts packs, so the allowlist is what lets a
+		// pack-declared grep command clear the trust floor. A version of "*" pins to
+		// "present" — grep is a POSIX/Layer-0 tool whose version backstop does not
+		// introduce (unlike semgrep/ast-grep, which ride the lock pin), so the trust
+		// requirement is presence rather than a concrete version.
 		"grep": "*",
-		"rg":   "*",
-		// The Bun/TypeScript toolchain tools the backstop/bun-toolchain pack declares
-		// its lint/format/build/test/coverage commands with (SPEC-047 REQ-001). Like
-		// grep/rg they are Layer-0/runtime tools backstop does NOT introduce or
-		// auto-provision (they ride the user's installed Bun toolchain, not the lock
-		// pin), so the trust requirement is PRESENCE — a "*" pin matched by the assumed
-		// "*" lock value the dispatch gate supplies for an un-provisioned tool. The
-		// allowlist is the trust floor that lets the pack-DECLARED commands clear it; it
-		// is NEVER a command source (the commands live in the pack engines: block).
-		"oxlint": "*",
-		"bun":    "*",
-		// The allowlist KEY is a tool-name lookup datum (the trust floor that gates
-		// which pack-declared commands may run), NOT a baked routing/command literal —
-		// it never sources a command. The B2 token rule catches baked routing; an
-		// allowlist key is the opposite, so it is suppressed on this line.
-		"tsc":      "*", // nosemgrep: no-baked-language-token
-		"prettier": "*",
 	}
 }
 
