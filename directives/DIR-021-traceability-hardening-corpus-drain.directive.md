@@ -11,13 +11,14 @@ directive:
     - "ISSUE-048"
     - "ISSUE-012"
     - "ISSUE-061"
+    - "ISSUE-138"
 ---
 
 ## Description
 
 Harden the requirement-traceability substrate BUNDLE-014 shipped
 (delivered 2026-07-15) and drain the corpus debt it and its predecessors
-left behind. Four threads, one theme: close the residual gaps between what
+left behind. Five threads, one theme: close the residual gaps between what
 the gate structurally verifies today and what it still takes on prose/trust.
 
 1. **Cited-bundle maturity floor (ISSUE-057).** BUNDLE-014's
@@ -60,8 +61,30 @@ the gate structurally verifies today and what it still takes on prose/trust.
    live worklist, not a snapshot to reconcile once). Draining it is
    spec-authoring work against the in-flight bundles it's already pointing
    at, tracked by watching the warn count fall, not by a checklist.
-
-**Time pressure — carries a hard deadline.** ISSUE-061 (`go-standards`
+5. **Dormant SPEC-041 substantiveness claims, untouched-file class
+   (ISSUE-138).** Five `SPEC-041` (`pkg/gate`, `implemented`) mandated
+   tests across two files — `TestExemption_PerViolationResolutionNoGateTypeAggregation`
+   (CLM-018), `TestExemption_TrueConflictExemptingValueWins` (CLM-019),
+   `TestSharedRunner_Eradicated` (CLM-004), `TestSharedRunner_WiringRemovedFromGate`
+   (CLM-005), `TestSharedRunner_NoRenamedWholeModuleGoTestRunner` (CLM-006) —
+   carry LATENT `test_substantiveness` "does not call package gate"
+   violations that only surface once their file next re-enters diff scope
+   for an unrelated change, exactly the same mechanism as item 3
+   (ISSUE-012): a scope-gated check whose absence-of-evidence stays
+   concealed until an untouched artifact is dragged back into scope by
+   something else entirely. Disposition (founder ruling, 2026-08-16): three
+   of the five (CLM-004/005/006, all in `shared_testrun_eradication_test.go`)
+   prove an absence by design — an `os.Stat` for a deleted file, a grep of
+   source text for a forbidden construct — so annotate them `kind: absence`
+   in `SPEC-041`, matching the existing CLM-020..024 precedent in the same
+   spec (`specs/SPEC-041-coverage-reimpl-checktype-catalog.spec.md:363-407`).
+   The remaining two (CLM-018/CLM-019) are shape-ambiguous — they genuinely
+   drive `pkg/gate` through the same-package helper `dispatchOneEngine`,
+   one hop past what the extraction rule can see — but route the same way
+   rather than teaching the rule to see through helper indirection, since
+   `PLAN-ISSUE-113` (concurrent) is actively pinning the join's current
+   helper-blind raise as intended non-regression behavior, cutting against
+   ever changing it. Spec-author work only; no core/pack code change. ISSUE-061 (`go-standards`
 `error-type-suffix` false positive on `ValidateConfig`,
 `cmd/backstop/artifact_validate.go:17`) is suppressed by an inline waiver
 that **expires 2026-10-12**. The fix belongs in the `backstop/go-standards`

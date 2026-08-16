@@ -1,6 +1,6 @@
 ---
 name: gate-verdict-honesty-cluster
-description: The recurring gate-verdict-honesty issue family — RESOLVED 2026-08-10 into its own directive DIR-032 (FOURTEEN members as of 2026-08-16, +136 the audit/assurance item); now BACKLOG position 2 with FOUR draft plans in flight (112/113/118/129) — slot new members by CHARTER not the founder's roster, restate the count, update the variant map, and re-read the directive after the agent returns
+description: The recurring gate-verdict-honesty issue family — RESOLVED 2026-08-10 into its own directive DIR-032 (FIFTEEN members as of 2026-08-16); BACKLOG position 2; the 112/113/118/129 drain has LANDED (all completed/closed) — slot new members by CHARTER not the founder's roster, restate the count, update the variant map, and re-read the directive after the agent returns
 metadata:
   type: project
 ---
@@ -211,7 +211,49 @@ directive's position rationale lives in its own Notes and can go stale silently
 when the issue that justified it closes — check the rationale, not just the
 position.**
 
-**The cluster is being actively DRAINED as of 2026-08-16, and the directive's
+**Member 15 (slotted 2026-08-16, count now FIFTEEN) — ISSUE-140, and it is the
+cluster's cleanest lesson about reading a FIX's own source.** packval's
+`RunEngine` (`pkg/packval/executor.go`) tests only `errors.As(runErr,
+&execErr)`; `*exec.Error` arises ONLY when `exec.Command` resolves a BARE name
+via `LookPath`, so a PATH-FUL command (`./scripts/checker.sh`) fails as
+`*fs.PathError{Op: "fork/exec"}` and slips through. `buildEngineArgv` takes the
+name straight from `binding.Command` — pack-declared DATA with nothing
+excluding a path-ful value — and `parseSarif` returns `(nil, nil)` on empty
+input, so `RunEngine` yields `{Passed: false, ExitCode: 0}, nil`. On a NEGATIVE
+phase3 fixture `Passed: false` **is** the success condition, so `pack test`
+prints pass though the engine never started. **THE SMOKING GUN, and the
+generalizable move: the fix that CLOSED item 9 documented this gap in its own
+doc comment and walked past it.** `runNeverStarted` (`cmd/backstop/pack_gate.go`)
+matches both shapes and says in prose that packval is "the SEED of this shape"
+and that it is "deliberately WIDER than packval's *exec.Error-only check." So:
+**when a member's fix copies a predicate from elsewhere, READ the fix's
+comments — they often name the un-widened original.** Item 15 also falsified
+item 9's own text (it cited packval as an "in-tree precedent to copy"), which
+had to be note-superseded. Structurally it is **item 9's MECHANISM on item 4's
+SURFACE** (ISSUE-092, `pack test` phase3) — the first member where one member's
+defect shape lands on another's layer; say that, since the directive otherwise
+separates 092/112 strictly by layer.
+
+**THE DRAIN LANDED 2026-08-16 — do not repeat the "four draft plans in flight"
+claim.** PLAN-ISSUE-112/113/118/129 are all `status: completed` and ISSUE-112/
+113/118/129 all `status: closed`. DIR-032's Notes, its "In-flight execution
+note," and its cold-pickup shortlist ALL still described them as draft/in-flight
+and still named delivered ISSUE-118 among "the three with realized
+consequences"; corrected via note-supersede to items **3, 4, 15**. **DIR-032 is
+STILL `status: queued` with 4 of 15 delivered** — founder call, never flip it.
+**Lesson: a closed cluster member strands prose in THREE places (its own item,
+the Notes grouping paragraph, the cold-pickup shortlist) — check all three, not
+just the item.**
+
+**PLAN-ISSUE-112's close banner filed TWO follow-ons and only one is homed.**
+ISSUE-140 (item 15) and **ISSUE-134** (`backstop doctor` never probes
+findings-engine tools, so it reports a healthy project whose findings dimensions
+cannot run) — 134 is `status: open`, cited by NO directive, and sat unmarked in
+`pending.log` for ~16h. Confirms the standing rule: **read a plan's follow-on
+block to predict the burst, then verify EACH one actually got triaged** — the
+hook logging an artifact is not the same as a PM having handled it.
+
+**The cluster was being actively DRAINED as of 2026-08-16, and the directive's
 own prose lagged it by a day.** One commit (`5f28bb1`) authored four draft
 plans — PLAN-ISSUE-112/113/118/129 (items 9, 10, 12, 13); 113 has since taken
 6 review rounds (`c61ec1d`). **Two lessons, both expensive.** (1) I briefed
