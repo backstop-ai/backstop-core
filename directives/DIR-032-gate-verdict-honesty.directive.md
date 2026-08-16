@@ -772,7 +772,22 @@ left for Brandon to resolve, not acted on here — whether an in-flight P0
 drain covering four members means this directive's own `status: queued` is
 now stale is a status-change judgment call outside backlog-pm's standing
 grant, and the `status:` field is deliberately left untouched pending that
-call.
+call. **Correction (2026-08-16, later same day):** the drain described above
+is no longer "in flight right now" — it has LANDED. Verified directly:
+`plans/PLAN-ISSUE-112-engine-tool-missing-silent-vacuous.plan.yml`,
+`plans/PLAN-ISSUE-113-zero-match-classification-refusal.plan.yml`,
+`plans/PLAN-ISSUE-118-gate-blind-spot-test-only-diffs.plan.yml`, and
+`plans/PLAN-ISSUE-129-go-test-scope-filter-exemption.plan.yml` are all
+`status: completed`; `issues/ISSUE-112`, `ISSUE-113`, `ISSUE-118`, and
+`ISSUE-129` are all `status: closed` (closed 2026-08-16), delivered per the
+"overnight P0 batch" closeout. The status-change judgment call flagged above
+(whether this directive's own `status: queued` should move) is now sharper,
+not resolved — a completed four-member drain is a stronger signal than an
+in-flight one, and it remains Brandon's call, not backlog-pm's; the
+`status:` field stays untouched here regardless. The one-third-of-roster
+framing above is preserved as the observation it was at the time; the
+current, correct framing is four of fifteen roster members DELIVERED, not
+four of fourteen in flight.
 
 Cross-directive note: item 6 (ISSUE-097) is rename fallout from DIR-027's
 fleet migration (the `backstop/self` → `backstop-ai/backstop-self` rename),
