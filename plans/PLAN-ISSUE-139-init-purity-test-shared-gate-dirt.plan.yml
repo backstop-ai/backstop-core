@@ -1,0 +1,587 @@
+---
+plan_id: PLAN-ISSUE-139
+spec_id: ISSUE-139
+created: "2026-08-16"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./pkg/initialize/ -run 'TestInit_ChangesNoGatePackageFile|TestInit_GatePurityClaim|TestInitReferenceScan' -count=1"
+coverage_threshold: 90
+
+notes: |
+  Implements ISSUE-139. FIVE tasks, TWO phases, ONE file of production consequence
+  (`pkg/initialize/sourceset_scan_test.go`). Test-only: no non-test source under
+  `pkg/initialize`, `cmd/backstop` or `pkg/gate` changes in this lane.
+
+  The deliverable is that SPEC-069 CLM-063's purity half stops asking a question no
+  test in a shared working tree can answer, and starts asking one that is answerable
+  in every tree state.
+
+  ── VERIFIED AGAINST HEAD BEFORE PLANNING (2026-08-16) ─────────────────────
+  ISSUE-139 was filed while five concurrent lanes were mid-flight. Four have since
+  landed, so the reproduction context has changed and was re-checked rather than
+  taken on faith:
+
+    * THE DEFECTIVE CODE IS UNCHANGED. `git log -- pkg/initialize/sourceset_scan_test.go`
+      returns exactly one commit, 48e6b85 ("feat(SPEC-069): backstop init
+      implemented"). The body the issue quotes is the body at HEAD, verbatim.
+    * THE TREE IS NOW CLEAN under both paths — `git status --porcelain -- pkg/gate`
+      and `-- pkg/initialize` are both empty. So the test does NOT fail right now.
+      It passes VACUOUSLY: the fatal check sees no dirt and passes while checking
+      nothing, then the skip guard fires and skips. That is the steady state, and it
+      is worth being precise about — this lane is not chasing a live red, it is
+      replacing a check that is false-positive when dirty and toothless when clean.
+    * PART 2 IS REAL AND IS PURE CONTROL FLOW. The non-vacuity guard sits after the
+      `t.Fatalf`, so in the one state it was written for — init committed and clean,
+      `pkg/gate` carrying another lane's dirt — execution never reaches it. No
+      re-verification of a shared tree is needed to establish that; it is visible in
+      the source.
+
+  ── THE ISSUE'S OWN PREFERRED DIRECTION IS RULED OUT, AND THAT IS THE FINDING ──
+  ISSUE-139's Solution section suggests, as its second option, "a static check that
+  init's own source files import or reference no `pkg/gate` symbol, rather than a
+  git-status assertion." DO NOT BUILD THAT. It would fail immediately and it would
+  be wrong to make it pass.
+
+  `cmd/backstop/init_seams.go` is IN the init source set (initSourceSet globs
+  `cmd/backstop/init*.go`), and it legitimately imports
+  `github.com/backstop-ai/backstop-core/pkg/gate` and calls `gate.ComputeGateScope`,
+  `gate.WithSteps`, `gate.WithPolicy` and `gate.New` to build `initGateRunner`. That
+  is REQUIRED by REQ-014 — init runs the gate once — and it is deliberately routed
+  through the SAME `buildGateSteps` assembly `backstop gate` uses, because a second
+  assembly would make init observe a different gate than `backstop gate` runs
+  (init_seams.go's own docstring says so).
+
+  REQ-013 forbids CHANGING files under `pkg/gate`. It does not forbid CONSUMING the
+  gate's exported API. A scan that conflated the two would force an implementer to
+  either delete init's gate wiring or waive the check — both worse than the defect.
+
+  ── THE MECHANISM THIS LANE ADOPTS: INVERT THE DIRECTION OF THE SCAN ───────
+  The shipped check asks "did anything under pkg/gate change?" — a property of a
+  CHANGE SET. A `git status` snapshot of a working tree shared by concurrent
+  sessions cannot observe a change set, which is exactly ISSUE-139 Part 1.
+
+  The answerable question, asked in the opposite direction, is:
+
+      DOES ANY FILE UNDER pkg/gate KNOW ABOUT INIT?
+
+  A leak of the kind REQ-013 exists to prevent — an init implementer reaching into
+  gate machinery to make init's story come out right — leaves a trace IN pkg/gate:
+  an import of `pkg/initialize`, an `initialize.` selector, or an accommodation
+  comment naming init or SPEC-069. `pkg/gate` has no other reason to name init; the
+  dependency runs the other way, through `cmd/backstop`, by design.
+
+  This property is:
+    * ATTRIBUTABLE — a reference to init inside gate is init's, not another lane's;
+    * SHARED-TREE-INDEPENDENT — it reads file CONTENT, never `git status`, so a
+      concurrent lane's uncommitted work under pkg/gate cannot trip it;
+    * ALWAYS-ON — it holds in a committed tree, which is where the shipped check
+      has no teeth at all.
+
+  THE SCAN BOUNDARY IS DECIDED HERE, NOT LEFT TO THE IMPLEMENTER: every `.go` file
+  under `pkg/gate` INCLUDING `_test.go`, EXCLUDING anything under a `testdata/`
+  directory. That is 108 files at planning time, out of 133 under the tree as a
+  whole — the 25-file difference is entirely `pkg/gate/testdata/`.
+
+  THE EXCLUSION IS DELIBERATE AND LOAD-BEARING. `pkg/gate/testdata/` holds synthetic
+  fixture PROJECTS — whole miniature repos carrying invented artifact IDs
+  (SPEC-900/901/902/903/904/905/906/999) that exist to drive gate behavior. They are
+  test INPUT, not gate source, and a future fixture exercising the gate against an
+  init-created project could legitimately contain the prose "backstop init" in a
+  fixture spec or README. Scanning them would fatal this claim on data that proves
+  nothing about whether gate SOURCE knows about init — the question CLM-001 actually
+  asks. Fixture content may reference anything; source may not.
+
+  MEASURED BEFORE BEING PRESCRIBED. Run while planning, over exactly that 108-file
+  set:
+
+      find pkg/gate -name '*.go' -not -path '*/testdata/*' | wc -l   → 108
+      grep -rniE "\binitialize\b|pkg/initialize|backstop init|SPEC-069|initGateRunner" \
+        --include='*.go' pkg/gate/ | grep -v '/testdata/'
+      → ZERO matches.
+
+  So the assertion is TRUE at HEAD and goes green on arrival. Its RED is proved by
+  falsification (TASK-001's synthetic-source test and TASK-003's probe), not by a
+  pre-existing failure.
+
+  ── WHAT THIS DELIBERATELY DOES NOT COVER, STATED RATHER THAN PAPERED OVER ──
+  The inverted scan does NOT catch an init lane making an edit under `pkg/gate` that
+  never mentions init — a wording tweak to an unrelated gate message, say. That
+  residual is real and this plan accepts it knowingly:
+
+    * No test running inside a shared working tree can attribute such an edit to a
+      lane; that is the whole content of ISSUE-139 Part 1, and pretending otherwise
+      is what produced the defect.
+    * The concrete failure modes REQ-013 actually names are covered — "rewriting,
+      suppressing or substituting for the remoteless message" by the SECOND subtest
+      (unchanged by this lane), and "building gate machinery here" by REQ-012's
+      absence tests plus this scan.
+    * The residual is caught where change sets are actually observable: diff-scoped
+      `backstop gate` and review.
+
+  Do not attempt to close the residual with a heuristic that fatals on unattributed
+  dirt. A check that blames whoever happens to run it is the defect being fixed.
+
+  ── CLAIMS ────────────────────────────────────────────────────────────────
+  ISSUE-139 is an ISSUE, not a spec, so it carries no CLM roster. These five are
+  declared HERE and are what every task's `claims` array refers to.
+
+  CLM-001  REQ-013's purity half is enforced by a scan that no concurrent lane can
+           trip: no `.go` file under `pkg/gate` outside `testdata/` imports
+           `pkg/initialize`, references an `initialize.` symbol, or carries an
+           init/SPEC-069 accommodation note. The
+           assertion reads file CONTENT only and consults no working-tree state, so
+           it holds identically whether the tree is clean or carries another lane's
+           uncommitted `pkg/gate` work.
+           Tests: TestInit_ChangesNoGatePackageFileAndDoesNotMaskTheRemotelessMessage,
+                  TestInitReferenceScan_DiscriminatesGateSourceThatKnowsAboutInit
+
+  CLM-002  ISSUE-139 Part 2 cannot recur: the mandated test invokes no `git status`
+           and contains no `t.Skip` whose reachability depends on an earlier fatal.
+           The unreachable non-vacuity guard is gone together with the mechanism
+           that needed it, and a regression test asserts the absence structurally
+           rather than trusting a reviewer to notice a re-introduction.
+           Tests: TestInit_GatePurityClaimDependsOnNoSharedWorkingTreeState
+
+  CLM-003  The replacement is NON-VACUOUS in both halves: the `pkg/gate` enumeration
+           is asserted non-empty before it is scanned (the Sharp Edge 10 rule this
+           file already applies to `initSourceSet`), and the reference predicate is
+           independently falsified against synthetic gate source that DOES know
+           about init, so a predicate that matched nothing would fail rather than
+           pass silently.
+           Tests: TestInitReferenceScan_DiscriminatesGateSourceThatKnowsAboutInit,
+                  TestInit_ChangesNoGatePackageFileAndDoesNotMaskTheRemotelessMessage
+
+  CLM-004  CLM-063's obligations survive intact: the mandated test function name is
+           byte-identical, and the second subtest — init neither rewrites,
+           suppresses nor substitutes for the remoteless `baseline_comparison`
+           message — is carried forward UNEDITED.
+           Tests: TestInit_ChangesNoGatePackageFileAndDoesNotMaskTheRemotelessMessage
+
+  CLM-005  Init's LEGITIMATE consumption of the gate is preserved, not collaterally
+           forbidden: `cmd/backstop/init_seams.go` keeps its `pkg/gate` import and
+           its `buildGateSteps`-based assembly, because REQ-013 forbids CHANGING
+           files under `pkg/gate`, never consuming the gate's exported API. No file
+           under `cmd/backstop` or `pkg/gate` is edited by this lane.
+           Tests: TestInit_ChangesNoGatePackageFileAndDoesNotMaskTheRemotelessMessage
+           (a no-regression claim; TASK-002's "if your diff has two files, stop" and
+            TASK-003's diffstat reading are how it is enforced.)
+
+  ── SHARP EDGES ───────────────────────────────────────────────────────────
+  1. THE TEST FUNCTION NAME IS PINNED. `TestInit_ChangesNoGatePackageFileAndDoesNot
+     MaskTheRemotelessMessage` is declared in the `test_names:` of PLAN-SPEC-069
+     (`status: completed`) and mandated by SPEC-069 CLM-063 (`status: implemented`).
+     The `artifact_status_drift` dimension requires every `test_name` a completed
+     plan declares to EXIST. Rewrite the SUBTEST body freely; the top-level function
+     spelling must survive BYTE-IDENTICAL. Never rename it, never split it into two
+     functions.
+  2. THE SUBTEST NAME "no file under pkg/gate is modified" BECOMES A LIE AND SHOULD
+     CHANGE. After this lane the subtest no longer asks about modification. Rename
+     the `t.Run` string to something true — "no file under pkg/gate knows about
+     init" is the intended sense. Sub-names are string literals, not function names,
+     so status_drift does not hold them; CONFIRM THAT before renaming by grepping
+     the old string across `plans/`, `specs/` and `packs/`, and if anything does
+     hold it, report that rather than renaming.
+  3. REMOVING THE GIT CALLS STRANDS AN IMPORT. `os/exec` is used in this file ONLY by
+     the three lines being deleted (the `exec.LookPath("git")` guard and the two
+     `exec.Command("git", "status", …)` constructions). The remaining `exec.Command`
+     mention in the file is inside a COMMENT. Drop `"os/exec"` from the import block
+     or the package will not build. Do NOT drop `repositoryRoot` — the new
+     `pkg/gate` walk needs it.
+  4. THIS IS A STRENGTHENING, AND THE ARGUMENT MATTERS IF ANYONE ASKS. Deleting a
+     `t.Fatalf` normally reads as weakening a mandated test, which this codebase
+     forbids. It is not weakening here: in the committed steady state the deleted
+     check has ZERO true teeth (it passes over an empty status, then skips), and
+     nonzero FALSE teeth (it fatals on another lane's work). The replacement asserts
+     a real property on every run, in CI, in every tree state. Net teeth go up. If a
+     reviewer challenges this, that is the answer — do not restore the git check.
+  5. THE SCAN BOUNDARY IS THE CLAIM (this file's own Sharp Edge 10, applied to the
+     new walk). Enumerate `pkg/gate` at test time — `.go` files including
+     `_test.go`, SKIPPING any `testdata/` directory — and FAIL LOUDLY on an empty
+     enumeration before scanning. A `pkg/gate` walk that silently resolved to
+     nothing after a package move would leave CLM-001 passing over an empty set —
+     the exact vacuity this file's header warns about. The `testdata/` skip is NOT
+     an optimization and must not be "cleaned up" into a plain recursive walk: see
+     the header — fixture projects are test input that may legitimately name init,
+     and scanning them turns this claim into a false alarm generator.
+  6. SCAN RAW TEXT, NOT COMMENT-STRIPPED CODE, FOR THE GATE WALK. This file's
+     `initSourceCode` strips comments so a denylist cannot fire on prose explaining
+     the ban. The gate walk wants the OPPOSITE: an accommodation comment in gate
+     source naming init ("special-cased for `backstop init`") is precisely the leak
+     worth catching. Read raw bytes. This asymmetry is deliberate — say so in the
+     docstring so a later reader does not "fix" it into consistency.
+  7. SPEC AMENDMENT IS OWED AND IS NOT THIS LANE'S TO MAKE. CLM-063's text says
+     "this spec's implementation changes no file under `pkg/gate`", which describes
+     the mechanism being retired. SPEC-069 is `status: implemented`. Route the
+     claim-text amendment through the spec-author agent (`/spec`) — hand-editing an
+     artifact is what CLAIM/CLAUDE.md's never-hand-edit rule and the agent-guard
+     forbid. TASK-005 carries the hand-off; no task in this plan scopes `specs/`.
+     SPEC-069's design section ("No code in this spec … touches `pkg/gate`; REQ-013
+     is satisfied entirely by that absence") stays TRUE and needs no edit.
+  8. SHARED WORKING TREE. Other lanes are live in this repo. Re-read
+     `pkg/initialize/sourceset_scan_test.go` fresh immediately before editing and
+     locate the subtest BY NAME rather than by the line anchors ISSUE-139 quotes
+     (310-342 at filing time). NEVER run a bare `git stash` — it would sweep another
+     agent's uncommitted work. BOTH of TASK-003's falsification passes use an
+     UNTRACKED probe file you create and delete; neither edits a tracked `pkg/gate`
+     file and this lane runs NO `git checkout`. `git checkout -- <file>` is in the
+     same destruction class as `git stash` here: it silently discards whatever
+     another live lane had uncommitted in that file.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Replace the unattributable purity check"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "RED: prove the shared-tree dependence and drive the reference predicate"
+        description: |
+          Edit `pkg/initialize/sourceset_scan_test.go` ONLY. Two new test functions.
+          RUN THEM IN THE ORDER BELOW and record the ACTUAL output of each — not a
+          claim that they failed. The two reds have DIFFERENT shapes and running
+          them out of order hides one behind the other.
+
+          (1) FIRST, ALONE — the Part 2 regression guard, which reds as a real
+              assertion failure against the code at HEAD.
+
+          TestInit_GatePurityClaimDependsOnNoSharedWorkingTreeState (CLM-002)
+
+          Parse THIS file's own source with `go/parser` (`ParseComments` OFF, the
+          same way `initSourceCode` does, so a comment discussing git cannot trip
+          it), locate the `TestInit_ChangesNoGatePackageFileAndDoesNotMaskThe
+          RemotelessMessage` FuncDecl by name, and walk its body asserting BOTH:
+
+            (a) NO SHARED-TREE READ. The body constructs no `exec.Command` and
+                calls nothing else in `os/exec`. Locate the test file via
+                `repositoryRoot(t)` + `pkg/initialize/sourceset_scan_test.go` — do
+                not hard-code a relative path from the test's working directory.
+                `t.Fatalf` naming the offending call, and state WHY in the message:
+                a working-tree snapshot in a tree shared with concurrent sessions
+                cannot attribute a change to a lane, so an assertion built on one
+                fails whoever happens to run it.
+
+            (b) NO SKIP. The body calls neither `t.Skip` nor `t.Skipf`. The failure
+                message must name ISSUE-139 Part 2 explicitly — a skip placed after
+                a fatal is unreachable in exactly the state it was written for, so
+                the rule here is that this test has no skip at all rather than a
+                correctly-ordered one.
+
+          FAIL LOUDLY IF THE FuncDecl IS NOT FOUND, rather than passing over an
+          empty walk — a rename would otherwise silently empty this claim.
+
+          EXPECTED RED, and say which half fired: BOTH (a) and (b) fail at HEAD.
+          (a) finds three `os/exec` uses — one `exec.LookPath("git")` and two
+          `exec.Command("git", "status", "--porcelain", …)`; (b) finds THREE
+          skip-family calls — two spelled `t.Skip(` and one spelled `t.Skipf(`.
+          THREE, NOT TWO: the `t.Skipf` is easy to miss by eye and assertion (b)
+          covers both spellings, so three matches is the CORRECT red. If you count
+          three and expected two, your walk is right — do not go debugging it. A red
+          naming only one half means the walk is not reaching the whole body.
+
+          (2) THEN — the predicate falsification test. This one will NOT COMPILE at
+              HEAD, because it drives a helper TASK-002 creates. That compile error
+              IS its red; record it verbatim, and note that you observed (1)'s
+              assertion red BEFORE adding this file's compile error on top of it.
+
+          TestInitReferenceScan_DiscriminatesGateSourceThatKnowsAboutInit
+          (CLM-001, CLM-003)
+
+          Drive a pure helper with the signature
+
+              func initReferencesIn(body string) []string
+
+          over SYNTHETIC source strings — never over real repository files, so this
+          test's verdict does not move when either package does. Assert it returns
+          at least one match for each of:
+
+            * an import line `"github.com/backstop-ai/backstop-core/pkg/initialize"`
+            * a selector use, e.g. `counts []initialize.DimensionCount`
+            * an accommodation COMMENT, e.g.
+              `// special-cased so backstop init reports a clean baseline step`
+            * a bare package-name use, e.g. `initialize.GateRunner`
+
+          and asserts it returns NOTHING for gate-shaped source that legitimately
+          contains neighbouring words — `initial`, `initialized`, `func init()`,
+          `initialCapacity`. THIS NEGATIVE HALF IS NOT OPTIONAL: a predicate that
+          fired on `func init()` would red the whole gate package and force someone
+          to weaken it back to uselessness.
+
+          Include the matched substring in every failure message so a future failure
+          names what it saw rather than describing it.
+
+          DO NOT touch the mandated test's body in this task, and do not add the
+          helper. If your diff contains a change to
+          `TestInit_ChangesNoGatePackageFileAndDoesNotMaskTheRemotelessMessage`, you
+          have left the task.
+        files:
+          - pkg/initialize/sourceset_scan_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on: []
+        test_names:
+          - TestInit_GatePurityClaimDependsOnNoSharedWorkingTreeState
+          - TestInitReferenceScan_DiscriminatesGateSourceThatKnowsAboutInit
+
+      - id: TASK-002
+        type: implementation
+        title: "GREEN: assert pkg/gate knows nothing about init, and retire the git snapshot"
+        description: |
+          Edit `pkg/initialize/sourceset_scan_test.go` ONLY. Three changes, all in
+          this one file. Locate everything BY NAME — the line numbers ISSUE-139
+          quotes are from filing time (sharp edge 8).
+
+          (1) ADD THE PREDICATE. `initReferencesIn(body string) []string` returns
+              every substring of `body` that shows gate source knowing about init.
+              A regexp over the RAW text is sufficient and is what TASK-001 drives.
+              It must match the module path `pkg/initialize`, the package selector
+              `initialize.`, and the prose markers `backstop init` and `SPEC-069`;
+              it must NOT match `initial`, `initialized`, `initialCapacity` or
+              `func init()`. Word-boundary the bare package name and require the
+              trailing `.` on the selector form — that is what separates
+              `initialize.DimensionCount` from `initialized`.
+
+              Read RAW BYTES, not comment-stripped code (sharp edge 6), and put the
+              reason in the docstring: unlike every other scan in this file, an
+              accommodation COMMENT naming init is itself the leak worth catching,
+              so stripping comments here would remove the evidence.
+
+          (2) ADD THE WALK. `gatePackageFiles(t *testing.T) []string` enumerates
+              every `.go` file under `repositoryRoot(t)/pkg/gate` recursively,
+              INCLUDING `_test.go` files — a gate test that knows about init is the
+              same leak — but SKIPPING every `testdata/` directory it encounters
+              (`filepath.SkipDir` on a directory entry named `testdata`). It
+              `t.Fatal`s on an empty enumeration, in the spirit of `initSourceSet`'s
+              own emptiness guard (sharp edge 5).
+
+              THE `testdata/` EXCLUSION IS PRESCRIBED, NOT OPTIONAL. `pkg/gate/
+              testdata/` holds synthetic fixture projects with invented artifact IDs
+              (SPEC-900…999); a fixture exercising the gate against an init-created
+              project may legitimately contain the words "backstop init" in prose,
+              and fataling on that would blame fixture DATA for a property only
+              gate SOURCE can violate. Put that reason in the helper's docstring so
+              a later reader does not simplify the skip away.
+
+              At planning time this yields 108 files (133 under `pkg/gate` in total,
+              25 of them under `testdata/`). Do NOT hard-code either number — assert
+              non-empty. The count is stated here so an implementer seeing a wildly
+              different enumeration knows the walk is wrong.
+
+          (3) REWRITE THE MANDATED SUBTEST. In
+              `TestInit_ChangesNoGatePackageFileAndDoesNotMaskTheRemotelessMessage`,
+              replace the FIRST subtest's body entirely:
+
+                * DELETE the `exec.LookPath("git")` skip, both
+                  `exec.Command("git", "status", "--porcelain", …)` constructions,
+                  the `t.Fatalf` that blames all `pkg/gate` dirt on init, and the
+                  unreachable non-vacuity skip guard that followed it. They retire
+                  together — the guard exists only to compensate for the snapshot.
+                * DROP `"os/exec"` from the import block (sharp edge 3).
+                * ADD: for each file from `gatePackageFiles`, read it and `t.Fatalf`
+                  on any `initReferencesIn` match, naming the file, the matched
+                  substring, and why it is a violation — gate machinery that knows
+                  about init is init reaching into a package REQ-013 puts off
+                  limits, and its owner is ISSUE-056.
+                * RENAME the `t.Run` sub-name to state what is now asserted (sharp
+                  edge 2 — grep the old string first, and report rather than rename
+                  if anything holds it).
+                * REWRITE the ★ comment above it. The current one argues
+                  working-tree-vs-HEAD over merge-base for attribution reasons; that
+                  argument is now retired and leaving it would mislead. Replace it
+                  with the reason the scan runs in the OTHER direction: `pkg/gate`
+                  has no legitimate reason to name init, so a reference there is
+                  attributable, whereas a `git status` snapshot of a shared tree
+                  attributes nothing. Name ISSUE-139.
+                * STATE THE ACCEPTED RESIDUAL in that comment: this does not catch a
+                  `pkg/gate` edit that never mentions init, no test in a shared tree
+                  can, and that residual is left to diff-scoped `backstop gate` and
+                  review. An honest limitation in the docstring is the point.
+
+          LEAVE THE SECOND SUBTEST ("the remoteless message is not masked") ENTIRELY
+          UNEDITED (CLM-004). It is the other half of CLM-063 and it is not defective.
+
+          DO NOT rename the top-level test function (sharp edge 1). DO NOT edit any
+          file under `pkg/gate` or `cmd/backstop` — in particular, do not "clean up"
+          `init_seams.go`'s `pkg/gate` import, which is legitimate and load-bearing
+          (CLM-005). If your diff has two files, stop.
+        files:
+          - pkg/initialize/sourceset_scan_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+        depends_on:
+          - TASK-001
+        test_names:
+          - TestInit_ChangesNoGatePackageFileAndDoesNotMaskTheRemotelessMessage
+
+      - id: TASK-003
+        type: verification
+        title: "Gate the change diff-scoped, and prove both directions by falsification"
+        description: |
+          Inner loop first, then the diff-scoped gate:
+
+              go build ./... && go test ./pkg/initialize/ -race -count=1
+              go build -o bin/backstop ./cmd/backstop/
+              ./bin/backstop gate
+
+          Then TWO falsification passes. These are the evidence this lane is judged
+          on — a green suite alone proves nothing here, because the new assertion is
+          true on arrival.
+
+          (A) THE LEAK IS CAUGHT. Use an UNTRACKED PROBE FILE — never an edit to a
+              tracked `pkg/gate` file. Create `pkg/gate/zz_issue139_probe.go`
+              containing exactly a package clause and an init-referencing comment:
+
+                  package gate
+
+                  // accommodation for backstop init
+
+              The new check reads the FILESYSTEM, not git state, so an untracked
+              file exercises it just as well as an edit would. Re-run the mandated
+              test and confirm it FATALS, naming `zz_issue139_probe.go` and the
+              matched substring. Then DELETE the probe file (`rm`). Confirm
+              `git status --porcelain -- pkg/gate` is back to its pre-probe reading
+              and report both readings.
+
+              WHY A PROBE AND NOT AN EDIT-AND-REVERT: `git checkout -- <file>` on a
+              tracked `pkg/gate` file destroys any uncommitted work another live
+              lane has in that file — the same destruction class this project's bare
+              `git stash` ban exists to prevent (sharp edge 8). This lane runs NO
+              `git checkout` at all. Deleting a file you yourself created a moment
+              earlier can harm nobody; discarding changes to a file you did not
+              write can. That also makes (A) symmetric with (B) below, which already
+              works this way.
+
+          (B) THE FALSE POSITIVE IS GONE — the direct proof ISSUE-139 was filed for.
+              Create an UNTRACKED probe file under `pkg/gate` (e.g.
+              `pkg/gate/zz-issue139-probe.txt`, content irrelevant). Confirm
+              `git status --porcelain -- pkg/gate` now reports it. With that dirt
+              present, re-run the mandated test and confirm it PASSES. Delete the
+              probe file.
+
+              This is exactly the state that fataled before this lane: `pkg/gate`
+              dirty, `pkg/initialize` committed and clean. Report the observed
+              tree state alongside the result rather than asserting it — if
+              `pkg/initialize` happens to carry your own uncommitted work at that
+              moment, say so, because it changes which branch of the OLD code would
+              have run and therefore what the comparison means.
+
+          Also confirm, from the diffstat, that exactly ONE file changed in this
+          lane: `pkg/initialize/sourceset_scan_test.go` (CLM-005). Report true exit
+          codes for every command. If `gate` reports a violation this lane did not
+          cause, name it and leave it — the tree is shared and chasing it from
+          inside this lane is how scope leaks.
+        files:
+          - pkg/initialize/sourceset_scan_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-005
+        depends_on:
+          - TASK-002
+
+  - id: phase-2
+    name: "Phase 2: Full-sweep verification and artifact validation"
+    tasks:
+      - id: TASK-004
+        type: verification
+        title: "Full unscoped kill chain"
+        description: |
+          Run the complete gate, unscoped:
+
+              ./bin/backstop gate --all
+
+          Every dimension, no diff scoping. Report the true exit code and the
+          per-dimension verdicts. This is the reading that covers test_verification,
+          substantiveness, coverage, contracts and artifact_status_drift — the last
+          of which is the one that matters most here, because sharp edge 1's pinned
+          test name is exactly what it reads.
+
+          Also confirm the full suite:
+
+              go test ./... -race -count=1
+
+          IF OTHER AGENTS ARE MID-FLIGHT IN THIS SHARED WORKING TREE, a full
+          `gate --all` or `go test ./...` reads THEIR half-finished work as well as
+          yours. Check first. If the tree is contended, say so, run the targeted
+          `./pkg/initialize/` sweep instead, and hand off the full reading as
+          explicitly NOT taken rather than reporting a number you cannot attribute.
+          A carried-forward gap named honestly beats an unattributable green — which
+          is, in miniature, the same lesson this whole lane is about.
+        files:
+          - pkg/initialize/sourceset_scan_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+        depends_on:
+          - TASK-002
+          - TASK-003
+
+      - id: TASK-005
+        type: verification
+        title: "Validate the artifacts this lane moves, and hand off the spec amendment"
+        description: |
+          This lane closes an issue and completes a plan, so both artifacts move and
+          both must validate:
+
+              ./bin/backstop artifact validate --plan PLAN-ISSUE-139
+              ./bin/backstop artifact validate --issue ISSUE-139
+
+          Report true exit codes for both.
+
+          ARTIFACT STATUS IS NOT THE IMPLEMENTER'S TO FLIP BY HAND. Route the status
+          transitions and any close-out banner through the purpose-built agents
+          (`/plan` for this plan, `/issue` for ISSUE-139). This task VERIFIES that
+          the artifacts validate; it does not author them.
+
+          ── A SPEC AMENDMENT IS OWED (sharp edge 7). SURFACE IT, DO NOT MAKE IT ──
+          SPEC-069 CLM-063's text reads "this spec's implementation changes no file
+          under `pkg/gate`" — a description of the mechanism this lane retires. The
+          claim's INTENT is unchanged and still enforced; its WORDING now describes
+          something the test no longer does. Hand this to the spec-author agent with
+          the substance already worked out, so it is not re-derived:
+
+            * the enforced property is now "no file under `pkg/gate` references
+              init", asserted over file content rather than working-tree state;
+            * the reason is ISSUE-139 — a `git status` snapshot in a working tree
+              shared by concurrent sessions attributes nothing, so the old wording
+              described an unenforceable check;
+            * CLM-063's second half (the remoteless message is not masked) is
+              unchanged and its subtest was carried forward unedited;
+            * REQ-013's own text and SPEC-069's design section 9 stay TRUE as
+              written and need no edit — it is the CLAIM text alone that drifted.
+
+          Two further notes for whoever writes ISSUE-139's resolution, both findings
+          rather than tidying:
+
+            1. THE ISSUE'S PREFERRED FIX WAS UNBUILDABLE. Its Solution section
+               suggested a static check that init's source "import or reference no
+               `pkg/gate` symbol". `cmd/backstop/init_seams.go` is in the init
+               source set and legitimately imports `pkg/gate` to build
+               `initGateRunner`, so that check would have red on arrival. REQ-013
+               forbids CHANGING gate files, not CONSUMING gate API — a distinction
+               the issue did not draw and the resolution should.
+            2. THE DEFECT WAS NOT LIVE AT FIX TIME. By 2026-08-16 the tree was clean
+               under both paths, so the shipped check was passing VACUOUSLY rather
+               than failing. That does not reduce the defect — a check with no teeth
+               when clean and false teeth when dirty is worth replacing either way —
+               but the resolution should say so rather than implying a red was
+               chased, since a future reader re-running the filed reproduction steps
+               will not reproduce it.
+        files:
+          - plans/PLAN-ISSUE-139-init-purity-test-shared-gate-dirt.plan.yml
+          - issues/ISSUE-139-init-purity-test-shared-gate-dirt.issue.md
+        claims:
+          - CLM-002
+          - CLM-004
+        depends_on:
+          - TASK-002
+          - TASK-003
