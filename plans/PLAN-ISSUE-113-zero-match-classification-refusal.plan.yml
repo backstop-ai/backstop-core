@@ -9,8 +9,23 @@ test_command: "go test ./pkg/gate/... ./cmd/backstop/... -race -count=1"
 coverage_threshold: 90
 
 notes: |
-  Implements ISSUE-113. Two production files, one new harness helper, two new test
-  files, two verification passes. Seven tasks. Nothing else is in scope.
+  Implements ISSUE-113. Two production files, one new harness helper, four new test
+  files, two verification passes. Nine tasks. Nothing else is in scope.
+
+  REVISION NOTE (2026-08-16, review round 2): the refusal condition was NARROWED to
+  require an empty hollow partition as well. The earlier (eligible, extraction)-only
+  condition was a real false-refusal bug — it fires on the already-shipped
+  newE2EWorkspace fixture and would suppress a true hollow finding while blaming the
+  pack's configuration. See "WHY (c) EXISTS" below; TASK-008 and TASK-009 exist to keep
+  it fixed.
+
+  REVISION NOTE (2026-08-16, review round 3): TEXT ONLY — the refusal condition is
+  unchanged and independently re-derived as correct. Two honesty corrections: (1) the
+  hollow == 0 branch is no longer described as costless — a third, empirically verified
+  cause (bare helper assertions) lands there with true verdicts at stake, so it is named
+  as Residual 2 and as a third candidate cause in the refusal message; (2) TASK-008's
+  control is re-justified as ROBUSTNESS rather than patch-detection, the earlier
+  rationale having been factually wrong about what newE2EWorkspace's body produces.
 
   ── THE DEFECT IN ONE PARAGRAPH ────────────────────────────────────────────
   The production substantiveness step (cmd/backstop/gate.go:1236-1253) runs its Q2
@@ -43,9 +58,10 @@ notes: |
   "simplifies" ConfigErr away removes all three at once.
 
   ── THE REFUSAL CONDITION, STATED EXACTLY ─────────────────────────────────
-  Refuse when BOTH hold, evaluated after routing and after scope filtering:
+  Refuse when ALL THREE hold, evaluated after routing and after scope filtering:
     (a) at least ONE mandated test is JOIN-ELIGIBLE, and
-    (b) the routed referenced-symbol (extraction) partition is EMPTY.
+    (b) the routed referenced-symbol (extraction) partition is EMPTY, and
+    (c) the routed hollow partition is EMPTY.
   "Join-eligible" is DEFINED as "an empty referenced set would make this test raise a
   noTarget violation" — which is precisely `NoTargetViolationForTest(mt,
   ReferencedSymbolSet{}, samePackage)` returning raised==true. Defining it that way
@@ -59,6 +75,108 @@ notes: |
   when the step is about to emit at least one violation it cannot justify. A project
   whose mandated tests are all same-package, all `kind: absence`, or all out of scope
   legitimately produces an empty evidence set and MUST still pass.
+
+  ── WHY (c) EXISTS: THE FALSE-REFUSAL THIS CONDITION IS NARROWED TO AVOID ──
+  An earlier revision of this plan refused on (a) && (b) alone. That was WRONG, and
+  measurably so: the already-shipped fixture `newE2EWorkspace`
+  (cmd/backstop/gate_substantiveness_e2e.go:43-99 — one root-level
+  `func TestE2EHollowSubject(t *testing.T) { doSubject() }`, mandated by a spec whose
+  implementation.package is `pkg/gate`) produces eligible==1, extraction==0, hollow==1.
+  Under (a) && (b) that run REFUSES and, via the short-circuit return, throws away the
+  REAL hollow violation — breaking two SPEC-037-mandated tests
+  (TestE2E_SubstantivenessInstalledLocalPack_RealGate_HollowRed and
+  TestE2E_SubstantivenessUninstalled_NoVacuousGreen's cross-check) and, far worse,
+  turning a diff-scoped `backstop gate` over one changed hollow test file into an
+  exit-2 that blames the pack's configuration while SUPPRESSING the true finding. That
+  is precisely the misleading-gate class this lane exists to eliminate; shipping it
+  would have traded one silent-wrong behavior for another.
+
+  The derivation, from the real semantics of the two partitions:
+    • The absence of extraction findings is inherently AMBIGUOUS between (i) the Q2
+      classification matched zero files — the ISSUE-113 defect — and (ii) the scanned
+      test files genuinely contain zero package-qualified calls — a legitimate
+      all-noTarget state that MUST still raise. Core cannot tell these apart directly:
+      packs are opaque (thin executor), so the only observable is the empty result.
+      The refusal is therefore a HEURISTIC, and it must be tuned so that a wrong guess
+      cannot destroy a true finding.
+    • The hollow partition is core's ONLY independent evidence that the pack's engine
+      actually ran and actually classified test files. Any hollow finding at all is
+      proof of pack output.
+  So the two branches are NOT symmetric:
+    • hollow == 0 && extraction == 0: the pack produced NOTHING over a scope containing
+      at least one eligible mandated test. Every channel is silent, so core has no
+      evidence at all on which to found a per-test verdict — refusing replaces N
+      unfounded noTarget violations with one honest "I have no evidence". REFUSE.
+
+      THIS BRANCH IS NOT COST-FREE, and an earlier revision of this plan wrongly said
+      it was ("no true finding to lose", "strictly better in every case"). It is not.
+      A THIRD cause can land here, distinct from the two the message names, and it
+      carries a real true finding:
+
+          func TestUsesBareHelperAssertion(t *testing.T) {
+              got := Build()
+              assertEqual(t, got, "x")
+          }
+
+      Run through REAL ast-grep against the shipped pack, this yields ZERO findings
+      from BOTH rules. Not hollow: the Q1 assertion-vocabulary regex matches "assert"
+      inside `assertEqual`. No Q2 extraction finding either: the Q2 rule requires the
+      call's `function` field to be a `selector_expression`, so `t.Fatalf` produces a
+      match but a BARE `assertEqual`/`mustEqual` call produces nothing. Result:
+      eligible >= 1, extraction == 0, hollow == 0 → REFUSE — suppressing a genuinely
+      TRUE noTarget verdict (this test really does not call its target package) while
+      the refusal message blames the pack.
+      That is a real cost paid on this branch, stated plainly rather than argued away.
+      It is ACCEPTED, not overlooked: core has no observable that separates this case
+      from the legitimately-refusing one — packs are opaque, and all three causes
+      present to core as the identical empty result. Narrowing further would require
+      inventing information the pack does not provide. The mitigation available is
+      HONESTY: the message names all THREE candidate causes, so an operator reading it
+      over a bare-helper-assertion codebase is pointed at their own test style as one
+      of the possibilities rather than being told, falsely, that their pack is broken.
+    • hollow > 0 && extraction == 0: the pack DID produce findings. Refusing here (1)
+      deletes M real, correctly-attributed hollow violations the operator must act on,
+      and (2) prints a diagnosis ("its classification matched 0 test files") that the
+      suppressed findings themselves FALSIFY — the Q1 classification demonstrably
+      matched. And there is no vacuous green to prevent: the gate is already RED with
+      true findings pointing at the same files. The residual noise (N false noTarget
+      alongside M true hollow) is a strictly lesser harm than deleting the true ones.
+      DO NOT REFUSE.
+
+  KNOWN, DELIBERATE RESIDUALS — TWO of them, both traded away on purpose. Do not
+  silently widen or narrow the condition to "fix" either.
+
+  RESIDUAL 1 — UNDER-refusal, at hollow > 0. If a pack bakes its globs on the Q2 rule
+  ONLY, leaving Q1 healthy, that run lands in the hollow > 0 branch and this lane does
+  NOT collapse its noTarget wall. Covering it requires either suppressing true hollow
+  findings (harm above) or suppressing the noTarget violations while reporting hollow —
+  which would silently swallow the legitimate case (ii) and manufacture exactly the
+  vacuous green this codebase treats as the enemy. Both observed incidents in
+  ISSUE-113 (the missing-ast-grep case, and the published typescript-substantiveness
+  1.1.0 whose baked globs starved the whole scan) land in the hollow == 0 branch and
+  ARE covered. If the Q2-only sub-case is ever observed in the wild, it is a NEW issue
+  with new evidence — not a quiet loosening of this predicate.
+
+  RESIDUAL 2 — OVER-refusal, at hollow == 0: the BARE-HELPER-ASSERTION case derived
+  above. A test whose only assertion is an unqualified helper call (`assertEqual(t,
+  ...)`) matches the Q1 vocabulary regex (so it is not hollow) and fails the Q2 rule's
+  `selector_expression` requirement (so it yields no extraction finding) — empirically
+  confirmed against real ast-grep. A workspace made entirely of such tests reaches
+  eligible >= 1 / extraction 0 / hollow 0 and REFUSES, suppressing noTarget verdicts
+  that were TRUE. This is not fixable by narrowing the condition: core sees the same
+  empty result here as in the genuinely-starved case and has no observable that tells
+  them apart. It is bounded by honesty instead — the message names this as one of the
+  three candidate causes rather than asserting the pack is broken. If this is ever
+  observed in the wild, it too is a NEW issue with new evidence (its plausible fix
+  lives in the PACK — a Q2 rule that also extracts bare-call symbols — not in a core
+  predicate), never a quiet tightening of this one.
+
+  SCOPE-FILTER ASYMMETRY, ON PURPOSE: `eligible` is counted AFTER the scope filter (an
+  out-of-scope test must never inflate it), but `hollow` and `extraction` are the
+  ROUTED, PRE-scope-filter partition lengths. Refusing is the drastic action, so any
+  evidence the pack emitted at all — even for a file this run is not looking at —
+  blocks it. The two counts pull in the same conservative direction: both make the
+  refusal LESS likely, never more.
 
   ── WHAT THIS LANE DELIBERATELY DOES NOT DO ───────────────────────────────
   ISSUE-113's Direction names two triggers: "the classifier matches zero test files"
@@ -75,40 +193,76 @@ notes: |
       in both observed incidents, and core cannot inspect a pack's globs — packs are
       opaque by design (thin executor). The only thing core CAN observe is the
       consequence: zero evidence. So the refusal message names the pack's classification
-      as the probable cause and reports the counts that let the operator confirm it.
-  Net: ONE refusal condition, TWO message variants distinguishing "the pack produced
-  nothing at all" from "the pack produced hollow findings but zero extraction."
+      as ONE candidate cause among the three it lists — never as a diagnosis — and
+      reports the counts that let the operator work out which one they have.
+  Net: ONE refusal condition and ONE message, which names every cause core cannot
+  distinguish from the empty result (see below).
 
-  ── WHY TWO MESSAGE VARIANTS, AND WHY THEY MATTER ─────────────────────────
-  The hollow (Q1) count is the operator's fork in the diagnostic road, and it is free
-  to compute — routing already partitions it:
-    • hollow == 0 AND extraction == 0 → the pack's engine produced NOTHING. That is
-      the missing-tool signature (ISSUE-112's surface: ast-grep absent from PATH →
-      empty SARIF → starved join). Point at the engine/tool.
-    • hollow > 0 AND extraction == 0 → the engine RAN and produced findings; only the
-      referenced-symbol rule matched nothing. That is the harness-baked-globs signature
-      (typescript-substantiveness 1.1.0). Point at the pack's Q2 rule classification.
-  Both variants must state the join-eligible count and both must say, in words, that
-  the step is refusing INSTEAD OF reporting N "does not call package" violations —
-  the operator who has seen the 397-violation wall needs to recognize this message as
-  its replacement.
+  ── ONE MESSAGE, NOT TWO ──────────────────────────────────────────────────
+  Because condition (c) restricts the refusal to hollow == 0, there is exactly ONE
+  diagnostic state to describe and therefore exactly ONE message. (An earlier revision
+  specified two variants forked on the hollow count; the hollow > 0 variant described a
+  state that, post-(c), no longer refuses at all, so it is REMOVED — do not reintroduce
+  it.) The message must:
+    • state the OBSERVED FACT first — the pack produced no substantiveness findings of
+      ANY kind — because that is the only thing core actually knows;
+    • name ALL THREE candidate causes, none of them asserted as THE cause:
+        (1) the pack's engine did not run;
+        (2) the pack's classification matched 0 test files;
+        (3) the scanned tests genuinely make no package-qualified calls while still
+            satisfying the pack's assertion-vocabulary check — the bare-helper-assertion
+            shape derived in the condition section, where the noTarget verdicts the step
+            is declining to report would have been TRUE;
+    • report the join-eligible count, so the operator can see the scale of what would
+      otherwise have been reported; and
+    • say IN WORDS that the step is refusing INSTEAD OF reporting N "does not call
+      package" violations. The operator who has seen the 397-violation wall needs to
+      recognize this message as its replacement.
+  Naming all three is the WHOLE mitigation for Residual 2, and the reason the message
+  must not be trimmed to a confident single diagnosis: under cause (3) the refusal is
+  WRONG, and an operator whose tests use bare helper assertions can only recognize that
+  if the message admits it as a possibility. ISSUE-112 owns the upstream half of cause
+  (1) (a missing engine tool that returns empty SARIF instead of failing loud). Core
+  cannot distinguish the three from the empty result alone and must not pretend
+  otherwise.
+
+  WORD CAUSE (3) WITHOUT THE SUBSTRING "hollow" — TASK-002 pins that the message never
+  contains it, because a message discussing hollow findings would describe a state
+  condition (c) makes unreachable. Cause (3) is fully expressible without the word (as
+  phrased above); that constraint is required, not stylistic.
+
+  ── CROSS-LANE CONTENTION IN cmd/backstop/gate.go (re-verified 2026-08-16) ─
+  This lane SHARES the file `cmd/backstop/gate.go` with three sibling lanes. An earlier
+  revision of this plan asserted total file-scope disjointness; that assertion was made
+  when PLAN-ISSUE-112 was still an empty scaffold (`phases: []`) and is now WRONG. The
+  real picture, read off the four committed plans:
+    • THIS lane (113): `buildTestSubstantivenessStep`, the Q2 noTarget loop only
+      (~:1158-1275 at the time of writing).
+    • PLAN-ISSUE-112: the `pack_engines` step's provisioning path (~:895-909), plus
+      `cmd/backstop/pack_gate_provision.go`, `cmd/backstop/pack_gate.go` and
+      `pkg/check/runner.go`.
+    • PLAN-ISSUE-118: `buildGateSteps` (~:773), `packValidatorStep` (~:914), the
+      zero-declared-packs early return (~:859), and a new collector declared in
+      `buildGateSteps`.
+    • PLAN-ISSUE-122: `mergeSourceClassifier` (~:1335) and the traceability path —
+      `realArtifactValidator.ValidateAll` (~:1663/:1674), `FindUngatedArtifacts`
+      (~:1705), `collectTraceRefs` (~:1081).
+  NO OWNERSHIP OVERLAP: all four lanes edit DIFFERENT functions in the same file, and
+  no two touch the same declaration. There is no semantic collision to reconcile — only
+  ordinary same-file merge contention.
+
+  CONSEQUENCE THE IMPLEMENTER MUST ACT ON: every `cmd/backstop/gate.go` line number in
+  this plan WILL DRIFT as the other three lanes land, in whatever order they land.
+  Re-read the file fresh and locate `buildTestSubstantivenessStep` by NAME immediately
+  before editing; never trust a line citation here as an address. If a fresh read shows
+  another lane has grown an edit INSIDE `buildTestSubstantivenessStep` or inside
+  `pkg/gate/substantiveness_join.go`, stop and reconcile rather than racing — that
+  would be a real collision, unlike the shared-file adjacency described above.
 
   ── RELATIONSHIP TO ISSUE-112 (checked, not assumed) ──────────────────────
   ISSUE-112 was filed alongside this one and describes the SAME incident from the
   upstream end (missing engine tool → silently empty SARIF → vacuous pack_engines pass
-  → starved join). PLAN-ISSUE-112 was still an empty scaffold (`phases: []`) when this
-  plan was authored on 2026-08-15, so its file list was inferred from ISSUE-112's own
-  Direction section, which names its surfaces explicitly:
-  `cmd/backstop/pack_gate_provision.go` (the assume-present fail-loud that exempts
-  provision-declared tools) and the gate dispatch path's discarded `runErr`
-  (`cmd/backstop/pack_gate.go` / `pkg/check/runner.go`).
-
-  FILE SCOPE: DISJOINT. This lane touches `pkg/gate/substantiveness_join.go` and
-  `cmd/backstop/gate.go` (buildTestSubstantivenessStep only) plus its own new test
-  files. Neither appears in ISSUE-112's named surfaces. Re-confirm with a real read of
-  PLAN-ISSUE-112 before starting if it has since been authored; if it HAS grown a task
-  touching either of this lane's two production files, stop and reconcile rather than
-  racing.
+  → starved join).
 
   SEQUENCING: cleanly separable, either order works, and they are NOT redundant. 112
   removes one root cause (a missing tool now fails loud instead of returning empty
@@ -144,16 +298,27 @@ notes: |
              iff empty evidence would make it raise. No predicate (FilePath, absence,
              TargetPkg, same-package) is restated anywhere else.
     CLM-002  SubstantivenessEvidenceRefusal returns exactly ONE violation when the
-             join-eligible count is >= 1 AND the extraction count is 0, and returns no
-             refusal when either the eligible count is 0 or any extraction evidence
-             exists.
-    CLM-003  the refusal message NAMES the cause, reports the join-eligible count, and
-             distinguishes "the pack produced no findings of any kind" (hollow == 0)
-             from "the pack produced hollow findings but zero referenced-symbol
-             evidence" (hollow > 0).
+             join-eligible count is >= 1 AND the extraction count is 0 AND the hollow
+             count is 0, and returns NO refusal when any one of those fails — in
+             particular it does NOT refuse when hollow evidence exists, because a pack
+             that emitted hollow findings demonstrably ran and demonstrably classified
+             test files, and refusing would destroy those true findings.
+    CLM-003  the refusal message states the observed fact (the pack produced no
+             substantiveness findings of any kind) and names ALL THREE candidate causes
+             without asserting any one of them — its engine did not run, OR its
+             classification matched 0 test files, OR the scanned tests genuinely make no
+             package-qualified calls while still satisfying the pack's assertion
+             vocabulary (in which case the declined verdicts were true). It also reports
+             the join-eligible count and states that the step is refusing INSTEAD OF
+             reporting that many "does not call package" violations. There is exactly
+             ONE message; no hollow-count fork, and the substring "hollow" never appears
+             in it.
     CLM-004  the production step SHORT-CIRCUITS on refusal: it returns the single
              refusal violation with ConfigErr true and ZERO per-test noTarget
-             violations, and does not mix hollow violations into the refusal result.
+             violations. Because the refusal requires hollow == 0, the short-circuit
+             provably discards NO hollow verdict; the observable boundary is that a run
+             with hollow evidence present does NOT refuse and its hollow violations
+             survive and are reported normally.
     CLM-005  end-to-end regression over the REAL dispatch path: a substantiveness pack
              whose referenced-symbol rule classification matches zero test files, over
              a workspace with three mandated tests, yields three false "does not call
@@ -162,9 +327,13 @@ notes: |
     CLM-006  non-vacuity control: the SAME workspace run against the UNPATCHED pack
              yields ZERO violations, proving the three pre-fix violations were false
              and that the refusal is not masking genuine ones.
-    CLM-007  non-regression: with evidence present, the noTarget join, hollow
-             conversion, scope filtering and the `kind: absence` skip behave exactly as
-             before, and the refusal does not fire on a healthy run.
+    CLM-007  non-regression: with evidence present in EITHER channel, the noTarget
+             join, hollow conversion, scope filtering and the `kind: absence` skip
+             behave exactly as before, and the refusal does not fire — pinned
+             exhaustively over the (eligible, extraction, hollow) space so that refusal
+             holds if and only if eligible >= 1 && extraction == 0 && hollow == 0. This
+             is what mechanically prevents the (a)&&(b)-only false refusal from being
+             reintroduced by a later "simplification".
     CLM-008  the refusal is structurally unsuppressible: because ConfigErr halts the
              run at this step, waiver_resolution never executes and ApplyPolicy skips
              the step, so no inline waiver and no baseline entry can silence it.
@@ -237,9 +406,11 @@ phases:
                 //     the zero-match run's violations provably FALSE (CLM-006).
                 //   - t.Fatalf matches the Q1 hollow rule's assertion vocabulary
                 //     regex, so these tests are NOT hollow and the hollow partition
-                //     stays empty. Do not remove it: without it every test also
-                //     produces a hollow finding and the violation counts this
-                //     fixture asserts stop meaning what they say.
+                //     stays EMPTY. This is STRUCTURALLY load-bearing, not count
+                //     hygiene: the refusal requires hollow == 0 (condition (c)), so
+                //     one hollow test in this workspace would BLOCK the refusal and
+                //     TASK-003's falsifier would never fire. Removing t.Fatalf does
+                //     not weaken this fixture — it disables it.
                 func TestZeroMatchAlpha(t *testing.T) {
                     if gate.Build() == "" {
                         t.Fatalf("Build returned empty")
@@ -273,6 +444,19 @@ phases:
               passes `pack check`/`pack test` on install. The point of this fixture is
               a HEALTHY-LOOKING pack producing zero Q2 evidence — not a broken install.
           Set w.installed/w.installInfo exactly as the existing method does.
+
+          WHY THE PATCHED PACK STILL PASSES `pack test` (the real reason — an earlier
+          revision of this plan stated a wrong one, so do not re-derive it from
+          intuition): it is NOT that the patched rule's fixtures still match. It is
+          that packval NEVER RUNS THESE FIXTURES AT ALL. packval's own Rule struct
+          reads the YAML key `file` (pkg/packval/manifest.go:78), while
+          packs/substantiveness/pack.yml declares `rule_path:` for both rules — so
+          `rule.File == ""` and every fixture-execution site in
+          pkg/packval/phase3.go (:31, :62, :76) is guarded behind `rule.File != ""`
+          and skipped. The install therefore cannot notice the patch. This underlying
+          pack-validation hole is ALREADY TRACKED as ISSUE-092 ("Pack Test Phase3
+          Fixtures Cannot Fail", open, well-evidenced). This lane does NOT fix it and
+          must not try to — cite ISSUE-092 in the harness comment and move on.
 
           Header-comment WHY this fixture breaks globs rather than PATH: ISSUE-112
           owns the missing-tool root cause, and a tool-present fixture stays valid and
@@ -311,30 +495,51 @@ phases:
           TestSubstantivenessEvidenceRefusal_FiresOnlyOnStarvedJoin (CLM-002)
             Table-driven over (eligible, extraction, hollow):
               • (3, 0, 0)  → refusal
-              • (3, 0, 2)  → refusal
               • (1, 0, 0)  → refusal          (one eligible test is enough)
               • (0, 0, 0)  → NO refusal       (nothing would have been raised)
               • (0, 0, 5)  → NO refusal
-              • (3, 1, 0)  → NO refusal       (evidence exists; the join is honest)
+              • (3, 1, 0)  → NO refusal       (extraction exists; the join is honest)
+              • (3, 0, 2)  → NO refusal       ← THE B1 ROW. Hollow evidence proves the
+                pack ran and classified test files, so this is NOT a zero-match
+                classification and refusing would delete two real hollow violations.
+                Name the row `hollow_evidence_blocks_refusal` and comment it with the
+                measured case it guards: the shipped `newE2EWorkspace` fixture
+                (eligible 1 / extraction 0 / hollow 1) whose refusal would break
+                TestE2E_SubstantivenessInstalledLocalPack_RealGate_HollowRed.
               • (3, 7, 2)  → NO refusal
-            Assert the returned Violation's Rule == gate.StepTestSubstantiveness and
-            Severity == "error" on the refusal rows, and that the zero-value Violation
-            is returned on the others.
+              • (1, 0, 1)  → NO refusal       (the newE2EWorkspace shape exactly)
+            Assert the returned Violation's Rule == StepTestSubstantiveness (this file
+            is `package gate` — NO `gate.` qualifier) and Severity == "error" on the
+            refusal rows, and that the zero-value Violation is returned on the others.
 
           TestSubstantivenessEvidenceRefusal_MessageNamesTheCause (CLM-003)
-            Two cases, asserting on the MESSAGE text:
-              • (3, 0, 0) — the "no findings of any kind" variant. Must contain the
-                eligible count "3", and must point at the engine/tool having produced
-                nothing.
-              • (3, 0, 2) — the "hollow but no extraction" variant. Must contain "3",
-                must mention that hollow findings WERE produced, and must point at the
-                pack's referenced-symbol classification.
-            Both must state that the step is refusing INSTEAD OF reporting per-test
-            "does not call package" violations. Assert on stable substrings, not on
-            the whole sentence — the wording is meant to be improvable without
-            breaking the pin. Assert the two variants are DIFFERENT from each other;
-            a refactor that collapses them to one string is the regression this
-            catches.
+            ONE message; there is no hollow-count fork (condition (c) removed the
+            second variant's whole reachable state). Drive (3, 0, 0) and assert the
+            message:
+              • contains the eligible count "3";
+              • states the observed fact — that the pack produced no substantiveness
+                findings of any kind;
+              • names ALL THREE candidate causes, with a SEPARATE substring assertion
+                per cause so that dropping any one of them fails this test:
+                  (1) the engine having not run;
+                  (2) the classification having matched 0 test files;
+                  (3) the tests genuinely making no package-qualified calls despite
+                      satisfying the pack's assertion vocabulary.
+                Cause (3) is the bare-helper-assertion case, where the refusal is
+                suppressing TRUE noTarget verdicts; naming it is the only mitigation
+                available for that residual, so its pin is not optional garnish.
+                Comment the row with the empirically-verified example
+                (`assertEqual(t, got, "x")` → zero findings from BOTH rules) so a future
+                editor who deletes the cause knows what they are hiding.
+              • states that the step is refusing INSTEAD OF reporting per-test "does
+                not call package" violations.
+            Assert on stable substrings, not the whole sentence — the wording is meant
+            to be improvable without breaking the pin. ALSO assert the message does NOT
+            contain "hollow": a message mentioning hollow findings would describe a
+            state that can no longer refuse, and its reappearance is the regression
+            this catches. Note in a comment that cause (3) must therefore be worded
+            without that substring — the two assertions are compatible by design, and if
+            they ever conflict it is the WORDING that gives, never the pin.
         files:
           - pkg/gate/substantiveness_zero_evidence_test.go
         claims:
@@ -385,10 +590,12 @@ phases:
             3. res.ConfigErr is true.
             4. Status == "fail".
             5. the Message names the cause: contains "3" (the join-eligible count) and
-               points at the pack's referenced-symbol classification (the hollow > 0
-               variant is NOT expected here — these fixtures are non-hollow, so the
-               hollow count is 0 and the "no findings of any kind" variant is the one
-               that fires; assert on that variant's stable substring).
+               names the pack having produced no findings of any kind. Note in a
+               comment that these fixtures are deliberately NON-hollow, so hollow == 0
+               and condition (c) is satisfied — that is WHY the refusal is reachable
+               here at all. If this assertion fails on the count while assertions 1-4
+               pass, suspect a hollow finding leaking into the workspace (a fixture
+               body that lost its t.Fatalf), not the message wording.
           Expected pre-fix red: three violations, each "test function TestZeroMatchX
           does not call package gate", ConfigErr false.
 
@@ -419,6 +626,133 @@ phases:
           - TestE2E_ZeroMatchClassification_RefusesInsteadOfPerTestViolations
           - TestE2E_ZeroMatchClassification_RefusalIsNotWaivable
 
+      - id: TASK-008
+        type: test
+        title: "The refusal BOUNDARY end-to-end: hollow evidence blocks the refusal and its violations survive (RED)"
+        description: |
+          Create cmd/backstop/gate_substantiveness_refusal_boundary_e2e_test.go. This
+          is the task that makes CLM-004's distinctive behavior observable rather than
+          asserted, and it is the standing regression guard against the false refusal
+          the (a)&&(b)-only condition would have shipped. Runs in parallel with
+          TASK-003 (disjoint file, both drive TASK-001's harness).
+
+          It needs NO new fixture: the ALREADY-SHIPPED newE2EWorkspace
+          (cmd/backstop/gate_substantiveness_e2e.go) has exactly the shape required —
+          one root-level hollow mandated test against target package `gate`, giving
+          eligible 1 / extraction 0 / hollow 1. Do not build a variant of it.
+
+          Call requireAstGrepE2E(t) first in every test. NEVER downgrade to t.Skip.
+
+          TestE2E_HollowEvidenceBlocksZeroMatchRefusal (CLM-004, CLM-007) —
+          newE2EWorkspace + installZeroMatchSubstantivenessPack (the PATCHED, Q2-starved
+          pack from TASK-001), then runProductionSubstantivenessStep. This is the
+          adversarial pairing: the Q2 classification matches nothing (the ISSUE-113
+          trigger) but the Q1 rule still fires. Assert, in this order:
+            1. res.ConfigErr is FALSE — the refusal must NOT fire;
+            2. hasSubstantivenessHollowViolation(res) is TRUE — the real hollow
+               violation SURVIVED and was reported, not swallowed by a short-circuit;
+            3. no violation's Message contains the refusal's stable substring;
+            4. Status == "fail" (the hollow finding still blocks — this is a RED gate
+               reporting a true finding, which is the whole point).
+          Comment the measurement this pins: under the rejected (a)&&(b)-only
+          condition this run refuses, discards the hollow violation, and breaks
+          TestE2E_SubstantivenessInstalledLocalPack_RealGate_HollowRed
+          (gate_substantiveness_e2e_test.go:49, mandated by
+          specs/SPEC-037-traceability-substantiveness-pack.spec.md:621) plus
+          TestE2E_SubstantivenessUninstalled_NoVacuousGreen's cross-check (:76/:99,
+          mandated at :632). Name both tests in the comment so a future editor who
+          weakens condition (c) is told exactly what they are about to break.
+
+          TestE2E_HollowEvidenceBlocksRefusal_IsNotVacuous (CLM-004) — the control that
+          keeps the test above honest. SAME workspace, SAME patched pack, but assert
+          the Q2 starvation is REAL: at least one violation whose Message contains
+          "does not call package" is present.
+
+          STATE THE RATIONALE PRECISELY IN THE FILE COMMENT — this is ROBUSTNESS, not
+          detection, and an earlier revision of this plan got it wrong in a way worth
+          not repeating. It is NOT true that "without this control the test above would
+          pass identically against an unpatched pack": newE2EWorkspace's test body is
+          `doSubject()`, an unqualified call, which produces NO Q2 extraction finding
+          even under the UNPATCHED pack. For THIS workspace the patch changes nothing
+          observable, so this control cannot detect whether the pack was patched. What
+          the patched pack buys is that extraction == 0 is a STRUCTURAL guarantee — true
+          regardless of what newE2EWorkspace's body happens to contain — rather than an
+          accident of that one fixture's body. If a future edit changes newE2EWorkspace's
+          test body to something that WOULD produce a Q2 match, the boundary cell this
+          file pins (eligible 1 / extraction 0 / hollow 1) stays put.
+          And say what this control actually proves: that Q2 starvation is genuinely
+          reproducible in THIS run — the join really did come up empty and really did
+          raise a noTarget verdict — not that "the patch took effect". Pinning the
+          reproduction is what stops the test above from going green because the join
+          stopped running at all.
+          (The unpatched-pack control for this workspace is already shipped as
+          TestE2E_SubstantivenessInstalledLocalPack_RealGate_HollowRed — do not
+          duplicate it here; reference it in a comment instead.)
+
+          Pre-fix RED: both tests fail to compile/behave only insofar as TASK-005 has
+          not landed; before TASK-005 the step never sets ConfigErr, so assertion 1
+          passes vacuously. RECORD THAT. Re-run BOTH tests after TASK-005 lands — this
+          file's real value is post-fix, and the implementer must confirm it is green
+          for the right reason (ConfigErr false because hollow > 0, not because the
+          refusal does not exist yet). State that explicitly in the file header.
+        files:
+          - cmd/backstop/gate_substantiveness_refusal_boundary_e2e_test.go
+        claims:
+          - CLM-004
+          - CLM-007
+        depends_on:
+          - TASK-001
+        test_names:
+          - TestE2E_HollowEvidenceBlocksZeroMatchRefusal
+          - TestE2E_HollowEvidenceBlocksRefusal_IsNotVacuous
+
+      - id: TASK-009
+        type: test
+        title: "Non-regression pins: the join is untouched under evidence, and the refusal boundary is exhaustive (RED)"
+        description: |
+          Create pkg/gate/substantiveness_join_nonregression_test.go — CLM-007's
+          dedicated home, so the claim rests on its own pins rather than leaning on the
+          pre-existing E2E suite. Runs in parallel with TASK-001/002/003/008 (disjoint
+          files, no dependency between them). It will not compile until TASK-004 adds
+          SubstantivenessEvidenceRefusal; RECORD that as the red and re-run for a real
+          assertion result once TASK-004 lands.
+
+          TestSubstantivenessEvidenceRefusal_ExhaustiveBoundary (CLM-007, CLM-002)
+            Sweep eligible, extraction, hollow each over 0..3 (64 combinations) and
+            assert, for EVERY combination:
+              refused == (eligible >= 1 && extraction == 0 && hollow == 0)
+            Write the expected side as that expression literally, so the test states
+            the boundary rather than enumerating it. This is the pin that mechanically
+            prevents condition (c) from being dropped as a "redundant" term by a later
+            simplification — the exact regression this plan revision exists to close.
+            On failure, print the triple so the offending cell is readable.
+
+          TestNoTargetJoinUnchangedUnderEvidence (CLM-007)
+            The noTarget decision table with a NON-empty ReferencedSymbolSet still
+            behaves exactly as documented at
+            pkg/gate/substantiveness_join.go:63-94 — target in set → satisfied; target
+            absent from a non-empty set → raised; samePackage → satisfied; empty
+            targetPkg → skipped. TASK-004 adds functions to this file and must change
+            none of this.
+
+          TestAbsenceSkipAndHollowConversionUnchanged (CLM-007)
+            • NoTargetViolationForTest with mt.IsAbsence true still skips even when the
+              referenced set is non-empty and the target is absent (the ISSUE-035
+              Category 2 behavior).
+            • HollowFindingsToViolations still forwards File and, critically, Line —
+              the ISSUE-116 regression this file's header warns about. A refusal added
+              nearby must not re-zero it.
+        files:
+          - pkg/gate/substantiveness_join_nonregression_test.go
+        claims:
+          - CLM-002
+          - CLM-007
+        depends_on: []
+        test_names:
+          - TestSubstantivenessEvidenceRefusal_ExhaustiveBoundary
+          - TestNoTargetJoinUnchangedUnderEvidence
+          - TestAbsenceSkipAndHollowConversionUnchanged
+
       - id: TASK-004
         type: implementation
         title: "The eligibility predicate and the refusal decision, in the language-agnostic join"
@@ -444,22 +778,50 @@ phases:
             before this is consulted.
 
           func SubstantivenessEvidenceRefusal(eligible, extraction, hollow int) (Violation, bool)
-            Returns (Violation{}, false) unless eligible >= 1 AND extraction == 0.
-            On refusal returns ONE Violation with Rule: StepTestSubstantiveness,
-            Severity: "error", and a message chosen by the hollow count:
-              • hollow == 0: the substantiveness pack produced no findings of any kind
-                while <eligible> mandated tests were join-eligible — its engine did not
-                run or its classification matched 0 test files; refusing instead of
-                reporting <eligible> unfounded "does not call package" violations.
-              • hollow > 0: the substantiveness pack produced <hollow> hollow findings
-                but 0 referenced-symbol findings while <eligible> mandated tests were
-                join-eligible — its referenced-symbol classification matched 0 test
-                files; refusing instead of reporting <eligible> unfounded "does not
-                call package" violations.
-            Word them so both name the count, the cause, and what is being refused
-            (CLM-003). Doc-comment the ISSUE-113 provenance and the ISSUE-020 lineage,
-            and note that the CALLER — not this function — is what sets ConfigErr; this
-            function decides, it does not dispose.
+            Returns (Violation{}, false) unless ALL THREE hold: eligible >= 1 AND
+            extraction == 0 AND hollow == 0. On refusal returns ONE Violation with
+            Rule: StepTestSubstantiveness, Severity: "error", and a SINGLE message
+            (there is no hollow-count fork) along these lines:
+              the substantiveness pack produced no findings of any kind while
+              <eligible> mandated tests were join-eligible — its engine did not run, its
+              classification matched 0 test files, or those tests genuinely make no
+              package-qualified calls; refusing instead of reporting <eligible>
+              unsubstantiated "does not call package" violations.
+            Word it so it names the count, ALL THREE candidate causes, and what is being
+            refused (CLM-003). THREE, not two: the third — tests that satisfy the pack's
+            assertion vocabulary but make no package-qualified call (the empirically
+            verified `assertEqual(t, got, "x")` shape, which yields zero findings from
+            BOTH rules) — is the case where this refusal is WRONG and is suppressing
+            true verdicts. Core cannot tell it from the other two, so the message must
+            not present any of them as the diagnosis. Do not word cause three using the
+            substring "hollow"; TASK-002 pins its absence.
+
+            DOC-COMMENT THE hollow == 0 GUARD AS THE LOAD-BEARING PART, because it is
+            the term a later reader is most likely to delete as redundant. Say: hollow
+            evidence is core's ONLY proof that the pack's engine ran and classified
+            test files at all, so hollow > 0 falsifies the very diagnosis this message
+            makes; and refusing there would discard real hollow violations the caller
+            has already accumulated. Cite the concrete measured case — the shipped
+            newE2EWorkspace fixture (eligible 1, extraction 0, hollow 1), which without
+            this term refuses and breaks
+            TestE2E_SubstantivenessInstalledLocalPack_RealGate_HollowRed. Also record
+            BOTH deliberate residuals (see the plan's condition section), so the comment
+            does not read as a claim that this predicate is exact:
+              • UNDER-refusal: a pack that bakes globs on the Q2 rule ONLY is not caught,
+                on purpose — widening the predicate to catch it costs either true
+                findings or a vacuous green.
+              • OVER-refusal: a workspace whose tests assert only through unqualified
+                helper calls reaches this branch with true noTarget verdicts at stake,
+                and this function suppresses them. Empirically verified, not
+                hypothetical. It is accepted because core has no observable separating
+                it from a genuinely starved pack; the mitigation is the message naming
+                it as a candidate cause, which is why that third cause is load-bearing
+                and not padding. Tightening the predicate to exclude it is impossible
+                without information packs do not provide — do not attempt it here.
+
+            Doc-comment the ISSUE-113 provenance and the ISSUE-020 lineage, and note
+            that the CALLER — not this function — is what sets ConfigErr; this function
+            decides, it does not dispose.
 
           No File is set on the refusal violation: the refusal is about the pack's
           configuration, not about any one file, and attaching an arbitrary test file
@@ -474,6 +836,7 @@ phases:
           - CLM-007
         depends_on:
           - TASK-002
+          - TASK-009
 
       - id: TASK-005
         type: implementation
@@ -503,13 +866,28 @@ phases:
                     Violations: []gate.Violation{v},
                 }
             }
-          Note what this RETURN discards and why (CLM-004): any hollow violations
-          already accumulated in `violations` are dropped. That is deliberate — the
-          run is halting at exit 2 with the message "this pack's output cannot be
-          trusted", and shipping a partial verdict alongside that message invites the
-          operator to act on evidence the same message just disclaimed. After the
-          configuration is fixed, the next run reports everything. Write that
-          reasoning into the code comment, not just here.
+          Pass `len(hollow)` — the ROUTED partition length, NOT len(violations) (the
+          scope-filtered hollow violations). Refusing is the drastic action, so any
+          pack output at all, even for a file this run is not looking at, must block
+          it. Comment that choice; a later reader "tidying" it to the filtered count
+          makes the refusal MORE likely to fire, which is the wrong direction.
+
+          WHAT THIS RETURN DISCARDS (CLM-004) — and precisely how much: the return
+          drops whatever is in `violations`, which at this point can only be
+          scope-filtered hollow violations. But the refusal requires len(hollow) == 0,
+          and a scope filter cannot manufacture violations out of an empty partition —
+          so on the refusal path `violations` is provably EMPTY, so no HOLLOW verdict
+          is lost. The per-test noTarget verdicts pass 2 would have raised are declined
+          by design; under the bare-helper-assertion shape (Residual 2) they can be
+          true, which is why the refusal message names that as a candidate cause. Say
+          exactly that in the code comment — it must not overclaim "no true verdict is
+          lost," which would contradict the adjacent
+          pkg/gate/substantiveness_join.go comment TASK-004 mandates. Say WHY the guard is what
+          makes it true: an earlier design refused on (eligible, extraction) alone and
+          therefore DID discard real hollow violations, silently converting a correct
+          RED into an exit-2 that blamed the pack's config for a finding the operator
+          needed to see. TASK-008 pins that boundary end-to-end. Do not "simplify"
+          len(hollow) out of the call.
 
           Note also, in the same comment, the three mechanical consequences of
           ConfigErr that make this a refusal rather than a loud violation: Gate.Run
@@ -518,6 +896,13 @@ phases:
           refusal cannot be waived; ApplyPolicy skips ConfigErr steps so it cannot be
           baseline-grandfathered (pkg/gate/policy.go:188). A future reader who removes
           ConfigErr for tidiness removes all three at once.
+
+          TRIPWIRE, when writing these comments: gate_bridge_deletion_test.go asserts
+          the literal substring "bridged" appears NOWHERE in cmd/backstop/gate.go,
+          comments included (PLAN-ISSUE-112 and PLAN-ISSUE-118 both guard the same
+          thing). The comment text specified above is clean of it today; keep it that
+          way if you reword — describing the refusal as "bridged" anything would turn
+          that test red for a reason unrelated to this lane.
 
           Pass 2 — the existing raise, now over `eligible`. Since every member is
           eligible by construction, the loop body reduces to assembling the referenced
@@ -537,6 +922,7 @@ phases:
         depends_on:
           - TASK-003
           - TASK-004
+          - TASK-008
 
       - id: TASK-006
         type: verification
@@ -548,6 +934,15 @@ phases:
           recorded in TASK-002 and TASK-003 (the three false "does not call package
           gate" violations verbatim). If they were never observed red, go back and
           observe them — do not proceed on a green that was never earned.
+
+          THEN RUN THE THREE SHIPPED SPEC-037 E2E TESTS PLUS THIS LANE'S TWO NEW
+          BOUNDARY TESTS (five in total) EXPLICITLY AND REPORT ALL FIVE BY NAME,
+          because they are what the rejected refusal condition would have broken
+          and a package-level green can hide which of them earned it:
+            go test ./cmd/backstop/ -race -count=1 -run \
+              'TestE2E_SubstantivenessInstalledLocalPack_RealGate_HollowRed|TestE2E_SubstantivenessUninstalled_NoVacuousGreen|TestE2E_SubstantivenessMultiRuleDispatch_AndSandboxedConvert|TestE2E_HollowEvidenceBlocksZeroMatchRefusal|TestE2E_HollowEvidenceBlocksRefusal_IsNotVacuous'
+          All five must PASS. If any is red, the refusal condition has been widened past
+          hollow == 0 — fix the condition, never the test.
 
           Then:
             go build ./...
@@ -566,7 +961,9 @@ phases:
           - cmd/backstop/gate.go
           - cmd/backstop/gate_substantiveness_e2e.go
           - pkg/gate/substantiveness_zero_evidence_test.go
+          - pkg/gate/substantiveness_join_nonregression_test.go
           - cmd/backstop/gate_substantiveness_zero_match_e2e_test.go
+          - cmd/backstop/gate_substantiveness_refusal_boundary_e2e_test.go
         claims:
           - CLM-004
           - CLM-005
@@ -575,6 +972,8 @@ phases:
         depends_on:
           - TASK-004
           - TASK-005
+          - TASK-008
+          - TASK-009
 
   - id: phase-2
     name: "Phase 2: Full kill chain and artifact validation"
@@ -601,10 +1000,16 @@ phases:
           WATCH ITEM, and report it either way: this repo dogfoods the substantiveness
           pack against ITSELF, so `gate --all` exercises the very step TASK-005
           rewrote over backstop-core's own real mandated tests. A refusal firing here
-          would mean this repo's own Q2 evidence is empty — which would be a genuine
-          finding worth surfacing, not something to work around. The expected outcome
-          is that it does NOT fire and the substantiveness step behaves exactly as it
-          did before (CLM-007).
+          would mean this repo produced ZERO substantiveness findings of any kind while
+          having join-eligible mandated tests — a genuine finding worth surfacing, not
+          something to work around. The expected outcome is that it does NOT fire and
+          the substantiveness step behaves exactly as it did before (CLM-007).
+
+          If it DOES fire, do NOT reach for condition (c) as the lever — hollow == 0 is
+          the term that makes the refusal safe, and loosening it to quiet this run
+          would reintroduce the exact false refusal this plan revision removed. A
+          refusal here means the dogfood pack genuinely emitted nothing; report that
+          upward as a finding about the repo's own pack installation.
 
           Report TRUE exit codes. Do not promote the plan's status or close ISSUE-113;
           close-out and status promotion are not this lane's to take. Report the
