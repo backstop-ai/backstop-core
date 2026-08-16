@@ -7,3 +7,4 @@
 - [Verify issue premises](feedback_verify_issue_premises.md) — an issue's "no test asserts this" is a claim, not a fact; check source before planning
 - [`code check` is gone](project_code_check_command_removed.md) — the command was removed and its absence is test-asserted; plans must prescribe `backstop gate`
 - [Structural dimensions are non-waivable](project_structural_dimensions_nonwaivable.md) — contract_signature/status_drift/substantiveness excluded from waivableDimension(); a waiver token there is inert, never plan one
+- [Close-out write permission](project_closeout_write_permission.md) — agent-guard keys on NAME; a `closeout-*` agent can't write its own .plan.yml — spawn an unnamed `planner` subagent
