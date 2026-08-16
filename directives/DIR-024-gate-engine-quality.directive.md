@@ -22,11 +22,12 @@ directive:
     - "ISSUE-137"
     - "ISSUE-141"
     - "ISSUE-143"
+    - "ISSUE-145"
 ---
 
 ## Description
 
-Fifteen gate/engine-quality gaps that don't fit the other three newly-added
+Sixteen gate/engine-quality gaps that don't fit the other three newly-added
 directives' themes:
 
 1. **Cross-platform sandbox — Linux is a hard no-op (ISSUE-020).**
@@ -676,6 +677,68 @@ directives' themes:
     backstop-core — version bump + relock, same shape as ISSUE-129's fix
     and this directive's own ISSUE-096/ISSUE-125 precedents for pack-side
     rule/converter precision fixes.
+16. **go-build engine discards `go build`'s stderr — a real compile failure
+    surfaces as an opaque, content-free crash message (ISSUE-145).** `go
+    build ./...` writes all compiler diagnostics to stderr, confirmed by
+    direct repro (`1>out.txt 2>err.txt`: `out.txt` empty, `err.txt` carries
+    the real error). The `backstop-ai/go-toolchain` pack's `go-build` engine
+    binding (`command: go build`, `input_mode: none`, `convert:
+    scripts/build-to-sarif.sh`, `crash_guard: true`) is dispatched through
+    `runFindingsEngine` (`cmd/backstop/pack_gate.go:727`) via
+    `runner.RunStdout` (`pkg/check/runner.go:52`), which captures stdout
+    ONLY — deliberately, per REQ-009/CLM-028, so a rule-fed engine's stderr
+    banner can't corrupt its SARIF stdout payload. That design is correct
+    for rule-fed engines and wrong for `go-build`, whose diagnostic channel
+    IS stderr. Consequence: on a real compile failure the captured stdout
+    buffer is always empty, `build-to-sarif.sh` (which documents that it
+    reads `go build`'s stdout) emits valid-but-empty SARIF,
+    `ParsePackFindings` yields zero violations, and the crash-guard branch
+    (`pack_gate.go:804`, `CrashGuard && runErr != nil && len(violations) ==
+    0`) fires because it cannot distinguish a genuine crash-with-no-output
+    from a failure whose explanation went to an unread stream. The gate
+    reports only `pack backstop-ai/go-toolchain engine "go build" crashed:
+    non-zero exit with no parseable findings: exit status 1` — no file,
+    line, or compiler message.
+    This is categorical, not transient: every real `go build` compile
+    failure under the installed pack (v1.5.0) hits this path, since `go
+    build`'s error channel is always stderr. First observed as a
+    pre-existing, inherited gate failure during `PLAN-ISSUE-124`
+    implementation (2026-08-16), confirmed not a genuine break by running
+    `go build ./...` directly (exit 0 at the time).
+    Why DIR-024 and not DIR-032 "Gate Verdict Honesty" — the pull is
+    obvious and this file has now drawn the line five times (ISSUE-115,
+    ISSUE-125, ISSUE-137, ISSUE-141, ISSUE-135): the gate still correctly
+    reds on a real compile break; the crash-guard is doing exactly its
+    designed job (SPEC-034 REQ-003/CLM-010) of refusing to read
+    zero-findings/non-zero-exit as a silent pass. Nothing here computes or
+    reports a wrong verdict — only the diagnostic content is missing. Same
+    shape as item 15/ISSUE-135 (go-test's bare-basename `File`): wrong or
+    missing DATA on a correct verdict, this directive's charter, not
+    DIR-032's "wrong verdict about a computed result."
+    Not a duplicate of ISSUE-067 (DIR-032 item 2, go-test's opaque crash):
+    that issue's root cause is an extraction bug on data `go test` DOES
+    write to stdout; here the diagnostic text is never even offered to the
+    converter, because it was written to a channel (`stderr`) `RunStdout`
+    discards by design. Checked for siblings: of the three `crash_guard:
+    true` bindings installed in this repo, only `go-build` has this defect
+    — `go-arch-lint` writes native JSON to stdout by its own
+    `--output-type json` contract and doesn't share it.
+    Direction, kept as constraint not design, taken from the issue's own
+    proposal: use the `producer:` mechanism `pack_gate.go:680-725` already
+    supports (an un-sandboxed script that runs in place of the plain
+    command and can merge stdout+stderr itself, today used only by the
+    coverage engine's `coverage-produce.sh`) to merge `go build`'s two
+    streams before `build-to-sarif.sh` sees them — or have
+    `build-to-sarif.sh` invoke `go build ./... 2>&1` as its own subprocess,
+    a bigger shape change to the `input_mode: none` contract worth weighing
+    against the producer option. Whichever shape is chosen, the crash-guard
+    message should carry the captured diagnostic text if the crash-guard
+    branch remains reachable at all after the fix.
+    Fix lives in the pack repo (`backstop-ai/go-toolchain`), not
+    backstop-core — version bump + relock, same shape as this directive's
+    ISSUE-129/ISSUE-135 precedents; `pack_gate.go`'s producer mechanism the
+    fix would use is already shipped core-side and needs no core change to
+    adopt.
 
 ## Notes
 
@@ -1070,3 +1133,28 @@ argument (same-named test files across packages could conflate under
 baseline compare) was considered and is recorded, not dropped — see item
 15 above for the full reasoning and the founder's ruling on why it still
 homes here.
+
+ISSUE-145 filed 2026-08-16, first observed as an inherited pre-existing gate
+failure during `PLAN-ISSUE-124` implementation. Slotted here under the
+standing clear-fit grant; rides on charter fit and displaces nothing — in
+particular it must NOT displace item 1 (ISSUE-020) or the ISSUE-092
+sequencing already recorded in this file. Why DIR-024 and not DIR-032 "Gate
+Verdict Honesty": the issue's own file draws the comparison explicitly and
+this directive's Description (item 16) restates it — the gate still
+correctly reds on a real compile failure, the crash-guard is doing exactly
+its designed job (SPEC-034 REQ-003/CLM-010), and only the diagnostic content
+is missing, not the verdict. Same test this file has now applied six times
+(ISSUE-096, ISSUE-115, ISSUE-125, ISSUE-137, ISSUE-141, ISSUE-135), and the
+closest precedent in shape is item 15/ISSUE-135 (wrong/missing data on a
+correct verdict, this directive's charter). Distinct from ISSUE-067 (DIR-032
+item 2): that is an extraction bug on data present on stdout; this is data
+never offered to the converter because it is on a channel (`stderr`) the
+dispatcher discards by design (REQ-009/CLM-028) — confirmed by the issue
+author as a different root cause, not merely a different symptom.
+Fix lives in the pack repo (`backstop-ai/go-toolchain`) — version bump +
+relock, same shape as this directive's ISSUE-129/ISSUE-135 precedents; no
+backstop-core code change is required, since the `producer:` mechanism the
+fix would use (`pack_gate.go:680-725`) already ships core-side.
+Priority note, stated as observation and explicitly NOT a reorder
+(directive-author has no reorder authority): DIR-024 sits at BACKLOG.yml
+position 5 and this slot does not change its rank.
