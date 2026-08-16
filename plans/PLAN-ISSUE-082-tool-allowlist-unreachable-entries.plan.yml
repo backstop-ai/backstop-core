@@ -1,0 +1,456 @@
+---
+plan_id: PLAN-ISSUE-082
+spec_id: ISSUE-082
+created: "2026-08-15"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./... -race -count=1"
+coverage_threshold: 90
+
+notes: |
+  ══ PREREQUISITE LINEAGE — READ THIS BEFORE TOUCHING allowlist.go ═══════════
+  This plan was BLOCKED when first scoped and is executable only because two
+  specs were amended first, on 2026-08-15, by spec-author, at the founder's
+  explicit direction. A future reader who finds this plan "obvious" is looking
+  at it after the hard part was already done.
+
+  THE BLOCKER. ISSUE-082's Acceptance Criteria assert that "no test currently
+  asserts on the five removed keys" and that the change is confined to
+  allowlist.go. Both were FALSE. Four tests read TrustedToolAllowlist() and
+  assert MEMBERSHIP directly, bypassing the Provision path the issue analyzed.
+  Three of the five keys were load-bearing for MANDATED test names of spec
+  claims, one of them on a spec with status `implemented` — so a code-only
+  removal would have failed the suite AND tripped the artifact_status_drift
+  gate dimension as a broken promise, not merely reddened a test.
+
+  WHAT WAS AMENDED FIRST (both validated clean before this plan was authored):
+    SPEC-038 → v1.2.2. CLM-016 narrowed to grep-only; `rg` was never a real
+      guarantee (no Provision-bearing consumer ever consulted it). Its mandated
+      test was RENAMED TestAllowlist_GrepAndRgPresentPinned →
+      TestAllowlist_GrepPresentPinned. New Sharp Edge 16 records the exact
+      required test-body change and — load-bearing for TASK-002 below —
+      explicitly carves out absence-assertions to ISSUE-082 so the two
+      artifacts never mandate duplicate tests over the same map.
+    SPEC-047 → v1.2.1. CLM-007 narrowed to the pack-declared-data/not-baked
+      half; the allowlist framing was dropped entirely. SPEC-047 also had a
+      REQ-001 and an implementation step that literally MANDATED ADDING the
+      four entries this plan deletes — corrected in the same pass, or this
+      cleanup would have been re-blocked by its own source spec. BOTH test
+      names are PRESERVED; this is an assertion correction, not a rename.
+
+  WHY THE CLAIMS WERE WRONG RATHER THAN THIS ISSUE BEING WRONG. The bun pack
+  declares no `provision:` on any of its five engines, so oxlint/bun/tsc/
+  prettier never reach the allowlist at runtime at all. SPEC-047 CLM-007's
+  allowlist assertion tested a guarantee the code has never delivered — vacuous
+  from inception, not drift. That is the SAME overclaim this plan corrects in
+  TrustedToolAllowlist()'s doc comment, mirrored into a spec claim. Amending
+  the specs is therefore alignment, not weakening a mandated test to pass.
+
+  ── SCOPE BOUNDARY (from the issue; do NOT cross it) ────────────────────────
+  This is dead-code-and-doc-honesty cleanup. It is NOT a functional or security
+  fix and introduces NO new enforcement. Do NOT design or implement governance
+  for pack-declared commands against ungated tools (typescript-toolchain and
+  friends) — BUNDLE-021 owns that question deliberately. If the removal seems
+  to leave a "hole," that hole predates this plan and is BUNDLE-021's to close.
+  Do not defensively re-add an entry to cover it.
+
+  ── CLAIM LEGEND (defined by this plan from the issue's Acceptance Criteria;
+     ISSUE-082 carries no frontmatter claims block) ─────────────────────────
+    CLM-001  TrustedToolAllowlist() contains exactly semgrep, ast-grep, grep —
+             rg, oxlint, bun, tsc, prettier are gone, with their comment blocks.
+    CLM-002  The `// nosemgrep: no-baked-language-token` suppression and its
+             justifying comment block are gone. NOT moved, NOT re-justified.
+             backstop/self is green over the file with NO suppression comment
+             anywhere in it, achieved BY THE REMOVAL — not by a new or reworded
+             suppression covering the same or a different line.
+    CLM-003  The doc comment no longer claims coverage of "any pack-declared
+             command, no matter what a pack declares"; it states the narrower
+             Provision/lock-pin scope the issue actually verified.
+    CLM-004  The provision-block sweep over both repos shows zero Provision-
+             bearing consumers of the five removed tools — the safety
+             precondition that removal cannot break an installed pack.
+    CLM-005  The dependent test bodies are corrected exactly as SPEC-038 Sharp
+             Edge 16 and SPEC-047's implementation note prescribe, and the full
+             suite is green.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Prove the removal is safe, then land it"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Re-run the provision-block sweep and confirm the five tools have zero Provision-bearing consumers"
+        description: |
+          THE SAFETY PRECONDITION. Run this BEFORE any removal. If it comes back
+          dirty, STOP and report — do not proceed to TASK-003.
+
+          A `provision:` block is the ONLY thing that makes an allowlist entry
+          reachable: every call site of CheckToolAllowed returns early on a nil
+          Provision (cmd/backstop/pack_gate.go checkEngineToolAllowed,
+          pkg/pack/manifest.go validateEngine, pkg/packval/executor.go RunEngine,
+          cmd/backstop/pack_gate_provision.go). So "no provision block anywhere"
+          IS the proof an entry is dead.
+
+          SWEEP WIDER THAN THE ISSUE TEXT SAYS. ISSUE-082 specifies
+          `grep -rn "provision:" packs/*/pack.yml` plus the equivalent in
+          ~/src/projects/backstop-packs. That glob MISSES the testdata pack
+          manifests, which are real parsed manifests and could in principle
+          carry a provision. Sweep every pack.yml in the repo:
+
+            grep -rn -A3 "provision:" --include="pack.yml" . ~/src/projects/backstop-packs
+
+          Then confirm ZERO hits for the five target tools:
+
+            grep -rn -A3 "provision:" --include="pack.yml" . ~/src/projects/backstop-packs \
+              | grep -E "tool: (rg|oxlint|bun|tsc|prettier)"
+
+          The second command MUST return empty. Planning ran both on 2026-08-15
+          and measured: every provisioned tool in either repo is one of grep,
+          ast-grep, semgrep, curl, or structural-rewriter — including under
+          cmd/backstop/testdata/**, pkg/gate/testdata/**, and
+          pkg/packval/testdata/**. Reproduce that result; do not assume it.
+
+          FILE SCOPE. This task's real subject is which allowlist ENTRIES are
+          reachable — not which packs happen to exist — so it is scoped to
+          pkg/pack/engine/allowlist.go, the map under examination. This task
+          READS that file and the pack manifests; it MODIFIES nothing. An
+          earlier draft hand-enumerated the three non-testdata provision-bearing
+          manifests; that list was both wrong (this repo has ~18 pack.yml
+          carrying a provision block once testdata is counted) and destined to
+          rot as packs come and go. The sweep command above is the authority on
+          which manifests matter, and it re-derives them every run.
+        files:
+          - pkg/pack/engine/allowlist.go
+        claims:
+          - CLM-004
+        depends_on: []
+
+      - id: TASK-002
+        type: test
+        title: "Add the ISSUE-082-owned absence falsifiers (RED) and correct the three dependent test bodies"
+        description: |
+          TDD RED PHASE. Two different kinds of edit live here; keep them
+          straight.
+
+          ── (A) NEW — the absence falsifiers this plan OWNS ──────────────────
+          New file: pkg/pack/engine/allowlist_reachability_test.go. It goes in
+          its OWN file, not into allowlist_grep_test.go (SPEC-038's) and not
+          into allowlist_test.go (which uses a synthetic realAllowlist() fixture
+          and deliberately tests CheckToolAllowed's logic, NOT the real map's
+          contents). SPEC-038 Sharp Edge 16 explicitly assigns absence
+          assertions to ISSUE-082 so the two artifacts never mandate duplicate
+          tests over the same map — honor that boundary.
+
+          TestAllowlist_UnreachableToolsAbsent (CLM-001) — assert the real
+          TrustedToolAllowlist() contains NONE of rg, oxlint, bun, tsc,
+          prettier, AND that it still contains semgrep, ast-grep, grep. Assert
+          BOTH directions: a bare absence check would pass against an empty map,
+          which would be a vacuous green. This test is RED until TASK-003 lands.
+
+          WHY AN ABSENCE TEST AT ALL, when the issue only asks for a deletion:
+          four of these five entries were originally ADDED "to be safe" against
+          a pack that never consulted them. A deletion with nothing asserting it
+          regresses the moment someone repeats that reasoning. This test is what
+          holds the narrowed doc comment in place.
+
+          TestAllowlist_FileCarriesNoSuppression (CLM-002, CLM-003) — read
+          pkg/pack/engine/allowlist.go from disk and assert it carries no
+          suppression and no surviving overclaim. This is the ONLY mechanical
+          falsifier for the issue's sharpest acceptance criterion: that
+          backstop/self green is achieved BY REMOVAL, not by a reworded
+          suppression. A green self-pack run alone cannot distinguish those two
+          worlds; this test can. RED until TASK-003.
+
+          THERE ARE TWO SUPPRESSION MECHANISMS AND THE TEST MUST CLOSE BOTH.
+          Checking only for "nosemgrep" leaves the backstop-native one wide
+          open: pkg/waiver/waiver.go:54 defines `@waiver:` as a byte-scanned
+          inline marker, and backstop.yml declares NO non-waivable rules — so an
+          `@waiver:` comment on the same line would suppress the self-pack
+          finding AND sail past a nosemgrep-only assertion. That is precisely
+          the hole CLM-002 exists to close. Assert BOTH:
+            - the file contains no "nosem" substring (the shorter form also
+              catches semgrep's `nosem` short directive, not just "nosemgrep")
+            - the file contains no "@waiver:" marker
+
+          ALSO ASSERT (CLM-003, the doc-comment narrowing): the file no longer
+          contains the phrase "no matter what a pack declares". CLM-003 is
+          otherwise unfalsifiable — a prose correction with nothing holding it —
+          and this test already has the file bytes in hand, so the guard costs
+          one line. It fails today and passes only once TASK-003 rewrites the
+          comment.
+
+          READ ERRORS MUST BE FATAL. Write `data, err := os.ReadFile(...)` and
+          `t.Fatalf` on err. A `data, _ :=` that silently yields empty bytes
+          makes every "does not contain" assertion trivially pass — a vacuous
+          green on the one test whose entire job is preventing vacuous green.
+
+          ── (B) CORRECTIONS — prescribed verbatim by the two amended specs ───
+          These are assertion corrections to tests that would otherwise go RED
+          on TASK-003. Follow the specs exactly; do not improvise.
+
+          pkg/pack/engine/allowlist_grep_test.go (SPEC-038 Sharp Edge 16):
+            - RENAME TestAllowlist_GrepAndRgPresentPinned →
+              TestAllowlist_GrepPresentPinned (SPEC-038 v1.2.2 CLM-016 now
+              mandates the new name; the old name must not survive anywhere).
+            - Drop "rg" from `for _, tool := range []string{"grep", "rg"}`,
+              leaving a single-tool present-and-pinned assertion on grep.
+            - Correct the FILE-HEADER comment (lines 8-14), which currently
+              reads "grep/rg being on the backstop-owned TrustedToolAllowlist."
+              Leaving it makes the file contradict itself.
+            - The `|| k == "rg"` branch in TestAllowlist_GrepUnallowlistedFailsLoud's
+              strip loop becomes a harmless no-op once the key is gone and MAY be
+              tidied. Its assertions do NOT change. Optional, not required.
+
+          cmd/backstop/bun_pack_engines_test.go (SPEC-047 v1.2.1 implementation
+          note — do NOT rename either test; both names are preserved):
+            - TestBunPack_EngineCommandsRunThroughDeclaredTrustSubstrate
+              (CLM-007): THREE allowlist-coupled pieces, and the third is NOT a
+              deletion. Read SPEC-047 v1.2.1's Sharp Edge before editing.
+                1. DELETE the `allowlist := engine.TrustedToolAllowlist()`
+                   binding.
+                2. DELETE the per-engine `if _, ok := allowlist[tool]; !ok {…}`
+                   membership check.
+                3. RE-GROUND — do NOT merely delete — the trailing
+                   `if len(tools) != 4 {…}` assertion. Replace it with
+                   `if len(m.Engines) != 5 {…}` and rewrite the failure message
+                   to name the ENGINE-COUNT expectation, not the four tool
+                   names, so no baked tool-name strings survive.
+              WHY THE THIRD ONE IS NOT A DELETION, since deleting it is the
+              obvious reading and it is wrong: that assertion was accidentally
+              the ONLY structural guard on REQ-001's "exactly five engines"
+              property. CLM-001..CLM-006 each assert one NAMED engine is
+              present, so none of them would catch a SIXTH engine being silently
+              added. Deleting the count outright strands REQ-001. Re-grounding it
+              on `len(m.Engines)` moves it onto the pack DATA — the real subject
+              of the narrowed CLM-007 — keeps CLM-007's "five engines" wording
+              honest, and drops the allowlist framing entirely.
+
+              KEEP the per-engine empty-cmd check — the surviving real half of
+              CLM-007. ADD a per-engine assertion that firstToken(cmd) is
+              non-empty so the loop still falsifies a malformed declaration
+              rather than becoming a pass-through. The new `len(m.Engines) != 5`
+              check SUBSUMES the existing `len(m.Engines) == 0` fatal;
+              collapsing the two is fine, provided the zero case still fails
+              loudly BEFORE the loop runs. The `tools` map and the `engine`
+              import may go unused — drop whatever the compiler rejects.
+
+              FIX THIS TEST FILE'S OWN DOC COMMENTS TOO — they carry the exact
+              overclaim this issue exists to delete, and leaving them is the
+              same defect in a different file. Three sites in
+              cmd/backstop/bun_pack_engines_test.go:
+                - the func doc (~lines 165-169): "proves every bun engine's tool
+                  (oxlint/bun/tsc/prettier) is on engine.TrustedToolAllowlist()"
+                - the in-body comment (~lines 176-179): "prove it clears the
+                  trust floor … every command rides the allowlist"
+                - the count comment (~lines 193-194): "four distinct tools …
+                  each allowlisted — the bun toolchain is fully trust-gated"
+              Rewrite all three to the narrowed CLM-007 subject: every command
+              is pack-DECLARED DATA, never a baked-in Go literal, and the pack
+              declares exactly five engines. The same treatment TASK-002 applies
+              to allowlist_grep_test.go's header — applying it there but not
+              here would be arbitrary.
+            - TestBunPack_TscTypecheckDeclaredAsBuild (CLM-003 of SPEC-047):
+              DELETE only the trailing
+              `if _, ok := engine.TrustedToolAllowlist()[firstToken(...)]; !ok {…}`
+              block. KEEP the GateTypeBuild and --noEmit assertions — they are
+              that claim's actual subject and are unaffected.
+
+          ── DO NOT TOUCH (verified safe; flag if tempted) ───────────────────
+          cmd/backstop/gate_contract_e2e_test.go:223 and
+          allowlist_grep_test.go:51 both strip keys via
+          `if k == "grep" || k == "rg" { continue }`. A continue on an absent key
+          is a no-op, so both keep passing unchanged with full falsifying power.
+          workflows_test.go:848 iterates only semgrep/ast-grep and documents that
+          "*" entries are excluded. None of these three need edits.
+
+          RED-PROOF BEFORE MOVING ON: run this plan's declared test_command and
+          confirm the two NEW tests actually FAIL at this commit, and that the
+          three corrected tests PASS. A falsifier that was never observed red is
+          vacuous — and the corrections must be green BEFORE the removal, since
+          their whole purpose is to stop being coupled to it.
+        files:
+          - pkg/pack/engine/allowlist_reachability_test.go
+          - pkg/pack/engine/allowlist_grep_test.go
+          - cmd/backstop/bun_pack_engines_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-005
+        depends_on:
+          - TASK-001
+        test_names:
+          - TestAllowlist_UnreachableToolsAbsent
+          - TestAllowlist_FileCarriesNoSuppression
+          - TestAllowlist_GrepPresentPinned
+          - TestBunPack_EngineCommandsRunThroughDeclaredTrustSubstrate
+          - TestBunPack_TscTypecheckDeclaredAsBuild
+
+      - id: TASK-003
+        type: implementation
+        title: "Remove the five unreachable entries and their suppression, and narrow the doc comment to the real guarantee"
+        description: |
+          GREEN PHASE. One coherent edit to one function — the entry removal and
+          the doc-comment correction are deliberately NOT split, because they are
+          the same overclaim expressed twice and splitting them would have an
+          implementer rewrite the same forty lines in two passes.
+
+          ── (1) DELETE the five entries and every comment block serving them ──
+          From TrustedToolAllowlist() in pkg/pack/engine/allowlist.go remove:
+            "rg", "oxlint", "bun", "tsc", "prettier"
+          KEEP "semgrep" (1.96.0), "ast-grep" (0.43.0), "grep" ("*") — the three
+          with at least one live provision: consumer, as TASK-001 re-measured.
+
+          Delete the comment prose that exists only to justify the removed
+          entries: the Bun/TypeScript-toolchain block (currently lines 34-41,
+          referencing SPEC-047 REQ-001) and the allowlist-KEY-is-not-a-baked-
+          literal block (lines 44-47) that justified the nosemgrep. The grep
+          comment block STAYS but must be trimmed where it speaks for rg as well
+          — it currently reads "grep / ripgrep are the text-presence engines…"
+          and names rg in the same breath. Leaving that behind reintroduces the
+          exact doc/code mismatch this issue exists to fix.
+
+          ── (2) DELETE the suppression ───────────────────────────────────────
+          `// nosemgrep: no-baked-language-token` rides the tsc entry and goes
+          with it. It must be GONE, not moved, not re-justified elsewhere, and
+          not replaced by a differently-worded suppression on another line. The
+          backstop/self rule that fired here was CORRECT — a TypeScript tool name
+          had landed in a core Go file — and the original fix suppressed the rule
+          instead of not adding the entry. Removal is the honest resolution;
+          nothing remains to justify. TASK-002's file-carries-no-suppression test
+          is what mechanically holds this.
+
+          ── (3) NARROW the doc comment ───────────────────────────────────────
+          The current comment claims: "A tool ABSENT from this map may not be run
+          by any pack-declared command, NO MATTER WHAT A PACK DECLARES — this is
+          the non-negotiable security gate." That is FALSE as written and is the
+          substance of this issue. Every call site returns early on a nil
+          Provision, so a pack CAN declare and run commands against tools not on
+          this map, with zero gate involvement — typescript-toolchain does
+          exactly that via `npx --no-install`.
+
+          Rewrite it to state the true, narrower guarantee: this is the trust
+          floor for tools BACKSTOP ITSELF downloads and pins on the user's behalf
+          — the Provision/lock path — and it is consulted ONLY for engine
+          bindings carrying a non-nil Provision block. Say plainly that
+          pack-declared commands against Layer-0/runtime tools a pack invokes
+          directly are outside this gate's reach by construction. Keep the
+          existing accurate material: the pinned version is the REQUIRED version
+          compared against the caller's lock read (CLM-029), and the file's
+          placement in pkg/pack/engine gives validate-time, provision-time, and
+          dispatch-time checks ONE source.
+
+          Do NOT write a comment promising future enforcement, and do NOT
+          reference BUNDLE-021 as though a fix were scheduled here. State what
+          the code does today.
+
+          CheckToolAllowed's own body and doc comment are CORRECT and OUT OF
+          SCOPE — it is a pure function over whatever map it is handed. Do not
+          touch it.
+        files:
+          - pkg/pack/engine/allowlist.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on:
+          - TASK-002
+
+      - id: TASK-004
+        type: verification
+        title: "Run the diff-scoped gate and confirm backstop/self is green over allowlist.go with no suppression"
+        description: |
+          THERE IS NO `backstop code check` COMMAND. It was REMOVED, and its
+          absence is asserted by cmd/backstop/code_check_removal_test.go —
+          invoking it errors with `unknown command "code" for "backstop"`. If
+          you have a habit of reaching for it, or read it in an older plan, that
+          habit is stale. `backstop gate` is the only gate entrypoint.
+
+          Run the diff-scoped inner loop over everything this plan changed:
+
+            ./bin/backstop gate
+
+          Then verify the issue's sharpest acceptance criterion directly.
+          backstop/self must run GREEN over pkg/pack/engine/allowlist.go with NO
+          suppression anywhere in the file. Both halves matter, and the second is
+          the one that can be faked:
+
+            ./bin/backstop gate --file pkg/pack/engine/allowlist.go
+            grep -nE "nosem|@waiver:" pkg/pack/engine/allowlist.go   # MUST be empty
+
+          Grep for BOTH markers, not just nosemgrep. `@waiver:` is backstop's own
+          inline suppression marker (pkg/waiver/waiver.go), backstop.yml declares
+          no non-waivable rules, and a waiver would suppress the finding just as
+          effectively as a nosemgrep — so a nosemgrep-only check would report
+          green on a file that had simply switched suppression mechanisms.
+
+          If the self-pack rule fires again after the removal, that is a REAL
+          finding about the surviving content — semgrep, ast-grep, and grep are
+          language-neutral tool names and should not trip a baked-language-token
+          rule. Report it; do NOT resolve it with a suppression of either kind.
+          Doing so satisfies the letter of "green" while inverting the entire
+          point of this issue, and TASK-002's test would catch it anyway.
+
+          The gate runs the test dimension through the installed packs, so it is
+          also what confirms the two new tests — red at TASK-002 — are now green.
+          Read its test-dimension output; the pack-run is the gate of record.
+        files:
+          - pkg/pack/engine/allowlist.go
+          - pkg/pack/engine/allowlist_reachability_test.go
+        claims:
+          - CLM-002
+          - CLM-005
+        depends_on:
+          - TASK-003
+
+  - id: phase-2
+    name: "Phase 2: Full-gate verification"
+    tasks:
+      - id: TASK-005
+        type: verification
+        title: "Run the full gate and validate the artifacts"
+        description: |
+          THE FULL KILL CHAIN. This plan touches .go files and an artifact file,
+          so both halves run:
+
+            ./bin/backstop gate
+            ./bin/backstop artifact validate
+
+          The gate dimension to watch is artifact_status_drift. It is the reason
+          this plan needed two spec amendments before it could exist: it enforces
+          mandated-test presence for `implemented` specs, and SPEC-047 is
+          implemented. Confirm specifically that it reports NO broken promise for
+          SPEC-047 or SPEC-038 — that both mandated bun test names still resolve
+          (they were preserved, not renamed) and that SPEC-038's CLM-016 resolves
+          to the NEW name TestAllowlist_GrepPresentPinned. A drift hit on any of
+          those three names means TASK-002 renamed something it should not have,
+          or missed the rename it should have made.
+
+          Also confirm the repo is green in FULL SWEEP scope, not merely over
+          this plan's diff — a removal's blast radius is exactly the consumers
+          the diff does not contain:
+
+            ./bin/backstop gate --all
+
+          The issue predicted this change would be inert for the whole suite.
+          That prediction was WRONG about three tests — which is why TASK-002
+          exists — so verify the claim rather than inheriting it. Any remaining
+          failure that names an allowlist key is a consumer the planning sweep
+          missed: report it with the file and line, do not re-add the entry to
+          make it pass.
+
+          FINALLY, flip this plan's own status to `completed` only once all of
+          the above is genuinely green and observed — not asserted.
+        files:
+          - pkg/pack/engine/allowlist.go
+          - plans/PLAN-ISSUE-082-tool-allowlist-unreachable-entries.plan.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+        depends_on:
+          - TASK-003
+          - TASK-004
