@@ -23,12 +23,13 @@ directive:
     - "ISSUE-141"
     - "ISSUE-143"
     - "ISSUE-145"
+    - "ISSUE-147"
 ---
 
 ## Description
 
-Sixteen gate/engine-quality gaps that don't fit the other three newly-added
-directives' themes:
+Seventeen gate/engine-quality gaps that don't fit the other three
+newly-added directives' themes:
 
 1. **Cross-platform sandbox — Linux is a hard no-op (ISSUE-020).**
    `pkg/packval/sandbox.go`'s `SandboxedRun` / `SandboxedRunStdout` dispatch
@@ -739,6 +740,56 @@ directives' themes:
     ISSUE-129/ISSUE-135 precedents; `pack_gate.go`'s producer mechanism the
     fix would use is already shipped core-side and needs no core change to
     adopt.
+17. **A relative `packDir` silently breaks every macOS sandboxed convert
+    step — `sandbox-exec` rejects a relative `subpath` clause and the real
+    diagnostic is discarded, so the caller sees only an opaque `exit status
+    71` (ISSUE-147).** `darwinSandboxProfile`
+    (`pkg/packval/sandbox_nonlinux.go:72-92`) calls
+    `filepath.EvalSymlinks(packDir)` on whatever `packDir` string it is
+    handed, with no `filepath.Abs` call first. `EvalSymlinks` preserves
+    relativity — given a relative path it returns a relative path back — so
+    a relative `packDir` (e.g. `backstop pack test packs/substantiveness`,
+    run from the repo root exactly as `pack test`/`pack check` are normally
+    invoked) embeds a relative `(subpath "packs/substantiveness")` clause
+    into the generated `sandbox-exec` profile. `sandbox-exec` does not
+    treat a relative subpath as cwd-relative; it refuses to apply the
+    profile at all and exits **71** (`EX_OSERR`) — a sandbox bootstrap
+    failure, not a convert-script error, though nothing in the current path
+    says so. Reproduced back-to-back and stable by the discovering
+    implementer: the identical pack, same bytes, same binary, fails on a
+    relative `packDir` and succeeds on an absolute one; `diff -rq` of the
+    two pack trees is clean, ruling out a content difference.
+    Same file, same profile-construction function ISSUE-029 (closed) fixed
+    for a different reason (dyld read denials from an under-scoped
+    allowlist) — that fix established `resolved` must be the
+    kernel-resolved path for a `sandbox-exec` subpath rule to match at all;
+    it did not also establish `resolved` must be absolute, which is the gap
+    this issue closes. Darwin-only, confirmed against
+    `pkg/packval/sandbox_linux.go`: the Linux path establishes its Landlock
+    rules via file descriptors, not a string-matched profile clause, so
+    there is no equivalent failure mode there — scoped entirely to
+    `pkg/packval/sandbox_nonlinux.go`, the same file as item 1 (ISSUE-020).
+    Compounding defect, same file: `platformSandboxedRunStdout`
+    (`sandbox_nonlinux.go:133-149`) sets `c.Stdout` to a buffer but never
+    sets `c.Stderr`, so `sandbox-exec`'s own diagnostic on this failure is
+    discarded before it reaches the operator, leaving only the bare
+    `exit status 71`. Direction, kept as constraint not design, from the
+    issue: (a) call `filepath.Abs(packDir)` before (or as part of) the
+    `EvalSymlinks` call in `darwinSandboxProfile` so the embedded subpath is
+    always absolute regardless of caller input; (b) capture `sandbox-exec`'s
+    stderr on failure in `platformSandboxedRunStdout` (and audit
+    `platformSandboxedRun`'s `CombinedOutput` path for the same gap, though
+    it already interleaves stderr and is expected unaffected) and fold it
+    into the returned error.
+    Why DIR-024 and not DIR-032 "Gate Verdict Honesty" — considered and
+    decided, not skipped: `pack test`/`pack check` already reports SOME
+    failure here — the exit-71 is loud and blocking, not a silent pass —
+    the defect is that the reported diagnostic is wrong/opaque rather than
+    naming the actual sandbox-bootstrap cause. Same "loud red, needs a
+    legible name" shape as item 16/ISSUE-145 (go-build's discarded stderr)
+    and item 15/ISSUE-135 (go-test's bare-basename `File`), both already
+    homed here on that exact reasoning, not DIR-032's "computes a result but
+    reports the wrong verdict about it."
 
 ## Notes
 
@@ -1155,6 +1206,38 @@ Fix lives in the pack repo (`backstop-ai/go-toolchain`) — version bump +
 relock, same shape as this directive's ISSUE-129/ISSUE-135 precedents; no
 backstop-core code change is required, since the `producer:` mechanism the
 fix would use (`pack_gate.go:680-725`) already ships core-side.
+Priority note, stated as observation and explicitly NOT a reorder
+(directive-author has no reorder authority): DIR-024 sits at BACKLOG.yml
+position 5 and this slot does not change its rank.
+
+ISSUE-147 discovered 2026-08-16 by `implementer-issue092` during
+PLAN-ISSUE-092 verification. Slotted here under the standing clear-fit
+grant; rides on charter fit and displaces nothing — in particular it must
+NOT displace item 1 (ISSUE-020) or the ISSUE-092 sequencing already
+recorded in this file. Same file as item 1 (ISSUE-020, `pkg/packval/
+sandbox_nonlinux.go`'s macOS surface) and shares its sandbox-mechanism
+theme, but is a distinct defect: ISSUE-020 is Linux having no sandbox
+mechanism at all; ISSUE-147 is the existing macOS mechanism mis-embedding a
+relative path into its own profile. This directive already owns
+`pkg/packval` sandbox/executor surface — item 1 (ISSUE-020) is
+`sandbox.go`, item 3 (ISSUE-082) and item 13 (ISSUE-141) both touch
+`executor.go` — so a second `sandbox_nonlinux.go` defect has a clear
+existing home.
+The issue author's own file flags that its compounding stderr-discard half
+could arguably fit DIR-032's "opaque crash where a legible finding belongs"
+language. Considered and decided, not left ambiguous: both halves of
+ISSUE-147 stay together in DIR-024, because the primary defect (the
+relative-path profile bug) is unambiguously a DIR-024 fit — `pack test`/
+`pack check` already reports a loud, blocking failure (exit 71), just with
+the wrong diagnostic content — the same "loud red, needs a legible name"
+shape this directive has already drawn for item 16/ISSUE-145 and item
+15/ISSUE-135, not DIR-032's "computes a result but reports the wrong
+verdict about it." Splitting the stderr-discard half into a separate
+DIR-032 issue would fragment one fix (both changes land in the same
+function pair, same commit, same version bump upstream if this were a
+pack — but it is not; both fixes are backstop-core-native since
+`pkg/packval/sandbox_nonlinux.go` is core code, not a pack) for no
+charter gain.
 Priority note, stated as observation and explicitly NOT a reorder
 (directive-author has no reorder authority): DIR-024 sits at BACKLOG.yml
 position 5 and this slot does not change its rank.
