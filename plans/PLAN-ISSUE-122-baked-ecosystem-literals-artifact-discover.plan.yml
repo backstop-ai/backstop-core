@@ -2,13 +2,176 @@
 plan_id: PLAN-ISSUE-122
 spec_id: ISSUE-122
 created: "2026-08-15"
-status: draft
+status: completed
 target_repo: backstop-core
 target_module: github.com/backstop-ai/backstop-core
 test_command: "go test ./pkg/artifact/... ./pkg/pack/... ./pkg/gate/... ./cmd/backstop/... -race -count=1"
 coverage_threshold: 90
 
 notes: |
+  ═════════════════════════════════════════════════════════════════════════
+  AS-BUILT — CLOSED 2026-08-16. Everything below this banner is the plan AS
+  AUTHORED, preserved verbatim as the historical record. This banner is the
+  layer over it, not a replacement for it.
+  ═════════════════════════════════════════════════════════════════════════
+
+  DELIVERED. `vendor` and `node_modules` no longer exist as executable
+  literals anywhere in core. pkg/artifact's shared list is now
+  {`.git`, `testdata`, `prototype`}; the ecosystem nouns arrive as
+  PACK-DECLARED DATA via `classification.dependency_dirs`, merged across the
+  full installed-pack set by `mergeDependencyDirs`
+  (cmd/backstop/pack_dependency_dirs.go) and injected into both corpus walks
+  as `artifact.NonCorpusDirs`.
+
+  COMMITS
+    4dbf64b  fix(ISSUE-112/113/118/122): overnight P0 batch — 4 real gate
+             defects. ISSUE-122 shipped inside a shared four-lane commit; the
+             other three lanes are independent defects that happened to share
+             the working tree.
+    6c9ead3  chore: agent-memory + directive triage from the same batch.
+
+  WHAT LANDED, BY PHASE — all 17 tasks complete, none dropped.
+    Phase 1 (TASK-001..003) — the data channel. `Classification.DependencyDirs`
+      on pkg/pack/manifest.go, `mergeDependencyDirs` in a new
+      cmd/backstop/pack_dependency_dirs.go. Parsing is additive: a manifest
+      with no `classification:` block still parses exactly as before.
+    Phase 2 (TASK-004..006) — de-baking pkg/artifact. `nonCorpusDirNames`
+      shrunk to the three tool-agnostic names; `NonCorpusDirs` /
+      `NewNonCorpusDirs` / `Excludes` added, stdlib-only, with the zero value
+      falling back to the generic base exactly as CLM-004 specified.
+    Phase 3 (TASK-007..009) — the 5-hop threading. Both walks take the set
+      explicitly; every gate.go hop threads from ONE local derived beside
+      `mergeSourceClassifier(packs)`, and no call site writes a literal.
+      Thirteen test files' call sites updated for arity.
+    Phase 4 (TASK-010..013) — E2E falsification plus the pack releases.
+      Fixture at cmd/backstop/testdata/noncorpus-declared/. go-toolchain
+      v1.5.0 (`vendor`), typescript-toolchain v1.3.0 and bun-toolchain v1.3.0
+      (`node_modules`) — all three tagged and pushed. backstop.yml pins
+      go-toolchain 1.5.0; backstop.lock records git_ref v1.5.0.
+    Phase 5 (TASK-014..017) — spec reconciliation, all four via spec-author,
+      none hand-edited. SPEC-068 (three contract signatures, CLM-062's claim
+      text, Sharp Edge 12 marked RESOLVED), SPEC-043 (all three
+      Classification sites), SPEC-070 (REQ-007's mechanism, the site-2
+      paragraph, the restated signature, the checkArtifactLayout contract
+      note), SPEC-069 (Sharp Edge 5 discharged).
+
+  TASK-012 DID NOT STOP. The plan deliberately wrote it as a task designed to
+  stop and report if either Node-ecosystem pack repo was mid-flight. Both were
+  free and both shipped, so the window this plan named is CLOSED for every
+  ecosystem that has a pack today.
+
+  ── AS-BUILT DELTAS — where the plan was wrong or incomplete ─────────────
+  1. `.gitignore` NEEDED AN EXCEPTION THE PLAN NEVER SCOPED. This repo's
+     `.gitignore` carries a real `node_modules/` rule, which silently
+     swallowed the fixture's own planted
+     `cmd/backstop/testdata/noncorpus-declared/node_modules/` tree — the very
+     directory under test. A `!`-prefixed re-inclusion for that one path was
+     added, with a comment saying why. The implementer flagged the edit as
+     outside its declared file scope rather than absorbing it silently, and it
+     was accepted. Any future plan planting a fixture inside an ignored tree
+     inherits this trap.
+  2. `BUNDLE-999` IS NOT A LEGAL `supports` REF. TASK-010 mandated the
+     vendored fixture spec carry `supports: "BUNDLE-999:REQ-001@1.0.0"`
+     naming a bundle that exists nowhere. `supportsRe` requires a
+     lowercase-kebab bundle name, so that literal would have made the payload
+     INVALID — violating the same task's own "every planted artifact must be a
+     valid, parseable artifact" rule. The fixture uses `absent-fixture-bundle`
+     instead: same semantics (an unresolvable citer), legal shape. The
+     falsifier works as designed.
+  3. TASK-015 STEP 3's GREP WORDING WAS SLIGHTLY WRONG, and the deviation was
+     flagged rather than rationalized. The step said the sweep must return
+     hits "ONLY in test files and testdata fixtures". It returns five hits in
+     PRODUCTION files — pkg/pack/manifest.go, pkg/artifact/layout.go,
+     cmd/backstop/pack_dependency_dirs.go, cmd/backstop/artifact_discover.go
+     and cmd/backstop/doctor_checks.go — every one an EXPLANATORY COMMENT
+     naming the nouns in order to say core no longer holds them. Zero quoted
+     literals remain in any code path. The invariant holds; the step's wording
+     simply did not anticipate that de-baking something requires writing down
+     what was de-baked.
+  4. THE PACK TAG WAS A REAL STOP, AND THE RIGHT ONE. The first implementer
+     completed 14 of 17 tasks and HELD, refusing to push go-toolchain's v1.5.0
+     tag on its own authority — that is a public release tag other consumers
+     resolve against. It reported the hold with the core change complete and
+     green and the exposure named (a downstream Go consumer with a `vendor/`
+     tree, until the pack ships; backstop-core has none). The push was taken
+     and TASK-011/013 finished from the relock.
+
+  ── EVIDENCE AT CLOSE ────────────────────────────────────────────────────
+  RE-VERIFIED DIRECTLY AT THIS CLOSE-OUT (2026-08-16, at HEAD 6c9ead3):
+    - All 20 mandated test names in this plan's `test_names` fields EXIST in
+      the tree, in the packages the plan named. None renamed, none dropped.
+      TestFindUngatedArtifacts_ExcludesEnumeratedNonCorpusTreesButWalksDotBackstop
+      — SPEC-068's mandated name, the one the plan singled out because the
+      status-drift dimension resolves it by EXISTENCE — survives at
+      pkg/gate/ungated_artifacts_test.go with its body corrected.
+    - pkg/artifact/layout.go's base list is exactly {`.git`, `testdata`,
+      `prototype`}.
+    - The production-file sweep returns five hits, all comments (delta 3).
+    - All three pack repos: clean trees, tags present and pushed —
+      go-toolchain v1.5.0 (8f117a8), typescript-toolchain v1.3.0 (e42ad79),
+      bun-toolchain v1.3.0 (6acc359). Each pack.yml carries `dependency_dirs`.
+    - backstop.yml pins go-toolchain 1.5.0; backstop.lock records
+      git_ref v1.5.0, install_date 2026-08-16T15:29:16Z.
+    - The reconciled specs carry the shipped shapes: SPEC-068 and SPEC-070
+      both show the three-parameter `FindUngatedArtifacts`; SPEC-043's
+      Classification contract carries `DependencyDirs`.
+  CARRIED FROM THE IMPLEMENTATION LANE, NOT RE-RUN HERE — other agents hold
+  uncommitted edits in this shared tree, so a full suite or `gate --all` from
+  this close-out would race them:
+    - Full `-race` suite green across pkg/artifact, pkg/pack, pkg/gate and
+      cmd/backstop; 17 packages.
+    - Diff-scoped `backstop gate` green over all eight production files,
+      including `contract_signature` against the corrected SPEC-068
+      signatures.
+    - Every mandated test written RED first and watched fail for the right
+      reason. The three production wiring sites, reverted ONE AT A TIME,
+      produced three DISTINCT reds: the `FindUngatedArtifacts` argument
+      reddened on all four planted files, while the `ValidateConfig.NonCorpus`
+      field reddened on exactly one, through the corpus-resolution pass. Two
+      independent mechanisms, not one test double-counted — which is the
+      specific thing TASK-010 was written to prove.
+    - `backstop artifact validate` clean on all five artifacts (this plan plus
+      SPEC-068, SPEC-043, SPEC-070, SPEC-069).
+    - Both canonical corpus-wide sweeps re-run at the end of phase 5, with
+      zero surviving drift.
+
+  ── THE ONE THING THIS PLAN COULD NOT PROVE, RESTATED HONESTLY ───────────
+  TASK-010's own residual stands as written and was NOT closed: no test in
+  this repository can observe whether `buildGateSteps` hands the traceability
+  hop the pack-derived set or a literal zero value, because that difference
+  has no behavioral consequence anywhere downstream. What guards that seam is
+  the explicit-parameter rule plus the single-local threading, both confirmed
+  by review. Documented, not defaulted away.
+
+  ── PROCESS RECORD ──────────────────────────────────────────────────────
+  EIGHT plan-review rounds (plan-reviewer-issue122 v1–v8) and six planner fix
+  passes. The last four rounds were all the same failure class: drift sweeps
+  read too narrowly or read too fast. Rounds 2 and 3 each missed a drifted
+  implemented spec (SPEC-043, then SPEC-070 REQ-007); rounds 5 and 6 invented
+  a nonexistent "third sweep axis" to explain three SPEC-070 sites the
+  existing signature sweep had always returned — the real failure there was
+  eyeballing past real hits in a long result set. v8 PASSED, confirming the
+  5-hop threading instruction is exactly five hops with no sixth. That history
+  is why this plan states its two sweeps ONCE, byte for byte, and carries a
+  FINDING test for what counts as drift.
+  THREE implementer dispatches, one of which held for the tag push (delta 4).
+  NO impl-reviewer round was run on this lane — the verification carried above
+  is the implementer's own falsification work plus this close-out's
+  re-verification, and that is stated rather than implied.
+
+  ── FOLLOW-ONS, FILED NOT ABSORBED ──────────────────────────────────────
+  - ISSUE-139 —
+    `TestInit_ChangesNoGatePackageFileAndDoesNotMaskTheRemotelessMessage`
+    fatals on ANY concurrent pkg/gate dirt; its predicate is "is pkg/gate
+    dirty", not "did init touch pkg/gate". Filed at 80c70ba, before this
+    lane's commit. The implementer disproved ownership with a CONTROL RUN —
+    it fails identically with all ISSUE-122 pkg/gate work reverted — rather
+    than reasoning about it.
+  - The `backstop/self` dogfood pack's blind spot for skip-list / exclusion
+    literals, which is ISSUE-122's own secondary finding, is NOT closed by
+    this plan. The pack would still not catch a re-baked directory-name
+    literal today. It remains the self-pack's follow-on.
+
   Implements ISSUE-122 — `vendor` (a Go noun) and `node_modules` (a Node/npm noun)
   are baked into core as artifact-corpus exclusion literals. This is the
   zero-baked-language invariant's own target: CLAUDE.md's first principle says core

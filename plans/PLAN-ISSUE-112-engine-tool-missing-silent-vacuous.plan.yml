@@ -2,13 +2,129 @@
 plan_id: PLAN-ISSUE-112
 spec_id: ISSUE-112
 created: "2026-08-15"
-status: draft
+status: completed
 target_repo: backstop-core
 target_module: github.com/backstop-ai/backstop-core
 test_command: "go test ./cmd/backstop/... -race -count=1"
 coverage_threshold: 90
 
 notes: |
+  ══ CLOSED 2026-08-16. THE FIX SHIPPED IN 4dbf64b. ═════════════════════════
+  All eight claims CLM-001..CLM-008 are met. The plan below is the historical
+  record and is NOT rewritten; everything the as-built did differently is under
+  AS-BUILT DELTAS.
+
+  ── CORRECTION FOR THE RECORD (the batch message is misleadable here) ──────
+  4dbf64b's ISSUE-112 paragraph says the fix "widened the 'process never
+  started' check from *exec.Error-only to also match fork/exec *fs.PathError".
+  READ AS AN IN-TREE CORRECTION THAT IS FALSE: no *exec.Error-only check ever
+  reached the tree on the gate dispatch path. The narrow shape it widens FROM is
+  pkg/packval/executor.go's pre-existing check — a different command's executor,
+  which this lane deliberately did not touch (see ISSUE-140 below). The plan as
+  committed at 3fd5b0b already mandated BOTH shapes under one predicate before
+  any code was written ("One predicate, both shapes", CLM-004/CLM-005), so the
+  wide predicate is what the implementer built first, not a repair.
+
+  ⚠ READ FIRST — 4dbf64b IS A FOUR-LANE BATCH COMMIT, NOT AN ISSUE-112 DIFF.
+  It is titled "fix(ISSUE-112/113/118/122): overnight P0 batch — 4 real gate
+  defects" and carries ISSUE-112, ISSUE-113, ISSUE-118 and ISSUE-122 together,
+  landed out of one shared working tree. A reader who `git show`s it will see
+  ~24 cmd/backstop files plus pkg/ and specs/ changes, MOST OF WHICH BELONG TO
+  THE OTHER THREE LANES. ISSUE-112's share of that commit is exactly these nine
+  files and nothing else:
+    cmd/backstop/pack_gate_provision.go              production — the presence check
+    cmd/backstop/pack_gate.go                        production — the never-started refusal
+    cmd/backstop/gate.go                             production — ONE call-site line
+    cmd/backstop/pack_gate_provision_test.go         rewritten + new presence tests
+    cmd/backstop/dispatch_provision_test.go          two of the four name-continuity rewrites
+    cmd/backstop/semgrep_unchanged_test.go           the other name-continuity rewrites
+    cmd/backstop/dispatch_unstartable_engine_test.go NEW — dispatch refusal, both channels
+    cmd/backstop/gate_provision_dedicated_step_test.go NEW — the CLM-002 exclusion-hole pins
+    cmd/backstop/gate_absent_engine_tool_e2e_test.go NEW — the CLM-008 e2e
+  Attributing anything else in 4dbf64b to this plan is a misread of the batch.
+  Two adjacent commits complete the lane's record: 3fd5b0b (this plan, 5 review
+  rounds) and 6c9ead3 (agent-memory + directive triage from the same batch).
+
+  ── WHAT LANDED, BY PHASE ──────────────────────────────────────────────────
+  CITE BY NAME, NOT BY LINE. Every line number in the plan body below was taken
+  at HEAD 872bc9c and is now STALE — the three sibling lanes named under LIVE
+  SIBLING PLANS all landed in the same commit and shifted gate.go and
+  pack_gate.go substantially. Re-locate by function name.
+
+  Phase 1 (CLM-001/002/003/007) — `provisionEngines` (pack_gate_provision.go)
+    no longer `continue`s past a non-nil Provision: the `Provision != nil {
+    continue }` skip is GONE, and a pinned binding is presence-probed exactly as
+    an assume-present one is. The refusal message is built by the new
+    `absentToolMessage(requiredTool)`, which names the probed argv[0] AND the
+    Provision.Tool + pinned version, per plan note 4. At the gate call site
+    (gate.go, inside `buildGateSteps`) the provisioning set is now the FULL
+    installed-pack set — `provisionEngines(packs)`, not the post-exclusion
+    `dispatchPacks` — while `dispatchPacks := excludeDedicatedStepRules(packs)`
+    survives unchanged for dispatch, which is precisely the CLM-002 split. The
+    walk stayed RULE-driven, so the declared-but-unbound sharp edge holds.
+  Phase 2 (CLM-004/005/006) — `runNeverStarted(runErr error) bool` in
+    pack_gate.go is the single predicate, and it covers BOTH shapes the plan
+    demanded: `*exec.Error` and `*fs.PathError` with `Op == "fork/exec"`. It has
+    THREE call sites — `runFindingsEngine` once (CrashGuard-independent) and
+    `runCoverageEngine` on BOTH branches, replacing the two `_ = runErr`
+    discards. The coverage-producer call site carries an inline comment
+    recording WHY the wider shape is load-bearing there (an os.Stat-guarded
+    path-ful command can never yield an `*exec.Error`), which is the reasoning
+    this plan feared would be lost.
+  Phase 3 (CLM-008) — gate_absent_engine_tool_e2e_test.go hand-builds its
+    workspace as TASK-009 required; it did NOT write to
+    gate_substantiveness_e2e.go, which stayed PLAN-ISSUE-113's this cycle.
+
+  ── EVIDENCE AT CLOSE ──────────────────────────────────────────────────────
+  RE-VERIFIED DIRECTLY AT THIS CLOSE (read-only, non-racing — other implementer
+  lanes were live in the tree, so no build/gate/suite run was taken; see
+  MEMORY feedback_no_verify_race_with_active_implementer):
+    - the `Provision != nil { continue }` skip is absent from pack_gate_provision.go
+    - `provisionEngines(packs)` is the gate call site; `dispatchPacks` is still
+      derived and still feeds dispatch only
+    - `runNeverStarted` exists, matches both error shapes, three call sites
+    - THE `bridged` TRIPWIRE HELD: `grep -c bridged cmd/backstop/gate.go` = 0,
+      so gate_bridge_deletion_test.go's whole-file assertion is intact after
+      TASK-004 rewrote the comment block it guards
+    - all 17 mandated test names present across the six scoped test files
+    - SPEC-034 has ZERO diff in 4dbf64b — the tombstone was respected exactly
+  CARRIED FROM THE IMPLEMENTATION/VERIFICATION SESSIONS, NOT RE-RUN HERE: the
+  red-proofs required by the FALSIFICATION BAR, the per-phase gates, the full
+  -race suite (17 packages green, with the ISSUE-139 init/pkg-gate-dirt failure
+  already filed and expected to clear once the batch landed), and the CI
+  blast-radius re-check of the semgrep/ast-grep install steps.
+  `./bin/backstop artifact validate --plan PLAN-ISSUE-112` is clean.
+
+  ── AS-BUILT DELTAS ────────────────────────────────────────────────────────
+  1. THE SPEC-031 AMENDMENT IS DONE, NOT OUTSTANDING. The section above titled
+     "SPEC PROSE THIS LANE KNOWINGLY LEAVES STALE" assigns the dispatcher a
+     post-landing follow-on: amend SPEC-031's CLM-042/CLM-043 prose via
+     spec-author. That amendment ALREADY LANDED, inside this same commit
+     4dbf64b (specs/SPEC-031-pluggable-engine-dispatch.spec.md, +92/-18,
+     authored by spec-author, never hand-edited). SPEC-031 now sits at
+     spec_version 1.1.1: REQ-019 corrected, CLM-042/CLM-043 rewritten to the
+     fail-loud contract with their TEST NAMES DELIBERATELY PRESERVED (the
+     continuity decision of CLM-007, now recorded in the spec itself), two new
+     PASS-cell claims added so the presence check cannot be satisfied by
+     refusing every binding, plus a sharp edge and an ISSUE-112 lineage entry.
+     Nothing here is left for a future dispatcher to pick up.
+  2. SPEC-034 CORRECTLY UNTOUCHED — verified above. The plan's instruction to
+     leave the tombstoned terminal spec alone was followed.
+  3. Line numbers throughout the plan body are stale; see the CITE BY NAME note.
+
+  ── FOLLOW-ONS, BOTH FILED ─────────────────────────────────────────────────
+    ISSUE-134 — doctor's toolchain-runs check never probes findings-engine
+      tools, so `backstop doctor` reports a healthy project whose findings
+      dimensions cannot run. This is the recommendation under the "`backstop
+      doctor`: DELIBERATELY OUT OF SCOPE" section, filed and citing ISSUE-112.
+    ISSUE-140 — a sibling defect in pkg/packval/executor.go, found by this
+      plan's own investigation and filed separately: its never-started check is
+      still `*exec.Error`-only, so a path-ful pack engine that cannot start
+      still reads clean under `backstop pack test` / `pack check`. Different
+      command, different lane; not duplicated in this banner.
+
+  ═══════════════════════════════════════════════════════════════════════════
+
   Implements ISSUE-112 (DIR-032 "Gate Verdict Honesty", cluster item 6 — the
   silent-pass-on-a-missing-engine-tool variant). TWO production files carry the
   behavior change plus ONE call-site line in a third. Everything else is tests.

@@ -2,13 +2,159 @@
 plan_id: PLAN-ISSUE-113
 spec_id: ISSUE-113
 created: "2026-08-15"
-status: draft
+status: completed
 target_repo: backstop-core
 target_module: github.com/backstop-ai/backstop-core
 test_command: "go test ./pkg/gate/... ./cmd/backstop/... -race -count=1"
 coverage_threshold: 90
 
 notes: |
+  ══ CLOSED 2026-08-16. THE FIX SHIPPED IN 4dbf64b. ══════════════════════════
+  All eight claims CLM-001..CLM-008 are met. The as-built matches the plan below;
+  no AS-BUILT DELTAS — nothing the plan asserted about the shipped shape was wrong.
+
+  ── CORRECTION FOR THE RECORD (read this before the commit message) ────────
+  4dbf64b is an overnight BATCH commit spanning four lanes (ISSUE-112/113/118/122),
+  and its message can be misread as implying the narrow `(eligible >= 1 &&
+  extraction == 0)` refusal condition was ever a SHIPPED defect that this lane then
+  corrected. IT WAS NOT. The narrow form existed ONLY in this plan's round-1 draft
+  and was caught in plan review ROUND 2, before a single line of code was written
+  against it. `git show c61ec1d` — the commit that put this plan in the tree, made
+  BEFORE implementation began — already carries the corrected three-term condition
+  verbatim at "(c) the routed hollow partition is EMPTY". No production code ever
+  held the narrow predicate, and no test ever went red on it. A future reader
+  working from the batch commit message alone must not record a defect that never
+  reached the tree.
+
+  ── WHAT LANDED (4dbf64b; plan committed c61ec1d, agent-memory in 6c9ead3) ──
+    pkg/gate/substantiveness_join.go          JoinEligibleForNoTarget (:114) and
+                                              SubstantivenessEvidenceRefusal (:175)
+    cmd/backstop/gate.go                      the two-pass rewrite of
+                                              buildTestSubstantivenessStep and the
+                                              short-circuit (:1370 at close)
+    pkg/gate/substantiveness_zero_evidence_test.go            3 unit pins
+    pkg/gate/substantiveness_join_nonregression_test.go       3 non-regression pins
+    cmd/backstop/gate_substantiveness_e2e.go                  zero-match harness
+    cmd/backstop/gate_substantiveness_zero_match_e2e_test.go  3 e2e
+    cmd/backstop/gate_substantiveness_refusal_boundary_e2e_test.go  2 e2e
+
+  ── THE CONDITION AS SHIPPED, AND WHY EACH TERM IS LOAD-BEARING ────────────
+  The predicate is expressed as its NEGATION and refuses iff all three hold:
+      if eligible < 1 || extraction > 0 || hollow > 0 { return no refusal }
+  i.e. refuse iff `eligible >= 1 && extraction == 0 && hollow == 0`.
+    • eligible >= 1 makes the refusal PRECISE rather than paranoid: it fires only
+      when the step is about to emit at least one violation it cannot justify. A
+      project whose mandated tests are all same-package, all `kind: absence`, or all
+      out of scope legitimately produces an empty evidence set and MUST still pass.
+      Eligibility is `NoTargetViolationForTest(mt, ReferencedSymbolSet{}, ...)` —
+      the decision table itself, not a copy of its predicates — so the guard and the
+      loop it guards cannot drift apart.
+    • extraction == 0 is the starved-join signal the lane exists for.
+    • hollow == 0 is the term a later reader is most likely to delete as redundant,
+      and deleting it reintroduces a MEASURED false refusal. Hollow evidence is
+      core's only independent proof that the pack's engine ran and classified test
+      files, so hollow > 0 FALSIFIES the very diagnosis the message makes; refusing
+      there would also discard true hollow findings with no vacuous green to
+      prevent (the gate is already RED on the same files). The concrete case: the
+      shipped newE2EWorkspace fixture is (eligible 1, extraction 0, hollow 1) and
+      without this term refuses, discarding its true hollow violation and breaking
+      TestE2E_SubstantivenessInstalledLocalPack_RealGate_HollowRed.
+  The short-circuit passes `len(hollow)` — the ROUTED partition, deliberately NOT
+  the scope-FILTERED violation count. Both counts pull the same conservative way:
+  any pack output at all, even for a file this run is not looking at, blocks the
+  refusal. "Tidying" it to the filtered count makes refusal MORE likely, which is
+  the wrong direction.
+
+  ── ConfigErr: UNSUPPRESSIBLE BY CONSTRUCTION, NOT BY CONVENTION ───────────
+  The refusal is disposed as StepResult.ConfigErr, and that flag does three
+  mechanical jobs — remove it "for tidiness" and all three go at once:
+    1. Gate.Run halts the remaining steps and returns exit 2, so the operator reads
+       ONE message instead of scrolling a wall;
+    2. waiver_resolution is ordered AFTER substantiveness and therefore never
+       executes — the refusal is STRUCTURALLY UNWAIVABLE, not merely un-waived.
+       TestE2E_ZeroMatchClassification_RefusalIsNotWaivable proves this with the
+       most permissive reader constructible: a LineReader handing out a valid,
+       non-expired @waiver:test_substantiveness token for EVERY line queried. It
+       suppresses nothing.
+    3. ApplyPolicy skips ConfigErr steps, so it cannot be baseline-grandfathered
+       into silence either.
+
+  ── THE THREE-WAY NON-VACUITY PROOF ────────────────────────────────────────
+  Over the SAME workspace and the SAME real dispatch path (real local pack install
+  → real ast-grep → convert-under-sandbox → route → join):
+      control  UNPATCHED pack           → 0 violations   (the tests are genuinely fine)
+      before   ZERO-MATCH pack, pre-fix → 3 noTarget violations, all FALSE
+      after    ZERO-MATCH pack, post-fix→ exactly 1 refusal, ConfigErr true
+  The control row is the load-bearing one: it is what makes the middle row a PROVEN
+  falsehood rather than an assertion about one, and it is green on both sides of the
+  fix by design. Three mandated tests rather than one is also load-bearing — the
+  defect is "N misleading violations instead of 1", so N must be > 1 for the fix to
+  read as a COLLAPSE rather than a rewording. ast-grep absence is a t.Fatal via
+  requireAstGrepE2E, never a t.Skip.
+
+  ── THE TWO RESIDUALS: ACCEPTED AND DISCLOSED, NOT CHASED ──────────────────
+  Both survive into the shipped code, documented on SubstantivenessEvidenceRefusal
+  itself. Neither is a bug to quietly widen or narrow the predicate for.
+    RESIDUAL 1 — UNDER-refusal at hollow > 0: a pack that bakes its globs on the Q2
+    rule ONLY, leaving Q1 healthy, lands in the non-refusing branch and its noTarget
+    wall is not collapsed. Covering it costs either true hollow findings or a
+    manufactured vacuous green. Both incidents ISSUE-113 was filed from land in the
+    hollow == 0 branch and ARE covered.
+    RESIDUAL 2 — OVER-refusal at hollow == 0: a test asserting only through an
+    UNQUALIFIED helper call (`assertEqual(t, got, "x")`) matches the pack's
+    assertion-vocabulary regex (so no Q1 finding) while failing the Q2 rule's
+    selector_expression callee requirement (so no Q2 finding) — zero findings from
+    both rules, EMPIRICALLY verified against real ast-grep, not reasoned. Such a
+    workspace refuses while suppressing noTarget verdicts that were TRUE.
+  Both are ACCEPTED because core has NO observable that separates them from a
+  genuinely starved pack: packs are opaque by design, and all three causes present
+  as the identical empty result. The alternative — an unfalsifiable predicate that
+  pretends to tell them apart — would require information packs do not provide. The
+  mitigation shipped instead is HONESTY: the single message states the observed fact
+  first and names all THREE candidate causes without asserting any, so an operator
+  over a bare-helper-assertion codebase is pointed at their own test style rather
+  than told falsely that their pack is broken. That third cause is the whole
+  mitigation for Residual 2 and must not be trimmed to a confident diagnosis. It is
+  worded without the substring "hollow" on purpose, and a unit pin holds that.
+  If either residual is observed in the wild it is a NEW issue with new evidence —
+  and Residual 2's plausible fix lives in the PACK (a Q2 rule that also extracts
+  bare-call symbols), not in a core predicate.
+
+  ── SCOPE DELIBERATELY NOT TAKEN ───────────────────────────────────────────
+  ISSUE-113's Direction names two triggers; only the second was implementable here.
+  The first — "the core classifier matches zero test files" — leaves every
+  MandatedTest.FilePath == "", which the loop already `continue`s on and which the
+  test_verification step already owns and reports per test with the right words.
+  Taking it would produce two reports of one fact. The PACK's own glob
+  classification, which is what actually failed in both observed incidents, is not
+  inspectable by core at all (thin executor), so the message names it as ONE
+  candidate cause among three and never as a diagnosis. ISSUE-112 owns the upstream
+  half of cause (1) — a missing engine tool returning empty SARIF instead of failing
+  loud — and shipped in the same batch.
+
+  ── EVIDENCE AT CLOSE (split by who read it) ───────────────────────────────
+  RE-VERIFIED DIRECTLY AT CLOSE: the shipped predicate body and its negated form;
+  the short-circuit passing len(hollow) rather than the filtered count; all 11
+  mandated test names present at their planned paths (6 in pkg/gate — 3 in
+  substantiveness_zero_evidence_test.go, 3 in substantiveness_join_nonregression_test.go;
+  5 e2e in cmd/backstop across the zero-match and refusal-boundary files); and
+  `git show c61ec1d` confirming the committed plan carried condition (c).
+  CARRIED FROM THE PRIOR VERIFYING SESSION, not re-run here: that all 11 tests PASS,
+  that the two shipped SPEC-037 tests the rejected narrow condition would have broken
+  (TestE2E_SubstantivenessInstalledLocalPack_RealGate_HollowRed and
+  TestE2E_SubstantivenessUninstalled_NoVacuousGreen) both PASS, and the clean
+  `artifact validate --plan` at draft. Test runs were NOT repeated at close: other
+  implementers are active in this shared tree and a racing full-suite run would
+  produce a reading about their in-flight state, not about this lane.
+
+  ── FOLLOW-ON FILED, NOT ABSORBED ──────────────────────────────────────────
+  ISSUE-138 ("Three SPEC-041 Claims Carry Dormant test_substantiveness Violations in
+  Untouched Files") was DISCOVERED during this work: two further dormant
+  substantiveness-class test files, outside this plan's diff. Filed separately and
+  deliberately NOT fixed here — fixing them would have widened a lane whose whole
+  argument rests on a narrow, provable diff.
+  ═══════════════════════════════════════════════════════════════════════════
+
   Implements ISSUE-113. Two production files, one new harness helper, four new test
   files, two verification passes. Nine tasks. Nothing else is in scope.
 

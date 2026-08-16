@@ -27,6 +27,12 @@ information an AS-BUILT DELTAS section exists to record.
 - Older plans prescribe `backstop code check` in their verification tasks. That command was
   REMOVED (ISSUE-018) and its absence is now asserted by a shipped test. Record it as an
   as-built delta; do not edit the task text, and never carry that string into a new plan.
+- **When the code landed in a MULTI-LANE BATCH commit, the batch message is a poor
+  provenance record** — it can read as though a defect caught in plan REVIEW was actually
+  shipped and then corrected. Establish what the plan said BEFORE implementation with
+  `git show <the plan's own commit>`, and if the batch message is misleadable, put an
+  explicit "CORRECTION FOR THE RECORD" paragraph at the TOP of the banner naming what
+  never reached the tree. (PLAN-ISSUE-113 vs batch commit 4dbf64b, 2026-08-16.)
 - Close with `./bin/backstop artifact validate --plan PLAN-NNN`. Plans currently validate
   "schema-less", so a pass is a parse/structure receipt, not a claim about content.
 - Don't run the full suite or `gate --all` to re-verify a close-out when other agents are

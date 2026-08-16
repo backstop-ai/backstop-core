@@ -2,13 +2,122 @@
 plan_id: PLAN-ISSUE-118
 spec_id: ISSUE-118
 created: "2026-08-15"
-status: draft
+status: completed
 target_repo: backstop-core
 target_module: github.com/backstop-ai/backstop-core
 test_command: "go test ./pkg/gate/... ./cmd/backstop/... -race -count=1"
 coverage_threshold: 90
 
 notes: |
+  ══ CLOSED 2026-08-16. THE FIX SHIPPED IN 4dbf64b. ═══════════════════════════
+  All ten claims CLM-001..CLM-010 are met and all sixteen tasks landed. The
+  as-built matches the plan below with the seven deltas recorded at the end of
+  this banner.
+
+  WHAT LANDED — ONE COMMIT, 4dbf64b ("fix(ISSUE-112/113/118/122): overnight P0
+  batch — 4 real gate defects"), a SHARED-TREE batch with three sibling lanes.
+  This plan itself was committed at 9fc27f5 after seven plan-review rounds;
+  agent-memory and directive triage followed at 6c9ead3.
+
+    phase 1  pkg/gate/testdata/test-verdict/go-test-failure.sarif.json + README.md
+             — DERIVED, not authored: the committed converter run over the
+             committed cmd/backstop go-test capture, exactly as TASK-001 demanded.
+             No second fixture was created; go-test-failures.txt was not touched.
+    phase 2  pkg/gate/result.go                Violation.GateType, `json:"-"`,
+                                               absent from baseline identity
+                                               (sharp edge 7 honored)
+             cmd/backstop/pack_gate.go         the stamp, beside ProjectWide
+             cmd/backstop/pack_gate_gatetype_stamp_test.go
+    phase 3  pkg/gate/test_verdict_join.go     RouteTestVerdictFindings +
+                                               MandatedTestFailures; rule
+                                               `mandated_test_failed` emitted at
+                                               Severity "critical"
+             pkg/gate/test_verdict_join_test.go
+    phase 4  pkg/gate/step_testverify.go       the widened step: the join sited
+                                               ABOVE the discovery guard, plus the
+                                               capability-absent advisory
+             cmd/backstop/gate.go              the unfiltered collector wiring
+             pkg/gate/step_testverify_verdict_test.go
+             cmd/backstop/gate_test_only_diff_verdict_e2e_test.go
+             cmd/backstop/testdata/test-verdict-e2e/ and
+             cmd/backstop/testdata/test-verdict-absent-e2e/ — two committed
+             workspace fixtures, each with its own TRACKED acme/verdict-probe
+             pack, so the capability-absent advisory is genuinely pack-derived
+             rather than seam-injected (hand-off item 6)
+    phase 5  pkg/gate/step_coverage.go         the attributed skip reason
+             pkg/gate/step_coverage_skip_reason_test.go
+    phase 6  docs/CODEBASE-MAP.md
+
+  ── EVIDENCE AT CLOSE — SPLIT BY WHO OBSERVED IT ───────────────────────────
+  RE-VERIFIED BY THIS CLOSE-OUT PASS, 2026-08-16, in the live tree: all SIXTEEN
+  mandated test names run GREEN under `-count=1 -v` with ZERO skipped subtests —
+  the seven TASK-005 names, the five TASK-008 names, the two TASK-009 e2e names,
+  the two TASK-002 stamp names and the two TASK-012 coverage names, via
+    go test ./pkg/gate/... -count=1 -run 'TestRouteTestVerdictFindings|TestMandatedTestFailures|TestTestVerification_|TestCoverageThreshold_' -v
+    go test ./cmd/backstop/ -count=1 -run 'TestE2E_GateRedsOnFailingMandatedTestInTestOnlyDiff|TestE2E_VerdictCapabilityAbsentIsAdvisoryNotSilentPass|TestPackDispatch_StampsDeclaredGateTypeOnBridgedViolations|TestPackDispatch_GateTypeIsAbsentFromBaselineIdentity' -v
+  both `ok`. Also re-verified that the sharp-edge-17 reconciliation genuinely
+  landed: only TWO "no gate_type" strings survive anywhere in SPEC-037 and both
+  are now TRUE as written (:521 scopes the statement to per-binding uniformity,
+  :1678 names ISSUE-118 as having since added the field), and all five pkg/gate
+  code comments across the three files now reference ISSUE-118 instead of
+  asserting the field does not exist.
+
+  CARRIED FROM THE IMPLEMENTATION HAND-OFF, NOT RE-RUN HERE: the full
+  `go test ./... -race -count=1` sweep (17 packages green, per 4dbf64b's own
+  message), the diff-scoped `./bin/backstop gate` clean reading, and the
+  BEFORE (silent PASS) / AFTER (RED) red-proof of
+  TestE2E_GateRedsOnFailingMandatedTestInTestOnlyDiff. Other agents were
+  mid-flight in this shared working tree at close-out, so a full suite or
+  `gate --all` re-run here would have raced them
+  (`feedback_no_verify_race_with_active_implementer`). The `gate --all` reading
+  that triggered this close-out flagged this plan under
+  artifact_status_drift_advisory — "looks delivered — advance status toward
+  closure" — which is precisely what this banner answers.
+
+  ── AS-BUILT DELTAS ────────────────────────────────────────────────────────
+  1. ONE TEST BEYOND THE MANDATED NAMES. `pkg/gate/test_verdict_join_test.go`
+     also ships TestRouteTestVerdictFindings_LockstepWithDeclaredGateTypeEnum,
+     which this plan never named. It pins the router against the declared
+     GateType enum so a newly added gate_type cannot silently widen or narrow the
+     routed subset — an addition in the spirit of sharp edge 8, and a substitute
+     for nothing. Every mandated name still ships under its mandated spelling.
+  2. ISSUE-129 LANDED FIRST AND DID NOT PERTURB THIS LANE — exactly as sharp
+     edge 16 predicted it could not. Its pack-data half shipped separately at
+     2a18148 ("declare go-test exempt_from_scope_filter, relock v1.4.0") ahead of
+     this commit. Because TASK-009 seams `dispatchPackEnginesFn`, no real binding
+     declaration could reach the acceptance fixture, so the flip was structurally
+     invisible here. ISSUE-129 itself REMAINS OPEN and untouched by this lane:
+     the out-of-diff failing-test surface is still its own, by design.
+  3. ALL FOUR SIBLING LANES LANDED IN ONE COMMIT, so hand-off item 7's question
+     ("which of 112/113/122/129 had already landed when you edited gate.go")
+     has no sequential answer. PLAN-ISSUE-112, -113, -118 and -122 were
+     implemented in one shared working tree and squashed into 4dbf64b; the
+     gate.go / pack_gate.go collisions sharp edge 16 tracked were resolved live
+     rather than as merges against landed diffs. The "re-read both files fresh
+     immediately before editing" discipline is what made that workable.
+  4. THE BARE-BASENAME MECHANISM NOW HAS AN ISSUE NUMBER. This plan diagnosed it
+     from first principles without one (see "THE PART NOBODY HAD MEASURED"); it
+     is now filed as ISSUE-135 (go-test converter emits a bare-basename File).
+     The name join is immune to it by construction — that is the whole reason the
+     join is by name — but the pack-side correction now has an owner.
+  5. HAND-OFF ITEM 8 WAS DISCHARGED, NOT LEFT PENDING. The spec-author follow-up
+     this lane owed rode the SAME commit rather than a later one: SPEC-037's
+     fourteen GateType falsifications (nine spec spots, five code comments across
+     three pkg/gate files) were corrected, plus SPEC-031's provisioning claims.
+     They were routed through spec-author as the plan required, never hand-edited
+     by the implementer, and CLM-024's mandated test name
+     (TestRoute_PartitionsSubstantivenessByRuleID_FromFlatStream) survived intact.
+     ISSUE-064's pre-existing rule-ID-vs-property drift was NOT swept in.
+  6. NO backstop.yml EDIT WAS MADE AND NONE WAS NEEDED. `mandated_test_failed`
+     ships at Severity "critical" and inherits non-waivability through the
+     existing hardcoded severity set, exactly as sharp edge 3 decided. The
+     discarded "consider a non_waivable key" recommendation was not restored.
+  7. ONE UNRELATED FAILURE SURFACED AND WAS FILED RATHER THAN PAPERED OVER:
+     TestInit_ChangesNoGatePackageFileAndDoesNotMaskTheRemotelessMessage fatals
+     on any concurrent pkg/gate dirt — an artifact of four lanes sharing one
+     working tree, not of this change. Filed as ISSUE-139.
+  ═══════════════════════════════════════════════════════════════════════════
+
   Implements ISSUE-118. Sixteen tasks, six phases, FIVE production files. The
   deliverable is that a mandated test which genuinely FAILS turns `backstop gate`
   RED — including for the diff shape the issue names (changed files entirely test

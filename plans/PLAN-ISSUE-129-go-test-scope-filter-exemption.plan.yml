@@ -2,13 +2,125 @@
 plan_id: PLAN-ISSUE-129
 spec_id: ISSUE-129
 created: "2026-08-15"
-status: draft
+status: completed
 target_repo: backstop-core
 target_module: github.com/backstop-ai/backstop-core
 test_command: "go test ./cmd/backstop/... -run \"TestIssue129|TestExemption\" -race"
 coverage_threshold: 90
 
 notes: |
+  ══ CLOSED 2026-08-16. THE FIX SHIPPED IN 2a18148. ══════════════════════════
+  All seven tasks executed; CLM-001..CLM-007 are met. The as-built matches the
+  plan below with THREE deltas, recorded under AS-BUILT DELTAS — none of them
+  changes what the fix IS (one declared boolean in pack data), and the
+  thin-executor guard held: ZERO core Go source files were edited.
+
+  WHAT LANDED (2a18148, "fix(ISSUE-129): declare go-test exempt_from_scope_filter,
+  relock v1.4.0") — 7 files, +182/-49:
+    backstop.lock, backstop.yml            adopt the released go-toolchain (TASK-005)
+    cmd/backstop/testdata/go-toolchain/
+      .backstop/packs/backstop/
+      go-toolchain/pack.yml                the fixture flip, +7 lines (TASK-004)
+    cmd/backstop/testdata/
+      exempt-matrix-bindings.yml           documentary matrix corrected (TASK-004)
+    cmd/backstop/pack_gate_issue129_
+      regression_test.go                   NEW, +106 — the falsifier (TASK-002)
+    cmd/backstop/pack_gate_exempt_test.go  CLM-015 rename + inversion (TASK-003)
+    cmd/backstop/go_toolchain_engines_
+      test.go                              CLM-011/CLM-017 re-grounded (TASK-003)
+
+  The prerequisite spec amendment landed FIRST and separately, as the plan
+  required: SPEC-041 is now spec_version 1.3.0 with a Version History entry
+  citing ISSUE-129, CLM-015 inverted and renamed to
+  `TestExemption_TestFailureUnchangedFileStillRedsDiffScoped`, and the
+  CLM-011/CLM-017 decoupling proof re-grounded on golangci. No implementer
+  hand-edit of SPEC-041 occurred.
+
+  ── EVIDENCE AT CLOSE ──────────────────────────────────────────────────────
+  RE-VERIFIED DIRECTLY (this close-out, and a prior non-racing pass):
+    * `go test ./cmd/backstop/ -run 'TestIssue129|TestExemption' -count=1 -v`
+      → 10/10 PASS, ZERO skipped. Both the new falsifier and every renamed /
+      re-grounded SPEC-041 test are live, not dormant.
+    * BOTH declarations agree, as the plan's two-copies-in-lockstep rule demands:
+      the installed pack (`.backstop/packs/backstop-ai/go-toolchain/pack.yml`)
+      and the in-repo fixture
+      (`cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/
+      pack.yml`) each declare `exempt_from_scope_filter: true` on go-test, with
+      go-build's pre-existing declaration untouched.
+    * `golangci` remains NON-exempt in both — the ScopeKind-vs-exempt decoupling
+      proof (CLM-017) survives the flip re-grounded rather than deleted, exactly
+      as the plan required.
+    * Half-landed-rename guard clean: the old name
+      `TestExemption_TestViolationUnchangedFileIsFiltered` survives NOWHERE in
+      `cmd/backstop/`; SPEC-041 mentions it only in its Version History rename
+      record, which is correct.
+    * No core source file appears in 2a18148's diffstat — CLM-004's
+      "no core edit, no engine-by-name special case" holds by construction.
+
+  CARRIED, NOT RE-RUN: the full unscoped `backstop gate --all` sweep and full
+  `go test ./...` readings are carried from the implementation session. Other
+  agents were active in this shared worktree at close (SHARP EDGE 2), so
+  re-running them here would have produced noise, not evidence — the targeted
+  non-racing checks above are the honest substitute.
+
+  ── AS-BUILT DELTAS ────────────────────────────────────────────────────────
+  1. THE LOCK PINS go-toolchain 1.5.0, NOT THE 1.4.0 THIS PLAN NAMES.
+     TASK-005 relocked to v1.4.0 as planned (visible in 2a18148's commit
+     subject). The overnight P0 batch (4dbf64b, ISSUE-112/113/118/122) then
+     bumped the same pack to v1.5.0 for its OWN reasons, and HEAD's
+     `backstop.lock` records `version: 1.5.0`, `git_ref: v1.5.0`,
+     content_hash e175eb4a…. The go-test `exempt_from_scope_filter: true`
+     declaration RIDES ALONG UNCHANGED into 1.5.0 — verified by reading the
+     installed pack — so CLM-007 ("backstop-core adopts that release") still
+     holds at a HIGHER version than planned. Anyone reading TASK-005's "1.4.0"
+     against the lock will see 1.5.0; that is this delta, not a drift defect.
+  2. FIVE DORMANT SPEC-041 TESTS HAD TO BE STRENGTHENED — real scope beyond
+     what the plan named. Every test in `cmd/backstop/pack_gate_exempt_test.go`
+     (`TestExemption_EnginePathStampsProjectWideFromExemptProperty`,
+     `…_BuildBreakUnchangedFileStillRedsDiffScoped`,
+     `…_LintViolationUnchangedFileIsFiltered`,
+     `…_TestFailureUnchangedFileStillRedsDiffScoped`,
+     `…_FindingsViolationUnchangedFileIsFiltered`) reached `pkg/gate` only
+     through a same-package helper, so `test_substantiveness` scored them
+     hollow the moment TASK-003 pulled the file into diff scope. Each now makes
+     a genuine `gate.` call IN ITS OWN BODY. This was not optional: the
+     no-grandfather-on-changed-files rule (touch a file, fix ALL its
+     violations) applies once the file enters scope. It also closed a real
+     loophole — swapping the helper's implementation would previously have left
+     all five green. The sibling dormant-substantiveness class in files this
+     plan did NOT touch was filed as ISSUE-138 rather than absorbed.
+  3. A PRE-EXISTING, DORMANT `contract_signature` FALSE-RED WAS SURFACED AND
+     ACCEPTED, NOT FIXED AND NOT WAIVED. TASK-004's fixture edit pulled
+     `cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/
+     pack.yml` into diff scope, exposing a red that predates this plan and
+     belongs to ISSUE-053's class: the contract compiler is Go-syntax-only and
+     cannot validate a YAML-target signature. Confirmed pre-existing via an
+     identical-shape violation on an UNTOUCHED sibling file. The interim waiver
+     the implementer first reached for was found IMPOSSIBLE, not merely
+     awkward: `contract_signature` is a structural dimension deliberately
+     excluded from `waivableDimension()` per SPEC-049 REQ-010's exhaustive
+     waivable-surface matrix — so the token would never have been harvested and
+     would have sat in the repo as a false record. It was correctly REVERTED.
+     ISSUE-053 was amended with this finding (ecf0f61), which also corrected
+     that issue's now-stale claim that this plan was applying such a waiver.
+     The accountable path for a genuine contract_signature red is
+     retire/replace/resolved-by/obsoleted, never `@waiver`.
+
+  ── FOLLOW-ONS FILED, NOT ABSORBED ─────────────────────────────────────────
+  TASK-007's mandated follow-ons each became their own issue, keeping this
+  plan's scope honest:
+    * ISSUE-136 — audit every findings-engine binding for a missing
+      `exempt_from_scope_filter` (ISSUE-129's own deferred Direction §2; the
+      plan explicitly refused to absorb it, and that refusal held).
+    * ISSUE-137 — no automated guard keeps the go-toolchain fixture in sync
+      with the released pack, and the documentary matrix copy is dead code.
+      This is the standing hazard behind the plan's two-copies-in-lockstep
+      warning: nothing but prose currently enforces it.
+    * ISSUE-138 — three SPEC-041 claims carry dormant `test_substantiveness`
+      violations in files this plan did not touch (delta 2's siblings).
+  ISSUE-053 carries the delta-3 finding.
+  ═══════════════════════════════════════════════════════════════════════════
+
   Implements ISSUE-129 — a diff-scoped `backstop gate` (the DEFAULT invocation and
   the only blocking check CI runs on a PR, `.github/workflows/ci.yml:155`) can report
   a full PASS while a genuinely failing Go test sits in the tree, as long as the

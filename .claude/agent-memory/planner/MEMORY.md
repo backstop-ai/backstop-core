@@ -4,3 +4,6 @@
 - [Planning a pack-data fix](project_planning_a_pack_data_fix.md) — external repo path is valid file scope; TWO declarations (released + in-repo fixture, tests read the fixture); flip usually forces a spec amendment
 - [Cite by name in contended files](feedback_cite_by_name_in_contended_files.md) — gate.go line numbers moved 3x in one plan's review; name-based location, plus re-verify the prose around a stale number
 - [State a sweep once](feedback_state_a_sweep_once.md) — a repeated grep command drifts into variants; one canonical byte-identical line, and add a FINDING test so the rule is operable
+- [Verify issue premises](feedback_verify_issue_premises.md) — an issue's "no test asserts this" is a claim, not a fact; check source before planning
+- [`code check` is gone](project_code_check_command_removed.md) — the command was removed and its absence is test-asserted; plans must prescribe `backstop gate`
+- [Structural dimensions are non-waivable](project_structural_dimensions_nonwaivable.md) — contract_signature/status_drift/substantiveness excluded from waivableDimension(); a waiver token there is inert, never plan one

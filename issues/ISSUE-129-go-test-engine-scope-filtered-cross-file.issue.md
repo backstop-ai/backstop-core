@@ -6,8 +6,11 @@ issue:
   id: ISSUE-129
   title: "go-test pack engine's failures are diff-scope-filtered: a diff-scoped gate PASS can coexist with a genuinely failing, unrelated test"
   type: bug
-  status: open
+  status: closed
   created: "2026-08-15"
+  closed: "2026-08-16"
+
+delivered_by: PLAN-ISSUE-129
 
 complexity:
   scope: cross-cutting
@@ -147,6 +150,56 @@ code correctness with no interpretation required.
    the current diff scope must turn a diff-scoped `backstop gate` red. Absent that proof, any fix
    risks being another vacuous-green claim, per the fixtures-from-real-output/must-falsify
    convention.
+
+## Resolution
+
+Fixed by `PLAN-ISSUE-129`, shipped in `2a18148` ("fix(ISSUE-129): declare go-test
+exempt_from_scope_filter, relock v1.4.0"). The fix is exactly the direction this issue
+identified as the leading option: the `go-toolchain` pack's `go-test` findings engine now
+declares `exempt_from_scope_filter: true` in `pack.yml`, so it behaves like `go-build` — a
+project-wide test failure REDs a diff-scoped `backstop gate` even when the failing test's
+file sits outside the current diff. Zero core (`pkg/`, `cmd/backstop/` non-test) source files
+were edited; the fix is entirely a declared boolean in pack data, consistent with the
+thin-executor invariant (no engine-by-name special case in core).
+
+A prerequisite spec amendment landed first: SPEC-041 moved to `spec_version 1.3.0` with a
+Version History entry citing this issue, CLM-015 inverted and renamed to
+`TestExemption_TestFailureUnchangedFileStillRedsDiffScoped`, and the CLM-011/CLM-017
+decoupling proof (that `ScopeKind` and `exempt_from_scope_filter` are independent axes) was
+re-grounded on `golangci`, which remains non-exempt.
+
+The regression fixture this issue's Direction §3 required exists:
+`cmd/backstop/pack_gate_issue129_regression_test.go` (new, TASK-002) proves a genuinely
+failing test outside diff scope turns a diff-scoped gate red. `go test ./cmd/backstop/ -run
+'TestIssue129|TestExemption' -count=1 -v` → 10/10 PASS at close, zero skipped.
+
+Two declarations must stay in lockstep — the installed pack
+(`.backstop/packs/backstop-ai/go-toolchain/pack.yml`) and the in-repo fixture copy
+(`cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/pack.yml`) — both
+confirmed to declare `exempt_from_scope_filter: true` on `go-test` at close, with `go-build`'s
+pre-existing declaration untouched. The lock ended up pinning go-toolchain `v1.5.0` rather
+than the `v1.4.0` this plan's TASK-005 named: TASK-005 relocked to 1.4.0 as planned, but a
+same-day, unrelated overnight batch (`4dbf64b`, ISSUE-112/113/118/122) bumped the same pack to
+1.5.0 for its own reasons. The `go-test` exemption rides along unchanged into 1.5.0 — verified
+by reading the installed pack — so the fix holds at a higher version than originally planned.
+
+This issue's own Direction §1 open question (declare exempt vs. a narrower baseline-compare
+mechanism) was resolved in favor of the simpler `go-build`-style whole-module exemption.
+Direction §2 (audit every other findings-engine binding for a missing
+`exempt_from_scope_filter`) was deliberately NOT absorbed into this plan and was filed
+separately as ISSUE-136. Two further follow-ons surfaced during implementation and were
+likewise filed rather than absorbed: ISSUE-137 (no automated guard keeps the go-toolchain
+fixture copy in sync with the released pack) and ISSUE-138 (three SPEC-041 claims carry
+dormant `test_substantiveness` violations in sibling files this plan did not touch). A
+pre-existing, dormant `contract_signature` false-red on the touched fixture YAML file was
+found, confirmed pre-existing (identical-shape violation on an untouched sibling file), and
+left as-is rather than fixed or waived — `contract_signature` is excluded from
+`waivableDimension()` per SPEC-049 REQ-010, so no waiver token was ever a legitimate option;
+this is tracked under ISSUE-053's existing class, which was amended accordingly. ISSUE-118 was
+checked and confirmed NOT a duplicate of this issue — same "gate says green, isn't" symptom
+family, different root cause (test never reaches a verdict at all vs. this issue's mechanism
+where the test runs, fails, and is discarded post-hoc) — both stayed open independently and
+now this one is closed on its own merits.
 
 ## Notes / references
 

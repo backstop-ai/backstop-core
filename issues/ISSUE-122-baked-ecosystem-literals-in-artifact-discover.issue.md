@@ -6,16 +6,80 @@ issue:
   id: ISSUE-122
   title: "Baked Ecosystem Literals In Artifact Discover"
   type: technical-debt
-  status: open
+  status: closed
   created: "2026-08-14"
+  closed: "2026-08-16"
 
 complexity:
   scope: isolated
   uncertainty: known
   risk: moderate
+
+delivered_by: PLAN-ISSUE-122
 ---
 
 # Baked Ecosystem Literals In Artifact Discover
+
+## Resolution
+
+Delivered by PLAN-ISSUE-122 (status: completed), commit `4dbf64b` (landed inside a shared
+four-lane overnight P0 batch alongside three independent defects — ISSUE-112, ISSUE-113,
+ISSUE-118 — that happened to share the working tree).
+
+The baked `vendor`/`node_modules` literals are gone from both consumers named in this issue's
+Problem section — `DiscoverArtifacts` and `FindUngatedArtifacts` — and from every other core
+call site that fed them. `pkg/artifact`'s shared non-corpus list (`pkg/artifact/layout.go`)
+now holds only the three genuinely tool-agnostic names — `.git`, `testdata`, `prototype` — as
+this issue's own Solution section scoped. The two ecosystem nouns arrive instead as
+pack-declared data via a new `classification.dependency_dirs` field on `pack.yml`'s existing
+`Classification` block (reusing the pack→core path-classification channel rather than
+inventing a new one — the closer precedent to `EngineBinding.StdoutArtifact`, per the plan's
+own rejection of that alternative). `cmd/backstop`'s `mergeDependencyDirs`
+(`cmd/backstop/pack_dependency_dirs.go`) unions the field across the full installed-pack set,
+and the merged set is injected into both corpus walks as `artifact.NonCorpusDirs`, threaded
+explicitly through a five-hop chain reaching `gate.go`'s traceability surface
+(`ValidateConfig.NonCorpus` → `gate.FindUngatedArtifacts` → `collectTraceRefs` →
+`computeRequirementTraceabilitySurfaces` → `buildRequirementTraceabilitySteps`) — no call site
+defaults or re-derives the set independently.
+
+**Wiring gap closed, not just the merge/walk logic.** Earlier task-level unit tests proved the
+merge and the two walks in isolation but assembled the exclusion set by hand before calling
+`DiscoverArtifacts`/`FindUngatedArtifacts` directly — which would stay green even if a
+production call site silently passed the zero value instead of the pack-derived set. Three
+wiring tests were added specifically to close that integration gap by driving the real entry
+points instead: `TestNonCorpusWiring_RealCommandsHonorPackDeclarationAcrossPackLoadOutcomes`
+(a table over `{doctor, artifact validate} x {packs load, packs fail to load}`, run through the
+genuine `NewRootCommand().Execute()` harness, not a stub), `TestGateSteps_ExclusionSetWiredIntoArtifactValidation`
+(executes `buildGateSteps`'s real step slice end to end and falsifies both of `ValidateAll`'s
+independent production sites — the `FindUngatedArtifacts` argument and the
+`ValidateConfig.NonCorpus` field — by two different mechanisms), and
+`TestCollectTraceRefs_HonorsPackDeclaredDependencyDirs` (proves the traceability hop is
+genuinely sensitive to the injected parameter, with an explicit documented residual: no test in
+the repo can observe whether `buildGateSteps` hands that hop the pack-derived set or a literal
+zero value, since the two are behaviorally indistinguishable downstream — guarded instead by
+the explicit-parameter, single-local-threading discipline TASK-008 enforced).
+
+**Predating specs reconciled, not left to drift.** Three implemented specs and one narrative
+sharp edge referenced the pre-fix shape and were updated via spec-author (never hand-edited):
+SPEC-068 (three contract signatures — `FindUngatedArtifacts`, `DiscoverArtifacts`,
+`realArtifactValidator` — plus CLM-062's claim text and Sharp Edge 12, which had knowingly
+propagated this exact bake and is now marked RESOLVED, citing this issue), SPEC-043 (all three
+sites restating the `Classification` struct's field enumeration, now including
+`DependencyDirs`), SPEC-070 (REQ-007's stated mechanism, corrected from "the helper carries the
+exclusion set" to "the exclusion set arrives injected from `ctx.Packs`," plus a second drifted
+site restating `checkArtifactLayout`'s contract note), and SPEC-069 (Sharp Edge 5's stale
+cross-reference to this issue, discharged now that the hand-off it named is complete).
+
+**Ecosystem knowledge lands where it's owned, versioned.** Three toolchain packs shipped
+alongside core, each declaring its ecosystem's convention via the new field: go-toolchain
+v1.5.0 declares `vendor`, typescript-toolchain v1.3.0 and bun-toolchain v1.3.0 both declare
+`node_modules`. `backstop.yml`/`backstop.lock` in this repo pin go-toolchain 1.5.0. Adding the
+next ecosystem's vendoring convention is now a pack change with zero core edits — the
+acceptance bar the plan's CLM-008 states and falsifies.
+
+The `backstop/self` dogfood pack's blind spot for skip-list/exclusion literals — this issue's
+own secondary finding — is explicitly NOT closed by this fix; it remains the self-pack's own
+follow-on, as scoped.
 
 ## Problem
 

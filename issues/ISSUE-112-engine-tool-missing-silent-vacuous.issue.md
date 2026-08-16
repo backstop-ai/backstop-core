@@ -6,8 +6,11 @@ issue:
   id: ISSUE-112
   title: "Missing engine tool + no CrashGuard = silently empty SARIF, vacuous pack_engines pass, and misleading downstream join violations"
   type: bug
-  status: open
+  status: closed
   created: "2026-07-29"
+  closed: "2026-08-16"
+
+delivered_by: PLAN-ISSUE-112
 ---
 
 # Missing engine tool: silent vacuous pass + misleading joins
@@ -43,3 +46,12 @@ Two aggravators:
 - Repro: any repo + typescript-substantiveness on a PATH without ast-grep.
 - Sibling diagnosability issue: zero-match classification refusal (filed alongside).
 - Portal-side workaround shipped: explicit gitleaks+ast-grep installs in its CI workflow.
+
+## Resolution
+
+Delivered by PLAN-ISSUE-112 (`status: completed`). An `*exec.Error`-class failure (binary could
+not start) now fails loud for every engine regardless of CrashGuard, so a missing tool can no
+longer masquerade as a finding-free clean scan; provision-pinned tools get the same presence
+check as assume-present ones instead of being silently exempted. The vacuous-pass path described
+above — missing engine tool -> empty SARIF -> green pack_engines -> starved downstream joins — is
+closed.
