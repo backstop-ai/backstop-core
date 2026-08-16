@@ -6,8 +6,11 @@ issue:
   id: ISSUE-141
   title: "pkg/packval/executor.go's RunEngine never applies a binding's declared Convert script — non-SARIF engine output fails to parse on backstop pack test/check"
   type: bug
-  status: open
+  status: closed
   created: "2026-08-16"
+  closed: "2026-08-16"
+
+delivered_by: PLAN-ISSUE-141
 
 complexity:
   scope: contained
@@ -131,3 +134,41 @@ feeding output to `check.ParsePackFindings`. Whoever plans the fix should:
   (`convert: ast-grep/to-sarif.sh` declaration) and `packs/substantiveness/ast-grep/to-sarif.sh`
   (its header comment confirming it exists because ast-grep's native `--json` output is not SARIF).
   `ast-grep --version` confirmed installed at 0.43.0 on the verifying machine.
+
+## Resolution
+
+Delivered by PLAN-ISSUE-141 (`status: completed`, commit `51a39ec`). `DefaultExecutor.RunEngine`
+(`pkg/packval/executor.go`) never applied a binding's declared `Convert` step before parsing engine
+output, unlike the real gate dispatch path (`cmd/backstop/pack_gate.go`'s `runFindingsEngine`) — so
+any pack whose engine binding declares a `convert:` transformation had that step silently skipped
+when validated through `pack test`/`pack check`, meaning fixtures ran against raw unconverted
+output instead of what the real gate would actually see.
+
+Fixed additively: the Convert-application stage is inserted strictly between the (separately
+delivered, ISSUE-140's) `check.NeverStarted` refusal and the `check.ParsePackFindings` call. When
+`binding.Convert` is set, the resolved script path is stat-checked (missing or a directory fails
+loud, naming the resolved path), then the payload is piped through the same-package
+`SandboxedRunStdout` — no new import edge and no second sandboxing implementation, since
+`cmd/backstop`'s `resolveSandboxedRunStdout()` already resolves to this same function. A convert
+script that runs and exits non-zero is attributed to the convert step by name rather than
+misreported as unparseable engine output.
+
+Verified via 6 mandated tests in `pkg/packval/executor_convert_test.go`
+(`TestPackVal_EngineConvert_NonSarifPipesThroughConvert`,
+`TestPackVal_EngineConvert_NativeSarifNoConvert`,
+`TestPackVal_EngineConvert_MissingScriptFailsLoud`,
+`TestPackVal_EngineConvert_ConvertFailureAttributedToConvertStep`,
+`TestPackVal_EngineConvert_RunsThroughSandboxedRunStdout`,
+`TestPackVal_EngineConvert_NoDriftFromGateDispatch`) — 5 of 6 reproduced the predicted red at HEAD
+before the fix (a real non-SARIF payload reaching the parser and failing to unmarshal); the 6th, a
+no-convert non-regression guard, correctly passed pre-fix since it protects behavior the fix
+doesn't change.
+
+This fix cleared PLAN-ISSUE-092's own hard blocking prerequisite — its final verification phase
+explicitly could not proceed without this landing. Three residuals were deliberately left open
+rather than folded into this lane: ISSUE-143 (dual Convert-implementation consolidation between
+`RunEngine` and `runFindingsEngine`) and ISSUE-144 (`binding.StdoutArtifact` payload selection
+unhonored by `RunEngine`), both already filed as separate issues; and an open routing note for a
+future spec-author pass to reconcile SPEC-032/PLAN-SPEC-032 (both still `status: draft`) against
+the two mandated test names this plan adopted verbatim from their claims
+(`TestPackVal_EngineConvert_NativeSarifNoConvert`, `TestPackVal_EngineConvert_NonSarifPipesThroughConvert`).
