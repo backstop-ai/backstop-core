@@ -1,0 +1,1731 @@
+---
+plan_id: PLAN-ISSUE-092
+spec_id: ISSUE-092
+created: "2026-08-16"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./pkg/packval/... -run 'TestPackVal' -race -coverprofile=cover.out"
+coverage_threshold: 90
+
+notes: |
+  ═══════════════════════════════════════════════════════════════════════════
+  WHAT THIS LANE IS
+  ═══════════════════════════════════════════════════════════════════════════
+
+  `backstop pack test` phase 3 reports `phase3-fixtures: pass` while executing
+  ZERO fixtures, for every real pack in the fleet. This lane makes phase 3 able
+  to fail. The single deliverable everything else exists to support is CLM-003:
+  a pack whose negative fixture no longer violates the rule it exists to catch
+  MUST turn `pack test` red.
+
+  Verified at HEAD before authoring — every claim below was re-derived from the
+  current source, not taken from the issue's annotations.
+
+  ── F1. THE DRIFT IS REAL, AND IT IS TWO INDEPENDENT STRUCTS ────────────────
+  `pkg/pack/manifest.go`'s gate-runtime `Rule` declares `RulePath string
+  \`yaml:"rule_path"\`` and has NO `File` field. `pkg/packval/manifest.go`'s
+  separate authoring-time `Rule` declares `File string \`yaml:"file,omitempty"\``
+  and has NO `rule_path` handling. Confirmed by grep across `packs/` and
+  `.backstop/packs/`: ZERO real pack.yml declares `file:` under a rule. Every
+  one declares `rule_path:`. packval reads a key nothing writes.
+
+  ── F2. THE DEAD-DISPATCH BLAST RADIUS IS FOUR SITES, NOT TWO ───────────────
+  The issue names two. There are four, all keyed on a field the runtime model
+  does not have:
+
+    1. `phase3.go` RunFixtures, the `rule.File != ""` branch — the semgrep
+       rule-ID cross-check AND the engine resolve that sets `haveBinding`.
+    2. `phase3.go` RunFixtures, the positive and negative claim loops, guarded
+       `rule.File != "" && haveBinding` — `executor.RunEngine` is never called.
+    3. `phase1.go`, the `rule.File != ""` branch that stats the rule file —
+       NOT NAMED IN THE ISSUE. phase 1's "the rule file you declared exists"
+       structural check is dead for every real pack too.
+    4. `phase3.go`'s layer-3 validator dispatch, guarded `rule.Layer == 3`.
+       `Layer` was RETIRED from the runtime model (SPEC-031 REQ-002 removed the
+       field and its yaml key); no real pack declares `layer:`; and `phase5.go`
+       EXEMPTS engine-model rules from the layer 1..3 requirement precisely
+       because they carry an engine instead. So `rule.Layer` is 0 for every
+       real pack and `RunValidator` is never dispatched either. This answers
+       ISSUE-092 Direction item 4 for the validator path: same drift family —
+       dispatch gated on a field the runtime model retired.
+
+  The `tool_config` loop is the one path that DOES execute today: it is not
+  `File`-guarded. No real pack declares `tool_config`, so it is dead in
+  practice but live in code — which matters for F3.
+
+  ── F3. POLARITY IS INVERTED. VERIFIED, NOT SUSPECTED ───────────────────────
+  The issue flags this as "possible secondary defect — unverified." It is real.
+
+  WHERE THE CONTRACT ACTUALLY COMES FROM — corrected 2026-08-16, after review
+  found the earlier framing overstated it. An earlier revision of this plan
+  called SPEC-014 "shipped, governing." IT IS NOT: `specs/SPEC-014-*.spec.md`
+  carries `status: draft`, and a draft spec is EXCLUDED from the gate's
+  status_drift and test_verification enforcement. Nothing about SPEC-014
+  mechanically compels anything in this repo today.
+
+  THE GOVERNING AUTHORITY IS `bundles/BUNDLE-005-pack-validation.bundle.md`,
+  `status.maturity: ready` — REQ-011:
+
+      "Phase 3 fixture execution ... requiring 100% pass rate: every positive
+       fixture must NOT trigger the rule, every negative fixture MUST trigger
+       the rule."
+
+  (The dispatch requirement — that `pack test` runs phase 3 at all, invoking
+  real external tools — is BUNDLE-005 REQ-002. Both are cited because this lane
+  restores dispatch AND corrects polarity. Note for the record: the review that
+  ordered this correction cited REQ-002 for the polarity contract; REQ-002 is
+  the DISPATCH requirement and REQ-011 is the polarity one. REQ-011 is what is
+  quoted above and what this plan implements.)
+
+  SPEC-014 restates the same contract in prose and carries four claims saying
+  it — phase 3 PASSES when positives do not trigger, FAILS when a positive
+  triggers (false positive), PASSES when negatives trigger, FAILS when a
+  negative does not trigger. Those claims remain an accurate READING of
+  BUNDLE-005 REQ-011 and are quoted throughout this plan as such. They are
+  corroboration, not the source of obligation.
+
+  `phase3.go`'s findings branches assert the EXACT OPPOSITE. `RunEngine`'s
+  `Passed` means "the engine FIRED" (`Passed: len(findings) > 0`, stated in its
+  own doc comment). The positive loop raises an error when `!r.Passed` — i.e.
+  it demands the positive fixture FIRE. The negative loop raises an error when
+  `r.Passed` — i.e. it demands the negative fixture NOT fire.
+
+  THE DECISIVE INTERNAL EVIDENCE that the branch is the bug and the spec is
+  right: the negative branch's message is "negative fixture not triggered" and
+  its FixHint opens "This negative fixture did not trigger the rule..." — and
+  both are attached to the branch that fires when the negative fixture DID
+  trigger. Message and hint agree with SPEC-014; the condition they hang off
+  does not. The condition was flipped and the prose was left behind.
+
+  The `tool_config` loop carries the same inversion. The layer-3 validator
+  branches are CORRECT — and that is the mechanism worth naming: `RunValidator`
+  returns `Passed` meaning "exited 0", while `RunEngine` returns `Passed`
+  meaning "fired". Two seams whose `Passed` means opposite things, and ONE
+  conditional shape applied to both. That is why only half the file is wrong.
+
+  ── F4. THE FLEET'S OWN DECLARATIONS HAVE SPLIT — AND THE SURVEY WAS WRONG ──
+  Because nothing ever executed them, fixture polarity declarations drifted
+  arbitrarily. An earlier revision of this plan surveyed all nine fixture-
+  carrying packs and reported "six of the seven contracts rules correct."
+
+  THAT SURVEY IS WITHDRAWN. Review established it was measured backwards: it
+  read fixture FILENAMES and manifest keys rather than RUNNING the declared
+  engine. Running `packs/contracts`'s own declared ast-grep pattern for rule one
+  shows BOTH the "positive" and the "negative" fixture firing — which the pack's
+  own pack.yml comment corroborates, stating that its positive fixtures DECLARE
+  the construct and therefore DO fire. A six-of-seven-correct claim cannot be
+  made from what was actually measured, and this plan no longer makes it.
+
+  WHAT SURVIVES THE WITHDRAWAL, because it was read from fixture BODIES rather
+  than names: `packs/substantiveness` is inverted on both rules —
+  `hollow-test-go/positive.go` is the hollow test whose own comment says
+  "→ RED finding", and `negative.go` is the substantive one whose comment says
+  "→ no finding (GREEN)". That is a body-level reading, not a filename one, and
+  it stands. It is still not a RUN, and this plan therefore no longer acts on it
+  (see F7 and F8).
+
+  THIS PLAN NO LONGER CORRECTS ANY IN-REPO PACK MANIFEST. Redoing the survey
+  properly means running each engine against each fixture, and for BOTH of the
+  packs in question the engine cannot be run through packval at all until the
+  F7 defects are fixed — so the measurement that would justify a swap is not
+  available from inside this lane. The corrections move to the F7 follow-ons,
+  where they can be verified by execution instead of by reading. `.backstop/
+  packs/` is a gitignored install tree and is NOT touched in any case.
+
+  ── F5. THE SHIPPED TESTS ARE PINNED TO THE DEFECT — 22 CALL SITES, NOT 8 ───
+  `newFixtureMock(passPos, failNeg)` returns `Passed: !failNeg` for negative
+  targets. So `TestPackVal_P3_SemgrepNegativeAllTrigger` calls `(true, true)`,
+  which makes the negative fixture NOT fire, and expects PASS.
+  `TestPackVal_P3_SemgrepNegativeNotTriggered` calls `(true, false)`, which
+  makes the negative fixture FIRE, and expects FAIL. The NAMES encode the
+  correct semantics; the BODIES assert its inverse.
+
+  THE BLAST RADIUS IS THE WHOLE `(true, true)` FAMILY, and an earlier revision
+  of this plan named only about half of it. Re-enumerated by grep at HEAD:
+  `newFixtureMock(true, true)` appears at TWENTY-ONE call sites in
+  `pkg/packval/packval_phase3_exec_test.go` (a count corrected 2026-08-16 — an
+  earlier revision published SIXTEEN, which was five short) and ONE more in
+  `pkg/packval/packval_phase456_pipeline_test.go`, TWENTY-TWO in total. FIFTEEN
+  of the twenty-one in the exec-test file expect a PASS, as does the lone
+  pipeline-test site. The remaining SIX expect a FAIL — a count corrected
+  2026-08-16, an earlier revision of this section claimed there was only ONE
+  and that claim is WITHDRAWN — and every one of the six reaches its fail
+  through a per-test override or a per-test manifest edit, never through the
+  base mock, so each must be RE-VERIFIED rather than merely observed green
+  (function-declaration lines are at HEAD and will move as the file is
+  rewritten; the NAME and the mechanism are the durable locators):
+
+    · `TestPackVal_P3_SemgrepRuleIDMismatch` (:185) — fails because the test
+      writes a `rules/r1.yml` declaring `id: WRONG_ID`.
+    · `TestPackVal_P3_ToolConfigNegativeNotTriggered` (:230) — fails via an
+      `EngineFn` override forcing the tool_config negative fixture to fire.
+    · `TestPackVal_P3_Layer3PositiveExitNonZero` (:320) — fails via a
+      `ValidatorFn` override returning `Passed:false`.
+    · `TestPackVal_P3_Layer3NegativeExitZero` (:334) — fails via a
+      `ValidatorFn` override returning `Passed:true`.
+    · `TestPackVal_P3_CompleteScaffoldTestFails` (:366) — fails via a
+      `ScaffoldTestFn` override returning `Passed:false`.
+    · `TestPackVal_P3_SDKProvidesMissing` (:417) — fails for an unrelated
+      SDK-declaration reason, an empty entry in `SDK.Provides`.
+
+  Every pass-expecting site goes RED under the polarity correction, because
+  `(true, true)` means "positive fires" — which is exactly the false-positive
+  FAILURE case once the contract is honored. The six fail-expecting sites are
+  the SUBTLER hazard, and the reason they are enumerated here rather than
+  waved at: under the correction `(true, true)` means the positive fires AND
+  the negative does not, i.e. BOTH fixtures fail, so each of these six would go
+  on reporting `fail` — and go on looking green — even if the override that is
+  supposed to be doing the discriminating stopped working. TASK-005 owns the
+  re-verification of all six.
+  DO NOT TRUST THE COUNT: TASK-005 mandates a fresh sweep at implementation
+  time and the sweep, not this number, is authoritative. `baseManifest()`
+  (`packval_test_helpers_test.go`) declares `File: "rules/r1.yml"`, so all of
+  them genuinely dispatch. Named, so none is discovered late:
+
+    In packval_phase3_exec_test.go — the four polarity tests
+    (`SemgrepPositivePass`, `SemgrepPositiveFalsePositive`,
+    `SemgrepNegativeAllTrigger`, `SemgrepNegativeNotTriggered`), the
+    tool_config trio, `NegativeFixtureEngineLimitationHint`, AND the ones the
+    earlier revision missed: `SemgrepRuleIDMatch` and `SemgrepRuleIDMismatch`,
+    `ToolConfigDispatchesGeneric`, `Layer3SingleFileInvocation`,
+    `Layer3MultiFileInvocation`, `Layer3PositiveExitZero`,
+    `Layer3NegativeExitNonZero`, and the scaffold/SDK tests built on
+    `baseManifest()` in the same file. The Layer-3 and rule-ID tests are not
+    ABOUT polarity, but they run a manifest whose findings fixtures dispatch, so
+    the phase verdict they assert on changes underneath them. Their mock
+    configuration must be re-chosen so each still asserts the thing its name
+    says; `SemgrepRuleIDMismatch` in particular survives literally but stops
+    DISCRIMINATING (it would go red for the polarity reason rather than the
+    rule-ID reason) and must be re-verified, not merely observed green.
+
+    In packval_phase456_pipeline_test.go — `NewPipeline(..., Executor:
+    newFixtureMock(true, true)).Run()`. This file appeared in NO task's file
+    scope in the earlier revision. It is now in TASK-005's.
+
+    In coverage_error_paths_test.go (package `packval`, so it does not use
+    `newFixtureMock` and was invisible to a grep for it — found separately):
+    `TestPackVal_P3_SemgrepPositiveFixtureFails` drives a mock returning
+    `Passed:false` for everything and expects a `semgrep-positive` error; under
+    the corrected contract a non-firing positive is a PASS, so it goes red.
+    `TestPackVal_P3_SemgrepNegativeNotTriggered` (a DIFFERENT function that
+    happens to share a name with one in the `packval_test` package) drives
+    `Passed:true` for everything and expects a `semgrep-negative` FixHint error;
+    under the correction a firing negative is a PASS and the firing POSITIVE is
+    the error. Both need rewriting.
+
+  Handling: the names SURVIVE, the bodies are REWRITTEN, and the mock helper's
+  parameters are renamed to say what they actually control (`posFires`,
+  `negFires`) so the next reader cannot be misled the same way.
+
+  WHY THE NAMES SURVIVE — stated honestly, corrected 2026-08-16. An earlier
+  revision argued "renaming a spec-mandated test would strand SPEC-014." That
+  argument does not hold: SPEC-014 is `draft` (F3) and is therefore excluded
+  from the gate's test_verification and status_drift dimensions, so no
+  enforcement mechanism is watching these names today. Preserving them is still
+  the right call, for the reasons that actually apply: CONTINUITY (these names
+  are cited in SPEC-014 and in the issue record, and a reader tracing either
+  should land on a live test) and NO GRATUITOUS CHURN (the names were never
+  wrong — only the bodies were, so renaming would churn the thing that was
+  correct and keep the thing that was broken). Rewriting a body pinned to a
+  defect while keeping a name that already stated the contract correctly is the
+  minimal honest edit.
+
+  ── F6. WHY `pkg/packval/executor.go` IS NOT IN SCOPE ───────────────────────
+  ISSUE-092 Direction item 2 asks that an engine/schema error be made loud and
+  distinct from a genuine non-firing fixture. There are two halves:
+
+    (a) phase3 THROWS AWAY the distinction it is already handed. The positive
+        loop's `if err != nil || !r.Passed` folds a returned engine error into
+        the fixture verdict "positive fixture failed"; the negative loop
+        discards the error text entirely. Fixable wholly in `phase3.go`.
+        THIS LANE OWNS (a) — CLM-005.
+
+    (b) the EXECUTOR cannot always tell a broken run from a clean one:
+        `parseSarif` returns `(nil, nil)` for empty stdout, so a started-but-
+        errored engine yields `Passed:false, ExitCode:0, nil` — indistinguish-
+        able from a clean negative. That is `pkg/packval/executor.go`'s
+        `RunEngine`, which is EXACTLY the surface of ISSUE-140 (filed today,
+        "packval executor's narrow never-started check", plan being authored
+        concurrently). THIS LANE DOES NOT TOUCH `executor.go`.
+
+  THE SPLIT IS NOW A RULING, NOT AN ASPIRATION (2026-08-16). An earlier revision
+  of this plan described the split as already settled; at the time it was not,
+  and PLAN-ISSUE-140 was still editing phase3.go. It has since been ruled at
+  team-lead level:
+
+    · PLAN-ISSUE-140 CEDES `pkg/packval/phase3.go` ENTIRELY to this plan.
+    · This plan (092) owns phase3's error-RENDERING fix in full — CLM-005.
+    · PLAN-140's CLM-004 is narrowed to the EXECUTOR-LOCAL half: `RunEngine`'s
+      own returned error must name `binding.Command`. It does not render it.
+    · ISSUE-140's full acceptance ("fails loud, NAMING the broken command") is
+      therefore delivered JOINTLY, and ISSUE-140 must not be closed on PLAN-140's
+      completion alone. PLAN-140's notes record the same composition requirement
+      from its side.
+
+  ✅ THE CESSION IS FULLY APPLIED — RE-VERIFIED AGAINST THE COMMITTED FILE,
+  2026-08-16. A previous revision of THIS section claimed the cession was "only
+  half-applied" because `pkg/packval/phase3.go` still appeared in PLAN-140's
+  TASK-005/006/010 `files:` arrays. THAT CLAIM WAS WRONG AND IS WITHDRAWN. Read
+  against `plans/PLAN-ISSUE-140-packval-executor-narrow-neverstarted.plan.yml`
+  as committed: TASK-005's `files:` is exactly `[pkg/packval/executor.go]`,
+  TASK-006's is `[pkg/packval/executor.go,
+  pkg/packval/executor_never_started_test.go]`, and TASK-010 likewise excludes
+  phase3.go. Every one of that plan's ~17 textual mentions of "phase3.go" is
+  PROSE — cross-plan-boundary explanation and explicit "STOP and report if you
+  find yourself needing to edit this file" instruction. The misread came from
+  conflating those with PLAN-140's NEW test-only file
+  `pkg/packval/phase3_never_started_test.go`, which CALLS phase3's exported
+  `RunFixtures` to exercise it and explicitly does NOT edit phase3.go; PLAN-140
+  states that file-disjointness itself. There is no residual action on PLAN-140,
+  and the previously-listed follow-on asking someone to "correct PLAN-140's task
+  scopes" has been deleted rather than left to mislead.
+
+  ONE SHIPPED TEST IS REWRITTEN BY THIS LANE, AND THAT IS THIS LANE'S OWN
+  CONSEQUENCE — NOT A DEFECT IN PLAN-140.
+  `TestPhase3_DispatchErrorBranches` (`pkg/packval/pack_declared_setup_test.go`)
+  asserts `e.Check == "semgrep-negative" && strings.Contains(e.Message, "run
+  failed")` for an engine-ERROR case. This plan's CLM-005 re-homes engine errors
+  onto a DEDICATED engine-error `Check`, precisely so a broken run stops
+  masquerading as a fixture verdict, so that assertion cannot survive. THIS lane
+  rewrites its body — it is in TASK-008's file scope for that reason.
+  A previous revision of this section called PLAN-140 "stale" for expecting that
+  test to stay unmodified. THAT READING WAS WRONG TOO and is withdrawn: PLAN-140
+  requires the test green with unmodified bodies FROM ITS OWN PERSPECTIVE (it
+  touches neither phase3.go nor that test, so nothing PLAN-140 does should move
+  it), and it already handles the cross-lane case explicitly in its own "ORDER
+  SENSITIVITY" section, which instructs its implementer to record the REAL
+  observation — including the case where PLAN-092 landed first and changed the
+  expected `Check`. The two plans agree. Do not resolve anything here by
+  weakening CLM-005.
+
+  ── F7. THREE DEEPER DEFECTS FOUND IN REVIEW — DEFERRED, NOT FIXED HERE ─────
+  Review established that this lane's headline evidence could NOT be produced
+  against the two real in-repo packs, for three reasons that are separate from
+  this defect, deeper than it, and each cross-cutting on its own. RULING
+  (2026-08-16): narrow this plan's evidence onto a synthetic corpus rather than
+  widen it to absorb all three. Each is verified below at HEAD, then deferred.
+
+    (F7-a) `packs/contracts` CAN NEVER DISPATCH, EVEN AFTER THIS LANE.
+      All seven of its rules declare `input_mode: pattern-arg` and carry an
+      inline `pattern:` — none declares `file:` or `rule_path:`. So the accessor
+      this plan introduces (CLM-001) returns EMPTY for every one of them and the
+      dispatch guard stays false. This is a THIRD instance of the same drift
+      family: `pkg/pack/manifest.go`'s runtime `Rule` has a `Pattern string
+      \`yaml:"pattern"\`` field, added by SPEC-035 REQ-004; `pkg/packval`'s
+      authoring-time `Rule` has no `Pattern` field AT ALL. packval cannot even
+      see the rule source a pattern-arg rule declares. Fixing this is modelling
+      work on top of CLM-001, not a variation of it.
+
+    (F7-b) packval's EXECUTOR NEVER APPLIES `binding.Convert`.
+      `packs/substantiveness` declares `convert: ast-grep/to-sarif.sh` on its
+      engine. Only the real gate dispatch path applies it — `binding.Convert`
+      appears in `cmd/backstop/pack_gate.go` and NOWHERE in
+      `pkg/packval/executor.go`. packval feeds raw `ast-grep scan --json` output
+      (a JSON ARRAY) straight into `check.ParsePackFindings` → `parseSarif`,
+      whose `json.Unmarshal` into a `sarifLog` STRUCT fails on an array. So the
+      moment substantiveness dispatches, `RunEngine` returns a parse error —
+      which under this lane's own CLM-005 is a distinct, loud engine error, and
+      phase 3 FAILS. Correct behavior for a genuinely broken pipeline; wrong
+      conclusion about the pack. The fix belongs in `pkg/packval/executor.go`,
+      which this lane does not own (F6).
+
+    (F7-c) THE `semgrep-rule-id` CROSS-CHECK IS BAKED AND UNCONDITIONAL.
+      ★ FOLDED INTO THIS PLAN 2026-08-16 by team-lead ruling — see F9. It is
+      recorded here as originally found, because F9's design depends on the
+      diagnosis being right.
+      In `RunFixtures`, once a rule has a source file the code reads it and runs
+      `semgrepFileContainsRuleID` REGARDLESS of the rule's declared engine.
+      `packs/substantiveness` declares `rule_path: ast-grep/sgconfig.yml`, an
+      ast-grep project config whose entire content is `ruleDirs: [rules]` — it
+      contains no semgrep-shaped rule-ID list and never will. So the check
+      returns false and emits a `semgrep-rule-id` error: a SECOND, fully
+      independent reason substantiveness can never reach `phase3-fixtures:
+      pass`. It is also a live violation of the thin-executor invariant — baked
+      semgrep knowledge applied to a non-semgrep engine.
+
+  TO BE FILED as follow-on issues. Three defects were found; ONE (F7-c) has
+  since been folded into this plan, so TWO remain to be filed. They share a root
+  cause (packval's manifest/dispatch model predates the engine model) but have
+  different owning surfaces and different fixes.
+    (i)   "packval's Rule model has no Pattern field — pattern-arg rules can
+           never dispatch fixtures" (pkg/packval/manifest.go + phase3.go).
+           STILL TO BE FILED.
+    (ii)  packval's executor never applies binding.Convert — non-SARIF engine
+           output is fed raw to parseSarif (pkg/packval/executor.go).
+           ✅ FILED as `ISSUE-141` ("Packval Executor Missing Convert
+           Application", `issues/ISSUE-141-packval-executor-missing-convert-
+           application.issue.md`, opened 2026-08-16). ⚠ HARD PREREQUISITE for
+           this plan's FINAL phase — see F8.
+    (iii) the `semgrep-rule-id` cross-check runs on every engine — baked semgrep
+           knowledge in packval. ★ NO LONGER A FOLLOW-ON ISSUE: folded in as
+           CLM-010 (F9). What remains of (iii) is a REQUIREMENTS question about
+           BUNDLE-005 REQ-012, recorded as a non-blocking note in the FOLLOW-ONS
+           list below.
+
+  ── F8. ⚠ THE COLLATERAL BLOCKER — RULED 2026-08-16. READ BEFORE PHASE 6 ────
+  Found while re-scoping F7, named by no prior review. It has since been RULED
+  at team-lead level; the finding is preserved verbatim below because the ruling
+  only makes sense against it. THE NARROWED SCOPE DOES NOT MAKE THE COLLATERAL
+  GO AWAY.
+
+  Restoring dispatch is this lane's CORE change, not its deferred part. The
+  moment it lands, `packs/substantiveness` starts dispatching and starts FAILING
+  `pack test`, for the two independent F7-b and F7-c reasons. TWO SHIPPED,
+  CURRENTLY-GREEN `cmd/backstop` tests assert that it PASSES:
+
+    1. `TestInstallSubstantivenessLocalPack_UsesProductionAssembly`
+       (`cmd/backstop/substantiveness_assembly_test.go`). Its positive subtest
+       installs the real `packs/substantiveness` through the production assembly
+       and fails with the message "packs/substantiveness must pass pack check
+       and pack test through the production assembly". Its whole point (CLM-095)
+       is that validation genuinely RUNS on that path.
+    2. `installZeroMatchSubstantivenessPack` (`cmd/backstop/
+       gate_substantiveness_e2e.go`) and its ISSUE-113 e2e callers. Its doc
+       comment states outright: "WHY THE PATCHED PACK STILL PASSES `pack test`:
+       ... packval's Rule struct reads the YAML key `file` ... so `rule.File ==
+       ""` and every fixture-execution site in pkg/packval/phase3.go is guarded
+       ... and skipped." It then names ISSUE-092 as the tracking item. That
+       helper's premise is THIS DEFECT, and this lane removes it.
+
+  So the lane as scoped cannot land green. Three options were put up; the
+  ruling adopted OPTION 1 and rejected the other two ON THE RECORD.
+
+    ★ OPTION 1 — ADOPTED (team-lead ruling, 2026-08-16). Two moves:
+      (1a) FOLD F7-c INTO THIS LANE. It lives in `phase3.go`, which this lane
+           already owns, and substantiveness cannot pass without it. Delivered
+           as CLM-010 in phase 5 — design and collateral in F9.
+      (1b) SEQUENCE THE FINAL PHASE BEHIND F7-b's OWN FIX. F7-b is filed as
+           ISSUE-141 and needs ITS OWN PLAN. It was deliberately NOT folded into
+           PLAN-ISSUE-140: that plan is past review and mid-implementation, and
+           retrofitting scope into a plan already being implemented is exactly
+           the disruption this project avoids.
+      `packs/contracts` stays dead (F7-a) — NOT a regression, exactly as vacuous
+      as today, and follow-on (i) picks it up later.
+    OPTION 2 — REJECTED. Take a coordinated exception and edit `executor.go`
+      from here. Contradicts the F6 cession and re-opens the collision that
+      ruling closed. Rejected on the record; do not re-propose.
+    OPTION 3 — REJECTED. Land this lane and rewrite the two `cmd/backstop` tests
+      to expect failure. Those tests assert a real property (validation runs on
+      the install path) and weakening them to accommodate a change is hacking
+      the gate green. If they go red for the F7-b reason, that red is TRUE and
+      must be fixed at the cause. Rejected on the record; do not re-propose.
+
+  ⚠ THE RESULTING SEQUENCING CONSTRAINT — BLOCKING, NOT ASPIRATIONAL.
+  PHASES 1 THROUGH 5 EXECUTE NOW. They are additive, their evidence is entirely
+  synthetic, and phase 5 strictly REDUCES the collateral (it removes one of the
+  two reasons substantiveness fails). Nothing in them touches
+  `packs/substantiveness`'s real pass/fail state.
+
+  PHASE 6 (TASK-015, the final verification) HAS A HARD PREREQUISITE: ISSUE-141
+  must be RESOLVED BY ITS OWN PLAN, and that plan's implementation must have
+  LANDED, before TASK-015 runs. This is a real blocking dependency on another
+  lane's delivered code, not a soft preference, and TASK-015 states it as such.
+  If an implementer reaches TASK-015 and ISSUE-141's fix has not landed, the
+  instruction is to STOP AND REPORT — exactly the pattern TASK-015 step 4
+  already uses for the two currently-green shipped `cmd/backstop` tests. Do not
+  wait it out, do not route around it, and do not edit those tests.
+
+  ── F9. THE FOLDED-IN RULE-ID CONDITIONING (CLM-010) — DESIGN + COLLATERAL ──
+  F8's ruling folds F7-c into this lane. This section is the design, verified at
+  HEAD, and it carries one collateral finding that was NOT in the ruling and
+  that a naive implementation would break.
+
+  CONDITION ON THE DECLARED `input_mode`, NOT ON THE ENGINE'S NAME. The obvious
+  reading of "condition the check on the rule's declared engine actually being
+  semgrep" is `rule.Engine == "semgrep"`. DO NOT IMPLEMENT IT THAT WAY. A baked
+  engine-name literal in the binary is the exact thing CLAUDE.md's first
+  principle forbids, and it would replace one thin-executor violation with a
+  smaller one. The engine model already declares the property the check actually
+  depends on.
+
+  WHAT THE CHECK ACTUALLY DEPENDS ON: `semgrepFileContainsRuleID` assumes the
+  declared file IS A LIST OF RULES, each carrying an `id`, and that the pack's
+  rule id must name one of them. That is precisely the semantics of
+  `input_mode: rule-flags` — "repeat input_flag once per RULE FILE". Under
+  `input_mode: config-file` the declared file is a PROJECT CONFIG, not a rule:
+  it names rule DIRECTORIES and carries no ids at all, so the cross-check is not
+  merely failing, it is categorically inapplicable. Read from
+  `packs/base-engines/pack.yml` at HEAD:
+    · `semgrep`  → `input_mode: rule-flags`  (field_contract requires
+      `rule_path` — independent corroboration for CLM-001)
+    · `ast-grep` → `input_mode: config-file`
+  and from `packs/substantiveness/pack.yml`, its pack-declared
+  `ast-grep-substantiveness` → `input_mode: config-file`.
+  So gating on `binding.InputMode == engine.InputModeRuleFlags`
+  (`pkg/pack/engine/binding.go`) is a DECLARED, tool-neutral condition that
+  keeps the check exactly where it applies and removes it exactly where it never
+  could. It is strictly more faithful to BUNDLE-005 REQ-012's own wording, which
+  speaks only of "the semgrep rule ID in the referenced rule file" — the check
+  was never mandated for engines the requirement predates.
+
+  ⚠ THE COLLATERAL THE ENGINE-NAME READING WOULD HAVE BROKEN — and the reason
+  input-mode conditioning is not merely tidier but REQUIRED.
+  `cmd/backstop/testdata/hermetic-remote/fixture-fail-pack/pack.yml` exists for
+  one purpose: to PASS `pack check` and FAIL `pack test` in phase3-fixtures, so
+  a consumer can tell a check failure from a fixture failure. Verified at HEAD,
+  its single rule is CLAIMLESS — it declares no fixtures at all — so the
+  `semgrep-rule-id` mismatch is its ONLY failure mechanism. And it declares
+  `engine: marker-scan`, a pack-declared engine, NOT semgrep. Under
+  `rule.Engine == "semgrep"` that pack would silently start PASSING `pack test`,
+  breaking at minimum:
+    · `TestPackvalValidator_RunPackTest_FixtureFailureReturnsValidationError`
+      (`pkg/pack/distribution/validator_test.go`) — shipped and green, asserts
+      RunPackCheck passes AND RunPackTest fails in `phase3-fixtures`.
+    · SPEC-069 / PLAN-SPEC-069 (`backstop init`, plan committed and in
+      implementation), which state that `fixture-fail-pack` fails `pack test`.
+  `marker-scan` declares `input_mode: rule-flags`, so under the INPUT-MODE
+  condition the check still runs on it, the pack still fails for the same
+  reason, and there is ZERO collateral on either. The implementer must confirm
+  this by running, not assume it.
+
+  TWO MECHANICAL CONSEQUENCES IN `phase3.go`, both easy to miss:
+    · ORDER. The rule-ID block currently runs BEFORE `resolveEngine`, so the
+      binding — and therefore its InputMode — is not yet in hand where the
+      condition is needed. The engine resolve must move AHEAD of the rule-ID
+      check. A failed resolve already emits its own `engine-resolve` error;
+      preserve that, and simply do not run the rule-ID check when no binding
+      resolved.
+    · THE READ-FAILURE BRANCH moves with the check. The "failed to read rule
+      file" error also lives under `semgrep-rule-id` today. Let it move inside
+      the rule-flags condition: rule-source-file EXISTENCE is phase 1's job for
+      every engine under CLM-006, so nothing is lost, and a `config-file`
+      engine's config is no longer read by a phase that cannot interpret it.
+
+  THE `semgrep-rule-id` CHECK STRING IS DELIBERATELY NOT RENAMED. It is a baked
+  semgrep noun and it is not lovely, but it appears in `fixture-fail-pack`'s
+  README and pack.yml comments and is the vocabulary SPEC-069's in-flight work
+  reads. Renaming it is churn with cross-lane risk and no behavioral gain.
+  Recorded in the FOLLOW-ONS list alongside the REQ-012 question, where it
+  belongs.
+
+  ── ISSUE-091 MEASUREMENT TRAP: ALREADY SATISFIED, PINNED BY TEST ───────────
+  ISSUE-092 warns that restoring execution must invoke the engine with explicit
+  FILE targets, not a directory scan, or it inherits ISSUE-091's undercount of
+  `*_test.go` findings. phase3 already builds `[]string{<rule file>, f.Path}` —
+  explicit files. Nothing to change; CLM-002 pins it with a test so a later
+  refactor cannot regress into a directory target.
+
+  ── SHARP EDGE: `pack test` BECOMES TOOL-DEPENDENT ──────────────────────────
+  Once dispatch is live, `pack test` on a real pack actually runs semgrep /
+  ast-grep. A missing engine binary will now make `pack test` go RED where it
+  was green. That is the CORRECT outcome — a vacuous green is the defect — but
+  it is a real behavior change for anyone without the tools on PATH. Verified
+  present in this environment: `semgrep` and `ast-grep` both resolve. TASK-015
+  must confirm the live run genuinely executes rather than passing because a
+  tool was quietly absent.
+
+  The same sharp edge is what makes F8 a blocker rather than an inconvenience:
+  "goes RED where it was green" is not hypothetical for `packs/substantiveness`,
+  and two shipped `cmd/backstop` tests are standing exactly there.
+
+  ── EXISTENCE-IN-WORLD CHECK: NO LIVE COLLISION, ONE REAL DRAFT OVERLAP ────
+  Searched committed and working-tree `plans/` and `specs/` for this surface.
+
+    · SPEC-032 / PLAN-SPEC-032 (both `status: draft`) — ★ RE-CHECKED AND
+      CORRECTED 2026-08-16. An earlier revision of this plan said SPEC-032
+      "KEPT `rule.File` and touched neither the key drift nor polarity —
+      adjacent, not subsuming." That is true ONLY of the `rule.File` half, and
+      it was wrong about the rest. Three of this plan's claims are already owned
+      by SPEC-032, claim for claim:
+
+        THIS PLAN         SPEC-032 (already specifies the same behavior)
+        ─────────         ──────────────────────────────────────────────
+        CLM-004           CLM-016 / CLM-017 / CLM-018 / CLM-019 (REQ-004) —
+        (polarity)        the same positive-clean-passes / positive-flagged-
+                          fails / negative-flagged-passes / negative-not-
+                          flagged-fails matrix, split four ways.
+        CLM-005           CLM-020 (REQ-004) — a command/convert/SARIF-parse
+        (distinct         failure is a HARD fixture error, distinct from a
+        engine error)     clean run and never treated as not-flagged.
+        CLM-010           CLM-030 / CLM-031 / CLM-032 / CLM-033 / CLM-037
+        (rule-ID          (REQ-008) — the rule-ID precheck ENFORCED for the
+        precheck by       rule-flags input mode and SKIPPED for `none`,
+        input mode)       `config-file`, and `rule-dir`. Note honestly: this
+                          is the SAME input_mode-based conditioning the F9
+                          finding arrived at independently. F9 was a correct
+                          design call, but it was not a NOVEL one — SPEC-032
+                          specified it first, and F9's framing as a fresh
+                          design correction overstated its originality.
+
+      WHY THIS DOES NOT BLOCK THIS PLAN. Both artifacts are `draft`, so neither
+      is in flight, neither is enforced by the gate's test_verification or
+      status_drift dimensions, and no implementation is racing this one. This
+      plan proceeds as the owner of the three claims above.
+
+      WHY IT STILL NEEDS RESOLVING. SPEC-032 mandates its OWN test names for
+      exactly this behavior — `TestPackVal_EngineContract_*` and
+      `TestPackVal_EnginePrecheck_*` — which this plan does not write and will
+      not cause to exist. If SPEC-032 is later picked up as-written after this
+      plan lands, it would either strand those mandated names permanently or
+      drive a SECOND, separate implementation of behavior that already shipped.
+      Recorded as FOLLOW-ON 9 below; deliberately NOT decided from this lane.
+
+    · PLAN-ISSUE-101, PLAN-SPEC-067, PLAN-ISSUE-113, DIR-024, DIR-032 and
+      BACKLOG.yml all reference ISSUE-092 and every one of them explicitly
+      DEFERS the fix to it, several while building documented workarounds
+      (`scripts/falsify.sh`) around it.
+    · ISSUE-140 is adjacent on `executor.go` and disjoint by the F6 split.
+
+  Verdict: no committed or in-flight artifact owns this surface, and this plan
+  is the owner. The one real overlap is with a draft spec that has never been
+  implemented, and it is carried as a required follow-on rather than silently
+  passed over.
+
+  ═══════════════════════════════════════════════════════════════════════════
+  CLAIM LEDGER
+  ═══════════════════════════════════════════════════════════════════════════
+
+  CLM-001  packval's rule-source key is reconciled onto `rule_path` — the key
+           the gate-runtime `Rule` reads and every real pack.yml declares.
+           `file:` survives only as a back-compat alias, and exactly ONE
+           accessor decides which is in force, so no future caller can re-derive
+           the choice differently.
+
+  CLM-002  phase 3 GENUINELY DISPATCHES for a `rule_path:`-declared rule:
+           `executor.RunEngine` is invoked, once per fixture, with EXPLICIT FILE
+           targets (rule file + fixture path) and never a directory — the latter
+           pinned by test against ISSUE-091's undercount trap.
+
+  CLM-003  ★ PHASE 3 CAN FAIL. A pack declaring its rule via `rule_path:`, whose
+           negative fixture has been rewritten to no longer violate, turns
+           `phase3-fixtures` to `fail` and `pack test` to a non-zero exit.
+           This is the central deliverable; absent it every other claim here is
+           another vacuous green.
+
+  CLM-004  Fixture polarity matches BUNDLE-005 REQ-011 on BOTH findings paths: a positive
+           fixture that FIRES is a failure (false positive); a negative fixture
+           that does NOT fire is a failure. Applied to the ruleset loop and the
+           `tool_config` loop alike. The layer-3 validator branches, which are
+           already correct because `RunValidator.Passed` means "exited 0", are
+           left alone.
+
+  CLM-005  An engine/schema error is a DISTINCT, loud phase-3 error carrying the
+           underlying engine message — never folded into "positive fixture
+           failed", never silently absorbed into a passing negative.
+
+  CLM-006  phase 1's rule-file-existence structural check is live for
+           `rule_path:`-declared rules.
+
+  CLM-007  Layer-3 validator dispatch no longer gates on the RETIRED `Layer`
+           field; it keys on the rule declaring a validator, so a real
+           engine-model pack's sandbox rule is actually exercised.
+
+  CLM-008  ★ RESCOPED 2026-08-16 (F7 ruling). END TO END THROUGH THE CLI, on a
+           SEMGREP-ONLY SYNTHETIC PACK CORPUS: `backstop pack test` over the
+           honest `rulepath-pack` reaches `phase3-fixtures: pass` having actually
+           dispatched (non-zero dispatch count, non-trivial duration), and over
+           `rulepath-pack-broken-negative` reaches `phase3-fixtures: fail` with a
+           non-zero exit. The claim is deliberately proven on a corpus that
+           exercises THIS lane's mechanism — the struct drift, the dead dispatch,
+           the inverted polarity — and nothing else.
+           WHAT THIS CLAIM NO LONGER ASSERTS, and why: the earlier wording
+           promised that `packs/substantiveness` and `packs/contracts` execute
+           fixtures and pass. Neither can, for three defects that are not this
+           one (F7), so that promise was unachievable and has been withdrawn
+           rather than quietly weakened. The real-fleet assertion moves to the
+           F7 follow-ons, where the packs can first be made able to dispatch.
+
+  CLM-009  A drift guard fails the build if the authoring-time and gate-runtime
+           `Rule` structs ever again disagree about which yaml key names a
+           rule's source file. This is what stops the whole class from
+           recurring silently, which is ISSUE-092 Direction item 1's actual ask.
+
+  CLM-010  ★ FOLDED IN 2026-08-16 (F8 ruling). The `semgrep-rule-id` cross-check
+           runs ONLY for a rule whose RESOLVED engine binding declares
+           `input_mode: rule-flags` — the mode under which the declared file IS
+           a list of rules carrying ids. A `config-file` engine, whose declared
+           file names rule DIRECTORIES and carries no ids, is no longer failed
+           by a check written for a different file shape. The condition is the
+           DECLARED input mode, NEVER the engine's name: a baked engine-name
+           literal would trade one thin-executor violation for a smaller one,
+           and would also silently un-fail `hermetic/fixture-fail-pack` (F9).
+
+  ═══════════════════════════════════════════════════════════════════════════
+  CITATION DISCIPLINE
+  ═══════════════════════════════════════════════════════════════════════════
+  `pkg/packval/phase3.go` is edited by three separate phases of this plan, so
+  every location in the task descriptions is given BY NAME — function, branch
+  condition, error `Check` string, or message text — never by line number. Line
+  numbers quoted in ISSUE-092 itself were accurate when written and will not
+  survive TASK-003. Locate by name.
+
+  ═══════════════════════════════════════════════════════════════════════════
+  FOLLOW-ONS — file, do not fold in
+  ═══════════════════════════════════════════════════════════════════════════
+  1. ⚠ THE F7 DEFECTS. One is folded in, one is filed, one still needs filing.
+       (i)   packval's Rule model has no `Pattern` field — pattern-arg rules
+             (all of `packs/contracts`) can never dispatch fixtures.
+             STILL TO BE FILED. Surface: `pkg/packval/manifest.go` + `phase3.go`.
+       (ii)  packval's executor never applies `binding.Convert` — non-SARIF
+             engine output is fed raw to `parseSarif`.
+             ✅ FILED as ISSUE-141 (`issues/ISSUE-141-packval-executor-missing-
+             convert-application.issue.md`, 2026-08-16).
+             ⚠ HARD PREREQUISITE for this lane's FINAL phase, and it needs its
+             OWN plan — it was deliberately not folded into PLAN-ISSUE-140,
+             which is past review and mid-implementation (F8).
+       (iii) ★ FOLDED IN as CLM-010 (F9). Not filed as an issue.
+  1a. ⚠ NON-BLOCKING REQUIREMENTS NOTE, recorded so it is not lost — the residue
+     of follow-on (iii). BUNDLE-005 REQ-012 reads: "Phase 3 must verify that the
+     pack rule ID exactly matches the semgrep rule ID in the referenced rule
+     file. Mismatch is a hard error. [DD-18]" It was written before the engine
+     model existed, when semgrep was the only engine. CLM-010 narrows the check
+     to `input_mode: rule-flags` rules, which is a faithful reading of REQ-012's
+     own wording (it only ever spoke about semgrep rule files) — so this is NOT
+     a contradiction and nothing here blocks. But the requirement's TEXT is now
+     narrower in practice than it appears, and a future reader deserves it
+     stated properly. A spec/bundle-author pass should decide whether REQ-012 is
+     (a) explicitly narrowed to rule-flags engines, or (b) generalized to "each
+     engine's own notion of rule identity, per its declared input mode."
+     Two smaller items ride along: the error's `Check` string is still the baked
+     noun `semgrep-rule-id` (deliberately not renamed here — F9 records why),
+     and `semgrepFileContainsRuleID` still parses one specific YAML shape. Both
+     belong to whichever answer (a)/(b) wins. Do NOT edit BUNDLE-005 from this
+     lane; bundles are the founder's to promote.
+  2. THE IN-REPO PACK POLARITY CORRECTIONS, moved out of this lane by the F4
+     withdrawal. `packs/substantiveness` (both rules) and `packs/contracts`
+     (rule one) appear to declare inverted fixture polarity, but the survey that
+     said so was done by READING and has been withdrawn. Redo it by RUNNING each
+     declared engine against each fixture — possible only after (i)/(ii)/(iii) —
+     then swap what actually needs swapping.
+  3. EXTERNAL PACK MIRRORS. `backstop-ai/go-substantiveness` and
+     `backstop-ai/go-contracts` carry the same declarations as their in-repo
+     counterparts and live in their own repos. Whatever follow-on 2 concludes
+     applies to them too, then a version bump + relock. Out of scope here by the
+     packs-are-external invariant.
+  4. ISSUE-140 owns `executor.go`'s broken-run detection (F6b). Once both land,
+     someone should confirm the two halves compose: a missing or errored engine
+     surfaces as CLM-005's distinct error rather than a clean negative. ISSUE-140
+     must NOT be closed on PLAN-140 alone — its "names the broken command"
+     acceptance needs this lane's CLM-005 rendering (F6).
+  5. (WITHDRAWN — no action.) A previous revision listed "correct PLAN-ISSUE-140's
+     task file scopes" here. That was based on a misread and is retracted: PLAN-140
+     genuinely and fully cedes `pkg/packval/phase3.go`, confirmed against the
+     committed file. See F6 for the confirmation and for what was conflated.
+  6. SPEC-014 IS `draft` AND ITS PROSE IS PARTLY STALE. Its phase-3 description
+     predates the engine model and still frames dispatch in terms of `semgrep`
+     and layers. Its POLARITY restatement is a correct reading of BUNDLE-005
+     REQ-011 and is what this plan implements; its mechanism prose — and its
+     draft status, given the pipeline shipped — wants a spec-author pass. Do not
+     edit the spec from this lane.
+  7. `packval` and `pkg/pack` remain two hand-maintained manifest models. CLM-009
+     guards the one field that bit us; F7-a is the same drift one field over.
+     Genuinely unifying them is a larger piece of work and is not attempted here.
+  8. `installZeroMatchSubstantivenessPack`'s doc comment
+     (`cmd/backstop/gate_substantiveness_e2e.go`) explains why its patched pack
+     still passes `pack test` BY CITING THIS DEFECT — "`rule.File == ""` and every
+     fixture-execution site in pkg/packval/phase3.go is guarded ... and skipped" —
+     and names ISSUE-092 as the tracking item. This lane removes that premise, so
+     the comment becomes false on landing whatever the test verdict is. The file is
+     NOT in this plan's scope (it is contended `cmd/backstop` surface); TASK-015
+     reports it and the correction should land with whoever closes ISSUE-092.
+  9. ⚠ REQUIRED — RECONCILE SPEC-032 AGAINST WHAT THIS PLAN DELIVERS. This is a
+     real follow-on, not optional prose: leaving it undone risks a genuine future
+     conflict, because SPEC-032 mandates test names for behavior this plan
+     implements under DIFFERENT names, and those names will never come to exist.
+     DISPATCH A SPEC-AUTHOR PASS, AFTER THIS PLAN LANDS, to:
+       (1) READ SPEC-032 and PLAN-SPEC-032 IN FULL — not just the overlapping
+           claims. The overlap established here is CLM-004 ≡ SPEC-032
+           CLM-016/017/018/019, CLM-005 ≡ CLM-020, CLM-010 ≡
+           CLM-030/031/032/033/037 (see the existence-in-world section above for
+           the claim-by-claim mapping). SPEC-032 is MUCH larger than that: it
+           also carries generalized engine dispatch replacing the per-tool
+           RunSemgrep/RunToolConfig arms (REQ-001..003), the input_mode gather
+           matrix and its gate-parity assertion (CLM-009), the shared
+           `EngineBinding` consumption claims (CLM-034/035, REQ-009), the
+           `convert`-step application (which is separately filed as ISSUE-141 —
+           see follow-on 1(ii)), the engine-limitation fix-hint generalization
+           (CLM-021/022), the non-findings exit-code arms (CLM-023/024), and the
+           `go mod tidy` pre-check conditioning (CLM-038/039/040, REQ-010).
+           Whether that residue is substantial is the question to ANSWER by
+           reading, not to assume from this summary.
+       (2) DECIDE, and record the decision on SPEC-032 itself, between:
+             (a) RETIRE SPEC-032 as `replaced`, citing this plan's delivery of
+                 ISSUE-092 as the reason — appropriate only if the surviving
+                 scope is thin enough not to warrant a spec; or
+             (b) REDUCE SPEC-032 to its genuine residual delta: strike the
+                 overlapping claims (and their now-dead mandated test names),
+                 restate the requirements that remain, and let the reduced spec
+                 stand on the scope this plan never touched.
+           Either way, every mandated test name that will never be written must
+           be explicitly removed rather than left orphaned.
+       (3) NOT be attempted from THIS plan. This lane does not read SPEC-032 in
+           full, does not have standing to judge its residual scope, and must
+           not edit it. Both artifacts are `draft`, so nothing is racing — the
+           correct time is after ISSUE-092 lands, with the delivered behavior in
+           hand to compare against.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Fixture packs that can actually falsify"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Scaffold testdata packs: an honest rule_path pack, a broken-negative pack, and an engine-error pack"
+        description: |
+          Create three testdata packs under `pkg/packval/testdata/`. These are the
+          substrate every later claim is proven against, so they must be REAL —
+          genuine semgrep rule files and genuine Go fixtures that genuinely do and
+          do not violate. A hand-waved fixture here produces a hand-waved proof
+          later (fixtures-from-real-output is founder law).
+
+          (1) `rulepath-pack/` — the honest pack. `pack.yml` declares ONE rule with
+              `engine: semgrep` and `rule_path: rules/no-global.yml`, and NO `file:`
+              key. Its claim declares fixtures in BUNDLE-005 REQ-011 polarity:
+                positive: fixtures/valid/clean.go      (does NOT violate)
+                negative: fixtures/invalid/violating.go (DOES violate)
+              `rules/no-global.yml` must be a real semgrep rule whose `id` equals
+              the pack's declared rule id — the rule-ID cross-check keys on that
+              equality and this pack must satisfy it.
+
+              VERIFY BY RUNNING, not by inspection: invoke semgrep directly on both
+              fixtures with this rule file and confirm it reports a finding on
+              `violating.go` and zero findings on `clean.go`. Capture what the tool
+              actually emitted. If the rule does not fire, fix the FIXTURE or the
+              RULE until it does — do not proceed with a fixture pair that cannot
+              falsify, because CLM-003 is worthless on top of one.
+
+          (2) `rulepath-pack-broken-negative/` — THE FALSIFICATION PACK, the direct
+              analogue of the reproduction recorded in ISSUE-092. Identical to (1)
+              in every respect EXCEPT that its negative fixture is a compliant file
+              that violates nothing. This pack MUST make phase 3 fail once the lane
+              lands; it is the entire evidentiary basis of CLM-003.
+
+          (3) `engine-error-pack/` — identical to (1) except `rules/broken.yml` is
+              structurally invalid to the engine (a malformed rule entry), mirroring
+              the "silent schema-break false-pass" trap ISSUE-092 records. Confirm by
+              direct invocation that the engine ERRORS on it rather than quietly
+              reporting zero findings, and record in a comment what it actually did —
+              CLM-005's test is built against observed behavior, not assumed behavior.
+
+          Do NOT add a `file:` key to any of these. The whole point is that they
+          declare rules the way real packs do.
+
+          SEMGREP ONLY, DELIBERATELY. Every pack here declares `engine: semgrep`
+          and a semgrep rule file. Do not reach for ast-grep or a pattern-arg
+          engine to "cover more" — F7 records three separate defects that make
+          non-semgrep engines unable to complete phase 3 at all, none of which
+          this lane fixes. A semgrep-only corpus is the corpus that genuinely
+          exercises THIS lane's mechanism, and CLM-008 rests on it.
+
+          ★ THE PACKS MUST BE COMPLETE ENOUGH TO REACH PHASE 3 — this is the
+          difference between the plan's central CLI evidence existing and not.
+          `Pipeline.Run` (pkg/packval/pipeline.go) runs phases in order and STOPS
+          at the first `fail`, marking everything after it `skipped`. Phases 1
+          and 2 run BEFORE phase 3, so a manifest that trips either one yields
+          `phase3-fixtures: skipped` — never `fail` and never `pass` — and
+          TASK-015's evidence silently never materializes. Phases 4, 5 and 6 run
+          AFTER phase 3, so they do not gate phase 3 itself, but they DO gate the
+          overall `pack test` exit code that TASK-015 step 1 reports on.
+          So: all of 1, 2, 4, 5 and 6 must genuinely pass for the honest pack.
+
+          Do not hand-derive the required field set from the schema — VERIFY BY
+          RUNNING. Iterate `./bin/backstop pack check <pack-dir>` (which runs
+          phases 1/2/4/5/6 and skips phase 3 by design) until it is CLEAN for
+          each of the three packs, and only then move on. Two known traps worth
+          naming so they are not rediscovered the hard way:
+            · phase 6 requires a `bypass_attempt: true` fixture on every claim of
+              any rule declaring `risk_class: security`. Declare
+              `risk_class: correctness` on these rules — they are testing
+              dispatch mechanics, not a security property, so `correctness` is
+              the honest declaration AND it sidesteps the requirement.
+            · phase 2 requires every claim to carry BOTH a non-empty positive and
+              a non-empty negative fixture list.
+          `engine-error-pack` is expected to reach phase 3 and FAIL THERE; it must
+          still clear phases 1 and 2 to get that far, so it needs a rule file that
+          EXISTS (phase 1 stats it) while being invalid to the ENGINE.
+        files:
+          - pkg/packval/testdata/rulepath-pack/pack.yml
+          - pkg/packval/testdata/rulepath-pack/rules/no-global.yml
+          - pkg/packval/testdata/rulepath-pack/fixtures/valid/clean.go
+          - pkg/packval/testdata/rulepath-pack/fixtures/invalid/violating.go
+          - pkg/packval/testdata/rulepath-pack-broken-negative/pack.yml
+          - pkg/packval/testdata/rulepath-pack-broken-negative/rules/no-global.yml
+          - pkg/packval/testdata/rulepath-pack-broken-negative/fixtures/valid/clean.go
+          - pkg/packval/testdata/rulepath-pack-broken-negative/fixtures/invalid/compliant.go
+          - pkg/packval/testdata/engine-error-pack/pack.yml
+          - pkg/packval/testdata/engine-error-pack/rules/broken.yml
+        claims:
+          - CLM-002
+          - CLM-003
+          - CLM-005
+        depends_on: []
+
+  - id: phase-2
+    name: "Phase 2: Reconcile the rule-source key onto rule_path"
+    tasks:
+      - id: TASK-002
+        type: test
+        title: "Write the dispatch, drift-guard, phase-1 existence and central falsification tests — all red"
+        description: |
+          Write the tests that prove packval reads the key real packs declare. All
+          of these are RED at authoring time; several stay red until Phase 3's
+          polarity correction lands, which is expected and is called out per test.
+
+          `TestPackVal_ManifestRuleSourceKeyMatchesGateRuntimeModel` (CLM-001,
+          CLM-009) — THE DRIFT GUARD. Reflect over BOTH `packval.Rule` and
+          `pack.Rule` and assert they agree on the yaml key that names a rule's
+          source file: `pack.Rule` must expose `rule_path`, and `packval.Rule` must
+          expose it too. This test must FAIL if either struct later drops or renames
+          that key. Assert on the STRUCT TAGS via reflection — not on a hand-copied
+          string constant, which would drift in exactly the way this guards against.
+
+          `TestPackVal_RuleSourcePathPrefersRulePathAndFallsBackToFile` (CLM-001) —
+          the single accessor: `rule_path` alone resolves to it; `file` alone
+          resolves to it; both present resolves to `rule_path` (runtime model wins);
+          neither present resolves to empty.
+
+          `TestPackVal_P1_RulePathFileExistenceIsChecked` (CLM-006) — phase 1 against
+          a manifest declaring `rule_path:` at a path that does NOT exist reports a
+          structural error naming that path. Today phase 1 passes this silently.
+
+          `TestPackVal_P3_RulePathDeclaredRuleDispatchesFixtures` (CLM-002) — run
+          `RunFixtures` over `testdata/rulepath-pack` with a MockExecutor that
+          RECORDS every `RunEngine` invocation. Assert the recorder saw a non-zero
+          number of calls. This is the direct inverse of today's behavior, where the
+          count is zero and the phase reports pass — assert on the COUNT, so a future
+          regression to zero-dispatch cannot read as green.
+
+          `TestPackVal_P3_EngineTargetsAreExplicitFilesNotDirectory` (CLM-002) —
+          from the same recorder, assert every dispatched target list is exactly the
+          rule file plus one fixture FILE path, and that no target is a directory.
+          This pins ISSUE-091's measurement trap: a later refactor to a directory
+          target would silently undercount `*_test.go` findings.
+
+          `TestPackVal_P3_PhaseThreeFailsWhenNegativeFixtureNoLongerViolates`
+          (CLM-003) — ★ THE CENTRAL TEST. Run `RunFixtures` over
+          `testdata/rulepath-pack-broken-negative` with the REAL `DefaultExecutor`,
+          not a mock — a mocked engine cannot prove the tool actually ran. Assert
+          `Status == "fail"` and that the errors name the offending rule and claim.
+          Assert also that `testdata/rulepath-pack` (honest fixtures, real executor)
+          comes back `pass`, so the test discriminates rather than failing on
+          everything. NOTE: this test stays RED after Phase 2 and only goes green
+          after Phase 3's polarity fix — dispatch alone is not enough, because with
+          today's inverted conditions a compliant negative fixture reads as CORRECT.
+          Do not weaken it to pass early.
+
+          Skip the real-executor tests with a clear message if the engine binary is
+          absent — but skip LOUDLY and never assert success on a skipped run. A
+          silently-skipped falsification test is the same defect class this lane exists
+          to kill.
+        files:
+          - pkg/packval/rule_source_key_test.go
+          - pkg/packval/phase3_rulepath_dispatch_test.go
+          - pkg/packval/phase1_rulepath_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-006
+          - CLM-009
+        test_names:
+          - TestPackVal_ManifestRuleSourceKeyMatchesGateRuntimeModel
+          - TestPackVal_RuleSourcePathPrefersRulePathAndFallsBackToFile
+          - TestPackVal_P1_RulePathFileExistenceIsChecked
+          - TestPackVal_P3_RulePathDeclaredRuleDispatchesFixtures
+          - TestPackVal_P3_EngineTargetsAreExplicitFilesNotDirectory
+          - TestPackVal_P3_PhaseThreeFailsWhenNegativeFixtureNoLongerViolates
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: implementation
+        title: "Add rule_path to packval's Rule behind one accessor; route phase 1 and phase 3 through it"
+        description: |
+          Make packval read the key every real pack declares.
+
+          In `pkg/packval/manifest.go`, add to `Rule` a `RulePath` field tagged
+          `yaml:"rule_path"` (and the matching json tag, for parity with the
+          struct's existing convention). Keep the existing `File` field — some
+          testdata and older packs declare it, and removing it would be a gratuitous
+          break — but demote it in a comment to a BACK-COMPAT ALIAS, stating plainly
+          that `rule_path` is canonical because it is the key the gate-runtime model
+          in `pkg/pack/manifest.go` reads and the only one real packs write.
+
+          Add exactly ONE accessor, `func (r Rule) RuleSourcePath() string`, returning
+          `RulePath` when set and otherwise `File`. This is the single place the
+          precedence is decided. Every consumer calls it; no consumer re-implements it.
+
+          Route the call sites through it — located BY NAME, since line numbers have
+          moved:
+            · `pkg/packval/phase1.go`, the branch that stats a rule's source file
+              (currently `if rule.File != ""`).
+            · `pkg/packval/phase3.go` `RunFixtures`, the branch that reads the rule
+              file for the `semgrep-rule-id` cross-check and resolves the engine
+              binding that sets `haveBinding`.
+            · `pkg/packval/phase3.go`, both claim loops' `rule.File != "" &&
+              haveBinding` guards, and the `[]string{rule.File, f.Path}` target
+              construction inside each — the rule-file target must become the
+              accessor's result.
+          Update the error messages in those branches that interpolate the path so
+          they report the path actually used.
+
+          Change NOTHING about polarity in this task. The positive/negative
+          conditions are Phase 3's, and mixing the two edits would make it impossible
+          to tell which change turned which test green.
+        files:
+          - pkg/packval/manifest.go
+          - pkg/packval/phase1.go
+          - pkg/packval/phase3.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-006
+          - CLM-009
+        depends_on:
+          - TASK-002
+
+      - id: TASK-004
+        type: verification
+        title: "Gate the key reconciliation"
+        description: |
+          Run `backstop gate` over the diff.
+
+          Then confirm the split this phase is supposed to produce, and report it
+          honestly rather than as a blanket result: the dispatch, drift-guard,
+          accessor and phase-1 existence tests must now be GREEN, while
+          `TestPackVal_P3_PhaseThreeFailsWhenNegativeFixtureNoLongerViolates` is
+          still RED. That specific combination is the evidence that dispatch is live
+          but polarity is still inverted. A green falsification test at this point
+          would mean the test is not actually exercising the polarity conditions and
+          must be investigated before Phase 3 starts.
+
+          Also run `./bin/backstop pack test pkg/packval/testdata/rulepath-pack` and
+          record what it now does — this is the first moment in the lane where a real
+          engine is invoked by `pack test`.
+        files:
+          - pkg/packval/manifest.go
+          - pkg/packval/phase1.go
+          - pkg/packval/phase3.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-006
+          - CLM-009
+        depends_on:
+          - TASK-003
+
+  - id: phase-3
+    name: "Phase 3: Correct fixture polarity to the BUNDLE-005 REQ-011 contract"
+    tasks:
+      - id: TASK-005
+        type: test
+        title: "Rewrite the defect-pinned mandated tests and add explicit polarity tests"
+        description: |
+          The four polarity tests in
+          `pkg/packval/packval_phase3_exec_test.go` currently assert the INVERSE of
+          what their names say (see F5). THEIR NAMES SURVIVE; rewrite the BODIES.
+          To be precise about why, because an earlier revision overstated it (F5):
+          SPEC-014 is `draft` and enforces nothing mechanically, so this is NOT a
+          mandated-test-name obligation. The names are kept for CONTINUITY (they
+          are cited in SPEC-014 and the issue record) and to avoid churning the
+          one part that was already correct — the names always stated the contract
+          properly; only the bodies asserted its inverse.
+
+          First fix the helper that made the inversion invisible: `newFixtureMock`'s
+          parameters are named `passPos, failNeg` but actually control whether each
+          fixture FIRES. Rename them to `posFires, negFires` and make the body read
+          straightforwardly (`Passed: negFires` for negative targets, `Passed:
+          posFires` otherwise). The old `Passed: !failNeg` double negative is a large
+          part of why this survived review.
+
+          Then rewrite each test to the BUNDLE-005 REQ-011 contract:
+            · `TestPackVal_P3_SemgrepPositivePass` — positive does NOT fire ⇒ pass.
+            · `TestPackVal_P3_SemgrepPositiveFalsePositive` — positive DOES fire ⇒
+              fail, and the error's `Check` identifies the positive path.
+            · `TestPackVal_P3_SemgrepNegativeAllTrigger` — negative DOES fire ⇒ pass.
+            · `TestPackVal_P3_SemgrepNegativeNotTriggered` — negative does NOT fire ⇒
+              fail. This is the case the FixHint was always written for.
+          These four must no longer be three byte-identical calls: give each the mock
+          configuration its own name describes, so each genuinely discriminates.
+
+          `TestPackVal_P3_NegativeFixtureEngineLimitationHint` — keep the name, and
+          re-point it at the corrected branch: the hint must appear when the negative
+          fixture did NOT fire, which is the only case its wording ever described.
+
+          Same correction for the tool_config trio, names preserved:
+          `TestPackVal_P3_ToolConfigPositiveClean` (positive does not fire ⇒ pass),
+          `TestPackVal_P3_ToolConfigNegativeNotTriggered` (negative does not fire ⇒
+          fail), `TestPackVal_P3_ToolConfigNegativeTriggered` (negative fires ⇒ pass).
+
+          Add two new tests stating the contract in one place so it is greppable:
+          `TestPackVal_P3_PositiveFixtureThatFiresIsAFailure` and
+          `TestPackVal_P3_NegativeFixtureThatDoesNotFireIsAFailure` (CLM-004).
+
+          Add `TestPackVal_P3_ValidatorPolarityUnchangedByFindingsFix` (CLM-004) —
+          a guard that the layer-3 validator branches were NOT flipped along with the
+          findings branches. Their `Passed` means "exited 0", so they are already
+          correct; this test exists to stop a well-meaning sweep from inverting them
+          on the theory that the whole file was backwards.
+
+          ★ THE REST OF THE COLLATERAL — the part an earlier revision of this task
+          missed. F5 enumerates it in full; this task owns ALL of it. Every
+          `newFixtureMock(true, true)` call site currently expects a pass and goes
+          RED under the correction, because `(true, true)` is the false-positive
+          FAILURE case once the contract is honored. Work the list from F5, do not
+          work from the four polarity tests alone. In particular, and by name:
+
+            · `TestPackVal_P3_SemgrepRuleIDMatch` — a byte-identical
+              `(true, true)`-expects-pass call. Rewrite it so it asserts the
+              rule-ID match with a mock configuration that is polarity-CORRECT,
+              i.e. its pass verdict comes from the rule ID matching rather than
+              from fixtures that happen not to fail.
+            · `TestPackVal_P3_SemgrepRuleIDMismatch` — this one may still be green
+              afterwards, which is the trap. It must be RE-VERIFIED, not merely
+              observed: confirm it still fails for the RULE-ID reason and not for
+              the polarity reason. A test that goes red for the wrong reason and
+              green for the wrong reason has stopped discriminating.
+
+            · THE SAME TRAP, FOUR MORE TIMES. F5 enumerates SIX `(true, true)`
+              call sites that expect a FAIL, not one. After the polarity
+              correction `(true, true)` means the positive fires AND the negative
+              does not — BOTH fixtures fail — so a fail-expecting assertion is
+              satisfied INCIDENTALLY, whether or not the test's own discriminating
+              logic still works. Each of these four (SemgrepRuleIDMismatch above is
+              the fifth; `ToolConfigNegativeNotTriggered` is the sixth and is
+              already covered by the tool_config trio rewrite above — do NOT
+              rewrite it twice) must be given a POLARITY-CORRECT base mock, so that
+              its `fail` verdict is provably still produced by its own override.
+              RE-VERIFY the fail verdict in each case, do not merely observe green:
+                - `TestPackVal_P3_Layer3PositiveExitNonZero`
+                  (`packval_phase3_exec_test.go:320` at HEAD) — the fail must still
+                  come from its own `ValidatorFn` override returning `Passed:false`.
+                - `TestPackVal_P3_Layer3NegativeExitZero`
+                  (`packval_phase3_exec_test.go:334` at HEAD) — the fail must still
+                  come from its own `ValidatorFn` override returning `Passed:true`.
+                - `TestPackVal_P3_CompleteScaffoldTestFails`
+                  (`packval_phase3_exec_test.go:366` at HEAD) — the fail must still
+                  come from its own `ScaffoldTestFn` override returning
+                  `Passed:false`.
+                - `TestPackVal_P3_SDKProvidesMissing`
+                  (`packval_phase3_exec_test.go:417` at HEAD) — the fail must still
+                  come from the empty entry in `SDK.Provides`.
+              In each case confirm the fail does NOT come from the mock's polarity
+              having gone silently vacuous. The cheapest honest check is to
+              neutralize the test's own override (or, for SDKProvidesMissing, its
+              manifest edit) against the corrected base mock and confirm the test
+              then PASSES — proving the override, not the base polarity, is what
+              produces the fail.
+            · `TestPackVal_P3_ToolConfigDispatchesGeneric`,
+              `TestPackVal_P3_Layer3SingleFileInvocation`,
+              `TestPackVal_P3_Layer3MultiFileInvocation`,
+              `TestPackVal_P3_Layer3PositiveExitZero`,
+              `TestPackVal_P3_Layer3NegativeExitNonZero` — none is ABOUT findings
+              polarity, but each runs a `baseManifest()` whose findings fixtures
+              dispatch, so the phase verdict they assert on moves underneath them.
+              Give each the mock configuration its own subject requires.
+            · any scaffold/SDK test in the same file built on `baseManifest()`.
+              Sweep the file rather than trusting this list to be exhaustive:
+              grep `newFixtureMock(` and account for EVERY hit.
+
+            · `pkg/packval/packval_phase456_pipeline_test.go` — one
+              `NewPipeline(..., Executor: newFixtureMock(true, true)).Run()` over a
+              manifest declaring `file: rules/r1.yml`. It dispatches and reds. This
+              file was in no task's scope before; it is in this one now.
+
+            · `pkg/packval/coverage_error_paths_test.go` — package `packval`, so it
+              does NOT use `newFixtureMock` and a grep for that helper misses it
+              entirely. TWO tests there are pinned to the inverted contract and both
+              must be rewritten:
+                - `TestPackVal_P3_SemgrepPositiveFixtureFails` drives a mock
+                  returning `Passed:false` for everything and expects a
+                  `semgrep-positive` error. Under the correction a non-firing
+                  positive is a PASS; the error now comes from the non-firing
+                  NEGATIVE. Rewrite it to assert the false-positive case its name
+                  is closest to, or rename-in-place is NOT required — keep the name
+                  and make the body assert `semgrep-positive` for a positive that
+                  FIRES.
+                - `TestPackVal_P3_SemgrepNegativeNotTriggered` (a DIFFERENT function
+                  that happens to share a name with one in the `packval_test`
+                  package — do not confuse them) drives `Passed:true` for everything
+                  and expects the `semgrep-negative` FixHint. Under the correction a
+                  firing negative PASSES. Rewrite it to drive a non-firing negative,
+                  which is the case its name and the FixHint always described.
+        files:
+          - pkg/packval/packval_phase3_exec_test.go
+          - pkg/packval/packval_phase456_pipeline_test.go
+          - pkg/packval/coverage_error_paths_test.go
+          - pkg/packval/phase3_polarity_test.go
+        claims:
+          - CLM-003
+          - CLM-004
+        test_names:
+          - TestPackVal_P3_SemgrepPositivePass
+          - TestPackVal_P3_SemgrepPositiveFalsePositive
+          - TestPackVal_P3_SemgrepNegativeAllTrigger
+          - TestPackVal_P3_SemgrepNegativeNotTriggered
+          - TestPackVal_P3_NegativeFixtureEngineLimitationHint
+          - TestPackVal_P3_ToolConfigPositiveClean
+          - TestPackVal_P3_ToolConfigNegativeNotTriggered
+          - TestPackVal_P3_ToolConfigNegativeTriggered
+          - TestPackVal_P3_PositiveFixtureThatFiresIsAFailure
+          - TestPackVal_P3_NegativeFixtureThatDoesNotFireIsAFailure
+          - TestPackVal_P3_ValidatorPolarityUnchangedByFindingsFix
+        depends_on:
+          - TASK-004
+
+      - id: TASK-006
+        type: implementation
+        title: "Invert the findings-path fixture conditions in phase3 to match BUNDLE-005 REQ-011"
+        description: |
+          In `pkg/packval/phase3.go` `RunFixtures`, correct the findings-path
+          conditions. Locate by the error `Check` strings, not by line number.
+
+          Ruleset claim loops:
+            · POSITIVE (`Check: "semgrep-positive"`) — currently errors when the
+              engine did NOT fire. It must error when the engine DID fire: a positive
+              fixture is the clean example, and a finding on it is a FALSE POSITIVE.
+              Give the message wording that says so.
+            · NEGATIVE (`Check: "semgrep-negative"`) — currently errors when the
+              engine DID fire. It must error when the engine did NOT fire. The
+              existing message "negative fixture not triggered" and its
+              engine-limitation FixHint then finally sit on the branch they were
+              written for; move them there rather than rewriting them.
+
+          `tool_config` claim loop: the same inversion, at `Check:
+          "tool-config-positive"` and `Check: "tool-config-negative"`.
+
+          DO NOT TOUCH the `validator-positive` / `validator-negative` /
+          `validator-multi-file` branches. `RunValidator.Passed` means "exited 0",
+          not "fired", so those conditions are already correct — this is the single
+          easiest way to break this lane and TASK-005 pins it.
+
+          Leave a short comment at the findings/validator boundary recording WHY the
+          two seams read `Passed` oppositely. That asymmetry caused this defect and
+          the next reader deserves to be told rather than to rediscover it.
+        files:
+          - pkg/packval/phase3.go
+        claims:
+          - CLM-003
+          - CLM-004
+        depends_on:
+          - TASK-005
+
+      - id: TASK-007
+        type: verification
+        title: "Gate the polarity correction and confirm phase 3 can now fail"
+        description: |
+          Run `backstop gate` over the diff.
+
+          Then produce the lane's headline evidence:
+          `TestPackVal_P3_PhaseThreeFailsWhenNegativeFixtureNoLongerViolates` must
+          now be GREEN — meaning phase 3 genuinely goes red on the broken-negative
+          pack. Report the actual phase-3 error list from that run, not just the
+          test verdict.
+
+          Falsification pass, and it is not optional: temporarily point the
+          falsification test at `testdata/rulepath-pack` (the HONEST pack) and
+          confirm it fails to fail — i.e. the honest pack passes. If both packs come
+          back red, the test is keying on something other than the fixture's
+          violating content and the proof is worthless. Revert the temporary change
+          and say plainly what was observed.
+        files:
+          - pkg/packval/phase3.go
+          - pkg/packval/phase3_polarity_test.go
+        claims:
+          - CLM-003
+          - CLM-004
+        depends_on:
+          - TASK-006
+
+  - id: phase-4
+    name: "Phase 4: Engine errors made distinct, and the retired Layer gate removed"
+    tasks:
+      - id: TASK-008
+        type: test
+        title: "Test that an engine error is its own failure and that validator dispatch ignores Layer"
+        description: |
+          `TestPackVal_P3_EngineErrorIsDistinctFromFixtureVerdict` (CLM-005) — with a
+          MockExecutor whose `RunEngine` returns a non-nil error, assert phase 3
+          reports an error whose `Check` is a dedicated engine-error identifier, NOT
+          `semgrep-positive`, and whose message CONTAINS the underlying engine error
+          text. Today the positive loop's `if err != nil || !r.Passed` launders a
+          broken engine into the fixture verdict "positive fixture failed", which
+          sends a pack author to inspect a fixture that was never the problem.
+
+          `TestPackVal_P3_EngineErrorIsNotAPassingNegative` (CLM-005) — with the same
+          erroring mock, assert a NEGATIVE fixture's engine error is reported as the
+          engine error and never absorbed into a pass. This is the vacuous-green
+          direction and is the one that matters most.
+
+          `TestPackVal_P3_EngineSchemaErrorOnRealEngine` (CLM-005) — run
+          `testdata/engine-error-pack` through the REAL `DefaultExecutor` and assert
+          phase 3 does not report `pass`. Build the assertion against what TASK-001
+          observed the engine actually doing with a malformed rule file. If the
+          engine turns out to emit parseable-but-empty SARIF rather than erroring,
+          the distinction cannot be drawn from inside phase 3 — in that case assert
+          what IS reachable here, and say explicitly in the test comment that the
+          remaining half is `executor.go`'s and belongs to ISSUE-140. Do not reach
+          into `executor.go` to close it, and do not quietly drop the test.
+
+          `TestPackVal_P3_ValidatorDispatchDoesNotGateOnRetiredLayerField` (CLM-007) —
+          a manifest declaring a `validator:` rule with an engine and NO `layer:`
+          (the shape a pack written against the current runtime model would have,
+          since `Layer` was retired from it) must dispatch `RunValidator`. Assert
+          via a recording mock that the call happened. Today the count is zero.
+
+          ★ REWRITE `TestPhase3_DispatchErrorBranches`
+          (`pkg/packval/pack_declared_setup_test.go`). It asserts
+          `e.Check == "semgrep-negative" && strings.Contains(e.Message, "run
+          failed")` for a mock whose engine RETURNS AN ERROR on the negative
+          fixture. CLM-005 deliberately re-homes engine errors onto a dedicated
+          engine-error `Check`, so that assertion is pinned to the behavior this
+          task removes and it CANNOT stay as written. Keep the name and keep the
+          test's other half (the `validator-multi-file` assertion) intact; change
+          only the engine-error half, to assert the dedicated `Check` and that the
+          underlying engine message survives. See F6: rewriting this body is
+          THIS lane's own consequence and PLAN-ISSUE-140 does not conflict with
+          it — PLAN-140 touches neither phase3.go nor this test, and its own
+          "ORDER SENSITIVITY" section already tells its implementer to record
+          the real observation if this lane landed first. Do not resolve
+          anything here by weakening CLM-005.
+
+          ── THE LAYER-GUARD BLAST RADIUS, ENUMERATED (do not re-derive) ──
+          Replacing `rule.Layer == 3 && rule.Validator != ""` with a validator-only
+          guard makes validators dispatch for ANY rule declaring one. Enumerated at
+          HEAD by grepping every `Validator:` and `Layer:` declaration in
+          `pkg/packval/*_test.go`, the result is: NO SHIPPED TEST CHANGES BEHAVIOR.
+          Every test that declares a `Validator` AND calls `RunFixtures` already
+          declares `Layer: 3` (`baseManifest()` in packval_test_helpers_test.go;
+          `pack_declared_setup_test.go`; and coverage_error_paths_test.go's
+          `ValidatorPositiveFails` / `ValidatorNegativePassesUnexpectedly` /
+          multi-file cases), so the guard's outcome is unchanged for all of them.
+          The one `Validator`-without-`Layer` declaration in the package —
+          `TestPackVal_P1_MissingValidatorFile` in coverage_error_paths_test.go —
+          calls `RunStructural`, not `RunFixtures`, so the phase-3 guard never
+          sees it.
+          Both files are nevertheless in this task's scope: pack_declared_setup_test.go
+          because of the CLM-005 rewrite above, and coverage_error_paths_test.go
+          because it holds the densest cluster of Layer-3 validator assertions and
+          is where an unintended change would surface first. CONFIRM the enumeration
+          rather than trusting it — if a validator dispatch appears where the list
+          says it should not, stop and report before adjusting any test.
+          Also worth stating plainly, because CLM-007's wording implies otherwise:
+          NO in-repo pack declares `validator:` at all. This change removes a dead
+          gate keyed on a retired field; it does not light up a real pack's sandbox
+          rule today. That is still worth doing — a dispatch guarded on a field the
+          runtime model deleted is the same defect as the `File` guard — but the
+          claim should not be read as delivering live validator coverage.
+        files:
+          - pkg/packval/phase3_engine_error_test.go
+          - pkg/packval/phase3_validator_dispatch_test.go
+          - pkg/packval/pack_declared_setup_test.go
+          - pkg/packval/coverage_error_paths_test.go
+        claims:
+          - CLM-005
+          - CLM-007
+        test_names:
+          - TestPackVal_P3_EngineErrorIsDistinctFromFixtureVerdict
+          - TestPackVal_P3_EngineErrorIsNotAPassingNegative
+          - TestPackVal_P3_EngineSchemaErrorOnRealEngine
+          - TestPackVal_P3_ValidatorDispatchDoesNotGateOnRetiredLayerField
+        depends_on:
+          - TASK-007
+
+      - id: TASK-009
+        type: implementation
+        title: "Give engine errors their own check, and dispatch validators on the validator field"
+        description: |
+          In `pkg/packval/phase3.go` `RunFixtures`:
+
+          Split the engine-error case out of the fixture verdict. In both claim loops
+          (ruleset and `tool_config`), when `executor.RunEngine` returns a non-nil
+          error, append a ValidationError under a dedicated engine-error `Check`
+          whose message carries the underlying error, and do NOT additionally emit a
+          positive/negative fixture verdict for that fixture — a fixture whose engine
+          never produced a usable answer has no verdict to report. Critically, an
+          engine error must never leave a negative fixture looking clean.
+
+          THE ENGINE-ERROR `ValidationError` MUST CARRY `Rule` AND `Claim`, both
+          populated from the rule and claim the loop is currently processing —
+          stated explicitly here so the new error is not built as a bare
+          `{Phase, Check, Message}`. `packval.ValidationError` already declares
+          both fields (`pkg/packval/result.go`) and every other phase-3 error
+          populates them; an engine error that omits them is strictly less useful
+          than the fixture verdict it replaces, since a pack author would learn
+          that SOMETHING broke without learning which rule broke it. It is also
+          a CROSS-LANE requirement: PLAN-ISSUE-140's `pkg/packval/
+          phase3_never_started_test.go` — a separate, already-committed and
+          already-executing lane whose file THIS PLAN MUST NOT TOUCH — asserts
+          `e.Rule == "R1" && e.Claim == "C1"` against exactly this error, so
+          omitting the fields reds another plan's test across the lane boundary.
+
+          Replace the `rule.Layer == 3` dispatch guards on the validator branches
+          (positive, negative, and the multi-file branch) with a guard on the rule
+          declaring a validator. `Layer` was retired from the runtime model and no
+          real pack sets it, so gating on it is the same dead-dispatch bug as the
+          `File` guard, one field over. Keep the `input_scope == "multi-file"`
+          condition on the multi-file branch — that field is still live.
+
+          Leave `pkg/packval/phase5.go`'s own use of `Layer` alone: phase 5 already
+          handles engine-model rules explicitly by exempting them, and it is not part
+          of this defect.
+
+          `pkg/packval/executor.go` IS OUT OF SCOPE — see F6. If a case here appears
+          to need an executor change, stop and report it rather than editing the file
+          ISSUE-140 owns.
+        files:
+          - pkg/packval/phase3.go
+        claims:
+          - CLM-005
+          - CLM-007
+        depends_on:
+          - TASK-008
+
+      - id: TASK-010
+        type: verification
+        title: "Gate the error-distinctness and validator-dispatch changes"
+        description: |
+          Run `backstop gate` over the diff.
+
+          Confirm the whole `pkg/packval` suite is green and that the phase-2 and
+          phase-3 claims did not regress — in particular that the falsification test
+          is still green after the error-handling restructure, since that change
+          touches the same claim loops.
+        files:
+          - pkg/packval/phase3.go
+          - pkg/packval/phase3_engine_error_test.go
+          - pkg/packval/phase3_validator_dispatch_test.go
+        claims:
+          - CLM-005
+          - CLM-007
+        depends_on:
+          - TASK-009
+
+  - id: phase-5
+    name: "Phase 5: Narrow the rule-ID cross-check to the input mode it was written for"
+    tasks:
+      - id: TASK-011
+        type: test
+        title: "Test that the rule-ID cross-check keys on declared input_mode, not on the engine's name"
+        description: |
+          ★ FOLDED INTO THIS LANE 2026-08-16 by the F8 ruling (it was F7-c, a
+          deferred follow-on). READ F9 BEFORE WRITING ANYTHING — it carries the
+          design and one collateral finding that a naive implementation breaks.
+
+          The one-line summary: `semgrepFileContainsRuleID` runs today for ANY
+          rule that declares a source file, regardless of what engine the rule
+          declared. It must run ONLY when the rule's RESOLVED engine binding
+          declares `input_mode: rule-flags` — the mode under which the declared
+          file IS a list of rules carrying ids.
+
+          `TestPackVal_P3_RuleIDCrossCheckSkippedForConfigFileEngine` (CLM-010) —
+          a manifest whose rule declares an engine resolving to
+          `input_mode: config-file` (the `ast-grep` shape) and a rule-source file
+          that does NOT contain the pack's rule id. Assert phase 3 reports NO
+          `semgrep-rule-id` error. This is the `packs/substantiveness` case:
+          its declared `ast-grep/sgconfig.yml` is a project config naming rule
+          DIRECTORIES and can never contain a rule id.
+
+          `TestPackVal_P3_RuleIDCrossCheckStillRunsForNonSemgrepRuleFlagsEngine`
+          (CLM-010) — ★ THE ANTI-REGRESSION TEST, and the more important of the
+          two. A manifest whose rule declares a PACK-DECLARED engine that is NOT
+          named `semgrep` but DOES declare `input_mode: rule-flags`, with a rule
+          file that does not contain the id. Assert the `semgrep-rule-id` error
+          IS still reported. This test exists to fail loudly if someone later
+          "simplifies" the condition to `rule.Engine == "semgrep"` — which would
+          be a baked engine-name literal AND would silently un-fail
+          `hermetic/fixture-fail-pack` (F9). Say so in a comment on the test.
+
+          `TestPackVal_P3_RuleIDCrossCheckSkippedWhenEngineDoesNotResolve`
+          (CLM-010) — a rule declaring an UNRESOLVABLE engine and a rule file.
+          Assert the loud `engine-resolve` error is still reported and that no
+          `semgrep-rule-id` error rides along: with no binding there is no
+          declared input mode, so the cross-check has nothing to key on. This
+          pins the ordering change TASK-012 must make.
+
+          ── COLLATERAL, ENUMERATED AT HEAD (confirm, do not re-derive) ──
+          ★ CORRECTED 2026-08-16. An earlier revision of this task asserted that
+          EVERY existing `semgrep-rule-id` test declares `Engine: "semgrep"` and
+          therefore all survive unchanged. That is FALSE, and the exception is
+          the one this task must repair:
+
+            · `pkg/packval/packval_phase3_exec_test.go` — the `semgrep-rule-id`
+              assertion in the rule-ID pair DOES declare `Engine: "semgrep"`
+              (`input_mode: rule-flags`), so it survives unchanged. Leave it.
+
+            · `pkg/packval/coverage_error_paths_test.go` —
+              `TestPackVal_P3_SemgrepRuleFileReadError` declares NO `Engine`
+              field at all (`{ID: "r1", File: "nonexistent.yml"}`) and asserts a
+              `semgrep-rule-id` error for the missing rule file. Verified by real
+              execution at HEAD: it emits BOTH `semgrep-rule-id` (the read
+              failure) AND `engine-resolve` (unknown engine ""), and its
+              assertion only looks for the former. Under TASK-012 the resolve
+              runs FIRST and `resolveEngine(pack, "")` cannot resolve — no
+              binding, so no declared input mode, so the read-and-rule-ID branch
+              never runs and only `engine-resolve` survives. The assertion goes
+              RED. THIS TASK MUST REPAIR IT.
+
+          REPAIR, and why this repair and not the other one. Give the rule an
+          explicit `Engine: "semgrep"` field, leaving `File: "nonexistent.yml"`
+          and the `semgrep-rule-id` assertion exactly as they are. `semgrep`
+          resolves out of the base registry at `input_mode: rule-flags`
+          (`packs/base-engines/pack.yml`), so the read-failure branch — which
+          TASK-012 moves INSIDE the rule-flags condition — still executes and the
+          test still discriminates. The alternative (repoint the test to expect
+          `engine-resolve` instead) was considered and REJECTED: it would leave
+          the relocated read-failure branch with zero coverage, which is the
+          exact vacuity this whole lane exists to remove.
+
+          The only `engine-resolve` assertion in the package
+          (`pkg/packval/pack_declared_setup_test.go`) is on the `tool_config`
+          loop, not the ruleset loop, so the reorder does not touch it.
+          CONFIRM this enumeration by running the package rather than trusting
+          it; if a test moves that this list says should not — anything beyond
+          the one named repair above — STOP and report before adjusting it.
+        files:
+          - pkg/packval/phase3_ruleid_inputmode_test.go
+          - pkg/packval/coverage_error_paths_test.go
+        claims:
+          - CLM-010
+        test_names:
+          - TestPackVal_P3_RuleIDCrossCheckSkippedForConfigFileEngine
+          - TestPackVal_P3_RuleIDCrossCheckStillRunsForNonSemgrepRuleFlagsEngine
+          - TestPackVal_P3_RuleIDCrossCheckSkippedWhenEngineDoesNotResolve
+        depends_on:
+          - TASK-010
+
+      - id: TASK-012
+        type: implementation
+        title: "Condition the rule-ID cross-check on the resolved binding's declared input mode"
+        description: |
+          In `pkg/packval/phase3.go` `RunFixtures`, in the RULESET rule loop
+          (locate by the `semgrep-rule-id` `Check` string, not by line number).
+
+          1. REORDER. Move the `resolveEngine` call AHEAD of the rule-source-file
+             read and the rule-ID cross-check. The binding's `InputMode` is the
+             condition, and it is not in hand until the resolve has run. Keep the
+             existing fail-loud `engine-resolve` error exactly as it is (ISSUE-019
+             — an unknown engine must never be a silent skip), and keep
+             `haveBinding` meaning what it means today.
+
+          2. CONDITION. Run the rule-source-file read and
+             `semgrepFileContainsRuleID` only when a binding resolved AND
+             `binding.InputMode == engine.InputModeRuleFlags`
+             (`pkg/pack/engine/binding.go`). The read-failure branch moves inside
+             the same condition — file EXISTENCE is phase 1's job for every engine
+             under CLM-006, so nothing is lost, and a config-file engine's project
+             config is no longer read by a phase that cannot interpret it.
+
+          ⚠ DO NOT CONDITION ON `rule.Engine == "semgrep"`. A baked engine-name
+          literal in the binary violates the thin-executor first principle, and
+          F9 records the concrete damage: `hermetic/fixture-fail-pack` declares a
+          pack-declared `marker-scan` engine and a CLAIMLESS rule, so the rule-ID
+          mismatch is its ONLY failure mechanism — under a name check it would
+          silently start PASSING `pack test`, breaking a shipped distribution
+          test and SPEC-069's in-flight work. It declares `input_mode:
+          rule-flags`, so the input-mode condition keeps it failing. Read F9.
+
+          Leave the `semgrep-rule-id` `Check` string and
+          `semgrepFileContainsRuleID`'s own name and YAML parsing ALONE. Renaming
+          them is churn with cross-lane risk (the string appears in
+          fixture-fail-pack's README and pack.yml and in SPEC-069's vocabulary)
+          and no behavioral gain; the naming question is recorded as a
+          non-blocking follow-on note alongside BUNDLE-005 REQ-012.
+
+          Leave the `tool_config` loop alone — it has no rule-ID cross-check.
+          `pkg/packval/executor.go` remains OUT OF SCOPE (F6).
+        files:
+          - pkg/packval/phase3.go
+        claims:
+          - CLM-010
+        depends_on:
+          - TASK-011
+
+      - id: TASK-013
+        type: verification
+        title: "Gate the conditioning and confirm fixture-fail-pack still fails pack test"
+        description: |
+          Run `backstop gate` over the diff.
+
+          Then confirm the two properties that make this change safe, and report
+          both explicitly rather than as a blanket green:
+
+          1. `go test ./pkg/packval/... -race -count=1` is green, and the
+             pre-existing `semgrep-rule-id` assertions listed in TASK-011 are
+             still passing for the reason they always did.
+
+          2. ★ `go test ./pkg/pack/distribution/... -race -count=1 -run
+             'TestPackvalValidator'` is green — specifically
+             `TestPackvalValidator_RunPackTest_FixtureFailureReturnsValidationError`,
+             which asserts `hermetic/fixture-fail-pack` PASSES `pack check` and
+             FAILS `pack test` in `phase3-fixtures`. That pack's only failure
+             mechanism is the rule-ID mismatch and its engine is not named
+             semgrep, so this test is the direct empirical check that the
+             conditioning keyed on input mode and not on the engine's name (F9).
+             ALSO run it through the CLI and report what it says:
+             `./bin/backstop pack check cmd/backstop/testdata/hermetic-remote/fixture-fail-pack`
+             (expect clean) and
+             `./bin/backstop pack test cmd/backstop/testdata/hermetic-remote/fixture-fail-pack`
+             (expect a `phase3-fixtures` failure naming the rule id and the file).
+             IF THAT PACK NOW PASSES `pack test`: STOP and report. Do not "fix"
+             the fixture — its README says plainly "Do not fix the rule id. The
+             mismatch IS the fixture." A pass there means the condition was
+             written on the engine name.
+        files:
+          - pkg/packval/phase3.go
+          - pkg/packval/phase3_ruleid_inputmode_test.go
+        claims:
+          - CLM-010
+        depends_on:
+          - TASK-012
+
+  - id: phase-6
+    name: "Phase 6: End-to-end proof through the CLI on the synthetic corpus"
+    tasks:
+      - id: TASK-014
+        type: test
+        title: "Prove through the whole pipeline that pack test dispatches for real and can fail"
+        description: |
+          ★ RESCOPED 2026-08-16 by the F7 ruling. An earlier revision of this task
+          asserted that `packs/substantiveness` and `packs/contracts` execute
+          fixtures and PASS. That is unachievable — F7 records three separate,
+          deeper defects that stop both packs cold, none of which this lane fixes.
+          The evidence moves onto the synthetic corpus TASK-001 built, which
+          exercises exactly the mechanism this lane repairs. Read F7 and F8 before
+          starting; do NOT reintroduce the real packs into this task.
+
+          `TestPackVal_PipelineDispatchesFixturesAndCanFail` (CLM-008) — drive the
+          WHOLE `pack test` pipeline, not just `RunFixtures`, so the proof covers
+          the path a pack author actually takes. Use `NewPipeline(dir,
+          PipelineOptions{Mode: "test", Executor: <real>}).Run()` with the REAL
+          `DefaultExecutor`. A mocked engine cannot prove the tool ran.
+
+          Two packs, and the test must DISCRIMINATE between them — a test that
+          reds on both is keying on something other than fixture content and
+          proves nothing:
+            · `testdata/rulepath-pack` — the phase-3 result is `pass`, AND a
+              non-zero number of engine dispatches occurred, AND no earlier phase
+              came back `skipped`. The skipped check is load-bearing:
+              `Pipeline.Run` stops at the first failing phase, so a manifest
+              defect in phases 1-2 would render phase 3 `skipped` and a naive
+              assertion could read that as "not failed".
+            · `testdata/rulepath-pack-broken-negative` — the phase-3 result is
+              `fail`, and the errors name the offending rule and claim.
+
+          THE DISPATCH COUNT IS THE POINT, not the pass. Asserting only
+          `Status == "pass"` would reproduce this lane's own defect inside its own
+          regression test. Observe the count with a counting decorator that
+          delegates to `DefaultExecutor`, defined IN THE TEST FILE — do not modify
+          `executor.go` (F6).
+
+          Skip loudly if the semgrep binary is absent, and never assert success on
+          a skipped run.
+        files:
+          - pkg/packval/pipeline_dispatch_e2e_test.go
+        claims:
+          - CLM-003
+          - CLM-008
+        test_names:
+          - TestPackVal_PipelineDispatchesFixturesAndCanFail
+        depends_on:
+          - TASK-013
+
+      - id: TASK-015
+        type: verification
+        title: "Full gate, artifact validation, and the CLI-level proof that pack test can fail"
+        description: |
+          ⚠⚠ HARD PREREQUISITE — CHECK IT BEFORE YOU RUN ANYTHING ELSE HERE.
+          Phases 1 through 5 are additive and synthetic and execute freely; THIS
+          TASK is where the F8 collateral bites. Read F8 in full first.
+
+          THE PREREQUISITE, stated concretely: `ISSUE-141` ("Packval Executor
+          Missing Convert Application", `issues/ISSUE-141-packval-executor-
+          missing-convert-application.issue.md`) must be RESOLVED — planned,
+          implemented, and LANDED — before this task runs. It is F7-b: packval's
+          executor never applies `binding.Convert`, so the moment restored
+          dispatch reaches `packs/substantiveness` its ast-grep JSON array is fed
+          raw to `parseSarif` and the run errors. This lane does not own
+          `pkg/packval/executor.go` (F6) and ISSUE-141 was deliberately NOT
+          folded into PLAN-ISSUE-140 (past review, mid-implementation) — it needs
+          its own plan.
+
+          VERIFY IT LANDED, do not assume: confirm ISSUE-141's status is closed
+          or resolved AND that `binding.Convert` is actually applied in
+          `pkg/packval/executor.go` at HEAD. An open issue with a merged fix and
+          a stale status field both count as "check the code" — the code is
+          authoritative.
+
+          IF ISSUE-141'S FIX HAS NOT LANDED: STOP AND REPORT. Hand the lane back
+          and say plainly that phases 1-5 are complete and phase 6 is waiting on
+          ISSUE-141. Do NOT wait it out, do NOT route around it, do NOT narrow
+          the dispatch, and do NOT edit the two shipped `cmd/backstop` tests
+          named in step 4 — F8 Option 3 is rejected on the record.
+
+          Note what has ALREADY been removed from the blocker: F7-c, the second
+          independent reason `packs/substantiveness` could never pass, is fixed
+          in-lane by phase 5 (CLM-010). ISSUE-141 is the last one standing.
+
+          Run the full kill chain: `./bin/backstop gate --all` (rebuild
+          `./bin/backstop` first, or the gate runs the previous binary), then
+          `./bin/backstop artifact validate --plan PLAN-ISSUE-092`. Report TRUE
+          exit codes and every dimension's verdict — never summarize a non-zero
+          exit as "just warnings".
+
+          Then produce the evidence this lane is judged on, through the real CLI
+          rather than the Go API:
+
+          1. `./bin/backstop pack test pkg/packval/testdata/rulepath-pack` must
+             report `phase3-fixtures: pass` AND take non-trivial time. ISSUE-092
+             records that this phase reported pass at `0ms`; a still-instant pass
+             means execution is still dead and the lane has NOT landed regardless
+             of what the unit tests say. Report the observed duration.
+
+          2. `./bin/backstop pack test pkg/packval/testdata/rulepath-pack-broken-negative`
+             must report `phase3-fixtures: fail` and exit NON-ZERO. This is CLM-003
+             demonstrated through the same command a pack author would run.
+
+          3. THE REPRODUCTION, end to end. Temporarily edit `rulepath-pack`'s
+             NEGATIVE fixture so it no longer violates its rule, re-run
+             `./bin/backstop pack test` against it, and confirm the pack that was
+             green in step 1 now goes RED — the exact scenario that reported `pass`
+             when this issue was filed. RESTORE the fixture and confirm `git status`
+             and `git diff` are clean afterwards. Report the red output verbatim.
+             If step 1 passes but step 3 does not go red, the lane has produced a
+             NEW vacuous green and must not be reported as complete.
+
+          4. ★ THE F8 BLOCKER CHECK — the reason this task can fail for a reason
+             that is not this lane's fault. Run `go test ./cmd/backstop/... -race
+             -count=1` UNFILTERED and report specifically on
+             `TestInstallSubstantivenessLocalPack_UsesProductionAssembly` and the
+             ISSUE-113 e2e tests that use `installZeroMatchSubstantivenessPack`.
+             Both currently depend on `packs/substantiveness` PASSING `pack test`,
+             which this lane's restored dispatch breaks via F7-b (F7-c is already
+             closed by phase 5).
+             Note that `installZeroMatchSubstantivenessPack`'s doc comment states
+             its premise outright — "`rule.File == ""` and every fixture-execution
+             site in pkg/packval/phase3.go is guarded ... and skipped" — and names
+             ISSUE-092 as the tracking item. THIS LANE REMOVES THAT PREMISE, so the
+             comment is now false whatever the verdict. Do NOT edit it from here —
+             `cmd/backstop/gate_substantiveness_e2e.go` is not in this plan's file
+             scope. REPORT it instead, so the correction lands with whoever closes
+             ISSUE-092 (follow-on 8).
+             IF THEY ARE RED: STOP. Report it, name the reason, and hand the lane
+             back. DO NOT edit those two tests' assertions, do not add a waiver,
+             and do not narrow the dispatch to route around them — F8 Option 3 is
+             rejected on the record. Their red is TRUE and belongs at its cause.
+             IF THEY ARE GREEN: say so explicitly and say WHY — the expected reason
+             is that ISSUE-141's fix landed first per the prerequisite above. An
+             unexplained green here is a signal that dispatch is still dead, not
+             that the problem evaporated.
+        files:
+          - pkg/packval/phase3.go
+          - pkg/packval/manifest.go
+          - pkg/packval/phase1.go
+          - pkg/packval/pipeline_dispatch_e2e_test.go
+          - plans/PLAN-ISSUE-092-pack-test-phase3-fixtures-cannot-fail.plan.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+        depends_on:
+          - TASK-012
+          - TASK-013
+          - TASK-014
