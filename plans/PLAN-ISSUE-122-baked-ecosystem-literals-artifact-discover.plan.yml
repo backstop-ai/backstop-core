@@ -36,10 +36,11 @@ notes: |
   There are TWO consumers of the shared list, and both are in scope:
     1. `DiscoverArtifacts` (cmd/backstop/artifact_discover.go:42) — feeds
        `artifact validate` (artifact_validate.go:158, :309, :322) and the gate's
-       traceability ref collection (gate.go:1082).
+       traceability ref collection (the `DiscoverArtifacts` call in gate.go's
+       `collectTraceRefs`).
     2. `FindUngatedArtifacts` (pkg/gate/artifact_status.go:536) — SPEC-068 REQ-008's
-       ungated-artifact surfacing scan, called from gate.go:1705 and
-       doctor_checks.go:411.
+       ungated-artifact surfacing scan, called from gate.go's
+       `(*realArtifactValidator).ValidateAll` and from doctor_checks.go:411.
   The issue text names only the first. Fixing one and leaving the other would leave
   the bake in place AND reintroduce the drift SPEC-068's single list exists to
   prevent. Both move together.
@@ -65,7 +66,8 @@ notes: |
   WHY `classification:` AND NOT A NEW TOP-LEVEL BLOCK. `classification` is already
   the pack→core PATH-CLASSIFICATION data channel (SPEC-043): a pack declares which
   paths are source and which are test, core merges the declarations across every
-  installed pack in `mergeSourceClassifier` (cmd/backstop/gate.go:1335) and injects
+  installed pack in `mergeSourceClassifier` (cmd/backstop/gate.go — locate by name,
+  per the LANE STATUS block; it sat at :1401 in the 2026-08-16 tree) and injects
   the result. "This directory is a dependency tree, not authored content" is the
   same kind of statement, made by the same declarer, consumed the same way. Reusing
   the block means one merge shape, one mental model, and no new top-level concept.
@@ -116,28 +118,219 @@ notes: |
   with no pack yet were never gated by backstop at all, so there is nothing to
   regress for them.
 
-  ── LANE BOUNDARY — READ THIS BEFORE STARTING ────────────────────────────────
-  Every production file this plan touches is ACTIVE, UNCOMMITTED working-tree
-  surface for in-flight work as of 2026-08-15:
-    pkg/artifact/layout.go, cmd/backstop/artifact_discover.go,
-    pkg/gate/artifact_status.go   — SPEC-068 (trustworthy-green guards)
-    cmd/backstop/doctor_checks.go — SPEC-070 (backstop doctor)
-    cmd/backstop/gate.go          — both
-  DO NOT START THIS PLAN UNTIL SPEC-068, SPEC-069 AND SPEC-070 HAVE LANDED AND
-  COMMITTED. Running it concurrently means editing files another implementer holds,
-  and the signature changes here (`DiscoverArtifacts`, `FindUngatedArtifacts`) break
-  every caller at compile time — loudly, in someone else's tree. If the situation has
-  changed when this plan is picked up, re-verify the line references above before
-  trusting them.
+  ── LANE STATUS — RE-VERIFIED 2026-08-16 AGAINST LIVE `git status` ────────────
+  The SPEC-068 / SPEC-069 / SPEC-070 hold is LIFTED — all three are committed with
+  close-outs, and pkg/artifact/layout.go, cmd/backstop/artifact_discover.go and
+  cmd/backstop/doctor_checks.go are clean, uncontended surface.
+
+  `cmd/backstop/gate.go` IS NOT. It carries uncommitted edits from TWO concurrent
+  sibling lanes at the time of writing: PLAN-ISSUE-113 has already landed changes in
+  the test-substantiveness step builder, and PLAN-ISSUE-118 has been dispatched to an
+  implementer and will edit the same file. `pkg/gate/artifact_status.go` is likewise
+  dirty (PLAN-ISSUE-113's substantiveness join sits beside it). Neither is a BLOCK on
+  this plan — the surfaces this plan touches in gate.go (the validator construction,
+  the ungated scan call, the traceability hops, mergeSourceClassifier) are disjoint
+  from both sibling lanes' — but it does mean one thing operationally:
+
+    DO NOT TRUST A LINE NUMBER IN gate.go. This plan deliberately cites NO gate.go
+    line numbers. Every gate.go site below is named by FUNCTION or CONSTRUCT, and the
+    implementer must locate it by reading the file fresh. Three separate snapshots of
+    the same four sites during this plan's review produced three different line
+    triples (:1652/:1663/:1674/:1705, then :1706/:1717/:1728/:1759, then
+    :1718/:1729/:1740/:1771) purely from sibling-lane churn — a fourth is likely
+    before an implementer runs this. Name-based location is the only citation form
+    that survives that, and it is what PLAN-ISSUE-118 uses for the same reason.
+
+  Line numbers in every OTHER file this plan cites — pkg/artifact, pkg/gate/
+  artifact_status.go, cmd/backstop/artifact_discover.go, artifact_validate.go,
+  doctor_checks.go, the specs — were re-derived against the committed tree on
+  2026-08-16 and are quoted as an aid, not as a contract; re-read before editing.
+
+  ONE live cross-plan version fact: the go-toolchain pack repo is at v1.4.0 (tagged
+  and pushed by PLAN-ISSUE-129), and backstop.yml in THIS repo already pins 1.4.0 —
+  PLAN-ISSUE-129's relock has landed. TASK-011 bumps FORWARD from whatever it reads
+  there; see that task.
 
   ── PREDATING ARTIFACTS THAT MUST BE RECONCILED, NOT QUIETLY BROKEN ──────────
-  SPEC-068 pins the five-name list in three places: REQ-007's text, REQ-008's text,
-  and the `NonCorpusDirNames` contract note. Its mandated test
+  THREE implemented specs drift on this change — SPEC-068, SPEC-043 and SPEC-070's
+  REQ-007 — plus SPEC-069's Sharp Edge 5, which is stale-but-NARRATIVE (a sharp-edge
+  observation, not requirement text, so lower stakes) and is fixed in the same pass
+  rather than left to rot. All four are reconciled in phase 5 by dispatching
+  spec-author — NEVER by hand-editing a spec, per CLAUDE.md.
+
+  ── HOW THE DRIFT SET WAS FOUND, AND THE METHOD THAT MUST BE REPEATED ────────
+  This plan has now missed drift by reading sweeps too narrowly, and the fix is a
+  METHOD, not a longer list. EXACTLY TWO SWEEPS ARE REQUIRED, BOTH ACROSS THE WHOLE
+  `specs/` DIRECTORY, because neither finds the other's hits. THESE TWO COMMAND
+  LINES ARE CANONICAL — every task below that re-runs a sweep uses them BYTE FOR
+  BYTE, and no task invents a narrower alternation:
+
+    PROSE sweep:      grep -rn 'node_modules\|vendor' specs/
+    SIGNATURE sweep:  grep -rn 'FindUngatedArtifacts\|DiscoverArtifacts\|realArtifactValidator\|Classification' specs/
+
+  A signature literal contains no ecosystem noun, so the prose sweep is structurally
+  blind to it — that was round 2's miss. And a spec can restate the enumeration in
+  REQUIREMENT TEXT while never naming the changed symbol at all — that was round 3's
+  miss (SPEC-070 REQ-007, found only because the prose sweep was finally run against
+  `specs/` rather than against the one spec that looked obviously relevant). Grepping
+  only the "obviously relevant" spec misses its siblings every time.
+
+  THE THIRD FAILURE MODE WAS NOT A MISSING SWEEP. Rounds 5-6 believed SPEC-070:651,
+  :896 and :1198 needed a THIRD "mechanism axis" sweep to surface. They did not: the
+  SIGNATURE sweep above returns all three — and every other SPEC-070 hit — because it
+  already alternates on `FindUngatedArtifacts`. What actually failed was READING the
+  sweep's output, eyeballing past real hits in a long result set. There is no third
+  axis, and inventing one produced four differently-worded "sweeps" in four places in
+  this plan, which is its own drift. Two sweeps, stated once, read completely.
+
+  WHAT COUNTS AS A FINDING, so the rule is operable rather than absolute. These
+  sweeps return dozens of hits, most of them irrelevant (test names, section
+  headings, `consumes:` entries, the adjective "vendored"). A hit is a FINDING —
+  report it, do not wave it off — when it does either of:
+    (a) restates the SHAPE of a symbol this plan changes: a signature, a parameter
+        list, or an exhaustive struct-field enumeration for `Classification`,
+        `DiscoverArtifacts`, `FindUngatedArtifacts` or `realArtifactValidator`; or
+    (b) enumerates the non-corpus exclusion set as something CORE carries or as a
+        literal skip list.
+  Anything else is a mention, not drift. Every hit meeting (a) or (b) is enumerated
+  in TASK-014, TASK-016 and TASK-017; the near-miss hits that were checked
+  individually and cleared are listed in TASK-015 step 5, so an unlisted future hit
+  reads as new rather than as already-considered.
+
+  SPEC-068 states the five-name list in SEVEN places (all verified 2026-08-16 in the
+  canonical PROSE sweep's output, filtered to this spec):
+    :299   REQ-007's discovery skip list
+    :714   CLM-062's CLAIM TEXT — "excludes exactly the enumerated non-corpus trees
+           — .git, vendor, node_modules, testdata, prototype and .backstop/packs"
+    :801   the `NonCorpusDirNames` contract note
+    :863   the `FindUngatedArtifacts` contract note
+    :1169  REQ-008 narrative
+    :1463  Sharp Edge 12 (the knowingly-propagated bake)
+    :1474  Sharp Edge 12's enumeration
+  SPEC-068 ALSO drifts on THREE CONTRACT SIGNATURES, which that grep is structurally
+  incapable of finding because a signature literal contains no ecosystem noun:
+    :862   `func FindUngatedArtifacts(projectRoot string, root artifact.Root) …`
+    :936   `func DiscoverArtifacts(root artifact.Root, typeFilters []string) …`
+    :1007  `type realArtifactValidator struct { projectRoot; root; cohort }`
+  TASK-008 adds a parameter to the first two and a field to the third. SPEC-068 is
+  `status: implemented`, and this repo's `backstop.yml` sets
+  `enforcement.policy.contract_signature: {applies-to: new-code, level: block}` —
+  the policy is a CONSUMER-side setting in backstop.yml, NOT a field in SPEC-068's
+  own frontmatter; the spec supplies the contracts, the config supplies the verdict
+  level. Together they make these BLOCKING drift at the contracts dimension
+  (pkg/gate/contract_verdict.go:92-100), not prose hygiene. TASK-014 owns all three
+  plus the stale :937 note and the stale :1012 call-form example.
+
+  CLM-062 (:714) IS THE ONE THAT MATTERS MOST among the PROSE hits, and it is the
+  reason "keep the test name" is not sufficient on its own. Its mandated test
   `TestFindUngatedArtifacts_ExcludesEnumeratedNonCorpusTreesButWalksDotBackstop`
-  MUST KEEP ITS NAME (the artifact_status_drift dimension resolves mandated names by
-  existence — renaming it manufactures a broken promise). Its BODY changes to prove
-  the exclusion set is generic-plus-declared. The spec text itself is reconciled in
-  phase 5 by dispatching spec-author — NEVER by hand-editing the spec, per CLAUDE.md.
+  MUST KEEP ITS NAME — the artifact_status_drift dimension resolves mandated names by
+  EXISTENCE, so preserving the name keeps that dimension green while the claim's own
+  PROSE silently goes false underneath it. Fixing the body without fixing the claim
+  text produces exactly the vacuous green this repo exists to prevent.
+
+  SPEC-043 drifts too, and in THREE places rather than the one an earlier revision
+  recorded — its contract signature AND two prose restatements of the same exhaustive
+  field enumeration (verified 2026-08-16 in the canonical SIGNATURE sweep's output,
+  filtered to this spec):
+    :301     the contract signature
+             "type Classification struct { Source []string `yaml:\"source\"`;
+                                           Test []string `yaml:\"test\"` }"
+    :59-60   REQ-001's REQUIREMENT TEXT, restating the same struct literal — the same
+             shape as SPEC-068:1007 and the same class as SPEC-070 REQ-007
+    :540-541 the processing-steps narrative, restating it a third time
+  TASK-002 adds a third field, so all three become false the moment this plan lands.
+  TASK-016 owns all three. SPEC-047:428 is a `consumes:` entry naming Classification, and
+  SPEC-070:683 is a `consumes:` entry naming FindUngatedArtifacts (SPEC-070 does not
+  reference Classification at all) — `consumes:` entries carry no signature literal,
+  so both are correctly left alone FOR THE SIGNATURE QUESTION. SPEC-070 is NOT
+  otherwise clear — see immediately below.
+
+  SPEC-070 IS THE THIRD DRIFTED IMPLEMENTED SPEC, and it drifts in REQUIREMENT TEXT,
+  not in a signature — which is why the signature sweep misses it and why the earlier
+  "SPEC-070:683 carries no signature literal" finding, though correct, was NOT an
+  all-clear. REQ-007 (specs/SPEC-070-backstop-doctor.spec.md:207-213) requires the
+  `artifact-layout` check's deviation set to come from `FindUngatedArtifacts`,
+  justifying that requirement on the ground that the helper "ALSO CARRIES THE
+  EXCLUSION SET (`testdata`, `vendor`, `node_modules`, `.git`, `.backstop/packs`,
+  `prototype`) without which this repository alone contributes 67 artifact-shaped
+  files that are deliberately not corpus." After TASK-008 that sentence is FALSE:
+  `FindUngatedArtifacts` no longer CARRIES `vendor`/`node_modules` — they arrive as an
+  injected parameter that `cmd/backstop/doctor_checks.go:411` (a file THIS plan edits)
+  must populate from `ctx.Packs`. The requirement's CONCLUSION survives — doctor still
+  must not walk the corpus itself — but its stated MECHANISM does not, and a
+  requirement whose reasoning is false is not a requirement a reader can act on.
+  TASK-017 owns it, and must fix the mechanism properly rather than softening the
+  wording into vagueness.
+
+  SPEC-070 DRIFTS AT THREE MORE SITES, and they needed NO new sweep — the canonical
+  SIGNATURE sweep above has always returned every one of them, because it alternates
+  on `FindUngatedArtifacts`. They were missed by READING, not by coverage: the sweep's
+  SPEC-070 hits (:208, :651, :683, :896, :1022, :1198, :1268, :1409, :1560) were
+  eyeballed as a block and three real drifts were passed over. They carry no ecosystem
+  noun and no `Classification` literal, so the PROSE sweep is genuinely blind to them
+  — but the signature sweep never was. Read the sweep's output line by line; do not
+  invent a third command:
+    :890-900  the Implementation processing-steps entry, asserting `checkArtifactLayout`
+              "carries no exclusion list — all four come from the shared helper". After
+              TASK-008 the set is INJECTED from `ctx.Packs`, so the fourth of those four
+              is false as stated. This sentence is MIRRORED VERBATIM IN CODE at
+              `doctor_checks.go:360-366`; TASK-008 fixes the code block and TASK-017 the
+              spec, deliberately in matched form.
+    :1198     the related-artifacts note restating
+              `FindUngatedArtifacts(projectRoot, root) ([]UngatedArtifact, error)` — a
+              two-parameter signature TASK-008 makes three.
+    :651      a `notes:` field on the `provides:` entry for `checkArtifactLayout`, which
+              drifts TWICE in one sentence (stale call shape AND "no exclusion list of
+              its own"). Highest-stakes of the three despite reading like a footnote,
+              for the same reason TASK-016 gives SPEC-043:301: a contract note is part
+              of the promise the contracts dimension carries about the symbol's shape.
+              Found on 2026-08-16 and named by no earlier revision of this plan.
+
+  SPEC-070:1268-1278 is ONE related-artifacts bullet, and both sweeps hit it — the
+  signature sweep at its head (:1268, `FindUngatedArtifacts`) and the prose sweep at
+  its tail (:1271, :1276). The head sentence — those SPEC-068 symbols are "all
+  consumed here and none restated" — stays TRUE after this change (that bullet
+  restates no signature; the restatement lives in a different bullet at :1198, which
+  TASK-017 owns separately). The TAIL is what drifts: it restates the five-name
+  enumeration and describes the `switch base` SPEC-068 already deleted. Narrative,
+  not requirement text — lower stakes, same pass. TASK-017 owns the whole bullet so
+  the sweep hit at :1268 is accounted for rather than left dangling.
+
+  SPEC-069's Sharp Edge 5 (:2792-2807) is the last site TASK-017 owns, and is likewise
+  NARRATIVE.
+  It enumerates the five names, describes `artifact_discover.go:47-49`'s `switch base`
+  as still live (already false — SPEC-068 removed the switch), and explicitly hands
+  the `node_modules` literal off to ISSUE-122 by name with "no new issue is needed".
+  Once this plan lands, that hand-off is DISCHARGED, and the sharp edge should say so
+  — the same "now RESOLVED, see ISSUE-122" treatment TASK-014 gives SPEC-068's Sharp
+  Edge 12. TASK-017 owns this too.
+
+  ── A NAMED CONSEQUENCE: DOCTOR GETS NOISIER WHEN PACKS WILL NOT LOAD ────────
+  TASK-008 has doctor pass `artifact.NonCorpusDirs{}` when `ctx.PacksErr != nil`. On
+  that degraded path the exclusion set is the generic base ONLY, so in a repo whose
+  packs will not load, doctor's `artifact-layout` check will report artifact-shaped
+  files inside `vendor/` and `node_modules/` as DEVIATIONS that it does not report
+  today. That is a real, if narrow, user-visible behavior change and it is stated here
+  as a CONSEQUENCE, not merely as a decision.
+
+  DECIDED: this gets documentation, NOT its own claim or test. The reasoning, so a
+  reviewer can disagree with it on the merits rather than assume it was missed:
+    - It is not a distinct behavior. It is CLM-004's already-pinned zero-value
+      semantics observed at one call site; TestNonCorpusDirs_ZeroValueFallsBackToGeneric
+      Base already falsifies the rule this path applies.
+    - There is no alternative branch to test. The only way doctor could exclude
+      `vendor` with no packs loaded is for core to know the noun — which is the exact
+      bake this plan removes, and which CLM-001 falsifies. So the "correct" behavior
+      on this path IS the degraded one; there is nothing to choose between.
+    - It is loud, not blocking: a doctor deviation is a warning by SPEC-070's own
+      design, and it appears only alongside the packs check already FAILING on the
+      same run, which is the diagnosis that explains it.
+  What documentation owes it: CLM-005 names it explicitly, TASK-008 states it at the
+  call site it is introducing, and TASK-017 carries it into SPEC-070 REQ-007's
+  corrected mechanism text so the spec records the consequence rather than the plan
+  alone. If the founder would rather have a doctor-level test, it is cheap to add —
+  say so and it goes in TASK-007's file set.
 
   ── OUT OF SCOPE, DELIBERATELY ───────────────────────────────────────────────
   - The four/three generic names (`.git`, `testdata`, `prototype`, and each caller's
@@ -176,7 +369,12 @@ notes: |
              validation step, the gate's traceability collection, `artifact validate`,
              and `doctor` — populates it from the installed packs already loaded in
              that command. The per-caller `.backstop` / `.backstop/packs` rules are
-             byte-for-byte unchanged.
+             byte-for-byte unchanged. ONE call site has a NAMED DEGRADED PATH: when
+             doctor's pack load fails (`ctx.PacksErr != nil`) it passes the zero value,
+             so its `artifact-layout` check reports artifact-shaped files inside
+             dependency trees as deviations it would not report today. That is the
+             honest failure — core cannot know the nouns without re-baking them — and
+             it is documented rather than defaulted away.
     CLM-006  Behavior preservation: with the go-toolchain pack declaring `vendor`, a
              repo containing `vendor/` excludes it from both walks exactly as before
              this change, and backstop-core's own corpus discovery is unchanged.
@@ -264,7 +462,8 @@ phases:
 
           cmd/backstop/pack_dependency_dirs.go — NEW FILE holding
           mergeDependencyDirs([]*pack.Manifest) []string. Model it on
-          mergeSourceClassifier (gate.go:1335): take the WHOLESALE installed-pack set
+          mergeSourceClassifier (in cmd/backstop/gate.go — locate by name): take the
+          WHOLESALE installed-pack set
           with no toolchain pre-filter (a pack declaring nothing contributes zero to
           the union, so no filter is needed or wanted), skip nil manifests, dedupe
           while preserving first-seen order for determinism. It lives in a new file
@@ -435,18 +634,31 @@ phases:
               shape against the ungated scan, and asserting `.backstop` ITSELF is
               still WALKED (the asymmetry SPEC-068 REQ-008 depends on).
 
-          pkg/gate/artifact_status_test.go — UPDATE
+          pkg/gate/ungated_artifacts_test.go — UPDATE
           TestFindUngatedArtifacts_ExcludesEnumeratedNonCorpusTreesButWalksDotBackstop
-          in place. KEEP THE NAME EXACTLY (it is a SPEC-068 mandated test name; the
-          artifact_status_drift dimension resolves mandated names by existence, so
-          renaming it manufactures a broken promise). Change the body so the
-          `vendor`/`node_modules` half of its exclusion set arrives through the
-          injection instead of from core. Locate the file by grepping for the test
-          name if it does not sit where expected.
+          IN PLACE. It lives at ungated_artifacts_test.go:249 (verified 2026-08-16),
+          NOT in artifact_status_test.go — that file exists but contains no reference
+          to FindUngatedArtifacts at all, so do not go looking there. The planted
+          fixture directories the test asserts on are at :253-254; that literal list
+          is what changes.
+
+          KEEP THE TEST NAME EXACTLY (it is a SPEC-068 mandated name; the
+          artifact_status_drift dimension resolves mandated names by EXISTENCE, so
+          renaming it manufactures a broken promise — and, conversely, keeping it
+          while the assertion goes stale manufactures a vacuous green). Change the
+          body so the `vendor`/`node_modules` half of its exclusion set arrives
+          through the INJECTION instead of from core, while `.git`/`testdata`/
+          `prototype` still arrive from the generic base and `.backstop` itself is
+          still WALKED.
+
+          NOTE: this same file carries NINE other FindUngatedArtifacts call sites
+          that break on TASK-008's signature change. Fixing their arity is TASK-008's
+          job, not this task's — this task changes only the one test's body, and it
+          is expected to leave the package non-compiling until TASK-008 lands.
         files:
           - cmd/backstop/artifact_discover_noncorpus_test.go
           - pkg/gate/artifact_status_noncorpus_test.go
-          - pkg/gate/artifact_status_test.go
+          - pkg/gate/ungated_artifacts_test.go
         claims:
           - CLM-005
           - CLM-006
@@ -463,10 +675,12 @@ phases:
 
       - id: TASK-008
         type: implementation
-        title: "Thread artifact.NonCorpusDirs through both walks and all four production call sites"
+        title: "Thread artifact.NonCorpusDirs through both walks, every production call site, and the nine test files that break"
         description: |
           Make TASK-007 green. The signature changes break every caller at compile
-          time, which is why the walks and their callers land in one task.
+          time — production AND test — which is why the walks, their callers, the two
+          intermediate traceability hops and the nine broken test files all land in
+          ONE task. Splitting them would leave the tree non-compiling between tasks.
 
           pkg/gate/artifact_status.go:
             FindUngatedArtifacts(projectRoot string, root artifact.Root,
@@ -501,13 +715,60 @@ phases:
             project with no packs installed. Degrade to the zero value (generic base)
             and carry on.
 
-          cmd/backstop/gate.go:
-            Populate ValidateConfig.NonCorpus at :1674 and pass the set to
-            FindUngatedArtifacts at :1705 and to DiscoverArtifacts in
-            collectTraceRefs (:1082). The gate already loads installed packs in
-            buildGateSteps beside mergeSourceClassifier (:755) — derive the set from
-            THAT SAME manifest set and thread it, rather than loading packs a second
-            time, so the gate cannot disagree with itself about which trees are corpus.
+          cmd/backstop/gate.go — FIVE edits, not two. CITE NOTHING BY LINE NUMBER
+          HERE AND TRUST NO LINE NUMBER YOU WERE HANDED: per the LANE STATUS block,
+          two sibling lanes hold uncommitted edits on this file and its line numbers
+          moved three times during this plan's review. Locate every site below by
+          FUNCTION NAME by reading the file fresh. The traceability path reaches
+          DiscoverArtifacts through THREE intermediate hops that ALL need the
+          parameter threaded, and missing them is how this task silently ends up
+          re-deriving the set (or defaulting it) inside the gate:
+            1. ValidateConfig.NonCorpus populated inside the `ValidateConfig{…}`
+               literal in `(*realArtifactValidator).ValidateAll`.
+            2. The `gate.FindUngatedArtifacts(...)` call, also in ValidateAll, takes
+               the set.
+            3. `collectTraceRefs` gains the parameter —
+               collectTraceRefs(root artifact.Root, nonCorpus artifact.NonCorpusDirs)
+               — and passes it to the `DiscoverArtifacts` call in its first statement.
+            4. `computeRequirementTraceabilitySurfaces` gains it too —
+               computeRequirementTraceabilitySurfaces(projectRoot string,
+                   root artifact.Root, nonCorpus artifact.NonCorpusDirs) — since it is
+               collectTraceRefs's only caller.
+            5. `buildRequirementTraceabilitySteps` gains it as well. This hop is easy
+               to miss and an earlier revision of this plan asserted it away: that
+               function is NOT a closure inside buildGateSteps, it is a package-level
+               function that returns the block/advisory step pair and is the ONLY
+               caller of computeRequirementTraceabilitySurfaces (from inside the
+               `compute` closure it builds). buildGateSteps calls IT, passing
+               (projectRoot, root) — so the set has to travel one level further out
+               than the four-hop reading suggested. buildGateSteps is where the
+               manifests are actually in hand.
+          The gate already loads installed packs in buildGateSteps beside the
+          `mergeSourceClassifier(packs)` call — derive the set from THAT SAME manifest
+          set, into exactly ONE local variable, and thread THAT variable down all five
+          paths, rather than loading packs a second time or writing a literal at any
+          site. The gate cannot then disagree with itself about which trees are corpus.
+          One local also makes the traceability thread REVIEWABLE, which matters
+          disproportionately here: per TASK-010, the threading through edits 3/4/5 has
+          NO behavioral consequence any test can observe (the traceability step's
+          violation set is provably insensitive to the exclusion set), so a stray
+          `artifact.NonCorpusDirs{}` handed to computeRequirementTraceabilitySurfaces
+          would ship green. Review is the only thing standing there — do not make it
+          hard.
+
+          The `realArtifactValidator` struct gains a NonCorpus field alongside its
+          existing projectRoot/root fields, set at its construction site in
+          buildGateSteps (`&realArtifactValidator{projectRoot: …, root: …}`; the
+          struct's own declaration is further down the same file — again, find both by
+          name). This
+          is harmless to its test constructors — every one of them uses a KEYED struct
+          literal (gate_buildsteps_test.go:143,:159 and gate_identity_output_test.go
+          :71,:83,:238), so an added field compiles untouched and those tests need NO
+          edit. Say it out loud anyway, because that zero-valued field is precisely the
+          MECHANISM that makes CLM-004's zero-value semantics reachable in production:
+          a test constructing the validator without wiring packs gets
+          artifact.NonCorpusDirs{}, which must exclude the generic base rather than
+          nothing. If those tests keep passing, CLM-004 is doing its job.
 
           cmd/backstop/doctor_checks.go:
             Pass a set derived from ctx.Packs (doctor_checks.go:46 — already loaded at
@@ -515,16 +776,85 @@ phases:
             non-nil, pass the zero value; doctor must still report on a project whose
             packs will not load, and the packs check owns that diagnosis.
 
-          Update any test helper that calls either function with the old arity. Do NOT
-          add a variadic parameter or a package-level default to avoid touching call
-          sites — an explicit parameter at every site is what makes a forgotten wiring
-          visible in review instead of silently defaulting.
+            STATE THE CONSEQUENCE IN A COMMENT AT THAT BRANCH, because it is a real
+            behavior change and not merely a defensive default: on the PacksErr path
+            the exclusion set is the generic base only, so doctor will report
+            artifact-shaped files inside `vendor/` or `node_modules/` as DEVIATIONS
+            that it does not report today. Say why that is the correct behavior rather
+            than a regression — the only way to exclude those trees with no packs
+            loaded is for core to know the nouns, which is the bake this whole change
+            removes — and say that the packs check FAILING on the same run is the
+            diagnosis that explains the extra deviations. Do NOT "soften" this by
+            defaulting the names back in; that would silently reintroduce the defect at
+            the one call site nobody looks at. The plan notes carry the full reasoning
+            and the decision not to give this its own test.
+
+            THEN FIX THE ★ DOC BLOCK ABOVE THE FUNCTION, at doctor_checks.go:360-366 —
+            a code comment at the PacksErr branch is not enough, because the block one
+            screen up now states a mechanism that is false. It currently claims
+            checkArtifactLayout holds "no artifact directory name, no suffix or filename
+            pattern, no corpus walk, no exclusion list — all four come from
+            artifact.ResolveRoot and gate.FindUngatedArtifacts." After this edit the
+            exclusion set does NOT come from inside the helper: doctor derives it from
+            `ctx.Packs` and INJECTS it. Restate the mechanism accurately while keeping
+            the block's actual point intact — the point was never "doctor passes no
+            arguments", it was that doctor and the gate share ONE predicate. That is
+            still true, and more true: both now derive the injected set the same way,
+            from the same installed-pack manifests. Do NOT delete the ★ block or soften
+            it into vagueness. The same sentence appears in SPEC-070:890-900, which is
+            TASK-017's to fix; the two must not be left saying different things.
+
+          ── THE TEST FILES THAT BREAK AT COMPILE TIME ──────────────────────────
+          The two signature changes break NINE test files. All paths and call-site
+          lines below were verified against the committed tree on 2026-08-16 by
+          grepping for both function names; fix EVERY one in this task, because the
+          package does not build until all of them are updated. Do not treat this as a
+          checklist to sample from.
+
+            DiscoverArtifacts callers:
+              cmd/backstop/artifact_discover_test.go — 9 sites (:40, :68, :121, :165,
+                :203, :236, :258, :329, :367)
+              cmd/backstop/gate_ungated_e2e_test.go:43
+              cmd/backstop/init_acceptance_test.go:300
+              cmd/backstop/layout_profiles_e2e_test.go — :24, :68, :72
+
+            FindUngatedArtifacts callers:
+              pkg/gate/ungated_artifacts_test.go — 9 sites (:81, :130, :165, :197,
+                :217, :265, :304, :349, :363). NOTE :265 sits inside the mandated test
+                TASK-007 already rewrote; here you are fixing only its ARITY, and you
+                must not disturb the body TASK-007 wrote or the test's NAME.
+              pkg/gate/result_identity_test.go — :179, :189  (pkg/gate, NOT cmd/)
+              pkg/gate/ungated_scope_test.go:26                (pkg/gate, NOT cmd/)
+              cmd/backstop/gate_ungated_e2e_test.go:99         (this file breaks on
+                BOTH functions — :43 and :99)
+
+            Intermediate-hop caller (breaks on edit 4 above, not on the walks):
+              cmd/backstop/requirement_traceability_gate_test.go — :28, :44, :89, all
+                calling computeRequirementTraceabilitySurfaces(root, rootAtDir(t, root))
+
+          Where a broken call site has no opinion about dependency directories, pass
+          artifact.NonCorpusDirs{} — the zero value, which per CLM-004 preserves the
+          generic base and is the CORRECT thing for a test that was written before this
+          parameter existed. Do NOT invent a pack declaration in a test that never had
+          one; that would change what the test asserts.
+
+          Do NOT add a variadic parameter or a package-level default to avoid touching
+          call sites — an explicit parameter at every site is what makes a forgotten
+          wiring visible in review instead of silently defaulting.
         files:
           - pkg/gate/artifact_status.go
           - cmd/backstop/artifact_discover.go
           - cmd/backstop/artifact_validate.go
           - cmd/backstop/gate.go
           - cmd/backstop/doctor_checks.go
+          - cmd/backstop/artifact_discover_test.go
+          - cmd/backstop/gate_ungated_e2e_test.go
+          - cmd/backstop/init_acceptance_test.go
+          - cmd/backstop/layout_profiles_e2e_test.go
+          - cmd/backstop/requirement_traceability_gate_test.go
+          - pkg/gate/ungated_artifacts_test.go
+          - pkg/gate/result_identity_test.go
+          - pkg/gate/ungated_scope_test.go
         claims:
           - CLM-004
           - CLM-005
@@ -543,6 +873,14 @@ phases:
           the same as a behavior-clean one. Specifically re-confirm backstop-core's
           own `backstop artifact validate` still discovers the same corpus it did
           before (CLM-006).
+
+          TREAT THAT LAST CHECK AS A SMOKE TEST, NOT AS PROOF OF WIRING. This
+          repository has no `vendor/` or `node_modules/` tree, so the exclusion set
+          has nothing to exercise here and an `artifact validate` run over this corpus
+          would look identical whether the packs were threaded through or the zero
+          value was hardcoded. The actual falsifier for the four production call sites
+          is TASK-010's wiring table, which runs over a fixture that DOES have those
+          trees. Do not report this step as having verified CLM-005's call sites.
         files:
           - pkg/gate/artifact_status.go
           - cmd/backstop/artifact_discover.go
@@ -572,16 +910,53 @@ phases:
             - a regular FILE named `vendor` (not a directory) sitting beside the
               corpus.
 
+          EVERY PLANTED ARTIFACT MUST BE A VALID, PARSEABLE ARTIFACT — not a stub
+          with the right filename. The discovery tests below do not care, but the
+          wiring tests do: `artifact validate` returns a CONFIG ERROR on the first
+          unparseable file it discovers (artifact_validate.go:181-184), so a
+          malformed planted file would make the degraded row assert on a parse
+          diagnostic instead of on the per-artifact record set — a fragile signal
+          that would also mask a genuine wiring regression behind an exit-2.
+
+          ONE FIXTURE DETAIL IS LOAD-BEARING FOR TWO SEPARATE FALSIFIERS, so build it
+          deliberately rather than discovering later that a test cannot go red:
+          `vendor/SPEC-902-….spec.md` must be a SCHEMA-VALID spec that nonetheless
+          carries `requirements[0].supports: "BUNDLE-999:REQ-001@1.0.0"` naming a
+          bundle that exists NOWHERE in the fixture, and its status must NOT be
+          terminal (CollectSupportRefs skips terminal citers outright,
+          pkg/validate/supports_resolution.go:131). Schema validity and ref
+          RESOLVABILITY are independent axes: the per-artifact schema pass is
+          structural and never resolves a supports ref, so this file validates clean
+          per-artifact while being the only thing in the fixture that can make the
+          corpus resolution pass speak at all. The gate's ValidateConfig.NonCorpus hop
+          and the collectTraceRefs hop BOTH falsify through it, each explained at its
+          own test below. Give it a basename that collides with nothing else in the
+          fixture: ResolveSupports reports its citing file by BASENAME (parseSupportRef
+          is handed art.Filename, not a path), so a duplicated basename would let an
+          assertion match the wrong file.
+
           cmd/backstop/artifact_discover_e2e_test.go (new):
             - TestArtifactDiscoveryE2E_VendorAndNodeModulesExcludedByPackDeclaration —
               discovery over the fixture returns the legitimate corpus and NONE of the
               three planted files.
             - TestArtifactDiscoveryE2E_ExclusionDisappearsWhenDeclarationRemoved — THE
-              FALSIFIER. Copy the fixture to a temp dir, strip `dependency_dirs` from
-              the pack.yml, re-run discovery, and assert all three planted files ARE
-              discovered. Without this, the first test would still pass if someone
-              re-added a core literal — it would prove the behavior, not the
-              mechanism.
+              FALSIFIER, and the one place this task can go vacuously green. Copy the
+              fixture to a temp dir, strip `dependency_dirs`, re-run discovery, and
+              assert all three planted files ARE discovered.
+
+              STRIP IT FROM THE INSTALLED COPY, i.e. from
+              `<tmp>/.backstop/packs/<pack-name>/pack.yml`. That is the ONLY manifest
+              production reads: loadInstalledPacks (cmd/backstop/pack_gate.go:147)
+              resolves each pack declared in backstop.yml to
+              `<projectRoot>/.backstop/packs/<name>/pack.yml` and parses THAT
+              (pack_gate.go:158-168). It never reads a pack's source tree. So if the
+              fixture also carries the pack's sources somewhere else in the directory
+              and the test strips the declaration from THAT file instead, the
+              installed manifest still declares `vendor` — the exclusion still
+              happens, the assertion still fails to fire the way the author expected,
+              and the falsifier proves nothing while looking like it passes. Name the
+              exact path being edited in the test so a reviewer can see which manifest
+              was touched.
             - TestArtifactDiscoveryE2E_NestedDependencyDirExcludedAndFileNamedVendorUnaffected —
               proves the match is on the directory BASE NAME at any depth, and that a
               plain file named `vendor` neither triggers a skip nor disappears. This
@@ -599,10 +974,181 @@ phases:
           by hand-constructing artifact.NewNonCorpusDirs — otherwise the test proves
           the walk and skips the wiring, which is where this class of defect actually
           hides.
+
+          ── THE WIRING TESTS: THE FOUR CALL SITES, NOT THE WALK ────────────────
+          Everything above proves the WALK and the MERGE. NONE of it proves the four
+          production call sites CLM-005 names actually thread the merged set through,
+          because every test above assembles the set itself and then calls
+          DiscoverArtifacts / FindUngatedArtifacts DIRECTLY. An implementer who
+          silently passed `artifact.NonCorpusDirs{}` at all four call sites in
+          TASK-008 would keep every test above — and every test in phase 3 — GREEN
+          while reintroducing exactly the regression this phase exists to prevent.
+          That is a structural gap, not a hypothetical: unit-level green, wiring
+          unverified. The two tests below close it by driving REAL production entry
+          points over the SAME fixture.
+
+          cmd/backstop/noncorpus_wiring_test.go (new):
+
+            - TestNonCorpusWiring_RealCommandsHonorPackDeclarationAcrossPackLoadOutcomes
+              ONE TABLE, FOUR ROWS: {`doctor`, `artifact validate`} × {packs load,
+              packs do NOT load}. Each row COPIES the fixture to a temp dir and drives
+              the REAL root command there through the existing harness —
+              runDoctorInProject / runDoctorJSON (cmd/backstop/doctor_harness_test.go
+              :107 and :234), which chdirs and calls NewRootCommand().Execute(), i.e.
+              the genuine article. Assert on DECODED/RENDERED output, never on an
+              internal helper's return value; the whole point is that the helper is
+              already known to work and the wiring to it is not.
+
+                PACKS LOAD (happy rows): `doctor --json`'s `artifact-layout` entry
+                  names NONE of the planted files, and `artifact validate --all --json`
+                  reports no per-artifact record for any of them.
+                PACKS DO NOT LOAD (degraded rows): delete
+                  `<tmp>/.backstop/packs/<pack-name>/` while LEAVING backstop.yml's
+                  declaration in place. loadInstalledPacks then fails for real
+                  ("declared pack %s is missing from %s", cmd/backstop/pack_gate.go
+                  :163-165) — the production failure, not a stub. BOTH commands must
+                  STILL RUN AND STILL REPORT (doctor never aborts; `artifact validate`
+                  must not fail on a pack-load error, which TASK-008 mandates and
+                  nothing else tests), and BOTH must now surface the planted files:
+                  `artifact-layout` lists them as deviations, `artifact validate`
+                  carries records for them.
+
+              THE TABLE CATCHES BOTH DIRECTIONS BY CONSTRUCTION, which is why it is
+              one table and not two unrelated tests. A call site that hardcodes the
+              zero value fails the HAPPY rows. A call site that "softens" the degraded
+              path by defaulting the ecosystem names back into core — the alternative
+              TASK-008 explicitly forbids, and which nothing in this plan currently
+              catches — fails the DEGRADED rows. Neither branch needs the plan to
+              choose a preferred behavior; the test pins that the wiring does not
+              regress in either direction.
+
+            - TestGateSteps_ExclusionSetWiredIntoArtifactValidation
+              THE GATE'S ARTIFACT-VALIDATION HOP, end to end through the real builder.
+              Call `buildGateSteps(projectRoot, rootAtDir(t, projectRoot))`
+              (cmd/backstop/gate.go — the same entry gate_buildsteps_test.go:22 and
+              gate_discovery_e2e_test.go:42 already drive) over the fixture.
+
+              buildGateSteps returns `[]gate.StepFunc`, and a step's identity is only
+              knowable by CALLING it — there is no way to invoke one step in isolation,
+              and `requirement_traceability` sits well down the reordered assembly
+              buildGateSteps returns from its tail, behind pack_lock_verification and
+              pack_engines. So
+              EXECUTE the returned slice IN ORDER, collect every StepResult, key them by
+              StepResult.StepName, and assert ONLY on the `artifact_validation` entry:
+              no violation may name SPEC-902, ISSUE-902 or SPEC-903. Assert on NOTHING
+              else — the other steps' verdicts have nothing to do with the exclusion set
+              and a test that can fail for unrelated reasons is a test nobody trusts.
+              (The fixture pack declares only `classification:` and NO `engines:`, so
+              pack_engines provisions nothing and the run stays fast; that assertion
+              boundary is also what keeps a future fixture edit from making this test
+              turn on an engine.)
+
+              TWO INDEPENDENT PRODUCTION SITES FALSIFY HERE, BY TWO DIFFERENT
+              MECHANISMS, and knowing which is which is what makes the falsification
+              step below meaningful (both sites live in
+              `(*realArtifactValidator).ValidateAll` — find them by name, not by line;
+              see the LANE STATUS block):
+                THE `gate.FindUngatedArtifacts` CALL — reverting its argument to
+                  `artifact.NonCorpusDirs{}` makes all three planted files ungated
+                  findings. That walk reads the PROJECT root and reports every
+                  artifact-shaped file whose parent directory is not root.Dir(kind)
+                  (pkg/gate/artifact_status.go:558-590), REGARDLESS of the file's
+                  validity, and UngatedFindingsToViolations names their paths. This
+                  half is solid on its own.
+                THE `ValidateConfig{…}.NonCorpus` FIELD — this one does NOT surface
+                  through the ungated scan, and its falsifier is subtler than it looks.
+                  A planted file that is VALID produces no per-artifact schema
+                  violation, so if the per-artifact pass were cfg.NonCorpus's only
+                  consumer, reverting it would be invisible and this half would be
+                  documentation. It is not its only consumer: cfg.NonCorpus also
+                  reaches buildResolutionViolations (artifact_validate.go:308, whose
+                  two DiscoverArtifacts calls are :309 and :322), and that corpus
+                  resolution pass runs UNCONDITIONALLY on every ValidateArtifacts run
+                  (:269). With that field reverted, `vendor/SPEC-902-….spec.md` is
+                  discovered as a citer, its supports ref to the nonexistent BUNDLE-999
+                  fails ResolveSupports, and an error violation naming
+                  `SPEC-902-….spec.md` lands in this step's output. THAT is why the
+                  fixture requirement above is not decoration, and why the fixture
+                  validity rule needs no carve-out — the planted file is valid AND
+                  independently observable.
+              ASSERT BY BASENAME, not by full path: the ungated findings carry full
+              paths, but the resolution violation carries only the citing artifact's
+              basename, and a full-path assertion would silently never match it.
+
+            - TestCollectTraceRefs_HonorsPackDeclaredDependencyDirs
+              THE TRACEABILITY HOP, asserted at the only observable that can actually
+              go red. Do NOT attempt to prove this hop through the
+              `requirement_traceability` step's violations: that step's output is
+              STRUCTURALLY INSENSITIVE to the exclusion set, so a test written against
+              it would pass identically with the wiring reverted — a falsifier that
+              cannot fire. The mechanism, traced end to end on 2026-08-16:
+                computeRequirementTraceabilitySurfaces emits violations
+                ONLY through ClassifyRequirementTraceability(res.Records, refs).
+                res.Records comes from ResolveArtifactStatus (pkg/gate/
+                artifact_status.go:180), which reads only root.Dir(kind) through
+                walkArtifactDir (:412) — a NON-RECURSIVE os.ReadDir that skips
+                subdirectories outright, and is documented as deliberately
+                non-recursive. ClassifyRequirementTraceability then DROPS any ref whose
+                CitingPath is absent from `citers` (pkg/gate/requirement_traceability
+                .go:79-82), and `citers` is built from those same non-recursive
+                records. A file planted at ANY nested path is therefore never a record,
+                so its refs are discarded before they can add a violation OR suppress
+                one by wrongly marking a bundle REQ covered. The violation set is
+                identical either way.
+              The observable that DOES move is the ref set collectTraceRefs returns.
+              Call `collectTraceRefs(rootAtDir(t, projectRoot), set)` TWICE over the
+              same fixture:
+                with `set` built THE PRODUCTION WAY (loadInstalledPacks +
+                  mergeDependencyDirs from the fixture project root — never a
+                  hand-constructed artifact.NewNonCorpusDirs), assert NO returned
+                  TraceRef has a CitingPath under `vendor/`, `node_modules/` or the
+                  invented dependency dir;
+                with `artifact.NonCorpusDirs{}`, assert the vendor spec's ref IS
+                  present, carrying BundleName "BUNDLE-999".
+              THE SECOND HALF IS A BUILT-IN FALSIFIER: it proves the hop is genuinely
+              sensitive to its parameter without anyone hand-reverting production code.
+              It is also why the planted spec must carry a supports ref at all — a
+              planted spec with no `requirements[].supports` yields zero refs from
+              CollectSupportRefs, so both halves would assert emptiness and the test
+              would be vacuous in precisely the way it exists to prevent.
+
+              STATE THE RESIDUAL IN THE TEST'S OWN COMMENT rather than hiding it. This
+              test proves the hop CONSUMES the set it is handed; it cannot prove that
+              buildGateSteps HANDS that hop the pack-derived set rather than a literal
+              zero value, because — per the mechanism above — that difference has no
+              behavioral consequence anywhere downstream, so no test in this repository
+              can observe it. What guards that seam instead is TASK-008's
+              explicit-parameter rule (no variadic, no package-level default, so every
+              call site must pass something a reviewer can see) plus TASK-008's
+              requirement that the set be derived ONCE into a single local in
+              buildGateSteps and that SAME variable threaded to all five sites. Do not
+              paper the residual over by asserting on an unexported field and calling
+              it behavior; write the honest comment and move on.
+
+            FALSIFY BEFORE DECLARING DONE, one site at a time, restoring each before
+            reverting the next:
+              cmd/backstop/artifact_validate.go:423 (the CLI construction site) →
+                the wiring table's HAPPY rows must go RED.
+              the `gate.FindUngatedArtifacts` argument in ValidateAll →
+                TestGateSteps_ExclusionSetWiredIntoArtifactValidation
+                must go RED on the ungated-finding paths.
+              the `ValidateConfig{…}.NonCorpus` field in ValidateAll → the SAME test
+                must go RED again, this time on the
+                resolution violation naming SPEC-902. IF IT DOES NOT, the fixture's
+                supports ref is missing, its status is terminal, or BUNDLE-999 actually
+                exists in the fixture — fix the fixture, because the test is not yet
+                proving what it claims.
+            TestCollectTraceRefs_HonorsPackDeclaredDependencyDirs needs no manual
+            revert; its zero-value half IS the falsifier. A wiring test that still
+            passes with the wiring removed is precisely the failure this task exists to
+            prevent, and it is cheap to check.
         files:
           - cmd/backstop/artifact_discover_e2e_test.go
+          - cmd/backstop/noncorpus_wiring_test.go
           - cmd/backstop/testdata/noncorpus-declared/
         claims:
+          - CLM-004
+          - CLM-005
           - CLM-007
           - CLM-008
         test_names:
@@ -610,30 +1156,72 @@ phases:
           - TestArtifactDiscoveryE2E_ExclusionDisappearsWhenDeclarationRemoved
           - TestArtifactDiscoveryE2E_NestedDependencyDirExcludedAndFileNamedVendorUnaffected
           - TestArtifactDiscoveryE2E_InventedEcosystemDirHonoredWithNoCoreEdit
+          - TestNonCorpusWiring_RealCommandsHonorPackDeclarationAcrossPackLoadOutcomes
+          - TestGateSteps_ExclusionSetWiredIntoArtifactValidation
+          - TestCollectTraceRefs_HonorsPackDeclaredDependencyDirs
         depends_on:
           - TASK-009
 
       - id: TASK-011
         type: implementation
-        title: "Declare vendor in the go-toolchain pack, bump and relock"
+        title: "Declare vendor in the go-toolchain pack, bump 1.4.0 → 1.5.0, and relock"
         description: |
-          Put the Go ecosystem's noun where it belongs, durably.
+          Put the Go ecosystem's noun where it belongs, durably. This task IS still
+          required — re-derived 2026-08-16 against the pack repo's real state: its
+          `classification:` block declares `source` and `test` globs and carries NO
+          `dependency_dirs` key, so without this edit core drops `vendor` in TASK-005
+          and nothing puts it back. Go consumers with a `vendor/` tree would regress.
 
-          The DURABLE edit is in the pack's own source repo:
+          ── VERSION: BUMP FROM 1.4.0, DO NOT RE-TAG v1.4.0 ────────────────────
+          The pack repo /Users/bmanson/src/projects/backstop-go-toolchain-pack is at
+          version 1.4.0 as of 2026-08-16 — commit 7d55256, tag `v1.4.0`, ALREADY
+          PUSHED by PLAN-ISSUE-129 (go-test exempt_from_scope_filter). This repo's
+          backstop.yml now pins `1.4.0` too — PLAN-ISSUE-129's relock has landed, so
+          pack repo and consumer pin agree.
+
+          Therefore: bump `version:` in pack.yml to **1.5.0** and tag **v1.5.0**.
+          NEVER re-tag or force-move v1.4.0 — that tag is live and a consumer may
+          already have resolved it; moving it changes content under a version someone
+          has pinned and hashed, which is indistinguishable from tampering to
+          `pack install`. Re-read pack.yml's `version:` field before bumping rather
+          than trusting this paragraph: if PLAN-ISSUE-129 or another lane has since
+          shipped a further bump, bump from THAT version instead and tag to match.
+
+          ── THE EDIT ──────────────────────────────────────────────────────────
           /Users/bmanson/src/projects/backstop-go-toolchain-pack/pack.yml — add
           `dependency_dirs: ["vendor"]` to the existing `classification:` block
           (which already declares source/test globs), with a comment saying this is
           the Go ecosystem's vendored-dependency directory and that core excludes it
-          from artifact-corpus walks ONLY because this pack declares it. Bump the
-          pack version, run `backstop pack check` and `backstop pack test` in that
-          repo, commit, and tag `v<version>` — a version bump with no matching git
-          tag will not resolve for consumers.
+          from artifact-corpus walks ONLY because this pack declares it. Then run
+          `backstop pack check` and `backstop pack test` in that repo, commit, and tag
+          `v1.5.0` — a version bump with no matching git tag will not resolve for
+          consumers. That repo's CI asserts tag/version agreement on tag push
+          (commit a7f1370), so a mismatched pair fails there, not here.
 
-          Then in backstop-core: update `backstop.yml`'s pinned version and reinstall
-          / relock so `.backstop/packs/backstop-ai/go-toolchain/pack.yml` and
-          `backstop.lock` reflect the new content hash. Editing the INSTALLED copy
-          alone is not durable — `.backstop/packs/` is gitignored and a reinstall
-          would silently revert it.
+          Then in backstop-core: update `backstop.yml`'s `backstop-ai/go-toolchain`
+          pin — it read `1.4.0` on 2026-08-16, matching the pack repo — to the version
+          you just tagged, and reinstall / relock so
+          `.backstop/packs/backstop-ai/go-toolchain/pack.yml` and `backstop.lock`
+          reflect the new content hash. Editing the INSTALLED copy alone is not
+          durable — `.backstop/packs/` is gitignored and a reinstall would silently
+          revert it. If PLAN-ISSUE-129 has already moved the pin by the time this
+          runs, that is fine and expected: this task moves it forward from wherever it
+          sits, it does not assert a starting value.
+
+          ── STATED RISK: A SIBLING LANE CAN MOVE THE PIN BACKWARD AFTER YOU ───
+          PLAN-ISSUE-129's relock has ALREADY landed (backstop.yml reads 1.4.0), so
+          the specific collision an earlier revision warned about is discharged. The
+          hazard class is not: any sibling lane that relocks go-toolchain writes the
+          pin IT was authored against, and if that lands AFTER this task pins 1.5.0 it
+          drags backstop.yml BACKWARD and silently drops `dependency_dirs` with it,
+          because the older manifest does not carry the key. Nothing in backstop-core
+          would look broken: this repo has no `vendor/` tree, so the regression is
+          invisible here and shows up only for a downstream Go consumer that has one.
+          Therefore: before writing the pin, READ backstop.yml's actual current value
+          rather than assuming it; and after any relock in any lane, re-read it
+          and confirm it still names the version whose manifest declares
+          `dependency_dirs`. If you find it moved backward, re-pin forward and say so
+          — do not treat a green gate as evidence the pin is right.
 
           backstop-core has no `vendor/` directory, so this is expected to be a
           no-op for this repo's own corpus. That is the point: the declaration is
@@ -674,6 +1262,13 @@ phases:
           someone else is holding. The core change is complete without this task;
           this task is what keeps Node consumers from regressing, and saying so out
           loud is better than a silent partial.
+
+          BECAUSE THIS TASK IS DESIGNED TO LEGITIMATELY STOP, IT IS OFF THE CRITICAL
+          PATH BY CONSTRUCTION. Nothing depends on it: neither TASK-013's gate nor
+          TASK-015's final verification lists it, deliberately, so an honest stop here
+          cannot deadlock the plan's completion. Verify the same for yourself before
+          adding any new dependency on this task — a "STOP and report" task that
+          blocks final verification is a plan that can never be finished.
         files:
           - /Users/bmanson/src/projects/backstop-packs/typescript-toolchain/pack.yml
           - /Users/bmanson/src/projects/backstop-bun-toolchain-pack/pack.yml
@@ -701,35 +1296,474 @@ phases:
           - CLM-009
         depends_on:
           - TASK-011
-          - TASK-012
 
   - id: phase-5
     name: "Phase 5: Predating-artifact reconciliation and full verification"
     tasks:
       - id: TASK-014
         type: documentation
-        title: "Dispatch spec-author to reconcile SPEC-068's five-name enumeration"
+        title: "Dispatch spec-author to reconcile SPEC-068 — the seven enumerations AND three drifted contract signatures"
         description: |
-          SPEC-068 states the five-name non-corpus list in three places that this
-          change makes stale: REQ-007's text (the discovery skip list), REQ-008's
-          text (the ungated scan's enumerated exclusions), and the
-          `NonCorpusDirNames` contract note. Its Sharp Edge 12 also says the bake is
-          "being filed as its own issue (ID pending; cite it here once relayed)" —
-          that ID is now ISSUE-122 and the sharp edge should record that it is
-          RESOLVED by this plan.
+          SPEC-068 drifts on this change in TWO distinct ways, and only the first is
+          findable by grepping for the ecosystem nouns. Both are in scope.
+
+          ── THE METHOD, WHICH IS THE ACTUAL DELIVERABLE HERE ──────────────────
+          Reconciliation is done by TWO SWEEPS ACROSS THE WHOLE `specs/` DIRECTORY,
+          never by grepping the one spec that looks relevant. Run BOTH before
+          dispatching, and hand spec-author the CURRENT line numbers, since earlier
+          edits in this phase may shift them:
+
+            PROSE sweep:      grep -rn 'node_modules\|vendor' specs/
+            SIGNATURE sweep:  grep -rn 'FindUngatedArtifacts\|DiscoverArtifacts\|realArtifactValidator\|Classification' specs/
+
+          THESE ARE THE CANONICAL COMMAND LINES from the plan notes' METHOD block,
+          reproduced BYTE FOR BYTE. TASK-016 and TASK-015 use the identical pair.
+          There is no third sweep and no narrower alternation — an earlier revision of
+          this plan carried four differently-worded variants of the signature sweep in
+          four places, which is exactly the drift these sweeps exist to catch.
+
+          NEITHER SWEEP FINDS THE OTHER'S HITS, and that is not a caveat — it is why
+          this plan missed drift in two consecutive review rounds. A signature literal
+          contains no ecosystem noun, so the prose sweep cannot see it (round 2's
+          miss). And a sibling spec can restate the enumeration in REQUIREMENT TEXT
+          while never naming a changed symbol, so the signature sweep cannot see it
+          either (round 3's miss — SPEC-070 REQ-007, which the whole-directory prose
+          sweep finds and a SPEC-068-only grep never would).
+
+          A LATER MISS WAS NOT A COVERAGE GAP AT ALL. Three SPEC-070 sites (:651,
+          :896, :1198) were believed to need a third "mechanism" axis; they never did
+          — the SIGNATURE sweep above returns them, and always did, because it
+          alternates on `FindUngatedArtifacts`. They were passed over by EYE in a long
+          result set. Read the output line by line rather than adding commands.
+
+          Apply the notes' FINDING test to each hit: a hit is a finding when it
+          restates the SHAPE of `Classification`, `DiscoverArtifacts`,
+          `FindUngatedArtifacts` or `realArtifactValidator`, or enumerates the
+          non-corpus exclusion set as something core carries. Every such hit is
+          enumerated in this task, TASK-016 or TASK-017; the near-miss hits checked
+          and cleared are listed in TASK-015 step 5. A qualifying hit on none of those
+          lists is a FINDING to report, not a false positive to wave off.
+
+          ── PART A: THE FIVE-NAME ENUMERATION, IN SEVEN PLACES ────────────────
+          All seven were located on 2026-08-16 by the prose sweep above, filtered to
+          SPEC-068. The SPEC-070 and SPEC-069 hits from that same sweep belong to
+          TASK-017; the THREE SPEC-043 hits from the signature sweep (one contract
+          signature at :301 plus two prose restatements at :59-60 and :540-541) belong
+          to TASK-016.
+
+            :299   REQ-007's discovery skip list
+            :714   CLM-062's CLAIM TEXT  ← THE IMPORTANT ONE, see below
+            :801   the `NonCorpusDirNames` contract note
+            :863   the `FindUngatedArtifacts` contract note
+            :1169  REQ-008's narrative ("still skip")
+            :1463  Sharp Edge 12's statement of the bake
+            :1474  Sharp Edge 12's enumeration
+
+          ── WHY CLM-062 (:714) GETS EXPLICIT EMPHASIS ─────────────────────────
+          Its text asserts the scan "excludes exactly the enumerated non-corpus trees
+          — .git, vendor, node_modules, testdata, prototype and .backstop/packs". This
+          plan makes that sentence FALSE, and the failure is silent by construction:
+          the artifact_status_drift dimension resolves a claim's mandated test by
+          EXISTENCE of the test NAME, and TASK-007 deliberately preserves that name.
+          So the dimension goes on passing while the claim's prose quietly says
+          something untrue about the shipped system. Correcting the test body without
+          correcting this claim text is exactly the vacuous green this repo exists to
+          prevent. Tell spec-author this claim is the priority, not an afterthought
+          bundled behind the REQ texts.
+
+          Sharp Edge 12 also says the bake is "being filed as its own issue (ID
+          pending; cite it here once relayed)" — that ID is now ISSUE-122, and the
+          sharp edge should record that it is RESOLVED by this plan rather than
+          knowingly propagated.
+
+          ── PART B: THREE DRIFTED CONTRACT SIGNATURES (the prose sweep is blind) ─
+          The prose sweep locates Part A and NOTHING ELSE, because a signature literal
+          contains no ecosystem noun. It is therefore structurally incapable of
+          surfacing the drift below, and this section exists because relying on that
+          sweep alone previously missed it. These are not prose
+          hygiene: SPEC-068 is `status: implemented` and its `contract_signature`
+          policy is `{applies-to: new-code, level: block}`, so the contracts
+          dimension BLOCKS on a signature that no longer matches the code
+          (pkg/gate/contract_verdict.go:92-100). Locate each with the SIGNATURE sweep
+          above — run over `specs/` as a whole, then filtered to this spec — rather
+          than trusting these line numbers.
+
+            :862  `signature: "func FindUngatedArtifacts(projectRoot string,
+                  root artifact.Root) ([]UngatedArtifact, error)"`
+                  TASK-008 adds a THIRD parameter, `nonCorpus artifact.NonCorpusDirs`.
+                  The signature must be updated to whatever TASK-008 actually landed —
+                  read the real function in pkg/gate/artifact_status.go and copy it,
+                  do not transcribe from this plan.
+
+            :936  `signature: "func DiscoverArtifacts(root artifact.Root,
+                  typeFilters []string) ([]DiscoveredArtifact, error)"`
+                  Same — TASK-008 adds `nonCorpus artifact.NonCorpusDirs` here too.
+                  ALSO update this contract's accompanying NOTE at :937, which still
+                  describes the pre-change shape ("The skip list at line 48 currently
+                  SkipDirs `.backstop` unconditionally…"). Once the skip logic reads
+                  the injected parameter, that description is stale: the note should
+                  say the exclusion set arrives as a parameter (tool-agnostic base
+                  plus pack-declared names) while the ROOT-RELATIVE `.backstop` /
+                  `.backstop/packs` rule stays local to the walk and unchanged.
+
+            :1007 `signature: "type realArtifactValidator struct { projectRoot string;
+                  root artifact.Root; cohort schema.Cohort }"`
+                  This is an EXHAUSTIVE field enumeration with no hedge, unlike the
+                  neighbouring ValidateConfig contract at :961 which writes
+                  `{ /* existing fields */ Root artifact.Root }` and is safe from
+                  drift by construction. TASK-008 adds a NonCorpus field to this
+                  struct, so the literal becomes false and — depending on how the
+                  contracts step matches struct-literal contracts — may be a real
+                  blocking mismatch, not merely a stale sentence. Extend the
+                  enumeration with the new field.
+
+            :1012 is a call-form EXAMPLE inside the ValidateAll note, reading
+                  `gate.FindUngatedArtifacts(projectRoot, root)`. It must be updated
+                  in the same pass so the example stays consistent with the :862
+                  signature it illustrates. An example that contradicts its own
+                  contract is the kind of small lie a reader trusts.
 
           ROUTE THIS THROUGH spec-author. Do NOT hand-edit the spec — CLAUDE.md
           forbids it and freeform prose edits drift from the schema. Ask spec-author
-          to state the exclusion set as "the tool-agnostic base plus whatever
-          installed packs declare via classification.dependency_dirs", to keep the
-          mandated test name
+          to state the exclusion set everywhere as "the tool-agnostic base (.git,
+          testdata, prototype) plus whatever installed packs declare via
+          classification.dependency_dirs", to keep the mandated test name
           TestFindUngatedArtifacts_ExcludesEnumeratedNonCorpusTreesButWalksDotBackstop
-          UNCHANGED, and to leave the NonCorpusDirNames signature contract as is (the
-          signature did not change; only the returned names did).
+          UNCHANGED, and to preserve the `.backstop` / `.backstop/packs` asymmetry
+          wording (unchanged by this plan and still load-bearing).
+
+          SCOPED CLEARANCE, NOT A BLANKET ONE: the `NonCorpusDirNames` SIGNATURE
+          contract specifically is UNCHANGED — that function keeps its signature and
+          only the names it returns change, so for THAT contract only the note's
+          enumeration is stale. This says nothing about the rest of the spec, and
+          must not be read as "no signatures in SPEC-068 change." THREE OTHER
+          CONTRACTS IN THIS SAME SPEC DO CHANGE — FindUngatedArtifacts (:862),
+          DiscoverArtifacts (:936) and realArtifactValidator (:1007), all enumerated
+          in Part B above.
 
           Then run `backstop artifact validate --spec SPEC-068` and confirm it passes.
         files:
           - specs/SPEC-068-trustworthy-green-guards.spec.md
+        claims:
+          - CLM-001
+          - CLM-005
+        depends_on:
+          - TASK-013
+
+      - id: TASK-016
+        type: documentation
+        title: "Dispatch spec-author to reconcile SPEC-043's Classification contract signature"
+        description: |
+          The SECOND drifted implemented spec, and the one an earlier revision of
+          this plan missed entirely.
+
+          ── METHOD, NOT JUST FIX ──────────────────────────────────────────────
+          This drift is found ONLY by the SIGNATURE sweep run across the WHOLE specs/
+          directory — the canonical one, byte for byte, the same line TASK-014 and
+          TASK-015 use:
+
+            grep -rn 'FindUngatedArtifacts\|DiscoverArtifacts\|realArtifactValidator\|Classification' specs/
+
+          Do NOT substitute a narrower `grep -rn 'Classification' specs/`; one
+          canonical sweep, used identically everywhere, is the whole point. The PROSE
+          sweep cannot find this drift, because a struct signature carries no
+          ecosystem noun, and grepping SPEC-043 alone never would either, because you
+          would have no reason to open SPEC-043 in the first place. Run it corpus-wide
+          before dispatching and apply TASK-014's FINDING test to each hit. See
+          TASK-014's METHOD block for why both sweeps are mandatory, why one without
+          the other has now missed drift twice, and why no third sweep exists.
+
+          THE SAME STALE ENUMERATION APPEARS IN THREE PLACES, NOT ONE. All three were
+          located on 2026-08-16 in the canonical signature sweep's output, filtered to
+          this spec. TASK-002 adds a third
+          field (`DependencyDirs []string `yaml:\"dependency_dirs\"``), so ALL THREE
+          become false the moment this plan lands. Extend the enumeration at each —
+          same instruction, same new field:
+
+            :301     THE CONTRACT SIGNATURE, and the highest-stakes of the three:
+                     "type Classification struct { Source []string `yaml:\"source\"`;
+                                                   Test []string `yaml:\"test\"` }"
+                     A contract note that enumerates a struct's fields is a promise
+                     about the type's shape; leaving it stale means the contracts
+                     dimension is checking a signature the code no longer has.
+
+            :59-60   REQ-001's REQUIREMENT TEXT: "These parse onto a new
+                     `pack.Manifest.Classification` field (`type Classification struct
+                     { Source []string; Test []string }`)". This is an exhaustive,
+                     unhedged field enumeration in requirement text — the SAME SHAPE
+                     as the SPEC-068:1007 realArtifactValidator drift TASK-014 fixes,
+                     and the SAME CLASS as SPEC-070 REQ-007, which an earlier revision
+                     of this plan missed. REQ-001 is `status: implemented`.
+
+            :540-541 The processing-steps narrative restates the identical literal
+                     ("Add `type Classification struct { Source []string; Test []string }`
+                     and a `Classification Classification` field to `pack.Manifest`").
+                     Narrative rather than requirement text, so lower stakes — same
+                     pass, same fix.
+
+          ROUTE THIS THROUGH spec-author, same as TASK-014 — never hand-edit. Ask it
+          to extend the signature/enumeration at all three sites and to extend the
+          :301 note to say what the field is for (bare directory NAMES the declaring
+          pack's ecosystem uses for vendored or installed dependency trees, which core
+          excludes from artifact-corpus walks), citing ISSUE-122 as the change's
+          source. The note's existing sentence — "the binary holds no baked
+          source/test convention — every stack supplies its own globs (DD-1)" —
+          generalizes cleanly and should be kept: this field is the same principle
+          applied to dependency directories.
+
+          THE PROHIBITION IS NARROW, AND WAS PREVIOUSLY WRITTEN TOO WIDE. Do NOT
+          change what REQ-001 REQUIRES about SOURCE/TEST classification: the optional
+          `classification.source` / `classification.test` glob lists, their parsing,
+          the absent-block-yields-zero-value rule and the doublestar semantics all
+          STAND EXACTLY AS WRITTEN, and no claim, mandated test name or requirement
+          verdict in SPEC-043 changes. What changes is ONLY the exhaustive field
+          enumeration, which gains one field at each of the three sites above. An
+          earlier revision of this task said "do NOT touch SPEC-043's requirements" —
+          that contradicted this task's OWN mandated corpus-wide sweep, which returns
+          :59-60 and :540-541 and would have handed the implementer a finding it then
+          told them to ignore.
+
+          NOT IN SCOPE FOR THIS TASK, with the citations verified 2026-08-16. Read
+          these as SCOPED findings about SIGNATURES ONLY — none of them is an
+          all-clear for the spec it names:
+            - SPEC-047:428 is a `consumes:` entry `name: Classification` — it names
+              the type without restating its shape, so it carries no signature
+              literal and cannot drift on an added field. The signature sweep returns
+              several more SPEC-047 hits (:48, :90, :241, :243, :478, :868); every one
+              names `pack.Manifest.Classification` as a consumed field without
+              enumerating its fields, and they are cleared individually in TASK-015
+              step 5. The prose sweep returns no SPEC-047 hit at all. SPEC-047 is
+              genuinely clear on both axes.
+            - SPEC-070:683 is a `consumes:` entry `name: FindUngatedArtifacts`
+              (source `pkg/gate`) — NOT a Classification reference; SPEC-070 does
+              not mention Classification anywhere. It carries NO SIGNATURE DRIFT for
+              the same structural reason: `consumes:` entries carry no signature.
+              Note that this is the very symbol whose signature TASK-008 changes —
+              the PROVIDING contract for it lives in SPEC-068:862 and is reconciled
+              by TASK-014, not here.
+
+              **THIS IS NOT AN ALL-CLEAR FOR SPEC-070.** That spec DOES drift, in
+              REQUIREMENT PROSE at a DIFFERENT SYMBOL from :683: REQ-007 at
+              :207-213 asserts that `FindUngatedArtifacts` "also carries the
+              exclusion set (`testdata`, `vendor`, `node_modules`, `.git`,
+              `.backstop/packs`, `prototype`)", which TASK-008 makes false. That is
+              routed to **TASK-017**, which owns SPEC-070 and SPEC-069. An earlier
+              revision of this plan read the :683 finding as covering the whole
+              spec and ruled SPEC-070 out of scope entirely; that inference was
+              wrong and is the reason this block now separates the two questions
+              explicitly. "No signature drift" and "no drift" are different claims.
+          Verify all of this before dispatching rather than taking this plan's word
+          for it — if any has since gained a signature literal, fold it in and say so.
+
+          Then run `backstop artifact validate --spec SPEC-043` and confirm it passes.
+        files:
+          - specs/SPEC-043-pack-declared-globs-coverage-consumer.spec.md
+        claims:
+          - CLM-002
+        depends_on:
+          - TASK-013
+
+      - id: TASK-017
+        type: documentation
+        title: "Dispatch spec-author to reconcile SPEC-070's REQ-007 mechanism, its three other stale FindUngatedArtifacts sites, and SPEC-069's Sharp Edge 5"
+        description: |
+          The THIRD drifted implemented spec plus one stale narrative site in a fourth,
+          found by running the canonical PROSE sweep across the WHOLE specs/ directory
+          rather than against the one spec that looked relevant —
+          `grep -rn 'node_modules\|vendor' specs/` returns SPEC-068, SPEC-069 AND
+          SPEC-070, and an earlier revision of this plan caught only the first. See
+          TASK-014's METHOD block; re-run BOTH canonical sweeps and hand spec-author
+          CURRENT line numbers, since earlier phase-5 edits may shift them.
+
+          ── THERE IS NO THIRD SWEEP. READ THE SECOND ONE PROPERLY. ────────────
+          Three of this task's six sites (:651, :896, :1198) carry NO ecosystem noun
+          and NO `Classification` literal, so the PROSE sweep is genuinely blind to
+          them — they drift on the MECHANISM, describing what `FindUngatedArtifacts`
+          carries or restating its parameter list, and TASK-008 changes both. An
+          earlier revision concluded a THIRD sweep axis was therefore needed. That was
+          wrong: the canonical SIGNATURE sweep alternates on `FindUngatedArtifacts` and
+          has always returned every one of them. Run it, byte for byte, BEFORE
+          dispatching:
+
+            grep -rn 'FindUngatedArtifacts\|DiscoverArtifacts\|realArtifactValidator\|Classification' specs/
+
+          Its SPEC-070 hits on 2026-08-16 were :208, :651, :683, :896, :1022, :1198,
+          :1268, :1409 and :1560 — nine hits, all from that one command. The earlier
+          miss was a READING failure, eyeballing past real drift in a long result set.
+          Sites 1-5 below are the drifting subset; the rest are cleared explicitly at
+          the end of this task so nobody re-derives them. Every one of the nine is
+          accounted for in one place or the other; treat any hit that is not as a
+          FINDING to report.
+
+          ── SITE 1 (LOAD-BEARING): SPEC-070 REQ-007, :207-213 ─────────────────
+          This is REQUIREMENT TEXT in a `status: implemented` spec, not narrative, and
+          it is the reason this task exists. REQ-007 requires doctor's `artifact-layout`
+          check to source its deviation set from `FindUngatedArtifacts`, and justifies
+          that on the ground that the helper "also carries the exclusion set
+          (`testdata`, `vendor`, `node_modules`, `.git`, `.backstop/packs`,
+          `prototype`) without which this repository alone contributes 67
+          artifact-shaped files that are deliberately not corpus."
+
+          After TASK-008 that is false. The helper no longer CARRIES the ecosystem
+          names — they arrive as an INJECTED PARAMETER (`artifact.NonCorpusDirs`), and
+          `cmd/backstop/doctor_checks.go:411` populates it from `ctx.Packs`.
+
+          FIX THE MECHANISM PROPERLY — do NOT soften the sentence into vagueness by
+          deleting the enumeration and leaving "the exclusion set" undescribed. The
+          corrected text must say all of:
+            - the deviation set still comes from `FindUngatedArtifacts` and doctor
+              still must not walk the corpus itself (REQ-007's CONCLUSION is unchanged
+              and is what the requirement actually binds);
+            - the exclusion set is now the TOOL-AGNOSTIC BASE (`.git`, `testdata`,
+              `prototype`, plus the walk's own `.backstop/packs` rule) UNIONED with
+              whatever installed packs declare via `classification.dependency_dirs`;
+            - doctor obtains its set the same way every other call site does — from the
+              packs it has already loaded (`ctx.Packs`) — which is what keeps doctor
+              and the gate from disagreeing about which trees are corpus;
+            - and the NAMED CONSEQUENCE on the degraded path: when the pack load fails
+              (`ctx.PacksErr != nil`) doctor passes the zero value, so the set is the
+              generic base only and artifact-shaped files inside dependency trees ARE
+              reported as deviations. That is the honest failure — the alternative is
+              core knowing the nouns, which is the bake ISSUE-122 removes — and the
+              packs check failing on the same run is the diagnosis that explains it.
+              Recording it in the spec is what stops a future reader filing it as a bug.
+          The "67 artifact-shaped files" figure is about THIS repository's testdata and
+          is unaffected by this change; keep it if it is still accurate, and say so
+          either way rather than silently dropping it.
+
+          ── SITE 2 (LOAD-BEARING): SPEC-070:890-900, the REQ-007 mechanism ────
+          The Implementation section's processing-steps entry for `checkArtifactLayout`
+          states it "performs no walk of its own, holds no suffix list, joins no
+          type-directory name, and carries no exclusion list — all four come from the
+          shared helper, which is what makes 'what doctor calls a deviation' and 'what
+          the gate calls ungated' one predicate by construction." After TASK-008 the
+          FOURTH of those four is false in its stated form: doctor derives the
+          exclusion set from `ctx.Packs` and INJECTS it, so the set comes from the
+          packs doctor loaded rather than from inside the helper.
+
+          FIX THE MECHANISM, KEEP THE POINT. The sentence's actual claim — doctor and
+          the gate share ONE predicate rather than two implementations that agree today
+          — is still true and is MORE true after this change, because both now derive
+          the injected set the same way from the same installed-pack manifests. Say
+          that. Do not delete the four-part enumeration and leave the paragraph vague,
+          and do not weaken it to "doctor holds no exclusion list" without saying where
+          the set now comes from. THIS SENTENCE IS MIRRORED VERBATIM IN CODE at
+          `cmd/backstop/doctor_checks.go:360-366`, which TASK-008 corrects in the same
+          way; the two must not be left saying different things, so read TASK-008's
+          instruction before writing this one and match it.
+
+          ── SITE 3 (SIGNATURE): SPEC-070:1198 ─────────────────────────────────
+          The related-artifacts entry for SPEC-068 restates the helper's signature
+          verbatim: "`pkg/gate`'s `FindUngatedArtifacts(projectRoot, root)
+          ([]UngatedArtifact, error)` returning `UngatedArtifact{Path, Kind,
+          ExpectedDir, Root}`". TASK-008 adds a third parameter
+          (`nonCorpus artifact.NonCorpusDirs`), so the parameter list is stale; the
+          RETURN type and the `UngatedArtifact` field list are unchanged and must be
+          left exactly as they are. Extend the signature to match the real one — the
+          same extend-to-match instruction TASK-014 applies to SPEC-068:862 (the
+          PROVIDING contract for this same symbol) and TASK-016 applies to SPEC-043's
+          three Classification sites. A restated signature is a promise about shape
+          wherever it appears, including in a related-artifacts note.
+
+          ── SITE 4 (CONTRACT NOTES): SPEC-070:651 ─────────────────────────────
+          FOUND BY THE MECHANISM SWEEP ON 2026-08-16 AND NOT NAMED BY ANY EARLIER
+          REVISION OF THIS PLAN — surfaced here rather than left for someone to trip
+          over. The `provides:` entry for `checkArtifactLayout` carries a `notes:`
+          field that drifts TWICE in one sentence: it restates the call as
+          "`gate.FindUngatedArtifacts(projectRoot, root)`" (stale parameter list, same
+          fix as site 3) and asserts checkArtifactLayout holds "no exclusion list of
+          its own, or it becomes the fourth hardcoding REQ-029 exists to remove" (same
+          mechanism drift as site 2).
+
+          THIS IS THE HIGHEST-STAKES OF SITES 2-4 despite reading like a footnote: a
+          contract `notes:` field sits on a `provides:` entry, so it is part of what
+          the contracts dimension carries forward as this spec's promise about
+          `checkArtifactLayout`'s shape — the same reasoning TASK-016 gives for
+          SPEC-043:301. `checkArtifactLayout`'s OWN signature
+          (`func checkArtifactLayout(ctx doctorContext) doctorResult`) does NOT change
+          — it derives the set from the `ctx` it already receives — so leave the
+          `signature:` field alone and edit only `notes:`. Preserve the rest of that
+          note verbatim, including the `Config.ArtifactRoot` / typed-root-error
+          sentences, which this plan does not touch.
+
+          ── SITE 5 (NARRATIVE): SPEC-070:1268-1278, ONE BULLET ────────────────
+          This is a SINGLE related-artifacts bullet that BOTH sweeps hit — the
+          signature sweep at its head (:1268, `FindUngatedArtifacts`) and the prose
+          sweep at its tail (:1271, :1276) — which is why it is scoped as one site
+          rather than two. The two halves get DIFFERENT treatment, so read before
+          editing:
+
+            :1268, THE HEAD, IS NOT DRIFT AND MUST BE LEFT ALONE. It says SPEC-068's
+              symbols (`ResolveRoot`, `Root`, `Root.Dir`, `ClassifyFilename`, the
+              typed root errors, `Config.ArtifactRoot`, `FindUngatedArtifacts`) are
+              "all consumed here and none restated". That stays TRUE after TASK-008:
+              this bullet restates no signature, so an added parameter cannot falsify
+              it. The bullet that DOES restate the signature is a different one at
+              :1198 — site 3 above — and the two must not be conflated.
+
+            :1271-1278, THE TAIL, IS THE DRIFT. It restates the same five-name
+              enumeration and describes `cmd/backstop/artifact_discover.go:47-49` as
+              an "UNCONDITIONAL `switch base` list" — already false before this plan
+              (SPEC-068 removed the switch), and doubly so after it. Lower stakes than
+              site 1 because it is narrative rather than requirement text, but it
+              closes with "a DD-13 concern raised separately", and that concern is now
+              RESOLVED by ISSUE-122. Update it to describe the shipped shape and cite
+              ISSUE-122 as the resolution.
+
+          ── SITE 6 (NARRATIVE): SPEC-069 Sharp Edge 5, :2792-2807 ─────────────
+          Same treatment TASK-014 gives SPEC-068's Sharp Edge 12. This sharp edge
+          enumerates the five names, describes the `switch base` at `:47` with its
+          literals at `:48` as live code (false — SPEC-068 deleted it), and explicitly
+          hands the `node_modules` literal off: "is ALREADY FILED as ISSUE-122 … no new
+          issue is needed and none should be filed." That hand-off is DISCHARGED once
+          this plan lands, and the sharp edge should record it as RESOLVED by ISSUE-122
+          rather than reading as an open referral. Its OTHER half — the `.backstop`
+          skip and the CLM-103 tripwire — is untouched by this plan and must be
+          preserved verbatim.
+
+          SPEC-069:3124 and :3198 (the related-artifacts and references entries that
+          call ISSUE-122 "open") and :3216 (the `artifact_discover.go:47-49` reference
+          entry naming the `node_modules`/`vendor` literals) carry the same stale
+          referral and should be updated in the same pass for consistency. They are
+          bookkeeping, not requirements — do not let them displace site 1's priority.
+
+          ── THE SIGNATURE-SWEEP HITS THAT ARE GENUINELY CLEAR ─────────────────
+          Four of the nine SPEC-070 hits. Verified individually on 2026-08-16;
+          recorded so nobody re-derives them and so an unlisted future hit reads as new
+          rather than as already-considered. With sites 1-5 above (:208, :651, :896,
+          :1198, :1268) these four account for all nine:
+            :683   the `consumes:` entry `name: FindUngatedArtifacts`. Names the symbol
+                   without restating its shape — `consumes:` entries carry no
+                   signature, so an added parameter cannot make it false.
+            :1022  narrative about the RENAME to `FindUngatedArtifacts` ("the old name
+                   encoded the wrong predicate"). About the name, not the signature or
+                   the exclusion set.
+            :1409  the close-out Review-Question answer: `checkArtifactLayout`
+                   "delegates per-KIND deviation to `gate.FindUngatedArtifacts` and
+                   performs no root-containment reduction of its own." STILL TRUE after
+                   TASK-008 — it claims delegation and a per-KIND predicate, neither of
+                   which changes, and it makes no claim about the exclusion set. Leave
+                   it alone; "adjacent to a drifting sentence" is not drift.
+            :1560  "the shared helper to `FindUngatedArtifacts`, which this spec now
+                   consumes" — a rename/consumption note, no shape claim.
+
+          ROUTE ALL OF THIS THROUGH spec-author. Do NOT hand-edit — CLAUDE.md forbids
+          it. Do NOT touch either spec's requirements beyond REQ-007's stated mechanism
+          (site 1), and do not touch any claim or mandated test name in either spec.
+          The ONE contract edit in scope is site 4's `notes:` field on
+          `checkArtifactLayout`, and it is bounded there: no `signature:` field in
+          either spec changes, because `checkArtifactLayout`'s own signature is
+          unchanged and `FindUngatedArtifacts`'s PROVIDING contract lives in
+          SPEC-068:862 where TASK-014 owns it. SPEC-069 has no contract on this surface
+          at all. This task changes stale PROSE, one requirement's REASONING, one
+          restated signature and one contract note's mechanism description; it changes
+          no promise either spec makes.
+
+          Then run `backstop artifact validate --spec SPEC-070` and
+          `backstop artifact validate --spec SPEC-069` and confirm both pass.
+        files:
+          - specs/SPEC-070-backstop-doctor.spec.md
+          - specs/SPEC-069-backstop-init.spec.md
         claims:
           - CLM-001
           - CLM-005
@@ -747,8 +1781,15 @@ phases:
              coverage, contracts, status drift, traceability, waiver resolution,
              baseline comparison, ledger integrity. It must be GREEN with no new
              waivers. A waiver added to pass this is a plan failure, not a pass.
-          2. `backstop artifact validate --plan PLAN-ISSUE-122` and
-             `backstop artifact validate --spec SPEC-068` — both pass.
+          2. `backstop artifact validate --plan PLAN-ISSUE-122`,
+             `backstop artifact validate --spec SPEC-068`,
+             `backstop artifact validate --spec SPEC-043`,
+             `backstop artifact validate --spec SPEC-070` and
+             `backstop artifact validate --spec SPEC-069` — all five pass. All four
+             specs are reconciled in this phase (TASK-014, TASK-016, TASK-017) and all
+             four must validate; a green gate with a stale contract signature — or with
+             a requirement whose stated mechanism no longer describes the code — is the
+             failure mode this step exists to catch.
           3. Grep confirmation of the actual invariant, since that is what the issue
              is about: `grep -rn "node_modules\|\"vendor\"" --include="*.go" pkg/ cmd/`
              returns hits ONLY in test files and testdata fixtures — no production
@@ -756,6 +1797,56 @@ phases:
              remains, the defect is not fixed, whatever the gate says.
           4. Confirm `backstop gate --all` was run from a clean tree with the packs
              installed, not from a stale build — rebuild ./bin/backstop first.
+          5. RE-RUN BOTH CANONICAL CORPUS-WIDE SWEEPS, byte for byte as the plan
+             notes' METHOD block and TASK-014 state them —
+             `grep -rn 'node_modules\|vendor' specs/` and
+             `grep -rn 'FindUngatedArtifacts\|DiscoverArtifacts\|realArtifactValidator\|Classification' specs/`
+             — and confirm every surviving hit describes the SHIPPED shape. This plan
+             missed a drifted spec in two consecutive review rounds by grepping one
+             spec instead of the corpus, and missed three more by skimming a long
+             result set; this step is the standing guard against a third failure of
+             either kind. Apply the notes' FINDING test: a hit that still enumerates
+             `vendor`/`node_modules` as something core carries, or that restates a
+             signature/field list predating TASK-008, is an unreconciled site — report
+             it, do not rationalize it.
+
+             THESE SWEEPS RETURN DOZENS OF HITS AND MOST ARE NOT DRIFT. The following
+             were each opened and checked on 2026-08-16 and are GENUINELY CLEAR —
+             listed here, in the same spirit as TASK-016's SPEC-047:428 / TASK-017's
+             SPEC-070:683 clearances, so this step does not hand back a pile of
+             unexplained reports and so a genuinely NEW hit reads as new:
+               SPEC-014:1250 — "the full vendor tree" in a tool_config fidelity-gap
+                 note about temp Go modules. The adjective, not the skip list.
+               SPEC-045:14, :462, :751 — all name `pack.Manifest.Classification` as
+                 the field SPEC-043 adds and this spec consumes. None restates the
+                 struct's fields, so an added field cannot falsify them. (:338 and
+                 :575 likewise: both say the TestNamePatterns field is DISJOINT from
+                 Classification — a disjointness claim, not a shape claim.)
+               SPEC-047:90, :478 — the same: `pack.Manifest.Classification` named as
+                 a consumed field, no field enumeration. Consistent with :428, already
+                 cleared in TASK-016.
+               SPEC-050:23, :352, :535, :687, :747 — `realArtifactValidator.ValidateAll`
+                 and `DiscoverArtifacts` named as the symbols this spec's corpus
+                 resolution pass runs behind. :352 explicitly says "Unchanged
+                 signature"; none of the five restates a parameter list or a struct's
+                 fields, and TASK-008 changes neither ValidateAll's signature nor the
+                 resolution pass's behavior. (:542 says the type filter is passed "to
+                 `DiscoverArtifacts`" — still true; TASK-008 adds a parameter beside
+                 it, it does not remove the filter.)
+             Also verified: `buildResolutionViolations` — the function TASK-008 threads
+             cfg.NonCorpus into — appears in NO spec at all, so it carries no contract
+             to reconcile. Its behavior is specified only through ValidateArtifacts,
+             which SPEC-050:352 already declares signature-unchanged.
+             The remaining sweep hits are test names, section headings, `consumes:`
+             entries and prose uses of "vendored" as an adjective; none meets the
+             FINDING test.
+
+          TASK-012 (the Node-ecosystem pack declarations) is DELIBERATELY ABSENT from
+          this task's dependencies. That task is designed to STOP and report if either
+          pack repo is mid-flight elsewhere, and a legitimate stop must not make this
+          plan permanently unfinishable. The core change is complete without it; if
+          TASK-012 did stop, say so plainly in the close-out rather than treating this
+          verification as blocked.
         files:
           - pkg/artifact/layout.go
           - cmd/backstop/artifact_discover.go
@@ -769,6 +1860,7 @@ phases:
         depends_on:
           - TASK-008
           - TASK-011
-          - TASK-012
           - TASK-013
           - TASK-014
+          - TASK-016
+          - TASK-017
