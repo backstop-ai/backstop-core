@@ -25,6 +25,15 @@ EARLIER task in the same plan explicitly instructed "give each binding a NIL
 Provision" (correct there, fatal here), so an implementer carrying the habit
 forward lands straight in the hole.
 
+Resolution accepted (round 4, verified round 5): fixture pins a NON-NIL
+`Provision` to a REAL production-allowlist entry with a DIVERGENT argv[0]
+carrying the absent binary name, and the test READS the pinned version from
+`engine.TrustedToolAllowlist()` instead of hardcoding it — a hardcoded version
+that later drifts turns the intended absent-tool refusal into a
+version-mismatch refusal of identical fail+ConfigErr shape. Corollary the
+planner had to fix: the refusal message must then name BOTH the probed argv[0]
+and the pin, or the "absent tool NAMED" assertion is unwritable.
+
 **Why:** claim coverage, TDD ordering and the validator all pass on such a plan.
 The hole is only visible by executing the HEAD control flow over the fixture by
 hand. A green-at-HEAD acceptance test ships as proof of a fix that was never

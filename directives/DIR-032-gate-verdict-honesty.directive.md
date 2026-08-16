@@ -20,12 +20,13 @@ directive:
     - "ISSUE-114"
     - "ISSUE-118"
     - "ISSUE-129"
+    - "ISSUE-136"
 ---
 
 ## Description
 
 Carved out of DIR-024 "Gate/Engine Quality" per founder ruling (Brandon,
-2026-08-10). Thirteen issues share one defect shape: **a gate step computes a
+2026-08-10). Fourteen issues share one defect shape: **a gate step computes a
 result internally but reports the wrong verdict about it** — silent pass
 when it should block, a scoped-clean signal when the unscoped truth is red,
 an opaque crash where a legible finding belongs, a dimension that never
@@ -44,13 +45,28 @@ DIR-024's `source:` frontmatter (ISSUE-092, 093, 097, 100, 106, 112, 113,
 three — ISSUE-066, ISSUE-067, ISSUE-091 — were named repeatedly in DIR-024's
 Notes as cluster siblings but were **never added to its `source:` list**;
 they had no directive home at all until now. That accounts for the founder's
-2026-08-10 ruling, which enumerated eleven members. Items 12 (ISSUE-118) and
-13 (ISSUE-129) were **not** part of that ruling — both were slotted
-afterward by backlog-pm under the standing clear-fit grant, on charter fit
-against this directive's own description, not by the founder's original
-roster. All thirteen members are `status: open` today; none has an
-in-flight plan (verified 2026-08-15 for ISSUE-129 specifically: no plan in
-`plans/` targets it or the go-test scope-filter exemption it names).
+2026-08-10 ruling, which enumerated eleven members. Items 12 (ISSUE-118), 13
+(ISSUE-129) and 14 (ISSUE-136) were **not** part of that ruling — all three
+were slotted afterward by backlog-pm under the standing clear-fit grant, on
+charter fit against this directive's own description, not by the founder's
+original roster. All fourteen members are `status: open` today; as of
+2026-08-15, none had an in-flight plan (verified 2026-08-15 for ISSUE-129
+specifically: no plan in `plans/` targets it or the go-test scope-filter
+exemption it names). **Correction (2026-08-16):** that observation is now
+stale, and stale in more than the one place it was first caught —
+`plans/PLAN-ISSUE-129-go-test-scope-filter-exemption.plan.yml` exists
+(`status: draft`, created 2026-08-15) and its fix is visibly mid-flight in
+the working tree (modified `cmd/backstop/testdata/exempt-matrix-bindings.yml`,
+the go-toolchain testdata `pack.yml`, `cmd/backstop/pack_gate_exempt_test.go`,
+`backstop.lock`). A full sweep of `plans/` against all fourteen roster issue
+IDs (independently verified, not just found once) turned up three more:
+`plans/PLAN-ISSUE-112-engine-tool-missing-silent-vacuous.plan.yml` (item 9),
+`plans/PLAN-ISSUE-113-zero-match-classification-refusal.plan.yml` (item 10),
+and `plans/PLAN-ISSUE-118-gate-blind-spot-test-only-diffs.plan.yml` (item
+12) — all `status: draft`. Four of the fourteen roster members have
+in-flight plans as of 2026-08-16 — items 9, 10, 12, and 13 — and the
+remaining ten, including new item 14, are plan-free. See the Notes for why
+this is a coordinated drain, not four incidental plans.
 
 The cluster's variants, so a planner does not read it as one uniform bug:
 
@@ -89,6 +105,14 @@ The cluster's variants, so a planner does not read it as one uniform bug:
   computation ever sees it. A planner needs this distinction because the fix
   site is not in the producing step at all — it is in a filter the producing
   step never touches.
+- **Item 14 (136) is not a new instance of any of the above — it is the
+  COVERAGE/ASSURANCE item for the suppression variant item 13 named.** Item
+  13 fixed exactly one mis-declared engine binding; item 14 is the audit that
+  bounds how many others are wrong the same way. It carries no verdict defect
+  of its own today — its risk is open-ended precisely because nothing
+  currently bounds it, which is why it is `risk: moderate` rather than
+  `critical`: it is an audit, not a known live defect, though any defect it
+  surfaces inherits item 13's `critical` severity class.
 
 1. **Gate test verification runs the full package, not a plan's narrow
    `-run` filter (ISSUE-066).** A spec/plan `test_command` commonly scopes
@@ -557,22 +581,98 @@ The cluster's variants, so a planner does not read it as one uniform bug:
     `type: bug`, `scope: cross-cutting`, `uncertainty: known`, `risk:
     critical`.
 
+14. **No audit of findings-engine bindings for missing
+    `exempt_from_scope_filter` — ISSUE-129's own Direction item (b) is
+    unaddressed (ISSUE-136).** `exempt_from_scope_filter` is a per-binding
+    boolean with NO structural derivation — not from `gate_type`, not from
+    `scope_kind`, nothing else in the manifest implies it — and nothing
+    currently asserts, engine-by-engine, whether each non-declaring engine's
+    default-`false` is correct for it or is itself an undetected ISSUE-129
+    instance. This is item 13's own Direction item (b), restated verbatim
+    above ("audit EVERY other findings engine lacking the flag, since it is
+    declared per-binding and NOT derived from `gate_type`, so any future pack
+    engine can silently reintroduce this gap unless something asserts intent
+    engine-by-engine") — ISSUE-136 is that audit, now owned by an artifact
+    instead of living as an unowned bullet inside item 13. Verified directly
+    against the live tree (2026-08-16), not inferred: exactly THREE engine
+    bindings across all installed non-testdata packs declare
+    `exempt_from_scope_filter: true` — `go-build` and `go-test`
+    (`.backstop/packs/backstop-ai/go-toolchain/pack.yml:73,93`; go-test's is
+    item 13's fix, already landed in the installed pack) and `go-arch-lint`
+    (`.backstop/packs/backstop-ai/backstop-core-architecture/pack.yml:17`).
+    Every other declared engine — base-engines `semgrep`/`ast-grep`/
+    `sandbox`/`config-file`, `go-contracts` (2 bindings),
+    `go-substantiveness`, `ci-workflows` `semgrep-ci`, and go-toolchain
+    `golangci` — declares no key and defaults false. The load-bearing
+    evidence a planner must not miss: `go-arch-lint` is a `gate_type:
+    findings` engine that independently arrived at `true`. That is direct
+    proof the exemption semantics are NOT tied to `gate_type`, so the
+    findings family is not automatically safe just because the two engines
+    fixed so far (`go-build`, `go-test`) were `gate_type: build`/`test`.
+    Equally, per the existing matrix
+    (`cmd/backstop/testdata/exempt-matrix-bindings.yml`), `scope_kind:
+    project-wide` does NOT imply exempt either — `golangci` is project-wide
+    and deliberately non-exempt (CLM-017). So neither structural signal can
+    be used as a shortcut for the audit; it has to be an engine-by-engine
+    intent judgment. Direction, kept as constraint not design: (a) for each
+    non-declaring binding, judge whether its violations can legitimately
+    originate from a file OTHER than the one they are reported against, or
+    whether file-scoped filtering is intrinsically correct for it; (b) any
+    engine judged mis-declared gets its OWN defect artifact (pack-manifest
+    fix + version bump + relock, the ISSUE-129 mechanism) — this issue is the
+    audit, never a bundle of fixes; (c) whether `pack check`/`pack test`
+    should gain an advisory surfacing a project-wide-scope engine with no
+    explicit key is a real design question with real maintenance cost
+    (PLAN-ISSUE-129's own words), NOT a free rider — and per the
+    zero-baked-language law any such check must be a pack rule, never baked
+    core logic. This is NOT a fourteenth instance of a mis-reported verdict —
+    it is the coverage/assurance item for the suppression variant item 13
+    named (see the variants map above). Item 13 fixed one engine; item 14
+    bounds how many others are wrong; its risk is open-ended precisely
+    because nothing currently bounds it. `type: technical-debt`, `scope:
+    cross-cutting`, `uncertainty: exploratory`, `risk: moderate` — moderate,
+    not `critical` like item 13, because this is an audit rather than a known
+    live defect, but any defect it surfaces inherits item 13's severity
+    class.
+
 ## Notes
 
-Grouping rationale and priority, stated once rather than per-item: none of
-these twelve has an in-flight plan, so there is no top-down sequencing
-imposed by this directive beyond the intra-item notes above (e.g. items 9-10
-as one arc, item 7 alongside its non-member sibling ISSUE-107). Item 4
-(ISSUE-092, `risk: critical`, active false-green in the tool that gates the
-entire pack ecosystem), item 3 (ISSUE-091, `risk: critical`, the gate's own
-`--all` mode already produced one wrong founder scope ruling), and item 12
-(ISSUE-118, `risk: critical`, a mandated test genuinely failing on the same
-tree/commit/binary that `backstop gate` reported full PASS on) are the three
-with measured, already-realized consequences — a planner picking this
-directive up cold should look at those three first, not treat the list as
-strict priority order. Items 1-3 (066/067/091) predate the other eight by
-roughly two weeks and were never blocked on anything; they simply had no
-directive to attach to until now.
+Grouping rationale and priority, stated once rather than per-item: four of
+the fourteen roster members have in-flight plans as of 2026-08-16 — items 9
+(ISSUE-112), 10 (ISSUE-113), 12 (ISSUE-118), and 13 (ISSUE-129), all
+`status: draft` (see the paragraph below on why this is a coordinated drain,
+not four incidental plans) — and the remaining ten, including new item 14,
+are plan-free. This directive still imposes no top-down sequencing beyond
+the intra-item notes above (e.g. items 9-10 as one arc, item 7 alongside its
+non-member sibling ISSUE-107): position in the roster names committed scope,
+not an execution order, and the four in-flight plans were sequenced by
+whoever authored and is now running them, not by this directive's list
+position. Item 4 (ISSUE-092, `risk: critical`, active false-green in the
+tool that gates the entire pack ecosystem), item 3 (ISSUE-091, `risk:
+critical`, the gate's own `--all` mode already produced one wrong founder
+scope ruling), and item 12 (ISSUE-118, `risk: critical`, a mandated test
+genuinely failing on the same tree/commit/binary that `backstop gate`
+reported full PASS on) are the three with measured, already-realized
+consequences — a planner picking this directive up cold should look at
+those three first, not treat the list as strict priority order. Items 1-3
+(066/067/091) predate the other eight by roughly two weeks and were never
+blocked on anything; they simply had no directive to attach to until now.
+
+**In-flight execution note (2026-08-16):** the four plans above
+(PLAN-ISSUE-112, PLAN-ISSUE-113, PLAN-ISSUE-118, PLAN-ISSUE-129) are not
+four incidental plans — they were all authored in ONE commit, `5f28bb1`
+("issue+plan: file ISSUE-134/135, author plans for P0 issues
+112/113/118/122/129"), and PLAN-ISSUE-113 has since taken review rounds
+(`c61ec1d`, "plan(ISSUE-113): 6 review rounds, ready to implement"). This
+reads as a deliberate, coordinated P0 drain of this cluster, in flight right
+now, not scattered opportunistic pickup — a reader picking this directive up
+should treat roughly a third of the roster as already being actively
+worked, not sitting queued. Recorded as observation only: this tension is
+left for Brandon to resolve, not acted on here — whether an in-flight P0
+drain covering four members means this directive's own `status: queued` is
+now stale is a status-change judgment call outside backlog-pm's standing
+grant, and the `status:` field is deliberately left untouched pending that
+call.
 
 Cross-directive note: item 6 (ISSUE-097) is rename fallout from DIR-027's
 fleet migration (the `backstop/self` → `backstop-ai/backstop-self` rename),
@@ -618,7 +718,13 @@ go-test scope-filter exemption; the only artifacts naming
 PLAN-ISSUE-070 (the closed sibling fix), PLAN-ISSUE-020, PLAN-ISSUE-027, and
 ISSUE-052/070/129 themselves. Standard workaround-and-file shape: the
 SPEC-070 implementer hit it, worked around it by hand-running the suite, and
-filed. Priority note, stated at the time as observation and NOT as a
+filed. **Correction (2026-08-16):** the "In-flight coverage is NIL" line
+above was accurate when written (2026-08-15) and is now stale — a plan
+exists, `plans/PLAN-ISSUE-129-go-test-scope-filter-exemption.plan.yml`
+(`status: draft`, created 2026-08-15), and its fix is visibly mid-flight in
+the working tree. Preserved above as a record of the state at slotting time,
+not as a current fact. Priority note, stated at the time as observation and
+NOT as a
 reorder (backlog-pm has no reorder authority): this is the FOURTH `risk:
 critical` member of this directive with a measured, already-realized
 consequence, alongside item 3 (ISSUE-091), item 4 (ISSUE-092), and item 12
@@ -633,3 +739,60 @@ directive's position in BACKLOG.yml is unchanged and must not be touched")
 is preserved as a record of backlog-pm's stance at the time it wrote this
 note; it no longer describes the current state and should not be read as
 still in force.
+
+ISSUE-136 ("no audit of findings-engine bindings for missing
+`exempt_from_scope_filter`") slotted by backlog-pm 2026-08-16 under the
+standing clear-fit grant. It is a POST-carve-out addition, same as items 12
+and 13 before it — not part of the founder's original eleven-member roster.
+Why DIR-032 and not elsewhere, as charter reasoning: the charter sentence it
+matches is "a finding that IS computed correctly and then discarded before
+verdict computation" (this directive's lede) — the audit bounds exactly that
+class, engine by engine. DIR-024 "Gate/Engine Quality" was considered and
+rejected on the line DIR-024's own ISSUE-125 note already drew ("DIR-032 is
+verdict honesty: GO-005 reports exactly the verdict its regex earns, so the
+defect is rule precision, not a lying verdict") — here the whole question
+IS which verdicts are silently lying, so the same line places it here, not
+there. DIR-027 "Pack Fleet Publication & Migration" was considered and
+rejected because it owns publication/migration/lock-state and explicitly
+disclaims mechanism design, the same reasoning already recorded above for
+ISSUE-096 and ISSUE-129, even though any remediation an audit finding
+produces would land in pack manifests. The strongest fit signal is direct,
+not inferred: PLAN-ISSUE-129's own notes DEFER its Direction §2 explicitly —
+"Direction §2 (audit every OTHER findings engine lacking the flag, so no
+future pack engine reintroduces the gap silently) is DEFERRED — file it as a
+follow-on issue rather than absorbing it here" — and repeat the instruction
+in its FOLLOW-ONS-TO-FILE block ("Neither may be silently dropped, and
+neither may be quietly absorbed into this plan."). ISSUE-136 is the artifact
+that plan required to exist; its in-flight coverage is nil BY CONSTRUCTION
+(the deferring plan said so directly), not merely nil by absence of
+evidence. Recording the second follow-on from that same PLAN-ISSUE-129 block
+so it is not lost: the released-pack / in-repo-fixture divergence risk — the
+two `exempt_from_scope_filter` declarations (the released
+`backstop-ai/go-toolchain` pack and the in-repo testdata fixture pack) are
+maintained by hand with nothing asserting they agree; PLAN-ISSUE-129's
+TASK-005 checks this once, manually, and nothing keeps it checked
+thereafter. **It IS now filed, as ISSUE-137** ("No automated guard keeps the
+go-toolchain pack fixture in sync with the released pack; a parallel
+documentary copy is dead code," `type: technical-debt`, `scope: contained`,
+`uncertainty: known`, `risk: moderate`, created 2026-08-16 — a diff of the
+two files today shows only `name`/`version` differing, fixture
+`backstop/go-toolchain` v1.1.0 vs released `backstop-ai/go-toolchain`
+v1.4.0, i.e. they are currently in sync; the defect is that nothing KEEPS
+them so). ISSUE-137 was homed in **DIR-024 "Gate/Engine Quality"** by
+backlog-pm on 2026-08-16 under the standing clear-fit grant — as Description
+item 12, with the reasoning recorded in that directive's Notes. (This
+sentence previously read "no directive home yet"; that was true when
+written, and stopped being true minutes later — the two issues were filed in
+one commit and triaged by concurrent PM runs. Corrected in place rather than
+left to read as an open question.) The home turned on DIR-032's own charter
+boundary: nothing in ISSUE-137 reports a wrong gate verdict — the exemption
+tests report exactly the verdict their fixture earns, and the drift risk
+lives in backstop-core's own `go test` corpus, not in a gate step. That is
+the same test that kept ISSUE-115 and ISSUE-125 in DIR-024. It remains **NOT owned by ISSUE-136** — that
+distinction is why this note exists and it still holds: ISSUE-136 is the
+engine-by-engine intent audit, ISSUE-137 is the fixture/released-pack sync
+guard — sibling follow-ons from the same plan, different surfaces. Priority
+note,
+stated as observation and explicitly NOT as a reorder (backlog-pm has no
+reorder authority): DIR-032 sits at BACKLOG.yml position 2 as of this
+writing; this slot does not change its rank.

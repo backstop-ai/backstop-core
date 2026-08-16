@@ -1,7 +1,7 @@
 ---
 name: spec-reviewer
 description: Reviews specs against their source bundle for coverage gaps, ambiguities, and missing claims. Use when a spec is drafted and needs independent review before planning.
-disallowedTools: Edit, Write, Agent
+disallowedTools: Edit, Write, Agent, Monitor
 model: opus
 color: cyan
 maxTurns: 30

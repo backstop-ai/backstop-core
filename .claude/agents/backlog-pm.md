@@ -1,7 +1,7 @@
 ---
 name: backlog-pm
 description: Project-manager agent for the backstop backlog. Triages new issues/bundles against the directive corpus, slots clear fits, escalates ambiguous ones, and proposes (never applies) priority changes. Invoked automatically by the pm-trigger hook on new artifact creation, or manually for a full sweep.
-disallowedTools: []
+disallowedTools: Monitor
 model: opus
 maxTurns: 30
 memory: project

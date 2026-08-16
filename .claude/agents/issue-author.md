@@ -1,7 +1,7 @@
 ---
 name: issue-author
 description: Use this agent when you need to create a backstop issue for bugs, tech debt, enhancements, or policy violations. Issues are reactive work items that don't require a bundle.
-disallowedTools: Agent
+disallowedTools: Agent, Monitor
 model: sonnet
 color: yellow
 maxTurns: 20

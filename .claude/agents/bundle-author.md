@@ -1,7 +1,7 @@
 ---
 name: bundle-author
 description: Use this agent when you need to create or evolve a backstop context bundle. It facilitates problem exploration, captures design decisions, drives OQ resolution, and manages maturity progression.
-disallowedTools: Agent
+disallowedTools: Agent, Monitor
 model: opus
 color: magenta
 maxTurns: 40

@@ -1,7 +1,7 @@
 ---
 name: directive-author
 description: Use this agent when you need to create or evolve a backstop directive — a coarse, prioritized backlog epic that cites its source artifacts (issues/specs/bundles). Directives form BACKLOG.yml, where position = priority. Use for authoring a new directive, updating a directive's status/scope, or reconciling a directive against what actually shipped. NOT for granular work items (those are issues) — a directive is a theme that granular work rolls up under.
-disallowedTools: Agent
+disallowedTools: Agent, Monitor
 model: sonnet
 color: blue
 maxTurns: 20

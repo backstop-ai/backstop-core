@@ -28,3 +28,4 @@
 - [Injected-param call sites unfalsified](project_injected_param_callsite_unfalsified.md) — "every call site populates X" is not proven by walk/merge tests; demand a real-command test or it's a blocker
 - [Mandated-name premise needs spec status](project_mandated_name_premise_needs_spec_status.md) — "renaming this test reds status_drift" is false for `replaced` (excluded) and `draft` (not due) specs; only `implemented` enforces
 - [Traceability step can't report off-corpus](project_traceability_step_cannot_report_offcorpus.md) — refs whose citing path isn't in the NON-RECURSIVE status walk are dropped; "traceability reports no planted file" is a vacuous falsifier
+- [Sweep-axis definition drift](project_sweep_axis_definition_drift.md) — run each mandated grep LITERALLY; plans carry incompatible defs of the same named sweep and overclaim new "axes"; also re-check LANE STATUS vs live git status

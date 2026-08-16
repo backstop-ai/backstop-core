@@ -45,4 +45,18 @@ each writer's *claims about the corpus* are snapshots.
    in artifact prose. Long structured briefs invite it; always read the
    written paragraph, not just the agent's report.
 
+**New variant, 2026-08-16 (ISSUE-136/137/138, filed in one commit `763ecd0` as
+PLAN-ISSUE-129 fallout): the race can be CROSS-directive, not just
+same-directive.** The sibling run slotting ISSUE-136 into DIR-032 wrote a Notes
+passage about **my** artifact — "ISSUE-137 has no directive home yet" — which was
+true when written and false ~15 minutes later once I homed it in DIR-024. So
+step 1 is not enough: after slotting, **`git status directives/` and check
+whether any OTHER directive was written in the same window, then grep it for
+your artifact's ID.** A sibling PM will often name your issue while explicitly
+disclaiming it, and that disclaimer is exactly the sentence that goes stale.
+Fix it in place through directive-author with a short note-and-supersede clause
+(it was true when written, so this is preserved history, not a mistake) and
+leave the other directive's `source:` alone — correcting prose is not
+re-homing.
+
 See [[project_gate_verdict_honesty_cluster]], [[project_triage_races_plan_scaffold]].

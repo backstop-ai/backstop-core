@@ -1,7 +1,7 @@
 ---
 name: implementer
 description: Use this agent when you need to execute a backstop plan — writing code and tests following task ordering, file scope, and mandated test names. The implementer follows the plan precisely and lets hooks handle enforcement.
-disallowedTools: Agent
+disallowedTools: Agent, Monitor
 model: opus
 color: cyan
 maxTurns: 60

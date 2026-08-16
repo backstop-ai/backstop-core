@@ -10,6 +10,7 @@ directive:
     - "BUNDLE-003"
     - "ISSUE-122"
     - "ISSUE-124"
+    - "ISSUE-139"
 ---
 
 ## Description
@@ -107,6 +108,36 @@ authority exposes that granularity before doing a mechanical string swap — if 
 does not, closing that gap in the authority belongs to this fix too, since a
 partial authority invites the same drift straight back in.
 
+**Follow-on (2026-08-16): ISSUE-139.** The defective test,
+`pkg/initialize/sourceset_scan_test.go`, is the sole mandated test for
+SPEC-069 CLM-063, which asserts SPEC-069's own REQ-013 denylist claim ("this
+spec's implementation changes no file under `pkg/gate`"). SPEC-069 declares
+`source.bundle: BUNDLE-003` — this directive's own lane — and its scope
+section names "any change to `pkg/gate`" as explicitly OUT of scope, which
+is exactly the claim this test exists to enforce. The defect is in init's
+own test of init's own claim, not in gate machinery: (1) the purity
+assertion runs `git status --porcelain -- pkg/gate` against the shared
+working tree and treats any dirt from any source as proof init leaked into
+gate, with no way to attribute dirt to init versus a concurrent,
+independently-scoped lane; and (2) the non-vacuity skip guard (which would
+recognize `pkg/initialize` itself has no uncommitted changes and skip) sits
+after the fatal check, so it is unreachable in exactly the steady state it
+was written for. Both confirmed live in the current source
+(`sourceset_scan_test.go:310-342`), not theoretical: `go test
+./pkg/initialize/ -run TestInit_ChangesNoGatePackageFile` fails today,
+citing `pkg/gate` paths belonging to two other lanes' in-scope work
+(PLAN-ISSUE-118, PLAN-ISSUE-113 — both DIR-032 members, both `status:
+draft`, both declaring `pkg/gate` in their own file scope). Note explicitly
+this is NOT a DIR-032 "Gate Verdict Honesty" member despite being a
+false-verdict bug — DIR-032's charter is a GATE STEP mis-reporting a verdict
+it computed; this is a Go unit test in `pkg/initialize`, and reading
+DIR-032's charter loosely enough to swallow it would swallow every test bug
+in the repo. Second-order finding for whoever plans this: because the guard
+is unreachable, CLM-063's first half currently has no steady state in which
+it verifies anything — dirty tree false-fails, clean tree passes vacuously
+— so the fix must restore a path where the assertion can actually verify,
+not just silence the failure.
+
 ## Notes
 
 - **Sequencing: ISSUE-122 must not be planned or implemented until SPEC-068
@@ -127,3 +158,9 @@ partial authority invites the same drift straight back in.
   2026-08-14, SPEC-068 and PLAN-SPEC-068 both still carry `status: draft` on
   disk while a closeout pass is in flight — verify their real status before
   treating the precondition as met.
+- **ISSUE-139 has no precondition and is red in the shared tree right now** —
+  unlike ISSUE-122 and ISSUE-124, it does not gate on SPEC-068 landing. It
+  touches only `pkg/initialize/sourceset_scan_test.go`, so it does not
+  collide with SPEC-068's or ISSUE-122's artifact-discovery surface and can
+  be planned independently and immediately; it is the one item in this
+  directive's remaining scope that is not residual cleanup.

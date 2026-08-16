@@ -1,7 +1,7 @@
 ---
 name: planner
 description: Use this agent when you need to create an implementation plan from a backstop spec. It produces TDD-compliant plans with phased tasks, file scope, claim mapping, and gate cadence.
-disallowedTools: Agent
+disallowedTools: Agent, Monitor
 model: opus
 color: yellow
 maxTurns: 40

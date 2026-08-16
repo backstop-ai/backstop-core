@@ -1,7 +1,7 @@
 ---
 name: adr-author
 description: Use this agent when you need to create a backstop Architecture Decision Record. ADRs formally document architectural decisions with context, rationale, consequences, and alternatives.
-disallowedTools: Agent
+disallowedTools: Agent, Monitor
 model: sonnet
 color: green
 maxTurns: 20

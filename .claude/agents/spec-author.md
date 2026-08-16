@@ -1,7 +1,7 @@
 ---
 name: spec-author
 description: Use this agent when you need to write a backstop implementation spec from a bundle seed. It produces specs with requirements, claims, mandated test names, sharp edges, and contracts following backstop conventions.
-disallowedTools: Agent
+disallowedTools: Agent, Monitor
 model: opus
 color: blue
 maxTurns: 40

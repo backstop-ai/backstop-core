@@ -26,3 +26,5 @@
 - [Pack rule-precision family](project_pack_rule_precision_family.md) — pack-rule FPs home under DIR-024 by charter; ISSUE-061 in DIR-021 is a deadline exception, not precedent. 061+125 = one pack bump, waiver expires 2026-10-12
 - [Harness config has no home](project_harness_config_has_no_home.md) — `.claude/` agent-guard/hooks are orphaned (DIR-016 done, SPEC-003 deprecated); NO FIT by default, recommend direct fix not a directive
 - [Clean pack addition = no artifact](project_clean_pack_addition_no_artifact.md) — "consumed with zero citation" is NOT a gap absent a defect; don't restate in prose what backstop.lock already records
+- [Substantiveness extraction semantics](project_substantiveness_extraction_semantics.md) — Q2 rule matches CALLS only (not type refs, not helper-mediated); RUN ast-grep to settle join-membership claims, gate --file can't (go-arch-lint)
+- [Shared-tree git-status assertions](project_shared_tree_git_status_assertions.md) — purity tests over `git status` can't attribute across concurrent lanes; RUN them (reds are live), home by the mandating SPEC not the named package

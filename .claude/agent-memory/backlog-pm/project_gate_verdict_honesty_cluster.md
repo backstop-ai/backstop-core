@@ -1,6 +1,6 @@
 ---
 name: gate-verdict-honesty-cluster
-description: The recurring gate-verdict-honesty issue family — RESOLVED 2026-08-10 into its own directive DIR-032 (THIRTEEN members as of 2026-08-15, +129 the suppression variant); slot new members into DIR-032 treating its CHARTER not its founder-enumerated roster as the boundary, restate the count, update the variant map, and re-read the directive after the agent returns
+description: The recurring gate-verdict-honesty issue family — RESOLVED 2026-08-10 into its own directive DIR-032 (FOURTEEN members as of 2026-08-16, +136 the audit/assurance item); now BACKLOG position 2 with FOUR draft plans in flight (112/113/118/129) — slot new members by CHARTER not the founder's roster, restate the count, update the variant map, and re-read the directive after the agent returns
 metadata:
   type: project
 ---
@@ -176,18 +176,73 @@ always ask which OTHER engines lack it.** Do NOT let it collapse into item 12
 (ISSUE-118): 118 = suite never runs, test-only diffs; 129 = suite runs, fails,
 finding thrown away, ANY diff shape.
 
-**Ranking finding from that slot, still awaiting a founder ruling (raised as a
-PROPOSAL 2026-08-15, not applied):** DIR-032 sits at BACKLOG position 5 behind
-DIR-024, but **DIR-024's own Notes justify its rank "on the strength of
-ISSUE-020" — closed and delivered 2026-07-28**, and every source it retains
-post-carve-out is tier-2 by that file's own prose. DIR-032's lower rank is
-carve-out mechanics (the new directive was appended after its parent), not a
-founder priority call. Reusable both as the argument and as the method:
-**a directive's position rationale lives in its own Notes and can go stale
-silently when the issue that justified it closes — check the rationale, not
-just the position.** Recommended 032→3, with a minimal 032↔024 swap offered
-as the fallback; DIR-027's state was deliberately NOT re-grounded and that
-limit was stated rather than papered over.
+**Member 14 (slotted 2026-08-16, count now FOURTEEN) is NOT a new defect
+instance — it is the cluster's first COVERAGE/ASSURANCE item.** ISSUE-136:
+nothing asserts, engine-by-engine, whether each binding's default-`false`
+`exempt_from_scope_filter` is correct, so item 13's defect class is unbounded.
+`risk: moderate` (an audit, not a live defect), vs item 13's `critical`.
+**This is member 13's own generalizable triage rule coming true within 24h** —
+"when a defect turns on one engine's missing flag, always ask which OTHER
+engines lack it." That question, left as an unowned bullet in DIR-032's item 13
+Direction (b), is now an artifact. Verified tree state worth reusing: only
+THREE bindings declare the flag `true` — `go-build`, `go-test` (go-toolchain
+`pack.yml:73,93`) and `go-arch-lint` (backstop-core-architecture `pack.yml:17`).
+`go-arch-lint` is `gate_type: findings` and `golangci` is `scope_kind:
+project-wide` yet deliberately NON-exempt (CLM-017), so **neither structural
+signal predicts the flag** — the audit cannot be shortcut, which is exactly
+why it needs a human judgment per engine.
+
+**THE STRONGEST FIT SIGNAL A SLOT CAN HAVE: a plan that MANDATES the artifact.**
+`PLAN-ISSUE-129`'s notes defer Direction §2 and instruct "file it as a follow-on
+issue rather than absorbing it here," repeated in a FOLLOW-ONS-TO-FILE block
+("neither may be silently dropped, and neither may be quietly absorbed"). When
+a plan names a follow-on that way, **coverage is nil BY CONSTRUCTION, not by
+absence of evidence** — say it that way, and read the parent plan's
+follow-on block before interviewing anyone. It also tells you what SIBLINGS to
+expect: that block named TWO follow-ons, and the second (fixture vs
+released-pack sync guard) landed 43s later as ISSUE-137. **Read the parent
+plan's follow-on list to predict the next artifacts in the burst.**
+
+**RANK PROPOSAL RESOLVED — DIR-032 is now BACKLOG position 2** (was 5 behind
+DIR-024). The 2026-08-15 proposal argued DIR-024's rank rested on ISSUE-020,
+closed 2026-07-28, making 032's lower position carve-out mechanics rather than
+a founder call. Do NOT re-raise it. Keep the METHOD, which generalizes: **a
+directive's position rationale lives in its own Notes and can go stale silently
+when the issue that justified it closes — check the rationale, not just the
+position.**
+
+**The cluster is being actively DRAINED as of 2026-08-16, and the directive's
+own prose lagged it by a day.** One commit (`5f28bb1`) authored four draft
+plans — PLAN-ISSUE-112/113/118/129 (items 9, 10, 12, 13); 113 has since taken
+6 review rounds (`c61ec1d`). **Two lessons, both expensive.** (1) I briefed
+directive-author that item 13 was "the one roster member with in-flight
+coverage" — false; it caught it and stopped. **Before asserting coverage state
+in a directive, grep `plans/` for EVERY roster member's ID, not just the
+artifact being triaged** — a cluster gets planned in batches, so one plan
+existing means others probably do. (2) DIR-032 is still `status: queued` while
+four of its members have plans in flight; that tension is a founder call
+(status changes are not the standing grant), so note it, never flip it.
+
+**RANKING PROPOSAL RATIFIED — that paragraph is now history.** As of the
+2026-08-15 founder-directed reorder, **DIR-032 sits at BACKLOG position 2**
+(behind DIR-002 only); DIR-019/027/024 each dropped one. Don't re-propose it.
+BACKLOG.yml's header comment carries the founder's own rationale (four of the
+thirteen members are P0 launch-relevance; 112 and 129 named specifically).
+
+**The boundary works in BOTH directions — DIR-032 can also be the WRONG home,
+and 2026-08-16 gave the cleanest test yet.** ISSUE-137 (no automated guard
+keeps the in-repo `go-toolchain` fixture in sync with the released pack; a
+third documentary copy, `testdata/exempt-matrix-bindings.yml`, is read by zero
+code) *invokes DIR-032 in its own text* and rhymes hard with ISSUE-092
+(fixtures that cannot falsify). It went to **DIR-024** anyway. The
+discriminator, reusable verbatim: **DIR-032 needs a GATE STEP reporting a wrong
+verdict.** A false-green in backstop-core's own `go test` corpus is not that —
+the tests report exactly the verdict their fixture earns. The affirmative
+precedent is DIR-024's own item 4, **ISSUE-075** (a smoke fixture that makes a
+test pass while proving nothing), which the 2026-08-10 carve-out deliberately
+left behind. So: **product-surface false-green → DIR-032; repo test-harness
+false-green → DIR-024.** ISSUE-092 is on the product side (`pack test` prints
+`phase3-fixtures: pass` to a consumer); a testdata mirror is not.
 
 A *second*, smaller pattern is now forming with **no live home**: CLI
 **arg-shape** defects where the accepted argument shape diverges from the

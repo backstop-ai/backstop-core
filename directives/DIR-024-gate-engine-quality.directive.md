@@ -18,11 +18,12 @@ directive:
     - "ISSUE-108"
     - "ISSUE-115"
     - "ISSUE-125"
+    - "ISSUE-137"
 ---
 
 ## Description
 
-Two gate/engine-quality gaps that don't fit the other three newly-added
+Twelve gate/engine-quality gaps that don't fit the other three newly-added
 directives' themes:
 
 1. **Cross-platform sandbox — Linux is a hard no-op (ISSUE-020).**
@@ -399,6 +400,84 @@ directives' themes:
     `isRepo` from `Repo` — any candidate regex must be falsified against
     `isRepo`/`dbTimeout`-shaped names before landing, not merely confirmed to
     still match bare `repo`/`db`.
+12. **No automated guard keeps the in-repo `go-toolchain` pack fixture in sync
+    with the released pack; a third documentary copy is dead code
+    (ISSUE-137).** Two files in this repo describe the SAME external thing —
+    the released `backstop-ai/go-toolchain` pack's engine bindings — and
+    nothing automated asserts they agree: the released pack consumed via
+    `backstop.lock` and installed at
+    `.backstop/packs/backstop-ai/go-toolchain/pack.yml`, and the in-repo
+    fixture at
+    `cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/pack.yml`
+    that `goToolchainPackRoot()`/`goToolchainManifest()`
+    (`cmd/backstop/pack_gate_gotoolchain_test.go:15,87`) actually parse.
+    Independently re-measured 2026-08-16, not taken from the issue's prose:
+    `diff` between the two returns exactly two hunks — `name`
+    (`backstop/go-toolchain` vs `backstop-ai/go-toolchain`) and `version`
+    (`1.1.0` vs `"1.4.0"`). Every engine binding is byte-identical today. So
+    the fixture IS a maintained mirror, and this has a direct consequence for
+    the fix: a byte-equality guard is the WRONG shape, because the two files
+    differ on identity fields BY DESIGN (the fixture deliberately keeps the
+    pre-rename name). The guard must compare engine bindings — command,
+    scope_kind, gate_type, exempt_from_scope_filter, convert — and ignore
+    name/version.
+    BLAST RADIUS CORRECTION, and a planner needs it: the issue frames the
+    fixture as what "every SPEC-041 exemption test reads." That understates
+    it. A grep for `goToolchainManifest`/`goToolchainPackRoot` returns ~30
+    call sites across roughly fifteen test files in `cmd/backstop` —
+    `pack_separation_test.go`, `go_toolchain_engines_test.go`,
+    `filemode_scoping_test.go`, `pack_gate_provision_test.go`,
+    `golden_equivalence_test.go`, `dispatch_coverage_e2e_test.go`,
+    `bridge_test.go`, `gate_no_toolchain_pack_test.go`,
+    `pack_gate_scope_test.go`, `gate_transitional_seams_test.go`,
+    `coverage_convert_enriched_test.go`, `pack_gate_gotoolchain_test.go`, and
+    `spec046_fixtures_test.go` (which copies the entire fixture pack root
+    recursively). A stale fixture therefore mis-asserts engine dispatch,
+    file-mode scoping, provisioning, coverage conversion and
+    golden-equivalence behavior — not only exemption semantics.
+    THE SCOPE-OUT IN THE ISSUE IS CORRECT, and for a stronger reason than the
+    issue gives — verified rather than assumed, so nobody re-derives it: the
+    two other `testdata/**/go-toolchain/pack.yml` fixtures (`classifier-e2e`,
+    `spec045-discovery`) must NOT get the same treatment, because they are
+    not mirrors at all. Both are `version: 1.0.0` with `archetype: code`
+    where the released pack is `enforcement`; `spec045-discovery` declares NO
+    `engines:` block whatsoever, and `classifier-e2e` declares exactly one
+    deliberately-unbound coverage engine. They are purpose-built reduced
+    fixtures for classification and discovery tests. A parity guard pointed
+    at them would fail on correct files. The `testdata/go-toolchain/` copy is
+    the only mirror in the repo.
+    THE MAINTENANCE MODEL IS BEING EXERCISED AS THIS IS WRITTEN, which is the
+    sharpest evidence available: uncommitted in the working tree on
+    2026-08-16, `backstop.yml` and `backstop.lock` move
+    `backstop-ai/go-toolchain` from 1.3.0 to 1.4.0 (`install_date:
+    2026-08-16T13:25:09Z`, `git_ref: v1.4.0`), and the SAME uncommitted
+    change hand-edits the fixture's `go-test` binding to add the
+    `ExemptFromScopeFilter` rationale comment and hand-edits
+    `cmd/backstop/testdata/exempt-matrix-bindings.yml`'s matrix table from
+    `go-test -> false` to `go-test -> true`. That is the second pack release
+    reconciled into the fixture by hand and by memory. It worked; nothing
+    made it work, and nothing would have complained if it hadn't.
+    The second, lower-severity half:
+    `cmd/backstop/testdata/exempt-matrix-bindings.yml` is a THIRD,
+    documentary-only copy of a subset of the same bindings, introduced
+    alongside SPEC-041/ISSUE-129. Its dead-code status is confirmed, with one
+    nuance the issue's "zero referrers" phrasing misses: a repo-wide grep for
+    `exempt-matrix` returns exactly one `.go` hit, and it is a COMMENT —
+    `cmd/backstop/exempt_test_helpers_test.go:13`, "exemptBinding builds an
+    EngineBinding for the exempt-matrix tests" — naming the concept, not the
+    file. Every other hit is plan prose (`PLAN-SPEC-041` file scope,
+    `PLAN-ISSUE-129` in four places). No code path opens the file and no test
+    asserts it matches the in-memory bindings its own header calls the
+    source of truth, so its drift is unfalsifiable by construction — yet it
+    still costs hand-maintenance, as today's uncommitted edit to it proves.
+    Direction per the issue, not decided here: delete it, or make it
+    load-bearing with a test that parses it and asserts equality against
+    `exempt_test_helpers_test.go`'s bindings. Leaving it unread and
+    unverified is the worse option either way.
+    Sequencing, stated as a constraint: this goes AFTER `PLAN-ISSUE-129`
+    lands. That plan is mid-flight in the working tree right now and edits
+    both files this item targets; starting here first collides on them and
+    re-derives values that are actively changing.
 
 ## Notes
 
@@ -490,7 +569,10 @@ A structural observation for the founder, now historical: with ISSUE-020
 gate/engine-quality gaps" while it enumerated eleven, and every remaining
 source but ISSUE-092 was tier-2. That imbalance is what the 2026-08-10
 carve-out (below) resolved — ISSUE-092 and the rest of the
-gate-verdict-honesty cluster now live in DIR-032.
+gate-verdict-honesty cluster now live in DIR-032. The stale count itself
+went uncorrected for weeks after that carve-out — the lede still read "Two"
+against an eleven-item enumeration until backlog-pm caught and fixed it
+2026-08-16 while slotting ISSUE-137 (item 12 below).
 
 Status correction (Brandon, 2026-08-02): this directive's status field now
 reads `active`, reflecting delivered work under it — the ISSUE-020
@@ -654,3 +736,37 @@ file still cites the PRE-RENAME pack path and name
 path is GONE from the tree — the installed pack is `backstop-ai/go-standards`.
 The waiver comment in `artifact_validate.go` was updated to the renamed rule
 id but the issue file was not; route any correction through issue-author.
+
+ISSUE-137 slotted by backlog-pm 2026-08-16 under the standing clear-fit
+grant. `type: technical-debt`, `scope: contained`, `uncertainty: known`,
+`risk: moderate`. It rides here on thematic fit and displaces nothing. Why
+DIR-024 and not DIR-032 "Gate Verdict Honesty", which the issue's own text
+invokes: DIR-032's charter sentence is specifically "a gate STEP computes a
+result internally but reports the wrong verdict about it." Nothing here
+reports a wrong verdict — the exemption tests report exactly the verdict
+their fixture earns, and every gate step behaves correctly; the risk is that
+the fixture stops describing the shipped pack, which is a defect in this
+repo's own `go test` corpus, not in a gate verdict. That is the same
+boundary test already applied twice in this file, to ISSUE-125 ("GO-005
+reports exactly the verdict its regex earns") and to ISSUE-115 (adjacent to
+the cluster, deliberately not folded in). The affirmative precedent is this
+directive's own item 4, ISSUE-075: a backstop-core test fixture that makes a
+test pass while proving nothing, homed here rather than in the cluster.
+ISSUE-137 is the same category one layer over. Also considered and rejected:
+DIR-027 owns which packs exist, where they are published and which lock
+points where, and explicitly disclaims mechanism design — a core-side
+test-parity guard is mechanism; DIR-023 is pack-distribution correctness
+(provenance, local-path caching), and nothing here is wrong with install or
+lock behavior, the lock is merely the natural key for the guard to read;
+DIR-021's "corpus drain" means the artifact corpus, not test fixtures.
+Provenance is the standard plan-filed-residual shape, so in-flight coverage
+is provable from the artifacts rather than assumed: ISSUE-136, ISSUE-137 and
+ISSUE-138 were filed together as PLAN-ISSUE-129 fallout in one commit
+(`763ecd0`, "issue: annotate ISSUE-053, file ISSUE-136/137/138 from
+PLAN-ISSUE-129 fallout"), and no plan in `plans/` targets ISSUE-137 or a
+fixture-parity guard. One observation carried to the founder rather than
+acted on: `PLAN-ISSUE-129` reads `status: draft` while implementation-shaped
+changes for it sit uncommitted in the tree (the fixture flip, the pack bump
+to 1.4.0, and a new untracked
+`cmd/backstop/pack_gate_issue129_regression_test.go`) — flagged as a
+status/lineage observation, not a finding about this issue.

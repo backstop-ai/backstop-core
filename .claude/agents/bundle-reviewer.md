@@ -1,7 +1,7 @@
 ---
 name: bundle-reviewer
 description: Reviews a bundle for internal coherence, completeness, and strategic alignment before it advances past the bundle stage (promotion / spec). Use when a bundle is drafted or promoted and needs independent review before specing.
-disallowedTools: Edit, Write, Agent
+disallowedTools: Edit, Write, Agent, Monitor
 model: opus
 color: magenta
 maxTurns: 30

@@ -2,3 +2,5 @@
 - [Plan close-out convention](project_plan_closeout_convention.md) — AS-BUILT banner prepended to notes, tasks never rewritten, spec_version left pinned to the authored-against revision
 - [Defect pinned by shipped tests](project_defect_pinned_by_shipped_tests.md) — grep for tests asserting the defect; spec-mandated names must survive (rewrite bodies), spec prose goes stale → spec-author follow-on
 - [Planning a pack-data fix](project_planning_a_pack_data_fix.md) — external repo path is valid file scope; TWO declarations (released + in-repo fixture, tests read the fixture); flip usually forces a spec amendment
+- [Cite by name in contended files](feedback_cite_by_name_in_contended_files.md) — gate.go line numbers moved 3x in one plan's review; name-based location, plus re-verify the prose around a stale number
+- [State a sweep once](feedback_state_a_sweep_once.md) — a repeated grep command drifts into variants; one canonical byte-identical line, and add a FINDING test so the rule is operable
