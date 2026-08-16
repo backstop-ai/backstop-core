@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -12,8 +13,11 @@ import (
 // gate_substantiveness_provisioning_test.go pins the PROVISIONING model (SPEC-037
 // REQ-009 / CLM-030 / CLM-031): the substantiveness pack is an ORDINARY INSTALLED pack —
 // not embedded, not testdata-as-production — and backstop-core dogfood-installs it into
-// itself as a LOCAL pack via the real distribution.Add path (declared `local` + locked,
-// VerifyLock passes without a remote artifact).
+// itself through the real distribution.Add path, where it is DECLARED, LOCKED and
+// RESOLVABLE. EITHER source type satisfies that: a local install (declared `local`, a
+// `local` lock entry VerifyLock skips so no remote artifact is required) or a remote one
+// (a `git` lock entry carrying its source coordinate and tag). What is pinned is
+// installed-and-resolvable via the distribution path, never that the source is local.
 
 // writeFile writes content to dir/name and returns nil/err for the E2E helpers.
 func writeFile(t *testing.T, dir, name, content string) error {
@@ -95,61 +99,159 @@ func TestProvisioning_SubstantivenessPackNotEmbeddedNorTestdata(t *testing.T) {
 	}
 }
 
-// TestProvisioning_SubstantivenessInstalledAsLocalPack_DeclaredAndLocked (CLM-031) —
-// after a production-assembled pack add over the packs/substantiveness/ local source, backstop.yml
-// declares the pack with the `local` source value and the lockfile carries a `local`
-// SourceType entry, and VerifyLock PASSES WITHOUT a remote artifact (local packs skipped).
-func TestProvisioning_SubstantivenessInstalledAsLocalPack_DeclaredAndLocked(t *testing.T) {
-	repoRoot := repoRoot(t)
-	tmp := t.TempDir()
+// substantivenessPackName is the pack's MANIFEST name, which is the install identity
+// (SPEC-056) — the backstop.yml key, the lock key, and the engine asset root all read
+// it. The git arm below is served at a DIFFERENT source coordinate on purpose; both
+// arms still look the pack up here.
+const substantivenessPackName = "backstop/substantiveness"
 
-	// Minimal backstop.yml so distribution.Add can read-modify-write it.
-	if err := os.WriteFile(filepath.Join(tmp, "backstop.yml"), []byte("project: prov\nlanguage: go\npacks: {}\n"), 0o644); err != nil {
-		t.Fatalf("writing backstop.yml: %v", err)
-	}
+// assertPackDeclaredAs requires backstop.yml's DECLARATION LINE for packName to carry
+// want. Scanning for the key's own line rather than the value anywhere in the file is
+// what makes this falsifiable: `strings.Contains(yml, "local")` passes on the word
+// appearing in any unrelated key, value or comment.
+func assertPackDeclaredAs(t *testing.T, projectDir, packName, want string) {
+	t.Helper()
 
-	add, err := newProductionAddCommand()
-	if err != nil {
-		t.Fatalf("assembling the production pack add command: %v", err)
-	}
-
-	_, err = add.Run(filepath.Join(repoRoot, "packs", "substantiveness"), distribution.AddOptions{ProjectDir: tmp})
-	if err != nil {
-		t.Fatalf("pack add (local pack): %v", err)
-	}
-
-	// backstop.yml declares the pack with the `local` source value.
-	ymlData, err := os.ReadFile(filepath.Join(tmp, "backstop.yml"))
+	data, err := os.ReadFile(filepath.Join(projectDir, "backstop.yml"))
 	if err != nil {
 		t.Fatalf("reading backstop.yml: %v", err)
 	}
-	yml := string(ymlData)
-	if !strings.Contains(yml, "backstop/substantiveness") {
-		t.Errorf("backstop.yml must declare the substantiveness pack; got:\n%s", yml)
+	yml := string(data)
+	for _, line := range strings.Split(yml, "\n") {
+		key, value, found := strings.Cut(strings.TrimSpace(line), ":")
+		if !found || key != packName {
+			continue
+		}
+		if got := strings.TrimSpace(value); got != want {
+			t.Errorf("backstop.yml declares %s as %q, want %q; got:\n%s", packName, got, want, yml)
+		}
+		return
 	}
-	if !strings.Contains(yml, "local") {
-		t.Errorf("backstop.yml must declare the substantiveness pack with the `local` source value; got:\n%s", yml)
-	}
+	t.Errorf("backstop.yml carries no declaration line for %s; got:\n%s", packName, yml)
+}
 
-	// The lockfile carries a `local` SourceType entry.
-	lf, err := distribution.ReadLockfile(filepath.Join(tmp, "backstop.lock"))
-	if err != nil {
-		t.Fatalf("reading lockfile: %v", err)
-	}
-	entry, ok := lf.Packs["backstop/substantiveness"]
-	if !ok {
-		t.Fatalf("lockfile missing the substantiveness pack entry; got %#v", lf.Packs)
-	}
-	if entry.SourceType != "local" {
-		t.Errorf("lockfile SourceType = %q, want \"local\"", entry.SourceType)
-	}
+// assertLockVerifies requires VerifyLock to PASS for packName over the materialized
+// .backstop/packs tree — the property REQ-009 calls "resolvable".
+func assertLockVerifies(t *testing.T, projectDir string, lf *distribution.Lockfile, packName string) {
+	t.Helper()
 
-	// VerifyLock PASSES without a remote artifact (local packs are skipped).
-	result, err := distribution.VerifyLock(lf, filepath.Join(tmp, ".backstop", "packs"), []string{"backstop/substantiveness"})
+	result, err := distribution.VerifyLock(lf, filepath.Join(projectDir, ".backstop", "packs"), []string{packName})
 	if err != nil {
 		t.Fatalf("VerifyLock: %v", err)
 	}
 	if !result.Pass {
-		t.Errorf("VerifyLock must PASS for a local pack without a remote artifact; failures: %#v", result.Failures)
+		t.Errorf("VerifyLock must PASS for the installed %s pack; failures: %#v", packName, result.Failures)
 	}
+}
+
+// TestProvisioning_SubstantivenessInstalledViaDistributionPath_LocalOrGit_DeclaredAndLocked
+// (CLM-031) — backstop-core dogfood-installs the substantiveness pack through the STANDARD
+// DISTRIBUTION PATH, and EITHER source type satisfies the claim. Both arms drive the same
+// production-assembled `pack add` and assert the same three properties — backstop.yml
+// DECLARES the pack, backstop.lock carries a RESOLVABLE entry, VerifyLock PASSES — then the
+// specifics of their source type.
+//
+// The claim is a DISJUNCTION, so a single-arm test leaves the half the amendment was written
+// for unfalsified: backstop-core's own pack migrated local → git in 905120f while the
+// local-only test stayed green.
+func TestProvisioning_SubstantivenessInstalledViaDistributionPath_LocalOrGit_DeclaredAndLocked(t *testing.T) {
+	repoRoot := repoRoot(t)
+	packSource := filepath.Join(repoRoot, "packs", "substantiveness")
+
+	t.Run("local-source", func(t *testing.T) {
+		project := t.TempDir()
+
+		// Minimal backstop.yml so distribution.Add can read-modify-write it.
+		if err := os.WriteFile(filepath.Join(project, "backstop.yml"), []byte("project: prov\nlanguage: go\npacks: {}\n"), 0o644); err != nil {
+			t.Fatalf("writing backstop.yml: %v", err)
+		}
+
+		add, err := newProductionAddCommand()
+		if err != nil {
+			t.Fatalf("assembling the production pack add command: %v", err)
+		}
+		if _, err := add.Run(packSource, distribution.AddOptions{ProjectDir: project}); err != nil {
+			t.Fatalf("pack add (local source): %v", err)
+		}
+
+		assertPackDeclaredAs(t, project, substantivenessPackName, "local")
+
+		lf, err := distribution.ReadLockfile(filepath.Join(project, "backstop.lock"))
+		if err != nil {
+			t.Fatalf("reading lockfile: %v", err)
+		}
+		entry, ok := lf.Packs[substantivenessPackName]
+		if !ok {
+			t.Fatalf("lockfile missing the substantiveness pack entry; got %#v", lf.Packs)
+		}
+		if entry.SourceType != "local" {
+			t.Errorf("lockfile SourceType = %q, want \"local\"", entry.SourceType)
+		}
+
+		// VerifyLock PASSES without a remote artifact (local packs are skipped).
+		assertLockVerifies(t, project, lf, substantivenessPackName)
+	})
+
+	t.Run("git-source", func(t *testing.T) {
+		// FAIL, never skip, when git is absent. The harness's own requireGit calls
+		// t.Skip, and a SKIPPED subtest leaves the PARENT test PASSING — the suite
+		// would report this mandated test green with the git arm never executed,
+		// which is the vacuous green this spec exists to prevent.
+		if _, err := exec.LookPath("git"); err != nil {
+			t.Fatalf("git is not on PATH: CLM-031 is a claim about the distribution path, and the distribution path IS git — this environment cannot make a statement about it either way: %v", err)
+		}
+
+		// newConsumerProject, NOT a bare t.TempDir(): updateBackstopYml READS
+		// backstop.yml and returns the read error when it is missing, so an add into
+		// an empty directory fails before it declares anything.
+		project := newConsumerProject(t)
+
+		// v1.1.0 is the manifest's own declared version; the harness rewrites pack.yml's
+		// version to the tag anyway, so the two cannot drift.
+		remote := newHermeticRemote(t, packSource, "v1.1.0")
+		redirectPackURL(t, remoteE2EOrg, "substantiveness", remote.Path)
+		// PROVE the redirect reached a child process BEFORE any other assertion: a
+		// mismatched pair does not fail, it MISSES, and the arm quietly reaches the
+		// network and passes for the wrong reason.
+		assertPackURLRedirected(t, remoteE2EOrg, "substantiveness", remote)
+
+		add, err := newProductionAddCommand()
+		if err != nil {
+			t.Fatalf("assembling the production pack add command: %v", err)
+		}
+		// The hermetic remote serves the pack at <org>/substantiveness while its
+		// manifest declares backstop/substantiveness. That divergence is DIAGNOSTIC,
+		// not a refusal (SPEC-056): the add SUCCEEDS and installs under the manifest
+		// name, which is why both arms look up the same lock key.
+		if _, err := add.Run(remoteE2EOrg+"/substantiveness@1.1.0", distribution.AddOptions{ProjectDir: project}); err != nil {
+			t.Fatalf("pack add (git source): %v", err)
+		}
+
+		assertPackDeclaredAs(t, project, substantivenessPackName, "1.1.0")
+
+		// Read the lock OFF DISK rather than trusting what Add returned — the
+		// COMMITTED lock is what REQ-009 is about.
+		lf, err := distribution.ReadLockfile(filepath.Join(project, "backstop.lock"))
+		if err != nil {
+			t.Fatalf("reading lockfile: %v", err)
+		}
+		entry, ok := lf.Packs[substantivenessPackName]
+		if !ok {
+			t.Fatalf("lockfile missing the substantiveness pack entry; got %#v", lf.Packs)
+		}
+		if entry.SourceType != "git" {
+			t.Errorf("lockfile SourceType = %q, want \"git\" — a remote install that recorded a local source proves nothing was cloned", entry.SourceType)
+		}
+		if entry.SourceCoordinate == "" {
+			t.Error("the lock entry carries no source_coordinate; without it a fresh clone cannot resolve where the pack came from")
+		}
+		if entry.GitRef == nil || *entry.GitRef != "v1.1.0" {
+			t.Errorf("lock entry git_ref = %v, want v1.1.0", entry.GitRef)
+		}
+		if entry.ContentHash == "" {
+			t.Error("the lock entry carries no content hash; there would be nothing for a later install to verify against")
+		}
+
+		assertLockVerifies(t, project, lf, substantivenessPackName)
+	})
 }
