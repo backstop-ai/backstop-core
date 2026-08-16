@@ -525,15 +525,22 @@ func (u UngatedArtifact) Message() string {
 // them. The function is named FindUngatedArtifacts precisely so the name cannot
 // re-suggest containment.
 //
-// THE EXCLUSION SET IS ENUMERATED, NOT INHERITED. The five shared non-corpus names come
-// from artifact.NonCorpusDirNames, and installed pack trees under .backstop/packs are
-// excluded on top — but `.backstop` ITSELF IS WALKED, unlike in CLI discovery. Phrasing
-// this as "whatever discovery skips" would make the clause report NOTHING in the
-// unconfigured case, which is the case it exists for.
+// THE EXCLUSION SET IS ENUMERATED, NOT INHERITED, AND IT ARRIVES AS A PARAMETER. The
+// nonCorpus set is the TOOL-AGNOSTIC BASE core carries (artifact.NonCorpusDirNames)
+// UNIONED with the ecosystem-specific dependency directory names installed packs
+// declare via classification.dependency_dirs — core bakes no ecosystem noun of its own
+// (ISSUE-122). Installed pack trees under .backstop/packs are excluded on top, but
+// `.backstop` ITSELF IS WALKED, unlike in CLI discovery. Phrasing the set as "whatever
+// discovery skips" would make the clause report NOTHING in the unconfigured case, which
+// is the case it exists for.
+//
+// The zero-value nonCorpus is meaningful: it excludes the tool-agnostic base, so a
+// caller that does not wire the installed packs degrades to today-minus-declarations
+// rather than walking `.git`.
 //
 // It is CALIBRATED against the non-recursive status walk above. Making that walk
 // recursive would silently empty this function's finding set.
-func FindUngatedArtifacts(projectRoot string, root artifact.Root) ([]UngatedArtifact, error) {
+func FindUngatedArtifacts(projectRoot string, root artifact.Root, nonCorpus artifact.NonCorpusDirs) ([]UngatedArtifact, error) {
 	// Absolutize on entry. Root.Path is already absolute by ResolveRoot's guarantee,
 	// and comparing an absolute expected directory against a relative walk path yields
 	// either zero findings or one per artifact — both of which look like a working
@@ -551,11 +558,6 @@ func FindUngatedArtifacts(projectRoot string, root artifact.Root) ([]UngatedArti
 	absProject = resolveSymlinks(absProject)
 	root.Path = resolveSymlinks(root.Path)
 
-	nonCorpus := make(map[string]bool)
-	for _, name := range artifact.NonCorpusDirNames() {
-		nonCorpus[name] = true
-	}
-
 	var found []UngatedArtifact
 	walkErr := filepath.Walk(absProject, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -563,7 +565,7 @@ func FindUngatedArtifacts(projectRoot string, root artifact.Root) ([]UngatedArti
 		}
 		if info.IsDir() {
 			base := filepath.Base(path)
-			if nonCorpus[base] {
+			if nonCorpus.Excludes(base) {
 				return filepath.SkipDir
 			}
 			// Installed pack trees are never the consumer's corpus, and keying on the

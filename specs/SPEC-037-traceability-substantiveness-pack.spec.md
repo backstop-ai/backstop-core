@@ -2,10 +2,10 @@
 title: "Traceability Substantiveness Pack"
 number: SPEC-037
 created: "2026-06-22"
-updated: "2026-08-15"
+updated: "2026-08-16"
 status: implemented
 schema_version: spec/v1
-spec_version: 1.2.8
+spec_version: 1.2.9
 
 implementation:
   summary: >
@@ -176,13 +176,19 @@ requirements:
       The extraction→set-join CONSUMPTION SEAM MUST be specified, because the live
       dispatch (dispatchPackEngines → runFindingsEngine → ParsePackFindings,
       cmd/backstop/pack_gate.go) flattens SARIF into a FLAT []gate.Violation that
-      carries NEITHER a gate_type discriminator (gate.Violation / check.Violation have
-      no GateType field — confirmed) NOR per-test finding identity. Two consumption
+      carries NEITHER a discriminator FINE-GRAINED enough to separate the Q1 hollow
+      findings from the Q2 extraction findings NOR per-test finding identity.
+      (gate.Violation carries a GateType field as of ISSUE-118; check.Violation still
+      does not. GateType is stamped from the PRODUCING ENGINE BINDING, and the
+      substantiveness pack declares Q1 and Q2 under a SINGLE binding, so every
+      substantiveness finding carries the same gate_type — it can never partition the
+      two roles.) Two consumption
       problems MUST be solved GATE-SIDE and language-agnostically, consuming only pack
       SARIF (NO re-baked spec-aware gate-side AST walk — Sharp Edge 2):
       (1) ROUTING — substantiveness findings MUST be isolated out of the flat
       pack_engines stream by NAMESPACED RULE-ID convention, NOT by gate_type filtering
-      (the violation carries no gate_type): the substantiveness pack declares stable
+      (gate_type is per-BINDING and so cannot separate the two roles): the
+      substantiveness pack declares stable
       rule IDs (a Q1 hollow-test rule ID and a Q2 referenced-symbol extraction rule ID),
       and the gate selects substantiveness violations by matching the pack's namespaced
       rule IDs (pack.NamespacedRuleID form) on the flat []gate.Violation. A
@@ -512,7 +518,8 @@ claims:
       pack's hollow-test and extraction rule IDs in pack.NamespacedRuleID form): given a
       flat stream containing substantiveness findings interleaved with unrelated pack-rule
       findings, the helper returns ONLY the hollow + extraction findings and ignores the
-      rest — no gate_type field is consulted (the violation carries none).
+      rest — no gate_type field is consulted (it is per-BINDING and cannot separate the
+      two roles).
     tests:
       - TestRoute_PartitionsSubstantivenessByRuleID_FromFlatStream
   - id: CLM-025
@@ -774,8 +781,8 @@ SD-3), and `REQ-008` (strangler-equivalence before deletion; DD-9). (Bundle requ
 numbers differ from this spec's local requirement IDs.) This spec's local REQ-007 pins the
 extraction→set-join CONSUMPTION SEAM (how per-test referenced symbols travel from the flat
 dispatch SARIF into the gate set-join and how substantiveness findings are routed out of
-the flat `pack_engines` stream by namespaced rule ID, since the violation carries no
-gate_type), and local REQ-008 pins delete-or-migrate of the existing analyzer-coupled tests
+the flat `pack_engines` stream by namespaced rule ID, since gate_type is per-BINDING and
+cannot separate the two roles), and local REQ-008 pins delete-or-migrate of the existing analyzer-coupled tests
 (preserving the changed-file scope behavior through the pack path).
 
 The Q2 noTarget set-join is an exhaustive, language-agnostic allowlist over the
@@ -908,16 +915,21 @@ go/parser.
 
 GROUND TRUTH: the live ast-grep dispatch (`dispatchPackEngines` → `runFindingsEngine` →
 `check.ParsePackFindings`, `cmd/backstop/pack_gate.go`) flattens SARIF into a FLAT
-`[]gate.Violation` that carries NEITHER a `gate_type` discriminator (`gate.Violation` and
-`check.Violation` have NO `GateType` field) NOR per-test finding identity. So the gate
-cannot route or key substantiveness findings by gate_type. Two gate-side, language-agnostic
+`[]gate.Violation` that carries NEITHER a discriminator fine-grained enough to separate the
+Q1 hollow findings from the Q2 extraction findings NOR per-test finding identity.
+`gate.Violation` carries a `GateType` field as of ISSUE-118 (`check.Violation` still does
+not), but it is stamped from the PRODUCING ENGINE BINDING and the substantiveness pack
+declares both rules under a SINGLE binding — so every substantiveness finding carries the
+same gate_type and the gate still cannot route or key substantiveness findings by it. Two
+gate-side, language-agnostic
 helpers in `pkg/gate/substantiveness_join.go` consume the flat pack SARIF:
 
 - **Routing by namespaced rule ID** — `RouteSubstantivenessFindings(violations,
   hollowRuleID, extractionRuleID)` partitions the flat `pack_engines` stream into
   hollow-findings and extraction-findings by matching the substantiveness pack's stable,
   namespaced (`pack.NamespacedRuleID`) rule IDs on each violation's `Rule`. All other pack
-  rules are ignored. No `gate_type` field is consulted (the violation carries none).
+  rules are ignored. No `gate_type` field is consulted (it is per-BINDING and cannot
+  separate the two roles).
 - **Keying extraction findings back to a test** — the Q2 extraction rule emits one SARIF
   result per (test, referenced-symbol) carrying the test's file + enclosing test-function
   name; `ReferencedSetForTest(extraction, test)` joins those findings to a `MandatedTest`
@@ -1109,19 +1121,24 @@ or by the seam spy alone.
   `dispatchPackEnginesFn` seam (CLM-015..017) and the `./cmd/backstop/` test scope are the
   mechanical proof; without them the integration gap re-opens.
 
-- **The dispatch returns the WRONG shape — a flat, gate_type-less, identity-less stream.**
+- **The dispatch returns the WRONG shape — a role-blind, identity-less stream.**
   The live dispatch (`dispatchPackEngines` → `runFindingsEngine` → `ParsePackFindings`)
-  flattens SARIF into a flat `[]gate.Violation` that carries NO `gate_type` (neither
-  `gate.Violation` nor `check.Violation` has a `GateType` field) and discards which test a
-  symbol belongs to. Two traps follow: (1) a reviewer/implementer who tries to ISOLATE
-  substantiveness findings by `gate_type` will find no such field — routing MUST be by
+  flattens SARIF into a flat `[]gate.Violation` that carries no ROLE discriminator and
+  discards which test a symbol belongs to. `gate.Violation` gained a `GateType` field in
+  ISSUE-118 (`check.Violation` still has none), but it is stamped from the PRODUCING
+  ENGINE BINDING, and the substantiveness pack declares Q1 and Q2 under a SINGLE binding —
+  so it is uniform across every substantiveness finding. Two traps follow: (1) a
+  reviewer/implementer who tries to ISOLATE the Q1 and Q2 partitions by `gate_type` will
+  find the field uniform and useless for that cut — routing MUST be by
   namespaced rule-ID convention (`RouteSubstantivenessFindings`); (2) an implementer who
   tries to recover per-test identity by re-walking the test AST gate-side would re-bake the
   exact spec-aware gate-side analyzer Sharp Edge #2 forbids — keying MUST come from the
   extraction rule's own SARIF (file + enclosing function in each result) joined by
-  `(FilePath, FuncName)` in `ReferencedSetForTest`. If the dispatch is later changed to
-  carry gate_type natively, that is a separate enhancement; this spec consumes the flat
-  stream as it exists today.
+  `(FilePath, FuncName)` in `ReferencedSetForTest`. The "dispatch later changed to carry
+  gate_type natively" enhancement anticipated here HAS since landed — ISSUE-118 added
+  `gate.Violation.GateType`, stamped per-violation from its producing binding. It does NOT
+  displace this routing: being per-BINDING, it is uniform across Q1 and Q2 and so cannot
+  make the role cut this seam needs.
 
 - **Vacuous green on deletion — silence masquerading as enforcement.** Deleting the
   go/parser analyzer must not leave a silent gap. If the pack rule is mis-authored (wrong
@@ -1242,8 +1259,8 @@ or by the seam spy alone.
   and the `pack_engines` step use) rather than re-implementing dispatch, and does the spy
   sit on that REAL seam (not a parallel stub)?
 - Are substantiveness findings isolated out of the flat `pack_engines` `[]gate.Violation`
-  stream by NAMESPACED rule-ID convention (NOT by a gate_type field, which the violation
-  does not carry), and are extraction findings keyed back to a `MandatedTest` by
+  stream by NAMESPACED rule-ID convention (NOT by a gate_type field, which is per-BINDING
+  and therefore uniform across the two roles), and are extraction findings keyed back to a `MandatedTest` by
   `(FilePath, FuncName)` from the pack's own SARIF — with NO gate-side test-AST re-walk?
 - Is the substantiveness pack an ORDINARY INSTALLED pack — with NO `//go:embed` / baked
   tier and NO production code path resolving it from `testdata` — and does backstop-core
@@ -1320,6 +1337,35 @@ or by the seam spy alone.
   unblocking the real convert step in the end-to-end pipeline.
 
 ## Version History
+
+- **1.2.9** (2026-08-16) — **PROSE-ONLY correction: the `GateType` non-existence assertions
+  are now false.** PLAN-ISSUE-118 added a `GateType` field to `gate.Violation`
+  (`pkg/gate/result.go`), stamped per-violation from its PRODUCING ENGINE BINDING. Eight
+  places in this spec asserted, as standing fact or as the rationale for rule-ID routing,
+  that no such field exists. All eight are corrected here to the rationale that SURVIVES the
+  change: `GateType` is per-BINDING, and the substantiveness pack declares the Q1 hollow rule
+  and the Q2 extraction rule under a SINGLE `gate_type: substantiveness` ast-grep binding, so
+  the field is UNIFORM across both roles and can never make the partition REQ-007 needs.
+  Corrected: REQ-007's text (2 spots), CLM-024's rationale aside, the Requirements-section
+  summary, the REQ-007 Implementation subsection (2 spots), Sharp Edge 5, and the REQ-007
+  Review Question. Sharp Edge 5's closing hypothetical ("if the dispatch is later changed to
+  carry gate_type natively, that is a separate enhancement") is now SATISFIED, not falsified,
+  and is rewritten to record that ISSUE-118 IS that change and why it does not displace the
+  routing. The 1.1.0 history entry keeps its original claim, re-framed as true AT THE TIME
+  with a pointer here — history is not rewritten.
+  **Explicitly NOT changed.** No requirement's testable assertion, no claim verdict, and no
+  mandated test name — CLM-024 in particular keeps
+  `TestRoute_PartitionsSubstantivenessByRuleID_FromFlatStream` verbatim and is neither
+  weakened, renumbered, nor retired. All 37 claims and 37 mandated test names stand exactly
+  as 1.2.8 left them. Also deliberately left alone: the ISSUE-064 residue in which several
+  spots (CLM-024 included) still describe routing as "by NAMESPACED RULE-ID convention" while
+  the shipped `RouteSubstantivenessFindings` switches on the `substantiveness_role` PROPERTY.
+  That drift PREDATES this correction, is a separate issue, and was neither fixed nor
+  re-asserted as accurate while editing the text around it.
+  **Not covered by this spec edit.** Five sibling docstrings in `pkg/gate` carry the same
+  falsified assertion (`substantiveness_join.go` x3, `substantiveness_join_test.go`,
+  `substantiveness_hollow_violation_test.go`); they are source comments, outside a spec
+  author's write scope, and are handed off separately.
 
 - **1.2.8** (2026-08-15) — **CLOSE-OUT: status `draft` -> `implemented`**, plus the one
   accuracy fix the flip forced. No requirement, claim, mandated test, or mechanism is added,
@@ -1628,8 +1674,9 @@ or by the seam spy alone.
   instead of re-implementing it; spy sits on the real seam). (2) New local REQ-007 +
   CLM-024..026 + `RouteSubstantivenessFindings` / `ReferencedSetForTest` contracts specify
   the extraction→set-join consumption seam — routing substantiveness findings out of the
-  flat `pack_engines` `[]gate.Violation` stream by namespaced rule ID (the violation
-  carries no gate_type) and keying extraction findings to a `MandatedTest` by
+  flat `pack_engines` `[]gate.Violation` stream by namespaced rule ID (justified AT THE TIME
+  by the violation carrying no gate_type at all; ISSUE-118 has since added the field — see
+  1.2.9) and keying extraction findings to a `MandatedTest` by
   `(FilePath, FuncName)` from pack SARIF, staying gate-side and language-agnostic; added the
   dispatch-seam-mismatch Sharp Edge. (3) New local REQ-008 + CLM-027..029 name the existing
   analyzer-coupled tests in `step_testverify_test.go` for delete-or-migrate and preserve the

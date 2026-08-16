@@ -134,7 +134,8 @@ func TestQ2_NoTargetIsGateSetTest_NotBakedAnalyzer(t *testing.T) {
 // stream of substantiveness hollow + extraction findings INTERLEAVED with unrelated
 // pack-rule findings is partitioned to ONLY the hollow + extraction findings, by the
 // pack-declared substantiveness_role property (ISSUE-064 — no longer by rule ID); no
-// gate_type field is consulted (none exists).
+// gate_type field is consulted (ISSUE-118 added one, but it is stamped uniformly
+// across both roles for this pack, so it carries no routing information here).
 func TestRoute_PartitionsSubstantivenessByRuleID_FromFlatStream(t *testing.T) {
 	flat := []Violation{
 		{Rule: "some-other-pack/lint-rule", File: "a.go", Message: "unrelated"},

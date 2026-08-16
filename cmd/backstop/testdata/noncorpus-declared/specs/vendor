@@ -1,0 +1,2 @@
+Not a directory. A plain file whose NAME happens to be a dependency-directory
+name. The exclusion matches directories only, so specs/ must still be walked.

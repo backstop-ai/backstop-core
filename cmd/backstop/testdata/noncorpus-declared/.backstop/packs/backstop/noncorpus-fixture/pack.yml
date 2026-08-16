@@ -1,0 +1,28 @@
+# ISSUE-122 e2e fixture pack. It declares ONLY `classification:` and NO `engines:`,
+# so pack_engines provisions and executes nothing and the gate run stays fast.
+#
+# `_thirdparty_deps` is deliberately an INVENTED name that appears in no core
+# source file (CLM-008): honoring it end to end is what proves adding the next
+# ecosystem's vendoring convention is a pack change, never a `case` in cmd/backstop.
+name: backstop/noncorpus-fixture
+version: 1.0.0
+language: go
+archetype: code
+description: >
+  E2E fixture declaring the dependency directory names core must exclude from
+  artifact-corpus walks without knowing any of them itself.
+classification:
+  source:
+    - "**/*.go"
+  test:
+    - "**/*_test.go"
+  dependency_dirs:
+    - "vendor"
+    - "node_modules"
+    - "_thirdparty_deps"
+content:
+  sdk:
+    module: example/noncorpus-fixture
+    version: 1.0.0
+    provides:
+      - classification

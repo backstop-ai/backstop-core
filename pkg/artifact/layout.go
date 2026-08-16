@@ -105,7 +105,13 @@ func ClassifyFilename(name string) (Kind, bool) {
 	return "", false
 }
 
-// nonCorpusDirNames are the directory names no artifact corpus scan descends into.
+// nonCorpusDirNames are the TOOL-AGNOSTIC directory names no artifact corpus scan
+// descends into. It is NOT the whole non-corpus set: ecosystem-specific dependency
+// directory names (Go's `vendor`, npm's `node_modules`) are deliberately absent,
+// because core bakes no language or tool knowledge. Those arrive INJECTED from pack
+// declarations (`classification.dependency_dirs`) and are unioned in by
+// NonCorpusDirs (ISSUE-122).
+//
 // It has ONE home because both CLI discovery and the REQ-008 ungated scan need it and
 // their two rules differ ONLY in how each treats `.backstop` — discovery skips
 // `.backstop` wholesale except when it IS the root, while the ungated scan always
@@ -114,15 +120,63 @@ func ClassifyFilename(name string) (Kind, bool) {
 // leaving out disagree. `.backstop` is deliberately ABSENT here; each caller adds its
 // own rule on top.
 var nonCorpusDirNames = []string{ // nosemgrep: go.core.no-global-mutable-state — immutable name list, package idiom
-	".git", "vendor", "node_modules", "testdata", "prototype",
+	".git", "testdata", "prototype",
 }
 
-// NonCorpusDirNames returns the shared non-corpus directory names, deterministically
-// ordered. It returns a copy so a caller cannot mutate the shared list.
+// NonCorpusDirNames returns the shared tool-agnostic non-corpus directory names,
+// deterministically ordered. It returns a copy so a caller cannot mutate the shared
+// list.
 func NonCorpusDirNames() []string {
 	out := make([]string, len(nonCorpusDirNames))
 	copy(out, nonCorpusDirNames)
 	return out
+}
+
+// NonCorpusDirs is the ONE exclusion authority both artifact-corpus walks consume:
+// the tool-agnostic base above UNIONED with the ecosystem-specific names installed
+// packs declare via `classification.dependency_dirs` (ISSUE-122 CLM-004).
+//
+// It carries only the DECLARED names; the base is applied by Excludes. That is what
+// makes the ZERO VALUE meaningful — see Excludes.
+type NonCorpusDirs struct {
+	declared map[string]bool
+}
+
+// NewNonCorpusDirs builds the exclusion set from the pack-declared dependency
+// directory names. Empty names are ignored, and a declared name that duplicates a
+// base name is harmless.
+func NewNonCorpusDirs(declared []string) NonCorpusDirs {
+	set := NonCorpusDirs{declared: make(map[string]bool, len(declared))}
+	for _, name := range declared {
+		if name == "" {
+			continue
+		}
+		set.declared[name] = true
+	}
+	return set
+}
+
+// Excludes reports whether a directory base name is outside the artifact corpus.
+//
+// THE ZERO VALUE EXCLUDES THE GENERIC BASE, NOT NOTHING. A caller that forgets to
+// wire the installed packs produces the zero value, and a zero value excluding
+// nothing would send that walk straight into `.git` — a silent, confusing failure at
+// exactly the call site whose author forgot. Degrading to today's behavior MINUS the
+// pack-declared names is the honest failure instead: visible in what the walk
+// reports, never garbage.
+//
+// The base is applied here rather than copied into `declared` at construction so the
+// zero value behaves identically to NewNonCorpusDirs(nil) with no constructor call.
+func (n NonCorpusDirs) Excludes(base string) bool {
+	if base == "" {
+		return false
+	}
+	for _, name := range nonCorpusDirNames {
+		if base == name {
+			return true
+		}
+	}
+	return n.declared[base]
 }
 
 // Root is a resolved artifact root.

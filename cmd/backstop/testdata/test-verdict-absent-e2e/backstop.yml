@@ -1,0 +1,3 @@
+project: test-verdict-absent-e2e
+packs:
+  acme/verdict-probe: local

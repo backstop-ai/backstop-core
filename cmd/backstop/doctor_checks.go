@@ -359,11 +359,16 @@ func entrypointOutputVerbatim(output []byte) string {
 //
 // ★ IT CONSUMES THE SHARED RESOLUTION OUTRIGHT AND HOLDS NO LAYOUT KNOWLEDGE OF ITS OWN.
 // No artifact directory name, no suffix or filename pattern, no corpus walk, no exclusion
-// list — all four come from artifact.ResolveRoot and gate.FindUngatedArtifacts. Three
-// independent hardcodings of the root layout are the defect the shared resolution removes,
-// and a single literal here would make this the fourth. That is also what makes "what
-// doctor calls a deviation" and "what the gate calls ungated" ONE predicate by
-// construction rather than two implementations that agree today.
+// list of its own: the first three come from artifact.ResolveRoot and
+// gate.FindUngatedArtifacts, and the fourth — the ecosystem half of the exclusion set —
+// is DERIVED FROM ctx.Packs AND INJECTED (ISSUE-122; core carries only the tool-agnostic
+// base). Three independent hardcodings of the root layout are the defect the shared
+// resolution removes, and a single literal here would make this the fourth.
+//
+// That is still — and more strongly — what makes "what doctor calls a deviation" and
+// "what the gate calls ungated" ONE predicate by construction rather than two
+// implementations that agree today: both now derive the injected set the same way, from
+// the same installed-pack manifests, and hand it to the same helper.
 //
 // ★ THE PREDICATE IS PER KIND, NEVER ROOT CONTAINMENT, and the difference is not
 // stylistic. When no root is configured the resolved root IS the project root, which
@@ -408,7 +413,26 @@ func checkArtifactLayout(ctx doctorContext) doctorResult {
 		return result
 	}
 
-	deviations, findErr := gate.FindUngatedArtifacts(ctx.ProjectRoot, root)
+	// The exclusion set comes from the packs doctor already loaded — the same
+	// derivation the gate performs — so the two cannot disagree about which trees are
+	// corpus (ISSUE-122 CLM-005).
+	//
+	// ON THE DEGRADED PATH THIS IS A REAL, NAMED BEHAVIOR CHANGE, not a defensive
+	// default. When the pack load failed there are no declarations to read, so the set
+	// is the tool-agnostic base ONLY and artifact-shaped files inside `vendor/` or
+	// `node_modules/` ARE reported as deviations that this check does not report
+	// today. That is the correct behavior rather than a regression: the only way to
+	// exclude those trees with no packs loaded is for core to know the ecosystem
+	// nouns, which is exactly the bake ISSUE-122 removes. Softening it by defaulting
+	// the names back in would silently reintroduce the defect at the one call site
+	// nobody looks at. The packs check FAILING on the same run is the diagnosis that
+	// explains the extra deviations, and a deviation is loud, never blocking.
+	var nonCorpus artifact.NonCorpusDirs
+	if ctx.PacksErr == nil {
+		nonCorpus = artifact.NewNonCorpusDirs(mergeDependencyDirs(ctx.Packs))
+	}
+
+	deviations, findErr := gate.FindUngatedArtifacts(ctx.ProjectRoot, root, nonCorpus)
 	if findErr != nil {
 		result.Status = doctorStatusFail
 		result.Message = fmt.Sprintf("the artifact corpus under %s could not be read: %v", root.Path, findErr)

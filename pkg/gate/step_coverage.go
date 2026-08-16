@@ -94,8 +94,14 @@ func StepCoverageThresholdScopedFunc(coverage []check.CoverageRecord, specs []Sp
 		// double-emitted (a defect surfaced loudly below).
 		byPathMetric, dupKeys := indexCoverageByPathMetric(coverage)
 		paths := coveragePathsInScope(coverage, scope, classifier)
+		// WHY THE WORDING MATTERS (ISSUE-118). This line was reported as the cause of a
+		// gate blind spot, on the belief that it skipped a TEST RUN for an all-test-file
+		// diff. It does not — this step holds no test invocation at all — but a bare
+		// `pass` with no Reason read as VERIFICATION to a human and to an agent, and that
+		// misreading is what cost a day. The skip stays exactly as legitimate and exactly
+		// as non-blocking; it just says what it did not do.
 		if len(paths) == 0 {
-			return StepResult{StepName: StepCoverageThreshold, Status: "pass", Violations: []Violation{}, Reason: "no in-scope files to measure for coverage"}
+			return StepResult{StepName: StepCoverageThreshold, Status: "pass", Violations: []Violation{}, Reason: "no in-scope files to measure for coverage — this dimension scored nothing for this diff and is not a test-pass verdict; test outcomes are reported by the test_verification dimension"}
 		}
 
 		// The metrics EXPLICITLY declared in any in-scope spec's

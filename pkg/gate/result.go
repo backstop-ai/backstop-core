@@ -78,6 +78,20 @@ type Violation struct {
 	// LoadBaseline is a non-strict unmarshal, so omitting it keeps baseline
 	// identity stable across this change.
 	ProjectWide bool `json:"-"`
+	// GateType carries the DECLARED gate_type of the engine binding that produced
+	// this finding (engine.GateType.String() — lint|build|test|findings|coverage|
+	// substantiveness|contracts). It exists so a gate step can route a FLAT
+	// dispatch stream by DECLARATION rather than by pack name, rule name, message
+	// shape or command sniff — the ISSUE-064 rule. Stamped per-violation from ITS
+	// producing binding at the same dispatch site that stamps ProjectWide, with no
+	// gate-type-level aggregation. Empty for any violation not produced by a pack
+	// engine binding (every core-emitted violation).
+	//
+	// Like ProjectWide/Line/WaiverHint/Trace/Properties it is presentation and
+	// routing only: json:"-" and DELIBERATELY EXCLUDED from baseline identity
+	// (EnrichViolationIdentity folds only Rule|File|RegionHash(Message|Severity|
+	// SourcePack)), so a violation gaining it never destabilizes grandfathering.
+	GateType string `json:"-"`
 	// Line is the finding's 1-indexed start line at its reported source location.
 	// It is carried from the engine's SARIF region (check.Violation.Line) so the
 	// SPEC-049 waiver reconciliation pass can byte-scan the finding's own line for a

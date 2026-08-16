@@ -206,11 +206,30 @@ requirements:
       as one in the wrong tree. Every deviation must be reported with BOTH its
       actual path and that expected path. The deviation set must come from
       SPEC-068's shared `FindUngatedArtifacts`, whose `ExpectedDir` field IS the
-      expected path this check prints; doctor must not walk the corpus itself,
-      because that helper also carries the exclusion set (`testdata`, `vendor`,
-      `node_modules`, `.git`, `.backstop/packs`, `prototype`) without which this
-      repository alone contributes 67 artifact-shaped files that are deliberately
-      not corpus. Defining
+      expected path this check prints, and doctor must not walk the corpus
+      itself. The exclusion set that helper applies is no longer a list the
+      helper CARRIES: it is the TOOL-AGNOSTIC BASE core holds (`.git`,
+      `testdata`, `prototype`, plus the walk's own `.backstop/packs` rule)
+      UNIONED with the ecosystem-specific dependency directory names installed
+      packs declare via `classification.dependency_dirs`, and that union arrives
+      as an INJECTED PARAMETER (ISSUE-122 — core bakes no ecosystem noun of its
+      own, so neither `vendor` nor `node_modules` is core's to hold). Doctor must
+      obtain that set the same way every other call site does — from the packs it
+      has already loaded (`ctx.Packs`) — which is what keeps doctor and the gate
+      from disagreeing about which trees are corpus. When the pack load failed
+      (`ctx.PacksErr != nil`) doctor must inject the ZERO VALUE rather than
+      defaulting any name back in, and the NAMED CONSEQUENCE is that the set is
+      then the generic base ONLY, so artifact-shaped files inside dependency
+      trees ARE reported as deviations that doctor does not report today. That is
+      the HONEST failure and not a regression to fix: the only alternative is core
+      knowing the ecosystem nouns, which is the exact bake ISSUE-122 removes, and
+      the packs check FAILING on the same run is the diagnosis that explains the
+      extra deviations. A deviation is loud, never blocking. Without the exclusion
+      set at all this repository alone contributes 99 artifact-shaped files that
+      are deliberately not corpus — 67 when this requirement was first written;
+      the figure is this repo's own testdata and grows with it, and every one of
+      the 99 sits under a `testdata` ancestor, so the tool-agnostic base alone
+      still excludes all of them here even on the degraded path. Defining
       deviation per-KIND rather than as "outside the resolved root" is required,
       not stylistic: when no root is configured the resolved root IS the project
       root, so a repo holding artifacts under `.backstop/` — the live
@@ -648,7 +667,7 @@ contracts:
       - name: checkArtifactLayout
         kind: function
         signature: "func checkArtifactLayout(ctx doctorContext) doctorResult"
-        notes: "REQ-007. Consumes SPEC-068's `artifact.ResolveRoot(projectRoot, declared)` for the root and `gate.FindUngatedArtifacts(projectRoot, root)` for the deviation set, printing each `UngatedArtifact`'s `ExpectedDir` as the expected path — no `specs`/`bundles`/`issues`/`directives`/`plans` join, no suffix list, no walk, and no exclusion list of its own, or it becomes the fourth hardcoding REQ-029 exists to remove. `declared` comes from the `Config.ArtifactRoot` field SPEC-068 adds; a nil/failed config yields the empty declaration, which resolves to the project root and must still produce a report rather than an error (REQ-003). The typed failures `*artifact.RootMissingError` and `*artifact.RootInvalidError` are distinguished by type, never by string match."
+        notes: "REQ-007. Consumes SPEC-068's `artifact.ResolveRoot(projectRoot, declared)` for the root and `gate.FindUngatedArtifacts(projectRoot, root, nonCorpus)` for the deviation set, printing each `UngatedArtifact`'s `ExpectedDir` as the expected path — no `specs`/`bundles`/`issues`/`directives`/`plans` join, no suffix list, no walk, and no exclusion list of its own, or it becomes the fourth hardcoding REQ-029 exists to remove. The `nonCorpus` argument is an `artifact.NonCorpusDirs` DERIVED from `ctx.Packs` — the pack-declared `classification.dependency_dirs` names unioned onto core's tool-agnostic base — and INJECTED into the helper, which is the same derivation every other call site performs and is what keeps doctor and the gate from disagreeing about which trees are corpus; the ZERO VALUE is injected when `ctx.PacksErr` is non-nil, degrading to the tool-agnostic base only (ISSUE-122). That injection does NOT change this function's own signature: it derives the set from the `doctorContext` it already receives. `declared` comes from the `Config.ArtifactRoot` field SPEC-068 adds; a nil/failed config yields the empty declaration, which resolves to the project root and must still produce a report rather than an error (REQ-003). The typed failures `*artifact.RootMissingError` and `*artifact.RootInvalidError` are distinguished by type, never by string match."
       - name: doctorContext
         kind: type
         signature: "type doctorContext struct { ProjectRoot string; SearchDir string; ConfigPath string; ConfigPathErr error; Config *config.Config; ConfigErr error; Packs []*pack.Manifest; PacksErr error; Runner check.CommandRunner }"
@@ -896,10 +915,17 @@ package boundary is introduced for seven checks.
      `gate.FindUngatedArtifacts`, and reports each returned `UngatedArtifact` as a
      deviation, printing its `ExpectedDir` as the expected path. It performs no
      walk of its own, holds no suffix list, joins no type-directory name, and
-     carries no exclusion list — all four come from the shared helper, which is
-     what makes "what doctor calls a deviation" and "what the gate calls ungated"
-     one predicate by construction rather than two implementations that agree
-     today.
+     holds no exclusion list of its own — the first three come from the shared
+     helper, and the fourth is DERIVED from `ctx.Packs` (the pack-declared
+     `classification.dependency_dirs` names unioned onto core's tool-agnostic
+     base) and INJECTED into that same helper as a parameter (ISSUE-122). That is
+     still — and more strongly — what makes "what doctor calls a deviation" and
+     "what the gate calls ungated" one predicate by construction rather than two
+     implementations that agree today: both now derive the injected set the same
+     way, from the same installed-pack manifests, and hand it to the same helper.
+     On the degraded path (`ctx.PacksErr != nil`) doctor injects the zero value,
+     so the set is the tool-agnostic base ONLY — the named consequence REQ-007
+     states, not a defensive default.
 
 4. **Rendering and exit (REQ-001, REQ-003).** Both renderers consume the same
    `[]doctorResult`. Human form prints one line per check plus its remediation;
@@ -1195,8 +1221,11 @@ by construction rather than by today's code happening to agree.
   Configured}`, `Kind`/`LayoutFor`/`ClassifyFilename`/`Root.Dir(kind)`, the typed
   `*RootMissingError` / `*RootInvalidError`, the new `Config.ArtifactRoot` field
   and its `artifact_root` schema entry, and `pkg/gate`'s
-  `FindUngatedArtifacts(projectRoot, root) ([]UngatedArtifact, error)` returning
-  `UngatedArtifact{Path, Kind, ExpectedDir, Root}`. Those signatures are
+  `FindUngatedArtifacts(projectRoot string, root artifact.Root, nonCorpus artifact.NonCorpusDirs) ([]UngatedArtifact, error)`
+  returning `UngatedArtifact{Path, Kind, ExpectedDir, Root}` (the third
+  parameter is not SPEC-068's: `artifact.NonCorpusDirs` and the injection were
+  added by ISSUE-122 after both specs landed, and the return type and field list
+  are unchanged by it). Those signatures are
   DECIDED-IN-SPEC, not built — SPEC-068 is `status: draft` and they can still move
   in its review, as the helper already did once (it was
   `FindOutOfRootArtifacts`/`ExcludedBy` in that spec's 1.0.0), so this
@@ -1267,15 +1296,21 @@ by construction rather than by today's code happening to agree.
   `ClassifyFilename`, the typed root errors, `Config.ArtifactRoot`) plus
   `pkg/gate`'s `FindUngatedArtifacts`, all consumed here and none restated. Its
   REQ-007 also fixes a fourth root hardcoding the bundle does not name, verified
-  here: `cmd/backstop/artifact_discover.go:47-49` skips `.backstop` from an
-  UNCONDITIONAL `switch base` list (`testdata`, `vendor`, `node_modules`, `.git`,
-  `.backstop`, `prototype`) that no configuration reaches — the literals are on
-  `:48` — and `artifact_validate.go:132-133` returns `ValidateResult{Pass: true}`
-  on an empty discovery, which `gate.go:1015` feeds from as well — so a `.backstop/`-rooted
-  repo validates zero artifacts and reports green today. Two of the literals in
-  that same switch (`node_modules`, `vendor`) are baked ecosystem names in core
-  CLI code, a DD-13 concern raised separately; it is named here only because it
-  sits on the line SPEC-068 edits, not because this spec touches it.
+  here when this spec was written: `cmd/backstop/artifact_discover.go` then
+  skipped `.backstop` from an UNCONDITIONAL `switch base` list (`testdata`,
+  `vendor`, `node_modules`, `.git`, `.backstop`, `prototype`) that no
+  configuration reached, and `artifact_validate.go:132-133` returns
+  `ValidateResult{Pass: true}` on an empty discovery, which `gate.go:1015` feeds
+  from as well — so a `.backstop/`-rooted repo validated zero artifacts and
+  reported green. BOTH halves have since landed and the citation is historical:
+  SPEC-068 replaced the switch with the shared resolution, and ISSUE-122 removed
+  the two baked ecosystem names on it (`node_modules`, `vendor`) that were a
+  DD-13 concern raised separately here — that concern is RESOLVED by ISSUE-122,
+  not outstanding. `DiscoverArtifacts` now takes the exclusion set as an
+  `artifact.NonCorpusDirs` PARAMETER — core's tool-agnostic base (`.git`,
+  `testdata`, `prototype`) unioned with the pack-declared
+  `classification.dependency_dirs` names — and keeps only its two root-relative
+  `.backstop` rules local to the walk.
 - `specs/SPEC-069-backstop-init.spec.md` — init. It specs no init-points-at-doctor
   requirement or claim (REQ-004 is solely this spec's), and its
   `TestInit_ImplementsNoCIDetectionOrBespokeGuidance` is the guard REQ-004 must

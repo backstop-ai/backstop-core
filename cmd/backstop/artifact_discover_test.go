@@ -37,7 +37,7 @@ func TestArtifactValidate_Discover_Spec(t *testing.T) {
 		"plans/PLAN-SPEC-001.plan.yml": validPlanContent("PLAN-SPEC-001", "SPEC-001"),
 	})
 
-	arts, err := DiscoverArtifacts(rootAtDir(t, dir), nil)
+	arts, err := DiscoverArtifacts(rootAtDir(t, dir), nil, artifact.NonCorpusDirs{})
 	if err != nil {
 		t.Fatalf("DiscoverArtifacts: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestArtifactValidate_Discover_Plan(t *testing.T) {
 		"plans/PLAN-SPEC-001-test.plan.yml": validPlanContent("PLAN-SPEC-001", "SPEC-001"),
 	})
 
-	arts, err := DiscoverArtifacts(rootAtDir(t, dir), nil)
+	arts, err := DiscoverArtifacts(rootAtDir(t, dir), nil, artifact.NonCorpusDirs{})
 	if err != nil {
 		t.Fatalf("DiscoverArtifacts: %v", err)
 	}
@@ -118,7 +118,7 @@ None.
 `,
 	})
 
-	arts, err := DiscoverArtifacts(rootAtDir(t, dir), nil)
+	arts, err := DiscoverArtifacts(rootAtDir(t, dir), nil, artifact.NonCorpusDirs{})
 	if err != nil {
 		t.Fatalf("DiscoverArtifacts: %v", err)
 	}
@@ -162,7 +162,7 @@ Test.
 `,
 	})
 
-	arts, err := DiscoverArtifacts(rootAtDir(t, dir), nil)
+	arts, err := DiscoverArtifacts(rootAtDir(t, dir), nil, artifact.NonCorpusDirs{})
 	if err != nil {
 		t.Fatalf("DiscoverArtifacts: %v", err)
 	}
@@ -200,7 +200,7 @@ Test.
 `,
 	})
 
-	arts, err := DiscoverArtifacts(rootAtDir(t, dir), nil)
+	arts, err := DiscoverArtifacts(rootAtDir(t, dir), nil, artifact.NonCorpusDirs{})
 	if err != nil {
 		t.Fatalf("DiscoverArtifacts: %v", err)
 	}
@@ -233,7 +233,7 @@ func TestArtifactValidate_Discover_IgnoresNonArtifacts(t *testing.T) {
 		"src/main.go":                 "package main",
 	})
 
-	arts, err := DiscoverArtifacts(rootAtDir(t, dir), nil)
+	arts, err := DiscoverArtifacts(rootAtDir(t, dir), nil, artifact.NonCorpusDirs{})
 	if err != nil {
 		t.Fatalf("DiscoverArtifacts: %v", err)
 	}
@@ -255,7 +255,7 @@ func TestArtifactValidate_Discover_IgnoresNonArtifacts(t *testing.T) {
 	}
 
 	// Also verify with type filter
-	filtered, err := DiscoverArtifacts(rootAtDir(t, dir), []string{"plan"})
+	filtered, err := DiscoverArtifacts(rootAtDir(t, dir), []string{"plan"}, artifact.NonCorpusDirs{})
 	if err != nil {
 		t.Fatalf("DiscoverArtifacts with filter: %v", err)
 	}
@@ -326,7 +326,7 @@ func TestDiscoverArtifacts_WalksResolvedRootIncludingDotBackstop(t *testing.T) {
 		t.Fatal("the dotbackstop-root fixture resolved an UNCONFIGURED root; its backstop.yml declares artifact_root and the rest of this test would be about the wrong directory")
 	}
 
-	arts, err := DiscoverArtifacts(root, nil)
+	arts, err := DiscoverArtifacts(root, nil, artifact.NonCorpusDirs{})
 	if err != nil {
 		t.Fatalf("DiscoverArtifacts: %v", err)
 	}
@@ -364,7 +364,7 @@ func TestDiscoverArtifacts_DotBackstopRootStillExcludesInstalledPacks(t *testing
 		t.Fatalf("the fixture's installed-pack artifact is missing, so this test would pass for the wrong reason: %v", err)
 	}
 
-	arts, err := DiscoverArtifacts(root, nil)
+	arts, err := DiscoverArtifacts(root, nil, artifact.NonCorpusDirs{})
 	if err != nil {
 		t.Fatalf("DiscoverArtifacts: %v", err)
 	}

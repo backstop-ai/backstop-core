@@ -3,6 +3,8 @@ package gate
 import (
 	"path/filepath"
 	"testing"
+
+	"github.com/backstop-ai/backstop-core/pkg/artifact"
 )
 
 // TestUngatedArtifactFindings_SurviveDiffScopedFiltering pins CLM-064 and Sharp Edge 3.
@@ -23,7 +25,7 @@ func TestUngatedArtifactFindings_SurviveDiffScopedFiltering(t *testing.T) {
 	plantFile(t, project, ".backstop/bundles/BUNDLE-001-stray.bundle.md")
 
 	root := unconfiguredRootAt(t, project)
-	found, err := FindUngatedArtifacts(project, root)
+	found, err := FindUngatedArtifacts(project, root, artifact.NonCorpusDirs{})
 	if err != nil {
 		t.Fatalf("FindUngatedArtifacts: %v", err)
 	}

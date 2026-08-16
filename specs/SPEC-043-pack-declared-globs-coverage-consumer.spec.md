@@ -4,7 +4,7 @@ number: SPEC-043
 created: "2026-06-28"
 status: implemented
 schema_version: spec/v1
-spec_version: 1.1.0
+spec_version: 1.1.1
 
 implementation:
   summary: >
@@ -57,7 +57,11 @@ requirements:
       whose matches are TEST/non-source files — including a stack's fixture/testdata
       convention, e.g. `**/testdata/**`, which is folded into the test list, NOT a
       separate baked dimension). These parse onto a new `pack.Manifest.Classification`
-      field (`type Classification struct { Source []string; Test []string }`). The
+      field (`type Classification struct { Source []string; Test []string;
+      DependencyDirs []string }` — the third field was added later by ISSUE-122 and is
+      NOT required by this requirement; it is named here only so this enumeration stays
+      true to the struct's actual shape, and its purely additive parsing preserves the
+      absent-block rule below). The
       block is OPTIONAL: a manifest with no `classification:` yields a zero-value
       Classification and NO parse error. Glob semantics MUST be TRUE doublestar with
       ZERO-LEADING-SEGMENT matching: `**` crosses path separators AND matches zero
@@ -298,8 +302,8 @@ contracts:
     provides:
       - name: Classification
         kind: type
-        signature: "type Classification struct { Source []string `yaml:\"source\"`; Test []string `yaml:\"test\"` }"
-        notes: "NEW (REQ-001/CLM-001): the pack-declared file-classification DATA. Source globs are patterns whose matches are SOURCE files coverage is expected for; Test globs are patterns whose matches are TEST/non-source files (a stack folds its fixture/testdata convention into Test, e.g. `**/testdata/**`). Parsed from the OPTIONAL top-level `classification:` yaml block via a `yaml:\"classification\"`-tagged field on Manifest. Absent block => zero value, no error (CLM-002). The binary holds no baked source/test convention — every stack supplies its own globs (DD-1)."
+        signature: "type Classification struct { Source []string `yaml:\"source\"`; Test []string `yaml:\"test\"`; DependencyDirs []string `yaml:\"dependency_dirs\"` }"
+        notes: "NEW (REQ-001/CLM-001): the pack-declared file-classification DATA. Source globs are patterns whose matches are SOURCE files coverage is expected for; Test globs are patterns whose matches are TEST/non-source files (a stack folds its fixture/testdata convention into Test, e.g. `**/testdata/**`). Parsed from the OPTIONAL top-level `classification:` yaml block via a `yaml:\"classification\"`-tagged field on Manifest. Absent block => zero value, no error (CLM-002). DependencyDirs was ADDED LATER by ISSUE-122 and is NOT part of REQ-001's source/test contract: it carries the bare directory NAMES (not globs, not paths) the declaring pack's ecosystem uses for vendored or installed dependency trees (Go's `vendor`, npm's `node_modules`), which core excludes from artifact-corpus walks ONLY because a pack declares them. Its parsing is purely additive — a manifest with no `classification:` block, or one carrying only source/test, still parses exactly as before with an empty DependencyDirs. The binary holds no baked source/test convention — every stack supplies its own globs (DD-1) — and the same principle governs the added field: core bakes no ecosystem noun of its own."
       - name: Manifest.Classification
         kind: variable
         signature: "Classification Classification `yaml:\"classification\"`"
@@ -537,7 +541,8 @@ classification field in **`pkg/pack`** and the merge/wiring in **`cmd/backstop`*
 processing steps the planner must map tasks to:
 
 1. **Add the classification contract to the manifest (REQ-001).** Add
-   `type Classification struct { Source []string; Test []string }` and a
+   `type Classification struct { Source []string; Test []string; DependencyDirs []string }`
+   (the third field added later by ISSUE-122, outside this spec's source/test contract) and a
    `Classification Classification \`yaml:"classification"\`` field to `pack.Manifest`
    in `pkg/pack/manifest.go`. The yaml block is optional (non-strict `yaml.Unmarshal`
    already ignores absence — a missing block yields the zero value). Add the
@@ -768,6 +773,18 @@ processing steps the planner must map tasks to:
 
 ## Version History
 
+- **1.1.1** (2026-08-16) — Reconciliation to ISSUE-122 (PLAN-ISSUE-122 TASK-016). ISSUE-122
+  added a third field, `DependencyDirs []string \`yaml:"dependency_dirs"\``, to the
+  `pack.Classification` struct this spec introduced: the bare directory NAMES the declaring
+  pack's ecosystem uses for vendored or installed dependency trees (Go's `vendor`, npm's
+  `node_modules`), which core excludes from artifact-corpus walks ONLY because a pack declares
+  them. Three exhaustive field enumerations that went stale on that change were extended — the
+  `Classification` contract signature and its note, REQ-001's requirement text, and the
+  processing-steps narrative. NOTHING about this spec's source/test contract changed: the
+  optional `classification.source`/`classification.test` glob lists, their parsing, the
+  absent-block-yields-zero-value rule, and the doublestar semantics all stand exactly as
+  written, and no claim, mandated test name, or requirement verdict changed. The new field's
+  parsing is purely additive and preserves the absent-block rule.
 - **1.1.0** (2026-06-30) — Status → `implemented`. The BUNDLE-012 Seed 1 code shipped
   and passed impl-review PASS; the pack-declared `classification` globs block and the
   `pkg/gate` `SourceClassifier` (with the de-Go'd coverage measurable-path consumer) are

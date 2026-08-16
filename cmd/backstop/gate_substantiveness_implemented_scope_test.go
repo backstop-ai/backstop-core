@@ -64,9 +64,10 @@ claims:
 // not co-located with it) yields a test_substantiveness noTarget "does not call
 // package" finding when the spec is `implemented`, but NONE when it is `draft` /
 // `ready-for-implementation` (the draft-spec mandated test is not joined). The
-// dispatch seam is spied to return no extraction findings, so the referenced set is
-// empty and the noTarget decision-table fires purely on the mandated-test join —
-// exactly the surface the consumer filter must bite.
+// dispatch seam is spied to return a single referenced-symbol finding naming an
+// unrelated symbol, so the referenced set omits the target and the noTarget
+// decision-table fires purely on the mandated-test join — exactly the surface the
+// consumer filter must bite.
 func TestSubstantiveness_EnforcesOnlyImplementedSpecMandatedTests(t *testing.T) {
 	cases := []struct {
 		status          string
@@ -86,12 +87,32 @@ func TestSubstantiveness_EnforcesOnlyImplementedSpecMandatedTests(t *testing.T) 
 			writeMandatedTestFile(t, codeDir, "subject_test.go", "TestSubjectNoTarget", "\tdoSubject()\n")
 			injectSubstantivenessManifest(t)
 
-			// Spy the REAL dispatch seam: return NO findings, so extraction is empty and
-			// the referenced set for the mandated test is empty (drives the noTarget path).
+			// Spy the REAL dispatch seam: return ONE referenced-symbol finding that joins
+			// this mandated test but names an UNRELATED symbol, so the test's referenced
+			// set is {"helper"} — target package "gate" is absent and the noTarget path is
+			// driven exactly as before.
+			//
+			// MUST NOT be simplified back to `return nil, nil` (ISSUE-113). An empty
+			// dispatch stream means the pack produced no evidence of ANY kind, which is
+			// now the starved-join state the substantiveness step REFUSES on with a
+			// config-error instead of emitting unfounded per-test noTarget violations. A
+			// nil stream would make this fixture exercise that refusal rather than its own
+			// subject. The subject here is ISSUE-054's implemented-only scope filter, so
+			// the pack must present as HEALTHY (it ran, it classified this file) and merely
+			// report a symbol that is not the target.
 			orig := dispatchPackEnginesFn
 			t.Cleanup(func() { dispatchPackEnginesFn = orig })
 			dispatchPackEnginesFn = func(_ []*pack.Manifest, _, _ string, _ *gate.GateScope, _ check.CommandRunner) ([]gate.Violation, error) {
-				return nil, nil
+				return []gate.Violation{{
+					Rule:    "backstop/substantiveness/referenced-symbol-go",
+					File:    "subject_test.go",
+					Message: "referenced-symbol func=TestSubjectNoTarget symbol=helper",
+					Properties: map[string]string{
+						"substantiveness_role": "referenced-symbol",
+						"func":                 "TestSubjectNoTarget",
+						"symbol":               "helper",
+					},
+				}}, nil
 			}
 
 			classifier, matcher := goSubstDiscovery(t)

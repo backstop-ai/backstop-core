@@ -1,0 +1,3 @@
+project: test-verdict-e2e
+packs:
+  acme/verdict-probe: local

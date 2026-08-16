@@ -1,0 +1,8 @@
+# ISSUE-122 e2e fixture: proves the artifact-corpus exclusion of ecosystem
+# dependency directories comes from a PACK DECLARATION, not from a literal baked
+# into core. One local pack declares `classification.dependency_dirs`; every
+# planted artifact below sits inside a tree that declaration names.
+project: noncorpus-declared-fixture
+language: go
+packs:
+  backstop/noncorpus-fixture: local

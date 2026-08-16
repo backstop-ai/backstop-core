@@ -176,7 +176,7 @@ func TestFindUngatedArtifacts_UnreadableProjectRootIsAnError(t *testing.T) {
 	// Walking a path that is not a directory yields no findings and no error from
 	// filepath.Walk itself — the file is simply visited — so the meaningful assertion
 	// is that a non-artifact-shaped file produces nothing rather than a spurious finding.
-	found, err := FindUngatedArtifacts(notADir, root)
+	found, err := FindUngatedArtifacts(notADir, root, artifact.NonCorpusDirs{})
 	if err != nil {
 		t.Fatalf("FindUngatedArtifacts over a single non-artifact file errored: %v", err)
 	}
@@ -186,7 +186,7 @@ func TestFindUngatedArtifacts_UnreadableProjectRootIsAnError(t *testing.T) {
 
 	// A projectRoot that does not exist at all IS an error — the scan must not report
 	// a clean empty set for a tree it never read.
-	if _, err := FindUngatedArtifacts(filepath.Join(dir, "absent"), root); err == nil {
+	if _, err := FindUngatedArtifacts(filepath.Join(dir, "absent"), root, artifact.NonCorpusDirs{}); err == nil {
 		t.Error("scanning an absent project root returned no error; an unscanned tree must not read as a clean result")
 	}
 }

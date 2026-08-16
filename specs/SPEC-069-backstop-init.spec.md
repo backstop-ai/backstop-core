@@ -2789,9 +2789,10 @@ a stated prerequisite.
    exists to prevent. If SPEC-068 changes the spelling before it lands, those claims break
    together — loud, at test time — and must be reconciled rather than patched around.
 
-5. **`.backstop` is on a hardcoded discovery SKIP LIST today, so the layout REQ-004 mandates is
-   currently invisible — verified, not inferred.** `cmd/backstop/artifact_discover.go:47-49`
-   skips directories named `testdata`, `vendor`, `node_modules`, `.git`, `.backstop`,
+5. **`.backstop` was on a hardcoded discovery SKIP LIST when this spec was written, so the
+   layout REQ-004 mandates was invisible — verified, not inferred.**
+   `cmd/backstop/artifact_discover.go:47-49` then
+   skipped directories named `testdata`, `vendor`, `node_modules`, `.git`, `.backstop`,
    `prototype` unconditionally (the `switch base` at `:47`, its literals at `:48`, the
    `SkipDir` at `:49`), and `cmd/backstop/artifact_validate.go:132-133` returns
    `ValidateResult{Pass: true}` on zero discovered artifacts. The same discovery feeds the gate
@@ -2802,11 +2803,14 @@ a stated prerequisite.
    (bundle REQ-029/REQ-030, one config-resolved root shared by gate, validate, and scaffold) and
    is NOT specced here. What is specced here is the tripwire: CLM-103 fails until the layout init
    creates is actually discoverable, so this spec cannot be implemented into a vacuous green.
-   Note also, for whoever owns that file: `node_modules` in that same skip list is a baked
-   ecosystem literal in core CLI code, which DD-13 forbids. That is out of this spec's lane and
-   is ALREADY FILED as **ISSUE-122** (`issues/ISSUE-122-baked-ecosystem-literals-in-artifact-
-   discover.issue.md`), homed under DIR-002 and sequenced after SPEC-068 — no new issue is
-   needed and none should be filed.
+   Note also, for whoever owns that file: `node_modules` in that same skip list was a baked
+   ecosystem literal in core CLI code, which DD-13 forbids. That was out of this spec's lane and
+   was FILED as **ISSUE-122** (`issues/ISSUE-122-baked-ecosystem-literals-in-artifact-
+   discover.issue.md`), homed under DIR-002 and sequenced after SPEC-068. That referral is now
+   DISCHARGED, not open: the ISSUE-122 fix has landed. `DiscoverArtifacts` takes the exclusion
+   set as an `artifact.NonCorpusDirs` PARAMETER, core carries only the tool-agnostic base
+   (`.git`, `testdata`, `prototype`), and `vendor`/`node_modules` arrive from installed packs'
+   `classification.dependency_dirs`. No new issue is needed and none should be filed.
 
 6. **REQ-033's dependency is genuinely dangling and this spec does not close it.** No artifact
    anywhere owns the spec-independent coverage-floor knob. The failure mode to guard against is
@@ -3120,9 +3124,11 @@ a stated prerequisite.
   `checkEngineToolAllowed` → `splitCommand` → `check.CommandRunner` — with one open detail:
   SPEC-070 names no runner METHOD, and this spec binds `Run` rather than `RunStdout` (§7). See
   Sharp Edge 12; the landing order is a sequencing call, not a spec edit.
-- **ISSUE-122 (open, homed under DIR-002, sequenced after SPEC-068)** — owns the baked ecosystem
-  literals (`node_modules`) on the discovery skip list this spec's Sharp Edge 5 observes. Not
-  this spec's to fix and already filed.
+- **ISSUE-122 (fix LANDED; homed under DIR-002, sequenced after SPEC-068)** — owned the baked
+  ecosystem literals (`node_modules`, `vendor`) on the discovery skip list this spec's Sharp
+  Edge 5 observes. Never this spec's to fix, and no longer outstanding: the exclusion set is
+  now an injected `artifact.NonCorpusDirs` built from pack-declared
+  `classification.dependency_dirs` over core's tool-agnostic base.
 - **REQ-033's coverage-floor knob — NO OWNER.** Documented gap; init reports rather than wires.
 
 ## References
@@ -3194,8 +3200,9 @@ a stated prerequisite.
 - `pkg/recipe/adoption.go` — `AdoptionRecord` / `ReadAdoptions` and the UNEXPORTED `adoptionKey`
   (`apply.go:1252`) behind the applier's recipe-level adoption bit (`apply.go:166`); the reason
   REQ-035's INDETERMINATE class stays open rather than being closed by a second derivation.
-- `issues/ISSUE-122-baked-ecosystem-literals-in-artifact-discover.issue.md` (open, DIR-002,
-  sequenced after SPEC-068) — owns the `node_modules` skip-list literal Sharp Edge 5 observes.
+- `issues/ISSUE-122-baked-ecosystem-literals-in-artifact-discover.issue.md` (fix LANDED; DIR-002,
+  sequenced after SPEC-068) — owned the `node_modules`/`vendor` skip-list literals Sharp Edge 5
+  observes; they now arrive from pack-declared `classification.dependency_dirs`.
 - `cmd/backstop/recipe_apply.go` — the shipped CLI shape init's CI step mirrors.
 - `pkg/pack/manifest.go` — `EngineSpec.StdoutArtifact` (line 97), the only generated-output
   declaration a manifest carries.
@@ -3211,10 +3218,13 @@ a stated prerequisite.
   note SPEC-046 left behind.
 - `cmd/backstop/gate.go` — `gate.GateScopeModeDiff` as the shipped no-flag default REQ-015 holds,
   and `:1015`, where the gate consumes the same `DiscoverArtifacts` the skip list governs.
-- `cmd/backstop/artifact_discover.go:47-49` — the unconditional directory skip list (literals at
-  `:48`) that makes the `.backstop/` layout REQ-004 mandates invisible today; CLM-103's tripwire
-  points here. The `node_modules` / `vendor` entries on that same line are baked ecosystem
-  literals raised separately (see Sharp Edge 5) and are not this spec's to fix.
+- `cmd/backstop/artifact_discover.go` — the walk whose unconditional directory skip list
+  (`:47-49` when this spec was written, literals at `:48`) made the `.backstop/` layout REQ-004
+  mandates invisible; CLM-103's tripwire points here. Both halves are now fixed: SPEC-068
+  replaced the switch with the shared resolution, and the `node_modules` / `vendor` entries —
+  baked ecosystem literals raised separately (see Sharp Edge 5) and never this spec's to fix —
+  were removed by ISSUE-122, whose fix injects the exclusion set as an `artifact.NonCorpusDirs`
+  built from pack-declared `classification.dependency_dirs` over core's tool-agnostic base.
 - `cmd/backstop/artifact_validate.go:132-133` — `ValidateResult{Pass: true}` on zero discovered
   artifacts, the second half of the vacuous-green composition.
 - `specs/SPEC-068-trustworthy-green-guards.spec.md` — the prerequisite seed.

@@ -1,0 +1,6 @@
+packs:
+  acme/verdict-probe:
+    name: acme/verdict-probe
+    version: 1.0.0
+    source_type: local
+    install_date: "2026-08-16T00:00:00Z"

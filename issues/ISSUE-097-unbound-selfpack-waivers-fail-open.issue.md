@@ -163,6 +163,22 @@ pack namespace, sitting where no finding currently lands, and confirm the new
 check names it — proving the check does NOT rely on a finding being present
 to see the token, unlike today's `Adjudicate`/`waiver list` path.
 
+## Additional evidence
+
+- 2026-08-16: found independently while verifying PLAN-ISSUE-112's `gate --all` run. Both
+  orphaned tokens are still present today, though at drifted line numbers (unrelated edits in
+  both files since this issue was filed): `cmd/backstop/pack_gate.go:981` (was `:888`) and
+  `cmd/backstop/pack_gate_provision.go:187` (was `:119`) — line numbers here are likely to drift
+  further; match by rule-ID string, not line. New angle: diff-scoped and `--file`-scoped gate
+  runs over the exact files carrying these stale tokens both report clean — the orphaned-waiver
+  visibility gap only surfaces via an UNSCOPED `gate --all` run, because the underlying rule
+  wasn't in scope for the narrower runs. Given this project's stated primary use case is
+  diff-scoped local gates (CI treated as basically ceremony per founder framing), a team relying
+  on diff-scoped runs day-to-day could carry a silently-orphaned waiver indefinitely without ever
+  seeing it flagged in the runs they actually watch. Worth folding into whatever "loud, not
+  blocking" detection fix is eventually built for solution part (b): the fix should surface
+  regardless of gate scope, not just on a full sweep.
+
 ## References
 
 - `cmd/backstop/pack_gate.go:888` — first stale waiver token

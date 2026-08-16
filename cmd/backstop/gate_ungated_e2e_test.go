@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/backstop-ai/backstop-core/pkg/artifact"
 	"github.com/backstop-ai/backstop-core/pkg/gate"
 )
 
@@ -40,7 +41,7 @@ func TestGate_UngatedBundlesUnderDotBackstopSurfacedInOutput(t *testing.T) {
 
 	// The premise: the file really is invisible to discovery, which is what makes
 	// surfacing it necessary rather than redundant.
-	discovered, err := DiscoverArtifacts(root, []string{"bundle"})
+	discovered, err := DiscoverArtifacts(root, []string{"bundle"}, artifact.NonCorpusDirs{})
 	if err != nil {
 		t.Fatalf("DiscoverArtifacts: %v", err)
 	}
@@ -96,7 +97,7 @@ func TestGate_UngatedFindingWouldBeDroppedWithoutProjectWide(t *testing.T) {
 	dir := layoutProfileDir(t, "unconfigured-dotbackstop-bundles")
 	root := rootAtDir(t, dir)
 
-	found, err := gate.FindUngatedArtifacts(dir, root)
+	found, err := gate.FindUngatedArtifacts(dir, root, artifact.NonCorpusDirs{})
 	if err != nil {
 		t.Fatalf("FindUngatedArtifacts: %v", err)
 	}

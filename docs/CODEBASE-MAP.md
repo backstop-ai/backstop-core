@@ -61,6 +61,22 @@ ledger_integrity` (+ toolchain warn step when none declared, `gate.go:605`).
 pack_engines: `packValidatorStep` (`gate.go:788`) → `provisionEngines` →
 `dispatchPackEngines` (`pack_gate.go:267`) → `runFindingsEngine` → SARIF.
 
+TEST-VERDICT CHANNEL (ISSUE-118). `packValidatorStep` also publishes its
+UNFILTERED dispatch stream to a collector declared in `buildGateSteps` beside
+the test_verification construction — captured BEFORE
+`activeScope.FilterViolations`, routed through
+`gate.RouteTestVerdictFindings`. The `packed` assembly order (lock, steps[0],
+pack_engines, steps[1:] beginning at test_verification) is what guarantees the
+collector is populated before it is read. `test_verification` therefore
+answers BOTH "does the mandated test exist" and "did it pass":
+`StepTestVerificationVerdictFunc` (`step_testverify.go`) takes a verdict
+supplier and joins it to the due mandated tests via
+`pkg/gate/test_verdict_join.go` (`RouteTestVerdictFindings` routes on the
+declared `gate_type`; `MandatedTestFailures` joins BY TEST NAME, not by path).
+A hit is a `mandated_test_failed` violation at severity `critical`; no declared
+`gate_type: test` engine yields a non-blocking
+`test_verification_verdict_capability_absent` advisory instead of a silent pass.
+
 ## Pack lifecycle (`pack add <ref>`)
 
 `cmd/backstop/pack_add.go` → `buildAddCommand` (`pack_wiring.go` — assembles
@@ -157,6 +173,9 @@ PACK SEVERITY CONTRACT — a pack's SARIF `level: warning` is NON-BLOCKING by
 contract, `level: error` and an ABSENT level both block (fail-closed). Stated
 in full on `blocksVerdict` (`pkg/gate/policy.go`); the level→verdict mapping is
 locked end to end by `cmd/backstop/pack_severity_contract_test.go`.
+`gate.Violation.GateType` carries the producing binding's declared gate type,
+stamped beside `ProjectWide` in `runFindingsEngine`; it is `json:"-"` and
+outside baseline identity.
 
 ## Config & schemas
 

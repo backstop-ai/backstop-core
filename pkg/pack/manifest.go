@@ -74,6 +74,23 @@ type Manifest struct {
 type Classification struct {
 	Source []string `yaml:"source"`
 	Test   []string `yaml:"test"`
+	// DependencyDirs are the bare directory NAMES — not globs, not paths — that
+	// the declaring pack's ecosystem uses for vendored or installed dependency
+	// trees (Go's `vendor`, npm's `node_modules`). Core excludes them from
+	// artifact-corpus walks ONLY because a pack declares them here; the binary
+	// bakes no ecosystem noun of its own (ISSUE-122, CLM-002).
+	//
+	// It lives on Classification rather than on an EngineBinding because it is a
+	// WHOLE-PACK, whole-walk property with no engine in hand: the corpus walks
+	// that consume it never hold an engine, and the fact being stated ("this
+	// directory is a dependency tree, not authored content") is the same kind of
+	// path-classification statement, by the same declarer, merged the same way as
+	// Source/Test. Absent key => nil, contributing nothing to the merged union.
+	//
+	// Core deliberately does NOT validate these names. It has no opinion about
+	// what an ecosystem calls its dependency tree, and inventing one would
+	// re-bake the knowledge as a validator.
+	DependencyDirs []string `yaml:"dependency_dirs"`
 }
 
 // EngineSpec is one entry in a pack manifest's top-level `engines:` block: the
@@ -83,10 +100,10 @@ type Classification struct {
 // (parseEngineSpec); the resolved engine.EngineBinding is stored on Binding so
 // every consumer reads ONE converted binding, never the raw spec.
 type EngineSpec struct {
-	Command        string `yaml:"command"`
-	InputMode      string `yaml:"input_mode"`
-	InputFlag      string `yaml:"input_flag"`
-	Convert        string `yaml:"convert"`
+	Command   string `yaml:"command"`
+	InputMode string `yaml:"input_mode"`
+	InputFlag string `yaml:"input_flag"`
+	Convert   string `yaml:"convert"`
 	// Producer is the optional pack-relative un-sandboxed producer script (symmetric
 	// with Convert) the dispatch runs to produce the engine's payload instead of the
 	// plain Command (ISSUE-045 option (ii)). Declared as pack DATA and converted to
@@ -109,9 +126,9 @@ type EngineSpec struct {
 	// ExemptFromScopeFilter marks an engine whose violations bypass diff-scope
 	// filtering (the go-build declared build-exemption, SPEC-041 CLM-011). Declared
 	// as pack DATA so the exemption travels with the pack, not a baked binding.
-	ExemptFromScopeFilter bool `yaml:"exempt_from_scope_filter"`
-	Provision     *engine.Provision     `yaml:"provision"`
-	FieldContract *engine.FieldContract `yaml:"field_contract"`
+	ExemptFromScopeFilter bool                  `yaml:"exempt_from_scope_filter"`
+	Provision             *engine.Provision     `yaml:"provision"`
+	FieldContract         *engine.FieldContract `yaml:"field_contract"`
 	// Binding is the engine.EngineBinding the spec converts to at load. It is
 	// populated by parseEngineSpec during ParseManifest, not parsed directly from
 	// yaml, so the string-enum spellings resolve through the fail-loud parsers.

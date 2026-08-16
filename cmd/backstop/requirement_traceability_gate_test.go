@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/backstop-ai/backstop-core/pkg/artifact"
 	"github.com/backstop-ai/backstop-core/pkg/gate"
 )
 
@@ -25,7 +26,7 @@ func TestGateCLI_RequirementTraceabilityStepsWired(t *testing.T) {
 func TestGateCLI_RequirementTraceability_DeliveredUncoveredBlocksOverFixtureCorpus(t *testing.T) {
 	root := traceWorkspace(t)
 	writeTraceBundle(t, root, "delivered", "1.0.0")
-	block, advisory := computeRequirementTraceabilitySurfaces(root, rootAtDir(t, root))
+	block, advisory := computeRequirementTraceabilitySurfaces(root, rootAtDir(t, root), artifact.NonCorpusDirs{})
 	if block.StepName != gate.StepRequirementTraceability || block.Status != "fail" || !traceResultContains(block, "REQ-001") {
 		t.Fatalf("delivered uncovered bundle should block over fixture corpus: %#v", block)
 	}
@@ -41,7 +42,7 @@ func TestGateCLI_RequirementTraceability_PathNormalizationJoins(t *testing.T) {
 	// spec join and cover.
 	writeTraceBundle(t, root, "delivered", "1.0.0")
 	writeTraceSpec(t, root, "SPEC-001", "implemented", "trace-fixture:REQ-001@1.0.0")
-	block, advisory := computeRequirementTraceabilitySurfaces(root, rootAtDir(t, root))
+	block, advisory := computeRequirementTraceabilitySurfaces(root, rootAtDir(t, root), artifact.NonCorpusDirs{})
 	if block.Status != "pass" || advisory.Status != "pass" {
 		t.Fatalf("normalized spec path should join support ref to citing record: block=%#v advisory=%#v", block, advisory)
 	}
@@ -86,7 +87,7 @@ func TestGateCLI_RequirementTraceability_PathNormalizationJoins(t *testing.T) {
 func TestGateCLI_RequirementTraceabilityVerdictInOutput(t *testing.T) {
 	root := traceWorkspace(t)
 	writeTraceBundle(t, root, "delivered", "1.0.0")
-	block, advisory := computeRequirementTraceabilitySurfaces(root, rootAtDir(t, root))
+	block, advisory := computeRequirementTraceabilitySurfaces(root, rootAtDir(t, root), artifact.NonCorpusDirs{})
 	out := gate.FormatHuman(gate.GateResult{Steps: []gate.StepResult{block, advisory}}, true)
 	if !strings.Contains(out, gate.StepRequirementTraceability) || !strings.Contains(out, gate.StepRequirementTraceabilityAdvisory) {
 		t.Fatalf("gate output must include traceability step names, got:\n%s", out)

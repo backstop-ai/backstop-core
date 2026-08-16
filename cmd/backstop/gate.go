@@ -483,6 +483,30 @@ func packsDeclaringGateType(packs []*pack.Manifest, dim gate.TraceabilityDimensi
 	return out
 }
 
+// declaresTestVerdictEngine reports whether ANY of the given manifests declares an
+// engine binding with `gate_type: test` (ISSUE-118 CLM-006).
+//
+// It is keyed on the DECLARATION, never on a pack name — the same rule
+// packsDeclaringGateType follows for the traceability dimensions. It answers the
+// question test_verification needs in order to distinguish "the mandated tests
+// passed" from "nothing can tell me whether they passed": without a declared
+// test-verdict engine, an empty verdict stream means the capability is absent, not
+// that the suite was green, and reporting an unqualified pass there is exactly the
+// silent green ISSUE-118 was filed about.
+func declaresTestVerdictEngine(packs []*pack.Manifest) bool {
+	for _, m := range packs {
+		if m == nil {
+			continue
+		}
+		for _, spec := range m.Engines {
+			if spec.Binding.GateType == engine.GateTypeTest {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // resolveCapabilityPack selects THE installed pack that provides a dimension's capability
 // by its declared gate_type engine (ISSUE-063 REQ-004), never by name. Zero matches → nil
 // (capability-absent no-op, governed by the polarity classifier upstream). Exactly one →
@@ -731,8 +755,16 @@ func buildGateSteps(projectRoot string, root artifact.Root, scope ...*gate.GateS
 		}
 	}
 
+	// THE ARTIFACT-CORPUS EXCLUSION SET, DERIVED ONCE (ISSUE-122 CLM-005). It is the
+	// tool-agnostic base core carries unioned with the dependency directory names the
+	// INSTALLED PACKS declare via classification.dependency_dirs — the same `packs`
+	// manifest set mergeSourceClassifier reads below, so the gate cannot disagree with
+	// itself about which trees are corpus. Every consumer downstream takes THIS
+	// variable; none re-loads the packs and none writes a literal.
+	nonCorpus := artifact.NewNonCorpusDirs(mergeDependencyDirs(packs))
+
 	// Step 1: Artifact validation — delegates to ValidateArtifacts.
-	artifactValidator := &realArtifactValidator{projectRoot: projectRoot, root: root}
+	artifactValidator := &realArtifactValidator{projectRoot: projectRoot, root: root, nonCorpus: nonCorpus}
 
 	// Step 2 ("Code check") is GONE as a gate step (SPEC-040 REQ-001): lint/build/
 	// test now run only through dispatchPackEngines. The baked shared `go test ./...`
@@ -770,7 +802,27 @@ func buildGateSteps(projectRoot string, root artifact.Root, scope ...*gate.GateS
 	// Steps 3-4: Test verification and substantiveness need spec dir and code dir.
 	// We use the project root as the code directory for walking test files. Both
 	// consume the merged classifier + matcher (the de-Go'd pack-declared discovery).
-	testVerifyStep := gate.StepTestVerificationScopedFunc(specDir, projectRoot, activeScope, classifier, matcher)
+	//
+	// THE TEST-VERDICT COLLECTOR (ISSUE-118). pack_engines computes a failing
+	// mandated test's finding correctly and then throws it away: the finding's
+	// reported position is a bare basename that no scope's canonicalized file set
+	// can match, so the diff-scope filter drops it silently. This collector carries
+	// the UNFILTERED dispatch stream — captured BEFORE that filter — across to
+	// test_verification, which joins it to the mandated tests BY NAME.
+	//
+	// ORDERING IS WHAT MAKES A SUPPLIER SAFE. `packed` (below) assembles lock,
+	// steps[0], pack_engines, then steps[1:] — which begins at test_verification.
+	// So the collector is ALWAYS populated before it is read. If that assembly order
+	// is ever changed, THIS is what breaks, and the verdict would silently go empty.
+	//
+	// The zero value is the honest default for the paths that never reach dispatch:
+	// no verdict engine declared, so test_verification emits its capability-absent
+	// advisory rather than an unqualified pass. That covers the len(packs) == 0 early
+	// return below, where no pack_engines step is assembled at all.
+	var collectedVerdicts []gate.Violation
+	verdictEngineDeclared := false
+	testVerifyStep := gate.StepTestVerificationVerdictFunc(specDir, projectRoot, activeScope, classifier, matcher,
+		func() ([]gate.Violation, bool) { return collectedVerdicts, verdictEngineDeclared })
 
 	// Step 4: Test substantiveness needs the resolved mandated tests with file paths.
 	// We extract mandated tests and resolve their file paths, then pass to substantiveness.
@@ -796,7 +848,7 @@ func buildGateSteps(projectRoot string, root artifact.Root, scope ...*gate.GateS
 	// the non-policied WARN advisory (StepArtifactStatusDriftAdvisory), so the WARN
 	// direction is structurally non-blocking (no policy can upgrade it).
 	driftBlockStep, driftAdvisoryStep := buildStatusDriftSteps(projectRoot, root, classifier, matcher, mergePackClaimIndex(packs))
-	traceBlockStep, traceAdvisoryStep := buildRequirementTraceabilitySteps(projectRoot, root)
+	traceBlockStep, traceAdvisoryStep := buildRequirementTraceabilitySteps(projectRoot, root, nonCorpus)
 
 	// SPEC-036: wrap the three traceability analyzer steps with the polarity
 	// classifier so it runs IN FRONT OF each analyzer. The classifier derives the
@@ -893,13 +945,25 @@ func buildGateSteps(projectRoot string, root artifact.Root, scope ...*gate.GateS
 		// (substantiveness/contracts/coverage) are dispatched by their own gate step;
 		// running them here too would scan context-free and emit garbage findings.
 		dispatchPacks := excludeDedicatedStepRules(packs)
-		// Split-provisioning fail-loud (SPEC-034 REQ-008): before dispatch, verify
-		// the assume-present Layer-0 native tools (go/golangci-lint) resolve on PATH.
-		// A missing one is a *check.ConfigError surfaced as a config-error step (exit
-		// 2) naming the tool — backstop never installs it. Backstop-introduced
-		// engines (semgrep) carry a Provision record and are skipped here (pinned +
-		// auto-provisioned, CLM-026/CLM-027/CLM-028).
-		if provErr := provisionEngines(dispatchPacks); provErr != nil {
+		// PRESENCE CHECK OVER THE WHOLE INSTALLED-PACK SET (ISSUE-112) — note the
+		// argument is `packs`, NOT `dispatchPacks`, and that is the entire point.
+		//
+		// Before dispatch, verify every declared engine tool resolves on PATH:
+		// assume-present Layer-0 tools (go/golangci-lint) and pinned ones (semgrep,
+		// ast-grep) alike, since backstop installs neither. A missing one is a
+		// *check.ConfigError surfaced as a config-error step (exit 2) naming the tool.
+		//
+		// The exclusion above answers "which step dispatches this rule"; it must not
+		// double as "whose tools have to exist". Tool presence is a property of the
+		// TOOL, not of the dispatching step. Passing the post-exclusion set here left
+		// engines routed to a dedicated step — substantiveness, contracts, coverage —
+		// never probed at all, so a project missing their tool got a clean dimension
+		// over an engine that never ran.
+		//
+		// OWNED CONSEQUENCE: for those dedicated-step engines the allowlist TRUST
+		// refusal now surfaces from this step instead of from dispatch. Same verdict,
+		// same message, reported earlier — the un-allowlisted tool was always refused.
+		if provErr := provisionEngines(packs); provErr != nil {
 			return gate.StepResult{
 				StepName:   "pack_engines",
 				Status:     "fail",
@@ -920,6 +984,20 @@ func buildGateSteps(projectRoot string, root artifact.Root, scope ...*gate.GateS
 				Violations: []gate.Violation{{Rule: "pack_engines", Message: err.Error(), Severity: "error"}},
 			}
 		}
+		// PUBLISH THE UNFILTERED STREAM TO THE VERDICT COLLECTOR — BEFORE THE FILTER
+		// BELOW, WHICH IS THE ENTIRE POINT (ISSUE-118). A failing mandated test's
+		// finding reports a bare basename that resolves nowhere, so the diff-scope
+		// filter drops it and test_verification never learns the test failed. Routing
+		// is by the DECLARED gate_type carried on each violation — never a pack, rule
+		// or message-name sniff.
+		//
+		// This ADDS a reader; it changes NOTHING about what this step itself reports.
+		// The filtered set below is untouched, deliberately: whether pack_engines
+		// should also keep an out-of-scope test failure is a separate question with
+		// its own issue, and quietly answering it here would make both unreviewable.
+		collectedVerdicts = gate.RouteTestVerdictFindings(violations)
+		verdictEngineDeclared = declaresTestVerdictEngine(dispatchPacks)
+
 		// ISSUE-070: apply the diff-scope filter the delegate/baseline paths already
 		// use. Project-wide engines (golangci) scan ./... and legitimately produce
 		// violations across the whole repo; unchanged-file NON-exempt violations must be
@@ -1026,14 +1104,18 @@ func computeDriftSurfaces(projectRoot string, res *gate.ArtifactStatusResolution
 	return gate.SplitDriftResult(combined)
 }
 
-func buildRequirementTraceabilitySteps(projectRoot string, root artifact.Root) (gate.StepFunc, gate.StepFunc) {
+// buildRequirementTraceabilitySteps takes the artifact-corpus exclusion set because it
+// is the outermost hop on the path down to collectTraceRefs's DiscoverArtifacts call —
+// buildGateSteps is where the installed-pack manifests are actually in hand, so the set
+// travels from there rather than being re-derived (or defaulted) further in.
+func buildRequirementTraceabilitySteps(projectRoot string, root artifact.Root, nonCorpus artifact.NonCorpusDirs) (gate.StepFunc, gate.StepFunc) {
 	var (
 		once           sync.Once
 		blockResult    gate.StepResult
 		advisoryResult gate.StepResult
 	)
 	compute := func() {
-		blockResult, advisoryResult = computeRequirementTraceabilitySurfaces(projectRoot, root)
+		blockResult, advisoryResult = computeRequirementTraceabilitySurfaces(projectRoot, root, nonCorpus)
 	}
 	block := func(context.Context) gate.StepResult {
 		once.Do(compute)
@@ -1046,7 +1128,7 @@ func buildRequirementTraceabilitySteps(projectRoot string, root artifact.Root) (
 	return block, advisory
 }
 
-func computeRequirementTraceabilitySurfaces(projectRoot string, root artifact.Root) (gate.StepResult, gate.StepResult) {
+func computeRequirementTraceabilitySurfaces(projectRoot string, root artifact.Root, nonCorpus artifact.NonCorpusDirs) (gate.StepResult, gate.StepResult) {
 	res, err := gate.ResolveArtifactStatus(root.Path)
 	if err != nil {
 		return gate.StepResult{
@@ -1056,7 +1138,7 @@ func computeRequirementTraceabilitySurfaces(projectRoot string, root artifact.Ro
 			Violations: []gate.Violation{{Rule: gate.StepRequirementTraceability, Message: "resolving artifact status: " + err.Error(), Severity: "error"}},
 		}, gate.StepResult{StepName: gate.StepRequirementTraceabilityAdvisory, Status: "pass", Violations: []gate.Violation{}}
 	}
-	refs, err := collectTraceRefs(root)
+	refs, err := collectTraceRefs(root, nonCorpus)
 	if err != nil {
 		return gate.StepResult{
 			StepName:   gate.StepRequirementTraceability,
@@ -1078,8 +1160,8 @@ func computeRequirementTraceabilitySurfaces(projectRoot string, root artifact.Ro
 	return gate.SplitTraceabilityResult(combined)
 }
 
-func collectTraceRefs(root artifact.Root) ([]gate.TraceRef, error) {
-	discovered, err := DiscoverArtifacts(root, []string{"spec", "issue"})
+func collectTraceRefs(root artifact.Root, nonCorpus artifact.NonCorpusDirs) ([]gate.TraceRef, error) {
+	discovered, err := DiscoverArtifacts(root, []string{"spec", "issue"}, nonCorpus)
 	if err != nil {
 		return nil, fmt.Errorf("discovering spec/issue artifacts: %w", err)
 	}
@@ -1233,7 +1315,13 @@ func buildTestSubstantivenessStep(specDir, codeDir, projectRoot string, scope *g
 			violations = append(violations, v)
 		}
 
-		// Q2 noTarget set-join, keyed per mandated test from the extraction findings.
+		// Q2 noTarget set-join, in TWO passes (ISSUE-113).
+		//
+		// Pass 1 collects, and raises nothing. The two skips below are the SAME two the
+		// single-pass loop applied, in the same order, and that order matters: an
+		// unresolved or out-of-scope test must never inflate the eligible count, or a
+		// diff-scoped run could refuse over tests it was not even looking at.
+		var eligible []gate.MandatedTest
 		for _, mt := range mandated {
 			if mt.FilePath == "" {
 				continue // not found — already reported by the verification step
@@ -1241,11 +1329,59 @@ func buildTestSubstantivenessStep(specDir, codeDir, projectRoot string, scope *g
 			if scope != nil && scope.Mode != gate.GateScopeModeAll && !scope.Contains(mt.FilePath) {
 				continue
 			}
+			if gate.JoinEligibleForNoTarget(mt, testFileColocatedWithTarget(mt.FilePath, mt.TargetPkg)) {
+				eligible = append(eligible, mt)
+			}
+		}
+
+		// THE REFUSAL. When at least one test is join-eligible and BOTH routed partitions
+		// are empty, the pack gave core no evidence on which to found any per-test verdict,
+		// so the step reports ONE honest config-error instead of one unfounded "does not
+		// call package X" violation per mandated test (397 of them in the incident
+		// ISSUE-113 was filed from).
+		//
+		// len(hollow) is the ROUTED partition length, deliberately NOT len(violations) (the
+		// scope-FILTERED hollow violations). Refusing is the drastic action, so any pack
+		// output at all — even for a file this run is not looking at — must block it.
+		// "Tidying" this to the filtered count makes the refusal MORE likely to fire, which
+		// is the wrong direction.
+		//
+		// WHAT THIS RETURN DISCARDS, precisely: it drops whatever is in `violations`, which
+		// at this point can only be scope-filtered hollow violations. But the refusal
+		// requires len(hollow) == 0, and a scope filter cannot manufacture violations out of
+		// an empty partition — so on this path `violations` is provably EMPTY and no hollow
+		// verdict is lost. The per-test noTarget verdicts pass 2 would have raised ARE
+		// declined by design, and under the bare-helper-assertion shape they can be TRUE;
+		// that is why the refusal message names it as a candidate cause rather than
+		// diagnosing the pack. This is not a claim that no true verdict is ever lost.
+		//
+		// The hollow == 0 guard is what makes even the narrow claim true. An earlier design
+		// refused on (eligible, extraction) alone and therefore DID discard real hollow
+		// violations, silently converting a correct RED into an exit-2 that blamed the
+		// pack's config for a finding the operator needed to see.
+		// TestE2E_HollowEvidenceBlocksZeroMatchRefusal pins that boundary end-to-end. Do
+		// not simplify len(hollow) out of this call.
+		//
+		// ConfigErr is doing three mechanical jobs here, not one: Gate.Run halts the
+		// remaining steps and returns exit 2 (pkg/gate/gate.go); waiver_resolution is
+		// ordered after this step so it never runs and the refusal cannot be waived; and
+		// ApplyPolicy skips ConfigErr steps so it cannot be baseline-grandfathered
+		// (pkg/gate/policy.go). Removing ConfigErr for tidiness removes all three at once.
+		if v, refuse := gate.SubstantivenessEvidenceRefusal(len(eligible), len(extraction), len(hollow)); refuse {
+			return gate.StepResult{
+				StepName:   gate.StepTestSubstantiveness,
+				Status:     "fail",
+				ConfigErr:  true,
+				Violations: []gate.Violation{v},
+			}
+		}
+
+		// Pass 2 — the raise, now over the eligible set. NoTargetViolationForTest is still
+		// called rather than inlined: eligibility only ever spoke about the EMPTY case, and
+		// the table remains the authority on whether the ACTUAL evidence satisfies the test.
+		for _, mt := range eligible {
 			referenced := gate.ReferencedSetForTest(extraction, mt)
 			samePackage := testFileColocatedWithTarget(mt.FilePath, mt.TargetPkg)
-			// NoTargetViolationForTest applies the opt-in `kind: absence` pre-join skip
-			// at the same site as the FilePath=="" and scope skips above, then delegates
-			// to the UNCHANGED NoTargetViolation for ordinary tests.
 			if v, raised := gate.NoTargetViolationForTest(mt, referenced, samePackage); raised {
 				v.File = mt.FilePath
 				violations = append(violations, v)
@@ -1658,6 +1794,16 @@ type realArtifactValidator struct {
 	// resolved lazily below, which is what keeps the several test constructions of
 	// this struct working unchanged.
 	cohort schema.Cohort
+	// nonCorpus is the artifact-corpus exclusion set derived once in buildGateSteps
+	// from the installed packs (ISSUE-122). It is a FIELD for the same reason cohort
+	// is: so the gate's two corpus consumers below — the per-artifact validation
+	// config and the ungated scan — cannot measure different corpora.
+	//
+	// The ZERO VALUE IS REACHABLE AND CORRECT. Every test construction of this struct
+	// uses a keyed literal and wires no packs, so it gets artifact.NonCorpusDirs{},
+	// which excludes the tool-agnostic base and nothing else — today-minus-declarations
+	// rather than a walk into `.git`.
+	nonCorpus artifact.NonCorpusDirs
 }
 
 func (v *realArtifactValidator) ValidateAll(_ context.Context) ([]gate.Violation, error) {
@@ -1677,6 +1823,7 @@ func (v *realArtifactValidator) ValidateAll(_ context.Context) ([]gate.Violation
 		All:         true,
 		SchemaFS:    SchemaFS,
 		Cohort:      cohort,
+		NonCorpus:   v.nonCorpus,
 	}
 
 	result, err := ValidateArtifacts(cfg)
@@ -1702,7 +1849,7 @@ func (v *realArtifactValidator) ValidateAll(_ context.Context) ([]gate.Violation
 	// The findings arrive already ProjectWide-marked from the shared conversion, which
 	// is what keeps them alive through diff-scoped filtering — an ungated artifact is
 	// by definition a file nobody just edited.
-	ungated, ungatedErr := gate.FindUngatedArtifacts(v.projectRoot, v.root)
+	ungated, ungatedErr := gate.FindUngatedArtifacts(v.projectRoot, v.root, v.nonCorpus)
 	if ungatedErr != nil {
 		return nil, &gate.ConfigError{Err: fmt.Errorf("scanning for ungated artifacts: %w", ungatedErr)}
 	}

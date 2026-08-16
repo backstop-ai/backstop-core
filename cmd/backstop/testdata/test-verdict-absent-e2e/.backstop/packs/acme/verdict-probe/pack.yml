@@ -1,0 +1,42 @@
+name: acme/verdict-probe
+version: 1.0.0
+language: go
+archetype: enforcement
+description: >
+  Committed minimal probe pack for the ISSUE-118 verdict-capability-ABSENT
+  acceptance test. It is IDENTICAL to the test-verdict-e2e fixture's pack in every
+  respect except ONE: its single engine declares `gate_type: lint` rather than
+  `gate_type: test`, so NO installed pack declares a test-verdict engine anywhere.
+
+  That one-word difference is the whole point of this second fixture. The
+  verdict-capability-absent branch must derive capability presence from the REAL
+  declared bindings read out of the installed manifests, so a seam-only injection
+  cannot exercise it — a workspace that genuinely declares no `gate_type: test`
+  binding is the only honest input for the claim. If this file's gate_type is ever
+  changed to `test`, the absent branch becomes structurally unreachable and its
+  acceptance test silently stops testing anything.
+
+  Discovery capability stays PRESENT (same classification globs, same
+  test_name_patterns), so the run reaches the mandated-test loop and the ONLY thing
+  missing is the verdict engine.
+classification:
+  source:
+    - "**/*.go"
+  test:
+    - "**/*_test.go"
+test_name_patterns:
+  - "^\\s*func\\s+(Test\\w+)\\s*\\("
+engines:
+  verdict-probe:
+    command: grep
+    input_mode: none
+    scope_kind: project-wide
+    category: mechanism
+    gate_type: lint
+content:
+  ruleset:
+    version: 1.0.0
+    rules:
+      - id: verdict-probe
+        engine: verdict-probe
+        risk_class: correctness

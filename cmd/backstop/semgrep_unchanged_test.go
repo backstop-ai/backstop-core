@@ -1,10 +1,12 @@
 package main
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/backstop-ai/backstop-core/pkg/baseengines"
+	"github.com/backstop-ai/backstop-core/pkg/check"
 	"github.com/backstop-ai/backstop-core/pkg/pack"
 	"github.com/backstop-ai/backstop-core/pkg/pack/engine"
 )
@@ -51,14 +53,23 @@ func TestSemgrep_UnchangedSharedEngine(t *testing.T) {
 	}
 }
 
-// TestSemgrep_OnlyProvisioningChanges proves this spec's only semgrep-adjacent
-// change is retiring EnsureSemgrep's bespoke install into declared provisioning,
-// NOT altering the findings path (CLM-021). Two halves so the Sharp-Edge-10
-// silent-gap cannot open: (a) semgrep stays PINNED + auto-provisioned (a non-nil
-// Provision record distinct from the assume-present native toolchain), and (b)
-// the split-provisioning fail-loud does NOT touch semgrep — a semgrep-only pack
-// passes provisionEngines even with nothing on PATH (it is provisioned, not
-// assume-present).
+// TestSemgrep_OnlyProvisioningChanges proves semgrep's FINDINGS path is unchanged
+// while only its PROVISIONING behavior moves — still two halves, so the
+// Sharp-Edge-10 silent gap cannot open.
+//
+// (a) semgrep stays PINNED (a non-nil Provision record naming a tool + version,
+//     distinct from the assume-present native toolchain) — UNCHANGED, and it is
+//     the guard on the promise that this lane never touches the findings path.
+//
+// (b) ISSUE-112 SUPERSEDES this half's former assertion ("a semgrep-only pack
+//     passes provisionEngines even with nothing on PATH"). The pin never installed
+//     semgrep, so an absent semgrep scanned nothing; provisioning now REFUSES.
+//     Only WHEN a tool is refused changed — never how a tool that runs is parsed.
+//     The name is kept for continuity with the SPEC-034 history a reader following
+//     this test will want.
+//
+// The CrashGuard assertion is a DIFFERENT test (TestSemgrep_UnchangedSharedEngine,
+// above) and is untouched by ISSUE-112.
 func TestSemgrep_OnlyProvisioningChanges(t *testing.T) {
 	bind, err := baseengines.Registry().Lookup("semgrep")
 	if err != nil {
@@ -73,12 +84,20 @@ func TestSemgrep_OnlyProvisioningChanges(t *testing.T) {
 		t.Errorf("semgrep Provision must pin the semgrep tool to a version, got %+v", bind.Provision)
 	}
 
-	// (b) The new split-provisioning fail-loud (REQ-008) does NOT apply to semgrep:
-	// a semgrep-only pack passes provisioning with NOTHING on PATH, because semgrep
-	// is provisioned through the declared model, not assume-present (REQ-006 keeps
-	// the findings path untouched).
+	// (b) PROVISIONING is the only thing that changed: with NOTHING on PATH, a
+	// semgrep-only pack now fails loud, because the pin never installed semgrep and
+	// an absent binary scans nothing (ISSUE-112). The findings path is untouched —
+	// this governs WHEN a tool is refused, never how a tool that runs is parsed.
 	withBinaryResolver(t /* nothing present */)
-	if perr := provisionEngines([]*pack.Manifest{semgrepOnlyManifest(t)}); perr != nil {
-		t.Fatalf("semgrep provisioning must NOT fail loud on absent PATH (it is auto-provisioned, not assume-present): %v", perr)
+	perr := provisionEngines([]*pack.Manifest{semgrepOnlyManifest(t)})
+	if perr == nil {
+		t.Fatal("semgrep absent from PATH must fail loud at provisioning, got nil — a pinned tool that never ran is not a clean scan")
+	}
+	var cfgErr *check.ConfigError
+	if !errors.As(perr, &cfgErr) {
+		t.Fatalf("absent semgrep must surface as *check.ConfigError (exit 2), got %T: %v", perr, perr)
+	}
+	if !strings.Contains(cfgErr.Error(), "semgrep") {
+		t.Errorf("the refusal must name `semgrep`, got: %v", cfgErr)
 	}
 }

@@ -316,6 +316,12 @@ func (m TestNameMatcher) HasPatterns() bool { return len(m.patterns) > 0 }
 // discover test FILES via the pack-declared TEST globs (classifier.IsTestFile) and
 // extract test NAMES via the pack-declared TestNameMatcher — no baked `_test.go`
 // walk, no baked `func Test` regex.
+//
+// NAME PRESENCE IS ONLY HALF THE DIMENSION. Since ISSUE-118 test_verification also
+// answers whether the mandated tests PASSED, via the verdict channel
+// StepTestVerificationVerdictFunc takes. This constructor wires no such channel and
+// therefore checks spelling only — which is exactly the unqualified pass over a
+// present-but-failing mandated test that ISSUE-118 reported.
 func StepTestVerificationFunc(specDir, codeDir string, classifier SourceClassifier, matcher TestNameMatcher) StepFunc {
 	return StepTestVerificationScopedFunc(specDir, codeDir, nil, classifier, matcher)
 }
@@ -334,6 +340,36 @@ func StepTestVerificationFunc(specDir, codeDir string, classifier SourceClassifi
 // and mass-fail every mandated test. When BOTH are declared (capability fully
 // present), a genuinely-missing mandated test stays a LOUD blocking failure.
 func StepTestVerificationScopedFunc(specDir, codeDir string, scope *GateScope, classifier SourceClassifier, matcher TestNameMatcher) StepFunc {
+	return StepTestVerificationVerdictFunc(specDir, codeDir, scope, classifier, matcher, nil)
+}
+
+// TestVerdictSupplier yields the routed test-verdict findings an EARLIER gate step
+// collected, and whether any installed pack DECLARED a test-verdict engine at all.
+//
+// It is a SUPPLIER rather than a slice because the collector is populated at RUN
+// time by the pack-dispatch step, not at step-BUILD time — the assembled order is
+// what guarantees the dispatch runs first, and a slice captured at build time would
+// always be empty.
+//
+// A nil supplier means NO verdict channel is wired: the dimension then behaves
+// exactly as it did before ISSUE-118 (name presence only, no join, no advisory).
+// That is what keeps the pre-existing constructors — used by the baseline and
+// waiver step builders — unchanged.
+type TestVerdictSupplier func() (verdicts []Violation, engineDeclared bool)
+
+// StepTestVerificationVerdictFunc is the full-arity constructor: it verifies
+// mandated test names exist AND, when a verdict channel is wired, that the mandated
+// tests actually PASSED.
+//
+// The dimension answers TWO questions, and ISSUE-118 was filed because it only ever
+// answered the first. Name presence is a spelling check: it proves a mandated test
+// EXISTS. The verdict join proves it did not FAIL. A test that exists, is
+// substantive, and is RED satisfied the old check completely — an unqualified pass
+// over a broken promise, which is the false assurance the issue reported.
+//
+// The verdict half consumes findings a PACK engine produced, routed by the
+// DECLARED gate_type; core still runs no test suite itself.
+func StepTestVerificationVerdictFunc(specDir, codeDir string, scope *GateScope, classifier SourceClassifier, matcher TestNameMatcher, verdictChannel TestVerdictSupplier) StepFunc {
 	return func(_ context.Context) StepResult {
 		mandated, err := ExtractMandatedTests(specDir)
 		if err != nil {
@@ -360,11 +396,52 @@ func StepTestVerificationScopedFunc(specDir, codeDir string, scope *GateScope, c
 			}
 		}
 
+		// Resolve the verdict channel ONCE, ABOVE the discovery guard. A nil channel
+		// is the pre-ISSUE-118 behavior: no join, no advisory. engineDeclared
+		// defaults true for that case so an un-wired constructor never emits the
+		// verdict advisory.
+		var verdicts []Violation
+		verdictEngineDeclared := true
+		verdictWired := verdictChannel != nil
+		if verdictWired {
+			verdicts, verdictEngineDeclared = verdictChannel()
+		}
+
 		// EITHER-absent capability guard (REQ-005). Checked BEFORE the discovery walk
 		// so a partial config (globs but no patterns) cannot become a mass not-found
 		// fail misattributing the config gap to the codebase.
 		if !classifier.HasTestGlobs() || !matcher.HasPatterns() {
-			return testDiscoveryCapabilityAbsent(classifier.HasTestGlobs(), matcher.HasPatterns())
+			absent := testDiscoveryCapabilityAbsent(classifier.HasTestGlobs(), matcher.HasPatterns())
+			if verdictWired {
+				// CLM-010. A project with a working test-verdict engine but no declared
+				// test globs would otherwise still swallow a failing mandated test —
+				// a narrower instance of the exact defect this dimension exists to
+				// close. The join takes NEITHER the classifier NOR the matcher, so it
+				// is callable here; the advisory stays warning-severity and still says
+				// what it says, but a blocking verdict alongside it makes the step fail.
+				//
+				// THE nil SCOPE IS DELIBERATE — DO NOT PASS `scope` HERE, AND DO NOT
+				// HAND-ROLL A FilePath/SpecFile CHECK AS A CONSISTENCY GESTURE.
+				// ResolveMandatedTestPaths has not run above this guard, so mt.FilePath
+				// is structurally "" and GateScope.Contains("") is false in diff mode.
+				// A scoped call would therefore keep a mandated test only when its SPEC
+				// FILE happened to land in the diff — and in an all-test-file diff, the
+				// canonical ISSUE-118 shape, it does not. The guard would silently eat
+				// the very verdict this code exists to surface.
+				//
+				// Path resolution IS the absent capability on this path, so there is
+				// nothing honest to scope against. The accepted cost is NOISE (a
+				// possibly out-of-diff verdict) chosen over SILENCE. Attribution falls
+				// back to the mandated test's SPEC FILE for the same reason: a degraded
+				// LOCATION on a verdict that is still reported and still blocks.
+				//
+				// TestTestVerification_VerdictSurvivesDiscoveryCapabilityAbsent pins
+				// this under a diff-mode scope. Narrowing it reds that test, and that
+				// alarm is the point.
+				absent.Violations = append(absent.Violations, MandatedTestFailures(mandated, verdicts, nil)...)
+				absent.Status = StepVerdict(absent.Violations)
+			}
+			return absent
 		}
 
 		found := collectTestFuncNames(codeDir, classifier, matcher)
@@ -404,18 +481,54 @@ func StepTestVerificationScopedFunc(specDir, codeDir string, scope *GateScope, c
 			}
 		}
 
-		status := "pass"
-		if len(violations) > 0 {
-			status = "fail"
+		// THE VERDICT HALF. Name-presence findings come first, then verdict findings,
+		// so a reader sees "missing" before "failed".
+		if verdictWired {
+			if !verdictEngineDeclared {
+				// Un-adopted capability, not a broken promise: a NON-blocking advisory
+				// naming what is missing, so the dimension never reports an unqualified
+				// pass having verified nothing but spelling (CLM-006). It is APPENDED
+				// rather than returned in place of the name-presence findings — a
+				// genuinely missing mandated test must still block even when no verdict
+				// engine exists to say whether it would have passed.
+				violations = append(violations, verdictCapabilityAbsentViolation())
+			} else {
+				violations = append(violations, MandatedTestFailures(mandated, verdicts, scope)...)
+			}
 		}
+
 		if violations == nil {
 			violations = []Violation{}
 		}
 		return StepResult{
-			StepName:   StepTestVerification,
-			Status:     status,
+			StepName: StepTestVerification,
+			// Severity-aware, so the warning-only capability advisory yields "warning"
+			// while any error/critical finding yields "fail". A raw count here would
+			// report a non-blocking advisory as a failure.
+			Status:     StepVerdict(violations),
 			Violations: violations,
 		}
+	}
+}
+
+// verdictCapabilityAbsentViolation builds the DISTINCT, VISIBLE, NON-blocking
+// advisory for CLM-006: due mandated tests exist, but no installed pack declares an
+// engine with `gate_type: test`, so nothing can report whether those tests passed.
+//
+// It is deliberately SEPARATE from testDiscoveryCapabilityAbsent's advisory and
+// carries its own rule id. A project can have full test DISCOVERY and still lack a
+// test-verdict ENGINE; the two name different missing pieces and a consumer needs to
+// know which one to install. It reuses the same capability-absent convention
+// (warning severity, ConfigErr false, exit 0) the discovery/traceability/coverage
+// dimensions emit.
+func verdictCapabilityAbsentViolation() Violation {
+	return Violation{
+		Rule: "test_verification_verdict_capability_absent",
+		Message: "test-verdict capability absent: no installed pack declares an engine with `gate_type: test`, " +
+			"so the gate can confirm the mandated tests EXIST but cannot report whether they PASSED — " +
+			"install/declare a toolchain pack carrying a `gate_type: test` engine. This advisory is " +
+			"non-blocking (exit 0); it is NOT a report that any mandated test failed.",
+		Severity: "warning",
 	}
 }
 

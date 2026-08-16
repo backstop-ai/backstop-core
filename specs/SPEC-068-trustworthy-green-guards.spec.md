@@ -2,10 +2,10 @@
 title: "Trustworthy Green Guards"
 number: SPEC-068
 created: "2026-08-13"
-updated: "2026-08-15"
+updated: "2026-08-16"
 status: implemented
 schema_version: spec/v1
-spec_version: 1.2.9
+spec_version: 1.3.0
 
 implementation:
   summary: >
@@ -295,10 +295,15 @@ requirements:
       type directories, it tells the truth about what it left out. Those findings
       are corpus-integrity facts, not per-file findings, so they must survive a
       diff-scoped run rather than being filtered away with the files they name.
-      The scan must exclude a LITERALLY ENUMERATED set of non-corpus trees —
-      `.git`, `vendor`, `node_modules`, `testdata`, `prototype`, and installed
+      The scan must exclude a DETERMINED set of non-corpus trees — the
+      tool-agnostic base (`.git`, `testdata`, `prototype`) plus whatever
+      installed packs declare via `classification.dependency_dirs`, and installed
       pack trees under `.backstop/packs` — so fixtures and installed packs cannot
-      manufacture findings. That enumeration is this requirement's own and must
+      manufacture findings. Ecosystem-specific dependency directory names are NOT
+      core's to name (ISSUE-122): they arrive as pack-declared data and are
+      unioned onto the tool-agnostic base, so the exclusion set is determined by
+      what is installed rather than by a literal in core. That set is this
+      requirement's own and must
       NOT be expressed as "whatever discovery skips": discovery skips `.backstop`
       wholesale except when `.backstop` IS the resolved root, and inheriting that
       skip by reference would make this clause report nothing in the UNCONFIGURED
@@ -711,7 +716,7 @@ claims:
   - id: CLM-062
     requirement: REQ-008
     subject: pkg/gate
-    text: The scan excludes exactly the enumerated non-corpus trees — .git, vendor, node_modules, testdata, prototype and .backstop/packs — while still walking .backstop itself, so fixtures and installed packs cannot manufacture findings and the unconfigured-root case is not excluded away
+    text: The scan excludes exactly the determined non-corpus trees — the tool-agnostic base (.git, testdata, prototype) plus whatever installed packs declare via classification.dependency_dirs, and .backstop/packs — while still walking .backstop itself, so fixtures and installed packs cannot manufacture findings and the unconfigured-root case is not excluded away
     tests:
       - TestFindUngatedArtifacts_ExcludesEnumeratedNonCorpusTreesButWalksDotBackstop
   - id: CLM-063
@@ -798,7 +803,7 @@ contracts:
       - name: NonCorpusDirNames
         kind: function
         signature: "func NonCorpusDirNames() []string"
-        notes: "ADDED 2026-08-14 (v1.2.4) — declared during PLAN-SPEC-068's implementation, which found this symbol NECESSARILY exported and absent from this contract block. Returns the shared non-corpus directory names no artifact corpus scan descends into, deterministically ordered: .git, vendor, node_modules, testdata, prototype. `.backstop` is DELIBERATELY ABSENT from the list, because its exclusion is ROOT-RELATIVE and each caller layers its own rule on top — CLI discovery skips `.backstop` wholesale EXCEPT when it IS the resolved root, while the REQ-008 ungated scan always walks it and excludes only `.backstop/packs` beneath it (see the FindUngatedArtifacts notes). It returns a COPY so a caller cannot mutate the shared list. EXPORTED for the same reason as the other symbols in this file: its consumers live in DIFFERENT packages — `cmd/backstop/artifact_discover.go` and `pkg/gate`'s ungated-artifact scan (`pkg/gate/artifact_status.go`) — and one hand-typed copy per caller is exactly the drift this file exists to prevent, since a drift would make the set of files the gate picks up and the set it reports leaving out disagree."
+        notes: "ADDED 2026-08-14 (v1.2.4) — declared during PLAN-SPEC-068's implementation, which found this symbol NECESSARILY exported and absent from this contract block. SIGNATURE UNCHANGED BY ISSUE-122; only the names it returns changed. It returns the shared TOOL-AGNOSTIC BASE of non-corpus directory names no artifact corpus scan descends into, deterministically ordered: .git, testdata, prototype. The ecosystem-specific dependency directory names it once also carried are GONE from core (ISSUE-122, resolved 2026-08-16) — core bakes no language or tool knowledge, so those names now arrive as data from installed packs' `classification.dependency_dirs` and are unioned onto this base by `artifact.NonCorpusDirs`, which is what each corpus walk actually consumes. `.backstop` is DELIBERATELY ABSENT from the list, because its exclusion is ROOT-RELATIVE and each caller layers its own rule on top — CLI discovery skips `.backstop` wholesale EXCEPT when it IS the resolved root, while the REQ-008 ungated scan always walks it and excludes only `.backstop/packs` beneath it (see the FindUngatedArtifacts notes). It returns a COPY so a caller cannot mutate the shared list. EXPORTED for the same reason as the other symbols in this file: its consumers live in DIFFERENT packages — `cmd/backstop/artifact_discover.go` and `pkg/gate`'s ungated-artifact scan (`pkg/gate/artifact_status.go`) — and one hand-typed copy per caller is exactly the drift this file exists to prevent, since a drift would make the set of files the gate picks up and the set it reports leaving out disagree."
       - name: Root
         kind: type
         signature: "type Root struct { Path string; Declared string; Configured bool }"
@@ -859,8 +864,8 @@ contracts:
         notes: "SIGNATURE UNCHANGED, MEANING CHANGED (REQ-007): the parameter is now the RESOLVED artifact root, not the project root, and both call sites (cmd/backstop/gate.go:902 and :983) pass the resolved value. The five literal joins at lines 171/193/211/226/241 become Root.Dir calls. The walkers' os.IsNotExist tolerance (lines 382/409/437) is DELIBERATELY KEPT: a missing type directory under an existing root stays a non-error, which is what preserves the empty-root pass (CLM-056). Loud failure moves to the ROOT, where the bundle's 0.10.0 correction says it belongs."
       - name: FindUngatedArtifacts
         kind: function
-        signature: "func FindUngatedArtifacts(projectRoot string, root artifact.Root) ([]UngatedArtifact, error)"
-        notes: "REQ-008's surfacing scan. RENAMED from an earlier FindOutOfRootArtifacts, and the rename is the point: the predicate is PER KIND, not root containment. It absolutizes projectRoot on entry — Root.Path is absolute by ResolveRoot's guarantee, and comparing an absolute Root.Dir(kind) against a relative walk path yields either zero findings or one per artifact, both of which look like a working implementation (CLM-067). It walks projectRoot, skips the ENUMERATED non-corpus trees (.git, vendor, node_modules, testdata, prototype, and installed pack trees under .backstop/packs — note that .backstop ITSELF is walked, unlike in discovery's skip set, or the unconfigured motivating case is excluded away before it can be found), classifies each remaining file with artifact.ClassifyFilename, and reports every one whose parent directory is not Root.Dir(kind). A containment test would return EMPTY whenever the root is unconfigured — projectRoot contains itself — which is exactly the backstop-runtime shape the bundle cites, so containment made the clause vacuous on its own motivating example (CLM-058). Directness matters: the status walk reads type directories with os.ReadDir and does not recurse (walkArtifactDir, artifact_status.go:379-404), so a file nested one level below specs/ is genuinely UNGATED and is reported — though it is still DISCOVERED and schema-validated, because DiscoverArtifacts is a recursive filepath.Walk; the two facts are distinct and CLM-063 pins the distinction. A mere subdirectory is not a finding."
+        signature: "func FindUngatedArtifacts(projectRoot string, root artifact.Root, nonCorpus artifact.NonCorpusDirs) ([]UngatedArtifact, error)"
+        notes: "REQ-008's surfacing scan. RENAMED from an earlier FindOutOfRootArtifacts, and the rename is the point: the predicate is PER KIND, not root containment. It absolutizes projectRoot on entry — Root.Path is absolute by ResolveRoot's guarantee, and comparing an absolute Root.Dir(kind) against a relative walk path yields either zero findings or one per artifact, both of which look like a working implementation (CLM-067). THIRD PARAMETER ADDED 2026-08-16 (ISSUE-122): the non-corpus exclusion set arrives AS A PARAMETER rather than being read from a core-local literal, because core bakes no ecosystem nouns. It walks projectRoot, skips the trees that set determines — the tool-agnostic base (.git, testdata, prototype) plus whatever installed packs declare via classification.dependency_dirs — and, by a rule LOCAL to this walk and unchanged by ISSUE-122, installed pack trees under .backstop/packs (note that .backstop ITSELF is walked, unlike in discovery's skip set, or the unconfigured motivating case is excluded away before it can be found). The zero-value NonCorpusDirs excludes the tool-agnostic base, so a caller that wires no packs degrades to today-minus-declarations rather than walking .git. It classifies each remaining file with artifact.ClassifyFilename, and reports every one whose parent directory is not Root.Dir(kind). A containment test would return EMPTY whenever the root is unconfigured — projectRoot contains itself — which is exactly the backstop-runtime shape the bundle cites, so containment made the clause vacuous on its own motivating example (CLM-058). Directness matters: the status walk reads type directories with os.ReadDir and does not recurse (walkArtifactDir, artifact_status.go:379-404), so a file nested one level below specs/ is genuinely UNGATED and is reported — though it is still DISCOVERED and schema-validated, because DiscoverArtifacts is a recursive filepath.Walk; the two facts are distinct and CLM-063 pins the distinction. A mere subdirectory is not a finding."
       - name: UngatedArtifact
         kind: type
         signature: "type UngatedArtifact struct { Path string; Kind artifact.Kind; ExpectedDir string; Root string }"
@@ -933,8 +938,8 @@ contracts:
     provides:
       - name: DiscoverArtifacts
         kind: function
-        signature: "func DiscoverArtifacts(root artifact.Root, typeFilters []string) ([]DiscoveredArtifact, error)"
-        notes: "SIGNATURE CHANGED (REQ-007). The private artifactPatterns map (artifact_discover.go:18-26) is DELETED in favor of artifact.ClassifyFilename. The skip list at line 48 currently SkipDirs `.backstop` unconditionally, which is why a .backstop/-rooted repo discovers nothing; it becomes a ROOT-RELATIVE exclusion that always excludes installed pack trees (.backstop/packs) while walking the resolved root itself (CLM-045/CLM-046)."
+        signature: "func DiscoverArtifacts(root artifact.Root, typeFilters []string, nonCorpus artifact.NonCorpusDirs) ([]DiscoveredArtifact, error)"
+        notes: "SIGNATURE CHANGED (REQ-007), then WIDENED AGAIN 2026-08-16 (ISSUE-122). The private artifactPatterns map (artifact_discover.go:18-26) is DELETED in favor of artifact.ClassifyFilename. The non-corpus exclusion set no longer lives in a core-local literal: it arrives AS A PARAMETER — the tool-agnostic base (.git, testdata, prototype) unioned with whatever installed packs declare via classification.dependency_dirs — because core bakes no ecosystem nouns. The ROOT-RELATIVE `.backstop` rule stays LOCAL to this walk and is UNCHANGED by that: installed pack trees (.backstop/packs) are always excluded, while `.backstop` itself is walked when it IS the resolved root, which is what makes a .backstop/-rooted repo discoverable (CLM-045/CLM-046). The zero-value NonCorpusDirs excludes the tool-agnostic base, so a caller that wires no packs degrades to today-minus-declarations rather than walking .git."
     consumes:
       - source: pkg/artifact
         name: Root
@@ -1004,12 +1009,12 @@ contracts:
     provides:
       - name: realArtifactValidator
         kind: type
-        signature: "type realArtifactValidator struct { projectRoot string; root artifact.Root; cohort schema.Cohort }"
-        notes: "Gains the resolved artifact root and the cohort (gate.go:1568) so the gate's artifact_validation step asserts on the same values the CLI does rather than re-deriving them per step."
+        signature: "type realArtifactValidator struct { projectRoot string; root artifact.Root; cohort schema.Cohort; nonCorpus artifact.NonCorpusDirs }"
+        notes: "Gains the resolved artifact root and the cohort (gate.go:1568) so the gate's artifact_validation step asserts on the same values the CLI does rather than re-deriving them per step. FOURTH FIELD ADDED 2026-08-16 (ISSUE-122): nonCorpus is the artifact-corpus exclusion set derived ONCE in buildGateSteps from the installed packs, carried as a FIELD for the same reason cohort is — so this struct's two corpus consumers, the per-artifact validation config and the ungated scan, cannot measure different corpora. Its zero value is reachable and correct: every keyed test construction of this struct wires no packs and gets artifact.NonCorpusDirs{}, which excludes the tool-agnostic base and nothing else."
       - name: ValidateAll
         kind: method
         signature: "func (v *realArtifactValidator) ValidateAll(ctx context.Context) ([]gate.Violation, error)"
-        notes: "Signature unchanged, RETURN SET WIDENED (REQ-008): after converting ValidateArtifacts' violations it appends the gate.FindUngatedArtifacts(projectRoot, root) findings, each marked ProjectWide so filterViolations (pkg/gate/scope.go:302-326) cannot drop them from a diff-scoped run — the file a finding names is by definition not in the diff. This is the ONLY place the ungated scan is invoked; a second call site would let the two disagree about the root."
+        notes: "Signature unchanged, RETURN SET WIDENED (REQ-008): after converting ValidateArtifacts' violations it appends the gate.FindUngatedArtifacts(projectRoot, root, nonCorpus) findings — the third argument being the struct's own exclusion-set field, so the scan and the validation config measure one corpus — each marked ProjectWide so filterViolations (pkg/gate/scope.go:302-326) cannot drop them from a diff-scoped run — the file a finding names is by definition not in the diff. This is the ONLY place the ungated scan is invoked; a second call site would let the two disagree about the root."
       - name: runGate
         kind: function
         signature: "func runGate(cmd *cobra.Command, args []string) error"
@@ -1165,8 +1170,10 @@ output surfaces.
    the empty-root pass. Loud failure moves up to the ROOT.
 
 4. **CLI discovery (REQ-007).** `DiscoverArtifacts` takes a `Root` and walks
-   `Root.Path`. Its skip list becomes root-relative: the non-corpus names
-   (`.git`, `vendor`, `node_modules`, `testdata`, `prototype`) still skip, and
+   `Root.Path`. Its skip list becomes root-relative: the non-corpus names — the
+   tool-agnostic base (`.git`, `testdata`, `prototype`) plus whatever installed
+   packs declare via `classification.dependency_dirs`, handed in as a parameter
+   since ISSUE-122 rather than read from a core-local literal — still skip, and
    `.backstop/packs` ALWAYS skips regardless of where the root sits, but
    `.backstop` itself is no longer skipped when it IS the root. `artifactPatterns`
    is deleted in favor of `ClassifyFilename`. `runArtifactValidate` currently
@@ -1458,32 +1465,37 @@ Two claim families deserve a note on how they must be proven:
     file nobody asked them to touch. Leave the pattern alone; if the nesting is
     genuinely wrong, that is its own issue.
 
-12. **The discovery skip list bakes language/tool nouns into core, and this spec
-    KNOWINGLY PROPAGATES them.** `cmd/backstop/artifact_discover.go:48` skips
-    `vendor` (a Go noun) and `node_modules` (a JavaScript/npm noun) as literals
-    in core CLI code. That is the zero-baked-language invariant's own target —
-    core is a thin executor that bakes no language or tool knowledge, and DD-13
-    says such knowledge lives in packs as data. It is a real defect, it predates
-    this spec, and it is being filed as its own issue (ID pending; cite it here
-    once relayed). It is NOT fixed here: it sits outside BUNDLE-003's requirement
-    set, and REQ-007 is a behavior-PRESERVING change to the same `switch`, so
-    quietly re-scoping it would put an invariant fix on the critical path of the
-    seed everything else waits on.
-    **The aggravating factor an implementer must not miss.** This spec gives the
-    list a SECOND home: `FindUngatedArtifacts` excludes the set REQ-008
-    ENUMERATES (`.git`, `vendor`, `node_modules`, `testdata`, `prototype`,
-    `.backstop/packs`). Note what that set is NOT — it is not "whatever discovery
+12. **The discovery skip list baked language/tool nouns into core. RESOLVED
+    2026-08-16 by ISSUE-122 — do not re-introduce them.** As shipped by this
+    spec, the skip list carried `vendor` (a Go noun) and `node_modules` (a
+    JavaScript/npm noun) as literals in core code, which this spec knowingly
+    propagated: it sat outside BUNDLE-003's requirement set, and REQ-007 was a
+    behavior-PRESERVING change, so re-scoping it would have put an invariant fix
+    on the critical path of the seed everything else waits on. It was filed as
+    ISSUE-122 and that issue is now DELIVERED, so this is a closed defect rather
+    than a knowingly-carried one. The names are GONE from core: `pkg/artifact`
+    holds only the tool-agnostic base (`.git`, `testdata`, `prototype`), the
+    ecosystem nouns arrive as data from installed packs'
+    `classification.dependency_dirs`, and `artifact.NonCorpusDirs` unions the two
+    into the ONE exclusion set both walks take as an explicit parameter. The
+    hazard that survives is the OPPOSITE one: an editor who "restores" a familiar
+    noun to a core literal re-opens ISSUE-122 while every test stays green,
+    because the pack-declared half of the set already covers it in practice. Add
+    a dependency directory name to a PACK, never to core.
+    **The aggravating factor that is now structurally answered.** This spec gives
+    the exclusion set a SECOND consumer: `FindUngatedArtifacts` excludes what
+    REQ-008 determines. Note what that set is NOT — it is not "whatever discovery
     skips", and REQ-008 says so in as many words, because discovery skips
     `.backstop` wholesale except when `.backstop` is the root and inheriting that
     by reference would exclude the unconfigured motivating case before the scan
-    could find it. The two lists are therefore ALMOST the same and differ in one
-    entry, which is exactly the shape that invites two hand-typed copies. Hold
-    ONE shared list of the five common names in one place and let each caller add
-    its own `.backstop` rule on top; do not type the names twice. Two copies
-    doubles the bake, and worse, they can drift, which would make the set of files
-    the gate picks up and the set it reports leaving out disagree — the precise
-    property the shared `ClassifyFilename` predicate exists to guarantee. Whoever
-    fixes the future issue then has one site to change, not two.
+    could find it. The two rules are therefore ALMOST the same and differ in one
+    entry, which is exactly the shape that invites two hand-typed copies. ONE
+    shared authority holds the common names and each caller adds its own
+    `.backstop` rule on top; the names are never typed twice. Two copies would
+    drift, which would make the set of files the gate picks up and the set it
+    reports leaving out disagree — the precise property the shared
+    `ClassifyFilename` predicate exists to guarantee. The single authority is why
+    ISSUE-122's fix landed in one place rather than two.
 
 ## Dependencies
 
@@ -1616,9 +1628,44 @@ quarantine.
 - `issues/ISSUE-056-local-first-baseline-seeding.issue.md`,
   `issues/ISSUE-055-local-provenance-cache-for-local-packs.issue.md` — the
   consumed-not-built halves of the bundle, neither of which is this seed's.
+- `issues/ISSUE-122-baked-ecosystem-literals-in-artifact-discover.issue.md` —
+  the baked-ecosystem-noun defect Sharp Edge 12
+  filed and this spec knowingly propagated; DELIVERED 2026-08-16, which is what
+  the 1.3.0 reconciliation below records.
 
 ## Version History
 
+- **1.3.0** (2026-08-16) — **Reconciliation to ISSUE-122 as delivered. No
+  requirement verdict, claim id or mandated test name changes.** ISSUE-122
+  removed the ecosystem nouns `vendor` and `node_modules` from core's shared
+  non-corpus directory list; the exclusion BEHAVIOR is unchanged, only its SOURCE
+  moved. Core now holds the TOOL-AGNOSTIC BASE (`.git`, `testdata`, `prototype`)
+  and the ecosystem names arrive as data from installed packs'
+  `classification.dependency_dirs`, unioned by the new `artifact.NonCorpusDirs`
+  and handed to both corpus walks as an explicit parameter. **Contract drift
+  (BLOCKING, since this spec is `implemented` and `contract_signature` is set to
+  block).** Three signatures are corrected to the shipped code:
+  `gate.FindUngatedArtifacts` gains a third `nonCorpus artifact.NonCorpusDirs`
+  parameter; `DiscoverArtifacts` gains the same as a third parameter; and
+  `realArtifactValidator`'s exhaustive field enumeration is EXTENDED with
+  `nonCorpus artifact.NonCorpusDirs` (deliberately extended, not restructured
+  into the drift-proof `/* existing fields */` form the neighbouring
+  `ValidateConfig` entry uses). The call-form example inside `ValidateAll`'s note
+  is updated in the same pass so it cannot contradict the signature it
+  illustrates. **Prose.** The five-name enumeration is restated in all seven
+  places as "the tool-agnostic base plus whatever installed packs declare" —
+  including CLM-062's CLAIM TEXT, which the change made FALSE while its mandated
+  test kept its name and kept passing, exactly the silent vacuous green this
+  project exists to prevent. `TestFindUngatedArtifacts_ExcludesEnumeratedNonCorpusTreesButWalksDotBackstop`
+  is UNCHANGED by name and still substantiates the claim: its fixture now spans
+  both sources, with the `vendor`/`node_modules` half arriving through the
+  injection. The `NonCorpusDirNames` SIGNATURE is unchanged — only the names it
+  returns changed — so only that contract's note enumeration was stale. Sharp
+  Edge 12 now records the bake as RESOLVED by ISSUE-122 rather than knowingly
+  propagated, and names the surviving hazard: adding a dependency directory name
+  back into a core literal re-opens the defect while every test stays green.
+  The `.backstop` / `.backstop/packs` asymmetry is UNCHANGED throughout and
+  remains local to each walk.
 - **1.2.9** (2026-08-15) — **Scope clarification to 1.2.8's gate sentence, and
   nothing else.** No requirement, claim, contract, test or mechanism is added,
   removed or reworded. The close-out entry named `./bin/backstop gate` without

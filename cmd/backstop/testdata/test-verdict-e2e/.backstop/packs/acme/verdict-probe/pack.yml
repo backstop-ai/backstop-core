@@ -1,0 +1,45 @@
+name: acme/verdict-probe
+version: 1.0.0
+language: go
+archetype: enforcement
+description: >
+  Committed minimal probe pack for the ISSUE-118 mandated-test verdict acceptance
+  test. It declares exactly what the acceptance surface needs and nothing else:
+  classification globs + test_name_patterns so the test-DISCOVERY capability is
+  genuinely PRESENT (the run must reach the mandated-test loop rather than the
+  discovery advisory, which is a different test's subject), and ONE engine
+  declaring gate_type test so the VERDICT capability is genuinely declared and
+  genuinely discovered from a real manifest read off disk.
+
+  The engine command is `grep` on purpose: it is allowlisted with "*" in
+  pkg/pack/engine/allowlist.go, it is always on PATH, and it declares no
+  provision, so provisionEngines merely resolves it. The go-toolchain fixture pack
+  is deliberately NOT reused here — its engines declare `go` AND `golangci-lint`,
+  and a missing assume-present Layer-0 tool fails the whole step with a
+  *check.ConfigError, which would make this acceptance test flaky for a reason
+  that has nothing to do with the defect under test.
+
+  The engine's actual OUTPUT is irrelevant: the acceptance test seams the dispatch
+  so it can deliver real go-test converter output. What must be real, and is, is
+  the DECLARATION this manifest carries.
+classification:
+  source:
+    - "**/*.go"
+  test:
+    - "**/*_test.go"
+test_name_patterns:
+  - "^\\s*func\\s+(Test\\w+)\\s*\\("
+engines:
+  verdict-probe:
+    command: grep
+    input_mode: none
+    scope_kind: project-wide
+    category: mechanism
+    gate_type: test
+content:
+  ruleset:
+    version: 1.0.0
+    rules:
+      - id: verdict-probe
+        engine: verdict-probe
+        risk_class: correctness

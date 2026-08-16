@@ -56,3 +56,10 @@ gate-report.json
 # Escalations/proposals to the founder are session-ops, not SDLC artifacts;
 # historical snapshots remain in pre-flip history as accepted fossils.
 .backstop/pm/
+
+# ISSUE-122 e2e fixture exception. `node_modules/` above is a real ignore rule, but
+# cmd/backstop/testdata/noncorpus-declared/ PLANTS an artifact-shaped file inside a
+# node_modules tree on purpose: the fixture proves core excludes that tree because a
+# PACK DECLARES the name, not because core knows it. The fixture is worthless if git
+# swallows the very directory under test, so this one path is re-included.
+!cmd/backstop/testdata/noncorpus-declared/node_modules/

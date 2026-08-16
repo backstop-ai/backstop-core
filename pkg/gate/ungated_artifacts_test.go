@@ -78,7 +78,7 @@ func TestFindUngatedArtifacts_SurfacesFileOutsideItsExpectedTypeDirectory(t *tes
 	plantFile(t, project, "specs/SPEC-002-correct.spec.md")
 
 	root := unconfiguredRootAt(t, project)
-	found, err := FindUngatedArtifacts(project, root)
+	found, err := FindUngatedArtifacts(project, root, artifact.NonCorpusDirs{})
 	if err != nil {
 		t.Fatalf("FindUngatedArtifacts: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestFindUngatedArtifacts_SurfacesInsideDefaultRootButWrongTypeDirectory(t *
 		t.Fatalf("the planted bundle %q is not inside the resolved root %q, so a containment predicate would ALSO surface it and this test would prove nothing", inside, root.Path)
 	}
 
-	found, err := FindUngatedArtifacts(project, root)
+	found, err := FindUngatedArtifacts(project, root, artifact.NonCorpusDirs{})
 	if err != nil {
 		t.Fatalf("FindUngatedArtifacts: %v", err)
 	}
@@ -162,7 +162,7 @@ func TestFindUngatedArtifacts_SurfacesFileOutsideConfiguredRoot(t *testing.T) {
 		t.Fatalf("resolving the configured root: %v", err)
 	}
 
-	found, err := FindUngatedArtifacts(project, root)
+	found, err := FindUngatedArtifacts(project, root, artifact.NonCorpusDirs{})
 	if err != nil {
 		t.Fatalf("FindUngatedArtifacts: %v", err)
 	}
@@ -194,7 +194,7 @@ func TestFindUngatedArtifacts_CorrectlyPlacedCorpusProducesNoFindings(t *testing
 		plantFile(t, project, layout.Directory+"/"+name)
 	}
 
-	found, err := FindUngatedArtifacts(project, root)
+	found, err := FindUngatedArtifacts(project, root, artifact.NonCorpusDirs{})
 	if err != nil {
 		t.Fatalf("FindUngatedArtifacts: %v", err)
 	}
@@ -214,7 +214,7 @@ func TestFindUngatedArtifacts_ReportsWithoutWideningRootOrTypeDirectories(t *tes
 	rootBefore := root
 	specDirBefore := root.Dir(artifact.KindSpec)
 
-	found, err := FindUngatedArtifacts(project, root)
+	found, err := FindUngatedArtifacts(project, root, artifact.NonCorpusDirs{})
 	if err != nil {
 		t.Fatalf("FindUngatedArtifacts: %v", err)
 	}
@@ -246,6 +246,13 @@ func TestFindUngatedArtifacts_ReportsWithoutWideningRootOrTypeDirectories(t *tes
 // CLM-062, and BOTH halves are in one test on purpose (trap B): the exclusions must not
 // be so wide that the unconfigured motivating case is excluded away before it can be
 // found. `.backstop` itself is WALKED; only `.backstop/packs` beneath it is excluded.
+//
+// THE SET IS ENUMERATED FROM TWO SOURCES SINCE ISSUE-122, and this fixture spans both:
+// `.git`, `testdata` and `prototype` are the TOOL-AGNOSTIC BASE core carries, while
+// `vendor` and `node_modules` are ECOSYSTEM NOUNS that arrive INJECTED from installed
+// packs' classification.dependency_dirs. Core bakes neither noun; the injection below
+// is what a Go or Node toolchain pack declares. The `.backstop/packs` rule is local to
+// this walk and unchanged either way.
 func TestFindUngatedArtifacts_ExcludesEnumeratedNonCorpusTreesButWalksDotBackstop(t *testing.T) {
 	project := t.TempDir()
 	excluded := []string{
@@ -262,7 +269,7 @@ func TestFindUngatedArtifacts_ExcludesEnumeratedNonCorpusTreesButWalksDotBacksto
 	plantFile(t, project, ".backstop/SPEC-906-reachable.spec.md")
 
 	root := unconfiguredRootAt(t, project)
-	found, err := FindUngatedArtifacts(project, root)
+	found, err := FindUngatedArtifacts(project, root, artifact.NewNonCorpusDirs([]string{"vendor", "node_modules"}))
 	if err != nil {
 		t.Fatalf("FindUngatedArtifacts: %v", err)
 	}
@@ -301,7 +308,7 @@ func TestFindUngatedArtifacts_NestedArtifactIsUngatedButStillDiscovered(t *testi
 	}
 
 	root := unconfiguredRootAt(t, project)
-	found, err := FindUngatedArtifacts(project, root)
+	found, err := FindUngatedArtifacts(project, root, artifact.NonCorpusDirs{})
 	if err != nil {
 		t.Fatalf("FindUngatedArtifacts: %v", err)
 	}
@@ -346,7 +353,7 @@ func TestFindUngatedArtifacts_RelativeAndAbsoluteProjectRootAgree(t *testing.T) 
 
 	root := unconfiguredRootAt(t, project)
 
-	absFound, err := FindUngatedArtifacts(project, root)
+	absFound, err := FindUngatedArtifacts(project, root, artifact.NonCorpusDirs{})
 	if err != nil {
 		t.Fatalf("FindUngatedArtifacts(absolute): %v", err)
 	}
@@ -360,7 +367,7 @@ func TestFindUngatedArtifacts_RelativeAndAbsoluteProjectRootAgree(t *testing.T) 
 	if err := os.Chdir(project); err != nil {
 		t.Fatalf("chdir to %s: %v", project, err)
 	}
-	relFound, relErr := FindUngatedArtifacts(".", root)
+	relFound, relErr := FindUngatedArtifacts(".", root, artifact.NonCorpusDirs{})
 	if chErr := os.Chdir(origDir); chErr != nil {
 		t.Fatalf("chdir back: %v", chErr)
 	}

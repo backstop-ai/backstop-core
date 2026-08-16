@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"sort"
 	"testing"
+
+	"github.com/backstop-ai/backstop-core/pkg/artifact"
 )
 
 // TestE2E_UnconfiguredRepoRootLayoutDiscoversUnchangedCorpus pins CLM-051. The
@@ -21,7 +23,7 @@ func TestE2E_UnconfiguredRepoRootLayoutDiscoversUnchangedCorpus(t *testing.T) {
 		t.Errorf("an unconfigured root resolved to %s, want the project root %s", root.Path, filepath.Clean(dir))
 	}
 
-	arts, err := DiscoverArtifacts(root, nil)
+	arts, err := DiscoverArtifacts(root, nil, artifact.NonCorpusDirs{})
 	if err != nil {
 		t.Fatalf("DiscoverArtifacts: %v", err)
 	}
@@ -65,11 +67,11 @@ func TestE2E_DotBackstopRootedProjectDiscoversEquivalentCorpus(t *testing.T) {
 		t.Fatalf("the dotbackstop-root profile resolved to %s, which is not a .backstop root", dotRoot.Path)
 	}
 
-	repoArts, err := DiscoverArtifacts(repoRoot, nil)
+	repoArts, err := DiscoverArtifacts(repoRoot, nil, artifact.NonCorpusDirs{})
 	if err != nil {
 		t.Fatalf("DiscoverArtifacts(repo-root): %v", err)
 	}
-	dotArts, err := DiscoverArtifacts(dotRoot, nil)
+	dotArts, err := DiscoverArtifacts(dotRoot, nil, artifact.NonCorpusDirs{})
 	if err != nil {
 		t.Fatalf("DiscoverArtifacts(dotbackstop-root): %v", err)
 	}

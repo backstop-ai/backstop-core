@@ -2,6 +2,7 @@ package gate
 
 import (
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -9,8 +10,12 @@ import (
 // SPEC-037 substantiveness pack split (BUNDLE-009 Seed 3). The PACK does the
 // language-specific work (Q1 hollow-test findings rule + Q2 referenced-symbol
 // extraction rule); this file consumes the FLAT pack-dispatch SARIF
-// ([]Violation with {Rule, File, Line, Message, Severity, SourcePack} — no GateType
-// field) and performs:
+// ([]Violation with {Rule, File, Line, Message, Severity, SourcePack, GateType} —
+// ISSUE-118 added GateType, but it is stamped PER PRODUCING ENGINE BINDING and
+// packs/substantiveness/pack.yml declares both the Q1 hollow rule and the Q2
+// extraction rule under a single gate_type binding, so it is uniform across
+// both roles here and cannot make the Q1/Q2 partition this file needs) and
+// performs:
 //   - routing substantiveness findings out of the flat pack_engines stream by the
 //     pack-declared substantiveness_role property (RouteSubstantivenessFindings, ISSUE-064),
 //   - keying extraction findings back to a MandatedTest by (FilePath, func) read
@@ -93,6 +98,104 @@ func NoTargetViolationForTest(mt MandatedTest, referenced ReferencedSymbolSet, s
 	return NoTargetViolation(mt.FuncName, mt.TargetPkg, referenced, samePackage)
 }
 
+// JoinEligibleForNoTarget reports whether a mandated test is JOIN-ELIGIBLE: whether an
+// EMPTY evidence set would make it raise a noTarget violation (CLM-001, ISSUE-113).
+//
+// It is implemented AS the decision table rather than as a copy of its predicates. That
+// is the whole point: NoTargetViolationForTest stays the SINGLE authority on which tests
+// the join speaks about, so the guard below and the loop it guards can never disagree.
+// Anyone who replaces this body with an explicit FilePath/absence/TargetPkg/same-package
+// conjunction has re-opened exactly the drift this construction closes — and the
+// conjunction would silently go stale the moment a fifth disposition is added to the
+// table.
+//
+// FilePath is NOT part of the decision table; the caller filters unresolved tests (and
+// out-of-scope ones) BEFORE consulting this.
+func JoinEligibleForNoTarget(mt MandatedTest, samePackage bool) bool {
+	_, raised := NoTargetViolationForTest(mt, ReferencedSymbolSet{}, samePackage)
+	return raised
+}
+
+// SubstantivenessEvidenceRefusal decides whether the substantiveness step should REFUSE
+// to report per-test noTarget verdicts because it has no evidence on which to found any
+// of them (CLM-002/CLM-003, ISSUE-113).
+//
+// THE DEFECT IT EXISTS FOR. The Q2 noTarget set-join runs per mandated test and raises
+// "does not call package X" whenever the target token is absent from that test's
+// referenced-symbol set. It cannot, by itself, tell "this one test genuinely does not
+// call its target" from "the pack produced no extraction evidence AT ALL, so EVERY set is
+// empty". In the second case the step emitted one FALSE violation per mandated test — 397
+// of them in the observed bclabs-portal incident — and named the real cause nowhere. A
+// starved join does not produce a WRONG verdict about the code; it produces NO verdict at
+// all, dressed as N verdicts. That is a broken TOOL, so the disposition follows ISSUE-020:
+// one config-error naming the cause, instead of N unfounded findings.
+//
+// This function DECIDES; it does not dispose. The CALLER sets StepResult.ConfigErr — and
+// that flag is doing three mechanical jobs, not one: Gate.Run halts the remaining steps
+// and returns exit 2 so the operator reads one message rather than a wall; waiver
+// resolution is ordered AFTER this step and therefore never runs, making the refusal
+// structurally UNWAIVABLE; and ApplyPolicy skips ConfigErr steps, so it cannot be
+// baseline-grandfathered into silence either. A future reader who "simplifies" ConfigErr
+// away removes all three at once.
+//
+// THE hollow == 0 TERM IS LOAD-BEARING — it is the term a later reader is most likely to
+// delete as redundant, and deleting it reintroduces a measured false refusal. Hollow
+// evidence is core's ONLY independent proof that the pack's engine ran and actually
+// classified test files; hollow > 0 therefore FALSIFIES the very diagnosis this message
+// makes. Refusing there would also discard the real hollow violations the caller has
+// already accumulated — and there is no vacuous green to prevent, because the gate is
+// already RED with true findings pointing at the same files. The concrete measured case:
+// the shipped newE2EWorkspace fixture (eligible 1, extraction 0, hollow 1) refuses
+// without this term, discards its true hollow violation, and breaks
+// TestE2E_SubstantivenessInstalledLocalPack_RealGate_HollowRed.
+//
+// TWO DELIBERATE RESIDUALS, so this comment does not read as a claim that the predicate
+// is exact. Neither is a bug to quietly widen or narrow:
+//   - UNDER-refusal, at hollow > 0: a pack that bakes its globs on the Q2 rule ONLY,
+//     leaving Q1 healthy, lands in the non-refusing branch and its noTarget wall is not
+//     collapsed. Covering it costs either true hollow findings or a vacuous green, so it
+//     is left uncovered on purpose. Both incidents ISSUE-113 was filed from land in the
+//     hollow == 0 branch and ARE covered.
+//   - OVER-refusal, at hollow == 0: a workspace whose tests assert only through
+//     UNQUALIFIED helper calls reaches this branch with TRUE noTarget verdicts at stake,
+//     and this function suppresses them. Empirically verified against real ast-grep, not
+//     hypothetical: `assertEqual(t, got, "x")` matches the pack's assertion-vocabulary
+//     regex (so no Q1 finding) while the Q2 rule requires a selector_expression callee
+//     (so no Q2 finding either) — zero findings from both rules. It is ACCEPTED because
+//     core has no observable separating that case from a genuinely starved pack: packs
+//     are opaque by design, and all three causes present as the identical empty result.
+//     The mitigation is HONESTY — the message names it as one of three candidate causes,
+//     which is why that third cause is load-bearing and not padding. Tightening the
+//     predicate to exclude it would require information packs do not provide; do not
+//     attempt it here.
+//
+// The returned Violation deliberately carries NO File. The refusal is about the pack's
+// configuration, not about any one file, and attaching an arbitrary test file would
+// re-personalize a finding whose whole point is that it belongs to none of them.
+func SubstantivenessEvidenceRefusal(eligible, extraction, hollow int) (Violation, bool) {
+	if eligible < 1 || extraction > 0 || hollow > 0 {
+		return Violation{}, false
+	}
+	count := strconv.Itoa(eligible)
+	return Violation{
+		Rule: StepTestSubstantiveness,
+		// ONE message, no fork on the hollow count: the hollow > 0 state no longer
+		// refuses, so there is exactly one diagnostic state to describe. It states the
+		// OBSERVED FACT first (the only thing core actually knows), then names all THREE
+		// candidate causes without asserting any of them, then says what it is refusing
+		// INSTEAD OF — the operator who has seen the violation wall needs to recognize
+		// this as its replacement. Cause three is worded WITHOUT the word "hollow" on
+		// purpose: a message discussing hollow findings would describe a state this
+		// refusal can no longer reach.
+		Message: "the substantiveness pack produced no findings of any kind while " + count +
+			" mandated tests were join-eligible — its engine did not run, its classification " +
+			"matched 0 test files, or those tests genuinely make no package-qualified calls " +
+			"while still satisfying the pack's assertion vocabulary; refusing instead of " +
+			"reporting " + count + " unsubstantiated \"does not call package\" violations",
+		Severity: "error",
+	}, true
+}
+
 // substantiveness role vocabulary (ISSUE-064). The consuming pack STAMPS one of these
 // role values into each substantiveness finding's structured Properties channel (the
 // ISSUE-062 `Violation.Properties` lift), declaring what the finding IS — a `hollow`
@@ -112,8 +215,9 @@ const (
 // channel) — NOT by matching a baked namespaced rule-id literal (ISSUE-064). A finding
 // whose role is `hollow` joins the hollow partition; `referenced-symbol` joins the
 // extraction partition; any other role (or no role property) is ignored, exactly as a
-// non-substantiveness pack rule is. NO gate_type field is consulted — the Violation
-// carries none (Sharp Edge 5 / REQ-007 / CLM-024).
+// non-substantiveness pack rule is. NO gate_type field is consulted — it is stamped
+// uniformly across both roles for this pack (Sharp Edge 5 / REQ-007 / CLM-024) and
+// so cannot substitute for the role property.
 func RouteSubstantivenessFindings(violations []Violation) (hollow, extraction []Violation) {
 	for _, v := range violations {
 		switch v.Properties[substantivenessRoleProperty] {
@@ -177,8 +281,10 @@ func IsTestHollow(hollow []Violation, test MandatedTest) bool {
 // "test X has no assertions (hollow)" report-surface message (CLM-005). The hollow
 // rule already embeds that message text (plus the pinned `func=<FN>` key the gate uses
 // for routing), so the conversion forwards the finding's File + Message under the
-// test_substantiveness rule name — one violation per hollow finding. The Violation
-// carries no gate_type field (none exists — Sharp Edge 5).
+// test_substantiveness rule name — one violation per hollow finding. The Violation's
+// GateType field (ISSUE-118) is left unset here deliberately — it is stamped uniformly
+// across the hollow and extraction roles for this pack, so it carries no role
+// information this conversion could use (Sharp Edge 5).
 func HollowFindingsToViolations(hollow []Violation) []Violation {
 	out := make([]Violation, 0, len(hollow))
 	for _, v := range hollow {

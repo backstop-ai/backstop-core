@@ -8,8 +8,9 @@ import (
 // substantiveness_hollow_violation_test.go drives the hollow-finding →
 // test_substantiveness violation conversion: one violation per routed hollow
 // finding, preserving the deleted analyzer's "test X has no assertions (hollow)"
-// report-surface message. The Violation carries NO gate_type field (Sharp Edge 5),
-// so the assertions key on Rule + Message only.
+// report-surface message. GateType (ISSUE-118) is stamped uniformly across the
+// hollow and extraction roles for this pack, so it carries no distinguishing
+// information here — the assertions key on Rule + Message only (Sharp Edge 5).
 
 // TestQ1_GateConsumesHollowFindings_RaisesViolation (CLM-005) — the gate raises
 // exactly one test_substantiveness violation per routed hollow finding, carrying the

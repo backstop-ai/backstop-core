@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -384,6 +386,58 @@ func configErrorPassthrough(err error) error {
 	return err
 }
 
+// runNeverStarted reports whether a run error means THE PROCESS NEVER STARTED, as
+// opposed to started-and-exited-non-zero (ISSUE-112). It is the single authority
+// for that question on the gate dispatch path — runFindingsEngine and
+// runCoverageEngine both call it, because two copies are how the two branches
+// drift apart.
+//
+// It must NOT be replaced by `runErr != nil`. A rule-fed findings engine exits
+// non-zero precisely WHEN it reports findings, so treating every run error as
+// fatal would red the gate on every real finding. A started process reports an
+// *exec.ExitError, which is neither shape below.
+//
+// "Never started" is TWO Go types because exec.Command reaches LookPath only for a
+// BARE command name (filepath.Base(name) == name):
+//
+//   - *exec.Error — a bare name that LookPath could not resolve.
+//   - *fs.PathError with Op == "fork/exec" — a PATH-FUL command that could not be
+//     exec'd: absent, not executable, or carrying a bad interpreter line. Such a
+//     command never consults LookPath, so it can never produce an *exec.Error.
+//
+// pkg/packval/executor.go is the SEED of this shape and does it for `backstop pack
+// test`, with the reasoning spelled out there ("a broken run, not a finding-free
+// pass"). This predicate is deliberately WIDER than packval's *exec.Error-only
+// check, because gate engine commands are legitimately path-ful: the coverage
+// producer path is always filepath.Join(packRoot, …) and is already os.Stat-guarded,
+// so *exec.Error is UNREACHABLE on that branch and a narrow check there would be
+// greenable only by a stub runner — i.e. vacuously.
+//
+// It keys on Op, never on the errno (ENOENT / EACCES / ENOEXEC), which would bake
+// OS knowledge into a thin executor.
+func runNeverStarted(runErr error) bool {
+	var execErr *exec.Error
+	if errors.As(runErr, &execErr) {
+		return true
+	}
+	var pathErr *fs.PathError
+	if errors.As(runErr, &pathErr) && pathErr.Op == "fork/exec" {
+		return true
+	}
+	return false
+}
+
+// neverStartedError renders the refusal for a process that could not be started,
+// naming the pack, what was invoked, and the underlying error. It returns a
+// *check.ConfigError (exit 2) so the concrete type survives for the exit-code type
+// assertion downstream.
+func neverStartedError(manifest *pack.Manifest, invoked string, runErr error) error {
+	return &check.ConfigError{Message: fmt.Sprintf(
+		"pack %s engine %q never started: the process could not be executed (%v) — this is a broken run, not a finding-free pass; ensure the command is present and executable",
+		manifest.NormalizedName, invoked, runErr,
+	)}
+}
+
 // runCoverageEngine runs one coverage engine: the trust gate, gather inputs, run the
 // command via the clean-stdout runner, pipe through the pack's declared convert via
 // resolveSandboxedRunStdout, and parse the normalized coverage-records JSON via
@@ -427,9 +481,17 @@ func runCoverageEngine(manifest *pack.Manifest, packRoot, projectRoot string, bi
 		}
 		out, runErr := runner.RunStdout(context.Background(), producerPath)
 		// A coverage producer may exit non-zero when tests fail yet still emit a usable
-		// profile, so runErr is not fatal on its own — the convert+parser contract is
-		// what matters. A convert failure below fails loud.
-		_ = runErr
+		// profile, so a non-zero EXIT is not fatal on its own — the convert+parser
+		// contract is what matters, and a convert failure below fails loud.
+		//
+		// A producer that NEVER STARTED is a different thing entirely (ISSUE-112): it
+		// wrote no profile, so continuing yields an empty record set that reads as
+		// coverage-clean. Refuse instead. This branch's command is always path-ful and
+		// already os.Stat-guarded above, so the shape reaching runNeverStarted here is
+		// the fork/exec *fs.PathError, never an *exec.Error.
+		if runNeverStarted(runErr) {
+			return nil, configErrorPassthrough(neverStartedError(manifest, producerPath, runErr))
+		}
 		stdout = out
 	} else {
 		cmdName, cmdArgs := splitCommand(binding.Command)
@@ -441,7 +503,12 @@ func runCoverageEngine(manifest *pack.Manifest, packRoot, projectRoot string, bi
 			cmdArgs = append(cmdArgs, binding.ProjectTarget)
 		}
 		out, runErr := runner.RunStdout(context.Background(), cmdName, cmdArgs...)
-		_ = runErr
+		// As on the producer branch: a non-zero exit may still have emitted a usable
+		// profile, but a process that never started emitted nothing, and zero records
+		// from a tool that never ran reads as coverage-clean (ISSUE-112).
+		if runNeverStarted(runErr) {
+			return nil, configErrorPassthrough(neverStartedError(manifest, binding.Command, runErr))
+		}
 		stdout = out
 	}
 
@@ -647,11 +714,23 @@ func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, sc
 
 	stdout, runErr := runner.RunStdout(context.Background(), cmdName, cmdArgs...)
 	// A rule-fed/config-file findings engine exits non-zero when it reports
-	// findings; the SARIF on stdout is the contract, so runErr is not fatal on
-	// its own. A CrashGuard engine (native build/test) is different: a non-zero
-	// exit that yields NO parseable findings is a tool/infra crash, not a
+	// findings; the SARIF on stdout is the contract, so a non-zero EXIT is not
+	// fatal on its own. A CrashGuard engine (native build/test) is different: a
+	// non-zero exit that yields NO parseable findings is a tool/infra crash, not a
 	// finding-free pass, and must fail loud rather than read as a silent green
-	// (SPEC-034 REQ-003/CLM-010). runErr was discarded before this bridge.
+	// (SPEC-034 REQ-003/CLM-010).
+	//
+	// UNSTARTABLE CARVE-OUT (ISSUE-112) — this refusal is INDEPENDENT of CrashGuard
+	// and sits ahead of the artifact read and the convert. A process that never
+	// started emitted no SARIF, so the lenient parser below would read zero findings
+	// and the step would report a clean scan of an engine that never ran. Every
+	// rule-fed findings engine leaves CrashGuard false, which is exactly why the
+	// CrashGuard branch never caught this. A CrashGuard engine reaches this first
+	// too, and gets the clearer message: "crashed: non-zero exit with no parseable
+	// findings" mis-describes a binary that never ran at all.
+	if runNeverStarted(runErr) {
+		return nil, neverStartedError(manifest, binding.Command, runErr)
+	}
 
 	// Select the bytes the convert/shape-guard see (mirrors runCoverageEngine). By
 	// default a findings engine's payload IS its stdout. When the binding declares a
@@ -706,6 +785,10 @@ func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, sc
 	// a non-zero run with zero parseable findings is a compiler/test-binary crash
 	// or unparseable output, not a clean pass — surface it (naming the pack and
 	// engine) instead of returning a silent green.
+	//
+	// By here the run DID start: the never-started refusal above returned earlier,
+	// so runErr at this point is a started process's exit status. That split is why
+	// the guard's "crashed" wording is accurate rather than misleading.
 	if binding.CrashGuard && runErr != nil && len(checkViolations) == 0 {
 		return nil, fmt.Errorf("pack %s engine %q crashed: non-zero exit with no parseable findings: %w", manifest.NormalizedName, binding.Command, runErr)
 	}
@@ -727,7 +810,16 @@ func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, sc
 	// file+line+rule from two sources with differing values) resolves to the
 	// exempting value at the union of violations — the louder, safe-against-
 	// under-broad-filtering direction (CLM-019).
+	//
+	// gate.Violation.GateType rides the SAME per-binding declaration principle
+	// (ISSUE-118 CLM-001): each violation carries ITS producing binding's DECLARED
+	// gate_type, resolved PER-VIOLATION with no gate-type-level aggregation and no
+	// pack/rule/command name sniff. It exists so a later step can route this flat
+	// stream to the subset a dimension owns (test_verification routes the
+	// test-typed members) by DECLARATION alone. Presentation/routing only: json:"-"
+	// and outside baseline identity, exactly like ProjectWide.
 	exempt := binding.ExemptFromScopeFilter
+	declaredGateType := binding.GateType.String()
 	out := make([]gate.Violation, 0, len(checkViolations))
 	for _, v := range checkViolations {
 		out = append(out, gate.Violation{
@@ -750,6 +842,7 @@ func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, sc
 			Severity:    nonEmpty(v.Severity, "error"),
 			SourcePack:  manifest.NormalizedName,
 			ProjectWide: exempt,
+			GateType:    declaredGateType,
 			RegionHash:  v.Fingerprint,
 			// Carry the pack's structured SARIF properties across (ISSUE-062). This is
 			// the production check.Violation -> gate.Violation mapping; the

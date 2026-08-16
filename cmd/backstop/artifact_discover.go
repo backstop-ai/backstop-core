@@ -29,25 +29,24 @@ type DiscoveredArtifact struct {
 // scan uses — so the set of files the gate picks up and the set it reports leaving out
 // are defined by one rule rather than two that can drift.
 //
-// THE SKIP RULE IS ROOT-RELATIVE. The shared non-corpus names still skip anywhere.
+// THE EXCLUSION SET ARRIVES AS A PARAMETER, AND THE `.backstop` RULES DO NOT.
+// nonCorpus is the TOOL-AGNOSTIC BASE core carries (artifact.NonCorpusDirNames) unioned
+// with the ecosystem-specific dependency directory names installed packs declare via
+// classification.dependency_dirs. Core holds no ecosystem noun of its own: `vendor` is a
+// Go noun and `node_modules` a Node/npm one, and a thin executor that bakes no language
+// or tool knowledge cannot carry either (ISSUE-122, resolving SPEC-068's Sharp Edge 12).
+// Its zero value still excludes the tool-agnostic base, so a caller that does not wire
+// the installed packs degrades to today-minus-declarations rather than walking `.git`.
+//
+// THE `.backstop` SKIP RULES REMAIN ROOT-RELATIVE AND LOCAL TO THIS WALK.
 // `.backstop/packs` ALWAYS skips, wherever the root sits: several installed packs are
 // themselves backstop repos carrying their own artifacts, and those are never part of
 // the consumer's corpus. `.backstop` itself skips ONLY when it is not the root — a
 // project that roots its artifacts there must be able to reach them.
-//
-// Sharp Edge 12, knowingly propagated rather than fixed here: `vendor` and
-// `node_modules` are language nouns, and their presence in a shared list inside core is
-// a real zero-baked-language defect tracked on its own issue. This function centralizes
-// the list; it does not put that invariant on this seed's critical path.
-func DiscoverArtifacts(root artifact.Root, typeFilters []string) ([]DiscoveredArtifact, error) {
+func DiscoverArtifacts(root artifact.Root, typeFilters []string, nonCorpus artifact.NonCorpusDirs) ([]DiscoveredArtifact, error) {
 	filterSet := make(map[string]bool)
 	for _, t := range typeFilters {
 		filterSet[t] = true
-	}
-
-	nonCorpus := make(map[string]bool)
-	for _, name := range artifact.NonCorpusDirNames() {
-		nonCorpus[name] = true
 	}
 
 	var artifacts []DiscoveredArtifact
@@ -58,7 +57,7 @@ func DiscoverArtifacts(root artifact.Root, typeFilters []string) ([]DiscoveredAr
 		}
 		if info.IsDir() {
 			base := filepath.Base(path)
-			if nonCorpus[base] {
+			if nonCorpus.Excludes(base) {
 				return filepath.SkipDir
 			}
 			// An installed-pack tree is never corpus, wherever the root sits. Keying on

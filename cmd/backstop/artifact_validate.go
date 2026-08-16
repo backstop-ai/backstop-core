@@ -30,6 +30,14 @@ type ValidateConfig struct {
 	// values. A zero Cohort disables the assertion — the pre-SPEC-068 semantics, kept
 	// reachable so the guard can be shown to be additive.
 	Cohort schema.Cohort
+	// NonCorpus is the artifact-corpus exclusion set: the tool-agnostic base core
+	// carries unioned with the dependency directory names installed packs declare via
+	// classification.dependency_dirs (ISSUE-122). Like Cohort above it TRAVELS WITH
+	// THE CONFIG rather than being re-derived inside, which is what makes the CLI and
+	// the gate incapable of scanning different corpora. Its zero value still excludes
+	// the tool-agnostic base, so a caller that does not wire the packs degrades to
+	// today-minus-declarations rather than walking `.git`.
+	NonCorpus artifact.NonCorpusDirs
 }
 
 // ArtifactValidationRecord is what one artifact's validation ASSERTED: which file, of
@@ -155,7 +163,7 @@ func ValidateArtifacts(cfg ValidateConfig) (ValidateResult, error) {
 	// If All is set or no filters, discover all types (typeFilters = nil)
 
 	// Discover artifacts
-	discovered, err := DiscoverArtifacts(cfg.Root, typeFilters)
+	discovered, err := DiscoverArtifacts(cfg.Root, typeFilters, cfg.NonCorpus)
 	if err != nil {
 		return ValidateResult{}, fmt.Errorf("discovering artifacts: %w", err)
 	}
@@ -266,7 +274,7 @@ func ValidateArtifacts(cfg ValidateConfig) (ValidateResult, error) {
 	// identically to an unscoped run and to the gate (which delegates here). Placed
 	// in this shared walk — not a per-artifact validator — so a ref resolves against
 	// a bundle in a different file and the CLI and gate share one verdict.
-	resolutionViolations, err := buildResolutionViolations(cfg.Root)
+	resolutionViolations, err := buildResolutionViolations(cfg.Root, cfg.NonCorpus)
 	if err != nil {
 		return ValidateResult{}, fmt.Errorf("resolving supports refs: %w", err)
 	}
@@ -305,8 +313,8 @@ func declaredSchemaVersion(art *artifact.ParsedArtifact) string {
 // parse are skipped here — the per-artifact loop (and the gate's unscoped run)
 // surface parse errors authoritatively — so a scoped CLI run does not error on an
 // unrelated malformed file.
-func buildResolutionViolations(root artifact.Root) ([]validate.Violation, error) {
-	bundleDiscovered, err := DiscoverArtifacts(root, []string{"bundle"})
+func buildResolutionViolations(root artifact.Root, nonCorpus artifact.NonCorpusDirs) ([]validate.Violation, error) {
+	bundleDiscovered, err := DiscoverArtifacts(root, []string{"bundle"}, nonCorpus)
 	if err != nil {
 		return nil, fmt.Errorf("discovering bundles for resolution catalog: %w", err)
 	}
@@ -319,7 +327,7 @@ func buildResolutionViolations(root artifact.Root) ([]validate.Violation, error)
 		bundles = append(bundles, art)
 	}
 
-	citerDiscovered, err := DiscoverArtifacts(root, []string{"spec", "issue"})
+	citerDiscovered, err := DiscoverArtifacts(root, []string{"spec", "issue"}, nonCorpus)
 	if err != nil {
 		return nil, fmt.Errorf("discovering citers for resolution: %w", err)
 	}
@@ -420,6 +428,17 @@ Exit codes: 0 (all pass), 1 (violations found), 2 (config error).`,
 				return &ExitCodeError{Code: ExitConfigError, Message: fmt.Sprintf("config: computing schema cohort: %s", cohortErr)}
 			}
 
+			// The artifact-corpus exclusion set comes from the INSTALLED PACKS, never
+			// from a literal in this binary (ISSUE-122). A pack-load failure must NOT
+			// fail this command — `artifact validate` has to keep working in a project
+			// with no packs installed at all — so it degrades to the zero value, which
+			// still excludes the tool-agnostic base.
+			installedPacks, packsErr := loadInstalledPacks(projectRoot)
+			var nonCorpus artifact.NonCorpusDirs
+			if packsErr == nil {
+				nonCorpus = artifact.NewNonCorpusDirs(mergeDependencyDirs(installedPacks))
+			}
+
 			cfg := ValidateConfig{
 				ProjectRoot: projectRoot,
 				Root:        artifactRoot,
@@ -427,6 +446,7 @@ Exit codes: 0 (all pass), 1 (violations found), 2 (config error).`,
 				JSONOutput:  jsonFlag,
 				SchemaFS:    SchemaFS,
 				Cohort:      cohort,
+				NonCorpus:   nonCorpus,
 			}
 
 			if flagSet && !allFlag {

@@ -15,6 +15,8 @@ complexity:
   risk: moderate
 ---
 
+# Three SPEC-041 Claims Carry Dormant test_substantiveness Violations in Untouched Files
+
 ## Problem
 
 Three SPEC-041-mandated tests, in two files, currently carry LATENT (dormant, not yet

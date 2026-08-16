@@ -297,7 +297,7 @@ func TestInit_ArtifactsUnderTheScaffoldedRootAreDiscoveredAndGated(t *testing.T)
 	t.Run("an artifact under the scaffolded root is DISCOVERED", func(t *testing.T) {
 		writeAcceptanceIssue(t, project, "ISSUE-001-discovered.issue.md", validAcceptanceIssue())
 
-		found, discoverErr := DiscoverArtifacts(root, nil)
+		found, discoverErr := DiscoverArtifacts(root, nil, artifact.NonCorpusDirs{})
 		if discoverErr != nil {
 			t.Fatalf("discovering artifacts under %s: %v", root.Path, discoverErr)
 		}

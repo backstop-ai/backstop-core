@@ -4,7 +4,7 @@ number: SPEC-031
 created: "2026-06-16"
 status: draft
 schema_version: spec/v1
-spec_version: 1.0.0
+spec_version: 1.1.1
 
 implementation:
   summary: >
@@ -18,10 +18,12 @@ implementation:
     engine command, pipes non-SARIF output through a sandboxed pack-declared
     `convert` executable, and parses the single output contract via `parseSarif`.
     Capture stdout cleanly (drop CombinedOutput). Wire ast-grep as the first new
-    engine with a trivial proof rule end-to-end. Split engine provisioning:
-    Layer-0 native toolchain is assumed-present (fail loud); backstop-introduced
-    engines (semgrep, ast-grep) are auto-provisioned via a declared+pinned install
-    on the `backstop.lock`/`VerifyLock` path, retiring `EnsureSemgrep`. Flag-day
+    engine with a trivial proof rule end-to-end. Split engine provisioning by
+    REMEDY, not by whether presence is checked: EVERY declared engine tool is
+    presence-probed on PATH and its absence fails loud (ISSUE-112). Layer-0 native
+    toolchain is assumed-present; backstop-introduced engines (semgrep, ast-grep)
+    carry a pinned `provision` record that is a TRUST allowlist entry, not an
+    installer — backstop installs nothing, retiring `EnsureSemgrep`. Flag-day
     migrate `backstop-go-pack`'s 14 rules to `engine: semgrep`. This spec covers
     the gate-time locus (locus A) only; the fixture-time locus (`pkg/packval`) is
     SPEC-032, pillar-2 packs-only removal is SPEC-030, and the BUNDLE-009 contract
@@ -264,14 +266,21 @@ requirements:
 
   - id: REQ-019
     text: >
-      Engine provisioning must split by tool ownership. Layer-0 native engines
-      (`provision` empty) are assumed-present: a missing binary fails loud with a
-      ConfigError naming the engine, and backstop must not attempt to install it.
-      Backstop-introduced engines (semgrep, ast-grep) declare a pinned `provision`
-      record and are auto-provisioned and verified through the existing
-      `backstop.lock` / `VerifyLock` path — data-driven, with no per-engine Go.
-      `EnsureSemgrep`'s bespoke install logic is retired into this declared
-      mechanism.
+      Engine provisioning must presence-probe EVERY declared engine tool on PATH
+      and refuse loudly when it is absent, regardless of whether the binding
+      carries a `provision` record. Backstop installs nothing: a `provision` record
+      is a pinned TRUST allowlist entry (tool + version), never an installer, so a
+      pinned tool gets no exemption from the presence check — exempting it produced
+      the silent vacuous pass ISSUE-112 reports. The two branches differ only in
+      the REMEDY the refusal names: for a Layer-0 native engine (`provision` empty)
+      a `*check.ConfigError` names the probed argv[0] and states the project must
+      supply it on PATH; for a backstop-introduced engine (semgrep, ast-grep) a
+      `*check.ConfigError` names the probed argv[0], the declaring pack and engine,
+      and the pinned tool + version it rode in on, and states that the pin is a
+      trust entry rather than an installer. A tool that DOES resolve on PATH clears
+      the probe on both branches and provisioning proceeds without error — the probe
+      may not be satisfiable by refusing every binding. `EnsureSemgrep`'s bespoke
+      install logic is retired and NOT replaced by any other install path.
     supports: pluggable-pack-engines:REQ-019@1.0.0
     follows: STD-GO-001:GO-010
 
@@ -633,13 +642,24 @@ claims:
       - TestProvision_NativeAssumedPresentFailsLoud
   - id: CLM-042
     requirement: REQ-019
-    text: A backstop-introduced engine with a pinned provision record is provisioned and verified via the lock path
+    text: A backstop-introduced engine keeps its pinned provision record (tool + non-empty version) AND its absence from PATH fails loud with a *check.ConfigError naming the probed argv[0] — the pin is a trust entry, never an install that rescues the absence (ISSUE-112)
     tests:
       - TestProvision_IntroducedEngineAutoProvisioned
   - id: CLM-043
     requirement: REQ-019
-    text: EnsureSemgrep's bespoke install logic is retired into the declared provision mechanism
+    text: EnsureSemgrep's bespoke install logic is retired and unreplaced — provisioning PROBES semgrep on PATH and refuses when absent, installing nothing, and the nil-provision sibling (golangci-lint) reaches the same presence check (ISSUE-112)
     tests:
+      - TestProvision_EnsureSemgrepRetired
+  - id: CLM-069
+    requirement: REQ-019
+    text: The PASS cell of the pinned branch — a provision-pinned engine whose binary DOES resolve on PATH provisions cleanly (no error) and was genuinely probed, so the presence check is not satisfiable by refusing every pinned binding (ISSUE-112)
+    tests:
+      - TestProvision_ProvisionPinnedToolPresentPasses
+  - id: CLM-070
+    requirement: REQ-019
+    text: The PASS cell of the nil-provision branch — a Layer-0 assume-present engine whose binary DOES resolve on PATH clears the probe and is never the refusal, so a run carrying both a present nil-provision tool and an absent sibling refuses ONLY the absent one and names it (ISSUE-112)
+    tests:
+      - TestProvision_GolangciAssumedPresentFailsLoud
       - TestProvision_EnsureSemgrepRetired
 
   # REQ-020 — input_mode enum matrix (4 values + invalid)
@@ -695,7 +715,7 @@ contracts:
       - name: Provision
         kind: type
         signature: "type Provision struct"
-        notes: "Pinned install descriptor for backstop-introduced engines; empty for assumed-present Layer-0 engines."
+        notes: "Pinned TRUST allowlist entry (tool + version) for backstop-introduced engines — not an installer; nil for assumed-present Layer-0 engines. Its presence changes only the wording of the absence refusal, never whether the tool is presence-probed (ISSUE-112)."
       - name: Registry
         kind: type
         signature: "type Registry map[string]EngineBinding"
@@ -864,7 +884,18 @@ Inputs resolve relative to the per-engine pack directory (`semgrep/`, `ast-grep/
 
 ### 6. Split engine provisioning (REQ-019)
 
-A binding with an **empty** `Provision` is a Layer-0 assumed-present engine: a missing binary fails loud with a `ConfigError` naming the engine; backstop never installs it. A binding with a **pinned** `Provision` (semgrep, ast-grep) is auto-provisioned and verified through the existing `backstop.lock` / `VerifyLock` infra — data-driven, no per-engine Go. `EnsureSemgrep`'s bespoke install logic (pkg/check/semgrep.go) is retired into this declared mechanism.
+Provisioning presence-probes **every** declared engine tool on PATH and fails loud with a `*check.ConfigError` (exit 2) when it is absent. `Provision` does not gate whether that probe happens — it only selects which remedy the refusal names:
+
+| `Provision` | Ownership | Present on PATH | Absent from PATH | Refusal names |
+| --- | --- | --- | --- | --- |
+| empty | Layer-0 assumed-present (go, golangci-lint) | clears the probe; provisioning proceeds | fail loud, `*check.ConfigError` | the probed argv[0]; the project must supply it on PATH |
+| pinned | backstop-introduced (semgrep, ast-grep) | clears the probe; provisioning proceeds (nothing is installed) | fail loud, `*check.ConfigError` | the probed argv[0], the declaring pack + engine, and the pinned tool + version |
+
+Both PASS cells are claimed, not assumed: a presence check that refused everything would satisfy the two absent cells alone, and the pinned PASS cell is the one the ISSUE-112 fix could most easily have over-corrected into.
+
+Backstop installs nothing in either branch. The pinned record is a **trust allowlist entry**, and exempting pinned tools from the presence probe on the theory that something auto-provisions them is exactly the defect ISSUE-112 reports: a pinned tool absent from PATH scanned nothing, the empty output parsed as zero findings, and the engine step passed vacuously while every downstream consumer of that evidence lied. `EnsureSemgrep`'s bespoke install logic (pkg/check/semgrep.go) is retired and **not replaced** by any other install path.
+
+Because the probed argv[0] and the pinned tool name can diverge (a pack pinning `ast-grep` while invoking `sg`), the pinned-branch refusal names both — the reader learns the missing binary AND the pin behind it.
 
 ### 7. Clean stdout capture (REQ-009)
 
@@ -914,6 +945,8 @@ The stub is scoped to the *dispatch* proof only. The ast-grep converter's own co
 
 8. **Sandbox/`none` engines must not enter `parseSarif`, and the layer-3 branch must move, not break.** The dispatch's terminal step branches on output shape: findings engines parse SARIF, but the sandbox (`input_mode: none`) engine is exit-code/pass-fail and takes a separate terminal branch (REQ-014). The existing gate-time sandbox path (`runPackValidators`, keyed on `rule.Layer != 3`) breaks the moment REQ-002 deletes `rule.Layer`; this spec re-keys that branch to `engine == sandbox` and folds it into `dispatchPackEngines` rather than leaving it stranded against a removed field. Failing to relocate it would either dangle a dead `rule.Layer` reference (compile break) or silently drop layer-3 enforcement (vacuous green).
 
+9. **A pinned `Provision` reads like an install promise and is not one.** The field name invites the assumption that a pinned tool will be there — so exempting pinned tools from the PATH presence probe looks like a harmless optimization and is instead a vacuous-green generator: nothing installs the tool, its absence produces empty output, the lenient SARIF parse reads zero findings, and the engine step passes while every downstream consumer of that evidence lies. This is ISSUE-112, observed live in CI. The probe must be unconditional; `Provision` may only change the wording of the refusal. If the field is ever renamed or given real install semantics, that must be a deliberate spec change, not an inference from the name.
+
 ## Review Questions
 
 1. Does `dispatchPackEngines` group by the **declared** engine string only, or does it ever infer an engine when `engine` is empty? It must fail loud, never infer — confirm no fallback path exists.
@@ -926,7 +959,7 @@ The stub is scoped to the *dispatch* proof only. The ast-grep converter's own co
 
 5. Does the clean-stdout runner change (`RunStdout`) leave the existing `Run`/`CombinedOutput` callers (build/test executors) untouched, or does it regress their behavior? The change must be additive for the engine path, not a global swap.
 
-6. For a backstop-introduced engine, is provisioning genuinely routed through `VerifyLock`/`backstop.lock` (pinned + verified), or does it shell out to an installer outside the lock path the way `EnsureSemgrep` did? The trust surface must equal the `convert` step's.
+6. Does provisioning presence-probe a **pinned** engine tool on PATH, or does the pinned `Provision` record exempt it from the probe? An exemption is the ISSUE-112 defect verbatim — nothing installs a pinned tool, so an exempted absence scans nothing and passes vacuously. Confirm both branches reach the same probe and that neither shells out to an installer the way `EnsureSemgrep` did.
 
 7. Does the convert step capture the convert executable's stdout via the clean-stdout sandbox variant (`SandboxedRunStdout`), or does it call `SandboxedRun` (`CombinedOutput`)? The latter would merge a converter's stderr into the final SARIF and corrupt parsing — confirm the convert capture is stdout-only and that the `CombinedOutput` `SandboxedRun` remains used only by the exit-code sandbox-validator branch.
 
@@ -941,5 +974,46 @@ The stub is scoped to the *dispatch* proof only. The ast-grep converter's own co
 - **SPEC-032** — Seed 3, fixture-time engine execution (`pkg/packval`); depends on this spec's `EngineBinding`.
 - **SPEC-033** — Seed 4, BUNDLE-009 contract seam.
 - **ISSUE-003** — data-driven toolchain registry: `ToolchainEntry`/`ScopeKind`, `formatParsers`, `lookupParser` fail-loud, the generic `commandExecutor` (the substrate this spec converges onto).
+- **ISSUE-112** / **PLAN-ISSUE-112** — missing engine tool = silently empty SARIF and a vacuous `pack_engines` pass. Source of this spec's REQ-019 correction: provision-pinned tools were exempted from the presence check on an auto-provisioning assumption nothing implements. Delivered fix lives in `cmd/backstop/pack_gate_provision.go` (`provisionEngines`, `absentToolMessage`).
 - **SPEC-017** — pack gate integration: `mergePackRules`, `loadInstalledPacks`, `NamespacedRuleID`, `VerifyLock` (the path this spec generalizes).
 - Code: pkg/pack/manifest.go (`Rule`, `validateLayer`); pkg/pack/validate_manifest.go (`validateLayerFields`); cmd/backstop/pack_gate.go (`mergePackRules`, and `runPackValidators` — the existing `rule.Layer != 3` sandbox branch this spec re-keys to `engine == sandbox`); cmd/backstop/gate.go + code_check.go (`ExtraSemgrepConfigs` consumers); pkg/check/check.go (`semgrepExecutor`, `EnsureSemgrep`); pkg/check/parsers.go (`parseSarif`, `lookupParser`, `formatParsers`); pkg/check/runner.go (`CommandRunner`, `CombinedOutput`); pkg/packval/sandbox.go (`SandboxedRun` — gains a clean-stdout variant for the convert step); pkg/pack/distribution/verify.go (`VerifyLock`).
+
+## Version History
+
+- **1.1.1** (2026-08-16) — REQ-019 matrix completion (no behavior change). 1.1.0 corrected the two
+  ABSENT cells of the `{provision empty, provision pinned} × {tool present, tool absent}` matrix but
+  left both PRESENT cells unclaimed, so the requirement as written was satisfiable by a presence
+  check that refused every binding. Added CLM-069 (pinned + present → provisions cleanly and was
+  genuinely probed, against the shipped `TestProvision_ProvisionPinnedToolPresentPasses`) and
+  CLM-070 (nil-provision + present → clears the probe and is never the refusal, against the shipped
+  `TestProvision_GolangciAssumedPresentFailsLoud` and `TestProvision_EnsureSemgrepRetired`, each of
+  which runs a present nil-provision tool alongside an absent sibling and asserts the refusal names
+  the absent one). Both tests already exist and pass in delivered code; no test is mandated that
+  does not exist. NOTE for a future reader: no test asserts `provisionEngines` returning nil for a
+  nil-provision-ONLY pack — CLM-070's coverage is the sibling-clears form, which is falsifiable but
+  indirect. Touched: REQ-019 (one sentence stating that a resolving tool clears the probe on both
+  branches); CLM-069 and CLM-070 (new); Implementation §6 (table gains a Present-on-PATH column).
+  The spec remains `status: draft`.
+- **1.1.0** (2026-08-16) — REQ-019 correction, sourced from **ISSUE-112** / **PLAN-ISSUE-112**
+  (implemented). The prior text asserted that backstop-introduced engines with a pinned
+  `provision` record are *auto-provisioned and verified through the `backstop.lock`/`VerifyLock`
+  path*. Nothing in backstop installs a pack-declared tool — the `provision` record is a pinned
+  TRUST allowlist entry — so the exemption that assertion implied left pinned tools (semgrep,
+  ast-grep) with neither an install nor a presence check. A pinned tool absent from PATH scanned
+  nothing, its empty stdout parsed as zero findings, and `pack_engines` passed vacuously; observed
+  live in CI (bclabs-portal, 2026-07-29), where the starved downstream join produced 397 false
+  violations attributed to innocent tests.
+
+  Corrected here to the delivered behavior: provisioning presence-probes **every** declared engine
+  tool on PATH and refuses with a `*check.ConfigError` (exit 2) when it is absent, regardless of
+  `provision`. The record now only selects the refusal's wording — the Layer-0 branch names the
+  probed argv[0] and the project's obligation to supply it; the pinned branch additionally names
+  the declaring pack + engine and the pinned tool + version, and states that the pin is a trust
+  entry rather than an installer. Touched: `implementation.summary`; REQ-019; CLM-042 and CLM-043
+  (text only — both **test names are preserved deliberately**, per PLAN-ISSUE-112's
+  name-continuity constraint: the shipped tests keep their names and had their bodies rewritten to
+  assert the corrected contract, so a reader following this spec's history lands on the right
+  tests); the `Provision` contract note; Implementation §6 (now a two-branch table); Sharp Edge 9
+  (new — a pinned `Provision` reads like an install promise and is not one); Review Question 6;
+  References. No other section changed; the spec remains `status: draft`.
+- **1.0.0** (2026-06-16) — Initial spec from BUNDLE-010 Spec Seed 2.

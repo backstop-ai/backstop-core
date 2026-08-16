@@ -203,7 +203,7 @@ func TestLayout_FilenameClassificationIsExclusiveAndRejectsNonArtifacts(t *testi
 // precisely its motivating case.
 func TestLayout_NonCorpusDirNamesAreSharedAndExcludeDotBackstop(t *testing.T) {
 	got := NonCorpusDirNames()
-	want := []string{".git", "vendor", "node_modules", "testdata", "prototype"}
+	want := []string{".git", "testdata", "prototype"}
 
 	if len(got) != len(want) {
 		t.Fatalf("NonCorpusDirNames() = %v, want %v", got, want)
