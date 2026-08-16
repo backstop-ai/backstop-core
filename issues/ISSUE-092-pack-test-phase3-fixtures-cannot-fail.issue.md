@@ -217,3 +217,26 @@ Not scoped here — for the eventual plan to weigh, at minimum:
   disagreement recorded above (positive/negative vs. valid/invalid directory naming) remains
   unresolved and should be settled before this pack's fixtures are trusted once execution is
   restored.
+
+- **Third concrete instance — `substantiveness` pack, manifest-model drift confirmed at the struct
+  level (2026-08-16).** Independent reproduction against `packs/substantiveness/pack.yml`,
+  confirming the root cause holds for this pack too and pinning down the exact struct-level
+  divergence between the two manifest models named in Root cause:
+  - `pkg/pack/manifest.go:139-144` — the GATE-RUNTIME `Rule` struct — declares
+    `RulePath string `yaml:"rule_path"`` and has **no `File` field at all**.
+  - `pkg/packval/manifest.go:75-78` — the separate, authoring-time-validator `Rule` struct — declares
+    `File string `json:"file,omitempty" yaml:"file,omitempty"`` and has **zero `rule_path`
+    handling**.
+  These are not two views of one model; they are two independently-maintained struct definitions
+  that happen to describe the same YAML, and only one of them recognizes the field every real
+  pack.yml actually uses. This is the same drift diagnosed in Root cause, now confirmed at the exact
+  field-declaration level rather than inferred from behavior.
+  - **Live flip-the-switch repro:** broke `substantiveness`'s negative fixture (edited it to no
+    longer violate the rule it exists to catch) and ran `./bin/backstop pack test
+    packs/substantiveness`. Result: `phase3-fixtures: pass` at `0ms` — zero execution time is itself
+    telling; the phase reported success without doing any work. Restored the fixture afterward and
+    confirmed `git diff` clean (no residual changes left in the tree).
+  This corroborates the reviewer's 2026-08-11 flip-the-switch reproduction above on a different
+  pack, and directly answers Direction item 1 in favor of unifying (or at minimum reconciling) the
+  two `Rule` structs — the drift is not a naming quirk, it's two independently authored types with
+  no shared source of truth for which YAML key means "where is this rule's file."
