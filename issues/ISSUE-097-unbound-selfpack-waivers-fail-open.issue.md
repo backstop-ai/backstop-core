@@ -85,6 +85,18 @@ sites, verified first-hand tonight:
 1. A real semgrep 1.156.0 run directly against `cmd/backstop` (directory
    target) produces exactly 2 findings, ruleId
    `backstop.packs.backstop-ai.backstop-self.rules.no-structural-name-split-on-spine`.
+   Re-confirmed independently while authoring this correction: isolating the
+   rule from `.backstop/packs/backstop-ai/backstop-self/rules/no-baked.yml`
+   into a standalone config and running semgrep directly —
+   `semgrep --config <isolated-rule.yml> cmd/backstop` (directory target) —
+   yields exactly the 2 results
+   (`cmd/backstop/pack_gate.go:994`, `cmd/backstop/pack_gate_provision.go:188`
+   — one line below each `@waiver:` comment, i.e. the code line the comment
+   is attached to), while the SAME isolated rule run as
+   `semgrep --config <isolated-rule.yml> cmd/backstop/pack_gate.go`
+   (explicit single-file target, the `--file`-dispatch shape) yields 0
+   results on that same file — reproducing the dispatch-shape divergence
+   directly in semgrep itself, independent of backstop's own CLI.
 2. `runFindingsEngine` namespaces this via `pack.NamespacedRuleID` using the
    pack's current, post-rename normalized name, producing the real finding
    ID `backstop-ai/backstop-self/backstop.packs.backstop-ai.backstop-self.rules...`.
