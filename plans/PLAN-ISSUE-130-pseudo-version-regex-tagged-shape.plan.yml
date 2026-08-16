@@ -1,0 +1,499 @@
+---
+plan_id: PLAN-ISSUE-130
+spec_id: ISSUE-130
+created: "2026-08-16"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./cmd/backstop/ -run 'TestPseudoVersionSuffix|TestResolveVersion|TestVersion_Ldflags' -count=1"
+coverage_threshold: 90
+
+notes: |
+  Implements ISSUE-130. FIVE tasks, TWO phases, ONE production file, ONE test
+  file. The deliverable is that `pseudoVersionSuffix` rejects ALL THREE
+  pseudo-version forms the Go toolchain actually produces — not just the one
+  form a repo with no tag history produces — so a plain `make build` in this
+  repo reports the honest `dev` instead of a real-looking `v0.1.3-0.<ts>-<hash>`.
+
+  This is deliberately small. It is a character-class widening plus the test
+  coverage that should have caught the gap. Do not restructure version
+  resolution, do not touch `.goreleaser.yml`, do not add a resolution path.
+
+  ── THE THREE FORMS, RE-DERIVED FROM THE SPEC (do not trust a paraphrase) ───
+  Read https://go.dev/ref/mod#pseudo-versions yourself before editing. Fetched
+  and transcribed while planning, 2026-08-16, the reference defines exactly
+  three forms:
+
+    1. vX.0.0-yyyymmddhhmmss-abcdefabcdef
+       — no known base version.
+    2. vX.Y.Z-pre.0.yyyymmddhhmmss-abcdefabcdef
+       — base version is a PRE-RELEASE version like vX.Y.Z-pre.
+    3. vX.Y.(Z+1)-0.yyyymmddhhmmss-abcdefabcdef
+       — base version is a RELEASE version like vX.Y.Z. The reference's own
+         worked example: base v1.2.3 yields v1.2.4-0.20191109021931-daa7c04131f5.
+
+  THE PROPERTY THAT MATTERS, AND IT IS ONE CHARACTER WIDE. In form 1 the
+  14-digit timestamp is preceded by `-`. In forms 2 and 3 a counter segment
+  (`0`, or `pre.0`) sits between the dash and the timestamp, so the character
+  IMMEDIATELY BEFORE the timestamp is `.`, not `-`. The shipped regex
+
+      `-\d{14}-[0-9a-f]{12}`
+
+  hard-codes the `-` separator and therefore matches form 1 ONLY. This repo has
+  real tags (v0.1.0, v0.1.1, … per ISSUE-087's release pipeline), so every local
+  build here produces FORM 3 — the form the guard cannot see.
+
+  ── THE FIX, MEASURED BEFORE BEING PRESCRIBED ──────────────────────────────
+  Widening the separator to the class `[-.]` covers all three forms and changes
+  nothing else. Verified during planning in a throwaway module by running the
+  REAL `isReleasedModuleVersion` body (both the old and the candidate regex)
+  over a matrix of pseudo-versions and real tags. Actual output, verbatim:
+
+      PSEUDO (want isRel=false for all):
+        v0.0.0-20191109021931-daa7c04131f5            old=false new=false
+        v0.0.0-20260727014125-1ccb2a60b2f7            old=false new=false
+        v1.2.4-0.20191109021931-daa7c04131f5          old=true  new=false
+        v0.1.3-0.20260815231324-cf17746b5df5          old=true  new=false
+        v1.2.3-pre.0.20191109021931-daa7c04131f5      old=true  new=false
+        v0.2.0-rc.1.0.20260815231324-cf17746b5df5     old=true  new=false
+      RELEASE (want isRel=true for all):
+        v0.11.0                                       old=true  new=true
+        v1.0.0-rc.1                                   old=true  new=true
+        v0.1.3                                        old=true  new=true
+        v2.0.0-beta.2                                 old=true  new=true
+        v1.0.0-alpha                                  old=true  new=true
+
+  `[-.]\d{14}-[0-9a-f]{12}` is the RECOMMENDED shape, not a mandate. Any pattern
+  that satisfies the same matrix is acceptable — but re-run the matrix, do not
+  take this table on faith, and do not anchor the pattern to `$` without first
+  re-reading the `+` ordering note in the SHARP EDGES below.
+
+  ── WHY THE SHIPPED REGRESSION TEST DID NOT CATCH THIS ─────────────────────
+  This is half the work, and it is the half a careless implementation will skip.
+
+  `TestVersion_LdflagsInjectionReachesBuiltCLI` (`version_test.go:197`) asserts a
+  plain build reports `dev`. Its own failure message names this exact defect ("a
+  VCS-derived pseudo-version is leaking through the fallback"). It is wired into
+  `make test` / `make ci`. And it can pass with the regex broken:
+
+    ANY uncommitted or untracked file in the working tree makes Go stamp `+dirty`
+    onto the recorded module version. `isReleasedModuleVersion` (`version.go:63`)
+    rejects on `strings.Contains(v, "+")` BEFORE it ever reaches the
+    pseudo-version regex. So in a dirty tree the fallback returns `dev` for the
+    RIGHT ANSWER via the WRONG REASON, and the regex is never exercised.
+
+  Only a genuinely pristine checkout — a CI clone, `fetch-depth: 0` — reaches the
+  regex. That is why ISSUE-130's reproduction shows the bare pseudo-version with
+  no `+dirty` while the same test passes in a working tree. The test is not
+  wrong; it is short-circuit-dependent, and nothing says so.
+
+  TASK-001 fixes that in two independent ways, and BOTH are required:
+    (a) a new pure unit test over the regex itself, which no `+` can short-
+        circuit because none of its inputs contain a `+`; and
+    (b) a metadata-stripping assertion inside the integration test, so it bites
+        on form 3 EVEN IN A DIRTY TREE — see TASK-001 for the mechanism.
+
+  ── CLAIMS ─────────────────────────────────────────────────────────────────
+  ISSUE-130 is an ISSUE, not a spec, so it carries no CLM roster of its own.
+  These five are declared HERE and are what every task's `claims` array refers
+  to. Each names a property that is FALSE at HEAD or untested at HEAD.
+
+  CLM-001  `pseudoVersionSuffix` matches ALL THREE pseudo-version forms defined
+           at https://go.dev/ref/mod#pseudo-versions — including the counter-
+           segment forms (`-0.<ts>-<hash>`, `-pre.0.<ts>-<hash>`) it misses
+           today — so `isReleasedModuleVersion` rejects every one of them and a
+           plain local build in a tagged repo resolves to bare `dev`.
+           Tests: TestPseudoVersionSuffix_MatchesAllDocumentedGoPseudoVersionForms,
+                  TestResolveVersion_PseudoVersionFallsBackToDev
+
+  CLM-002  The widening does not over-reject: genuine released tags, plain and
+           pre-release alike (v0.11.0, v1.0.0-rc.1, v2.0.0-beta.2), are still
+           accepted, so `go install ...@vX.Y.Z` keeps reporting its real tag.
+           Tests: TestPseudoVersionSuffix_MatchesAllDocumentedGoPseudoVersionForms
+
+  CLM-003  The form this repo's own tag history actually produces
+           (`vX.Y.(Z+1)-0.<ts>-<hash>`) has FAST unit coverage that cannot be
+           satisfied by the `+`-metadata short-circuit — it is caught in
+           milliseconds, not only by the two-real-builds integration test.
+           Tests: TestPseudoVersionSuffix_MatchesAllDocumentedGoPseudoVersionForms,
+                  TestResolveVersion_PseudoVersionFallsBackToDev
+
+  CLM-004  `TestVersion_LdflagsInjectionReachesBuiltCLI` discriminates on this
+           defect in a DIRTY tree, not only a pristine one: it asserts against
+           the REAL module version Go stamped into the plain binary with build
+           metadata stripped, and its docstring states the short-circuit
+           dependence of the bare `dev` check rather than leaving it implicit.
+           Tests: TestVersion_LdflagsInjectionReachesBuiltCLI
+
+  CLM-005  The correction stays inside the ONE shared predicate: no second
+           resolution path, no duplicated `+` or pseudo-version check, injection
+           precedence and `.goreleaser.yml` untouched — so `version`,
+           `version --json`, `doctor`'s build-identity check and the gate/
+           validate identity output all change together through
+           `effectiveBuildIdentity()`, and released binaries are unaffected.
+           Tests: TestResolveVersion_LdflagsInjectionWins,
+                  TestResolveVersion_ModuleVersionFallbackForGoInstall,
+                  TestVersion_LdflagsInjectionReachesBuiltCLI
+           (all three already exist and must stay green UNEDITED — CLM-005 is a
+            no-regression claim, and TASK-002's "if your diff touches a second
+            file, stop" is how it is enforced.)
+
+  ── SHARP EDGES ────────────────────────────────────────────────────────────
+  1. TWO TEST NAMES ARE PINNED BY COMPLETED PLANS. RENAMING EITHER BREAKS THEM.
+     `TestResolveVersion_PseudoVersionFallsBackToDev` is declared in the
+     `test_names:` of BOTH PLAN-ISSUE-087 (:1340) and PLAN-ISSUE-101 (:1021);
+     `TestVersion_LdflagsInjectionReachesBuiltCLI` in PLAN-ISSUE-087 (:1344).
+     Both plans are `status: completed`, and the `artifact_status_drift`
+     dimension requires every `test_name` a completed plan declares to EXIST.
+     Rewrite these two BODIES freely; their spellings must survive BYTE-
+     IDENTICAL. Add new coverage under a NEW name, never by renaming these.
+  2. THE `+` CHECK RUNS BEFORE THE REGEX, AND THAT ORDER IS LOAD-BEARING.
+     `isReleasedModuleVersion` returns false on `+` at :63 and only reaches
+     `pseudoVersionSuffix.MatchString` at :66. Do not reorder them: the `+`
+     rejection is the one that keeps `v0.11.0+dirty` (a REAL tag, modified tree)
+     out, and `TestResolveVersion_DirtyBuildFallsBackToDev` depends on it. It is
+     also why a `$`-anchored pseudo-version pattern happens to be safe today —
+     which is a reason to be explicit about the coupling, not to rely on it
+     silently.
+  3. REAL RELEASES ARE NOT AFFECTED AND MUST NOT BE PERTURBED. `.goreleaser.yml`
+     injects `-s -w -X main.version={{.Version}}` on every release build, and
+     `resolveVersion`'s step 1 returns an injected non-`dev` value unconditionally
+     before any of this logic runs. Do not touch `.goreleaser.yml`, do not touch
+     the injection precedence, and do not weaken `releasedVersion` — over-
+     rejecting a real tag would make `go install ...@vX.Y.Z` report `dev`, which
+     is a worse bug than the one being fixed.
+  4. FOUR SURFACES CHANGE THEIR REPORTED STRING, BY DESIGN, THROUGH ONE PATH.
+     `effectiveBuildIdentity()` is read by `root.go:110` (version), `gate.go:211`,
+     `output.go:119`/`:233` and `doctor_checks.go:180`. After this fix a local
+     build reports `dev` in all of them instead of a pseudo-version. That is the
+     POINT of the issue, not a regression. The tests that observe those surfaces
+     (`version_command_test.go:62,107`, `doctor_build_identity_test.go:44`,
+     `gate_identity_output_test.go:117`, `validate_output_identity_test.go:161`)
+     all compare against `effectiveBuildIdentity()` itself, so they are self-
+     consistent and should need no edit. If one of them DOES break, stop and
+     report it — it means that surface had baked an expectation about the string
+     shape, which is worth knowing and is not this lane's to silently patch.
+  5. `version.go`'s DOCSTRINGS GO STALE THE MOMENT THE REGEX WIDENS. The comment
+     on `pseudoVersionSuffix` (:9-17) describes only form 1 ("a 14-digit UTC
+     timestamp and a 12-character commit prefix, e.g. `-20260727014125-…`").
+     Updating THAT comment is in scope for TASK-002 — it sits on the line being
+     changed. Comments elsewhere that merely say "pseudo-version" generically
+     (`resolveBuildIdentity` :99-100, `isReleasedModuleVersion` :57-58) stay
+     TRUE after the widening and must be left alone.
+  6. NO SPEC AMENDMENT IS OWED. `TestResolveVersion_PseudoVersionFallsBackToDev`
+     and `TestVersion_LdflagsInjectionReachesBuiltCLI` were mandated by PLANS
+     (ISSUE-087, ISSUE-101), not by a spec — grepping `specs/` for either name
+     returns nothing, checked while planning. SPEC-068's CLM-007/CLM-009 are a
+     DIFFERENT subject (artifact-validation cohort coverage) despite the same
+     claim numbers appearing in `version.go`'s comments; those comment references
+     are pre-existing and out of scope. Nothing in `specs/` needs to move.
+  7. SHARED WORKING TREE. Other lanes are active in this repo. Re-read
+     `cmd/backstop/version.go` and `cmd/backstop/version_test.go` fresh
+     immediately before editing, and locate the regex BY NAME
+     (`pseudoVersionSuffix`) rather than by the `:17` line anchor quoted here.
+     If `bin/backstop` is stale or another agent is mid-build, say so rather than
+     racing it.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Reject every documented pseudo-version form"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "RED: all three Go pseudo-version forms, and an integration test that bites in a dirty tree"
+        description: |
+          Edit `cmd/backstop/version_test.go` ONLY. Three changes. Every one of
+          them must FAIL before TASK-002 — run them and RECORD THE ACTUAL
+          FAILURE OUTPUT in the hand-off, not a claim that they failed.
+
+          (1) NEW TEST — the always-on guard that no short-circuit can satisfy.
+
+          TestPseudoVersionSuffix_MatchesAllDocumentedGoPseudoVersionForms
+          (CLM-001, CLM-002, CLM-003)
+
+          A table driving `pseudoVersionSuffix.MatchString` DIRECTLY — the regex,
+          not `resolveVersion` — so the `+`-metadata short-circuit is structurally
+          out of the picture. No input in this test may contain a `+`.
+
+          Must-match rows, one per documented form, each labelled with the form
+          it comes from and citing https://go.dev/ref/mod#pseudo-versions:
+            form 1, no base version        v0.0.0-20191109021931-daa7c04131f5
+            form 1, captured from THIS repo
+                                           v0.0.0-20260727014125-1ccb2a60b2f7
+                                           (real captured output from
+                                            `go version -m ./bin/backstop`, the
+                                            value this test file already carries
+                                            at version_test.go:69 and — with
+                                            `+dirty` appended — at :84; label it
+                                            as captured, not invented)
+            form 2, pre-release base       v1.2.3-pre.0.20191109021931-daa7c04131f5
+            form 3, release base           v1.2.4-0.20191109021931-daa7c04131f5
+                                           (the reference's OWN worked example
+                                            for base v1.2.3 — quote it as such)
+            form 3, captured from THIS repo
+                                           v0.1.3-0.20260815231324-cf17746b5df5
+                                           (real output captured in ISSUE-130's
+                                            reproduction block; label it as
+                                            captured, not invented)
+
+          Must-NOT-match rows — this half is what stops the fix from over-
+          rejecting real releases, and it is not optional:
+            v0.11.0        v1.0.0-rc.1        v0.1.3
+            v2.0.0-beta.2  v1.0.0-alpha
+
+          EXPECTED RED: the five must-match rows split — the two form-1 rows pass
+          and the three form-2/form-3 rows fail. Say which rows failed. A red
+          where ALL rows fail means you drove the wrong symbol.
+
+          (2) WIDEN THE EXISTING TABLE — keep the name byte-identical.
+
+          TestResolveVersion_PseudoVersionFallsBackToDev (CLM-001, CLM-003)
+
+          It is currently a single-value test over form 1 only (`version_test.go:
+          65-73`). Convert it to a table over the SAME five pseudo-versions listed
+          above — the captured `v0.0.0-20260727014125-1ccb2a60b2f7` it already
+          holds today is one of them, and must not be dropped from the clean
+          (non-`+dirty`) assertion path — each asserted to resolve to `dev`
+          through the real
+          `resolveVersion(\"dev\", buildInfoWithVersion(v), true)`. This is the
+          end-to-end complement to (1): (1) proves the pattern matches, this
+          proves the fallback actually fires.
+
+          DO NOT RENAME IT. Two `completed` plans declare this exact spelling in
+          their `test_names:` (sharp edge 1). Same for the function's existing
+          CLM-007 doc reference — leave the reference, update the prose around it
+          so it no longer describes form 1 as the only shape.
+
+          (3) MAKE THE INTEGRATION TEST BITE IN A DIRTY TREE.
+
+          TestVersion_LdflagsInjectionReachesBuiltCLI (CLM-004) — NAME PINNED,
+          body amended. Two additions to the plain-build half only; the ldflags
+          half is untouched.
+
+          (3a) Capture what Go ACTUALLY stamped into the plain binary. Run
+               `go version -m <plainBin>` and read the third tab-separated field
+               of the `mod` line — that is the recorded `Main.Version`. Put it in
+               a helper (`recordedModuleVersion(t, bin) string`) beside the
+               existing `buildBackstop` / `runVersion` helpers, and `t.Fatalf` if
+               no `mod` line is found rather than silently returning "".
+
+               THIS EXEC NEEDS THE SAME nosemgrep ANNOTATION the neighbours carry
+               — `backstop.packs.backstop-ai.backstop-self.rules.no-baked-tool-exec`
+               — with a rationale in the same spirit as `buildBackstop`'s: reading
+               what the Go toolchain stamped REQUIRES invoking the Go toolchain;
+               this is a test harness execing the compiler, not routing inside the
+               binary. Copy the neighbouring annotation's form, do not invent one.
+
+          (3b) THE ASSERTION THAT DEFEATS THE SHORT-CIRCUIT. Strip any `+…` build
+               metadata from the recorded version and assert
+               `isReleasedModuleVersion(stripped) == false`.
+
+               This is the whole point of (3). In a dirty tree the recorded value
+               is `v0.1.3-0.<ts>-<hash>+dirty`, and the unstripped value is
+               rejected by the `+` branch before the regex is ever consulted —
+               which is exactly how this defect survived a shipped regression
+               test. Stripping the metadata asks the question the test MEANT to
+               ask: would this still be rejected if the tree were clean? Before
+               TASK-002 the answer is no, so this assertion goes RED in a dirty
+               tree — which is the only tree you have.
+
+               Include the recorded value verbatim in the failure message so a
+               future failure names the leaking shape instead of describing it.
+
+          (3c) AMEND THE DOCSTRING to state the limitation plainly: the bare
+               `plainVersion != "dev"` check is short-circuit-dependent — any
+               uncommitted or untracked file makes Go stamp `+dirty`, and the `+`
+               rejection fires before the pseudo-version check, so that assertion
+               only discriminates on a pristine checkout. Name (3b) and
+               TestPseudoVersionSuffix_MatchesAllDocumentedGoPseudoVersionForms as
+               the assertions that hold in every tree.
+
+          DO NOT touch `version.go` in this task. If your diff has two files, you
+          have left the task.
+        files:
+          - cmd/backstop/version_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+        depends_on: []
+        test_names:
+          - TestPseudoVersionSuffix_MatchesAllDocumentedGoPseudoVersionForms
+          - TestResolveVersion_PseudoVersionFallsBackToDev
+          - TestVersion_LdflagsInjectionReachesBuiltCLI
+
+      - id: TASK-002
+        type: implementation
+        title: "GREEN: widen pseudoVersionSuffix to every documented pseudo-version form"
+        description: |
+          ONE edit to `cmd/backstop/version.go`, plus the docstring that sits on
+          it. Nothing else in the file changes.
+
+          THE CHANGE. Widen the separator immediately preceding the 14-digit
+          timestamp in `pseudoVersionSuffix` so it admits the counter-segment
+          forms. Recommended:
+
+              var pseudoVersionSuffix = regexp.MustCompile(`[-.]\d{14}-[0-9a-f]{12}`)
+
+          Any pattern is acceptable that makes the full TASK-001 matrix pass —
+          all five pseudo-version rows matched, all five release rows unmatched.
+          Do not special-case the captured string `v0.1.3-0.20260815231324-…`;
+          the pattern must be derived from the three documented forms.
+
+          THE DOCSTRING (`version.go:9-17`) IS PART OF THE CHANGE, not an optional
+          courtesy. It currently describes form 1 as the only shape ("a 14-digit
+          UTC timestamp and a 12-character commit prefix, e.g.
+          `-20260727014125-1ccb2a60b2f7`"), which is precisely the belief that
+          produced the defect. Rewrite it to name all three forms, cite
+          https://go.dev/ref/mod#pseudo-versions, and state the load-bearing
+          detail explicitly: forms 2 and 3 insert a counter segment (`0.`,
+          `pre.0.`) so the character before the timestamp is `.` rather than `-`,
+          and THIS repo — which has real release tags — produces form 3 on every
+          plain `go build`. Keep the existing note that since Go 1.24 a plain
+          build records a pseudo-version rather than the `(devel)` sentinel.
+
+          WHAT MUST NOT CHANGE, and each has a reason (sharp edges 2, 3):
+            * the ORDER of the checks in `isReleasedModuleVersion` — the `+`
+              branch stays above the regex branch;
+            * `releasedVersion` — widening the rejection must not come from
+              tightening acceptance; `v1.0.0-rc.1` must still be accepted;
+            * `resolveVersion`'s injected-value precedence, and `.goreleaser.yml`.
+
+          Do not add a helper, do not introduce a second predicate, do not touch
+          `resolveBuildIdentity`. If your diff touches a second file, stop.
+        files:
+          - cmd/backstop/version.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-005
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: verification
+        title: "Gate the fix diff-scoped, and prove the red by reverting it"
+        description: |
+          Rebuild and run the inner loop, then the diff-scoped gate:
+
+              go build ./... && go test ./cmd/backstop/ -race -count=1
+              go build -o bin/backstop ./cmd/backstop/
+              ./bin/backstop gate
+
+          Then the FALSIFICATION PASS, which is not optional and is the evidence
+          this lane is actually judged on. Revert ONLY the regex line in
+          `cmd/backstop/version.go` to `-\d{14}-[0-9a-f]{12}`, leaving the tests
+          in place, and re-run:
+
+              go test ./cmd/backstop/ -run 'TestPseudoVersionSuffix|TestResolveVersion|TestVersion_Ldflags' -count=1 -v
+
+          Record, verbatim:
+            * WHICH tests fail and WHICH sub-rows within them. Expected: the
+              form-2 and form-3 rows of both TASK-001 tables, and the metadata-
+              stripped assertion (3b) inside
+              TestVersion_LdflagsInjectionReachesBuiltCLI. The form-1 rows must
+              still PASS — a revert that reds everything means the tests are
+              coupled to something other than the regex.
+            * WHETHER the bare `plainVersion != "dev"` assertion inside
+              TestVersion_LdflagsInjectionReachesBuiltCLI fired. In a dirty tree
+              it will NOT (that is sharp edge 2 / the `+` short-circuit, and is
+              the whole reason this lane exists). Report which tree state you
+              observed rather than assuming; `git status --porcelain` answers it.
+
+          Restore the fix and confirm green. Report true exit codes for every
+          command. If `gate` reports a violation you did not cause, say so
+          plainly rather than fixing it inside this lane — the tree is shared.
+
+          One check-in beyond the two files: confirm the four identity-observing
+          test files named in sharp edge 4 still pass unedited. They compare
+          against `effectiveBuildIdentity()` itself, so they should. If one broke,
+          report it; do not patch it here.
+        files:
+          - cmd/backstop/version.go
+          - cmd/backstop/version_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+        depends_on:
+          - TASK-002
+
+  - id: phase-2
+    name: "Phase 2: Full-sweep verification"
+    tasks:
+      - id: TASK-004
+        type: verification
+        title: "Full unscoped kill chain over the code change"
+        description: |
+          Run the complete gate, unscoped:
+
+              ./bin/backstop gate --all
+
+          Every dimension, no diff scoping. Report the true exit code and the
+          per-dimension verdicts. This is the reading that covers coverage,
+          substantiveness, contracts, test verification and status drift over the
+          version-resolution change — none of which the diff-scoped run in
+          TASK-003 exercises fully.
+
+          Also confirm the full suite, since this lane changes a value four output
+          surfaces read (sharp edge 4):
+
+              go test ./... -race -count=1
+
+          IF OTHER AGENTS ARE MID-FLIGHT IN THIS SHARED WORKING TREE, a full
+          `gate --all` or `go test ./...` will read THEIR half-finished work as
+          well as yours. Check first. If the tree is contended, say so, run the
+          targeted `cmd/backstop` sweep instead, and hand off the full reading as
+          explicitly NOT taken rather than reporting a number you cannot attribute.
+          A carried-forward gap named honestly beats an unattributable green.
+        files:
+          - cmd/backstop/version.go
+          - cmd/backstop/version_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+        depends_on:
+          - TASK-002
+          - TASK-003
+
+      - id: TASK-005
+        type: verification
+        title: "Validate the artifacts this lane moves"
+        description: |
+          This lane closes an issue and completes a plan, so both artifacts move
+          and both must validate:
+
+              ./bin/backstop artifact validate --plan PLAN-ISSUE-130
+              ./bin/backstop artifact validate --issue ISSUE-130
+
+          Report true exit codes for both.
+
+          ARTIFACT STATUS IS NOT THE IMPLEMENTER'S TO FLIP BY HAND. Route the
+          status transitions and any close-out banner through the purpose-built
+          agents (`/plan` for this plan, `/issue` for ISSUE-130) — hand-editing
+          artifact frontmatter or prose is exactly what the agent-guard and
+          CLAUDE.md's never-hand-edit-artifacts rule forbid. This task VERIFIES
+          the artifacts validate; it does not author them.
+
+          Note for whoever writes ISSUE-130's resolution: the issue's "Direction"
+          section correctly predicted a regex correction, and its statement that
+          `TestVersion_LdflagsInjectionReachesBuiltCLI` is a sufficient regression
+          guard turned out to be INCOMPLETE — the guard is short-circuit-dependent
+          in a dirty tree, which is why this plan added the two always-on
+          assertions. That correction belongs in the resolution, recorded as a
+          finding rather than quietly dropped.
+        files:
+          - plans/PLAN-ISSUE-130-pseudo-version-regex-tagged-shape.plan.yml
+          - issues/ISSUE-130-pseudo-version-regex-gap-leaks-dev-fallback.issue.md
+        claims:
+          - CLM-004
+          - CLM-005
+        depends_on:
+          - TASK-002
+          - TASK-003
