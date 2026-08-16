@@ -114,9 +114,12 @@ test event natively, removing the need for this correlation entirely.
   (`/Users/bmanson/src/projects/backstop-go-toolchain-pack`), not backstop-core — any fix is a
   pack change (version bump + relock), same as ISSUE-129's fix.
 - Found during ISSUE-129 investigation (scope-filtering blind spot on go-test violations) and
-  ISSUE-118 (gate blind spot on test-only diffs). Fits DIR-032 (Gate Verdict Honesty) — a gate
-  signal (`violation.File` for a go-test finding) that reads as an authoritative repo-relative
-  location and is not, for any package below the repo root.
+  ISSUE-118 (gate blind spot on test-only diffs). Homed in DIR-024 (corrected 2026-08-16 — the
+  scope-suppression risk this issue originally cited was neutralized by ISSUE-129's
+  exempt_from_scope_filter fix; what remains is a finding-data precision defect, DIR-024's
+  charter, not a wrong-verdict defect under DIR-032). A gate signal (`violation.File` for a
+  go-test finding) that reads as an authoritative repo-relative location and is not, for any
+  package below the repo root.
 - Sibling but distinct from ISSUE-067 (go-test failures surfacing as an opaque crash instead of
   parseable findings — a findings-existence defect) and ISSUE-129 (go-test findings dropped by
   diff-scope filtering — a filtering-logic defect keyed on `ProjectWide`, not on `File`). This

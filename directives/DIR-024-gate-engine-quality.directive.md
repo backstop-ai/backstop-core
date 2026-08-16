@@ -18,12 +18,15 @@ directive:
     - "ISSUE-108"
     - "ISSUE-115"
     - "ISSUE-125"
+    - "ISSUE-135"
     - "ISSUE-137"
+    - "ISSUE-141"
+    - "ISSUE-143"
 ---
 
 ## Description
 
-Twelve gate/engine-quality gaps that don't fit the other three newly-added
+Fifteen gate/engine-quality gaps that don't fit the other three newly-added
 directives' themes:
 
 1. **Cross-platform sandbox — Linux is a hard no-op (ISSUE-020).**
@@ -478,6 +481,201 @@ directives' themes:
     lands. That plan is mid-flight in the working tree right now and edits
     both files this item targets; starting here first collides on them and
     re-derives values that are actively changing.
+13. **`pkg/packval`'s fixture executor never applies a binding's declared
+    `convert:` script, so any pack with a non-SARIF engine fails `pack
+    test`/`pack check` with a parse error instead of a rule verdict
+    (ISSUE-141).** `DefaultExecutor.RunEngine` (`pkg/packval/executor.go:
+    62-97`) — the command dispatch behind `backstop pack test`/`pack check`
+    phase 3 — pipes `stdout.Bytes()` straight into
+    `check.ParsePackFindings` at `executor.go:91`, unconditionally.
+    `binding.Convert` appears NOWHERE in that file (grep clean). The real
+    gate dispatch path does the opposite: `runFindingsEngine`
+    (`cmd/backstop/pack_gate.go`, ~lines 760-774) resolves
+    `filepath.Join(packRoot, filepath.FromSlash(binding.Convert))` and runs
+    it through `resolveSandboxedRunStdout()` BEFORE parsing. Live instance:
+    `packs/substantiveness/pack.yml:25` declares `convert:
+    ast-grep/to-sarif.sh` on its `ast-grep scan --json` engine precisely
+    because ast-grep's native `--json` output is a plain JSON ARRAY of
+    match objects, not a SARIF document with a `runs` key — the converter
+    script's own header comment says so ("Real ast-grep stdin->SARIF
+    converter shipped by the pack (DD-7 / REQ-008, ISSUE-062)"). `parseSarif`
+    (`pkg/check/parsers.go`) `json.Unmarshal`s into a `sarifLog` STRUCT,
+    which fails on an array.
+    STATE THE FAILURE DIRECTION EXPLICITLY — it is the whole reason this
+    item is here and not in DIR-032, and a planner must not misread it as a
+    vacuous green: the failure is LOUD and in the SAFE direction. `RunEngine`
+    returns `ExecutionResult{Passed: false, ExitCode: 1}` together with a
+    non-nil error, `engine %q produced no parseable SARIF`
+    (`executor.go:92-95`), and `RunFixtures` (`pkg/packval/phase3.go:62-90`)
+    turns that non-nil error into a `ValidationError` on BOTH the positive
+    (`semgrep-positive`, "positive fixture failed") and negative
+    (`semgrep-negative`, "negative fixture run failed") branches. `pack
+    test` goes RED. PLAN-ISSUE-092's own finding F7-b puts it best and is
+    worth quoting as the framing: "Correct behavior for a genuinely broken
+    pipeline; wrong conclusion about the pack." The defect is that a
+    Convert-declaring pack can never obtain a genuine pass/fail signal on
+    its own rules — a capability gap in the pack-authoring validator — not
+    that anything reports a verdict it did not earn.
+    Direction, kept as constraint not design, taken from the issue: apply
+    the declared Convert script in `RunEngine` (or its phase3 caller) the
+    way `runFindingsEngine` does, before `check.ParsePackFindings`. Three
+    things whoever plans it must settle rather than assume: (a) check
+    `.backstop/packs/backstop-ai/backstop-core-architecture/architecture/
+    backstop-core.yml` before assuming the conversion logic can be shared
+    verbatim between `cmd/backstop` and `pkg/packval` — those may sit on
+    opposite sides of an import-direction constraint, exactly as
+    PLAN-ISSUE-118 hit between `pkg/gate` and `pkg/pack/engine`, and as
+    PLAN-ISSUE-140 is currently navigating for its own shared predicate (it
+    landed the shared never-started predicate in a NEW package,
+    `pkg/check/never_started.go`, rather than editing the architecture
+    policy file); (b) if a shared helper is not architecturally permitted
+    and packval needs its own copy, the two copies must not drift in
+    behavior — drift between the gate-side dispatch and its packval seed is
+    the ROOT CAUSE of this item's own sibling ISSUE-140 (DIR-032 item 15),
+    where the gate predicate was widened and the seed it was copied from
+    never was; (c) confirm `resolveSandboxedRunStdout()`'s sandboxing
+    guarantee is reusable from `pkg/packval`, or that an equivalent
+    guarantee is preserved if reimplemented — note that `pkg/packval/
+    sandbox.go` is item 1's (ISSUE-020) surface and is a hard no-op on
+    Linux, so a Linux host cannot run a pack convert script at all today; a
+    fix here inherits that constraint rather than escaping it.
+    DEPENDENCY THE ROSTER MUST CARRY, and it is the sharpest single fact
+    about this item: **ISSUE-141 is a declared HARD PREREQUISITE for
+    PLAN-ISSUE-092's phase 5.** That plan
+    (`plans/PLAN-ISSUE-092-pack-test-phase3-fixtures-cannot-fail.plan.yml`,
+    `status: draft`, created 2026-08-16) fixes DIR-032's item 4 —
+    phase3 fixture dispatch being dead code for every `rule_path:`-declared
+    rule — and its final verification phase depends on a real in-repo pack
+    genuinely passing `pack test`. The pack it targets,
+    `packs/substantiveness`, cannot pass regardless of ISSUE-092's own fix
+    landing correctly, because of this item. The plan says so itself, in
+    its FOLLOW-ONS block: follow-on "(ii) packval's executor never applies
+    `binding.Convert`… ⚠ PREREQUISITE", and again in F7-b: "The fix belongs
+    in `pkg/packval/executor.go`, which this lane does not own." So a
+    directive-crossing sequencing edge exists — this item (DIR-024,
+    BACKLOG.yml position 5) gates a member of DIR-032 (position 2).
+    backlog-pm has NO reorder authority and proposes nothing here; the
+    inversion is recorded as a PROPOSAL in `.backstop/pm/INBOX.md` for
+    Brandon.
+    TWO SIBLINGS FROM THE SAME LANE, named so nobody folds them in:
+    PLAN-ISSUE-092's F7 identified THREE independent reasons a real pack
+    still cannot pass phase 3, and required all three filed separately
+    because they share a root cause (packval's manifest/dispatch model
+    predates the engine model) but have three different owning surfaces and
+    three different fixes. This item is (ii). The other two: (i)
+    `ISSUE-142` — packval's `Rule` struct has no `Pattern` field at all,
+    where the runtime `pkg/pack` `Rule` has carried one since SPEC-035
+    REQ-004, so every `pattern-arg`-declared rule (all of
+    `packs/contracts`) dispatches zero fixtures; filed 2026-08-16 and
+    triaged separately (do NOT assert its home in this file — a concurrent
+    triage owns that call). (iii) the `semgrep-rule-id` cross-check in
+    `RunFixtures` is baked-semgrep and unconditional — it runs
+    `semgrepFileContainsRuleID` on a rule's source file regardless of the
+    rule's declared engine, so `packs/substantiveness`'s `rule_path:
+    ast-grep/sgconfig.yml` (an ast-grep project config whose whole content
+    is `ruleDirs: [rules]`) fails it — a live thin-executor violation AND
+    bundle-mandated by BUNDLE-005 REQ-012, so correcting it is a
+    requirements question, not a local code edit. As of this writing (iii)
+    has no issue ID in the tree; if it is still unfiled when someone works
+    this item, that is a gap to raise, not to absorb.
+14. **Once PLAN-ISSUE-141 lands, the Convert-application step exists as TWO
+    independently-maintained implementations instead of one (ISSUE-143).**
+    Applying a binding's declared `Convert` script to raw engine output
+    before handing it to `check.ParsePackFindings` will then be done twice:
+    once in `cmd/backstop/pack_gate.go`'s `runFindingsEngine` (the real gate
+    dispatch path, `backstop gate`) and once in `pkg/packval/executor.go`'s
+    `RunEngine` (the `pack test`/`pack check` phase3 path). Two
+    hand-maintained copies of "apply Convert, then parse" drift the moment
+    either call site changes — a new edge case handled in one copy (error
+    wrapping, empty-output handling, sandboxing behavior) and not the other
+    reproduces exactly the bug class ISSUE-141 was filed to fix, just for a
+    different case.
+    Why this is NOT a duplicate of item 13: item 13 is the missing stage
+    (Convert never runs at all in packval); this item is the two-
+    implementation SHAPE that item 13's fix leaves behind. PLAN-ISSUE-141
+    deliberately declines consolidation — doing so would require editing
+    `pack_gate.go`, which was the active file scope of two other in-flight
+    implementers (PLAN-ISSUE-067, PLAN-ISSUE-140) the same night — and
+    instead installs a mechanical content-scan drift guard (its CLM-006) as
+    an INTERIM TRIPWIRE, not a fix. This item is what retires that tripwire.
+    Direction, kept as constraint not design: extract a single shared
+    Convert-application step (name TBD by the planner) into `pkg/packval`
+    and have `cmd/backstop/pack_gate.go`'s `runFindingsEngine` delegate to
+    it — that direction and not the reverse, because `cmd/backstop` already
+    has a declared dependency edge onto `pkg/packval` per
+    `.backstop/packs/backstop-ai/backstop-core-architecture/architecture/
+    backstop-core.yml` and already imports it for
+    `packval.SandboxedRunStdout`, so no new architectural edge is needed,
+    while `pkg/packval` cannot depend back on a `main` package. Three things
+    the planner must confirm before scoping, from the issue: (a) the CURRENT
+    shape of both call sites, since PLAN-ISSUE-141 may have landed
+    differently than planned and ISSUE-140/ISSUE-142 touch the same file;
+    (b) whether CLM-006's content-scan guard is still in place and exactly
+    what it checks, since consolidation should retire it rather than leave
+    dead weight; (c) whether the two implementations have ALREADY diverged
+    in a way that produces wrong output on one path — if so that divergence
+    is a live defect, not tech debt, and the item must be re-scoped.
+    RELATED SCOPE A PLANNER MUST NOT MISS: ISSUE-144 (filed the same night,
+    homed in DIR-032) adds a SECOND stage with the same dual-implementation
+    problem — `StdoutArtifact` payload selection, which the gate path
+    performs and packval's executor does not. If ISSUE-143's extraction
+    lands first, ISSUE-144's payload-selection logic belongs in the same
+    shared location rather than becoming a third independent copy; if
+    ISSUE-144 lands first, this item's extraction must absorb it. Stated as
+    a sequencing coupling, not a merge — they are separate issues with
+    separate fixes.
+    SEQUENCING: `pkg/packval/executor.go` and `cmd/backstop/pack_gate.go`
+    are both live, actively-edited files (PLAN-ISSUE-140, PLAN-ISSUE-067,
+    PLAN-ISSUE-092's lane). This item is consolidation work that touches
+    both and must be sequenced AFTER the in-flight lanes land, never
+    concurrently — opening it early guarantees a collision. It carries no
+    verdict defect of its own today.
+15. **go-test converter emits a bare basename instead of a repo-relative
+    path for nested-package test failures — a finding-data precision
+    defect, not a lying verdict (ISSUE-135).** The `backstop-ai/go-toolchain`
+    pack's `go-test` SARIF converter (`scripts/test-to-sarif.sh`) copies
+    `go test`'s own `--- FAIL:` line verbatim into
+    `locations[].physicalLocation.artifactLocation.uri` — which Go's
+    `testing` package always basenames via `filepath.Base()` regardless of
+    package depth (Go's own behavior, not something backstop's tooling adds
+    or could suppress). Reproduced directly against the real converter for a
+    two-level-nested package: `uri` reads `a_test.go`, not
+    `sub/pkg/a_test.go`. The converter has what it needs to fix this — the
+    per-package `FAIL\t<import-path>\t<time>` summary line closing each
+    `--- FAIL:` block, resolvable to a repo-relative directory via
+    `go.mod`'s module path or `go list -f '{{.Dir}}'` — but currently
+    discards it, looking only at the block's own `.go:NN:` line.
+    Why this is DIR-024 (finding-data precision) and not DIR-032 (gate
+    verdict honesty), stated explicitly because the issue's own References
+    section names DIR-032 and a planner would otherwise trip on the
+    mismatch: ISSUE-129 already landed `exempt_from_scope_filter: true` on
+    the `go-test` binding, so every go-test violation survives
+    `filterViolations`'s scope check via the `ProjectWide` OR-branch
+    regardless of `File` — the scope-suppression risk this issue's own
+    Impact section originally raised is neutralized in the current tree.
+    What remains is a violation that IS reported and DOES correctly redden
+    the gate, just with an imprecise/ambiguous location string — wrong data
+    on a correct verdict, this directive's charter (same test this file has
+    drawn for ISSUE-096, ISSUE-115, ISSUE-125, ISSUE-137, ISSUE-141,
+    ISSUE-143), not DIR-032's "wrong verdict about a computed result."
+    Counter-argument considered and overridden, recorded so a future reader
+    isn't left wondering if it was missed: baseline identity includes
+    `File` (`pkg/gate` baseline-compare machinery), so two same-named test
+    files in different packages (e.g. two `a_test.go`s) could genuinely
+    conflate under baseline compare — a real verdict-honesty-adjacent risk,
+    since a stale baseline entry for one package's failure could then mask
+    a new failure in a different package with the same test filename.
+    Founder-ruled (Brandon, 2026-08-16) this still homes in DIR-024: the
+    baseline-conflation scenario is a downstream CONSEQUENCE of the
+    imprecise `File` value, not an independent defect in a gate step's own
+    verdict computation — fixing the converter (this item's own direction)
+    removes the conflation risk at its source rather than needing a
+    separate DIR-032 fix layered on top.
+    Fix lives in the pack repo (`backstop-ai/go-toolchain`, local working
+    copy `/Users/bmanson/src/projects/backstop-go-toolchain-pack`), not
+    backstop-core — version bump + relock, same shape as ISSUE-129's fix
+    and this directive's own ISSUE-096/ISSUE-125 precedents for pack-side
+    rule/converter precision fixes.
 
 ## Notes
 
@@ -770,3 +968,105 @@ changes for it sit uncommitted in the tree (the fixture flip, the pack bump
 to 1.4.0, and a new untracked
 `cmd/backstop/pack_gate_issue129_regression_test.go`) — flagged as a
 status/lineage observation, not a finding about this issue.
+
+ISSUE-141 slotted by backlog-pm 2026-08-16 under the standing clear-fit
+grant. It rides here on charter fit and displaces nothing — in particular
+it must NOT displace item 1 (ISSUE-020) or the ISSUE-092 sequencing already
+recorded in this file. Why DIR-024 and not DIR-032 "Gate Verdict Honesty",
+which is the obvious pull and must be answered head-on: this issue's fix
+site is the SAME 35-line function, `pkg/packval/executor.go`'s `RunEngine`,
+as DIR-032's brand-new item 15 (ISSUE-140), and its blocking relationship
+is to DIR-032's item 4 (ISSUE-092). Surface adjacency is not the test, and
+this file has now drawn that line four times — ISSUE-115, ISSUE-125
+("GO-005 reports exactly the verdict its regex earns, so the defect is
+rule precision, not a lying verdict"), ISSUE-137, and item 12's own slot
+note. DIR-032's charter sentence is "a gate step computes a result
+internally but reports the WRONG VERDICT about it." Nothing here reports a
+wrong verdict: the parse failure is loud, blocking, and correctly
+attributed to a broken pipeline. That is exactly what separates it from
+its two neighbours — ISSUE-140 IS a lying verdict (an engine that never
+started reads as a clean negative fixture) and ISSUE-092 IS a lying
+verdict (`phase3-fixtures: pass` having executed zero checks); ISSUE-141
+SHOUTS where those two lie. The one honest concession, recorded rather
+than buried: the error phase3 renders blames the FIXTURE ("negative
+fixture run failed") rather than naming the unapplied convert step, so the
+diagnosis is coarse — but a coarse blocking error is a diagnosability
+cost, not a false verdict, and a planner should improve the message while
+fixing the cause.
+AFFIRMATIVE PRECEDENT, not merely elimination: this directive already
+owns `pkg/packval` surface. Item 1 (ISSUE-020) is `pkg/packval/sandbox.go`,
+and item 3 (ISSUE-082) enumerates `pkg/packval/executor.go:63` among the
+`CheckToolAllowed` call sites — the very function this item fixes, ten
+lines above the fix site. So packval-executor work has a home here
+already.
+BUNDLE-005 "Pack Validation" was considered and rejected as a home: it is
+an unhomed bundle awaiting a directive, and BACKLOG.yml's own re-listing
+note for it says its validation substance ships today as `pkg/packval` and
+that its live residual defect (ISSUE-092) is already carried by DIR-024
+and DIR-032 — i.e. that entry marks unhomed intent, not uncarried work. An
+open issue needs a directive home, not a bundle.
+IN-FLIGHT COVERAGE IS NIL BY CONSTRUCTION, established from the artifacts
+rather than assumed, and zero interviews were run: PLAN-ISSUE-092 fences
+this defect out explicitly by file ownership ("The fix belongs in
+`pkg/packval/executor.go`, which this lane does not own") and orders it
+FILED, not folded in. `PLAN-ISSUE-140-packval-executor-narrow-neverstarted.
+plan.yml` (ready to implement at commit `ef35010`, mid-flight in the
+working tree — untracked `pkg/check/never_started.go` present) DOES own
+`executor.go`, but only for the never-started predicate; its scope fence
+states "THIS LANE DOES NOT TOUCH executor.go [phase3]— deliberate
+file-exclusivity split" and it carries no convert-application task.
+SEQUENCING CONSEQUENCE a planner must respect: `pkg/packval/executor.go`
+is a live, actively-edited file right now. Do not open a lane on this item
+concurrently with PLAN-ISSUE-140 — sequence it after that plan lands, or
+the two collide on the same function.
+
+ISSUE-143 slotted by backlog-pm 2026-08-16 under the standing clear-fit
+grant. It rides here on charter fit and displaces nothing — in particular
+it must NOT displace item 1 (ISSUE-020) or the ISSUE-092 sequencing already
+recorded in this file. Why DIR-024 and not DIR-032 "Gate Verdict Honesty",
+which the packval-drift family straddles and must be answered head-on:
+apply this file's own repeatedly-drawn test — DIR-032's charter sentence is
+"a gate step computes a result internally but reports the WRONG VERDICT
+about it," and ISSUE-143 reports nothing at all; it is structural
+duplication with no verdict claim, the same category as ISSUE-137 (the
+fixture/released-pack sync guard, homed here on exactly this ground). One
+counter-pull worth disposing of rather than ignoring: DIR-032 does own
+ISSUE-136, an audit with no verdict defect of its own — but that audit
+bounds WHICH VERDICTS ARE LYING engine-by-engine, whereas ISSUE-143 bounds
+nothing and audits nothing; it is a refactor of the fix site for this
+directive's OWN item 13. Affirmative precedent, not merely elimination:
+this directive already owns the surface — item 1 (ISSUE-020) is
+`pkg/packval/sandbox.go`, item 3 (ISSUE-082) names
+`pkg/packval/executor.go:63`, and item 13 (ISSUE-141) is the very function
+whose fix creates this residual.
+IN-FLIGHT COVERAGE IS NIL BY CONSTRUCTION, established from the artifacts
+rather than assumed, and zero interviews were run: PLAN-ISSUE-141
+explicitly declines the consolidation and installs CLM-006 as an interim
+tripwire instead of a fix, and no plan in `plans/` targets ISSUE-143
+(backlog-pm enumerated `plans/` 2026-08-16).
+Priority note, stated as observation and explicitly NOT a reorder
+(backlog-pm has no reorder authority): DIR-024 sits at BACKLOG.yml position
+5 and this slot does not change its rank.
+
+ISSUE-135 slotted here 2026-08-16, correcting a routing call ISSUE-135's
+own References section had made unilaterally toward DIR-032. Worth stating
+precisely, since it is easy to misread as an actual reversal: ISSUE-135 was
+never actually added to DIR-032's `source:` frontmatter or Description/
+Notes — checked directly against DIR-032's current text, not assumed. The
+DIR-032 pull existed only inside the issue's own file, in a References
+bullet reading "Fits DIR-032 (Gate Verdict Honesty)," which was never
+accepted into that directive. So there was nothing to remove from DIR-032
+itself; the only correction needed was in the issue file's own References
+section, made in the same pass (see
+`issues/ISSUE-135-go-test-converter-bare-basename-file.issue.md`). Founder-
+approved rationale for DIR-024 over the issue's own DIR-032 self-citation:
+DIR-032's charter is a gate step reporting the WRONG VERDICT about a result
+it computed; post-ISSUE-129, this issue's go-test finding IS reported and
+DOES correctly redden the gate — the defect is in the finding's own `File`
+data, not in verdict computation, matching this directive's ISSUE-096/
+ISSUE-125 precedent (pack rule/converter precision fixes) rather than the
+gate-verdict-honesty cluster's shape. The baseline-identity counter-
+argument (same-named test files across packages could conflate under
+baseline compare) was considered and is recorded, not dropped — see item
+15 above for the full reasoning and the founder's ruling on why it still
+homes here.

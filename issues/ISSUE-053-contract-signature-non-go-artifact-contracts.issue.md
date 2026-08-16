@@ -213,3 +213,19 @@ should make the schema/compiler boundary honest about what `kind: constant`
   project-root-relative because `NormalizePath` is a no-op when called with an empty
   `projectRoot`. Neither caused this false-RED and neither should be read as the reason
   contract_signature is unwaivable — that reason is the structural-dimension exclusion above.
+
+- **Third confirmed recurrence (2026-08-16, PLAN-ISSUE-140 implementation, bare full-diff
+  `backstop gate`).** Identical finding, same file, same symbol: `symbol go-coverage-rule
+  signature not found or mismatched in
+  cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/pack.yml`. The
+  implementer confirmed the fixture file is committed and unmodified in their working tree —
+  last touched by commit `2a18148` (ISSUE-129's relock) — and that their own diff-scoped
+  `gate --file` runs on their actual lane (pkg/check, pkg/packval/executor.go) pass clean; the
+  finding only surfaces because a bare (non-diff-scoped) `gate` run spans the full diff against
+  merge-base across every in-flight lane that night (190+ changed files), which happens to
+  include this already-red fixture. Nothing new here beyond corroboration: same root cause
+  (Go-syntax-only compiler, `.yml` target, `baseline: true` grandfathers it non-blocking), same
+  non-waivable-by-design disposition. Recorded so a future session doesn't re-diagnose this from
+  scratch a third time, and to note the trigger condition generalizes — any bare `gate --all`/
+  full-diff run touching this testdata path will keep re-surfacing it until this issue's fix
+  lands.

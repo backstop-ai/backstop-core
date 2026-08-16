@@ -10,6 +10,7 @@ directive:
     - "BUNDLE-003"
     - "ISSUE-122"
     - "ISSUE-124"
+    - "ISSUE-134"
     - "ISSUE-139"
 ---
 
@@ -138,6 +139,52 @@ it verifies anything — dirty tree false-fails, clean tree passes vacuously
 — so the fix must restore a path where the assertion can actually verify,
 not just silence the failure.
 
+**Follow-on (2026-08-16): ISSUE-134 — and an explicit scope expansion,
+founder-ruled.** `backstop doctor`'s toolchain-runs check
+(`checkToolchainRuns`, `cmd/backstop/doctor_checks.go:227`) verifies
+pack-declared test/build entrypoints via the shared `packEntrypointProber`,
+but the prober selects bindings by `GateType == GateTypeTest ||
+GateTypeBuild` only (`pack_entrypoint_prober.go:126`, doc comment:
+"Selection is by STAGE, never by tool") — it never walks the separate
+engine-registry path (`resolveEngineRegistry`/`dispatchPackEngines`,
+`cmd/backstop/pack_gate.go`) that resolves findings-engine tools (semgrep,
+ast-grep) at gate time. A project can run `backstop doctor`, see every
+check pass — including "pack-declared test/build entrypoints execute" —
+and still be missing a findings-engine tool from PATH entirely, with no
+signal. The next `backstop gate` run hits exactly the failure mode
+ISSUE-112 describes: a missing tool with no CrashGuard silently produces
+empty SARIF, `pack_engines` passes, and downstream joins starve on the
+empty finding set, producing misleading violations attributed to the wrong
+cause — the same condition that produced bclabs-portal's 397 false
+violations. Doctor's entire purpose is proactive pre-flight health
+verification; this is a real gap in that purpose, not a residual
+baked-literal cleanup item like ISSUE-122/ISSUE-124 above. Two constraints
+recorded for whoever plans this (from the issue itself): `packEntrypointProber`
+has exactly two callers — doctor's `checkToolchainRuns` and `backstop
+init`'s own toolchain step (`init_toolchain.go`, SPEC-069) — so widening
+`Probe`'s selection logic in place would silently change what `init`
+verifies too; and doctor's existing pass/fail/refused report vocabulary was
+designed for test/build entrypoints and doesn't map cleanly onto "this
+findings-engine tool is absent," needing its own design pass.
+
+Founder-approved home and framing, recorded here so a reader does not have
+to reconstruct it (Brandon, 2026-08-16): this directive's remaining scope
+was, until now, BUNDLE-003 delivery plus residual baked-literal cleanup
+(ISSUE-122, ISSUE-124) and one red-test fix (ISSUE-139, itself already
+noted below as "not residual cleanup"). ISSUE-134 is neither residual
+cleanup nor a leftover from BUNDLE-003's own delivery — it is a genuinely
+new defect class (doctor's diagnostic coverage of findings-engine tools)
+surfaced after `backstop doctor` shipped under SPEC-070, itself sourced
+from BUNDLE-003 (this directive's own first `source:` entry). The founder
+ruled it belongs here rather than under DIR-032 (gate-verdict-honesty —
+doctor is not a gate step, so it doesn't fit that directive's charter) or
+as a new standalone directive (this directive's lane already owns the
+doctor surface via BUNDLE-003/SPEC-070). This directive's scope is hereby
+understood to include doctor's tool-detection diagnostic reliability going
+forward as an ongoing concern, not merely BUNDLE-003 residue — stated
+explicitly rather than left for a reader to infer from the source list
+alone.
+
 ## Notes
 
 - **Sequencing: ISSUE-122 must not be planned or implemented until SPEC-068
@@ -164,3 +211,14 @@ not just silence the failure.
   collide with SPEC-068's or ISSUE-122's artifact-discovery surface and can
   be planned independently and immediately; it is the one item in this
   directive's remaining scope that is not residual cleanup.
+- **ISSUE-134 also has no SPEC-068 precondition and is not residual
+  cleanup** — like ISSUE-139, it is a fresh defect discovered after
+  BUNDLE-003 delivered `backstop doctor` (SPEC-070), not leftover
+  baked-literal cleanup from BUNDLE-003's own SPEC-068 lane. It touches
+  `cmd/backstop/pack_entrypoint_prober.go` and `doctor_checks.go`, a
+  different surface than ISSUE-122/ISSUE-124's artifact-discovery/layout
+  surface, so it does not collide with those and can be planned
+  independently. Founder-ruled scope expansion, 2026-08-16 (see Description
+  above): this directive's charter is no longer just BUNDLE-003 delivery
+  plus residual cleanup — it now explicitly includes doctor's
+  findings-engine tool-detection diagnostic coverage as an ongoing concern.

@@ -22,12 +22,14 @@ directive:
     - "ISSUE-129"
     - "ISSUE-136"
     - "ISSUE-140"
+    - "ISSUE-142"
+    - "ISSUE-144"
 ---
 
 ## Description
 
 Carved out of DIR-024 "Gate/Engine Quality" per founder ruling (Brandon,
-2026-08-10). Fifteen issues share one defect shape: **a gate step computes a
+2026-08-10). Sixteen issues share one defect shape: **a gate step computes a
 result internally but reports the wrong verdict about it** — silent pass
 when it should block, a scoped-clean signal when the unscoped truth is red,
 an opaque crash where a legible finding belongs, a dimension that never
@@ -75,7 +77,25 @@ reached `status: completed` and all four issues (ISSUE-112, 113, 118, 129) reach
 members are `status: open` today" no longer holds — four are closed, and the
 roster itself grew to fifteen with item 15 (ISSUE-140). See the Notes' own
 "In-flight execution note" correction for the full picture; preserved here rather
-than rewritten, per this directive's own convention.
+than rewritten, per this directive's own convention. **Correction (2026-08-16,
+later still):** the roster grew again, to SIXTEEN, with item 16 (ISSUE-142),
+slotted by backlog-pm under the same standing clear-fit grant recorded above for
+items 12 (ISSUE-118), 13 (ISSUE-129) and 14 (ISSUE-136) — on charter fit against
+this directive's own description, not by the founder's original 2026-08-10
+eleven-member roster. ISSUE-142 was mandated by `PLAN-ISSUE-092` (item 4's own
+lane, `status: draft`) as one of three named follow-ons its F7 review block
+deferred rather than fixed in place; see item 16 below and the Notes for the
+full provenance chain, including its two siblings ISSUE-141 (filed 8 seconds
+earlier, a hard prerequisite for that same plan's phase 5) and a third,
+not-yet-filed follow-on this directive should expect shortly. **Correction
+(2026-08-16, later again):** the roster grew once more, to SEVENTEEN, with
+item 17 (ISSUE-144), slotted by backlog-pm under the same standing clear-fit
+grant recorded above for items 12 (ISSUE-118), 13 (ISSUE-129), 14 (ISSUE-136)
+and 16 (ISSUE-142) — on charter fit against this directive's own description,
+not by the founder's original 2026-08-10 eleven-member roster. See item 17
+below and the Notes for the full provenance and the reasoning that keeps it
+here rather than in DIR-024, which took ISSUE-141 (item 17's closest sibling)
+on the opposite side of that same line hours earlier.
 
 The cluster's variants, so a planner does not read it as one uniform bug:
 
@@ -97,7 +117,27 @@ The cluster's variants, so a planner does not read it as one uniform bug:
   fixed). That makes it notable rather than redundant: the bucket now
   contains a member whose existence proves item 9's fix was surface-local,
   not root-caused — the narrow `*exec.Error`-only check item 9 fixed on one
-  path was left unwidened on the sibling path it was copied from.
+  path was left unwidened on the sibling path it was copied from. **Item 16
+  (142) also belongs in this bucket, and also on the `pack test` phase3
+  surface, and is also not a new variant.** With item 16 added, that single
+  surface now holds THREE independent members: item 4 (the `rule_path:`
+  declaration style — packval reads the wrong YAML key on a field that
+  exists), item 16 (the `pattern-arg` declaration style — packval has no
+  field at all for the key packs actually declare), and item 15 (a
+  dispatched engine that never started reading as a clean negative). None of
+  the three fixes closes either of the others — together they mean no
+  fixture in any real in-repo pack can currently falsify anything the way
+  `pack test` phase3 is supposed to guarantee. **Item 17 (144) also belongs
+  in this bucket, and also on the `pack test`/`pack check` phase3 surface,
+  and is also not a new variant.** With item 17 added, that single surface
+  now holds FOUR independent members: item 4 (the `rule_path:` key drift —
+  packval reads the wrong YAML key on a field that exists), item 16 (the
+  `pattern-arg` declaration style — packval has no field at all for the key
+  packs actually declare), item 15 (a dispatched engine that never started
+  reading as a clean negative), and item 17 (a dispatched engine whose real
+  output lives in a declared file the executor never reads — it parses
+  stdout noise instead of the artifact). None of the four fixes closes any
+  of the others.
 - **Items 11 and 12 (114, 118)** are the *starvation* variant: neither
   mis-reports a verdict it computed (that's items 4-10) — each never
   computes anything at all for its trigger. Item 11 starves on an entire
@@ -716,6 +756,178 @@ The cluster's variants, so a planner does not read it as one uniform bug:
     first consumer. `type: bug`, `scope: contained`, `uncertainty: known`,
     `risk: critical`.
 
+16. **`pack test` phase3 is ALSO dead for `pattern-arg` rules — a second,
+    structurally distinct declaration style item 4 does not cover
+    (ISSUE-142).** `pkg/packval`'s authoring-time `Rule` struct
+    (`pkg/packval/manifest.go`) has NO `Pattern` field at all — grep for
+    `Pattern` under `pkg/packval/` returns ZERO hits (verified). The runtime
+    gate model does have one: `pkg/pack/manifest.go:166`,
+    `Pattern string \`yaml:"pattern"\``, added by SPEC-035 REQ-004, whose own
+    doc comment calls it "the inline rule pattern a pattern-arg engine passes
+    as a command argument instead of resolving a rule file on disk." So for a
+    `pattern-arg` rule the YAML `pattern:` key is silently DISCARDED at
+    unmarshal — packval cannot even see the rule source such a rule declares.
+    Consequence in `phase3.go`'s `RunFixtures`: `rule.File` is `""`, the
+    guards at `phase3.go:31`, `:62` and `:76` are all false,
+    `executor.RunEngine` is never invoked for either polarity, `res.Errors`
+    stays empty and `res.Status` stays `"pass"`. Measured against the real
+    in-repo pack, not inferred: `packs/contracts/pack.yml` declares
+    `rule_path` ZERO times and `pattern:` SEVEN times (verified by count) —
+    all 7 of its rules, 100% of the pack, can never have a fixture validated.
+    A negative fixture rewritten to violate nothing, or a positive fixture
+    rewritten to violate the rule, still prints `phase3-fixtures: pass`. A
+    fourth dead site the issue itself does not name but `PLAN-ISSUE-092`'s F2
+    finding does: `phase1.go:51` carries the same `rule.File != ""` guard, so
+    the "the rule file you declared exists" structural check is dead for
+    these rules too.
+
+    **This is NOT a duplicate of item 4 (ISSUE-092), and item 4's fix does
+    not close it.** Item 4 is the `rule_path:` declaration style — packval
+    reads YAML key `file:` where every real pack writes `rule_path:`, a WRONG
+    KEY NAME on a field that exists. This item is the `pattern-arg` style —
+    neither `file:` nor `rule_path:` is declared, only an inline `pattern:`,
+    and the field does not exist in packval's model AT ALL, a MISSING key.
+    `PLAN-ISSUE-092` says so itself, in its F7-a finding: `packs/contracts`
+    "CAN NEVER DISPATCH, EVEN AFTER THIS LANE… the accessor this plan
+    introduces (CLM-001) returns EMPTY for every one of them and the dispatch
+    guard stays false. This is a THIRD instance of the same drift family…
+    Fixing this is modelling work on top of CLM-001, not a variation of it."
+    That plan's F8 ruling (adopted Option 1) states explicitly:
+    "`packs/contracts` stays dead (F7-a) — NOT a regression, exactly as
+    vacuous as today, and follow-on (i) picks it up later."
+
+    **The fix is a field PLUS a new invocation shape, which is what makes it
+    a separate lane rather than a second patch on item 4.** Adding
+    `Pattern string \`yaml:"pattern"\`` to `pkg/packval`'s `Rule` and widening
+    the dispatch-eligibility guards is necessary but not sufficient: the call
+    site today is `executor.RunEngine(packDir, binding, []string{rule.File,
+    f.Path})`, an argv built for a FILE-based `input_mode`. A `pattern-arg`
+    engine (`packs/contracts/pack.yml` declares `input_mode: pattern-arg` /
+    `input_flag: --pattern`) wants the pattern string passed as a command
+    argument, not a path. That argv shape has not been traced and is scoped
+    to whoever plans this.
+
+    **The root shape is now three-for-three, which is the argument for
+    unifying the two `Rule` structs rather than patching a third field.**
+    `pkg/pack/manifest.go` (runtime) and `pkg/packval/manifest.go`
+    (authoring-time) are two independently-maintained models of the same
+    YAML. Item 4 is drift on the rule-file key; this item is drift on
+    `pattern`; `PLAN-ISSUE-092`'s F2 finding documents a THIRD — `rule.Layer`,
+    retired from the runtime model by SPEC-031 REQ-002, still gates packval's
+    layer-3 validator dispatch, so `RunValidator` is dead too. Whoever plans
+    either item should weigh one unification against N field-by-field
+    patches; recorded here as a question for the planner, not decided.
+
+    **Provenance is the strongest fit signal this slot has.** ISSUE-142 was
+    MANDATED by `PLAN-ISSUE-092` (`status: draft`), which is item 4's own
+    lane. Its F7 review block found and deferred three deeper defects rather
+    than fixing them in place, and its follow-ons list names this one as
+    follow-on **(i)**: "packval's Rule model has no Pattern field —
+    pattern-arg rules can never dispatch fixtures." Its two siblings from the
+    same F7 block: **(ii) = `ISSUE-141`** ("packval's executor never applies
+    `binding.Convert`"), filed 8 seconds earlier, which F8's ruling makes a
+    HARD PREREQUISITE for that plan's final phase (TASK-015) — the plan
+    states it must STOP AND REPORT if ISSUE-141's own fix has not landed by
+    then; and **(iii)**, the `semgrep-rule-id` cross-check running
+    unconditionally regardless of declared engine — baked semgrep knowledge,
+    a thin-executor violation. As of this writing (iii) is no longer a
+    separate follow-on to file: F8's ruling folded it directly into
+    `PLAN-ISSUE-092` itself (its F9 section, `CLM-010`), conditioned on
+    declared `input_mode` rather than a baked engine-name literal; what
+    remains outstanding is a narrower, non-blocking requirements question
+    about `BUNDLE-005 REQ-012`'s wording, recorded in that plan's own
+    follow-ons list rather than as a fourth cluster member here.
+
+    **Sequencing fact a planner needs, and it distinguishes this item from
+    its siblings:** ISSUE-142 is the one of the three F7 follow-ons that
+    `PLAN-ISSUE-092` does NOT block on — that plan's F8 ruling blocks only on
+    (ii)/ISSUE-141, and explicitly defers this one ("follow-on (i) picks it
+    up later"). It is genuinely independent work — but it is also the item
+    that keeps `packs/contracts` vacuous until it lands, meaning any
+    acceptance criterion of the form "`packs/contracts` passes `pack test`"
+    stays satisfiable by a vacuous signal even after item 4 ships. `type:
+    bug`, `scope: contained`, `uncertainty: known`, `risk: critical`.
+
+17. **`pack test`/`pack check` phase3 never honors a binding's declared
+    `stdout_artifact` — a dispatched engine's REAL output can sit unread in a
+    file while the executor parses stdout noise instead (ISSUE-144).**
+    `DefaultExecutor.RunEngine` (`pkg/packval/executor.go:61-98`) captures a
+    run's raw stdout into a buffer and feeds it straight to
+    `check.ParsePackFindings`; `binding.StdoutArtifact` appears NOWHERE in the
+    file (grep clean). The real gate dispatch path resolves the payload
+    BEFORE Convert/parse: `runFindingsEngine`
+    (`cmd/backstop/pack_gate.go:759-766`) does `payload := stdout; if
+    binding.StdoutArtifact != "" { read filepath.Join(projectRoot,
+    binding.StdoutArtifact); a declared-but-missing artifact is a fail-loud
+    broken run, never a silent fallback to stdout }`. Per SPEC-048
+    (REQ-002/CLM-005..008, DEFECT-2) a `stdout_artifact`-declaring binding
+    writes its real machine-readable output to that FILE and prints only a
+    human summary to stdout — `RunEngine` has no equivalent step and always
+    parses whatever landed in `stdout.Bytes()` regardless of what the binding
+    declares.
+
+    **The verdict-direction argument is what places this item here rather
+    than beside ISSUE-141 in DIR-024, and it must be stated head-on, because
+    DIR-024's ISSUE-141 note put a near-identical packval-vs-gate dispatch
+    gap in that directive on the ground that it SHOUTS rather than lies.**
+    Verified in the tree 2026-08-16, not relayed: `parseSarif`
+    (`pkg/check/parsers.go:130-134`) trims its input and returns `(nil, nil)`
+    — no error — on empty/whitespace input. When a `stdout_artifact`-declaring
+    binding leaves stdout EMPTY (the normal shape for a tool that writes
+    everything to its declared file), `RunEngine` returns
+    `ExecutionResult{Passed: false, ExitCode: 0}` with a nil error, and
+    `Passed: false` IS the success condition for a NEGATIVE phase3 fixture —
+    a clean pass from a run whose real output was never read. That is a lying
+    verdict, and it is item 15's (ISSUE-140) exact shape one mechanism over.
+    Contrast ISSUE-141 explicitly: there the input is always a non-empty JSON
+    ARRAY (ast-grep `--json` emits `[]` even for zero matches), so
+    `json.Unmarshal` into the `sarifLog` struct ALWAYS fails and the failure
+    is deterministically loud — precisely why DIR-024 owns it and DIR-032
+    owns this. When stdout is instead non-empty non-JSON, this item degrades
+    to ISSUE-141's loud shape; the mixed direction is why the empty-stdout
+    path is the one that decides the home.
+
+    **Ecosystem bound, stated honestly so nobody over-reads this item:**
+    verified 2026-08-16 across installed non-testdata packs, exactly ONE
+    binding declares `stdout_artifact` today — `go-coverage` in
+    `.backstop/packs/backstop-ai/go-toolchain/pack.yml:57`
+    (`stdout_artifact: cover.out`, `gate_type: coverage`) — and no rule
+    declares that engine, so there is no live in-repo instance right now.
+    `pkg/packval/phase3.go` resolves a rule's DECLARED engine to a binding
+    with NO `gate_type` filter, so any pack whose rules bind a
+    `stdout_artifact`-declaring findings engine hits this immediately. This is
+    a live capability gap in the pack-authoring validator with zero current
+    in-repo victims, not a currently-firing false green — a planner must not
+    size it off a dogfood repro that does not exist yet.
+
+    Direction, kept as constraint not design, taken from the issue: add a
+    payload-selection step equivalent to `pack_gate.go`'s, applied BEFORE
+    whatever Convert-application fix ISSUE-141 lands (Convert consumes the
+    selected payload, not raw stdout). Two things a planner must settle
+    rather than assume: (1) the correct base directory — `pack_gate.go`
+    resolves against `projectRoot` while `RunEngine` runs with `cmd.Dir =
+    packDir`, a different root, and the fix must pick the semantically
+    correct base for the fixture-testing context rather than copying
+    `projectRoot` verbatim; (2) whether ISSUE-143's proposed shared extraction
+    has landed first, in which case this logic belongs in that same shared
+    location, not a third independent copy. Verification bar: a fixture with
+    a binding declaring `stdout_artifact`, a process writing real SARIF to
+    that file while stdout is empty/unrelated, and an assertion that
+    `RunEngine` parses the FILE's bytes, not stdout's.
+
+    Sequencing: ISSUE-141 (DIR-024 item 13) is the ordering-relevant
+    sibling — this item's stage precedes Convert in the real path's ordering,
+    so where the new code goes depends on ISSUE-141 having landed first.
+    `pkg/packval/executor.go` is also a live, actively-edited file
+    (`PLAN-ISSUE-140` owns the never-started predicate there); do not open a
+    lane concurrently with it.
+
+    Provenance: filed 2026-08-16, minutes after ISSUE-143, by the same
+    investigation that produced ISSUE-141/143; its author deliberately left it
+    unslotted for backlog-pm triage rather than hand-editing a directive, and
+    noted it "may fit DIR-032… alongside those siblings." `type: bug`,
+    `scope: contained`, `uncertainty: known`, `risk: critical`.
+
 ## Notes
 
 Grouping rationale and priority, stated once rather than per-item: four of
@@ -758,6 +970,49 @@ why a fixture that DOES dispatch can still read clean when the engine
 command never started. The refreshed cold-pickup shortlist is items 3, 4,
 and 15.
 
+**Correction (2026-08-16, still later):** the shortlist above is now
+incomplete on its own terms, not wrong in what it says — the roster grew to
+SIXTEEN with item 16 (ISSUE-142), itself plan-free and new, so the plan-free
+count is now TWELVE, not eleven. The substantive point for a cold picker:
+**item 4's shortlist entry above is now incomplete on its own.** The
+sentence just above already names the limit precisely — "item 4 is why
+fixtures can't falsify at all (phase3 never dispatches for any
+`rule_path:`-declared rule)" — and that parenthetical IS the boundary: item
+16 is the `pattern-arg` half item 4 does not reach. Landing item 4 alone
+leaves `packs/contracts` (all 7 rules, `pattern-arg`, 100% of the pack)
+exactly as vacuous as today; item 16 is the missing half, not an optional
+extra. So the honest answer to "can I trust `pack test`?" now needs THREE
+items, not two: item 4 (`rule_path:` style), item 16 (`pattern-arg` style,
+ISSUE-142), and item 15 (a dispatched engine that never started reading as a
+clean negative). The refreshed cold-pickup shortlist is items 3, 4, 15, and
+16.
+
+**Correction (2026-08-16, still later than the above):** "the plan-free count
+is now TWELVE, not eleven" in the correction directly above is WRONG — a
+measurement error, attributable to the brief that produced it, not a fact
+about the tree at the time. A file-by-file enumeration of `plans/` against
+every roster member (verified 2026-08-16 ~21:45Z, `status:` read from each
+file) finds a plan for every member except one:
+`status: draft` (11) — PLAN-ISSUE-066, -067, -091, -092, -093, -097, -100,
+-106, -114, -136, -140, i.e. items 1, 2, 3, 4, 5, 6, 7, 8, 11, 14, 15;
+`status: completed` (4) — PLAN-ISSUE-112, -113, -118, -129, i.e. items 9, 10,
+12, 13, whose issues are all `status: closed`. Plan-free: exactly ONE — item
+16 (ISSUE-142). Ten of the eleven drafts are untracked in git and carry
+`created: "2026-08-16"` with mtimes clustered around 17:00 local, consistent
+with a fresh full-roster planning sweep rather than incremental pickup. The
+consequence inverts the shortlist framing above: this directive is no longer
+a queue of mostly-unplanned work — it is ONE uncovered member and fifteen
+lanes already in various stages. Item 16 is the only thing here nobody has
+planned, and it is uncovered BY CONSTRUCTION: `PLAN-ISSUE-092`, the plan for
+the item it is the other half of, explicitly declines to cover it
+("`packs/contracts` stays dead (F7-a) — that is NOT a regression… follow-on
+(i) picks it up later"). The cold-pickup shortlist two corrections above
+(items 3, 4, 15, and 16) needs the same qualifier: items 3, 4 and 15 now all
+HAVE draft plans, so a cold picker's actual UNCOVERED entry point among the
+four is item 16 alone — the other three need a planner's attention only
+insofar as their existing drafts need review or their own F8-style blockers
+need a ruling, not because nobody has started.
+
 **In-flight execution note (2026-08-16):** the four plans above
 (PLAN-ISSUE-112, PLAN-ISSUE-113, PLAN-ISSUE-118, PLAN-ISSUE-129) are not
 four incidental plans — they were all authored in ONE commit, `5f28bb1`
@@ -787,7 +1042,9 @@ in-flight one, and it remains Brandon's call, not backlog-pm's; the
 `status:` field stays untouched here regardless. The one-third-of-roster
 framing above is preserved as the observation it was at the time; the
 current, correct framing is four of fifteen roster members DELIVERED, not
-four of fourteen in flight.
+four of fourteen in flight. **Correction (2026-08-16, still later):** this is
+now stale by one — the roster grew to SIXTEEN with item 16 (ISSUE-142); the
+current, correct framing is four of SIXTEEN roster members DELIVERED.
 
 Cross-directive note: item 6 (ISSUE-097) is rename fallout from DIR-027's
 fleet migration (the `backstop/self` → `backstop-ai/backstop-self` rename),
@@ -911,3 +1168,50 @@ note,
 stated as observation and explicitly NOT as a reorder (backlog-pm has no
 reorder authority): DIR-032 sits at BACKLOG.yml position 2 as of this
 writing; this slot does not change its rank.
+
+ISSUE-144 ("pkg/packval/executor.go's RunEngine never honors a binding's
+declared StdoutArtifact — Convert/parse runs on the wrong bytes") slotted by
+backlog-pm 2026-08-16 under the standing clear-fit grant. It is a
+POST-carve-out addition, same as items 12, 13, 14 and 16 before it — not part
+of the founder's original 2026-08-10 eleven-member roster; a reader should not
+infer the founder named seventeen.
+
+Why DIR-032 and not DIR-024, answered head-on: DIR-024 is the live competing
+pull and took ISSUE-141 — a near-identical packval-vs-gate dispatch gap in the
+SAME 35-line function, `RunEngine` — on the SHOUT-vs-LIE line only hours
+earlier. The discriminator, verified in the tree by backlog-pm 2026-08-16 and
+not relayed: `parseSarif` (`pkg/check/parsers.go:130-134`) trims its input and
+returns `(nil, nil)` with NO error on empty/whitespace input, so a
+`stdout_artifact`-declaring binding that leaves stdout empty — the normal
+shape for a tool writing everything to its declared file — yields
+`ExecutionResult{Passed: false, ExitCode: 0}` and a nil error, and `Passed:
+false` IS the success condition for a NEGATIVE phase3 fixture. That is a clean
+pass from a run whose real output was never read: a lying verdict, item 15's
+shape one mechanism over. ISSUE-141 has no such path — ast-grep `--json`
+emits a non-empty JSON array even for zero matches, so the struct unmarshal
+ALWAYS fails and the failure is deterministically loud. This slot does NOT
+disturb or contradict the ISSUE-141 ruling recorded in DIR-024's own Notes —
+the two are consistent under one test, applied the same way both times: 141
+shouts deterministically, 144 has a reachable silent path.
+
+In-flight coverage is NIL, established from the corpus rather than assumed,
+with ZERO interviews run and none needed: backlog-pm enumerated `plans/` on
+2026-08-16 and no plan targets ISSUE-144 or StdoutArtifact payload selection;
+`PLAN-ISSUE-141`'s scope is Convert application only (its own text flags
+`binding.StdoutArtifact` as residual R2, explicitly out of scope — "folding
+it in would be scope creep on a lane that is blocking"), and
+`PLAN-ISSUE-140`'s own scope fence excludes the phase3 executor's payload
+selection entirely.
+
+**Correction (2026-08-16):** the roster-framing sentence earlier in these
+Notes — "Item 16 is the only thing here nobody has planned" — is now stale by
+one. Item 17 (ISSUE-144) is a second plan-free member, uncovered for the same
+reason item 16 was: no plan has yet been authored against it. Preserved above
+rather than rewritten, per this directive's own convention.
+
+Priority note, stated as observation and explicitly NOT as a reorder
+(backlog-pm has no reorder authority): DIR-032 sits at BACKLOG.yml position 2
+and this slot does not change its rank; the existing directive-crossing
+sequencing observation (DIR-024's item 13 gating DIR-032's item 4) already
+sits as a PROPOSAL in `.backstop/pm/INBOX.md` for Brandon and is not
+re-proposed here.
