@@ -5,7 +5,7 @@ created: "2026-06-22"
 updated: "2026-08-15"
 status: draft
 schema_version: spec/v1
-spec_version: 1.2.5
+spec_version: 1.2.6
 
 implementation:
   summary: >
@@ -642,6 +642,7 @@ claims:
       - TestE2E_SubstantivenessMultiRuleDispatch_AndSandboxedConvert
   - id: CLM-035
     requirement: REQ-009
+    subject: cmd/backstop
     text: >
       The substantiveness CAPABILITY re-keys at the LIVE LOCUS deriveCapabilityState
       (cmd/backstop/gate.go:272, the function SPEC-036 shipped that currently derives
@@ -1319,6 +1320,33 @@ or by the seam spy alone.
 
 ## Version History
 
+- **1.2.6** (2026-08-15) — **HARDENING (PREVENTIVE, NOT CORRECTIVE): CLM-035's passing join was
+  incidental, and is now structural.** Nothing was broken before this revision and nothing is
+  fixed by it. CLM-035's mandated test
+  `TestCapability_SubstantivenessKeyedOnInstalledPack_NotBakedAnalyzer` joined successfully under
+  the inherited spec-level `implementation.subject: pkg/gate` and would have continued to; the
+  only edit is a `subject: cmd/backstop` line on CLM-035, matching the nine siblings amended in
+  1.2.5. No requirement, contract, mechanism or mandated-test NAME changes, and no test file is
+  touched.
+  **The fragility this closes.** 1.2.5 deliberately left CLM-035 alone because its join passed on
+  the OR-branch the other nine failed: the subject join is satisfied by colocation with the
+  subject package OR by the test's own PACK-EXTRACTED referenced-symbol set naming it, and this
+  test's body happens to make real `gate.`-qualified calls (`gate.ClassifyDimension`,
+  `gate.DimensionSubstantiveness`) that the extraction rule records. That is an artifact of the
+  test body, not of what the claim pins. The claim's actual subject is `deriveCapabilityState`
+  (`cmd/backstop/gate.go`), and the test file is `cmd/backstop/gate_capability_rekey_test.go` —
+  both `cmd/backstop`, neither `pkg/gate`. A refactor that routed those assertions through a
+  local helper instead of calling `gate.` directly would drop the only surviving branch and
+  silently reintroduce the exact `noTarget` failure 1.2.5 corrected for the siblings — invisible
+  until the spec flips to `implemented`, since `ContractsAreDue` filters a `draft` spec's tests
+  out of the join entirely.
+  **What changes.** The join basis moves from an incidental symbol reference to structural
+  colocation with the package the claim actually targets, so it no longer depends on any
+  particular call surviving inside the test body. The claim text, its mandated test, that test's
+  assertions and its rigor are untouched; no waiver was taken and no test was weakened.
+  **Residue unchanged.** CLM-031 remains the one affected claim still carrying no `subject:`, for
+  the reason recorded in 1.2.5 — whichever plan closes its mandated-test rename must also add
+  `subject: cmd/backstop` to it, or this spec still cannot promote to `implemented`.
 - **1.2.5** (2026-08-15) — **ACCURACY FIX: nine claims declared a subject their mandated tests
   do not sit in.** No requirement, contract, mechanism or mandated-test NAME is added, removed
   or reworded, and no test file changed — the only edit is a `subject:` line on nine claims.
