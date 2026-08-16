@@ -1,0 +1,774 @@
+---
+plan_id: PLAN-ISSUE-122
+spec_id: ISSUE-122
+created: "2026-08-15"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./pkg/artifact/... ./pkg/pack/... ./pkg/gate/... ./cmd/backstop/... -race -count=1"
+coverage_threshold: 90
+
+notes: |
+  Implements ISSUE-122 — `vendor` (a Go noun) and `node_modules` (a Node/npm noun)
+  are baked into core as artifact-corpus exclusion literals. This is the
+  zero-baked-language invariant's own target: CLAUDE.md's first principle says core
+  bakes NO language or tool knowledge and that such knowledge lives in packs as
+  DATA. The fix moves the two nouns out of core and into pack declarations; it does
+  NOT delete the exclusion behavior.
+
+  ── WHERE THE DEFECT ACTUALLY LIVES NOW (re-verified on the tree 2026-08-15) ──
+  ISSUE-122 cites `cmd/backstop/artifact_discover.go:47-49` and a `switch base`
+  statement. That switch NO LONGER EXISTS. SPEC-068 (in flight, working tree) has
+  already centralized the list — `artifact_discover.go:48-51` now reads it from
+  `artifact.NonCorpusDirNames()`, and the literals live in ONE place:
+
+    pkg/artifact/layout.go:116-118
+      var nonCorpusDirNames = []string{
+        ".git", "vendor", "node_modules", "testdata", "prototype",
+      }
+
+  SPEC-068 did that DELIBERATELY and said so — its Sharp Edge 12 records the bake as
+  "knowingly propagated", explains why it was kept off that seed's critical path, and
+  instructs whoever fixes the follow-on that there must be ONE site to change, not
+  two. This plan is that follow-on, and the centralization SPEC-068 performed is
+  exactly what makes it small.
+
+  There are TWO consumers of the shared list, and both are in scope:
+    1. `DiscoverArtifacts` (cmd/backstop/artifact_discover.go:42) — feeds
+       `artifact validate` (artifact_validate.go:158, :309, :322) and the gate's
+       traceability ref collection (gate.go:1082).
+    2. `FindUngatedArtifacts` (pkg/gate/artifact_status.go:536) — SPEC-068 REQ-008's
+       ungated-artifact surfacing scan, called from gate.go:1705 and
+       doctor_checks.go:411.
+  The issue text names only the first. Fixing one and leaving the other would leave
+  the bake in place AND reintroduce the drift SPEC-068's single list exists to
+  prevent. Both move together.
+
+  ── THE MECHANISM, AND WHY THIS ONE ──────────────────────────────────────────
+  DECIDED: ecosystem-specific dependency directory names become PACK-DECLARED DATA,
+  merged across the installed-pack set and INJECTED into both walks. Core keeps only
+  the three genuinely tool-agnostic names.
+
+    pack.yml (a toolchain pack, versioned, in its own repo):
+      classification:
+        source: ["**/*.go"]
+        test:   ["**/*_test.go"]
+        dependency_dirs: ["vendor"]        # NEW — the ecosystem's own noun
+
+    pkg/pack:      Classification gains DependencyDirs []string
+    cmd/backstop:  mergeDependencyDirs(packs) unions the field across the FULL
+                   installed-pack set (new file pack_dependency_dirs.go)
+    pkg/artifact:  nonCorpusDirNames shrinks to {.git, testdata, prototype};
+                   a new NonCorpusDirs value = generic base ∪ injected names
+    both walks:    take artifact.NonCorpusDirs explicitly
+
+  WHY `classification:` AND NOT A NEW TOP-LEVEL BLOCK. `classification` is already
+  the pack→core PATH-CLASSIFICATION data channel (SPEC-043): a pack declares which
+  paths are source and which are test, core merges the declarations across every
+  installed pack in `mergeSourceClassifier` (cmd/backstop/gate.go:1335) and injects
+  the result. "This directory is a dependency tree, not authored content" is the
+  same kind of statement, made by the same declarer, consumed the same way. Reusing
+  the block means one merge shape, one mental model, and no new top-level concept.
+
+  WHY NOT `EngineBinding.StdoutArtifact`, WHICH THE ISSUE CITES AS THE PRECEDENT.
+  StdoutArtifact is PER-ENGINE and per-binding — it describes what one engine
+  invocation writes. A dependency directory is a property of the whole ecosystem the
+  pack speaks for, independent of any engine, and is consumed by walks that have no
+  engine in hand at all. `classification` is the closer precedent; the issue's
+  Solution section recorded direction, not a binding choice, and says so.
+
+  WHY NOT A `backstop.yml` KEY. A consumer-side exclusion list would let the same
+  fact be stated in two places (config and pack) and drift, which is precisely the
+  failure mode SPEC-068's single shared list was built to eliminate. It would also
+  put ecosystem knowledge back in a consumer file instead of in the pack that owns
+  that ecosystem. Considered and rejected; recorded here so a reviewer can see it was
+  weighed rather than missed.
+
+  WHY NOT "JUST STOP SKIPPING" — the option the team lead asked to be considered
+  explicitly. Deleting the two entries with no replacement is not neutral: a
+  third-party tree can plausibly ship a file whose name matches an artifact pattern
+  (`*.spec.md` is a common enough shape), and `DiscoverArtifacts` feeds
+  `artifact validate`, so a discovered stray becomes a SCHEMA VIOLATION and turns the
+  consumer's gate red on a file they did not write. That is a real regression, not a
+  hypothetical, and the issue calls it out. The skip behavior is correct; only its
+  SOURCE is wrong.
+
+  THE ACCEPTANCE BAR THE MECHANISM IS CHOSEN AGAINST: adding support for the next
+  ecosystem's vendoring convention must require ZERO core edits. CLM-008 makes that
+  falsifiable — a pack declaring an INVENTED directory name that appears in no core
+  file is honored end to end.
+
+  ── ZERO-VALUE SEMANTICS: A DECIDED SHARP EDGE, NOT AN OVERSIGHT ─────────────
+  `artifact.NonCorpusDirs{}` (the zero value, what a caller that forgets to wire the
+  packs would produce) EXCLUDES THE GENERIC BASE — `.git`, `testdata`, `prototype` —
+  rather than excluding nothing. A zero value that excluded nothing would send the
+  walk into `.git`, and the resulting garbage would be a silent, confusing failure at
+  a call site the author forgot. Degrading to "today's behavior minus the
+  pack-declared names" is the honest failure. CLM-004 pins it and TASK-005's test
+  falsifies it.
+
+  ── THE WINDOW, NAMED HONESTLY ───────────────────────────────────────────────
+  Between core landing this and a pack declaring the names, a repo with `vendor/` or
+  `node_modules/` has those trees WALKED. This plan closes the window in the same
+  delivery for the ecosystems that exist today rather than leaving it open:
+  phase 4 declares `vendor` in the go-toolchain pack (the one backstop-core itself
+  installs) and `node_modules` in the TypeScript and Bun toolchain packs. Ecosystems
+  with no pack yet were never gated by backstop at all, so there is nothing to
+  regress for them.
+
+  ── LANE BOUNDARY — READ THIS BEFORE STARTING ────────────────────────────────
+  Every production file this plan touches is ACTIVE, UNCOMMITTED working-tree
+  surface for in-flight work as of 2026-08-15:
+    pkg/artifact/layout.go, cmd/backstop/artifact_discover.go,
+    pkg/gate/artifact_status.go   — SPEC-068 (trustworthy-green guards)
+    cmd/backstop/doctor_checks.go — SPEC-070 (backstop doctor)
+    cmd/backstop/gate.go          — both
+  DO NOT START THIS PLAN UNTIL SPEC-068, SPEC-069 AND SPEC-070 HAVE LANDED AND
+  COMMITTED. Running it concurrently means editing files another implementer holds,
+  and the signature changes here (`DiscoverArtifacts`, `FindUngatedArtifacts`) break
+  every caller at compile time — loudly, in someone else's tree. If the situation has
+  changed when this plan is picked up, re-verify the line references above before
+  trusting them.
+
+  ── PREDATING ARTIFACTS THAT MUST BE RECONCILED, NOT QUIETLY BROKEN ──────────
+  SPEC-068 pins the five-name list in three places: REQ-007's text, REQ-008's text,
+  and the `NonCorpusDirNames` contract note. Its mandated test
+  `TestFindUngatedArtifacts_ExcludesEnumeratedNonCorpusTreesButWalksDotBackstop`
+  MUST KEEP ITS NAME (the artifact_status_drift dimension resolves mandated names by
+  existence — renaming it manufactures a broken promise). Its BODY changes to prove
+  the exclusion set is generic-plus-declared. The spec text itself is reconciled in
+  phase 5 by dispatching spec-author — NEVER by hand-editing the spec, per CLAUDE.md.
+
+  ── OUT OF SCOPE, DELIBERATELY ───────────────────────────────────────────────
+  - The four/three generic names (`.git`, `testdata`, `prototype`, and each caller's
+    own `.backstop` rule) stay as core literals. The issue scopes them out; they name
+    no language or tool.
+  - The `.backstop` and `.backstop/packs` per-caller rules are UNCHANGED. Their
+    asymmetry is load-bearing (SPEC-068 REQ-008: inheriting discovery's `.backstop`
+    skip would make the ungated scan vacuous on its own motivating case).
+  - The coverage/source-classification walks are NOT given this set. Different
+    consumer, different question; folding them in would be a second change wearing
+    this one's clothes.
+  - The `backstop/self` dogfood pack's coverage gap for skip-list literals (the
+    issue's own secondary finding) is the self-pack's follow-on, not this plan's.
+
+  ── REQUIREMENTS / CLAIMS (plan-local, derived from the issue's Solution) ────
+    CLM-001  pkg/artifact's shared non-corpus list contains ONLY tool-agnostic names
+             (`.git`, `testdata`, `prototype`). No language, framework, package
+             manager or ecosystem noun appears anywhere in pkg/artifact, and the
+             package still imports stdlib ONLY, so every consumer keeps importing it
+             with no cycle.
+    CLM-002  A pack declares its ecosystem's dependency directory names as DATA via
+             `classification.dependency_dirs`. Parsing is purely additive: a manifest
+             with no `classification` block, or a `classification` block with no
+             `dependency_dirs`, contributes nothing and parses exactly as before.
+    CLM-003  cmd/backstop merges `dependency_dirs` across the FULL installed-pack set
+             into one deduplicated list — nil-manifest safe, empty for zero packs,
+             carrying no pack-name literal, no language branch and no toolchain
+             pre-filter — mirroring mergeSourceClassifier's contract.
+    CLM-004  artifact.NonCorpusDirs is the ONE exclusion authority both walks consume:
+             the generic base UNIONED with the injected pack-declared names. Its ZERO
+             VALUE excludes the generic base rather than nothing, so a caller that
+             forgets to wire the packs degrades to today-minus-declarations instead of
+             walking `.git`.
+    CLM-005  DiscoverArtifacts and FindUngatedArtifacts take the exclusion set as an
+             EXPLICIT parameter, and every production call site — the gate's artifact
+             validation step, the gate's traceability collection, `artifact validate`,
+             and `doctor` — populates it from the installed packs already loaded in
+             that command. The per-caller `.backstop` / `.backstop/packs` rules are
+             byte-for-byte unchanged.
+    CLM-006  Behavior preservation: with the go-toolchain pack declaring `vendor`, a
+             repo containing `vendor/` excludes it from both walks exactly as before
+             this change, and backstop-core's own corpus discovery is unchanged.
+    CLM-007  FALSIFIER — the exclusion is proven to come from the DECLARATION. A
+             fixture project with `vendor/` and `node_modules/` each holding an
+             artifact-shaped file EXCLUDES both when a pack declares them, and
+             DISCOVERS both when the declaration is removed. Scoping is proven too: a
+             dependency directory nested several levels deep is excluded, and a
+             regular FILE named `vendor` is unaffected.
+    CLM-008  ECOSYSTEM-AGNOSTICISM — a pack declaring a directory name that appears in
+             no core source file is honored end to end, with zero core edits. Adding
+             the next ecosystem's vendoring convention is a pack change, never a
+             `case` in cmd/backstop.
+    CLM-009  The ecosystem knowledge lands in the packs that own it, versioned: the
+             go-toolchain pack declares `vendor`; the TypeScript and Bun toolchain
+             packs declare `node_modules`. backstop-core's own lock records the
+             go-toolchain bump.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Pack-declared dependency directories (the data channel)"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Failing tests for classification.dependency_dirs parsing and the cross-pack merge"
+        description: |
+          Write the RED tests for the pack→core data channel.
+
+          pkg/pack/manifest_dependency_dirs_test.go:
+            - TestManifest_ClassificationDependencyDirsParse — a pack.yml declaring
+              `classification: {dependency_dirs: ["vendor", "_thirdparty"]}` parses
+              into Classification.DependencyDirs in declaration order.
+            - TestManifest_ClassificationAbsentYieldsNoDependencyDirs — a manifest
+              with no `classification` block, and one with `classification` carrying
+              only source/test, both parse successfully with an EMPTY DependencyDirs
+              and with source/test unchanged. This is the additive-parse proof
+              (CLM-002); pack.ParseManifestFile uses non-strict yaml.Unmarshal
+              (manifest.go:259), so an existing manifest must be unaffected.
+
+          cmd/backstop/pack_dependency_dirs_test.go:
+            - TestMergeDependencyDirs_UnionsAcrossPacksDedupedAndNilSafe — three
+              manifests where two declare overlapping names and one declares none,
+              plus a nil entry in the slice, produce the deduplicated union without
+              panicking.
+            - TestMergeDependencyDirs_ZeroPacksYieldsEmpty — no installed packs
+              yields an empty result, never a defaulted list. A default here would
+              re-bake the nouns one layer down, which is the exact failure this plan
+              exists to prevent.
+
+          Both files must FAIL TO COMPILE at this point (the field and the function
+          do not exist yet). That is the intended red.
+        files:
+          - pkg/pack/manifest_dependency_dirs_test.go
+          - cmd/backstop/pack_dependency_dirs_test.go
+        claims:
+          - CLM-002
+          - CLM-003
+        test_names:
+          - TestManifest_ClassificationDependencyDirsParse
+          - TestManifest_ClassificationAbsentYieldsNoDependencyDirs
+          - TestMergeDependencyDirs_UnionsAcrossPacksDedupedAndNilSafe
+          - TestMergeDependencyDirs_ZeroPacksYieldsEmpty
+        depends_on: []
+
+      - id: TASK-002
+        type: implementation
+        title: "Add Classification.DependencyDirs and mergeDependencyDirs"
+        description: |
+          Make TASK-001 green.
+
+          pkg/pack/manifest.go — add to the existing Classification struct
+          (manifest.go:74):
+
+            DependencyDirs []string `yaml:"dependency_dirs"`
+
+          Document it on the field: these are bare directory NAMES (not globs, not
+          paths) that the declaring pack's ecosystem uses for vendored or installed
+          dependency trees, and core excludes them from artifact-corpus walks. Say
+          why the field lives on Classification rather than on an engine binding —
+          it is a whole-pack, whole-walk property with no engine in hand, and
+          Classification is already the merged path-classification channel. Do NOT
+          add validation that the names are non-empty ecosystem-plausible strings;
+          core has no opinion about what an ecosystem calls its dependency tree, and
+          inventing one would re-bake the knowledge as a validator.
+
+          cmd/backstop/pack_dependency_dirs.go — NEW FILE holding
+          mergeDependencyDirs([]*pack.Manifest) []string. Model it on
+          mergeSourceClassifier (gate.go:1335): take the WHOLESALE installed-pack set
+          with no toolchain pre-filter (a pack declaring nothing contributes zero to
+          the union, so no filter is needed or wanted), skip nil manifests, dedupe
+          while preserving first-seen order for determinism. It lives in a new file
+          rather than in gate.go so the merge is not buried in gate wiring and so
+          this phase does not collide with phase 3's edits to gate.go.
+
+          Deliberately NOT done here: no call site consumes the merge yet. Wiring is
+          phase 3's job, after the injection type exists.
+        files:
+          - pkg/pack/manifest.go
+          - cmd/backstop/pack_dependency_dirs.go
+        claims:
+          - CLM-002
+          - CLM-003
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: verification
+        title: "Gate the data-channel change"
+        description: |
+          Run `backstop gate` (bare, diff-scoped) and confirm it is green over the
+          two production files and two test files this phase touched. Investigate any
+          finding rather than scoping it away — in particular, confirm no pack-related
+          test elsewhere in pkg/pack broke on the additive struct field.
+        files:
+          - pkg/pack/manifest.go
+          - cmd/backstop/pack_dependency_dirs.go
+        claims:
+          - CLM-002
+          - CLM-003
+        depends_on:
+          - TASK-002
+
+  - id: phase-2
+    name: "Phase 2: De-baking pkg/artifact and the injected exclusion set"
+    tasks:
+      - id: TASK-004
+        type: test
+        title: "Failing tests for the tool-agnostic base list and artifact.NonCorpusDirs"
+        description: |
+          Write the RED tests for the core side. pkg/artifact imports STDLIB ONLY and
+          that is load-bearing (layout.go:5-9) — these tests must not import pkg/pack
+          or pkg/config either.
+
+          pkg/artifact/noncorpus_test.go (new):
+            - TestNonCorpusDirNames_ContainsNoEcosystemNoun — the shared list is
+              exactly {".git", "testdata", "prototype"} in that order, and contains
+              neither "vendor" nor "node_modules". This is the direct CLM-001
+              assertion and it FAILS today.
+            - TestNewNonCorpusDirs_UnionsGenericBaseWithPackDeclared — a set built
+              from injected names excludes both the generic base AND the injected
+              names, deduplicates an injected name that duplicates a base name, and
+              tolerates an empty/nil injection.
+            - TestNonCorpusDirs_ZeroValueFallsBackToGenericBase — the ZERO VALUE
+              excludes ".git", "testdata" and "prototype" and excludes nothing else.
+              This is CLM-004's falsifier: a caller that forgets to wire the packs
+              must degrade to today-minus-declarations, never to walking .git.
+
+          pkg/artifact/layout_test.go — UPDATE the existing
+          TestLayout_NonCorpusDirNamesAreSharedAndExcludeDotBackstop (layout_test.go:204).
+          It currently pins the five-name list and will fail. KEEP ITS NAME and keep
+          its two other assertions (".backstop" is absent because each caller layers
+          its own rule; the function returns a COPY so a caller cannot mutate the
+          shared list). Change only the expected names. Do NOT delete this test — it
+          is SPEC-068's pin on the shared-list invariant, and deleting a test to make
+          a change pass is exactly what the gate exists to catch.
+        files:
+          - pkg/artifact/noncorpus_test.go
+          - pkg/artifact/layout_test.go
+        claims:
+          - CLM-001
+          - CLM-004
+        test_names:
+          - TestNonCorpusDirNames_ContainsNoEcosystemNoun
+          - TestNewNonCorpusDirs_UnionsGenericBaseWithPackDeclared
+          - TestNonCorpusDirs_ZeroValueFallsBackToGenericBase
+          - TestLayout_NonCorpusDirNamesAreSharedAndExcludeDotBackstop
+        depends_on: []
+
+      - id: TASK-005
+        type: implementation
+        title: "Shrink the shared list to tool-agnostic names and add artifact.NonCorpusDirs"
+        description: |
+          Make TASK-004 green, in pkg/artifact/layout.go.
+
+          1. nonCorpusDirNames (layout.go:116-118) becomes
+             {".git", "testdata", "prototype"}. Rewrite the doc comment: it no longer
+             claims to hold every non-corpus name — it holds the TOOL-AGNOSTIC ones,
+             and ecosystem-specific names arrive injected from pack declarations
+             because core bakes no ecosystem knowledge. Keep the existing explanation
+             of why ".backstop" is absent (each caller layers its own root-relative
+             rule); that reasoning is unchanged and still load-bearing.
+             NonCorpusDirNames() keeps its signature — SPEC-068's contract block
+             declares it and the signature is what that contract pins.
+
+          2. Add the injected set:
+
+               type NonCorpusDirs struct { declared map[string]bool }
+               func NewNonCorpusDirs(declared []string) NonCorpusDirs
+               func (n NonCorpusDirs) Excludes(base string) bool
+
+             Excludes returns true for any name in the generic base OR in the
+             injected set, and its ZERO-VALUE behavior (nil map) is the generic base
+             — write that as a comment stating WHY (a zero value excluding nothing
+             would send a mis-wired walk into .git, a silent failure at a call site
+             the author forgot; degrading to today-minus-declarations is the honest
+             failure mode). Empty names in the injection are ignored.
+
+          STDLIB ONLY. Do not import pkg/pack to reach the manifests — the injection
+          parameter is precisely what keeps this package importable by pkg/gate,
+          pkg/validate, pkg/scaffold, pkg/config and cmd/backstop with no cycle.
+          Do not add a `vendor`/`node_modules` default "for safety"; that would move
+          the bake rather than remove it, and TASK-004 falsifies it.
+        files:
+          - pkg/artifact/layout.go
+        claims:
+          - CLM-001
+          - CLM-004
+        depends_on:
+          - TASK-004
+
+      - id: TASK-006
+        type: verification
+        title: "Gate the pkg/artifact change"
+        description: |
+          Run `backstop gate --file pkg/artifact/layout.go`, then bare
+          `backstop gate` to catch anything the narrowed run scoped out. Expect
+          compile failures in the two walk consumers to be ABSENT at this point —
+          nothing has changed their signatures yet, and NonCorpusDirNames() still
+          returns a list, just a shorter one. If a consumer test fails because it
+          asserted the old five names, that is a real predating-artifact hit: report
+          it, do not silence it, and fold the fix into phase 3.
+        files:
+          - pkg/artifact/layout.go
+          - pkg/artifact/noncorpus_test.go
+        claims:
+          - CLM-001
+          - CLM-004
+        depends_on:
+          - TASK-005
+
+  - id: phase-3
+    name: "Phase 3: Injecting the set into both corpus walks and every call site"
+    tasks:
+      - id: TASK-007
+        type: test
+        title: "Failing tests that both walks honor the injected set and nothing else changed"
+        description: |
+          Write the RED tests for the two walks. These are unit-level; the E2E
+          falsification lives in phase 4.
+
+          cmd/backstop/artifact_discover_noncorpus_test.go (new):
+            - TestDiscoverArtifacts_ExcludesPackDeclaredDependencyDirs — a temp root
+              with `vendor/X.spec.md` and `node_modules/Y.issue.md`, walked with a set
+              built from ["vendor", "node_modules"], returns neither.
+            - TestDiscoverArtifacts_WithoutPackDeclarationWalksDependencyTrees — the
+              SAME tree with an EMPTY injection DISCOVERS both files. This is the
+              proof the exclusion comes from the declaration and not from a surviving
+              literal; if someone re-adds a default, this test goes red.
+            - TestDiscoverArtifacts_BackstopRulesUnchangedUnderInjection — the
+              existing root-relative behavior still holds under the new signature:
+              `.backstop/packs` always skips, and `.backstop` skips only when it is
+              not the root. Behavior-preservation for the part nobody asked to change.
+
+          pkg/gate/artifact_status_noncorpus_test.go (new):
+            - TestFindUngatedArtifacts_ExcludesPackDeclaredDependencyDirs — same
+              shape against the ungated scan, and asserting `.backstop` ITSELF is
+              still WALKED (the asymmetry SPEC-068 REQ-008 depends on).
+
+          pkg/gate/artifact_status_test.go — UPDATE
+          TestFindUngatedArtifacts_ExcludesEnumeratedNonCorpusTreesButWalksDotBackstop
+          in place. KEEP THE NAME EXACTLY (it is a SPEC-068 mandated test name; the
+          artifact_status_drift dimension resolves mandated names by existence, so
+          renaming it manufactures a broken promise). Change the body so the
+          `vendor`/`node_modules` half of its exclusion set arrives through the
+          injection instead of from core. Locate the file by grepping for the test
+          name if it does not sit where expected.
+        files:
+          - cmd/backstop/artifact_discover_noncorpus_test.go
+          - pkg/gate/artifact_status_noncorpus_test.go
+          - pkg/gate/artifact_status_test.go
+        claims:
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        test_names:
+          - TestDiscoverArtifacts_ExcludesPackDeclaredDependencyDirs
+          - TestDiscoverArtifacts_WithoutPackDeclarationWalksDependencyTrees
+          - TestDiscoverArtifacts_BackstopRulesUnchangedUnderInjection
+          - TestFindUngatedArtifacts_ExcludesPackDeclaredDependencyDirs
+          - TestFindUngatedArtifacts_ExcludesEnumeratedNonCorpusTreesButWalksDotBackstop
+        depends_on:
+          - TASK-003
+          - TASK-006
+
+      - id: TASK-008
+        type: implementation
+        title: "Thread artifact.NonCorpusDirs through both walks and all four production call sites"
+        description: |
+          Make TASK-007 green. The signature changes break every caller at compile
+          time, which is why the walks and their callers land in one task.
+
+          pkg/gate/artifact_status.go:
+            FindUngatedArtifacts(projectRoot string, root artifact.Root,
+                                 nonCorpus artifact.NonCorpusDirs)
+            Replace the local `nonCorpus` map built from NonCorpusDirNames()
+            (:554-557) with the injected set's Excludes call (:566). Update the
+            "THE EXCLUSION SET IS ENUMERATED, NOT INHERITED" doc block: the set is now
+            enumerated as tool-agnostic-base PLUS pack-declared, and it is still NOT
+            inherited from discovery. Leave the `.backstop/packs` rule and the
+            symlink-resolution logic untouched.
+
+          cmd/backstop/artifact_discover.go:
+            DiscoverArtifacts(root artifact.Root, typeFilters []string,
+                              nonCorpus artifact.NonCorpusDirs)
+            Same replacement at :48-51/:61. DELETE the "Sharp Edge 12, knowingly
+            propagated" paragraph in the doc comment (:38-41) and replace it with the
+            resolution: the ecosystem names come from pack declarations, core holds
+            only tool-agnostic ones. Leaving a stale comment that says the defect is
+            unfixed is its own small lie.
+
+          cmd/backstop/artifact_validate.go:
+            Add `NonCorpus artifact.NonCorpusDirs` to ValidateConfig (:20). Give it
+            the same treatment the Cohort field already has (:27-32) and say so in the
+            comment: it TRAVELS WITH THE CONFIG rather than being re-derived inside,
+            which is what makes the CLI and the gate incapable of scanning different
+            corpora. Thread cfg.NonCorpus into the DiscoverArtifacts call at :158 and
+            into buildResolutionViolations (:308) so its two internal calls (:309,
+            :322) get it too. At the CLI construction site (:423), populate it from
+            loadInstalledPacks(projectRoot) via mergeDependencyDirs — `artifact
+            validate` does not load packs today, so add the load. A pack-load FAILURE
+            here must NOT fail the command: `artifact validate` must keep working in a
+            project with no packs installed. Degrade to the zero value (generic base)
+            and carry on.
+
+          cmd/backstop/gate.go:
+            Populate ValidateConfig.NonCorpus at :1674 and pass the set to
+            FindUngatedArtifacts at :1705 and to DiscoverArtifacts in
+            collectTraceRefs (:1082). The gate already loads installed packs in
+            buildGateSteps beside mergeSourceClassifier (:755) — derive the set from
+            THAT SAME manifest set and thread it, rather than loading packs a second
+            time, so the gate cannot disagree with itself about which trees are corpus.
+
+          cmd/backstop/doctor_checks.go:
+            Pass a set derived from ctx.Packs (doctor_checks.go:46 — already loaded at
+            doctor.go:283) to FindUngatedArtifacts at :411. If ctx.PacksErr is
+            non-nil, pass the zero value; doctor must still report on a project whose
+            packs will not load, and the packs check owns that diagnosis.
+
+          Update any test helper that calls either function with the old arity. Do NOT
+          add a variadic parameter or a package-level default to avoid touching call
+          sites — an explicit parameter at every site is what makes a forgotten wiring
+          visible in review instead of silently defaulting.
+        files:
+          - pkg/gate/artifact_status.go
+          - cmd/backstop/artifact_discover.go
+          - cmd/backstop/artifact_validate.go
+          - cmd/backstop/gate.go
+          - cmd/backstop/doctor_checks.go
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-007
+
+      - id: TASK-009
+        type: verification
+        title: "Gate the wiring change"
+        description: |
+          Run bare `backstop gate` and confirm green across pkg/gate and cmd/backstop.
+          Then run the full test command from this plan's `test_command` field and
+          confirm no unrelated suite regressed — the signature changes reach four
+          production call sites plus test helpers, and a compile-clean build is not
+          the same as a behavior-clean one. Specifically re-confirm backstop-core's
+          own `backstop artifact validate` still discovers the same corpus it did
+          before (CLM-006).
+        files:
+          - pkg/gate/artifact_status.go
+          - cmd/backstop/artifact_discover.go
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-008
+
+  - id: phase-4
+    name: "Phase 4: End-to-end falsification and the pack-side declarations"
+    tasks:
+      - id: TASK-010
+        type: test
+        title: "E2E falsification — vendor and node_modules excluded BECAUSE a pack declares them"
+        description: |
+          The regression proof the whole plan is judged against. Build a fixture
+          project under cmd/backstop/testdata/ containing:
+            - a real backstop.yml declaring one local pack,
+            - that pack's pack.yml declaring
+              `classification: {dependency_dirs: ["vendor", "node_modules"]}`,
+            - a legitimate corpus (e.g. specs/SPEC-901-….spec.md),
+            - vendor/SPEC-902-….spec.md,
+            - node_modules/some-dep/ISSUE-902-….issue.md,
+            - a deeply nested pkg/sub/vendor/SPEC-903-….spec.md,
+            - a regular FILE named `vendor` (not a directory) sitting beside the
+              corpus.
+
+          cmd/backstop/artifact_discover_e2e_test.go (new):
+            - TestArtifactDiscoveryE2E_VendorAndNodeModulesExcludedByPackDeclaration —
+              discovery over the fixture returns the legitimate corpus and NONE of the
+              three planted files.
+            - TestArtifactDiscoveryE2E_ExclusionDisappearsWhenDeclarationRemoved — THE
+              FALSIFIER. Copy the fixture to a temp dir, strip `dependency_dirs` from
+              the pack.yml, re-run discovery, and assert all three planted files ARE
+              discovered. Without this, the first test would still pass if someone
+              re-added a core literal — it would prove the behavior, not the
+              mechanism.
+            - TestArtifactDiscoveryE2E_NestedDependencyDirExcludedAndFileNamedVendorUnaffected —
+              proves the match is on the directory BASE NAME at any depth, and that a
+              plain file named `vendor` neither triggers a skip nor disappears. This
+              is the "scoped wrong" guard.
+            - TestArtifactDiscoveryE2E_InventedEcosystemDirHonoredWithNoCoreEdit —
+              CLM-008. The fixture pack additionally declares a directory name that
+              appears in NO core source file (use something clearly invented, e.g.
+              "_thirdparty_deps"); a planted artifact-shaped file under it is
+              excluded. Before asserting, grep the core tree to confirm the chosen
+              name really is absent from cmd/ and pkg/ — a name that happens to
+              collide would make the test vacuous.
+
+          Drive these through the same entry point production uses (build the set via
+          loadInstalledPacks + mergeDependencyDirs from the fixture project root), not
+          by hand-constructing artifact.NewNonCorpusDirs — otherwise the test proves
+          the walk and skips the wiring, which is where this class of defect actually
+          hides.
+        files:
+          - cmd/backstop/artifact_discover_e2e_test.go
+          - cmd/backstop/testdata/noncorpus-declared/
+        claims:
+          - CLM-007
+          - CLM-008
+        test_names:
+          - TestArtifactDiscoveryE2E_VendorAndNodeModulesExcludedByPackDeclaration
+          - TestArtifactDiscoveryE2E_ExclusionDisappearsWhenDeclarationRemoved
+          - TestArtifactDiscoveryE2E_NestedDependencyDirExcludedAndFileNamedVendorUnaffected
+          - TestArtifactDiscoveryE2E_InventedEcosystemDirHonoredWithNoCoreEdit
+        depends_on:
+          - TASK-009
+
+      - id: TASK-011
+        type: implementation
+        title: "Declare vendor in the go-toolchain pack, bump and relock"
+        description: |
+          Put the Go ecosystem's noun where it belongs, durably.
+
+          The DURABLE edit is in the pack's own source repo:
+          /Users/bmanson/src/projects/backstop-go-toolchain-pack/pack.yml — add
+          `dependency_dirs: ["vendor"]` to the existing `classification:` block
+          (which already declares source/test globs), with a comment saying this is
+          the Go ecosystem's vendored-dependency directory and that core excludes it
+          from artifact-corpus walks ONLY because this pack declares it. Bump the
+          pack version, run `backstop pack check` and `backstop pack test` in that
+          repo, commit, and tag `v<version>` — a version bump with no matching git
+          tag will not resolve for consumers.
+
+          Then in backstop-core: update `backstop.yml`'s pinned version and reinstall
+          / relock so `.backstop/packs/backstop-ai/go-toolchain/pack.yml` and
+          `backstop.lock` reflect the new content hash. Editing the INSTALLED copy
+          alone is not durable — `.backstop/packs/` is gitignored and a reinstall
+          would silently revert it.
+
+          backstop-core has no `vendor/` directory, so this is expected to be a
+          no-op for this repo's own corpus. That is the point: the declaration is
+          proven by the phase-4 fixture, and this task makes real Go consumers keep
+          the behavior they had.
+        files:
+          - /Users/bmanson/src/projects/backstop-go-toolchain-pack/pack.yml
+          - .backstop/packs/backstop-ai/go-toolchain/pack.yml
+          - backstop.yml
+          - backstop.lock
+        claims:
+          - CLM-006
+          - CLM-009
+        depends_on:
+          - TASK-010
+
+      - id: TASK-012
+        type: implementation
+        title: "Declare node_modules in the TypeScript and Bun toolchain packs"
+        description: |
+          Close the Node-ecosystem half of the window. These packs are NOT installed
+          in backstop-core, so this repo's gate cannot verify them — the proof is
+          `backstop pack check` and `backstop pack test` in each pack's own repo, and
+          this task is done only when both report green there.
+
+          In each of:
+            /Users/bmanson/src/projects/backstop-packs/typescript-toolchain/pack.yml
+            /Users/bmanson/src/projects/backstop-bun-toolchain-pack/pack.yml
+          add `dependency_dirs: ["node_modules"]` to the `classification:` block,
+          bump the version, commit and tag as in TASK-011.
+
+          Confirm both paths exist before editing; if the bun pack has no
+          `classification:` block at all, add one carrying only `dependency_dirs`
+          rather than inventing source/test globs it never declared.
+
+          If either repo is mid-flight or the founder would rather sequence these
+          separately, STOP and report — do not force a version bump into a pack repo
+          someone else is holding. The core change is complete without this task;
+          this task is what keeps Node consumers from regressing, and saying so out
+          loud is better than a silent partial.
+        files:
+          - /Users/bmanson/src/projects/backstop-packs/typescript-toolchain/pack.yml
+          - /Users/bmanson/src/projects/backstop-bun-toolchain-pack/pack.yml
+        claims:
+          - CLM-009
+        depends_on:
+          - TASK-010
+
+      - id: TASK-013
+        type: verification
+        title: "Gate the fixture and the relock"
+        description: |
+          Run bare `backstop gate` and confirm green. The relock in TASK-011 changes
+          backstop.lock, so pack_lock_verification runs against new content — a hash
+          mismatch here means the installed tree and the lock disagree and must be
+          reconciled with a real reinstall, never by hand-editing the lock. Confirm
+          the new fixture project under cmd/backstop/testdata/ did not perturb any
+          other e2e fixture's expectations.
+        files:
+          - cmd/backstop/artifact_discover_e2e_test.go
+          - backstop.lock
+          - .backstop/packs/backstop-ai/go-toolchain/pack.yml
+        claims:
+          - CLM-007
+          - CLM-009
+        depends_on:
+          - TASK-011
+          - TASK-012
+
+  - id: phase-5
+    name: "Phase 5: Predating-artifact reconciliation and full verification"
+    tasks:
+      - id: TASK-014
+        type: documentation
+        title: "Dispatch spec-author to reconcile SPEC-068's five-name enumeration"
+        description: |
+          SPEC-068 states the five-name non-corpus list in three places that this
+          change makes stale: REQ-007's text (the discovery skip list), REQ-008's
+          text (the ungated scan's enumerated exclusions), and the
+          `NonCorpusDirNames` contract note. Its Sharp Edge 12 also says the bake is
+          "being filed as its own issue (ID pending; cite it here once relayed)" —
+          that ID is now ISSUE-122 and the sharp edge should record that it is
+          RESOLVED by this plan.
+
+          ROUTE THIS THROUGH spec-author. Do NOT hand-edit the spec — CLAUDE.md
+          forbids it and freeform prose edits drift from the schema. Ask spec-author
+          to state the exclusion set as "the tool-agnostic base plus whatever
+          installed packs declare via classification.dependency_dirs", to keep the
+          mandated test name
+          TestFindUngatedArtifacts_ExcludesEnumeratedNonCorpusTreesButWalksDotBackstop
+          UNCHANGED, and to leave the NonCorpusDirNames signature contract as is (the
+          signature did not change; only the returned names did).
+
+          Then run `backstop artifact validate --spec SPEC-068` and confirm it passes.
+        files:
+          - specs/SPEC-068-trustworthy-green-guards.spec.md
+        claims:
+          - CLM-001
+          - CLM-005
+        depends_on:
+          - TASK-013
+
+      - id: TASK-015
+        type: verification
+        title: "Full kill chain and artifact validation"
+        description: |
+          Final comprehensive verification of everything this plan delivered.
+
+          1. `backstop gate --all` — the full unscoped kill chain: artifact
+             validation, findings engines, test verification, substantiveness,
+             coverage, contracts, status drift, traceability, waiver resolution,
+             baseline comparison, ledger integrity. It must be GREEN with no new
+             waivers. A waiver added to pass this is a plan failure, not a pass.
+          2. `backstop artifact validate --plan PLAN-ISSUE-122` and
+             `backstop artifact validate --spec SPEC-068` — both pass.
+          3. Grep confirmation of the actual invariant, since that is what the issue
+             is about: `grep -rn "node_modules\|\"vendor\"" --include="*.go" pkg/ cmd/`
+             returns hits ONLY in test files and testdata fixtures — no production
+             Go source under pkg/ or cmd/ carries either noun. If a production hit
+             remains, the defect is not fixed, whatever the gate says.
+          4. Confirm `backstop gate --all` was run from a clean tree with the packs
+             installed, not from a stale build — rebuild ./bin/backstop first.
+        files:
+          - pkg/artifact/layout.go
+          - cmd/backstop/artifact_discover.go
+          - pkg/gate/artifact_status.go
+          - backstop.lock
+        claims:
+          - CLM-001
+          - CLM-006
+          - CLM-007
+          - CLM-008
+        depends_on:
+          - TASK-008
+          - TASK-011
+          - TASK-012
+          - TASK-013
+          - TASK-014

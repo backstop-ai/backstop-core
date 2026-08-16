@@ -1,0 +1,602 @@
+---
+plan_id: PLAN-ISSUE-129
+spec_id: ISSUE-129
+created: "2026-08-15"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./cmd/backstop/... -run \"TestIssue129|TestExemption\" -race"
+coverage_threshold: 90
+
+notes: |
+  Implements ISSUE-129 — a diff-scoped `backstop gate` (the DEFAULT invocation and
+  the only blocking check CI runs on a PR, `.github/workflows/ci.yml:155`) can report
+  a full PASS while a genuinely failing Go test sits in the tree, as long as the
+  failing test's file is outside the diff. Rolls up under DIR-032 (gate verdict
+  honesty), roster item 13.
+
+  ── EXISTENCE-IN-WORLD (checked 2026-08-15, before authoring) ───────────────
+  No committed or working-tree plan or spec owns this surface. `plans/` and `specs/`
+  were swept for `exempt_from_scope_filter` / `go-test` / `ISSUE-129`: the hits are
+  PLAN-ISSUE-070 (fixed the ADJACENT mechanism — the pack_engines step not applying
+  the filter AT ALL; that fix is what makes this issue's residual gap visible),
+  PLAN-SPEC-034/040/041 (which ESTABLISHED the declaration this plan changes), and
+  PLAN-SPEC-070 (whose implementation surfaced the bug). DIR-032 itself records, at
+  line 52, "verified 2026-08-15 for ISSUE-129 specifically: no plan in flight."
+  ISSUE-118 is a sibling in the same directive but a DIFFERENT mechanism (the suite
+  never reaches a verdict at all on test-only diffs) — not subsumed, not duplicated.
+
+  ── ROOT CAUSE (already pinned by the issue; do NOT re-diagnose) ────────────
+  The `go-toolchain` pack's `go-test` findings engine DOES run `go test ./...`
+  project-wide and DOES convert real failures to SARIF via `scripts/test-to-sarif.sh`.
+  The finding is computed correctly, then DISCARDED. `cmd/backstop/pack_gate.go`
+  stamps every bridged violation's `ProjectWide` field from
+  `binding.ExemptFromScopeFilter` (SPEC-041's declared exemption mechanism).
+  `go-build` declares `exempt_from_scope_filter: true` (pack.yml:73), so an
+  out-of-scope build break still REDs a diff-scoped gate. `go-test` declares no such
+  flag and so defaults false — `pkg/gate/scope.go` `filterViolations` keeps a
+  violation only when `ProjectWide` is true OR `scope.Contains(violation.File)`, and
+  for an out-of-diff test failure neither holds.
+
+  `backstop gate --all` is NOT affected (filterViolations short-circuits for
+  GateScopeModeAll) and MUST NOT change behavior.
+
+  ── THE RULING (team-lead, founder-equivalent, made 2026-08-15) ─────────────
+  Declare `go-test` `exempt_from_scope_filter: true`, matching `go-build`'s existing
+  precedent EXACTLY. Basis: the issue's own Direction §1 tradeoff, concluding that
+  "Go compilation-level whole-module reasoning (why `go-build` is exempt) applies
+  just as much to a whole-module test suite where cross-package references are
+  common," and that a failing test is a binary "the code is broken" signal with no
+  soft failure mode (unlike a lint severity gradient).
+
+  The narrower alternative in Direction §1 — a baseline-compare mechanism
+  distinguishing "already red before the diff" from "this diff caused it" — is
+  EXPLICITLY NOT the path being taken. Do not design it, do not partially build it.
+
+  Direction §2 (audit every OTHER findings engine lacking the flag, so no future
+  pack engine reintroduces the gap silently) is DEFERRED — file it as a follow-on
+  issue rather than absorbing it here. The existing engine-by-engine intent matrix
+  (`cmd/backstop/testdata/exempt-matrix-bindings.yml` + the SPEC-041 CLM-011..019
+  exemption tests) already asserts intent for the go-toolchain engines; generalizing
+  that to "every declared engine of every installed pack must carry an explicit
+  intent record" is a real design question with real maintenance cost, not a
+  free rider on this fix.
+
+  ── THIS IS A PACK CHANGE, NOT A CORE CHANGE (thin-executor invariant) ──────
+  NO core Go code changes. The `exempt_from_scope_filter -> Violation.ProjectWide`
+  bridge already exists, is already general, already resolves PER-VIOLATION from
+  pack data, and already has end-to-end coverage. The ONLY behavioral edit is one
+  declared boolean in pack DATA. If an implementation task finds itself editing
+  `pkg/gate/`, `cmd/backstop/pack_gate.go`, or `cmd/backstop/gate.go`, it has gone
+  off-plan — STOP and escalate.
+
+  VERIFIED PACK COORDINATES (checked 2026-08-15):
+    * repo path   : /Users/bmanson/src/projects/backstop-go-toolchain-pack
+    * git remote  : https://github.com/backstop-ai/go-toolchain.git
+    * pack name   : backstop-ai/go-toolchain   (name == coordinate, since v1.2.0)
+    * version now : 1.3.0  (tag v1.3.0, HEAD 3abf184, clean worktree)
+    * the binding : pack.yml `engines: go-test:` (lines 77-86), sibling to
+                    `go-build:` (64-73) which already declares the flag
+
+  There are exactly TWO declarations of this binding to keep in lockstep — verified
+  by sweeping every `pack.yml` and every reference to `scripts/test-to-sarif.sh` in
+  the worktree:
+    1. the RELEASED pack (external repo above), which backstop-core consumes via
+       `backstop.lock`;
+    2. the IN-REPO FIXTURE COPY at
+       `cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/pack.yml`,
+       which is what `goToolchainManifest()` / `goToolchainPackRoot()`
+       (`cmd/backstop/pack_gate_gotoolchain_test.go:87,114`) actually parse. EVERY
+       SPEC-041 exemption test reads the FIXTURE, not the installed pack. Flipping
+       only the released pack leaves the whole test corpus asserting the OLD
+       behavior; flipping only the fixture ships nothing.
+  `cmd/backstop/testdata/exempt-matrix-bindings.yml` is a third, DOCUMENTARY copy
+  (its own header says the in-memory helper is the source of truth) whose `go-test`
+  row and comment block state `exempt_from_scope_filter: false` — it must be updated
+  or it becomes a lie in the repo.
+
+  ── PREREQUISITE: SPEC-041 MUST BE AMENDED FIRST (spec-author dispatch) ─────
+  SPEC-041 is `status: implemented` (spec_version 1.2.0), so its mandated tests are
+  live gate contracts — `test_verification` / `test_substantiveness` admit
+  implemented specs, and a half-landed rename does NOT pass green here (the
+  draft-spec loophole does not apply). Two of its claims ENCODE the behavior this
+  plan inverts:
+
+    * CLM-015 / REQ-006 — "A go-test violation in an UNCHANGED file IS
+      scope-filtered out ... exempt_from_scope_filter is false for go-test," test
+      `TestExemption_TestViolationUnchangedFileIsFiltered`. This claim's TEXT and
+      TEST NAME must both invert.
+    * CLM-017 / REQ-006 — "golangci/go-build/go-test all remain ScopeKindProjectWide
+      while ONLY go-build is exempt_from_scope_filter," test
+      `TestExemption_ScopeKindDecoupledFromExemptDecision`. The claim keeps its
+      name and its POINT, but "only go-build" must become "go-build and go-test are
+      exempt while golangci is not."
+    * CLM-011's test `TestExemption_BindingDeclaresExemptFromScopeFilterDecoupledFromScopeKind`
+      (`cmd/backstop/go_toolchain_engines_test.go:145`) asserts the same thing
+      against the declared records and needs the same treatment.
+
+  The ScopeKind/exempt DECOUPLING proof SURVIVES the flip and must be preserved, not
+  weakened: `golangci` remains `ScopeKindProjectWide` AND non-exempt, so a single
+  ScopeKind value still maps to BOTH exempt and non-exempt bindings. That is the
+  whole content of CLM-017 and it is still demonstrable. Do NOT delete these tests.
+
+  Per the mandated-test-rename convention (SPEC-038 v1.2.2 + PLAN-ISSUE-082 TASK-002;
+  SPEC-037 v1.2.7 ahead of its plan phase): the SPEC EDIT LANDS FIRST, as its own
+  commit, via a spec-author dispatch. This plan is the COUNTERPART that carries the
+  code-side rename VERBATIM. The implementer must NOT hand-edit SPEC-041 (agent-guard
+  + the never-hand-edit-artifacts invariant); if the spec text is wrong or absent,
+  STOP and route a spec-author dispatch.
+
+  Required amendment, to be requested of spec-author before TASK-003 runs:
+    - bump SPEC-041 spec_version, add a Version History entry citing ISSUE-129;
+    - CLM-015 text inverts; its `tests:` becomes
+      `TestExemption_TestFailureUnchangedFileStillRedsDiffScoped` (named for exact
+      symmetry with the existing CLM-013 test
+      `TestExemption_BuildBreakUnchangedFileStillRedsDiffScoped`);
+    - CLM-017 and CLM-011 text updated to "go-build AND go-test exempt, golangci
+      not" with the decoupling argument re-grounded on golangci;
+    - REQ-004/REQ-006 narrative sentences that say "golangci(lint) and go-test
+      declare it false" updated in kind.
+
+  ── SHARP EDGES ────────────────────────────────────────────────────────────
+  1. THE FIX MAKES THE GATE STRICTER, IMMEDIATELY AND REPO-WIDE. After TASK-005
+     relocks, ANY currently-failing Go test ANYWHERE in backstop-core reds every
+     diff-scoped `backstop gate` run — including this plan's own verification tasks.
+     That is the intended behavior, not a defect. Before relocking, establish the
+     tree's TRUE state with an unfiltered `go test ./...` and resolve what it finds.
+     The issue names one known instance: `TestCIRecipes_RegisteredCommandSurfaceUnchanged`
+     (`cmd/backstop/ci_recipes_mechanism_test.go`, SPEC-067 CLM-052's command-surface
+     pin) went red when PLAN-SPEC-070 registered the `doctor` command without
+     updating the enumerated command list. If it is still red, it is a REAL broken
+     promise and must be fixed (update the enumerated surface, as SPEC-069 did for
+     `init`) — never waived, never weakened, and never worked around by deferring
+     this plan.
+  2. OTHER AGENTS ARE ACTIVE IN THIS WORKTREE. Do not run a full `go test ./...` or
+     `backstop gate --all` while an implementer is mid-flight elsewhere in the tree
+     (see the no-verify-race convention) — coordinate first, or the readings are
+     noise. This matters most for TASK-005 and Phase 4.
+  3. THE FALSIFICATION WINDOW IS NARROW AND ORDER-DEPENDENT. TASK-002's regression
+     fixture is only a real proof if it is observed RED against the UNMODIFIED
+     fixture pack.yml. Once TASK-004 flips the fixture, that evidence can never be
+     re-collected without reverting. Capture the red output (test name + failure
+     text) in the implementation record at the moment it is observed.
+  4. NO NEW BAKED LANGUAGE KNOWLEDGE. The fix is a pack-declared boolean. Nothing in
+     this plan may introduce a `go-test`-by-name branch, a `.go` literal, or a
+     gate_type-derived exemption rule in core — the flag is per-binding BY DESIGN
+     (SPEC-041 CLM-017/CLM-018) and must stay that way.
+  5. PACK RELEASE IS A REAL PUBLICATION. TASK-001 pushes a tag to a public GitHub
+     repo. Version resolution is git-tag-based: a `pack.yml` version bump with no
+     matching `v<version>` tag will NOT resolve via `pack update`. Follow the
+     convention already in that repo's git log (one commit titled
+     `backstop-ai/go-toolchain <version>: <summary>`, then the matching tag); its CI
+     asserts tag/version agreement on tag push (a7f1370).
+
+  ── REQUIREMENTS / CLAIMS (plan-local, derived from the issue) ──────────────
+    REQ-001: The go-test engine declares the scope-filter exemption, in pack data.
+      CLM-001  the released `backstop-ai/go-toolchain` pack declares
+               `exempt_from_scope_filter: true` on its `go-test` engine binding, at
+               a real tagged version, validated by `backstop pack test`.
+      CLM-007  backstop-core ADOPTS that release — `backstop.lock` records the new
+               version + content hash — and the in-repo fixture pack agrees with the
+               released pack on the go-test declaration.
+    REQ-002: An out-of-scope test failure reds a diff-scoped gate, provably.
+      CLM-002  a genuinely failing Go test in a file OUTSIDE the diff scope produces
+               a violation that SURVIVES the real step-level scope filter and reds a
+               diff-scoped run, end-to-end through the real dispatch + filter path.
+      CLM-003  the regression fixture FALSIFIES: it is observed RED against the
+               pre-fix (non-exempt) declaration and green after, driven by a real
+               git-derived diff scope and REAL CAPTURED `go test` failure output —
+               not a fabricated fixture and not an assertion-only claim.
+    REQ-003: Nothing else regresses.
+      CLM-004  the `exempt_from_scope_filter -> Violation.ProjectWide` bridge is
+               UNCHANGED and still resolves PER-VIOLATION from pack data; no core
+               source file is edited and no engine-by-name special case is added.
+      CLM-005  an IN-SCOPE test failure still reds (you-touch-it-you-fix-it), and
+               `gate --all` behavior is unchanged (filterViolations still
+               short-circuits for GateScopeModeAll).
+    REQ-004: The SPEC-041 exemption corpus stays truthful.
+      CLM-006  SPEC-041's inverted CLM-015 is carried into the renamed test
+               verbatim; CLM-011/CLM-017's ScopeKind-vs-exempt DECOUPLING proof is
+               PRESERVED (re-grounded on golangci, which stays ScopeKindProjectWide
+               and non-exempt) rather than deleted; and the documentary
+               exempt-matrix fixture no longer states the old value.
+
+  Structure:
+    Phase 1: Pack-side fix + release (external repo).
+    Phase 2: TDD red — the ISSUE-129 regression fixture, and the SPEC-041
+             counterpart test updates. Both run against the UNMODIFIED fixture
+             declaration, so both are genuinely red.
+    Phase 3: TDD green — flip the fixture declaration, adopt the released pack,
+             diff-scoped gate.
+    Phase 4: Comprehensive verification — full kill chain + artifact validation.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Pack-side fix and release (external repo)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Declare the go-test scope-filter exemption in the go-toolchain pack"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Declare exempt_from_scope_filter on the go-test engine and release the pack"
+        description: |
+          THIS TASK RUNS IN AN EXTERNAL REPOSITORY, not backstop-core. The pack is
+          the durability boundary — packs live outside core by design and this fix
+          is pack DATA, so the change genuinely belongs there and the file scope
+          names that repo's path literally.
+
+          Working directory: /Users/bmanson/src/projects/backstop-go-toolchain-pack
+          (verified 2026-08-15: git remote https://github.com/backstop-ai/go-toolchain.git,
+          pack name `backstop-ai/go-toolchain`, version 1.3.0 at tag v1.3.0, clean
+          worktree). Confirm all of this before editing; if the repo is dirty or the
+          remote/name differs, STOP and report rather than improvising.
+
+          1. In `pack.yml`, add `exempt_from_scope_filter: true` to the `go-test:`
+             engine binding (currently lines 77-86). Match the SHAPE of the
+             `go-build:` sibling exactly (lines 64-73): same key, same placement as
+             the binding's last property. Extend the `go-test` comment block to say
+             WHY, mirroring go-build's rationale and citing ISSUE-129: whole-module
+             reasoning — a `go test ./...` suite's failures routinely originate in a
+             file the change did not touch, and a failing test is a binary
+             correctness signal with no soft failure mode, so its violations are
+             stamped project-wide and survive diff-scope filtering.
+             Change NOTHING else about the binding: `scope_kind: project-wide`,
+             `project_target: "./..."`, `package_scoped: true`, `crash_guard: true`,
+             `gate_type: test` and the convert script all stay exactly as they are.
+             Do NOT touch the `golangci` binding — it MUST remain non-exempt, because
+             it is what keeps the ScopeKind/exempt decoupling observable.
+          2. Bump `version:` 1.3.0 -> 1.4.0 (behavior change to a declared binding;
+             minor, not patch).
+          3. Verify IN THAT REPO with `backstop pack check` and `backstop pack test`.
+             Read the output — do not assume. If the pack's own fixtures encode the
+             old exempt value, update them there, in the same commit.
+          4. Commit and tag following that repo's own convention (see its git log:
+             commit subject `backstop-ai/go-toolchain 1.4.0: <summary>`, then tag
+             `v1.4.0`). Its CI asserts tag/version agreement on tag push, so a
+             mismatch fails loudly.
+          5. Push the commit AND the tag. This publishes to a public repo, and the
+             push is AUTHORIZED (team-lead ruling, 2026-08-15: it is a necessary
+             part of the standing directive to fix ISSUE-129, not a separate ask) —
+             do not stall waiting for confirmation. The authorization covers the
+             push, NOT skipping step 3: `pack check` and `pack test` must be read
+             and clean first, matching the diligence of this session's earlier pack
+             releases. Nothing downstream resolves without the tag: version
+             resolution is tag-based, so a bump with no matching `v1.4.0` tag will
+             fail TASK-005's `pack update`.
+        files:
+          - /Users/bmanson/src/projects/backstop-go-toolchain-pack/pack.yml
+        claims:
+          - CLM-001
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: TDD red — regression fixture + SPEC-041 counterpart tests
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: TDD Red — Prove the Blind Spot and Invert the Stale Assertions"
+    tasks:
+      - id: TASK-002
+        type: test
+        title: "Regression fixture: an out-of-scope failing Go test must red a diff-scoped gate"
+        description: |
+          The issue is explicit that without this, any fix "risks being another
+          vacuous-green claim." This is the load-bearing artifact of the whole plan.
+
+          Add `cmd/backstop/pack_gate_issue129_regression_test.go` with
+          `TestIssue129_OutOfScopeTestFailureRedsDiffScopedGate`.
+
+          Build it on the harness that already exists — do not invent a new one:
+            * `diagInitCommitRepo` (cmd/backstop/pack_gate_diffscope_diagnostic_test.go:16)
+              initializes a REAL git repo and commits its contents, so a planted
+              file becomes a genuine diff entry. Use it to derive a REAL
+              GateScopeModeDiff scope from actual git state rather than
+              hand-constructing one with the `diffScope` literal helper — the issue's
+              demand is "a tree with a genuinely failing test in a file OUTSIDE the
+              current diff scope," and a git-derived scope is what makes that claim
+              honest (CLM-003).
+            * `goToolchainManifest` + `onlyRules(..., "go-test")`
+              (pack_gate_gotoolchain_test.go:87,105) to drive the go-test engine
+              from the REAL declared pack manifest — so the test reads the
+              declaration under change, not a struct literal.
+            * `readFixture(t, "go-test-failures.txt")` — the REAL CAPTURED
+              `go test` failure output already in
+              `cmd/backstop/testdata/go-toolchain/fixtures/`. It reports failures in
+              `widget_test.go` and `gadget_test.go`. Do NOT fabricate new failure
+              text; if additional shapes are needed, capture them from a real run.
+            * `stubSandboxedRunStdout` + `fixtureRunner` to feed that output through
+              the real convert script and the real `dispatchPackEngines`.
+            * `filterThroughGate` (exempt_test_helpers_test.go) to run the REAL
+              `pkg/gate/scope.go` filter end-to-end — a stamp-site-only assertion
+              is NOT acceptable.
+
+          The diff scope must contain ONLY a changed file unrelated to the failing
+          tests. Assert:
+            - dispatch produces violations from the real captured output;
+            - each carries `ProjectWide == true`, stamped from the declared binding;
+            - the violations SURVIVE the real filter (survivors non-empty) — i.e.
+              a diff-scoped gate goes RED (CLM-002).
+
+          FALSIFICATION IS MANDATORY AND ORDER-DEPENDENT. This test runs BEFORE
+          TASK-004 flips the fixture declaration, so it MUST be observed FAILING
+          first — `ProjectWide` false, zero survivors. Run it, read the failure,
+          and record the exact failing output in the implementation record. If it
+          passes on first run, the fixture declaration was already flipped or the
+          test is not driving the real path — STOP and investigate; do not proceed.
+        files:
+          - cmd/backstop/pack_gate_issue129_regression_test.go
+        claims:
+          - CLM-002
+          - CLM-003
+          - CLM-005
+        test_names:
+          - TestIssue129_OutOfScopeTestFailureRedsDiffScopedGate
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: test
+        title: "Carry SPEC-041's amended CLM-015 rename and re-ground the CLM-011/CLM-017 decoupling proof"
+        description: |
+          PRECONDITION — CONFIRM, DO NOT AUTHOR. SPEC-041 must ALREADY carry the
+          amendment described in this plan's notes (CLM-015 inverted and renamed to
+          `TestExemption_TestFailureUnchangedFileStillRedsDiffScoped`; CLM-011/CLM-017
+          re-grounded on golangci; REQ-004/REQ-006 narrative updated; spec_version
+          bumped with a Version History entry citing ISSUE-129). Read the spec and
+          verify this first. If it is absent or says something different, STOP and
+          route a spec-author dispatch — do NOT hand-edit SPEC-041, and do not
+          reconcile the difference by changing the code to match the old text.
+          This task carries the spec's names VERBATIM; the spec is upstream.
+
+          Then, in `cmd/backstop/pack_gate_exempt_test.go`:
+            * Rename `TestExemption_TestViolationUnchangedFileIsFiltered` (line 88)
+              to `TestExemption_TestFailureUnchangedFileStillRedsDiffScoped` and
+              INVERT it, mirroring its build-side twin
+              `TestExemption_BuildBreakUnchangedFileStillRedsDiffScoped` (line 39)
+              structurally: assert every go-test violation arrives
+              `ProjectWide == true`, then assert survivors are NON-empty after
+              `filterThroughGate` with a diff scope over an unrelated file. Update
+              the doc comment to state the new semantics and cite SPEC-041 CLM-015.
+              It must no longer call `assertAllFilteredWhenUnchanged`.
+            * Leave `assertAllFilteredWhenUnchanged` in place — its remaining callers
+              (`TestExemption_LintViolationUnchangedFileIsFiltered` CLM-014 and
+              `TestExemption_FindingsViolationUnchangedFileIsFiltered` CLM-016) are
+              unaffected and MUST stay green. Do not touch those two tests.
+
+          And in `cmd/backstop/go_toolchain_engines_test.go`:
+            * `TestExemption_BindingDeclaresExemptFromScopeFilterDecoupledFromScopeKind`
+              (line 145) and `TestExemption_ScopeKindDecoupledFromExemptDecision`
+              (line 192) both currently assert `test.ExemptFromScopeFilter` is false
+              and derive their decoupling proof from build-vs-test divergence. Flip
+              the go-test expectation to true and RE-GROUND the decoupling on
+              golangci: all three bindings still share `ScopeKindProjectWide` and
+              still declare `./...`, yet golangci is non-exempt while go-build and
+              go-test are exempt — so one ScopeKind value still maps to BOTH exempt
+              and non-exempt bindings, and ScopeKind demonstrably does not drive the
+              decision. Keep both test names (the spec keeps CLM-011/CLM-017's test
+              names). Update the doc comments to state the new matrix explicitly.
+
+          PRESERVE THE PROOFS, DO NOT WEAKEN THEM. Deleting an assertion because it
+          now fails, or reducing a test to a tautology, is the failure mode these
+          tests exist to prevent. Every one of them must still falsify: verify by
+          confirming each fails against the UNMODIFIED fixture pack.yml before
+          TASK-004 flips it, and record that red output.
+        files:
+          - cmd/backstop/pack_gate_exempt_test.go
+          - cmd/backstop/go_toolchain_engines_test.go
+        claims:
+          - CLM-004
+          - CLM-006
+        test_names:
+          - TestExemption_TestFailureUnchangedFileStillRedsDiffScoped
+          - TestExemption_BindingDeclaresExemptFromScopeFilterDecoupledFromScopeKind
+          - TestExemption_ScopeKindDecoupledFromExemptDecision
+        depends_on:
+          - TASK-001
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: TDD green — flip the declaration, adopt the release
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: TDD Green — Flip the Fixture Declaration and Adopt the Released Pack"
+    tasks:
+      - id: TASK-004
+        type: implementation
+        title: "Flip the in-repo fixture pack's go-test binding and correct the exempt-matrix documentation"
+        description: |
+          This is the edit that turns Phase 2 green. It is a DATA edit: no `.go`
+          production file may be touched by this task.
+
+          1. In
+             `cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/pack.yml`
+             — the fixture copy that `goToolchainPackRoot`/`goToolchainManifest`
+             actually parse, and therefore the file every SPEC-041 exemption test
+             reads — add `exempt_from_scope_filter: true` to the `go-test:` binding
+             (currently at line 77), byte-for-byte consistent with what TASK-001
+             released. Carry the same rationale comment. Nothing else changes; in
+             particular `golangci` stays non-exempt.
+          2. In `cmd/backstop/testdata/exempt-matrix-bindings.yml`, update the
+             `go-test:` entry to `exempt_from_scope_filter: true` AND update the
+             header comment table, which currently states
+             `go-test  -> exempt_from_scope_filter: false  (unchanged-file test
+             violation filtered)`. It must now read as exempt, with the
+             unchanged-file test failure REDDING. This file is documentary (its own
+             header says the in-memory helper is the source of truth) but leaving it
+             stale plants a false record of intent in the repo.
+          3. Confirm no THIRD copy of this declaration has appeared: sweep for
+             `scripts/test-to-sarif.sh` and for `go-test:` under `pack.yml` across
+             the worktree. As of 2026-08-15 there are exactly two real declarations
+             (released pack + this fixture) plus the documentary matrix file above.
+
+          Then run the Phase 2 tests and confirm they now PASS — including
+          `TestIssue129_OutOfScopeTestFailureRedsDiffScopedGate`. Together with the
+          recorded red from TASK-002/TASK-003, that pair IS the falsification
+          receipt (CLM-003).
+
+          If making these tests pass appears to require editing `pkg/gate/`,
+          `cmd/backstop/pack_gate.go`, or `cmd/backstop/gate.go`, the plan's premise
+          is wrong — STOP and escalate rather than changing core.
+        files:
+          - cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/pack.yml
+          - cmd/backstop/testdata/exempt-matrix-bindings.yml
+        claims:
+          - CLM-002
+          - CLM-004
+          - CLM-006
+        depends_on:
+          - TASK-002
+          - TASK-003
+
+      - id: TASK-005
+        type: implementation
+        title: "Adopt the released go-toolchain 1.4.0 in backstop-core via pack update"
+        description: |
+          Make the fix real for backstop-core's OWN gate, not just its test corpus.
+
+          PRECONDITION — ESTABLISH THE TREE'S TRUE STATE FIRST. This relock makes
+          every diff-scoped gate run sensitive to ANY failing Go test anywhere in
+          the repo. Before relocking, run `go test ./...` unfiltered and read the
+          result. The issue names one expected instance:
+          `TestCIRecipes_RegisteredCommandSurfaceUnchanged`
+          (`cmd/backstop/ci_recipes_mechanism_test.go`), SPEC-067 CLM-052's
+          command-surface pin, which goes red when a new top-level command is
+          registered without updating its enumerated list. If it (or anything else)
+          is red, that is a REAL broken promise: fix it properly — update the
+          enumerated command surface the way SPEC-069 did for `init` — or, if the
+          fix is genuinely out of this plan's scope, STOP and escalate. Never waive
+          it, never weaken the test, and never defer this plan to avoid it.
+          Coordinate before running the full suite if other agents are active in the
+          worktree; a racing reading is worse than no reading.
+
+          Then, in backstop-core:
+            ./bin/backstop pack update backstop-ai/go-toolchain
+          (a pack NAME, not a path). Confirm from the command's real output and from
+          the resulting diff that `backstop.lock` now records version 1.4.0,
+          `git_ref: v1.4.0`, and a NEW `content_hash`, with `source_coordinate`
+          preserved as `backstop-ai/go-toolchain`. If `pack update` cannot resolve
+          the version, the tag was not pushed in TASK-001 — go fix that, do not
+          hand-edit the lock file. Never hand-edit `backstop.lock`.
+
+          Finally, confirm the installed pack and the in-repo fixture now AGREE on
+          the go-test declaration by reading
+          `.backstop/packs/backstop-ai/go-toolchain/pack.yml` and diffing that
+          binding against the fixture copy (CLM-007). They are maintained
+          independently, so drift between them is silent and is exactly what this
+          check exists to catch.
+        files:
+          - backstop.lock
+          - backstop.yml
+        claims:
+          - CLM-007
+        depends_on:
+          - TASK-002
+          - TASK-004
+
+      - id: TASK-006
+        type: verification
+        title: "Diff-scoped gate over the pack-declaration and test changes"
+        description: |
+          Run the fast inner loop over this phase's changes:
+
+            ./bin/backstop gate
+
+          (bare = diff-scoped vs merge-base plus untracked — the exact invocation
+          this issue is about, now running against the fixed declaration). Narrow
+          with `./bin/backstop gate --file <path>` when isolating a single file's
+          violations.
+
+          Read the real output. Confirm specifically:
+            - the run is GREEN, and green for the right reason — if it reds, read
+              whether it reds on a genuine out-of-scope test failure the fix has
+              newly surfaced (correct behavior; fix the test) versus something this
+              plan broke;
+            - the `pack_engines` dimension reports the go-toolchain engines as
+              present and dispatched, not `capability_absent` — a skipped dimension
+              would make this verification vacuous;
+            - the Phase 2 tests pass, and pass without any subtest reporting SKIP.
+
+          Do NOT prescribe or run `backstop code check` — that command was removed
+          and its absence is asserted by a shipped test.
+        files:
+          - cmd/backstop/pack_gate_issue129_regression_test.go
+          - cmd/backstop/pack_gate_exempt_test.go
+          - cmd/backstop/go_toolchain_engines_test.go
+          - cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/pack.yml
+          - cmd/backstop/testdata/exempt-matrix-bindings.yml
+          - backstop.lock
+        claims:
+          - CLM-002
+          - CLM-003
+          - CLM-005
+        depends_on:
+          - TASK-004
+          - TASK-005
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Comprehensive verification
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Comprehensive Verification — Full Kill Chain and Artifact Validation"
+    tasks:
+      - id: TASK-007
+        type: verification
+        title: "Full unscoped gate, artifact validation, and end-state proof of the fix"
+        description: |
+          Run the complete kill chain, unscoped:
+
+            ./bin/backstop gate --all
+            ./bin/backstop artifact validate --plan PLAN-ISSUE-129
+            ./bin/backstop artifact validate --spec SPEC-041
+            ./bin/backstop artifact validate --issue ISSUE-129
+
+          `gate --all` covers artifact validation, findings engines, test
+          verification, substantiveness, coverage, and contracts across the whole
+          repo; the explicit `artifact validate` calls confirm the artifact side of
+          this change (the amended SPEC-041 and this plan) independently. Coordinate
+          before running if other agents are mid-flight in the worktree.
+
+          Read every result. Then confirm the END STATE the issue actually asked for,
+          rather than asserting it:
+            - `gate --all` is GREEN with no waivers added and nothing skipped;
+            - `go test ./...` unfiltered is GREEN — the check that caught this bug in
+              the first place, and the ground truth the gate now claims to mirror;
+            - the exemption matrix is coherent end to end: go-build exempt, go-test
+              exempt, golangci non-exempt, findings non-exempt, all four still
+              asserted engine-by-engine, with the ScopeKind decoupling proof intact;
+            - `backstop.lock` pins go-toolchain 1.4.0 and the released pack's
+              go-test binding matches the in-repo fixture's;
+            - SPEC-041 names
+              `TestExemption_TestFailureUnchangedFileStillRedsDiffScoped` and that
+              function EXISTS, and no `.go` file anywhere still names
+              `TestExemption_TestViolationUnchangedFileIsFiltered` (grep to prove
+              it) — the half-landed-rename guard;
+            - `gate --all` behavior is unchanged by this fix, since the filter always
+              short-circuited for GateScopeModeAll (CLM-005).
+
+          FOLLOW-ONS TO FILE, NOT ABSORB (route to an issue-author dispatch):
+            - ISSUE-129 Direction §2 — audit every OTHER findings engine that lacks
+              `exempt_from_scope_filter`, and decide whether something must assert
+              exemption intent engine-by-engine so a future pack cannot reintroduce
+              this gap silently.
+            - The released-pack / in-repo-fixture divergence risk: the two
+              declarations are maintained by hand with nothing asserting they agree.
+              TASK-005 checks it once, manually; nothing keeps it checked.
+          Neither may be silently dropped, and neither may be quietly absorbed into
+          this plan.
+        files:
+          - plans/PLAN-ISSUE-129-go-test-scope-filter-exemption.plan.yml
+          - backstop.lock
+          - cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/pack.yml
+          - cmd/backstop/pack_gate_issue129_regression_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-004
+          - TASK-005
+          - TASK-006

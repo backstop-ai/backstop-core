@@ -1,2 +1,4 @@
 - [Extending a shipped plan](project_extending_a_shipped_plan.md) — reconciliation phases must open with a `test` task (only type that may depend on a verification task); spec+test-rename land in one commit
 - [Plan close-out convention](project_plan_closeout_convention.md) — AS-BUILT banner prepended to notes, tasks never rewritten, spec_version left pinned to the authored-against revision
+- [Defect pinned by shipped tests](project_defect_pinned_by_shipped_tests.md) — grep for tests asserting the defect; spec-mandated names must survive (rewrite bodies), spec prose goes stale → spec-author follow-on
+- [Planning a pack-data fix](project_planning_a_pack_data_fix.md) — external repo path is valid file scope; TWO declarations (released + in-repo fixture, tests read the fixture); flip usually forces a spec amendment

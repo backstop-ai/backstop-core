@@ -21,3 +21,4 @@
 - [Verified enumeration + do-not-re-derive](project_verified_enumeration_do_not_rederive.md) — re-sweep any plan that publishes a "verified, do NOT re-derive" file:line list; omissions become DIRECTED misses
 - [Pre-existing RED claim needs amendment node](project_preexisting_red_claim_needs_amendment_node.md) — claim red pre-work = founder blocker; demand an amendment node OR proof the spec already moved, then re-measure the amended predicate
 - [Captured-fixture source must exist](project_captured_fixture_source_must_exist.md) — verify each named fixture source exists AND has the asserted property; 'real X that never mentions Y' is often unobtainable and vacuous
+- [Contract signature-block drift](project_contract_signature_block_drift.md) — a signature/field change strands `signature:` in EVERY implemented spec contracts block naming it; grep specs/ for the symbol, not just the cited spec

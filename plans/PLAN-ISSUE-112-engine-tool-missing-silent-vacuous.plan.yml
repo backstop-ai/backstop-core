@@ -1,0 +1,703 @@
+---
+plan_id: PLAN-ISSUE-112
+spec_id: ISSUE-112
+created: "2026-08-15"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./cmd/backstop/... -race -count=1"
+coverage_threshold: 90
+
+notes: |
+  Implements ISSUE-112 (DIR-032 "Gate Verdict Honesty", cluster item 6 — the
+  silent-pass-on-a-missing-engine-tool variant). TWO production files carry the
+  behavior change plus ONE call-site line in a third. Everything else is tests.
+
+  ── THE DEFECT, MEASURED AT HEAD (872bc9c, 2026-08-15) ─────────────────────
+  A findings engine whose tool is ABSENT from PATH passes the gate green having
+  scanned nothing. Two independent mechanisms have to fail for that to happen, and
+  BOTH are live at HEAD:
+
+  MECHANISM 1 — no presence check at all for provision-pinned tools.
+  `provisionEngines` (cmd/backstop/pack_gate_provision.go:85-87) explicitly
+  `continue`s past every binding with a non-nil Provision, on the stated theory
+  that they are "pinned + auto-provisioned through the declared model". Nothing in
+  this codebase installs anything: Provision is a TRUST-ALLOWLIST PIN and nothing
+  more (re-confirmed this session by ISSUE-082's work on
+  pkg/pack/engine/allowlist.go). So semgrep and ast-grep get NEITHER an install NOR
+  a presence check, and flow straight into dispatch.
+
+  MECHANISM 2 — the unstartable binary is discarded at the gate dispatch path.
+  `runFindingsEngine` (cmd/backstop/pack_gate.go:648-711) captures `runErr` from
+  `runner.RunStdout` and consults it ONLY under `binding.CrashGuard`
+  (pack_gate.go:709). For every non-CrashGuard engine — which is every rule-fed
+  findings engine, semgrep and ast-grep included, per the explicit assertion in
+  cmd/backstop/semgrep_unchanged_test.go:49 — an `*exec.Error` ("executable file
+  not found in $PATH") is dropped on the floor: empty stdout flows through convert,
+  the LENIENT `check.ParsePackFindings` reads zero findings, and the step reports a
+  clean pass. `runCoverageEngine` is worse in form: it discards its run error with a
+  literal `_ = runErr` on BOTH branches (pack_gate.go:432 producer, pack_gate.go:444
+  plain command).
+
+  pkg/packval/executor.go:85-90 already does this correctly for `backstop pack
+  test` — `errors.As(runErr, &execErr)` on `*exec.Error`, fail loud, with the
+  reason spelled out in its own comment ("a broken run, not a finding-free pass").
+  The gate dispatch path — the one `backstop gate` actually runs — never got that
+  treatment. Copy the packval shape; do not invent a second one.
+
+  ── HOW THE CURRENT BEHAVIOR WAS ESTABLISHED (evidence, not inference) ──────
+  Planning could not write a Go probe (this role is guarded out of source
+  authoring), so mechanism 1 was established the stronger way instead: it is
+  PINNED BY FOUR SHIPPED, PASSING TESTS that assert the defective contract in so
+  many words. Run at HEAD in a detached worktree on 2026-08-15,
+  `go test ./cmd/backstop/ -run TestProvision -count=1 -v` — all PASS, including:
+
+    --- PASS: TestProvision_IntroducedEngineAutoProvisioned
+        "backstop-introduced engines are pinned + auto-provisioned; absence on
+         PATH must NOT fail provisioning"        (dispatch_provision_test.go:95)
+    --- PASS: TestProvision_SemgrepStillPinnedAndProvisioned
+        "semgrep is pinned + auto-provisioned, not assume-present; absence must
+         NOT fail provisioning"                  (pack_gate_provision_test.go:91)
+    --- PASS: TestProvision_EnsureSemgrepRetired
+        "provisioning probed `semgrep` on PATH …; it must NOT be probed"
+                                                 (dispatch_provision_test.go:148)
+
+  The worktree was then removed. THIS IS THE MOST IMPORTANT FACT IN THIS PLAN:
+  a green suite is NOT evidence of correctness here — the suite is green BECAUSE
+  the defect is asserted. See the mandated-name constraint below.
+
+  Mechanism 2 was established by reading, and the reading is unambiguous: `runErr`
+  appears exactly twice in `runFindingsEngine` (the capture at :648 and the
+  CrashGuard-gated use at :709), `check.ExecCommandRunner.RunStdout`
+  (pkg/check/runner.go:52-63) returns `cmd.Run()`'s error verbatim — which for an
+  absent binary is the `*exec.Error` Go's `exec.Command` stores in `cmd.Err` — and
+  a repo-wide grep for `exec.Error` outside tests returns exactly ONE production
+  hit: pkg/packval/executor.go. There is no second handler anywhere on the gate
+  path. RE-OBSERVE THE RED ANYWAY (see the falsification bar below).
+
+  ── THE THIRD DEFECT PLANNING FOUND, WITHOUT WHICH THE ISSUE'S OWN REPRO STILL
+     PASSES SILENTLY ───────────────────────────────────────────────────────
+  ISSUE-112's repro is "any repo + typescript-substantiveness on a PATH without
+  ast-grep". Fixing mechanism 1 as literally written does NOT catch that repro,
+  because of WHICH PACK SET the gate provisions over:
+
+      dispatchPacks := excludeDedicatedStepRules(packs)   // gate.go:895
+      if provErr := provisionEngines(dispatchPacks); …     // gate.go:902
+
+  `excludeDedicatedStepRules` (pack_gate.go:123-145) strips every rule whose engine
+  declares a dedicated-step gate_type — substantiveness, contracts, coverage —
+  BEFORE provisioning sees it. A substantiveness pack's ast-grep engine is
+  therefore never walked by `provisionEngines` at all, today or after a
+  mechanism-1-only fix. The exclusion exists so those rules are not ALSO dispatched
+  context-free by the generic findings step; it has nothing to do with whether their
+  tool exists, and using it as the provisioning set is the bug. In this very repo
+  that hole covers ast-grep for BOTH backstop-ai/go-substantiveness and
+  backstop-ai/go-contracts (enumerated below).
+
+  Fix: provision over the FULL installed-pack set (`packs`), not the post-exclusion
+  dispatch set. Tool presence is a property of the tool, not of which step dispatches
+  it. This is CLM-002 and it is not optional — without it the acceptance fixture the
+  issue itself names cannot go red.
+
+  Mechanism 2 independently catches the same repro at dispatch time (the
+  substantiveness step reaches `runFindingsEngine` through the SAME
+  `resolveDispatchPackEngines()` seam, gate.go:1210, and already turns any dispatch
+  error into a `ConfigErr: true` fail step). Belt AND braces is deliberate here: the
+  provisioning refusal is EARLY and legible, the dispatch refusal is the
+  backstop that no future call-site rewiring can route around.
+
+  ── MANDATED-NAME CONSTRAINT (read before touching any test) ───────────────
+  FOUR shipped tests assert the defective contract, and ALL FOUR names are MANDATED
+  by `implemented` specs. Deleting or renaming any of them turns the
+  artifact_status_drift dimension RED as a broken promise ("every declared
+  test_name must EXIST"), which is a self-inflicted gate failure on top of the fix:
+
+    TestProvision_SemgrepStillPinnedAndProvisioned  SPEC-034:409 (CLM-028)
+    TestSemgrep_OnlyProvisioningChanges             SPEC-034:370 (CLM-021)
+    TestProvision_IntroducedEngineAutoProvisioned   SPEC-031:638 (CLM-042)
+    TestProvision_EnsureSemgrepRetired              SPEC-031:643 (CLM-043)
+
+  SO: KEEP ALL FOUR NAMES. Rewrite their BODIES and docstrings to assert the
+  corrected contract, and PRESERVE each one's still-true angle, which in every case
+  is a different proposition from the one being corrected:
+
+    - "the binding carries a pinned Provision record with a non-empty version" —
+      STILL TRUE, keep the assertion.
+    - "the bespoke EnsureSemgrep install ladder is off the provisioning path" —
+      STILL TRUE, and now proved by a BETTER fingerprint: provisioning PROBES the
+      tool on PATH and REFUSES when absent, and still never installs anything.
+      (Its source-grep sibling TestProvision_EnsureSemgrepBespokeInstallRetired is
+      untouched and keeps proving the ladder is gone from the source.)
+    - "semgrep's FINDINGS path is unchanged" (SPEC-034 CLM-021 / REQ-006) — STILL
+      TRUE and unaffected: this lane changes when a tool is REFUSED, never how a
+      tool that runs is parsed. TestSemgrep_OnlyProvisioningChanges half (a) and
+      its CrashGuard assertion stay exactly as they are; only half (b) inverts.
+
+  Each rewritten docstring MUST say, in one line, that the name is retained because
+  a shipped spec mandates it and that ISSUE-112 supersedes the assertion it used to
+  make. A future reader who finds "AutoProvisioned" on a test asserting a fail-loud
+  deserves that sentence.
+
+  ── SPEC PROSE THIS LANE KNOWINGLY LEAVES STALE (escalate, do not hand-edit) ─
+  Correcting the behavior contradicts the PROSE of SPEC-034 CLM-028 and SPEC-031
+  CLM-042/CLM-043, which state that a provision-pinned tool's PATH absence must not
+  fail provisioning. Nothing mechanical enforces claim PROSE (the gate checks
+  test-name EXISTENCE, which this lane preserves), so the gate stays green — but the
+  divergence is real and must not be papered over. It is NOT this plan's to fix:
+  artifacts are never hand-edited, and a spec amendment routes through spec-author.
+  ACTION FOR THE DISPATCHER, not for the implementer: after this lands, dispatch
+  spec-author to amend SPEC-034 CLM-028 and SPEC-031 CLM-042/CLM-043 to the
+  ISSUE-112 contract, citing this plan. Do not let the implementer edit a spec to
+  make a docstring consistent.
+
+  ── `backstop doctor`: DELIBERATELY OUT OF SCOPE, WITH THE REASONING ───────
+  ISSUE-112 notes doctor does not catch this either, and it does not: doctor's
+  toolchain-runs check consumes `packEntrypointProber`
+  (cmd/backstop/pack_entrypoint_prober.go), which (a) selects ONLY
+  `gate_type: test` and `gate_type: build` bindings (prober.go:124) and (b) walks
+  `manifest.Engines` — the pack's own declaration map — never the merged registry
+  the RULES resolve through (`resolveEngineRegistry`). Covering findings engines is
+  therefore not a filter tweak; it needs a different walk, over a different source
+  of engines, in a helper with TWO callers, the other being `backstop init`'s
+  toolchain step, which shipped this session under SPEC-069 and owns its own
+  contract for what that helper returns. Widening a defect lane into that helper
+  would put an unreviewed behavior change into `init` as a side effect, and doctor's
+  warn/fail/skip report vocabulary needs its own acceptance bar rather than
+  inheriting a blocking one.
+  The judgment: this fix makes the GATE fail loud, and the gate is the vector the
+  incident actually travelled (a CI gate run on bclabs-portal, 2026-07-29). Doctor
+  coverage is diagnosability polish on top of an already-loud failure, not part of
+  the defect. RECOMMENDED FOLLOW-ON (file as its own issue, cite ISSUE-112):
+  "doctor's toolchain-runs check never probes findings-engine tools, so
+  `backstop doctor` reports a healthy project whose findings dimensions cannot run."
+
+  ── SCOPE FENCE ────────────────────────────────────────────────────────────
+  IN : (1) presence-check provision-pinned engine tools in `provisionEngines`;
+       (2) provision over the full installed-pack set at the gate call site;
+       (3) an `*exec.Error`-class refusal in `runFindingsEngine` and
+           `runCoverageEngine`, independent of CrashGuard;
+       (4) the four mandated-name test rewrites + new tests + one e2e fixture.
+  OUT: VERSION verification. The pin (`Provision.Version`) is a TRUST key, and
+       checking that the binary on PATH REPORTS that version is a different
+       capability with its own failure modes (`--version` parsing per tool = baked
+       tool knowledge). PRESENCE ONLY. If version drift matters, it is its own issue.
+  OUT: actually implementing provisioning/installation. ISSUE-112 offers it as an
+       alternative ("or implement provisioning") — it is a capability, not a defect
+       fix, and backstop installing tools is a decision no plan gets to take
+       unilaterally. Refuse loudly; install nothing.
+  OUT: doctor (above). OUT: ISSUE-113, the sibling zero-match classification refusal
+       filed alongside this one — it is the OTHER half of the bclabs incident (the
+       397 fabricated "does not call package" violations). It has its own issue and
+       its own acceptance bar. Your cursor will pass near it; leave it alone.
+
+  ── FALSIFICATION BAR (non-negotiable) ─────────────────────────────────────
+  Every test task below must be OBSERVED RED before its implementation task, and
+  the red must be the RIGHT red — a missing refusal, not a compile error. Because
+  four shipped tests currently assert the defect, "the package is green" proves
+  nothing; what proves the red is:
+    1. Rewrite the four bodies FIRST, run `go test ./cmd/backstop/ -run TestProvision
+       -count=1 -v`, and observe them FAIL at HEAD with production code untouched.
+    2. Observe the new dispatch tests FAIL at HEAD the same way.
+    3. Observe the e2e fixture pass-silently at HEAD (zero violations, exit 0, no
+       mention of the absent tool) BEFORE it asserts a refusal. That silent pass IS
+       the bug; capture it verbatim in the as-built notes.
+  If a sibling worktree holds live uncommitted work, do the red-proof in a detached
+  worktree at HEAD rather than stashing the shared tree (the PLAN-ISSUE-116
+  precedent, and there are several implementers live in this tree today).
+
+  ── CLAIM LEDGER (ISSUE-112 carries no CLM ids; this lane defines them) ────
+    CLM-001  `provisionEngines` presence-checks a binding with a NON-NIL Provision
+             exactly as it does an assume-present one: the absent binary yields a
+             *check.ConfigError (exit 2, errors.As-detectable) that NAMES the tool,
+             the declaring pack, and the pinned version, and NO engine is dispatched.
+    CLM-002  the presence check reaches engines whose rules route to a dedicated
+             gate step (substantiveness / contracts / coverage): the gate provisions
+             over the FULL installed-pack set, not the `excludeDedicatedStepRules`
+             dispatch set, so ISSUE-112's own repro shape — a substantiveness pack
+             whose ast-grep is absent — is refused before any step dispatches.
+    CLM-003  the assume-present branch is UNCHANGED: a nil-Provision Layer-0 tool
+             still fails loud with its existing "backstop never auto-provisions"
+             wording, the allowlist trust gate still fires BEFORE any presence probe,
+             and backstop still installs nothing in either branch.
+    CLM-004  at the gate dispatch path, a findings-engine run whose binary could not
+             be STARTED (*exec.Error class) fails loud — naming the pack, the
+             declared command, and the underlying error — REGARDLESS of CrashGuard,
+             instead of being read as a finding-free run.
+    CLM-005  the same *exec.Error refusal governs the coverage dispatch channel, on
+             BOTH `runCoverageEngine` branches (declared producer and plain command),
+             so an unstartable coverage tool cannot yield an empty record set that
+             reads as coverage-clean.
+    CLM-006  NON-REGRESSION, and the assertion that keeps CLM-004 honest: an engine
+             that STARTS and exits NON-ZERO while emitting SARIF still reports its
+             findings. Non-zero exit remains a legitimate findings signal; the new
+             refusal must key on the *exec.Error CLASS, never on `runErr != nil`.
+    CLM-007  the four defect-pinning tests KEEP their spec-mandated names and are
+             rewritten to the corrected contract, each retaining its still-true
+             angle (pinned Provision record; no bespoke install ladder; findings
+             path untouched).
+    CLM-008  END-TO-END: a real gate run over an installed pack whose declared engine
+             binary is absent produces a loud refusal that NAMES the tool and exits
+             non-zero — never a silent green, and never an opaque crash.
+
+  ── ENVIRONMENT / TOOLING FACTS (confirmed 2026-08-15) ─────────────────────
+  1. `backstop code check` DOES NOT EXIST. The inner loop is `go test`; the gate
+     loop is `./bin/backstop gate` (bare = diff-scoped, `--all` = full sweep,
+     `--file <path>` = one file, one path per invocation — ISSUE-093 is open).
+  2. On PATH here: go, golangci-lint, semgrep, ast-grep (and `sg`), jq. CI installs
+     semgrep==1.96.0 and ast-grep 0.43.0 at pinned versions
+     (.github/workflows/ci.yml:72-76 and :223-227), so the new presence check is
+     satisfied in CI as well as locally. THIS IS A BLAST-RADIUS FACT, NOT A DETAIL:
+     if either install step were missing, this fix would turn CI red — correctly,
+     but loudly. Re-check both workflow jobs before declaring done.
+  3. The provision-pinned tools this repo's installed packs declare, i.e. exactly
+     what starts being presence-checked:
+       semgrep  1.96.0  backstop-ai/ci-workflows        (gate_type findings)
+       ast-grep 0.43.0  backstop-ai/go-contracts        (gate_type contracts)   ← behind the exclusion hole
+       ast-grep 0.43.0  backstop-ai/go-substantiveness  (gate_type substantiveness) ← behind the exclusion hole
+       grep     *       backstop-ai/go-contracts        (gate_type contracts)
+     `grep`'s `*` pin must not trip the presence check (probe presence, never
+     version). The nil-Provision tools (go, golangci-lint, go-arch-lint) are already
+     presence-checked today and must keep behaving identically.
+  4. PROBE argv[0] OF THE DECLARED COMMAND (`engineToolName(binding.Command)`), not
+     `Provision.Tool`. argv[0] is what `exec` will actually resolve; Provision.Tool
+     is the TRUST key and the two can legitimately differ (ast-grep ships `sg` as a
+     second entry point). Use Provision.Tool + Version for the MESSAGE, argv[0] for
+     the PROBE, and say so in the docstring so a later reader does not "unify" them.
+  5. Existing test helpers to reuse, not re-create: `withBinaryResolver`,
+     `recordingBinaryResolver`, `onlyRules`, `goToolchainManifest`,
+     `builtinTestRegistry`, `withTestAllowlist`/`absentTool`, and the e2e workspace
+     builders in gate_substantiveness_e2e.go. The `binaryResolver` package seam is
+     how absence is simulated without touching the host PATH — never mutate PATH.
+  6. Dispatch errors ALREADY surface correctly once returned: the pack_engines step
+     (gate.go:915-922) and the substantiveness step (gate.go:1216-1223) both map a
+     dispatch error to `ConfigErr: true` + a fail StepResult (exit 2). So CLM-004
+     needs NO new plumbing at the step layer — return the error and the loudness is
+     already wired. Do not add a second reporting path.
+  7. REBUILD `bin/backstop` before any gate run that is meant to prove this change.
+     A stale binary gates the old dispatch and its green proves nothing.
+  8. Report TRUE exit codes (`echo $?`); never mask a non-zero behind a pipe.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Presence-check provision-pinned engine tools"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Rewrite the four defect-pinning provisioning tests and add the absent-tool presence tests"
+        description: |
+          Rewrite the bodies of the four spec-mandated tests that currently assert the
+          defective contract, KEEPING THEIR NAMES (see the mandated-name constraint in
+          notes — renaming any of them turns artifact_status_drift red):
+
+            - TestProvision_SemgrepStillPinnedAndProvisioned (pack_gate_provision_test.go)
+              now asserts that a semgrep-only pack with NOTHING on PATH FAILS LOUD with a
+              *check.ConfigError naming `semgrep`; keeps its still-true second half (the
+              binding carries a pinned Provision with a non-empty version).
+            - TestProvision_IntroducedEngineAutoProvisioned (dispatch_provision_test.go)
+              now asserts the same for a semgrep+ast-grep pack; keeps its pinned-record
+              loop verbatim.
+            - TestProvision_EnsureSemgrepRetired (dispatch_provision_test.go) inverts its
+              behavioral fingerprint: provisioning MUST now probe `semgrep` on PATH (the
+              recorded resolver sees it) and MUST refuse when it is absent, while STILL
+              never installing anything — that is the stronger proof the bespoke
+              EnsureSemgrep ladder is off the path. Keep the nil-Provision sibling
+              contrast (golangci-lint probed) and the pinned-record assertion.
+            - TestSemgrep_OnlyProvisioningChanges (semgrep_unchanged_test.go) half (b)
+              inverts to a fail-loud expectation. Half (a) — the pinned Provision record
+              — and the CrashGuard assertion are UNTOUCHED: this lane does not change the
+              findings path, and that test is the guard on that promise.
+
+          Every rewritten docstring states in one line that the name is retained because a
+          shipped spec mandates it, and that ISSUE-112 supersedes the assertion it made.
+
+          Then ADD the new coverage:
+            - TestProvision_ProvisionPinnedToolAbsentFailsLoud — the general case over a
+              pack-declared provisioned engine (build it with withTestAllowlist so the
+              allowlist gate passes and the PRESENCE check is what fires).
+            - TestProvision_ProvisionPinnedToolPresentPasses — the anti-vacuous twin: with
+              the tool present the same pack provisions cleanly. Without this, the fix is
+              satisfiable by refusing everything.
+            - TestProvision_AbsentToolErrorNamesPackAndPin — the message NAMES the tool,
+              the declaring pack, and the pinned version, and does NOT promise an install.
+            - TestProvision_AllowlistRefusalPrecedesPresenceProbe — ordering guard: an
+              un-allowlisted provisioned tool is still refused by the allowlist BEFORE any
+              presence probe, so TestProvisionEngines_UnallowlistedToolFailsLoudBeforeProvision
+              keeps its meaning rather than passing for the new reason.
+
+          OBSERVE ALL OF THESE RED at HEAD with production code untouched before TASK-002.
+          The four rewrites failing is the falsification of mechanism 1.
+        files:
+          - cmd/backstop/pack_gate_provision_test.go
+          - cmd/backstop/dispatch_provision_test.go
+          - cmd/backstop/semgrep_unchanged_test.go
+        claims:
+          - CLM-001
+          - CLM-003
+          - CLM-007
+        depends_on: []
+        test_names:
+          - TestProvision_SemgrepStillPinnedAndProvisioned
+          - TestProvision_IntroducedEngineAutoProvisioned
+          - TestProvision_EnsureSemgrepRetired
+          - TestSemgrep_OnlyProvisioningChanges
+          - TestProvision_ProvisionPinnedToolAbsentFailsLoud
+          - TestProvision_ProvisionPinnedToolPresentPasses
+          - TestProvision_AbsentToolErrorNamesPackAndPin
+          - TestProvision_AllowlistRefusalPrecedesPresenceProbe
+
+      - id: TASK-002
+        type: implementation
+        title: "Presence-check provision-pinned tools in provisionEngines"
+        description: |
+          Delete the `if binding.Provision != nil { continue }` skip
+          (pack_gate_provision.go:85-87) and fold provision-pinned bindings into the same
+          required-tool collection the assume-present ones use. Carry ATTRIBUTION with each
+          required tool — declaring pack, engine name, and `Provision` (nil for
+          assume-present) — so the refusal can name them; the current `map[string]struct{}`
+          dedupe loses that. Keep the dedupe (a pack declaring go-build and go-test still
+          probes `go` once) and keep the sorted, deterministic probe order.
+
+          PROBE argv[0] of the declared command via the existing `engineToolName`; use
+          Provision.Tool/Version only in the MESSAGE (see note 4 — ast-grep vs `sg`). An
+          empty command still means "the pack ships its own executable", so it is still
+          skipped. The allowlist trust gate stays exactly where it is, ahead of the probe.
+
+          Two message shapes, one per branch, both *check.ConfigError:
+            - nil Provision: UNCHANGED wording, including the "backstop never
+              auto-provisions it" phrase that dispatch_provision_test.go:67 asserts on.
+            - non-nil Provision: names the tool, the declaring pack, the pinned version,
+              and states that backstop does not install pack-declared tools — the pin is a
+              trust allowlist entry, not an installer. It must NOT promise an install.
+
+          Rewrite the file-header comment block (pack_gate_provision.go:13-28) — it is the
+          load-bearing statement of the model that was wrong, and leaving it is how the
+          skip comes back. State the corrected split: BOTH kinds are presence-checked and
+          fail loud; the Provision record governs TRUST (allowlist + version pin), never
+          installation; backstop installs nothing, ever. Cite ISSUE-112.
+        files:
+          - cmd/backstop/pack_gate_provision.go
+        claims:
+          - CLM-001
+          - CLM-003
+          - CLM-007
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: test
+        title: "Pin that gate provisioning covers dedicated-step engines"
+        description: |
+          New test file asserting CLM-002 — the exclusion hole that would otherwise let
+          ISSUE-112's own repro pass silently even after TASK-002:
+
+            - TestGateProvisioning_CoversDedicatedStepEngines — a manifest whose ONLY rules
+              bind an engine with a dedicated-step gate_type (substantiveness or contracts)
+              and a pinned Provision, with the tool ABSENT via the recording binaryResolver
+              seam. The gate's provisioning must PROBE that tool and REFUSE. Assert against
+              the probe record, not only the error, so the test states WHICH tools were
+              looked for.
+            - TestGateProvisioning_ExclusionSetIsNotTheProvisioningSet — the structural
+              guard: `excludeDedicatedStepRules` still strips those rules from the
+              DISPATCH set (unchanged, it exists for a different reason), while
+              provisioning sees them. Asserting both halves is what stops a later
+              simplification from re-collapsing the two sets.
+
+          Reach the real wiring — buildGateSteps / the pack_engines step function — rather
+          than calling provisionEngines directly; the defect is IN THE CALL SITE, so a test
+          that calls provisionEngines with a hand-picked set cannot see it.
+          cmd/backstop/gate_buildsteps_test.go is the precedent for driving buildGateSteps
+          from a fixture project root.
+
+          OBSERVE RED at HEAD before TASK-004.
+        files:
+          - cmd/backstop/gate_provision_dedicated_step_test.go
+        claims:
+          - CLM-002
+        depends_on: []
+        test_names:
+          - TestGateProvisioning_CoversDedicatedStepEngines
+          - TestGateProvisioning_ExclusionSetIsNotTheProvisioningSet
+
+      - id: TASK-004
+        type: implementation
+        title: "Provision over the full installed-pack set at the gate call site"
+        description: |
+          In the pack_engines step (gate.go:895-909), pass the FULL `packs` slice to
+          `provisionEngines`, not `dispatchPacks`. `dispatchPacks` stays exactly as it is
+          for the dispatch call below it — the exclusion is about which step dispatches a
+          rule, and must not double as the set whose tools exist.
+
+          Rewrite the comment at gate.go:896-901: it currently states the CLM-026/027/028
+          model this lane corrects. Say instead that provisioning presence-checks EVERY
+          declared engine tool — assume-present and provision-pinned alike — across the
+          whole installed-pack set including dedicated-step engines, because tool presence
+          is a property of the tool and not of the dispatching step. Cite ISSUE-112.
+
+          Watch for a false refusal: a pack whose dedicated dimension is capability-absent
+          still gets its tool probed. That is intended (an installed pack that declares a
+          dimension is expected to be able to run it), but confirm it against this repo's
+          real pack set with `./bin/backstop gate --all` in TASK-011 rather than assuming.
+        files:
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-002
+        depends_on:
+          - TASK-003
+
+      - id: TASK-005
+        type: verification
+        title: "Gate the provisioning lane"
+        description: |
+          Rebuild `bin/backstop`, then run `./bin/backstop gate` (bare, diff-scoped) and,
+          for the two production files this phase touched, `./bin/backstop gate --file
+          cmd/backstop/pack_gate_provision.go` and `./bin/backstop gate --file
+          cmd/backstop/gate.go` (one path per invocation — repeated --file is silently
+          dropped, ISSUE-093). Report true exit codes.
+
+          Before that, confirm the full package is green unfiltered:
+          `go test ./cmd/backstop/... -race -count=1`. The four rewritten tests are the
+          ones to read closely — they were green for the wrong reason at HEAD and must now
+          be green for the right one.
+        files:
+          - cmd/backstop/pack_gate_provision.go
+          - cmd/backstop/gate.go
+          - cmd/backstop/pack_gate_provision_test.go
+          - cmd/backstop/dispatch_provision_test.go
+          - cmd/backstop/gate_provision_dedicated_step_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-007
+        depends_on:
+          - TASK-002
+          - TASK-004
+
+  - id: phase-2
+    name: "Phase 2: Unstartable-binary refusal at the gate dispatch path"
+    tasks:
+      - id: TASK-006
+        type: test
+        title: "Pin the *exec.Error refusal across the findings and coverage dispatch channels"
+        description: |
+          New test file driving the REAL dispatch (dispatchPackEngines / runFindingsEngine /
+          runCoverageEngine) with a real check.ExecCommandRunner and a command whose argv[0]
+          is a binary guaranteed absent from any machine (a fixed nonsense name, e.g.
+          "backstop-absent-engine-112"; do NOT mutate PATH and do NOT depend on a real tool
+          being missing). Give the binding a NIL Provision so the allowlist trust gate is
+          not what fires — the point is the RUN failing:
+
+            - TestDispatch_UnstartableFindingsEngineFailsLoud — the dispatch returns an
+              error (errors.As to *check.ConfigError) naming the pack and the declared
+              command, and returns NO violations that could read as a clean scan.
+            - TestDispatch_UnstartableEngineFailsLoudWithoutCrashGuard — the same binding
+              with CrashGuard explicitly FALSE. This is the issue's exact shape and the
+              assertion that stops the fix from being folded into the CrashGuard branch.
+            - TestDispatch_NonZeroExitWithSarifStillReportsFindings — CLM-006, the
+              anti-over-correction: an engine that STARTS, exits non-zero, and prints SARIF
+              still yields its findings and no error. Build it from a tiny script the test
+              writes into its own temp dir (a real started process, not a stub runner) so
+              the started-vs-unstartable distinction is exercised for real.
+            - TestDispatch_UnstartableCoverageEngineFailsLoud and
+              TestDispatch_UnstartableCoverageProducerFailsLoud — CLM-005, one per
+              `_ = runErr` branch of runCoverageEngine (plain command at pack_gate.go:444,
+              declared producer at :432). The producer case still needs a producer script
+              that EXISTS on disk (the missing-producer error is a different, already-loud
+              path) whose declared command cannot start.
+
+          OBSERVE RED at HEAD: each of the four refusal tests must fail with "expected an
+          error, got nil" and a zero-length result — that nil IS the vacuous green
+          ISSUE-112 reports. Capture the verbatim output for the as-built notes.
+        files:
+          - cmd/backstop/dispatch_unstartable_engine_test.go
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        depends_on: []
+        test_names:
+          - TestDispatch_UnstartableFindingsEngineFailsLoud
+          - TestDispatch_UnstartableEngineFailsLoudWithoutCrashGuard
+          - TestDispatch_NonZeroExitWithSarifStillReportsFindings
+          - TestDispatch_UnstartableCoverageEngineFailsLoud
+          - TestDispatch_UnstartableCoverageProducerFailsLoud
+
+      - id: TASK-007
+        type: implementation
+        title: "Fail loud on an *exec.Error-class run in runFindingsEngine and runCoverageEngine"
+        description: |
+          Copy the shape pkg/packval/executor.go:85-90 already ships — do not invent a
+          second one, and reference it in the comment so the two stay recognizably the same
+          check:
+
+              var execErr *exec.Error
+              if errors.As(runErr, &execErr) { … fail loud … }
+
+          runFindingsEngine (pack_gate.go, immediately after the RunStdout at :648, BEFORE
+          the stdout_artifact read and the convert): return a *check.ConfigError naming the
+          pack, the declared command, the tool that could not be started, and the wrapped
+          error. This sits AHEAD of the CrashGuard guard at :709 and is INDEPENDENT of it —
+          a CrashGuard engine gets this clearer message too, instead of "crashed: non-zero
+          exit with no parseable findings", which mis-describes a binary that never ran.
+
+          runCoverageEngine: replace BOTH `_ = runErr` discards (:432 producer, :444 plain
+          command) with the same classification. Everything else about those branches is
+          preserved — a coverage tool that STARTS and exits non-zero while still emitting a
+          usable profile must keep flowing to convert, exactly as the existing comment
+          explains. Keep the `configErrorPassthrough` convention on the coverage path so the
+          concrete type survives.
+
+          KEY THE REFUSAL ON THE ERROR CLASS, NEVER ON `runErr != nil`. A rule-fed findings
+          engine exits non-zero precisely WHEN it has findings; turning every run error
+          fatal would red the gate on every real finding. CLM-006 is the test that catches
+          that mistake — if it goes red, the branch is keyed wrong.
+
+          Update the comment at pack_gate.go:649-654, which currently says runErr "is not
+          fatal on its own" without the unstartable carve-out, and the CrashGuard comment
+          at :705-708. Both are the reasoning a future reader will trust.
+        files:
+          - cmd/backstop/pack_gate.go
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-006
+
+      - id: TASK-008
+        type: verification
+        title: "Gate the dispatch lane"
+        description: |
+          Rebuild `bin/backstop`, then `./bin/backstop gate --file cmd/backstop/pack_gate.go`
+          and bare `./bin/backstop gate`. Report true exit codes.
+
+          Run `go test ./cmd/backstop/... ./pkg/check/... ./pkg/packval/... -race -count=1`
+          unfiltered. pkg/packval is included as a blast-radius read, not because it changed:
+          it owns the reference implementation this lane copied, and a divergence introduced
+          there would be exactly the drift worth catching early.
+        files:
+          - cmd/backstop/pack_gate.go
+          - cmd/backstop/dispatch_unstartable_engine_test.go
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-007
+
+  - id: phase-3
+    name: "Phase 3: End-to-end regression — an absent engine tool is a named refusal"
+    tasks:
+      - id: TASK-009
+        type: test
+        title: "E2E: a gate run over a pack whose engine binary is absent refuses loudly and names the tool"
+        description: |
+          The acceptance fixture ISSUE-112 asks for, expressed in this repo's terms. The
+          issue's literal repro ("any repo + typescript-substantiveness without ast-grep")
+          is not reproducible here without a TypeScript pack and without removing a tool
+          from the host, so build the EQUIVALENT: a locally-installed fixture pack, in a
+          temp workspace, declaring a findings/substantiveness engine whose command's
+          argv[0] is a fixed absent binary name. Absence is structural (the binary does not
+          exist anywhere), never PATH mutation and never a skip.
+
+            - TestE2E_AbsentEngineTool_GateRefusesLoudlyNamingTool — run the real gate over
+              that workspace and assert: a non-zero, config-error verdict; the absent tool
+              named in the surfaced message; and ZERO violations of the fabricated-downstream
+              kind. Assert on the OUTCOME (a loud named refusal), NOT on which of the two
+              mechanisms caught it — after this lane both can, and pinning the step would
+              make the test brittle against a future rewiring while proving nothing extra.
+            - TestE2E_PresentEngineTool_GateStillRuns — the anti-vacuous twin, in the same
+              workspace shape with a command that DOES start. Without it, "the gate refuses"
+              is satisfiable by a gate that refuses everything.
+
+          The existing e2e harnesses are the model: gate_substantiveness_e2e.go builds a
+          workspace with a real locally-installed pack; the dispatch_astgrep_e2e_test.go
+          family shows a real engine driven end to end. Reuse them; do not fork a fourth
+          harness.
+
+          OBSERVE THE SILENT PASS AT HEAD FIRST: at HEAD this workspace gates GREEN with
+          exit 0 and no mention of the absent tool. Capture that verbatim — it is the
+          clearest single statement of the defect this plan produces.
+        files:
+          - cmd/backstop/gate_absent_engine_tool_e2e_test.go
+        claims:
+          - CLM-008
+        depends_on:
+          - TASK-001
+          - TASK-006
+        test_names:
+          - TestE2E_AbsentEngineTool_GateRefusesLoudlyNamingTool
+          - TestE2E_PresentEngineTool_GateStillRuns
+
+      - id: TASK-010
+        type: verification
+        title: "Gate the e2e regression"
+        description: |
+          Rebuild `bin/backstop`, run the new e2e file unfiltered
+          (`go test ./cmd/backstop/ -run 'TestE2E_.*EngineTool' -race -count=1 -v`) and then
+          `./bin/backstop gate --file cmd/backstop/gate_absent_engine_tool_e2e_test.go`.
+          Report true exit codes and paste the refusal message the e2e observed — the
+          acceptance bar is that a human reading it learns WHICH tool is missing.
+        files:
+          - cmd/backstop/gate_absent_engine_tool_e2e_test.go
+        claims:
+          - CLM-008
+        depends_on:
+          - TASK-009
+          - TASK-004
+          - TASK-007
+
+  - id: phase-4
+    name: "Phase 4: Full verification"
+    tasks:
+      - id: TASK-011
+        type: verification
+        title: "Full kill chain, full suite, and the CI blast-radius re-check"
+        description: |
+          Rebuild `bin/backstop` FIRST, then:
+            go build ./...
+            go test ./... -race -count=1
+            ./bin/backstop gate --all
+            ./bin/backstop artifact validate --plan PLAN-ISSUE-112
+            ./bin/backstop artifact validate --issue ISSUE-112
+          Report every true exit code.
+
+          `gate --all` is the load-bearing one here, and specifically for a reason this lane
+          created: it is the first unscoped run in which EVERY provision-pinned tool this
+          repo's packs declare is presence-checked (semgrep, ast-grep x2, grep — see note 3).
+          A refusal there means either a tool genuinely absent or the presence check probing
+          the wrong name; diagnose, do not weaken the check, and never reach for a waiver —
+          a missing tool is the defect this lane exists to surface.
+
+          BLAST-RADIUS RE-CHECK, not optional: confirm .github/workflows/ci.yml still
+          installs semgrep==1.96.0 and ast-grep 0.43.0 in BOTH jobs that run the gate
+          (:72-76 and :223-227). This change converts a silent CI green into a loud CI
+          refusal if either install is ever dropped; verify the current file, and if a gate-
+          running job is found WITHOUT them, STOP and surface it rather than editing the
+          workflow inside this lane.
+
+          Do NOT flip ISSUE-112 to closed and do NOT promote this plan's status. Close-out
+          is the dispatcher's call, and the spec-prose amendment named in notes
+          (SPEC-034 CLM-028, SPEC-031 CLM-042/CLM-043) is still owed by spec-author.
+        files:
+          - cmd/backstop/pack_gate_provision.go
+          - cmd/backstop/pack_gate.go
+          - cmd/backstop/gate.go
+          - plans/PLAN-ISSUE-112-engine-tool-missing-silent-vacuous.plan.yml
+          - issues/ISSUE-112-engine-tool-missing-silent-vacuous.issue.md
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+        depends_on:
+          - TASK-002
+          - TASK-004
+          - TASK-005
+          - TASK-007
+          - TASK-008
+          - TASK-010

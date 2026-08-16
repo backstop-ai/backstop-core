@@ -1,0 +1,628 @@
+---
+plan_id: PLAN-ISSUE-113
+spec_id: ISSUE-113
+created: "2026-08-15"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./pkg/gate/... ./cmd/backstop/... -race -count=1"
+coverage_threshold: 90
+
+notes: |
+  Implements ISSUE-113. Two production files, one new harness helper, two new test
+  files, two verification passes. Seven tasks. Nothing else is in scope.
+
+  ── THE DEFECT IN ONE PARAGRAPH ────────────────────────────────────────────
+  The production substantiveness step (cmd/backstop/gate.go:1236-1253) runs its Q2
+  noTarget set-join per mandated test: for each test it assembles a referenced-symbol
+  set from the pack's routed extraction findings and raises "does not call package X"
+  when the target token is absent from that set. The loop makes NO distinction between
+  "this one test genuinely does not call its target" and "the pack produced no
+  extraction evidence AT ALL, so EVERY set is empty." In the second case the step emits
+  one false violation per mandated test — 397 of them in the observed bclabs-portal
+  incident — and names the real cause (the pack's classification matched zero test
+  files) nowhere. The fix: detect the empty-evidence state BEFORE the loop and REFUSE
+  with a single config-error naming the cause, exactly as ISSUE-020 established for
+  broken configuration.
+
+  ── WHY A CONFIG-ERROR AND NOT JUST A BETTER MESSAGE ──────────────────────
+  A starved join does not produce a WRONG verdict about the code — it produces no
+  verdict at all, dressed as N verdicts. That is a broken TOOL, not broken code, and
+  the ISSUE-020 philosophy already has the shape for it: `StepResult.ConfigErr`.
+  Setting it has three properties this lane WANTS, all of them mechanical
+  (pkg/gate/gate.go:162-165, :175-177 and pkg/gate/policy.go:188), not aspirational:
+    1. `Gate.Run` HALTS the remaining steps and returns exit code 2, so the operator
+       reads one message instead of scrolling past a wall of downstream noise;
+    2. because the run halts at this step, `waiver_resolution` (which is ordered AFTER
+       substantiveness) NEVER runs — the refusal is structurally UNWAIVABLE. A broken
+       classifier cannot be papered over with an inline token;
+    3. `ApplyPolicy` skips ConfigErr steps, so the refusal can never be
+       baseline-grandfathered into silence either.
+  These are the reasons the refusal is a config-error rather than an ordinary
+  `error`-severity violation. Say so in the code comment; a future reader who
+  "simplifies" ConfigErr away removes all three at once.
+
+  ── THE REFUSAL CONDITION, STATED EXACTLY ─────────────────────────────────
+  Refuse when BOTH hold, evaluated after routing and after scope filtering:
+    (a) at least ONE mandated test is JOIN-ELIGIBLE, and
+    (b) the routed referenced-symbol (extraction) partition is EMPTY.
+  "Join-eligible" is DEFINED as "an empty referenced set would make this test raise a
+  noTarget violation" — which is precisely `NoTargetViolationForTest(mt,
+  ReferencedSymbolSet{}, samePackage)` returning raised==true. Defining it that way
+  rather than re-listing the predicates (FilePath != "", not absence, TargetPkg != "",
+  not same-package) is deliberate: the noTarget decision table
+  (pkg/gate/substantiveness_join.go:63-94) stays the SINGLE authority, so the refusal
+  can never drift out of agreement with the loop it is guarding. Anyone tempted to
+  hand-roll the predicate list is re-opening the drift.
+
+  Condition (a) is what makes the refusal precise rather than paranoid: it fires ONLY
+  when the step is about to emit at least one violation it cannot justify. A project
+  whose mandated tests are all same-package, all `kind: absence`, or all out of scope
+  legitimately produces an empty evidence set and MUST still pass.
+
+  ── WHAT THIS LANE DELIBERATELY DOES NOT DO ───────────────────────────────
+  ISSUE-113's Direction names two triggers: "the classifier matches zero test files"
+  OR "the substantiveness evidence set is empty while mandated tests exist." Only the
+  SECOND is implementable here, and the first is already handled elsewhere — this is a
+  scope decision, not an omission, and it must not be quietly widened:
+    • The CORE classifier failing to resolve any mandated test file leaves every
+      MandatedTest.FilePath == "", which the loop already `continue`s on
+      (cmd/backstop/gate.go:1238-1240) with the comment "not found — already reported
+      by the verification step". That path emits ZERO misleading violations today. The
+      `test_verification` step owns "mandated test not found" and reports it per test
+      with the right words. Duplicating it here would produce two reports of one fact.
+    • The PACK's OWN classification (its ast-grep rule globs) is what actually failed
+      in both observed incidents, and core cannot inspect a pack's globs — packs are
+      opaque by design (thin executor). The only thing core CAN observe is the
+      consequence: zero evidence. So the refusal message names the pack's classification
+      as the probable cause and reports the counts that let the operator confirm it.
+  Net: ONE refusal condition, TWO message variants distinguishing "the pack produced
+  nothing at all" from "the pack produced hollow findings but zero extraction."
+
+  ── WHY TWO MESSAGE VARIANTS, AND WHY THEY MATTER ─────────────────────────
+  The hollow (Q1) count is the operator's fork in the diagnostic road, and it is free
+  to compute — routing already partitions it:
+    • hollow == 0 AND extraction == 0 → the pack's engine produced NOTHING. That is
+      the missing-tool signature (ISSUE-112's surface: ast-grep absent from PATH →
+      empty SARIF → starved join). Point at the engine/tool.
+    • hollow > 0 AND extraction == 0 → the engine RAN and produced findings; only the
+      referenced-symbol rule matched nothing. That is the harness-baked-globs signature
+      (typescript-substantiveness 1.1.0). Point at the pack's Q2 rule classification.
+  Both variants must state the join-eligible count and both must say, in words, that
+  the step is refusing INSTEAD OF reporting N "does not call package" violations —
+  the operator who has seen the 397-violation wall needs to recognize this message as
+  its replacement.
+
+  ── RELATIONSHIP TO ISSUE-112 (checked, not assumed) ──────────────────────
+  ISSUE-112 was filed alongside this one and describes the SAME incident from the
+  upstream end (missing engine tool → silently empty SARIF → vacuous pack_engines pass
+  → starved join). PLAN-ISSUE-112 was still an empty scaffold (`phases: []`) when this
+  plan was authored on 2026-08-15, so its file list was inferred from ISSUE-112's own
+  Direction section, which names its surfaces explicitly:
+  `cmd/backstop/pack_gate_provision.go` (the assume-present fail-loud that exempts
+  provision-declared tools) and the gate dispatch path's discarded `runErr`
+  (`cmd/backstop/pack_gate.go` / `pkg/check/runner.go`).
+
+  FILE SCOPE: DISJOINT. This lane touches `pkg/gate/substantiveness_join.go` and
+  `cmd/backstop/gate.go` (buildTestSubstantivenessStep only) plus its own new test
+  files. Neither appears in ISSUE-112's named surfaces. Re-confirm with a real read of
+  PLAN-ISSUE-112 before starting if it has since been authored; if it HAS grown a task
+  touching either of this lane's two production files, stop and reconcile rather than
+  racing.
+
+  SEQUENCING: cleanly separable, either order works, and they are NOT redundant. 112
+  removes one root cause (a missing tool now fails loud instead of returning empty
+  SARIF); 113 is the BACKSTOP for every other way the evidence set can come back empty
+  — including the harness-baked-globs case, where the tool is present, the engine
+  exits 0, and 112's fix is silent by design. If they must be serialized, land 112
+  first: it is the noisier of the two roots and its fix shrinks the population that
+  ever reaches this refusal. THE FIXTURE BELOW IS DELIBERATELY TOOL-PRESENT (it breaks
+  the pack's globs, not the PATH), so it stays red-provable and meaningful on both
+  sides of 112's change. Do not rewrite it into a missing-tool fixture.
+
+  ── THE REGRESSION FIXTURE, AND WHY IT NEEDS A CONTROL ────────────────────
+  A test that only shows "one violation after the fix" proves nothing — a step that
+  always returned one violation would pass it. The fixture is therefore a THREE-WAY
+  proof over the SAME workspace and the SAME real dispatch path:
+    control  UNPATCHED pack           → 0 violations   (the tests are genuinely fine)
+    before   ZERO-MATCH pack, pre-fix → 3 noTarget violations, all FALSE
+    after    ZERO-MATCH pack, post-fix→ exactly 1 refusal, ConfigErr true
+  The control is what makes the middle row a proven FALSEHOOD rather than an assertion
+  about it, and it is the reason the fixture's tests must genuinely call their target
+  package. Three mandated tests (not one) is also load-bearing: the whole defect is
+  "N misleading violations instead of 1", and N must be > 1 for the fix to be visibly
+  a collapse rather than a rewording.
+
+  RE-OBSERVE THE RED. Every assertion below was reasoned from the code, NOT measured.
+  Run the tests against unmodified production code and record the actual failures
+  before touching either production file. A test written after the fix and never seen
+  failing is worth nothing here.
+
+  ── CLAIM LEDGER (ISSUE-113 carries no CLM ids; this lane defines them) ────
+    CLM-001  JoinEligibleForNoTarget is DEFINED as the noTarget decision table
+             evaluated against an EMPTY ReferencedSymbolSet — a test is join-eligible
+             iff empty evidence would make it raise. No predicate (FilePath, absence,
+             TargetPkg, same-package) is restated anywhere else.
+    CLM-002  SubstantivenessEvidenceRefusal returns exactly ONE violation when the
+             join-eligible count is >= 1 AND the extraction count is 0, and returns no
+             refusal when either the eligible count is 0 or any extraction evidence
+             exists.
+    CLM-003  the refusal message NAMES the cause, reports the join-eligible count, and
+             distinguishes "the pack produced no findings of any kind" (hollow == 0)
+             from "the pack produced hollow findings but zero referenced-symbol
+             evidence" (hollow > 0).
+    CLM-004  the production step SHORT-CIRCUITS on refusal: it returns the single
+             refusal violation with ConfigErr true and ZERO per-test noTarget
+             violations, and does not mix hollow violations into the refusal result.
+    CLM-005  end-to-end regression over the REAL dispatch path: a substantiveness pack
+             whose referenced-symbol rule classification matches zero test files, over
+             a workspace with three mandated tests, yields three false "does not call
+             package gate" violations before the fix and exactly one config-error
+             refusal after.
+    CLM-006  non-vacuity control: the SAME workspace run against the UNPATCHED pack
+             yields ZERO violations, proving the three pre-fix violations were false
+             and that the refusal is not masking genuine ones.
+    CLM-007  non-regression: with evidence present, the noTarget join, hollow
+             conversion, scope filtering and the `kind: absence` skip behave exactly as
+             before, and the refusal does not fire on a healthy run.
+    CLM-008  the refusal is structurally unsuppressible: because ConfigErr halts the
+             run at this step, waiver_resolution never executes and ApplyPolicy skips
+             the step, so no inline waiver and no baseline entry can silence it.
+
+  ── VERIFICATION COMMANDS ──────────────────────────────────────────────────
+    inner: go build ./... &&
+           go test ./pkg/gate/... ./cmd/backstop/... -race -count=1
+    full:  go test ./... -race -count=1
+    gate:  ./bin/backstop gate                        (diff-scoped inner loop)
+           ./bin/backstop gate --all                  (full kill chain)
+           ./bin/backstop artifact validate --plan PLAN-ISSUE-113
+           ./bin/backstop artifact validate --issue ISSUE-113
+
+  ── ENVIRONMENT / TOOLING FACTS ────────────────────────────────────────────
+  1. `backstop code check` DOES NOT EXIST. The shipped top-level commands are
+     artifact, baseline, commands, completion, gate, help, pack, recipe, version,
+     waiver. `go test` is the inner loop; `./bin/backstop gate` is the outer one.
+  2. ast-grep must be on PATH for the e2e tests. They sit behind the existing
+     fail-loud guards (requireAstGrepE2E). NEVER convert one to t.Skip — a skipped
+     real-engine test is silent vacuous green, and this package says so already.
+  3. REBUILD bin/backstop BEFORE ANY GATE RUN. A stale binary gates the OLD step and
+     reports a green that proves nothing about this change.
+  4. Report TRUE exit codes (`echo $?`); never mask a non-zero behind a pipe.
+  5. `installSubstantivenessLocalPack`'s receiver and signature are PINNED — four
+     existing call sites in gate_substantiveness_e2e_test.go depend on that exact
+     shape. ADD a sibling method; do not change it.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Red-first, then refuse instead of mass-joining"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Zero-match harness: a workspace with three real mandated tests and an installable pack whose Q2 classification matches nothing"
+        description: |
+          Extend cmd/backstop/gate_substantiveness_e2e.go with the fixture machinery
+          TASK-003 drives. Production code is NOT touched here and no assertions are
+          written here — this task exists so the e2e test file and the join fix can be
+          authored in parallel against a settled harness shape.
+
+          Add TWO things, both as siblings of the existing helpers. Do NOT modify
+          newE2EWorkspace or installSubstantivenessLocalPack — four existing call sites
+          in gate_substantiveness_e2e_test.go depend on their current shape (their doc
+          comment says so explicitly).
+
+          (1) newZeroMatchE2EWorkspace(tmp string) (*e2eWorkspace, error)
+
+          Mirrors newE2EWorkspace's structure (same backstop.yml `project: e2e` +
+          `packs: {}`, same specs/ dir) but writes:
+            • ONE spec, specs/zeromatch.spec.md, status `implemented`,
+              implementation.package `pkg/gate` (so the reduced target token is
+              `gate`, matching TargetPackageName's last-segment reduction), mandating
+              THREE tests across three claims:
+                TestZeroMatchAlpha, TestZeroMatchBravo, TestZeroMatchCharlie
+              Copy the frontmatter shape of newE2EWorkspace's spec verbatim and add
+              CLM-002/CLM-003 with their own `tests:` entries. `implemented` status is
+              REQUIRED — ContractsAreDue filters anything else out and the workspace
+              would silently have zero due tests.
+            • THREE *_test.go files at the workspace ROOT (subject_alpha_test.go,
+              subject_bravo_test.go, subject_charlie_test.go), each of this shape:
+
+                package sample_test
+
+                import "testing"
+
+                // Genuinely substantive AND genuinely calls its target package:
+                //   - gate.Build() is a package-qualified call, so the pack's Q2
+                //     referenced-symbol rule extracts symbol=gate and the noTarget
+                //     set-join is SATISFIED when the pack works. This is what makes
+                //     the zero-match run's violations provably FALSE (CLM-006).
+                //   - t.Fatalf matches the Q1 hollow rule's assertion vocabulary
+                //     regex, so these tests are NOT hollow and the hollow partition
+                //     stays empty. Do not remove it: without it every test also
+                //     produces a hollow finding and the violation counts this
+                //     fixture asserts stop meaning what they say.
+                func TestZeroMatchAlpha(t *testing.T) {
+                    if gate.Build() == "" {
+                        t.Fatalf("Build returned empty")
+                    }
+                }
+
+              Root placement is load-bearing: filepath.Base(filepath.Dir(path)) for a
+              root-level file is not "gate", so testFileColocatedWithTarget is false
+              and the tests are genuinely join-eligible. Putting them in a `gate/`
+              subdirectory would make them same-package and silently disable the whole
+              fixture.
+              These files never compile or run as Go — they are ast-grep INPUT only,
+              which is why an unresolved `gate` import is fine (newE2EWorkspace's
+              existing fixture calls an undefined doSubject() for the same reason).
+              Say this in the harness comment.
+
+          (2) (w *e2eWorkspace) installZeroMatchSubstantivenessPack(repoRoot string) error
+
+          Installs a PATCHED COPY of packs/substantiveness through the SAME real
+          newProductionAddCommand() path installSubstantivenessLocalPack uses:
+            • recursively copy substantivenessSourceDir(repoRoot) into a temp dir
+              beside w.root (NEVER mutate the in-repo pack source — a test that edits
+              packs/substantiveness would corrupt this repo's own dogfood install);
+            • in the copy, rewrite ast-grep/rules/referenced-symbol-go.yml to add a
+              `files:` restriction naming a path that exists nowhere in the workspace,
+              e.g. `files: ["harness/fixtures/**/*.go"]`. That is the bclabs-portal
+              defect verbatim: a real, valid, installable pack whose Q2 classification
+              globs are baked to the pack author's own harness layout;
+            • leave hollow-test-go.yml, sgconfig.yml, the convert script and pack.yml
+              UNTOUCHED, so the engine still runs, still exits 0, and the pack still
+              passes `pack check`/`pack test` on install. The point of this fixture is
+              a HEALTHY-LOOKING pack producing zero Q2 evidence — not a broken install.
+          Set w.installed/w.installInfo exactly as the existing method does.
+
+          Header-comment WHY this fixture breaks globs rather than PATH: ISSUE-112
+          owns the missing-tool root cause, and a tool-present fixture stays valid and
+          red-provable on both sides of that lane's fix.
+        files:
+          - cmd/backstop/gate_substantiveness_e2e.go
+        claims:
+          - CLM-005
+          - CLM-006
+        depends_on: []
+
+      - id: TASK-002
+        type: test
+        title: "Unit pins for the eligibility predicate and the refusal decision (RED)"
+        description: |
+          Create pkg/gate/substantiveness_zero_evidence_test.go. It must FAIL before
+          TASK-004 — the two functions under test do not exist yet, so the package will
+          not compile; RECORD THAT as the red and re-run for a real assertion failure
+          once TASK-004 lands. Runs in parallel with TASK-001 and TASK-003 (disjoint
+          files, no dependency between them).
+
+          TestJoinEligibleForNoTarget_MatchesTheNoTargetDecisionTable (CLM-001)
+            Table-driven over the FOUR dispositions the decision table already
+            distinguishes, asserting eligibility agrees with "would raise on empty
+            evidence" in every one:
+              • ordinary test, TargetPkg "gate", samePackage false      → eligible
+              • TargetPkg "" (the empty-subject skip)                   → NOT eligible
+              • samePackage true                                        → NOT eligible
+              • IsAbsence true (the ISSUE-035 Category 2 skip)          → NOT eligible
+            For each row ALSO call NoTargetViolationForTest(mt, ReferencedSymbolSet{},
+            samePackage) directly and assert the two agree. That cross-check is the
+            point of the test: it is what mechanically prevents the predicate from
+            drifting away from the table it guards, and it stays meaningful if a fifth
+            disposition is ever added.
+
+          TestSubstantivenessEvidenceRefusal_FiresOnlyOnStarvedJoin (CLM-002)
+            Table-driven over (eligible, extraction, hollow):
+              • (3, 0, 0)  → refusal
+              • (3, 0, 2)  → refusal
+              • (1, 0, 0)  → refusal          (one eligible test is enough)
+              • (0, 0, 0)  → NO refusal       (nothing would have been raised)
+              • (0, 0, 5)  → NO refusal
+              • (3, 1, 0)  → NO refusal       (evidence exists; the join is honest)
+              • (3, 7, 2)  → NO refusal
+            Assert the returned Violation's Rule == gate.StepTestSubstantiveness and
+            Severity == "error" on the refusal rows, and that the zero-value Violation
+            is returned on the others.
+
+          TestSubstantivenessEvidenceRefusal_MessageNamesTheCause (CLM-003)
+            Two cases, asserting on the MESSAGE text:
+              • (3, 0, 0) — the "no findings of any kind" variant. Must contain the
+                eligible count "3", and must point at the engine/tool having produced
+                nothing.
+              • (3, 0, 2) — the "hollow but no extraction" variant. Must contain "3",
+                must mention that hollow findings WERE produced, and must point at the
+                pack's referenced-symbol classification.
+            Both must state that the step is refusing INSTEAD OF reporting per-test
+            "does not call package" violations. Assert on stable substrings, not on
+            the whole sentence — the wording is meant to be improvable without
+            breaking the pin. Assert the two variants are DIFFERENT from each other;
+            a refactor that collapses them to one string is the regression this
+            catches.
+        files:
+          - pkg/gate/substantiveness_zero_evidence_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on: []
+        test_names:
+          - TestJoinEligibleForNoTarget_MatchesTheNoTargetDecisionTable
+          - TestSubstantivenessEvidenceRefusal_FiresOnlyOnStarvedJoin
+          - TestSubstantivenessEvidenceRefusal_MessageNamesTheCause
+
+      - id: TASK-003
+        type: test
+        title: "End-to-end regression: N false violations collapse to ONE refusal over the real dispatch path (RED)"
+        description: |
+          Create cmd/backstop/gate_substantiveness_zero_match_e2e_test.go, driving
+          TASK-001's harness. It must FAIL before TASK-005 — run it and RECORD THE
+          ACTUAL FAILURE (expect three "does not call package gate" violations and
+          ConfigErr false) before touching cmd/backstop/gate.go.
+
+          Reuse the harness in-package; build NO parallel one and hand-construct NO
+          violations. Every test calls requireAstGrepE2E(t) first — the fail-loud
+          engine guard. NEVER downgrade it to t.Skip.
+
+          TestE2E_ZeroMatchClassification_ControlPackReportsNoViolations (CLM-006,
+          THE NON-VACUITY CONTROL — write and run this FIRST, and note that unlike
+          the other two it is GREEN on both sides of the fix, which is exactly its
+          job). newZeroMatchE2EWorkspace + the EXISTING
+          installSubstantivenessLocalPack (unpatched pack) +
+          runProductionSubstantivenessStep. Assert:
+            • Status == "pass" and len(Violations) == 0;
+            • ConfigErr is false.
+          If this test is red, the fixture is wrong (bad target token, tests placed
+          same-package, hollow bodies, ast-grep not seeing the files) and the other
+          two tests below prove NOTHING. Fail with the full violation dump so the
+          cause is readable, and say in a comment that a red here invalidates the
+          rest of the file.
+
+          TestE2E_ZeroMatchClassification_RefusesInsteadOfPerTestViolations (CLM-005,
+          THE FALSIFIER). Same workspace, but installZeroMatchSubstantivenessPack.
+          Assert, in this order, so a reader can tell WHICH hop broke:
+            1. len(Violations) == 1. Pre-fix this is 3 and the red lands here —
+               dump all three, including their messages, so the recorded failure
+               literally shows the false "does not call package gate" wall this
+               issue is about.
+            2. that violation's Message does NOT contain "does not call package".
+            3. res.ConfigErr is true.
+            4. Status == "fail".
+            5. the Message names the cause: contains "3" (the join-eligible count) and
+               points at the pack's referenced-symbol classification (the hollow > 0
+               variant is NOT expected here — these fixtures are non-hollow, so the
+               hollow count is 0 and the "no findings of any kind" variant is the one
+               that fires; assert on that variant's stable substring).
+          Expected pre-fix red: three violations, each "test function TestZeroMatchX
+          does not call package gate", ConfigErr false.
+
+          TestE2E_ZeroMatchClassification_RefusalIsNotWaivable (CLM-008). Feed the
+          zero-match step result into a waiver-enabled gate the way
+          gate_substantiveness_waiver_e2e_test.go already does — gate.New with
+          WithSteps([the step result, gate.StepWaiverResolutionScopedFunc(nil)]) and
+          WithWaiver(reader, nil, now) — with a reader supplying a syntactically valid
+          @waiver:test_substantiveness token. Assert:
+            • Run returns exit code 2;
+            • the returned GateResult contains NO waiver_resolution step at all (the
+              ConfigErr halt breaks the loop before it runs) and len(ActiveWaivers)
+              == 0;
+            • the refusal violation is still present in the substantiveness step.
+          Copy the LineReader / waiver-reader shape from the existing waiver e2e file
+          rather than inventing one. Pre-fix this is red because the step never sets
+          ConfigErr, so the run continues and exits 1.
+        files:
+          - cmd/backstop/gate_substantiveness_zero_match_e2e_test.go
+        claims:
+          - CLM-005
+          - CLM-006
+          - CLM-008
+        depends_on:
+          - TASK-001
+        test_names:
+          - TestE2E_ZeroMatchClassification_ControlPackReportsNoViolations
+          - TestE2E_ZeroMatchClassification_RefusesInsteadOfPerTestViolations
+          - TestE2E_ZeroMatchClassification_RefusalIsNotWaivable
+
+      - id: TASK-004
+        type: implementation
+        title: "The eligibility predicate and the refusal decision, in the language-agnostic join"
+        description: |
+          Add TWO exported functions to pkg/gate/substantiveness_join.go, siting them
+          immediately after NoTargetViolationForTest so a reader meets the guard right
+          after the table it guards. Change NOTHING else in the file — NoTargetViolation,
+          NoTargetViolationForTest, RouteSubstantivenessFindings, ReferencedSetForTest,
+          IsTestHollow and HollowFindingsToViolations keep their current behavior
+          exactly (CLM-007). This file stays pure string/set logic with no I/O, no pack
+          knowledge and no language knowledge; both additions honor that.
+
+          func JoinEligibleForNoTarget(mt MandatedTest, samePackage bool) bool
+            Implemented AS the decision table, not as a copy of its predicates:
+              _, raised := NoTargetViolationForTest(mt, ReferencedSymbolSet{}, samePackage)
+              return raised
+            Doc-comment WHY (CLM-001): "join-eligible" means precisely "an EMPTY
+            evidence set would make this test raise", so the guard and the loop can
+            never disagree about which tests are at stake. Anyone who replaces this
+            with an explicit FilePath/absence/TargetPkg/same-package conjunction has
+            re-opened the drift this construction closes — say that in the comment.
+            Note that FilePath is NOT part of the table and is filtered by the caller
+            before this is consulted.
+
+          func SubstantivenessEvidenceRefusal(eligible, extraction, hollow int) (Violation, bool)
+            Returns (Violation{}, false) unless eligible >= 1 AND extraction == 0.
+            On refusal returns ONE Violation with Rule: StepTestSubstantiveness,
+            Severity: "error", and a message chosen by the hollow count:
+              • hollow == 0: the substantiveness pack produced no findings of any kind
+                while <eligible> mandated tests were join-eligible — its engine did not
+                run or its classification matched 0 test files; refusing instead of
+                reporting <eligible> unfounded "does not call package" violations.
+              • hollow > 0: the substantiveness pack produced <hollow> hollow findings
+                but 0 referenced-symbol findings while <eligible> mandated tests were
+                join-eligible — its referenced-symbol classification matched 0 test
+                files; refusing instead of reporting <eligible> unfounded "does not
+                call package" violations.
+            Word them so both name the count, the cause, and what is being refused
+            (CLM-003). Doc-comment the ISSUE-113 provenance and the ISSUE-020 lineage,
+            and note that the CALLER — not this function — is what sets ConfigErr; this
+            function decides, it does not dispose.
+
+          No File is set on the refusal violation: the refusal is about the pack's
+          configuration, not about any one file, and attaching an arbitrary test file
+          would re-personalize a finding whose whole point is that it belongs to none
+          of them. State that in the comment.
+        files:
+          - pkg/gate/substantiveness_join.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-007
+        depends_on:
+          - TASK-002
+
+      - id: TASK-005
+        type: implementation
+        title: "Short-circuit the production Q2 loop: refuse once instead of raising N"
+        description: |
+          Rework the Q2 section of buildTestSubstantivenessStep
+          (cmd/backstop/gate.go, currently lines 1236-1253) into two passes. Touch
+          NOTHING else in gate.go — the extraction, the ContractsAreDue filter, the
+          path resolution, the pack resolution, the dispatch, the routing, and the Q1
+          hollow loop all stay byte-for-byte as they are.
+
+          Pass 1 — collect, do not raise. Walk `mandated` applying the SAME two skips
+          the current loop applies FIRST and in the same order (FilePath == "" with
+          its existing "already reported by the verification step" comment, then the
+          scope filter), then append to an `eligible []gate.MandatedTest` when
+          gate.JoinEligibleForNoTarget(mt, testFileColocatedWithTarget(mt.FilePath,
+          mt.TargetPkg)) is true. Order matters: an out-of-scope or unresolved test
+          must never inflate the eligible count, or a diff-scoped run could refuse
+          over tests it was not even looking at.
+
+          THE REFUSAL. Immediately after pass 1:
+            if v, refuse := gate.SubstantivenessEvidenceRefusal(len(eligible), len(extraction), len(hollow)); refuse {
+                return gate.StepResult{
+                    StepName:   gate.StepTestSubstantiveness,
+                    Status:     "fail",
+                    ConfigErr:  true,
+                    Violations: []gate.Violation{v},
+                }
+            }
+          Note what this RETURN discards and why (CLM-004): any hollow violations
+          already accumulated in `violations` are dropped. That is deliberate — the
+          run is halting at exit 2 with the message "this pack's output cannot be
+          trusted", and shipping a partial verdict alongside that message invites the
+          operator to act on evidence the same message just disclaimed. After the
+          configuration is fixed, the next run reports everything. Write that
+          reasoning into the code comment, not just here.
+
+          Note also, in the same comment, the three mechanical consequences of
+          ConfigErr that make this a refusal rather than a loud violation: Gate.Run
+          halts the remaining steps and returns 2 (pkg/gate/gate.go:162-165, :175-177);
+          waiver_resolution is ordered after this step so it never runs and the
+          refusal cannot be waived; ApplyPolicy skips ConfigErr steps so it cannot be
+          baseline-grandfathered (pkg/gate/policy.go:188). A future reader who removes
+          ConfigErr for tidiness removes all three at once.
+
+          Pass 2 — the existing raise, now over `eligible`. Since every member is
+          eligible by construction, the loop body reduces to assembling the referenced
+          set and calling gate.NoTargetViolationForTest. Keep calling it (do NOT
+          inline the table): it is still the authority on whether the ACTUAL evidence
+          satisfies the test, and eligibility only ever spoke about the empty case.
+          Keep `v.File = mt.FilePath` and the append exactly as they are.
+
+          The status/nil-normalization tail below the loop is unchanged.
+        files:
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-007
+          - CLM-008
+        depends_on:
+          - TASK-003
+          - TASK-004
+
+      - id: TASK-006
+        type: verification
+        title: "Diff-scoped gate over the changed surface"
+        description: |
+          Confirm the lane is internally green before the full sweep.
+
+          Re-observe first: state, in the task record, the ACTUAL pre-fix failures
+          recorded in TASK-002 and TASK-003 (the three false "does not call package
+          gate" violations verbatim). If they were never observed red, go back and
+          observe them — do not proceed on a green that was never earned.
+
+          Then:
+            go build ./...
+            go test ./pkg/gate/... ./cmd/backstop/... -race -count=1
+            go build -o bin/backstop ./cmd/backstop/
+            ./bin/backstop gate
+
+          `backstop gate` bare is diff-scoped against the merge base plus untracked
+          files, which covers exactly this lane's surface. Rebuilding bin/backstop
+          first is not optional — a stale binary gates the old step.
+
+          Report TRUE exit codes for each command. Any failure is fixed at source: no
+          .skip, no weakened assertion, no --no-verify, no waiver.
+        files:
+          - pkg/gate/substantiveness_join.go
+          - cmd/backstop/gate.go
+          - cmd/backstop/gate_substantiveness_e2e.go
+          - pkg/gate/substantiveness_zero_evidence_test.go
+          - cmd/backstop/gate_substantiveness_zero_match_e2e_test.go
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-004
+          - TASK-005
+
+  - id: phase-2
+    name: "Phase 2: Full kill chain and artifact validation"
+    tasks:
+      - id: TASK-007
+        type: verification
+        title: "Full unscoped gate plus artifact validation"
+        description: |
+          The comprehensive pass over everything this lane touched — code and
+          artifacts both.
+
+            go test ./... -race -count=1
+            go build -o bin/backstop ./cmd/backstop/
+            ./bin/backstop gate --all
+            ./bin/backstop artifact validate --plan PLAN-ISSUE-113
+            ./bin/backstop artifact validate --issue ISSUE-113
+
+          `--all` is the unscoped kill chain: artifact validation, findings engines,
+          test verification, substantiveness, coverage, contracts. The two artifact
+          validations cover the .plan.yml and .issue.md surfaces, which `gate --all`
+          checks structurally but which are worth naming explicitly since this lane
+          authored one of them.
+
+          WATCH ITEM, and report it either way: this repo dogfoods the substantiveness
+          pack against ITSELF, so `gate --all` exercises the very step TASK-005
+          rewrote over backstop-core's own real mandated tests. A refusal firing here
+          would mean this repo's own Q2 evidence is empty — which would be a genuine
+          finding worth surfacing, not something to work around. The expected outcome
+          is that it does NOT fire and the substantiveness step behaves exactly as it
+          did before (CLM-007).
+
+          Report TRUE exit codes. Do not promote the plan's status or close ISSUE-113;
+          close-out and status promotion are not this lane's to take. Report the
+          result and stop.
+        files:
+          - plans/PLAN-ISSUE-113-zero-match-classification-refusal.plan.yml
+          - issues/ISSUE-113-zero-match-classification-refusal.issue.md
+          - pkg/gate/substantiveness_join.go
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+        depends_on:
+          - TASK-005
+          - TASK-006
