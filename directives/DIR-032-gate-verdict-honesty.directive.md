@@ -25,6 +25,7 @@ directive:
     - "ISSUE-142"
     - "ISSUE-144"
     - "ISSUE-146"
+    - "ISSUE-148"
 ---
 
 ## Description
@@ -110,7 +111,22 @@ authoring-content gap — with the dispatch machinery now correctly fixed (by
 bytes it should, and was authored from the start with a validator and fixture
 pair that carry no discriminating relationship — so it can never produce a
 red result regardless of how correctly everything upstream of it dispatches.
-See item 18 below and the Notes for the full distinction.
+See item 18 below and the Notes for the full distinction. **Correction
+(2026-08-16, later again):** the roster grew once more, to NINETEEN, with
+item 19 (ISSUE-148), slotted under the same standing clear-fit grant recorded
+above for items 12 (ISSUE-118), 13 (ISSUE-129), 14 (ISSUE-136), 16
+(ISSUE-142), 17 (ISSUE-144) and 18 (ISSUE-146) — on charter fit against this
+directive's own description, not by the founder's original 2026-08-10
+eleven-member roster. Item 19 is a fifth member of the `pack test`/`pack
+check` phase3 surface family (items 4, 15, 16, 17, 18) and shares item 18's
+LAYER — authoring-content, not dispatch-machinery — but is a different case
+within that layer: item 18's scaffold-generated validator and fixture carry
+NO discriminating relationship at all, while item 19 is `packs/substantiveness`'s
+own real, in-repo, currently-installed fixture pair, where each fixture is
+individually a correct example of what its own file comment claims — the
+defect is purely which manifest key (`positive`/`negative`) each is filed
+under, inverted from backstop's positive=clean/negative=violating convention.
+See item 19 below and the Notes for the full distinction.
 
 The cluster's variants, so a planner does not read it as one uniform bug:
 
@@ -1028,6 +1044,64 @@ The cluster's variants, so a planner does not read it as one uniform bug:
     a duplicate. `type: bug`, `scope: isolated`, `uncertainty: known`, `risk:
     moderate`.
 
+19. **`packs/substantiveness`'s own phase3 fixtures have inverted
+    positive/negative polarity — the pack has never actually passed a real
+    `phase3-fixtures` validation (ISSUE-148).**
+    `packs/substantiveness/testdata/fixtures/rules/hollow-test-go/positive.go`
+    is declared in `packs/substantiveness/pack.yml` as the rule's POSITIVE
+    fixture — the CLEAN case that must NOT trigger the rule — but its own file
+    comment reads "Q1 positive: a hollow test (calls a subject, asserts
+    nothing) → RED finding," a violating example.
+    `.../hollow-test-go/negative.go` is declared the NEGATIVE fixture — the
+    case that MUST trigger — but its comment reads "Q1 negative: a substantive
+    test (has an assertion) → no finding (GREEN)," a clean example. The two
+    files are each internally correct examples of what they claim to be; the
+    defect is purely which manifest key each is filed under, inverted from
+    backstop's convention (positive fixture = the clean case, negative
+    fixture = the violating case, per `BUNDLE-005` REQ-011).
+
+    Measured 2026-08-16 by implementer-issue092 during `PLAN-ISSUE-092`
+    verification, using the real engine dispatch `ISSUE-141`'s
+    Convert-application fix made possible for the first time: `backstop pack
+    test packs/substantiveness` (absolute path — the relative-`packDir`
+    sandbox behavior is a separate, already-filed issue) now correctly
+    executes real engine dispatch and fails with exactly 2 errors, one per
+    rule — `phase3-fixtures/semgrep-positive: positive fixture triggered the
+    rule (false positive)`. This was previously only a suspicion from a
+    body-level code reading, recorded as a withdrawn "F4" note in
+    `PLAN-ISSUE-092`'s own authoring because it was unmeasurable until
+    `ISSUE-141` landed; it is now measured, not inferred, and F4's original
+    suspicion is confirmed correct.
+
+    Impact, measured not estimated: 12 `cmd/backstop` tests currently fail
+    against this pack for this reason (post-`ISSUE-141`, pre-this-fix); `pack
+    add` reports "2 validation error(s)" (3 for zero-match variants).
+
+    Two owners, per this repo's pack-distribution model (packs are external,
+    GitHub-hosted, installed into gitignored `.backstop/packs/`): (1) the
+    in-repo copy at `packs/substantiveness/pack.yml` and its fixture files —
+    swap the `positive`/`negative` fixture-path assignment under each rule's
+    `claims[].fixtures`, or swap the file contents to match their declared
+    slot, either resolves the inversion; (2) the external mirror
+    `backstop-ai/go-substantiveness` needs the same fix, a version bump, and a
+    `pack update`/relock in this repo to adopt it — the in-repo copy alone
+    does not fix what is actually installed and consumed by the gate.
+    Explicitly NOT fixed by `PLAN-ISSUE-092`: that plan's own text states it
+    "no longer corrects any in-repo pack manifest," and confirmed
+    `packs/substantiveness/pack.yml` is untouched by that lane.
+
+    Distinct from item 18's (ISSUE-146) shape within the same family, per
+    ISSUE-146's own precedent citation: same "vacuous/wrong-verdict" defect
+    family — both are "fixture content doesn't actually discriminate
+    correctly" — but item 18 is a validator that can NEVER discriminate at
+    all (the scaffold's validator exits 0 unconditionally, with no
+    discriminating relationship between validator and fixture at all); item
+    19 is a polarity SWAP on an otherwise-correct, individually-valid pair,
+    where `phase3-fixtures` correctly detects the inversion and fails once
+    dispatch (fixed by `PLAN-ISSUE-092`) lets it run at all — the check
+    working exactly as designed. `type: bug`, `scope: contained`,
+    `uncertainty: known`, `risk: critical`.
+
 ## Notes
 
 Grouping rationale and priority, stated once rather than per-item: four of
@@ -1354,6 +1428,48 @@ an unanticipated second blocker on the same investigation that surfaced items
 (`pkg/pack/scaffold.go` is outside its file scope). In-flight coverage is
 NIL, established from the corpus: no plan in `plans/` targets ISSUE-146 or
 `pkg/pack/scaffold.go`'s validator/fixture literals as of this slotting.
+
+Priority note, stated as observation and explicitly NOT as a reorder
+(backlog-pm has no reorder authority): DIR-032 sits at BACKLOG.yml position 2
+and this slot does not change its rank.
+
+ISSUE-148 (`packs/substantiveness`'s own phase3 fixtures have inverted
+positive/negative polarity) slotted into DIR-032 2026-08-16, consistent with
+the standing clear-fit grant already exercised for items 12-14 and 16-18. It
+is a POST-carve-out addition, same as items 12-14 and 16-18 before it — not
+part of the founder's original 2026-08-10 eleven-member roster; a reader
+should not infer the founder named nineteen.
+
+Why DIR-032 and not elsewhere: same charter sentence as item 18 — "a gate
+step computes a result internally but reports the wrong verdict about it" —
+matched via `pack test` phase3, whose dispatch (now correct, post
+`PLAN-ISSUE-092`) reports a wrong-direction verdict on this pack's own
+fixtures because they are filed under inverted manifest keys. Rationale
+already established by the issue's own author, per its own Notes: same
+vacuous/wrong-verdict family as `ISSUE-146`, cited there directly as
+precedent — related-family siblings, not duplicates, since neither `ISSUE-092`
+(phase3 dispatch dead code) nor `ISSUE-146` (`pack new`'s vacuous validator)
+touches `packs/substantiveness/pack.yml`'s fixture polarity.
+
+The distinction from item 18 this slot preserves, stated once: item 18 is a
+scaffold-generated pair with NO discriminating relationship at all; item 19
+is a real, in-repo, currently-installed pair where each fixture is
+individually a correct example of what it claims to be — the defect is
+purely which declared slot (`positive`/`negative`) it is filed under.
+`phase3-fixtures` correctly detects and fails on the inversion once dispatch
+can reach it — the check working as designed, not a further
+dispatch-machinery gap.
+
+Provenance: proven 2026-08-16 by implementer-issue092 during `PLAN-ISSUE-092`
+verification, made measurable for the first time by `ISSUE-141`'s
+Convert-application fix; previously only a withdrawn suspicion in
+`PLAN-ISSUE-092`'s own authoring ("F4"). Fix requires two owners: the in-repo
+`packs/substantiveness/pack.yml` fixture assignment AND the external
+`backstop-ai/go-substantiveness` mirror, version bump, and relock — the
+in-repo copy alone does not fix what the gate actually consumes. In-flight
+coverage is NIL, established from the corpus: no plan in `plans/` targets
+`ISSUE-148` or `packs/substantiveness/pack.yml`'s fixture polarity as of this
+slotting.
 
 Priority note, stated as observation and explicitly NOT as a reorder
 (backlog-pm has no reorder authority): DIR-032 sits at BACKLOG.yml position 2
