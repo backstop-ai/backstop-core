@@ -2,10 +2,10 @@
 title: "Traceability Contracts Pack"
 number: SPEC-038
 created: "2026-06-22"
-updated: "2026-06-23"
+updated: "2026-08-15"
 status: draft
 schema_version: spec/v1
-spec_version: 1.2.1
+spec_version: 1.2.2
 
 implementation:
   summary: >
@@ -35,7 +35,7 @@ implementation:
     feed the absence probe, this spec STANDS UP the grep engine the way SPEC-035
     mandates: (a) the traceability pack DECLARES grep in its `engines:` block
     (`pattern-arg` input mode + a grep-output→SARIF convert script) — NO baked
-    `DefaultRegistry` entry, no ISSUE-027-style eradication debt; (b) the `grep`/`rg`
+    `DefaultRegistry` entry, no ISSUE-027-style eradication debt; (b) the `grep`
     tool is added to the backstop-owned trusted-tool allowlist
     (pkg/pack/engine/allowlist.go) so the engine clears the trust floor SPEC-035
     installed. To substantiate "beyond Go" (SD-3), this spec authors the TypeScript
@@ -136,12 +136,19 @@ requirements:
       mode, a grep-output→SARIF convert script (pack-relative, analogous to ast-grep's
       `to-sarif.sh`), and `gate_type: contracts` — so there is NO baked
       engine.DefaultRegistry entry for grep and NO ISSUE-027-style eradication debt;
-      (b) the `grep` and `rg` tools are added to the backstop-owned trusted-tool
-      allowlist (engine.TrustedToolAllowlist in pkg/pack/engine/allowlist.go) at a
-      pinned version, so a pack-declared grep command clears SPEC-035's trust floor
-      (CheckToolAllowed). A grep command MUST NOT run if `grep`/`rg` is absent from the
-      allowlist — the existing un-allowlisted-tool fail-loud (exit 2) applies
-      unchanged. Backstop learns no grep flags or output format; it runs the
+      (b) the `grep` tool — and ONLY `grep` — is added to the backstop-owned
+      trusted-tool allowlist (engine.TrustedToolAllowlist in
+      pkg/pack/engine/allowlist.go) at a pinned version, so a pack-declared grep
+      command clears SPEC-035's trust floor (CheckToolAllowed). A grep command MUST
+      NOT run if `grep` is absent from the allowlist — the existing un-allowlisted-tool
+      fail-loud (exit 2) applies unchanged. `rg` MUST NOT be added: no pack in this
+      repo or in backstop-packs declares a `provision:` block for `rg`, and
+      CheckToolAllowed is consulted only for bindings carrying a non-nil `Provision`,
+      so an `rg` allowlist entry is unreachable dead code that no runtime path ever
+      reads (ISSUE-082, which owns the removal and the assertion that `rg` is gone —
+      this spec's claims assert only the `grep` half, so the two artifacts do not
+      mandate duplicate tests over the same map). Backstop learns no grep flags or
+      output format; it runs the
       pack-declared command and consumes the converted SARIF.
     supports: stack-aware-traceability:REQ-006@1.0.0
     follows: STD-GO-001:GO-010
@@ -433,9 +440,9 @@ claims:
       - TestEngine_GrepPackDeclaredNotInDefaultRegistry
   - id: CLM-016
     requirement: REQ-005
-    text: grep and rg are present on the backstop-owned trusted-tool allowlist (engine.TrustedToolAllowlist) at a pinned version
+    text: grep is present on the backstop-owned trusted-tool allowlist (engine.TrustedToolAllowlist) at a pinned version — grep only; rg is deliberately NOT asserted (it has no Provision-bearing consumer, so an rg entry is unreachable — ISSUE-082)
     tests:
-      - TestAllowlist_GrepAndRgPresentPinned
+      - TestAllowlist_GrepPresentPinned
   - id: CLM-017
     requirement: REQ-005
     text: A pack-declared grep command runs through dispatch when grep is on the allowlist and lock-pinned (the trust gate passes) — proven by exercising CheckToolAllowed via the engine's tool
@@ -443,7 +450,7 @@ claims:
       - TestAllowlist_GrepAllowlistedPinnedRuns
   - id: CLM-018
     requirement: REQ-005
-    text: A pack-declared grep command is NOT run if grep/rg is removed from the allowlist — it produces the existing loud un-allowlisted-tool ConfigError (exit 2) naming the tool and pack, so the engine cannot run before it is allowlisted
+    text: A pack-declared grep command is NOT run if grep is removed from the allowlist — it produces the existing loud un-allowlisted-tool ConfigError (exit 2) naming the tool and pack, so the engine cannot run before it is allowlisted
     tests:
       - TestAllowlist_GrepUnallowlistedFailsLoud
   - id: CLM-019
@@ -678,7 +685,7 @@ contracts:
       - name: TrustedToolAllowlist
         kind: function
         signature: "func TrustedToolAllowlist() map[string]string"
-        notes: "EXTENDED (not rewritten): adds `grep` and `rg` at a pinned version to the existing {tool → pinned version} map alongside semgrep/ast-grep (REQ-005/CLM-016). No other change; CheckToolAllowed continues to gate every pack-declared command, so a pack grep command clears the trust floor only because grep/rg are now on the list (CLM-017/CLM-018)."
+        notes: "EXTENDED (not rewritten): adds `grep` — and only `grep` — at a pinned version to the existing {tool → pinned version} map alongside semgrep/ast-grep (REQ-005/CLM-016). `rg` is NOT added (unreachable: no Provision-bearing binding anywhere consults it — ISSUE-082). No other change; CheckToolAllowed continues to gate every pack-declared command whose binding carries a Provision block, so a pack grep command clears the trust floor only because grep is on the list (CLM-017/CLM-018)."
     consumes: []
   - file: cmd/backstop/gate.go
     provides:
@@ -738,8 +745,9 @@ To feed the absence probe, this spec also **stands up the grep engine** (which d
 exist yet — SPEC-035's registry holds semgrep/ast-grep/sandbox/config-file/golangci/
 go-build/go-test, and the allowlist holds only semgrep+ast-grep): the engine is
 **pack-declared** in the traceability pack's `engines:` block (no baked
-`DefaultRegistry` entry), and `grep`/`rg` are added to the backstop-owned trusted-tool
-allowlist. To substantiate "beyond Go" (SD-3), the spec authors the **TypeScript contract
+`DefaultRegistry` entry), and `grep` is added to the backstop-owned trusted-tool
+allowlist (`grep` only — see Sharp Edge 16 for why `rg` is not). To substantiate
+"beyond Go" (SD-3), the spec authors the **TypeScript contract
 rules** into the shared TS proof pack. The Go cutover is guarded by a
 **strangler-equivalence pass** on real Go fixtures before deletion. Implementing this
 spec turns backstop's own gate green on itself — the dual-substrate payoff.
@@ -755,7 +763,7 @@ BUNDLE-009 via `supports`. Summary of the rule surface:
 | REQ-002 | Signature presence = pack-compiled ast-grep REQUIRED pattern | ast-grep match → SATISFIED | no-match → VIOLATION; binary compiling/rendering a signature (P0) |
 | REQ-003 | Absence = pack-declared grep FORBIDDEN-pattern probe (`pattern-arg`, file OR path) | empty result + scanned → PASS | grep match → absence VIOLATION; using ast-grep for absence; grep baked in the binary |
 | REQ-004 | File-scanned guard (REPLACES non-`.go`/missing config-error) | scope confirmed scanned, empty → PASS; a SCANNED non-`.go` scope → normal verdict (NOT an error) | missing file / unscanned scope → LOUD config error (exit 2); guard erroring on a file's extension/language; the dissolved "non-`.go` is an error" clause firing |
-| REQ-005 | Stand up grep engine | pack `engines:` block (`pattern-arg` + grep→SARIF) AND `grep`/`rg` allowlisted | baked `DefaultRegistry` grep entry; running grep before it is allowlisted |
+| REQ-005 | Stand up grep engine | pack `engines:` block (`pattern-arg` + grep→SARIF) AND `grep` allowlisted | baked `DefaultRegistry` grep entry; running grep before it is allowlisted; adding `rg` (no Provision-bearing consumer — unreachable, ISSUE-082) |
 | REQ-006 | Wire pack path into the gate | `buildContractStep` consumes pack SARIF | routing to the deleted analyzer; unwired path dropping the pack violation |
 | REQ-007 | TS contract rules in shared TS proof pack | ast-grep (presence) + grep (absence) on `.ts` | binding a TS toolchain engine (eslint/tsc) for contract rules; a second TS pack; stub fixtures |
 | REQ-008 | Strangler-equivalence before deletion | pack verdict == `go/parser` verdict on real fixtures (real ast-grep + real grep) | deleting `step_contract.go` before equivalence is proven; stubbed equivalence |
@@ -774,7 +782,7 @@ load-bearing: **the analyzer is not deleted until equivalence is proven** (REQ-0
 
 1. **Stand up the grep engine (REQ-005).**
    - Extend `engine.TrustedToolAllowlist` (pkg/pack/engine/allowlist.go) to add `grep`
-     and `rg` at a pinned version. No `DefaultRegistry` entry is added.
+     at a pinned version — `grep` ONLY, not `rg`. No `DefaultRegistry` entry is added.
    - In the traceability pack, declare grep in the `engines:` block: `command` (the grep
      invocation prefix), `input_mode: pattern-arg`, `input_flag`, a pack-relative
      grep-output→SARIF `convert` script (analogous to `ast-grep/to-sarif.sh`), and
@@ -914,8 +922,9 @@ load-bearing: **the analyzer is not deleted until equivalence is proven** (REQ-0
    unwired path, or one still calling the deleted analyzer, FAILS. cmd/backstop/ is in the
    test_command for this reason.
 6. **Grep-engine allowlist gating (atomic with SPEC-035).** The grep engine cannot run
-   until `grep`/`rg` are on the trusted-tool allowlist (CheckToolAllowed gates every
-   pack-declared command). If the allowlist entry is omitted, every grep absence probe
+   until `grep` is on the trusted-tool allowlist (CheckToolAllowed gates every
+   pack-declared command whose binding carries a `Provision` block — the contracts pack's
+   grep binding does). If the allowlist entry is omitted, every grep absence probe
    fails loud (exit 2) rather than silently running or silently skipping — verify both the
    allowlisted-runs (CLM-017) and un-allowlisted-fails (CLM-018) cells.
 7. **Strangler ordering: do not delete before equivalence.** Deleting `step_contract.go`'s
@@ -984,9 +993,51 @@ load-bearing: **the analyzer is not deleted until equivalence is proven** (REQ-0
     (leaving ONLY `DimensionCoverage`) with the installed-pack keying asserted separately,
     exactly as Seed 3 split out `DimensionSubstantiveness`. CLM-052 pins the migration; per
     "align predating artifacts," SPEC-036 is aligned via implementation, not revised.
+16. **`rg` on the allowlist is unreachable — do not re-add it, and DELETE the assertion that
+    it is there.** The allowlist is consulted ONLY through `CheckToolAllowed`, and every
+    call site of that function short-circuits on a nil `Provision` block
+    (`cmd/backstop/pack_gate.go` `checkEngineToolAllowed`, `pkg/pack/manifest.go`
+    `validateEngine`, `pkg/packval/executor.go` `RunEngine`,
+    `cmd/backstop/pack_gate_provision.go`). No `pack.yml` in this repo or in
+    `backstop-packs` declares a `provision:` block for `rg`, so no runtime path ever asks
+    the allowlist about `rg` — an entry for it is dead weight, not a trust guarantee. The
+    contracts absence probe rides `grep`, which DOES have Provision-bearing consumers
+    (`packs/contracts/pack.yml`, `typescript-contracts/pack.yml`), so the `grep` entry is
+    the real and only one this spec needs. **Required test-body change** (the implementer
+    who lands ISSUE-082's removal must make it in the same edit, or the suite goes RED):
+    in `pkg/pack/engine/allowlist_grep_test.go`, rename
+    `TestAllowlist_GrepAndRgPresentPinned` to `TestAllowlist_GrepPresentPinned` and drop
+    `"rg"` from its `for _, tool := range []string{"grep", "rg"}` loop, leaving a
+    single-tool present-and-pinned assertion on `grep`; also update the file's header
+    comment, which currently says "grep/rg being on the backstop-owned
+    TrustedToolAllowlist." The `|| k == "rg"` branch in
+    `TestAllowlist_GrepUnallowlistedFailsLoud`'s strip loop becomes a harmless no-op once
+    the key is gone and may be tidied in the same pass; that test's assertions do not
+    change. This spec does NOT claim `rg`'s absence — ISSUE-082 owns the removal and any
+    assertion about it, so the two artifacts never mandate duplicate tests over the same
+    map.
 
 ## Version History
 
+- **1.2.2** (2026-08-15) — Correction, not drift: CLM-016 and REQ-005 asserted that BOTH
+  `grep` AND `rg` are on `engine.TrustedToolAllowlist`. The `rg` half was never a real
+  guarantee. `CheckToolAllowed` is reached only for engine bindings carrying a non-nil
+  `Provision` block, and no `pack.yml` in this repo or in `backstop-packs` declares a
+  `provision:` block for `rg` — so nothing ever consults the allowlist about `rg`, and the
+  entry has been unreachable since the day it was written. This revision NARROWS the claim
+  to the `grep` half, which is real (`packs/contracts/pack.yml` and
+  `typescript-contracts/pack.yml` both provision grep). Changes: CLM-016 text narrowed to
+  `grep` and its mandated test renamed `TestAllowlist_GrepAndRgPresentPinned` →
+  `TestAllowlist_GrepPresentPinned`; CLM-018 text de-references `rg`; REQ-005 states the
+  `grep`-only allowlist addition and explicitly PROHIBITS adding `rg`, pointing at
+  ISSUE-082 as the owner of the removal and of any absence assertion (so this spec and
+  ISSUE-082 do not mandate duplicate tests over the same map); the `TrustedToolAllowlist`
+  contract note, the Overview, the REQ-005 summary-table row, Implementation pass 1, Sharp
+  Edge 6, and Review Question 5 are aligned to match. New Sharp Edge 16 records the
+  reachability rule and the exact test-body change the ISSUE-082 implementer must land in
+  the same edit (the assertion is a `t.Fatalf`, so removing the map key without touching
+  the test turns `./pkg/pack/engine/` RED). No other requirement, claim, or contract moved;
+  the contracts-eradication core is untouched.
 - **1.2.0** (2026-06-23) — Targeted alignment with the restated first principle (anything
   that runs in a gate is INSTALLED from a pack; the binary ships only install + execute) and
   the now-fixed substrate (ISSUE-028 multi-rule ast-grep dispatch, ISSUE-029 sandboxed
@@ -1060,8 +1111,11 @@ against the implementation.
    and REAL grep binaries over real fixtures, such that replacing the engine with a stub
    would make them fail?
 5. Is the grep engine declared ONLY in the pack's `engines:` block (no `DefaultRegistry`
-   entry), and are `grep`/`rg` added to `TrustedToolAllowlist` such that removing them
-   makes the absence probe fail loud?
+   entry), is `grep` — and ONLY `grep`, not `rg` — added to `TrustedToolAllowlist`, and
+   does removing the `grep` entry make the absence probe fail loud? Does every allowlist
+   entry this spec adds have at least one `provision:`-bearing binding that actually
+   reaches `CheckToolAllowed` — i.e. is the entry reachable rather than a decorative trust
+   claim (Sharp Edge 16)?
 6. Does the wiring test fail if `buildContractStep` is reverted to the old analyzer or
    left unwired — i.e. is the spy actually asserting consumption of the pack SARIF path,
    not just that some contract step exists?

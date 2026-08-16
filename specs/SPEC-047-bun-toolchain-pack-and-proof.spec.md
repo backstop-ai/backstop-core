@@ -4,7 +4,7 @@ number: SPEC-047
 created: "2026-06-28"
 status: implemented
 schema_version: spec/v1
-spec_version: 1.2.0
+spec_version: 1.2.1
 
 implementation:
   summary: >
@@ -19,9 +19,8 @@ implementation:
     (lint) · `prettier --check` (FORMAT modeled as a LINT-category SARIF findings engine,
     DD-3 — format ≈ lint, NO new gate dimension) · `tsc --noEmit` / bun typecheck (build)
     · `bun test` (test) · `bun test --coverage --coverage-reporter=lcov` (coverage) with a
-    pack-relative `scripts/coverage-to-records.sh` lcov convert. All commands ride the
-    declared-engine TRUST substrate (oxlint/bun/tsc/prettier allowlisted) — zero baked
-    commands. (2) DECLARES the SPEC-043 `classification` block (source/test globs for a
+    pack-relative `scripts/coverage-to-records.sh` lcov convert. All five commands are
+    pack-DECLARED DATA read from the `engines:` block — zero baked commands. (2) DECLARES the SPEC-043 `classification` block (source/test globs for a
     Bun/TS project: source `**/*.ts`,`**/*.tsx`; test `**/*.test.ts`,`**/*.spec.ts`) and
     EMITS the SPEC-044 bun producer RECORD-SHAPE: for each measured file the lcov convert
     emits TWO `check.CoverageRecord`s sharing one `Path` — one `metric: "line"` (raw
@@ -51,8 +50,8 @@ implementation:
     the `(path, metric)` index + per-metric thresholding (SPEC-044), the pack-declared
     test-glob discovery (SPEC-045), and the uniform toolchain-pack dispatch with no
     `language:` field (SPEC-046) as fixed contracts; its only owned surfaces are the bun pack
-    DATA, the in-repo testdata fixture, the external acceptance test, the trust allowlist
-    entries, the per-PACK/per-rule-SOURCE enforcement-policy extension (`pkg/config` +
+    DATA, the in-repo testdata fixture, the external acceptance test,
+    the per-PACK/per-rule-SOURCE enforcement-policy extension (`pkg/config` +
     `pkg/gate.ApplyPolicy`), and the dogfood baseline + `backstop/self` enforcement config.
   package: cmd/backstop
 
@@ -74,9 +73,13 @@ requirements:
       `tsc --noEmit` / bun typecheck → `gate_type: build`; `bun test` → `gate_type: test`;
       `bun test --coverage --coverage-reporter=lcov` → `gate_type: coverage`. It is
       PROHIBITED to add a "format" (or any new) gate dimension for prettier, and PROHIBITED
-      to route prettier anywhere but the lint dimension. Every engine command MUST run
-      through the declared-engine TRUST substrate (the tools `oxlint`, `bun`, `tsc`,
-      `prettier` allowlisted), NEVER as a baked-into-the-binary command string. The pack
+      to route prettier anywhere but the lint dimension. Every engine command MUST be
+      declared as DATA in the pack's `engines:` block and read from there at dispatch, NEVER
+      baked into the binary as a Go command literal. It is PROHIBITED for this spec to assert
+      trusted-tool-ALLOWLIST MEMBERSHIP for `oxlint`/`bun`/`tsc`/`prettier`: those bindings
+      declare no `provision:`, and every `engine.CheckToolAllowed` call site is guarded by
+      `binding.Provision != nil`, so the allowlist gate is UNREACHABLE for them and their
+      membership guarantees nothing at runtime (see Sharp Edges). The pack
       carries mechanism only — no opinionated coding-standards rules. (DD-2, DD-3)
     supports: language-neutral-consumer-ts-toolchain:REQ-006@1.0.0
   - id: REQ-002
@@ -196,7 +199,7 @@ requirements:
     follows: STD-GO-001:GO-010
 
 claims:
-  # REQ-001 — engine declaration matrix (5 engines) + format-is-not-a-dimension + trust substrate
+  # REQ-001 — engine declaration matrix (5 engines) + format-is-not-a-dimension + commands-are-pack-declared-DATA
   - id: CLM-001
     requirement: REQ-001
     text: The bun pack declares an `oxlint` engine routed to the lint dimension (gate_type lint)
@@ -229,7 +232,7 @@ claims:
       - TestBunPack_PrettierIntroducesNoFormatGateDimension
   - id: CLM-007
     requirement: REQ-001
-    text: Every bun engine command runs through the declared-engine trust substrate — `oxlint`/`bun`/`tsc`/`prettier` are allowlisted and dispatched as pack-declared commands, NOT as baked-into-the-binary command strings
+    text: Every one of the bun pack's five engines carries a non-empty command read from the pack's declared `engines:` block as DATA — no engine's command is a baked-into-the-binary Go literal
     tests:
       - TestBunPack_EngineCommandsRunThroughDeclaredTrustSubstrate
   # REQ-002 — classification block + measurable-source matrix (6 file types)
@@ -500,9 +503,8 @@ This spec does **four** coupled things:
    clean.
 
 **In scope:** the bun pack DATA (engines + classification + lcov convert); the in-repo static
-fixture + its stubbed-runner end-to-end gate test; the guarded external acceptance test; the
-trust-allowlist entries for `oxlint`/`bun`/`tsc`/`prettier`; and the dogfood baseline +
-`backstop/self` enforcement-config flip.
+fixture + its stubbed-runner end-to-end gate test; the guarded external acceptance test; and the
+dogfood baseline + `backstop/self` enforcement-config flip.
 
 **Out of scope (fenced to siblings or follow-ups):** the consumer-side de-Go logic itself
 (SPEC-043/045), the `(path, metric)` index + per-metric thresholding (SPEC-044), the bridge
@@ -516,7 +518,7 @@ tracing to a BUNDLE-012 requirement via `supports`. Summary:
 
 | Spec REQ | Bundle REQ | Commits to |
 | --- | --- | --- |
-| REQ-001 | REQ-006 | The bun pack declares EXACTLY five engines — `oxlint`→lint, `prettier --check`→**lint** (format-as-lint, DD-3, **no new dimension**), `tsc --noEmit`→build, `bun test`→test, `bun test --coverage … lcov`→coverage — each run through the declared-engine trust substrate, never baked. |
+| REQ-001 | REQ-006 | The bun pack declares EXACTLY five engines — `oxlint`→lint, `prettier --check`→**lint** (format-as-lint, DD-3, **no new dimension**), `tsc --noEmit`→build, `bun test`→test, `bun test --coverage … lcov`→coverage — each command declared as DATA in the pack's `engines:` block, never baked into the binary. |
 | REQ-002 | REQ-006 | The bun pack declares the SPEC-043 `classification` block (source `**/*.ts`,`**/*.tsx`; test `**/*.test.ts`,`**/*.spec.ts`); the measurable-source matrix holds over the six file types. |
 | REQ-003 | REQ-006 | The lcov convert emits the SPEC-044 bun record shape: two records per file (`line` LF/LH, `branch` BRF/BRH), raw counts, through the EXISTING `check.CoverageRecord` + `check.ParsePackCoverage`, no new type/field; `BRF:0`→`total:0` branch N/A. |
 | REQ-004 | REQ-009 | An in-repo static fixture (pre-captured lcov, runner stubbed) measures the `.ts` source's line+branch coverage end-to-end with ZERO `bun` dependency; a seeded uncovered `.ts` REDs (not vacuous-green). |
@@ -538,7 +540,7 @@ and introduces **no new "format" gate dimension**.
 | `bun test` | `test` | mechanism (test) | CLM-004 |
 | `bun test --coverage --coverage-reporter=lcov` | `coverage` | mechanism (coverage) | CLM-005 |
 | *(no new "format" dimension is created — prettier rides lint)* | — | — | CLM-006 (denylist) |
-| *(all four tools `oxlint`/`bun`/`tsc`/`prettier` are allowlisted, dispatched as DATA)* | — | — | CLM-007 |
+| *(all five commands are pack-DECLARED DATA, never baked Go literals)* | — | — | CLM-007 |
 
 ### The measurable-source matrix (REQ-002, consumes SPEC-043)
 
@@ -622,10 +624,16 @@ planner must map tasks to:
    counts, no percent, with `BRF:0` ⇒ a `branch` record carrying `total:0`. A converter banner
    on stderr exercises clean-stdout capture (as `go-toolchain` does).
 
-3. **Allowlist the bun toolchain tools (REQ-001).** Add `oxlint`, `bun`, `tsc`, `prettier` to
-   the declared-engine trust allowlist (and the lock where needed) so the dispatch trusts the
-   pack-declared commands. The in-repo fixture stubs execution (no real tool needed in CI); the
-   allowlist matters for the external acceptance.
+3. **Do NOT allowlist the bun toolchain tools (REQ-001) — CORRECTED at 1.2.1.** The original
+   step here added `oxlint`, `bun`, `tsc`, `prettier` to `engine.TrustedToolAllowlist()`. Those
+   entries are DEAD: the bun pack declares no `provision:` on any binding, and all three
+   `engine.CheckToolAllowed` call sites — `checkEngineToolAllowed` (`cmd/backstop/pack_gate.go`),
+   `validateEngine` (`pkg/pack/manifest.go`), and `DefaultExecutor.RunEngine`
+   (`pkg/packval/executor.go`) — are guarded by `binding.Provision != nil` and return early for
+   a nil-Provision binding. The allowlist gate is therefore never reached for these four tools,
+   in the fixture OR in the external acceptance. Their removal is ISSUE-082's dead-code cleanup;
+   this spec neither requires nor blocks those entries. What REQ-001 DOES require is unchanged
+   and real: every command is pack-DECLARED DATA (step 1), never a baked Go literal.
 
 4. **Build the in-repo static testdata fixture (REQ-004).** Under
    `cmd/backstop/testdata/bun-toolchain/`: a `backstop.yml` declaring
@@ -736,6 +744,51 @@ planner must map tasks to:
   with the shared-dimension matrix (CLM-037/038/039) and the denylist guard (CLM-040) proving the
   flip blocks a fresh neutral-spine finding while leaving go-standards/go-toolchain debt
   grandfathered.
+- **The trusted-tool allowlist is UNREACHABLE for the bun tools — never assert membership as a
+  runtime guarantee (corrected at 1.2.1).** `engine.CheckToolAllowed` is called from exactly
+  three places — `checkEngineToolAllowed` (`cmd/backstop/pack_gate.go`), `validateEngine`
+  (`pkg/pack/manifest.go`), and `DefaultExecutor.RunEngine` (`pkg/packval/executor.go`) — and
+  every one is guarded by `binding.Provision != nil`. The allowlist is the trust floor for
+  **backstop-PROVISIONED** tools that ride the `backstop.lock` pin (semgrep, ast-grep); a
+  nil-`Provision` binding is an assume-present Layer-0 tool governed by `provisionEngines`'
+  on-PATH fail-loud instead. The bun pack declares **no** `provision:` on any of its five
+  engines, so `oxlint`/`bun`/`tsc`/`prettier` never touch the gate at all. Asserting their
+  allowlist membership tests a guarantee the code has never delivered — this was **vacuous from
+  inception**, not drift. The same overclaim lives in `TrustedToolAllowlist()`'s own doc comment
+  ("the trust floor every pack-declared command must satisfy … matched by the assumed `*` lock
+  value the dispatch gate supplies for an un-provisioned tool" — the dispatch gate supplies no
+  such value; it returns early). ISSUE-082 removes the five unreachable entries and corrects
+  that comment.
+  - **IMPLEMENTATION NOTE — the two test bodies to correct (do NOT rename either test; this is
+    an assertion correction, not a test-identity change).** In
+    `cmd/backstop/bun_pack_engines_test.go`:
+    - `TestBunPack_EngineCommandsRunThroughDeclaredTrustSubstrate` (CLM-007) — there are THREE
+      allowlist-coupled pieces here, not one; all three must go:
+      1. DELETE the `allowlist := engine.TrustedToolAllowlist()` binding.
+      2. DELETE the per-engine `if _, ok := allowlist[tool]; !ok { … }` membership check.
+      3. **RE-GROUND (do not merely delete) the trailing `if len(tools) != 4 { … }`
+         distinct-tool-count assertion.** Its rationale ("the bun pack's five engines dispatch
+         four distinct ALLOWLISTED tools", failure message naming oxlint/prettier/bun/tsc) is
+         allowlist framing that the narrowed CLM-007 no longer claims — but deleting it
+         outright would strand REQ-001's "declaring EXACTLY these five engines," which has no
+         other structural guard: CLM-001..CLM-006 each assert one NAMED engine is present, so
+         nothing would catch a SIXTH engine being added. Replace it with a pack-declared count
+         — `if len(m.Engines) != 5 { … }` — which is grounded in the pack DATA (the real
+         subject of the narrowed claim), keeps the "five engines" wording in CLM-007's text
+         honest, and drops the allowlist framing entirely. Rewrite the failure message to name
+         the engine-count expectation, NOT the four tool names.
+      KEEP the `len(m.Engines) == 0` fatal and the per-engine empty-`cmd` check — those are the
+      surviving, real half of CLM-007 (every command is pack-DECLARED DATA). Add a per-engine
+      assertion that `firstToken(cmd)` is non-empty so the loop still falsifies a malformed
+      declaration. The `tools` map and the `engine` import may become unused — drop whatever the
+      compiler rejects. (The `len(m.Engines) != 5` check subsumes the `== 0` fatal; collapsing
+      the two is fine as long as the zero case still fails loudly before the loop runs.)
+    - `TestBunPack_TscTypecheckDeclaredAsBuild` (CLM-003) — DELETE only the trailing
+      `if _, ok := engine.TrustedToolAllowlist()[firstToken(spec.Binding.Command)]; !ok { … }`
+      block. KEEP the `GateType != engine.GateTypeBuild` and `--noEmit` assertions; they are
+      CLM-003's actual subject and are unaffected. CLM-003's claim TEXT needs no change — it
+      never mentioned the allowlist; the stray assertion simply exceeded its claim's scope.
+    Both edits are prerequisites for PLAN-ISSUE-082; without them that cleanup REDs the suite.
 - **Packs are always external — the in-repo copy is gitignored DATA.** The authoritative bun pack
   lives in its own repo; the `.backstop/packs/backstop/bun-toolchain/` copy is gitignored, so the
   durable artifact is the testdata-fixture copy under `cmd/backstop/testdata/` (tracked) plus the
@@ -750,8 +803,10 @@ the diff.
 - Does the bun pack route `prettier --check` to the **lint** dimension as a lint-category
   findings engine, and does loading the pack add **no** new "format" gate dimension? (REQ-001 /
   CLM-002/CLM-006 — the DD-3 denylist.)
-- Are all five engine commands dispatched from pack DATA through the trust allowlist
-  (`oxlint`/`bun`/`tsc`/`prettier`), with **no** baked command string in the binary? (REQ-001 /
+- Are all five engine commands read from the pack's declared `engines:` block as DATA, with
+  **no** baked command string in the binary — and does the test assert that WITHOUT asserting
+  trusted-tool-allowlist membership, which is unreachable for these nil-`Provision` bindings
+  and would re-introduce the vacuous assertion corrected at 1.2.1? (REQ-001 /
   CLM-007 — the thin-executor first principle.)
 - Does the convert emit exactly TWO records per file (`line` LF/LH, `branch` BRF/BRH), raw counts,
   through the EXISTING `check.CoverageRecord` + `check.ParsePackCoverage` with NO new type/field,
@@ -856,6 +911,31 @@ files, sibling seams):
 
 ## Version History
 
+- **1.2.1** (2026-08-15) — **CLM-007's allowlist-membership assertion DROPPED as vacuous from
+  inception.** CLM-007 claimed `oxlint`/`bun`/`tsc`/`prettier` "are allowlisted and dispatched
+  as pack-declared commands." The allowlist half was **never true at runtime**, and was never
+  true at any point — this is a vacuous claim, NOT drift from a guarantee that later decayed.
+  Verified this session by reading all three `engine.CheckToolAllowed` call sites
+  (`checkEngineToolAllowed` in `cmd/backstop/pack_gate.go`, `validateEngine` in
+  `pkg/pack/manifest.go`, `DefaultExecutor.RunEngine` in `pkg/packval/executor.go`): every one
+  is guarded by `binding.Provision != nil`, and the bun pack's `pack.yml` declares **no**
+  `provision:` on any of its five engines — so the allowlist gate is unreachable for these
+  tools and their membership constrains nothing. The **surviving, load-bearing half is kept and
+  sharpened**: every command is pack-DECLARED DATA, never a baked Go literal — the
+  thin-executor / zero-baked-language falsifier this project actually cares about. REQ-001 is
+  corrected in step with CLM-007 (it carried the identical overclaim) and now explicitly
+  PROHIBITS asserting allowlist membership; Implementation step 3 is inverted from "allowlist
+  the bun tools" to "do NOT"; a Sharp Edge carries the exact test-body edits for the
+  implementer. That note covers THREE allowlist-coupled pieces in CLM-007's test, not one: the
+  allowlist binding and the per-tool membership lookup are deleted, while the
+  `len(tools) != 4` distinct-tool-count assertion is **re-grounded** to a pack-declared
+  `len(m.Engines) != 5` rather than deleted — deleting it would have stranded REQ-001's
+  "EXACTLY these five engines," which has no other structural guard (CLM-001..CLM-006 each
+  assert one NAMED engine, so nothing would catch a sixth being added). **CLM-003 needed no claim-text change** — it never mentioned the allowlist — but
+  its mandated test carried a stray membership assertion beyond its claim's scope, also noted
+  for removal. Both test names are PRESERVED. Unblocks ISSUE-082 → PLAN-ISSUE-082, which
+  removes the five unreachable allowlist entries and the identical overclaim in
+  `TrustedToolAllowlist()`'s doc comment. No contract changed.
 - **1.2.0** (2026-07-01) — **REQ-005 external executed acceptance CLOSED (executed + PASSED).**
   The required external gate was RUN over the real installed `backstop/bun-toolchain` pack on a
   clean Bun project (bun 1.3.13) with the current backstop binary, producing the RED-then-green
