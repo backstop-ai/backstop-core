@@ -1,0 +1,1304 @@
+---
+plan_id: PLAN-ISSUE-124
+spec_id: ISSUE-124
+created: "2026-08-16"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./pkg/artifact/ ./pkg/gate/ ./pkg/validate/ ./cmd/backstop/ -run 'TestLayout_NoConsumer|TestLayout_ConsumerScanBoundary|TestTestVerify_SpecDiscoveryAcceptsOnlySpecFiles|TestTestVerify_DecoyFixturesWouldChangeEveryExtractorIfWidened|TestValidate_SlugAndStemExtraction|TestValidate_CitingStatusClassifies|TestSubstantivenessE2E_WorkspaceSpecPaths' -count=1"
+coverage_threshold: 90
+
+notes: |
+  Implements ISSUE-124. SEVEN tasks, THREE phases, SIX production files, FOUR test
+  files, FIFTEEN literal occurrences. The deliverable is that the SEVENTH hardcoding
+  family — the residual artifact-type EXTENSION and DIRECTORY literals PLAN-SPEC-068
+  deliberately left out of its scope — is gone, and that a source-level guard makes
+  its return a RED build rather than a silent second authority.
+
+  This is a mechanical de-duplication of a table that already exists. Do not
+  restructure spec discovery, do not change any validator's verdict, do not touch
+  `pkg/scaffold/scaffold.go`, and do not sweep `_test.go` files. The boundaries are
+  stated below and they are load-bearing.
+
+  ── EXISTENCE-IN-WORLD (checked 2026-08-16, before authoring) ──────────────
+  No committed or in-flight plan owns this surface.
+
+    - PLAN-SPEC-068 BUILT the authority (`pkg/artifact/layout.go`: Kind,
+      LayoutFor, Kinds, ClassifyFilename, Root, ResolveRoot) and closed six
+      hardcodings. Its own notes (line 389) name ISSUE-124 BY ID as the
+      explicitly-deferred residual. This plan is the sanctioned follow-on, not a
+      duplicate.
+    - PLAN-ISSUE-122 is ADJACENT but disjoint. It added
+      `NonCorpusDirs`/`NewNonCorpusDirs`/`Excludes` — pack-declared DEPENDENCY
+      directory names (`vendor`, `node_modules`) — to the same file. That is the
+      corpus-EXCLUSION surface. This plan touches the type→{Directory, Extension}
+      surface. The only file both name is `pkg/validate/supports_resolution.go`,
+      and ISSUE-122's plan cites it once for an unrelated reason (a ref-resolution
+      remark at :131); its `.issue.md` literal at :252 is untouched by that lane
+      and is verified present at authoring time.
+    - Every other plan that greps positive for these filenames
+      (PLAN-ISSUE-051/054/013/105/118/112, PLAN-SPEC-036/037/038/044/045/047) is
+      pre-`pkg/artifact` and touches different functions in them.
+
+  ── THE ISSUE'S CENSUS IS RIGHT IN KIND AND WRONG IN DETAIL ────────────────
+  Re-verified against the working tree 2026-08-16. Three corrections; plan
+  against THIS census, not the issue's prose.
+
+  1. LINE NUMBERS HAVE MOVED. The issue cites
+     `pkg/gate/step_testverify.go:120,225,520,564`. At authoring the four sites
+     are at :120, :225, :633, :677. That file is heavily contended (ISSUE-118 and
+     ISSUE-112 both landed in it tonight) and WILL move again before this plan is
+     implemented. LOCATE BY FUNCTION NAME, NEVER BY LINE.
+
+  2. THE FOURTH SITE IS MISATTRIBUTED. The issue says two of the four are in
+     `ExtractSpecVerifications`. They are not. The four enclosing functions are,
+     one each:
+
+       ExtractMandatedTests     (:112 → guard at :120)
+       CountTerminalSpecs       (:218 → guard at :225)
+       ExtractSpecVerifications (:625 → guard at :633)
+       ExtractContractEntries   (:669 → guard at :677)
+
+     All four guards are byte-identical:
+       `if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".spec.md") {`
+
+  3. `cmd/backstop/gate_substantiveness_e2e.go` HAS FOUR LITERALS, NOT ONE. The
+     issue names only `:44` (now `:46`). The file has TWO workspace builders —
+     `newE2EWorkspace` and its ISSUE-113 sibling `newZeroMatchE2EWorkspace` — and
+     each carries BOTH a directory literal and a fixture-filename literal:
+
+       :46   specDir := filepath.Join(tmp, "specs")          newE2EWorkspace
+       :90   filepath.Join(specDir, "e2e.spec.md")           newE2EWorkspace
+       :156  specDir := filepath.Join(tmp, "specs")          newZeroMatchE2EWorkspace
+       :210  filepath.Join(specDir, "zeromatch.spec.md")     newZeroMatchE2EWorkspace
+
+     All four are in scope. Fixing only the two the issue's line number implies
+     would leave the file half-converted, which is worse than not converting it.
+
+  4. THE TOTAL IS FIFTEEN, NOT ELEVEN. The scan TASK-001 specifies was RUN against
+     HEAD at revision time (2026-08-16) rather than estimated, and it reports
+     THIRTEEN extension occurrences plus TWO directory occurrences = FIFTEEN. The
+     earlier count of eleven under-counted `bundle.go`, which has FOUR literal
+     occurrences at :275-278 (not one): the `.epic.bundle.md` string appears on
+     BOTH :275 and :276, and `.bundle.md` on BOTH :277 and :278, because each
+     branch tests the suffix and then trims it.
+
+       :275  if strings.HasSuffix(stem, ".epic.bundle.md") {
+       :276      stem = strings.TrimSuffix(stem, ".epic.bundle.md")
+       :277  } else if strings.HasSuffix(stem, ".bundle.md") {
+       :278      stem = strings.TrimSuffix(stem, ".bundle.md")
+
+     THE FULL VERIFIED CENSUS — this is the exact scan output, and TASK-001's RED
+     must reproduce it:
+
+       EXTENSION (13)
+         pkg/gate/step_testverify.go:120,225,633,677    ".spec.md"        (4)
+         pkg/validate/spec.go:751                       ".spec.md"        (1)
+         pkg/validate/adr.go:159                        ".adr.md"         (1)
+         pkg/validate/bundle.go:275,276                 ".epic.bundle.md" (2)
+         pkg/validate/bundle.go:277,278                 ".bundle.md"      (2)
+         pkg/validate/supports_resolution.go:252        ".issue.md"       (1)
+         cmd/backstop/gate_substantiveness_e2e.go:90    "e2e.spec.md"     (1)
+         cmd/backstop/gate_substantiveness_e2e.go:210   "zeromatch.spec.md" (1)
+
+       DIRECTORY (2)
+         cmd/backstop/gate_substantiveness_e2e.go:46,156  "specs"         (2)
+
+     Also note `pkg/validate/adr.go:160`'s `rest[:len(rest)-7]`, which is a
+     FOURTEENTH copy of the same fact that NO string scan can see — see SHARP
+     EDGE 3. It is in scope for the fix and deliberately outside the scan's reach.
+
+     RE-RUN THE SCAN BEFORE TRUSTING THESE NUMBERS. `step_testverify.go` is under
+     active contention and every one of these line numbers has already moved once.
+
+  ── WHY THE FALSIFYING TEST IS A SOURCE SCAN, STATED PLAINLY ───────────────
+  Every swap in this plan is BEHAVIOR-PRESERVING BY CONSTRUCTION. `LayoutFor(
+  KindSpec).Extension` returns the string `".spec.md"`. There is no input for
+  which the before and after differ, so no black-box behavioral test can be red
+  before the fix and green after. Pretending otherwise would mean shipping a test
+  that is green on both sides and calling it falsification.
+
+  So the plan is honest about which test does which job:
+
+    THE FALSIFYING TEST (RED before, GREEN after, for the right reason) is
+    TASK-001's source scan. The defect IS the duplication, and duplication is
+    observable at exactly one level: the source. At revision the scan — actually
+    run, not estimated — fires on FIFTEEN distinct literal occurrences across six
+    files (13 extension + 2 directory); after TASK-004 it fires on none.
+
+    THE REGRESSION GUARDS (GREEN before AND after, by design) are TASK-002's and
+    TASK-003's behavioral pins. They do not falsify the defect; they falsify a
+    BOTCHED FIX — specifically SHARP EDGE 1, which is the way this change can go
+    catastrophically wrong. TASK-005 is where they are proven capable of red, by
+    mutation rather than by assertion.
+
+  This split is deliberate and the reviewer should read it as such rather than as
+  a missing falsification.
+
+  ── THE SCAN SET INCLUDES THREE ALREADY-CLEAN FILES ON PURPOSE ─────────────
+  TASK-001 scans NINE files: the six this plan fixes, plus
+  `pkg/validate/resolved_by.go`, `pkg/validate/delivered_by.go` and
+  `pkg/gate/artifact_status.go` — the three PLAN-SPEC-068 already converted.
+
+  Two reasons, both load-bearing:
+
+    a. It turns a one-shot cleanup into a durable authority fence. SPEC-068's
+       equivalent check lives in a verification task's prose as a `grep` a human
+       runs once. A test runs on every gate.
+
+    b. THOSE THREE FILES ARE THE COMMENT-STRIPPING CANARY. All three are clean in
+       CODE and all three carry the forbidden literals in DOC COMMENTS —
+       `resolved_by.go:108` (`.issue.md`), `delivered_by.go:22,45-46` (`.issue.md`,
+       `"plans"`, `.plan.yml`), `artifact_status.go:255,321,438` (`.plan.yml`).
+       A scan that reads raw bytes instead of comment-stripped code fires on all
+       three immediately. The canary means a comment-stripping bug cannot ship
+       silently, and it cannot be "fixed" by deleting the comments, because the
+       comments are correct and the scan is what is wrong.
+
+  ── SHARP EDGES ────────────────────────────────────────────────────────────
+
+  1. ★ `strings.HasSuffix(x, "")` IS ALWAYS TRUE. THIS IS THE DANGEROUS ONE.
+     `LayoutFor` returns `(KindLayout{}, false)` for an unrecognized kind — a
+     ZERO VALUE whose `Extension` is the EMPTY STRING. Its own doc comment says
+     this is why it returns ok at all. An implementer who writes
+
+         layout, _ := artifact.LayoutFor(artifact.KindSpec)
+         if entry.IsDir() || !strings.HasSuffix(entry.Name(), layout.Extension) {
+
+     and gets `ok=false` for any reason has just inverted a "specs only" filter
+     into "accept every file in the directory" — silently, with no error, and
+     with `ExtractMandatedTests` then trying to parse `README.md` as spec
+     frontmatter. Every scoped call site MUST handle `ok=false` explicitly. Do
+     not discard it with `_`. What "handle" means per site:
+
+       - pkg/gate/step_testverify.go — the four functions already return
+         `(T, error)`. A `false` is an impossible-state bug, so return an error
+         naming the kind; do NOT skip silently and do NOT panic.
+       - pkg/validate/spec.go, adr.go — `extractSpecSlug`/`extractSlug` return a
+         plain string and already return `""` on a non-matching filename. Return
+         `""`. That is the existing failure mode, unchanged.
+       - pkg/validate/bundle.go — the stem strip is inside a violation collector.
+         On `false`, leave `stem` untouched and let the existing mismatch
+         violation fire; do not invent a new violation rule.
+       - cmd/backstop/gate_substantiveness_e2e.go — both builders return
+         `(*e2eWorkspace, error)`. Return an error.
+
+     Where the question is "is this file kind X" rather than "what is the
+     extension string", prefer `artifact.ClassifyFilename` — it has no zero-value
+     hazard at all, because its bool IS the answer. That applies to the four
+     step_testverify guards and to `citingStatus`. Reserve `LayoutFor(...).
+     Extension` for the three sites that need the STRING in order to trim it.
+
+  2. ★ THE `.epic` MODIFIER IS NOT A KIND, AND THE IF/ELSE SHORT-CIRCUIT IS
+     LOAD-BEARING — BUT NOT FOR THE REASON THE OBVIOUS READING SUGGESTS. Do not
+     add an eighth row to `kindTable`. Per `artifacts/bundle/v1/schema.json:9`
+     the filename pattern is `^[a-z0-9-]+(\.epic)?\.bundle\.md$` — `.epic` is a
+     bundle-SCHEMA category modifier that sits INSIDE the stem, before the kind
+     extension.
+
+     DO NOT COLLAPSE THE TWO BRANCHES INTO AN UNCONDITIONAL PAIR OF TRIMS. The
+     obvious-looking rewrite
+
+         stem = strings.TrimSuffix(art.Filename, bundleLayout.Extension)   ← WRONG
+         stem = strings.TrimSuffix(stem, ".epic")
+
+     is NOT behavior-preserving at the FUNCTION level, and CLM-004's
+     byte-identical promise does not hold for it. Current code is an if/ELSE
+     chain, so a filename matching NEITHER suffix falls through completely
+     untouched. Feed `validateNameFilenameConsistency` a `ParsedArtifact` whose
+     `Filename` is `"foo.epic"`:
+
+         HEAD          neither branch matches      → stem stays "foo.epic"
+         unconditional first trim is a no-op,
+                       second trim STRIPS ".epic"  → stem becomes "foo"
+
+     ★ STATE THE REACHABILITY HONESTLY — measured against the working tree
+     2026-08-16. That divergence does NOT currently surface as a verdict change
+     through the exported `Bundle()` validator, and any prose claiming it does is
+     wrong. `validateNameFilenameConsistency` has EXACTLY ONE caller
+     (`bundle.go:83-85`) and it is gated on `filenameOK`, so the filename must
+     ALREADY match the schema pattern before the stem code runs at all.
+     `"foo.epic"` fails that pattern (no `.bundle.md`), sets `filenameOK=false`,
+     and never reaches the fall-through branch. The if/else's NEITHER-branch path
+     is therefore DEAD in production today.
+
+     That is a reason to pin it MORE tightly, not less. The collapsed form is
+     harmless ONLY because an upstream schema pattern happens to filter out every
+     input that would distinguish it — a real, load-bearing coupling between
+     `artifacts/bundle/v1/schema.json`'s `filename_pattern` and this function's
+     fall-through. Nothing in the code states that dependency, nothing enforces
+     it, and it silently becomes a live defect the moment the pattern loosens or
+     a second, ungated caller appears. So: preserve the short-circuit, and pin it
+     at the FUNCTION level (TASK-002 calls the unexported helper directly for
+     exactly this reason) rather than pretending the exported path can see it.
+
+     PRESERVE THE SHORT-CIRCUIT:
+
+         epicSuffix := ".epic" + bundleLayout.Extension
+         stem := art.Filename
+         if strings.HasSuffix(stem, epicSuffix) {
+             stem = strings.TrimSuffix(stem, epicSuffix)
+         } else if strings.HasSuffix(stem, bundleLayout.Extension) {
+             stem = strings.TrimSuffix(stem, bundleLayout.Extension)
+         }
+
+     Same two branches, same order, same fall-through — only the extension string
+     now comes from the table. `"x.epic.bundle.md"` → `"x"`; `"x.bundle.md"` →
+     `"x"`; `"foo.epic"` → `"foo.epic"`, UNCHANGED. The surviving `".epic"`
+     literal is CORRECT — it is schema vocabulary, not layout — and the TASK-001
+     scan must not forbid it (the denylist derived from `Kinds()` cannot contain
+     it, which is the point of deriving it).
+
+     Note `epicSuffix` still CONTAINS the bundle extension, so the TASK-001 scan
+     sees a table-derived composition rather than a literal, and stays green.
+     `"foo.epic"` is a pinned row in TASK-002's table for exactly this reason —
+     and per the reachability note above, that row is asserted against
+     `validateNameFilenameConsistency` DIRECTLY, because the exported `Bundle()`
+     path cannot deliver the input to it.
+
+  3. ★ THE MAGIC `7` IS INVISIBLE TO A STRING SCAN. `pkg/validate/adr.go:160` is
+     `return rest[:len(rest)-7]` — 7 is `len(".adr.md")`, written as a bare
+     integer. A scan for the literal `".adr.md"` will go green on line 159 while
+     line 160 keeps its own private, undocumented copy of the same fact in a form
+     no grep can see. This is the one site where the scan alone is insufficient,
+     which is exactly why CLM-004 pins length-derivation behaviorally as well:
+
+         return rest[:len(rest)-len(adrLayout.Extension)]
+
+     Sweep for the same shape in the other two trims while you are there —
+     `spec.go` already uses `len(suffix)` and is fine, `bundle.go` uses
+     `TrimSuffix` and is fine.
+
+  4. `_test.go` FILES ARE OUT OF SCOPE, AND THE BOUNDARY IS THE FILENAME. The
+     same literals appear all over `cmd/backstop/*_test.go`
+     (`gate_contract_novacuous_test.go:41,71`, `gate_contract_wiring_test.go:86`,
+     and many more). Converting them is a different, much larger change with a
+     different rationale, and it is NOT what ISSUE-124 asks for. The boundary this
+     plan draws is mechanical and checkable: NON-`_test.go` Go files only.
+
+     Note the asymmetry this creates and do not try to resolve it here:
+     `cmd/backstop/gate_substantiveness_e2e.go` is a test HARNESS that happens not
+     to be named `_test.go`, so it is IN scope while its own
+     `gate_substantiveness_e2e_test.go` callers are OUT. That is the boundary
+     working as specified, not a defect.
+
+  5. `pkg/scaffold/scaffold.go`'s `FileExtension` IS SANCTIONED AND STAYS.
+     PLAN-SPEC-068 TASK-019 explicitly declared it scaffold's own local concern.
+     ISSUE-124 restates this. It must NOT appear in TASK-001's scan set and must
+     NOT be edited. If a reviewer asks why the authority has an exception, the
+     answer is "SPEC-068 decided that", not this plan.
+
+  6. NO NEW ACCESSOR IS OWED. ISSUE-124 hedges that if the authority does not
+     expose extension granularity, closing that gap belongs in this fix. Checked:
+     it does. `LayoutFor` returns `KindLayout{Directory, Extension}` — both
+     fields, both exported. `ClassifyFilename` covers the predicate case. Do not
+     add a `ExtensionFor(kind)` convenience wrapper; a second accessor over the
+     same table is precisely the drift this issue exists to remove.
+
+  7. NO IMPORT CYCLE, AND NO NEW IMPORT DIRECTION. `pkg/gate` already imports
+     `pkg/artifact` (`pkg/gate/artifact_status.go:22`), `pkg/validate` already
+     does (`pkg/validate/resolved_by.go`), and `cmd/backstop` already does.
+     `pkg/artifact` imports only stdlib and MUST stay that way — its own header
+     comment says the import set is load-bearing. TASK-001's scan lives in
+     `package artifact` and reads its scan set as FILE BYTES from disk, so it adds
+     no import edge from the authority to its consumers.
+
+  8. THE SCAN BOUNDARY IS ITSELF A CLAIM. A denylist over a hand-typed file list
+     silently empties when a file is renamed or moved, and an empty denylist
+     passes forever. CLM-007 exists so that cannot happen: the scan asserts the
+     list is non-empty AND that every path in it exists on disk before scanning,
+     failing loudly with the missing path named. This is the discipline
+     `pkg/initialize/sourceset_scan_test.go` established for the init denylists;
+     read that file before writing TASK-001 and reuse its BOUNDARY assertion and
+     its parse idiom rather than inventing a regex over raw bytes.
+
+     THE PARSE IDIOM, STATED PRECISELY. `sourceset_scan_test.go:45` parses each
+     file WITHOUT `parser.ParseComments`:
+
+         parsed, err := parser.ParseFile(fset, path, nil, 0)
+
+     The zero mode is what drops comments — there is no step that "clears an AST's
+     Comments field", and describing it that way would send an implementer after a
+     mechanism that does not exist. Comment exclusion is a property of how the
+     file is PARSED.
+
+  9. DERIVE THE FORBIDDEN SET, DO NOT TYPE IT. The scan's denylist must be built
+     by ranging `artifact.Kinds()` and reading each `LayoutFor(k).Directory` and
+     `.Extension`. A hand-typed list of seven extensions is an EIGHTH copy of the
+     table living inside the test that forbids copies of the table.
+
+  10. ★ REPORT REAL SOURCE POSITIONS, NOT POST-STRIP ONES. `sourceset_scan_test.go`
+     re-prints the comment-free AST via `go/printer` and scans that STRING, which
+     is fine for a yes/no claim but produces line numbers from the re-printed
+     rendering — NOT from the file on disk. The gap is large and would be actively
+     misleading here: `step_testverify.go`'s first guard is at post-strip line 81
+     and at REAL source line 120. A developer handed `step_testverify.go:81` by a
+     failure message looks at the wrong function.
+
+     So TASK-001 deviates from the init idiom on the REPORTING mechanism only.
+     Keep the same `parser.ParseFile(fset, path, nil, 0)` call, then walk the AST
+     with `ast.Inspect` for `*ast.BasicLit` nodes of `Kind == token.STRING`,
+     `strconv.Unquote` each value, and report `fset.Position(lit.Pos()).Line`.
+     That is a REAL source line, and comments are excluded STRUCTURALLY — a
+     comment is not a `BasicLit`, so the canary in note (b) below still holds
+     exactly as described. No `go/printer` needed.
+
+  11. ★ MATCH EXTENSIONS BY SUBSTRING, DIRECTORIES BY EQUALITY. This asymmetry is
+     load-bearing and getting it wrong makes the scan VACUOUS on FOUR of its
+     thirteen extension hits. Four occurrences are not bare extension strings:
+
+         ".epic.bundle.md"     bundle.go:275,276   ← contains ".bundle.md"  (2)
+         "e2e.spec.md"         e2e.go:90           ← contains ".spec.md"    (1)
+         "zeromatch.spec.md"   e2e.go:210          ← contains ".spec.md"    (1)
+
+     An equality test against `LayoutFor(k).Extension` misses every one of them.
+     Measured at revision: under equality the scan IS red at HEAD, but on only
+     NINE of the fifteen occurrences across five files (step_testverify.go 4,
+     spec.go 1, adr.go 1, bundle.go's two BARE `.bundle.md` 2,
+     supports_resolution.go 1) — so an implementer who fixed exactly what
+     equality reported would land a GREEN scan with FOUR occurrences still
+     unconverted across TWO files (bundle.go's two `.epic.bundle.md`, e2e.go's
+     two fixture filenames). Use `strings.Contains(unquoted, layout.Extension)`.
+
+     Directories are the opposite: test `unquoted == layout.Directory`. `Contains`
+     would fire on any string containing "specs" or "plans" as a substring.
+     Verified at revision: equality yields exactly the two intended `"specs"` hits
+     across all nine files, and no false positives.
+
+  12. ★★ THE SHARP-EDGE-1 GUARD GOES VACUOUS IF THE DECOYS ARE BARE. THIS IS THE
+     SUBTLEST TRAP IN THE PLAN and it disables the plan's only defense against its
+     own worst failure mode, silently.
+
+     CLM-003's test works by putting non-spec files beside a real spec and
+     asserting the four extractors ignore them. But ALL FOUR EXTRACTORS SKIP A
+     FILE THEY CANNOT USE, for reasons that have nothing to do with the extension
+     filter. Verified at revision against `step_testverify.go`:
+
+       every one       `parseSpecFrontmatter` err → `continue` (skip unparseable)
+       ExtractMandatedTests      also skips `isTerminalSpecStatus(fm.Status)`
+       CountTerminalSpecs        counts ONLY `isTerminalSpecStatus(fm.Status)`
+       ExtractSpecVerifications  requires `contractsAreDue` AND test_command AND
+                                 (coverage_threshold>0 OR metric thresholds)
+       ExtractContractEntries    requires `contractsAreDue` AND contracts.provides
+
+     So a decoy like `README.md` or `notes.txt` with no frontmatter contributes
+     NOTHING even when the filter is fully widened. The extractors' output would
+     be BYTE-IDENTICAL with the fix correct and with SHARP EDGE 1 live. The test
+     passes in both worlds, and the plan's safety net is decorative.
+
+     A DECOY ONLY DISCRIMINATES IF IT WOULD SURVIVE EVERY FILTER DOWNSTREAM OF THE
+     EXTENSION CHECK. It must be parseable AND carry the exact fields its target
+     extractor demands AND sit in the status window that extractor accepts.
+
+     `CountTerminalSpecs` IS THE WORST CASE, and it is the one an implementer
+     reaching for "just use status: implemented everywhere" gets wrong.
+     `contractsAreDue(status)` is `status == "implemented"` exactly, and
+     `isTerminalSpecStatus` is `replaced | canceled | deprecated` — so
+     `implemented` IS NOT TERMINAL. An all-`implemented` fixture set makes
+     `CountTerminalSpecs` return 0 correct and 0 mutated: invisible again.
+
+     THE FOUR EXTRACTORS' STATUS REQUIREMENTS ARE MUTUALLY EXCLUSIVE, so no single
+     spec file can exercise all four. The fixture set needs TWO real specs (one
+     `implemented`, one terminal) and decoys spanning BOTH windows. TASK-002
+     specifies the exact set; do not simplify it.
+
+  ── CLAIMS ─────────────────────────────────────────────────────────────────
+  ISSUE-124 is an ISSUE, not a spec, so it carries no CLM roster of its own.
+  These seven are declared HERE and are what every task's `claims` array refers
+  to. CLM-001 and CLM-002 are FALSE at HEAD; CLM-003 through CLM-006 are
+  properties that are true at HEAD and that the swap can silently destroy;
+  CLM-007 is the guard's own integrity.
+
+  CLM-001  No non-`_test.go` Go file in the scan set carries a hardcoded
+           artifact-type EXTENSION literal. This covers ALL THIRTEEN extension
+           occurrences across ALL SIX converted files — the scan runs over the
+           whole nine-file set and draws no per-package boundary:
+
+             pkg/gate/step_testverify.go               (4)
+             pkg/validate/spec.go                      (1)
+             pkg/validate/adr.go                       (1)
+             pkg/validate/bundle.go                    (4)
+             pkg/validate/supports_resolution.go       (1)
+             cmd/backstop/gate_substantiveness_e2e.go  (2, the fixture filenames)
+
+           Each reads its extension from `artifact.LayoutFor` or decides kind
+           through `artifact.ClassifyFilename`.
+
+           NOTE THE OVERLAP WITH CLM-002 AND DO NOT TRY TO REMOVE IT.
+           `gate_substantiveness_e2e.go` is NOT CLM-002's exclusive territory: the
+           file carries BOTH kinds of literal, and each claim owns the kind it
+           names. CLM-001 owns its two fixture-FILENAME occurrences (:90, :210);
+           CLM-002 owns its two DIRECTORY occurrences (:46, :156). A claim
+           boundary drawn by FILE would be crossed by CLM-001's own mandated scan,
+           which is extension-typed and file-agnostic. The boundary is by LITERAL
+           KIND, and both claims are satisfied by the same TASK-004 edit.
+
+           `pkg/scaffold/scaffold.go` is sanctioned out (SHARP EDGE 5) and `.epic`
+           is schema vocabulary, not layout (SHARP EDGE 2). `adr.go:160`'s magic
+           `7` is invisible to this scan by construction and is pinned by CLM-004
+           instead (SHARP EDGE 3).
+           Tests: TestLayout_NoConsumerCarriesAPrivateArtifactExtensionLiteral
+
+  CLM-002  No file in the scan set carries a hardcoded artifact-type DIRECTORY
+           literal. Both `filepath.Join(tmp, "specs")` sites in
+           `cmd/backstop/gate_substantiveness_e2e.go` (:46 in `newE2EWorkspace`,
+           :156 in `newZeroMatchE2EWorkspace`) resolve through
+           `artifact.Root.Dir(artifact.KindSpec)` — two occurrences, where the
+           issue's single line number counts one. The two fixture FILENAMES in the
+           same file belong to CLM-001 per the note above; TASK-003's behavioral
+           pin covers both halves of the file because it asserts the whole
+           workspace shape.
+           Tests: TestLayout_NoConsumerCarriesAPrivateArtifactDirectoryLiteral,
+                  TestSubstantivenessE2E_WorkspaceSpecPathsComeFromSharedLayout
+
+  CLM-003  The four spec-discovery guards in `pkg/gate/step_testverify.go` still
+           DISCRIMINATE after the swap: over a directory holding two real spec
+           files and four decoys whose names are not spec-shaped — THREE
+           SUBSTANTIVE DECOYS AND ONE UNPARSEABLE CONTROL (D4 `notes.txt` carries
+           no frontmatter ON PURPOSE, per TASK-002; do not "fix" it into a
+           parseable file, that destroys its job) — each
+           of `ExtractMandatedTests`, `CountTerminalSpecs`,
+           `ExtractSpecVerifications` and `ExtractContractEntries` returns EXACTLY
+           what the two real specs mandate and nothing the decoys carry. This is
+           the SHARP EDGE 1 regression guard: an empty-extension swap makes every
+           file match, and because the three substantive decoys carry frontmatter
+           each extractor would ACT on, all four outputs change.
+
+           THE DECOYS' CONTENT IS WHAT MAKES THIS CLAIM NON-VACUOUS, and it is
+           specified in TASK-002 rather than left to the implementer. See SHARP
+           EDGE 12 — bare decoys would make this claim's test pass identically on
+           both sides of the mutation it exists to catch.
+           Tests: TestTestVerify_SpecDiscoveryAcceptsOnlySpecFilesFromSharedLayout,
+                  TestTestVerify_DecoyFixturesWouldChangeEveryExtractorIfWidened
+
+  CLM-004  Slug and stem extraction in `pkg/validate` is LENGTH-DERIVED from the
+           shared extension, not from a private constant. `adr.go`'s
+           `rest[:len(rest)-7]` is gone (SHARP EDGE 3), `extractSpecSlug` and the
+           bundle stem strip produce byte-identical results to HEAD, and the
+           `.epic.bundle.md` / `.bundle.md` pair both still reduce to the bare
+           stem in that order (SHARP EDGE 2).
+           Tests: TestValidate_SlugAndStemExtractionAreDerivedFromSharedLayout
+
+  CLM-005  `citingStatus` in `pkg/validate/supports_resolution.go` decides "is
+           this an issue" through `artifact.ClassifyFilename`, so the terminal
+           exemption reads the `issue.*` block for issue filenames and top-level
+           metadata for every other kind — following the shared table rather than
+           a private suffix test.
+           Tests: TestValidate_CitingStatusClassifiesIssuesThroughSharedLayout
+
+  CLM-006  The swap is FAIL-LOUD, not fail-open. No scoped call site discards
+           `LayoutFor`'s ok with `_`; each handles `ok=false` in the form its
+           signature already supports (error, `""`, or untouched stem) per SHARP
+           EDGE 1, so a zero-value `KindLayout` can never silently widen a filter.
+           Tests: TestTestVerify_SpecDiscoveryAcceptsOnlySpecFilesFromSharedLayout,
+                  TestValidate_SlugAndStemExtractionAreDerivedFromSharedLayout
+
+  CLM-007  The guard cannot go vacuous. The scan enumerates a NON-EMPTY set,
+           asserts every scoped path exists on disk before scanning (naming any
+           missing path), derives its denylist from `artifact.Kinds()` rather than
+           a typed list (SHARP EDGE 9), matches extensions by SUBSTRING so the four
+           composed literals cannot slip through (SHARP EDGE 11), reports REAL
+           source positions rather than post-strip ones (SHARP EDGE 10), and reads
+           code parsed WITHOUT comments — proven by the three already-clean canary
+           files whose doc comments carry the forbidden literals and which must
+           stay green throughout.
+           Tests: TestLayout_ConsumerScanBoundaryIsNonEmptyAndEveryScopedPathExists,
+                  TestLayout_NoConsumerCarriesAPrivateArtifactExtensionLiteral
+
+  ── WHY THIS PLAN IS SEQUENTIAL, DELIBERATELY ──────────────────────────────
+  The six production files split cleanly into three disjoint lanes (pkg/gate,
+  pkg/validate, cmd/backstop) and D-081 would permit three parallel
+  test→implementation pairs. This plan does NOT do that, on purpose.
+
+  TASK-001's scan spans all six files and is RED until the LAST of them is
+  converted. Under three parallel lanes, the implementer's mandatory
+  `backstop gate` after each lane's implementation task would run against a
+  still-red cross-cutting scan, twice — an enforced-green workflow colliding with
+  a deliberately-red guard. Splitting into lanes would buy parallelism on a
+  change that is roughly fifteen edited lines and would pay for it in a red
+  window the gate cannot distinguish from a real break.
+
+  ONE implementation task, six files, one green transition.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: RED — the falsifying scan and the botched-swap guards"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "RED: the cross-package layout-literal scan, with its own boundary asserted"
+        description: |
+          ── STEP 0: CAPTURE THE PRE-CHANGE BASELINE, BEFORE WRITING ANYTHING ──
+
+          DO THIS FIRST — before this task's test file exists and before THIS LANE
+          edits any production file. TASK-007 has to prove the swap did not move
+          spec discovery, and by the time it runs there is no pre-change state left
+          to compare against. This is the only moment that baseline can be taken.
+
+          ★ "BEFORE THIS LANE EDITS ANYTHING" DOES NOT MEAN "ON A CLEAN TREE," AND
+          YOU MUST NOT TRY TO MAKE THE TREE CLEAN. This repo is running several
+          plans concurrently and the working tree carries substantial uncommitted
+          work from OTHER lanes (pkg/artifact/layout.go, pkg/schema/cohort.go,
+          cmd/backstop/artifact_new.go, pkg/gate/artifact_status.go and more).
+          NO `git stash`, NO `git checkout`/`restore`, NO `git clean`, NO reset —
+          any of those destroys another agent's in-flight work. The baseline's only
+          requirement is TEMPORAL: it is taken before this lane's first edit. It is
+          a like-for-like reference point, not a pristine one, and TASK-007
+          compares against it on exactly those terms.
+
+          If a genuinely pristine comparison is ever needed, get it in a SEPARATE
+          `git worktree` or a fresh clone — never by cleaning the shared tree.
+
+            ./bin/backstop gate --all
+
+          Record into this task's completion note, verbatim:
+
+            - the specs/ corpus count the run reports (total specs discovered, and
+              the terminal-spec count reported alongside it)
+            - the per-dimension verdict line for test_verification, substantiveness
+              and contracts (pass/fail/warn plus any counts printed)
+            - the overall verdict
+
+          A RED baseline is FINE and must still be recorded — this repo's gate is
+          not unconditionally green and TASK-007 compares LIKE FOR LIKE, not
+          against green. What matters is that the numbers come from before the
+          change. If `gate --all` cannot run at all, stop and report; do not
+          proceed to write a test whose closing comparison has no other side.
+
+          ── STEP 1: THE SCAN ──
+
+          Write pkg/artifact/layout_consumer_scan_test.go, in `package artifact`
+          (the existing internal test package — see layout_test.go and root_test.go,
+          both `package artifact`, not `artifact_test`).
+
+          THIS IS THE FALSIFYING TEST. It must be RED when written and GREEN after
+          TASK-004, and the RED must name FIFTEEN occurrences — 13 extension and 2
+          directory — by file and REAL source line. Run it and PASTE the failure
+          output into the task's completion note before moving on; a scan that is
+          green at authoring time is a scan that is looking in the wrong place, and
+          it must be fixed rather than accepted.
+
+          THE EXPECTED FIFTEEN are enumerated in the census note above (THE TOTAL IS
+          FIFTEEN, NOT ELEVEN). That census was produced by RUNNING this exact scan
+          against HEAD at revision time, so it is a real expectation, not an
+          estimate — but `step_testverify.go` is under active contention and the
+          line numbers have already moved once. If your RED count differs from 15,
+          reconcile it against the source before adjusting anything: a LOWER count
+          probably means the matching rule is wrong (see SHARP EDGE 11), and a
+          HIGHER count probably means a new literal landed and belongs in the fix.
+          Report either as a finding.
+
+          READ pkg/initialize/sourceset_scan_test.go FIRST. It is this repo's
+          established denylist idiom and it already solved the boundary problem.
+          Reuse its non-empty-boundary assertion and its parse call —
+          `parser.ParseFile(fset, path, nil, 0)`, i.e. parsed WITHOUT
+          `parser.ParseComments`, which is what drops the comments (:45). Do not
+          invent a regex over raw bytes.
+
+          DEVIATE FROM IT ON REPORTING ONLY, per SHARP EDGE 10: that file re-prints
+          the AST with go/printer and scans the resulting string, whose line numbers
+          are POST-STRIP and do not match the file on disk (guard one of
+          step_testverify.go is post-strip line 81, real line 120). Instead walk the
+          parsed AST with `ast.Inspect`, take each `*ast.BasicLit` with
+          `Kind == token.STRING`, `strconv.Unquote` its value, and report
+          `fset.Position(lit.Pos()).Line`. Real positions, and comments are excluded
+          structurally because a comment is not a BasicLit — so the canary below
+          still works exactly as described.
+
+          MATCHING RULE, AND IT IS NOT SYMMETRIC (SHARP EDGE 11):
+            extensions  → strings.Contains(unquoted, LayoutFor(k).Extension)
+            directories → unquoted == LayoutFor(k).Directory
+
+          Equality on extensions would MISS FOUR of the thirteen — `".epic.bundle.md"`
+          (twice), `"e2e.spec.md"`, `"zeromatch.spec.md"` are all composed, not bare.
+          Equality is red at HEAD on nine occurrences across five files, so it LOOKS
+          like a working falsifier; fix exactly those nine and it goes green with four
+          occurrences still unconverted across two files (bundle.go, e2e.go). Contains
+          on directories would over-fire. Get this backwards and the falsifying test
+          falsifies most of what it exists to catch.
+
+          THE SCAN SET IS NINE FILES, resolved from the repository root (walk up from
+          the working directory to the directory holding go.mod — see
+          repositoryRoot in pkg/initialize/preserve_test.go for the shape):
+
+            THE SIX THIS PLAN FIXES
+              pkg/gate/step_testverify.go
+              pkg/validate/spec.go
+              pkg/validate/adr.go
+              pkg/validate/bundle.go
+              pkg/validate/supports_resolution.go
+              cmd/backstop/gate_substantiveness_e2e.go
+
+            THE THREE ALREADY-CLEAN CANARIES (SPEC-068 converted these; they are the
+            regression fence AND the comment-stripping canary — all three carry the
+            forbidden literals in DOC COMMENTS and none in code, so a raw-bytes scan
+            fires on them immediately)
+              pkg/validate/resolved_by.go
+              pkg/validate/delivered_by.go
+              pkg/gate/artifact_status.go
+
+          pkg/scaffold/scaffold.go is NOT in the set and must not be added — SPEC-068
+          TASK-019 sanctions its FileExtension entries (SHARP EDGE 5).
+
+          THE DENYLIST IS DERIVED, NOT TYPED (SHARP EDGE 9). Build it by ranging
+          Kinds() and reading LayoutFor(k).Directory and LayoutFor(k).Extension. A
+          hand-written list of seven extensions inside this file would be the eighth
+          copy of the table.
+
+          THREE TESTS:
+
+          (1) TestLayout_NoConsumerCarriesAPrivateArtifactExtensionLiteral (CLM-001,
+              CLM-007) — for each scan-set file, over every string BasicLit, assert
+              no literal CONTAINS LayoutFor(k).Extension for any k in Kinds().
+              Report every hit with file, REAL line and the offending literal; do
+              not stop at the first. Expected RED: 13 hits (see the census).
+              `.epic` is NOT forbidden (SHARP EDGE 2) — it is bundle-schema
+              vocabulary and the denylist derived from Kinds() will not contain it,
+              which is the point of deriving it. Note this means `".epic" +
+              bundleLayout.Extension` composed at runtime is fine while the literal
+              `".epic.bundle.md"` is not, which is exactly the distinction the fix
+              turns on.
+
+          (2) TestLayout_NoConsumerCarriesAPrivateArtifactDirectoryLiteral (CLM-002)
+              — same set, same parse, assert no string BasicLit EQUALS
+              LayoutFor(k).Directory. Equality, not Contains (SHARP EDGE 11).
+              Verified by running it at revision: the only hits in the whole
+              nine-file set are the two `"specs"` in gate_substantiveness_e2e.go
+              (:46, :156) and there are no false positives, so running this over all
+              nine is safe and is stronger than scoping it to one file. Expected
+              RED: 2 hits.
+
+          (3) TestLayout_ConsumerScanBoundaryIsNonEmptyAndEveryScopedPathExists
+              (CLM-007) — assert the scan set is non-empty, assert every path exists
+              on disk naming any that does not, and assert the derived denylist is
+              non-empty. Without this the other two silently pass forever after a
+              rename (SHARP EDGE 8).
+
+          Do NOT edit any production file in this task.
+        files:
+          - pkg/artifact/layout_consumer_scan_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-007
+        depends_on: []
+        test_names:
+          - TestLayout_NoConsumerCarriesAPrivateArtifactExtensionLiteral
+          - TestLayout_NoConsumerCarriesAPrivateArtifactDirectoryLiteral
+          - TestLayout_ConsumerScanBoundaryIsNonEmptyAndEveryScopedPathExists
+
+      - id: TASK-002
+        type: test
+        title: "Behavioral pins for the pkg/gate and pkg/validate swaps"
+        description: |
+          Write the two regression guards that catch a BOTCHED swap. Read the
+          "WHY THE FALSIFYING TEST IS A SOURCE SCAN" note first: these two are GREEN
+          at authoring time and stay green — that is by design, they guard SHARP
+          EDGE 1, not the duplication. Their capacity to go red is proven in
+          TASK-005 by mutation. Do not contort them into false falsification.
+
+          (A) pkg/gate/step_testverify_layout_test.go — package gate.
+
+          READ SHARP EDGE 12 BEFORE WRITING A LINE OF THIS. The fixture CONTENT
+          below is specified rather than left to judgment because a bare decoy set
+          makes this whole guard vacuous — every extractor skips a file it cannot
+          use for reasons unrelated to the extension filter, so `README.md` with no
+          frontmatter changes nothing even when the filter is fully widened, and the
+          test then passes identically with the bug live. Every field below is there
+          to clear a specific downstream filter. Do not trim the fixtures.
+
+          THE STATUS WINDOWS ARE MUTUALLY EXCLUSIVE (verified against
+          step_testverify.go at revision):
+
+            contractsAreDue(s)      ≡  s == "implemented"
+            isTerminalSpecStatus(s) ≡  s ∈ {replaced, canceled, deprecated}
+
+          so `implemented` is NOT terminal, and no single file can feed both
+          CountTerminalSpecs and the other three. Hence TWO real specs.
+
+          BUILD ONE t.TempDir() HOLDING SIX FILES. Every artifact-shaped name is
+          COMPOSED from LayoutFor (never typed):
+
+          ── THE TWO REAL TARGETS (spec-shaped names — these SHOULD be seen) ──
+
+            [R1] "SPEC-900-fixture" + LayoutFor(KindSpec).Extension
+                 status: implemented
+                 implementation.subject: (any stable token)
+                 claims: one claim CLM-901 with tests: [TestFixtureAlpha]
+                 verification.test_command: "go test ./..."
+                 verification.coverage_threshold: 90
+                 contracts: one entry with provides: [one named provide]
+                 → feeds ExtractMandatedTests, ExtractSpecVerifications,
+                   ExtractContractEntries. NOT counted by CountTerminalSpecs.
+
+            [R2] "SPEC-901-terminal" + LayoutFor(KindSpec).Extension
+                 status: deprecated          ← genuinely TERMINAL, verified
+                 claims: one claim with tests: [TestFixtureTerminal]
+                 → the ONLY file CountTerminalSpecs counts. Deliberately carries
+                   mandated tests it must NOT contribute, which additionally pins
+                   the terminal-exclusion behavior of ExtractMandatedTests.
+
+          ── THE FOUR DECOYS (non-spec names — these must NOT be seen) ──
+          Each is SUBSTANTIVE: parseable `---`-delimited frontmatter carrying the
+          fields its target extractor demands. parseSpecFrontmatter reads any file
+          that opens with `---`, regardless of its extension, so a .plan.yml or a
+          .md decoy parses fine — which is exactly why the filter is the only thing
+          standing between these and the output.
+
+            [D1] "PLAN-SPEC-900-fixture" + LayoutFor(KindPlan).Extension
+                 status: implemented
+                 claims: one claim with tests: [TestDecoyPlan]
+                 verification.test_command + coverage_threshold: 90
+                 contracts: one entry with provides: [one named provide]
+                 → if widened, adds to ExtractMandatedTests AND
+                   ExtractSpecVerifications AND ExtractContractEntries.
+
+            [D2] "ADR-0900-fixture" + LayoutFor(KindADR).Extension
+                 status: canceled            ← TERMINAL, and this is the point
+                 → if widened, CountTerminalSpecs goes 1 → 2. THIS DECOY IS THE
+                   ONLY THING THAT MAKES CountTerminalSpecs DISCRIMINATE. An
+                   all-`implemented` fixture set leaves that extractor returning
+                   0 both ways and the guard blind on a quarter of its surface.
+
+            [D3] "README.md"
+                 status: implemented, with test_command + coverage_threshold: 90
+                 and contracts.provides
+                 → a plausible-looking non-artifact file that still would be acted
+                   on if widened. This is the file the SHARP EDGE 1 scenario names
+                   ("ExtractMandatedTests then trying to parse README.md as spec
+                   frontmatter"), so it must actually be parseable to make that
+                   scenario real rather than rhetorical.
+
+            [D4] "notes.txt"
+                 NO frontmatter — genuinely unparseable.
+                 → the honest control. It proves the guard is not accidentally
+                   relying on the unparseable-skip path for its discrimination, and
+                   it is the one decoy that contributes nothing either way. Keep it,
+                   and do NOT let it stand in for D1–D3.
+
+          ASSERT EXACTLY, NOT LOOSELY. Every assertion must be an EQUALITY over the
+          full result, never a "contains the expected one" check — a superset
+          assertion stays green under the widening mutation and re-vacuums the
+          guard. Drive all four extractors over the directory and assert:
+
+            ExtractMandatedTests      → exactly [TestFixtureAlpha]  (R2 terminal-
+                                        excluded, D1/D3 extension-excluded)
+            CountTerminalSpecs        → exactly 1                   (R2 only)
+            ExtractSpecVerifications  → exactly 1 entry, whose File is R1
+            ExtractContractEntries    → exactly R1's provides, by name
+
+          Locate the four functions by NAME; the line numbers in ISSUE-124 are
+          already stale (see the census note).
+
+          THIS IS THE TEST THAT CATCHES SHARP EDGE 1. If the implementer discards
+          LayoutFor's ok and gets a zero-value KindLayout, HasSuffix(name, "") is
+          true for all six files and all four assertions above break at once. Say so
+          in the test's doc comment, and say that the decoys' frontmatter is
+          LOAD-BEARING, so a future reader does not "simplify" them into empty files
+          or collapse the set down to the one spec.
+
+          ── PROVE THE GUARD DISCRIMINATES, HERE, BEFORE ANYTHING DEPENDS ON IT ──
+
+          TestTestVerify_DecoyFixturesWouldChangeEveryExtractorIfWidened (CLM-003).
+
+          A guard nobody has watched go red is a guard nobody has confirmed is
+          wired to anything — and this one is the plan's only defense against its
+          worst failure mode, so it must be proven BEFORE TASK-004 lands, not after.
+          TASK-006's mutation is confirmation; this is the proof, and unlike a
+          mutation it runs on every gate forever.
+
+          Prove it WITHOUT touching production code: build the SAME six fixtures
+          into a second t.TempDir(), but give all four decoys spec-shaped names
+          (append LayoutFor(KindSpec).Extension to each). That directory is exactly
+          what the widened filter would see. Run all four extractors over it and
+          assert every one of the four results DIFFERS from the specs-only run:
+
+            ExtractMandatedTests      more tests than [TestFixtureAlpha]
+            CountTerminalSpecs        2, not 1
+            ExtractSpecVerifications  more than 1 entry
+            ExtractContractEntries    more than R1's provides
+
+          If any of the four comes back IDENTICAL, that decoy is inert and the
+          corresponding quarter of CLM-003 is vacuous — fix the fixture content
+          until it discriminates, and report it. That is a finding, not a
+          formality: an inert decoy means the SHARP EDGE 1 mutation in TASK-006
+          would have passed silently.
+
+          (B) pkg/validate/layout_literals_test.go — package validate (matching
+          resolved_by_layout_test.go, which is `package validate`).
+
+          ★ REACH THE BUNDLE STEM PATH BY CALLING `validateNameFilenameConsistency`
+          DIRECTLY. This file is `package validate`, so the unexported helper is in
+          scope, and NOTHING NEW BECOMES EXPORTED — which is what the "do not export
+          the private helper" rule is actually protecting.
+
+          This is not a stylistic preference, it is the only reachable option, and
+          the reason is worth stating so nobody "simplifies" it back. Measured
+          against the working tree 2026-08-16: `validateNameFilenameConsistency` has
+          EXACTLY ONE caller, `bundle.go:83-85`, and it is gated on `filenameOK` —
+          the filename must already match the schema pattern
+          `^[a-z0-9-]+(\.epic)?\.bundle\.md$` before the stem code runs. Two of the
+          rows below CANNOT get through that gate:
+
+            "foo.epic"              no `.bundle.md` at all → filenameOK=false
+            "BUNDLE-007-baseline…"  uppercase, rejected by `[a-z0-9-]+`
+
+          Driving those through the exported `Bundle()` validator produces a red
+          that is red for a DIFFERENT check (`bundle/filename-pattern`), which
+          cannot distinguish "the stem bug fired" from "an earlier check fired" —
+          i.e. the row would be vacuous, and TASK-006's mutation 2b could not go
+          red at all. Calling the helper directly makes every row below genuinely
+          reachable and genuinely diagnostic. Assert on the returned `[]Violation`
+          (empty means the stem matched `bundle.name`).
+
+          TestValidate_SlugAndStemExtractionAreDerivedFromSharedLayout (CLM-004,
+          CLM-006) — table-driven over extractSpecSlug, extractSlug and
+          validateNameFilenameConsistency, with every input filename COMPOSED from
+          LayoutFor and every expected output written as the bare slug:
+
+            "SPEC-023-my-slug"   + LayoutFor(KindSpec).Extension   → "my-slug"
+            "ADR-0001-my-slug"   + LayoutFor(KindADR).Extension    → "my-slug"
+            "baseline"           + LayoutFor(KindBundle).Extension → "baseline"
+            "baseline.epic"      + LayoutFor(KindBundle).Extension → "baseline"
+            "BUNDLE-007-baseline"+ LayoutFor(KindBundle).Extension → "baseline"
+            "foo.epic"           (NO extension appended)           → "foo.epic"
+
+          The `baseline.epic` row is the SHARP EDGE 2 ORDER pin — the one an
+          implementer who collapses the two branches in the wrong order breaks.
+
+          ★ THE `"foo.epic"` ROW IS THE SHARP EDGE 2 SHORT-CIRCUIT pin, and it is
+          the row that is currently untested anywhere in the repo. It is a filename
+          matching NEITHER branch, so HEAD's if/else leaves it completely untouched
+          and the stem stays `"foo.epic"`. The tempting unconditional-pair rewrite
+          would strip `.epic` and yield `"foo"`. Build a `*artifact.ParsedArtifact`
+          with `Filename: "foo.epic"` and `bundle.name: "foo.epic"`, call
+          `validateNameFilenameConsistency(art)`, and assert it returns NO
+          violations — i.e. that the stem is byte-identical to the input.
+
+          Read SHARP EDGE 2's reachability note before writing this row so the
+          test's doc comment states the truth rather than an overclaim: this
+          divergence is NOT observable through `Bundle()` today, because the schema
+          pattern filters `"foo.epic"` out before the stem code is ever reached, and
+          the fall-through branch is dead in production. The row exists because that
+          harmlessness is an accident of an upstream pattern nothing states or
+          enforces — it is a coupling, not a guarantee. Say that in the comment, and
+          do NOT write "this would emit bundle/name-filename-mismatch today," which
+          is false.
+
+          Include a non-matching filename per extractor asserting the existing `""`
+          return is unchanged. Do NOT export `validateNameFilenameConsistency` (or
+          any other private helper) to make this reachable — the test is in-package
+          and needs no export.
+
+          TestValidate_CitingStatusClassifiesIssuesThroughSharedLayout (CLM-005) —
+          drive citingStatus with (a) an issue filename composed from
+          LayoutFor(KindIssue).Extension carrying `issue.status`, asserting the
+          issue.* block is read, and (b) a spec filename composed from
+          LayoutFor(KindSpec).Extension carrying top-level `status`, asserting
+          metadata is read. Build the *artifact.ParsedArtifact the way
+          supports_resolution_test.go already does.
+
+          Do NOT edit any production file in this task.
+        files:
+          - pkg/gate/step_testverify_layout_test.go
+          - pkg/validate/layout_literals_test.go
+        claims:
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        depends_on: []
+        test_names:
+          - TestTestVerify_SpecDiscoveryAcceptsOnlySpecFilesFromSharedLayout
+          - TestTestVerify_DecoyFixturesWouldChangeEveryExtractorIfWidened
+          - TestValidate_SlugAndStemExtractionAreDerivedFromSharedLayout
+          - TestValidate_CitingStatusClassifiesIssuesThroughSharedLayout
+
+      - id: TASK-003
+        type: test
+        title: "Behavioral pin for the cmd/backstop e2e harness swap"
+        description: |
+          Write cmd/backstop/gate_substantiveness_layout_test.go — package main.
+
+          TestSubstantivenessE2E_WorkspaceSpecPathsComeFromSharedLayout (CLM-002).
+          Call BOTH workspace builders — newE2EWorkspace(t.TempDir()) and
+          newZeroMatchE2EWorkspace(t.TempDir()) — and for each assert:
+
+            - the returned e2eWorkspace.specDir equals
+              artifact.Root{...}.Dir(artifact.KindSpec) computed in the test from the
+              same tmp root, resolved via artifact.ResolveRoot(tmp, "") rather than
+              built as a struct literal (PLAN-SPEC-068's notes at :330 record a
+              Root-literal misuse that cost that lane a round; do not repeat it), and
+            - the spec fixture written into it has a name ending in
+              LayoutFor(KindSpec).Extension, discovered by reading the directory, not
+              by asserting a filename this test typed.
+
+          Both assertions derive from the shared table, so a private literal that
+          drifts from it goes red here. This is a GREEN-at-authoring regression
+          guard — same framing as TASK-002.
+
+          Kept in its own task and its own file rather than folded into TASK-002
+          because it is the only pin in `package main`, and because the two builders
+          are ISSUE-113 siblings whose exact shape four existing test files depend on
+          (see the sibling note at gate_substantiveness_e2e.go:149) — a reviewer needs
+          to see this pin without reading a cross-package file.
+
+          Do NOT edit any production file in this task.
+        files:
+          - cmd/backstop/gate_substantiveness_layout_test.go
+        claims:
+          - CLM-002
+        depends_on: []
+        test_names:
+          - TestSubstantivenessE2E_WorkspaceSpecPathsComeFromSharedLayout
+
+  - id: phase-2
+    name: "Phase 2: GREEN — route every residual literal through the shared authority"
+    tasks:
+      - id: TASK-004
+        type: implementation
+        title: "GREEN: the fifteen residual literals become shared-layout lookups"
+        description: |
+          Edit all six production files in ONE task. Read the sequencing note above
+          for why this is not split into three lanes: TASK-001's scan spans all six
+          and is red until the last one lands.
+
+          LOCATE EVERY SITE BY FUNCTION NAME. Every line number in ISSUE-124 and in
+          this plan was captured 2026-08-16 and step_testverify.go in particular is
+          under active contention — ISSUE-118 and ISSUE-112 both landed in it. If a
+          quoted line does not hold what this plan says it holds, trust the function
+          name and the surrounding prose, and note the drift.
+
+          RULE OF THUMB, from SHARP EDGE 1: use artifact.ClassifyFilename when the
+          question is "is this file kind X"; use LayoutFor(k).Extension only when you
+          need the STRING in order to trim it. NEVER discard LayoutFor's ok with `_`.
+
+          (1) pkg/gate/step_testverify.go — four byte-identical guards, one each in
+              ExtractMandatedTests, CountTerminalSpecs, ExtractSpecVerifications and
+              ExtractContractEntries (NOT two in ExtractSpecVerifications as the issue
+              says). Each is currently
+                if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".spec.md") {
+              Replace with a ClassifyFilename decision, PRESERVING the IsDir guard —
+              a directory named `x.spec.md` must still be skipped. All four functions
+              return an error, so an impossible `ok=false` on the kind lookup returns
+              an error naming the kind rather than skipping silently. Add the
+              pkg/artifact import; pkg/gate already depends on it
+              (artifact_status.go:22), so this adds no edge.
+
+          (2) pkg/validate/spec.go — extractSpecSlug's `suffix := ".spec.md"` becomes
+              the extension from LayoutFor(KindSpec). The `len(suffix)` arithmetic
+              below it is already length-derived and stays. Return "" on ok=false.
+              LEAVE THE DOC COMMENT (`// SPEC-023-my-slug.spec.md → my-slug`) ALONE —
+              it names the literal legitimately and TASK-001's scan reads
+              comment-stripped code precisely so it can survive.
+
+          (3) pkg/validate/adr.go — extractSlug. TWO edits, not one:
+                :159  strings.HasSuffix(rest, ".adr.md")  → the shared extension
+                :160  rest[:len(rest)-7]                  → len(adrLayout.Extension)
+              The second is SHARP EDGE 3 — the magic 7 is a private copy of
+              len(".adr.md") that no string scan can see, and leaving it is a
+              half-fix. Return "" on ok=false. Leave both doc comments alone.
+
+          (4) pkg/validate/bundle.go — FOUR literal occurrences at :275-278, not one
+              (`.epic.bundle.md` on :275 AND :276, `.bundle.md` on :277 AND :278).
+
+              ★ KEEP THE IF/ELSE. Do NOT collapse the two branches into an
+              unconditional pair of TrimSuffix calls — that is not
+              behavior-preserving and CLM-004's byte-identical promise fails on it.
+              A filename matching neither branch (`"foo.epic"`) falls through
+              untouched at HEAD; the collapsed form would strip `.epic` and change
+              the validator's verdict. SHARP EDGE 2 gives the exact shape to write:
+              compose `epicSuffix := ".epic" + bundleLayout.Extension`, then the
+              same two branches in the same order testing and trimming
+              `epicSuffix` / `bundleLayout.Extension`.
+
+              The ".epic" literal STAYS — it is schema vocabulary from
+              artifacts/bundle/v1/schema.json:9, not layout — and because
+              `epicSuffix` is COMPOSED from the table rather than written out, the
+              TASK-001 scan goes green on all four occurrences. On ok=false leave
+              stem untouched and let the existing bundle/name-filename-mismatch
+              violation fire; invent no new rule. Verify the BUNDLE-NNN- prefix
+              strip below it is unaffected, and check the `"foo.epic"` row from
+              TASK-002 specifically.
+
+          (5) pkg/validate/supports_resolution.go — citingStatus's
+              `strings.HasSuffix(art.Filename, ".issue.md")` becomes a
+              ClassifyFilename test for KindIssue. This is the cleanest
+              ClassifyFilename fit in the whole change: the bool IS the answer, so
+              there is no zero-value hazard at all.
+
+          (6) cmd/backstop/gate_substantiveness_e2e.go — FOUR sites across TWO
+              builders, not the one the issue's line number implies:
+                newE2EWorkspace          — filepath.Join(tmp, "specs") and "e2e.spec.md"
+                newZeroMatchE2EWorkspace — filepath.Join(tmp, "specs") and "zeromatch.spec.md"
+              Directories resolve through artifact.ResolveRoot(tmp, "") then
+              Root.Dir(artifact.KindSpec) — NOT a hand-built artifact.Root struct
+              literal. Fixture filenames compose their stem with
+              LayoutFor(KindSpec).Extension. Both builders return an error, so
+              ok=false returns an error. Do NOT change either builder's SIGNATURE or
+              the e2eWorkspace struct — four call sites in
+              gate_substantiveness_e2e_test.go depend on their exact current shape
+              (stated at :149).
+
+          DO NOT TOUCH: pkg/scaffold/scaffold.go (SHARP EDGE 5), any `_test.go` file
+          (SHARP EDGE 4), pkg/artifact/layout.go itself (no new accessor — SHARP
+          EDGE 6), or any doc comment naming these literals (they are the TASK-001
+          canary).
+
+          When done, all four tests from phase 1 plus the three scan tests are green,
+          and the full pkg/gate, pkg/validate and cmd/backstop suites are unchanged.
+        files:
+          - pkg/gate/step_testverify.go
+          - pkg/validate/spec.go
+          - pkg/validate/adr.go
+          - pkg/validate/bundle.go
+          - pkg/validate/supports_resolution.go
+          - cmd/backstop/gate_substantiveness_e2e.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-001
+          - TASK-002
+          - TASK-003
+
+      - id: TASK-005
+        type: verification
+        title: "Diff-scoped gate over the converted files"
+        description: |
+          Run `backstop gate` (bare — diff-scoped against the merge base plus
+          untracked, which covers all six edited production files and all four new
+          test files) and read the result.
+
+          Then confirm the transition this plan exists to produce, by running the
+          project test command and checking that the three TASK-001 scan tests, which
+          were RED at authoring, are now GREEN:
+
+            go test ./pkg/artifact/ ./pkg/gate/ ./pkg/validate/ ./cmd/backstop/ -count=1
+
+          The full suites, not just the -run filter — the point is that no validator
+          verdict, no gate step and no e2e harness moved. Any newly-failing test
+          outside the four new files is a REAL behavioral delta from a swap that was
+          supposed to have none: stop and report it rather than adjusting the test.
+
+          Do not prescribe or run `go test`, `golangci-lint` or `go vet` as gate
+          substitutes, and do not reach for `backstop code check` — that command was
+          removed and its absence is test-asserted.
+        files:
+          - pkg/gate/step_testverify.go
+          - pkg/validate/spec.go
+          - pkg/validate/adr.go
+          - pkg/validate/bundle.go
+          - pkg/validate/supports_resolution.go
+          - cmd/backstop/gate_substantiveness_e2e.go
+          - pkg/artifact/layout_consumer_scan_test.go
+          - pkg/gate/step_testverify_layout_test.go
+          - pkg/validate/layout_literals_test.go
+          - cmd/backstop/gate_substantiveness_layout_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-007
+        depends_on:
+          - TASK-004
+
+  - id: phase-3
+    name: "Phase 3: Falsification receipt and the full kill chain"
+    tasks:
+      - id: TASK-006
+        type: verification
+        title: "Falsification: prove every guard can go red, by mutation"
+        description: |
+          The regression guards in TASK-002 and TASK-003 are green on both sides of
+          this change by construction. This task is where they earn their place. A
+          guard never observed red is a guard nobody has confirmed is wired to
+          anything.
+
+          Run FOUR mutations. After each, record the exact test names that failed and
+          the assertion message, then REVERT the mutation completely before the next
+          one. Nothing from this task may survive into the diff.
+
+          ★ VERIFY THE REVERT FILE BY FILE, NOT TREE-WIDE. Run `git diff` scoped to
+          THIS PLAN'S OWN TEN FILES ONLY and confirm each matches its state at the
+          end of TASK-004:
+
+            git diff -- pkg/gate/step_testverify.go pkg/validate/spec.go \
+              pkg/validate/adr.go pkg/validate/bundle.go \
+              pkg/validate/supports_resolution.go \
+              cmd/backstop/gate_substantiveness_e2e.go \
+              pkg/artifact/layout_consumer_scan_test.go \
+              pkg/gate/step_testverify_layout_test.go \
+              pkg/validate/layout_literals_test.go \
+              cmd/backstop/gate_substantiveness_layout_test.go
+
+          A bare tree-wide `git diff` is USELESS here and actively dangerous to act
+          on: other plans are implementing concurrently in this same tree, so it is
+          dominated by unrelated in-flight work. Revert ONLY by editing the specific
+          mutation back out. NO `git stash`, NO `git checkout`/`restore`, NO
+          `git clean` — those reach beyond this lane and destroy another agent's
+          uncommitted work.
+
+          (1) SHARP EDGE 1 — THE ONE THAT MATTERS. Apply the mutation to ALL FOUR
+              step_testverify.go guards at once: replace each ClassifyFilename
+              decision with an unchecked `layout, _ := artifact.LayoutFor(...)` +
+              `strings.HasSuffix(entry.Name(), layout.Extension)` AND force the kind
+              to an unrecognized value so ok is false and Extension is "". All four
+              together, because the four extractors are independently filtered and a
+              single-guard mutation only exercises one quarter of the claim.
+
+              EXPECT: TestTestVerify_SpecDiscoveryAcceptsOnlySpecFilesFromSharedLayout
+              fails on ALL FOUR of its assertions — the mandated-test set gains the
+              decoys' tests, CountTerminalSpecs reports 2 instead of 1,
+              ExtractSpecVerifications reports more than one entry, and
+              ExtractContractEntries gains the decoys' provides.
+
+              This should ALREADY be known to work: TASK-002's
+              TestTestVerify_DecoyFixturesWouldChangeEveryExtractorIfWidened proved
+              in phase 1, before any production edit, that this exact widening
+              changes every one of the four outputs. This mutation is the
+              end-to-end confirmation on the real code path. If any of the four
+              assertions PASSES here while the phase-1 proof passed, the two tests
+              disagree about the same fixtures and that discrepancy is a blocking
+              finding — do not reconcile it by relaxing either test.
+
+          (2) SHARP EDGE 2, ORDER. Swap the two BRANCHES in bundle.go so the bare
+              bundle extension is tested before `epicSuffix`.
+              EXPECT: TestValidate_SlugAndStemExtractionAreDerivedFromSharedLayout
+              fails on the `baseline.epic` row ONLY (it would trim to
+              `"baseline.epic"`), with every other row green. A blanket failure
+              means the table is not isolating the case.
+
+          (2b) SHARP EDGE 2, SHORT-CIRCUIT. Collapse the if/else into the
+              unconditional pair the sharp edge warns against:
+                  stem = strings.TrimSuffix(art.Filename, bundleLayout.Extension)
+                  stem = strings.TrimSuffix(stem, ".epic")
+              EXPECT: the same test fails on the `"foo.epic"` row ONLY — the input
+              matching NEITHER suffix, which HEAD leaves untouched and this form
+              rewrites to `"foo"`. Every other row stays green, because for inputs
+              that DO match a branch the collapsed form is equivalent.
+
+              This is the mutation that matters most in the bundle lane: the
+              collapsed form is the one a reasonable implementer writes, it passes
+              every pre-existing bundle test, and `"foo.epic"` is the only input in
+              the repo that distinguishes it.
+
+              ★ THIS MUTATION IS ONLY REACHABLE BECAUSE TASK-002 CALLS
+              `validateNameFilenameConsistency` DIRECTLY. Through the exported
+              `Bundle()` validator it could not go red at all — `Bundle()` gates
+              that helper on `filenameOK`, and `"foo.epic"` fails the schema
+              filename pattern first, so the collapsed form is never reached. If
+              the red you observe here is a `bundle/filename-pattern` violation
+              rather than the stem row's own assertion, the test was written
+              against the exported path: that is the defect, fix the test to call
+              the helper directly rather than accepting the red. If the row does
+              not go red at all, the short-circuit is unpinned — a blocking
+              finding.
+
+          (3) SHARP EDGE 3. Restore adr.go's `rest[:len(rest)-7]` while leaving the
+              HasSuffix call converted, then ALSO try `len(rest)-6`.
+              EXPECT: the `-7` form stays GREEN (it is numerically correct today —
+              this is the whole reason a string scan cannot see it, and confirming it
+              is the point), and `-6` fails the ADR row. Record both outcomes. This
+              documents precisely why CLM-004 pins length-derivation behaviorally
+              instead of relying on TASK-001.
+
+          (4) CLM-007. Add a non-existent path to TASK-001's scan set, then separately
+              revert ONE converted site in any scanned file.
+              EXPECT: the bad path fails
+              TestLayout_ConsumerScanBoundaryIsNonEmptyAndEveryScopedPathExists naming
+              the missing file, and the reverted literal fails
+              TestLayout_NoConsumerCarriesAPrivateArtifactExtensionLiteral naming the
+              file and line. Then, as the comment-stripping canary check, confirm the
+              three already-clean files (resolved_by.go, delivered_by.go,
+              artifact_status.go) stay GREEN throughout despite their doc comments
+              carrying the forbidden literals — that is the assertion that the scan
+              reads stripped code and not raw bytes.
+
+          Report every result, including any that came back other than expected. A
+          mutation that does not produce its predicted red is a finding to surface,
+          not something to quietly reconcile.
+        files:
+          - pkg/gate/step_testverify.go
+          - pkg/validate/adr.go
+          - pkg/validate/bundle.go
+          - pkg/artifact/layout_consumer_scan_test.go
+          - pkg/gate/step_testverify_layout_test.go
+          - pkg/validate/layout_literals_test.go
+        claims:
+          - CLM-003
+          - CLM-004
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-004
+          - TASK-005
+
+      - id: TASK-007
+        type: verification
+        title: "Full kill chain: backstop gate --all plus artifact validation"
+        description: |
+          The unscoped sweep. Run, in order, and read each result rather than
+          asserting it:
+
+            ./bin/backstop gate --all
+            ./bin/backstop artifact validate --plan PLAN-ISSUE-124
+            ./bin/backstop artifact validate --issue ISSUE-124
+
+          `gate --all` is required rather than the diff-scoped run from TASK-005
+          because this change edits the gate's OWN spec-discovery path
+          (step_testverify.go feeds test_verification, substantiveness and contracts)
+          and a diff-scoped run cannot show that the full corpus still discovers the
+          same specs it did before.
+
+          COMPARE AGAINST TASK-001'S RECORDED BASELINE — the pre-change `gate --all`
+          numbers captured in that task's completion note at STEP 0, before any
+          production file was edited. That capture exists precisely because by the
+          time this task runs there is no pre-change state left in the tree to
+          re-derive it from. Diff, field by field:
+
+            - specs/ corpus count and terminal-spec count  → must be IDENTICAL
+            - test_verification, substantiveness, contracts → same verdict, same
+              counts
+
+          If TASK-001's note has no baseline recorded, STOP: this task's central
+          assertion cannot be made, and inventing a comparison after the fact is
+          exactly the false grounding this plan is trying to avoid. Report it, and
+          reconstruct the baseline in a SEPARATE `git worktree` or a fresh clone at
+          the merge base — never by cleaning, stashing, or checking out over this
+          working tree, which carries other lanes' uncommitted work. Do not assert
+          the numbers are fine without a real second side.
+
+          Compare LIKE FOR LIKE, not against green — a dimension that was already
+          red at baseline and is red the same way now is UNCHANGED and is not this
+          lane's finding. If the spec count moved, the swap changed discovery and
+          that IS a blocking finding.
+
+          The artifact validations are required because this plan is itself an
+          artifact and the lane closes against ISSUE-124.
+
+          NO WAIVERS. Nothing in this change can legitimately need one: it introduces
+          no new construct, only removes duplicated literals. If a dimension goes red,
+          fix the cause. If a red comes from a PACK RULE misfiring on the new
+          LayoutFor call shape, that is a pack fix plus an interim waiver with a
+          filed issue — never a silent token, and never a weakened test.
+
+          If the run surfaces anything outside this lane's scope, file it rather than
+          folding it in.
+        files:
+          - plans/PLAN-ISSUE-124-artifact-extension-literals-residual.plan.yml
+          - issues/ISSUE-124-residual-hardcoded-artifact-extension-literals.issue.md
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-004
+          - TASK-006
