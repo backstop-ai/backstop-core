@@ -90,7 +90,14 @@ The cluster's variants, so a planner does not read it as one uniform bug:
   execution, a false-RED on non-Go files, a fail-open waiver keyed to a
   renamed namespace, severity-blind tallies, a severity-discarding join, a
   silent-pass on a missing engine tool, and a mass of fabricated violations
-  from an empty classification set.
+  from an empty classification set. **Item 15 (140) belongs in this bucket
+  too, and is not a new variant — it is the SAME defect as item 9
+  (silent-pass on a broken engine run) on a second command surface** (`pack
+  test`/`pack check` phase3, rather than the gate dispatch path item 9
+  fixed). That makes it notable rather than redundant: the bucket now
+  contains a member whose existence proves item 9's fix was surface-local,
+  not root-caused — the narrow `*exec.Error`-only check item 9 fixed on one
+  path was left unwidened on the sibling path it was copied from.
 - **Items 11 and 12 (114, 118)** are the *starvation* variant: neither
   mis-reports a verdict it computed (that's items 4-10) — each never
   computes anything at all for its trigger. Item 11 starves on an entire
@@ -373,6 +380,13 @@ The cluster's variants, so a planner does not read it as one uniform bug:
    finding-free, so an exec-not-found error is indistinguishable from a
    clean scan — even though `pkg/packval`'s executor already fails loud on
    exactly this error class, giving the fix an in-tree precedent to copy.
+   **Correction (2026-08-16):** that parenthetical is FALSE in the path-ful
+   case, and item 15 (ISSUE-140) is exactly its falsification — the packval
+   precedent was real only for the BARE-NAME (`*exec.Error`) shape. The
+   widened gate predicate this item produced, `runNeverStarted`, documents
+   in its own doc comment that it is "deliberately WIDER than packval's
+   *exec.Error-only check," and packval's own seed was never widened to
+   match. See item 15 for the residual.
    Direction: presence-check provision-pinned tools exactly like
    assume-present ones (fail loud, naming the tool and the install
    expectation, or implement provisioning); make any `*exec.Error`-class
