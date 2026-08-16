@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"testing"
 
 	"github.com/backstop-ai/backstop-core/pkg/gate"
@@ -30,6 +31,15 @@ func TestExemption_EnginePathStampsProjectWideFromExemptProperty(t *testing.T) {
 			t.Fatalf("go-build (exempt=true) violation %q (%s) must arrive with ProjectWide=true via the declared bridge (CLM-012)", v.Message, v.File)
 		}
 	}
+	// The stamp is only a bridge if the REAL gate scope decision READS it. Drive the
+	// dispatched violations through gate.StepCodeCheckScopedFunc under a diff scope
+	// holding NONE of their files: EVERY one must survive, since the ProjectWide
+	// stamp is the only thing keeping it — the per-violation half of the claim, which
+	// a "some survived" check would not catch.
+	step := gate.StepCodeCheckScopedFunc(&fixedChecker{violations: violations}, diffScope("/repo", "cmd/unrelated.go"))
+	if kept := step(context.Background()).Violations; len(kept) != len(violations) {
+		t.Fatalf("every stamped go-build violation must survive diff-scope filtering on its stamp alone (CLM-012); kept %d of %d", len(kept), len(violations))
+	}
 }
 
 // TestExemption_BuildBreakUnchangedFileStillRedsDiffScoped proves a go-build break
@@ -51,8 +61,8 @@ func TestExemption_BuildBreakUnchangedFileStillRedsDiffScoped(t *testing.T) {
 	// Diff scope contains ONLY an unrelated changed file — none of the breaking
 	// files (pkg/widget, pkg/gadget) are in scope.
 	scope := diffScope("/repo", "cmd/main.go")
-	survived := filterThroughGate(t, scope, violations)
-	if len(survived) == 0 {
+	step := gate.StepCodeCheckScopedFunc(&fixedChecker{violations: violations}, scope)
+	if survived := step(context.Background()).Violations; len(survived) == 0 {
 		t.Fatal("an unchanged-file go-build break must SURVIVE diff-scope filtering end-to-end via ProjectWide (CLM-013)")
 	}
 }
@@ -78,14 +88,21 @@ func TestExemption_LintViolationUnchangedFileIsFiltered(t *testing.T) {
 			t.Fatalf("golangci violation %q must NOT be ProjectWide (exempt=false) (CLM-014)", v.Message)
 		}
 	}
-	assertAllFilteredWhenUnchanged(t, violations, "CLM-014")
+	// A diff scope over an unrelated changed file: none of the violation files are in it.
+	step := gate.StepCodeCheckScopedFunc(&fixedChecker{violations: violations}, diffScope("/repo", "cmd/unrelated.go"))
+	if survived := step(context.Background()).Violations; len(survived) != 0 {
+		t.Fatalf("non-exempt unchanged-file lint violations must be filtered out end-to-end, %d survived (CLM-014): %#v", len(survived), survived)
+	}
 }
 
-// TestExemption_TestViolationUnchangedFileIsFiltered proves a go-test violation in
-// an UNCHANGED file IS scope-filtered out — exempt_from_scope_filter is false for
-// go-test, so ProjectWide is false and the unchanged-file violation is dropped
-// (SPEC-041 CLM-015).
-func TestExemption_TestViolationUnchangedFileIsFiltered(t *testing.T) {
+// TestExemption_TestFailureUnchangedFileStillRedsDiffScoped proves a go-test failure
+// in an UNCHANGED file still REDs a diff-scoped gate END-TO-END through the REAL
+// filterViolations (pkg/gate/scope.go) because ProjectWide is set —
+// exempt_from_scope_filter is true for go-test, exactly as it is for go-build, so a
+// whole-module test failure is never silently discarded because the failing test's
+// file sits outside the diff (SPEC-041 CLM-015; ISSUE-129). Structural twin of
+// TestExemption_BuildBreakUnchangedFileStillRedsDiffScoped.
+func TestExemption_TestFailureUnchangedFileStillRedsDiffScoped(t *testing.T) {
 	m := onlyRules(goToolchainManifest(t), "go-test")
 	stubSandboxedRunStdout(t, nil)
 	runner := &fixtureRunner{byCmd: map[string][]byte{"go test": readFixture(t, "go-test-failures.txt")}}
@@ -98,11 +115,17 @@ func TestExemption_TestViolationUnchangedFileIsFiltered(t *testing.T) {
 		t.Fatal("expected test violations")
 	}
 	for _, v := range violations {
-		if v.ProjectWide {
-			t.Fatalf("go-test violation %q must NOT be ProjectWide (exempt=false) (CLM-015)", v.Message)
+		if !v.ProjectWide {
+			t.Fatalf("go-test (exempt=true) violation %q (%s) must arrive with ProjectWide=true via the declared bridge (CLM-015)", v.Message, v.File)
 		}
 	}
-	assertAllFilteredWhenUnchanged(t, violations, "CLM-015")
+	// Diff scope contains ONLY an unrelated changed file — none of the failing test
+	// files are in scope.
+	scope := diffScope("/repo", "cmd/main.go")
+	step := gate.StepCodeCheckScopedFunc(&fixedChecker{violations: violations}, scope)
+	if survived := step(context.Background()).Violations; len(survived) == 0 {
+		t.Fatal("an unchanged-file go-test failure must SURVIVE diff-scope filtering end-to-end via ProjectWide (CLM-015)")
+	}
 }
 
 // TestExemption_FindingsViolationUnchangedFileIsFiltered proves a findings
@@ -131,18 +154,9 @@ func TestExemption_FindingsViolationUnchangedFileIsFiltered(t *testing.T) {
 			t.Fatalf("findings violation %q must NOT be ProjectWide (exempt false/unset) (CLM-016)", v.Message)
 		}
 	}
-	assertAllFilteredWhenUnchanged(t, violations, "CLM-016")
-}
-
-// assertAllFilteredWhenUnchanged drives the violations through the REAL
-// filterViolations with a diff scope that contains NONE of their files, asserting
-// every non-exempt violation is dropped (the scope-filter half of the matrix).
-func assertAllFilteredWhenUnchanged(t *testing.T, violations []gate.Violation, clm string) {
-	t.Helper()
 	// A diff scope over an unrelated changed file: none of the violation files are in it.
-	scope := diffScope("/repo", "cmd/unrelated.go")
-	survived := filterThroughGate(t, scope, violations)
-	if len(survived) != 0 {
-		t.Fatalf("non-exempt unchanged-file violations must be filtered out end-to-end, %d survived (%s): %#v", len(survived), clm, survived)
+	step := gate.StepCodeCheckScopedFunc(&fixedChecker{violations: violations}, diffScope("/repo", "cmd/unrelated.go"))
+	if survived := step(context.Background()).Violations; len(survived) != 0 {
+		t.Fatalf("non-exempt unchanged-file findings violations must be filtered out end-to-end, %d survived (CLM-016): %#v", len(survived), survived)
 	}
 }

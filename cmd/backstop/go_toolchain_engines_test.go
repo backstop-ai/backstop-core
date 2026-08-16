@@ -142,10 +142,10 @@ func goToolchainBinding(t *testing.T, m *pack.Manifest, name string) engine.Engi
 // TestExemption_BindingDeclaresExemptFromScopeFilterDecoupledFromScopeKind proves the
 // EngineBinding's exempt_from_scope_filter property is DECOUPLED from ScopeKind,
 // asserted against the DECLARED binding records of the real go-toolchain pack (not a
-// struct literal): go-build declares it true while golangci(lint) and go-test declare
-// it false/unset — even though all three share ScopeKindProjectWide. Same ScopeKind,
-// divergent exempt values ⇒ ScopeKind does not drive the exempt decision (SPEC-041
-// CLM-011).
+// struct literal): go-build AND go-test declare it true while golangci(lint) declares
+// it false/unset — even though all three share ScopeKindProjectWide. golangci is the
+// non-exempt engine that carries the decoupling proof: same ScopeKind, divergent
+// exempt values ⇒ ScopeKind does not drive the exempt decision (SPEC-041 CLM-011).
 func TestExemption_BindingDeclaresExemptFromScopeFilterDecoupledFromScopeKind(t *testing.T) {
 	// Assert against the go-toolchain pack's DECLARED bindings, parsed from its
 	// manifest — the exempt/scope-kind values are pack DATA (pkg/pack), read into
@@ -165,8 +165,8 @@ func TestExemption_BindingDeclaresExemptFromScopeFilterDecoupledFromScopeKind(t 
 	if lint.ExemptFromScopeFilter {
 		t.Errorf("golangci declared binding must leave exempt_from_scope_filter false/unset, got true")
 	}
-	if test.ExemptFromScopeFilter {
-		t.Errorf("go-test declared binding must leave exempt_from_scope_filter false/unset, got true")
+	if !test.ExemptFromScopeFilter {
+		t.Errorf("go-test declared binding must set exempt_from_scope_filter:true (ISSUE-129), got false")
 	}
 
 	// Decoupling is observable ONLY when the exempt values diverge while ScopeKind
@@ -182,8 +182,8 @@ func TestExemption_BindingDeclaresExemptFromScopeFilterDecoupledFromScopeKind(t 
 	if build.ExemptFromScopeFilter == lint.ExemptFromScopeFilter {
 		t.Errorf("exempt decision must be DECOUPLED from ScopeKind: go-build(%v) and golangci(%v) share ScopeKindProjectWide yet must diverge on exempt", build.ExemptFromScopeFilter, lint.ExemptFromScopeFilter)
 	}
-	if build.ExemptFromScopeFilter == test.ExemptFromScopeFilter {
-		t.Errorf("exempt decision must be DECOUPLED from ScopeKind: go-build(%v) and go-test(%v) share ScopeKindProjectWide yet must diverge on exempt", build.ExemptFromScopeFilter, test.ExemptFromScopeFilter)
+	if test.ExemptFromScopeFilter == lint.ExemptFromScopeFilter {
+		t.Errorf("exempt decision must be DECOUPLED from ScopeKind: go-test(%v) and golangci(%v) share ScopeKindProjectWide yet must diverge on exempt", test.ExemptFromScopeFilter, lint.ExemptFromScopeFilter)
 	}
 }
 
@@ -191,10 +191,11 @@ func TestExemption_BindingDeclaresExemptFromScopeFilterDecoupledFromScopeKind(t 
 // arg-shaping-only and is NOT consulted for the exempt/ProjectWide decision. All three
 // declared go-toolchain bindings (go-build, golangci, go-test) remain
 // ScopeKindProjectWide AND each still declares its `./...` ProjectTarget (the
-// arg-shaping role ScopeKind actually plays) — yet ONLY go-build is
-// exempt_from_scope_filter. A single ScopeKind value maps to BOTH exempt and
-// non-exempt bindings, so ScopeKind cannot be the input to the exempt decision
-// (SPEC-041 CLM-017).
+// arg-shaping role ScopeKind actually plays) — yet go-build and go-test are
+// exempt_from_scope_filter while golangci is NOT. A single ScopeKind value maps to
+// BOTH exempt and non-exempt bindings, so ScopeKind cannot be the input to the exempt
+// decision; golangci is the project-wide-scope engine that keeps that proof
+// observable after go-test flipped for ISSUE-129 (SPEC-041 CLM-017).
 func TestExemption_ScopeKindDecoupledFromExemptDecision(t *testing.T) {
 	// Assert against the go-toolchain pack's DECLARED bindings, parsed from its
 	// manifest — ScopeKind/ProjectTarget/exempt are pack DATA (pkg/pack).
@@ -220,14 +221,17 @@ func TestExemption_ScopeKindDecoupledFromExemptDecision(t *testing.T) {
 		}
 	}
 
-	// Only go-build is exempt. Since all three share ScopeKindProjectWide, the exempt
-	// decision demonstrably does NOT read ScopeKind: identical ScopeKind, divergent
-	// exempt. If ScopeKind drove exemption, golangci and go-test (also ProjectWide)
-	// would be exempt too.
+	// go-build and go-test are exempt; golangci is not. Since all three share
+	// ScopeKindProjectWide, the exempt decision demonstrably does NOT read ScopeKind:
+	// identical ScopeKind, divergent exempt. If ScopeKind drove exemption, golangci
+	// (also ProjectWide) would be exempt too.
 	if !build.ExemptFromScopeFilter {
 		t.Errorf("go-build must be exempt_from_scope_filter, got false")
 	}
-	if lint.ExemptFromScopeFilter || test.ExemptFromScopeFilter {
-		t.Errorf("ScopeKind must NOT be consulted for the exempt decision: golangci(exempt=%v)/go-test(exempt=%v) share go-build's ScopeKindProjectWide yet must stay non-exempt", lint.ExemptFromScopeFilter, test.ExemptFromScopeFilter)
+	if !test.ExemptFromScopeFilter {
+		t.Errorf("go-test must be exempt_from_scope_filter (ISSUE-129), got false")
+	}
+	if lint.ExemptFromScopeFilter {
+		t.Errorf("ScopeKind must NOT be consulted for the exempt decision: golangci(exempt=%v) shares go-build's and go-test's ScopeKindProjectWide yet must stay non-exempt — it is what keeps the decoupling observable", lint.ExemptFromScopeFilter)
 	}
 }

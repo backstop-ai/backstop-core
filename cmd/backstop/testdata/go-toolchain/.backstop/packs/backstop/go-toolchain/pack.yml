@@ -74,6 +74,12 @@ engines:
   # Test: findings engine. `go test ./...` stdout normalized to SARIF by the pack
   # convert script (parseGoTestFailures relocated, DD-2). PackageScoped runs it per
   # Go package. Declared as pack DATA, not a baked binding (ISSUE-027).
+  # ExemptFromScopeFilter stamps test violations project-wide for the same
+  # whole-module reason go-build carries it (ISSUE-129): a `go test ./...` suite's
+  # failures routinely originate in a file the change did not touch, and a failing
+  # test is a binary correctness signal with no soft failure mode, so an
+  # unchanged-file test failure must still RED a diff-scoped gate rather than being
+  # silently discarded by diff-scope filtering.
   go-test:
     command: go test
     input_mode: none
@@ -84,6 +90,7 @@ engines:
     category: mechanism
     gate_type: test
     package_scoped: true
+    exempt_from_scope_filter: true
   # Lint: golangci-lint v2 as a config-file engine on native SARIF (no converter;
   # v2 emits SARIF on stdout). The pack-owned .golangci.yml is the optional config.
   # strict_sarif keys the strict-SARIF shape guard off THIS flag, not a name sniff.

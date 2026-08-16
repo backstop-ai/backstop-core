@@ -56,10 +56,10 @@ packs:
         source_type: git
         version: 1.2.0
     backstop-ai/go-toolchain:
-        content_hash: 8aa1e0235f207b93a11af9b63aae74acd181e8fc74717b32acc9d6e840d5d787
-        git_ref: v1.3.0
-        install_date: 2026-07-28T18:48:21Z
+        content_hash: 73c839d583f2625d744e48a26e3a64243584e34cb29f07de95dce2ca995a3f60
+        git_ref: v1.4.0
+        install_date: 2026-08-16T13:25:09Z
         name: backstop-ai/go-toolchain
         source_coordinate: backstop-ai/go-toolchain
         source_type: git
-        version: 1.3.0
+        version: 1.4.0

@@ -7,14 +7,16 @@
 #
 #   go-build  -> exempt_from_scope_filter: true   (ProjectWide -> unchanged-file break still REDs)
 #   golangci  -> exempt_from_scope_filter: false  (unchanged-file lint violation filtered)
-#   go-test   -> exempt_from_scope_filter: false  (unchanged-file test violation filtered)
+#   go-test   -> exempt_from_scope_filter: true   (ProjectWide -> unchanged-file test failure still REDs, ISSUE-129)
 #   findings  -> exempt_from_scope_filter: false  (unchanged-file finding filtered)
 #
 # These are reference declarations mirroring the in-memory bindings the helper
 # constructs (exempt_test_helpers_test.go); the helper is the source of truth
 # the matrix tests drive, this file documents the matrix. ScopeKind stays
 # project-wide for all three Go engines (arg-shaping) and is DECOUPLED from the
-# exempt decision (CLM-017).
+# exempt decision (CLM-017): golangci is the project-wide-scope engine that stays
+# NON-exempt, so one ScopeKind value still maps to BOTH exempt and non-exempt
+# bindings after go-test flipped for ISSUE-129.
 engines:
   go-build:
     command: go build
@@ -39,7 +41,7 @@ engines:
     scope_kind: project-wide
     project_target: "./..."
     gate_type: test
-    exempt_from_scope_filter: false
+    exempt_from_scope_filter: true
   findings:
     command: semgrep --sarif --quiet
     input_mode: rule-flags
