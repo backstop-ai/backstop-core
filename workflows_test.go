@@ -1057,11 +1057,15 @@ func TestCIWorkflow_LeavesNoUngitignoredDroppings(t *testing.T) {
 	}
 
 	// Artifacts the blocking job's own steps write into the workspace. Each MUST be
-	// gitignored or the gate blocks on a file CI created seconds earlier.
+	// gitignored or the gate blocks on a file CI created seconds earlier. cover.out's
+	// pattern is root-anchored (/cover.out, ISSUE-fixed alongside the testdata/init-
+	// toolchain/bin/ and testdata/go-toolchain-coverage/ fixture collision a bare
+	// `cover.out` pattern was also swallowing) — the anchor still covers the repo-root
+	// file CI produces, so the check below matches the real, current pattern string.
 	for artifact, producedBy := range map[string]string{
 		"ast-grep.zip":     "the provisioned-engine-tools download",
 		"gate-report.json": "the diagnostic --json capture step",
-		"cover.out":        "the go-toolchain pack's coverage producer",
+		"/cover.out":       "the go-toolchain pack's coverage producer",
 	} {
 		if !patterns[artifact] {
 			t.Errorf(".gitignore does not cover %q, written by %s. Diff scope includes untracked files, so "+
