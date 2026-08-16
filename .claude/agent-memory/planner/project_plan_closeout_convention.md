@@ -32,7 +32,21 @@ information an AS-BUILT DELTAS section exists to record.
   shipped and then corrected. Establish what the plan said BEFORE implementation with
   `git show <the plan's own commit>`, and if the batch message is misleadable, put an
   explicit "CORRECTION FOR THE RECORD" paragraph at the TOP of the banner naming what
-  never reached the tree. (PLAN-ISSUE-113 vs batch commit 4dbf64b, 2026-08-16.)
+  never reached the tree. (PLAN-ISSUE-113 vs batch commit 4dbf64b, 2026-08-16; hit AGAIN
+  same day on PLAN-ISSUE-112 in the SAME commit — its message reads "widened the check
+  from *exec.Error-only", which sounds like a repair but describes a DIFFERENT package's
+  pre-existing code; the plan commit proved the wide predicate was mandated up front.)
+  Also enumerate the lane's OWN files in the banner: a batch commit's diff is not your
+  lane's diff, and a future reader `git show`ing it will otherwise mis-attribute the
+  other lanes' files to your plan.
+- **A plan close-out edit is uncommitted when you finish, and it must land in the SAME
+  commit as the sibling issue/spec close.** A parallel issue-author closing the source
+  artifact runs a closed-requires-traceability check; if it reads HEAD rather than the
+  working tree it sees `draft` and false-negatives, and committing the issue alone leaves
+  HEAD carrying a closed issue pointing at a draft plan. Say so explicitly when you
+  report — and do NOT commit it yourself when other lanes are live in the tree, since a
+  broad `git add` sweeps their uncommitted work ([[feedback_git_stash_shared_tree_hazard]]
+  is the same hazard by a different verb). Stage the one plan path or hand it to the lead.
 - Close with `./bin/backstop artifact validate --plan PLAN-NNN`. Plans currently validate
   "schema-less", so a pass is a parse/structure receipt, not a claim about content.
 - Don't run the full suite or `gate --all` to re-verify a close-out when other agents are

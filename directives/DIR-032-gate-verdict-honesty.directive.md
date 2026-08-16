@@ -21,12 +21,13 @@ directive:
     - "ISSUE-118"
     - "ISSUE-129"
     - "ISSUE-136"
+    - "ISSUE-140"
 ---
 
 ## Description
 
 Carved out of DIR-024 "Gate/Engine Quality" per founder ruling (Brandon,
-2026-08-10). Fourteen issues share one defect shape: **a gate step computes a
+2026-08-10). Fifteen issues share one defect shape: **a gate step computes a
 result internally but reports the wrong verdict about it** — silent pass
 when it should block, a scoped-clean signal when the unscoped truth is red,
 an opaque crash where a legible finding belongs, a dimension that never
@@ -66,7 +67,15 @@ and `plans/PLAN-ISSUE-118-gate-blind-spot-test-only-diffs.plan.yml` (item
 12) — all `status: draft`. Four of the fourteen roster members have
 in-flight plans as of 2026-08-16 — items 9, 10, 12, and 13 — and the
 remaining ten, including new item 14, are plan-free. See the Notes for why
-this is a coordinated drain, not four incidental plans.
+this is a coordinated drain, not four incidental plans. **Correction (2026-08-16,
+later same day):** the paragraph above is now itself stale, in the same direction
+as the Notes correction below — all four plans (PLAN-ISSUE-112, -113, -118, -129)
+reached `status: completed` and all four issues (ISSUE-112, 113, 118, 129) reached
+`status: closed` the same day, per the "overnight P0 batch" closeout. "All fourteen
+members are `status: open` today" no longer holds — four are closed, and the
+roster itself grew to fifteen with item 15 (ISSUE-140). See the Notes' own
+"In-flight execution note" correction for the full picture; preserved here rather
+than rewritten, per this directive's own convention.
 
 The cluster's variants, so a planner does not read it as one uniform bug:
 
@@ -634,6 +643,64 @@ The cluster's variants, so a planner does not read it as one uniform bug:
     not `critical` like item 13, because this is an audit rather than a known
     live defect, but any defect it surfaces inherits item 13's severity
     class.
+
+15. **`pack test`/`pack check` phase3's never-started check misses path-ful
+    engine commands — the same defect item 9 fixed on the gate path, left
+    open on the pack-authoring path item 9's own fix assumed was already safe
+    (ISSUE-140).** Verified by reading the current tree, not relayed:
+    `DefaultExecutor.RunEngine` (`pkg/packval/executor.go`) decides "broken
+    run" with `errors.As(runErr, &execErr)` against `*exec.Error` ONLY.
+    `*exec.Error` is produced only when `exec.Command` resolves a BARE
+    command name via `LookPath` and that lookup fails; a PATH-FUL command
+    (`./scripts/checker.sh`) never consults `LookPath` and instead fails at
+    fork/exec time as `*fs.PathError{Op: "fork/exec"}`. `buildEngineArgv`
+    takes `name` straight from `binding.Command`, pack-declared DATA, with
+    nothing preventing or excluding a path-ful command there. On that shape
+    the never-started check is false, execution falls through, `stdout` is
+    empty, and `check.ParsePackFindings` → `parseSarif` has a deliberate
+    lenient case (empty input → `(nil, nil)`, no error) — so `RunEngine`
+    returns `ExecutionResult{Passed: false, ExitCode: 0}, nil`, clean and
+    error-free. For a NEGATIVE phase3 fixture `Passed: false` IS the success
+    condition, so the fixture reads as correctly passing though the engine
+    never started. The load-bearing point, and the best single line for this
+    item: **the fix that closed item 9 documents this gap in its own source
+    and left it open.** `runNeverStarted` (`cmd/backstop/pack_gate.go`)
+    matches BOTH shapes, and its doc comment says in so many words that
+    `pkg/packval/executor.go` is "the SEED of this shape" and that the gate
+    predicate is "deliberately WIDER than packval's *exec.Error-only check"
+    — the gate path was widened; the seed it was copied from never was.
+    Direction: widen packval's `RunEngine` never-started check to also match
+    `*fs.PathError` with `Op == "fork/exec"`, the same two-shape predicate
+    `runNeverStarted` already implements. Check whether the predicate can be
+    hoisted into a package both `pkg/packval` and `cmd/backstop` can import
+    without violating an import-boundary constraint (PLAN-ISSUE-118 hit a
+    comparable one where `pkg/gate` could not import `pkg/pack/engine`), or
+    whether packval needs its own copy for architectural reasons — either is
+    acceptable, but the two copies must not drift in which shapes they
+    catch, since that drift is the root cause here. Key on `Op`, never on
+    errno (ENOENT/EACCES/ENOEXEC), which would bake OS knowledge into a thin
+    executor — that constraint is already recorded on `runNeverStarted`.
+    Relationship lines worth stating explicitly, because this item sits at
+    the intersection of two existing members: it carries **item 9's
+    (ISSUE-112) exact error-shape narrowness** onto **item 4's (ISSUE-092)
+    surface** — the pack-AUTHORING gate, `backstop pack test`/`pack check`
+    phase3. The directive already distinguishes those two by LAYER (item 4 =
+    pack-authoring false-green, item 9 = consumer false-green); item 15 is
+    the first member where one member's MECHANISM lands on the other's
+    LAYER — neither item 4 nor item 9 closes it. Arguably worse than item 9
+    in consequence: `pack test`/`pack check` is the tool a pack author is
+    supposed to trust BEFORE a pack ever reaches `backstop gate`. Provenance
+    is distinctive and worth recording: **ISSUE-140 was filed BY
+    PLAN-ISSUE-112 itself**, one of two named follow-ons in that plan's
+    "FOLLOW-ONS, BOTH FILED" close banner (the other is ISSUE-134, `backstop
+    doctor`'s toolchain check never probing findings-engine tools — filed,
+    still `status: open`, and cited by no directive). The plan's own words:
+    "a sibling defect in pkg/packval/executor.go, found by this plan's own
+    investigation and filed separately… Different command, different lane;
+    not duplicated in this banner." This is the cluster's first member
+    discovered by the DELIVERY of another member, not by dogfood or by a
+    first consumer. `type: bug`, `scope: contained`, `uncertainty: known`,
+    `risk: critical`.
 
 ## Notes
 
