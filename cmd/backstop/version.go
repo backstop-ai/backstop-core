@@ -8,13 +8,24 @@ import (
 
 // pseudoVersionSuffix matches the pre-release segment the Go toolchain stamps
 // onto a module version derived from VCS state: a 14-digit UTC timestamp and a
-// 12-character commit prefix, e.g. "-20260727014125-1ccb2a60b2f7".
+// 12-character commit prefix. https://go.dev/ref/mod#pseudo-versions defines
+// exactly three forms, and this pattern must see ALL of them:
+//
+//	1. vX.0.0-yyyymmddhhmmss-abcdefabcdef       (no known base version)
+//	2. vX.Y.Z-pre.0.yyyymmddhhmmss-abcdefabcdef (base is a pre-release vX.Y.Z-pre)
+//	3. vX.Y.(Z+1)-0.yyyymmddhhmmss-abcdefabcdef (base is a release vX.Y.Z)
+//
+// The distinction is ONE CHARACTER WIDE. Form 1 puts the timestamp straight
+// after a "-", but forms 2 and 3 insert a counter segment ("pre.0", "0"), so the
+// character immediately preceding the timestamp is "." instead. Matching only
+// "-" therefore sees form 1 alone — and THIS repo has real release tags, so
+// every plain `go build` here produces FORM 3.
 //
 // This is the load-bearing half of the rejection predicate. Since Go 1.24 a
 // PLAIN `go build` records a pseudo-version in build info rather than the
 // "(devel)" sentinel, so a fallback that accepts whatever Main.Version holds
 // makes every local build report something that looks like a release and is not.
-var pseudoVersionSuffix = regexp.MustCompile(`-\d{14}-[0-9a-f]{12}`)
+var pseudoVersionSuffix = regexp.MustCompile(`[-.]\d{14}-[0-9a-f]{12}`)
 
 // releasedVersion matches a released module version: a leading "v", a strict
 // X.Y.Z core, and an optional pre-release (so real tags like v1.0.0-rc.1 are
