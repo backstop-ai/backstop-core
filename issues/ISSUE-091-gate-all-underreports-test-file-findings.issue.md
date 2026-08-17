@@ -6,16 +6,64 @@ issue:
   id: ISSUE-091
   title: "Gate All Underreports Test File Findings"
   type: bug
-  status: open
+  status: closed
   created: "2026-07-27"
+  closed: "2026-08-16"
 
 complexity:
   scope: contained
   uncertainty: known
   risk: critical
+
+delivered_by: PLAN-ISSUE-091
 ---
 
 # Gate All Underreports Test File Findings
+
+## Resolution
+
+`backstop gate --all` was systematically under-reporting test-file findings relative to a
+diff-scoped `backstop gate` run — the reverse of the intuitive assumption that `--all`
+(whole-repo) is always a strict superset of a diff-scoped run.
+
+**Root cause:** `cmd/backstop/pack_gate.go`'s `runFindingsEngine` dispatched a
+directory-scoped target (bare `projectRoot`) for `--all`, instead of the explicit file-list
+dispatch the diff-scoped path already used. Semgrep's directory-walk dispatch applies its own
+built-in `.semgrepignore` (which excludes test files) and resolves each rule's `paths.include`
+glob against files it discovered itself; explicit-file dispatch bypasses that default ignore
+set entirely. The two dispatch shapes are genuinely different code paths inside the engine, and
+nothing in backstop's own dispatch verified they agreed.
+
+**Fix:** collapsed the two-branch dispatch in `runFindingsEngine` to always pass an explicit
+target list — the project root as a single-element list for a nil scope (preserving existing
+nil-scope callers unchanged), or the scope's own (testdata-pruned) file list otherwise. One
+dispatch shape now serves every non-project-wide engine, regardless of pack or tool.
+
+**Verification:** this fix's own final `gate --all` measurement went from 348 to 392 violations
+post-fix — an INCREASE that is explicitly the fix working correctly (previously-hidden
+test-file findings are now correctly visible), not a regression.
+
+**Newly-visible debt:** the repo-wide findings this fix exposes are routed into
+`issues/ISSUE-094-ci-repo-wide-sweep-debt-inventory.issue.md`'s existing rolling-inventory
+mandate rather than a new tracker — ISSUE-094 names closing this issue as its own explicit
+retirement trigger for switching off its hand-baked whole-repo sweep.
+
+**Follow-on issues filed during this fix** (per CLM-009, "the consequences are filed, not
+absorbed"):
+- `ISSUE-149` — PLAN-ISSUE-010's superseded `--all`-gains-only CLM-004 prose.
+- `ISSUE-150` — `--all` no longer reports `testdata/`-scoped findings (deliberate, subtractive
+  behavior change: `excludeTestdataPaths` now applies to both scopes, not just diff).
+- `ISSUE-151` — the "THIRD DIVERGENCE": a pack rule whose `paths.include` names a
+  directory-prefixed glob fires under directory dispatch and goes dark under explicit-file
+  dispatch — a pre-existing blind spot on the diff-scoped path that this fix now extends to
+  `--all` as well.
+- `ISSUE-152` — filed, deliberately unresolved: whether CI's blocking job may now safely use
+  `--all`, since this fix removes the sole stated justification for banning it there. A
+  founder-level policy call, not an implementer decision.
+- Evidence appended to the pre-existing `ISSUE-097` (unbound backstop-self waiver tokens):
+  the two stale `no-structural-name-split-on-spine` waiver tokens were failing open under
+  `--all`'s prior directory dispatch (visible only via the "unused/dangling" waiver clause);
+  post-fix they go dark entirely rather than being cleaned up, per ISSUE-097's own scope.
 
 ## Problem
 
