@@ -6,16 +6,47 @@ issue:
   id: ISSUE-100
   title: "Step Tally Counts Warnings As Violations"
   type: bug
-  status: open
+  status: closed
   created: "2026-07-28"
+  closed: "2026-08-17"
 
 complexity:
   scope: contained
   uncertainty: known
   risk: safe
+
+delivered_by: PLAN-ISSUE-100
 ---
 
 # Step Tally Counts Warnings As Violations
+
+## Resolution
+
+Fixed by PLAN-ISSUE-100 (`status: completed`, commit `2d69e14`). The tally/render half retained by
+this issue (see Amendment — the verdict half was already fixed separately) is now severity-aware:
+
+- `pkg/gate/result.go` gained `tallyBySeverity(violations []Violation) (blocking, warnings int)`,
+  implemented strictly over `pkg/gate/policy.go`'s existing `blocksVerdict` predicate — never a
+  hand-rolled `Severity` comparison of its own. `GateResult` gained a new `TotalWarnings` field
+  (JSON `total_warnings`, no `omitempty`). `TotalViolations` now counts only blocking entries
+  instead of every entry regardless of severity, fixing the CI-run-30389988184 defect described
+  above where one blocking error plus one warning-severity notice reported as "2 violations".
+- `pkg/gate/output.go`'s human report splits per-step counts into blocking/warnings — the summary
+  row, the "Total violations:" footer, and per-entry `[warning]` detail markers — with zero
+  rendering churn on the common (no-warnings) case.
+
+**Important correction on the shipped spelling.** This issue's own Solution (b) suggested
+`total_violations` become a count of `severity == "error"` entries. That spelling was deliberately
+**not** used: an unset `Severity` still blocks per the ratified `blocksVerdict` contract
+(`pkg/gate/policy.go`, landed under the Amendment's verdict-half fix), so `== "error"` would
+misclassify a real, blocking failure as a mere notice — fail-open. The shipped implementation
+calls `blocksVerdict` directly instead, keeping the tally and the verdict permanently in agreement.
+
+**Companion artifact corrections landed alongside**, filed as their own follow-ons rather than
+folded into this close: SPEC-010 REQ-008's prose (which also described `total_violations` as an
+unconditional count) was corrected in commit `0670133`; DIR-032 item 7's stale `severity ==
+"error"` prescription — the same refuted spelling this issue's own Solution text carried — is
+being corrected separately, in flight at close time.
 
 ## Problem
 
