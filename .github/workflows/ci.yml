@@ -147,8 +147,11 @@ jobs:
         run: ./bin/backstop gate --base "$BASE" --json > gate-report.json || echo "diagnostic capture exited $? - the blocking run is the next step"
 
       - name: Run the gate
-        # Diff-scoped with an explicit base. NEVER the all-scope flag (ISSUE-091:
-        # it under-reports against diff scope) and never the per-file flag
+        # Diff-scoped with an explicit base. NEVER the all-scope flag (ISSUE-091's
+        # under-report is FIXED - the all scope now dispatches its own explicit
+        # file list and agrees with a diff-scoped run over the same files - so
+        # that defect no longer justifies the ban; the flag stays out of the
+        # blocking job pending a founder decision) and never the per-file flag
         # (ISSUE-093: it crashes on non-Go directories and silently drops repeats).
         #
         # THIS is the blocking invocation. Its exit is the job's, unchanged.

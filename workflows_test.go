@@ -722,13 +722,17 @@ func TestCIWorkflow_BlockingJobHasNoRawToolInvocations(t *testing.T) {
 // TestCIWorkflow_BlockingJobNeverUsesAllOrFileScope pins the two scope flags out of
 // the blocking invocation.
 //
-// ISSUE-091: `--all` is NOT a superset of diff scope — it under-reports, with
-// findings on files it reports zero for, so a job scoped with `--all` blocks on a
-// strictly smaller set than the diff it is gating.
+// ISSUE-091 is FIXED: `--all` now dispatches its own explicit file list rather
+// than a directory target, and AGREES with a diff-scoped run over the same files
+// (its CLM-008), so the historical under-report no longer independently
+// justifies keeping `--all` out of the blocking job. Whether the `--all` half of
+// this constraint should now LIFT is an OPEN FOUNDER DECISION — see the
+// follow-on issue filed by PLAN-ISSUE-091 TASK-006 item 4. Until it is decided,
+// the ban stays in force and this test keeps enforcing it.
 // ISSUE-093: `--file` crashes on non-Go directories and silently drops repeated
-// occurrences.
-// Diff scope with an explicit base is the only shape that is both complete and
-// stable. (CLM-020)
+// occurrences. UNAFFECTED by ISSUE-091 — that half keeps its original reason.
+// Diff scope with an explicit base is the shape CI's blocking job actually uses
+// today, and it stays that way pending that founder decision. (CLM-020)
 func TestCIWorkflow_BlockingJobNeverUsesAllOrFileScope(t *testing.T) {
 	job := ciBlockingJob(t)
 
@@ -737,7 +741,7 @@ func TestCIWorkflow_BlockingJobNeverUsesAllOrFileScope(t *testing.T) {
 			continue
 		}
 		for flag, issue := range map[string]string{
-			"--all":  "ISSUE-091 — `--all` under-reports against diff scope",
+			"--all":  "ISSUE-091 is fixed, but `--all` is held out of the blocking job pending a founder decision",
 			"--file": "ISSUE-093 — `--file` crashes on non-Go directories and drops repeats",
 		} {
 			if strings.Contains(stepScript(step), flag) {

@@ -240,6 +240,46 @@ to see the token, unlike today's `Adjudicate`/`waiver list` path.
   waiver suppresses it — verified via a direct semgrep run plus tracing `runFindingsEngine`'s
   namespacing through to the exact (non-matching) token strings.
 
+- 2026-08-16: PLAN-ISSUE-091's fix has now landed in the working tree, and it makes both stale
+  tokens **newly orphaned** — and, counter-intuitively, **reduces** their visibility rather than
+  raising it. The mechanism, spelled out because a first reading gets the direction backwards:
+  - **Today** (pre-fix, under `gate --all`'s directory dispatch): each
+    `no-structural-name-split-on-spine` finding lands one line below its `@waiver:` token, so
+    `harvestWindow` (window = the finding's line plus the line above) DOES read both tokens.
+    Their rule-ids don't match the finding's rule-id, so `Adjudicate` files them under `Unused`,
+    and `waiverReason` (`pkg/gate/step_waiver.go`) renders them in the "N unused/dangling"
+    clause. That clause is presently the ONLY place in the entire system where these two dead
+    tokens are visible.
+  - **After the fix**: `--all` hands over an explicit file list instead of a directory target,
+    the rule goes blind under that dispatch shape (PLAN-ISSUE-091's THIRD DIVERGENCE, filed as
+    ISSUE-151), so no finding lands in either window. Nothing harvests the tokens at all — and a
+    token that was never harvested cannot even reach the `Unused` bucket. The unused/dangling
+    count attributable to them goes from 2 to 0, and both tokens become architecturally
+    invisible: exactly the fail-open end state this issue describes.
+
+  A dangling-waiver count dropping to zero because the evidence disappeared is a **loss** of
+  honesty, not a cleanup — do not read it as an improvement. This is the concrete, dated instance
+  of the structural blind spot this issue's own "Root cause of the detection gap — waiver harvest
+  is finding-driven, not tree-driven" section already describes, and it strengthens the case for
+  the tree-driven scan proposed in Solution part (b).
+
+  PLAN-ISSUE-091 deliberately did **not** re-key or remove the two tokens — that remains this
+  issue's own owned work (Solution part (a)) — so a later reader should not mistake this plan's
+  silence on the tokens for an oversight.
+
+  Evidence status: the 2 → 0 prediction above is **derived**, not directly measured on the
+  `waiver_resolution` output itself. It rests on the measured fact that both findings are present
+  under directory dispatch and absent under explicit-file dispatch (re-measured at the current
+  working tree with real semgrep 1.156.0, four installed semgrep packs, `cmd/backstop` subtree,
+  ACTIVE / suppression-filtered layer — see PLAN-ISSUE-091's notes, "THIRD DIVERGENCE"). The
+  end-to-end `waiver_resolution` before/after gate strings are being captured separately by
+  PLAN-ISSUE-091's TASK-007; if that reading contradicts this prediction in either direction,
+  that is information this issue needs and it will be appended here once available.
+
+  The two tokens are located by function name, not line number, per PLAN-ISSUE-091's own
+  discipline (both files are under concurrent edit tonight): `splitCommand` in
+  `cmd/backstop/pack_gate.go` and `engineToolName` in `cmd/backstop/pack_gate_provision.go`.
+
 ## References
 
 - `cmd/backstop/pack_gate.go:888` — first stale waiver token
@@ -278,3 +318,8 @@ to see the token, unlike today's `Adjudicate`/`waiver list` path.
   dispatch blind to directory-scoped `paths.include` rules) that explains why
   the original `gate --file`-based INERT measurement in this issue was
   confounded and false; discovered during its review on 2026-08-16
+- ISSUE-151 — owns the underlying path-scoped-rule blindness (THIRD
+  DIVERGENCE: a `paths.include` directory-prefixed glob is satisfied under
+  directory dispatch and unsatisfied under explicit-file dispatch) that,
+  once PLAN-ISSUE-091's fix landed, orphaned both tokens a second way —
+  see the 2026-08-16 "Additional evidence" entry above

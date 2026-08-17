@@ -168,8 +168,10 @@ func TestPackEngines_DiffScope_ExcludesUntouchedFileViolations(t *testing.T) {
 
 // TestPackEngines_DiffScope_EmptyIntersectionScansNothing (CLM-003): a non-empty
 // diff scope with NO files in it means the engine is pointed at nothing — it
-// must NOT silently fall back to scanning projectRoot. The full-repo scan is
-// reachable only via --all.
+// must NOT silently fall back to scanning projectRoot. The projectRoot
+// directory scan is reachable only via a NIL scope: since ISSUE-091 an --all
+// scope hands over its own explicit file list like every other scope that
+// carries one, so it no longer produces a directory target.
 func TestPackEngines_DiffScope_EmptyIntersectionScansNothing(t *testing.T) {
 	manifests, packsDir := semgrepScopeManifest(t)
 	projectRoot := t.TempDir()
@@ -197,9 +199,16 @@ func TestPackEngines_DiffScope_EmptyIntersectionScansNothing(t *testing.T) {
 	}
 }
 
-// TestPackEngines_AllScope_RestoresWholeRepoScan (CLM-004): scope==nil AND
-// scope.Mode==GateScopeModeAll both restore the whole-repo projectRoot scan,
-// the explicit --all escape hatch.
+// TestPackEngines_AllScope_RestoresWholeRepoScan (CLM-004, ISSUE-010 lineage;
+// second subtest re-grounded by ISSUE-091): a NIL scope restores the whole-repo
+// projectRoot scan — it has no file list to substitute, so the directory target
+// is the honest behavior for a caller that supplied no scope. A
+// GateScopeModeAll scope does NOT: since ISSUE-091 it hands over its own
+// explicit (testdata-pruned) file list like every other scope that carries one,
+// so a bare t.TempDir() projectRoot — whose all-scope file list is empty —
+// yields ZERO scan targets rather than a projectRoot directory target.
+// The test's name stays accurate: its nil-scope subtest genuinely does restore
+// the whole-repo scan.
 func TestPackEngines_AllScope_RestoresWholeRepoScan(t *testing.T) {
 	manifests, packsDir := semgrepScopeManifest(t)
 	projectRoot := t.TempDir()
@@ -221,12 +230,19 @@ func TestPackEngines_AllScope_RestoresWholeRepoScan(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ComputeGateScope all: %v", err)
 		}
+		if len(allScope.Files) != 0 {
+			t.Fatalf("fixture precondition: a bare t.TempDir() must resolve an empty all-scope file list, got %v", allScope.Files)
+		}
 		if _, err := dispatchPackEngines(manifests, packsDir, projectRoot, allScope, rec); err != nil {
 			t.Fatalf("dispatchPackEngines: %v", err)
 		}
 		targets := rec.scanTargets(t)
-		if len(targets) != 1 || targets[0] != projectRoot {
-			t.Fatalf("GateScopeModeAll must scan projectRoot exactly, got %v", targets)
+		// The EXACT expected list, not a relaxed "not projectRoot": an all-scope
+		// over an empty tree carries no files, so the anti-fallback contract
+		// (ISSUE-010 CLM-003, extended to all-scope by ISSUE-091) says zero
+		// targets are appended.
+		if len(targets) != 0 {
+			t.Fatalf("GateScopeModeAll over an empty tree must append zero scan targets, got %v", targets)
 		}
 	})
 }
@@ -362,6 +378,11 @@ func TestPackEngines_DiffScope_RuleDirEngineScansChangedFilesOnly(t *testing.T) 
 // TestPackEngines_DiffScope_RuleDirEngineAllScopeUsesProjectRoot (CLM-004 for the
 // config-file findings engine class): with a nil scope, the config-file engine
 // (ast-grep shape) restores the whole-repo projectRoot scan target.
+//
+// NAME DISCLAIMER: despite "AllScope" in the identifier, this test exercises the
+// NIL-scope path (deliberately preserved by ISSUE-091, see its CLM-005) — the
+// name no longer describes an --all codepath, since an all-scope now hands over
+// its own explicit file list instead of a directory target.
 func TestPackEngines_DiffScope_RuleDirEngineAllScopeUsesProjectRoot(t *testing.T) {
 	manifests, packsDir := astGrepLikeScopeManifest(t)
 	projectRoot := t.TempDir()

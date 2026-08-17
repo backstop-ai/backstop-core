@@ -510,9 +510,11 @@ func ciOtherPlatformTargets(t *testing.T, recipeID string) []string {
 // is over the WHOLE set, so a "tightened" multi-segment pattern added alongside
 // is a failure: under the gate's DEFAULT diff-scoped dispatch, which hands
 // semgrep EXPLICIT FILE targets, a multi-segment include matches ZERO files —
-// not even the file it names — while matching under `--all`'s directory
-// dispatch. A rule tightened that way looks alive under a full sweep and is
-// dead under the everyday bare `backstop gate`.
+// not even the file it names. Since ISSUE-091 collapsed every scope carrying a
+// file list onto that one explicit-file dispatch, `--all` has no directory
+// dispatch left either, so a rule tightened that way matches ZERO files under
+// EVERY such scope and is uniformly dead — it does not even have the misleading
+// full-sweep liveness it had before.
 func ciGlobScopingProblems(t *testing.T, recipeID string, wantInclude []string) []string {
 	t.Helper()
 

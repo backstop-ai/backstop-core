@@ -2,13 +2,201 @@
 plan_id: PLAN-ISSUE-091
 spec_id: ISSUE-091
 created: "2026-08-16"
-status: draft
+status: completed
 target_repo: backstop-core
 target_module: github.com/backstop-ai/backstop-core
 test_command: "go test ./cmd/backstop/... -run \"TestIssue091|TestPackEngines_AllScope|TestPackEngines_DiffScope_RuleDirEngine\" -race"
 coverage_threshold: 80
 
 notes: |
+  AS-BUILT — CLOSED 2026-08-16. status: draft → completed.
+  ══════════════════════════════════════════════════════════════════════════════
+  Everything BELOW this banner is the AUTHORED record — nine review rounds' worth
+  of premise, measurement discipline, claims and tasks — and is deliberately left
+  unrewritten. This banner reconciles it to what actually shipped.
+
+  ── PROVENANCE OF EVERY STATEMENT IN THIS BANNER ───────────────────────────
+  Split, per this repo's close-out convention, into what was re-verified at the
+  working tree during close-out and what was CARRIED from the implementer.
+
+  RE-VERIFIED HERE, first-hand, by reading the tree:
+    * the collapsed branch in `runFindingsEngine` (located BY NAME, per this
+      plan's own line-number discipline) and its rewritten comment block;
+    * every ISSUE-091 correction site, enumerated below, read in `git diff`;
+    * that `.github/workflows/ci.yml`'s edit is COMMENT-ONLY and changes no CI
+      behavior — the blocking `Run the gate` step's script is byte-unchanged;
+    * that all five `TestIssue091_*` tests and the preserved mandated name
+      `TestPackEngines_AllScope_RestoresWholeRepoScan` exist, and that the
+      latter's inverted subtest asserts an EXACT zero-target list rather than a
+      relaxed "not projectRoot", with no `t.Skip` on either subtest;
+    * that semgrep 1.156.0 is on PATH here, so the e2e's only skip guard
+      (`t.Skip` when semgrep is absent) does NOT fire in this environment;
+    * that ISSUE-149/150/151/152 exist on disk and the ISSUE-097 append landed.
+
+  CARRIED, not re-run — deliberately, because other lanes were live in this
+  shared tree at close-out and a build/gate/full-suite run here would both race
+  them and sample a moving tree ([[feedback_no_verify_race_with_active_implementer]]):
+    * the TASK-007 set-diff figures, the 348 → 392 gate reading, the
+      `waiver_resolution` 2 → 0 confirmation, and the 15-failure suite partition.
+  Those are labelled as carried wherever they appear below. They are the
+  implementer's readings, not this close-out's.
+
+  ── CORRECTION FOR THE RECORD: SHARED-TREE ATTRIBUTION ─────────────────────
+  This lane's changes were never committed in isolation; they sit in a working
+  tree that three other lanes were also editing. A future reader diffing whole
+  files WILL over-attribute. The specific traps:
+    * `cmd/backstop/pack_gate.go` — ~182 changed lines, and MOST of them are
+      PLAN-ISSUE-140's `check.NeverStarted` work and PLAN-ISSUE-067's producer
+      seam, NOT this plan's. THIS plan's footprint in that file is the collapsed
+      `if scope == nil { … } else { … }` branch plus three comment blocks.
+    * `cmd/backstop/filemode_scoping_test.go` — the `goTestCall` producer
+      re-grounding is PLAN-ISSUE-067's. This plan owns ONE comment, on the
+      nil-scope dispatch inside `TestFileMode_ProjectWideModeStillWholeModule`.
+    * `docs/CODEBASE-MAP.md` — modified in this tree, but its edit is
+      PLAN-ISSUE-067's PRODUCER SEAM paragraph. This plan touched it NOT AT ALL,
+      and it contains no ISSUE-091 reference. Do not credit it to this lane.
+    * `directives/DIR-032-gate-verdict-honesty.directive.md` — cites ISSUE-091
+      heavily but is the backlog-pm lane's artifact, not this plan's edit.
+
+  ── THE FIX ────────────────────────────────────────────────────────────────
+  `runFindingsEngine` in `cmd/backstop/pack_gate.go`: the two-branch scan-target
+  logic collapsed to
+
+      if scope == nil { cmdArgs = append(cmdArgs, projectRoot) }
+      else            { cmdArgs = append(cmdArgs, excludeTestdataPaths(scope.Files)...) }
+
+  A nil scope — the only caller that genuinely supplies no file list — keeps the
+  directory target. EVERY scope that carries a file list, all-scope now included,
+  hands that list over explicitly. The ISSUE-010 CLM-003 anti-fallback contract
+  survives BY CONSTRUCTION rather than by condition: an empty list appends
+  nothing and cannot fall through to the directory branch. That structural
+  property, and the reason a future reader must not "helpfully" restore a
+  fallback, are both stated in-file above the branch.
+
+  The defect this closes is the counter-intuitive one the plan was written
+  around: `gate --all` was NOT a superset of the diff-scoped gate. Handed a
+  directory, the engine performed its OWN discovery under its OWN default ignore
+  set — which backstop can neither see nor override — and systematically dropped
+  test-file findings that the diff-scoped run reported.
+
+  ── THE STALE-RATIONALE CORRECTIONS (the fix falsified a widely-cited claim) ──
+  "`--all` under-reports versus diff scope" was quoted as still-true across the
+  codebase, including inside a COMPLETED plan's mandated test and inside a LIVE
+  in-code string. All were corrected as TEXT-ONLY edits. Sites, by name:
+    1. `.github/workflows/ci.yml` — the `Run the gate` step's rationale comment.
+    2. `workflows_test.go` — the doc comment on
+       `TestCIWorkflow_BlockingJobNeverUsesAllOrFileScope` (PLAN-ISSUE-020's
+       mandated test name, preserved).
+    3. `workflows_test.go` — the LIVE map-value reason string for the `--all`
+       key inside that same test. This one is executable text, not a comment.
+    4. `cmd/backstop/gate.go` — the scope-threading comment in `buildGateSteps`.
+    5. `cmd/backstop/ci_recipes_harness_test.go` — `ciGlobScopingProblems`, whose
+       comment claimed a multi-segment `paths.include` still matched under
+       `--all`'s directory dispatch. It no longer does: such a rule is now
+       UNIFORMLY dead, losing even its misleading full-sweep liveness.
+    6. `cmd/backstop/filemode_scoping_test.go` — the nil-scope comment.
+    7-9. `cmd/backstop/pack_gate.go` (the `dispatchPackEngines` doc, the
+       collapsed branch's own rationale block = CLM-007, and the
+       `excludeTestdataPaths` doc) and `cmd/backstop/pack_gate_scope_test.go`
+       (four comment sites re-grounding the ISSUE-010 lineage).
+
+  THE HARD FENCE HELD. Correcting the RATIONALE does not decide the POLICY. The
+  question of whether CI's blocking job may now lift its `--all` ban is a founder
+  decision; it was filed UNRESOLVED as ISSUE-152 rather than settled inline, the
+  ban remains in force, and `TestCIWorkflow_BlockingJobNeverUsesAllOrFileScope`
+  still enforces it. The `--file` half of that ban is UNAFFECTED by this fix and
+  keeps its original ISSUE-093 reason.
+
+  ── FALSIFICATION ──────────────────────────────────────────────────────────
+  Five tests, zero skips (semgrep present):
+    `cmd/backstop/pack_gate_issue091_e2e_test.go`
+      TestIssue091_AllScopeReportsTestFileFindings_RealEngine (CLM-002/008) —
+      real engine, real rules; asserts the all-scope and diff-scope finding sets
+      are EQUAL over the same files, which is stronger than either count alone.
+    `cmd/backstop/pack_gate_issue091_regression_test.go`
+      TestIssue091_AllScopeDispatchesExplicitFileListNotProjectRoot (CLM-001)
+      TestIssue091_AllScopeExcludesTestdataPaths (CLM-003)
+      TestIssue091_AllScopeEmptyFileListAppendsNoTarget (CLM-004)
+      TestIssue091_NilScopeStillTargetsProjectRoot (CLM-005)
+  `TestPackEngines_AllScope_RestoresWholeRepoScan` — PLAN-ISSUE-010's mandated
+  name — was PRESERVED, not renamed, and its all-scope subtest inverted to the
+  now-correct expectation. Its name stays honest: its nil-scope subtest really
+  does restore the whole-repo scan. (Test results carried; existence, shape and
+  no-skip status re-verified here.)
+
+  ── TASK-007: THE HYPOTHESIS CONFIRMED, PLUS ONE THING NOBODY PREDICTED ────
+  CARRIED READING. Pre/post `gate --all` set-diff on (File, Rule) identity:
+    LOST exactly the predicted set — the 2 THIRD-DIVERGENCE waiver-adjudicated
+      rows plus 4 testdata rows. The plan predicted 3 testdata rows; the fourth
+      is correctly reconciled as a `cmd/backstop`-subtree-vs-whole-repo scope
+      difference between the prediction and the measurement, NOT a discrepancy.
+    GAINED all 5 named `cmd/backstop` rows plus 18 repo-wide test-file rows the
+      fix correctly stopped hiding.
+    `waiver_resolution`'s predicted 2 → 0 CONFIRMED exactly.
+  THE UNANTICIPATED PART, and the reason reading the entries beat reading the
+  count: the printed unused-waiver TOTAL is 1, not 0 — a THIRD, previously
+  invisible stale token became newly visible in the same run. It was correctly
+  diagnosed and left untouched as ISSUE-097's owned territory rather than
+  absorbed here.
+
+  Both stop-and-report conditions were checked and CLEARED: zero new
+  test_substantiveness violations (its drops are the exact expected-good
+  inert-fixture set this plan named) and zero new coverage_threshold violations
+  (its drop is NOT attributed to this fix — reported as observed test-run
+  variance rather than claimed as an effect).
+
+  ── THE GATE GOT REDDER, AND THAT IS THE FIX WORKING ───────────────────────
+  CARRIED READING. Post-fix `gate --all`: FAIL at 392 violations, against 348
+  pre-fix. This is NOT a regression. The fix stopped HIDING test-file findings;
+  the debt was always there and is now correctly visible. That newly-visible
+  repo-wide debt is unfixed and unwaived BY DESIGN, and routes into ISSUE-094's
+  EXISTING rolling-inventory mandate rather than opening a third tracker.
+
+  ── FINAL SUITE SWEEP (carried) ────────────────────────────────────────────
+  `go test .` ok. `go test ./cmd/backstop/...` FAILs with exactly 15 failures,
+  partitioning cleanly into two ALREADY-KNOWN classes with nothing left over:
+    * 14 — the inherited packval/substantiveness family, proven inherited by
+      reproduction in a clean worktree (ISSUE-148 territory);
+    * 1 — the `.github/workflows/ci.yml` dirtiness guard, which self-resolves on
+      commit. RECORD THIS EXPLICITLY: it surfaces in TWO dimensions of gate
+      output for ONE single cause. Do not double-count it as two problems.
+  Zero ISSUE-091-related failures anywhere.
+
+  ── FOLLOW-ONS FILED, NOT ABSORBED (CLM-009 discharged) ────────────────────
+    ISSUE-149 — PLAN-ISSUE-010's CLM-004 all-scope prose is superseded.
+    ISSUE-150 — `gate --all` no longer reports testdata findings (deliberate).
+    ISSUE-151 — path-scoped pack rules go dark under explicit-file dispatch
+                (the THIRD DIVERGENCE's underlying cause).
+    ISSUE-152 — the CI blocking-job `--all` scope policy question, UNRESOLVED
+                and explicitly deferred to the founder.
+    ISSUE-097 — appended to rather than duplicated (it already existed).
+
+  ── ONE OPEN RESIDUAL, VERIFIED HERE ───────────────────────────────────────
+  The ISSUE-097 append makes a commitment it has not yet kept. It states the
+  2 → 0 `waiver_resolution` figure as DERIVED, not measured, and says the
+  end-to-end reading "will be appended here once available." TASK-007 then
+  produced that reading — it CONFIRMED the 2 → 0 prediction and surfaced the
+  third, newly-visible stale token that makes the printed total 1. As of this
+  close-out, ISSUE-097 still carries only the prediction; the measured reading
+  and the third token are NOT recorded there. That append is genuinely
+  outstanding and belongs to ISSUE-097's own lane, not to this plan.
+
+  ── STATE AT CLOSE ─────────────────────────────────────────────────────────
+  This close-out edit is UNCOMMITTED, and per convention it must land in the
+  SAME commit as the sibling ISSUE-091 close — an issue-author closing the
+  source artifact runs a closed-requires-traceability check that false-negatives
+  if it reads HEAD and sees `draft`. It was NOT committed from this lane: other
+  agents are live in this tree and a broad `git add` would sweep their work.
+  Stage the single plan path, or hand it to the lead.
+
+  `./bin/backstop artifact validate --plan PLAN-ISSUE-091` PASSES. Plans
+  currently validate schema-less, so that is a parse/structure receipt, not a
+  claim about content. Working tree footprint is clean of scratch and probe
+  artifacts; the falsification worktree was removed.
+
+  ISSUE-091 is delivered.
+  ══════════════════════════════════════════════════════════════════════════════
+
   ══ PREMISE RE-VERIFIED AT HEAD 1902644, 2026-08-16 — THE DEFECT IS LIVE ════
   ONE HEAD CITATION GOVERNS THIS ENTIRE NOTES BLOCK: 1902644. Every
   HEAD-dependent measurement below (Probe B, the argv counts, the gitignore
