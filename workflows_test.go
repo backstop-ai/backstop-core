@@ -722,23 +722,21 @@ func TestCIWorkflow_BlockingJobHasNoRawToolInvocations(t *testing.T) {
 // TestCIWorkflow_BlockingJobNeverUsesAllOrFileScope pins the two scope flags out of
 // the blocking invocation.
 //
-// ISSUE-091 is FIXED: `--all` now dispatches its own explicit file list rather
-// than a directory target, and AGREES with a diff-scoped run over the same files
-// (its CLM-008), so the historical under-report no longer independently
-// justifies keeping `--all` out of the blocking job. Whether the `--all` half of
-// this constraint should now LIFT is an OPEN FOUNDER DECISION — see the
-// follow-on issue filed by PLAN-ISSUE-091 TASK-006 item 4. Until it is decided,
-// the ban stays in force and this test keeps enforcing it.
-// ISSUE-093 is ALSO FIXED, and its half of this ban has likewise lost its stated
-// reason: a package-scoped engine is now SKIPPED with a loud non-blocking advisory
-// when the dispatching pack's declared classification claims nothing in the scope
-// (so an unclaimed file no longer crashes the engine), and `--file` accumulates
-// across occurrences instead of keeping only the last. Whether the `--file` half
-// of this constraint should now LIFT is a SECOND OPEN FOUNDER DECISION, mirroring
-// the `--all` one above. Until both are decided, the ban stays in force and this
-// test keeps enforcing it.
+// ISSUE-091 and ISSUE-093 are BOTH FIXED — `--all` now dispatches its own
+// explicit file list and agrees with a diff-scoped run over the same files
+// (CLM-008), and `--file` no longer crashes on an unclaimed file or drops
+// repeated occurrences. Neither original bug independently justifies the ban
+// anymore (see ISSUE-152 / ISSUE-156, the follow-on issues that asked whether
+// it should lift). FOUNDER RULING (2026-08-17): the ban STAYS, but on a
+// DIFFERENT and durable basis — CI's blocking job is a latency- and
+// scope-sensitive path, and diff scope with an explicit base is the
+// deliberately narrow, fast, predictable shape that job wants regardless of
+// whether `--all`/`--file` are correct. This is a standing policy choice, not
+// a placeholder pending further decision — ISSUE-152 and ISSUE-156 are closed
+// with this ruling recorded, and this is not open for re-litigation absent a
+// new argument.
 // Diff scope with an explicit base is the shape CI's blocking job actually uses
-// today, and it stays that way pending those founder decisions. (CLM-020)
+// today, and it stays that way by design. (CLM-020)
 func TestCIWorkflow_BlockingJobNeverUsesAllOrFileScope(t *testing.T) {
 	job := ciBlockingJob(t)
 
@@ -747,8 +745,8 @@ func TestCIWorkflow_BlockingJobNeverUsesAllOrFileScope(t *testing.T) {
 			continue
 		}
 		for flag, issue := range map[string]string{
-			"--all":  "ISSUE-091 is fixed, but `--all` is held out of the blocking job pending a founder decision",
-			"--file": "ISSUE-093 is fixed, but `--file` is held out of the blocking job pending a founder decision",
+			"--all":  "both original defects are fixed, but the blocking job stays diff-scoped by deliberate policy (ISSUE-152)",
+			"--file": "both original defects are fixed, but the blocking job stays diff-scoped by deliberate policy (ISSUE-156)",
 		} {
 			if strings.Contains(stepScript(step), flag) {
 				t.Errorf("%s: the gate invocation carries %s (%s):\n%s", ciWorkflowFile, flag, issue, stepScript(step))
