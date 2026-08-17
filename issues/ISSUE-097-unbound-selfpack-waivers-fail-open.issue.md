@@ -272,13 +272,50 @@ to see the token, unlike today's `Adjudicate`/`waiver list` path.
   under directory dispatch and absent under explicit-file dispatch (re-measured at the current
   working tree with real semgrep 1.156.0, four installed semgrep packs, `cmd/backstop` subtree,
   ACTIVE / suppression-filtered layer — see PLAN-ISSUE-091's notes, "THIRD DIVERGENCE"). The
-  end-to-end `waiver_resolution` before/after gate strings are being captured separately by
-  PLAN-ISSUE-091's TASK-007; if that reading contradicts this prediction in either direction,
-  that is information this issue needs and it will be appended here once available.
+  end-to-end `waiver_resolution` before/after gate strings were captured separately by
+  PLAN-ISSUE-091's TASK-007; that measured pair is appended below now that PLAN-ISSUE-091 is
+  complete and committed (`b113d12`).
 
   The two tokens are located by function name, not line number, per PLAN-ISSUE-091's own
   discipline (both files are under concurrent edit tonight): `splitCommand` in
   `cmd/backstop/pack_gate.go` and `engineToolName` in `cmd/backstop/pack_gate_provision.go`.
+
+- 2026-08-16: **Measured confirmation** — PLAN-ISSUE-091's TASK-007 ran `gate --all` pre/post the
+  fix against the same tree and captured the `waiver_resolution` strings directly:
+
+  ```
+  PRE:  ... ; 2 unused/dangling (backstop/self/backstop.packs.backstop.self.rules.no-structural-name-split-on-spine, backstop/self/backstop.packs.backstop.self.rules.no-structural-name-split-on-spine)
+  POST: ... ; 1 unused/dangling (backstop/self/backstop.packs.backstop.self.rules.no-baked-tool-exec)
+  ```
+
+  This confirms the 2 → 0 prediction above **exactly** for the two tokens this issue already
+  tracks (`cmd/backstop/pack_gate.go`, `cmd/backstop/pack_gate_provision.go`, both keyed to
+  `no-structural-name-split-on-spine`): post-fix, neither produces a finding at either waiver
+  site under any dispatch shape, so `harvestWindow` never pulls either token into the tokens map
+  — they can't even reach the `Unused` bucket any more. The dangling-count-drop-is-a-loss framing
+  above stands confirmed, not merely predicted.
+
+  But the printed total went to **1, not 0** — a third, previously-invisible token became newly
+  visible in the same post-fix run, for the same underlying reason (PLAN-ISSUE-091's fix changed
+  which lines land in a finding's harvest window) but in the opposite direction: it REVEALED a
+  token rather than hiding one. That token is real and located: `tests/smoke/smoke_test.go:33`,
+  keyed to `backstop/self/backstop.packs.backstop.self.rules.no-baked-tool-exec` (same pre-rename
+  `backstop/self` prefix as this issue's other two tokens — same rename-orphaned class, different
+  rule and site):
+
+  ```go
+  // tests/smoke/smoke_test.go:33
+  // @waiver:backstop/self/backstop.packs.backstop.self.rules.no-baked-tool-exec:deferred:2026-10-24 self-pack scoping over backstop-core's OWN test harness is ESCALATED and pending a founder posture decision (this harness must build and probe the module under test because backstop-core IS that module); remove this waiver when that decision lands
+  ```
+
+  This token was not previously named anywhere in this issue and should now be tracked alongside
+  the other two under Solution part (a)/(b) and the Acceptance criteria — it is the identical
+  fail-open failure mode (stale `backstop/self` prefix, exact-match adjudication can never bind
+  it to the post-rename `backstop-ai/backstop-self` namespace), just a third instance the
+  detection gap in part (b) also needs to catch. Unlike the other two, its `deferred:2026-10-24`
+  reason is an open founder posture question (self-pack scoping over backstop-core's own test
+  harness), not a false-positive rationale — re-keying it should preserve that `deferred` status
+  and rationale, not silently convert it to `false-positive`.
 
 ## References
 
@@ -323,3 +360,7 @@ to see the token, unlike today's `Adjudicate`/`waiver list` path.
   directory dispatch and unsatisfied under explicit-file dispatch) that,
   once PLAN-ISSUE-091's fix landed, orphaned both tokens a second way —
   see the 2026-08-16 "Additional evidence" entry above
+- `tests/smoke/smoke_test.go:33` — third stale `backstop/self`-prefixed
+  waiver token (`no-baked-tool-exec`), newly revealed (not newly created)
+  by PLAN-ISSUE-091's landed fix; same class as the two tokens above, now
+  tracked alongside them — see the "Measured confirmation" entry above
