@@ -1,6 +1,6 @@
 ---
 name: gate-verdict-honesty-cluster
-description: The recurring gate-verdict-honesty issue family — RESOLVED 2026-08-10 into its own directive DIR-032 (FIFTEEN members as of 2026-08-16); BACKLOG position 2; the 112/113/118/129 drain has LANDED (all completed/closed) — slot new members by CHARTER not the founder's roster, restate the count, update the variant map, and re-read the directive after the agent returns
+description: The recurring gate-verdict-honesty issue family — RESOLVED 2026-08-10 into its own directive DIR-032 (TWENTY members as of 2026-08-17); BACKLOG position 2; a FULL-ROSTER planning sweep landed 2026-08-16 — slot new members by CHARTER not the founder's roster, settle SHOUT-vs-LIE by tracing the EMPTY-INPUT path (a LOUD refusal or a broken test harness goes to DIR-024, even when its parents are DIR-032 members), ENUMERATE plans/ before asserting any coverage count, update the variant map, and re-read the directive after the agent returns
 metadata:
   type: project
 ---
@@ -285,6 +285,166 @@ test pass while proving nothing), which the 2026-08-10 carve-out deliberately
 left behind. So: **product-surface false-green → DIR-032; repo test-harness
 false-green → DIR-024.** ISSUE-092 is on the product side (`pack test` prints
 `phase3-fixtures: pass` to a consumer); a testdata mirror is not.
+
+**THE DISCRIMINATOR, SHARPENED 2026-08-16 — "does it SHOUT or does it LIE?"**
+Three defects in the SAME 35-line function (`pkg/packval/executor.go`'s
+`RunEngine`) split across two directives on this one question, and the split is
+correct: ISSUE-140 → DIR-032 (engine never starts, reads as a clean negative
+fixture — LIES), ISSUE-092 → DIR-032 (`phase3-fixtures: pass` having executed
+zero checks — LIES), **ISSUE-141 → DIR-024** (a Convert-declaring pack's raw
+output hits `parseSarif`, `RunEngine` returns a non-nil error, `RunFixtures`
+raises a blocking `ValidationError` on both fixture branches, `pack test` goes
+RED — SHOUTS). **Surface adjacency, shared function, and even a blocking
+DEPENDENCY on a DIR-032 member are all insufficient**; only a wrong verdict
+moves an item into DIR-032. Trace the failure to its actual return value before
+classifying — read the error path and its caller, don't infer from the issue's
+framing. A coarse or misattributed BLOCKING error is diagnosability debt, not a
+false verdict. Count of the line being drawn this way: ISSUE-115, 125, 137,
+DIR-024 item 12, and now 141. Member 16 = **ISSUE-142** (packval's `Rule` has no
+`Pattern` field, so pattern-arg rules dispatch zero fixtures — a vacuous green,
+so DIR-032), slotted by a CONCURRENT PM run in the same minutes as 141; verified
+no double-home. See [[project_packval_phase3_family]].
+
+**A FULL-ROSTER PLANNING SWEEP LANDED 2026-08-16 — never carry a plan-free
+count forward from prose again.** Measured file-by-file at 21:45Z against all
+sixteen members: **11 `status: draft`** (PLAN-ISSUE-066/067/091/092/093/097/
+100/106/114/136/140) + **4 `status: completed`** (112/113/118/129, issues
+closed) = **ISSUE-142 is the ONLY plan-free member.** Ten of the eleven drafts
+were untracked, `created: "2026-08-16"`, mtimes clustered ~17:00 local. Both the
+directive's own prose ("eleven plan-free members") and my first brief to
+directive-author ("twelve") were wrong, and the second was wrong because I
+derived it from the first — a memory-to-brief-to-directive laundering of a stale
+number. **The rule: before asserting ANY coverage/plan-free count, `ls plans/`
+and read each `status:` — a cluster gets planned in BATCHES, so one member
+gaining a plan predicts the rest did too.** The consequence is a genuinely
+different directive: DIR-032 is no longer a queue of unplanned work but **one
+uncovered member and fifteen lanes in flight**, so a cold picker's only real
+entry point is item 16. Also note what this makes possible next: eleven drafts
+means eleven plans that can each file their own F7-style follow-ons — expect
+burst arrivals, and read each plan's FOLLOW-ONS block to predict them.
+
+**MEMBER 17 = ISSUE-144, and it forced the SHOUT-vs-LIE test to grow a
+sub-test worth reusing verbatim.** Same 35-line function again
+(`packval`'s `RunEngine`), same night as its siblings 141/143. Defect:
+`RunEngine` never honors `binding.StdoutArtifact`, so Convert/parse run on
+raw stdout while the real machine output sits in the declared FILE (the gate
+path resolves it at `pack_gate.go:759-766`; packval has no equivalent).
+DIR-024 pulled hard — a concurrent PM had just sent the near-identical
+ISSUE-141 there for SHOUTING. **The discriminator that settled it: does an
+EMPTY-INPUT path exist?** `parseSarif` (`pkg/check/parsers.go:130-134`)
+trims and returns `(nil, nil)` — *no error* — on empty input, and a
+`stdout_artifact` binding by design prints little or nothing to stdout, so
+`RunEngine` yields `{Passed: false, ExitCode: 0}, nil`, which on a NEGATIVE
+phase3 fixture **is the success condition**. ISSUE-141 has no such path
+(ast-grep `--json` emits `[]` even for zero matches → the `sarifLog` struct
+unmarshal ALWAYS fails → always loud). **So the general move: when two
+defects in the same function split across DIR-024/DIR-032, find the input
+shape that reaches the LENIENT parse branch. If one exists, it LIES; if every
+input deterministically errors, it SHOUTS.** Say in the slot note that the
+prior ruling still stands and why — the two directives must not read as
+contradicting each other. **Ecosystem bound, and it generalizes to any
+capability-gap slot: exactly ONE installed binding declares `stdout_artifact`
+(`go-coverage`, `gate_type: coverage`) and no rule binds it, so there are
+ZERO live in-repo victims today** — `phase3.go` resolves a rule's *declared*
+engine with no `gate_type` filter, so the first pack binding such a findings
+engine hits it. State "live capability gap, no current victim" explicitly, or
+a planner sizes it off a repro that does not exist
+([[project_mechanism_vs_ecosystem_gap]]).
+
+**ISSUE-143 → DIR-024 the same night: the residual a fix LEAVES BEHIND is
+not the fix's directive.** Once ISSUE-141 lands, `pack_gate.go` and
+`packval/executor.go` hold two hand-maintained copies of "apply Convert, then
+parse." That reports no verdict at all, so it is DIR-024 (the ISSUE-137
+category). **The coupling worth recording in BOTH files: 143 (Convert) and
+144 (StdoutArtifact) are two stages of ONE dual-implementation problem now
+split across two directives by the verdict test — whichever lands first must
+absorb the other rather than spawn a third copy.** Also: `PLAN-ISSUE-141`
+declines the consolidation deliberately and installs a content-scan drift
+guard (CLM-006) as an INTERIM TRIPWIRE, so 143's fix must RETIRE that guard —
+a tripwire left standing after consolidation is dead weight.
+
+**ISSUE-145 (2026-08-16) is the cluster's first artifact that should NOT be
+slotted at all — and the SHOUT-vs-LIE test was the wrong question.** Defect:
+`go build`'s diagnostics are 100% stderr, `RunStdout` captures stdout only, so
+`build-to-sarif.sh` gets an empty payload and every real compile failure
+surfaces as `engine "go build" crashed`. It SHOUTS (crash_guard fires, gate
+RED), so DIR-024 by the discriminator — and the issue argued DIR-024 itself,
+well. But **`PLAN-ISSUE-067` (item 2's lane, `status: draft`, committed
+`17fac05` 59 minutes before the issue was filed, "4 review rounds, ready to
+implement") already fixes go-build explicitly** — section "THE PART THE ISSUE
+DID NOT KNOW: go-build HAS NEVER WORKED AT ALL", CLM-005/CLM-007, via the same
+`producer:` seam the issue's own Direction names. The issue's careful "not a
+duplicate of ISSUE-067" bullet was right about 067's TEXT and stale against
+067's PLAN. **Two rules out of this:** (1) when an issue names a sibling,
+read that sibling's PLAN, not just the issue —
+[[project_check_the_siblings_plan]]; (2) **charter fit is moot when a single
+review-clean plan already owns both** — homing 145 in DIR-024 would split one
+plan's scope across DIR-032 (position 2) and DIR-024 (position 5). Recommended
+close-as-superseded; if the founder takes the plan's own named excision point
+(TASK-006's go-build half + CLM-007), 145 rides **DIR-032 alongside 067**, never
+DIR-024.
+
+**MEMBERS 18/19/20 (2026-08-16→17) — count is TWENTY. Member 20 (ISSUE-151)
+opened a FOURTH variant the map had no bucket for: the CONTRACT variant.**
+18 = ISSUE-146, 19 = ISSUE-148 (both `pack test` phase3 AUTHORING-CONTENT, vs
+items 4/15/16/17's dispatch-MACHINERY — see [[project_packval_phase3_family]]).
+20 = ISSUE-151: a pack rule whose `paths.include` names directory-prefixed
+globs matches ZERO files under explicit-file dispatch, so it is a silent no-op
+on the DEFAULT diff-scoped gate — see
+[[project_pack_rule_path_scoping_dispatch]] for the mechanism.
+**Why it needed a new variant, and the phrasing worth reusing:** items 4-10
+mis-report a verdict they computed, 11-12 starve, 13 suppresses, 14 audits.
+Item 20 is none — the gate step runs correctly AND the pack rule is well-formed;
+**the two are individually correct and jointly vacuous.** So the fix site is
+neither a gate step nor a packval phase but the pack-authoring CONTRACT itself.
+**When a defect's fix site is in neither party but in the contract between
+them, say so — it is a genuinely different planning problem.**
+DIR-024 was ruled out on the standing discriminator: its line is finding-data
+PRECISION (a rule that DOES run and mis-matches); item 20's rule never runs.
+Same test that sent 144 here and 141 to DIR-024.
+**Two things I added that neither issue stated, both reusable moves.** (1) The
+honesty consequence ran in BOTH directions and only one was filed: the issue
+recorded that silencing the rule drops two stale `@waiver:` tokens out of
+`Adjudicate`'s harvest window (2→0 unused, owned by ISSUE-097/item 6), but not
+the inverse — **fixing item 20 makes those sites ACTIVE findings the stale
+tokens fail to suppress, so item 20's fix must land WITH OR AFTER item 6's
+re-keying or it reds the gate on two waived-in-intent sites.** Generalize: when
+a defect's visibility is the only thing keeping another artifact's evidence
+alive, work out what the FIX does, not just what the defect does. (2) I read
+`ciGlobScopingProblems`'s function BODY, not just its doc comment, and found it
+does not merely document the mechanism — it ENFORCES it, for `ci-workflows`
+recipe include sets only, while nothing scans pack RULE files. **That asymmetry
+was the best fix seam available and existed only in the body.**
+Batch note: ISSUE-151 is item 3's (ISSUE-091) RESIDUAL, not its regression —
+`PLAN-ISSUE-091` only extended pre-existing diff-scope blindness to `--all`,
+making it visible. Of that plan's four TASK-006 filings only 151 is a live
+defect; 149/150 are record-only and stayed escalated-unhomed, 152 is a founder
+scope-policy call. Hook missed 149/151/152 (`artifact new`+Edit blind spot).
+
+**ISSUE-158 (2026-08-17) → DIR-024, and it is the cleanest HARNESS-SIDE test
+of the boundary yet — the parents were DIR-032 members and it still went to
+DIR-024.** Defect: the zero-match E2E helper
+(`installZeroMatchSubstantivenessPack`, `cmd/backstop/gate_substantiveness_e2e.go:297`)
+appends `files: ["harness/fixtures/**/*.go"]` to a COPY of the substantiveness
+rule so it matches nothing in the consumer workspace (item 10 / ISSUE-113's
+intent) — but the same glob also excludes the PACK'S OWN fixture tree, so
+`pack add`'s unconditional packval run refuses the copy at `phase3-fixtures`
+and FOUR E2E tests die at install (`TestE2E_ZeroMatchClassification_Refuses*`,
+`*_RefusalIsNotWaivable`, and — beyond `PLAN-ISSUE-148`'s three-test
+prediction — both `TestE2E_HollowEvidenceBlocks*`). **Ruling: packval's verdict
+is CORRECT and LOUD, so DIR-032 fails its own charter sentence; homed DIR-024
+on item 17's "loud red, needs a legible name" line, with DIR-024 item 12
+(test-fixture hygiene) as affirmative precedent.** The pull toward DIR-032 was
+the strongest yet — the harness EXISTS to test item 10, and item 19
+(ISSUE-148) surfaced it — so say plainly in the slot that **lane adjacency is
+not charter**. Two reusable notes: (1) a broken harness is a **coverage
+outage, not a false green** — item 10's delivered behavior is untested but
+nothing reports pass, and that distinction is exactly what keeps it out of
+DIR-032; (2) when the tree is being actively edited by the lane that filed the
+issue, **do NOT re-measure** — verify the mechanism statically (patch site,
+committed `RuleSourcePath` at `phase3.go:34`, the stale docstring) and label
+the numbers as the implementer's. Also: `PLAN-ISSUE-148` fences this out BY
+NAME ("FILE IT, do not fix it here"), so coverage is nil by construction.
 
 A *second*, smaller pattern is now forming with **no live home**: CLI
 **arg-shape** defects where the accepted argument shape diverges from the

@@ -36,4 +36,15 @@ the task split. Reviewer check: run the grep, count, and confirm the arithmetic
 closes — 33 hits = 4 parse-only + 2 owned by the crux-test task + 27 owned by
 the migration task, in that case.
 
-Related: [[signature-change-package-fanout]], [[field-removal-fixture-scope]].
+**Engine-measured enumerations rot the same way, plus one extra vector: inline
+suppressions.** PLAN-ISSUE-091 (2026-08-16) published a "MEASURED" 5-row list of
+`*_test.go` findings `--all` drops, and its final task told the implementer to
+expect "at minimum 5 rows in cmd/backstop alone". Re-running real semgrep gave 4:
+`cmd/backstop/hermetic_fixtures_test.go:33` carries `// nosemgrep: <rule>` at HEAD,
+so it can never fire under EITHER dispatch shape. The plan's headline counts were
+also unreproducible because it never said which pack set it measured (go-standards
+alone gave 6/7; all 8 installed packs gave 8/8; the plan claimed 9/11). Reviewer
+check: re-run the tool, and demand the plan state the exact rule/pack set used.
+
+Related: [[signature-change-package-fanout]], [[field-removal-fixture-scope]],
+[[shared-helper-collapse-blast-radius]].

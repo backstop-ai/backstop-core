@@ -57,6 +57,24 @@ live-tree risk). Evidence: SPEC-056 phase 2, RunArchetype call sites vs signatur
 disagreed first one way then the other while validateScaffold's arity split broke
 pkg/pack.
 
+**When the tree carries SEVERAL lanes' uncommitted work, neither `git archive HEAD` nor
+a detached HEAD worktree is a valid control** — the control tree would lack the sibling
+work your file now depends on, so it may not even compile, and any difference you measure
+is contaminated by their absence. The variant that works: `rsync -a --exclude='.git/'` the
+WORKING TREE to scratch, then in the copy restore ONLY your own file(s) from the snapshot
+you took immediately before your first edit. Now control and treatment differ by exactly
+your diff, with every sibling's in-flight work present in BOTH. Build a binary from each
+and run the same command against the SAME (original, untouched) target path.
+
+Evidence (ISSUE-141, 2026-08-16): `pack test packs/substantiveness` failed phase3 after my
+change, which looked like my regression. Control-vs-treatment on an absolute path settled
+it in one comparison: control = 4 × `produced no parseable SARIF` (ISSUE-141's own defect,
+live on a shipped pack), treatment = 2 × `positive fixture triggered the rule` (a different,
+downstream fixture-polarity failure owned by another lane). Strictly fewer, strictly
+different errors is what "my change improved it and the residual is not mine" looks like —
+and only the paired run can show that. Note the target path must be ABSOLUTE or you measure
+[[sandbox-exit71-means-profile-rejected]] instead of your change.
+
 Then make the positive case too: run `./bin/backstop gate --file <path>` once per file
 YOU touched and show every code dimension green. **`--file` is a single string, not a
 repeatable slice** — passing it N times silently keeps only the LAST one ("Gate running

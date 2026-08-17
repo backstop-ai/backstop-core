@@ -49,6 +49,13 @@ path to name the plan, write ONE terse entry that **leads with the prediction re
 recurrence is the finding; the root cause is already on file), mark the lines. Do not re-derive
 the root cause or re-read the corpus.
 
+**Direction-1 recurrence, 2026-08-17T00:24Z — worst ratio yet: a FOUR-artifact batch, and the
+hook logged ONE.** `PLAN-ISSUE-091` TASK-006 filed ISSUE-149/150/151/152 in the same minute;
+only 150 reached `pending.log`. When a hook-delivered issue cites a plan's "file, don't absorb"
+task, **immediately enumerate that task's mandated filings** (`grep -n "TASK-00N" plans/<plan>`)
+and check each against `pending.log` — the batch, not the one artifact you were handed, is the
+real triage unit. See [[record-only-consequence-filings]].
+
 Two mechanical details that matter when the fix is finally scoped: the dedupe guard is
 **per-path** (`grep -qF "$REL"`, line 24), so N fixture projects = N detached runs, never one;
 and the scoping fix is already half-written in the script — line 19 computes `REL` by

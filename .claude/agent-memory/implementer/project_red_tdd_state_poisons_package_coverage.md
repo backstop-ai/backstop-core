@@ -35,6 +35,18 @@ family of trap as [[project_subprocess_e2e_earns_no_coverage]] and
 [[project_buildtag_file_never_measurable]], where the coverage signal is absent
 for a reason that has nothing to do with how well the file is tested.
 
+Sibling-lane variant, measured ISSUE-146 (2026-08-17): the poisoning package
+failure does not have to be YOURS. `gate --all` reported 17 `coverage_threshold`
+reds spread across nearly every non-test file in `cmd/backstop`
+(`pack_new.go 8/30`, `waiver.go 6/55`, `pack_separation.go 0/28` …) while the
+same files' coverage was fine — the cause was five FAILING tests in that package
+owned by two other lanes (a sibling's in-flight `packs/substantiveness/testdata`
+edits plus ISSUE-147). The tell is the SHAPE: a coverage red that lands on a
+whole package at once, including files no lane touched, is a degraded profile,
+not 17 independent regressions. Confirm by finding the package's failing tests
+and proving them inherited, not by writing coverage. A `gate --file` run scoped
+to your own files passed `coverage_threshold` in the same tree, same minute.
+
 Corollary for shared trees: a lone `go test` CrashGuard red
 ("engine \"go test\" crashed: non-zero exit with no parseable findings") can also
 be a TRANSIENT from a sibling agent editing another package while your gate

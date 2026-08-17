@@ -3,6 +3,7 @@
 - [Report via SendMessage](feedback_report_via_sendmessage.md) — text output is INVISIBLE to the team lead; end every teammate task with SendMessage or it reads as going idle
 - [Verify the loss claim](feedback_verify_the_loss_claim.md) — mechanism real ≠ consequence real; go look for the "lost" file / RUN the "failing right now" test before ranking off that claim
 
+- [Done directive orphans its tail](project_done_directive_orphans_its_tail.md) — ★ DIR-032 closed 21/21 and stranded NINE plan-filed follow-ons; trace provenance by grep, escalate the family as ONE ruling
 - [PM write path](project_pm_write_path_blocked.md) — FULLY OPEN as of 2026-07-26; BACKLOG.yml is structurally directive-author-only; RENAMES need `main`; teammate roster is flat
 - [Interview tooling limits](project_interview_tooling_constraints.md) — `--fork-session` blocked in headless runs; transcript grep DOES work — fingerprint by artifact-ID counts, label it corpus-based
 - [Workaround-and-file pattern](project_workaround_and_file_pattern.md) — hook-delivered issues come from implementers who worked AROUND the defect; coverage is ~always nil, check corpus not interview
@@ -10,9 +11,13 @@
 - [Launch tiering](project_launch_tiering.md) — FOUR blockers as of 2026-07-27 (recipes/remote-packs/Linux-CI/CI-releases), all delivered 2026-07-28; read BACKLOG.yml's header, not this count
 - [Launch preconditions ≠ backlog](project_launch_preconditions_not_backlog.md) — clean backlog ≠ sign-off; check secrets/visibility/tags AND re-verify right before reporting — readiness decays in minutes (v0.1.0 shipped 00:36Z)
 - [Note-supersedes convention](project_corpus_note_supersedes.md) — stale-looking artifact lines are often deliberately preserved with a correcting note below; read the whole file before flagging drift
-- [Gate-verdict-honesty cluster](project_gate_verdict_honesty_cluster.md) — DIR-032 (2026-08-10); 13 members (+129 suppression variant); slot by CHARTER not the founder's roster; fix the variants map; its rank rationale is stale
+- [Check the sibling's PLAN](project_check_the_siblings_plan.md) — "not a duplicate of ISSUE-NNN" argues about the ISSUE; read PLAN-ISSUE-NNN, which routinely merges both into one fix
+- [Gate-verdict-honesty cluster](project_gate_verdict_honesty_cluster.md) — DIR-032; 20 members; enumerate plans/ before any coverage count; SHOUT-vs-LIE is the DIR-024 boundary — settle it on the EMPTY-INPUT path
+- [Directory-prefixed paths.include = dead rule](project_pack_rule_path_scoping_dispatch.md) — matches ZERO files under the default gate's explicit-file dispatch; never take such a rule as live evidence that "the gate already catches that"
+- [packval phase3 family](project_packval_phase3_family.md) — PLAN-ISSUE-092's F7 named 3 blockers (142/141/**one still unfiled**); executor.go is a contended file — check which lane owns it
 - [Never read subagent .output](feedback_never_read_subagent_output_files.md) — it's the raw ~100k-token JSONL transcript; grep the target file or re-run validate instead
 - [Concurrent PM triage races](project_concurrent_pm_triage_races.md) — sibling-issue bursts fire parallel PMs into ONE directive; re-read it after the agent returns, fix stale cross-refs in place
+- [Record-only consequence filings](project_record_only_consequence_filings.md) — "file, don't absorb" plan tasks emit issues with NO defect; not clear fits, and they arrive as batches the hook under-delivers
 - [pm-trigger hook is wrong BOTH ways](project_pm_trigger_hook_misses_cli_scaffolded.md) — misses `artifact new`+Edit artifacts AND false-fires on testdata fixtures (rootless glob). Check path shape first; enumerate issues/ vs pending.log every sweep
 - [Homed-but-orphaned bundles](project_homed_but_orphaned_bundles.md) — BUNDLE-004/005/008 cited ONLY by `done` directives; check citers' status before calling a bundle homed. Also: pm-trigger hook can silently miss an artifact
 - [Orphaned issue backlog](project_orphaned_issue_backlog.md) — ~half of open issues cited by no directive; hook only catches post-install artifacts, compute uncited-open explicitly
@@ -23,6 +28,7 @@
 - [ID reservation drift](project_id_reservation_drift.md) — IDs allocate from git tags w/ silent FS fallback; no remote → tags (088) lag files (089+); adding the launch remote re-issues colliding IDs
 - [Phantom filed issues](project_phantom_filed_issues.md) — INBOX ≠ proof of existence; 102/103 were never written yet have burnt tags. `ls issues/ISSUE-NNN-*` before citing any ID
 - [Zero-baked violations have no home](project_zero_baked_violations_have_no_home.md) — DIR-014 is done; home baked-platform issues by the SURFACE that owns the code, not the invariant
+- [phase3 polarity + silent parse](project_phase3_polarity_and_silent_parse.md) — settles SHOUT-vs-LIE for RunEngine gaps: array=loud/DIR-024, empty-or-object=silent/DIR-032; positive fixture = CLEAN code; check `grep -c claims` for latency
 - [Pack rule-precision family](project_pack_rule_precision_family.md) — pack-rule FPs home under DIR-024 by charter; ISSUE-061 in DIR-021 is a deadline exception, not precedent. 061+125 = one pack bump, waiver expires 2026-10-12
 - [Harness config has no home](project_harness_config_has_no_home.md) — `.claude/` agent-guard/hooks are orphaned (DIR-016 done, SPEC-003 deprecated); NO FIT by default, recommend direct fix not a directive
 - [Clean pack addition = no artifact](project_clean_pack_addition_no_artifact.md) — "consumed with zero citation" is NOT a gap absent a defect; don't restate in prose what backstop.lock already records

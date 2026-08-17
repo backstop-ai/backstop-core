@@ -27,6 +27,19 @@ information an AS-BUILT DELTAS section exists to record.
 - Older plans prescribe `backstop code check` in their verification tasks. That command was
   REMOVED (ISSUE-018) and its absence is now asserted by a shipped test. Record it as an
   as-built delta; do not edit the task text, and never carry that string into a new plan.
+- **The plan may never have been committed AT ALL** — check `git status` on the plan path
+  before reaching for `git show <plan commit>`. PLAN-ISSUE-151 (2026-08-17) was still
+  untracked (`??`) at close-out: the delivery commit carried six source files plus a
+  testdata corpus and NO artifact, so there was no way to establish what the plan said
+  before implementation. Say so at the TOP of the banner as a provenance caveat and make
+  the AS-BUILT DELTAS the authority on divergence, since a future reader cannot derive it
+  from history.
+- **Re-count the mandated tests yourself; the hand-off's number can be low.** The lead
+  reported "10 mandated tests" for PLAN-ISSUE-151; grepping the plan found 15 (13
+  `TestPathScope_*` + 2 `TestCIGlobScoping_*`), all present at HEAD, plus one UNMANDATED
+  test shipped beyond them. `grep -o "Test[A-Za-z0-9_]\{4,\}" <plan> | sort -u`, then
+  `git grep "func <name>(" HEAD -- '*_test.go'` per name — a low carried count would have
+  under-claimed the delivery and hidden the extra test from the deltas section.
 - **When the code landed in a MULTI-LANE BATCH commit, the batch message is a poor
   provenance record** — it can read as though a defect caught in plan REVIEW was actually
   shipped and then corrected. Establish what the plan said BEFORE implementation with
@@ -39,6 +52,20 @@ information an AS-BUILT DELTAS section exists to record.
   Also enumerate the lane's OWN files in the banner: a batch commit's diff is not your
   lane's diff, and a future reader `git show`ing it will otherwise mis-attribute the
   other lanes' files to your plan.
+- **Closing against an UNCOMMITTED shared tree is the same trap without the commit.**
+  A file in `git status` may be 100% another lane's — and the whole-file diff will not
+  say so. Diff each file you intend to credit and check it actually mentions your
+  artifact ID before naming it. (PLAN-ISSUE-091, 2026-08-16: `docs/CODEBASE-MAP.md` was
+  modified and would have been credited to the lane; its diff was entirely
+  PLAN-ISSUE-067's producer-seam paragraph and contained zero ISSUE-091 references.
+  Two more files — `pack_gate.go`, `filemode_scoping_test.go` — were genuinely SHARED,
+  with this lane owning only a branch and a comment inside a 182-line diff.)
+- **Verify the hand-off report's own promised follow-ups actually landed** — a close-out
+  is the last place to catch one that didn't. (PLAN-ISSUE-091: its ISSUE-097 append said
+  a derived 2→0 figure "will be appended here once available"; TASK-007 then measured it
+  AND found a third stale token, and neither ever reached ISSUE-097. Grepping the target
+  artifact for the promised content — rather than trusting "appended to ISSUE-097" in the
+  report — is what surfaced it, and it went into the banner as an open residual.)
 - **A plan close-out edit is uncommitted when you finish, and it must land in the SAME
   commit as the sibling issue/spec close.** A parallel issue-author closing the source
   artifact runs a closed-requires-traceability check; if it reads HEAD rather than the

@@ -30,6 +30,18 @@ hermetic temp project. That red is the artifact worth reporting.
 the right reason, not to make the suite exit non-zero. A red obtained for an
 incidental reason satisfies the letter and defeats the purpose.
 
+STAGE THE IMPL WHEN ONE TASK CARRIES BOTH. A single implementation task often
+introduces a new SURFACE and a new BEHAVIOR at once; landing it in one edit
+collapses the evidence to compile-red only, because the behavioral tests never
+get a chance to run against a compiling-but-not-yet-working tree. Split the
+implementation along the surface/behavior seam and re-run in between. On
+PLAN-ISSUE-136 TASK-004 (one task, two files) I landed the `manifest.go` half
+first — that cleared the 8 `declaredEngineKeys undefined` compile errors and
+exposed the real behavioral red on the three advisory tests ("want exactly 1
+exempt-scope-decision warning, got 0: []") — then landed the `phase2.go` half.
+Two kinds of red from one task, no contrivance, and the plan's file scope
+untouched.
+
 **How to apply:** ask what the task proves. New surface -> compile red is fine
 and complete. Existing defect -> the red must be the defect's own message; if a
 blocker would force a compile red instead, restructure the test to run against

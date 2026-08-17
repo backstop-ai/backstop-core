@@ -8,3 +8,5 @@
 - [Presence claims need a live consumer](feedback_presence_claims_need_a_live_consumer.md) — "X is in the map" is only real if some path reads that key; a dead entry's t.Fatalf blocks the cleanup that removes it
 - [Idle hook reads the wrong transcript](feedback_idle_hook_reads_wrong_transcript.md) — name-prefix glob picks a sibling's file, so a reported agent is nagged forever; diagnose, never re-send, don't edit the hook
 - [Layer-0 tool missing from PATH masks the gate](feedback_layer0_tool_missing_masks_gate.md) — exit 2 at pack_engines ABORTS before test_substantiveness/contract_signature ever report; check `$(go env GOPATH)/bin` before believing it
+- [Draft-spec drift is silent](feedback_draft_spec_drift_is_silent.md) — an extraction falsifies a draft spec's prose with nothing red (delegation keeps the test green); reconcile now, and never anchor a reference on a caller ordinal
+- [Existence check includes shipped code](feedback_existence_check_includes_shipped_code.md) — a stale draft spec's scope is often already delivered under different test names, and parts can be actively contradicted; read the package before reconciling

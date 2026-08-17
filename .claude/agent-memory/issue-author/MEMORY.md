@@ -3,3 +3,4 @@
 - [Contracts pack kind gaps](project_contracts_pack_kind_gaps.md) — ISSUE-036/037: kind-aware compiler done except bare iota consts; pattern-arg is string-only, blocks the relational-rule fix
 - [Contract compiler Go-only](project_contract_compiler_go_only.md) — ISSUE-053 owns non-Go-target contract false-mismatches (e.g. pack.yml); check before filing a dup
 - [Body H1 required for title](feedback_body_h1_required_for_title.md) — art.Title reads body H1, not frontmatter title:; add `# Title` line or validate fails "title is missing"
+- [Schema properties block unenforced](project_schema_properties_block_unenforced.md) — MetadataRules parsed but never consulted by any validator; schema-vs-validator drift is doc-only, not a live bug (see ISSUE-153)
