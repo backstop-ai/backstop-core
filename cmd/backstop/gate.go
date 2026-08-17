@@ -973,8 +973,9 @@ func buildGateSteps(projectRoot string, root artifact.Root, scope ...*gate.GateS
 		}
 		// Thread the gate's diff scope (activeScope) so rule-fed findings engines
 		// scan only the changed files, not the whole repository (ISSUE-010). A nil
-		// activeScope or GateScopeModeAll restores the whole-repo sweep; the
-		// project-wide toolchain passes stay project-wide regardless.
+		// activeScope restores the whole-repo sweep; an all-scope now hands over
+		// its own explicit file list rather than a directory target (ISSUE-091);
+		// the project-wide toolchain passes stay project-wide regardless.
 		violations, err := resolveDispatchPackEngines()(dispatchPacks, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, activeScope, runner)
 		if err != nil {
 			return gate.StepResult{

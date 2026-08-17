@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -245,9 +243,10 @@ func declaredPackNames(cfg *config.Config) []string {
 // fallback.
 // The scope parameter carries the gate's changed-file diff scope (untracked
 // inclusive) so rule-fed findings engines scan only the in-scope changed files
-// instead of the whole repository (ISSUE-010). A nil scope or a
-// GateScopeModeAll scope is the explicit whole-repo escape hatch; `backstop code
-// check` and `gate --all` pass that sentinel. The project-wide toolchain branch
+// instead of the whole repository (ISSUE-010). Only a NIL scope is the
+// whole-repo path: it carries no file list, so the engine is handed the
+// projectRoot directory. Every scope that DOES carry a file list — all-scope
+// included since ISSUE-091 — hands that list over instead. The project-wide toolchain branch
 // (go build/test ./..., golangci-lint run ./...) is unaffected by scope — it
 // stays project-wide so unchanged-file breakage still fails the gate.
 // dispatchPackEnginesFn is a test seam: nil in production (resolveDispatchPackEngines
@@ -386,47 +385,6 @@ func configErrorPassthrough(err error) error {
 	return err
 }
 
-// runNeverStarted reports whether a run error means THE PROCESS NEVER STARTED, as
-// opposed to started-and-exited-non-zero (ISSUE-112). It is the single authority
-// for that question on the gate dispatch path — runFindingsEngine and
-// runCoverageEngine both call it, because two copies are how the two branches
-// drift apart.
-//
-// It must NOT be replaced by `runErr != nil`. A rule-fed findings engine exits
-// non-zero precisely WHEN it reports findings, so treating every run error as
-// fatal would red the gate on every real finding. A started process reports an
-// *exec.ExitError, which is neither shape below.
-//
-// "Never started" is TWO Go types because exec.Command reaches LookPath only for a
-// BARE command name (filepath.Base(name) == name):
-//
-//   - *exec.Error — a bare name that LookPath could not resolve.
-//   - *fs.PathError with Op == "fork/exec" — a PATH-FUL command that could not be
-//     exec'd: absent, not executable, or carrying a bad interpreter line. Such a
-//     command never consults LookPath, so it can never produce an *exec.Error.
-//
-// pkg/packval/executor.go is the SEED of this shape and does it for `backstop pack
-// test`, with the reasoning spelled out there ("a broken run, not a finding-free
-// pass"). This predicate is deliberately WIDER than packval's *exec.Error-only
-// check, because gate engine commands are legitimately path-ful: the coverage
-// producer path is always filepath.Join(packRoot, …) and is already os.Stat-guarded,
-// so *exec.Error is UNREACHABLE on that branch and a narrow check there would be
-// greenable only by a stub runner — i.e. vacuously.
-//
-// It keys on Op, never on the errno (ENOENT / EACCES / ENOEXEC), which would bake
-// OS knowledge into a thin executor.
-func runNeverStarted(runErr error) bool {
-	var execErr *exec.Error
-	if errors.As(runErr, &execErr) {
-		return true
-	}
-	var pathErr *fs.PathError
-	if errors.As(runErr, &pathErr) && pathErr.Op == "fork/exec" {
-		return true
-	}
-	return false
-}
-
 // neverStartedError renders the refusal for a process that could not be started,
 // naming the pack, what was invoked, and the underlying error. It returns a
 // *check.ConfigError (exit 2) so the concrete type survives for the exit-code type
@@ -487,9 +445,9 @@ func runCoverageEngine(manifest *pack.Manifest, packRoot, projectRoot string, bi
 		// A producer that NEVER STARTED is a different thing entirely (ISSUE-112): it
 		// wrote no profile, so continuing yields an empty record set that reads as
 		// coverage-clean. Refuse instead. This branch's command is always path-ful and
-		// already os.Stat-guarded above, so the shape reaching runNeverStarted here is
+		// already os.Stat-guarded above, so the shape reaching check.NeverStarted here is
 		// the fork/exec *fs.PathError, never an *exec.Error.
-		if runNeverStarted(runErr) {
+		if check.NeverStarted(runErr) {
 			return nil, configErrorPassthrough(neverStartedError(manifest, producerPath, runErr))
 		}
 		stdout = out
@@ -506,7 +464,7 @@ func runCoverageEngine(manifest *pack.Manifest, packRoot, projectRoot string, bi
 		// As on the producer branch: a non-zero exit may still have emitted a usable
 		// profile, but a process that never started emitted nothing, and zero records
 		// from a tool that never ran reads as coverage-clean (ISSUE-112).
-		if runNeverStarted(runErr) {
+		if check.NeverStarted(runErr) {
 			return nil, configErrorPassthrough(neverStartedError(manifest, binding.Command, runErr))
 		}
 		stdout = out
@@ -633,10 +591,17 @@ func resolveRulePath(manifest *pack.Manifest, packRoot string, rule pack.Rule) (
 	return abs, nil
 }
 
-// runFindingsEngine runs one findings engine: gather inputs, run the command via
+// runFindingsEngine runs one findings engine: gather inputs, run the engine via
 // the clean-stdout runner, pipe through the sandboxed convert when declared, and
 // parse the normalized SARIF (REQ-006/REQ-007/REQ-009). Violations are
 // namespaced to the pack.
+//
+// WHAT IS RUN is either the declared command's tool or, when the binding declares
+// a `producer:`, that packRoot-resolved script IN ITS PLACE (ISSUE-067) — the same
+// pack-DATA seam runCoverageEngine honors. The producer replaces only the invoked
+// NAME: core shapes cmdArgs identically either way, so every scope contract on
+// this path survives the swap. See the producer block below for why that differs
+// from the coverage producer's bare invocation.
 func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, scope *gate.GateScope, binding engine.EngineBinding, rules []pack.Rule, runner check.CommandRunner) ([]gate.Violation, error) {
 	inputs, err := gatherEngineInputs(manifest, packRoot, binding, rules)
 	if err != nil {
@@ -687,32 +652,99 @@ func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, sc
 			}
 		}
 	} else {
-		// Diff-scope the rule-fed engine to the gate's changed files (ISSUE-010).
-		// A nil scope or GateScopeModeAll is the explicit whole-repo escape hatch
-		// (gate --all, code check) — scan projectRoot exactly as before (CLM-004).
-		// Otherwise point the engine at ONLY the in-scope changed files (untracked
-		// included, project-relative as they arrive from the gate scope) so it
-		// never produces out-of-scope findings (CLM-001/CLM-002/CLM-007). When the
-		// resulting target list is empty, append NOTHING — the engine scans
-		// nothing and yields zero findings; it must NOT silently fall back to the
-		// whole repo (CLM-003).
-		if scope == nil || scope.Mode == gate.GateScopeModeAll {
+		// Scope the rule-fed engine to the gate's own file list (ISSUE-010,
+		// ISSUE-091).
+		//
+		// A DIRECTORY TARGET AND THE FILE LIST THAT DIRECTORY CONTAINS ARE NOT
+		// EQUIVALENT INPUTS, and assuming they were is what ISSUE-091 filed.
+		// Handed a directory, an engine performs its OWN discovery under its OWN
+		// default ignore set; handed explicit paths, it typically bypasses that
+		// ignore set entirely. Backstop can neither see, predict, nor override a
+		// given engine's default ignores, so it must not depend on them agreeing
+		// with the scope it computed — and a pack cannot opt out of a directory
+		// target backstop handed it.
+		//
+		// Therefore EVERY scope that HAS a file list hands that list over. All
+		// scopes then traverse ONE engine code path, and an all-scope run is a
+		// genuine superset of a diff-scoped run over the same files rather than a
+		// second dispatch shape with its own blind spots.
+		//
+		// A NIL scope has no list to substitute and keeps the directory target.
+		// That is the honest behavior for a caller that supplied no scope, not a
+		// grandfather clause.
+		//
+		// Paths under a `testdata` directory are dropped before becoming scan
+		// targets (ISSUE-040): standard tooling convention treats a `testdata`
+		// directory as inert data — deliberately-hollow negative fixtures and
+		// planted rule-violations live there and are NOT real findings. This
+		// NARROWS the target list; it never widens it.
+		//
+		// ANTI-FALLBACK (the ISSUE-010 CLM-003 contract, preserved by
+		// construction): when the resulting list is EMPTY, NOTHING is appended —
+		// the engine scans nothing and yields zero findings. It must NEVER fall
+		// through to the directory branch above. The collapsed form makes that
+		// structural rather than conditional, and saying so here is what stops a
+		// future reader from "helpfully" restoring a fallback.
+		//
+		// The SPEC-034 REQ-010/CLM-034 Ratified Design Constraint 3 above is
+		// INTACT: a rule-fed engine still gets a scan target. Only the claim that
+		// the target may be the whole directory is retracted.
+		if scope == nil {
 			cmdArgs = append(cmdArgs, projectRoot)
 		} else {
-			// Drop any changed path under a `testdata` directory before it becomes
-			// an engine scan target (ISSUE-040). Standard tooling convention treats a
-			// `testdata` directory as inert data — deliberately-hollow negative
-			// fixtures and planted rule-violations live there and are NOT real
-			// findings. This narrows the diff-scoped target list; it does NOT widen
-			// it. If the result is empty (a testdata-only diff), NOTHING is appended
-			// and the engine scans nothing — it must NEVER fall through to the
-			// projectRoot whole-repo branch above (the ISSUE-010 CLM-003
-			// anti-fallback contract, preserved).
 			cmdArgs = append(cmdArgs, excludeTestdataPaths(scope.Files)...)
 		}
 	}
 
-	stdout, runErr := runner.RunStdout(context.Background(), cmdName, cmdArgs...)
+	// PRODUCER vs plain-command split on the FINDINGS path (ISSUE-067). The seam is
+	// the SAME pack DATA the coverage path already honored (binding.Producer): an
+	// optional pack-relative script run UN-SANDBOXED via the runner IN PLACE of the
+	// tool. runFindingsEngine previously ignored it entirely, so a pack declaring
+	// one silently got the plain command — a declared capability dropped without
+	// error, and the enabling half of the opaque-crash defect. A pack declares a
+	// producer when its tool splits its real output across streams the runner's
+	// deliberate stdout-only capture (SPEC-031 CLM-028) cannot both see; the PACK
+	// owns that merge because the pack is what knows its tool's stream behavior.
+	//
+	// THE ASYMMETRY WITH runCoverageEngine IS DELIBERATE, NOT AN INCONSISTENCY.
+	// The coverage producer is invoked BARE — it shapes its own whole invocation.
+	// A findings producer must NOT, because the findings path owns four scope
+	// contracts the coverage path has never had, every one of which would silently
+	// evaporate the moment a pack declared a producer:
+	//
+	//   - the diff-scoped explicit file list, and the ISSUE-010 CLM-003
+	//     ANTI-FALLBACK rule (an empty target list means scan NOTHING, never the
+	//     whole repo);
+	//   - excludeTestdataPaths (ISSUE-040);
+	//   - fileModeTestTarget — `gate --file` narrows a package_scoped engine to the
+	//     changed file's package (SPEC-034 REQ-010/CLM-035);
+	//   - ProjectTarget vs self-targeting (SPEC-048 CLM-001).
+	//
+	// So here the producer REPLACES THE TOOL, NOT THE ARG SHAPING: every line above
+	// that computes cmdArgs is untouched, and the producer receives THE SAME ARGS
+	// the plain command would have. The pack script forwards them verbatim to its
+	// tool. The change is auditable as a one-line swap of the invoked NAME.
+	invoked := cmdName
+	// What the never-started refusal below NAMES. On the plain branch that is the
+	// declared command (unchanged wording); on the producer branch it is the
+	// resolved script path, because the producer is what failed to start and naming
+	// the command would misdirect the reader to a tool that was never reached.
+	neverStartedSubject := binding.Command
+	if binding.Producer != "" {
+		// Resolved under packRoot with the SAME filepath.Join+os.Stat pattern the
+		// convert and the coverage producer use. A declared-but-missing producer is
+		// a fail-loud broken-pack error naming pack + path — never a silent
+		// fall-back to the plain command, which would make a mis-typed declaration
+		// look like it worked.
+		producerPath := filepath.Join(packRoot, filepath.FromSlash(binding.Producer))
+		if info, statErr := os.Stat(producerPath); statErr != nil || info.IsDir() {
+			return nil, fmt.Errorf("broken pack %s: missing findings producer script %s", manifest.NormalizedName, producerPath)
+		}
+		invoked = producerPath
+		neverStartedSubject = producerPath
+	}
+
+	stdout, runErr := runner.RunStdout(context.Background(), invoked, cmdArgs...)
 	// A rule-fed/config-file findings engine exits non-zero when it reports
 	// findings; the SARIF on stdout is the contract, so a non-zero EXIT is not
 	// fatal on its own. A CrashGuard engine (native build/test) is different: a
@@ -728,8 +760,8 @@ func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, sc
 	// CrashGuard branch never caught this. A CrashGuard engine reaches this first
 	// too, and gets the clearer message: "crashed: non-zero exit with no parseable
 	// findings" mis-describes a binary that never ran at all.
-	if runNeverStarted(runErr) {
-		return nil, neverStartedError(manifest, binding.Command, runErr)
+	if check.NeverStarted(runErr) {
+		return nil, neverStartedError(manifest, neverStartedSubject, runErr)
 	}
 
 	// Select the bytes the convert/shape-guard see (mirrors runCoverageEngine). By
@@ -862,8 +894,10 @@ func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, sc
 // vetted) generically for ANY pack's rule-fed findings engine. Matching is on
 // slash-split segment equality, so a look-alike file whose name merely contains
 // the substring (e.g. "testdata_util.go", or a "mytestdata/" directory) is NOT
-// excluded. Applied only INSIDE runFindingsEngine's diff-scope else branch; a
-// testdata-only diff filters to an empty slice and the caller appends nothing.
+// excluded. Applied INSIDE runFindingsEngine to EVERY scope that carries a file
+// list — all-scope included since ISSUE-091 collapsed the two dispatch shapes
+// onto one explicit-file path; an all-testdata file list filters to an empty
+// slice and the caller appends nothing (CLM-004 restated at the filter).
 func excludeTestdataPaths(files []string) []string {
 	kept := make([]string, 0, len(files))
 	for _, f := range files {

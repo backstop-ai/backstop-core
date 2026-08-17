@@ -1,6 +1,7 @@
 package main
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -16,13 +17,27 @@ import (
 // it to a whole-module run (Sharp Edge 8). These tests pin the chosen outcome:
 // file-mode scoping is PRESERVED through the engine path.
 
-// goTestCall returns the recorded `go test <target>` invocation from a fixture
-// runner, failing if there is not exactly one.
+// goTestCall returns the recorded test-pass invocation from a fixture runner,
+// failing if there is not exactly one.
+//
+// SELECTION IS RE-GROUNDED ON THE PRODUCER (ISSUE-067). The go-test binding now
+// declares a producer, so the dispatch invokes the packRoot-resolved script path
+// rather than the tool: a selector keyed on `c.name == "go"` finds NOTHING and the
+// helper's own t.Fatalf fires. Both forms are accepted so the helper keeps working
+// whichever way the binding is declared — what it PROVES is unchanged, because the
+// evidence lives in `c.args`, which the producer swap deliberately leaves alone.
+// Those arg assertions are the direct evidence for the arg-preservation half of
+// ISSUE-067 CLM-001 and must not be weakened.
 func goTestCall(t *testing.T, runner *fixtureRunner) fixtureCall {
 	t.Helper()
 	var found []fixtureCall
 	for _, c := range runner.calls {
-		if c.name == "go" && len(c.args) > 0 && c.args[0] == "test" {
+		if len(c.args) == 0 || c.args[0] != "test" {
+			continue
+		}
+		isTool := c.name == "go"
+		isProducer := producerCommandAlias()[filepath.Base(c.name)] == "go test"
+		if isTool || isProducer {
 			found = append(found, c)
 		}
 	}
@@ -92,7 +107,8 @@ func TestFileMode_ProjectWideModeStillWholeModule(t *testing.T) {
 	stubSandboxedRunStdout(t, nil)
 	runner := &fixtureRunner{byCmd: map[string][]byte{"go test": readFixture(t, "go-test-failures.txt")}}
 
-	// nil scope == whole-repo escape hatch (gate --all / code check).
+	// A nil scope is the whole-repo path: it carries no file list, so the engine
+	// is handed the projectRoot directory (ISSUE-091).
 	if _, err := dispatchPackEngines([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), nil, runner); err != nil {
 		t.Fatalf("dispatchPackEngines: %v", err)
 	}
