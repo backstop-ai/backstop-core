@@ -1,13 +1,15 @@
 ---
 title: "pkg/packval/executor.go's RunEngine never honors a binding's declared StdoutArtifact — Convert/parse runs on the wrong bytes"
 schema_version: issue/v1
+delivered_by: PLAN-ISSUE-144
 
 issue:
   id: ISSUE-144
   title: "pkg/packval/executor.go's RunEngine never honors a binding's declared StdoutArtifact — Convert/parse runs on the wrong bytes"
   type: bug
-  status: open
+  status: closed
   created: "2026-08-16"
+  closed: "2026-08-17"
 
 complexity:
   scope: contained
@@ -134,3 +136,27 @@ stdout). Whoever plans the fix should:
   `StdoutArtifact` returns zero matches in the entire file) and `cmd/backstop/pack_gate.go:759-766`
   (the real payload-selection block `RunEngine` lacks an equivalent of). `PLAN-ISSUE-141` confirmed
   `status: draft` (not yet landed) at filing time.
+
+## Resolution
+
+`pkg/packval/executor.go`'s `RunEngine` now honors a binding's declared `StdoutArtifact`. Before
+this fix, `RunEngine` always fed `stdout.Bytes()` straight into Convert/SARIF parsing regardless of
+what the binding declared — a binding that writes its real machine-readable output to a file (e.g.
+go-toolchain's `go-coverage` engine, `stdout_artifact: cover.out`) had that declaration silently
+ignored, so the fixture run parsed stdout noise instead of the artifact file. The fix mirrors the
+real gate path's payload-selection block (`cmd/backstop/pack_gate.go:759-766`): `RunEngine` now
+resolves `binding.StdoutArtifact` relative to `packDir` (`pkg/packval/executor.go:127-132`) and
+reads that file as the payload when the field is set, failing loudly with the declared path if the
+artifact was not produced, rather than silently falling back to stdout.
+
+Falsified pre-fix: the lying-verdict claim reproduced literally — `Passed:false`, nil error, exit
+0, empty `Output`, the success condition for a negative phase3 fixture on a run whose real output
+was never read.
+
+Delivered by `PLAN-ISSUE-144` (`status: completed`, committed at `4d29e36`).
+
+**Residual, not fixed here:** `RunEngine` also ignores three further binding fields —
+`CrashGuard`, `StrictSarif`, `Producer` — all honored by `cmd/backstop`'s dispatch path. This
+belongs beside `ISSUE-143`'s single-authority consolidation family but must not be folded into it
+silently, since each field needs its own falsification mechanics. Left as an open gap for a
+follow-on issue rather than addressed here.
