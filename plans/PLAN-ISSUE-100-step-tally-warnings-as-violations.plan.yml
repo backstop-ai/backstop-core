@@ -1,0 +1,851 @@
+---
+plan_id: PLAN-ISSUE-100
+spec_id: ISSUE-100
+created: "2026-08-16"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./pkg/gate/... ./cmd/backstop/... -race -count=1"
+coverage_threshold: 90
+
+notes: |
+  Implements ISSUE-100 — DIR-032 (Gate Verdict Honesty) item 7. SMALL, SURGICAL
+  LANE: three phases, TWO production files, TWO new test files. Nothing else.
+
+  ── SCOPE, STATED AS A BOUNDARY ───────────────────────────────────────────
+  ISSUE-100 was originally filed covering BOTH halves of a severity-blindness
+  defect. The VERDICT half is ALREADY FIXED and must not be reopened: commits
+  2e49745 (`blocksVerdict` in pkg/gate/policy.go honors Violation.Severity; an
+  explicit "warning" is exempt, an UNSET severity still blocks) and 3ac6e7f
+  (cmd/backstop/pack_severity_contract_test.go locks the SARIF-level ->
+  check.Violation.Severity -> gate.Violation.Severity -> verdict mapping across
+  all three hops). PLAN-ISSUE-105 then extended severity-awareness to the step
+  builders, and its own notes explicitly RESERVE this lane's surface: "ISSUE-100's
+  RENDERER HALF IS NOT IN SCOPE ... Do not 'fix' the renderer here."
+
+  THIS LANE IS THE RENDERER/TALLY HALF ONLY. It changes what a reader is TOLD
+  about a set of violations. It changes NOTHING about Pass, step Status, exit
+  code, or which findings block. pkg/gate/policy.go is in NO task's file scope.
+
+  ── EXISTENCE-IN-WORLD CHECK (performed before authoring) ──────────────────
+  Swept plans/ + specs/ (committed and working tree) for ISSUE-100, for
+  total_violations/TotalViolations, and for FormatHuman/gate/output.go.
+    - PLAN-ISSUE-105 (completed) touches pkg/gate/policy.go, step_delegate.go,
+      step_contract.go, cmd/backstop/gate.go. Touches NEITHER result.go NOR
+      output.go, and carves this surface out by name. NO subsumption.
+    - PLAN-ISSUE-106 (substantiveness join drops pack severity) — different file,
+      different hop (severity lost BEFORE the verdict). Sibling, not overlap.
+    - ISSUE-107 (coverage warning-only step reads as pass) — SIBLING, homed in
+      DIR-024, NO plan exists. See SE5: deliberately NOT folded in.
+    - PLAN-SPEC-010 / SPEC-010 (both `status: draft`) reference total_violations
+      as the ORIGINAL authoring of the field. Predating artifacts, not in-flight
+      lanes. See SE6.
+  No artifact owns this surface. Authoring proceeds.
+
+  ── CROSS-LANE COLLISION CHECK (performed 2026-08-16 against the live tree) ─
+  `git status --porcelain` over pkg/gate/result.go, pkg/gate/output.go and
+  pkg/gate/policy.go returned EMPTY — all three are clean at HEAD (a60015c).
+  None of tonight's DIR-032 lanes (ISSUE-067/091/092/124/134/139/140/141) scopes
+  any of them. This lane's two production files are uncontended as authored.
+  The implementer must still re-read both files fresh before editing: line
+  numbers in this plan's prose are DELIBERATELY ABSENT for that reason — every
+  site below is located BY NAME (function, field, or literal string).
+
+  ── THE DEFECT, MEASURED FOR REAL (not transcribed from the issue) ─────────
+  Reproduced 2026-08-16 in a detached worktree at HEAD via a standalone program
+  against the EXPORTED pkg/gate API, feeding the issue's motivating shape: one
+  `severity: "error"` coverage shortfall plus one `severity: "warning"`
+  coverage-exclusion notice, on a single coverage_threshold step. Verbatim
+  output:
+
+      StepVerdict            = "fail"
+      TotalViolations        = 2   (blocking entries = 1)
+      HUMAN: "  coverage_threshold        fail  (2 violations)"
+      HUMAN: "  coverage_threshold violations:"
+      HUMAN: "  Total violations: 2"
+      unset-severity verdict = "fail"
+
+  That is the CI-run-30389988184 instance from the issue, reproduced exactly:
+  ONE blocking problem reported as TWO. The last line is the second half of the
+  measurement and it is what SE1 hangs on — an unset severity BLOCKS today, so
+  the tally's split must classify it as blocking too.
+
+  THREE SEVERITY-BLIND SITES CONFIRMED LIVE (located by name, not line):
+    1. pkg/gate/result.go, inside `NewGateResultWithScope` — the accumulator
+       `r.TotalViolations += len(s.Violations)`. Feeds the JSON
+       `total_violations` field.
+    2. pkg/gate/output.go, inside `FormatHuman`'s summary-table loop — the local
+       `violationCount := len(step.Violations)` and the `"  (%d violations)"`
+       it formats.
+    3. pkg/gate/output.go, inside `FormatHuman`'s footer — the
+       `"  Total violations: %d\n"` line, which renders site 1's field. The
+       ISSUE-100 text names only sites 1 and 2; site 3 is the SAME field's
+       other render surface and is in scope BY NECESSITY — fixing site 1 alone
+       would make the human footer read "Total violations: 1" directly above a
+       detail block listing two entries.
+
+  ── DESIGN DECISION 1: ONE AUTHORITY FOR "BLOCKING", REUSED, NEVER COPIED ──
+  pkg/gate/policy.go already holds the single ratified predicate:
+
+      func blocksVerdict(v Violation) bool {
+          return !strings.EqualFold(strings.TrimSpace(v.Severity), "warning")
+      }
+
+  result.go and output.go are in package `gate`, so this is directly callable.
+  The tally MUST be implemented over it. A tally that re-derives blockingness
+  can drift from the verdict, and a reader would then see a count that
+  contradicts the pass/fail it sits beside — which is the ISSUE-100 defect
+  reintroduced one layer over. Concretely: `Severity == "error"` (the spelling
+  ISSUE-100's own Solution (b) proposes) classifies an UNSET severity as a
+  NOTICE while the verdict still BLOCKS on it — a fail-OPEN inversion that
+  under-counts a real failure. See SE1; that is the plan correcting its source,
+  deliberately and on the record.
+
+  The shared helper lands in result.go (a result-summary concern), NOT in
+  policy.go — policy.go is the verdict authority and this lane has no business
+  editing it (SE2). Shape:
+
+      // tallyBySeverity partitions violations by the SAME predicate the verdict
+      // uses. Reporting only: it never filters what is reported.
+      func tallyBySeverity(violations []Violation) (blocking, warnings int)
+
+  INVARIANT the tests pin: blocking + warnings == len(violations), always. No
+  entry is dropped and no entry is double-counted.
+
+  ── DESIGN DECISION 2: total_violations CHANGES MEANING; total_warnings IS NEW
+  `total_violations` becomes the count of BLOCKING entries. `total_warnings` is
+  added alongside it. This is the shape ISSUE-100's Solution (b) recommends and
+  DIR-032 item 7 restates, and it is the only shape that actually fixes the
+  defect: option (B) — leave total_violations counting everything and add new
+  fields beside it — would leave the lying field as the one every existing
+  consumer reads.
+
+  WHAT THIS COSTS AND WHY IT IS ACCEPTABLE:
+    - It is a MEANING change to an existing field under an UNCHANGED gate/v1.
+      There is NO gate JSON schema file (verified: `artifacts/` holds artifact
+      schemas only; the gate envelope's contract is the Go struct plus its
+      tests), so no schema bump is available to take and none is needed.
+    - NOTHING IS LOST: total_violations + total_warnings reconstructs the old
+      number exactly, and any consumer wanting the old semantics can add them.
+    - NO IN-REPO CONSUMER READS IT FOR A VERDICT. Verified: `TotalViolations`
+      has exactly three non-test references — its declaration, the accumulator,
+      and the human footer. `Pass` is computed independently from step statuses.
+    - SPEC-010 REQ-008's prose goes stale. See SE6 — flagged, not fixed here.
+
+  `TotalWarnings int \`json:"total_warnings"\`` carries NO omitempty, matching
+  `total_violations` and `steps_warned`: zero is the common and meaningful value
+  and must stay readable in --json.
+
+  ── DESIGN DECISION 3: "warning", NOT "notice" ────────────────────────────
+  ISSUE-100 and DIR-032 both SUGGEST the human line read `(1 blocking, 1
+  notice)`, hedged as "something like". This plan uses **warning** instead, and
+  the deviation is deliberate: the codebase already speaks one word for this
+  concept everywhere — `Violation.Severity == "warning"`, the step status
+  "warning", `GateResult.StepsWarned` rendered as "N warned", and
+  `blocksVerdict`'s own comment. Introducing "notice" as a third noun for the
+  same thing makes the human output teach a vocabulary the JSON does not use.
+  A reviewer checking congruence-to-source should read this as an intentional,
+  argued departure from an explicitly illustrative suggestion, not a drift.
+
+  ── DESIGN DECISION 4: ZERO CHURN ON THE COMMON CASE ──────────────────────
+  A step with only blocking entries renders BYTE-IDENTICALLY to today, and a run
+  with zero warnings renders its footer BYTE-IDENTICALLY to today. Only the
+  mixed and warning-only cases change. This is not timidity — it is what keeps
+  the change reviewable (the diff's blast radius is exactly the cases the issue
+  is about) and it is what keeps the SPEC-036 output tests
+  (pkg/gate/output_warning_test.go) and the cmd/backstop human-output e2e
+  assertions green without editing them. Rendering table, per step:
+
+      blocking > 0, warnings == 0  ->  "  (%d violations)"          UNCHANGED
+      blocking == 0, warnings > 0  ->  "  (%d warnings)"            NEW
+      blocking > 0, warnings > 0   ->  "  (%d blocking, %d warnings)"  NEW
+      both zero                    ->  nothing emitted              UNCHANGED
+
+  Footer:
+
+      warnings == 0  ->  "  Total violations: %d\n"                 UNCHANGED
+      warnings > 0   ->  "  Total violations: %d (+%d warnings)\n"  NEW
+
+  Note the existing formatter emits "1 violations" for a single entry. Do NOT
+  add pluralization — it is out of scope, it would churn the common case this
+  decision exists to protect, and no claim asks for it.
+
+  ── WHAT IS DELIBERATELY NOT TOUCHED ──────────────────────────────────────
+  pkg/gate/policy.go (SE2), pkg/gate/step_coverage.go (SE5), the detail-block
+  section HEADER (SE8), the baseline-comparison reason line (SE9),
+  specs/SPEC-010-gate.spec.md (SE6), and
+  directives/DIR-032-gate-verdict-honesty.directive.md + ISSUE-100's own issue
+  file (SE10). Each has a named reason below. None of them appears in any task's
+  `files` list. The last three are ARTIFACT-EVOLUTION follow-ons, dispatched to
+  the purpose-built agents after this lane lands — not omissions.
+
+  ── CLAIMS ────────────────────────────────────────────────────────────────
+    CLM-001  THE DEFECT. GateResult.TotalViolations (JSON `total_violations`)
+             counts ONLY entries that BLOCK the verdict, decided by
+             pkg/gate/policy.go's `blocksVerdict`. On the ISSUE-100 motivating
+             instance — one severity:error coverage shortfall plus one
+             severity:warning coverage-exclusion notice — it reports 1 where the
+             pre-fix tree measurably reports 2.
+             TESTS: TestSeverityTally_TotalViolationsCountsBlockingOnly
+
+    CLM-002  GateResult gains TotalWarnings (JSON `total_warnings`, NO
+             omitempty), counting explicitly warning-severity entries. The
+             partition is TOTAL: total_violations + total_warnings equals every
+             entry present in every step's Violations slice, so nothing is lost
+             and the pre-fix number is reconstructible by addition.
+             TESTS: TestSeverityTally_TotalWarningsCountsExplicitWarnings,
+                    TestSeverityTally_PartitionIsTotal
+
+    CLM-003  THE SPLIT IS FAIL-CLOSED and normalizes exactly as the verdict
+             does: an UNSET or non-"warning" severity counts as BLOCKING, while
+             "Warning", "WARNING" and " warning " count as warnings — matching
+             blocksVerdict's EqualFold+TrimSpace. The tally and the verdict can
+             never disagree about a given violation.
+             TESTS: TestSeverityTally_UnsetSeverityCountsAsBlocking,
+                    TestSeverityTally_CaseAndWhitespaceNormalizedLikeVerdict
+
+    CLM-004  THE ASSERTION THAT KEEPS CLM-001 AND CLM-003 HONEST. Exactly ONE
+             definition of "blocking" exists in pkg/gate. The reporting layer
+             calls blocksVerdict through the shared `tallyBySeverity` helper;
+             neither pkg/gate/result.go nor pkg/gate/output.go contains a direct
+             Severity string comparison of its own. Without this, CLM-003 could
+             be satisfied today by a hand-rolled copy that silently drifts from
+             the verdict the next time the contract moves.
+             TESTS: TestSeverityTally_NoSecondBlockingDefinition,
+                    TestSeverityTally_CaseAndWhitespaceNormalizedLikeVerdict
+
+    CLM-005  FormatHuman's per-step summary row reports the two classes
+             separately — "(N blocking, M warnings)" when both are present and
+             "(M warnings)" when only warnings are — while a step with no
+             warnings renders the UNCHANGED "(N violations)".
+             TESTS: TestSeverityTally_HumanStepLineSplitsBlockingAndWarnings,
+                    TestSeverityTally_HumanStepLineWarningsOnly,
+                    TestSeverityTally_HumanUnchangedWhenNoWarnings
+
+    CLM-006  FormatHuman's footer retains the literal "  Total violations: "
+             prefix that cmd/backstop's stream-ordering probe asserts on, and
+             appends " (+M warnings)" ONLY when warnings are present — so a
+             warning-free run's footer is byte-identical to the pre-fix render.
+             TESTS: TestSeverityTally_HumanSummaryKeepsTotalViolationsPrefix,
+                    TestSeverityTally_HumanUnchangedWhenNoWarnings
+
+    CLM-007  Each warning-severity entry in FormatHuman's violation-details
+             block carries a per-line "[warning]" marker and blocking entries
+             carry none, so a reader can map the tally's warning count onto
+             SPECIFIC listed findings. This is what makes the suppression notice
+             serve its stated purpose instead of inflating the failure count —
+             the issue's own framing of why the defect is more than cosmetic.
+             TESTS: TestSeverityTally_HumanDetailMarksWarningEntries
+
+    CLM-008  NON-REGRESSION ON THE MANDATED SPEC-010 TEST.
+             TestGate_JSONOutput_SummaryCounts (SPEC-010 CLM-025) passes
+             UNEDITED after the change: its fixture's violations carry no
+             Severity field, and the fail-closed rule keeps them blocking, so
+             its expectation of 3 holds. The surviving test is the standing
+             proof that CLM-003 is fail-CLOSED rather than fail-open.
+             TESTS: TestGate_JSONOutput_SummaryCounts
+
+    CLM-009  REPORTING-ONLY. GateResult.Pass, per-step Status, the
+             StepsPassed/Failed/Skipped/Warned counts and the process exit code
+             are unchanged, and pkg/gate/policy.go is not edited — the
+             already-ratified severity-aware verdict is neither reopened nor
+             duplicated.
+             TESTS: TestSeverityTally_VerdictSurfacesUnchanged,
+                    TestSeverityTally_NoSecondBlockingDefinition
+
+  ── SHARP EDGES ───────────────────────────────────────────────────────────
+    SE1  DO NOT WRITE `Severity == "error"` — THE ISSUE'S OWN SUGGESTED SPELLING
+         IS WRONG, and this plan overrides it deliberately and on the record.
+         ISSUE-100's Solution (b) proposes that total_violations "becomes a
+         count of `severity == \"error\"` entries". The ratified contract
+         (pkg/gate/policy.go, the block above `blocksVerdict`) says otherwise:
+         an explicit "warning" is exempt; ANY other value — INCLUDING AN ABSENT
+         ONE — blocks, fail-closed. Measured on the live tree while authoring: a
+         Violation with no Severity set yields StepVerdict "fail". So
+         `== "error"` would count an unset-severity violation as a NOTICE while
+         the gate blocks on it — under-reporting a real failure, fail-OPEN, and
+         strictly worse than the over-reporting bug this lane exists to fix.
+         Call `blocksVerdict`. Do not inline it, copy it, or "simplify" it to a
+         string equality.
+
+    SE2  pkg/gate/policy.go IS OUT OF SCOPE — THE VERDICT HALF IS ALREADY FIXED.
+         The severity-aware verdict landed in 2e49745 and is locked end to end
+         by cmd/backstop/pack_severity_contract_test.go (3ac6e7f), a
+         founder-ratified contract; PLAN-ISSUE-105 then propagated it to the
+         step builders. policy.go appears in NO task's `files` list and must not
+         be edited, "tidied", or made the home of the tally helper. If the tally
+         appears to need a policy.go change, that is a signal the tally is being
+         written wrong — re-read SE1.
+
+    SE3  THE LITERAL `Total violations:` PREFIX IS LOAD-BEARING.
+         cmd/backstop/exit_surfacing_streams_test.go asserts on that exact
+         substring as a stdout/stderr ORDERING probe — locate it by the
+         `requireReportThenNoErrorLine(...)` call passing "Total violations:"
+         and "Steps:" as its markers, NOT by line number. That test has nothing
+         to do with severity and must not be edited by this lane. The footer
+         change APPENDS to the line; it never rewrites the prefix.
+
+    SE4  THE COMMON CASE MUST RENDER BYTE-IDENTICALLY — AN ASSERTION, NOT A
+         HOPE. Per Design Decision 4: a blocking-only step keeps
+         "(N violations)" and a warning-free run keeps "Total violations: N".
+         Pinned by TestSeverityTally_HumanUnchangedWhenNoWarnings precisely so
+         it cannot be quietly traded for a more uniform-looking format. If a
+         PRE-EXISTING test in pkg/gate or cmd/backstop goes red on a
+         warning-FREE fixture, the fix is wrong — do not edit that test to match.
+
+    SE5  ISSUE-107 IS A SIBLING LANE — DO NOT FIX step_coverage.go HERE.
+         pkg/gate/step_coverage.go sets "fail" on an error-severity violation
+         and does nothing otherwise, so a coverage step carrying ONLY warnings
+         reports "pass" and the findings go silent. That is ISSUE-107, filed,
+         homed in DIR-024, with no plan yet. It is genuinely adjacent —
+         DIR-032 item 7 says it "should be planned together or after this
+         item" — and it will look tempting the moment the tally is
+         severity-aware. It is still NOT this lane: it decides which STATUS a
+         step reports (a verdict question) where this lane decides how findings
+         are COUNTED (a reporting question). Widening to catch it would put a
+         verdict change inside a renderer fix — exactly the mixing
+         PLAN-ISSUE-105 refused in the other direction. step_coverage.go
+         appears in no task's `files` list.
+
+    SE6  SPEC-010 REQ-008's PROSE GOES STALE — SURFACE IT, DO NOT EDIT THE SPEC.
+         specs/SPEC-010-gate.spec.md REQ-008 defines the field as
+         "total_violations (integer count of all violations across all steps)".
+         CLM-001 makes that sentence wrong. DO NOT hand-edit the spec —
+         CLAUDE.md routes all artifact evolution through the purpose-built
+         agents, and a planner/implementer editing spec prose is the drift that
+         rule exists to prevent. DO NOT bend the fix to preserve the stale
+         sentence either. Why nothing goes red meanwhile: SPEC-010 is
+         `status: draft`, and the gate enforces contracts/traceability only over
+         IMPLEMENTED specs (DIR-015) — verified while authoring. The drift is
+         real but unenforced, so it is a REPORTED FOLLOW-ON (spec-author, to
+         amend REQ-008 and note the companion field), not a blocker here.
+
+    SE7  TestGate_JSONOutput_SummaryCounts IS A SPEC-010-MANDATED NAME AND MUST
+         SURVIVE UNEDITED. It lives in pkg/gate/result_test.go and is the
+         mandated test for SPEC-010 CLM-025. Do not rename, delete, move, or
+         adjust its expectations. It stays green untouched, and WHY it stays
+         green is the proof SE1 demands: its fixture builds three violations
+         with NO Severity field, and the fail-closed rule counts an unset
+         severity as blocking, so TotalViolations remains 3. A red there means
+         the implementation classified unset severity as a warning and is
+         fail-open — treat it as a HARD STOP, not as a fixture to update.
+
+    SE8  THE DETAIL-BLOCK SECTION HEADER STAYS AS IT IS. FormatHuman's
+         violation-details loop emits a per-step header `"\n  %s violations:\n"`.
+         Leave it alone: it is a section LABEL, not a count, and CLM-007's
+         per-entry marker underneath is what maps the new tally onto specific
+         lines. Do NOT restructure the detail block into separate "violations"
+         and "warnings" sections — that is a shape change, it churns fixtures
+         far beyond this lane, and no claim asks for it.
+
+    SE9  THE BASELINE-COMPARISON REASON LINE IS A DIFFERENT COUNT — LEAVE IT.
+         Inside FormatHuman's summary loop, the `StepBaselineComparison` branch
+         composes "%d new violations beyond baseline" from
+         len(step.Violations) / len(step.NewViolations). That is also
+         severity-blind, but it answers a DIFFERENT question — baseline delta,
+         not step tally — with a different correct answer, since baseline
+         identity deliberately spans warnings (pkg/gate/baseline.go fingerprints
+         them). Do not change it. Surface it at close-out so the founder decides
+         whether it warrants its own issue.
+
+    SE10 DIR-032 ITEM 7 STILL PRESCRIBES THE REFUTED SPELLING — REPORT IT, DO
+         NOT EDIT THE DIRECTIVE. directives/DIR-032-gate-verdict-honesty.directive.md
+         item 7 (locate it by the sentence beginning "Recommended fix shape per
+         the issue", not by line number) reads: "`total_violations` counts
+         `severity == \"error\"` (or gains a companion `total_warnings`)". SE1
+         proves that spelling is fail-OPEN — an unset severity BLOCKS per
+         `blocksVerdict`, so `== "error"` would classify a real failure as a
+         notice. DIR-032 is the LIVE backlog directive a future planner reads
+         when picking up ISSUE-107, which item 7 itself sequences "together or
+         after this item", so leaving the refuted prescription in place
+         propagates the mistake into the next lane on this exact surface. The
+         same stale spelling also appears in ISSUE-100's own Solution (b) text
+         (issues/ISSUE-100-step-tally-counts-warnings-as-violations.issue.md,
+         the recommended-solution paragraph) — lower stakes, since this plan
+         supersedes it on the record, but it should be corrected at that issue's
+         own close-out rather than left to be re-read as guidance.
+         DO NOT hand-edit either artifact from this lane: CLAUDE.md routes all
+         artifact evolution through the purpose-built agents, and item 7's
+         prescription is not code this plan changes. It is a REPORTED FOLLOW-ON
+         (directive-author for DIR-032; the issue text folded into ISSUE-100's
+         close-out), dispatched AFTER this plan lands so the amendment describes
+         shipped behavior rather than intent.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Severity-aware tally in the JSON envelope"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Write the failing severity-tally tests for NewGateResultWithScope"
+        description: |
+          Create pkg/gate/result_severity_tally_test.go (NEW FILE — do not extend
+          pkg/gate/result_test.go, which holds the SPEC-010-mandated tests SE7
+          protects).
+
+          RE-READ pkg/gate/result.go AND pkg/gate/policy.go FIRST. Locate the
+          accumulator by name — the `r.TotalViolations += len(s.Violations)`
+          statement inside `NewGateResultWithScope` — not by line number.
+
+          EVERY TEST IN THIS TASK MUST FAIL ON THE CURRENT TREE except where
+          explicitly noted below as a non-regression guard. Record the observed
+          pre-fix output for each. The measured baseline to reproduce is in the
+          plan notes: the motivating shape yields TotalViolations = 2 where
+          exactly 1 entry blocks.
+
+          MANDATED TESTS:
+
+          TestSeverityTally_TotalViolationsCountsBlockingOnly (CLM-001) — THE
+            FALSIFICATION. Build the issue's motivating instance: ONE
+            coverage_threshold step whose Violations are
+            {Severity: "error"} (the shortfall) and {Severity: "warning"} (the
+            coverage-exclusion notice). Assert TotalViolations == 1.
+            MUST FAIL pre-fix with the value 2 — record it.
+
+          TestSeverityTally_TotalWarningsCountsExplicitWarnings (CLM-002) — on
+            the same fixture, assert the new envelope field TotalWarnings == 1,
+            and assert it appears in FormatJSON output under the key
+            "total_warnings". Also assert it is present (not omitted) with value
+            0 on a warning-free result — the field carries no omitempty and a
+            consumer must be able to read the zero.
+
+          TestSeverityTally_PartitionIsTotal (CLM-002) — across a multi-step
+            fixture mixing error / warning / unset severities over several
+            steps, assert TotalViolations + TotalWarnings == the total count of
+            entries in every step's Violations slice. Nothing dropped, nothing
+            double-counted. Compute the expected total by summing the fixture's
+            own slices, NOT by writing a literal — a literal would stop
+            falsifying the moment someone edits the fixture.
+
+          TestSeverityTally_UnsetSeverityCountsAsBlocking (CLM-003) — a
+            Violation with NO Severity field set counts toward TotalViolations
+            and NOT toward TotalWarnings. This is the fail-closed rule and the
+            direct guard against SE1's wrong spelling. Assert BOTH directions
+            (in the blocking count, absent from the warning count) — asserting
+            only the first would pass under an implementation that
+            double-counts.
+
+          TestSeverityTally_CaseAndWhitespaceNormalizedLikeVerdict (CLM-003) —
+            severities "Warning", "WARNING" and " warning " each count as
+            WARNINGS, matching blocksVerdict's EqualFold+TrimSpace
+            normalization. A hand-rolled `== "warning"` copy fails this; so does
+            SE1's `== "error"` spelling. Pair it with a same-fixture assertion
+            that `StepVerdict` classifies those identical values the same way,
+            so the test proves the tally AGREES WITH the verdict rather than
+            merely being case-insensitive on its own.
+
+          TestSeverityTally_NoSecondBlockingDefinition (CLM-004) — THE DRIFT
+            GUARD, and it is written HERE, in phase 1, deliberately: the
+            hand-rolled copy it exists to catch can be written into result.go
+            during TASK-002, and the case/whitespace test above only catches a
+            naive `== "warning"` copy, not an inlined
+            `EqualFold(TrimSpace(...))` one. Writing it here is what keeps the
+            red inside a task whose file scope still contains result.go.
+            Read pkg/gate/result.go AND pkg/gate/output.go as SOURCE TEXT
+            (os.ReadFile on the two paths) and assert NEITHER contains the
+            FIELD-ACCESS form `.Severity` (leading dot included). That is the
+            forbidding predicate — not `Severity ==` / `Severity !=`, which an
+            inlined `strings.EqualFold(strings.TrimSpace(v.Severity),
+            "warning")` would slip past while creating exactly the second
+            definition CLM-004 forbids (and that shape is the natural in-repo
+            idiom — pkg/gate/baseline.go already writes
+            `strings.TrimSpace(v.Severity)`). `.Severity` catches every
+            hand-rolled approach, naive or EqualFold-inlined, because any of
+            them must read the field to compare it. The two `==`/`!=` forms MAY
+            additionally be listed to produce a sharper failure message when
+            they specifically match, but `.Severity` is the assertion that
+            decides pass/fail. Do NOT forbid the bare token `Severity` without
+            the dot — result.go legitimately DECLARES the `Violation.Severity`
+            struct field and comments mention it.
+            MEASURED: `grep -n "\.Severity" pkg/gate/result.go
+            pkg/gate/output.go` returns NOTHING at HEAD, so the guard is
+            genuinely green pre-fix; and it stays green post-fix, because
+            tallyBySeverity passes whole `Violation` structs to blocksVerdict
+            rather than reading the field, and TASK-005 step 3 mandates the same
+            `blocksVerdict(violation)` call for the detail-line rendering.
+            A CONTENT scan only: no `git status`, no `git diff`, no tree-state
+            assertion, because this tree is shared and a tree-state check blames
+            whoever runs it. Failure message must name blocksVerdict as the
+            single authority these files are required to call. This test PASSES
+            pre-fix against BOTH files (neither reads severity today); its
+            job is to fail the moment someone hand-rolls a copy in EITHER file,
+            which is the SE1 regression. A non-regression guard, not a
+            falsification — do not manufacture a red for it.
+
+          TestSeverityTally_VerdictSurfacesUnchanged (CLM-009) — on the
+            motivating fixture, assert GateResult.Pass, the step's Status, and
+            StepsWarned/StepsPassed/StepsFailed/StepsSkipped are exactly what
+            they are today. NON-REGRESSION GUARD — this one PASSES pre-fix by
+            design, and that is correct: its purpose is that the reporting fix
+            leaves the verdict untouched. Do not manufacture a red for it.
+        files:
+          - pkg/gate/result_severity_tally_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-009
+        depends_on: []
+        test_names:
+          - TestSeverityTally_TotalViolationsCountsBlockingOnly
+          - TestSeverityTally_TotalWarningsCountsExplicitWarnings
+          - TestSeverityTally_PartitionIsTotal
+          - TestSeverityTally_UnsetSeverityCountsAsBlocking
+          - TestSeverityTally_CaseAndWhitespaceNormalizedLikeVerdict
+          - TestSeverityTally_NoSecondBlockingDefinition
+          - TestSeverityTally_VerdictSurfacesUnchanged
+
+      - id: TASK-002
+        type: implementation
+        title: "Add tallyBySeverity and split TotalViolations / TotalWarnings"
+        description: |
+          Make TASK-001's tests pass. Edit pkg/gate/result.go ONLY.
+
+          1. Add the shared partition helper, implemented OVER `blocksVerdict`
+             (pkg/gate/policy.go, same package — call it, do not copy it; SE1):
+
+                 // tallyBySeverity partitions violations by the SAME predicate the
+                 // verdict uses, so a rendered count can never disagree with the
+                 // pass/fail beside it. Reporting only — it filters nothing.
+                 func tallyBySeverity(violations []Violation) (blocking, warnings int)
+
+             `blocking` counts entries for which blocksVerdict is true;
+             `warnings` counts the rest. The two are exhaustive by construction —
+             do NOT write a third branch.
+
+          2. Add the envelope field beside TotalViolations on GateResult:
+
+                 TotalWarnings int `json:"total_warnings"`
+
+             NO omitempty (Design Decision 2). Give it a short doc comment
+             stating it counts explicitly-warning-severity entries, that
+             total_violations + total_warnings equals every entry reported, and
+             that it is additive under the unchanged gate/v1 — matching how
+             GitSHA/GeneratedAt and Trace/Properties document their own
+             additivity in this file.
+
+          3. Replace the accumulator inside `NewGateResultWithScope` — the
+             `r.TotalViolations += len(s.Violations)` statement, located by name —
+             with a call to tallyBySeverity that increments both counters. It
+             must run AFTER the EnrichViolationIdentity loop, in the same
+             position the existing accumulator occupies, so no other summary
+             field's ordering changes.
+
+          TOUCH NOTHING ELSE. Do not edit policy.go (SE2). Do not edit
+          pkg/gate/result_test.go (SE7). Do not touch the Pass / StepsPassed /
+          StepsFailed / StepsSkipped / StepsWarned switch.
+        files:
+          - pkg/gate/result.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-009
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: verification
+        title: "Gate the JSON-envelope change and prove the mandated SPEC-010 test survives"
+        description: |
+          Run, in order, from the repository root:
+
+            1. `go test ./pkg/gate/... -race -count=1`
+               All TASK-001 tests green.
+
+            2. `go test ./pkg/gate/ -run TestGate_JSONOutput_SummaryCounts -race -count=1 -v`
+               MUST PASS with the file UNEDITED (SE7). This is the fail-closed
+               proof: its fixture's violations carry no Severity, so they must
+               still count as blocking and the expectation of 3 must hold. A red
+               here means the implementation is fail-open — STOP and re-read SE1
+               rather than adjusting the fixture.
+
+            3. `go test ./pkg/gate/ -run TestSeverityTally_NoSecondBlockingDefinition -race -count=1 -v`
+               THE DRIFT GUARD (CLM-004), run explicitly here because this is
+               the last verification step whose file scope still contains
+               pkg/gate/result.go. A red means TASK-002 hand-rolled a severity
+               comparison instead of calling blocksVerdict — fix result.go NOW,
+               while it is in scope; do not defer it and do not relax the test.
+
+            4. `./bin/backstop gate --file pkg/gate/result.go`
+               Build the binary first (`make build` or `go build -o bin/backstop
+               ./cmd/backstop`) — never invoke a bare `backstop`, which resolves
+               to a stale Homebrew binary on this host. If any pack engine needs
+               go-arch-lint, prefix with `PATH=/Users/bmanson/go/bin:$PATH`.
+
+          Record the observed output of all four.
+        files:
+          - pkg/gate/result.go
+          - pkg/gate/result_severity_tally_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-008
+        depends_on:
+          - TASK-002
+
+  - id: phase-2
+    name: "Phase 2: Severity-aware rendering in the human report"
+    tasks:
+      - id: TASK-004
+        type: test
+        title: "Write the failing severity-rendering tests for FormatHuman"
+        description: |
+          Create pkg/gate/output_severity_tally_test.go (NEW FILE — do not extend
+          pkg/gate/output_test.go or pkg/gate/output_warning_test.go; the latter
+          holds the SPEC-036 CLM-015/016/017/030 advisory-rendering tests, which
+          must keep passing UNEDITED).
+
+          RE-READ pkg/gate/output.go FIRST. The three sites are located by name:
+          the `violationCount := len(step.Violations)` local and the
+          `"  (%d violations)"` format inside FormatHuman's summary-table loop;
+          the `"  Total violations: %d\n"` footer; and the per-entry writer
+          inside the violation-details loop.
+
+          Every assertion runs with noColor=true so tokens are literal, not ANSI.
+          Assert on the SPECIFIC LINE (find it by step name / by the "Total
+          violations:" prefix), never on whole-output `strings.Contains` — a
+          whole-output check would pass on text that landed in the wrong place.
+
+          MANDATED TESTS:
+
+          TestSeverityTally_HumanStepLineSplitsBlockingAndWarnings (CLM-005) —
+            THE FALSIFICATION, the issue's motivating instance end to end. One
+            coverage_threshold step, one "error" entry and one "warning" entry.
+            Assert the summary-table row for that step contains
+            "(1 blocking, 1 warnings)" and does NOT contain "(2 violations)".
+            MUST FAIL pre-fix — the measured pre-fix row is
+            `"  coverage_threshold        fail  (2 violations)"`. Record it.
+
+          TestSeverityTally_HumanStepLineWarningsOnly (CLM-005) — a step whose
+            entries are ALL warning-severity renders "(1 warnings)" and does NOT
+            contain the word "blocking" on that row. Keep the step's Status at
+            "warning" so the fixture is the real capability-absent shape rather
+            than an impossible one.
+
+          TestSeverityTally_HumanUnchangedWhenNoWarnings (CLM-005, SE4) — a step
+            with only error-severity entries renders EXACTLY
+            "(2 violations)" as today, and a result with zero warnings renders a
+            footer EXACTLY equal to "  Total violations: 2" with no suffix.
+            Assert on the full trimmed line, not a substring, so a stray
+            appended "(+0 warnings)" fails. This is the zero-churn contract and
+            it PASSES pre-fix by design — a non-regression guard, not a
+            falsification. Do not manufacture a red for it.
+
+          TestSeverityTally_HumanSummaryKeepsTotalViolationsPrefix (CLM-006) —
+            on the mixed fixture, assert the footer line still STARTS WITH
+            "  Total violations: " (SE3) and reads
+            "  Total violations: 1 (+1 warnings)". Assert both the prefix and
+            the full line: the prefix assertion is what protects
+            cmd/backstop/exit_surfacing_streams_test.go's ordering probe.
+
+          TestSeverityTally_HumanDetailMarksWarningEntries (CLM-007) — in the
+            violation-details block for the mixed fixture, the line carrying the
+            warning entry's message contains a "[warning]" marker and the line
+            carrying the error entry's message does NOT. Locate each line by its
+            own message text. This is what lets a reader map "1 warnings" in the
+            tally to a specific listed entry.
+
+          DO NOT WRITE A DRIFT GUARD HERE. TestSeverityTally_NoSecondBlockingDefinition
+          (CLM-004) already exists from TASK-001, in
+          pkg/gate/result_severity_tally_test.go, and it ALREADY scans
+          pkg/gate/output.go as well as pkg/gate/result.go. Do not duplicate it
+          into this file under any name — a second copy is a second definition
+          of the very thing CLM-004 says there must be exactly one of. TASK-006
+          re-runs the existing one against output.go's edited state.
+        files:
+          - pkg/gate/output_severity_tally_test.go
+        claims:
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-003
+        test_names:
+          - TestSeverityTally_HumanStepLineSplitsBlockingAndWarnings
+          - TestSeverityTally_HumanStepLineWarningsOnly
+          - TestSeverityTally_HumanUnchangedWhenNoWarnings
+          - TestSeverityTally_HumanSummaryKeepsTotalViolationsPrefix
+          - TestSeverityTally_HumanDetailMarksWarningEntries
+
+      - id: TASK-005
+        type: implementation
+        title: "Render the per-step tally, footer, and detail markers by severity"
+        description: |
+          Make TASK-004's tests pass. Edit pkg/gate/output.go ONLY. Every count
+          comes from `tallyBySeverity` (TASK-002) — no new severity comparison
+          anywhere in this file (CLM-004, SE1).
+
+          1. SUMMARY-TABLE ROW. Replace the `violationCount := len(step.Violations)`
+             local with a tallyBySeverity call and emit per Design Decision 4's
+             table:
+               blocking > 0, warnings == 0 -> "  (%d violations)"   (unchanged)
+               blocking == 0, warnings > 0  -> "  (%d warnings)"
+               blocking > 0, warnings > 0   -> "  (%d blocking, %d warnings)"
+               both zero                    -> emit nothing         (unchanged)
+             Leave the surrounding row composition — step name padding, the
+             status token, the duration segment, and the trailing reason
+             segment — exactly as it is. In particular do NOT touch the
+             StepBaselineComparison reason branch above it (SE9).
+
+          2. FOOTER. Keep the literal prefix "  Total violations: " (SE3).
+             Append " (+%d warnings)" ONLY when result.TotalWarnings > 0. A
+             warning-free run's footer must be byte-identical to today (SE4).
+
+          3. DETAIL LINES. In the violation-details loop, prefix the entries
+             whose severity is non-blocking with a "[warning] " marker,
+             immediately after the existing "    - " so the rule/message
+             composition and the WaiverHint continuation line are untouched.
+             Decide blockingness with `blocksVerdict`, not a string compare.
+             LEAVE THE SECTION HEADER ALONE (SE8) — the `"\n  %s violations:\n"`
+             line is not this lane's.
+
+          TOUCH NOTHING ELSE in output.go: not formatStatus, not the header
+          block, not the scope block, not the Steps:/PASS/FAIL lines.
+        files:
+          - pkg/gate/output.go
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-009
+        depends_on:
+          - TASK-004
+
+      - id: TASK-006
+        type: verification
+        title: "Gate the renderer change and prove no pre-existing output test moved"
+        description: |
+          Run, in order, from the repository root:
+
+            1. `go test ./pkg/gate/... -race -count=1`
+               All TASK-001 and TASK-004 tests green.
+
+            2. `go test ./pkg/gate/ -run 'TestReportSurface_' -race -count=1 -v`
+               The SPEC-036 advisory-rendering tests
+               (pkg/gate/output_warning_test.go) MUST PASS with that file
+               UNEDITED.
+
+               READ THE GREEN CORRECTLY. These fixtures ARE warning-only cases,
+               and their rendered output DOES change: the step row asserted by
+               TestReportSurface_FormatHuman_RendersWarningConspicuously becomes
+               "(1 warnings)", and the footer in
+               TestReportSurface_PassingGateStillSurfacesAdvisories becomes
+               "Total violations: 0 (+1 warnings)". They stay green because
+               their assertions are strings.Contains SUBSTRING checks on the
+               token "warning", which both new renders still satisfy — NOT
+               because the output is unchanged. So a pass here is evidence the
+               SPEC-036 contract survives, and is NOT evidence that rendering
+               held still. Do not conclude from this green that something needs
+               reverting. Zero-churn (SE4) is pinned by
+               TestSeverityTally_HumanUnchangedWhenNoWarnings on a warning-FREE
+               fixture, which is the test that would go red on over-reach.
+
+            3. `go test ./pkg/gate/ -run TestSeverityTally_NoSecondBlockingDefinition -race -count=1 -v`
+               THE DRIFT GUARD (CLM-004), from TASK-001 and UNEDITED, re-run
+               against output.go's edited state. A red means TASK-005
+               hand-rolled a severity comparison instead of calling
+               blocksVerdict / tallyBySeverity — fix output.go, which is in this
+               task's scope; do not relax the test.
+
+            4. `go test ./cmd/backstop/... -race -count=1`
+               Specifically confirms exit_surfacing_streams_test.go's
+               "Total violations:" ordering probe still passes (SE3), plus every
+               human-output e2e assertion. If anything here goes red on a
+               warning-FREE fixture, the fix is wrong — do NOT edit the test.
+
+            5. `./bin/backstop gate --file pkg/gate/output.go`
+               Rebuild the binary first; never a bare `backstop`. Prefix with
+               `PATH=/Users/bmanson/go/bin:$PATH` if a pack engine needs
+               go-arch-lint.
+
+          Record the observed output of all five.
+        files:
+          - pkg/gate/output.go
+          - pkg/gate/output_severity_tally_test.go
+          - pkg/gate/result_severity_tally_test.go
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+        depends_on:
+          - TASK-005
+
+  - id: phase-3
+    name: "Phase 3: Full-sweep verification and artifact validation"
+    tasks:
+      - id: TASK-007
+        type: verification
+        title: "Run the full kill chain and validate the plan artifact"
+        description: |
+          Comprehensive, unscoped verification of everything this lane touched —
+          code and artifact.
+
+            1. Rebuild first: `go build -o bin/backstop ./cmd/backstop`. NEVER
+               invoke a bare `backstop` on this host; it resolves to a stale
+               Homebrew binary and would verify the wrong code.
+
+            2. `PATH=/Users/bmanson/go/bin:$PATH ./bin/backstop gate --all`
+               The full kill chain, unscoped: artifact validation, findings
+               engines, test verification, substantiveness, coverage, contracts,
+               status drift, traceability, waivers, baseline, ledger. The
+               go-arch-lint PATH prefix is required or pack_engines silently
+               no-ops and the green is vacuous.
+
+            3. `./bin/backstop artifact validate --plan PLAN-ISSUE-100`
+               The plan artifact itself is part of this lane's diff and must
+               validate clean.
+
+            4. `go test ./... -race -count=1` — whole-repo sweep. The two
+               changed files are read by packages beyond pkg/gate; this is what
+               catches a consumer this plan's inventory missed.
+
+          READ THE GATE OUTPUT, DO NOT ASSERT FROM IT. Report the real verdict
+          including any pre-existing corpus-level advisories, and attribute
+          anything red to this lane or to another lane explicitly.
+
+          REPORT THESE FOUR FOLLOW-ONS RATHER THAN FIXING THEM — surface, do
+          not self-triage:
+            (a) SE6 — specs/SPEC-010-gate.spec.md REQ-008's prose now
+                misdescribes total_violations. Needs a spec-author amendment.
+                SPEC-010 is `draft`, so nothing is red; the drift is real.
+            (b) SE5 — ISSUE-107 (coverage warning-only step reads as pass) is
+                unplanned and now the most visible remaining lie on this
+                surface. DIR-032 item 7 sequences it after this one.
+            (c) SE9 — the baseline-comparison "N new violations beyond
+                baseline" reason line is still severity-blind. No artifact owns
+                it; the founder decides whether it warrants one.
+            (d) SE10 — DIR-032 item 7 still prescribes the fail-OPEN
+                `severity == "error"` spelling this lane refuted. Needs a
+                directive-author dispatch to amend item 7's recommended fix
+                shape to the shipped, fail-closed, blocksVerdict-based design.
+                HIGHEST-PRIORITY of the four: item 7 sequences ISSUE-107 right
+                behind this lane, so the next planner on this surface reads the
+                stale prescription first. Fold the identical stale spelling in
+                ISSUE-100's own Solution (b) into that issue's close-out.
+        files:
+          - pkg/gate/result.go
+          - pkg/gate/output.go
+          - pkg/gate/result_severity_tally_test.go
+          - pkg/gate/output_severity_tally_test.go
+          - plans/PLAN-ISSUE-100-step-tally-warnings-as-violations.plan.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-005
+          - TASK-006
