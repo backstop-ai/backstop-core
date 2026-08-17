@@ -1,0 +1,1538 @@
+---
+plan_id: PLAN-ISSUE-160
+spec_id: ISSUE-160
+created: "2026-08-17"
+status: completed
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./pkg/packval/... -race -count=1"
+coverage_threshold: 90
+
+notes: |
+  ╔══════════════════════════════════════════════════════════════════════════╗
+  ║ AS-BUILT — CLOSED `completed` 2026-08-17. ALL FOUR PHASES DELIVERED.     ║
+  ║ THIS CLOSES DIR-032's FULL TWENTY-ONE-ITEM ROSTER (item 21, the last).   ║
+  ╚══════════════════════════════════════════════════════════════════════════╝
+  Everything below this banner is the plan AS AUTHORED (2026-08-17, against
+  HEAD 958b7b0) and is preserved verbatim — tasks were not rewritten after the
+  fact. Where the banner and a task disagree, THE BANNER IS WHAT SHIPPED.
+
+  ── ONE COMMIT CARRIES THIS LANE ──────────────────────────────────────────
+    `c1e4ef4`  feat(ISSUE-160): pkg/packval's RunEngine honors Producer,
+               CrashGuard, StrictSarif — all four phases, five files
+               (`pkg/packval/executor.go` +108, plus the four new test files:
+               `executor_producer_test.go`, `executor_crashguard_test.go`,
+               `executor_strictsarif_test.go`, `executor_gate_parity_test.go`).
+    Verified an ancestor of HEAD at close-out by `git merge-base
+    --is-ancestor`, not assumed from the commit's own output, and
+    `git status --porcelain -- pkg/packval` is EMPTY — the whole fix is
+    committed, with nothing left in the working tree.
+
+  ── THE FIX SHIPPED AS AUTHORED — SEVEN STAGES, THE GATE'S OWN ORDER ───────
+  D7's stage table held under implementation with no deviation. `RunEngine`'s
+  final shape, verified by reading the delivered file at close-out:
+
+      trust gate → buildEngineArgv → ► PRODUCER SUBSTITUTION → exec →
+      never-started refusal → stdout_artifact selection →
+      ► STRICT-SARIF SHAPE GUARD (gated on `binding.Convert == ""`) →
+      convert → ParsePackFindings → ► CRASH GUARD → return
+
+  All three stages landed INLINE (SE11 honored — no helper extraction, so
+  CLM-016's function-windowed guard stays non-vacuous), all three purely
+  additive apart from the one permitted existing-line edit (the never-started
+  refusal's subject → `neverStartedSubject`, byte-neutral on the plain branch).
+  All three delivered conjunct-for-conjunct as the tasks specified:
+  `binding.Producer != ""`, `binding.CrashGuard && runErr != nil &&
+  len(findings) == 0`, `binding.StrictSarif && binding.Convert == ""`.
+
+  ── FALSIFIED BY MUTATION TESTING ON THE FINISHED IMPLEMENTATION ──────────
+  Beyond the mandated red-window discipline, the finished implementation was
+  falsified by mutation: ten regressions were introduced one at a time via
+  `go test -overlay` (the ON-DISK TREE WAS NEVER TOUCHED — this is a shared
+  tree with concurrent lanes), and nine of the ten were caught BY NAME by an
+  existing mandated test.
+
+  THE ONE REAL GAP FOUND WAS CLOSED, AND HOW IT WAS CLOSED MATTERS. Dropping
+  the crash guard's `runErr != nil` conjunct — the one TASK-005 called out as
+  load-bearing because a CLEAN exit with zero findings is an ordinary positive
+  fixture passing — was caught by NONE of CLM-006..009's four tests. The fix
+  was a SECOND SUBTEST LEG (`clean_exit_with_no_findings`) added to the
+  EXISTING mandated test `TestPackVal_EngineCrashGuard_NonZeroExitWith
+  FindingsStillReports`, rather than a newly invented test name. That follows
+  SE14's own instruction — a second leg in the opposite direction where one
+  direction alone could pass by accident — and keeps the mandated set at
+  EXACTLY SIXTEEN, so the `artifact_status_drift` dimension's derived set is
+  unchanged from the authored claims.
+
+  ── CLAIM DISPOSITION — ALL SIXTEEN PROVEN ────────────────────────────────
+    CLM-001..005  PRODUCER. Delivered in `executor.go` as the substitution
+      stage between `buildEngineArgv` and `exec.Command`, with findings-path
+      argv-swap semantics (D1) — the invoked NAME is replaced, the full
+      ordered argv preserved. All five mandated tests green in
+      `executor_producer_test.go`. The declared-but-missing producer is a
+      fail-loud refusal naming BOTH the declared value and the resolved path
+      (CLM-004) with no fall-back arm.
+    CLM-006..009  CRASHGUARD. Delivered after the parse and after the
+      never-started refusal, so `runErr` there is a STARTED process's exit
+      status. All four mandated tests green in `executor_crashguard_test.go`,
+      CLM-008's now carrying the second leg described above.
+    CLM-010..014  STRICTSARIF. Delivered between ISSUE-144's payload-selection
+      block and the convert block, reading `payload` (not `stdout.Bytes()`),
+      with the deliberate empty-payload early return intact. All five mandated
+      tests green in `executor_strictsarif_test.go`, including CLM-014's two
+      opposite-direction legs.
+    CLM-015  TOOL-BLINDNESS, MECHANICAL. `TestPackVal_EngineGateParity_
+      ExecutorCarriesNoToolLiteral` scans the WHOLE of `executor.go`
+      case-insensitively for eight literals (`golangci`, `semgrep`,
+      `ast-grep`, `gofmt`, `eslint`, `oxlint`, `tsc`, `bun`) plus `golang` as
+      a word-boundary-matched standalone token — the bare `go` deliberately
+      absent for the reason TASK-010 gave. MEASURED BEFORE ASSERTING: zero
+      occurrences at HEAD `958b7b0`, so no pre-existing finding was trimmed
+      out of the list to make it pass. The delivered strict-SARIF refusal
+      names no tool and no language: it describes the SHAPE (no `runs` array)
+      and the CONSEQUENCE (a lenient parse would read zero findings), with the
+      engine named via `binding.Command`.
+      `TestExecutor_ToolConfigResolvesViaBindingNotSwitch` was neither
+      deleted, weakened, renamed nor folded in, as TASK-010 required.
+    CLM-016  NO-DRIFT GUARD. `TestPackVal_EngineGateParity_NoDriftFrom
+      GateDispatch` delivered with all THREE function windows (A `RunEngine`,
+      B `runFindingsEngine`, C `requireLintSarifShape`), content-scan only —
+      no `git`, no tree-state assertion, no line numbers. Neither
+      `pack_gate.go` nor `pack_gate_golint.go` was edited (SE9 honored).
+
+  ── TWO JUDGMENT CALLS, BOTH RE-VERIFIED AT CLOSE-OUT ─────────────────────
+  D6 (STRICTSARIF LANDS LOCALLY, NOT AS A SHARED AUTHORITY). Re-checked
+  2026-08-17 at close-out rather than trusted from authoring time:
+  `issues/ISSUE-143-packval-gate-convert-dual-implementation.issue.md` still
+  reads `status: open` and `ls plans/ | grep 143` is still EMPTY. No shared
+  home existed to land in, so the local landing plus CLM-015/CLM-016's
+  mechanical guards was the correct disposition — the same precedent
+  PLAN-ISSUE-141 (CLM-006) and PLAN-ISSUE-144 (CLM-008) set.
+
+  D1 (PRODUCER TAKES FINDINGS-PATH SEMANTICS). Held. `RunEngine` terminates in
+  `check.ParsePackFindings`, so it IS the findings dispatch, and a phase-3
+  run's whole point is its fixture TARGETS. The bare-call alternative would
+  have handed the producer the wrong `$1` — the exact class that cost a gate
+  outage on PLAN-ISSUE-067 (`go test test ./...`). CLM-003 pins it by
+  asserting the FULL ORDERED argv the producer actually received.
+
+  ── VERIFICATION AS RUN ───────────────────────────────────────────────────
+  All sixteen mandated tests re-run FRESH and green; the whole `pkg/packval`
+  package green under `-race` (68.9s); `go build ./...` clean; gofmt clean.
+  Zero of the sixteen SKIPPED — only `TestPackVal_EngineStrictSarif_
+  ConvertDeclaringBindingExempt` may call `requireSandboxPlatform` (SE13), and
+  that held.
+
+  GATE REDS INDEPENDENTLY ATTRIBUTED, NOT ASSUMED. Three diff-scoped runs
+  produced BYTE-IDENTICAL violation sets across the lane's progression, which
+  is what proves no finding was added incrementally as the work landed. The 8
+  inherited blockers belong to other lanes or to pre-existing corpus issues —
+  5 of them go-toolchain/go-test failures at the zero-match harness, proven
+  INHERITED by a control-vs-treatment comparison on one tree rather than by
+  assertion. ONE self-caused finding (`no-global-mutable-state` on the new
+  gate-parity test file) was found and FIXED AT THE SOURCE before landing, not
+  waived. A stale doc-comment premise in
+  `cmd/backstop/gate_substantiveness_e2e.go` was surfaced as worth a follow-on
+  and deliberately left alone — not this lane's to fix.
+
+  ── RESIDUALS AS SHIPPED ──────────────────────────────────────────────────
+    (R1) SINGLE-AUTHORITY CONSOLIDATION STILL NOT DONE — confirmed above.
+         ISSUE-143 open, unplanned. Already filed; nothing new to file.
+    (R2)(R3)(R5) UNCHANGED AND CORRECT AS AUTHORED. `phase3.go` untouched;
+         no coverage dispatch exists in packval to fix; `ExemptFromScopeFilter`
+         and `GateType` remain deliberately unread by `RunEngine`.
+    (R4) THE DISPATCH-ELIGIBILITY GAP IS NOT CLOSED HERE, AS PLANNED. Nothing
+         in this lane makes go-toolchain's producer/crash_guard/strict_sarif
+         bindings actually dispatch through phase 3 — that needs FIXTURES in
+         the pack plus a rule source path (or a tool_config entry), which is
+         pack-authoring work in an EXTERNAL repo, not core's. This lane makes
+         the validator TRUTHFUL when such a fixture appears; it does not
+         manufacture one.
+         THE PLAN'S "NO DOGFOOD REPRO" INSTRUCTION WAS FOLLOWED LITERALLY: no
+         failing `pack test` run was hunted for and none was manufactured.
+         go-toolchain declares all three fields and has ZERO `fixtures` keys.
+
+  ── DIR-032 ROSTER COMPLETION — ENUMERATED, NOT RELAYED ───────────────────
+  `directives/DIR-032-gate-verdict-honesty.directive.md`'s `source:` array
+  lists TWENTY-ONE issues. Each one's `status:` was read from its own issue
+  file at close-out:
+
+      ISSUE-066, -067, -091, -092, -093, -097, -100, -106, -112, -113, -114,
+      -118, -129, -136, -140, -142, -144, -146, -148, -151   → all `closed`
+      ISSUE-160                                              → `open`
+
+  Twenty of twenty-one closed; ISSUE-160 is the sole remaining open member,
+  and this plan's delivery is what completes it. FLIPPING THE ISSUE ITSELF IS
+  NOT THIS PLAN'S LANE — TASK-012 says so explicitly, and issue-author owns
+  that edit at close-out. The directive's own status likewise belongs to
+  directive-author, not here.
+
+  ── WHAT THIS LANE FIXES ───────────────────────────────────────────────────
+  `DefaultExecutor.RunEngine` (`pkg/packval/executor.go`) — the command dispatch behind
+  `backstop pack test` / `backstop pack check` phase-3 fixture validation — never
+  consults THREE `engine.EngineBinding` fields that `cmd/backstop/pack_gate.go`'s real
+  dispatch honors: `binding.Producer`, `binding.CrashGuard` and `binding.StrictSarif`.
+
+  Re-measured at HEAD `958b7b0`, 2026-08-17, not transcribed from the issue:
+
+      $ grep -rn "CrashGuard\|StrictSarif" pkg/packval/*.go   # zero matches
+      $ grep -rn "Producer" pkg/packval/*.go                  # zero matches
+
+  This is the FOURTH member of the same divergence family in this one function —
+  ISSUE-140 (never-started predicate), ISSUE-141 (Convert application), ISSUE-144
+  (StdoutArtifact payload selection) all landed on `RunEngine` in the last two days,
+  each closing one field's worth of drift from the gate. This lane closes the
+  remaining three.
+
+  IT IS ALSO THE LAST OPEN MEMBER OF DIR-032's TWENTY-ONE-ITEM ROSTER (item 21).
+  Delivering it completes the "Gate Verdict Honesty" directive. That is context, not
+  licence to widen scope: the roster position changes nothing about what this plan may
+  touch.
+
+  ── THE DEFECT, MEASURED — ALL THREE PRODUCE THE IDENTICAL LYING VERDICT ───
+  Run 2026-08-17 against the CURRENT `DefaultExecutor.RunEngine` at HEAD `958b7b0`, via
+  a throwaway program OUTSIDE the repo tree (a scratch module with a `replace`
+  directive — nothing was written into `pkg/packval`, and no test file was added or run
+  in the shared tree). Four bindings, four verdicts, verbatim:
+
+      CRASHGUARD        -> Passed=false ExitCode=0 err=<nil>
+      STRICTSARIF       -> Passed=false ExitCode=0 err=<nil>
+      PRODUCER          -> Passed=false ExitCode=0 err=<nil>
+      PRODUCER-MISSING  -> Passed=false ExitCode=0 err=<nil>
+
+    * CRASHGUARD: `CrashGuard: true`, engine exits 2 and prints nothing.
+    * STRICTSARIF: `StrictSarif: true`, engine prints golangci-v1-shaped JSON
+      (`{"Issues":[{"Text":"boom"}]}` — a valid JSON OBJECT with no `runs` key).
+    * PRODUCER: `Producer: "produce.sh"` (which emits SARIF carrying ONE result) while
+      `Command` is a plain script that emits nothing. The producer is never invoked.
+    * PRODUCER-MISSING: `Producer: "nope.sh"`, no such file. Silently ignored.
+
+  `Passed: false` WITH A NIL ERROR IS A **POSITIVE** PHASE-3 FIXTURE'S SILENT SUCCESS.
+  DIR-032's item 21 warns in as many words against stating this backwards, so it is
+  stated here from a direct read of the two fixture loops in `pkg/packval/phase3.go`
+  (locate by `func RunFixtures(`, never by line number), which are DELIBERATELY OPPOSITE
+  SHAPES:
+
+    * the POSITIVE loop appends an error only on `case r.Passed:` — a finding on the
+      CLEAN example is a false positive — so a not-fired, error-free verdict passes it
+      SILENTLY, with nothing reported at all;
+    * the NEGATIVE loop appends its error on `else if !r.Passed` ("negative fixture not
+      triggered"), so the SAME verdict REDS a negative fixture — loudly, but blaming the
+      fixture for a run that crashed, invoked the wrong command, or emitted a shape the
+      parser could not read.
+
+  The silent half is the dangerous one. That is why all three belong to DIR-032 and not
+  to DIR-024, and it is the
+  homing argument the directive's item 21 already made: every one of these failure
+  modes converges on `parseSarif` (`pkg/check/parsers.go` — locate by `func parseSarif(`,
+  never by line number) returning `(nil, nil)`. It short-circuits
+  `len(bytes.TrimSpace(out)) == 0` to a nil slice and a nil error, and it
+  `json.Unmarshal`s into the `sarifLog` STRUCT, so any valid JSON OBJECT lacking `runs`
+  also yields zero findings and no error. Verified by reading that function directly,
+  not assumed.
+
+  So a pack author validating a `Producer`/`CrashGuard`/`StrictSarif`-declaring binding
+  sees a clean local pass over a run that invoked the wrong command, crashed, or emitted
+  the wrong shape entirely.
+
+  ── THREE FIELDS, THREE MECHANICS, THREE PHASES — NOT ONE CHANGE ───────────
+  ISSUE-160's Direction section and PLAN-ISSUE-144's residual (R4) BOTH state this
+  explicitly: a Producer fixture, a CrashGuard fixture and a StrictSarif fixture are
+  three genuinely different falsification mechanics and must not be folded into one
+  undifferentiated change. This plan therefore runs three independent TDD cycles, in
+  the priority order the issue itself sets — Producer first (most consequential, a real
+  declaration already exists), then CrashGuard, then StrictSarif — followed by a
+  cross-cutting parity phase.
+
+  THE THREE PHASES ARE SEQUENTIAL, DELIBERATELY, AND THAT IS NOT A D-081 MISS. Their
+  TEST files are disjoint (one new file per field), but all three IMPLEMENTATION tasks
+  edit the SAME file, `pkg/packval/executor.go`. Parallel-eligible tasks must have
+  disjoint file sets, so the three cycles chain instead. Each phase's opening `test`
+  task depends on the previous phase's `verification` task, which is the one legal
+  test-task dependency of that kind.
+
+  ── WHY PRODUCER IS FIRST, AND WHAT IT ACTUALLY BREAKS ─────────────────────
+  `PLAN-ISSUE-144` (completed, commit `43499ab`) just taught `RunEngine` to READ
+  `binding.StdoutArtifact` — the file a binding's real machine-readable output lands in.
+  Verified 2026-08-17 by reading `.backstop/packs/backstop-ai/go-toolchain/pack.yml`
+  directly: its `go-coverage` engine declares BOTH `producer: scripts/coverage-produce.sh`
+  AND `stdout_artifact: cover.out`. So the ONE real-world binding whose payload packval
+  was just fixed to select correctly is ALSO the one whose COMMAND packval invokes
+  wrong — 144's fix is only real for that binding once the producer substitution exists
+  to produce the artifact in the first place.
+
+  ── ECOSYSTEM BOUND, STATED HONESTLY (a capability gap, not a firing false green) ──
+  Census run 2026-08-17 over every installed pack and every testdata pack, not assumed:
+
+    DECLARATIONS THAT EXIST TODAY
+      * `.backstop/packs/backstop-ai/go-toolchain/pack.yml` — `producer:` on
+        `go-coverage`, `go-build` and `go-test`; `crash_guard: true` on `go-build` and
+        `go-test`; `strict_sarif: true` on `golangci`. All three fields, one real pack.
+      * `.backstop/packs/backstop-ai/backstop-core-architecture/pack.yml` —
+        `crash_guard: true`; its rules DO declare `rule_path:
+        architecture/backstop-core.yml`.
+      * `pkg/packval/testdata/engine-pack/pack.yml` — `crash_guard: true` on `mybuild`,
+        `strict_sarif: true` on `mylint`; `mylint` is bound by rule `claimed-engine-rule`
+        which has BOTH `file: rules/sample.yml` AND positive/negative fixtures.
+
+    WHY NONE OF THEM DISPATCHES THROUGH `RunEngine` TODAY. Stated precisely, because
+    the obvious-sounding version is wrong. `pkg/packval/phase3.go` reaches `RunEngine`
+    only from inside `claim.Fixtures.Positive` / `claim.Fixtures.Negative` loops, each
+    additionally guarded by a non-empty `rule.RuleSourcePath()`, plus the `pack.ToolConfig`
+    loop. So dispatch needs a FIXTURE **and** (a rule source path **or** a tool_config
+    entry).
+      * go-toolchain: `grep -n "fixtures"` over its pack.yml returns ZERO matches, for
+        every rule in the pack, and it has no `tool_config` block. Its only `rule_path`
+        is `.golangci.yml` on `go-lint`. No fixture → no dispatch.
+      * backstop-core-architecture: rule_path present, but no `fixtures` key anywhere.
+        No fixture → no dispatch.
+      * engine-pack: it HAS both, but it is consumed only by `pkg/packval/manifest_engines_test.go`
+        and `pkg/packval/phase2_test.go` — phase-1/2/5 tests, not phase-3 execution — and
+        its `mylint` command is `mylinter run`, a tool that does not exist, so even a
+        phase-3 run would stop at the never-started refusal (ISSUE-140) BEFORE reaching
+        any of this lane's three stages. Its greenness is therefore unaffected by this
+        lane; if it ever turns red, that is a real signal, not expected churn.
+
+    CONSEQUENCE FOR THE IMPLEMENTER, SO IT IS NOT DISCOVERED THE HARD WAY: THERE IS NO
+    DOGFOOD REPRO TO REACH FOR. Do not go looking for a failing `pack test` run in this
+    repo, and do not install or author a pack to manufacture one. The falsification bar
+    is the runtime-built fixture packs in TASK-001 / TASK-004 / TASK-007 and nothing
+    else. The gap is held shut by fixture ABSENCE, not by a guard — a pack author who
+    adds fixtures to any go-toolchain rule, an ordinary and encouraged pack-authoring
+    act, starts getting the lying verdict above with no warning.
+
+  ── ISSUE-143 (shared extraction): CHECKED, NOT LANDED ─────────────────────
+  ISSUE-160's Direction closes by requiring this be checked rather than assumed.
+  Verified 2026-08-17: `issues/ISSUE-143-packval-gate-convert-dual-implementation.issue.md`
+  reads `status: open`, and `ls plans/ | grep 143` is EMPTY — no plan targets it. No
+  shared `pkg/packval` home for gate-mirroring dispatch logic exists, so all three
+  fields land LOCALLY in `RunEngine` beside the four stages ISSUE-140/141/144 already
+  put there, each with a mechanical drift guard (TASK-010) holding the line until
+  ISSUE-143's consolidation is planned. This is the precedent PLAN-ISSUE-141 (its
+  CLM-006) and PLAN-ISSUE-144 (its CLM-008) both set, followed rather than reinvented.
+
+  IF AN IMPLEMENTER FINDS THAT A SHARED EXTRACTION HAS LANDED IN THE MEANTIME: STOP AND
+  FLAG. The fix then belongs in that shared location and this plan needs re-authoring,
+  not local improvisation.
+
+  ── DESIGN DECISIONS THIS PLAN MAKES SO THE IMPLEMENTER DOES NOT ───────────
+
+  D1. PRODUCER USES THE **FINDINGS-PATH** SEMANTICS (swap the invoked NAME, preserve the
+      args), NOT the coverage-path semantics (invoke the producer BARE).
+      `cmd/backstop/pack_gate.go` deliberately does BOTH: `runCoverageEngine` invokes
+      the producer bare (it shapes its own whole invocation), while `runFindingsEngine`
+      swaps only the name because it owns scope contracts that a bare call would
+      evaporate. That comment is worth reading in full at
+      `func runFindingsEngine(` before writing the fix.
+      `RunEngine` takes the findings semantics for two reasons: it terminates in
+      `check.ParsePackFindings`, so it IS the findings dispatch; and the fixture
+      TARGETS are the entire point of a phase-3 run — a bare invocation would drop the
+      rule/config file and the fixture path, so EVERY fixture would come back not-fired.
+      Per the loop polarity established above: every POSITIVE fixture would then validate
+      as a SILENT CLEAN PASS even though nothing was ever checked, and every NEGATIVE
+      fixture would red as `negative fixture not triggered` — blaming the fixture for the
+      dropped argv. The swap is auditable as a one-line change of the invoked NAME.
+
+  D2. THE PRODUCER PATH RESOLVES AGAINST `packDir`. That is the same base `RunEngine`
+      already uses for `binding.Convert` and (since ISSUE-144) `binding.StdoutArtifact`,
+      and `packDir` IS packval's pack root. The gate joins against `packRoot` for the
+      identical reason. Same rule, same value, different variable name. Use the SAME
+      `filepath.Join(packDir, filepath.FromSlash(...))` + `os.Stat` shape the Convert
+      block already uses.
+
+  D3. THE PRODUCER RUNS UN-SANDBOXED — BY CONSTRUCTION, WITH NO NEW MECHANISM.
+      `RunEngine`'s `exec.Command` is already un-sandboxed; only the Convert step goes
+      through `SandboxedRunStdout`. Swapping the invoked name therefore inherits the
+      un-sandboxed property the gate gets from calling `runner.RunStdout` directly.
+      Do NOT route the producer through `SandboxedRunStdout` — that would be a
+      DIVERGENCE from the gate dressed up as caution.
+
+  D4. THE NEVER-STARTED REFUSAL NAMES THE PRODUCER WHEN A PRODUCER IS DECLARED.
+      Mirrors the gate's `neverStartedSubject` variable. On the plain branch the subject
+      stays `binding.Command`, so ISSUE-140's existing tests
+      (`TestExecutor_RunEngineRefusesPathfulUnstartableEngine`,
+      `TestExecutor_RunEngineRefusesBareAbsentEngine`) see byte-identical wording.
+
+  D5. THE STRICT-SARIF GUARD IS GATED ON `binding.Convert == ""`, EXACTLY AS THE GATE
+      GATES IT. Read `func runFindingsEngine(` : the call to `requireLintSarifShape` sits
+      inside `if binding.Convert == "" { ... }`. A binding that declares a convert is not
+      expected to emit SARIF before the convert runs, so applying the shape guard to its
+      pre-convert payload would fail-loud on a correctly-authored pack. Mirror the
+      gating; do not "improve" on it.
+
+  D6. THE STRICT-SARIF GUARD IS IMPLEMENTED LOCALLY IN packval AND ITS MESSAGE IS
+      TOOL-BLIND. `requireLintSarifShape` lives in `cmd/backstop/pack_gate_golint.go`,
+      package `main` — `pkg/packval` cannot import it, and extracting it to a shared
+      authority is ISSUE-143's work (D1 of that issue's family), not this lane's.
+      packval gets its own inline probe with the SAME MECHANISM (trim; empty is not
+      malformed; `json.Unmarshal` into a struct with a `Runs *json.RawMessage` field;
+      refuse when unmarshal fails or `Runs` is nil).
+      ITS WORDING MUST NAME NO TOOL AND NO LANGUAGE. The gate's message names
+      golangci-lint because it lives in a lint-specific file; copying that literal into
+      `pkg/packval` would bake a tool name into the generic pack-validation dispatch,
+      which CLAUDE.md's first principle forbids outright. CLM-015 makes that mechanical.
+
+  D7. THE FINAL SHAPE OF `RunEngine`, STAGE BY STAGE. Four stages exist today; this lane
+      adds three. Insertion points are stated against their NEIGHBOURS, never line
+      numbers:
+
+        trust gate (`binding.Provision` → `engine.CheckToolAllowed`)      [exists]
+        `buildEngineArgv`                                                 [exists]
+        ► PRODUCER SUBSTITUTION                                           [TASK-002]
+        `exec.Command(...)`, `cmd.Dir = packDir`, `cmd.Run()`             [exists]
+        never-started refusal (`check.NeverStarted(runErr)`)              [exists, ISSUE-140]
+        stdout_artifact payload selection                                 [exists, ISSUE-144]
+        ► STRICT-SARIF SHAPE GUARD (gated on `binding.Convert == ""`)     [TASK-008]
+        convert application                                               [exists, ISSUE-141]
+        `check.ParsePackFindings`                                         [exists]
+        ► CRASH GUARD                                                     [TASK-005]
+        return
+
+      This is the gate's order, stage for stage. Getting it wrong is not cosmetic: the
+      crash guard needs the finding COUNT (so it must follow the parse) and needs to sit
+      AFTER the never-started refusal (so `runErr` at that point is a started process's
+      exit status, which is what makes the word "crashed" accurate rather than
+      misleading); the shape guard must see the SELECTED payload (post-artifact) and the
+      PRE-convert bytes.
+
+  ── LOCATE EVERY EDIT SITE BY NAME, NEVER BY LINE NUMBER ───────────────────
+  `pkg/packval/executor.go`, `cmd/backstop/pack_gate.go`, `cmd/backstop/pack_gate_golint.go`
+  and `pkg/check/parsers.go` have all moved under active lanes this week. The names are
+  stable and the numbers are not: `func (d *DefaultExecutor) RunEngine(`,
+  `func buildEngineArgv(`, `func runFindingsEngine(`, `func runCoverageEngine(`,
+  `func requireLintSarifShape(`, `func parseSarif(`. No line number appears in any task
+  below, deliberately. The line numbers quoted in ISSUE-160's own text (`pack_gate.go:429`,
+  `:778`, `:869`, `pack_gate_golint.go:44`) were correct when filed and are already
+  approximate; treat them as hints, verify by name.
+
+  ── CLAIMS ────────────────────────────────────────────────────────────────
+  This plan is issue-sourced, so it defines its own claims. Every one is mapped to at
+  least one task below.
+
+    ── PRODUCER (phase 1) ──
+
+    CLM-001  THE DEFECT / THE LYING VERDICT, PRODUCER EDITION. When a binding declares
+             `Producer`, `RunEngine` invokes the RESOLVED PRODUCER SCRIPT in place of
+             `binding.Command`, so the producer's output is what gets parsed. Measured
+             today: `Passed=false ExitCode=0 err=<nil>` — the plain command ran, emitted
+             nothing, and the empty-input parse returned ZERO FINDINGS WITH NO ERROR: the
+             verdict a POSITIVE phase-3 fixture accepts as a silent clean pass (and that a
+             NEGATIVE fixture reds on as "not triggered", blaming the fixture).
+             → TestPackVal_EngineProducer_ProducerInvokedInPlaceOfCommand
+
+    CLM-002  THE ASSERTION THAT KEEPS CLM-001 HONEST — non-regression on the
+             no-declaration path. A binding with `Producer == ""` runs `binding.Command`
+             exactly as before and stats no file. Without this, CLM-001 could be
+             satisfied by a change that breaks every ordinary engine.
+             → TestPackVal_EngineProducer_AbsentDeclarationRunsPlainCommand
+
+    CLM-003  SUBSTITUTION REPLACES THE INVOKED NAME ONLY — THE ARGV IS PRESERVED. The
+             producer receives exactly the args `buildEngineArgv` shaped for the plain
+             command: the `Command`'s own tail, the `InputFlag` when set, and the fixture
+             targets, in that order. D1, made mechanical. An implementation that invokes
+             the producer BARE (the coverage-path semantics) fails here.
+             → TestPackVal_EngineProducer_ArgvPreservedIncludingCommandTail
+
+    CLM-004  A DECLARED-BUT-MISSING producer is a fail-loud broken run naming BOTH the
+             declared value and the resolved path — NEVER a silent fall-back to the
+             plain command. Measured today: silently ignored, `err=<nil>`. A fall-back
+             would make a mis-typed declaration look like it worked, which is strictly
+             worse than today because it would look fixed.
+             → TestPackVal_EngineProducer_MissingProducerFailsLoud
+
+    CLM-005  THE BASE IS `packDir` (D2), AND THE NEVER-STARTED REFUSAL FOLLOWS THE
+             PRODUCER (D4). A nested pack-relative producer (`scripts/produce.sh`)
+             resolves under packDir; an unstartable producer is reported as NEVER STARTED
+             naming the PRODUCER PATH, not `binding.Command` — naming the command would
+             misdirect the reader to a tool that was never reached.
+             → TestPackVal_EngineProducer_ResolvedAgainstPackDirAndNamedOnNeverStarted
+
+    ── CRASHGUARD (phase 2) ──
+
+    CLM-006  THE DEFECT / THE LYING VERDICT, CRASHGUARD EDITION. For a binding declaring
+             `CrashGuard: true`, a run that exits NON-ZERO and yields ZERO parseable
+             findings is a tool/infra crash and fails loud, naming the engine. Measured
+             today: `Passed=false ExitCode=0 err=<nil>` — the verdict a POSITIVE fixture
+             accepts as a silent clean pass, so a crashed engine validates the pack over a
+             run that produced nothing at all. (Against a NEGATIVE fixture the same verdict
+             reds, but as "negative fixture not triggered" — loud and misattributed to the
+             fixture rather than to the crash.)
+             → TestPackVal_EngineCrashGuard_NonZeroExitWithNoFindingsFailsLoud
+
+    CLM-007  NON-REGRESSION — THE GUARD IS OPT-IN. With `CrashGuard` false (every
+             rule-fed findings engine), a non-zero exit with zero findings still returns
+             `Passed: false` with a NIL error, unchanged. The exit code is not the
+             contract for an ordinary findings engine; only a CrashGuard engine's is.
+             → TestPackVal_EngineCrashGuard_UnsetLeavesNonZeroExitUnchanged
+
+    CLM-008  THE GUARD DOES NOT FIRE WHEN THE ENGINE ACTUALLY REPORTED. A CrashGuard
+             engine that exits non-zero WITH parseable findings is the normal
+             findings-engine case and must return `Passed: true` with a nil error. This
+             is the leg that stops the fix from being "CrashGuard means non-zero exit is
+             fatal", which would red every real build/test engine that finds something.
+             Anchored by the package's existing
+             `TestExecutor_RunEngineStartedNonZeroExitStillReportsFindings`, which
+             declares no CrashGuard and must stay green.
+             → TestPackVal_EngineCrashGuard_NonZeroExitWithFindingsStillReports
+
+    CLM-009  ORDER — THE NEVER-STARTED REFUSAL STILL COMES FIRST. A CrashGuard-declaring
+             engine whose process never started reports NEVER STARTED, not "crashed":
+             "crashed: non-zero exit with no parseable findings" mis-describes a binary
+             that never ran at all. Same misattribution class ISSUE-112 and ISSUE-140
+             both exist to kill.
+             → TestPackVal_EngineCrashGuard_NeverStartedPrecedesCrashGuard
+
+    ── STRICTSARIF (phase 3) ──
+
+    CLM-010  THE DEFECT / THE LYING VERDICT, STRICTSARIF EDITION. For a binding declaring
+             `StrictSarif: true`, a payload that is valid JSON but not a SARIF log (no
+             `runs` array) fails loud instead of parsing to zero findings. Measured
+             today with a golangci-v1-shaped `{"Issues":[...]}`:
+             `Passed=false ExitCode=0 err=<nil>`.
+             → TestPackVal_EngineStrictSarif_NonSarifJsonFailsLoud
+
+    CLM-011  NON-REGRESSION — THE GUARD IS OPT-IN. With `StrictSarif` false, the same
+             non-SARIF JSON still parses leniently to zero findings with a nil error.
+             The lenient parse is deliberate for engines that do not promise SARIF; only
+             a declaring binding gets the strict reading.
+             → TestPackVal_EngineStrictSarif_UnsetLeavesLenientParseUnchanged
+
+    CLM-012  WELL-FORMED SARIF PASSES, AND AN EMPTY PAYLOAD IS NOT MALFORMED. Two legs:
+             a real SARIF log with one result under `StrictSarif: true` reports fired;
+             an EMPTY payload under `StrictSarif: true` returns `Passed: false` with a
+             NIL error. The empty case mirrors the gate's own early return — a genuinely
+             clean run may emit nothing, and the emptiness-is-suspicious discipline
+             belongs to CrashGuard and the never-started refusal, not to a shape check.
+             → TestPackVal_EngineStrictSarif_ValidSarifAndEmptyPayloadPass
+
+    CLM-013  THE GUARD IS GATED ON `binding.Convert == ""` (D5). A binding declaring BOTH
+             `StrictSarif` AND `Convert` does NOT get the shape guard applied to its
+             pre-convert payload: non-SARIF input is precisely what a convert exists to
+             reshape, so guarding there would fail-loud on a correctly-authored pack.
+             → TestPackVal_EngineStrictSarif_ConvertDeclaringBindingExempt
+
+    CLM-014  ORDER — THE GUARD READS THE **SELECTED** PAYLOAD, NOT RAW STDOUT. A binding
+             declaring `StrictSarif` alongside a `StdoutArtifact` is judged on the
+             ARTIFACT's bytes. Proven in BOTH directions, so a guard wired ahead of
+             ISSUE-144's selection stage gives the wrong answer rather than the right one
+             by accident.
+             → TestPackVal_EngineStrictSarif_GuardReadsSelectedPayload
+
+    ── CROSS-CUTTING (phase 4) ──
+
+    CLM-015  TOOL-BLINDNESS (D6). `pkg/packval/executor.go` contains no tool or language
+             literal — the strict-SARIF refusal in particular must not carry the gate's
+             `golangci-lint` wording. A mechanical source scan, because the gate's
+             message is the exact text an implementer will be reading while writing this
+             stage, and copying it would bake a tool name into the generic
+             pack-validation dispatch (CLAUDE.md first principle).
+             → TestPackVal_EngineGateParity_ExecutorCarriesNoToolLiteral
+
+    CLM-016  NO-DRIFT GUARD, ALL THREE FIELDS, BOTH SIDES. `RunEngine` and the gate's
+             honoring sites each reference all three fields. Extends the guard discipline
+             PLAN-ISSUE-141 (CLM-006) and PLAN-ISSUE-144 (CLM-008) established, and holds
+             the line until ISSUE-143's consolidation is planned.
+
+             WINDOW BY FUNCTION NAME — THIS IS NOT OPTIONAL, IT IS WHAT MAKES THE GUARD
+             NON-VACUOUS. `cmd/backstop/pack_gate.go` contains TWO independent producer
+             blocks (one in `runCoverageEngine`, one in `runFindingsEngine`), so a
+             whole-file scan for `binding.Producer` CANNOT FAIL even if
+             `runFindingsEngine`'s block were deleted outright. The StrictSarif half needs
+             a THIRD window in a SECOND file: `runFindingsEngine` holds only the CALL to
+             `requireLintSarifShape`, while the `binding.StrictSarif` flag check lives in
+             `func requireLintSarifShape(` in `cmd/backstop/pack_gate_golint.go`.
+
+             CONTENT SCAN, NOT TREE STATE: no `git status`, no `git diff`, no
+             working-tree-cleanliness assertion, no line numbers. This is a shared tree
+             with concurrent lanes and a tree-state assertion blames whoever runs it.
+             → TestPackVal_EngineGateParity_NoDriftFromGateDispatch
+
+  ── SHARP EDGES ───────────────────────────────────────────────────────────
+
+    SE1  ORDER IS LOAD-BEARING AND EVERY INSERTION HAS TWO NAMED NEIGHBOURS (D7). All
+         three edits are INSERTIONS. Do NOT modify, reword, reorder or "tidy" the trust
+         gate, `buildEngineArgv`, the never-started refusal, the stdout_artifact
+         selection, the convert block or the parse call — every one of them is another
+         (completed) lane's delivered work, and `pkg/packval/executor.go` is where
+         PLAN-ISSUE-140 and PLAN-ISSUE-141 already had to sequence around each other.
+
+    SE2  THE TEST HELPERS ALREADY EXIST IN THIS PACKAGE — REUSE THEM, DO NOT REDECLARE.
+         `pkg/packval/executor_convert_test.go` owns `writeConvertFixtureScript` (returns
+         the ABSOLUTE path), `convertFixturePackDir`, `requireSandboxPlatform`,
+         `readGuardSource`, `windowFunc`, `nonSarifEngineScript` and
+         `toSarifConvertScript`. `pkg/packval/executor_stdout_artifact_test.go` owns
+         `stdoutArtifactSarif`, `stdoutArtifactEngineScript` and
+         `runStdoutArtifactFixture`. `pkg/packval/executor_never_started_test.go` owns
+         `writeUnstartableEngineScript`. `pkg/packval/engine_dispatch_test.go` owns
+         `readSource` (its own source reader, distinct from `readGuardSource`) and the
+         pre-existing tool-literal guard CLM-015 strengthens — see TASK-010. Redeclaring
+         ANY of them is a duplicate
+         declaration in package `packval` — a compile error that presents as an unrelated
+         build failure across the whole package and costs an investigation. Call them. New
+         helpers must be prefixed so they cannot collide (`producer...`, `crashGuard...`,
+         `strictSarif...`, `gateParity...`).
+
+    SE3  NO `Provision` BLOCK ON ANY FIXTURE BINDING. `RunEngine` runs
+         `engine.CheckToolAllowed` FIRST when `Provision` is non-nil, and a fixture script
+         is not on the trusted-tool allowlist — every test would die at the allowlist gate
+         before reaching the code under test, and the failure would look like a
+         dispatch bug.
+
+    SE4  `binding.Command` MUST BE AN ABSOLUTE PATH to the temp-dir script.
+         `buildEngineArgv` hands the name to `exec.Command`, which resolves a
+         separator-less name through PATH and a relative one against the PROCESS cwd —
+         NOT against `cmd.Dir`. A bare basename trips `check.NeverStarted` and stays red
+         after the fix lands, indistinguishable from the defect.
+         `writeConvertFixtureScript` already returns the absolute path; use its return
+         value.
+
+    SE5  `binding.Producer`, IN CONTRAST, MUST BE DECLARED **PACK-RELATIVE** — and the
+         fixture must NOT use an absolute producer path. An absolute path would resolve
+         identically under any base and destroy CLM-005's discrimination. This is the
+         mirror of SE4, not a contradiction of it: `Command` is handed to `exec.Command`
+         raw, while `Producer` is joined against `packDir` first.
+
+    SE6  THE PRODUCER RECEIVES THE COMMAND'S OWN TAIL AS ARGV — INCLUDING ANY SUBCOMMAND.
+         `buildEngineArgv` consumes only `fields[0]` as the name, so a binding with
+         `Command: "mytool build"` hands the producer `build` as `$1`, then the
+         `InputFlag`, then the targets. A fixture producer script written as
+         `mytool build "$@"` would therefore run `mytool build build ...`. This exact
+         class cost a full gate outage on PLAN-ISSUE-067 (`go test test ./...` exits 1 on
+         a fully green tree). Write fixture producers to forward `"$@"` verbatim, and
+         make CLM-003 assert on the observed argv rather than trusting the shape.
+
+    SE7  ERROR WORDING FOLLOWS `RunEngine`'s OWN SUBJECT. Its existing refusals read
+         `engine %q ...`; the gate's read `pack %s ...` because a manifest name is in
+         scope there and is not here. Mirror the gate's SHAPE (name the declared value
+         and the resolved path, wrap an underlying error with `%w`), never its subject.
+
+    SE8  TOOL-BLIND WORDING (D6, CLM-015). Do not copy the gate's golangci-naming
+         message into `pkg/packval`. The refusal must describe the SHAPE (`no "runs"
+         array`) and the CONSEQUENCE (a lenient parse would read zero findings), naming
+         the engine via `binding.Command` and no tool or language.
+
+    SE9  `cmd/backstop/pack_gate.go` AND `cmd/backstop/pack_gate_golint.go` ARE READ-ONLY
+         IN THIS LANE and are deliberately ABSENT from every task's `files` list.
+         CLM-016's guard READS them from disk; no task edits them. Consolidating the sites
+         is ISSUE-143's work.
+
+    SE10 DO NOT PLUMB A NEW PARAMETER INTO `RunEngine`. Its existing signature
+         (`packDir`, `binding`, `targets`) already carries everything all three stages
+         need. Changing it would touch `FixtureExecutor`, `MockExecutor` and all four
+         `phase3.go` call sites — PLAN-ISSUE-092's scope — for no gain.
+
+    SE11 KEEP ALL THREE STAGES INLINE IN `RunEngine`. Do not factor the shape probe (or
+         anything else) into a package-level helper: CLM-016's guard windows
+         `func (d *DefaultExecutor) RunEngine(` by name, and a helper call would move the
+         field reference OUT of that window and turn the guard vacuous. Four stages
+         already live inline there; these three join them. Extraction is ISSUE-143's.
+
+    SE12 `runErr` MUST STAY IN SCOPE ALL THE WAY TO THE CRASH GUARD. Today it is consumed
+         only by `check.NeverStarted` immediately after `cmd.Run()`. Do not narrow it to a
+         bool, do not shadow it, and do not reuse the identifier for the convert's or the
+         artifact read's error.
+
+    SE13 NONE OF THESE TESTS NEEDS THE SANDBOX EXCEPT THE ONE THAT RUNS A CONVERT. Only
+         the Convert step is sandboxed. `requireSandboxPlatform(t)` may appear ONLY in
+         CLM-013's test (the one binding that declares a `Convert`). Guarding the others
+         would skip real coverage on Linux — the only platform that gates merges — and
+         turn this lane's central falsifications into vacuous greens in CI.
+
+    SE14 `ExecutionResult` EXPOSES ONLY `Passed`, `Output` AND `ExitCode`. There is no
+         findings slice to assert on, so every behavioural assertion is built around the
+         Passed/not-Passed discriminator plus the error. Where one direction alone could
+         pass by accident, a SECOND LEG in the opposite direction is mandated below. Do
+         not weaken a second leg away.
+
+  ── WHAT IS DELIBERATELY NOT FIXED HERE (RESIDUALS) ────────────────────────
+  Recorded so a reviewer does not read these as oversights:
+
+    (R1) SINGLE-AUTHORITY CONSOLIDATION IS STILL NOT DONE. After this lane, TWO dispatch
+         paths independently honor Producer, CrashGuard, StrictSarif, StdoutArtifact and
+         Convert. That is ISSUE-143's subject; it is open and unplanned (verified above).
+         CLM-016 here, plus PLAN-ISSUE-144's CLM-008 and PLAN-ISSUE-141's CLM-006, install
+         mechanical guards over all of them until it is picked up.
+         → Already filed as ISSUE-143. Nothing to file here.
+
+    (R2) THE COVERAGE-ENGINE HALF OF packval IS UNTOUCHED. `RunEngine` is the findings
+         dispatch; packval has no coverage dispatch to fix, so there is no symmetric edit
+         to make. Noted only so a reader does not look for one. This is why D1 chooses the
+         findings-path producer semantics without needing to reconcile the coverage-path
+         ones.
+
+    (R3) `pkg/packval/phase3.go` IS NOT TOUCHED and does not need to be — `RunEngine`
+         already receives `packDir` and `binding`, the complete input all three stages
+         need, and phase3 calls `RunEngine` in four places.
+
+    (R4) THE DISPATCH-ELIGIBILITY GAP IS NOT CLOSED HERE. Nothing in this lane makes
+         go-toolchain's producer/crash_guard/strict_sarif bindings actually dispatch
+         through phase 3 — that needs FIXTURES in the pack (and a rule source path or a
+         tool_config entry), which is pack-authoring work in an external repo, not core's.
+         This lane makes the validator TRUTHFUL when such a fixture appears; it does not
+         manufacture one. Filing pack-side fixture work is out of scope and explicitly
+         not requested.
+
+    (R5) `binding.ExemptFromScopeFilter` AND `binding.GateType` ARE ALSO UNREAD BY
+         `RunEngine`, and are NOT fixed here. Verified 2026-08-17 — but unlike this lane's
+         three, neither is a VERDICT-HONESTY field: both are consumed by the gate's
+         downstream violation routing and scope filtering, which packval's fixture
+         validator has no analogue of, so their absence in `RunEngine` is correct rather
+         than a divergence. Recorded so a reviewer does not read their omission as an
+         oversight, and so nobody widens a task to "finish the field list".
+
+  ── EXISTENCE-IN-WORLD CHECK (2026-08-17, HEAD 958b7b0) ────────────────────
+  Performed before authoring, from the corpus rather than assumed.
+
+  `grep -rln "packval/executor.go" plans/` returns THIRTEEN files: this plan plus twelve
+  others. `grep -rln "CrashGuard\|StrictSarif\|binding.Producer" plans/` returns TWELVE.
+  Every member of the union is accounted for:
+
+    * PLAN-ISSUE-144 (`completed`) — `StdoutArtifact` payload selection ONLY. Its residual
+      (R4) names ALL THREE of this lane's fields, states they are EXPLICITLY OUT OF ITS
+      SCOPE, forbids widening any of its tasks to cover them, and MANDATES filing the
+      follow-on that became ISSUE-160. That is a handoff, not ownership.
+    * PLAN-ISSUE-141 (`completed`) — Convert application only.
+    * PLAN-ISSUE-140 (`completed`) — the never-started predicate only.
+    * PLAN-ISSUE-142 (`completed`) — `input_mode: pattern-arg` fixture ELIGIBILITY;
+      `phase3.go`/`manifest.go`, not `executor.go`.
+    * PLAN-ISSUE-151 (`completed`) — path-scoped rules under file dispatch;
+      `pathscope.go`/`phase2.go`.
+    * PLAN-ISSUE-146 (`completed`) — `pack new`'s vacuous sample validator; `pkg/pack/`.
+    * PLAN-ISSUE-092 (`completed`) — phase3 fixture dispatch; owns `phase3.go`.
+    * PLAN-ISSUE-112, PLAN-ISSUE-082, PLAN-ISSUE-020, PLAN-ISSUE-019 — all `completed`;
+      none references any of the three fields on the packval side.
+    * PLAN-SPEC-014 (`ready`) — the original pack-validation plan; predates all three
+      capabilities.
+    * PLAN-SPEC-032 (`replaced`) — terminal; cannot own live work.
+    * The CrashGuard/StrictSarif/Producer grep additionally returns PLAN-ISSUE-010,
+      PLAN-ISSUE-027, PLAN-ISSUE-045, PLAN-ISSUE-067, PLAN-ISSUE-093, PLAN-ISSUE-136,
+      PLAN-ISSUE-148 and PLAN-SPEC-035/048 — all `completed`, and every one of them is a
+      GATE-SIDE plan (`cmd/backstop/pack_gate*.go`). They are where the honored behavior
+      this lane mirrors CAME FROM; none ever claimed the packval path. PLAN-ISSUE-148
+      names ISSUE-160 exactly once, in its close-out list of follow-ons "filed rather
+      than absorbed" — again a handoff, not ownership.
+
+  No artifact owns this surface, and no phase inside a larger committed plan delivers its
+  substance. Authoring proceeds.
+
+  ── CROSS-LANE COLLISION CHECK (2026-08-17, HEAD 958b7b0) ──────────────────
+  `git status --porcelain` was run at authoring time against the exact paths this plan
+  scopes, and against the files it reads:
+
+    * `pkg/packval/` — CLEAN. No modified and no untracked files anywhere in the package.
+    * `cmd/backstop/pack_gate.go`, `cmd/backstop/pack_gate_golint.go` — CLEAN (read-only
+      here regardless).
+    * `pkg/check/`, `pkg/pack/engine/` — CLEAN (read-only here).
+    * The only untracked Go files anywhere in `pkg/` or `cmd/` are
+      `cmd/backstop/gate_substantiveness_layout_test.go` and
+      `pkg/gate/step_testverify_layout_test.go` — other lanes, disjoint packages, no
+      overlap with any file this plan names.
+
+  ALL FIVE SIBLING DIR-032 TAIL LANES HAVE LANDED AND CLOSED. Verified by reading each
+  plan's own frontmatter, not relayed: PLAN-ISSUE-140, -141, -142, -144, -146, -148 and
+  -151 all read `status: completed`. Unlike PLAN-ISSUE-144, which authored into a tree
+  with two live siblings deliberately holding red windows open in `pkg/packval`, this lane
+  starts from a quiet tree — so a `pkg/packval` failure seen during this lane's runs is
+  MORE likely to be its own than 144's was. Do not reflexively attribute a red to a
+  sibling; check the failing test NAME against this lane's mandated names first.
+
+  That is a snapshot, not a guarantee. THE IMPLEMENTER'S OBLIGATION: re-run
+  `git status --porcelain -- pkg/packval` before the first edit of EACH phase, not just
+  once at the start — three separate edits to `executor.go` means three windows in which
+  another lane could arrive. If `executor.go` is modified by someone else, STOP AND
+  REPORT rather than merging blind.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Producer substitution — invoke the declared producer in place of the plain command"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Write the failing Producer-substitution tests for DefaultExecutor.RunEngine"
+        description: |
+          Create `pkg/packval/executor_producer_test.go` (NEW FILE). Do NOT extend
+          `executor_convert_test.go`, `executor_stdout_artifact_test.go` or
+          `executor_never_started_test.go` — those are other (completed) lanes' files, and
+          keeping each of this plan's three cycles in its own file is what makes the diff
+          legible.
+
+          READ `pkg/packval/executor_stdout_artifact_test.go` AND
+          `pkg/packval/executor_convert_test.go` FIRST. Together they are the direct
+          precedent for every mechanic here and they already own the shared helpers (SE2):
+          `convertFixturePackDir(t)` for a symlink-resolved temp packDir,
+          `writeConvertFixtureScript(t, dir, name, body)` for an executable fixture script
+          (it returns the ABSOLUTE path — use it, SE4). REDECLARING ANY HELPER IS A COMPILE
+          ERROR.
+
+          Every test builds its fixture pack at runtime in a temp dir, constructs an
+          `engine.EngineBinding` by hand with NO `Provision` block (SE3), and calls
+          `(&DefaultExecutor{}).RunEngine(packDir, binding, targets)` directly. No test in
+          this file needs `requireSandboxPlatform` (SE13) — nothing here runs a convert.
+
+          THE RED WINDOW IS EXPECTED AND MUST BE CLOSED IN THE SAME SITTING. This task
+          deliberately leaves `go test ./pkg/packval/... -race -count=1` RED — that is the
+          falsification bar. Proceed directly to TASK-002; do not hand off or
+          context-switch with the package suite red.
+
+          MANDATED TESTS:
+
+          TestPackVal_EngineProducer_ProducerInvokedInPlaceOfCommand (CLM-001) —
+            THE FALSIFICATION. Write TWO scripts into packDir: a producer that emits a
+            valid SARIF document containing exactly ONE result, and a plain command that
+            emits NOTHING and exits 0. Binding: `Command` = the ABSOLUTE path to the plain
+            script (SE4), `Producer` = the PACK-RELATIVE name of the producer script (SE5).
+            Assert err is nil AND `Passed` is true.
+            RECORD THE PRE-FIX FAILURE VERBATIM — it is the lying verdict this cycle exists
+            for. Measured 2026-08-17 against HEAD: this returns `Passed=false`,
+            `ExitCode=0` and a NIL error, because the plain command ran and `parseSarif`
+            reads empty stdout as zero findings with no error. The test must fail on the
+            `Passed` assertion, NOT on an error assertion. If it fails with a non-nil
+            error instead, something else is wrong (most likely SE3 or SE4) — investigate
+            before writing the fix.
+
+          TestPackVal_EngineProducer_AbsentDeclarationRunsPlainCommand (CLM-002) —
+            the non-regression leg. The plain command emits valid SARIF with one result;
+            `Producer` is EMPTY. Assert err is nil, `Passed` is true, and `Output` still
+            carries the command's own stdout. The pack dir deliberately contains NO
+            producer script at all, so an implementation that stats or runs a producer
+            unconditionally surfaces as a refusal rather than passing silently.
+            This test MUST be green both before and after TASK-002.
+
+          TestPackVal_EngineProducer_ArgvPreservedIncludingCommandTail (CLM-003) —
+            substitution replaces the NAME, not the arg shaping (D1). This is the leg that
+            distinguishes the findings-path semantics from the coverage-path (bare-call)
+            semantics, and it is the one an implementer is most likely to get wrong (SE6).
+            Binding: `Command: "<abs-path-to-plain.sh> build"` (a command WITH a tail),
+            `InputFlag: "--config"`, `Producer: "produce.sh"`, targets
+            `[]string{"rules/sample.yml", "fixtures/case.txt"}`.
+            The producer script ECHOES ITS OWN ARGV to a file in its cwd (packDir), one
+            argument per line, and separately emits a valid one-result SARIF document to
+            stdout. After the run, read that file and assert the recorded argv is EXACTLY,
+            in order: `build`, `--config`, `rules/sample.yml`, `fixtures/case.txt`.
+            Assert the FULL ORDERED SEQUENCE, not just membership — a bare invocation
+            records an EMPTY argv and an implementation that drops the command tail
+            records three entries instead of four. Both must fail here.
+
+          TestPackVal_EngineProducer_MissingProducerFailsLoud (CLM-004) — binding declares
+            `Producer: "scripts/absent-producer.sh"` with no such file; the plain command
+            is present and would succeed. Assert a NON-NIL error; assert `Passed` is false;
+            assert the message contains BOTH the declared value
+            (`scripts/absent-producer.sh`) and the RESOLVED path
+            (`filepath.Join(packDir, filepath.FromSlash("scripts/absent-producer.sh"))`).
+            Assert additionally that the run did NOT silently succeed off the plain command
+            — a nil error here is the exact soft-failure regression CLM-004 forbids, and it
+            is what happens TODAY (measured: `Passed=false ExitCode=0 err=<nil>`).
+            NOTE THE PRE-FIX SHAPE SO IT IS NOT MISREAD: unlike CLM-001, this test's
+            `Passed` is false assertion ALREADY PASSES pre-fix while the non-nil-error and
+            both substring assertions are RED. That partial pre-fix greenness is correct
+            and expected.
+
+          TestPackVal_EngineProducer_ResolvedAgainstPackDirAndNamedOnNeverStarted
+            (CLM-005) — pins the base directory and the never-started subject. TWO legs:
+              (a) NESTED PACK-RELATIVE PRODUCER: write the producer to
+                  `scripts/produce.sh` under packDir (`mkdir -p` its parent) and declare
+                  `Producer: "scripts/produce.sh"`. It emits a valid one-result SARIF.
+                  Assert err is nil and `Passed` is true. Because the resolution is joined
+                  against packDir, a read relative to the TEST PROCESS's cwd
+                  (`pkg/packval` during `go test`) finds nothing.
+              (b) UNSTARTABLE PRODUCER: write a producer file that EXISTS but is NOT
+                  executable (mode 0o644), so it passes the `os.Stat` existence check and
+                  then fails to exec. Assert the error names the NEVER-STARTED condition
+                  (match on the substring `never started`) AND names the RESOLVED PRODUCER
+                  PATH, and assert it does NOT name `binding.Command` — blaming the tool
+                  for a producer that never ran is a misattribution (D4). Assert `Passed`
+                  is false.
+            Do NOT use an absolute producer path anywhere in this test (SE5) — that would
+            resolve identically under any base and destroy leg (a)'s discrimination. Do NOT
+            create a decoy file outside packDir; nothing in this lane writes outside its
+            temp dir.
+        files:
+          - pkg/packval/executor_producer_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+        test_names:
+          - TestPackVal_EngineProducer_ProducerInvokedInPlaceOfCommand
+          - TestPackVal_EngineProducer_AbsentDeclarationRunsPlainCommand
+          - TestPackVal_EngineProducer_ArgvPreservedIncludingCommandTail
+          - TestPackVal_EngineProducer_MissingProducerFailsLoud
+          - TestPackVal_EngineProducer_ResolvedAgainstPackDirAndNamedOnNeverStarted
+        depends_on: []
+
+      - id: TASK-002
+        type: implementation
+        title: "Insert the Producer-substitution stage into RunEngine"
+        description: |
+          BEFORE THE FIRST EDIT: re-run `git status --porcelain -- pkg/packval`. It was
+          CLEAN at authoring time (HEAD 958b7b0). If `executor.go` is modified by another
+          lane now, STOP AND REPORT rather than merging blind.
+
+          Locate `func (d *DefaultExecutor) RunEngine(` BY NAME, then the
+          `name, args := buildEngineArgv(binding, targets)` cursor and the empty-name
+          refusal immediately below it. Insert the substitution stage AFTER that refusal
+          and IMMEDIATELY ABOVE the `cmd := exec.Command(...)` line. Purely additive —
+          SE1 forbids touching either neighbour:
+
+              invoked := name
+              // What the never-started refusal below NAMES: the producer when one is
+              // declared, because that is what failed to start.
+              neverStartedSubject := binding.Command
+              if binding.Producer != "" {
+                  producerPath := filepath.Join(packDir, filepath.FromSlash(binding.Producer))
+                  if info, statErr := os.Stat(producerPath); statErr != nil || info.IsDir() {
+                      return ExecutionResult{Passed: false, ExitCode: 1},
+                          fmt.Errorf("engine %q: declared producer %q is missing or not a file (%s)",
+                              binding.Command, binding.Producer, producerPath)
+                  }
+                  invoked = producerPath
+                  neverStartedSubject = producerPath
+              }
+              cmd := exec.Command(invoked, args...)   // was: exec.Command(name, args...)
+
+          Then change the never-started refusal's `%q` subject from `binding.Command` to
+          `neverStartedSubject`. THAT IS THE ONLY EDIT PERMITTED TO AN EXISTING LINE IN
+          THIS TASK, and it is byte-neutral on the plain branch (`neverStartedSubject`
+          defaults to `binding.Command`), so ISSUE-140's existing tests
+          `TestExecutor_RunEngineRefusesPathfulUnstartableEngine` and
+          `TestExecutor_RunEngineRefusesBareAbsentEngine` see identical wording and must
+          stay green.
+
+          THE ARGS ARE PRESERVED VERBATIM (D1, CLM-003). Do NOT invoke the producer bare
+          and do NOT re-shape `args` — `runCoverageEngine` invokes ITS producer bare
+          because a coverage producer shapes its own whole invocation; `runFindingsEngine`
+          swaps only the name. `RunEngine` is the findings dispatch and its fixture
+          TARGETS are the entire point of a phase-3 run. Read the asymmetry comment above
+          the producer block in `func runFindingsEngine(` before deviating.
+
+          THE PRODUCER RUNS UN-SANDBOXED, AND THAT IS FREE HERE (D3). `RunEngine`'s
+          `exec.Command` is already un-sandboxed; only the Convert step goes through
+          `SandboxedRunStdout`. Do NOT route the producer through `SandboxedRunStdout` —
+          that would be a divergence from the gate dressed up as caution.
+
+          NO NEW IMPORTS ARE NEEDED — `os`, `path/filepath` and `fmt` are already imported.
+          If the implementer finds themselves adding an import, they have taken a wrong
+          turn.
+
+          THE REFUSAL IS FAIL-LOUD BY DESIGN. A declared-but-missing producer is a BROKEN
+          PACK, never a silent fall-back to the plain command. Do not add an "if the
+          producer is missing, run the command anyway" arm for robustness — that arm IS
+          the defect, re-expressed as something that looks fixed (CLM-004).
+
+          Error wording follows `RunEngine`'s own `engine %q` subject, not the gate's
+          `pack %s` (SE7), and must name BOTH the declared value and the resolved path so
+          CLM-004's assertions have something to bind to.
+
+          Then run `go test ./pkg/packval/... -race -count=1` and confirm all five mandated
+          tests from TASK-001 are green — including CLM-002's, which was green before the
+          fix and must stay that way — and that no previously-green test in the package
+          regressed.
+        files:
+          - pkg/packval/executor.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: verification
+        title: "Gate the Producer-substitution change diff-scoped"
+        description: |
+          Run `./bin/backstop gate` (diff-scoped: merge-base + untracked) and read the
+          result. It must be green for this lane's own files.
+
+          SCOPE DISCIPLINE IN A SHARED TREE: the diff scope includes untracked files from
+          other lanes. If the gate reports violations in files this plan does not name —
+          `cmd/backstop/gate_substantiveness_layout_test.go` and
+          `pkg/gate/step_testverify_layout_test.go` were the untracked Go files present at
+          authoring time — those belong to other lanes. Do NOT fix them and do NOT waive
+          them: report them and continue.
+
+          Only violations in `pkg/packval/executor.go` or
+          `pkg/packval/executor_producer_test.go` are this task's to resolve. The tree was
+          quiet at authoring time (all seven sibling `pkg/packval` lanes closed), so unlike
+          PLAN-ISSUE-144's equivalent task there is no known sibling red window to
+          attribute a `pkg/packval` failure to — check the failing test NAME against this
+          lane's mandated names FIRST, and treat an unattributable red as a real finding
+          worth reporting rather than assuming a sibling owns it.
+        files:
+          - pkg/packval/executor.go
+          - pkg/packval/executor_producer_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+        depends_on:
+          - TASK-002
+
+  - id: phase-2
+    name: "Phase 2: CrashGuard — a non-zero exit with no findings is a crash, not a positive fixture's clean pass"
+    tasks:
+      - id: TASK-004
+        type: test
+        title: "Write the failing CrashGuard tests for DefaultExecutor.RunEngine"
+        description: |
+          Create `pkg/packval/executor_crashguard_test.go` (NEW FILE). Same construction
+          rules as TASK-001: runtime-built fixture packs in a temp dir, helpers reused not
+          redeclared (SE2), no `Provision` block (SE3), absolute `Command` paths (SE4), no
+          `requireSandboxPlatform` anywhere in this file (SE13 — nothing here runs a
+          convert).
+
+          Prefix any new helper `crashGuard...` so it cannot collide with the package's
+          existing declarations.
+
+          THE RED WINDOW IS EXPECTED AND MUST BE CLOSED IN THE SAME SITTING (TASK-005).
+
+          MANDATED TESTS:
+
+          TestPackVal_EngineCrashGuard_NonZeroExitWithNoFindingsFailsLoud (CLM-006) —
+            THE FALSIFICATION. Engine script prints NOTHING and exits 2. Binding sets
+            `CrashGuard: true`. Assert a NON-NIL error; assert `Passed` is false; assert
+            the message names the engine (`binding.Command`) and describes the condition
+            (match on the substring `crashed`).
+            RECORD THE PRE-FIX FAILURE VERBATIM. Measured 2026-08-17 against HEAD: this
+            returns `Passed=false`, `ExitCode=0` and a NIL error — and that verdict is a
+            POSITIVE phase-3 fixture's SILENT success (`phase3.go`'s positive loop appends
+            an error only on `case r.Passed:`), so a crashed engine validates clean today.
+            Against a NEGATIVE fixture the same verdict reds, but as "negative fixture not
+            triggered" — loud and misattributed to the fixture. This test calls `RunEngine`
+            directly and does not exercise either loop; the polarity is stated only so the
+            defect is understood correctly. The test must fail on the non-nil-error
+            assertion.
+
+          TestPackVal_EngineCrashGuard_UnsetLeavesNonZeroExitUnchanged (CLM-007) — the
+            non-regression leg, and the one that keeps the guard OPT-IN. The identical
+            script (prints nothing, exits 2) with `CrashGuard` FALSE. Assert err is NIL and
+            `Passed` is false — the unchanged behaviour. A findings engine's exit code is
+            not its contract; only a CrashGuard engine's is.
+            This test MUST be green both before and after TASK-005. Without it, CLM-006
+            could be satisfied by a change that turns every non-zero exit into an error and
+            reds every ordinary rule-fed engine that reports findings.
+
+          TestPackVal_EngineCrashGuard_NonZeroExitWithFindingsStillReports (CLM-008) —
+            the guard must not fire when the engine actually reported. Engine script emits
+            a valid SARIF document with exactly ONE result AND exits 1 (the normal
+            findings-engine case). Binding sets `CrashGuard: true`. Assert err is NIL and
+            `Passed` is TRUE.
+            This is the leg that stops the fix from collapsing into "CrashGuard means a
+            non-zero exit is fatal", which would red `go build`/`go test` on every run that
+            finds something — precisely the outage class PLAN-ISSUE-067 hit. It MUST be
+            green both before and after TASK-005.
+            Note for the implementer: the package's existing
+            `TestExecutor_RunEngineStartedNonZeroExitStillReportsFindings` covers the same
+            shape with CrashGuard UNSET and must also stay green; this test is its
+            CrashGuard-declaring twin, not a duplicate of it.
+
+          TestPackVal_EngineCrashGuard_NeverStartedPrecedesCrashGuard (CLM-009) — ordering
+            against the never-started refusal. Binding's `Command` is an ABSOLUTE path to a
+            file that does not exist in packDir, and it declares `CrashGuard: true`. Assert
+            the error names the NEVER-STARTED condition (match on the substring
+            `never started`) and does NOT contain `crashed` — "crashed: non-zero exit with
+            no parseable findings" mis-describes a binary that never ran at all. Assert
+            `Passed` is false.
+            This test MUST be green both before and after TASK-005: it guards the insertion
+            point rather than the new behaviour. If it goes red after TASK-005, the crash
+            guard was inserted ABOVE the never-started refusal.
+        files:
+          - pkg/packval/executor_crashguard_test.go
+        claims:
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+        test_names:
+          - TestPackVal_EngineCrashGuard_NonZeroExitWithNoFindingsFailsLoud
+          - TestPackVal_EngineCrashGuard_UnsetLeavesNonZeroExitUnchanged
+          - TestPackVal_EngineCrashGuard_NonZeroExitWithFindingsStillReports
+          - TestPackVal_EngineCrashGuard_NeverStartedPrecedesCrashGuard
+        depends_on:
+          - TASK-003
+
+      - id: TASK-005
+        type: implementation
+        title: "Insert the crash-vs-findings guard into RunEngine"
+        description: |
+          BEFORE THE FIRST EDIT: re-run `git status --porcelain -- pkg/packval` again (this
+          is the second of three edit windows on `executor.go` — see the collision section
+          in the notes). If it is modified by another lane, STOP AND REPORT.
+
+          Locate `func (d *DefaultExecutor) RunEngine(` BY NAME, then the
+          `findings, parseErr := check.ParsePackFindings(payload)` call and its parse-error
+          refusal. Insert the guard AFTER that refusal and IMMEDIATELY ABOVE the final
+          success return. Purely additive — SE1 forbids touching either neighbour:
+
+              if binding.CrashGuard && runErr != nil && len(findings) == 0 {
+                  return ExecutionResult{Passed: false, Output: stdout.String(), ExitCode: 1},
+                      fmt.Errorf("engine %q crashed: non-zero exit with no parseable findings: %w",
+                          binding.Command, runErr)
+              }
+              return ExecutionResult{Passed: len(findings) > 0, ...}, nil   // UNCHANGED
+
+          ALL THREE CONJUNCTS ARE LOAD-BEARING AND NONE MAY BE DROPPED:
+            * `binding.CrashGuard` keeps the guard OPT-IN (CLM-007). Every rule-fed
+              findings engine leaves it false and must keep its current behaviour.
+            * `runErr != nil` restricts it to a non-zero exit. A CLEAN exit with zero
+              findings is an ordinary POSITIVE fixture passing — the clean example produced
+              no finding, exactly what `phase3.go`'s positive loop expects — and must stay
+              error-free. Dropping this conjunct would fail-loud on every clean positive
+              fixture a CrashGuard engine validates.
+            * `len(findings) == 0` is what makes it a CRASH rather than a report
+              (CLM-008). A build engine that exits 1 BECAUSE it emitted findings is
+              working correctly.
+
+          POSITION IS THE OTHER HALF OF THE CORRECTNESS ARGUMENT (D7, CLM-009). By this
+          point the never-started refusal has already returned for a process that never
+          ran, so `runErr` here is a STARTED process's exit status — which is what makes
+          the word "crashed" accurate rather than misleading. Do not hoist the guard
+          earlier for symmetry with the gate's comment placement; the gate's guard sits in
+          exactly this position too, after its parse.
+
+          `runErr` MUST STILL BE IN SCOPE HERE (SE12). It is currently consumed only by
+          `check.NeverStarted` right after `cmd.Run()`. Do not narrow it, shadow it, or
+          reuse the identifier for the artifact read's or the convert's error.
+
+          `Output` STAYS `stdout.String()` on the new refusal path, matching every other
+          refusal in the function — the human output a crashed engine printed is the
+          diagnostic a pack author needs.
+
+          NO NEW IMPORTS ARE NEEDED.
+
+          Then run `go test ./pkg/packval/... -race -count=1` and confirm all four mandated
+          tests from TASK-004 are green — including the THREE (CLM-007, CLM-008, CLM-009)
+          that were green before the fix and must stay that way — plus phase 1's five and
+          the package's pre-existing
+          `TestExecutor_RunEngineStartedNonZeroExitStillReportsFindings`.
+        files:
+          - pkg/packval/executor.go
+        claims:
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-004
+
+      - id: TASK-006
+        type: verification
+        title: "Gate the crash-guard change diff-scoped"
+        description: |
+          Run `./bin/backstop gate` (diff-scoped) and read the result. It must be green for
+          this lane's own files.
+
+          Same scope discipline as TASK-003: only violations in `pkg/packval/executor.go`,
+          `pkg/packval/executor_producer_test.go` or
+          `pkg/packval/executor_crashguard_test.go` are this lane's to resolve. Untracked
+          files from other lanes (`cmd/backstop/gate_substantiveness_layout_test.go`,
+          `pkg/gate/step_testverify_layout_test.go` at authoring time) are neither to fix
+          nor to waive — report and continue.
+
+          CONFIRM SPECIFICALLY that phase 1's five mandated tests are STILL green. This is
+          the first verification after a second edit to the same function, and a
+          mis-positioned crash guard is exactly the kind of change that can pass its own
+          tests while breaking a neighbour's.
+        files:
+          - pkg/packval/executor.go
+          - pkg/packval/executor_crashguard_test.go
+        claims:
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-005
+
+  - id: phase-3
+    name: "Phase 3: StrictSarif — a declared native-SARIF engine's wrong-shape output fails loud"
+    tasks:
+      - id: TASK-007
+        type: test
+        title: "Write the failing StrictSarif shape-guard tests for DefaultExecutor.RunEngine"
+        description: |
+          Create `pkg/packval/executor_strictsarif_test.go` (NEW FILE). Same construction
+          rules as TASK-001 and TASK-004 (SE2/SE3/SE4). Prefix any new helper
+          `strictSarif...`.
+
+          THIS IS THE ONE FILE IN THIS PLAN CONTAINING A SANDBOX-DEPENDENT TEST. Exactly
+          ONE of the five below — CLM-013's, the only binding that declares a `Convert` —
+          may call `requireSandboxPlatform(t)` (SE13). Guarding the other four would skip
+          real coverage on Linux, the only platform that gates merges, and turn this
+          cycle's central falsification into a vacuous green in CI.
+
+          THE RED WINDOW IS EXPECTED AND MUST BE CLOSED IN THE SAME SITTING (TASK-008).
+
+          MANDATED TESTS:
+
+          TestPackVal_EngineStrictSarif_NonSarifJsonFailsLoud (CLM-010) —
+            THE FALSIFICATION. Engine script prints `{"Issues":[{"Text":"boom"}]}` — a
+            valid JSON OBJECT with no `runs` key, the golangci-v1 shape the gate's guard
+            exists to catch — and exits 0. Binding sets `StrictSarif: true` and declares NO
+            `Convert`. Assert a NON-NIL error; assert `Passed` is false; assert the message
+            names the engine (`binding.Command`) and the missing `runs` array.
+            ASSERT THE MESSAGE CONTAINS NO TOOL NAME — specifically, assert it does NOT
+            contain `golangci` (SE8). That single substring assertion is what stops the
+            gate's wording being copied wholesale into the generic dispatch; CLM-015 then
+            makes the same rule mechanical over the whole file.
+            RECORD THE PRE-FIX FAILURE VERBATIM. Measured 2026-08-17 against HEAD:
+            `Passed=false`, `ExitCode=0`, NIL error — because `parseSarif` unmarshals any
+            valid JSON object into the `sarifLog` struct, finds no runs, and returns zero
+            findings with no error. The test must fail on the non-nil-error assertion.
+
+          TestPackVal_EngineStrictSarif_UnsetLeavesLenientParseUnchanged (CLM-011) — the
+            non-regression leg, keeping the guard OPT-IN. The IDENTICAL non-SARIF JSON with
+            `StrictSarif` FALSE. Assert err is NIL and `Passed` is false — today's lenient
+            behaviour, unchanged. Engines that do not promise SARIF must keep it.
+            This test MUST be green both before and after TASK-008.
+
+          TestPackVal_EngineStrictSarif_ValidSarifAndEmptyPayloadPass (CLM-012) — TWO legs,
+            both with `StrictSarif: true` and no `Convert`:
+              (a) the engine emits a well-formed SARIF log with exactly ONE result →
+                  assert err is nil and `Passed` is true;
+              (b) the engine emits NOTHING at all and exits 0 → assert err is NIL and
+                  `Passed` is false.
+            Leg (b) pins the deliberate `len(trimmed) == 0` early return the gate's guard
+            already has: a genuinely clean run may emit an empty document, and the
+            emptiness-is-suspicious discipline belongs to the crash guard (phase 2) and the
+            never-started refusal, not to a shape check. An implementation that rejects
+            empty payloads as malformed fails here — and would red every clean lint run.
+            Both legs MUST be green both before and after TASK-008.
+
+          TestPackVal_EngineStrictSarif_ConvertDeclaringBindingExempt (CLM-013) — the
+            `binding.Convert == ""` gating (D5). THE ONE TEST IN THIS PLAN THAT MAY CALL
+            `requireSandboxPlatform(t)`. Reuse the package's existing
+            `nonSarifEngineScript(n)` and `toSarifConvertScript` (whose result count is
+            DERIVED from the number of `"ruleId"` occurrences it reads, so a
+            constant-printing converter cannot pass). Binding declares BOTH
+            `StrictSarif: true` AND `Convert: "to-sarif.sh"`; the engine emits the
+            non-SARIF 2-record array. Assert err is NIL and `Passed` is TRUE.
+            Non-SARIF input is precisely what a convert exists to reshape, so a guard
+            applied to the pre-convert payload would fail-loud on a correctly-authored
+            pack. This test MUST be green both before and after TASK-008; it goes red if
+            the guard is written without the convert gating.
+
+          TestPackVal_EngineStrictSarif_GuardReadsSelectedPayload (CLM-014) — ordering
+            against ISSUE-144's payload-selection stage. Binding declares
+            `StrictSarif: true` AND `StdoutArtifact: "results.sarif"`, no `Convert`. TWO
+            legs:
+              (a) the FILE carries a well-formed one-result SARIF log while STDOUT carries
+                  the non-SARIF `{"Issues":[...]}` → assert err is NIL and `Passed` is
+                  true. A guard reading raw stdout fails loud here and is caught.
+              (b) swapped — the FILE carries `{"Issues":[...]}` while stdout carries a
+                  well-formed one-result SARIF log → assert a NON-NIL error.
+            Both directions are mandated because either alone could pass by accident
+            (SE14). Not platform-guarded: no convert is involved on this path.
+            THE TWO LEGS HAVE DIFFERENT PRE-FIX VERDICTS, AND THAT IS EXPECTED — this is
+            the one mandated test in the plan whose legs diverge, so it is recorded here
+            rather than left to be rediscovered:
+              * LEG (a) IS ALREADY GREEN PRE-FIX. PLAN-ISSUE-144's selection block (`if
+                binding.StdoutArtifact != ""` in `RunEngine`, already landed) picks the
+                artifact's bytes, so the well-formed SARIF parses to one finding and the
+                run returns `Passed=true` with a nil error before this lane changes
+                anything. It is a NON-REGRESSION GUARD over the prior lane's fix, not this
+                lane's own falsification. Seeing it pass on first run means the fixture is
+                correct — NOT that the fixture is broken and NOT that this lane's work is
+                already done.
+              * LEG (b) IS RED PRE-FIX, and is the falsifying half: with no shape guard in
+                the function, the artifact's `{"Issues":[...]}` parses leniently to zero
+                findings and returns a NIL error, so the non-nil-error assertion fails.
+            After TASK-008 both legs must be green.
+        files:
+          - pkg/packval/executor_strictsarif_test.go
+        claims:
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+        test_names:
+          - TestPackVal_EngineStrictSarif_NonSarifJsonFailsLoud
+          - TestPackVal_EngineStrictSarif_UnsetLeavesLenientParseUnchanged
+          - TestPackVal_EngineStrictSarif_ValidSarifAndEmptyPayloadPass
+          - TestPackVal_EngineStrictSarif_ConvertDeclaringBindingExempt
+          - TestPackVal_EngineStrictSarif_GuardReadsSelectedPayload
+        depends_on:
+          - TASK-006
+
+      - id: TASK-008
+        type: implementation
+        title: "Insert the strict-SARIF shape guard into RunEngine"
+        description: |
+          BEFORE THE FIRST EDIT: re-run `git status --porcelain -- pkg/packval` (third and
+          final edit window on `executor.go`). If it is modified by another lane, STOP AND
+          REPORT.
+
+          READ `func requireLintSarifShape(` in `cmd/backstop/pack_gate_golint.go` FIRST —
+          it is the mechanism being mirrored — and read its CALL SITE inside
+          `func runFindingsEngine(` to see the `if binding.Convert == ""` gating (D5).
+          Mirror the MECHANISM and the GATING; do not mirror the wording (D6, SE8).
+
+          Locate `func (d *DefaultExecutor) RunEngine(` BY NAME, then the
+          `if binding.StdoutArtifact != ""` selection block ISSUE-144 delivered. Insert the
+          guard AFTER that block closes and IMMEDIATELY ABOVE the
+          `if binding.Convert != ""` block. Purely additive — SE1 forbids touching either
+          neighbour:
+
+              if binding.StrictSarif && binding.Convert == "" {
+                  if trimmed := bytes.TrimSpace(payload); len(trimmed) > 0 {
+                      var probe struct {
+                          Runs *json.RawMessage `json:"runs"`
+                      }
+                      if err := json.Unmarshal(trimmed, &probe); err != nil || probe.Runs == nil {
+                          return ExecutionResult{Passed: false, Output: stdout.String(), ExitCode: 1},
+                              fmt.Errorf("engine %q declares strict SARIF but its output is not a SARIF log (no `runs` array) — a lenient parse would read this as zero findings", binding.Command)
+                      }
+                  }
+              }
+              if binding.Convert != "" { ... UNCHANGED ... }
+
+          FOUR THINGS ARE LOAD-BEARING HERE:
+            * `binding.StrictSarif` keeps the guard OPT-IN (CLM-011).
+            * `binding.Convert == ""` is the gating (CLM-013). WITHOUT IT this reds every
+              convert-declaring pack, because non-SARIF input is exactly what a convert
+              exists to reshape. Do not drop it and do not invert it.
+            * THE SUBJECT IS `payload`, NOT `stdout.Bytes()` (CLM-014). By this point
+              ISSUE-144's selection stage has already chosen the artifact bytes when one
+              was declared. Reading raw stdout here would silently re-open that lane's
+              defect on this path.
+            * The empty-payload early return is DELIBERATE (CLM-012). A clean run may emit
+              an empty document. Do not "harden" it into a rejection.
+
+          THE MESSAGE MUST NAME NO TOOL AND NO LANGUAGE (D6, SE8, CLM-015). The gate's
+          version names golangci-lint because it lives in a lint-specific file; this one is
+          the generic pack-validation dispatch, where a baked tool literal violates
+          CLAUDE.md's first principle. Describe the SHAPE and the CONSEQUENCE, and name the
+          engine via `binding.Command`.
+
+          KEEP IT INLINE (SE11). Do not factor a `requireStrictSarifShape` helper out of
+          `RunEngine` — CLM-016's drift guard windows `RunEngine` by function name, and a
+          helper call would move `binding.StrictSarif` out of that window and make the
+          guard vacuous. Four stages already live inline in this function; this is the
+          seventh. Extraction across both dispatch paths is ISSUE-143's work.
+
+          TWO NEW IMPORTS ARE NEEDED IN THIS TASK, and this is the ONE task in this plan
+          that adds any: `bytes` (already imported for `bytes.Buffer` — verify rather than
+          assume) and `encoding/json` (NEW). Add only what the compiler demands.
+
+          Then run `go test ./pkg/packval/... -race -count=1` and confirm all five mandated
+          tests from TASK-007 are green — including the THREE (CLM-011, CLM-012, CLM-013)
+          that were green before the fix and must stay that way — plus phase 1's five and
+          phase 2's four.
+        files:
+          - pkg/packval/executor.go
+        claims:
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+        depends_on:
+          - TASK-007
+
+      - id: TASK-009
+        type: verification
+        title: "Gate the strict-SARIF change diff-scoped"
+        description: |
+          Run `./bin/backstop gate` (diff-scoped) and read the result. It must be green for
+          this lane's own files.
+
+          Same scope discipline as TASK-003 and TASK-006. Only violations in
+          `pkg/packval/executor.go` or this plan's three test files are this lane's to
+          resolve; other lanes' untracked files are neither to fix nor to waive.
+
+          CONFIRM SPECIFICALLY that phase 1's five and phase 2's four mandated tests are
+          STILL green. This is the third edit to the same function and the last chance to
+          catch a cross-stage ordering regression before the full sweep.
+        files:
+          - pkg/packval/executor.go
+          - pkg/packval/executor_strictsarif_test.go
+        claims:
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+        depends_on:
+          - TASK-008
+
+  - id: phase-4
+    name: "Phase 4: Gate-parity guards and comprehensive verification"
+    tasks:
+      - id: TASK-010
+        type: test
+        title: "Write the tool-blindness and no-drift guards covering all three fields"
+        description: |
+          Create `pkg/packval/executor_gate_parity_test.go` (NEW FILE). These two guards
+          are cross-cutting — each covers all three of this plan's fields — which is why
+          they land here rather than in any one cycle's file. Neither can be green until
+          all three implementation tasks have landed.
+
+          Reuse the package's existing `readGuardSource` and `windowFunc` helpers from
+          `executor_convert_test.go` (SE2). Prefix any new helper `gateParity...`.
+
+          MANDATED TESTS:
+
+          TestPackVal_EngineGateParity_ExecutorCarriesNoToolLiteral (CLM-015) —
+            tool-blindness, made mechanical. Read `pkg/packval/executor.go` via
+            `readGuardSource` and assert its source contains NONE of a small, explicit list
+            of tool/language literals, checked case-insensitively:
+            `golangci`, `semgrep`, `ast-grep`, `gofmt`, `eslint`, `oxlint`, `tsc`, `bun`,
+            and the standalone word `golang`.
+            SCOPE THE SCAN TO THE WHOLE FILE, NOT TO A FUNCTION WINDOW — unlike CLM-016
+            this is a file-level property, and a literal smuggled into a helper or a
+            comment is exactly as much of a violation as one inside `RunEngine`.
+            THE ONE JUSTIFIED EXCLUSION, STATED SO IT IS NOT DISCOVERED AS A SURPRISE: do
+            NOT include the bare token `go` in the list. It occurs as an ordinary English
+            word and inside identifiers throughout any Go source file, so a `go` entry
+            makes this test fail on contact and teaches the next reader to weaken the list
+            rather than fix a violation. `golang` as a standalone word is the checkable
+            form.
+            The failure message must cite CLAUDE.md's zero-baked-language principle and
+            name the offending literal, so a future reader fixes the code rather than the
+            list.
+            MEASURE BEFORE ASSERTING: run the scan against the CURRENT `executor.go` first.
+            If any listed literal is already present at HEAD, that is a pre-existing
+            finding — REPORT IT rather than silently trimming the list, and do not fix it
+            inside this lane.
+            THIS TEST STRENGTHENS — IT DOES NOT REPLACE —
+            `TestExecutor_ToolConfigResolvesViaBindingNotSwitch` IN
+            `pkg/packval/engine_dispatch_test.go`. That older guard scans `executor.go` for
+            three exact patterns (`case "golangci-lint"`, `exec.Command("golangci-lint"`,
+            `exec.Command("semgrep"`) AND additionally scans `phase3.go` for two bare tool
+            literals — a file CLM-015 does not read at all. CLM-015 is broader on
+            `executor.go` (nine literals, case-insensitive, whole-file) and NARROWER in
+            file coverage, so the two overlap without either subsuming the other.
+            DO NOT DELETE, WEAKEN, RENAME OR NARROW
+            `TestExecutor_ToolConfigResolvesViaBindingNotSwitch`, and do not fold it into
+            the new file: it must stay green independently. A future reader who mistakes it
+            for a redundant duplicate of CLM-015 would silently drop `phase3.go`'s
+            tool-literal coverage.
+
+          TestPackVal_EngineGateParity_NoDriftFromGateDispatch (CLM-016) — the mechanical
+            drift guard, modelled directly on this package's existing
+            `TestPackVal_EngineConvert_NoDriftFromGateDispatch` and
+            `TestPackVal_EngineStdoutArtifact_NoDriftFromGateDispatch`. Read three sources
+            via `readGuardSource` — `executor.go`, `../../cmd/backstop/pack_gate.go` and
+            `../../cmd/backstop/pack_gate_golint.go` — and window each region with
+            `windowFunc` BY FUNCTION NAME:
+
+              window A  `func (d *DefaultExecutor) RunEngine(`   (executor.go)
+                        must reference ALL THREE: `binding.Producer`, `binding.CrashGuard`,
+                        `binding.StrictSarif`.
+              window B  `func runFindingsEngine(`                (pack_gate.go)
+                        must reference `binding.Producer` and `binding.CrashGuard`, and
+                        must reference `requireLintSarifShape` (the CALL — the flag check
+                        itself lives in the other file).
+              window C  `func requireLintSarifShape(`            (pack_gate_golint.go)
+                        must reference `binding.StrictSarif`.
+
+            WINDOWING IS WHAT MAKES THIS NON-VACUOUS, NOT STYLE. `pack_gate.go` contains
+            TWO independent producer blocks — one in `runCoverageEngine`, one in
+            `runFindingsEngine` — so a whole-file scan for `binding.Producer` CANNOT FAIL
+            even if `runFindingsEngine`'s block were deleted outright. Window B is
+            mandatory for exactly that reason, and window C exists because the StrictSarif
+            flag check is in a different file from its call site.
+
+            CONTENT SCAN ONLY — no `git`, no tree-state assertion, no line numbers. The
+            failure message must state which field's honoring has drifted, at which site,
+            and name ISSUE-143 as the planned consolidation that will retire this guard.
+
+            `cmd/backstop/pack_gate.go` and `cmd/backstop/pack_gate_golint.go` are
+            READ-ONLY and are NOT in this task's file scope (SE9). The guard reads them
+            from disk.
+        files:
+          - pkg/packval/executor_gate_parity_test.go
+        claims:
+          - CLM-015
+          - CLM-016
+        test_names:
+          - TestPackVal_EngineGateParity_ExecutorCarriesNoToolLiteral
+          - TestPackVal_EngineGateParity_NoDriftFromGateDispatch
+        depends_on:
+          - TASK-009
+
+      - id: TASK-011
+        type: verification
+        title: "Full kill chain — backstop gate --all"
+        description: |
+          Run `./bin/backstop gate --all` — the full unscoped sweep (artifact validation,
+          findings engines, test verification, substantiveness, coverage, contracts,
+          drift) — and read the result.
+
+          CONFIRM SPECIFICALLY that all SIXTEEN mandated test names across TASK-001,
+          TASK-004, TASK-007 and TASK-010 are present and PASSING, since this plan's claims
+          are what the `artifact_status_drift` dimension derives its mandated-test set
+          from. Confirm ZERO of them SKIPPED: only
+          `TestPackVal_EngineStrictSarif_ConvertDeclaringBindingExempt` is permitted to
+          call `requireSandboxPlatform` (SE13), and a skip anywhere else means a guard was
+          added that should not have been.
+
+          Confirm also that the package's pre-existing
+          `TestExecutor_RunEngineStartedNonZeroExitStillReportsFindings`,
+          `TestExecutor_RunEngineRefusesPathfulUnstartableEngine` and
+          `TestExecutor_RunEngineRefusesBareAbsentEngine` are green — those three are the
+          neighbours most exposed to this lane's three insertions.
+
+          SHARED TREE: `--all` sweeps the whole corpus, so pre-existing red inherited from
+          the corpus at large is NOT this lane's to fix or to waive. Distinguish it
+          explicitly — name the failing dimension and the owning file — and report rather
+          than absorbing it. Attribute by FILE and TEST NAME, never by package: only
+          findings in `pkg/packval/executor.go` or this plan's four test files, or failures
+          among this plan's sixteen mandated test names, are this lane's to resolve.
+
+          The tree was quiet at authoring time (all seven sibling `pkg/packval` lanes
+          closed), so there is no known intentional red window inside `pkg/packval` to
+          attribute an unexplained failure to. Treat one as a real finding.
+        files:
+          - pkg/packval/executor.go
+          - pkg/packval/executor_producer_test.go
+          - pkg/packval/executor_crashguard_test.go
+          - pkg/packval/executor_strictsarif_test.go
+          - pkg/packval/executor_gate_parity_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+        depends_on:
+          - TASK-008
+          - TASK-010
+
+      - id: TASK-012
+        type: verification
+        title: "Validate this plan artifact"
+        description: |
+          Run `./bin/backstop artifact validate --plan PLAN-ISSUE-160` and read the result.
+          This plan file is itself an artifact in the diff, so the artifact_validation
+          dimension covers it; run the validator directly as well so a structural failure
+          is attributed to this lane rather than surfacing as an anonymous `--all` red.
+
+          Fix any structural violation in the plan file itself. Do NOT edit
+          `issues/ISSUE-160-...issue.md` here — flipping the issue's status is
+          issue-author's lane at close-out, not this plan's.
+        files:
+          - plans/PLAN-ISSUE-160-packval-executor-ignores-crashguard-strictsarif-producer.plan.yml
+        claims:
+          - CLM-015
+          - CLM-016
+        depends_on:
+          - TASK-008
+          - TASK-011
