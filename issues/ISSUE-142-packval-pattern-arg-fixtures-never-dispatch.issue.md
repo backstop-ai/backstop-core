@@ -6,16 +6,44 @@ issue:
   id: ISSUE-142
   title: "Packval Pattern Arg Fixtures Never Dispatch"
   type: bug
-  status: open
+  status: closed
   created: "2026-08-16"
+  closed: "2026-08-17"
 
 complexity:
   scope: contained
   uncertainty: known
   risk: critical
+
+delivered_by: PLAN-ISSUE-142
 ---
 
 # Packval Pattern Arg Fixtures Never Dispatch
+
+## Resolution
+
+`pkg/packval/manifest.go` gained a `Rule.Pattern` field and a `RuleDispatchInput(mode)` method
+as the single authority resolving a rule's dispatch input (file path vs. inline pattern).
+`pkg/packval/phase3.go`'s eligibility guards were widened from source-path-only to source-path
+OR pattern, so `pattern-arg` rules — previously silently skipped at every guard (`phase3.go:31`,
+`62`, `76`) — now dispatch through phase3 fixture execution like file-based rules already did.
+
+In-lane correction: `packs/contracts`' own fixtures were filed under inverted positive/negative
+slots, a defect only measurable once pattern-arg dispatch actually went live. Against real
+ast-grep 0.43.0, all 6 must-NOT-fire positions fired and 3 of 6 negatives never fired
+pre-fix. Fixed with two new clean fixtures and five slots re-pointed; pack version bumped
+1.1.0 → 1.2.0.
+
+The external `backstop-ai/go-contracts` mirror carries the identical inverted fixtures — filed
+separately as ISSUE-157 (two-owner-split precedent from ISSUE-148) rather than fixed here.
+
+Three residuals recorded, not fixed here:
+- R2 — unifying `pkg/pack.Rule` and `pkg/packval.Rule` into one model (the "Direction" item 5 in
+  this issue's original filing); deferred deliberately.
+- R3 — a rule declaring neither source-path nor pattern is still silently skipped by phase3,
+  narrower than the gate's own refusal for the same case.
+- R4 — a new tool dependency (ast-grep + grep + jq) lands on three pre-existing suites once
+  contracts fixtures actually dispatch; verified CI already carries coverage for all three.
 
 ## Problem
 
