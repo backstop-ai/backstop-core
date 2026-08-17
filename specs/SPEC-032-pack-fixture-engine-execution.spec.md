@@ -2,9 +2,13 @@
 title: "SPEC-032: Pack Fixture Engine Execution"
 number: SPEC-032
 created: "2026-06-16"
-status: draft
+status: replaced
+replaced-by:
+  - ISSUE-019
+  - ISSUE-092
+  - ISSUE-141
 schema_version: spec/v1
-spec_version: 1.0.0
+spec_version: 1.1.0
 
 implementation:
   summary: >
@@ -477,6 +481,89 @@ contracts:
 ---
 
 # SPEC-032: Pack Fixture Engine Execution
+
+## Retirement (2026-08-16) — RETIRED AS `replaced`, NEVER IMPLEMENTED AS A SPEC
+
+This spec was authored 2026-06-16 and never left `draft`. Its scope was delivered
+incrementally down the **issue → plan** track instead, by ISSUE-019, ISSUE-092 and
+ISSUE-141. Every section below the retirement record is preserved verbatim as the
+historical statement of intent; **none of it is a live obligation**, and the frontmatter
+requirements and claims are retained only as the audit trail for the absorption mapping
+in this section. Read the shipped code and its tests, not this spec, for current
+behavior.
+
+Two of the ten requirements were not merely absorbed but **actively superseded by a
+better design** — re-implementing them today would break shipped, test-enforced
+behavior. They are called out below and must not be revived from this document.
+
+### What actually shipped
+
+`pkg/packval` already dispatches findings fixtures generically. `FixtureExecutor`
+(`pkg/packval/executor.go`) exposes exactly one findings method,
+`RunEngine(packDir string, binding engine.EngineBinding, targets []string)`;
+`RunSemgrep` and `RunToolConfig` are gone, and `resolveEngine`
+(`pkg/packval/manifest.go:51`) resolves an engine name through
+`engine.Registry.Lookup` over the base registry merged with the pack's declared
+`engines:` block, failing loud on a miss. That is the convergence this spec asked for.
+
+### Claim-by-claim absorption
+
+| Spec claim | Disposition | Evidence in the shipped tree |
+|---|---|---|
+| CLM-001..004 (REQ-001, engine dispatch replaces per-tool arms) | **Absorbed** (ISSUE-019) | `RunEngine` is the only findings arm; `TestExecutor_RunEngineDispatchesFromBinding`, `TestExecutor_NoRunSemgrepMethod`, `TestExecutor_ToolConfigResolvesViaBindingNotSwitch` |
+| CLM-036 (REQ-002, ToolConfigEntry routes through RunEngine) | **Absorbed** (ISSUE-019) | `phase3.go` tool-config loop calls `RunEngine`; `TestPackVal_P3_ToolConfigDispatchesGeneric` |
+| CLM-005..008 (REQ-002, per-`input_mode` gather matrix) | **Superseded — do not revive** | See "Superseded requirements" below |
+| CLM-009 (REQ-002, gate-invocation parity) | **Partially absorbed; residual tracked elsewhere** | `TestPackVal_EngineConvert_NoDriftFromGateDispatch` guards packval/gate convert parity and names full consolidation as residual R1 of PLAN-ISSUE-141; `TestPackVal_ManifestRuleSourceKeyMatchesGateRuntimeModel` pins rule-source parity |
+| CLM-010..012 (REQ-003, pass/fail from parsed SARIF) | **Absorbed** (ISSUE-019, ISSUE-092) | `RunEngine` returns `Passed: len(findings) > 0` from `check.ParsePackFindings`; `TestPackVal_P3_EngineFiringIsReadFromTheSarifContract`, `TestExecutor_RunEngineStartedNonZeroExitStillReportsFindings` |
+| CLM-013 (REQ-003, stdout captured separately from stderr) | **Absorbed** | `cmd.Stdout = &stdout` only, no `CombinedOutput`; `TestLinuxSandbox_ConvertScriptProducesCleanStdout`, `TestFoldHelperStderrIntoError_ReturnedStdoutStaysByteClean` |
+| CLM-014, CLM-015 (REQ-003, convert pipe) | **Absorbed** (ISSUE-141) | PLAN-ISSUE-141 adopted both mandated test names **verbatim**; both live in `pkg/packval/executor_convert_test.go` and pass |
+| CLM-016..019 (REQ-004, positive/negative polarity matrix) | **Absorbed** (ISSUE-092 CLM-004) | `TestPackVal_P3_SemgrepPositivePass`, `TestPackVal_P3_PositiveFixtureThatFiresIsAFailure`, `TestPackVal_P3_SemgrepNegativeAllTrigger`, `TestPackVal_P3_NegativeFixtureThatDoesNotFireIsAFailure` |
+| CLM-020 (REQ-004, command/convert/parse failure is a hard error) | **Absorbed** (ISSUE-092 CLM-005) | `engineError` is its own `Check: "engine-error"`; `TestPackVal_P3_EngineErrorIsDistinctFromFixtureVerdict`, `TestPackVal_P3_EngineErrorIsNotAPassingNegative` |
+| CLM-021, CLM-022 (REQ-005, engine-limitation fix hint for every engine) | **Absorbed, engine-blind** | The `FixHint` in `phase3.go` is emitted on the negative-not-fired branch with no engine condition, so it applies to every engine by construction; `TestPackVal_P3_NegativeFixtureEngineLimitationHint` |
+| CLM-023..026 (REQ-006, non-findings arms stay exit-code) | **Absorbed** (ISSUE-092) | `RunValidator`/`RunScaffoldTest` untouched; `TestPackVal_P3_ValidatorPolarityUnchangedByFindingsFix` exists precisely to pin the validator seam's opposite polarity against the findings fix, plus `TestPackVal_P3_Layer3{Positive,Negative}Exit{Zero,NonZero}` and `TestPackVal_P3_Layer3MultiFileInvocation` |
+| CLM-027..029 (REQ-007, unresolved engine is loud and blocking) | **Absorbed** (ISSUE-019) | `resolveEngine` miss emits a `Check: "engine-resolve"` `ValidationError`; `TestBadEnginePack_FailsCheckAndTest`, `TestPackVal_P3_RuleIDCrossCheckSkippedWhenEngineDoesNotResolve`, `TestExecutor_RunEngineRefusesBareAbsentEngine`. CLM-029's "no semgrep fallback" is unrepresentable — no semgrep arm exists to fall back to |
+| CLM-030, CLM-031, CLM-033 (REQ-008, rule-ID precheck re-keyed) | **Absorbed** (ISSUE-092 CLM-010) | The precheck is gated on `binding.InputMode == engine.InputModeRuleFlags`; `TestPackVal_P3_SemgrepRuleIDMismatch`, `TestPackVal_P3_SemgrepRuleIDMatch`, `TestPackVal_P3_RuleIDCrossCheckSkippedForConfigFileEngine`, and `TestPackVal_P3_RuleIDCrossCheckStillRunsForNonSemgrepRuleFlagsEngine` — the last being the tool-blind form that supersedes this spec's semgrep-named framing |
+| CLM-032 (REQ-008, `none` mode skips the precheck) | **Absorbed by construction** | The single `InputModeRuleFlags` equality gates the whole precheck, so every non-`rule-flags` mode skips it; `none` is not separately tested but shares one branch with the tested `config-file` case |
+| CLM-037 (REQ-008, `rule-dir` mode skips the precheck) | **Void — the mode does not exist** | `pkg/pack/engine/binding.go` declares `config-file`, `rule-flags`, `none`, `pattern-arg`. There is no `rule-dir` |
+| CLM-034, CLM-035 (REQ-009, shared EngineBinding and same table as gate) | **Absorbed** (ISSUE-019) | `pkg/packval` imports `pkg/pack/engine`; no packval-local binding or engine enum exists; `resolveEngine` uses `engine.Registry.Lookup` over `baseengines.Registry()` |
+| CLM-038..040 (REQ-010, `go mod tidy` conditioned on the Go config-file engine) | **Superseded — do not revive** | See "Superseded requirements" below |
+
+### Superseded requirements — reviving these would break shipped behavior
+
+**REQ-010 (`go mod tidy` pre-check) is inverted, not absorbed.** This spec asked to
+*keep* `goModTidyTempCopy` and condition it on the Go config-file engine. ISSUE-019
+**deleted the pre-check outright** as a baked Go path, and
+`pkg/packval/pack_declared_setup_test.go` now asserts the identifier `goModTidyTempCopy`
+stays absent from the package. A pack that needs setup declares it. Implementing REQ-010
+as written would re-bake a language into the thin executor and fail that shipped test.
+
+**REQ-002's per-`input_mode` gather matrix was answered differently, and better.** This
+spec mandated a table-driven gather branching on `input_mode`. The shipped
+`buildEngineArgv` is deliberately **mode-blind**: it splits `binding.Command`, injects
+`binding.InputFlag` when set, and appends the resolved targets — so a new input mode
+needs no packval branch at all, which is a stronger form of the zero-baked-knowledge
+property REQ-002 was reaching for via enumeration. CLM-007 and CLM-037 additionally
+reference a `rule-dir` mode that the engine model never gained.
+
+### Residual scope, and why it does not justify a reduced spec
+
+The only genuinely unfinished item is CLM-009's *full* fixture-time/gate-time invocation
+parity. Its highest-risk slice (the convert step) is already held by
+`TestPackVal_EngineConvert_NoDriftFromGateDispatch`, and consolidating the two paths into
+one exported helper is **already tracked as residual R1 of PLAN-ISSUE-141**. One
+already-tracked consolidation is not a spec's worth of scope, and it belongs to the
+issue → plan track where the rest of this surface was delivered. Carrying a reduced
+SPEC-032 forward would duplicate that tracking against a bundle seed whose other nine
+requirements are closed.
+
+**Disposition:** retired as `replaced`, pointing at the three artifacts that delivered
+the scope. BUNDLE-010's Seed 3 (`pluggable-pack-engines:REQ-012`) should be read as
+satisfied by ISSUE-019 / ISSUE-092 / ISSUE-141 rather than awaiting this spec.
+
+**Open lineage item:** `PLAN-SPEC-032` is still `status: draft` and now strands against
+this retired spec. It must be retired in lockstep (`status: replaced` with the same
+`replaced-by` list). That edit is the planner's to make — spec-author is not permitted to
+write plan artifacts — and is NOT done as of this retirement.
 
 ## Overview
 
