@@ -2,13 +2,103 @@
 plan_id: PLAN-ISSUE-097
 spec_id: ISSUE-097
 created: "2026-08-16"
-status: draft
+status: completed
 target_repo: backstop-core
 target_module: github.com/backstop-ai/backstop-core
 test_command: "go test ./pkg/waiver/... ./pkg/gate/... ./cmd/backstop/... -race -count=1"
 coverage_threshold: 90
 
 notes: |
+  ══════════════════════════════════════════════════════════════════════════════
+  AS-BUILT — CLOSED 2026-08-17 (status: completed)
+  ══════════════════════════════════════════════════════════════════════════════
+  Everything BELOW this banner is the plan AS AUTHORED, preserved verbatim. Tasks
+  were not rewritten at close-out. This banner records what actually landed, where
+  it diverged from the authored plan, and what the divergence taught.
+
+  LANDED ACROSS THREE COMMITS, not the one the plan implies. All three are on
+  main; HEAD at close-out is 6c32a17.
+
+    · 3ad63fa — feat(ISSUE-097): pkg/waiver + pkg/gate half.
+        NEW  pkg/waiver/unbound.go — `HarvestTokens` (finding-independent raw-byte
+             token harvest), `Unbound` (the three-segment-namespace classifier),
+             `DiagnosticUnbound` const.
+        MOD  pkg/gate/step_waiver.go — `WithUnboundWaiverScan` option;
+             `computeWaiverResult` attaches `res.Unbound` at severity `warning`;
+             `waiverDiagToViolation` gained a severity parameter; the raw
+             `len(wv)>0` verdict test was replaced by `StepVerdict(wv)`.
+        MOD  pkg/waiver/adjudicate.go — `Result.Unbound []Diagnostic` field, which
+             `Adjudicate` itself never populates (the tree-driven scan is additive
+             and sits BESIDE finding-driven adjudication, exactly as the
+             DELIBERATELY OUT OF SCOPE section below required).
+
+    · f9fc883 — fix(ISSUE-097): a same-night follow-up. `pkg/gate/gate.go`'s
+      `Gate.projectWaiverTokens` / `Gate.knownPackNamespaces` struct fields were
+      omitted from 3ad63fa by mistake, leaving HEAD COMPILE-BROKEN between those
+      two commits. Caught by a fresh-worktree build and fixed immediately. Recorded
+      here rather than quietly squashed: a commit that builds only in the tree that
+      authored it is the exact failure mode a shared-tree lane is prone to, and the
+      catch was the fresh worktree, not the authoring tree.
+
+    · 6c32a17 — feat(ISSUE-093,ISSUE-097,ISSUE-106): the cmd/backstop half. Landed
+      COMBINED with two sibling lanes because `cmd/backstop/gate.go` was entangled
+      across all three in flight simultaneously; splitting the commit would have
+      required a mechanical un-weave with no verification benefit.
+        `harvestProjectWaiverTokens` and `lockedPackNamespaces` (both gate.go),
+        wired via `WithUnboundWaiverScan` at the gate construction site
+        (gate.go:231-233 at close-out — the plan's own warning about drifting line
+        numbers in this file applies to that citation too; locate by name).
+        `cmd/backstop/waiver.go` wires the same inputs into `waiver list`'s new
+        ALWAYS-LABELED "Unbound / unknown pack (N):" section.
+        Three of the five re-keyed `@waiver` tokens (`backstop`→`backstop-ai` org
+        rename) in `cmd/backstop/pack_gate_provision.go` and
+        `tests/smoke/smoke_test.go`; the other two token sites already lived in
+        files committed earlier.
+
+  FALSIFICATION — FIVE→ZERO, measured on the real tree through the production
+  harvester, in a detached worktree at HEAD (necessary because `cmd/backstop` was
+  mid-refactor in the shared tree at measurement time). The five stale tokens the
+  MEASURED GROUND TRUTH section below enumerates all resolved to zero after the
+  re-key. Verified again at close-out: zero `@waiver backstop/self` occurrences
+  remain anywhere in the tree, and all five sites now carry
+  `backstop-ai/backstop-self/...` — two in `cmd/backstop` (`pack_gate.go` in
+  `splitCommand`, `pack_gate_provision.go` in `engineToolName`), three in
+  `tests/smoke/smoke_test.go`.
+
+  ONE OF THE FIVE WAS NOT DORMANT — THE PLAN'S CENTRAL PREDICTION WAS WRONG IN THE
+  DIRECTION THAT MATTERS. The plan reasoned about these tokens as inert leftovers.
+  On the final `gate --all`, `tests/smoke/smoke_test.go:33`
+  (`no-baked-tool-exec`) turned out to be ACTIVE — genuinely suppressing a live
+  finding under its dead namespace. So this was not cosmetic staleness: it was a
+  real FAIL-OPEN silently present since the 2026-07-27 pack rename, and the re-key
+  is what closed it. The tree-driven check earned its keep on the first run.
+
+  FINAL VERIFICATION. `gate --all`: `waiver_resolution` step `pass`, with no
+  unbound clause rendered (that clause renders only when the count is non-zero —
+  its absence IS the zero). Independently re-verified by team-lead in a fresh
+  detached worktree at 6c32a17: `go build ./...` clean, and every mandated test
+  plus the four preserved SPEC-049 `waiver list` anchors re-run fresh and green.
+  At close-out, all 21 distinct test function names this plan references resolve
+  to real functions in the tree.
+
+  THE 409-FINDING GATE RED AT MEASUREMENT TIME WAS NOT THIS LANE'S. Attributed
+  finding by finding: exactly one named a file this lane touched
+  (`cmd/backstop/waiver.go`, coverage 6/55), and that one was proven a
+  TEST-TIMEOUT MEASUREMENT ARTIFACT — re-measured with `-timeout 1200s`, every
+  function in the file reported 80-100%. The ~18 concurrent `cmd/backstop` test
+  failures were likewise proven to be a sibling lane's (ISSUE-136 packval work)
+  moving-tree effect. Recorded because the cheap read — "the gate is red, the lane
+  is broken" — was available and wrong, and only per-finding attribution
+  distinguished the two.
+
+  FOLLOW-ONS. The five items in the FOLLOW-ONS TO FILE AT CLOSE-OUT section below
+  stand as written and are filed separately; none were folded into this plan.
+  Item 4 (SPEC-049's `waiver.Result` contract signature, now missing the
+  `Unbound []Diagnostic` field TASK-005 added) is documentation drift only — the
+  contract compiler for `kind: type` name-checks `type Result $$$` and does not
+  enumerate fields, so it is not gate-visible. It belongs to spec-author, not to
+  this lane.
+
   ══════════════════════════════════════════════════════════════════════════════
   WHAT THIS PLAN DELIVERS
   ══════════════════════════════════════════════════════════════════════════════
