@@ -25,6 +25,7 @@ directive:
     - "ISSUE-145"
     - "ISSUE-147"
     - "ISSUE-158"
+    - "ISSUE-131"
 ---
 
 ## Description
@@ -32,11 +33,10 @@ directive:
 Seventeen gate/engine-quality gaps that don't fit the other three
 newly-added directives' themes:
 
-**Correction (2026-08-17):** the roster grew to EIGHTEEN with item 18
-(ISSUE-158), slotted by backlog-pm under the standing clear-fit grant, on
-charter fit against this directive's own catch-all scope and item 17's
-explicit loud-red-needs-a-legible-name line — not by any founder roster
-call.
+**Correction (2026-08-17):** the roster grew to NINETEEN with item 19
+(ISSUE-131), slotted by directive-author under the standing clear-fit
+grant, as item 3's (ISSUE-082) own plan-mandated residual — not a new
+theme, and not by any founder roster call.
 
 1. **Cross-platform sandbox — Linux is a hard no-op (ISSUE-020).**
    `pkg/packval/sandbox.go`'s `SandboxedRun` / `SandboxedRunStdout` dispatch
@@ -889,6 +889,30 @@ call.
     outage, not a false green. Whoever fixes item 18 must keep ISSUE-113's
     zero-match meaning intact and should sequence after or independently of
     PLAN-ISSUE-148, whose file scope explicitly fences this out.
+19. **The allowlist overclaim item 3 (ISSUE-082) fixed survives in three
+    sibling files item 3's plan deliberately left out of scope (ISSUE-131).**
+    `PLAN-ISSUE-082` (`status: completed`) corrected
+    `engine.TrustedToolAllowlist()`'s doc comment
+    (`pkg/pack/engine/allowlist.go`) — which had falsely claimed the
+    allowlist governs "any pack-declared command" — to state the real,
+    narrower guarantee: the allowlist is consulted **only** for engine
+    bindings carrying a non-nil `Provision` block; a pack-declared command
+    that invokes a tool directly, with no `Provision`, was never covered.
+    That is intended design, not a gap.
+    The identical false claim survives, unfixed, in three files the plan
+    named by file and line as explicitly OUT of its declared scope (plan
+    notes lines 69 and 72): `cmd/backstop/pack_gate.go:42-44`
+    (`resolveTrustedToolAllowlist`'s doc comment) and
+    `cmd/backstop/recipe_apply.go:53-56` (the user-facing `backstop recipe
+    apply --help` `Long` text) — the plan's own words call the
+    `recipe_apply.go` instance "the sharpest — the only surviving instance a
+    user sees." ISSUE-131 names a third file beyond those two. Confirmed
+    NOT part of this defect: `checkEngineToolAllowed`
+    (`cmd/backstop/pack_gate.go:796-812`) already correctly states the
+    `Provision` precondition elsewhere in that same file.
+    This is a clear fit, not a founder roster call: it is not a new theme,
+    it is item 3's own deliberately-deferred tail, and this directive
+    already owns the allowlist surface via item 3.
 
 ## Notes
 
@@ -1356,6 +1380,22 @@ function pair, same commit, same version bump upstream if this were a
 pack — but it is not; both fixes are backstop-core-native since
 `pkg/packval/sandbox_nonlinux.go` is core code, not a pack) for no
 charter gain.
+Priority note, stated as observation and explicitly NOT a reorder
+(directive-author has no reorder authority): DIR-024 sits at BACKLOG.yml
+position 5 and this slot does not change its rank.
+
+ISSUE-131 slotted here 2026-08-17 by directive-author under the standing
+clear-fit grant — this is a clear fit, not a founder roster call: it is
+item 3's (ISSUE-082) own plan-mandated residual, the three sibling files
+`PLAN-ISSUE-082` (`status: completed`) named by file and line as
+deliberately out of its declared scope, not a new theme. Rides here on
+charter fit and displaces nothing — in particular it must NOT displace item
+1 (ISSUE-020) or the ISSUE-092 sequencing already recorded in this file.
+Flag for the founder, not a change request and not acted on here:
+ISSUE-082 itself is still filed `status: open` while `PLAN-ISSUE-082` is
+`status: completed` — a delivered-but-open candidate that backlog-pm
+surfaced during the 2026-08-17 full sweep and did not act on. ISSUE-082's
+own status is left unchanged by this slotting.
 Priority note, stated as observation and explicitly NOT a reorder
 (directive-author has no reorder authority): DIR-024 sits at BACKLOG.yml
 position 5 and this slot does not change its rank.
