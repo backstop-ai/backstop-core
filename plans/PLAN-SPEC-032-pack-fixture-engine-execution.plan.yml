@@ -3,13 +3,63 @@ plan_id: PLAN-SPEC-032
 spec_id: SPEC-032
 spec_version: 1.0.0
 created: "2026-06-16"
-status: draft
+status: replaced
+replaced-by:
+  - ISSUE-019
+  - ISSUE-092
+  - ISSUE-141
 target_repo: backstop-core
 target_module: github.com/bmanson/backstop-core
 test_command: "go test ./pkg/packval/... -run 'TestPackVal_(Engine|NonFindings)' -race -coverprofile=cover.out"
 coverage_threshold: 90
 
 notes: |
+  ─────────────────────────────────────────────────────────────────────────
+  RETIRED 2026-08-16 — status: replaced, replaced-by: ISSUE-019, ISSUE-092,
+  ISSUE-141. DO NOT IMPLEMENT. Everything below this banner is the original
+  2026-06-16 plan text, preserved verbatim as the historical statement of
+  intent. No task below is a live obligation.
+  ─────────────────────────────────────────────────────────────────────────
+  WHY. This plan is retired in lockstep with its source spec: SPEC-032 was
+  retired the same day (2026-08-16) to `status: replaced` with this exact
+  `replaced-by` list. A plan cannot outlive the spec it plans; leaving this one
+  at `draft` would strand it against a retired source and keep a dead plan in
+  the live backlog.
+
+  NEVER IMPLEMENTED UNDER ITS OWN NAME. This plan never left `draft` — no task
+  TASK-001..TASK-012 was executed and no code was delivered under PLAN-SPEC-032.
+  Retirement therefore records absorption, not completion; there is no as-built
+  section because nothing was built here.
+
+  WHAT DELIVERED THE SCOPE INSTEAD. The surface this plan would have changed
+  (`pkg/packval` phase-3 fixture dispatch) was delivered incrementally down the
+  issue → plan track by ISSUE-019 (engine dispatch replacing the per-tool
+  RunSemgrep/RunToolConfig arms, `resolveEngine` via `engine.Registry.Lookup`,
+  and deletion of the baked `goModTidyTempCopy` pre-check) and, tonight
+  2026-08-16, by ISSUE-092 (SARIF-derived fixture verdict, engine-error as a
+  distinct hard error, precheck re-keyed on `InputMode`) and ISSUE-141 (the
+  convert pipe — PLAN-ISSUE-141 adopted this spec's two mandated convert test
+  names VERBATIM).
+
+  DO NOT RE-DERIVE THE MAPPING. SPEC-032's `## Retirement (2026-08-16)` section
+  is the authority: it carries the claim-by-claim absorption table (CLM-001
+  through CLM-040, each with its disposition and the shipped test that evidences
+  it), the two SUPERSEDED requirements that must not be revived from this
+  document (REQ-010's `go mod tidy` pre-check, which ISSUE-019 deleted outright
+  and `pkg/packval/pack_declared_setup_test.go` now asserts absent; and REQ-002's
+  per-`input_mode` gather matrix, answered better by the deliberately mode-blind
+  `buildEngineArgv`), and the note that CLM-037's `rule-dir` input mode is VOID —
+  the engine model never gained it. Read that section, not this plan's task
+  bodies, for what is and is not still owed.
+
+  RESIDUAL. The one genuinely unfinished item is CLM-009's full fixture-time /
+  gate-time invocation parity. Its highest-risk slice is already held by
+  `TestPackVal_EngineConvert_NoDriftFromGateDispatch`, and the remaining
+  consolidation into one exported helper is already tracked as residual R1 of
+  PLAN-ISSUE-141. It is not owed by this plan.
+
+  ORIGINAL PLAN TEXT FOLLOWS — HISTORICAL ONLY
+  ─────────────────────────────────────────────────────────────────────────
   Generalizes locus B (validation-time fixture execution, pkg/packval phase 3)
   onto the shared engine data model SPEC-031 places in pkg/pack/engine. The
   bespoke per-tool findings arms RunSemgrep and RunToolConfig collapse into a
