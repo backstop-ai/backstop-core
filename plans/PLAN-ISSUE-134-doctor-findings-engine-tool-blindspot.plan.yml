@@ -2,13 +2,188 @@
 plan_id: PLAN-ISSUE-134
 spec_id: ISSUE-134
 created: "2026-08-16"
-status: draft
+status: completed
 target_repo: backstop-core
 target_module: github.com/backstop-ai/backstop-core
 test_command: "go test ./cmd/backstop/... -race -count=1"
 coverage_threshold: 80
 
 notes: |
+  ══ AS-BUILT — CLOSED 2026-08-17. ALL 12 TASKS DELIVERED. ═══════════════════
+
+  Everything below this banner is the plan AS AUTHORED (after 3 review rounds)
+  and is left untouched as the historical record — tasks, claims, scope fence
+  and falsification bar all read as PLANNED. This banner is the layer over it:
+  what shipped, where the as-built diverged from what was prescribed, and which
+  evidence was RE-VERIFIED at close versus carried from the implementer.
+
+  ── PROVENANCE: ONE COMMIT, AND IT IS CLEAN ────────────────────────────────
+
+  This lane's entire diff is commit 11fd585, "closeout: PLAN/ISSUE-134 —
+  doctor now probes findings-engine tools" — 19 files, +1384/-95. Unlike
+  several sibling lanes closed the same night, NO other plan's files ride in
+  it and none of this lane's files ride elsewhere. A future reader can trust
+  `git show 11fd585` as the whole record of what was built. (This plan file
+  itself, carrying this banner, lands in the follow-up close-out commit.)
+
+  ── THE COMMAND PAIR, BOTH HALVES ──────────────────────────────────────────
+
+  The PRE-FIX half is the recorded 2026-08-16 observation transcribed in the
+  authored notes below (doctor: exit 0, seven checks, six pass + one unrelated
+  build-identity warn, semgrep named nowhere; gate --file, same PATH, same
+  second: exit 2 at pack_engines naming the absent semgrep). It is carried, not
+  re-run — the pre-fix binary no longer exists.
+
+  The POST-FIX half was RE-RUN AT CLOSE-OUT (2026-08-17), from a scratch-path
+  `go build` of HEAD, not from a report:
+
+      env PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/bmanson/go/bin <bin> doctor
+
+  EIGHT checks now. `engine-tools-present` reports FAIL, enumerating all six
+  required tools with five `pass` lines and
+
+      fail  semgrep (backstop-ai/backstop-self, engine semgrep) — not found on
+            PATH: exec: "semgrep": executable file not found in $PATH
+
+  followed by the gate's OWN `absentToolMessage` text verbatim ("required tool
+  \"semgrep\" not found on PATH: it is argv[0] of the command engine \"semgrep\"
+  of pack backstop-ai/backstop-self declares, pinned in the trusted-tool
+  allowlist as tool \"semgrep\" version \"1.96.0\" — backstop does not install
+  pack-declared tools (the pin is a trust entry, not an installer); add
+  \"semgrep\" to PATH and retry"). EXIT 1. Doctor's answer flipped.
+
+  CONTROL, also re-run at close-out, with all six tools reachable
+  (`PATH=/Users/bmanson/go/bin:$PATH <bin> doctor --check engine-tools-present`):
+  six `pass` lines — ast-grep, go, go-arch-lint, golangci-lint, grep, semgrep —
+  and EXIT 0. No over-fire. The check is answerable in both directions on the
+  real repo, and doctor and gate now agree.
+
+  ── TWO AUTHORED PREMISES FOUND WRONG DURING IMPLEMENTATION ────────────────
+
+  Both were corrected in the open rather than routed around. Recording them
+  because the plan below still states them as authored, and a reader comparing
+  plan to tree would otherwise read the divergence as sloppiness.
+
+  1. THE PARITY-MUTATION FALSIFICATION PREMISE WAS WRONG. Widening the
+     collection walk CANNOT red `TestDoctor_EngineToolVerdictMatchesGateProvisioning`:
+     after the extraction both consumers read the same shared function, so the
+     biconditional stays true BY CONSTRUCTION — a wrong shared walk moves both
+     sides in lockstep. The parity test is still worth having (it pins that the
+     two surfaces cannot diverge), but it is not the guard against a wrong walk.
+     The real guards are `TestGate_CollectRequiredEngineToolsWalksRulesNotEngines`
+     (collection level) and `TestDoctor_EngineToolUnboundIsNotProbed` (report
+     level), and BOTH were verified red under the same mutation.
+
+  2. THE FIFTH FIXTURE IS STRUCTURALLY UNREACHABLE, NOT MISSING. TASK-004
+     prescribed five fixture projects including `engine-tool-refused`. Four
+     shipped: engine-tool-{absent,present,unbound,none}. The trust-refusal case
+     cannot be staged as a fixture at all, because `engine.CheckToolAllowed`
+     fires at manifest PARSE time (`validateEngine` in pkg/pack/manifest.go), so
+     a pack.yml naming an un-allowlisted tool never survives `loadInstalledPacks`
+     — `packs-installed` fails and OWNS the condition, and `engine-tools-present`
+     correctly skips. That is one-condition-one-owner behavior working, not a
+     defect. The mandated test name `TestDoctor_EngineToolTrustRefusalFails` was
+     KEPT and driven at the function level against an in-memory `pack.Manifest`
+     literal; the unusable fixture was deleted and the reasoning recorded in the
+     test's own doc comment (doctor_engine_tools_test.go, the ★ paragraph).
+
+  ── WHAT LANDED, READ OFF THE TREE AT CLOSE ────────────────────────────────
+
+  Production (2 files):
+    - cmd/backstop/pack_gate_provision.go — new
+      `collectRequiredEngineTools(packs []*pack.Manifest) ([]requiredTool, error)`,
+      the collection half of `provisionEngines`' rule-driven walk moved VERBATIM
+      and now carrying the trust gate. `provisionEngines` keeps its exact
+      signature and observable behavior, owning only the gate's fail-fast
+      disposition. Extract-don't-rewrite, as prescribed.
+    - cmd/backstop/doctor.go — new const `doctorCheckEngineTools =
+      "engine-tools-present"`, registered immediately after
+      `doctorCheckToolchainRuns` and before `doctorCheckArtifactLayout`.
+    - cmd/backstop/doctor_checks.go — `checkEngineToolsPresent`, enumerating
+      EVERY absence where the gate stops at the first, and reusing
+      `absentToolMessage` verbatim so the two surfaces cannot drift.
+
+  Tests (4 new files, 2 re-pinned):
+    - doctor_engine_tools_test.go, doctor_engine_tools_parity_test.go,
+      doctor_engine_tools_e2e_test.go, pack_gate_provision_collect_test.go.
+    - doctor_registry_test.go and doctor_registry_completeness_test.go re-pinned
+      seven→eight — the hardcoded `ids` slice AND the completeness test's two
+      separate comments. Both files' mandated test names unchanged.
+
+  Fixtures: 4 projects under cmd/backstop/testdata/doctor/projects/ —
+  engine-tool-{absent,present,unbound,none} — each with its paired pack.
+
+  UNTOUCHED, as the scope fence required: `cmd/backstop/pack_entrypoint_prober.go`
+  (verified at close — its last touching commit is 48e6b85, SPEC-069, unrelated
+  to this lane), `init_toolchain.go`, `pkg/initialize`, `checkToolchainRuns`,
+  `describeEntrypointProbe`. `backstop init` is behaviorally unchanged.
+
+  ── SPEC RECONCILIATIONS: BOTH LANDED, VERIFIED IN THE TREE ────────────────
+
+  SPEC-070 (1.1.5 → 1.1.6, stays `implemented`). All 10 stale check-count hits
+  corrected seven→eight, INCLUDING the spec's own load-bearing "growth belongs
+  to the bundle" authority statement that a case-sensitive sweep in review had
+  missed. Seven "seven"s deliberately LEFT, because a mechanical substitution
+  would corrupt them: the 4 `gate_type` values the REQ-006 matrix covers, the
+  2 seven-kind artifact-vocabulary references, and the historical version-history
+  entries. THE EIGHTH `provides` ENTRY WAS DECLARED, not dropped —
+  `checkEngineToolsPresent` (kind: function), on the reasoning that the block is
+  kept 1:1 with the registry and an eighth check with no entry silently breaks
+  that correspondence. Two `consumes` entries added alongside it,
+  `collectRequiredEngineTools` and `absentToolMessage`. The authority sentence
+  now cites DIR-002's 2026-08-16 founder-ruled scope expansion by name.
+
+  SPEC-035 (1.1.5 → 1.1.6, stays `draft`). Reconciled because THIS lane's
+  extraction made it stale — CLM-030's stale ordinal, a contracts note, and
+  REQ-003's caller table, all corrected to describe the new shape. Descriptive
+  only: no claim text and no mandated test name changed. ONE non-descriptive
+  touch was flagged and approved — REQ-003's parenthetical now names
+  `collectRequiredEngineTools` instead of `provisionEngines`, on the judgement
+  that a requirement pointing at a function which no longer performs the act is
+  worse than one pointing at nothing. `provisionEngines`' `provides` entry now
+  states UNCHANGED SIGNATURE AND UNCHANGED OBSERVABLE BEHAVIOR explicitly, so
+  the extraction is legible as a refactor rather than a contract change.
+
+  ── GATE EVIDENCE, WITH ATTRIBUTION ────────────────────────────────────────
+
+  Carried from TASK-011's run, not re-run at close (the shared tree carries
+  several concurrent lanes; a fresh `--all` here would measure them, not this).
+
+  Scoped run over this lane's 3 production files: 194 violations, EXACTLY TWO
+  naming this lane —
+    * an approved WARNING on the `return nil, gateErr` pass-through of
+      `checkEngineToolAllowed` inside `collectRequiredEngineTools`. Net-new ONLY
+      because the extraction changed the enclosing function's arity from `error`
+      to `([]requiredTool, error)`, bringing a pass-through that did not change
+      into the scope of a rule keyed on `pattern-inside: func $FUNC(...) (...,
+      error)`. LEFT UNWRAPPED deliberately: wrapping would double the `pack %s:`
+      prefix and change the returned concrete type away from `*check.ConfigError`,
+      which two claims forbid.
+    * an `artifact_status_drift_advisory` that self-resolves the moment this
+      banner lands.
+  Full `gate --all`: 391 violations, the SAME two hits and nothing else naming
+  this lane's files. Every other violation independently traced to a sibling
+  lane or to pre-existing repo debt.
+
+  Tests: all 20 mandated test names RE-VERIFIED at close, each defined exactly
+  once in the tree (a `func <name>(` sweep, not a substring grep).
+  `go test ./cmd/backstop/ -race -count=1 -run 'TestDoctor_|TestInit_|TestGate_'`
+  ok, 90.5s, race-clean.
+
+  ── COSMETIC, DELIBERATELY NOT ACTED ON ────────────────────────────────────
+
+  `engine-tools-present` is 20 characters and the human renderer's `%-16s`
+  column is not wide enough for it, so that one row's second column starts
+  ragged (visible in the close-out output above). TASK-008 forbids touching the
+  renderer, so it was left as-is. Worth a follow-on issue if it bothers anyone;
+  it changes no verdict, no exit code and no machine-readable output.
+
+  ── WHAT THIS CLOSES ───────────────────────────────────────────────────────
+
+  DIR-002's entire roster.
+
+  ═══════════════════════════════════════════════════════════════════════════
+
   ── COVERAGE FLOOR: 80, AND THAT IS THE DERIVED NUMBER, NOT A DISCOUNT ─────
   Every file this plan touches is in `cmd/backstop`. The floor is the MAX over
   the implemented specs owning that package, and PLAN-SPEC-070 — the doctor
