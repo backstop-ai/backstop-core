@@ -6,11 +6,36 @@ issue:
   id: ISSUE-114
   title: "Status Drift Advisory Never Fires For Plans — test_names Is Optional, Manual, and Decoupled From The Prose Mandated-Test List Plan Authors Already Write"
   type: bug
-  status: open
+  status: closed
   created: "2026-08-02"
+  closed: "2026-08-17"
+
+delivered_by: PLAN-ISSUE-114
 ---
 
 # Status Drift Advisory Never Fires For Plans
+
+## Resolution
+
+Delivered by `PLAN-ISSUE-114` (`status: completed`). The fix gives plans a second,
+claims-derived mandated-test channel instead of relying solely on the optional, manually-populated
+`test_names:` field this issue diagnosed as empirically dead for every non-terminal plan.
+
+**Fix:** `pkg/gate/artifact_status.go` now builds a `buildSourceClaimIndex` over each plan's source
+spec's `claims[].tests` mapping, and `planClaimDerivedMandatedTests` folds that index in via each
+task's `Claims` refs — before the plan walk populates `MandatedTests`. `unionPlanMandatedTests`
+merges the derived names with any explicit `task_test_names` without duplicates, so a plan whose
+tasks cite spec claims now surfaces the same mandated-test vocabulary the spec itself already
+enforces, without requiring authors to hand-copy names into `test_names:`. `artifacts/plan/v1/
+schema.json`'s `task_test_names_description` was updated to document both channels.
+
+**Verification:** falsified via targeted mutation (not solely the plan's own predicted reds, since
+2 of the 6 predicted mutations were structurally non-reddable pre-fix) and via a real
+control-vs-treatment measurement on this repo's own tree: `artifact_status_drift_advisory`
+findings went from 3 to 18 (net +15, matching the plan's own prediction — plans with claim-derived
+mandated tests are now visible to the dimension this issue's Problem section described as
+structurally blind to them), while BLOCK-severity violations stayed 0 to 0 (the stop-and-report
+condition never triggered on this tree).
 
 ## Problem
 
