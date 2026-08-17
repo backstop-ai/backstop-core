@@ -6,16 +6,56 @@ issue:
   id: ISSUE-106
   title: "Substantiveness Join Discards Pack Severity"
   type: bug
-  status: open
+  status: closed
   created: "2026-07-29"
+  closed: "2026-08-17"
 
 complexity:
   scope: contained
   uncertainty: known
   risk: moderate
+
+delivered_by: PLAN-ISSUE-106
 ---
 
 # Substantiveness Join Discards Pack Severity
+
+## Resolution
+
+Delivered by PLAN-ISSUE-106 (status: completed), commit `c4dfabf`.
+
+`HollowFindingsToViolations` (`pkg/gate/substantiveness_join.go`) no longer hardcodes
+`Severity: "error"` on every hollow-test violation — it now forwards the pack's own declared
+severity (already defaulted by `nonEmptySeverity` at Q1 dispatch), so a substantiveness pack that
+ships a warning-severity rule can produce a genuine non-blocking warning instead of being silently
+upgraded to a hard failure. This is the direct 1:1-conversion fix shape this issue's Solution
+section called for.
+
+`cmd/backstop/gate.go`'s `buildTestSubstantivenessStep` correspondingly switched from a raw
+violation-count status to `gate.StepVerdict`, so a warning-only result no longer reports `fail` —
+closing the gap on the step-verdict side as well, consistent with the `ISSUE-105` precedent this
+issue's family follows.
+
+**Blast radius measured byte-identical**, per the `PLAN-ISSUE-020` discipline this issue's Solution
+section mandated: a control-vs-treatment comparison on this repo's own findings showed no verdict
+flips, because neither currently-installed substantiveness rule declares a `severity:` key today.
+The forwarding mechanism is proven correct by the fix and by regression coverage, and is ready for
+when a pack does declare a non-default severity — nothing changed value in practice yet, which is
+the expected result of a mechanism-correctness fix against an unpopulated input.
+
+**`NoTargetViolation` (the harder design-decision half) was NOT changed** — this issue's Solution
+section explicitly separated the two sites as not interchangeable, and the plan's scope was the
+direct 1:1 conversion. `NoTargetViolation` remains a fixed-severity synthesized violation; whether
+it should ever carry a pack-declared severity is not resolved by this closure and would need its
+own follow-on if raised again.
+
+**One claim (CLM-004, the end-to-end e2e proof) is written but its two e2e tests are deliberately
+left red pending `ISSUE-148`** (substantiveness fixture polarity — unrelated to this lane). This
+was landed red-on-purpose rather than skipped or weakened: the fix itself (CLM-001/002/003/005/006)
+is fully proven by unit-level coverage; only the e2e demonstration of CLM-004 awaits ISSUE-148's
+fixture fix. `TestClass3Sites_ViolationsAreErrorSeverityByConstruction`'s SITE 2 assertions were
+updated per this issue's named coupling requirement, flipping the premise from "warning-in,
+error-out" (the defect) to asserting severity is now preserved.
 
 ## Problem
 
