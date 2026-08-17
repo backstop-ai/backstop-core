@@ -2,13 +2,157 @@
 plan_id: PLAN-ISSUE-106
 spec_id: ISSUE-106
 created: "2026-08-16"
-status: draft
+status: completed
 target_repo: backstop-core
 target_module: github.com/backstop-ai/backstop-core
 test_command: "go test ./pkg/gate/... ./cmd/backstop/... -race -count=1"
 coverage_threshold: 90
 
 notes: |
+  ╔══════════════════════════════════════════════════════════════════════════╗
+  ║ AS-BUILT — CLOSED 2026-08-17. Everything below this banner is the plan    ║
+  ║ AS AUTHORED (2026-08-16) and is preserved verbatim as the historical      ║
+  ║ record. Where the as-built diverged, the divergence is recorded HERE.     ║
+  ╚══════════════════════════════════════════════════════════════════════════╝
+
+  ── READ THIS FIRST: 6c32a17 IS A THREE-LANE BATCH COMMIT ──────────────────
+  The cmd/backstop half landed inside `6c32a17 feat(ISSUE-093,ISSUE-097,
+  ISSUE-106): cmd/backstop half — three entangled lanes on gate.go`. That
+  commit's 17-file diff is NOT this lane's diff. `git show 6c32a17` will show
+  a repeatable `--file` flag, `pack_gate_filemode.go`, waiver-token harvesting
+  and a CI workflow edit — NONE of which belong to ISSUE-106. Three in-flight
+  plans edited `cmd/backstop/gate.go` concurrently in one working tree; their
+  hunks are function-disjoint (no shared symbol edited by more than one lane)
+  but git cannot commit one file's hunks separately once merged.
+
+  THIS LANE'S OWN FILES, exhaustively:
+    6bc23db (pkg/gate half — this lane ONLY, no other lane in the commit):
+      pkg/gate/substantiveness_join.go               (hop A production edit)
+      pkg/gate/substantiveness_severity_test.go      (new, 2 mandated tests)
+      pkg/gate/substantiveness_hollow_violation_test.go (retired lock #1)
+      pkg/gate/step_verdict_severity_test.go         (retired lock #2, SHARED
+        with PLAN-ISSUE-097 — see the fence note below)
+    6c32a17 (cmd/backstop half — this lane owns exactly TWO things):
+      cmd/backstop/gate.go — the single hunk
+        `@@ -1389,16 +1435,32 @@ func buildTestSubstantivenessStep`. Every
+        other gate.go hunk in that commit is ISSUE-093's or ISSUE-097's.
+      cmd/backstop/gate_substantiveness_severity_test.go (new, 3 tests)
+  Nothing else in 6c32a17 is attributable to ISSUE-106.
+
+  ── WHAT LANDED ────────────────────────────────────────────────────────────
+  HOP A — 6bc23db. `HollowFindingsToViolations` (pkg/gate/substantiveness_join.go)
+  no longer hardcodes `Severity: "error"` on every hollow-test violation; it
+  forwards the pack's own declared value (`Severity: v.Severity`). Deliberately
+  UNWRAPPED — no nonEmpty default — because cmd/backstop/pack_gate.go already
+  applies `nonEmpty(v.Severity, "error")` downstream, and a second default here
+  would be a duplicate authority. The synthesized `NoTargetViolation` stays
+  fixed at `"error"` BY DESIGN (CLM-003): it has no pack-declared value to
+  forward, so there is nothing to preserve.
+
+  HOP B — 6c32a17. `buildTestSubstantivenessStep`'s raw violation-count status
+  (`if len(violations) > 0 { status = "fail" }`) replaced with
+  `gate.StepVerdict(violations)`. This is what makes hop A user-VISIBLE: without
+  it, a preserved `warning` was thrown away one line later and still exited 1.
+  It also makes ApplyPolicy's own docstring claim ("The step builders NOW reach
+  their verdict through StepVerdict", pkg/gate/policy.go) TRUE — policy.go was
+  deliberately kept out of file scope and needed no edit, exactly as planned.
+
+  ── CLAIM STATUS AT CLOSE ──────────────────────────────────────────────────
+    CLM-001  PROVEN — TestQ1_HollowFindingsToViolations_ForwardsPackDeclaredSeverity
+    CLM-002  PROVEN — TestSubstantivenessStep_WarningOnlyResultDoesNotBlock
+    CLM-003  PROVEN — TestNoTarget_SynthesizedSeverityIsFixedByDesign
+    CLM-004  WRITTEN, E2E PROOF BLOCKED — see the red-on-purpose section below
+    CLM-005  PROVEN — both shipped defect-locks retired WITHOUT renaming
+    CLM-006  PROVEN — measured control-vs-treatment, see blast radius below
+
+  ── CLM-005: BOTH LOCKS RETIRED, NEITHER RENAMED ───────────────────────────
+  The two pre-existing tests that ASSERTED the defect were updated in place —
+  bodies and docstrings rewritten to the forwarding behavior, names untouched:
+    TestQ1_HollowFindingsToViolations_ForwardsSourceLine
+      (pkg/gate/substantiveness_hollow_violation_test.go:69)
+    TestClass3Sites_ViolationsAreErrorSeverityByConstruction
+      (pkg/gate/step_verdict_severity_test.go:268)
+  Both still exist under their original names at close. Renaming a mandated
+  test name is the failure mode this convention exists to prevent.
+
+  ── SHARED-FILE FENCE WITH PLAN-ISSUE-097 (HELD) ───────────────────────────
+  `pkg/gate/step_verdict_severity_test.go` was edited by BOTH lanes:
+    SITE 1 (line 269, waiver step diagnostics)          = PLAN-ISSUE-097's
+    SITE 2 (line 323, the substantiveness JOIN)         = THIS LANE's
+    SITE 3 (line 345, StepTestVerificationScopedFunc)   = THIS LANE's
+  Both plans' text was reconciled in the working tree BEFORE either committed,
+  and both survive intact at HEAD. Verified at close: all three SITE markers
+  present, none clobbered.
+
+  ── CLM-006 BLAST RADIUS: MEASURED, NOT ASSERTED ───────────────────────────
+  Control-vs-treatment run: all 34 `test_substantiveness` violations are
+  BYTE-IDENTICAL pre/post across [identity_hash, severity, file, message].
+  The honest reading of that zero-delta: NEITHER installed substantiveness rule
+  currently declares a `severity:` key, so in practice nothing changed VALUE
+  yet. The forwarding MECHANISM is proven correct and is now ready for the
+  first pack that does declare one. This is a capability landing ahead of its
+  consumer, not a no-op — and saying so plainly is the point of recording it.
+
+  ── RED ON PURPOSE: TWO E2E TESTS BLOCKED BY ISSUE-148 ─────────────────────
+  `cmd/backstop/gate_substantiveness_severity_test.go` ships two e2e tests that
+  are RED at close, by an explicit "land it" decision — NOT skipped, NOT
+  weakened, NOT `t.Skip`'d:
+      TestE2E_SubstantivenessWarningPack_StepWarnsWithoutBlocking
+      TestE2E_SubstantivenessPristinePack_StepStillBlocks
+  They are blocked on ISSUE-148 (Substantiveness Fixture Polarity Inverted,
+  status `open`, risk `critical`) — an UNRELATED pre-existing fixture defect in
+  `packs/substantiveness` phase3-fixtures. CLM-004 is therefore written but its
+  end-to-end proof is owed until ISSUE-148 lands. CLM-004 must NOT be read as
+  proven from this plan alone. The third, seam-injected unit test in the same
+  file (TestSubstantivenessStep_WarningOnlyResultDoesNotBlock) is GREEN and is
+  what actually pins hop B — exactly the pairing sharp-edge #4 called for.
+
+  ── ATTRIBUTION OF THE RED TEST COUNT ──────────────────────────────────────
+  `cmd/backstop` test failures at measurement time were proven INHERITED, not
+  caused: 11–13 of them reproduce identically at clean pre-lane HEAD, all of
+  them ISSUE-148's phase3-fixtures failure. The two e2e tests above are this
+  lane's OWN reds — new, so correctly NOT counted as inherited, and correctly
+  not weakened to hide them.
+
+  ── EVIDENCE AT CLOSE ──────────────────────────────────────────────────────
+  RE-VERIFIED BY THIS CLOSE-OUT (structural, non-racing — sibling lanes hold
+  live uncommitted work in the shared tree, so no suite run and no `gate --all`):
+    - both commits exist at HEAD (6bc23db, 6c32a17 on main);
+    - hop A present: `Severity: v.Severity` at substantiveness_join.go:349,
+      with the two fixed-"error" synthesized sites intact at :107 and :221;
+    - hop B present: `gate.StepVerdict(violations)` at gate.go:1463, inside the
+      `buildTestSubstantivenessStep` hunk;
+    - all SEVEN test names resolve to a real `func Test…(` at a real path;
+    - both retired locks still carry their ORIGINAL names;
+    - this lane's gate.go hunk isolated from the batch commit and confirmed to
+      be the only ISSUE-106 hunk in that file;
+    - ISSUE-148 confirmed open/critical, so the CLM-004 blocker is live.
+  CARRIED FROM THE TEAM-LEAD'S INDEPENDENT VERIFICATION (fresh detached
+  worktree at HEAD 6c32a17, not re-run here):
+    - `go build ./...` clean;
+    - the mandated tests re-run fresh and green.
+  CARRIED FROM THE IMPLEMENTER: the CLM-006 control-vs-treatment measurement.
+
+  ── AS-BUILT DELTAS ────────────────────────────────────────────────────────
+  1. SPLIT ACROSS TWO COMMITS. The plan assumed one landing. `cmd/backstop/gate.go`
+     was entangled with two other in-flight lanes, so the pkg/gate half shipped
+     alone and clean (6bc23db) and the cmd/backstop half rode the three-lane
+     batch (6c32a17). The plan's phase/task structure is otherwise as-executed.
+  2. SHARP EDGE #5 IS NOW FALSE. It reads "gate --file takes ONE file (ISSUE-093
+     open: repeated --file is silently dropped)". ISSUE-093 landed `--file` as a
+     repeatable StringArrayVar in the SAME commit as this lane's hop B. Do not
+     carry that constraint forward from this plan's text.
+  3. CLM-004's e2e proof is DEFERRED, not delivered — the only claim that did
+     not close green. Recorded above rather than quietly absorbed.
+
+  ── OPEN RESIDUAL AT CLOSE ─────────────────────────────────────────────────
+  ISSUE-148 owes this lane the two e2e greens that finish CLM-004. That is the
+  one thread left hanging from PLAN-ISSUE-106; it is tracked on ISSUE-148, not
+  here, and this plan closes `completed` with it named rather than hidden.
+
+  ───────────────────────────────────────────────────────────────────────────
+  PLAN AS AUTHORED (2026-08-16) FOLLOWS — historical record, not amended:
+
   Implements ISSUE-106, a DIR-032 (Gate Verdict Honesty) member and hop 3 of the
   pack-severity chain (ISSUE-104 -> ISSUE-105 -> this). TWO one-line production
   edits in TWO files, one design decision written down, three tests, and one
