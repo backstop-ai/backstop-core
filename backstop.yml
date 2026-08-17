@@ -6,7 +6,7 @@ packs:
     backstop-ai/cobra-cli-standards: 0.2.1
     backstop-ai/go-contracts: 1.2.0
     backstop-ai/go-standards: 1.2.1
-    backstop-ai/go-substantiveness: 1.2.0
+    backstop-ai/go-substantiveness: 1.2.1
     backstop-ai/go-toolchain: 1.6.0
 enforcement:
     policy:

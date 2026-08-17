@@ -48,13 +48,13 @@ packs:
         source_type: git
         version: 1.2.1
     backstop-ai/go-substantiveness:
-        content_hash: 3c08e4dddf4ba3d11089fac826f575b2bb9d2a3fcafa4ed43288f49a250be56a
-        git_ref: v1.2.0
-        install_date: 2026-07-28T13:51:37Z
+        content_hash: f06465df848e1ce2e603efc877b7a8d21ce0343d391f2df6e3358e4524d7b9ca
+        git_ref: v1.2.1
+        install_date: 2026-08-17T11:06:30Z
         name: backstop-ai/go-substantiveness
         source_coordinate: backstop-ai/go-substantiveness
         source_type: git
-        version: 1.2.0
+        version: 1.2.1
     backstop-ai/go-toolchain:
         content_hash: 85b718c31cc43f2b524849687d3d8650a56f11b746a0331836931c1d313aaa9f
         git_ref: v1.6.0
