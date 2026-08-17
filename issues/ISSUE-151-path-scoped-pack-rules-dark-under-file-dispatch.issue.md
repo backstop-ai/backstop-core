@@ -1,13 +1,15 @@
 ---
 title: "Path Scoped Pack Rules Dark Under File Dispatch"
 schema_version: issue/v1
+delivered_by: PLAN-ISSUE-151
 
 issue:
   id: ISSUE-151
   title: "Path Scoped Pack Rules Dark Under File Dispatch"
   type: bug
-  status: open
+  status: closed
   created: "2026-08-16"
+  closed: "2026-08-17"
 
 complexity:
   scope: cross-cutting
@@ -153,6 +155,35 @@ those tokens and they cannot even reach the `Unused` bucket — their contributi
 goes from 2 to 0. **That is a loss of honesty, not a cleanup.** This consequence is owned by
 `ISSUE-097` ("Unbound Selfpack Waivers Fail Open"), which has already been appended to with this
 exact evidence — it is referenced here rather than duplicated.
+
+## Resolution
+
+`PLAN-ISSUE-151` shipped `pkg/packval/pathscope.go`: a declaration-shape check added at `pack
+check`/`pack test` phase 2 (not phase 3 execution) that surfaces any pack rule whose
+`paths.include`/`exclude` names a slash-bearing pattern — a pattern of that shape never dispatches
+under `gate --file` explicit-file scoping, so it silently never runs against changed-file-scoped
+CI/local gates even though it appears to pass `pack check`/`pack test`. It emits two non-blocking
+WARN advisories, not an ERROR: `path-scope-dispatch` (the rule's include/exclude pattern is
+inert under explicit-file dispatch) and `path-scope-fixture-mask` (the pack's own test fixtures
+are matched only via a masking "hook" pattern, which keeps `pack test` green while hiding that
+the pack's real, intended patterns are dark).
+
+Measured against the real, currently-installed packs (not synthetic fixtures): `backstop-self`
+surfaces 26 `path-scope-dispatch` + 4 `path-scope-fixture-mask` findings, `cobra-cli-standards`
+surfaces 11 `path-scope-dispatch` findings — both packs still exit 0, confirming the advisories
+are non-blocking on live production data as designed.
+
+`cmd/backstop/ci_recipes_harness_test.go`'s `ciGlobScopingProblems` — the independent in-tree
+corroboration cited in this issue's Problem section — now routes through the same shared
+slash-detection predicate `pathscope.go` introduces, closing a second implementation of the same
+rule that had silently drifted apart from the first.
+
+Two follow-ons were recorded rather than fixed here, both explicitly out of this plan's scope:
+pack-side remediation of the 37 reachable inert patterns across the two external pack repos
+(founder-sequenced; entangled with `ISSUE-097`'s stale-waiver-token cleanup, since fixing the
+patterns changes what `Adjudicate` harvests), and whether the advisory should escalate
+WARN→ERROR once the ecosystem is remediated (declined for now — several existing patterns have
+no lossless slash-free rewrite).
 
 ## References
 
