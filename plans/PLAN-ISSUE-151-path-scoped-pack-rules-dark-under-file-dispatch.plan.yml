@@ -1,0 +1,1603 @@
+---
+plan_id: PLAN-ISSUE-151
+spec_id: ISSUE-151
+created: "2026-08-17"
+status: completed
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./pkg/packval/... ./cmd/backstop/... -run \"TestPathScope|TestCIGlob\" -race -count=1"
+coverage_threshold: 90
+
+notes: |
+  ██████████████████████████████████████████████████████████████████████████████
+  AS-BUILT — CLOSED 2026-08-17. `status: draft` -> `completed`.
+  Everything BELOW this banner is the plan AS AUTHORED and is left untouched;
+  this banner is the layer over it. Read the AS-BUILT DELTAS section before
+  assuming the tasks below describe what shipped.
+  ██████████████████████████████████████████████████████████████████████████████
+
+  ── PROVENANCE CAVEAT — READ FIRST ─────────────────────────────────────────
+  THIS PLAN FILE WAS NEVER COMMITTED BEFORE IMPLEMENTATION, AND IS STILL
+  UNTRACKED AT CLOSE-OUT (`git status` reports `??` on it; delivery commit
+  4e2e686 contains six source files and the testdata corpus, and no artifact).
+  So there is NO plan commit to `git show` — the usual way of establishing what
+  the plan said before any code was written is unavailable here, and the
+  working-tree copy you are reading is the only record of it. A future reader
+  reconstructing this lane cannot date the plan text against the delivery; take
+  the AS-BUILT DELTAS below as the authority on divergence rather than trying to
+  derive it from history.
+
+  ── WHAT LANDED ────────────────────────────────────────────────────────────
+  ONE commit, `4e2e686` on main, single-lane (41 files, +1675/-8): "feat
+  (ISSUE-151): pack check surfaces path-scoped rules dark under file dispatch".
+  Its diff is entirely this lane's — no other lane's files ride along, so
+  `git show --stat 4e2e686` can be read as this plan's file list directly.
+
+    NEW  pkg/packval/pathscope.go        the predicate + both advisories
+    MOD  pkg/packval/phase2.go           advisory wiring (phase 2, CHECK mode)
+    NEW  pkg/packval/pathscope_test.go        7 tests (dispatch advisory)
+    NEW  pkg/packval/pathscope_mask_test.go   7 tests (fixture-mask advisory)
+    NEW  cmd/backstop/ci_glob_scoping_authority_test.go  2 tests (the guard)
+    MOD  cmd/backstop/ci_recipes_harness_test.go         the extracted seam
+    NEW  pkg/packval/testdata/path-scope/**  10 fixture packs (the corpus)
+
+  Phase 1 (TASK-001/012/013/014) — the falsification corpus shipped as ten
+  fixture packs under `pkg/packval/testdata/path-scope/`: inert-include,
+  inert-exclude, slash-free-only, semgrep-suggested-spellings, non-ruleflags,
+  shared-rule-file, multi-semgrep-rule-file, fixture-masked, multiseg-no-mask,
+  partial-fixture-coverage, two-rule-cross-contamination.
+
+  Phase 2 (TASK-002/003/004) — `PathPatternInertUnderFileDispatch(pattern)` is
+  `strings.Contains(pattern, "/")`, exactly as the re-measurement below
+  demanded, and the `path-scope-dispatch` advisory is emitted from phase 2's
+  coherence pass as a non-blocking `ValidationWarning`.
+
+  Phase 3 (TASK-005/006/007) — `path-scope-fixture-mask` shipped as a SECOND,
+  separately-attributable advisory answering "why did nothing tell you" rather
+  than "which pattern is dark".
+
+  Phase 4 (TASK-008/009/010) — `ciGlobScopingProblems` now routes through the
+  shared predicate via an extracted pure function
+  `ciMultiSegmentIncludeProblems`, closing a second independent implementation
+  of the same slash-detection rule that had silently drifted. The source-scan
+  drift guard shipped as designed, scoped to the two functions (a whole-file
+  zero-match is unsatisfiable — `ciOrgRepoLiterals` legitimately slash-tests an
+  org/repo COORDINATE, which is a different meaning of "/" and stays inline).
+
+  ── REVIEW DEPTH — FOUR PLAN-REVIEW ROUNDS BEFORE A LINE WAS WRITTEN ───────
+  This plan was reviewed four times and revised three times between rounds
+  (plan-reviewer-issue151 v1-v4; planner-issue151-fix v1-v3) before the
+  implementer was dispatched. The depth is not ceremony — three of the design's
+  load-bearing decisions exist BECAUSE of a review round, and each would have
+  produced a plausible-looking but wrong check:
+
+    * PHASE 2, NOT PHASE 3. An execution-time check cannot see this defect.
+      Real packs bifurcate their include list into live slash-bearing patterns
+      PLUS separate slash-free "fixture hook" patterns; the hooks keep `pack
+      test` green precisely while the live patterns are dark. Only a
+      DECLARATION-SHAPE check catches that shape. (Phase 2 also runs in CHECK
+      mode, which skips fixture execution entirely.)
+    * DEDUP PER RULE-SOURCE FILE, NOT PER MANIFEST RULE. The real
+      N-manifest-rules-share-1-file shape is `backstop-self`'s no-baked.yml:
+      SEVEN manifest rules, ONE file. Keying per manifest rule reports 182
+      findings where 26 is correct. A count in the hundreds means the dedup key
+      regressed, not that the pack grew.
+    * THE ANY/EVERY QUANTIFIER ON FIXTURE MASKING WAS UNFALSIFIABLE IN THE
+      FIRST DRAFT. Review caught that a symmetric test corpus passed under
+      either quantifier. The corpus was rebuilt against the real installed
+      pack's ACTUAL shape — two DISJOINT hooks, each matching exactly one of
+      two fixtures — which is what makes `everyFixtureMatchedByAnyHook`
+      falsifiable. Fixture-side masking is scoped per MANIFEST rule and
+      pattern-side per SEMGREP rule, independently.
+
+  ── EVIDENCE AT CLOSE ──────────────────────────────────────────────────────
+  RE-VERIFIED AT CLOSE-OUT BY THE CLOSING AGENT (not carried):
+    * `pkg/packval/pathscope.go` is at HEAD with the distinguishing structure
+      intact — `PathPatternInertUnderFileDispatch` returning
+      `strings.Contains(pattern, "/")`, both check-name constants, and
+      `everyFixtureMatchedByAnyHook`. `phase2.go` at HEAD calls both
+      `pathScopeDispatchFindings` and `pathScopeMaskFindings` into
+      `res.Warnings` (warnings, never `res.Errors` — the non-blocking property
+      is visible in the wiring, not only in the tests).
+    * ALL 15 MANDATED TEST NAMES exist at HEAD, verified by name with `git
+      grep "func <name>(" HEAD -- '*_test.go'` (13 `TestPathScope_*`, 2
+      `TestCIGlobScoping_*`). None is absent, none is a near-miss rename.
+    * THE PACK RECEIPT, RE-RUN INDEPENDENTLY at close-out against the real
+      installed packs — the numbers TASK-011 predicted are confirmed EXACTLY:
+
+        backstop-ai/backstop-self       26 path-scope-dispatch
+                                         4 path-scope-fixture-mask   exit 0
+        backstop-ai/cobra-cli-standards 11 path-scope-dispatch        exit 0
+
+      26 (not 182) confirms the 7:1 fan-out dedup key is right. 37 reachable of
+      40 declared is the EXPECTED reading, not an under-report: the missing 3
+      live in `authored/no-rule-id-keyed-routing.yml`, which no manifest rule
+      points at, so they are unreachable through manifest-driven resolution
+      (CLM-007) and equally invisible to the gate itself. Both packs exit ZERO,
+      which is the non-blocking property (CLM-005) confirmed on LIVE PRODUCTION
+      DATA, not only on synthetic fixtures. Measured with the prebuilt
+      `./bin/backstop` (mtime 05:06), which postdates both `pathscope.go`
+      (04:39) and `phase2.go` (04:44), so the binary contains the delivered
+      production code.
+
+  CARRIED FROM THE TEAM LEAD'S INDEPENDENT VERIFICATION, NOT RE-RUN HERE:
+    * The mandated tests were re-run fresh and green, and `go build ./...` was
+      clean. NOT re-run at close-out on purpose: several other lanes have
+      uncommitted work in `cmd/backstop` and `pkg/packval` in this shared tree,
+      so a `go test` there would compile THEIR in-flight files and could report
+      a red that belongs to neither this lane nor the tree at 4e2e686. The
+      name-existence check and the pack receipt above are the non-racing
+      substitutes. `gate --all` was likewise not re-run at close-out for the
+      same reason.
+
+  ── AS-BUILT DELTAS ────────────────────────────────────────────────────────
+  1. ONE UNMANDATED TEST SHIPPED BEYOND THE PLAN'S 15:
+     `TestPathScope_ChecksIndependentlyAttributable`
+     (`pkg/packval/pathscope_mask_test.go`). It pins that the two advisories
+     are attributable SEPARATELY — the property TASK-006's prose argues for
+     ("reported separately because it answers a different question") but which
+     no mandated name asserted. An addition, not a substitution: all 15
+     mandated names are present and none was renamed to make room for it.
+  2. The plan file was not committed with the implementation — see the
+     PROVENANCE CAVEAT at the top of this banner.
+  3. ISSUE-151 itself is still `status: open` at close-out. The issue close is
+     a separate hand-off to issue-author and had not landed when this banner
+     was written; do not read this plan's `completed` as the issue's closure.
+
+  ── FOLLOW-ONS: REPORTED, DELIBERATELY NOT FIXED HERE ──────────────────────
+  Per TASK-011, both are REPORTED rather than authored, and both are founder
+  calls. They are recorded here so they survive the hand-off:
+
+  1. PACK-SIDE REMEDIATION of the 37 reachable inert patterns across two
+     EXTERNAL pack repos (`backstop-self`, `cobra-cli-standards`). Deliberately
+     founder-SEQUENCED, not deferred out of caution: fixing them takes live
+     findings (starting with backstop-self's two
+     `no-structural-name-split-on-spine` hits) and REDs every diff-scoped gate
+     at once. It is also entangled with the stale `@waiver:` token cleanup
+     ISSUE-097 owns, so the two want ordering against each other.
+  2. WHETHER THE ADVISORY SHOULD ESCALATE WARNING -> ERROR once the ecosystem
+     is remediated. Explicitly DECLINED here, with a reason worth keeping:
+     several real patterns (e.g. `pkg/gate/*.go`) have NO lossless slash-free
+     rewrite, so a blocking check would force pack authors into a worse
+     declaration. Revisit only after (1).
+
+  ══════════════════════════════════════════════════════════════════════════════
+  PREMISE RE-MEASURED 2026-08-17 — THE DEFECT IS LIVE, AND THE ISSUE'S FRAMING
+  IS TOO NARROW. READ THIS BLOCK BEFORE THE TASKS.
+  ══════════════════════════════════════════════════════════════════════════════
+  Everything below was measured in THIS working tree with real semgrep 1.156.0
+  on PATH and the real installed pack rules, not transcribed from ISSUE-151 or
+  from PLAN-ISSUE-091. Three of the issue's statements were CORRECTED by that
+  re-measurement; two of the corrections change what this plan builds.
+
+  ── CONFIRMED: THE DEFECT REPRODUCES ───────────────────────────────────────
+  Rule `no-structural-name-split-on-spine` in
+  `.backstop/packs/backstop-ai/backstop-self/rules/no-baked.yml`, ACTIVE rows
+  (no `suppressions` entry — the post-`parseSarif` layer the gate actually
+  prints), cited BY FUNCTION NAME because both files are under concurrent edit:
+
+    directory target `cmd/backstop`                        -> 2 rows
+      * the `strings.Fields` call inside `splitCommand`
+        (`cmd/backstop/pack_gate.go`)
+      * the `strings.Fields` call inside `engineToolName`
+        (`cmd/backstop/pack_gate_provision.go`)
+    the SAME two files handed over EXPLICITLY                -> 0 rows
+
+  ── CORRECTION 1 (CHANGES THE FIX): IT IS NOT "DIRECTORY-PREFIXED" ─────────
+  ISSUE-151 and DIR-032 item 20 both state the contract as a `paths.include`
+  glob "naming a directory prefix". THAT IS TOO NARROW. Measured across four
+  spellings of the same intent, against the same two explicit file targets:
+
+    include: "cmd/backstop/pack_gate*.go"    (bare, dir-prefixed)   -> 0
+    include: "**/cmd/backstop/pack_gate*.go" (semgrep's OWN
+                                              suggested "unanchored" fix) -> 0
+    include: "/cmd/backstop/pack_gate*.go"   (semgrep's OWN
+                                              suggested "anchored" fix)   -> 0
+    include: "pack_gate*.go"                 (slash-FREE basename)  -> 2
+
+  All four fire under the directory target. Extended to `backstop/pack_gate*.go`
+  (tail-only, 2 segments), `**/backstop/pack_gate*.go` and `*/*/pack_gate*.go` —
+  all 0 under explicit-file dispatch. The real, measured contract is:
+
+    A `paths.include`/`paths.exclude` pattern CONTAINING A `/` is unsatisfied
+    under explicit-file dispatch, IN EVERY SPELLING. Only a slash-free
+    (single-segment) pattern is honored under BOTH dispatch shapes.
+
+  Two consequences the narrower framing would have caused this plan to miss:
+    * SEMGREP'S OWN REMEDY DOES NOT WORK. semgrep 1.156.0 prints a deprecation
+      warning on every one of these patterns recommending `**/`-prefixing or
+      `/`-anchoring. BOTH remain dark. An implementer who trusts that warning
+      will ship a fix that changes nothing. Do not.
+    * The check cannot key on "looks like a directory prefix". It keys on the
+      presence of a `/`, which is exactly what the already-shipped
+      `ciGlobScopingProblems` (`cmd/backstop/ci_recipes_harness_test.go`)
+      independently arrived at — see the single-authority task.
+
+  ── CORRECTION 2 (ADDS A CLAIM): THE `exclude` SIDE FAILS **OPEN** ─────────
+  ISSUE-151 discusses only `include`. `exclude` has the same inertness and the
+  OPPOSITE, more dangerous polarity. Measured with `pattern: strings.Fields($X)`
+  over the same two files:
+
+    exclude: "cmd/backstop/pack_gate_provision.go"  dir target -> 1 (excluded)
+                                                    file target -> 2 (NOT excluded)
+    exclude: "pack_gate_provision.go"               dir target -> 1
+                                                    file target -> 1  (honored)
+
+  So an inert `include` is a SILENT NO-OP (vacuous green, the class ISSUE-151
+  names) and an inert `exclude` FAILS OPEN — the rule fires on files the pack
+  explicitly meant to exempt, i.e. a false RED the pack author believes they
+  already suppressed. Both directions are the same root defect and both must be
+  reported, with the DIRECTION named, or half the harm stays invisible.
+
+  ── CORRECTION 3 (DECIDES THE PHASE): PHASE 3 CANNOT CATCH THIS ────────────
+  The obvious cheaper fix — "let packval phase 3 catch it by executing
+  fixtures" — was tested and REFUTED. Phase 3 already dispatches fixtures the
+  gate's way: `executor.RunEngine(packDir, binding, []string{ruleSource, f.Path})`
+  hands an EXPLICIT FILE path (`pkg/packval/phase3.go`). So a rule with only
+  slash-bearing includes would indeed fail its own negative fixture. But the
+  real pack does not have only slash-bearing includes. Its include list is
+  BIFURCATED, and the pack's own comment calls the extra entries "the fixture
+  hooks":
+
+    7 slash-bearing patterns  — the INTENDED live scope (all inert)
+    2 slash-free patterns     — `*structural-name-split*.go`,
+                                `*structured-property-read*.go`, which match
+                                ONLY the rule's own fixture basenames
+
+  Measured, and this is the load-bearing receipt for choosing phase 2:
+
+    real rule file vs its negative fixture, explicit file        -> 2 findings
+    SAME rule with the 2 slash-free fixture hooks REMOVED        -> 0 findings
+
+  The fixture hooks are load-bearing. They keep phase 3 GREEN while all seven
+  live-scope patterns are dark. Execution-based validation therefore CANNOT see
+  this defect — the fixture is the one file the rule can still match. It needs a
+  DECLARATION-SHAPE check, and that check must run in `pack check` mode too
+  (which skips phase 3 entirely, `pkg/packval/pipeline.go`). PHASE 2 IS THE
+  ONLY CORRECT HOME. This is the same argument phase 2's existing
+  `exempt-scope-decision` comment already makes for itself.
+
+  ── MEASURED BLAST RADIUS (decides WARN vs ERROR) ──────────────────────────
+  Every `paths.include`/`paths.exclude` entry in every rule file under
+  `.backstop/packs/` and in-repo `packs/`, parsed with a real YAML parser:
+
+    include, contains `/`   27      include, slash-free   24
+    exclude, contains `/`   13      exclude, slash-free   11
+
+    40 inert patterns across 12 distinct semgrep rules in 4 rule files, in TWO
+    installed external packs:
+      .backstop/packs/backstop-ai/backstop-self/rules/no-baked.yml       (26)
+      .backstop/packs/backstop-ai/backstop-self/authored/
+        no-rule-id-keyed-routing.yml                                     (3)
+      .backstop/packs/backstop-ai/cobra-cli-standards/rules/core/
+        cli-core.yml                                                     (5)
+      .backstop/packs/backstop-ai/cobra-cli-standards/rules/security/
+        cli-security.yml                                                 (6)
+
+    OF THOSE 40, ONLY 37 ARE REACHABLE BY THIS CHECK, AND THAT IS CORRECT.
+    Re-verified 2026-08-17. This check walks a pack's MANIFEST RULES and
+    resolves each one's `RuleSourcePath()`; it never walks a pack directory.
+    `backstop-self/pack.yml` declares seven manifest rules and ALL SEVEN point
+    at `rules/no-baked.yml` — nothing points at
+    `authored/no-rule-id-keyed-routing.yml`, which the pack deliberately keeps
+    outside its loaded `rules/` set (a comment in `pack.yml` records that it is
+    parked because it flags a deferred contracts signature-engine site). Its 3
+    patterns are therefore DORMANT: unreferenced by any manifest rule, never
+    dispatched by the gate either, and correctly invisible to this advisory.
+
+      declared      40 patterns / 12 semgrep rules / 4 files
+      REACHABLE     37 patterns / 11 semgrep rules / 3 files
+                      no-baked.yml    26 patterns / 6 rules
+                      cli-security.yml 6 patterns / 3 rules
+                      cli-core.yml     5 patterns / 2 rules
+      dormant        3 patterns / 1 rule (no-rule-id-keyed-routing.yml)
+
+    37 IS THE EXPECTED RECEIPT. Measuring 37 is a PASS, not an under-report.
+    Do NOT "fix" the scanner into a full directory walk to recover the missing
+    3 — that would abandon the manifest-driven resolution CLM-007's InputMode
+    gate depends on, and would start reporting on files no engine ever loads.
+
+    THE 7:1 FAN-OUT IS THE REAL-WORLD PRIMARY SHAPE, NOT AN ODDITY. Seven
+    manifest rules sharing one 7-semgrep-rule file is what a mature pack looks
+    like. A naive per-manifest-rule walk would emit 7 x 26 = 182 duplicated
+    warnings for `no-baked.yml` alone where the correct answer is 26. CLM-009
+    exists solely to pin that, and `shared-rule-file/` (TASK-013) is the only
+    thing in the corpus that can catch a 7x-duplicating implementation.
+
+    NO in-repo pack is affected — `packs/base-engines`, `packs/contracts` and
+    `packs/substantiveness` are all clean.
+
+  THE DECISION, AND IT IS RECORDED RATHER THAN ASSUMED: the advisory SHIPS
+  NON-BLOCKING (a `ValidationWarning`, never a `ValidationError`). Rationale,
+  stated so a future reader can overturn it on evidence rather than taste:
+    1. As an ERROR it would immediately fail `pack check` / `pack test` — and
+       therefore `pack add` and `pack install`, which run the same pipeline —
+       for two packs THIS REPO CURRENTLY HAS INSTALLED. That is a corpus-wide
+       new rule redding everything at once, with no `applies-to: new-code`
+       baseline relief available in packval.
+    2. For several of the 40 there is NO lossless rewrite. `pkg/gate/*.go` has
+       no slash-free equivalent that preserves directory scoping — the only
+       slash-free spelling is `*.go`, which is the whole repo. So an ERROR
+       would demand a fix that does not exist, and the pack author's real
+       choice is between a WIDER blast radius and losing the scope. That is a
+       pack-authoring judgment call, not something a validator gets to force.
+    3. It matches the `exempt-scope-decision` precedent already in phase 2:
+       warn-with-guidance, name the exact remedy, let the author decide.
+  This follows "Loud ≠ blocking". Escalating to ERROR once the ecosystem is
+  remediated is a FOUNDER call and is explicitly NOT taken here.
+
+  ── WHAT THIS PLAN DELIBERATELY DOES **NOT** DO ────────────────────────────
+  * NO core dispatch change. PLAN-ISSUE-091 refused path rewriting, an
+    `--include`-style flag, and a directory-target fallback, because each
+    re-introduces the two-code-paths disease that plan existed to cure.
+    ISSUE-151 agrees the fix belongs on the pack-authoring side. That refusal
+    stands; nothing in `cmd/backstop/pack_gate*.go` or `pkg/gate/` is in scope.
+  * NO rewrite of any pack's rules. All 40 inert patterns — the 37 this check
+    can reach and the 3 dormant ones it cannot — live in EXTERNAL pack
+    repos (`backstop-ai/backstop-self`, `backstop-ai/cobra-cli-standards`);
+    `.backstop/packs/` is gitignored, so editing it there is non-durable by
+    construction. Beyond that, fixing backstop-self's includes would take the
+    two `no-structural-name-split-on-spine` findings LIVE on every diff-scoped
+    gate and RED it, and it is entangled with the two stale `@waiver:` tokens
+    ISSUE-097 owns. That is a founder-sequenced change, not a side effect of
+    shipping a validator.
+  * NO artifact authoring by the implementer. Per the PLAN-ISSUE-093 precedent,
+    the implementer REPORTS the need for the pack-remediation successor issue in
+    its completion report and does not author it (CLAUDE.md routes artifact
+    authoring to the purpose-built agents).
+
+  ── CLAIMS ────────────────────────────────────────────────────────────────
+  CLM-001  `pkg/packval` exports ONE predicate,
+           `packval.PathPatternInertUnderFileDispatch(pattern string) bool`,
+           answering "is this path pattern inert under the gate's explicit-file
+           dispatch", deciding on the presence of a `/` in the pattern and on
+           nothing else. It is the single authority for the contract; no second
+           statement of it exists in the tree after this plan. The NAME is
+           mandated, not left to the implementer, because CLM-008's guard scans
+           for it by name.
+  CLM-002  `backstop pack check` and `backstop pack test` emit a non-blocking
+           `path-scope-dispatch` advisory naming every inert pattern in a
+           pack's declared rule-source files: the semgrep rule id, the key it
+           came from, and the pattern text.
+  CLM-003  The advisory names the FAILURE DIRECTION: an inert `include` is
+           reported as a silent no-op (the rule scans nothing); an inert
+           `exclude` is reported as failing OPEN (the rule fires on files the
+           pack meant to exempt).
+  CLM-004  A slash-free pattern is NEVER reported, under either key. The one
+           spelling that survives both dispatch shapes is not flagged, or the
+           advisory would have no actionable remedy.
+  CLM-005  The advisory is NON-BLOCKING: it never populates `Result.Errors`,
+           never moves `PhaseResult.Status` off `pass`, and never changes the
+           `pack check` / `pack test` exit code.
+  CLM-006  A second, distinct `path-scope-fixture-mask` advisory fires for a
+           rule that carries at least one inert pattern AND whose declared
+           fixtures are matched only by its slash-free patterns — the shape
+           that keeps phase 3 green while the live scope is dark. It is
+           reported separately from CLM-002 because it is the reason the pack
+           LOOKS healthy. The FIXTURE SIDE is scoped per MANIFEST rule — that
+           rule's OWN `claims[].fixtures`, never a pack-wide fixture
+           accumulation (SE-11); the PATTERN side is scoped per SEMGREP rule
+           (CLM-010, SE-15).
+  CLM-007  The rule-file read is gated on the resolved binding's declared
+           `InputMode == engine.InputModeRuleFlags`, never on a tool-name or
+           engine-name equality test — the same gate `phase3.go`'s
+           `semgrep-rule-id` check already uses.
+  CLM-008  `ciGlobScopingProblems` (`cmd/backstop/ci_recipes_harness_test.go`)
+           consumes the CLM-001 predicate instead of its own inline
+           `strings.Contains(pattern, "/")`, so the contract is stated once and
+           the two cannot drift. Falsified TWO ways, because behaviour alone
+           cannot falsify it (SE-9): a SOURCE SCAN proving the harness file
+           actually calls the named predicate and no longer contains any
+           `strings.Contains(x, "/")` call, AND a behavioural test driving the
+           EXTRACTED slash-detection helper over the measured spellings — the
+           branch none of the four real callers reaches (SE-10).
+  CLM-009  Dispatch findings are DEDUPLICATED per
+           `(rule-source path, semgrep rule id, key, pattern)`. N manifest
+           rules resolving to the SAME rule file yield exactly the same warning
+           set as one manifest rule would — never N copies. This is the
+           real-world primary shape (backstop-self: 7 manifest rules -> 1 file;
+           correct answer 26 warnings, naive answer 182). The rule file is also
+           READ AND PARSED once per distinct source path, but caching alone
+           does not satisfy this claim — the dedup is over EMITTED findings.
+  CLM-010  Mask attribution is per `(manifest rule x semgrep rule)`. For each
+           semgrep rule in the manifest rule's source file that carries at
+           least one inert pattern, the manifest rule's declared fixtures are
+           tested against THAT SEMGREP RULE'S OWN slash-free include patterns —
+           never the file's union across sibling semgrep rules. QUANTIFIER,
+           pinned rather than left open: a fixture counts as matched if ANY of
+           those patterns matches its basename, and the mask fires only when
+           EVERY declared fixture of the manifest rule is so matched.
+
+  ── SHARP EDGES ───────────────────────────────────────────────────────────
+  SE-1  DO NOT TRUST SEMGREP'S DEPRECATION WARNING. It recommends `**/`-
+        prefixing or `/`-anchoring. Both were measured and both stay dark. If a
+        test fixture is written using either spelling as the "fixed" case, the
+        test asserts a falsehood.
+  SE-2  ZSH DOES NOT WORD-SPLIT unquoted parameter expansions. Every manual
+        re-measurement must build semgrep targets and `--config` flags as shell
+        ARRAYS expanded `"${ARR[@]}"`. Passing a space-joined string yields a
+        nonexistent-file target and a silent 0-finding run that looks exactly
+        like the defect. This cost THIS plan's author a cycle and cost
+        PLAN-ISSUE-091's implementer one before that.
+  SE-3  `--quiet` + `--sarif` did not surface results in the re-measurement
+        here; the readings above were taken WITHOUT `--quiet`. If a probe
+        returns 0 everywhere including for a rule with NO `paths:` block at
+        all, the probe is broken, not the tree — a no-`paths` rule always
+        fires.
+  SE-4  A rule file may contain MANY semgrep rules while the pack manifest
+        entry names ONE. Attribute every reported pattern to the semgrep rule
+        `id` it was declared under, not to the pack manifest rule id, or the
+        advisory points at the wrong rule in a multi-rule file like
+        `no-baked.yml` (7 rules).
+  SE-5  `Rule.RulePath` has a back-compat alias `Rule.File`. Resolve the source
+        through `RuleSourcePath()`, never by reading either field directly, or
+        older testdata packs are silently skipped and the check goes vacuous.
+  SE-6  A pack may declare a rule source that does not parse, or that has no
+        `paths:` block anywhere. Both are SILENT for this check — absence of
+        path scoping is not a defect, and file existence is phase 1's job.
+        Do not add a new error class for either.
+  SE-7  CLM-006's fixture-mask test must FALSIFY. Build the masked fixture so
+        that removing its slash-free pattern flips the outcome, mirroring the
+        counterfactual measured above. A fixture whose mask advisory fires
+        purely because a slash-bearing pattern exists does not distinguish
+        CLM-006 from CLM-002 and is vacuous.
+  SE-8  Phase 2 currently declares `Checks: 7` in its `PhaseResult`. Two new
+        checks land here; update that count or the phase under-reports what it
+        ran.
+  SE-9  CLM-008 IS NOT FALSIFIABLE BY BEHAVIOUR ALONE. `strings.Contains(p,
+        "/")` and `PathPatternInertUnderFileDispatch` are identical by
+        construction, so an agreement test passes whether or not the refactor
+        happened. The source scan is therefore load-bearing, not belt-and-
+        braces. Write it whitespace- and identifier-tolerant — regexp
+        `strings\.Contains\([^,]+,\s*"/"\)` over the harness file, asserting
+        ZERO matches — so a rename or a gofmt pass does not evade it, and
+        assert the file contains the literal
+        `packval.PathPatternInertUnderFileDispatch`. (This is the narrow case
+        the "prefer behaviour over source-text" instinct gets wrong: there is
+        no behavioural difference to observe.)
+        SCOPE THE ZERO-MATCH ASSERTION — THE WHOLE-FILE FORM IS UNSATISFIABLE.
+        Re-measured 2026-08-17: that regexp matches TWICE in the harness file
+        today, and only ONE of them is this plan's business.
+          * `ciGlobScopingProblems` — `strings.Contains(pattern, "/")`, the
+            pattern-slash check TASK-009 routes through the predicate. This is
+            the target.
+          * `ciOrgRepoLiterals` — `strings.Contains(token, "/")`, inside an
+            org/repo COORDINATE parser that has nothing to do with path
+            scoping. TASK-009 forbids touching it, and routing an `org/repo`
+            shape test through a path-scope-inertness predicate would be
+            semantically wrong even if it were allowed.
+        So a whole-file "zero matches" assertion can never go green and would
+        push the implementer into a wrong refactor. Assert zero matches over
+        the `ciGlobScopingProblems` / `ciMultiSegmentIncludeProblems` REGION
+        only — see TASK-008 for the mechanism.
+  SE-10 THE FOUR REAL `ciGlobScopingProblems` CALLERS CANNOT VERIFY THIS
+        REFACTOR. Verified in-tree: `ci_recipes_{github_actions,gitlab_ci,
+        bitbucket_pipelines,jenkins}_test.go` all assert only `len(problems)
+        != 0`, never the message text, and all four pass slash-FREE include
+        sets — so the slash-detection branch is never executed by their data.
+        "Those tests still pass" is therefore VACUOUS evidence. Correspondingly
+        the message wording is NOT load-bearing: the exact problem string
+        appears once tree-wide, in the harness itself. Preserve it out of
+        tidiness if convenient, but do not contort the refactor to protect it,
+        and do not claim SPEC-067's tests verify it.
+  SE-11 `referencedFixtures` IN `phase2.go` IS PACK-WIDE. It accumulates every
+        fixture path across every rule AND every `tool_config` entry, so
+        reusing it for CLM-006 cross-contaminates rules: rule B's slash-free
+        pattern matching rule A's fixture would raise a mask on B. Read each
+        manifest rule's OWN `rule.Claims[].Fixtures.{Positive,Negative}`
+        instead. The corpus carries a fixture that catches exactly this.
+  SE-12 PHASE 2 ERRORS ON MISSING/EMPTY FIXTURES. `fixtures-positive`,
+        `fixtures-negative`, `fixture-exists` and `fixture-empty` are
+        `ValidationError`s, so any fixture pack whose rule declares CLAIMS must
+        ship real, NON-EMPTY positive AND negative fixture files on disk or
+        CLM-005's "Errors is empty" assertion fails on this plan's own corpus.
+        Two escape hatches, both used deliberately below: a rule with a
+        RESOLVING `engine:` and NO claims owes no fixtures at all (that is the
+        shape for every pack that is not testing CLM-006), and every file
+        placed under `fixtures/` must be referenced by some claim or phase 2
+        raises an `orphan-fixture` warning.
+  SE-13 `ValidationWarning` HAS NO `Rule` OR `Claim` FIELD — unlike
+        `ValidationError`, its fields are `{Phase, Check, Message, Files,
+        FixHint}` (`pkg/packval/result.go`). SE-4's "attribute to the semgrep
+        rule id" therefore lands in `Message` and `Files`, and the tests must
+        assert there. Do NOT widen the struct to carry it; the existing
+        `exempt-scope-decision` and `orphan-fixture` warnings already name
+        their subject in `Message`/`Files`.
+  SE-14 N MANIFEST RULES SHARE ONE RULE FILE — THAT IS THE COMMON CASE, AND
+        THE CORPUS DID NOT MODEL IT UNTIL TASK-013. Measured 2026-08-17:
+        backstop-self declares 7 manifest rules ALL naming
+        `rules/no-baked.yml`; cobra-cli-standards has 3 -> `cli-security.yml`
+        and 2 -> `cli-core.yml`. A per-manifest-rule walk that emits as it goes
+        produces 7x26=182 warnings for one file. Every other pack in this
+        plan's corpus declares one manifest rule per file, so NOTHING but
+        `shared-rule-file/` can distinguish a correct implementation from a
+        duplicating one. Read-once caching is NOT sufficient: a cached parse
+        that is then walked once per referencing manifest rule still emits N
+        copies. Dedup the EMITTED findings (CLM-009).
+  SE-15 MASK PATTERNS ARE PER SEMGREP RULE, NOT PER FILE. `no-baked.yml`
+        carries 7 semgrep rules, each with its OWN `paths` block and its OWN
+        slash-free fixture hooks. Measured: 4 of them own a hook
+        (`*neutral_spine_*.go`, `*repo_layout_*.go`,
+        `*structural-name-split*.go` + `*structured-property-read*.go`,
+        `*pack-name-keyed-capability*.go` + `*gate-type-declaration-scan*.go`)
+        and 2 (`no-baked-tool-exec`, `no-baked-language-token`) declare NO
+        include at all while still carrying an inert exclude. Test a fixture
+        against the FILE's union and those 2 get falsely masked by a sibling's
+        hook. `multi-semgrep-rule-file/` (TASK-014) is the falsifier.
+  SE-16 THE QUANTIFIER IS DECIDED BY MEASUREMENT, NOT TASTE — and the real
+        rule settles it. `no-structural-name-split-on-spine` declares TWO
+        fixtures (`fixtures/rules/valid/structured-property-read.go`,
+        `fixtures/rules/invalid/structural-name-split.go`) and TWO slash-free
+        hooks, and EACH HOOK MATCHES EXACTLY ONE FIXTURE. So:
+          * per FIXTURE the quantifier is ANY — a fixture is matched if any
+            one slash-free pattern matches its basename. An ALL-patterns rule
+            would see the real shape as unmasked and miss the primary case.
+          * per FIXTURE SET the quantifier is EVERY — the mask fires only when
+            all declared fixtures are covered. Partial coverage means phase 3
+            would already be failing on the uncovered fixture, so the pack does
+            NOT look healthy and the mask's whole premise is absent; CLM-002
+            still fires there, so nothing goes unreported.
+        THE TWO QUANTIFIERS NEED TWO SEPARATE FALSIFIERS, AND ROUND 3 SHIPPED
+        ONLY ONE. In all four ROUND-2 corpus packs both fixtures were matched
+        by every pattern or by none, making both quantifiers indistinguishable.
+        Round 3 added `partial-fixture-coverage/` (TASK-014), which settles the
+        per-FIXTURE-SET choice — but it left every pack in the corpus, including
+        `fixture-masked/`, with AT MOST ONE slash-free pattern per semgrep rule.
+        Over a one-element pattern set ANY and ALL are the same predicate, so
+        the per-FIXTURE choice was still unfalsifiable corpus-wide and a wrong
+        ALL-patterns implementation would have passed the whole suite while
+        going blind on the real flagship rule. Round 4 closes that by rebuilding
+        `fixture-masked/` (TASK-012) with TWO disjointly-matching hooks
+        mirroring the real rule above. Both packs are load-bearing and neither
+        substitutes for the other: `fixture-masked/` pins per-FIXTURE ANY,
+        `partial-fixture-coverage/` pins per-FIXTURE-SET EVERY.
+
+  ── CROSS-LANE COLLISION CHECK (2026-08-17) ───────────────────────────────
+  EXISTENCE-IN-WORLD: no artifact owns this surface. `grep -l` over `plans/`
+  and `specs/` for `paths.include` / `multi-segment` / `ISSUE-151` returns five
+  files, every one a CITATION rather than ownership:
+    * PLAN-ISSUE-091 — files this issue (TASK-006 item 3); explicitly REFUSES
+      to fix it in core dispatch.
+    * PLAN-ISSUE-097 — owns the two stale `@waiver:` tokens whose visibility
+      this defect currently provides. Adjacent, not overlapping: it touches
+      waiver adjudication, not packval.
+    * PLAN-ISSUE-101 / PLAN-SPEC-067 / SPEC-067 — the CI-recipe pack's OWN
+      include sets. SPEC-067's CLM-053..056 fix those specific sets by hand;
+      neither generalizes the contract nor validates any other pack.
+  DIR-032 item 4 (ISSUE-092) trap (a) names the same MECHANISM on a different
+  surface (packval's fixture dispatch not inheriting item 3's undercount) and
+  does not close this.
+
+  TWO MORE THE FIRST TWO SWEEPS MISSED, both non-owning, recorded so a third
+  sweep does not re-derive them:
+    * PLAN-ISSUE-146 — draft, disjoint file scope, and it already names THIS
+      plan as disjoint in its own text. Mutual, not overlapping.
+    * PLAN-SPEC-014 — reads `status: ready` but its code shipped months ago.
+      Stale status, not a live lane; it owns nothing here.
+
+  FILE CONTENTION (re-measured 2026-08-17 at round-4 fix time, and it has
+  MOVED since round 3 — the earlier claim that `git status --porcelain` over
+  all of `pkg/packval` and `pkg/pack` returns empty is NO LONGER TRUE, because
+  the sibling lanes named below went from draft to actively writing). The
+  measurement that matters is the narrow one, over THIS PLAN'S OWN write set:
+
+    git status --porcelain pkg/packval/phase2.go pkg/packval/pathscope.go \
+      pkg/packval/testdata/path-scope \
+      cmd/backstop/ci_recipes_harness_test.go \
+      cmd/backstop/ci_glob_scoping_authority_test.go
+
+  That returns EMPTY. Every file this plan creates or modifies is clean and
+  unclaimed on disk.
+
+  What IS dirty inside `pkg/packval` and `pkg/pack` right now, all of it owned
+  by other lanes and all of it disjoint from the list above: modified
+  `pkg/packval/manifest.go`, `pkg/packval/phase3.go`,
+  `pkg/packval/executor.go`, `pkg/pack/scaffold.go`,
+  `pkg/pack/scaffold_test.go`, plus untracked
+  `pkg/packval/phase3_patternarg_dispatch_test.go`,
+  `pkg/packval/executor_stdout_artifact_test.go`,
+  `pkg/packval/contracts_pack_dispatch_test.go` and
+  `pkg/packval/testdata/patternarg-pack*/`. The wider tree is shared too (many
+  `.claude/agent-memory/` files plus in-flight work in `pkg/scaffold`,
+  `pkg/config`, `pkg/artifact`, `pkg/schema`, `cmd/backstop/artifact_new.go`
+  and several untracked layout test files). None of it intersects this plan's
+  declared scope.
+
+  The one live edge is `manifest.go`, which SE-5 depends on for
+  `RuleSourcePath()`. Verified 2026-08-17 that PLAN-ISSUE-142's in-flight
+  `manifest.go` diff leaves `RuleSourcePath()` BYTE-IDENTICAL, so SE-5 holds
+  as written — but that is a measurement of a moving file, so re-read the
+  function before calling it rather than trusting this line.
+
+  TWO UNTRACKED PEER PLANS DO DECLARE `pkg/packval` SCOPE, and the first-round
+  sweep missed both. Named here so the implementer can re-check them rather
+  than rediscover them:
+    * PLAN-ISSUE-142 (pattern-arg fixtures never dispatch) — declares
+      `pkg/packval/phase3.go` AND `pkg/packval/manifest.go`. DISJOINT from this
+      plan's write set (`pathscope.go`, `phase2.go`), but the `manifest.go`
+      touch matters: that file is home to `RuleSourcePath()`, which SE-5 makes
+      this plan depend on. If 142 lands first, RE-READ `RuleSourcePath` before
+      calling it rather than assuming its 2026-08-17 shape. It also creates
+      `pkg/packval/testdata/patternarg-pack*/` — a different testdata subtree
+      than this plan's `testdata/path-scope/`, so no fixture collision.
+    * PLAN-ISSUE-144 (executor ignores stdout artifact) — declares
+      `pkg/packval/executor.go` only. Fully disjoint; noted for completeness.
+    * PLAN-ISSUE-148 (substantiveness fixture polarity) targets
+      `packs/substantiveness/` pack DATA, not `pkg/packval` source. Still
+      disjoint — confirm it has not since moved.
+  All three are unmerged, but 142 and 144 are no longer merely drafts — as of
+  2026-08-17 both are ACTIVELY IMPLEMENTING, which is where the dirty
+  `manifest.go` / `phase3.go` / `executor.go` and the untracked
+  `patternarg-pack*/` fixtures above come from. That changes nothing about
+  disjointness: neither 142 nor 144 touches `phase2.go`, `pathscope.go`,
+  `testdata/path-scope/` or the CI harness, so this plan may still proceed
+  independently of their sequencing. It does mean the tree will be moving
+  underneath the implementer, so scope every verification command to this
+  plan's own files rather than reading a whole-package `git status` as a
+  signal about this lane.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Falsification corpus"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Dispatch-advisory corpus: every path-scope state except the mask"
+        description: |
+          Create MINIMAL fixture packs under `pkg/packval/testdata/path-scope/`.
+          They exist to drive `RunCoherence` directly in unit tests, so they need
+          only the fields the checks read.
+
+          READ THIS BEFORE COPYING A PRECEDENT. The nearest-looking precedent,
+          `pkg/packval/testdata/exempt-decision/`, is MANIFEST-ONLY — and that
+          is correct for IT, because `ExemptDecisionPending` reads `pack.yml`
+          and nothing else. It is the WRONG model here. This check resolves each
+          rule's source through `RuleSourcePath()` and READS THAT FILE OFF DISK
+          for its `paths:` block. A manifest-only corpus would yield zero
+          patterns, and every phase-2 test in this plan would go VACUOUSLY
+          GREEN. Every pack below therefore ships its rule file too, and every
+          such file is enumerated in `files:`.
+
+          SHAPE COMMON TO ALL FIVE PACKS IN THIS TASK. Each declares one engine
+          in `engines:` with `input_mode: rule-flags` (except `non-ruleflags/`),
+          and one rule that names that engine via `engine:` and its rule file
+          via `rule_path:`. Every rule here carries a RESOLVING engine and NO
+          `claims:` — which is a deliberate use of phase 2's own claimless-with-
+          resolving-engine exemption (`phase2.go`, the `engine-resolve` branch),
+          and is what lets these five packs ship no fixture files at all without
+          tripping `fixtures-positive`/`fixtures-negative` (SE-12). Do not add a
+          `fixtures/` directory to any of them.
+
+          SE-4 IS TESTABLE ONLY IF THE IDS DIFFER. Give every pack a manifest
+          rule id and a DIFFERENT semgrep rule id inside the rule file (e.g.
+          manifest `inert-include-rule`, semgrep `sg-inert-include`). An
+          implementation that reports the manifest id must fail.
+
+            inert-include/
+              rule file declares `paths: {include: ["cmd/app/handler*.go"]}`.
+              The CLM-002 positive.
+
+            inert-exclude/
+              same shape but `paths: {exclude: ["cmd/app/handler.go"]}`. Drives
+              CLM-003's direction wording. Its rule carries NO include at all,
+              so a check that only ever looks at `include` fails here.
+
+            slash-free-only/
+              `paths: {include: ["handler*.go"], exclude: ["*_test.go"]}`. The
+              CLM-004 SILENT case. This is the fixture that makes the check
+              falsifiable: an implementation that reports every pattern passes
+              every other test and fails only this one.
+
+            semgrep-suggested-spellings/
+              THREE patterns in one include list — `**/cmd/app/handler*.go`,
+              `/cmd/app/handler*.go`, and `*/*/handler*.go`. All THREE must be
+              reported. This is SE-1's guard: it is the fixture that stops an
+              implementer from "fixing" the predicate to bless semgrep's own
+              recommended spellings, which were measured dark.
+
+            non-ruleflags/
+              a pack whose engine declares an InputMode OTHER than rule-flags
+              (`config-file`), whose rule points `rule_path` at
+              `config/tool-config.yml`, and where THAT FILE carries an
+              inert-looking `paths.include`. CLM-007's falsifier: an
+              implementation that reads the source file unconditionally reports
+              it and fails; a correctly InputMode-gated one is silent.
+
+          Do not modify any existing fixture pack, and do not build the other
+          three tasks' packs here — the CLM-006 mask corpus is TASK-012's,
+          CLM-009's shared-rule-file pack is TASK-013's, and CLM-010's
+          attribution/quantifier packs are TASK-014's. All four setup tasks
+          write disjoint directories under `testdata/path-scope/` and run in
+          parallel (D-081).
+        files:
+          - pkg/packval/testdata/path-scope/inert-include/pack.yml
+          - pkg/packval/testdata/path-scope/inert-include/rules/inert-include.yml
+          - pkg/packval/testdata/path-scope/inert-exclude/pack.yml
+          - pkg/packval/testdata/path-scope/inert-exclude/rules/inert-exclude.yml
+          - pkg/packval/testdata/path-scope/slash-free-only/pack.yml
+          - pkg/packval/testdata/path-scope/slash-free-only/rules/slash-free-only.yml
+          - pkg/packval/testdata/path-scope/semgrep-suggested-spellings/pack.yml
+          - pkg/packval/testdata/path-scope/semgrep-suggested-spellings/rules/suggested-spellings.yml
+          - pkg/packval/testdata/path-scope/non-ruleflags/pack.yml
+          - pkg/packval/testdata/path-scope/non-ruleflags/config/tool-config.yml
+        claims:
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-007
+        depends_on: []
+
+      - id: TASK-012
+        type: setup
+        title: "Fixture-mask corpus, including the cross-contamination pack"
+        description: |
+          The CLM-006 half of the corpus, carved out of TASK-001 so neither
+          setup task carries an unreviewable file scope. Disjoint directories
+          from TASK-001, so the two run in parallel (D-081).
+
+          SAME ENGINE REQUIREMENT AS TASK-001, AND IT IS NOT OPTIONAL. Each
+          pack here declares one engine in `engines:` with
+          `input_mode: rule-flags`, and each rule names it via `engine:`.
+          CLM-007 gates the whole scan on the RESOLVED binding's InputMode, so
+          a pack without a resolving rule-flags engine is skipped silently —
+          every TASK-005 test would stay permanently red, and the implementer
+          could not fix it because these files are outside TASK-006's declared
+          scope.
+
+          UNLIKE TASK-001'S PACKS, THESE DECLARE CLAIMS — the mask check is
+          about declared fixtures, so it cannot use the claimless exemption.
+          That makes SE-12 binding: every claim needs BOTH a positive and a
+          negative fixture, and every one of those files must EXIST and be
+          NON-EMPTY on disk, or phase 2 raises `fixtures-positive` /
+          `fixtures-negative` / `fixture-exists` / `fixture-empty`
+          `ValidationError`s and CLM-005's "Errors is empty" assertion fails on
+          this plan's own corpus. Two-line Go stubs are enough content; what
+          matters is that they are non-empty and that every file under
+          `fixtures/` is referenced by some claim (an unreferenced one draws an
+          `orphan-fixture` warning). Same SE-4 discipline as TASK-001: manifest
+          rule ids and semgrep rule ids must DIFFER.
+
+            fixture-masked/
+              the CLM-006 positive, built to mirror the real backstop-self rule
+              `no-structural-name-split-on-spine` IN ITS ACTUAL SHAPE — which
+              means TWO DISJOINTLY-MATCHING slash-free hooks, not one shared
+              one. Re-read on disk 2026-08-17 at
+              `.backstop/packs/backstop-ai/backstop-self/rules/no-baked.yml`:
+              that rule's include list ends with `*structural-name-split*.go`
+              and `*structured-property-read*.go`, and each of its two fixtures
+              is matched by EXACTLY ONE of them — neither hook matches both.
+
+              Reproduce that here. One semgrep rule whose include list is
+                `["pkg/svc/*.go", "*masked-alpha*.go", "*masked-beta*.go"]`
+              where `pkg/svc/*.go` is the inert intended live scope, and one
+              claim declaring
+                positive: `fixtures/masked-alpha-positive.go` — matched by
+                  `*masked-alpha*.go` and by NOTHING else
+                negative: `fixtures/masked-beta-negative.go`  — matched by
+                  `*masked-beta*.go` and by NOTHING else
+              Every declared fixture is matched by some hook, so the mask FIRES.
+
+              THE TWO DISJOINT HOOKS ARE LOAD-BEARING, NOT DECORATION. THEY ARE
+              THE ONLY THING IN THE WHOLE CORPUS THAT MAKES CLM-010'S
+              PER-FIXTURE QUANTIFIER OBSERVABLE — DO NOT "SIMPLIFY" THEM BACK TO
+              A SINGLE SHARED `*masked-probe*.go`. Round 3 specified exactly
+              that single-hook shape and it was a defect: with at most one
+              slash-free pattern per semgrep rule anywhere in the corpus, the
+              per-fixture ANY reading and the per-fixture ALL reading return
+              IDENTICAL results on every pack, so an ALL-patterns implementation
+              would pass the entire mask suite and then silently fail to flag
+              the real flagship rule — the exact case ISSUE-151 exists to catch.
+              With two disjoint hooks, an ALL-patterns implementation sees
+              `masked-alpha-positive.go` as unmatched by `*masked-beta*.go`,
+              declines to raise the mask, and fails
+              `TestPathScope_FixtureMaskAdvisoryFires`.
+
+              Put that reasoning in a comment at the top of
+              `rules/masked.yml` naming the real rule it mirrors, so the next
+              reader who reaches for the shorter spelling sees why it is wrong.
+              TASK-005 additionally pins the shape with a structural assertion,
+              so a silent collapse fails a test rather than only losing power.
+
+            multiseg-no-mask/
+              SE-7's counterfactual, and the reason CLM-006 is not vacuous: the
+              SAME shape with the slash-free hook REMOVED. Include list is
+              `["pkg/svc/*.go"]` alone; the claim's fixtures
+              (`fixtures/unmatched-positive.go`,
+              `fixtures/unmatched-negative.go`) are matched by NOTHING in it.
+              `path-scope-dispatch` fires here; `path-scope-fixture-mask` must
+              NOT. An implementation that raises the mask whenever an inert
+              pattern exists passes `fixture-masked` and fails here.
+
+            two-rule-cross-contamination/
+              SE-11's falsifier. TWO manifest rules, each with its own rule file
+              and its own claim, modelling the real copy-pasted-fixture-hook
+              shape:
+                probe-a — rule file include `["pkg/svc/*.go", "*a-probe*.go"]`;
+                  claim fixtures `fixtures/a-probe-positive.go` and
+                  `fixtures/a-probe-negative.go`. Mask FIRES for probe-a: its
+                  own fixtures are covered only by its own slash-free pattern.
+                probe-b — rule file include `["pkg/other/*.go", "*a-probe*.go"]`
+                  (the hook copy-pasted from a, which is exactly what a
+                  multi-rule pack author does); claim fixtures
+                  `fixtures/b-other-positive.go` and
+                  `fixtures/b-other-negative.go`, matched by NEITHER of b's
+                  patterns. Mask must NOT fire for probe-b.
+              An implementation reading `phase2.go`'s PACK-WIDE
+              `referencedFixtures` map instead of each rule's own
+              `claims[].fixtures` sees probe-b's `*a-probe*.go` match probe-a's
+              fixture and raises a FALSE mask on probe-b. This pack is the only
+              thing in the corpus that catches that — every other pack declares
+              exactly one rule.
+        files:
+          - pkg/packval/testdata/path-scope/fixture-masked/pack.yml
+          - pkg/packval/testdata/path-scope/fixture-masked/rules/masked.yml
+          - pkg/packval/testdata/path-scope/fixture-masked/fixtures/masked-alpha-positive.go
+          - pkg/packval/testdata/path-scope/fixture-masked/fixtures/masked-beta-negative.go
+          - pkg/packval/testdata/path-scope/multiseg-no-mask/pack.yml
+          - pkg/packval/testdata/path-scope/multiseg-no-mask/rules/unmasked.yml
+          - pkg/packval/testdata/path-scope/multiseg-no-mask/fixtures/unmatched-positive.go
+          - pkg/packval/testdata/path-scope/multiseg-no-mask/fixtures/unmatched-negative.go
+          - pkg/packval/testdata/path-scope/two-rule-cross-contamination/pack.yml
+          - pkg/packval/testdata/path-scope/two-rule-cross-contamination/rules/probe-a.yml
+          - pkg/packval/testdata/path-scope/two-rule-cross-contamination/rules/probe-b.yml
+          - pkg/packval/testdata/path-scope/two-rule-cross-contamination/fixtures/a-probe-positive.go
+          - pkg/packval/testdata/path-scope/two-rule-cross-contamination/fixtures/a-probe-negative.go
+          - pkg/packval/testdata/path-scope/two-rule-cross-contamination/fixtures/b-other-positive.go
+          - pkg/packval/testdata/path-scope/two-rule-cross-contamination/fixtures/b-other-negative.go
+        claims:
+          - CLM-005
+          - CLM-006
+        depends_on: []
+
+      - id: TASK-013
+        type: setup
+        title: "Shared-rule-file corpus: the N manifest rules to 1 file fan-out"
+        description: |
+          CLM-009's only falsifier, and the shape the REAL packs actually have
+          (SE-14). Disjoint directory from every other setup task, so it runs
+          in parallel with them (D-081).
+
+            shared-rule-file/
+              THREE manifest rules — `alpha-rule`, `beta-rule`, `gamma-rule` —
+              ALL declaring `rule_path: rules/shared.yml`, all naming the same
+              `input_mode: rule-flags` engine, none carrying `claims:` (the
+              claimless-with-resolving-engine exemption, SE-12, so this pack
+              ships no fixtures).
+
+              `rules/shared.yml` holds TWO semgrep rules with ids that differ
+              from all three manifest ids (SE-4): `sg-shared-one` with
+              `paths: {include: ["cmd/app/one*.go"]}` and `sg-shared-two` with
+              `paths: {exclude: ["pkg/svc/two.go"]}`.
+
+          THE ARITHMETIC IS THE POINT. Two distinct inert patterns, referenced
+          by three manifest rules. The correct output is TWO
+          `path-scope-dispatch` warnings. A per-manifest-rule walk emits SIX.
+          Pick 3 rules and 2 patterns deliberately: with 2x2 a transposed
+          implementation could still land on the right count by accident, and
+          6 != 2 is unambiguous. Mixing one include and one exclude also stops
+          a key-blind dedup from collapsing the two into one.
+
+          Do not add a `fixtures/` directory — a rule with no claims owes no
+          fixtures, and any unreferenced file under `fixtures/` draws an
+          `orphan-fixture` warning that would pollute CLM-005's assertions.
+        files:
+          - pkg/packval/testdata/path-scope/shared-rule-file/pack.yml
+          - pkg/packval/testdata/path-scope/shared-rule-file/rules/shared.yml
+        claims:
+          - CLM-009
+        depends_on: []
+
+      - id: TASK-014
+        type: setup
+        title: "Mask-attribution corpus: per-semgrep-rule scoping and the quantifier"
+        description: |
+          The two packs that make CLM-010 falsifiable. Neither shape exists in
+          TASK-012's corpus, and without them a wrong implementation is
+          UNDETECTABLE (SE-15, SE-16). Disjoint directories from TASK-001,
+          TASK-012 and TASK-013, so all four setup tasks run in parallel.
+
+          Both packs declare one engine with `input_mode: rule-flags` (CLM-007,
+          same reason as TASK-012) and DO declare claims, so SE-12 binds: every
+          fixture file listed below must exist on disk and be NON-EMPTY. Two
+          lines of Go is enough. Manifest rule ids and semgrep rule ids must
+          DIFFER (SE-4).
+
+            multi-semgrep-rule-file/
+              SE-15's falsifier: ONE manifest rule (`probe-rule`), ONE rule
+              file, TWO semgrep rules inside it —
+                `sg-hooked`   include `["pkg/svc/*.go", "*hooked-probe*.go"]`
+                `sg-unhooked` include `["pkg/svc/*.go"]` and NOTHING else — no
+                  slash-free pattern of its own, mirroring `no-baked-tool-exec`
+                  and `no-baked-language-token` in the real file.
+              The manifest rule's claim declares
+              `fixtures/hooked-probe-positive.go` and
+              `fixtures/hooked-probe-negative.go`, whose basenames match
+              `*hooked-probe*.go` and nothing else.
+              CORRECT: exactly ONE mask, naming `sg-hooked`. An implementation
+              that unions the FILE's slash-free patterns raises a second mask
+              naming `sg-unhooked`, because the hook belongs to its sibling.
+
+            partial-fixture-coverage/
+              SE-16's falsifier, and the ONLY thing that separates ANY-fixture
+              from EVERY-fixture. ONE manifest rule, ONE rule file, ONE semgrep
+              rule with include `["pkg/svc/*.go", "*covered-probe*.go"]`. Its
+              claim declares TWO fixtures of which exactly ONE is matched:
+                `fixtures/covered-probe-positive.go` — matched by
+                  `*covered-probe*.go`
+                `fixtures/uncovered-negative.go`     — matched by NEITHER
+                  pattern (`pkg/svc/*.go` is inert; the slash-free hook does
+                  not match this basename)
+              CORRECT: `path-scope-dispatch` fires (the inert pattern is real)
+              and the mask does NOT — coverage is partial, so the pack does not
+              look healthy and the mask's premise is absent. An implementation
+              using "ANY fixture matched" raises a false mask here and passes
+              every other test in the corpus.
+
+          The per-fixture ANY half of CLM-010 is pinned elsewhere, by TASK-012's
+          `fixture-masked` — whose ONE semgrep rule carries TWO disjointly-
+          matching slash-free hooks (`*masked-alpha*.go` matching only
+          `masked-alpha-positive.go`, `*masked-beta*.go` matching only
+          `masked-beta-negative.go`), so an ALL-patterns-per-fixture reading
+          fails there. This task pins the per-fixture-SET half. The two halves
+          are independent and neither pack can substitute for the other: both
+          packs here declare a single slash-free hook, so neither can distinguish
+          ANY from ALL at the per-fixture level.
+        files:
+          - pkg/packval/testdata/path-scope/multi-semgrep-rule-file/pack.yml
+          - pkg/packval/testdata/path-scope/multi-semgrep-rule-file/rules/two-sg-rules.yml
+          - pkg/packval/testdata/path-scope/multi-semgrep-rule-file/fixtures/hooked-probe-positive.go
+          - pkg/packval/testdata/path-scope/multi-semgrep-rule-file/fixtures/hooked-probe-negative.go
+          - pkg/packval/testdata/path-scope/partial-fixture-coverage/pack.yml
+          - pkg/packval/testdata/path-scope/partial-fixture-coverage/rules/partial.yml
+          - pkg/packval/testdata/path-scope/partial-fixture-coverage/fixtures/covered-probe-positive.go
+          - pkg/packval/testdata/path-scope/partial-fixture-coverage/fixtures/uncovered-negative.go
+        claims:
+          - CLM-010
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: The predicate and the path-scope-dispatch advisory"
+    tasks:
+      - id: TASK-002
+        type: test
+        title: "Red tests for the inertness predicate and the phase-2 advisory"
+        description: |
+          Write the failing tests for CLM-001..005 and CLM-007. Mandated names:
+
+            TestPathScope_PredicateDecidesOnSeparatorAlone
+              Table over the SPELLINGS MEASURED IN THIS PLAN'S NOTES. Inert:
+              `cmd/backstop/pack_gate*.go`, `**/cmd/backstop/pack_gate*.go`,
+              `/cmd/backstop/pack_gate*.go`, `backstop/pack_gate*.go`,
+              `*/*/pack_gate*.go`. Honored: `pack_gate*.go`, `*_test.go`,
+              `*testdata*`, `*.go`. The `**/` and `/`-anchored rows are SE-1 in
+              test form — assert they are INERT, because semgrep recommends
+              them and they do not work.
+
+            TestPathScope_AdvisoryNamesEveryInertPattern
+              Run `RunCoherence` over `inert-include`, `inert-exclude` and
+              `semgrep-suggested-spellings`. Assert one `path-scope-dispatch`
+              warning per inert pattern, each carrying the SEMGREP rule id (SE-4),
+              the key it came from, and the pattern text. `ValidationWarning`
+              has NO `Rule` field (SE-13), so assert those three on `Message`
+              and `Files`: the semgrep rule id and the `include`/`exclude` key
+              in `Message`, the rule-source path in `Files`, and the pattern
+              text in `Message`. Assert the semgrep id and NOT the manifest
+              rule id — TASK-001 made them differ precisely so this can fail.
+
+            TestPathScope_AdvisoryNamesFailureDirection
+              CLM-003. Assert the include-side message says the rule scans
+              nothing, and the exclude-side message says it fires on files the
+              pack meant to exempt. Assert the two messages DIFFER — an
+              implementation emitting one generic string for both must fail.
+
+            TestPathScope_SlashFreePatternsSilent
+              CLM-004. `slash-free-only` produces ZERO `path-scope-dispatch`
+              warnings, on both keys.
+
+            TestPathScope_SharedRuleFileFindingsDeduplicated
+              CLM-009, and the check that keeps this advisory usable on real
+              packs (SE-14). Run `RunCoherence` over `shared-rule-file`, whose
+              THREE manifest rules all resolve to one two-semgrep-rule file
+              carrying two distinct inert patterns. Assert EXACTLY TWO
+              `path-scope-dispatch` warnings — one naming `sg-shared-one` and
+              its include pattern, one naming `sg-shared-two` and its exclude
+              pattern. Assert the exact count, not "at least two": a
+              per-manifest-rule walk emits SIX and would pass a floor
+              assertion. Assert the two warnings differ in `Message`, so a
+              dedup that collapsed both patterns into one entry also fails.
+
+            TestPathScope_AdvisoryNeverBlocks
+              CLM-005. For EVERY pack in the corpus — TASK-001's five,
+              TASK-012's three, TASK-013's one and TASK-014's two:
+              `PhaseResult.Status` stays `pass`,
+              `PhaseResult.Errors` is empty, and after `FinalizeStatus` the
+              `Result.Status` is `pass`. Assert against the WARNING channel
+              only.
+
+              This test is also the corpus's own guard: TASK-012's and
+              TASK-014's packs
+              declare claims, so a missing or empty fixture file there surfaces
+              here as a `fixtures-*` / `fixture-exists` / `fixture-empty`
+              `ValidationError` (SE-12). If this test fails on a
+              `Check` other than `path-scope-*`, the corpus is malformed — fix
+              the fixture pack, never the assertion.
+
+            TestPathScope_NonRuleFlagsEngineNotScanned
+              CLM-007. `non-ruleflags` produces zero warnings. Do not assert
+              this by grepping for a tool name; assert on the InputMode-gated
+              behaviour.
+
+          These are RED against current source: no predicate exists and phase 2
+          emits no such check.
+        files:
+          - pkg/packval/pathscope_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-007
+          - CLM-009
+        depends_on:
+          - TASK-001
+          - TASK-012
+          - TASK-013
+          - TASK-014
+
+      - id: TASK-003
+        type: implementation
+        title: "Ship the predicate and wire the advisory into phase 2"
+        description: |
+          New file `pkg/packval/pathscope.go`:
+
+            * The CLM-001 exported predicate, named EXACTLY
+              `PathPatternInertUnderFileDispatch(pattern string) bool` —
+              TASK-008's source guard scans for that literal, so a different
+              name breaks it. Decide on the presence of a `/`
+              in the pattern and nothing else — no directory-prefix heuristic,
+              no anchor handling, no tool literal. Its doc comment must record
+              WHY the `**/`-prefixed and `/`-anchored spellings are inert
+              despite semgrep recommending them, citing the measurement, so the
+              next reader does not "fix" it back (SE-1).
+            * A scanner that, for one pack, walks its rules, resolves each
+              rule's source through `RuleSourcePath()` (SE-5), reads it once per
+              distinct source path, and yields one finding per inert pattern —
+              carrying the semgrep rule id from the rule file itself (SE-4), the
+              key, and the pattern.
+
+              DEDUP KEY, MANDATED (CLM-009): emit at most ONE finding per
+              distinct `(rule-source path, semgrep rule id, key, pattern)`
+              tuple. N manifest rules resolving to the same file must yield the
+              same finding set as one would. Note the manifest rule id is
+              DELIBERATELY ABSENT from the key — including it would restore the
+              N-copy duplication under a different spelling.
+
+              CACHING THE PARSE IS NOT ENOUGH, and this is where a plausible
+              implementation goes wrong (SE-14): a cached parse that is still
+              walked once per referencing manifest rule emits N copies of every
+              finding. On the real backstop-self pack that is 7x26=182 warnings
+              instead of 26. The clean shape is to collapse the pack's rules to
+              their DISTINCT source paths FIRST, scan each path once, and never
+              iterate patterns inside the manifest-rule loop at all. The
+              InputMode gate (below) still has to be satisfied per manifest
+              rule — a source path is in scope if ANY manifest rule naming it
+              resolves to a rule-flags binding.
+            * Parse the rule file with the same loose-struct approach
+              `semgrepFileContainsRuleID` already uses in `phase3.go`: a
+              narrow anonymous struct over `rules[].id` plus
+              `rules[].paths.{include,exclude}`. An unparseable file or an
+              absent `paths:` block is SILENT (SE-6).
+
+          In `pkg/packval/phase2.go`, inside the existing rule loop: resolve the
+          binding via `resolveEngine` and gate the scan on
+          `binding.InputMode == engine.InputModeRuleFlags` (CLM-007) — the same
+          gate `phase3.go` uses, and for the same reason its comment gives.
+          Never compare against an engine-name literal. Append one
+          `ValidationWarning{Check: "path-scope-dispatch"}` per finding, with a
+          `FixHint` naming the only remedy that works: a slash-free pattern.
+          Say plainly in the hint that `**/`-prefixing and `/`-anchoring do NOT
+          work, since that is what the author's tool is telling them to do.
+
+          Bump phase 2's `Checks` count (SE-8). Warnings only — no
+          `ValidationError` on this path, ever (CLM-005).
+        files:
+          - pkg/packval/pathscope.go
+          - pkg/packval/phase2.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-007
+          - CLM-009
+        depends_on:
+          - TASK-002
+
+      - id: TASK-004
+        type: verification
+        title: "Gate the predicate and advisory"
+        description: |
+          Run `./bin/backstop gate` (diff-scoped — the fast inner loop) and
+          resolve everything it reports. Then run the plan's `test_command` and
+          confirm the TASK-002 tests are GREEN where they were red.
+
+          One extra receipt, because this plan's whole subject is a check that
+          can go vacuous: run `./bin/backstop pack check` against an installed
+          pack that the notes measured as carrying inert patterns and confirm
+          the advisory actually appears in real output — not only in unit tests.
+          Confirm the exit code is UNCHANGED (CLM-005).
+        files:
+          - pkg/packval/pathscope.go
+          - pkg/packval/phase2.go
+        claims:
+          - CLM-002
+          - CLM-005
+        depends_on:
+          - TASK-003
+
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: The fixture-mask advisory"
+    tasks:
+      - id: TASK-005
+        type: test
+        title: "Red tests for path-scope-fixture-mask"
+        description: |
+          CLM-006. Mandated names:
+
+            TestPathScope_FixtureMaskAdvisoryFires
+              `fixture-masked` yields a `path-scope-fixture-mask` warning,
+              distinct in `Check` from `path-scope-dispatch`, naming the rule
+              and stating that its declared fixtures are matched only by
+              slash-free patterns while its live scope is inert — so phase 3
+              green does not mean the rule runs.
+
+              PIN THE CORPUS SHAPE IN THIS SAME TEST, before asserting on the
+              warning. Read `fixture-masked`'s rule file and assert that its
+              semgrep rule declares at least TWO slash-free include patterns and
+              that NO single one of them matches BOTH declared fixture
+              basenames. That is a structural guard on the testdata, not on the
+              implementation: without it, someone collapsing the two hooks back
+              to one shared `*masked-probe*.go` would leave every assertion in
+              this file still green while silently destroying the only signal
+              that separates the per-fixture ANY reading from the ALL reading
+              (see the pairing note under
+              `TestPathScope_FixtureMaskRequiresEveryFixtureCovered`). Fail with
+              a message that says so explicitly.
+
+            TestPathScope_FixtureMaskSilentWithoutTheHook
+              SE-7's falsifier, and the one that makes CLM-006 non-vacuous.
+              `multiseg-no-mask` carries an inert pattern and a fixture matched
+              by nothing, and must produce a `path-scope-dispatch` warning but
+              NO `path-scope-fixture-mask` warning. An implementation that
+              raises the mask whenever an inert pattern exists passes the test
+              above and fails this one.
+
+            TestPathScope_FixtureMaskScopedPerRule
+              SE-11's falsifier. `two-rule-cross-contamination` must yield a
+              `path-scope-fixture-mask` warning naming probe-a's semgrep rule
+              id and NO mask warning naming probe-b's. Assert BOTH directions —
+              the presence for a and the ABSENCE for b — because an
+              implementation that reads `phase2.go`'s pack-wide
+              `referencedFixtures` map passes the presence half and fails the
+              absence half. Assert on the semgrep rule id in `Message` (SE-13);
+              a bare count of mask warnings is not enough, since the correct
+              count (1) and the contaminated count (2) differ but a future
+              third rule would make counting fragile.
+
+            TestPathScope_FixtureMaskAttributedPerSemgrepRule
+              CLM-010's per-rule half, SE-15's falsifier.
+              `multi-semgrep-rule-file` must yield EXACTLY ONE
+              `path-scope-fixture-mask` warning, naming `sg-hooked`, and NO
+              mask naming `sg-unhooked`. Assert both directions and assert on
+              the semgrep rule id in `Message` (SE-13). `sg-unhooked` carries
+              an inert pattern and NO slash-free pattern of its own, so the
+              only way it can be masked is by borrowing its sibling's hook —
+              which is precisely the union bug, and precisely the shape 2 of
+              the 7 real `no-baked.yml` rules have.
+
+            TestPathScope_FixtureMaskRequiresEveryFixtureCovered
+              CLM-010's quantifier half, SE-16's falsifier.
+              `partial-fixture-coverage` declares two fixtures of which exactly
+              one is matched by the rule's slash-free pattern. Assert a
+              `path-scope-dispatch` warning DOES fire (the inert pattern is
+              real) and that NO `path-scope-fixture-mask` warning fires.
+              An implementation using "ANY declared fixture matched" passes
+              every other test in this file and fails only here.
+
+              The complementary ANY-per-fixture direction is covered by
+              `fixture-masked`, whose single semgrep rule carries TWO
+              disjointly-matching slash-free hooks: `*masked-alpha*.go` matches
+              only `masked-alpha-positive.go` and `*masked-beta*.go` matches
+              only `masked-beta-negative.go`, so neither hook matches both
+              fixtures. An implementation requiring ALL of a rule's patterns to
+              match each fixture therefore declines the mask there and fails
+              `TestPathScope_FixtureMaskAdvisoryFires`. State that pairing in a
+              comment so a later reader does not "simplify" either pack away.
+
+            TestPathScope_FixtureMaskNeverBlocks
+              Same non-blocking assertions as CLM-005, applied to the second
+              check, over TASK-012's three packs and TASK-014's two.
+
+          Also assert the two checks are independently attributable: a pack can
+          produce `path-scope-dispatch` alone, and the mask warning is always
+          accompanied by at least one dispatch warning.
+        files:
+          - pkg/packval/pathscope_mask_test.go
+        claims:
+          - CLM-005
+          - CLM-006
+          - CLM-010
+        depends_on:
+          - TASK-004
+          - TASK-012
+          - TASK-014
+
+      - id: TASK-006
+        type: implementation
+        title: "Detect the fixture-hook masking shape"
+        description: |
+          UNIT OF ATTRIBUTION, MANDATED — "rule" IS AMBIGUOUS HERE AND THE TWO
+          READINGS GIVE DIFFERENT ANSWERS. The mask is evaluated per
+          `(MANIFEST rule x SEMGREP rule)` pair (CLM-010):
+
+            * the FIXTURE side comes from the MANIFEST rule —
+              `rule.Claims[].Fixtures.{Positive,Negative}` for the rule under
+              consideration (SE-11);
+            * the PATTERN side comes from the SEMGREP rule — for each semgrep
+              rule inside that manifest rule's source file that carries at
+              least one inert pattern, use THAT SEMGREP RULE'S OWN slash-free
+              include patterns, never the file's union across siblings (SE-15).
+
+          The union reading is not a hypothetical error. `no-baked.yml` holds 7
+          semgrep rules; 4 own a slash-free hook and 2 (`no-baked-tool-exec`,
+          `no-baked-language-token`) declare no include at all while still
+          carrying an inert exclude. Unioning masks those 2 off a sibling's
+          hook. `multi-semgrep-rule-file` reproduces exactly that pair.
+
+          The mask names the SEMGREP rule id in `Message` (SE-4, SE-13), so a
+          multi-rule file points the author at the rule that is actually dark.
+
+          QUANTIFIER, MANDATED (CLM-010, SE-16) — do not leave this to
+          judgement, and do not infer it from the four round-2 corpus packs,
+          where ANY and EVERY happen to agree:
+
+            per FIXTURE   ANY — a fixture is matched when ANY ONE of that
+                          semgrep rule's slash-free patterns matches it.
+                          The real `no-structural-name-split-on-spine` has two
+                          hooks and two fixtures, each hook matching exactly
+                          one fixture; an ALL-patterns reading would see the
+                          primary real-world case as unmasked.
+            per FIXTURE   EVERY — the mask fires only when ALL of the manifest
+            SET           rule's declared fixtures are matched. Partial
+                          coverage means phase 3 is already failing on the
+                          uncovered fixture, so the pack does NOT look healthy
+                          and the mask's premise is absent. CLM-002 still fires
+                          there, so nothing goes unreported — this is
+                          under-reporting a diagnostic, not hiding a defect.
+
+          Match the fixture against the slash-free pattern the way the measured
+          contract behaves: the pattern is matched against the fixture's
+          BASENAME, since a slash-free pattern is exactly the single-segment
+          case.
+
+          READ EACH RULE'S OWN FIXTURES — `rule.Claims[].Fixtures.Positive` and
+          `.Negative` for the rule under consideration. DO NOT reuse
+          `phase2.go`'s `referencedFixtures` map (SE-11): it is PACK-WIDE,
+          accumulated across every rule AND every `tool_config` entry, so
+          feeding it to a per-rule mask test lets one rule's fixtures satisfy
+          another rule's slash-free patterns. That is not hypothetical — the
+          real `no-baked.yml` shape is many rules sharing copy-pasted fixture
+          hooks, and `two-rule-cross-contamination` reproduces it. A rule with
+          no claims (and therefore no declared fixtures) can never raise the
+          mask; it has nothing to be masked by.
+
+          The message must explain the CONSEQUENCE, not just the shape: phase 3
+          passes because the fixture is the one file the rule can still match,
+          so a green `pack test` is not evidence the rule scans anything in a
+          consuming repo. That sentence is the whole diagnostic value of this
+          check — the notes' counterfactual measurement is where it comes from.
+
+          Warnings only; no error path (CLM-005). Update phase 2's `Checks`
+          count again if TASK-003 accounted for only one new check (SE-8).
+        files:
+          - pkg/packval/pathscope.go
+          - pkg/packval/phase2.go
+        claims:
+          - CLM-005
+          - CLM-006
+          - CLM-010
+        depends_on:
+          - TASK-005
+
+      - id: TASK-007
+        type: verification
+        title: "Gate the mask advisory"
+        description: |
+          Run `./bin/backstop gate` and resolve everything it reports. Re-run
+          the plan's `test_command` and confirm phase-2 and phase-3 tests are
+          all green together — in particular that TASK-002's
+          `TestPathScope_SlashFreePatternsSilent` did not regress when the
+          second check landed in the same file.
+        files:
+          - pkg/packval/pathscope.go
+          - pkg/packval/phase2.go
+        claims:
+          - CLM-006
+        depends_on:
+          - TASK-006
+
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Single authority for the contract"
+    tasks:
+      - id: TASK-008
+        type: test
+        title: "Pin that the contract is stated exactly once"
+        description: |
+          CLM-008. TWO mandated names, because ONE of them cannot work alone —
+          see SE-9 and SE-10, which correct this task's first-round design.
+
+            TestCIGlobScoping_UsesSharedInertnessPredicate
+              The SOURCE guard, and the ONLY mechanism that can catch a skipped
+              refactor. Read `cmd/backstop/ci_recipes_harness_test.go` and
+              assert (a) it contains the literal
+              `packval.PathPatternInertUnderFileDispatch`, and (b) the regexp
+              `strings\.Contains\([^,]+,\s*"/"\)` matches ZERO times WITHIN THE
+              `ciGlobScopingProblems` / `ciMultiSegmentIncludeProblems` REGION.
+              The regexp form is deliberate: it survives a rename of the loop
+              variable and a gofmt pass, so it guards the CONTRACT rather than
+              one line's spelling.
+
+              SCOPE THE ASSERTION TO THAT REGION — A WHOLE-FILE ZERO-MATCH IS
+              UNSATISFIABLE, AND ROUND 1 GOT THIS WRONG (SE-9). Re-measured
+              2026-08-17: that regexp matches TWICE in the file today. The
+              second hit is `strings.Contains(token, "/")` inside
+              `ciOrgRepoLiterals`, an org/repo COORDINATE parser with no
+              relationship to path scoping. TASK-009 forbids touching it, and
+              routing an `org/repo` shape test through a path-scope-inertness
+              predicate would be semantically wrong even if it were permitted.
+              A whole-file assertion could therefore never go green and would
+              drive the implementer into a wrong refactor.
+
+              Extract the region first, then scan it: locate the source text
+              from the `func ciGlobScopingProblems(` declaration through the
+              end of its body and likewise for `func
+              ciMultiSegmentIncludeProblems(`, and run the regexp over just
+              that text. (Locating both by their `func ` declaration line and
+              reading to the next top-level `\nfunc ` is sufficient and does
+              not need a Go parser.) Equivalently, assert the surviving
+              whole-file match count is exactly 1 AND that its byte offset
+              falls OUTSIDE both regions — same guarantee, and it additionally
+              fails loudly if someone adds a third occurrence. Either form is
+              acceptable; do not weaken it to "at most one match anywhere",
+              which would pass with the refactor skipped and `ciOrgRepoLiterals`
+              deleted.
+
+              A behavioural agreement test cannot substitute for this.
+              `strings.Contains(p, "/")` and the shared predicate are identical
+              BY CONSTRUCTION, so an agreement assertion passes whether or not
+              TASK-009 ever ran. That is exactly the failure mode this task
+              exists to close, and it is why the first-round instinct against
+              source-text guards is wrong HERE specifically.
+
+            TestCIGlobScoping_MultiSegmentProblemsAgreeWithPredicate
+              The BEHAVIOURAL half, driving the slash-detection branch that no
+              production caller reaches (SE-10). It runs against the seam
+              TASK-009 extracts: `ciMultiSegmentIncludeProblems(patterns
+              []string) []string`, a pure function over a pattern slice with NO
+              `*testing.T` and NO on-disk pack read.
+
+              Table over the SAME spellings TASK-002's predicate table uses —
+              `cmd/backstop/pack_gate*.go`, `**/cmd/backstop/pack_gate*.go`,
+              `/cmd/backstop/pack_gate*.go`, `backstop/pack_gate*.go`,
+              `*/*/pack_gate*.go` as inert; `pack_gate*.go`, `*_test.go`,
+              `*testdata*`, `*.go` as honored. Assert one problem string per
+              inert pattern (naming that pattern), none for the honored ones,
+              and that the verdict matches
+              `packval.PathPatternInertUnderFileDispatch` entry for entry.
+
+          WHY A SEAM IS NEEDED AT ALL, since the first round assumed there was
+          none. `ciGlobScopingProblems` cannot be driven over synthetic
+          patterns: it derives its actual set from `ciIncludeSetFor`, which
+          parses the REAL installed ci-workflows pack rule files off disk, and
+          it SHORT-CIRCUITS — when the parsed set does not equal the caller's
+          `want` list it returns immediately, BEFORE the slash-check loop. So a
+          test handing it a synthetic pattern set never reaches the branch under
+          test. Extracting the loop is the smaller, more surgical change than
+          injecting a fake pack, and it is explicitly in TASK-009's scope.
+
+          This test file is RED before TASK-009: the seam does not exist, so the
+          package does not compile. That is the intended TDD red.
+        files:
+          - cmd/backstop/ci_glob_scoping_authority_test.go
+        claims:
+          - CLM-008
+        depends_on:
+          - TASK-002
+          - TASK-004
+
+      - id: TASK-009
+        type: refactor
+        title: "Extract the slash-detection seam and route it through the shared predicate"
+        description: |
+          TWO changes in one file, both required by TASK-008:
+
+          1. EXTRACT THE SEAM. Lift the slash-detection loop out of
+             `ciGlobScopingProblems` into a new package-level helper
+
+               func ciMultiSegmentIncludeProblems(patterns []string) []string
+
+             taking a pattern slice and returning the same problem strings the
+             loop builds today. It takes NO `*testing.T` and reads NOTHING off
+             disk, so TASK-008 can drive it over synthetic patterns.
+             `ciGlobScopingProblems` then calls it and appends its result,
+             keeping its own behaviour byte-identical.
+
+             This extraction is EXPLICITLY IN SCOPE. The first round's "change
+             nothing else in the file" caveat forbade exactly the seam the test
+             needs; it is superseded by this task. The caveat that remains: make
+             no OTHER change — do not touch `ciIncludeSetFor`, the include-set
+             comparison, the target/fixture/other-platform checks, or any
+             surrounding helper.
+
+          2. ROUTE IT. Inside the extracted helper, replace the inline
+             `strings.Contains(pattern, "/")` with
+             `packval.PathPatternInertUnderFileDispatch(pattern)`.
+             `cmd/backstop` already imports `pkg/packval`
+             (`pack_recipes_archetype_e2e_test.go`, and the pack commands), so
+             this adds NO new dependency edge. After this task, no
+             `strings.Contains(x, "/")` call may remain in
+             `ciGlobScopingProblems` or in the extracted helper — that is what
+             TASK-008's source guard asserts, and it is scoped to those two
+             functions for a reason.
+
+             LEAVE `ciOrgRepoLiterals` ALONE. It contains its own
+             `strings.Contains(token, "/")`, and it is NOT a second statement
+             of this contract: it parses an `org/repo` release coordinate, and
+             a slash there means "this token has two segments", not "this path
+             pattern is inert under file dispatch". Routing it through
+             `PathPatternInertUnderFileDispatch` would be a semantic error that
+             happens to compile. It stays exactly as it is.
+
+          Locate the call site BY FUNCTION NAME, never by line number — this
+          harness file is long and its neighbourhood has moved repeatedly.
+
+          THE MESSAGE WORDING IS NOT LOAD-BEARING, and the first round's claim
+          that it is was WRONG (SE-10). The exact problem string appears ONCE
+          tree-wide — in this harness — and all four real callers
+          (`ci_recipes_{github_actions,gitlab_ci,bitbucket_pipelines,jenkins}
+          _test.go`) check only `len(problems) != 0`. Keep the wording anyway,
+          because there is no reason to change it and a stable string is easier
+          to read in a failure; just do not treat it as a constraint that
+          justifies contorting the extraction, and do not repeat the claim that
+          SPEC-067's tests read it.
+        files:
+          - cmd/backstop/ci_recipes_harness_test.go
+        claims:
+          - CLM-008
+        depends_on:
+          - TASK-008
+          - TASK-006
+
+      - id: TASK-010
+        type: verification
+        title: "Gate the consolidation"
+        description: |
+          Run `./bin/backstop gate` and resolve everything it reports.
+
+          THE REFACTOR'S CORRECTNESS EVIDENCE IS TASK-008'S TWO TESTS, NOT THE
+          SPEC-067 SUITE. Run them by name and confirm both are green:
+          `TestCIGlobScoping_UsesSharedInertnessPredicate` proves the seam
+          actually consumes the shared predicate, and
+          `TestCIGlobScoping_MultiSegmentProblemsAgreeWithPredicate` is the only
+          thing in the tree that EXECUTES the slash-detection branch.
+
+          Then run the four SPEC-067 CI-recipe tests that call
+          `ciGlobScopingProblems` and confirm they still pass — but record them
+          as a NO-REGRESSION check, not as verification of the refactor. They
+          cannot verify it: all four pass slash-FREE include sets, so the branch
+          this task changed never executes under their data, and all four assert
+          only `len(problems) != 0` (SE-10). Reporting them as the evidence
+          would be a vacuous green, which is the exact class this whole plan
+          exists to close. Say which is which in the completion report.
+        files:
+          - cmd/backstop/ci_recipes_harness_test.go
+          - cmd/backstop/ci_glob_scoping_authority_test.go
+        claims:
+          - CLM-008
+        depends_on:
+          - TASK-009
+
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: Full verification"
+    tasks:
+      - id: TASK-011
+        type: verification
+        title: "Full kill chain and the honest residual"
+        description: |
+          Run `./bin/backstop gate --all` — the full unscoped kill chain — and
+          resolve everything it reports. Run `./bin/backstop artifact validate
+          --plan PLAN-ISSUE-151`.
+
+          Then produce the RECEIPT this plan exists for, and put it in the
+          completion report rather than in a new file: run `./bin/backstop pack
+          check` against BOTH installed packs the notes measured
+          (`backstop-ai/backstop-self`, `backstop-ai/cobra-cli-standards`) and
+          record the advisory counts actually printed.
+
+          THE EXPECTED NUMBER IS 37, NOT 40. Read this before deciding you have
+          an under-report. The notes count 40 inert patterns across 12 semgrep
+          rules in 4 rule files, but only 37 / 11 rules / 3 files are REACHABLE
+          BY THIS CHECK, and that is correct by construction:
+
+            backstop-self   no-baked.yml                  26   REACHABLE
+            cobra           rules/security/cli-security.yml 6  REACHABLE
+            cobra           rules/core/cli-core.yml         5  REACHABLE
+            backstop-self   authored/
+                            no-rule-id-keyed-routing.yml    3  DORMANT
+
+          All SEVEN of backstop-self's manifest rules point at
+          `rules/no-baked.yml`. NOTHING points at
+          `authored/no-rule-id-keyed-routing.yml` — the pack deliberately keeps
+          it outside its loaded `rules/` set (its `pack.yml` comment records
+          why: it flags a deferred contracts signature-engine site). Since this
+          check resolves rule sources through the MANIFEST (CLM-007), those 3
+          patterns are unreachable, and so is the rule they belong to. They are
+          equally invisible to the gate itself, so nothing is being missed.
+
+          DO NOT "FIX" A 37 INTO A 40. Widening the scanner into a directory
+          walk to recover the missing 3 would abandon the manifest-driven
+          resolution CLM-007's InputMode gate depends on and would start
+          reporting on files no engine ever loads. 37 is a PASS.
+
+          Also confirm the 7:1 fan-out did NOT duplicate (CLM-009): the
+          backstop-self reading must be 26, not 182. A count in the hundreds
+          means the dedup key was wrong, not that the pack changed.
+
+          Report the MEASURED numbers either way, and if they differ from 37 in
+          any direction other than the dormant-file gap explained above, say so
+          plainly rather than restating the prediction — those packs are
+          external and may have moved.
+
+          Confirm both packs still exit ZERO from `pack check` (CLM-005). If
+          either now fails, the advisory was built blocking and that is a defect
+          in this work, not a finding about the pack.
+
+          FINALLY, report — do not author — the two follow-ons this plan
+          deliberately left open, per the PLAN-ISSUE-093 precedent:
+            1. Pack-side remediation of the 37 reachable inert patterns (40
+               declared), which is a
+               founder-sequenced change: it takes backstop-self's two
+               `no-structural-name-split-on-spine` findings live and REDs the
+               gate, and it is entangled with the stale `@waiver:` tokens
+               ISSUE-097 owns.
+            2. Whether the advisory should later escalate from WARNING to ERROR
+               once the ecosystem is remediated — a founder policy call this
+               plan explicitly declined to make.
+        files:
+          - pkg/packval/pathscope.go
+          - pkg/packval/phase2.go
+          - cmd/backstop/ci_recipes_harness_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+        depends_on:
+          - TASK-003
+          - TASK-006
+          - TASK-007
+          - TASK-009
+          - TASK-010
