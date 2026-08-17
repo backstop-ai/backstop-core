@@ -6,8 +6,11 @@ issue:
   id: ISSUE-066
   title: "Gate Test Verification Runs Full Package, Not a Plan's Narrow -run Filter"
   type: technical-debt
-  status: open
+  status: closed
   created: "2026-07-17"
+  closed: "2026-08-17"
+
+resolved-by: ISSUE-129
 
 complexity:
   scope: contained
@@ -49,9 +52,62 @@ substantiveness), but a green gate must require the whole package green, not jus
 Evaluate whether this is enforced in the test-verification step, the toolchain go-test engine, or
 both.
 
+## Resolution
+
+Not delivered by a plan against this issue — no `PLAN-ISSUE-066` was ever authored, correctly:
+the defect this issue describes no longer reproduces against current code, dissolved by three
+unrelated deliveries, none of which names ISSUE-066 directly.
+
+**Verification (measured, 2026-08-17):** a fresh `./bin/backstop` binary was built in an isolated
+`git worktree` at HEAD (`a60015c`), with `.backstop/` copied in. A production-only defect was
+injected — the pinned semgrep version string in `pkg/pack/engine/allowlist.go` changed to
+`9.99.9`, the only file touched — and the default diff-scoped `./bin/backstop gate` was run.
+Result: **exit 1, FAIL, 108 findings**, every one quoting the injected `9.99.9` literal (present
+nowhere else, so attribution is unambiguous without a control run), reported by test name from
+files the diff never touched (`workflows_test.go`, `by_declaration_regression_test.go`,
+`ci_recipes_bitbucket_pipelines_test.go`, `phase3_rulepath_dispatch_test.go`, and others). Four
+`mandated_test_failed` critical violations also fired, joining the failures back to SPEC-037
+claims. That is exactly this issue's original scenario — a production change breaking tests whose
+names match no `-run` claim-mapping pattern, in files the plan's `test_command` filter never
+named — and the gate caught all of it. The worktree was discarded after the injected change was
+reverted; the main tree was never touched.
+
+**Why it no longer reproduces — three deliveries, accumulated:**
+
+- **SPEC-034/040/042** demoted `verification.test_command` to inert metadata. Its VALUE (the
+  `-run` filter) is never read or executed by core anymore — the only consumers are a struct-field
+  declaration (`pkg/gate/step_coverage.go:17`) and an assignment (`pkg/gate/step_testverify.go:675`)
+  — only its *presence* still gates coverage extraction.
+- **ISSUE-070** made the diff-scope filter apply to dispatched pack violations at all, closing a
+  prerequisite gap in the scoping mechanism this issue's fix would have needed anyway.
+- **ISSUE-129** declared `exempt_from_scope_filter: true` on the go-toolchain `go-test` engine
+  binding, so a project-wide test failure REDs a diff-scoped gate even when the failing test's file
+  sits outside the current diff.
+
+The pass/fail bound is now the go-test engine's `project_target: "./..."` (the whole module) —
+`fileModeTestTarget` only narrows a package-scoped engine under explicit `gate --file`, never
+under the default diff scope this issue's scenario runs under. The plan's `-run` filter is now
+purely a claim→test evidence mapping (test_verification / substantiveness), never the bound on
+what must pass — which is precisely the fix this issue's Direction section called for, arrived at
+by a different route than a dedicated plan.
+
+**Residual, explicitly not closed here:** `verification.test_command` remains a REQUIRED
+spec/issue field that core never executes, conventionally authored with a narrow `-run` filter
+that still reads (misleadingly, to a human or agent reader) as "the pass bound." The gate itself
+is honest; only the field's documentation-value is stale. Worth a small follow-up issue if wanted
+— not filed as part of this closure.
+
+**Also noted, not a defect:** the installed `go-toolchain` pack has drifted to v1.6.0
+(`.backstop/packs/backstop-ai/go-toolchain/pack.yml:111`), past both the v1.4.0 named in
+`PLAN-ISSUE-129`'s TASK-005 and the v1.5.0 recorded in ISSUE-129's own Resolution — the
+`exempt_from_scope_filter: true` declaration survives intact at v1.6.0, so nothing is broken, but
+it's recorded here so a future relock doesn't get surprised by stale version-drift bookkeeping.
+
 ## Notes / references
 
 - Surfaced by ISSUE-064's impl-review. Sibling to ISSUE-067 (the same regression was ALSO masked at
   the gate layer by the go-test engine's opaque-crash reporting) — the two failures compounded: a
   narrow filter hid it from the mandated run, and an opaque crash hid it from the gate. Either fix
   alone would have surfaced it.
+- Sibling to the gate-verdict-honesty cluster (ISSUE-067, ISSUE-091, ISSUE-118, ISSUE-129) named in
+  ISSUE-129's own Notes/references.
