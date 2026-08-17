@@ -2,13 +2,141 @@
 plan_id: PLAN-ISSUE-092
 spec_id: ISSUE-092
 created: "2026-08-16"
-status: draft
+status: completed
 target_repo: backstop-core
 target_module: github.com/backstop-ai/backstop-core
 test_command: "go test ./pkg/packval/... -run 'TestPackVal' -race -coverprofile=cover.out"
 coverage_threshold: 90
 
 notes: |
+  ══ AS-BUILT — CLOSED 2026-08-16. ALL 15 TASKS DELIVERED AND VERIFIED. ══════
+  All ten claims CLM-001..CLM-010 are met. The plan body below is the historical
+  record as authored across 5 review rounds and is NOT rewritten; everything the
+  as-built did differently, and everything it surfaced, is recorded here.
+
+  ⚠ NOT YET COMMITTED AT CLOSE-OUT. There is no SHA to cite. The entire delivered
+  surface — 7 modified files, 8 new test files, 3 new testdata packs — was still
+  in the working tree, uncommitted, when this banner was written, alongside
+  several sibling lanes sharing that tree. A reader looking for an ISSUE-092
+  commit will not find one at this timestamp; locate the work by the file list
+  below, not by git history. Whoever lands it should attribute exactly these
+  eighteen paths and nothing else.
+
+  ── WHAT LANDED, BY CLAIM ──────────────────────────────────────────────────
+  CITE BY NAME, NOT BY LINE. Every line number in the plan body below was taken
+  at authoring time and is stale — this lane's own edits plus concurrent sibling
+  lanes moved phase3.go substantially. Re-locate by function name.
+
+  pkg/packval/manifest.go (CLM-001) — `Rule.RulePath` is now the CANONICAL field,
+    tagged `yaml:"rule_path"`, matching what every real pack.yml actually writes.
+    `Rule.File` survives ONLY as a documented back-compat alias for older testdata
+    packs, with a comment forbidding direct reads. A single accessor
+    `RuleSourcePath()` decides precedence (RulePath wins), and a companion
+    `RuleSourceManifestKey()` reports which yaml key was actually read so an error
+    names the key the author wrote rather than a guess. F1's two-independent-structs
+    drift is closed at the authoring-time struct; the gate-runtime struct in
+    pkg/pack/manifest.go was correct already and was not touched.
+
+  pkg/packval/phase1.go (CLM-006) — the rule-file-existence check reads through
+    `RuleSourcePath()` and reports through `RuleSourceManifestKey()`. F2 site 3 —
+    the one the issue did NOT name — is live again for every real pack.
+
+  pkg/packval/phase3.go (CLM-002/004/005/007/010):
+    · Dispatch and fixture targeting route through the accessor (CLM-002). F2
+      sites 1 and 2 execute for real packs.
+    · FINDINGS-PATH POLARITY INVERTED on BOTH the ruleset and tool_config loops
+      (CLM-004). The validator branches were deliberately left ALONE, and a
+      comment now records WHY the two seams read `Passed` oppositely: RunEngine's
+      `Passed` means "the engine FIRED", RunValidator's means "the validator
+      EXITED ZERO". That comment is the durable defense against a future reader
+      "fixing" the asymmetry into a bug.
+    · Engine errors split onto a dedicated `engine-error` check via a new
+      `engineError()` helper that ALWAYS populates Rule and Claim (CLM-005) —
+      an engine that fails to run is no longer indistinguishable from a fixture
+      that legitimately produced no finding. This composes correctly with
+      PLAN-ISSUE-140's `phase3_never_started_test.go` assertion; verified, not
+      assumed.
+    · The three retired-`Layer` validator guards are replaced with validator-only
+      guards (`rule.Validator != ""`). ZERO `.Layer` references remain in the file
+      (CLM-007). F2 site 4 is closed.
+    · Engine resolve moved AHEAD of the rule-ID cross-check and is now conditioned
+      on `binding.InputMode == engine.InputModeRuleFlags` rather than on engine
+      NAME; the rule-source read moved inside that same condition (CLM-010).
+
+  New testdata, semgrep-only, each verified clean through a real `pack check` and
+  real semgrep runs: pkg/packval/testdata/{rulepath-pack,
+  rulepath-pack-broken-negative, engine-error-pack}.
+
+  Eight new test files, all mandated names present exactly as the plan specified:
+  phase1_rulepath_test.go, phase3_engine_error_test.go, phase3_polarity_test.go,
+  phase3_ruleid_inputmode_test.go, phase3_rulepath_dispatch_test.go,
+  phase3_validator_dispatch_test.go, pipeline_dispatch_e2e_test.go,
+  rule_source_key_test.go. Four existing test files were updated in place:
+  coverage_error_paths_test.go, pack_declared_setup_test.go,
+  packval_phase3_exec_test.go, packval_phase456_pipeline_test.go.
+
+  ── THE DELIVERABLE, PROVEN EMPIRICALLY (CLM-003) ──────────────────────────
+  CLM-003 is the claim everything else existed to support, and it was proven
+  through the REAL CLI end to end, not through a unit test standing in for one.
+  `rulepath-pack-broken-negative` now correctly FAILS: a 17ms vacuous pass at
+  baseline became a real 15.8-second execution ending in a correct fail at exit 1.
+  The reproduction was confirmed in both directions by neutralizing and then
+  restoring the honest pack's negative fixture, with a byte-identical sha256 on
+  restore. Phase 3 can fail.
+
+  THE DECISIVE PROOF FOR CLM-010 is separate and worth naming: `fixture-fail-pack`
+  uses a NON-semgrep `marker-scan` engine, and it still correctly fails `pack test`
+  after the fix. That is the empirical demonstration that the conditioning is
+  genuinely keyed on `input_mode` and not on engine name — a name-keyed
+  implementation would have gone silent on that pack.
+
+  ── VERIFICATION READINGS ──────────────────────────────────────────────────
+  `go test ./pkg/... -count=1` — every package green, including pkg/gate and
+  pkg/pack/distribution. `go test ./pkg/packval/... -run 'TestPackVal' -race
+  -coverprofile=...` — race-clean, 100% coverage on the changed surface's key
+  functions.
+
+  `backstop gate --all` final reading: FAIL, exit 1, 348 violations across 6
+  dimensions. THAT READING IS NOT THIS LANE'S. Every violation was independently
+  attributed by file/path to either (a) other in-flight lanes sharing the tree
+  tonight — PLAN-ISSUE-066/093/097/100/106/114/136's scaffold plans,
+  PLAN-ISSUE-091's untracked red-phase TDD files, the go-toolchain 1.6.0 relock,
+  and other sibling edits — or (b) genuinely pre-existing defects this lane's own
+  fix EXPOSED, each separately filed (below). ZERO violations cite any of this
+  lane's eighteen files. A future reader must not treat that 348 as evidence
+  against this plan.
+
+  ── DEFECTS THIS FIX EXPOSED, FILED NOT PAPERED OVER ───────────────────────
+  Restoring real dispatch made previously-invisible things visible. All three are
+  filed as their own issues rather than absorbed here:
+    ISSUE-146 — `pack new`'s scaffold validator is vacuous. This is THIS lane's own
+      true positive, correctly scoped OUT: it lives in pkg/pack/scaffold.go, outside
+      this plan's file list. It is a real catch, not inherited breakage.
+    ISSUE-147 — darwin sandbox relative-packDir exit 71.
+    ISSUE-148 — the substantiveness pack's phase3 fixtures have positive/negative
+      polarity BACKWARDS. Discovered and PROVEN by real execution, which only became
+      possible once ISSUE-141 unblocked real dispatch.
+
+  ── THE FINDING WORTH KEEPING ──────────────────────────────────────────────
+  ISSUE-146 would have been INVISIBLE to `gate --all`: it is not a mandated test of
+  any spec, so test_verification never looks at it. That is a live, in-the-wild
+  instance of the exact vacuous-green class this entire lane targets — it
+  strengthens the case for fixing it rather than weakening it. Recorded here
+  because it is the kind of observation that evaporates if left in a transcript.
+
+  ── FOLLOW-ONS: OPEN, DEFERRED — NOT DECIDED ───────────────────────────────
+  · ISSUE-141 — CLOSED. It was this plan's hard blocking prerequisite and clearing
+    it is what made real dispatch (and therefore ISSUE-148's discovery) possible.
+  · Follow-on 8 — `cmd/backstop/gate_substantiveness_e2e.go`'s
+    `installZeroMatchSubstantivenessPack` doc comment states as its premise the
+    very drift this lane removed ("`rule.File == ""` and every fixture-execution
+    site ... is guarded ... and skipped"), naming ISSUE-092 as the tracker. That
+    comment is now FALSE. The file was correctly out of scope and was not edited;
+    the correction is still OUTSTANDING.
+  · Follow-on 9 — a post-landing SPEC-AUTHOR pass is REQUIRED to reconcile
+    SPEC-032 and PLAN-SPEC-032 (both still `draft`) against this plan's
+    claim-by-claim overlap analysis. STILL OUTSTANDING, not started.
+
   ═══════════════════════════════════════════════════════════════════════════
   WHAT THIS LANE IS
   ═══════════════════════════════════════════════════════════════════════════

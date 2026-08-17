@@ -1,0 +1,24 @@
+# DELIBERATELY BROKEN, and broken in a way that still satisfies phase 3's rule-ID
+# cross-check: the YAML parses and `rules[0].id` equals the pack's declared rule id,
+# so the pack does NOT fail for a rule-ID reason. What is broken is the RULE SCHEMA —
+# `pattern-either` must be a list and here it is a scalar.
+#
+# WHAT SEMGREP ACTUALLY DOES WITH THIS (observed, not assumed — semgrep 1.156.0,
+# `semgrep --sarif --quiet --config rules/broken.yml <fixture>`):
+#   exit code 7, and on stdout a COMPLETE, PARSEABLE SARIF document carrying
+#   toolExecutionNotifications for InvalidRuleSchemaError ("'not-a-list' is not of
+#   type 'array'") and SemgrepError ("invalid configuration file found"), with
+#   "results": [].
+# So the schema break is NOT visible to packval as a returned engine error:
+# check.ParsePackFindings parses the document happily and RunEngine reports
+# Passed:false — indistinguishable from a clean, non-firing run. That is the
+# "silent schema-break false-pass" trap ISSUE-092 records, and closing the last of
+# it belongs to pkg/packval/executor.go (ISSUE-140/ISSUE-141), NOT to phase3.
+# What phase 3 CAN still catch — and does, once polarity is corrected — is that the
+# declared NEGATIVE fixture never triggers, so the phase goes red rather than green.
+rules:
+  - id: engine-error-rule
+    languages: [go]
+    severity: WARNING
+    message: deliberately malformed rule — pattern-either must be a list
+    pattern-either: not-a-list

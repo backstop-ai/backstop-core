@@ -28,27 +28,15 @@ func RunFixtures(pack *PackManifest, packDir string, executor FixtureExecutor) *
 	for _, rule := range pack.Content.Ruleset.Rules {
 		var binding engine.EngineBinding
 		haveBinding := false
-		if rule.File != "" {
-			ruleFilePath := filepath.Join(packDir, rule.File)
-			ruleData, err := os.ReadFile(ruleFilePath)
-			if err != nil {
-				res.Errors = append(res.Errors, ValidationError{
-					Phase:   res.Phase,
-					Check:   "semgrep-rule-id",
-					Rule:    rule.ID,
-					Message: fmt.Sprintf("failed to read rule file %s: %v", rule.File, err),
-				})
-			} else if !semgrepFileContainsRuleID(ruleData, rule.ID) {
-				res.Errors = append(res.Errors, ValidationError{
-					Phase:   res.Phase,
-					Check:   "semgrep-rule-id",
-					Rule:    rule.ID,
-					Message: fmt.Sprintf("pack rule ID %q not found in rule file %s", rule.ID, rule.File),
-				})
-			}
-			// Resolve the rule's DECLARED engine to a binding (base registry merged
-			// with the pack's engines: block). An unknown engine fails loud, naming it
-			// — never a silent skip (ISSUE-019).
+		// ruleSource is the rule's declared source file, read through the SINGLE
+		// accessor that decides `rule_path` (canonical, what every real pack writes)
+		// over the `file` back-compat alias (ISSUE-092).
+		ruleSource := rule.RuleSourcePath()
+		if ruleSource != "" {
+			// The resolve runs FIRST because the rule-ID cross-check below is
+			// conditioned on the resolved binding's DECLARED input mode, which is not
+			// in hand until it has run. An unknown engine fails loud, naming it — never
+			// a silent skip (ISSUE-019).
 			b, resErr := resolveEngine(pack, rule.Engine)
 			if resErr != nil {
 				res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "engine-resolve", Rule: rule.ID, Message: resErr.Error()})
@@ -56,16 +44,72 @@ func RunFixtures(pack *PackManifest, packDir string, executor FixtureExecutor) *
 				binding = b
 				haveBinding = true
 			}
+			// THE RULE-ID CROSS-CHECK IS CONDITIONED ON THE DECLARED INPUT MODE, NEVER
+			// ON THE ENGINE'S NAME (CLM-010). semgrepFileContainsRuleID assumes the
+			// declared file IS A LIST OF RULES each carrying an `id` — precisely the
+			// semantics of `input_mode: rule-flags` ("repeat input_flag once per RULE
+			// FILE"). Under `config-file` the declared file is a PROJECT CONFIG naming
+			// rule DIRECTORIES and carrying no ids, so the check is categorically
+			// inapplicable rather than merely failing.
+			//
+			// ⚠ DO NOT rewrite this as an equality test between rule.Engine and a
+			// hardcoded engine name. (The literal is deliberately not spelled out
+			// here: TestExecutor_ToolConfigResolvesViaBindingNotSwitch greps this file
+			// for baked tool names and does not distinguish prose from code.) A baked
+			// engine-name literal violates the thin-executor first principle, AND it
+			// would silently
+			// un-fail cmd/backstop/testdata/hermetic-remote/fixture-fail-pack, whose
+			// pack-declared `marker-scan` engine plus a CLAIMLESS rule make the rule-ID
+			// mismatch its ONLY failure mechanism. marker-scan declares rule-flags, so
+			// under this condition it still fails.
+			//
+			// The rule-source READ moves inside the same condition: file EXISTENCE is
+			// phase 1's job for every engine, so nothing is lost, and a config-file
+			// engine's project config is no longer read by a phase that cannot
+			// interpret it.
+			if haveBinding && binding.InputMode == engine.InputModeRuleFlags {
+				ruleFilePath := filepath.Join(packDir, ruleSource)
+				ruleData, err := os.ReadFile(ruleFilePath)
+				if err != nil {
+					res.Errors = append(res.Errors, ValidationError{
+						Phase:   res.Phase,
+						Check:   "semgrep-rule-id",
+						Rule:    rule.ID,
+						Message: fmt.Sprintf("failed to read rule file %s: %v", ruleSource, err),
+					})
+				} else if !semgrepFileContainsRuleID(ruleData, rule.ID) {
+					res.Errors = append(res.Errors, ValidationError{
+						Phase:   res.Phase,
+						Check:   "semgrep-rule-id",
+						Rule:    rule.ID,
+						Message: fmt.Sprintf("pack rule ID %q not found in rule file %s", rule.ID, ruleSource),
+					})
+				}
+			}
 		}
 		for _, claim := range rule.Claims {
 			for _, f := range claim.Fixtures.Positive {
-				if rule.File != "" && haveBinding {
-					r, err := executor.RunEngine(packDir, binding, []string{rule.File, f.Path})
-					if err != nil || !r.Passed {
-						res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "semgrep-positive", Rule: rule.ID, Claim: claim.ID, Message: "positive fixture failed"})
+				if ruleSource != "" && haveBinding {
+					// FINDINGS SEAM. RunEngine's Passed means "the engine FIRED"
+					// (produced findings) — not "the fixture is acceptable". A positive
+					// fixture is the CLEAN example, so a finding on it is a FALSE
+					// POSITIVE and therefore a failure (BUNDLE-005 REQ-011).
+					r, err := executor.RunEngine(packDir, binding, []string{ruleSource, f.Path})
+					switch {
+					case err != nil:
+						res.Errors = append(res.Errors, engineError(res.Phase, rule.ID, claim.ID, f.Path, err))
+					case r.Passed:
+						res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "semgrep-positive", Rule: rule.ID, Claim: claim.ID, Message: "positive fixture triggered the rule (false positive)"})
 					}
 				}
-				if rule.Layer == 3 && rule.Validator != "" {
+				// VALIDATOR SEAM — DELIBERATELY THE OPPOSITE SHAPE, DO NOT "HARMONIZE".
+				// RunValidator's Passed means "the validator EXITED ZERO", not "it
+				// fired". So a positive fixture SHOULD pass here and a negative SHOULD
+				// fail — the inverse of the findings seam above. Applying ONE
+				// conditional shape to two seams whose Passed means opposite things is
+				// exactly what produced ISSUE-092; these branches were always correct
+				// and TestPackVal_P3_ValidatorPolarityUnchangedByFindingsFix pins them.
+				if rule.Validator != "" {
 					r, err := executor.RunValidator(packDir, rule.Validator, []string{f.Path})
 					if err != nil || !r.Passed {
 						res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "validator-positive", Rule: rule.ID, Claim: claim.ID, Message: "layer3 positive failed"})
@@ -73,11 +117,11 @@ func RunFixtures(pack *PackManifest, packDir string, executor FixtureExecutor) *
 				}
 			}
 			for _, f := range claim.Fixtures.Negative {
-				if rule.File != "" && haveBinding {
-					r, err := executor.RunEngine(packDir, binding, []string{rule.File, f.Path})
+				if ruleSource != "" && haveBinding {
+					r, err := executor.RunEngine(packDir, binding, []string{ruleSource, f.Path})
 					if err != nil {
-						res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "semgrep-negative", Rule: rule.ID, Claim: claim.ID, Message: "negative fixture run failed"})
-					} else if r.Passed {
+						res.Errors = append(res.Errors, engineError(res.Phase, rule.ID, claim.ID, f.Path, err))
+					} else if !r.Passed {
 						res.Errors = append(res.Errors, ValidationError{
 							Phase:   res.Phase,
 							Check:   "semgrep-negative",
@@ -88,7 +132,7 @@ func RunFixtures(pack *PackManifest, packDir string, executor FixtureExecutor) *
 						})
 					}
 				}
-				if rule.Layer == 3 && rule.Validator != "" {
+				if rule.Validator != "" {
 					r, err := executor.RunValidator(packDir, rule.Validator, []string{f.Path})
 					if err != nil {
 						res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "validator-negative", Rule: rule.ID, Claim: claim.ID, Message: "layer3 negative run failed"})
@@ -97,7 +141,7 @@ func RunFixtures(pack *PackManifest, packDir string, executor FixtureExecutor) *
 					}
 				}
 			}
-			if rule.Layer == 3 && rule.InputScope == "multi-file" && rule.Validator != "" {
+			if rule.InputScope == "multi-file" && rule.Validator != "" {
 				var all []string
 				for _, f := range claim.Fixtures.Positive {
 					all = append(all, f.Path)
@@ -125,17 +169,22 @@ func RunFixtures(pack *PackManifest, packDir string, executor FixtureExecutor) *
 			continue
 		}
 		for _, claim := range tc.Claims {
+			// Same FINDINGS SEAM contract as the ruleset loop above: a tool_config
+			// positive fixture that FIRES is a false positive.
 			for _, f := range claim.Fixtures.Positive {
 				r, err := executor.RunEngine(packDir, binding, []string{tc.File, f.Path})
-				if err != nil || !r.Passed {
-					res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "tool-config-positive", Rule: tc.ID, Claim: claim.ID, Message: "tool_config positive failed"})
+				switch {
+				case err != nil:
+					res.Errors = append(res.Errors, engineError(res.Phase, tc.ID, claim.ID, f.Path, err))
+				case r.Passed:
+					res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "tool-config-positive", Rule: tc.ID, Claim: claim.ID, Message: "tool_config positive triggered the rule (false positive)"})
 				}
 			}
 			for _, f := range claim.Fixtures.Negative {
 				r, err := executor.RunEngine(packDir, binding, []string{tc.File, f.Path})
 				if err != nil {
-					res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "tool-config-negative", Rule: tc.ID, Claim: claim.ID, Message: "tool_config negative failed"})
-				} else if r.Passed {
+					res.Errors = append(res.Errors, engineError(res.Phase, tc.ID, claim.ID, f.Path, err))
+				} else if !r.Passed {
 					res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "tool-config-negative", Rule: tc.ID, Claim: claim.ID, Message: "tool_config negative not triggered"})
 				}
 			}
@@ -218,6 +267,29 @@ func RunFixtures(pack *PackManifest, packDir string, executor FixtureExecutor) *
 		res.Status = "fail"
 	}
 	return res
+}
+
+// engineError builds the phase-3 error for a fixture whose engine run FAILED, as
+// opposed to one whose engine ran and produced a verdict (CLM-005).
+//
+// It is deliberately its OWN Check. A run that errored produced no usable answer, so
+// it has no fixture verdict to report: folding it into "positive fixture ..." sends a
+// pack author to inspect a fixture that was never the problem, and — far worse —
+// absorbing it into a passing negative is a vacuous green, because a missing or broken
+// engine would then look exactly like a rule that correctly fired on its violation.
+//
+// Rule and Claim are ALWAYS populated from the rule and claim being processed. Without
+// them a pack author would learn that something broke without learning what broke it,
+// which is strictly less useful than the fixture verdict this error replaces.
+func engineError(phase, ruleID, claimID, fixturePath string, err error) ValidationError {
+	return ValidationError{
+		Phase:   phase,
+		Check:   "engine-error",
+		Rule:    ruleID,
+		Claim:   claimID,
+		Message: fmt.Sprintf("engine run failed for fixture %s: %v", fixturePath, err),
+		FixHint: "The engine did not produce a usable result, so this fixture has no verdict. This is a broken RUN, not a failing fixture — check that the declared engine command exists, is executable, and emits parseable SARIF before looking at the fixture itself.",
+	}
 }
 
 // semgrepFileContainsRuleID parses a semgrep YAML rule file and checks

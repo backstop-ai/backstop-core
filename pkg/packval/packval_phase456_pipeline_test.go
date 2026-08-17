@@ -408,7 +408,10 @@ content:
               negative:
                 - fixtures/n.go
 `))
-	r := packval.NewPipeline(dir, packval.PipelineOptions{Mode: "test", Executor: newFixtureMock(true, true)}).Run()
+	// newFixtureMock(false, true) is the BUNDLE-005 REQ-011 healthy configuration: the
+	// positive fixture does not fire, the negative one does. The rule declares its
+	// source with `file:` (the back-compat alias), so its fixtures genuinely dispatch.
+	r := packval.NewPipeline(dir, packval.PipelineOptions{Mode: "test", Executor: newFixtureMock(false, true)}).Run()
 	last := r.Phases[len(r.Phases)-1]
 	if last.Status == "skipped" {
 		t.Fatal("expected full run")

@@ -1,0 +1,25 @@
+name: acme/rulepath-broken-negative
+version: 1.0.0
+language: go
+archetype: enforcement
+description: >
+  THE FALSIFICATION PACK. Identical to acme/rulepath in every respect EXCEPT that its
+  declared NEGATIVE fixture (fixtures/invalid/compliant.go) does not violate the rule.
+  BUNDLE-005 REQ-011 requires every negative fixture to trigger its rule, so this pack
+  MUST fail phase3-fixtures and MUST make `pack test` exit non-zero. Verified by
+  running semgrep directly with this rule file: 0 findings on the declared negative
+  fixture. Do not repair the fixture — the non-violation IS the fixture.
+content:
+  ruleset:
+    rules:
+      - id: no-global-registry-access
+        engine: semgrep
+        rule_path: rules/no-global.yml
+        risk_class: correctness
+        claims:
+          - id: C-001
+            fixtures:
+              positive:
+                - fixtures/valid/clean.go
+              negative:
+                - fixtures/invalid/compliant.go

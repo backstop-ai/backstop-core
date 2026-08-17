@@ -11,8 +11,14 @@ import (
 
 // TestPhase3_DispatchErrorBranches covers the remaining fixture-dispatch error
 // branches: an empty-ID tool_config is skipped, a negative fixture whose engine run
-// ERRORS is a semgrep-negative run failure, and a failing layer-3 multi-file
+// ERRORS is reported under the DEDICATED engine-error check, and a failing multi-file
 // validator is a validator-multi-file failure.
+//
+// The engine-error half was previously asserted as `Check == "semgrep-negative" &&
+// Message contains "run failed"`. ISSUE-092 CLM-005 deliberately re-homes engine
+// errors onto their own check, precisely so a broken run stops masquerading as a
+// fixture verdict, so that assertion could not survive. The name and the multi-file
+// half are unchanged.
 func TestPhase3_DispatchErrorBranches(t *testing.T) {
 	dir := t.TempDir()
 	writeSrc(t, dir, "rules/r.yml", "rules:\n  - id: R1\n")
@@ -43,17 +49,23 @@ func TestPhase3_DispatchErrorBranches(t *testing.T) {
 		},
 	}
 	res := RunFixtures(pack, dir, mock)
-	var sawNegRunFail, sawMultiFile bool
+	var sawEngineError, sawMultiFile bool
 	for _, e := range res.Errors {
-		if e.Check == "semgrep-negative" && strings.Contains(e.Message, "run failed") {
-			sawNegRunFail = true
+		if e.Check == "engine-error" && strings.Contains(e.Message, "engine run failed") {
+			sawEngineError = true
+			if e.Rule != "R1" || e.Claim != "C1" {
+				t.Errorf("the engine error must name the rule and claim; got Rule=%q Claim=%q", e.Rule, e.Claim)
+			}
+		}
+		if e.Check == "semgrep-negative" {
+			t.Errorf("a broken engine run must not be reported as a negative fixture verdict; got %+v", e)
 		}
 		if e.Check == "validator-multi-file" {
 			sawMultiFile = true
 		}
 	}
-	if !sawNegRunFail || !sawMultiFile {
-		t.Fatalf("expected semgrep-negative run-failure and validator-multi-file errors; got %+v", res.Errors)
+	if !sawEngineError || !sawMultiFile {
+		t.Fatalf("expected a dedicated engine-error carrying the underlying message and a validator-multi-file error; got %+v", res.Errors)
 	}
 }
 
@@ -81,8 +93,9 @@ func TestPhase3_ToolConfigUnknownEngineFailsLoud(t *testing.T) {
 }
 
 // TestPhase3_ToolConfigDispatchPositiveNegative exercises the generic tool_config
-// dispatch: a positive fixture that does not fire is a tool-config-positive failure,
-// and a negative fixture that DOES fire is a tool-config-negative failure.
+// dispatch under the BUNDLE-005 REQ-011 contract: a positive fixture that DOES fire is
+// a tool-config-positive failure (a false positive), and a negative fixture that does
+// NOT fire is a tool-config-negative failure (an untested claim).
 func TestPhase3_ToolConfigDispatchPositiveNegative(t *testing.T) {
 	pack := &PackManifest{
 		Name: "a/b", Version: "1.0.0", Language: "generic", Archetype: "enforcement",
@@ -94,11 +107,12 @@ func TestPhase3_ToolConfigDispatchPositiveNegative(t *testing.T) {
 			}}},
 		}},
 	}
-	// Fire (Passed=true) only for the negative "bad" target: the positive then does
-	// NOT fire (tool-config-positive), and the negative DOES fire (tool-config-negative).
+	// Fire (Passed=true) only for the POSITIVE "good" target: the positive then fires
+	// (a false positive → tool-config-positive) and the negative does not fire (an
+	// untested claim → tool-config-negative). Both failure branches at once.
 	mock := &MockExecutor{EngineFn: func(_ string, _ engine.EngineBinding, targets []string) (ExecutionResult, error) {
 		for _, tg := range targets {
-			if strings.Contains(tg, "bad") {
+			if strings.Contains(tg, "good") {
 				return ExecutionResult{Passed: true}, nil
 			}
 		}

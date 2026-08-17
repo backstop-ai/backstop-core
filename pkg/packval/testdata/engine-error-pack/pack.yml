@@ -1,0 +1,26 @@
+name: acme/engine-error
+version: 1.0.0
+language: go
+archetype: enforcement
+description: >
+  THE ENGINE-ERROR PACK. Its rule file exists (so phase 1 stats it clean) and carries
+  the declared rule id (so the phase-3 rule-ID cross-check passes), but it is
+  structurally invalid to the engine. rules/broken.yml records what semgrep 1.156.0
+  actually does with it: exit 7 plus a complete, parseable SARIF document with
+  results: [] and InvalidRuleSchemaError notifications. Phase 3 therefore cannot see
+  a returned engine error here; what it CAN see is that the declared negative fixture
+  never triggers, so this pack must NOT reach phase3-fixtures: pass.
+content:
+  ruleset:
+    rules:
+      - id: engine-error-rule
+        engine: semgrep
+        rule_path: rules/broken.yml
+        risk_class: correctness
+        claims:
+          - id: C-001
+            fixtures:
+              positive:
+                - fixtures/valid/clean.go
+              negative:
+                - fixtures/invalid/violating.go

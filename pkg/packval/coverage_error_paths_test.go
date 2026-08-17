@@ -164,7 +164,7 @@ func TestPackVal_P4_CodePackDanglingScaffoldRef(t *testing.T) {
 	m := &PackManifest{
 		Archetype: "code",
 		Content: Content{
-			Ruleset: Ruleset{Rules: []Rule{{ID: "r1", PairsWith: PairsWith{Scaffolds: []string{"s1"}}}}},
+			Ruleset:   Ruleset{Rules: []Rule{{ID: "r1", PairsWith: PairsWith{Scaffolds: []string{"s1"}}}}},
 			Scaffolds: []Scaffold{{ID: "s1", PairsWith: PairsWith{Rules: []string{"nonexistent-rule"}}}},
 		},
 	}
@@ -363,8 +363,14 @@ func TestPackVal_P3_NilExecutorUsesDefault(t *testing.T) {
 }
 
 func TestPackVal_P3_SemgrepRuleFileReadError(t *testing.T) {
+	// The explicit Engine is load-bearing, not decoration. CLM-010 moves the
+	// rule-source-file READ inside the `input_mode: rule-flags` condition, and the
+	// engine resolve now runs FIRST — so a rule with no declared engine resolves to
+	// nothing, yields only engine-resolve, and never reaches the read-failure branch.
+	// semgrep resolves out of the base registry at input_mode: rule-flags, which keeps
+	// this test exercising the branch it is named for instead of leaving it uncovered.
 	m := &PackManifest{Content: Content{Ruleset: Ruleset{Rules: []Rule{{
-		ID: "r1", File: "nonexistent.yml",
+		ID: "r1", Engine: "semgrep", File: "nonexistent.yml",
 	}}}}}
 	r := RunFixtures(m, t.TempDir(), &MockExecutor{})
 	hasErr := false
@@ -392,7 +398,10 @@ func TestPackVal_P3_SemgrepPositiveFixtureFails(t *testing.T) {
 	}}}}}
 	mock := &MockExecutor{
 		EngineFn: func(_ string, _ engine.EngineBinding, _ []string) (ExecutionResult, error) {
-			return ExecutionResult{Passed: false, ExitCode: 1}, nil // positive fails / negative triggers
+			// The engine FIRES on everything. Under BUNDLE-005 REQ-011 the firing
+			// NEGATIVE is healthy; the firing POSITIVE is the false positive this
+			// test is about.
+			return ExecutionResult{Passed: true, ExitCode: 1}, nil
 		},
 	}
 	r := RunFixtures(m, dir, mock)
@@ -403,7 +412,7 @@ func TestPackVal_P3_SemgrepPositiveFixtureFails(t *testing.T) {
 		}
 	}
 	if !hasErr {
-		t.Error("expected semgrep-positive error when positive fixture fails")
+		t.Errorf("expected semgrep-positive error when the positive fixture fires; got %+v", r.Errors)
 	}
 }
 
@@ -421,7 +430,9 @@ func TestPackVal_P3_SemgrepNegativeNotTriggered(t *testing.T) {
 	}}}}}
 	mock := &MockExecutor{
 		EngineFn: func(_ string, _ engine.EngineBinding, _ []string) (ExecutionResult, error) {
-			return ExecutionResult{Passed: true, ExitCode: 0}, nil // both pass — negative not triggered
+			// Nothing fires anywhere: the positive is clean (healthy) and the negative
+			// never triggers — the case the engine-limitation fix hint describes.
+			return ExecutionResult{Passed: false, ExitCode: 0}, nil
 		},
 	}
 	r := RunFixtures(m, dir, mock)
@@ -432,7 +443,7 @@ func TestPackVal_P3_SemgrepNegativeNotTriggered(t *testing.T) {
 		}
 	}
 	if !hasHint {
-		t.Error("expected semgrep-negative error with engine limitation fix hint")
+		t.Errorf("expected semgrep-negative error with engine limitation fix hint; got %+v", r.Errors)
 	}
 }
 
@@ -499,7 +510,9 @@ func TestPackVal_P3_ToolConfigPositiveFails(t *testing.T) {
 	}
 	mock := &MockExecutor{
 		EngineFn: func(_ string, _ engine.EngineBinding, _ []string) (ExecutionResult, error) {
-			return ExecutionResult{Passed: false, ExitCode: 1}, nil
+			// Fires on everything: the tool_config POSITIVE fixture firing is the
+			// false positive this test is about (BUNDLE-005 REQ-011).
+			return ExecutionResult{Passed: true, ExitCode: 1}, nil
 		},
 	}
 	r := RunFixtures(m, dir, mock)
@@ -510,7 +523,7 @@ func TestPackVal_P3_ToolConfigPositiveFails(t *testing.T) {
 		}
 	}
 	if !hasErr {
-		t.Error("expected tool-config-positive error")
+		t.Errorf("expected tool-config-positive error when the positive fixture fires; got %+v", r.Errors)
 	}
 }
 
@@ -527,7 +540,9 @@ func TestPackVal_P3_ToolConfigNegativeNotTriggered(t *testing.T) {
 	}
 	mock := &MockExecutor{
 		EngineFn: func(_ string, _ engine.EngineBinding, _ []string) (ExecutionResult, error) {
-			return ExecutionResult{Passed: true, ExitCode: 0}, nil
+			// Nothing fires: the tool_config NEGATIVE fixture never triggers, which is
+			// the failure this test is named for.
+			return ExecutionResult{Passed: false, ExitCode: 0}, nil
 		},
 	}
 	r := RunFixtures(m, dir, mock)
@@ -538,7 +553,7 @@ func TestPackVal_P3_ToolConfigNegativeNotTriggered(t *testing.T) {
 		}
 	}
 	if !hasErr {
-		t.Error("expected tool-config-negative error when negative passes")
+		t.Errorf("expected tool-config-negative error when the negative fixture does not fire; got %+v", r.Errors)
 	}
 }
 

@@ -73,8 +73,15 @@ type Ruleset struct {
 }
 
 type Rule struct {
-	ID            string    `json:"id" yaml:"id"`
-	Engine        string    `json:"engine,omitempty" yaml:"engine,omitempty"`
+	ID     string `json:"id" yaml:"id"`
+	Engine string `json:"engine,omitempty" yaml:"engine,omitempty"`
+	// RulePath is the CANONICAL key naming a rule's source file. It is what the
+	// gate-runtime model (pkg/pack.Rule) reads and the only one real pack.yml files
+	// write (ISSUE-092).
+	RulePath string `json:"rule_path,omitempty" yaml:"rule_path,omitempty"`
+	// File is a BACK-COMPAT ALIAS for RulePath, kept because older testdata packs
+	// declare it. Never read it directly — call RuleSourcePath(), which is the single
+	// place the precedence between the two is decided.
 	File          string    `json:"file,omitempty" yaml:"file,omitempty"`
 	Tool          string    `json:"tool,omitempty" yaml:"tool,omitempty"`
 	RiskClass     string    `json:"risk_class,omitempty" yaml:"risk_class,omitempty"`
@@ -85,6 +92,26 @@ type Rule struct {
 	Validator     string    `json:"validator,omitempty" yaml:"validator,omitempty"`
 	PairsWith     PairsWith `json:"pairs_with,omitempty" yaml:"pairs_with,omitempty"`
 	Claims        []Claim   `json:"claims,omitempty" yaml:"claims,omitempty"`
+}
+
+// RuleSourcePath resolves the rule's source file from the canonical `rule_path` key,
+// falling back to the `file` alias. This is the ONLY place the precedence is decided;
+// every consumer calls it and none re-implements it, so a future caller cannot
+// re-derive the choice differently (CLM-001).
+func (r Rule) RuleSourcePath() string {
+	if r.RulePath != "" {
+		return r.RulePath
+	}
+	return r.File
+}
+
+// RuleSourceManifestKey names the yaml key RuleSourcePath actually read, so a
+// structural error can point at the key the pack author wrote rather than a guess.
+func (r Rule) RuleSourceManifestKey() string {
+	if r.RulePath != "" {
+		return "rule_path"
+	}
+	return "file"
 }
 
 type ToolConfigEntry struct {

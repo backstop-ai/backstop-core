@@ -1,0 +1,8 @@
+rules:
+  # The id MUST equal the pack's declared rule id: phase 3 cross-checks that
+  # equality before dispatching any fixture.
+  - id: no-global-registry-access
+    languages: [go]
+    severity: WARNING
+    message: "Reaching into the globalRegistry singleton is forbidden; inject the registry instead."
+    pattern: globalRegistry.Get(...)

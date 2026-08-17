@@ -1,0 +1,25 @@
+name: acme/rulepath
+version: 1.0.0
+language: go
+archetype: enforcement
+description: >
+  THE HONEST PACK. It declares its rule source the way every real pack does — with
+  rule_path:, the key the gate-runtime model reads — and NOT with the authoring-time
+  file: key packval used to read alone (ISSUE-092). Its fixtures carry BUNDLE-005
+  REQ-011 polarity: the positive fixture does NOT violate the rule, the negative one
+  DOES. Verified by running semgrep directly against both fixtures with this rule
+  file: 1 finding on fixtures/invalid/violating.go, 0 on fixtures/valid/clean.go.
+content:
+  ruleset:
+    rules:
+      - id: no-global-registry-access
+        engine: semgrep
+        rule_path: rules/no-global.yml
+        risk_class: correctness
+        claims:
+          - id: C-001
+            fixtures:
+              positive:
+                - fixtures/valid/clean.go
+              negative:
+                - fixtures/invalid/violating.go

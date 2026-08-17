@@ -48,9 +48,9 @@ func RunStructural(pack *PackManifest, packDir string) *PhaseResult {
 
 	validRisk := map[string]bool{"security": true, "correctness": true, "style": true, "perf": true}
 	for i, rule := range pack.Content.Ruleset.Rules {
-		if rule.File != "" {
-			if _, err := os.Stat(filepath.Join(packDir, rule.File)); err != nil {
-				res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "file-exists", Rule: rule.ID, Message: "referenced file not found", ManifestPath: "content.ruleset.rules[" + strconv.Itoa(i) + "].file"})
+		if src := rule.RuleSourcePath(); src != "" {
+			if _, err := os.Stat(filepath.Join(packDir, src)); err != nil {
+				res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "file-exists", Rule: rule.ID, Message: "referenced file not found", ManifestPath: "content.ruleset.rules[" + strconv.Itoa(i) + "]." + rule.RuleSourceManifestKey()})
 			}
 		}
 		if rule.RiskClass == "" {
