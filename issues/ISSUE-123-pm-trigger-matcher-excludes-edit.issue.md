@@ -6,8 +6,11 @@ issue:
   id: ISSUE-123
   title: "pm-trigger hook's PostToolUse matcher is Write-only, so it never fires for the mandated artifact-authoring workflow (scaffold via CLI, then Edit)"
   type: bug
-  status: open
+  status: closed
   created: "2026-08-14"
+  closed: "2026-08-17"
+
+resolved-by: bee8873dcb62b08c6686fda4bd50773247e1cccf
 
 complexity:
   scope: isolated
@@ -97,7 +100,28 @@ written off-convention (one-shot `Write`) get caught by the automation meant to 
 Untriaged issues/bundles sit with no directive lineage and no visibility until someone notices by
 accident (as happened with ISSUE-122) or a manual sweep catches them.
 
-## Direction (not scoped here)
+## Resolution
+
+Fixed directly as harness config (this repo treats `.claude/` hook scripts as harness config,
+not product code needing the full artifact pipeline — no plan/spec lineage). Commit
+`bee8873dcb62b08c6686fda4bd50773247e1cccf`, "fix(ISSUE-123,ISSUE-127): pm-trigger fires on
+Edit; agent-guard implementer allow-list is language-agnostic."
+
+**Mechanism:** `.claude/settings.json`'s `PostToolUse` matcher for
+`backstop-pm-trigger.sh` was widened from `"Write"` to `"Write|Edit|MultiEdit"`, matching
+`backstop-validate-artifact.sh`'s own matcher — option 1 of the "Direction" section below. The
+hook body needed no change: `tool_input.file_path` has the same shape across `Write`, `Edit`,
+and `MultiEdit` events, so the existing glob and untracked-file dedupe logic
+(`.claude/hooks/backstop-pm-trigger.sh:13-20`) behaves identically once the event reaches it.
+
+**Verification:** manually confirmed the hook now fires on an `Edit` call against a freshly
+scaffolded, not-yet-committed issue file (the exact scaffold-via-CLI-then-Edit workflow named
+in the Reproduction section above).
+
+Option 2 (Bash-tool coverage scoped to `artifact new` invocations) was not pursued — widening
+the matcher closes the gap without adding a second hook-coverage surface to maintain.
+
+## Direction (original triage, superseded by Resolution above)
 
 At minimum, the eventual plan should weigh:
 

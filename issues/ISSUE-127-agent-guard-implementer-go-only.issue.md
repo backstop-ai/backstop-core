@@ -6,8 +6,11 @@ issue:
   id: ISSUE-127
   title: "agent-guard's implementer allow-list is Go-only, contradicting the project's own zero-baked-language first principle"
   type: technical-debt
-  status: open
+  status: closed
   created: "2026-08-15"
+  closed: "2026-08-17"
+
+resolved-by: bee8873dcb62b08c6686fda4bd50773247e1cccf
 
 complexity:
   scope: contained
@@ -58,6 +61,28 @@ This does not block anything today. backstop-core is presently a 100% Go project
 allows. The gap is dormant: it will fire the moment an implementer is dispatched against a plan that
 touches a non-Go file outside the two carved-out directories (a shell script under `.claude/hooks/`,
 a Python tool, a TypeScript file in a future pack-adjacent surface, etc.).
+
+## Resolution
+
+Fixed directly as harness config (this repo treats `.claude/` hook scripts as harness config,
+not product code needing the full artifact pipeline — no plan/spec lineage). Commit
+`bee8873dcb62b08c6686fda4bd50773247e1cccf`, "fix(ISSUE-123,ISSUE-127): pm-trigger fires on
+Edit; agent-guard implementer allow-list is language-agnostic."
+
+**Mechanism:** `.claude/hooks/backstop-agent-guard.sh`'s `implementer*` arm was replaced with a
+language-agnostic rule, resolving the "Open question" below toward the option closest to what
+the arm actually enforced: an implementer may write any file that isn't artifact-shaped
+(bundle/spec/issue/adr/directive/plan/BACKLOG.yml stay reserved for their own dedicated author
+families), rather than a hardcoded Go-only extension list. The pre-existing testdata exemption
+was preserved. This was chosen over the other two options named below (a per-project config
+file, or deriving "source" from adopted packs) as the one that generalizes the arm's own intent
+— "implementer touches source/config, not artifacts" — without inventing new machinery.
+
+**Verification:** `TestAgentGuard_EveryRosterAgentExplicitlyHandled` and
+`TestAgentGuard_NoOrphanGuardCase` both pass. Five manual behavior classes checked: implementer
+`.py` now allowed (previously blocked — the dormant gap this issue named), `.go` still allowed,
+`issue.md`/`BACKLOG.yml` still blocked (artifact-shaped, reserved for their own author
+families), testdata fixtures still exempt, and other agent roles unaffected.
 
 ## Open question — not decided here
 
