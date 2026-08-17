@@ -79,6 +79,14 @@ engines:
     input_flag: "--config"
     scope_kind: project-wide
     gate_type: lint
+    # Non-exempt is a RECORDED decision, not a default. This is the generic
+    # native-linter shape that golangci instantiates, and ISSUE-070 ("Gate
+    # Diffscope Leaks Projectwide Lint", closed 2026-07-27) established that
+    # project-wide lint findings on files the change never touched MUST be
+    # filtered out - otherwise the gate reds on pre-existing debt every time
+    # anyone touches anything. Writing the key changes no behaviour (false is
+    # the value it already resolved to); it makes the decision checkable.
+    exempt_from_scope_filter: false
     field_contract:
       requires: []
       forbids:

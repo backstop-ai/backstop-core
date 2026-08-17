@@ -10,7 +10,7 @@ func RunCoherence(pack *PackManifest, packDir string) *PhaseResult {
 	res := &PhaseResult{
 		Phase:  "phase2-coherence",
 		Status: "pass",
-		Checks: 6, // claims, fixtures, unique-ids, tool-config-traceability, pairs-with, orphans
+		Checks: 7, // claims, fixtures, unique-ids, tool-config-traceability, pairs-with, orphans, exempt-scope-decision
 	}
 	if pack == nil {
 		res.Status = "fail"
@@ -109,6 +109,22 @@ func RunCoherence(pack *PackManifest, packDir string) *PhaseResult {
 				res.Warnings = append(res.Warnings, ValidationWarning{Phase: res.Phase, Check: "pairs_with", Message: "dangling pairs_with reference", Files: []string{rid}})
 			}
 		}
+	}
+
+	// A project-wide engine that omits exempt_from_scope_filter has never had its
+	// scope-filter decision recorded — the absent key is indistinguishable from an
+	// oversight. Prompt the author to make the call; never make it for them. This
+	// reads scope_kind and key presence only, and rewrites no binding value.
+	for _, name := range ExemptDecisionPending(pack) {
+		res.Warnings = append(res.Warnings, ValidationWarning{
+			Phase: res.Phase,
+			Check: "exempt-scope-decision",
+			Message: "engine " + name + " is scope_kind: project-wide but does not declare exempt_from_scope_filter, " +
+				"so its scope-filter behaviour is an unrecorded default: true means its violations still RED a " +
+				"diff-scoped gate when they land on a file the change never touched, false means they are filtered out",
+			FixHint: "add `exempt_from_scope_filter: true` or `exempt_from_scope_filter: false` to the " + name + " engine block, recording the decision either way",
+			Files:   []string{"pack.yml"},
+		})
 	}
 
 	fixturesDir := filepath.Join(packDir, "fixtures")

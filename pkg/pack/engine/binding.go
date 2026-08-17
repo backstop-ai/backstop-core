@@ -256,8 +256,19 @@ type EngineBinding struct {
 	// identity check AND the SPEC-040 transitional `GateType == GateTypeBuild` seam:
 	// no CheckType enum identity and no GateType identity drives scope — the property
 	// is explicit and per-binding. It is DECOUPLED from ScopeKind (which stays
-	// arg-shaping-only): the go-build engine declares it true; golangci and go-test
-	// declare it false/unset (CLM-017). Resolution is per-violation (REQ-007).
+	// arg-shaping-only), so neither value can be inferred from how the engine
+	// attaches its files (CLM-017). Resolution is per-violation (REQ-007).
+	//
+	// WHICH ENGINES DECLARE WHICH VALUE IS DELIBERATELY NOT LISTED HERE. A roster in
+	// this comment went stale the moment a pack changed in a repository this file
+	// cannot see, and it will again. The roster is executable instead: the audit
+	// table in TestExemptAudit_EveryCommittedPackEngineHasAnIntentRow covers every
+	// engine in the committed corpus and fails when one joins unaudited, and
+	// packval's `exempt-scope-decision` advisory prompts any pack author — in any
+	// repository — whose project-wide engine omits the key entirely. An omitted key
+	// and an explicit false resolve to the same bool here; only the manifest knows
+	// which one the author meant, which is why the decision is prompted at the
+	// manifest and never defaulted in this type.
 	ExemptFromScopeFilter bool `yaml:"exempt_from_scope_filter"`
 }
 

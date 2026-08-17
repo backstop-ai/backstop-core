@@ -1,0 +1,16 @@
+name: acme/filearg-undeclared
+version: 1.0.0
+language: generic
+archetype: enforcement
+description: "Exempt tri-state fixture: a file-args engine with NO exempt_from_scope_filter key. Silent — a file-args engine only reports on the files handed to it, so the scope filter is a no-op and no decision is owed."
+engines:
+  # gate_type `lint` is DELIBERATELY IDENTICAL to projectwide-undeclared's. That
+  # makes the two indistinguishable to any gate_type-keyed rule while they differ
+  # ONLY in scope_kind, so an implementation deriving from gate_type warns here
+  # and fails TestExemptDecision_FileArgsEngineNeverWarns.
+  onlyengine:
+    command: mytool run
+    input_mode: rule-flags
+    input_flag: "--config"
+    scope_kind: file-args
+    gate_type: lint

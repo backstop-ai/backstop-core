@@ -1,0 +1,35 @@
+name: acme/exempt-decision-pack
+version: 1.0.0
+# Modelled on pkg/packval/testdata/engine-pack, reduced to EXACTLY ONE engine so
+# the exempt-scope-decision advisory count is unambiguously one. engine-pack's
+# second rule (mechanism-engine-rule -> mybuild) is DROPPED along with the
+# mybuild/mycoverage engines: carrying it across a single-engine reduction leaves
+# a dangling engine reference that fails phase2 engine-resolve for a reason with
+# nothing to do with this fixture's purpose.
+language: generic
+archetype: enforcement
+description: "Complete pack fixture whose ONE engine is project-wide with the exempt_from_scope_filter key ABSENT — the CLI-level proof that the advisory reports and still exits 0."
+engines:
+  mylint:
+    command: mylinter run
+    input_mode: config-file
+    input_flag: "--config"
+    scope_kind: project-wide
+    project_target: "./..."
+    category: mechanism
+    strict_sarif: true
+    gate_type: lint
+content:
+  ruleset:
+    rules:
+      - id: claimed-engine-rule
+        engine: mylint
+        file: rules/sample.yml
+        risk_class: correctness
+        claims:
+          - id: C1
+            fixtures:
+              positive:
+                - fixtures/valid/sample-ok.go
+              negative:
+                - fixtures/invalid/sample-bad.go

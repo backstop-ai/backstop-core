@@ -1,0 +1,15 @@
+name: acme/projectwide-explicit-true
+version: 1.0.0
+language: generic
+archetype: enforcement
+description: "Exempt tri-state fixture: a project-wide engine RECORDING exempt_from_scope_filter: true. The advisory MUST be silent."
+engines:
+  # gate_type `test` differs from the other two projectwide fixtures so an
+  # implementation keying on gate_type cannot reproduce the warn/silent split.
+  onlyengine:
+    command: mytool run
+    input_mode: none
+    scope_kind: project-wide
+    project_target: "./..."
+    gate_type: test
+    exempt_from_scope_filter: true

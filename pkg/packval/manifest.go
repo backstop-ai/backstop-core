@@ -3,6 +3,7 @@ package packval
 import (
 	"fmt"
 	"os"
+	"sort"
 
 	"github.com/backstop-ai/backstop-core/pkg/baseengines"
 	"github.com/backstop-ai/backstop-core/pkg/pack/engine"
@@ -42,6 +43,62 @@ type PackManifest struct {
 	// phase1's content-is-required check, which SPEC-054's sharp edge "A RECIPES-ONLY
 	// pack does not validate yet" names as a tracked three-site follow-up.
 	Recipes map[string]string `json:"recipes,omitempty" yaml:"recipes,omitempty"`
+
+	// declaredEngineKeys records, per engine name, the set of manifest keys the pack
+	// author ACTUALLY WROTE in that engine's block. It is the tri-state a plain decode
+	// destroys: an omitted `exempt_from_scope_filter` and an explicit
+	// `exempt_from_scope_filter: false` resolve to the SAME Go bool, so only key
+	// presence can tell an unmade decision from a recorded one.
+	//
+	// It is unexported — a validator concern, not part of the pack's JSON/YAML surface
+	// — and it is populated ONLY by ParseManifest, which ALWAYS assigns a non-nil map,
+	// including for a manifest with no `engines:` block. That keeps "never parsed"
+	// (nil) distinguishable from "parsed, declares no keys"; a PackManifest built as a
+	// Go literal therefore has nil here by design.
+	declaredEngineKeys map[string]map[string]bool
+}
+
+// engineKeyProbe is a deliberately loose second view of the same manifest bytes: it
+// reads WHICH keys each engine block contains and nothing about what they mean.
+// yaml.Node defers interpretation entirely, so this is a presence probe, not a second
+// parser competing with the Engines decode.
+type engineKeyProbe struct {
+	Engines map[string]map[string]yaml.Node `yaml:"engines"`
+}
+
+// exemptFromScopeFilterField is the manifest key whose PRESENCE records the decision.
+// It matches the yaml tag on engine.EngineBinding.ExemptFromScopeFilter.
+const exemptFromScopeFilterField = "exempt_from_scope_filter"
+
+// ExemptDecisionPending returns the sorted names of engines the manifest declares
+// `scope_kind: project-wide` whose block OMITS `exempt_from_scope_filter` — the
+// engines whose scope-filter decision has never been recorded anywhere.
+//
+// It consults scope_kind and key presence ONLY. It reads no gate_type, no engine name
+// and no tool name, and it infers no default: whether a project-wide engine's
+// violations survive diff-scope filtering is the pack author's call to record, never
+// this function's to guess (SPEC-041 REQ-004/CLM-017).
+//
+// A manifest that was never parsed (nil record) yields nil rather than every
+// project-wide engine, so a Go-literal manifest cannot manufacture a false prompt.
+// This is the SINGLE authority for "a decision is owed here": the coherence advisory
+// and the audit census both call it rather than re-deriving the rule.
+func ExemptDecisionPending(m *PackManifest) []string {
+	if m == nil || m.declaredEngineKeys == nil {
+		return nil
+	}
+	pending := make([]string, 0, len(m.Engines))
+	for name, binding := range m.Engines {
+		if binding.ScopeKind != engine.ScopeKindProjectWide {
+			continue
+		}
+		if m.declaredEngineKeys[name][exemptFromScopeFilterField] {
+			continue
+		}
+		pending = append(pending, name)
+	}
+	sort.Strings(pending)
+	return pending
 }
 
 // resolveEngine resolves an engine name against the base engine registry merged with
@@ -190,6 +247,18 @@ func ParseManifest(path string) (*PackManifest, error) {
 	var out PackManifest
 	if err := yaml.Unmarshal(data, &out); err != nil {
 		return nil, fmt.Errorf("parse manifest: %w", err)
+	}
+	var probe engineKeyProbe
+	if err := yaml.Unmarshal(data, &probe); err != nil {
+		return nil, fmt.Errorf("probe manifest engine keys: %w", err)
+	}
+	out.declaredEngineKeys = make(map[string]map[string]bool, len(probe.Engines))
+	for name, block := range probe.Engines {
+		keys := make(map[string]bool, len(block))
+		for key := range block {
+			keys[key] = true
+		}
+		out.declaredEngineKeys[name] = keys
 	}
 	return &out, nil
 }

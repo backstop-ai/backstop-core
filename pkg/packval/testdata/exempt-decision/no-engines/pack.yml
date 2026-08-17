@@ -1,0 +1,5 @@
+name: acme/no-engines
+version: 1.0.0
+language: generic
+archetype: enforcement
+description: "Exempt tri-state fixture: a manifest with NO engines: block at all. Parsing it must still yield a NON-NIL declared-key record, so 'not parsed' stays distinguishable from 'no keys declared'."

@@ -1,0 +1,18 @@
+name: acme/projectwide-undeclared
+version: 1.0.0
+language: generic
+archetype: enforcement
+description: "Exempt tri-state fixture: a project-wide engine that OMITS exempt_from_scope_filter. The advisory MUST name it."
+# Manifest-only fixture (the bad-engine-pack shape): it drives ParseManifest and
+# RunCoherence directly in unit tests and is deliberately NOT a complete pack.
+engines:
+  # gate_type `lint` is shared with filearg-undeclared ON PURPOSE: the two
+  # fixtures are indistinguishable to any gate_type-keyed rule and differ ONLY in
+  # scope_kind, so a gate_type-based implementation necessarily mis-warns.
+  onlyengine:
+    command: mytool run
+    input_mode: config-file
+    input_flag: "--config"
+    scope_kind: project-wide
+    project_target: "./..."
+    gate_type: lint
