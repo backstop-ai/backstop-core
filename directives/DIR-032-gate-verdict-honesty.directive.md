@@ -27,6 +27,7 @@ directive:
     - "ISSUE-146"
     - "ISSUE-148"
     - "ISSUE-151"
+    - "ISSUE-160"
 ---
 
 ## Description
@@ -148,7 +149,12 @@ scopes a rule with a directory-prefixed `paths.include`. Filed by
 from item 3's own lane; its three siblings are ISSUE-149, ISSUE-150 (both
 record-only behavior-change filings, escalated to the founder as unhomed,
 deliberately NOT slotted here) and ISSUE-152 (a founder scope-policy
-decision, not yet triaged).
+decision, not yet triaged). **Correction (2026-08-17, later same day):** the
+roster grew again, to TWENTY-ONE, with item 21 (ISSUE-160), slotted by
+backlog-pm under the same standing clear-fit grant recorded above for items
+12 (ISSUE-118), 13 (ISSUE-129), 14 (ISSUE-136), 16 (ISSUE-142) and 20
+(ISSUE-151) — on charter fit against this directive's own description, not
+by the founder's original 2026-08-10 eleven-member roster.
 
 The cluster's variants, so a planner does not read it as one uniform bug:
 
@@ -1267,6 +1273,147 @@ The cluster's variants, so a planner does not read it as one uniform bug:
     exists to police. That ruling is pending as of 2026-08-17 and is
     recorded in the PM inbox.
 
+21. **`pkg/packval`'s fixture executor ignores three engine-binding fields the
+    real gate dispatch honors — `CrashGuard`, `StrictSarif` and `Producer` —
+    so a `pack test`/`pack check` phase-3 fixture run reports a clean pass on
+    a run that crashed, emitted the wrong shape, or invoked the wrong command
+    (ISSUE-160).** `grep -rn "CrashGuard\|StrictSarif" pkg/packval/*.go` and
+    `grep -rn "Producer" pkg/packval/*.go` both return ZERO matches; the
+    gate's honoring sites are `runFindingsEngine`'s crash-vs-findings guard
+    (`cmd/backstop/pack_gate.go`, `binding.CrashGuard && runErr != nil &&
+    len(checkViolations) == 0`, SPEC-034 REQ-003/CLM-010),
+    `requireLintSarifShape` (`cmd/backstop/pack_gate_golint.go`, gated on
+    `binding.StrictSarif`, SPEC-034 REQ-005/CLM-019), and the
+    producer-substitution blocks in BOTH `runFindingsEngine` and
+    `runCoverageEngine` (`binding.Producer`, ISSUE-045/ISSUE-067).
+
+    **WHY THIS IS DIR-032 AND NOT DIR-024, SETTLED ON THE EMPTY-INPUT PATH —
+    this is the whole homing argument and a planner must not misread it.**
+    All three fields' failure modes converge on `parseSarif`
+    (`pkg/check/parsers.go`) returning `(nil, nil)`: it short-circuits
+    `len(bytes.TrimSpace(out)) == 0` to a nil slice and nil error, and it
+    `json.Unmarshal`s into the `sarifLog` STRUCT, so any valid JSON OBJECT
+    that is not SARIF (golangci-lint v2's pre-SARIF native JSON, for
+    instance) unmarshals successfully to zero `Runs`. `DefaultExecutor.RunEngine`
+    then returns `ExecutionResult{Passed: false}` with a nil error. Now apply
+    phase-3's fixture POLARITY, which is the inverse of the naive reading and
+    is what makes this a lie rather than a shout: in `RunFixtures`
+    (`pkg/packval/phase3.go`) a POSITIVE fixture is clean code expected NOT
+    to fire — the only error it can raise is `semgrep-positive`, "positive
+    fixture triggered the rule (false positive)", raised when `Passed` is
+    TRUE. So `Passed: false` with a nil error IS a positive fixture's success
+    condition. A crashed CrashGuard engine, a StrictSarif engine handed
+    non-SARIF JSON, and a Producer-declaring engine invoked without its
+    producer therefore all read as a clean positive-fixture pass: the pack
+    author's "this rule stays quiet on clean code" claim is certified by a
+    run that never meaningfully happened. That is this directive's charter
+    sentence verbatim — silent pass when it should block.
+
+    **Contrast with item 13 (ISSUE-141), which lives in DIR-024 — the split
+    across the same function is principled, not arbitrary.** ISSUE-141's
+    missing Convert application fails LOUD, but only by accident of the
+    payload's SHAPE: `packs/substantiveness`'s ast-grep engine emits a plain
+    JSON ARRAY, and an array cannot unmarshal into the `sarifLog` struct, so
+    `RunEngine` raises `engine %q produced no parseable SARIF`. None of item
+    21's three fields produces an array. Empty stdout and object-shaped
+    non-SARIF JSON both parse silently to zero findings. Same file, same
+    function, opposite verdict direction — the SHOUT-vs-LIE discriminator
+    that sent ISSUE-141 to DIR-024 and ISSUE-144 to DIR-032 (item 17)
+    resolves this one here.
+
+    **Producer's silent path deserves naming, because it is item 2
+    (ISSUE-067) re-expressed one layer in.** `go-build`'s producer exists
+    precisely because `go build` writes every compiler diagnostic to STDERR
+    and NOTHING to stdout, and core captures stdout only (SPEC-031 CLM-028).
+    Without producer substitution, `RunEngine` captures an EMPTY stdout, hits
+    `parseSarif`'s zero-length short-circuit, and returns zero findings with
+    no error — the exact defect ISSUE-067 fixed on the gate side, reappearing
+    inside the validator that is supposed to catch this class before a pack
+    ships.
+
+    **A SECOND, OPPOSITE CONSEQUENCE ON THE NEGATIVE-FIXTURE PATH, found by
+    backlog-pm during triage and stated in NEITHER the issue nor
+    PLAN-ISSUE-144 — a planner must fix the attribution, not just wire up the
+    three fields.** A NEGATIVE fixture is violating code that SHOULD fire, so
+    the same `Passed: false` raises a LOUD error — but a misattributed one.
+    Its message reads "This negative fixture did not trigger the rule and may
+    indicate an engine limitation," and its `FixHint` advises "Consider
+    removing this fixture and documenting the limitation rather than shipping
+    an untestable claim." So the identical defect that silently passes
+    positives actively COUNSELS DELETING a good negative fixture on the
+    strength of a crashed or wrongly-invoked run. That half is DIR-024-shaped
+    — loud red wearing the wrong legible name, items 15/16/17's line — and is
+    deliberately recorded HERE rather than split off, because it is the same
+    missing three fields.
+
+    **LATENCY, verified and material — it bounds urgency without softening
+    the defect.** Nothing reaches these paths today. `RunFixtures` gates
+    dispatch on `ruleSource != "" || rule.Pattern != ""` and runs engines
+    only from inside `rule.Claims[].Fixtures`. Across every installed pack,
+    every field-declaring engine's bound rules carry ZERO claims and
+    therefore ZERO fixtures: `backstop-ai/go-toolchain` declares `producer:`
+    on go-coverage/go-build/go-test, `crash_guard: true` on go-build/go-test
+    and `strict_sarif: true` on golangci, yet its four
+    `content.ruleset.rules` (go-lint, go-build, go-test, go-coverage) contain
+    no `claims:` key at all — grep for "claims" over that `pack.yml` returns
+    zero hits; `backstop-ai/backstop-core-architecture` declares
+    `crash_guard: true` on go-arch-lint and likewise carries zero claims. The
+    exposure is entirely LATENT: real drift, zero live victims, and it goes
+    live the moment any pack author adds a single fixture to one of those
+    rules, which is the ordinary next step for all three.
+
+    **CORRECTION TO THE ISSUE'S OWN "most consequential" ARGUMENT, so no
+    planner over-weights it.** The issue argues `Producer` is the most
+    consequential of the three because go-coverage declares BOTH
+    `stdout_artifact` and `producer:`, making ISSUE-144's just-landed
+    StdoutArtifact fix real "only if `RunEngine` also invokes the right
+    command." That is correct as MECHANISM and wrong as URGENCY: go-coverage
+    has no fixtures, so neither ISSUE-144's fix nor this one has a live
+    victim there today. The sequencing advice — do Producer first — still
+    stands on impact-when-live; the "the one binding packval was just fixed
+    to read is the one it invokes wrong" framing should be read as a design
+    argument, not as a live breakage.
+
+    **Fix-surface edge, and the rule that keeps it from moving the home.**
+    The issue's own Direction says these three fields likely belong in
+    whatever shared gate-mirroring location ISSUE-143's extraction creates,
+    rather than as three more independent copies inside `RunEngine`.
+    ISSUE-143 is DIR-024 item 14, and that item ALREADY carries explicit
+    cross-directive absorption authority for ISSUE-144 (this directive's item
+    17); item 21 joins the same absorption clause. Verified 2026-08-17:
+    ISSUE-143 is `status: open` and NO plan in `plans/` targets it, so no
+    extraction exists to target yet and this item does not block on one.
+    Fix-surface co-location is LANE ADJACENCY, NOT CHARTER — the same rule
+    that kept ISSUE-144 in this directive while its extraction lives in
+    DIR-024.
+
+    **Counter-pull, recorded so it can be overruled in one edit.** DIR-024
+    holds items 13 (ISSUE-141) and 14 (ISSUE-143) on this exact function, and
+    item 21's fix physically lands where item 14's extraction would go;
+    homing it there would co-locate all packval-executor work in one
+    directive. It was rejected because this corpus homes on failure
+    direction, not on file — but the pull is real and Brandon can move it
+    with a single source-list edit.
+
+    **Direction, carried as constraint not design, from the issue and per
+    its explicit instruction not to fold the three into one undifferentiated
+    change:** three separate falsification mechanics — (i) a
+    Producer-declaring binding whose fixture run must resolve and invoke the
+    `packRoot`-relative producer un-sandboxed in place of the plain command,
+    with the same declared-but-missing fail-loud behavior (sequenced FIRST on
+    impact-when-live); (ii) a CrashGuard fixture where the engine exits
+    non-zero with zero parseable findings, which must fail loud instead of
+    returning `Passed: false` with a nil error; (iii) a StrictSarif fixture
+    whose output is non-SARIF JSON, which must hit the shape guard before
+    parsing. Each needs its own falsifying fixture; a shared "wire up three
+    fields" test proves none of them.
+
+    `type: bug`, `scope: contained`, `uncertainty: known`, `risk: moderate`
+    per the issue's own frontmatter. Same drift family as items 4
+    (ISSUE-092), 15 (ISSUE-140), 16 (ISSUE-142) and 17 (ISSUE-144), and
+    DIR-024's items 13 and 14 — `pkg/packval`'s dispatch repeatedly diverging
+    from the `cmd/backstop/pack_gate.go` dispatch it exists to mirror.
+
 ## Notes
 
 Grouping rationale and priority, stated once rather than per-item: four of
@@ -1681,3 +1828,17 @@ members are now delivered — items 9, 10, 12, 13 (the 2026-08-16 "overnight
 P0 batch," ISSUE-112/113/118/129) plus item 7 (ISSUE-100). `ISSUE-100` the
 issue artifact itself is still `status: open`; formally closing it is a
 separate action not taken here.
+
+ISSUE-160 ("packval fixture executor ignores CrashGuard/StrictSarif/Producer")
+slotted as item 21 by backlog-pm 2026-08-17 under the standing clear-fit
+grant; home settled on the empty-input path — all three fields fail to
+`parseSarif`-returns-nil-nil, which is a positive fixture's success condition
+— rather than on fix surface. DIR-024 counter-pull recorded in the item
+itself. Filing was MANDATED by `PLAN-ISSUE-144` (`status: completed`), which
+named all three fields in its own notes and explicitly refused to absorb
+them, so in-flight coverage is nil by construction and no interviews were
+run.
+
+Priority note, stated as observation and explicitly NOT as a reorder
+(backlog-pm has no reorder authority): DIR-032 sits at BACKLOG.yml position 2
+and this slot does not change its rank.
