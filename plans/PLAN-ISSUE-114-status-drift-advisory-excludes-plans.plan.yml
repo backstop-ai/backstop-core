@@ -1,0 +1,851 @@
+---
+plan_id: PLAN-ISSUE-114
+spec_id: ISSUE-114
+created: "2026-08-16"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./pkg/gate/... -race -count=1"
+coverage_threshold: 90
+
+notes: |
+  ══════════════════════════════════════════════════════════════════════════════
+  PLAN-ISSUE-114 — the delivered-but-open drift advisory can never fire for a plan
+  ══════════════════════════════════════════════════════════════════════════════
+  DIR-032 (Gate Verdict Honesty) item 11. This is the "silent by starvation"
+  variant of the family: unlike items 4-10, which mis-report a verdict they DID
+  compute, this dimension computes nothing at all for an entire artifact kind.
+
+  ── CITE BY NAME, NOT BY LINE ──────────────────────────────────────────────
+  Every location below is named by FUNCTION or FIELD, never by line number.
+  pkg/gate/artifact_status.go is a long file that several lanes have touched;
+  a line number cited here would be stale before the implementer reads it.
+  Locate `planTaskMandatedTests`, `planTaskNode`, `ResolveArtifactStatus`,
+  `looksDelivered` and `ClassifyStatusDrift` BY NAME.
+
+  ── EXISTENCE-IN-WORLD CHECK (performed 2026-08-17, before authoring) ────────
+  Swept plans/, specs/, issues/ and directives/ (committed AND working tree) for
+  any artifact already owning the plan-mandated-test surface:
+    - grep -rln "looksDelivered|planTaskMandatedTests|ISSUE-114" over all four
+      directories returned exactly six files, each checked:
+      * plans/PLAN-ISSUE-048-obsoleted-resolvedby-vocab.plan.yml (completed) —
+        AUTHORED the `test_names` field and the completed-plan BLOCK direction.
+        It explicitly predicted this gap ("no real plan carries test_names yet,
+        so this is additive") and did not close it. Not an owner; the predecessor.
+      * plans/PLAN-ISSUE-054-*.plan.yml (completed) — scoped test_verification /
+        substantiveness / coverage to `implemented` specs. It NAMES looksDelivered
+        only to record that it left it UNTOUCHED. Not an owner.
+      * issues/ISSUE-149-*.issue.md (open) — a claim-prose retraction against
+        PLAN-ISSUE-010. It cites planTaskMandatedTests only as evidence that
+        PLAN-ISSUE-010 contributes zero gate-enforced tests. Documentary; not an
+        owner, and its finding is CONFIRMED by this plan rather than contradicted.
+      * issues/ISSUE-114 (this plan's source) and directives/DIR-032 item 11.
+    - No SUBSUMPTION: no committed plan carries a phase delivering plan-side
+      mandated-test resolution. PLAN-SPEC-068/069/070, which landed alongside this
+      one, touch artifact ROOT resolution and layout, not mandated-test derivation.
+  CONCLUSION: unowned. Authoring proceeds.
+
+  ── CROSS-LANE FILE COLLISION: NONE, VERIFIED AT AUTHORING TIME ─────────────
+  `git status --short pkg/gate/ pkg/validate/ artifacts/plan/ cmd/backstop/gate.go`
+  at authoring time reported exactly ONE entry — an untracked
+  pkg/gate/step_testverify_layout_test.go belonging to another lane. Both files
+  this plan edits, pkg/gate/artifact_status.go and artifacts/plan/v1/schema.json,
+  were CLEAN. The implementer MUST re-run that same command before TASK-005 and
+  report any change; several DIR-032 lanes were live in this tree the same night
+  and a collision is a report, never a silent resolution.
+
+  ── FALSIFICATION: THE DEFECT REPRODUCED FOR REAL (2026-08-17) ──────────────
+  Not assumed from the issue's 2026-08-02 description — re-measured against the
+  CURRENT corpus with a probe calling the real gate.ResolveArtifactStatus and the
+  real gate.ClassifyStatusDrift, with a present-set built from every
+  `func Test|Benchmark|Fuzz` in the repo (3749 names):
+
+    plans total                                    127
+    non-terminal (draft/ready/implementing)         54
+    non-terminal carrying ANY task test_names        2   (PLAN-ISSUE-081 `ready`,
+                                                          PLAN-ISSUE-110 `draft`)
+    non-terminal with ALL mandated tests present     0
+    ClassifyStatusDrift over plan records only:
+      status=pass  violations=0  advisory(warning)=0
+
+  So the advisory fires for ZERO plans, and 52 of 54 non-terminal plans carry no
+  machine-readable mandated test at all. THE ISSUE'S CORE FINDING HOLDS. What has
+  CHANGED since 2026-08-02 is only the terminal half: 49 of 70 `completed` plans
+  now carry test_names (the planner agent emits it as convention), which is why
+  the completed-plan BLOCK direction works and the non-terminal WARN direction
+  still does not. Convention populated the field where it was already too late to
+  matter, which is exactly the chicken-and-egg the issue describes.
+
+  ── WHY THE MECHANISM IS NOT THE BUG (do not "fix" ClassifyStatusDrift) ─────
+  `ClassifyStatusDrift` iterates records with NO kind filter; a plan record reaches
+  the ClassNonTerminal branch exactly like a spec or issue record. `looksDelivered`
+  returning false on `len(rec.MandatedTests) == 0` is CORRECT and must stay: an
+  artifact that declares no mandated test genuinely does not look delivered.
+  THE GAP IS IN THE DATA, and the fix belongs in the RESOLVER.
+
+  ── THE FIX: DERIVE, DO NOT MANDATE ────────────────────────────────────────
+  ISSUE-114 offers two directions and prescribes neither. DIR-032 additionally
+  requires the planner to state explicitly whether the fix is retroactive. Both
+  directions were measured on the real corpus before choosing.
+
+  DIRECTION (a) — make `test_names` load-bearing in pkg/validate/plan.go —
+  IS REJECTED, on measured grounds:
+    * 47 of 48 `draft` plans and 5 of 6 `ready` plans declare no test_names, so an
+      error-severity rule reds 52 plans at once.
+    * backstop.yml policies `artifact_validation` as `level: block` with NO
+      `applies-to: new-code`. Verified by reading backstop.yml. It therefore does
+      NOT grandfather against .backstop/baseline.json — unlike artifact_status_drift,
+      which does. Every one of those 52 findings would block immediately, taking
+      `backstop gate --all` hard red with no baseline relief, mid-launch.
+    * 23 of 70 `completed` plans also lack the field, and completed plans are never
+      rewritten (the convention ISSUE-149 states in terms). A blanket requirement
+      would red immutable records that cannot legitimately be fixed.
+    * A warning-severity variant avoids the red but changes no data, so the advisory
+      stays starved — it would be ceremony, not a fix.
+
+  DIRECTION (b) — task-claims-derived mandated tests — IS ADOPTED. Every plan task
+  ALREADY carries a required `claims: [CLM-NNN]` array (D-080 enforces it), and the
+  source spec/issue ALREADY carries the structured `claims[].tests` those ids point
+  at. So the plan's machine-readable mandated tests are DERIVABLE from data that
+  exists today, with zero authoring burden and zero backfill. This is the direction
+  ISSUE-114 phrases as "a task-claims-derived mandated-test concept structurally
+  parallel to spec/issue claims[].tests", and it dissolves rather than manages the
+  defect the issue actually names: the prose representation and the machine-readable
+  representation stop being two things that can drift, because the ONE structured
+  source (the source artifact's claims[].tests) now feeds both.
+
+  RETROACTIVITY, ANSWERED EXPLICITLY AS DIR-032 REQUIRES: the fix is fully
+  retroactive and requires NO backfill of any existing plan. Derivation reads
+  fields every plan already has. No plan file is edited by this work.
+
+  ── BLAST RADIUS: MEASURED ON THE REAL CORPUS, NOT ESTIMATED ───────────────
+  A second probe applied the exact proposed derivation (task claims resolved against
+  the source artifact's claim→tests map, retired sources skipped, unioned with
+  explicit test_names) across all 127 plans:
+
+    completed plans that would newly BLOCK      0 plans, 0 findings
+    non-terminal plans gaining machine data    28  (from 2)
+    non-terminal plans that would fire the
+      delivered-but-open ADVISORY              15
+      e.g. PLAN-ISSUE-004, PLAN-ISSUE-018, PLAN-ISSUE-034, PLAN-ISSUE-035,
+           PLAN-SPEC-030, PLAN-SPEC-036, PLAN-SPEC-040, PLAN-SPEC-041
+
+  THE ZERO IN THE FIRST ROW IS THE LOAD-BEARING NUMBER. Be precise about WHY it is
+  zero, because the tempting one-line argument is over-general and wrong. That
+  argument — "a completed plan's source-claim tests are present, or the SOURCE would
+  already be blocking on them today" — holds ONLY when the source artifact is itself
+  success-terminal, i.e. already on the policied surface. A completed plan (a
+  `ClassSuccessTerminal` artifact, so POLICIED, not advisory) whose source is
+  NON-terminal and whose source declares an ABSENT claim test would today be silent
+  on both sides, yet after derivation would attribute a genuine NET-NEW BLOCKING
+  finding to the plan. There is no structural guarantee forbidding that shape.
+  The zero is therefore an EMPIRICAL fact about the corpus as measured, not a
+  theorem: exactly 2 completed plans have a non-terminal source, and BOTH of those
+  sources declare zero claim tests, so the risky class is EMPTY today. The
+  prediction (0 net-new blocks) is correct; the reason is measurement, not structure.
+  If the corpus ever grows a completed-plan-with-non-terminal-source-and-nonzero-
+  claim-tests case, this number moves — and TASK-008's numeric stop-and-report
+  predicate is exactly the mechanism that catches it, since it re-measures the
+  newly-blocking count for real and halts on any nonzero rather than proceeding.
+  The block surface gains reach without gaining
+  a single finding. The 15 advisory hits are warning-severity on
+  StepArtifactStatusDriftAdvisory, which carries NO backstop.yml policy entry and
+  therefore cannot be upgraded to a block by any policy (this is CLM-006/010 of the
+  original drift work, and SplitDriftResult is what enforces it). Net gate-verdict
+  risk of this change: none. TASK-008 re-measures both numbers for real rather than
+  trusting this paragraph.
+
+  ── CONTAINMENT: WHO ELSE READS rec.MandatedTests ──────────────────────────
+  Enlarging a plan record's MandatedTests is safe, but NOT because the field has a
+  single consumer — it has TWO real non-test readers. Enumerate them REPO-WIDE, not
+  just under pkg/gate/ (a pkg/gate/-only sweep misses the second one entirely):
+    `grep -rn "MandatedTests" --include='*.go' . | grep -v '_test\.go'`
+  That sweep yields exactly two reads of the field:
+    1. pkg/gate/status_drift.go:42,76,79 — `ClassifyStatusDrift` and `looksDelivered`.
+       This is the consumer this plan is deliberately enlarging.
+    2. cmd/backstop/gate.go:1094-1095 — inside `computeDriftSurfaces` (defined at
+       :1092), which aggregates EVERY record's MandatedTests into a local `all`, then
+       feeds it `ResolveMandatedTestPaths` -> `ResolvePresentTestNames`. That is the
+       construction of the PRESENT-SET that `ClassifyStatusDrift` is judged against.
+  Every remaining hit is a write, a doc comment in artifact_status.go, or a reference
+  to the separate `ExtractMandatedTests` function (not the record field).
+
+  Consumer 2 does not break containment; it is the reason containment holds, and the
+  reason is a strict-subset argument rather than a non-consumption argument. The names
+  this plan derives for a plan record are its source artifact's claim tests — names
+  that already reach `all` via that SOURCE record's own MandatedTests. So the derived
+  names are a STRICT SUBSET of what `computeDriftSurfaces` already aggregates:
+  measured ZERO novel names across the corpus, i.e. the present-set is bit-identical
+  before and after this fix. Enlarging the plan record therefore changes only which
+  records are CLASSIFIED, never the set they are classified against.
+    * test_verification and test_substantiveness do NOT read the field at all — both
+      source their mandated tests from `gate.ExtractMandatedTests(specDir)`, SPECS
+      ONLY. Confirmed at pkg/gate/step_testverify.go:393 and cmd/backstop/gate.go:1243.
+      Derived plan tests therefore cannot reach the blocking test_verification step.
+    * requirement_traceability consumes ArtifactStatusRecord but reads status /
+      BundleName / BundleReqs, never MandatedTests.
+  This containment argument is WHY the change is safe. If a future lane adds a THIRD
+  consumer of rec.MandatedTests, it must re-establish it — and must run the repo-wide
+  sweep above, not a package-scoped one.
+
+  ── CLAIMS ────────────────────────────────────────────────────────────────
+  This plan is issue-sourced and ISSUE-114 carries no claims[] block, so the plan
+  defines its own claims. Every one is mapped to at least one task below.
+
+    CLM-001  THE FIX. A plan record's MandatedTests is DERIVED from its tasks'
+             `claims[]` entries resolved against the source artifact's (its
+             `spec_id`) claim→tests map, so a plan whose mandated tests live only
+             in task-description prose becomes machine-visible without any edit to
+             the plan file. Closes the issue's core finding that a plan's prose
+             mandated tests and its machine-readable MandatedTests are two
+             independent, unsynchronised representations.
+
+    CLM-002  THE DIR-032 VERIFICATION BAR, MET LITERALLY. A NON-TERMINAL plan whose
+             derived mandated tests are ALL PRESENT produces an
+             `artifact_status_drift_advisory` warning. DIR-032 item 11 states this
+             bar in terms and explicitly rejects a fixture that is only a `completed`
+             plan ("re-proves the already-working path and nothing else"), so the
+             fixture for this claim is a `draft` plan carrying NO test_names.
+
+    CLM-003  THE NEGATIVE CONTROL THAT KEEPS CLM-002 HONEST. A non-terminal plan with
+             ANY derived mandated test ABSENT produces NO advisory. Without it,
+             CLM-002 could be satisfied by code that warns on every non-terminal plan
+             unconditionally — which would be a worse defect wearing a fix's clothes.
+
+    CLM-004  A RETIRED SOURCE CONTRIBUTES NOTHING. When the source artifact's record
+             class is `ClassRetiredTerminal` (replaced / canceled / deprecated /
+             obsoleted), its claims are RETRACTED and the plan inherits none of them.
+             A plan must never be held to, or credited with, a promise its source has
+             withdrawn.
+
+             THE GUARD MUST KEY ON THE RECORD'S `Class`, NEVER ON
+             `isTerminalSpecStatus`. The two genuinely disagree: `isTerminalSpecStatus`
+             (pkg/gate/step_testverify.go) returns false for `obsoleted`, while
+             `ClassifyArtifactStatus` returns ClassRetiredTerminal for it. So an
+             `obsoleted` SPEC still flows through ExtractMandatedTests and DOES carry
+             MandatedTests on its record — which is precisely why this guard is
+             load-bearing rather than redundant, and why its fixture is an obsoleted
+             SPEC and not an obsoleted issue.
+
+    CLM-005  UNION AND DEDUPE. Explicit `test_names` keep working EXACTLY as today —
+             derivation is additive, never a replacement — and a name reachable BOTH
+             explicitly and by derivation appears in MandatedTests exactly ONCE.
+             Duplication is not cosmetic here: two identical MandatedTest entries
+             yield two byte-identical drift violations on the same file with the same
+             message, i.e. a doubled baseline identity for one real finding.
+
+    CLM-006  AN UNRESOLVED CLAIM REFERENCE IS SILENT, NOT A FINDING. A task claim that
+             resolves to nothing — because the source declares no `claims[].tests`, or
+             declares no claim by that id — contributes zero mandated tests and emits
+             no violation of any kind. Measured: 3506 of 9402 plan-task claim
+             references in the current corpus do not resolve, overwhelmingly because
+             131 of 148 issues carry no claims block at all. Making that a finding
+             would red the corpus for a documentation gap this plan is not scoped to
+             close. See the RESIDUALS section.
+
+    CLM-007  THE SUCCESS-TERMINAL DIRECTION GAINS THE SAME REACH. A `completed` plan
+             with a DERIVED mandated test that is ABSENT blocks as a broken promise,
+             identically to one declared via explicit `test_names`. Derivation must
+             not be a second-class channel that only ever warns.
+
+    CLM-008  THE ADVISORY REMAINS STRUCTURALLY NON-BLOCKING. Every violation the
+             derived path adds on the non-terminal side carries severity `warning`
+             and routes to `StepArtifactStatusDriftAdvisory` via `SplitDriftResult`,
+             never to the policied `StepArtifactStatusDrift` block surface. The
+             delivered-heuristic-is-not-proof asymmetry is preserved exactly.
+
+    CLM-009  THE SCHEMA STOPS MISDESCRIBING THE MECHANISM. artifacts/plan/v1/schema.json's
+             `task_test_names_description` currently reads as though `test_names` is
+             the ONLY channel by which a plan's mandated tests reach
+             artifact_status_drift. After this change that sentence is false, and a
+             false schema description is how the next author re-derives the wrong
+             mental model. `test_names` STAYS OPTIONAL — no structural schema change,
+             description text only.
+
+  ── SHARP EDGES ───────────────────────────────────────────────────────────
+    SE1  RESOLUTION ORDER IS LOAD-BEARING AND ALREADY CORRECT — DO NOT REORDER.
+         `ResolveArtifactStatus` walks specs, then bundles, then issues, then
+         directives, then PLANS LAST. Derivation depends on that: the source records
+         it reads must already be appended to res.Records when the plan walk runs.
+         Building the claim index from the already-appended records is therefore a
+         single pass with no second walk of specs/ or issues/. If a future change
+         moves the plan walk earlier, derivation silently resolves nothing and every
+         test in this plan goes green-but-vacuous. TASK-005 must add a comment at the
+         plan-walk site saying so.
+
+    SE2  DERIVED ATTRIBUTION POINTS AT THE PLAN, NOT THE SOURCE. A derived
+         MandatedTest carries `SpecFile` = the PLAN's path and `SpecID` = the PLAN's
+         id, matching `planTaskMandatedTests` exactly, so the drift violation
+         attributes to the plan whose status is wrong. Pointing SpecFile at the source
+         spec would file the finding against an artifact that is not drifting.
+         `ClaimID` for a DERIVED entry carries the SOURCE CLAIM id (CLM-NNN), because
+         `driftBrokenPromiseMessage` renders it as ", claim %s" and the source claim
+         is what explains why the test is owed. Note that `planTaskMandatedTests`
+         puts the TASK id in that same field for explicit entries; that pre-existing
+         choice is left UNCHANGED — do not churn it, and do not "harmonise" the two.
+
+    SE3  DEDUPE ON FUNCTION NAME, WITHIN ONE PLAN ONLY. Two tasks legitimately claim
+         the same CLM, and a task legitimately lists a name its claim also yields.
+         The dedupe key is the mandated test FUNCTION NAME within a single plan's
+         record. It must NOT be global across plans — two different plans may each
+         legitimately owe the same test name.
+
+    SE4  EXPLICIT WINS THE DEDUPE. When a name is reachable both ways, keep the
+         EXPLICIT entry (with its task-id ClaimID), not the derived one. Explicit
+         declaration is the author's direct statement and its attribution is the more
+         specific of the two. State this in the code, because either choice passes a
+         naive "appears once" assertion and only one is intended.
+
+    SE5  A `nil`/absent claims array on a task is normal and silent. `planTaskNode`
+         gains `Claims []string` and yaml simply leaves it nil for a task that has
+         none. No error, no default, no warning.
+
+    SE6  DO NOT TOUCH `looksDelivered`. Its `len(rec.MandatedTests) == 0` early
+         return is correct and is NOT the defect — see WHY THE MECHANISM IS NOT THE
+         BUG above. An implementer who "fixes" it there converts a starved advisory
+         into an advisory that fires on every non-terminal artifact in the repo.
+
+    SE7  DO NOT TOUCH pkg/validate/plan.go. Direction (a) is rejected on measured
+         grounds recorded above. Adding a test_names requirement there is out of
+         scope and would red 52 plans against a non-grandfathering policy.
+
+    SE8  FIXTURES LIVE UNDER testdata/ AND ARE EXCLUDED FROM THE CORPUS SCANS BY
+         NAME. `pkg/artifact/layout.go`'s `nonCorpusDirNames` is exactly
+         {".git", "testdata", "prototype"}, so the artifact-shaped .spec.md /
+         .issue.md / .plan.yml fixtures this plan adds cannot trip
+         `FindUngatedArtifacts` and cannot enter `backstop artifact validate`.
+         Verified by reading that list. A fixture placed anywhere else WOULD trip it,
+         and artifact_validation does not grandfather.
+
+    SE9  THE FIXTURE SET MUST FALSIFY, NOT ILLUSTRATE. Fixture-derived expectations
+         are chosen so a broken implementation fails: the retired-source plan's
+         withdrawn test name IS in the present-set, so a missing retired guard makes
+         its plan look delivered and fires a spurious advisory; the completed union
+         plan's derived-absent test is what proves CLM-007 rather than assuming it.
+
+  ── FALSIFICATION BAR ─────────────────────────────────────────────────────
+  Every mandated test named in TASK-003 and TASK-004 MUST be observed FAILING on the
+  pre-fix tree before TASK-005 begins, and the observed failure mode must be the
+  predicted one — the plan records resolve with EMPTY MandatedTests and
+  ClassifyStatusDrift emits no advisory — not a compile error, not a missing fixture,
+  not a helper panic. An implementer who cannot produce the predicted red must STOP
+  and report rather than proceed to green.
+
+  ONE DOCUMENTED EXCEPTION IS ALLOWED, and only this one:
+  TestResolveArtifactStatus_PlanUnresolvedClaimRefContributesNothing (CLM-006) asserts
+  that an unresolvable claim yields NOTHING, which is already true pre-fix. It is a
+  non-regression guard whose whole purpose is that the new derivation does not start
+  inventing entries for unresolved claims. Making it fail first would require breaking
+  the behavior it exists to protect. Report it as this exception; do not manufacture a
+  false red for it.
+
+  ── WHAT IS DELIBERATELY NOT FIXED HERE (RESIDUALS) ────────────────────────
+  R1  131 of 148 issues carry no `claims[]` block, and 18 of 54 non-terminal plans
+      have a source that declares no claim tests at all. Those plans stay invisible
+      to the advisory after this change. That is a source-artifact authoring gap, not
+      a resolver gap, and closing it means either backfilling issue claims or making
+      issue claims required — a separate decision with its own corpus blast radius.
+      NAMED, not hidden: this plan takes plan-advisory coverage from 0 to a measured
+      15 firing / 28 with data, not to 54.
+  R2  `test_names` remains optional and unvalidated. Direction (a) stays rejected for
+      the policy reason recorded above. If backstop.yml ever gains
+      `applies-to: new-code` on artifact_validation, requiring it becomes tractable and
+      worth revisiting — that is a policy change, not this plan's work.
+  R3  ISSUE-149's finding stands and is confirmed, not resolved, by this plan:
+      PLAN-ISSUE-010 declares no test_names. After this change it derives from
+      ISSUE-010's claims instead, which does not alter ISSUE-149's claim-prose
+      retraction one way or the other.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Fixture corpus — a falsifying derivation root"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Source-artifact fixtures: the claim→tests maps derivation reads"
+        description: |
+          Create the SOURCE half of a new fixture root at
+          pkg/gate/testdata/plan_claim_derivation/root/. These are the artifacts whose
+          `claims[].tests` the plan fixtures in TASK-002 will derive from.
+
+          Use pkg/gate/testdata/terminal/spec-replaced-broken.spec.md as the frontmatter
+          shape template for the spec files (title / number / created / status /
+          schema_version / spec_version / implementation / verification / requirements /
+          claims), and pkg/gate/testdata/status_drift_vocab/root/issues/ISSUE-840-obsoleted.issue.md
+          for the issue file.
+
+          FOUR source artifacts, with EXACTLY these claim→test mappings:
+
+            specs/SPEC-850-derived.spec.md      status: implemented
+              CLM-001 tests: [TestPlanDerive_Present]
+
+            specs/SPEC-852-partial.spec.md      status: implemented
+              CLM-001 tests: [TestPlanDerive_Present]
+              CLM-002 tests: [TestPlanDerive_Absent]
+
+            specs/SPEC-854-union.spec.md        status: implemented
+              CLM-001 tests: [TestPlanDerive_Present, TestPlanDerive_Absent]
+
+            specs/SPEC-856-retired.spec.md      status: obsoleted
+              obsoleted-by: ISSUE-114
+              CLM-001 tests: [TestPlanDerive_RetiredOnly]
+
+          SPEC-856 IS AN `obsoleted` SPEC ON PURPOSE, NOT AN obsoleted ISSUE (SE9 /
+          CLM-004). `isTerminalSpecStatus` returns FALSE for "obsoleted", so
+          ExtractMandatedTests does NOT drop it and its record genuinely carries
+          MandatedTests — which is what makes the retired guard a real test rather
+          than an assertion about an already-empty set. If this fixture were a
+          replaced/canceled spec the record would be empty anyway and the test would
+          pass with the guard deleted.
+
+          `implemented` is correct for the other three: isTerminalSpecStatus names only
+          replaced / canceled / deprecated, so implemented specs DO contribute claim
+          tests. Verified by reading that function.
+
+          Nothing in this task is validated by `backstop artifact validate` — testdata
+          is in nonCorpusDirNames (SE8) — so these files need only be parseable by the
+          resolver's frontmatter reader, not schema-perfect.
+        files:
+          - pkg/gate/testdata/plan_claim_derivation/root/specs/SPEC-850-derived.spec.md
+          - pkg/gate/testdata/plan_claim_derivation/root/specs/SPEC-852-partial.spec.md
+          - pkg/gate/testdata/plan_claim_derivation/root/specs/SPEC-854-union.spec.md
+          - pkg/gate/testdata/plan_claim_derivation/root/specs/SPEC-856-retired.spec.md
+        claims:
+          - CLM-001
+          - CLM-004
+          - CLM-005
+          - CLM-007
+        depends_on: []
+
+      - id: TASK-002
+        type: setup
+        title: "Plan fixtures: one per derivation outcome, each engineered to falsify"
+        description: |
+          Create the PLAN half of the same fixture root. Use
+          pkg/gate/testdata/status_drift_vocab/root/plans/PLAN-SPEC-840-plantests.plan.yml
+          as the structural template (plan_id / spec_id / created / status / phases with
+          tasks carrying id, type, title, description, files, claims, depends_on).
+
+          FIVE plan fixtures. The `claims:` array on each task is the derivation input;
+          `test_names` is present on exactly ONE of them, deliberately.
+
+            plans/PLAN-SPEC-850-derived.plan.yml         status: draft
+              spec_id: SPEC-850 ; one task, claims: [CLM-001] ; NO test_names
+              → derives {TestPlanDerive_Present}; all present → ADVISORY FIRES (CLM-002)
+              THIS IS THE DIR-032 BAR FIXTURE: non-terminal, zero test_names, still
+              produces the advisory.
+
+            plans/PLAN-SPEC-852-partial.plan.yml         status: draft
+              spec_id: SPEC-852 ; one task, claims: [CLM-001, CLM-002] ; NO test_names
+              → derives {TestPlanDerive_Present, TestPlanDerive_Absent}; Absent is
+                missing → NO advisory (CLM-003)
+
+            plans/PLAN-SPEC-854-union.plan.yml           status: completed
+              spec_id: SPEC-854 ; one task, claims: [CLM-001],
+              test_names: [TestPlanDerive_Present]
+              → explicit {Present} ∪ derived {Present, Absent} = {Present ONCE, Absent}
+                → dedupe proven (CLM-005), and success-terminal + Absent → BLOCKS (CLM-007)
+
+            plans/PLAN-SPEC-856-retired.plan.yml         status: draft
+              spec_id: SPEC-856 ; one task, claims: [CLM-001] ; NO test_names
+              → source is retired → derives NOTHING → no advisory (CLM-004)
+
+            plans/PLAN-ISSUE-853-unresolved.plan.yml     status: draft
+              spec_id: ISSUE-853 ; one task, claims: [CLM-001] ; NO test_names
+              NOTE: ISSUE-853 does not exist as a fixture at all, which is the point —
+              an unresolvable source is the strongest form of the unresolved-claim case
+              → derives NOTHING, emits NOTHING (CLM-006)
+
+          THE PRESENT-SET THESE FIXTURES ARE CALIBRATED AGAINST, used by every test in
+          TASK-004, is exactly:  {TestPlanDerive_Present, TestPlanDerive_RetiredOnly}
+          TestPlanDerive_Absent is deliberately NOT in it.
+
+          TestPlanDerive_RetiredOnly IS IN THE PRESENT-SET ON PURPOSE (SE9). If the
+          retired guard is missing, PLAN-SPEC-856 derives {RetiredOnly}, finds it
+          present, and fires a spurious advisory. That is what makes CLM-004's test
+          falsifying rather than decorative.
+
+          These fixture plans are NOT validated by pkg/validate/plan.go and need only be
+          minimal enough for the resolver's planFrontmatter to parse.
+        files:
+          - pkg/gate/testdata/plan_claim_derivation/root/plans/PLAN-SPEC-850-derived.plan.yml
+          - pkg/gate/testdata/plan_claim_derivation/root/plans/PLAN-SPEC-852-partial.plan.yml
+          - pkg/gate/testdata/plan_claim_derivation/root/plans/PLAN-SPEC-854-union.plan.yml
+          - pkg/gate/testdata/plan_claim_derivation/root/plans/PLAN-SPEC-856-retired.plan.yml
+          - pkg/gate/testdata/plan_claim_derivation/root/plans/PLAN-ISSUE-853-unresolved.plan.yml
+        claims:
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on: []
+
+  - id: phase-2
+    name: "Phase 2: TDD RED — resolver derivation and advisory behaviour"
+    tasks:
+      - id: TASK-003
+        type: test
+        title: "Failing resolver tests: plan MandatedTests derived from task claims (RED)"
+        description: |
+          NEW FILE pkg/gate/artifact_status_plan_derivation_test.go, package `gate`
+          (internal, to reuse the findRecord helper in artifact_status_obsoleted_test.go).
+
+          Add a package-local root helper alongside the existing `vocabDriftRoot()`
+          pattern, e.g. returning "testdata/plan_claim_derivation/root", and drive every
+          test below through the REAL exported `ResolveArtifactStatus`.
+
+          MANDATED TEST NAMES (exact — do not rename, do not add suffixes):
+
+            TestResolveArtifactStatus_PlanDerivesMandatedTestsFromTaskClaims (CLM-001)
+              PLAN-SPEC-850's record carries a MandatedTest named TestPlanDerive_Present,
+              derived purely from its task's claims: [CLM-001] against SPEC-850 —
+              the plan file declares no test_names anywhere. Assert BOTH that the name is
+              present AND (SE2) that the entry's SpecFile is the PLAN's path and SpecID is
+              "PLAN-SPEC-850", never SPEC-850's, and that ClaimID is "CLM-001".
+
+            TestResolveArtifactStatus_PlanDerivationSkipsRetiredSource (CLM-004)
+              PLAN-SPEC-856's record carries ZERO MandatedTests, because SPEC-856 is
+              `obsoleted`. Assert len == 0 and, to keep the test honest, assert in the
+              same test that SPEC-856's OWN record DOES carry TestPlanDerive_RetiredOnly —
+              proving the source is non-empty and the plan's emptiness is the guard's
+              doing, not an empty-input artifact.
+
+            TestResolveArtifactStatus_PlanDerivationReadsRecordClassNotIsTerminalSpecStatus (CLM-004)
+              Pin the disagreement the guard depends on: assert
+              isTerminalSpecStatus("obsoleted") == false while
+              ClassifyArtifactStatus(KindSpec, "obsoleted") == ClassRetiredTerminal, and
+              that PLAN-SPEC-856 derives nothing. A future refactor that reaches for
+              isTerminalSpecStatus here reopens the defect, and this test is what catches it.
+
+            TestResolveArtifactStatus_PlanDerivationUnionsExplicitTestNamesWithoutDuplicates (CLM-005)
+              PLAN-SPEC-854 declares test_names: [TestPlanDerive_Present] AND derives
+              {TestPlanDerive_Present, TestPlanDerive_Absent} from CLM-001. Assert the
+              record's MandatedTests contains TestPlanDerive_Present EXACTLY ONCE (count
+              it — a `contains` check cannot fail here) and TestPlanDerive_Absent once, so
+              exactly two entries total. Assert (SE4) the surviving Present entry is the
+              EXPLICIT one, identified by its ClaimID being the TASK id rather than
+              "CLM-001".
+
+            TestResolveArtifactStatus_PlanUnresolvedClaimRefContributesNothing (CLM-006)
+              PLAN-ISSUE-853's record carries ZERO MandatedTests and resolution returns no
+              error. THIS IS THE ONE TEST ALLOWED TO PASS PRE-FIX — see the plan's
+              FALSIFICATION BAR; it is the non-regression guard that derivation does not
+              invent entries for claims it cannot resolve.
+
+          PREDICTED PRE-FIX RED, to be observed and reported before TASK-005 begins: every
+          test above except the last fails because each plan record's MandatedTests is
+          EMPTY — the resolver reads only test_names today. A compile error, a missing
+          fixture, or a helper panic is NOT the predicted mode; stop and report instead.
+        files:
+          - pkg/gate/artifact_status_plan_derivation_test.go
+        claims:
+          - CLM-001
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        test_names:
+          - TestResolveArtifactStatus_PlanDerivesMandatedTestsFromTaskClaims
+          - TestResolveArtifactStatus_PlanDerivationSkipsRetiredSource
+          - TestResolveArtifactStatus_PlanDerivationReadsRecordClassNotIsTerminalSpecStatus
+          - TestResolveArtifactStatus_PlanDerivationUnionsExplicitTestNamesWithoutDuplicates
+          - TestResolveArtifactStatus_PlanUnresolvedClaimRefContributesNothing
+        depends_on:
+          - TASK-001
+          - TASK-002
+
+      - id: TASK-004
+        type: test
+        title: "Failing advisory tests: the DIR-032 verification bar for plans (RED)"
+        description: |
+          NEW FILE pkg/gate/status_drift_plan_advisory_test.go, package `gate`. Drive
+          every test through the REAL ResolveArtifactStatus + ClassifyStatusDrift +
+          SplitDriftResult, reusing the existing `presentSet` helper
+          (pkg/gate/status_drift_test.go) and `findRecord` /
+          `errorViolationsForFile` (pkg/gate/artifact_status_obsoleted_test.go).
+
+          EVERY test uses the calibrated present-set from TASK-002:
+            presentSet("TestPlanDerive_Present", "TestPlanDerive_RetiredOnly")
+
+          MANDATED TEST NAMES (exact):
+
+            TestStatusDrift_NonTerminalPlanAllDerivedTestsPresent_FiresAdvisory (CLM-002)
+              THE DIR-032 BAR. PLAN-SPEC-850 — `draft`, zero test_names — produces a
+              violation with Rule == StepArtifactStatusDriftAdvisory, Severity ==
+              "warning", File == the plan's path. Assert the message names the plan
+              ("PLAN-SPEC-850") and its status, so the advisory is actionable rather than
+              merely counted.
+
+            TestStatusDrift_NonTerminalPlanDerivedTestAbsent_NoAdvisory (CLM-003)
+              PLAN-SPEC-852 produces NO violation of any severity: its derived
+              TestPlanDerive_Absent is missing, so it does not look delivered. Assert zero
+              violations attributed to its path — this is what stops CLM-002 from being
+              satisfiable by an unconditional warn.
+
+            TestStatusDrift_CompletedPlanDerivedAbsentTest_Blocks (CLM-007)
+              PLAN-SPEC-854 — `completed` — produces an ERROR-severity violation under
+              StepArtifactStatusDrift naming TestPlanDerive_Absent, which it reaches ONLY
+              by derivation (its test_names lists Present alone). Proves derived tests are
+              not a warn-only second class.
+
+            TestStatusDrift_RetiredSourcePlanProducesNoAdvisory (CLM-004)
+              PLAN-SPEC-856 — `draft`, source obsoleted — produces NO violation even
+              though TestPlanDerive_RetiredOnly IS in the present-set. This is the
+              spurious-advisory guard: without the retired skip in the resolver, this plan
+              derives one test, finds it present, and warns.
+
+            TestStatusDrift_DerivedPlanAdvisoryIsWarningOnlyAndNeverBlocks (CLM-008)
+              Run SplitDriftResult over the combined result and assert the STRUCTURAL
+              property, not a sample: EVERY violation on the advisory surface has
+              Severity "warning" and Rule StepArtifactStatusDriftAdvisory; the block
+              surface contains NO violation attributed to a non-terminal plan's path; and
+              the advisory StepResult's Status is never "fail". Assert against the
+              partitioned surfaces so the test would catch a mis-severity that
+              SplitDriftResult then routes to the policied side.
+
+          PREDICTED PRE-FIX RED: the two positive tests (CLM-002, CLM-007) fail with zero
+          violations found, because the plan records carry no MandatedTests. The three
+          negative-control tests (CLM-003, CLM-004, CLM-008) legitimately pass pre-fix —
+          they are the guards that constrain the shape of the fix, and their value is in
+          still passing AFTER TASK-005. Report that split honestly rather than forcing a
+          red out of a guard.
+        files:
+          - pkg/gate/status_drift_plan_advisory_test.go
+        claims:
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-007
+          - CLM-008
+        test_names:
+          - TestStatusDrift_NonTerminalPlanAllDerivedTestsPresent_FiresAdvisory
+          - TestStatusDrift_NonTerminalPlanDerivedTestAbsent_NoAdvisory
+          - TestStatusDrift_CompletedPlanDerivedAbsentTest_Blocks
+          - TestStatusDrift_RetiredSourcePlanProducesNoAdvisory
+          - TestStatusDrift_DerivedPlanAdvisoryIsWarningOnlyAndNeverBlocks
+        depends_on:
+          - TASK-001
+          - TASK-002
+
+  - id: phase-3
+    name: "Phase 3: TDD GREEN — claim-derived plan mandated tests"
+    tasks:
+      - id: TASK-005
+        type: implementation
+        title: "Derive plan MandatedTests from task claims, unioned with explicit test_names"
+        description: |
+          BEFORE EDITING: re-run
+            git status --short pkg/gate/ artifacts/plan/ cmd/backstop/gate.go
+          and take a snapshot of the file you are about to change:
+            cp pkg/gate/artifact_status.go /tmp/pre-task005-artifact-status.go
+          At authoring time this file was CLEAN, but several DIR-032 lanes were live in
+          this tree. If it is now dirty, REPORT the collision — do not resolve it
+          silently and do not diff your work against git HEAD, which would show another
+          lane's changes as yours.
+
+          ALL CHANGES ARE IN pkg/gate/artifact_status.go. Locate everything BY NAME.
+
+          1. `planTaskNode` — add `Claims []string \`yaml:"claims"\`` alongside the
+             existing ID and TestNames fields. A task without a claims array leaves it
+             nil, which is normal and silent (SE5).
+
+          2. Build the source claim→tests index. Inside `ResolveArtifactStatus`, at the
+             point just BEFORE the plan walk, fold the ALREADY-APPENDED res.Records into
+             a lookup keyed by (source artifact id, claim id) yielding that claim's
+             MandatedTests. Skip any record whose `Class == ClassRetiredTerminal` — that
+             is the CLM-004 guard, and it MUST test the record's Class, never
+             isTerminalSpecStatus (they disagree on "obsoleted"; see CLM-004).
+
+             Add a comment at this site recording SE1: this works only because the plan
+             walk runs LAST in this function, after specs / bundles / issues /
+             directives are appended. Reordering the walks silently empties every
+             derivation.
+
+          3. New unexported helper, e.g.
+             `planClaimDerivedMandatedTests(fm *planFrontmatter, path string, index <indexType>) []MandatedTest`
+             — for each phase, each task, each claim id, look up (fm.SpecID, claimID) and
+             emit one MandatedTest per source test name with:
+               FuncName = the source test name
+               SpecFile = `path`        (the PLAN's path — SE2)
+               SpecID   = fm.PlanID     (the PLAN's id  — SE2)
+               ClaimID  = the SOURCE claim id (CLM-NNN) (SE2)
+             An unresolved (fm.SpecID, claimID) yields nothing and no error (CLM-006).
+
+          4. Union and dedupe at the plan record construction site, where
+             `MandatedTests: planTaskMandatedTests(fm, path)` is assigned today. Take
+             explicit entries FIRST, then append derived entries whose FuncName is not
+             already taken (SE4: explicit wins). Dedupe key is FuncName, scoped to this
+             one plan record (SE3). Leave `planTaskMandatedTests` itself UNCHANGED,
+             including its task-id-in-ClaimID convention.
+
+          5. Update the `planFrontmatter` doc comment, whose current text —
+             "yaml ignores tasks that carry no test_names, so plans authored before this
+             field carry no MandatedTests (unchanged)" — becomes FALSE with this change
+             and is quoted as evidence in ISSUE-149. Replace it with the two-channel
+             description: explicit test_names UNIONED with claim-derived tests.
+
+          DO NOT TOUCH `looksDelivered` or `ClassifyStatusDrift` (SE6) — the classifier
+          is correct and the gap is in the data. DO NOT TOUCH pkg/validate/plan.go (SE7).
+          Do not add a violation, warning, or diagnostic for an unresolved claim (CLM-006).
+
+          When done, all ten mandated tests from TASK-003 and TASK-004 pass.
+        files:
+          - pkg/gate/artifact_status.go
+        claims:
+          - CLM-001
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+        depends_on:
+          - TASK-003
+          - TASK-004
+
+      - id: TASK-006
+        type: verification
+        title: "Gate this lane's files diff-scoped and run the package suite"
+        description: |
+          Diff-scoped gate over the three files this lane changed:
+
+            ./bin/backstop gate --file pkg/gate/artifact_status.go
+            ./bin/backstop gate --file pkg/gate/artifact_status_plan_derivation_test.go
+            ./bin/backstop gate --file pkg/gate/status_drift_plan_advisory_test.go
+
+          NEVER invoke a bare `backstop` — a stale Homebrew binary is on PATH in this
+          environment. Use ./bin/backstop from a fresh `go build`, and export
+          PATH=/Users/bmanson/go/bin:$PATH so go-arch-lint resolves.
+
+          Then run the package suite for real:
+
+            go test ./pkg/gate/... -race -count=1
+
+          Confirm and report:
+            - all ten mandated tests from TASK-003 and TASK-004 PASS, none SKIPPED;
+            - the PRE-EXISTING drift tests still pass unchanged — in particular
+              TestResolveArtifactStatus_ParsesPlanTaskTestNames and
+              TestStatusDrift_CompletedPlanAbsentTaskTest_Blocks
+              (pkg/gate/status_drift_plantests_test.go), which pin the explicit
+              test_names channel this lane must leave working (CLM-005);
+            - this lane's own edit to pkg/gate/artifact_status.go contains ONLY the five
+              changes TASK-005 enumerates, verified against the TASK-005 snapshot and
+              NOT against git HEAD:
+                diff /tmp/pre-task005-artifact-status.go pkg/gate/artifact_status.go
+
+          Do NOT run `backstop gate --all` here — the shared tree carries other lanes'
+          in-flight work and a full sweep would surface their state as this lane's
+          failures. The full sweep is TASK-008's job.
+        files:
+          - pkg/gate/artifact_status.go
+          - pkg/gate/artifact_status_plan_derivation_test.go
+          - pkg/gate/status_drift_plan_advisory_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-005
+          - CLM-007
+        depends_on:
+          - TASK-005
+
+  - id: phase-4
+    name: "Phase 4: Schema truth and the full kill chain"
+    tasks:
+      - id: TASK-007
+        type: documentation
+        title: "Correct the plan schema's test_names description to name both channels"
+        description: |
+          artifacts/plan/v1/schema.json — under `phases`, the
+          `task_test_names_description` field currently reads:
+
+            "Optional per-task list of the mandated test function names this task
+             delivers. The artifact_status_drift dimension reads it: for a `completed`
+             plan, every declared test_name must EXIST or the plan blocks as a broken
+             promise."
+
+          That sentence is what taught every subsequent author that test_names is the
+          ONLY channel by which a plan's mandated tests reach artifact_status_drift, and
+          after TASK-005 it is false. Rewrite it to state:
+            - test_names remains OPTIONAL and is an ADDITION to, not a replacement for,
+              the mandated tests derived from each task's `claims[]` resolved against the
+              source artifact's claims[].tests;
+            - the two sets are UNIONED and deduplicated by function name, with an
+              explicit declaration winning;
+            - a `completed` plan still blocks on any absent mandated test from EITHER
+              channel;
+            - a NON-TERMINAL plan whose mandated tests are all present raises the
+              non-blocking artifact_status_drift_advisory.
+
+          TEXT ONLY. `test_names` STAYS in `task_optional_keys` — do not move it to
+          `task_required_keys`, do not add a new key, do not touch any other field.
+          Direction (a) is rejected on measured policy grounds (SE7); a structural change
+          here would enact it by accident and red 52 plans against a policy that does not
+          grandfather.
+        files:
+          - artifacts/plan/v1/schema.json
+        claims:
+          - CLM-009
+        depends_on: []
+
+      - id: TASK-008
+        type: verification
+        title: "Full kill chain, artifact validation, and the real-corpus blast-radius re-measurement"
+        description: |
+          Comprehensive, unscoped verification covering both work categories this plan
+          touched — Go code and an artifact-schema file. Build fresh first
+          (`go build -o ./bin/backstop ./cmd/backstop`) and export
+          PATH=/Users/bmanson/go/bin:$PATH. Never invoke a bare `backstop`.
+
+            ./bin/backstop gate --all
+            ./bin/backstop artifact validate --plan PLAN-ISSUE-114
+
+          RE-MEASURE THE BLAST RADIUS FOR REAL rather than trusting this plan's notes.
+          From the `--all` run's JSON, report:
+
+            1. THE BLOCK SURFACE MUST NOT HAVE GAINED A FINDING. Count error-severity
+               violations under `artifact_status_drift`. The plan's pre-authoring
+               measurement predicts ZERO new ones — and note WHY, per the blast-radius
+               notes: this is an EMPIRICAL property of the corpus (the only 2 completed
+               plans with a non-terminal source declare zero claim tests), NOT a
+               structural guarantee. This check is the mechanism that catches the corpus
+               changing shape. If any appear, name each plan and STOP — do not waive, do not baseline, do not
+               proceed to commit. A net-new block here means the containment argument is
+               wrong and the founder needs to see it.
+
+            2. THE ADVISORY SURFACE MUST NOW NAME PLANS. Count warning-severity
+               violations under `artifact_status_drift_advisory` whose File is under
+               plans/. Pre-fix this is ZERO — that is the whole defect. The prediction is
+               ~15, including PLAN-ISSUE-004, PLAN-ISSUE-018, PLAN-ISSUE-034,
+               PLAN-ISSUE-035, PLAN-SPEC-030, PLAN-SPEC-036, PLAN-SPEC-040, PLAN-SPEC-041.
+               Report the ACTUAL number and list; an exact match is not required, but ZERO
+               means the fix did not land and a number wildly above 54 means it fires
+               unconditionally. Both are stop-and-report conditions.
+
+            3. `artifact_validation` must be unchanged. The fixtures live under testdata/,
+               which nonCorpusDirNames excludes (SE8), so they must produce no UNGATED
+               finding. If they do, the fixture root is in the wrong place — move it, do
+               not waive it: artifact_validation is `level: block` with no
+               `applies-to: new-code` and does not grandfather.
+
+          Also confirm the advisory findings are non-blocking in the verdict: `gate --all`
+          exits 0 on this account, since StepArtifactStatusDriftAdvisory carries no
+          backstop.yml policy entry (CLM-008).
+
+          If the shared tree still carries other lanes' in-flight work, attribute any
+          failure to its lane before reporting it as this one's, and say so explicitly.
+        files:
+          - pkg/gate/artifact_status.go
+          - pkg/gate/artifact_status_plan_derivation_test.go
+          - pkg/gate/status_drift_plan_advisory_test.go
+          - artifacts/plan/v1/schema.json
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-006
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-005
+          - TASK-006
+          - TASK-007
