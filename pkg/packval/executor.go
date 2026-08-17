@@ -106,6 +106,33 @@ func (d *DefaultExecutor) RunEngine(packDir string, binding engine.EngineBinding
 	// — the gate side has always called INTO this package for its convert, so both
 	// paths carry the same sandboxing guarantee rather than two approximations.
 	payload := stdout.Bytes()
+	// SELECT the payload BEFORE the convert (ISSUE-144). A binding that declares a
+	// stdout_artifact writes its real machine-readable output to THAT FILE (relative
+	// to the run's working dir, which here is packDir — cmd.Dir above) and prints only
+	// a human summary, or nothing, to stdout. Reading stdout in that case throws the
+	// engine's actual output away, and parseSarif reads empty stdout as ZERO findings
+	// with NO error — a Passed=false/nil-error verdict that IS the success condition
+	// for a negative fixture. A clean pass over a run whose output was never read.
+	//
+	// The base is packDir, not a project root: cmd/backstop's runFindingsEngine joins
+	// against projectRoot because THAT is its run's working dir. Same rule, different
+	// value.
+	//
+	// ORDER: strictly after the never-started refusal (a process that never ran
+	// produced no artifact, so blaming the missing file would misattribute the
+	// failure) and strictly before the convert (which must reshape the SELECTED
+	// bytes). A declared-but-unproduced artifact is a fail-loud broken run, never a
+	// silent fall-back to stdout — that fall-back is this defect re-expressed as
+	// something that looks fixed.
+	if binding.StdoutArtifact != "" {
+		artifactPath := filepath.Join(packDir, filepath.FromSlash(binding.StdoutArtifact))
+		body, readErr := os.ReadFile(artifactPath)
+		if readErr != nil {
+			return ExecutionResult{Passed: false, Output: stdout.String(), ExitCode: 1},
+				fmt.Errorf("engine %q: declared stdout_artifact %q not produced (%s): %w", binding.Command, binding.StdoutArtifact, artifactPath, readErr)
+		}
+		payload = body
+	}
 	if binding.Convert != "" {
 		convertPath := filepath.Join(packDir, filepath.FromSlash(binding.Convert))
 		if info, statErr := os.Stat(convertPath); statErr != nil || info.IsDir() {
