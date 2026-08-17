@@ -2,13 +2,145 @@
 plan_id: PLAN-ISSUE-136
 spec_id: ISSUE-136
 created: "2026-08-16"
-status: draft
+status: completed
 target_repo: backstop-core
 target_module: github.com/backstop-ai/backstop-core
 test_command: "go test ./pkg/packval/... ./cmd/backstop/... ./pkg/pack/engine/... -run \"TestExemptDecision|TestExemptAudit|TestExemptDoc\" -race -count=1"
 coverage_threshold: 90
 
 notes: |
+  ══════════════════════════════════════════════════════════════════════════════
+  AS-BUILT — CLOSED 2026-08-17. status: draft → completed.
+  ══════════════════════════════════════════════════════════════════════════════
+  The tasks, claims and sharp edges BELOW this banner are the AUTHORED record of
+  what was planned and are deliberately left unrewritten. This banner reconciles
+  them to what actually shipped. Verified at close-out by reading the working
+  tree and re-running the mandated tests, not transcribed from a report.
+
+  DELIVERED IN ONE COMMIT: f0dd714 "feat(ISSUE-136): pack check surfaces
+  exempt_from_scope_filter decisions pending" on main — 16 files, +738/-3. That
+  is EXACTLY the plan's declared 4-file modify-set (pkg/packval/manifest.go,
+  pkg/packval/phase2.go, packs/base-engines/pack.yml, pkg/pack/engine/binding.go)
+  plus 12 new files (3 test files, 5 packval fixtures, a 4-file complete fixture
+  pack). No file outside the plan's declared scope was touched.
+
+  ── WHAT SHIPPED ───────────────────────────────────────────────────────────
+  pkg/packval/manifest.go — the tri-state, at parse time and only at parse time:
+    * `PackManifest` gains the UNEXPORTED field
+      `declaredEngineKeys map[string]map[string]bool` (manifest.go:58), out of
+      the YAML/JSON surface exactly as TASK-004 specified.
+    * `ParseManifest` runs a SECOND, loose presence-probe unmarshal of the same
+      bytes and populates the field (manifest.go:255-261). It ALWAYS assigns a
+      non-nil map — including for a manifest with no `engines:` block — so
+      "never parsed" stays distinguishable from "no keys declared" (SE-6).
+    * EXPORTED sorted accessor `ExemptDecisionPending(m *PackManifest) []string`
+      (manifest.go:86), returning nil for a nil manifest or nil record. It is
+      the SINGLE authority for "a decision is owed here" — the Phase-3 census
+      test calls it rather than re-deriving the rule, as TASK-006 required.
+
+  pkg/packval/phase2.go — `RunCoherence` emits one `exempt-scope-decision`
+  warning per pending engine (phase2.go:121), into `Warnings` ONLY, never
+  `Errors` (SE-5). `Checks:` bumped 6 → 7 with its enumerating comment extended
+  (phase2.go:13, SE-7 honored).
+
+  packs/base-engines/pack.yml — the `config-file` engine declares
+  `exempt_from_scope_filter: false` explicitly (pack.yml:89) above a six-line
+  rationale citing ISSUE-070's delivered behaviour and stating plainly that the
+  key changes no behaviour (false is the value it already resolved to) and
+  exists to make the decision checkable. `semgrep`/`ast-grep`/`sandbox` left
+  untouched — file-args, no decision owed.
+
+  pkg/pack/engine/binding.go — COMMENT-ONLY, as TASK-008 required. The stale
+  per-engine roster is DELETED, not corrected; in its place the block states the
+  semantics (explicit, per-binding, DECOUPLED from ScopeKind per SPEC-041
+  CLM-017, resolved per-violation) and then says outright "WHICH ENGINES DECLARE
+  WHICH VALUE IS DELIBERATELY NOT LISTED HERE", pointing at the executable
+  roster (`TestExemptAudit_EveryCommittedPackEngineHasAnIntentRow`) and at the
+  advisory. The field, its type, its yaml tag and every consumer are unchanged.
+  The `StrictSarif` and `PackageScoped` comments — which name tools accurately
+  and deliberately — were left alone, as the plan directed.
+
+  ── MANDATED TESTS: 10 OF 10 PRESENT, NONE RENAMED ─────────────────────────
+  pkg/packval/exempt_decision_test.go (7):
+    TestExemptDecision_ProjectWideEngineOmittingKeyWarns
+    TestExemptDecision_ExplicitFalseIsSilent
+    TestExemptDecision_ExplicitTrueIsSilent
+    TestExemptDecision_FileArgsEngineNeverWarns
+    TestExemptDecision_PromptsWithoutDerivingTheValue
+    TestExemptDecision_ParseManifestAlwaysRecordsDeclaredKeys
+    TestExemptDecision_AdvisoryNeverFailsTheRun
+  cmd/backstop/exempt_audit_test.go (2, plus the audit census table):
+    TestExemptAudit_EveryCommittedPackEngineHasAnIntentRow
+    TestExemptAudit_PackCheckReportsAdvisoryAndExitsZero
+  pkg/pack/engine/exempt_doc_test.go (1):
+    TestExemptDoc_BindingCommentNamesNoEngine
+  Re-run fresh at close-out from the committed tree — pkg/packval ok,
+  cmd/backstop ok, pkg/pack/engine ok. Independently re-verified by the team
+  lead before this close-out, with `go build ./...` clean and non-regression
+  sweeps over `pkg/pack/...` and `pkg/baseengines/...` green.
+
+  Fixture corpus landed as specified: the five packval manifests under
+  pkg/packval/testdata/exempt-decision/ (projectwide-undeclared,
+  projectwide-explicit-false, projectwide-explicit-true, filearg-undeclared,
+  no-engines) and the complete pack at cmd/backstop/testdata/exempt-decision-pack/
+  (pack.yml, rules/sample.yml, fixtures/valid/, fixtures/invalid/).
+
+  ── FALSIFICATION: MET, AND REAL ───────────────────────────────────────────
+  CLM-001's falsifier was inverted against the REAL installed external pack, not
+  a fixture: `pack check .backstop/packs/backstop-ai/go-toolchain` reported 0
+  warnings pre-fix and EXACTLY 2 named advisories (`go-coverage`, `golangci`)
+  post-fix, with exit 0 unchanged in both directions — which is simultaneously
+  CLM-001's proof and CLM-003's (SE-5: the advisory never moves an exit code).
+  CLM-005 was staged compile-red (8 errors), then CLM-001/003/004 were staged
+  behaviourally-red DELIBERATELY IN TWO HALVES so each test failed on its OWN
+  assertion message rather than merely on a compile error. CLM-008 and CLM-009
+  reds matched the plan's predicted failure text exactly — CLM-009's red named
+  `go-build`, `golangci` and `go-test`, the direct evidence that the deleted
+  roster was wrong.
+
+  ── ONE DEVIATION FROM THE PLAN'S LETTER ───────────────────────────────────
+  TASK-004 named the presence-probe constant `exemptFromScopeFilterKey`. That
+  identifier tripped the go-standards no-hardcoded-credentials rule (`.*key.*`
+  assigned a string literal). It was FIXED AT THE SOURCE — renamed to
+  `exemptFromScopeFilterField` (manifest.go:71) — not waived and not
+  `nosemgrep`-annotated; 0 semgrep results against that exact rule across all
+  six touched files afterwards. The constant's value, `"exempt_from_scope_filter"`,
+  is unchanged, so nothing the plan claimed about behaviour moved.
+
+  ── SHARP EDGES, AT CLOSE-OUT ──────────────────────────────────────────────
+  SE-1/CLM-004 HELD: the shipped check reads `scope_kind` and key presence only
+  — no gate_type branch, no engine-name branch, no value inferred or rewritten.
+  SE-2/SE-3 HELD: NO go-toolchain manifest was edited, in either copy. Commit
+  f0dd714 contains no path matching "toolchain"; the in-repo fixture mirror's
+  last touch remains 953aa57 (ISSUE-067), well before this lane.
+  SE-4 HELD: base-engines was not given an invented `content:` block; its
+  decision is recorded by the census test, as designed.
+  SE-5/SE-7 HELD: Warnings-only, Checks bumped to 7.
+
+  ── GATE STATE: INHERITED RED, PROVEN NOT ASSERTED ─────────────────────────
+  `gate --all` on the shared tree returned 172 violations, ZERO of which name
+  any of this lane's 16 files (grepped and confirmed). The `packs/substantiveness`
+  phase3-fixtures false-positive was reproduced IDENTICALLY in a detached
+  worktree control build against clean HEAD with none of this lane's files
+  present — so the red is inherited, not caused here. Per the plan's own
+  instruction: named with evidence, never waived, no test weakened.
+
+  ── FOLLOW-ON: SURFACED, NOT ABSORBED (the plan's mandate, honored) ────────
+  The external go-toolchain pack's `golangci` and `go-coverage` engines still
+  carry UNRECORDED (absent-key) exempt decisions and now produce two standing
+  advisories. The audit's finding is that BOTH are correctly non-exempt —
+  `golangci` per ISSUE-070, `go-coverage` because `gate_type: coverage` routes
+  it to the coverage-records channel and never through `filterViolations` — so
+  the remaining work is to RECORD those decisions, which needs a manifest edit
+  in that pack's OWN repo plus a version bump, tag, relock and fixture-mirror
+  sync. Out of scope BY DESIGN (SE-2/SE-3, ISSUE-136 Direction item 2). It is
+  being filed as its own issue separately; it is deliberately NOT duplicated
+  into this plan.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  AUTHORED RECORD BELOW THIS LINE — unmodified.
+  ══════════════════════════════════════════════════════════════════════════════
+
   Implements ISSUE-136 — nothing in the repository asserts, engine by engine,
   whether an engine binding's ABSENT `exempt_from_scope_filter` key is a
   deliberate decision or an undetected instance of the ISSUE-129 gap (a
