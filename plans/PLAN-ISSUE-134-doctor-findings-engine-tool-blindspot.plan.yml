@@ -1,0 +1,1275 @@
+---
+plan_id: PLAN-ISSUE-134
+spec_id: ISSUE-134
+created: "2026-08-16"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./cmd/backstop/... -race -count=1"
+coverage_threshold: 80
+
+notes: |
+  ── COVERAGE FLOOR: 80, AND THAT IS THE DERIVED NUMBER, NOT A DISCOUNT ─────
+  Every file this plan touches is in `cmd/backstop`. The floor is the MAX over
+  the implemented specs owning that package, and PLAN-SPEC-070 — the doctor
+  spec whose surface this plan extends — declares 80. The 90 constant is the
+  fallback for packages no implemented spec claims. Do not "raise it to 90 to
+  be safe": a floor above the derived one reds the gate for a reason unrelated
+  to this lane.
+
+  ── THE DEFECT, FALSIFIED LIVE IN THIS REPO ON 2026-08-16 ──────────────────
+  Not reasoned about — RUN. A binary was built from HEAD and both commands were
+  invoked with a PATH from which `semgrep` was removed and nothing else was
+  (semgrep lives at /Library/Frameworks/Python.framework/Versions/3.12/bin;
+  ast-grep, go, golangci-lint and git all stayed reachable):
+
+      env PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/bmanson/go/bin <bin> doctor
+      env PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Users/bmanson/go/bin <bin> gate --file cmd/backstop/doctor.go
+
+  DOCTOR: exit 0. Seven checks; six `pass`, one `warn` (build-identity, about
+  the dev stamp — unrelated). `toolchain-runs` reported PASS, enumerating both
+  go-toolchain entrypoints as passing. Nothing anywhere named semgrep.
+
+  GATE, same PATH, same second: exit 2 at `pack_engines`, with
+
+      required tool "semgrep" not found on PATH: it is argv[0] of the command
+      engine "semgrep" of pack backstop-ai/backstop-self declares, pinned in the
+      trusted-tool allowlist as tool "semgrep" version "1.96.0" — backstop does
+      not install pack-declared tools (the pin is a trust entry, not an
+      installer); add "semgrep" to PATH and retry
+
+  THAT PAIR IS THE WHOLE ISSUE. The two commands, run back to back against the
+  same tree and the same PATH, disagree completely about whether this project's
+  setup is healthy — and the DIAGNOSTIC is the one that says yes. The
+  implementer must reproduce this pair before writing code (see FALSIFICATION
+  BAR) and must be able to show doctor's answer flipped afterwards.
+
+  ── WHY THE TWO COMMANDS DISAGREE: TWO DIFFERENT WALKS ────────────────────
+  Doctor's `checkToolchainRuns` (cmd/backstop/doctor_checks.go) consumes
+  `packEntrypointProber` (cmd/backstop/pack_entrypoint_prober.go), whose `Probe`
+  walks `manifest.Engines` and keeps ONLY `binding.GateType == GateTypeTest ||
+  GateTypeBuild`. Its own doc comment states the rule: "SELECTION IS BY STAGE,
+  NEVER BY TOOL." A findings engine has neither gate type, so it is never
+  selected, never probed, never mentioned.
+
+  The gate reaches findings-engine tools through an entirely different route.
+  `provisionEngines` (cmd/backstop/pack_gate_provision.go), called from
+  gate.go's pack_engines step, walks each manifest's RULES, resolves each rule's
+  engine through `resolveEngineRegistry(manifest).Lookup(rule.Engine)`, runs the
+  trust gate, extracts argv[0] via `engineToolName`, dedupes, sorts, and
+  presence-probes each name through `resolveBinaryResolver()`. That function is
+  where the exit-2 above came from.
+
+  So the gap is not a missing feature in the prober. It is that doctor has no
+  consumer of the OTHER walk at all.
+
+  ── THE FIX SHAPE, AND THE FOUR OPEN QUESTIONS THE ISSUE ASKED ────────────
+  ISSUE-134 deliberately declined to prescribe a mechanism and posed four
+  questions. This plan answers all four, and the answers are what the tasks
+  below implement. A reviewer should hold the tasks against these answers.
+
+  Q1 — new dedicated check, or widen `checkToolchainRuns`?
+  A NEW, DEDICATED CHECK: `engine-tools-present`. Widening the existing check
+  would put two structurally different selections (a stage walk over
+  manifest.Engines, a rule walk through the engine registry) behind one result
+  and one status, so a consumer could never tell which half failed, and the
+  check's own title — "pack-declared test/build entrypoints execute" — would
+  become a lie about half of what it does. Doctor's one-condition-one-owner
+  posture (the reason `skipped` exists at all) says these are two conditions.
+
+  Q2 — does the underlying walk change, or is a new path added so `init` is
+  provably unaffected?
+  NEITHER, STRICTLY: NO NEW WALK IS WRITTEN. The walk doctor needs ALREADY
+  EXISTS inside `provisionEngines`. This plan EXTRACTS its collection half into
+  `collectRequiredEngineTools` and gives it two consumers — provisionEngines
+  (fail-fast, exit 2) and doctor (enumerate all, report each). That is the same
+  move `packEntrypointProber` itself is: one execution/selection authority, two
+  callers with different dispositions. `pack_entrypoint_prober.go` IS NOT EDITED
+  BY THIS PLAN AT ALL, which is what makes "init is unaffected" a structural
+  fact rather than a claim, and TASK-006 asserts it as a source-level absence
+  rather than trusting the diff.
+
+  Q3 — execute the tool, or check presence?
+  PRESENCE ONLY, via the same `resolveBinaryResolver()` seam the gate uses.
+  Three reasons, in order of weight. (1) PARITY IS THE POINT: doctor's whole
+  value here is answering "will the gate refuse?", and the gate refuses on
+  exactly this predicate — resolvability — so any richer probe would answer a
+  question the gate does not ask. (2) The issue's own observation holds: a
+  findings tool run against nothing has no success signal distinguishable from
+  a tool that scanned and found nothing. (3) Executing pack-declared scanners
+  over the project at doctor time would make a diagnostic as slow as a gate run
+  and would duplicate the gate's dispatch. Doctor NEVER invokes a findings-
+  engine command; TASK-006 pins that with a recording runner.
+
+  Q4 — fail/warn/skip, and does it depend on assume-present vs provision-pinned?
+  FAIL, AND NO — THE SPLIT IS GONE. This is the single most important thing a
+  reader coming from the issue text must update. ISSUE-134 was written while
+  ISSUE-112 was still `status: open` with a `draft` plan, and it reasoned from
+  the pre-112 world in which pinned tools (semgrep, ast-grep) were EXEMPT from
+  presence probing. ISSUE-112 SHIPPED (PLAN-ISSUE-112 is `status: completed`,
+  fix in 4dbf64b) and collapsed that split: pack_gate_provision.go's own file
+  header now records it, and BOTH kinds fail loud with a `*check.ConfigError`
+  (exit 2). ONLY THE MESSAGE DIFFERS, because the two have different remedies —
+  `absentToolMessage` has one branch for a nil Provision (assume-present
+  Layer-0) and one for a pinned Provision. Doctor mirrors this exactly: a
+  missing engine tool is `fail`, whichever kind it is, and the message doctor
+  reports is the message `absentToolMessage` already renders. Any plan or
+  implementation that reintroduces a warn-for-pinned tier is re-opening
+  ISSUE-112 from a new surface.
+
+  Doctor's full disposition table for the new check:
+    - ungathered pack set (ConfigPathErr / ConfigErr / PacksErr) → `skipped`,
+      naming `packs-installed` as the condition's owner. THREE conditions, not
+      just PacksErr — `gatherDoctorContext` only calls `loadInstalledPacks` when
+      the config both discovered AND loaded, so a broken backstop.yml leaves
+      Packs nil with PacksErr ALSO nil. checkToolchainRuns has the identical
+      three-condition predicate and a shipped comment explaining exactly this;
+      copy the predicate, not a narrower one.
+    - the trust gate refuses a tool → `fail` (doctor's own disposition, the same
+      one it takes on `entrypointRefused`; the gate turns the same value into a
+      config error, and that asymmetry is deliberate and shipped).
+    - a gathered pack set binding NO engine tool → `warn`, never a silent pass.
+      Mirrors checkToolchainRuns' outcome (d).
+    - one or more required tools absent → `fail`, message enumerating every
+      probed tool with its own line, remediation carrying `absentToolMessage`.
+    - all required tools resolve → `pass`.
+
+  ── THE WALK IS RULE-DRIVEN, AND THAT IS A CORRECTNESS PROPERTY ───────────
+  Do not "improve" the extraction into a walk over `manifest.Engines`. It looks
+  more thorough and it is wrong. `provisionEngines`' own doc comment states the
+  reason: an engine no rule binds is NEVER DISPATCHED, so its tool's absence
+  cannot produce a vacuous green, and probing it would refuse a run that was
+  never going to happen — and a live fixture depends on that. A doctor check
+  that walked manifest.Engines would fail on a project the gate passes, which is
+  a worse defect than the one being fixed: a diagnostic that cries wolf gets
+  ignored, and then it is worth nothing on the day it is right.
+
+  The parity claim (CLM-002) is the load-bearing one in this plan. State it
+  precisely: over any pack set, doctor's new check reports `fail` if and only if
+  `provisionEngines` returns an error. TASK-006 asserts it as a real table, not
+  as prose.
+
+  ── SHIPPED ASSERTIONS THIS LANE MUST DISTURB, AND EXACTLY TWO OF THEM ────
+  ★ ONE TEST HARD-PINS THE REGISTRY AT SEVEN AND WILL GO RED. This is not an
+  accident to route around; it is the tripwire working.
+
+    cmd/backstop/doctor_registry_completeness_test.go
+      TestDoctor_RegistersNoStackPolicyCheckAndReadsNoStackPolicySurface
+
+  It is SPEC-070's mandated test for CLM-051, and its `want` slice enumerates
+  the seven check-id constants, asserting `slices.Equal` against the registry —
+  its comment says, in as many words, "an eighth check cannot be added quietly."
+  Adding one is exactly what this plan does. THE TEST NAME MUST SURVIVE (it is
+  spec-mandated; deleting or renaming it breaks SPEC-070's traceability and the
+  gate's status-drift dimension will say so). What changes is the `want` slice —
+  eight ids, the new one inserted at its registry position — and the doc
+  comment, which must be rewritten to say EIGHT and to record WHY the eighth
+  exists: DIR-002's founder-ruled scope expansion of 2026-08-16, which brought
+  doctor's tool-detection diagnostic coverage into the directive's charter.
+
+  What must NOT be weakened while doing so: arm (b) of that test, the source
+  scan for stack-policy tokens, is a different claim (bundle REQ-024's carve-out
+  is still carved out — no `stack_policy` surface exists, ISSUE-121 still owns
+  the gap). The rewrite touches arm (a) only.
+
+  ★ A SECOND TEST PINS SEVEN, AND ITS SLICE IS HARDCODED — NOT REGISTRY-DERIVED.
+
+    cmd/backstop/doctor_registry_test.go
+      TestDoctor_CheckIDsAppearOnlyAsDeclaredConstants   (declared at :195)
+
+  This is CLM-059's literal scan: every check id must appear as a string literal
+  EXACTLY ONCE in non-test code, in the declared const block. IT DOES NOT CALL
+  `doctorRegistry()`. It builds a HARDCODED `ids := []string{…}` slice of the
+  seven existing constants at :196-204, and BOTH the `wanted` filter and the
+  final assertion loop iterate THAT SLICE, not the live registry. So it does not
+  auto-absorb an eighth id: left unedited it stays green over the original seven
+  while its claim silently stops holding for the new one — the exact "a scan that
+  quietly stops covering the thing it was pointed at" class this directive is
+  about, and on an `implemented` spec (SPEC-070) at that. It also makes
+  TASK-008's own safety net ("the id must appear exactly once; CLM-059's scan
+  reds on a second literal anywhere") VACUOUS for the very id it is written
+  about, because an id absent from `wanted` is never scanned.
+
+  TASK-005 owns the edit: append the new constant to the hardcoded slice, and
+  correct the doc comment at :191 ("Each of the seven id strings") to say EIGHT.
+  The test name is unchanged, and no arm shape or scan logic moves.
+
+  ★ AND EXACTLY ONE PLACE THE NEW CHECK IS ALLOWED TO LIVE. `isDoctorOwnedFile`
+  (cmd/backstop/doctor_exit_test.go, near the bottom of the file) is defined as
+  `strings.HasSuffix(path, "doctor.go") || strings.HasSuffix(path,
+  "doctor_checks.go")` — two files, nothing else. Arm (b) above scans only those
+  two. Putting the new check function in a new `doctor_engine_tools.go` would
+  compile, pass, and SILENTLY REMOVE the new code from the stack-policy scan's
+  coverage — a scan that quietly stops covering the thing it was pointed at is
+  the exact class of defect this whole directive is about. THE CHECK FUNCTION
+  GOES IN `doctor_checks.go` AND THE ID CONSTANT GOES IN `doctor.go`'s grouped
+  const block. If a future reader wants a separate file, the honest move is to
+  widen `isDoctorOwnedFile` first; this plan does not, because the smaller
+  change is the one with no way to get it wrong.
+
+  ── SHIPPED ASSERTIONS CONFIRMED UNAFFECTED (checked, not assumed) ────────
+  Do not preemptively edit these. Each was read at plan time.
+
+    - TestInit_DoctorCheckIDsResolveToRegisteredChecks
+      (cmd/backstop/init_doctor_guidance_test.go). It carries a hand-written
+      `declared` map of the seven `doctorCheck*` identifiers, which LOOKS like a
+      second seven-pin. It is not: the map is only consulted for identifiers the
+      AST scan actually found NAMED IN init.go. init.go does not and must not
+      name the new constant (init prints guidance for the toolchain step only),
+      so the map needs no entry and the test stays green untouched. ⚠ COROLLARY,
+      LOAD-BEARING: if some later change makes init.go name the new constant,
+      THAT change owes this map an entry. Do not name it from init.go here.
+
+    - CLM-058 (doctor_registry_test.go, ~line 133): only `runDoctor` may
+      ENUMERATE `doctorRegistry()`. The new check is a registry ENTRY, not a
+      reader — it introduces no `range doctorRegistry()`. Do not add one.
+
+    - doctor_command_test.go derives its expected set FROM the registry rather
+      than from a hardcoded 7, so the report-shape and --check-selector claims
+      absorb an eighth entry with no edit. doctor_registry_test.go's OTHER
+      tests are registry-derived too — but NOT
+      TestDoctor_CheckIDsAppearOnlyAsDeclaredConstants, whose slice is
+      hardcoded and is TASK-005's to edit (see the second ★ above). Do not
+      generalize "that file is registry-derived" across the whole file.
+
+  ── CLAIM LEDGER (ISSUE-134 carries no CLM ids; this lane defines them) ────
+    CLM-001  `backstop doctor` reports a non-pass result on a project whose
+             pack-declared, RULE-BOUND engine tool is absent from PATH — the
+             condition that today produces the exit-0 all-green report recorded
+             in THE DEFECT above. The report NAMES the probed argv[0] and the
+             declaring pack and engine.
+    CLM-002  PARITY WITH THE GATE. Over any pack set, doctor's engine-tools
+             check reports `fail` if and only if `provisionEngines` returns an
+             error. Neither answers a question the other does not.
+    CLM-003  ONE COLLECTION AUTHORITY. `collectRequiredEngineTools` is the
+             single site that walks rules → registry lookup → trust gate →
+             argv[0] extraction → dedupe → sort. `provisionEngines` and doctor
+             both consume it; neither re-derives any part of it, and no second
+             rule-walk exists in cmd/backstop.
+    CLM-004  PRESENCE, NEVER EXECUTION. Doctor resolves each required tool
+             through the binary-resolver seam and invokes NO findings-engine
+             command. A recording runner sees zero invocations.
+    CLM-005  `backstop init` IS UNAFFECTED. `pack_entrypoint_prober.go` is
+             unchanged by this plan, and `Probe` still selects exactly
+             `GateTypeTest` and `GateTypeBuild` — a rule-bound findings engine
+             is not among its probes.
+    CLM-006  DOCTOR'S DISPOSITION VOCABULARY for the new check is the table in
+             Q4 above: skipped on an ungathered pack set naming
+             `packs-installed`; fail on a trust-gate refusal; warn on a gathered
+             pack set that binds no engine tool; fail on any absent tool; pass
+             otherwise. No silent pass exists on any branch.
+    CLM-007  THE REGISTRY DECLARES EIGHT, AND A NINTH STILL CANNOT BE ADDED
+             QUIETLY. CLM-051's tripwire survives under its mandated name,
+             re-pinned to the eight declared ids in report order, with arm (b)'s
+             stack-policy source scan intact and unweakened.
+    CLM-008  THE NEW CHECK IS INSIDE THE SCAN'S COVERAGE. The check function
+             lives in `doctor_checks.go` and its id constant in `doctor.go` —
+             the two files `isDoctorOwnedFile` admits — so CLM-051's source scan
+             covers the new code rather than silently skipping it.
+
+  ── FALSIFICATION BAR (non-negotiable) ────────────────────────────────────
+  A plan that cannot show its tests failed first has demonstrated nothing.
+  Before TASK-008's implementation lands, the implementer must OBSERVE and
+  record, verbatim:
+
+    1. THE COMMAND-PAIR RED, reproduced from THE DEFECT section above. Build a
+       binary from the pre-fix tree, run `doctor` and `gate --file <some go
+       file>` under a PATH with `semgrep` removed and nothing else, and capture
+       both outputs. Doctor exit 0 / gate exit 2 is the evidence. Build to a
+       scratch path — do NOT overwrite `./bin/backstop`, and never invoke a bare
+       `backstop` (a stale Homebrew binary shadows the tree).
+    2. THE UNIT RED: TestDoctor_EngineToolAbsentIsReported failing at HEAD.
+       Because the check does not exist yet this first appears as a compile
+       failure; that is expected and is NOT the red that counts. The red that
+       counts is behavioral — after TASK-008 exists, temporarily neutering the
+       probe to `return pass` must red THIS test and no unrelated one.
+    3. THE TRIPWIRE RED: TestDoctor_RegistersNoStackPolicyCheckAndReadsNoStack
+       PolicySurface failing with a seven-versus-eight `slices.Equal` mismatch
+       once the registry entry lands and before the `want` slice is updated —
+       or, if the order lands the other way, failing at HEAD once `want` is
+       updated and before the entry is registered. EITHER direction is
+       acceptable evidence; a run where it was never red is not.
+    4. THE PARITY RED: TestDoctor_EngineToolVerdictMatchesGateProvisioning must
+       be shown to fail against a deliberately WRONG walk. Temporarily point the
+       collection at `manifest.Engines` instead of at rules, confirm the
+       unbound-engine row reds (doctor fails where provisionEngines passes),
+       then restore. This is the one guard against the tempting wrong
+       implementation, so it must be exercised rather than assumed.
+
+  MUTATION EVIDENCE, additionally: with the fix in, removing `semgrep` from PATH
+  and re-running the real `doctor` binary must now produce a FAILING
+  engine-tools check and exit 1. Capture that output too — it is the after half
+  of the pair in item 1, and the close-out banner must carry both halves.
+
+  ── ENVIRONMENT / TOOLING FACTS (confirmed 2026-08-16, this host) ─────────
+    - `semgrep` → /Library/Frameworks/Python.framework/Versions/3.12/bin/semgrep
+      `ast-grep` and `sg` → /usr/local/bin. Removing the Python framework bin
+      from PATH hides semgrep and NOTHING ELSE — that is why the falsification
+      above is clean rather than a general PATH wipe.
+    - `go`, `golangci-lint` → /usr/local/bin. `git` → /usr/bin.
+      `go-arch-lint` needs PATH=/Users/bmanson/go/bin:$PATH.
+    - NEVER invoke a bare `backstop`; a stale Homebrew binary is on PATH. Use
+      `./bin/backstop` for gate/validate, and a scratch-path `go build` output
+      for any experiment, so a sibling lane's `./bin/backstop` is not clobbered.
+    - The shared working tree carries several concurrent implementer lanes. Do
+      NOT run a bare `git stash`, and prefer `backstop gate --file` over
+      `--all` until the final phase.
+
+  ── SCOPE FENCE ───────────────────────────────────────────────────────────
+  IN: cmd/backstop/pack_gate_provision.go (the extraction), doctor_checks.go +
+  doctor.go (the new check), the CLM-051 tripwire's `want` slice and comment,
+  new doctor fixture projects, new test files, and a dispatched SPEC-070
+  reconciliation.
+
+  OUT, explicitly:
+    - `cmd/backstop/pack_entrypoint_prober.go` — NOT EDITED. See Q2/CLM-005.
+    - `cmd/backstop/init_toolchain.go` and everything under `pkg/initialize` —
+      NOT EDITED. `backstop init`'s behavior is unchanged.
+    - `checkToolchainRuns` and `describeEntrypointProbe` — NOT EDITED. Their
+      vocabulary stays test/build's; the new check gets its own.
+    - The gate's own verdict computation. ISSUE-112 fixed that and shipped; this
+      lane consumes its authority and changes none of its behavior. If a
+      reviewer finds `provisionEngines`' externally observable behavior altered
+      by the extraction, that is a defect in this lane, not an improvement.
+    - Bundle REQ-024 / stack policy. Still carved out, still ISSUE-121's.
+    - SPEC-070's own prose. It goes stale here (it says "seven" in several
+      places) but is reconciled by DISPATCHING spec-author, never by
+      hand-editing the artifact.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: One collection authority for required engine tools"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Red: pin collectRequiredEngineTools' walk, and pin that provisionEngines' behavior is unchanged by the extraction"
+        description: |
+          NEW FILE cmd/backstop/pack_gate_provision_collect_test.go, package
+          `main` (cmd/backstop tests are all in-package; several already drive
+          the `binaryResolver` seam — see pack_gate_provision_test.go,
+          dispatch_provision_test.go, gate_provision_dedicated_step_test.go).
+
+          It will not compile until TASK-002 adds the function. That is the
+          expected first red and NOT the red that counts.
+
+          Build manifests in-test with `pack.Manifest` literals (engines map
+          plus `Content.Ruleset.Rules`), or by parsing a small YAML fixture —
+          the implementer's call, but whichever is chosen, the rules must be
+          REAL `Content.Ruleset.Rules` entries whose `Engine` field names an
+          `engines:` key, because the walk's whole point is that it goes through
+          rules.
+
+          TestGate_CollectRequiredEngineToolsWalksRulesNotEngines (CLM-003) —
+          the guard against the tempting wrong implementation. One manifest
+          declaring TWO engine bindings:
+            - `bound-engine`, command `backstop-absent-engine-134-bound scan`,
+              WITH a rule in Content.Ruleset.Rules naming it.
+            - `unbound-engine`, command `backstop-absent-engine-134-unbound
+              scan`, with NO rule naming it.
+          Assert the returned set contains the bound tool and DOES NOT contain
+          the unbound one. A walk over manifest.Engines returns both and reds
+          here — which is exactly what this test exists for. Give both bindings
+          a NIL Provision so the trust gate returns early (the Layer-0
+          exemption) and the walk's selection is the only thing under test; the
+          doctor fixture packs use the same shape for the same reason, following
+          the shipped `gate-type-matrix` fixture's precedent.
+
+          TestGate_CollectRequiredEngineToolsDedupesAndSorts (CLM-003) — two
+          rules in one pack binding two different engines whose commands share
+          argv[0] (the real `go build` / `go test` shape) collapse to ONE entry;
+          and across a multi-pack set the returned order is sorted by probed
+          name. Sorted order is not cosmetic — it is what makes a fail-loud
+          deterministic across runs, and doctor's report line order depends on
+          it too.
+
+          TestGate_CollectRequiredEngineToolsSkipsCommandlessEngine (CLM-003) —
+          a binding with an EMPTY command (the sandbox engine ships its own
+          executable) contributes NO required tool. `engineToolName("")` returns
+          "" and the walk must skip rather than probe an empty name.
+
+          TestGate_CollectRequiredEngineToolsSurfacesTrustRefusal (CLM-003,
+          CLM-006's refusal branch) — a rule bound to an engine whose
+          `provision:` names a tool the allowlist does not admit (or admits at a
+          different version) makes collection return an ERROR, and it does so
+          BEFORE any presence probe. Assert the error, and assert via an
+          injected `binaryResolver` that recorded ZERO resolution attempts. The
+          shipped ordering comment on provisionEngines is explicit that a tool
+          backstop refuses to trust must be reported as untrusted, not as
+          missing; the extraction must not reorder that.
+
+          TestGate_ProvisionEnginesBehaviorSurvivesExtraction (CLM-003) — the
+          non-regression half, and the one a reviewer will look for. Over a pack
+          set with one absent tool, `provisionEngines` still returns a
+          `*check.ConfigError` whose message is EXACTLY what `absentToolMessage`
+          renders for that tool (assert the full string, not a substring), and
+          still returns on the FIRST absent name in sorted order rather than
+          collecting them all. Drive it through an injected `binaryResolver`
+          reporting a fixed set present/absent, so the assertion does not depend
+          on the host PATH.
+        files:
+          - cmd/backstop/pack_gate_provision_collect_test.go
+        claims:
+          - CLM-003
+          - CLM-006
+        depends_on: []
+        test_names:
+          - TestGate_CollectRequiredEngineToolsWalksRulesNotEngines
+          - TestGate_CollectRequiredEngineToolsDedupesAndSorts
+          - TestGate_CollectRequiredEngineToolsSkipsCommandlessEngine
+          - TestGate_CollectRequiredEngineToolsSurfacesTrustRefusal
+          - TestGate_ProvisionEnginesBehaviorSurvivesExtraction
+
+      - id: TASK-002
+        type: implementation
+        title: "Extract collectRequiredEngineTools from provisionEngines, leaving provisionEngines' observable behavior byte-identical"
+        description: |
+          EDIT cmd/backstop/pack_gate_provision.go ONLY. No other production
+          file changes in this phase.
+
+          Add:
+
+              func collectRequiredEngineTools(packs []*pack.Manifest) ([]requiredTool, error)
+
+          Its body is the EXISTING collection half of `provisionEngines`, moved
+          verbatim: the per-manifest `seenEngine` rule walk, the
+          `resolveEngineRegistry(manifest).Lookup(rule.Engine)` resolution and
+          its wrapped error, the `checkEngineToolAllowed` trust gate (which
+          returns its error to the caller, unchanged, and still fires AHEAD of
+          any presence probe), the `engineToolName` argv[0] extraction, the
+          empty-command skip, the `required` dedupe map, and the sort. It
+          returns the tools in sorted probed-name order.
+
+          Then reduce `provisionEngines` to its remaining half:
+
+              tools, err := collectRequiredEngineTools(packs)
+              if err != nil { return err }
+              resolve := resolveBinaryResolver()
+              for _, tool := range tools {
+                  if _, err := resolve(tool.name); err != nil {
+                      return &check.ConfigError{Message: absentToolMessage(tool)}
+                  }
+              }
+              return nil
+
+          ★ THIS IS A PURE RESTRUCTURE. `provisionEngines`' observable behavior
+          must not move a millimetre: same trust-gate-before-probe ordering,
+          same first-absent-in-sorted-order fail, same `*check.ConfigError`,
+          same message from the same unchanged `absentToolMessage`. TASK-001's
+          TestGate_ProvisionEnginesBehaviorSurvivesExtraction is the assertion.
+          Do not take the opportunity to collect all absences, to change the
+          error type, or to reword a message — every one of those is someone
+          else's decision and at least one of them is ISSUE-112's.
+
+          DOC COMMENTS: the file header and `provisionEngines`' comment carry a
+          lot of hard-won reasoning (the ISSUE-112 split collapse, the argv[0]-
+          versus-Provision.Tool distinction, the rule-driven-not-engine-driven
+          rationale, the trust-gate ordering). MOVE each paragraph to whichever
+          function now owns the behavior it explains rather than duplicating or
+          dropping it. In particular the rule-driven paragraph — "an engine no
+          rule binds is never dispatched… a live fixture depends on that" —
+          belongs on `collectRequiredEngineTools`, because that is now the
+          function a reader would be tempted to widen. Add one sentence naming
+          the second consumer (doctor's engine-tools check) and the reason the
+          split exists: the gate fails fast on the first absence while doctor
+          must enumerate every one, so the COLLECTION is shared and the
+          DISPOSITION is each caller's — the same shape, and the same reasoning,
+          as `packEntrypointProber`'s two callers.
+
+          `requiredTool` and `absentToolMessage` are untouched; doctor consumes
+          both as-is, which is why doctor's message for an absent tool is the
+          gate's message by construction rather than by a second rendering.
+        files:
+          - cmd/backstop/pack_gate_provision.go
+        claims:
+          - CLM-003
+          - CLM-006
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: verification
+        title: "Gate the extraction"
+        description: |
+          Run:
+
+              ./bin/backstop gate --file cmd/backstop/pack_gate_provision.go
+
+          and the scoped suite:
+
+              go test ./cmd/backstop/ -race -count=1 -run 'TestGate_'
+
+          Both must be green. Use `./bin/backstop`, never a bare `backstop` (a
+          stale Homebrew binary shadows the tree). Prefer `--file` over `--all`
+          here: sibling implementer lanes are live in this shared tree and a
+          full sweep will surface their in-flight work as this lane's noise.
+
+          If the gate reports violations in files this lane did not touch,
+          report them — do not fix them, and do not waive them.
+        files:
+          - cmd/backstop/pack_gate_provision.go
+          - cmd/backstop/pack_gate_provision_collect_test.go
+        claims:
+          - CLM-003
+        depends_on:
+          - TASK-002
+
+  - id: phase-2
+    name: "Phase 2: Doctor gains the engine-tools-present check"
+    tasks:
+      - id: TASK-004
+        type: setup
+        title: "Stage four doctor fixture projects covering the engine-tool dispositions"
+        description: |
+          NEW fixture project templates under
+          cmd/backstop/testdata/doctor/projects/, reached ONLY through
+          `stageDoctorProject` (doctor_harness_test.go). Read that helper's
+          header before writing them: there is exactly ONE template root, no
+          test may name a path beneath it directly, and `.gitkeep` files are
+          stripped recursively at stage time.
+
+          Each project needs a `backstop.yml` declaring its pack(s) and a
+          `.backstop/packs/<org>/<name>/pack.yml`. Follow the shipped
+          `toolchain-matrix` fixture's shape, with ONE structural difference
+          that is the entire point: these packs declare a
+          `content.ruleset.rules` block, because the walk under test resolves
+          engines THROUGH RULES. A pack with engines and no rules exercises
+          nothing here.
+
+          ★ NIL PROVISION ON EVERY BINDING, DELIBERATELY, except in the refusal
+          fixture. `checkEngineToolAllowed` returns nil immediately for a nil
+          Provision (the Layer-0 exemption), so the presence probe is the only
+          thing under test. A stray `provision:` block would be refused before
+          the probe and the fixture would prove nothing — the same trap the
+          shipped `gate-type-matrix` pack.yml comment already warns about.
+
+          engine-tool-absent — one pack, one engine binding whose command is
+            `backstop-absent-engine-134 scan --json`, bound by one rule. The
+            argv[0] is a fixed nonsense name with NO path separator, so it is
+            genuinely absent on every host and the fixture never mutates PATH
+            and never assumes a real tool is missing. THIS IS THE FIXTURE THAT
+            REPRODUCES THE INCIDENT.
+
+          engine-tool-present — same shape, but argv[0] is a name the test
+            resolves through an injected `binaryResolver` rather than a real
+            binary, so the pass case is deterministic and does not depend on
+            what happens to be installed on the host.
+
+          engine-tool-unbound — two engine bindings, ONLY ONE bound by a rule.
+            The bound one's tool resolves; the unbound one's argv[0] is a
+            different fixed nonsense name. This is the fixture that reds a
+            manifest.Engines walk, and it is the doctor-level twin of TASK-001's
+            unit-level guard.
+
+          engine-tool-none — a gathered, VALID pack set (backstop.yml resolves,
+            packs parse) that binds no engine tool at all: a pack with a ruleset
+            whose only engine has an empty command, or no ruleset rules. This is
+            the warn-not-silent-pass case, and it must be distinguishable from
+            the ungathered case, which reuses the existing `config-malformed` /
+            `config-missing-pack` fixtures rather than adding a fifth.
+
+          Each pack.yml carries a comment naming which claim its shape serves,
+          the way the shipped fixtures do. A fixture whose trap is undocumented
+          gets "cleaned up" by the next reader.
+        files:
+          - cmd/backstop/testdata/doctor/projects/engine-tool-absent/
+          - cmd/backstop/testdata/doctor/projects/engine-tool-present/
+          - cmd/backstop/testdata/doctor/projects/engine-tool-unbound/
+          - cmd/backstop/testdata/doctor/projects/engine-tool-none/
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-006
+        depends_on: []
+
+      - id: TASK-005
+        type: test
+        title: "Red: the engine-tools check's five dispositions, and re-pin BOTH seven-pinned tripwires to eight"
+        description: |
+          THREE FILES. The first is new; the second and third are the shipped
+          tripwires this lane must disturb — BOTH of them pin seven, and neither
+          absorbs an eighth id on its own. None compiles until TASK-008 adds the
+          constant and the check; that is the expected first red.
+
+          ── NEW: cmd/backstop/doctor_engine_tools_test.go ────────────────────
+          Drive every case through `stageDoctorProject` + the doctor harness the
+          other doctor test files use, so the check is exercised the way the
+          command exercises it. Inject `binaryResolver` for the present/absent
+          decision (t.Cleanup to restore); the absent fixtures' nonsense names
+          need no injection but the present ones do.
+
+          TestDoctor_EngineToolAbsentIsReported (CLM-001) — over
+          `engine-tool-absent`, the engine-tools check status is `fail`, and the
+          message NAMES the probed argv[0], the declaring pack and the engine
+          key. Assert on all three separately; a status-only assertion passes on
+          a report that tells the operator nothing actionable, which is half the
+          defect. Assert the remediation carries `absentToolMessage`'s exact
+          rendering for that tool — that is what makes doctor's advice and the
+          gate's refusal the SAME words rather than two texts that drift.
+
+          TestDoctor_EngineToolPresentPasses (CLM-001) — over
+          `engine-tool-present` with the resolver reporting it found, status is
+          `pass` and the message enumerates the probed tool. The anti-vacuity
+          arm: assert the message is NON-EMPTY and names the tool, so a check
+          that probed nothing at all cannot pass this.
+
+          TestDoctor_EngineToolUnboundIsNotProbed (CLM-002) — over
+          `engine-tool-unbound`, status is `pass` and the report does NOT name
+          the unbound engine's tool. A manifest.Engines walk reds here.
+
+          TestDoctor_EngineToolNoneWarnsRatherThanPasses (CLM-006) — over
+          `engine-tool-none`, status is `warn`, never `pass`, and the message
+          says no installed pack binds an engine tool. Mirrors
+          checkToolchainRuns' outcome (d); a silent pass is the shape doctor
+          exists to prevent.
+
+          TestDoctor_EngineToolSkipsOnUngatheredPackSet (CLM-006) — THREE
+          subtests, not one, over the existing `no-config`, `config-malformed`
+          and `config-missing-pack` fixtures. Each must be `skipped`, and each
+          message must name `packs-installed` as the owner of the condition. The
+          three-condition predicate matters: `gatherDoctorContext` only calls
+          `loadInstalledPacks` when the config both discovered AND loaded, so a
+          PacksErr-only predicate reports "no pack binds an engine tool" on a
+          project whose packs were never looked at — a wrong answer that reads
+          like a right one. checkToolchainRuns carries the identical predicate
+          and a shipped comment explaining exactly this; a one-condition version
+          passes two of these three subtests.
+
+          TestDoctor_EngineToolTrustRefusalFails (CLM-006) — a pack whose
+          rule-bound engine declares a `provision:` the allowlist does not
+          admit. Status `fail`, message says the tool was refused before it ran
+          rather than that it was missing. This is doctor's OWN disposition of a
+          value the gate turns into a config error; the asymmetry is deliberate
+          and shipped (see describeEntrypointProbe's `entrypointRefused` branch)
+          and must not be "fixed" in either direction.
+
+          ── EDIT: cmd/backstop/doctor_registry_completeness_test.go ──────────
+          TestDoctor_RegistersNoStackPolicyCheckAndReadsNoStackPolicySurface
+          (CLM-007). ★ THE TEST NAME MUST SURVIVE VERBATIM — it is SPEC-070's
+          mandated test for CLM-051, and renaming or deleting it breaks that
+          spec's traceability and trips the gate's status-drift dimension.
+
+          Change ONLY arm (a): add the new id constant to the `want` slice at
+          the position the registry places it, so the slice remains eight ids in
+          REPORT ORDER.
+
+          TWO COMMENTS SAY SEVEN, AND BOTH MOVE IN THE SAME EDIT. Fixing one and
+          leaving the other would leave a stale "seven" asserting itself directly
+          beneath the fix:
+            (i)  :23, in the test's DOC COMMENT — `// Seven is the DECLARED
+                 set, not a starting point — growth belongs to the bundle.`
+                 Rewrite to say EIGHT and to record why the eighth exists:
+                 DIR-002's founder-ruled scope expansion of 2026-08-16, which
+                 brought doctor's tool-detection diagnostic coverage into that
+                 directive's charter (see
+                 directives/DIR-002-backstop-init.directive.md, the ISSUE-134
+                 follow-on and the paragraph beginning "Founder-approved home
+                 and framing").
+            (ii) :29-30, the INLINE comment that actually carries the teeth,
+                 sitting immediately above the `want` slice being edited. Its
+                 exact current text is:
+
+                     // (a) THE ID SET IS EXACTLY THE DECLARED SEVEN — no more, so an eighth check cannot
+                     // be added quietly, and no fewer, so one cannot be dropped either.
+
+                 Correct it to EIGHT and a NINTH in the same edit. This is the
+                 sentence a reader trusts when they ask "can a check be added
+                 quietly?", and leaving it saying SEVEN directly above an
+                 eight-element slice is a self-contradicting tripwire.
+
+          KEEP THE TEETH IN BOTH: a NINTH check still cannot be added quietly,
+          and none of the eight can be dropped. The rewrite moves the number and
+          records the authorization; it does not soften the rule.
+
+          DO NOT TOUCH ARM (b). Its stack-policy source scan is a different
+          claim — bundle REQ-024 is still carved out, no `stack_policy` surface
+          exists, and ISSUE-121 still owns that gap. Weakening or deleting arm
+          (b) while updating arm (a) would silently retire a live tripwire.
+
+          ── EDIT: cmd/backstop/doctor_registry_test.go ──────────────────────
+          TestDoctor_CheckIDsAppearOnlyAsDeclaredConstants (CLM-007, and it is
+          SPEC-070's CLM-059 scan). ★ THE TEST NAME MUST SURVIVE VERBATIM, for
+          the same traceability reason as the tripwire above.
+
+          THE PREMISE THAT MAKES THIS AN EDIT AND NOT A NO-OP: this test DOES
+          NOT call `doctorRegistry()`. It declares a HARDCODED
+          `ids := []string{…}` slice of the seven existing constants at
+          :196-204, and both the `wanted` filter built from it and the final
+          per-id assertion loop iterate THAT SLICE. An id absent from it is
+          never scanned at all — so without this edit the new check's id is
+          silently outside CLM-059's coverage while the test stays green over
+          the original seven, and TASK-008's "the id must appear as a literal
+          exactly once" safety net is vacuous for exactly the id it is about.
+
+          Change TWO things and nothing else:
+            (1) append the new id constant to the hardcoded `ids` slice at
+                :196-204, at the position matching the registry order TASK-008
+                lands — the slice is a membership set, not an ordered
+                assertion, but keeping it in registry order is what lets a
+                reader diff it against the tripwire's `want` slice.
+            (2) correct the doc comment at :191, whose current text is
+                `// Each of the seven id strings must appear in NON-test code
+                exactly once, in the` — make it say EIGHT.
+
+          The scan body, the const-block detection, and the "a literal anywhere
+          else — including init.go's guidance — fails" property are all
+          UNCHANGED. This is a set-membership update, not a logic change.
+        files:
+          - cmd/backstop/doctor_engine_tools_test.go
+          - cmd/backstop/doctor_registry_completeness_test.go
+          - cmd/backstop/doctor_registry_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-004
+        test_names:
+          - TestDoctor_EngineToolAbsentIsReported
+          - TestDoctor_EngineToolPresentPasses
+          - TestDoctor_EngineToolUnboundIsNotProbed
+          - TestDoctor_EngineToolNoneWarnsRatherThanPasses
+          - TestDoctor_EngineToolSkipsOnUngatheredPackSet
+          - TestDoctor_EngineToolTrustRefusalFails
+          - TestDoctor_RegistersNoStackPolicyCheckAndReadsNoStackPolicySurface
+          - TestDoctor_CheckIDsAppearOnlyAsDeclaredConstants
+
+      - id: TASK-006
+        type: test
+        title: "Red: gate parity, init non-regression, no-execution, and the scan-coverage guard"
+        description: |
+          NEW FILE cmd/backstop/doctor_engine_tools_parity_test.go. These are
+          the structural claims — the ones that keep the fix from being correct
+          today and wrong after the next edit. Parallel-eligible with TASK-005:
+          disjoint files, same dependency.
+
+          TestDoctor_EngineToolVerdictMatchesGateProvisioning (CLM-002) — THE
+          LOAD-BEARING TEST. A table over pack sets: the absent case, the
+          present case, the unbound case, the no-tools case, the trust-refusal
+          case. For each, call `provisionEngines(packs)` and run doctor's
+          engine-tools check over the same packs with the SAME injected
+          `binaryResolver`, and assert:
+
+              (doctor status == fail)  ==  (provisionEngines returned an error)
+
+          Assert the biconditional in both directions explicitly, so neither a
+          doctor that always fails nor one that never does can pass. This is the
+          test the falsification bar requires be shown red against a
+          manifest.Engines walk: under that wrong walk the unbound row has
+          doctor failing where provisionEngines passes.
+
+          TestDoctor_EngineToolCheckRunsNoCommand (CLM-004) — hand the check a
+          recording `check.CommandRunner` that records every invocation and
+          returns an error if called. Over the absent AND the present fixtures,
+          assert ZERO invocations. Doctor presence-probes; it never executes a
+          findings-engine command. A future "let's actually run it to be sure"
+          edit reds here, which is the point.
+
+          TestInit_ToolchainProbeStillSelectsOnlyTestAndBuild (CLM-005) — the
+          init non-regression guard, expressed two ways because each catches
+          what the other misses:
+            (a) BEHAVIORAL: build a manifest declaring a test binding, a build
+                binding, and a RULE-BOUND findings binding, run
+                `(&packEntrypointProber{...}).Probe(...)`, and assert the
+                returned probes are exactly the test and build ones. The
+                findings binding must not appear.
+            (b) SOURCE-LEVEL ABSENCE: parse cmd/backstop/pack_entrypoint_prober.go
+                with go/parser and assert `Probe`'s selection still tests
+                `GateTypeTest` and `GateTypeBuild` and names no other GateType
+                constant. Arm (a) alone would still pass if someone widened the
+                filter and then narrowed it somewhere downstream; arm (b) pins
+                the file this plan promised not to change.
+
+          TestDoctor_EngineToolCheckIsInsideTheDoctorSourceScan (CLM-008) —
+          assert `isDoctorOwnedFile` returns true for the file that declares the
+          new check function, resolving that file by finding the declaration
+          rather than by hardcoding a name. Today that resolves to
+          doctor_checks.go and the assertion is trivially true; its value is on
+          the day someone moves the check to a new file, when it reds and says
+          why. Without it, that move silently drops the new code out of CLM-051
+          arm (b)'s coverage — a scan that quietly stops covering what it was
+          pointed at, which is this directive's own subject matter.
+        files:
+          - cmd/backstop/doctor_engine_tools_parity_test.go
+        claims:
+          - CLM-002
+          - CLM-004
+          - CLM-005
+          - CLM-008
+        depends_on:
+          - TASK-004
+        test_names:
+          - TestDoctor_EngineToolVerdictMatchesGateProvisioning
+          - TestDoctor_EngineToolCheckRunsNoCommand
+          - TestInit_ToolchainProbeStillSelectsOnlyTestAndBuild
+          - TestDoctor_EngineToolCheckIsInsideTheDoctorSourceScan
+
+      - id: TASK-007
+        type: test
+        title: "Red: the end-to-end command reproduction of the incident"
+        description: |
+          NEW FILE cmd/backstop/doctor_engine_tools_e2e_test.go. Parallel-
+          eligible with TASK-005 and TASK-006: disjoint files, same dependency.
+
+          The unit tests above call the check function. This one drives the REAL
+          cobra command over a staged project, because the thing ISSUE-134
+          reports is not a function returning the wrong value — it is
+          `backstop doctor` printing an all-green report and exiting 0. A fix
+          verified only at the function level has not been verified against the
+          artifact the incident named.
+
+          TestDoctor_CommandReportsAbsentEngineToolAndExitsNonZero (CLM-001) —
+          over the `engine-tool-absent` fixture, execute the doctor command the
+          way the existing command-level doctor tests do (doctor_command_test.go
+          and doctor_exit_test.go are the shape to follow), and assert:
+            - the process-level outcome is the exit-1 `*ExitCodeError` doctor
+              returns when at least one check FAILS. THIS IS THE ASSERTION THAT
+              MOST DIRECTLY INVERTS THE OBSERVED DEFECT: exit 0 today.
+            - the HUMAN rendering names the absent tool.
+            - the `--json` payload carries an entry whose `id` is the new check
+              id, whose `status` is `fail`, and whose `remediation` is non-empty.
+              Both renderers, because doctor's one-struct-feeds-both property is
+              what keeps them from disagreeing, and a JSON consumer (the client
+              portal reads gate/doctor JSON) must see the failure too.
+
+          TestDoctor_CommandCheckSelectorResolvesEngineToolsCheck (CLM-007) —
+          `--check <new-id>` returns exactly that one result rather than the
+          unknown-selector error. This proves the new entry is genuinely
+          registered rather than merely rendered, and it is the cheapest guard
+          against an id that is registered under one spelling and printed under
+          another.
+        files:
+          - cmd/backstop/doctor_engine_tools_e2e_test.go
+        claims:
+          - CLM-001
+          - CLM-007
+        depends_on:
+          - TASK-004
+        test_names:
+          - TestDoctor_CommandReportsAbsentEngineToolAndExitsNonZero
+          - TestDoctor_CommandCheckSelectorResolvesEngineToolsCheck
+
+      - id: TASK-008
+        type: implementation
+        title: "Add the engine-tools-present check and register it as doctor's eighth"
+        description: |
+          TWO PRODUCTION FILES, AND ONLY THESE TWO. See CLM-008: any other
+          location silently leaves the new code outside CLM-051's source scan.
+
+          ── cmd/backstop/doctor.go ──────────────────────────────────────────
+          Add ONE constant to the EXISTING grouped const block, alongside the
+          other seven:
+
+              doctorCheckEngineTools = "engine-tools-present"
+
+          The id must be lowercase-kebab, and it must appear as a string literal
+          EXACTLY ONCE in non-test code — here. CLM-059's scan
+          (TestDoctor_CheckIDsAppearOnlyAsDeclaredConstants,
+          doctor_registry_test.go:195) reds on a second literal anywhere,
+          including inside the check's own message. Reference the constant
+          everywhere else.
+
+          ⚠ THAT SAFETY NET IS ONLY ARMED BECAUSE TASK-005 ARMED IT. The scan
+          does NOT enumerate `doctorRegistry()` — it iterates a HARDCODED `ids`
+          slice, so the new id is outside its coverage until TASK-005 appends
+          the constant there. If that edit is skipped, this instruction is
+          vacuous and a stray second literal ships unnoticed.
+
+          Register it in `doctorRegistry()` IMMEDIATELY AFTER
+          `doctorCheckToolchainRuns` and BEFORE `doctorCheckArtifactLayout`:
+
+              {ID: doctorCheckEngineTools, Title: "pack-declared findings-engine tools resolve on PATH", Run: checkEngineToolsPresent},
+
+          Position is a decision, not a coin flip: the two tool-presence checks
+          sit together so a reader comparing them sees them adjacent, and the
+          setup checks stay first so a reader sees why a later check skipped
+          before reading the skip. Whatever order lands, TASK-005's `want` slice
+          must match it exactly.
+
+          Add NOTHING else to doctor.go. Do not touch `runDoctor`, the
+          renderers, or the exit-code mapping: an eighth entry flows through all
+          three unchanged because every one of them reads the registry
+          enumeration, and that is the property being relied on.
+
+          ── cmd/backstop/doctor_checks.go ───────────────────────────────────
+          Add `checkEngineToolsPresent(ctx doctorContext) doctorResult`, placed
+          immediately after `checkToolchainRuns`/`describeEntrypointProbe` and
+          before `checkArtifactLayout`, mirroring the registry order.
+
+          Structure, in order — each step's reasoning is in the Q4 table:
+
+            1. SKIP FIRST, before anything is constructed, on
+               `ctx.ConfigPathErr != nil || ctx.ConfigErr != nil ||
+               ctx.PacksErr != nil`, naming `doctorCheckPacksInstalled` as the
+               condition's owner. ALL THREE, for the reason checkToolchainRuns'
+               shipped comment gives — copy that predicate, not a narrower one.
+
+            2. `tools, err := collectRequiredEngineTools(ctx.Packs)`. A non-nil
+               err is the TRUST REFUSAL branch: status `fail`, message saying
+               the declared tool was refused BEFORE it ran (never "missing"),
+               carrying the error verbatim, with a remediation in the shape of
+               describeEntrypointProbe's refusal remediation.
+
+            3. `len(tools) == 0` → status `warn`, message saying no installed
+               pack binds an engine tool so nothing was probed, remediation
+               pointing at installing a pack that declares one. NEVER `pass`.
+
+            4. Otherwise probe each tool IN THE RETURNED SORTED ORDER through
+               `resolveBinaryResolver()`, building ONE line per tool — a `pass`
+               line naming the tool, pack and engine, or a `fail` line naming
+               the same plus the resolution error. Roll up with the existing
+               `worseDoctorStatus`. For each absent tool append
+               `absentToolMessage(tool)` to the remediation. DO NOT WRITE A
+               SECOND absent-tool message: reusing the gate's renderer is what
+               makes doctor's advice and the gate's refusal the same words by
+               construction, which is CLM-002's report-level half.
+
+            5. Message shape follows checkToolchainRuns': a count line, then one
+               indented line per tool. `indentDoctorContinuation` handles the
+               human rendering; the stored message stays exact for the JSON
+               payload.
+
+          ★ TOUCH NOTHING ELSE IN THIS FILE. `checkToolchainRuns`,
+          `describeEntrypointProbe`, `entrypointOutputVerbatim` and
+          `checkArtifactLayout` are out of scope, and so is
+          `pack_entrypoint_prober.go` — see CLM-005 and the scope fence.
+
+          DOC COMMENT on the new function, in the register the neighbouring
+          checks use. It must say, at minimum: that selection is RULE-DRIVEN
+          through the shared `collectRequiredEngineTools` and why widening it to
+          manifest.Engines would make doctor fail where the gate passes; that
+          the probe is PRESENCE, never execution, and why; and that the
+          fail-not-warn disposition is ISSUE-112's collapsed split rather than
+          an unconsidered severity — so the next reader who wants to soften it
+          knows which issue they are re-opening.
+        files:
+          - cmd/backstop/doctor.go
+          - cmd/backstop/doctor_checks.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-004
+          - CLM-006
+          - CLM-007
+          - CLM-008
+        depends_on:
+          - TASK-002
+          - TASK-005
+          - TASK-006
+          - TASK-007
+
+      - id: TASK-009
+        type: verification
+        title: "Gate doctor's new check and run the doctor suite"
+        description: |
+          Run, in order:
+
+              ./bin/backstop gate --file cmd/backstop/doctor_checks.go
+              ./bin/backstop gate --file cmd/backstop/doctor.go
+              go test ./cmd/backstop/ -race -count=1 -run 'TestDoctor_|TestInit_|TestGate_'
+
+          All green before this phase closes. `./bin/backstop`, never a bare
+          `backstop`. `--file`, not `--all` — sibling lanes are live in this
+          shared tree; the full sweep is the final phase's job.
+
+          THEN THE FALSIFICATION EVIDENCE, which is this task's real deliverable
+          and not an optional extra. Capture verbatim, for the close-out banner:
+            - the AFTER half of the command pair: build a binary from the fixed
+              tree to a SCRATCH path (never overwrite ./bin/backstop), run
+              `doctor` under a PATH with `semgrep` removed and nothing else
+              (drop /Library/Frameworks/Python.framework/Versions/3.12/bin;
+              keep /usr/local/bin so ast-grep, go and golangci-lint stay
+              reachable), and record that the engine-tools check now FAILS
+              naming semgrep and the process exits 1 — against the recorded
+              pre-fix exit 0.
+            - the parity mutation: repoint collection at manifest.Engines,
+              confirm TestDoctor_EngineToolVerdictMatchesGateProvisioning reds
+              on the unbound row, restore.
+            - the tripwire red, in whichever direction it was observed.
+
+          Violations in files this lane did not touch get REPORTED, never fixed
+          and never waived.
+        files:
+          - cmd/backstop/doctor.go
+          - cmd/backstop/doctor_checks.go
+          - cmd/backstop/doctor_engine_tools_test.go
+          - cmd/backstop/doctor_engine_tools_parity_test.go
+          - cmd/backstop/doctor_engine_tools_e2e_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-005
+          - CLM-007
+        depends_on:
+          - TASK-008
+
+  - id: phase-3
+    name: "Phase 3: Reconcile SPEC-070 and verify the whole chain"
+    tasks:
+      - id: TASK-010
+        type: documentation
+        title: "Dispatch spec-author to reconcile SPEC-070's seven-check prose against the registered eight, and to dispose of SPEC-035's extraction drift"
+        description: |
+          TWO specs go stale on this change — SPEC-070 loudly, SPEC-035
+          silently — and BOTH are reconciled by DISPATCHING spec-author in ONE
+          dispatch. Do NOT hand-edit either spec: freeform artifact edits drift
+          from the schema, and the agent-guard exists for this.
+
+          ═══ PART A — SPEC-070 (the eighth check) ═══════════════════════════
+
+          ── THE CANONICAL SWEEP, RUN ONCE, BYTE-IDENTICAL EVERYWHERE ────────
+          Run exactly this line — CASE-INSENSITIVE, and the `-i` is
+          load-bearing, not stylistic — and hand spec-author the CURRENT line
+          numbers, since earlier work in this lane does not move spec lines but
+          other lanes committing tonight may:
+
+            grep -ni 'seven' specs/SPEC-070-backstop-doctor.spec.md
+
+          ⚠ WHY `-i`: the case-SENSITIVE form returns 18 hits, the
+          case-insensitive form 23, and the five it hides include the single
+          most load-bearing occurrence in the file — line 1093, the spec's own
+          `**Seven checks is the declared set, not a starting point — but
+          growth belongs to the bundle.**` That sentence states the exact
+          authority rule this task exists to satisfy. A sweep that cannot see
+          it would leave the spec asserting "seven" while this lane's code and
+          test comments say "eight" — which is precisely the drift TASK-010
+          exists to close.
+
+          ── CLASSIFY EVERY ONE OF THE 23 HITS BEFORE HANDING ANYTHING OVER ──
+          "seven" appears in SPEC-070 about four different things and only one
+          of them is stale. This classification is EXHAUSTIVE over the 23 hits
+          as of plan time; if the sweep returns a hit not on this list, that is
+          new drift from another lane — classify it too and say so, do not
+          silently pass it through.
+
+            (1) THE CHECK COUNT — STALE, must become eight. Ten hits:
+                ~26   the spec preamble, "SEVEN checks ship, in two groups"
+                ~41   the narrative intro, "across all seven"
+                ~70   the REQ-002 check list, "seven checks this spec declares"
+                ~605  the `doctorCheck` contract note
+                ~613  the `doctorRegistry` contract note
+                ~840  "package boundary is introduced for seven checks"
+                ~843  "a SLICE literal of the seven checks in report order"
+                ~849  "each entry's ID is one of the seven declared"
+                ~871  "The seven checks, in registry order."
+                ~1093 THE AUTHORITY SENTENCE (see above) — this one is not a
+                      count to bump but a rule to satisfy: the reconciliation
+                      must both correct the number AND record that growth past
+                      the declared set was authorized, per the citation below.
+
+            (2) THE SEVEN `gate_type` VALUES — NOT stale, do not touch. Four
+                hits: ~444 (the REQ-006 matrix), ~978 and ~979 (the fixture-pack
+                claims), ~1348 (`pkg/pack/engine/gatetype.go`).
+                `gatetype.go` still declares seven gate types and this change
+                adds none.
+
+            (3) THE SEVEN-KIND ARTIFACT VOCABULARY — NOT stale, do not touch.
+                Two hits: ~541 (CLM-041's suffix enumeration) and ~1344
+                (`cmd/backstop/artifact_discover.go:18-26`).
+
+            (4) HISTORICAL VERSION-HISTORY RECORD — NOT stale, and NEVER
+                rewritten: a version-history entry records what a past revision
+                did and is wrong the moment it is edited to match the present.
+                Seven hits: ~1456, ~1467, ~1469, ~1474, ~1486 (the v1.1.4
+                entry, on the seven-constant `const (…)` block and the
+                `contract_signature` defect) and ~1569, ~1580 (the v1.1.0
+                entry, on the registry reaching seven and on the seven-kind
+                suffix vocabulary).
+
+          A mechanical seven→eight substitution would corrupt three live,
+          unrelated groups. Say so explicitly in the dispatch brief.
+
+          ── THE CONTRACTS BLOCK NEEDS AN EIGHTH `provides` — AND NO SWEEP
+             CAN FIND IT ───────────────────────────────────────────────────
+          SPEC-070's contracts block declares ONE `provides` entry per check
+          function — `checkConfigPresent` through `checkArtifactLayout`, seven
+          entries at ~lines 643-669, each `kind: function` with
+          `signature: "func checkX(ctx doctorContext) doctorResult"`, kept 1:1
+          with the registry. TASK-008 adds an eighth check function,
+          `checkEngineToolsPresent(ctx doctorContext) doctorResult`. The word
+          "seven" appears NOWHERE near those entries, so no grep-for-seven
+          sweep will ever surface this gap.
+
+          spec-author MUST therefore do one of exactly two things, and record
+          which:
+            (a) add an eighth `provides` entry for `checkEngineToolsPresent`
+                matching the existing seven's name/kind/signature format, or
+            (b) make an explicit, stated decision NOT to declare it, with the
+                reason recorded in the version history.
+          Silence is not an option here. Related but SEPARATE: the eighth check
+          also adds an eighth id constant to `doctor.go`'s grouped
+          `const (…)` block, and the ~605 contract note enumerates those
+          constant names — append the new one there. That block deliberately
+          carries NO `provides` entries of its own (the v1.1.4 disposition,
+          ISSUE-078); do not reverse that decision while adding the eighth
+          check's entry.
+
+          ── WHAT spec-author MUST BE TOLD ───────────────────────────────────
+            - CLM-051's text ("The registry holds exactly the declared set of
+              check ids…") is still TRUE and its mandated test name is
+              UNCHANGED — only the size of the declared set moved. The claim
+              does not need rewriting; the prose around it does.
+            - The eighth check's id, title and registry position, and its
+              one-line purpose: doctor probes that pack-declared, rule-bound
+              findings-engine tools resolve on PATH, closing the gap where
+              doctor reported all-green on a project the gate refuses.
+            - THE AUTHORITY FOR GROWING PAST SEVEN, which the spec's own line
+              1093 says belongs to the bundle: DIR-002's founder-ruled scope
+              expansion of 2026-08-16 (see
+              directives/DIR-002-backstop-init.directive.md, the ISSUE-134
+              follow-on and the "Founder-approved home and framing" paragraph),
+              which brought doctor's tool-detection diagnostic reliability into
+              that directive's charter as an ongoing concern. Cite it — a
+              reader who finds an eighth check with no recorded authorization
+              will reasonably read it as the quiet addition CLM-051 forbids.
+            - Bundle REQ-024 remains CARVED OUT and ISSUE-121 still owns it.
+              Nothing here closes it, and the stack-policy source scan is intact.
+
+          ═══ PART B — SPEC-035 (the extraction's silent drift) ══════════════
+
+          THIS LANE FALSIFIES SPEC-035 PROSE AND NOTHING WILL MAKE ANYONE
+          NOTICE. Phase 1 extracts the registry-lookup and trust-gate half of
+          `provisionEngines` into the shared `collectRequiredEngineTools` and
+          gives it a second consumer, which invalidates three places in
+          specs/SPEC-035-pack-declared-engines-trusted-allowlist.spec.md:
+
+            - CLM-030's text (~line 336) calls `provisionEngines` "the second
+              resolveEngineRegistry caller". This lane adds a caller, so the
+              ordinal is wrong — and the registry walk it names now happens in
+              `collectRequiredEngineTools`, not in `provisionEngines`.
+            - The `provisionEngines` contract note (~line 565) says it "already
+              iterates each pack's engines via resolveEngineRegistry… so it has
+              the tool in hand for the CheckToolAllowed call." After Phase 1 it
+              does neither: both the iteration and the trust gate live in
+              `collectRequiredEngineTools`, and `provisionEngines` receives the
+              tools already resolved.
+            - REQ-003's ordinal caller table (~lines 313 and 723) lists the
+              callers by position; the new collection authority is not in it.
+
+          ⚠ TELL spec-author EXPLICITLY THAT SPEC-035 IS `status: draft`
+          (verified at plan time, `spec_version: 1.1.5`). That is precisely why
+          this needs a deliberate disposition instead of being left alone:
+          contract and traceability dimensions only read `implemented` specs,
+          so NOTHING in the gate will red, and no shipped `signature:` strands
+          either — `func provisionEngines(packs []*pack.Manifest) error` keeps
+          its exact signature and
+          `TestProvisionEngines_UnallowlistedToolFailsLoudBeforeProvision`
+          still passes by delegation. The drift is real and completely silent.
+          If it is not reconciled now it will surface at SPEC-035's own
+          close-out flip and never before.
+
+          THE DISPOSITION FOR THIS PLAN IS: RECONCILE IT IN THIS DISPATCH.
+          spec-author corrects CLM-030's parenthetical, the `provisionEngines`
+          contract note, and the REQ-003 caller table against the extraction,
+          and records the change in SPEC-035's version history. The correction
+          is descriptive only: no claim is deleted, no mandated test name
+          changes, no requirement is added or removed — the ALLOWLIST BEHAVIOR
+          SPEC-035 specifies is unchanged by this lane, only the function that
+          houses the walk moved. If spec-author judges the reconciliation to be
+          larger than a descriptive correction, it must STOP and report rather
+          than expand SPEC-035's substance — that becomes a follow-on issue,
+          not a silent rewrite.
+
+          ═══════════════════════════════════════════════════════════════════
+
+          If the reconciliation surfaces further drift in either spec, report
+          it — do not expand this lane's code scope to chase it.
+        files:
+          - specs/SPEC-070-backstop-doctor.spec.md
+          - specs/SPEC-035-pack-declared-engines-trusted-allowlist.spec.md
+        claims:
+          - CLM-007
+        depends_on:
+          - TASK-009
+
+      - id: TASK-011
+        type: verification
+        title: "Full kill chain and artifact validation"
+        description: |
+          THE COMPREHENSIVE PASS. Both halves are required because this lane
+          changed BOTH `.go` files and artifacts.
+
+              ./bin/backstop gate --all
+              ./bin/backstop artifact validate --plan PLAN-ISSUE-134
+              ./bin/backstop artifact validate --spec SPEC-070
+              ./bin/backstop artifact validate --spec SPEC-035
+              go test ./cmd/backstop/... -race -count=1
+
+          `--all` is the full unscoped kill chain: artifact validation, findings
+          engines, test verification, substantiveness, coverage, contracts,
+          status drift, traceability, waivers, baseline, ledger integrity.
+
+          ★ READ THE RESULT BEFORE REPORTING IT, AND ATTRIBUTE HONESTLY. This
+          tree carries several concurrent implementer lanes. A `--all` sweep
+          will surface their in-flight work. For every violation, decide and
+          state whether it is THIS lane's: name the file, name the owning lane
+          if it is not ours, and do not fix another lane's violation and do not
+          waive anything. If coverage comes back red on inherited untouched
+          code, prove it with a clean-HEAD control number and the counterfactual
+          before attributing it anywhere — and record it rather than waiving it.
+
+          The gate must be green on this lane's own files. `./bin/backstop`,
+          never a bare `backstop`; `PATH=/Users/bmanson/go/bin:$PATH` if
+          go-arch-lint is invoked.
+        files:
+          - cmd/backstop/doctor.go
+          - cmd/backstop/doctor_checks.go
+          - cmd/backstop/pack_gate_provision.go
+          - plans/PLAN-ISSUE-134-doctor-findings-engine-tool-blindspot.plan.yml
+          - specs/SPEC-070-backstop-doctor.spec.md
+          - specs/SPEC-035-pack-declared-engines-trusted-allowlist.spec.md
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+        depends_on:
+          - TASK-003
+          - TASK-008
+          - TASK-009
+          - TASK-010
+
+      - id: TASK-012
+        type: documentation
+        title: "Stamp the AS-BUILT close-out on this plan"
+        description: |
+          Prepend an AS-BUILT banner to this plan's `notes` block and set
+          `status: completed`. Do NOT rewrite the tasks, claims, or the sections
+          above — they are the authored record of what was PLANNED, and the
+          banner is what reconciles them to what was BUILT.
+
+          The banner must carry:
+            - THE COMMAND PAIR, BOTH HALVES, verbatim. The recorded pre-fix
+              observation (doctor exit 0, all green; gate exit 2 naming semgrep)
+              and the post-fix observation from TASK-009 (doctor's engine-tools
+              check failing, exit 1). Without both halves this lane has not
+              demonstrated it fixed anything.
+            - the parity mutation result and the tripwire red direction.
+            - what actually landed, read off the tree at close rather than
+              transcribed from these tasks — the files, and any AS-BUILT delta
+              from what was prescribed, stated as a delta.
+            - whether the SPEC-070 reconciliation actually landed — including
+              which disposition was taken on the eighth `provides` entry for
+              `checkEngineToolsPresent` — and whether the SPEC-035 extraction
+              reconciliation landed. If spec-author surfaced further drift in
+              either spec, where that went.
+            - a PROVENANCE NOTE if this lane's code is still uncommitted in the
+              shared tree at close time: name THIS lane's files explicitly so a
+              future reader looking at whatever batch commit carries them does
+              not attribute a sibling lane's files to PLAN-ISSUE-134.
+            - the gate evidence from TASK-011, including any violation
+              attributed to another lane and to WHICH lane.
+
+          Leave the plan's `spec_id` and every authored section pinned as
+          written.
+        files:
+          - plans/PLAN-ISSUE-134-doctor-findings-engine-tool-blindspot.plan.yml
+        claims:
+          - CLM-001
+          - CLM-007
+        depends_on:
+          - TASK-011
