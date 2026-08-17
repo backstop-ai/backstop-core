@@ -1,0 +1,834 @@
+---
+plan_id: PLAN-ISSUE-158
+spec_id: ISSUE-158
+created: "2026-08-17"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./cmd/backstop/ -run \"TestZeroMatchHarness|TestE2E_ZeroMatchClassification|TestE2E_HollowEvidenceBlocks\" -race -count=1"
+coverage_threshold: 80
+
+notes: |
+  ISSUE-158 — the zero-match E2E harness patches a copy of `packs/substantiveness`'s
+  `referenced-symbol-go` rule with `files: ["harness/fixtures/**/*.go"]` to starve the
+  consumer workspace of Q2 evidence. That same glob also takes the PACK'S OWN fixture
+  tree out of the rule's scope, so the pack's declared negative fixture can no longer
+  trigger and `pack add` — which runs the full packval pipeline unconditionally on a
+  scratch copy — refuses the patched copy at `phase3-fixtures`. Four E2E tests die at
+  install, before the code under test is ever reached.
+
+  This is the LAST KNOWN REAL BLOCKER before v0.2.0 can go CI-green: these four are the
+  only non-advisory findings in a real `backstop gate` run matching CI's blocking-job
+  scope. A separate, already-fixed lane owns the stale semgrep pin — see sharp edge 11.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  ★★ THE DESIGN DECISION, AND THE MEASUREMENTS THAT MADE IT ★★
+  ══════════════════════════════════════════════════════════════════════════════
+  The issue deliberately left the mechanism open. It is decided HERE, and it is
+  decided on measurement, not taste. All numbers below were taken 2026-08-17 with
+  real ast-grep 0.43.0 against scratch copies of `packs/substantiveness` at the
+  current working tree — never by mutating the in-repo pack.
+
+  ── THE MECHANISM: TWO DIFFERENT WORKING DIRECTORIES ──────────────────────────
+  ast-grep has no "scan root" concept — it resolves a rule's `files:` globs against
+  the INVOKING PROCESS'S WORKING DIRECTORY. The two contexts that must disagree run
+  the engine from different working directories:
+
+    packval phase3   `DefaultExecutor.RunEngine` (`pkg/packval/executor.go`) sets
+                     `cmd.Dir = packDir` and passes the PACK-RELATIVE fixture path.
+                     So the fixture's path IS
+                     `testdata/fixtures/rules/referenced-symbol-go/negative.go`.
+
+    consumer gate    `buildTestSubstantivenessStep` (`cmd/backstop/gate.go`) builds
+                     `&check.ExecCommandRunner{Dir: projectRoot}`; the four E2E
+                     tests pass a NIL scope, so `runFindingsEngine` appends
+                     `projectRoot` as a DIRECTORY target. The very same fixture
+                     files, now installed, sit under the workspace's
+                     `.backstop/packs/<manifest name>/testdata/fixtures/...` —
+                     see the INSTALL PATH note below; it is NOT what you would
+                     guess from the source directory's name.
+
+  A ROOT-ANCHORED glob (no leading wildcard segment) therefore matches the pack's own
+  fixture when the engine runs from the pack directory and matches NOTHING when it
+  runs from the consumer's project directory — and nothing in the consumer's own tree
+  matches it either. That is exactly the property
+  ISSUE-113 wants, and it is arguably a MORE faithful reproduction of the
+  bclabs-portal defect than the fictional `harness/fixtures/**`: the glob is now
+  literally baked to the PACK AUTHOR'S OWN repo layout.
+
+  ── ★ THE INSTALL PATH IS NOT `.backstop/packs/substantiveness` ★ ─────────────
+  MEASURED, and it is the single most likely way a first implementation run dies.
+  `pkg/pack/distribution/add.go` installs to
+  `filepath.Join(projectDir, ".backstop", "packs", packName)` where `packName` is the
+  MANIFEST NAME, and `packs/substantiveness/pack.yml` declares
+  `name: backstop/substantiveness`. So a real `pack add` of that source materializes at
+
+      <ws.root>/.backstop/packs/backstop/substantiveness
+
+  — a TWO-SEGMENT path, not the one-segment path the SOURCE directory's name suggests.
+  DO NOT HARDCODE EITHER SPELLING. `installZeroMatchSubstantivenessPack` already
+  records `w.installInfo = res`, and `distribution.AddResult` carries
+  `InstalledPath` (`add.go`), so every consumer reads
+  `ws.installInfo.InstalledPath`. This plan's own "derivation, not a literal" doctrine
+  applies to its tests exactly as it applies to the glob: a literal here would drift
+  the instant a manifest name changed, which is the same silent-drift class as the
+  defect being fixed.
+
+  ── THE CHOSEN FIX ────────────────────────────────────────────────────────────
+  Keep the harness mechanism (copy → patch the copy's `referenced-symbol-go.yml` →
+  real `pack add`). Replace the hardcoded fictional glob with a `files:` list
+  DERIVED FROM THE COPY'S OWN `pack.yml`: the pack-relative fixture paths that
+  manifest declares for rule `referenced-symbol-go`, used verbatim.
+
+      files:
+        - "testdata/fixtures/rules/referenced-symbol-go/positive.go"
+        - "testdata/fixtures/rules/referenced-symbol-go/negative.go"
+
+  Derivation, not a literal, is the point: a hardcoded path is exactly the silent-drift
+  class this issue IS. If the pack's fixture layout ever moves, a derived list moves
+  with it and a hardcoded one goes stale and re-breaks `pack add`.
+
+  MEASURED — chosen shape:
+    * `backstop pack test <copy>`  → `status: pass`, all six phases, phase3-fixtures
+      PASS. (Control: the shipped `harness/fixtures/**/*.go` patch → `status: fail`,
+      `ERROR [phase3-fixtures/semgrep-negative] negative fixture not triggered` — the
+      issue's measurement reproduced byte-for-byte.)
+    * Consumer workspace (3 `subject_*_test.go` + the installed pack), DIRECTORY
+      dispatch, ast-grep defaults → ZERO results, of any rule.
+    * Same workspace with `--no-ignore hidden` (the STRICT shape, which forces the
+      installed `.backstop/packs/**` tree into the scan) → ZERO `referenced-symbol-go`
+      results. One `hollow-test-go` result on the pack's own `negative.go`; that is the
+      OTHER rule, untouched — see sharp edge 5.
+    * EXPLICIT-FILE dispatch (the shape `--all` collapsed onto elsewhere): the three
+      subject files → ZERO; the pack's own `negative.go` handed over explicitly from
+      the consumer root → ZERO. So the darkness survives BOTH dispatch shapes.
+      Control on the PRISTINE pack, explicit-file dispatch: 6 `referenced-symbol-go`
+      results. ast-grep's `files:` is therefore NOT inert under explicit-file dispatch
+      — unlike semgrep's `paths.include` (ISSUE-151). Stated because it was measured,
+      not assumed.
+
+  ── THE ALTERNATIVE THAT LOOKS RIGHT AND IS WRONG (this is sharp edge 1) ──────
+  A `**/`-prefixed glob is the obvious "make it match the fixtures" move and it PASSES
+  `pack test`, so nothing in the ordinary loop catches it. Measured:
+
+      files: ["**/testdata/fixtures/rules/referenced-symbol-go/*.go"]  → pack test PASS
+      files: ["**/fixtures/rules/**/*.go"]                             → pack test PASS
+
+  Both are consumer-dark under ast-grep's defaults and both LEAK 2
+  `referenced-symbol-go` findings from the installed pack's own `negative.go` under
+  `--no-ignore hidden`. Their zero-match property is an accident of ast-grep skipping
+  hidden directories — `.backstop/` is hidden — not a property of the glob. That is a
+  vacuous green waiting to happen. The root-anchored form is dark for a STRUCTURAL
+  reason, and CLM-003's test pins the difference by scanning hidden directories on
+  purpose.
+
+  ── APPROACHES CONSIDERED AND REJECTED ────────────────────────────────────────
+    * Patch the INSTALLED copy under `.backstop/packs/` after `pack add` instead of
+      before. Sidesteps packval entirely, but throws away the property ISSUE-113
+      built the harness to demonstrate — that a REAL, VALID, INSTALLABLE pack can be
+      consumer-dark. Rejected.
+    * Weaken or delete the pack's negative fixture. Explicitly forbidden by the issue,
+      and it would gut the pack's own phase3 coverage. Rejected.
+    * `t.Skip` the four tests. Explicitly forbidden; `requireAstGrepE2E` is `t.Fatalf`
+      BY DESIGN and a skipped real-engine E2E is silent vacuous green. Rejected.
+    * Change `packs/substantiveness` itself. Nothing is wrong with the pack — it has
+      no `files:` key at all; the glob is purely a harness construct. `packs/**` stays
+      byte-identical to HEAD (CLM-006). Rejected.
+    * Teach packval to ignore a rule's `files:` scope during fixture runs. That would
+      make packval blind to a real pack defect — the exact opposite of what ISSUE-092
+      closed. Rejected.
+
+  ── THE SECOND, SMALLER DEFECT: THE DOCSTRING IS NOW ACTIVELY MISLEADING ──────
+  The comment block above `installZeroMatchSubstantivenessPack` beginning "WHY THE
+  PATCHED PACK STILL PASSES `pack test`" asserts that packval never runs these
+  fixtures because `rule.File == ""` under a `rule_path:` declaration, and cites
+  ISSUE-092 as tracking that hole. ISSUE-092 CLOSED it: phase3 now reads
+  `rule.RuleSourcePath()`, does run the fixtures, and does notice the patch. The
+  comment tells a future reader the exact opposite of the truth, and it is the reason
+  the patch looked safe for as long as it did. It is corrected in the same edit
+  (CLM-005) and a source-scan test keeps the falsified phrases out.
+
+  ── BASELINE, MEASURED AT AUTHORING (2026-08-17, live tree) ───────────────────
+      go test ./cmd/backstop/ -run 'TestE2E_ZeroMatchClassification_RefusesInsteadOf...
+                                    |TestE2E_HollowEvidenceBlocksZeroMatchRefusal'
+      --- FAIL: TestE2E_HollowEvidenceBlocksZeroMatchRefusal
+      --- FAIL: TestE2E_ZeroMatchClassification_RefusesInsteadOfPerTestViolations
+      both: "... pack validation (test) of the validation copy failed in
+             phase3-fixtures: 1 validation error(s)"
+  Identical to the issue's report. The package COMPILES cleanly; the failures are
+  runtime, at install, which is why the Phase 1 tests are written to fail at RUNTIME
+  too rather than on a missing symbol (see TASK-001).
+
+  ── THE FOUR CALL SITES, ENUMERATED (grep + count, not a sample) ──────────────
+      grep -rn "installZeroMatchSubstantivenessPack" cmd pkg   → 4 test call sites
+      cmd/backstop/gate_substantiveness_zero_match_e2e_test.go:85
+      cmd/backstop/gate_substantiveness_zero_match_e2e_test.go:154
+      cmd/backstop/gate_substantiveness_refusal_boundary_e2e_test.go:51
+      cmd/backstop/gate_substantiveness_refusal_boundary_e2e_test.go:111
+  Exactly the four tests ISSUE-158 names — no fifth caller.
+      grep -rn "harness/fixtures" cmd pkg packs → ONE hit, the patch string itself
+      (`cmd/backstop/gate_substantiveness_e2e.go`). No fixture directory of that name
+      exists anywhere; nothing else references the literal.
+  `installWarningSeveritySubstantivenessPack` (`gate_substantiveness_severity_test.go`)
+  is a SIBLING harness that patches `severity: warning` onto the HOLLOW rule. It was
+  read: it carries no `files:` patch and no stale ISSUE-092 premise, and its pack copy
+  passes `pack test`. It is OUT of scope — do not "harmonize" the two.
+
+  ── CROSS-LANE COLLISION CHECK (2026-08-17, live shared tree) ─────────────────
+    * `git status --porcelain cmd/backstop packs backstop.yml backstop.lock` → EMPTY.
+      Every path this plan scopes is clean and committed. Other lanes hold uncommitted
+      work elsewhere (`pkg/scaffold`, `pkg/artifact`, `pkg/schema`, `pkg/config`) —
+      none of it in this lane's scope.
+    * EXISTENCE-IN-WORLD: searched `plans/` and `specs/` (committed AND working tree)
+      for `ISSUE-158`, `installZeroMatchSubstantivenessPack` and
+      `cmd/backstop/gate_substantiveness_e2e.go`. Every plan that names the harness is
+      `status: completed` — PLAN-ISSUE-113 (built it), PLAN-ISSUE-148 (measured the
+      residual and FILED this issue, explicitly fencing it OUT), PLAN-ISSUE-160
+      (surfaced the stale docstring and deliberately left it), PLAN-ISSUE-054,
+      PLAN-ISSUE-020, PLAN-SPEC-055 (repointed paths only). No live plan owns this
+      surface and no committed plan SUBSUMES it — PLAN-ISSUE-148 names it as
+      explicitly NOT ITS OWN and mandated the filing. The only in-flight artifact is
+      this plan's own scaffold.
+    * PLAN-ISSUE-151 is `completed` and adjacent but NOT the same defect — see sharp
+      edge 12.
+  If a file has moved under you, locate every edit site BY NAME (sharp edge 7).
+
+  ── SCOPE FENCES ──────────────────────────────────────────────────────────────
+  IN:  `cmd/backstop/gate_substantiveness_e2e.go` — the `files:` patch construction
+       inside `installZeroMatchSubstantivenessPack` and that function's docstring.
+       ONE new test file, `cmd/backstop/gate_substantiveness_zero_match_harness_test.go`.
+  OUT: `packs/substantiveness/**` — ENTIRELY. Not the rules, not the fixtures, not
+       `pack.yml`. Byte-identical to HEAD at close-out (CLM-006).
+  OUT: the four affected test files. They are the REGRESSION CHECK, re-verified and
+       NOT modified. No assertion softened, no `t.Skip`, no `requireAstGrepE2E` change.
+  OUT: `pkg/packval/**` — phase3 is behaving CORRECTLY. This is harness data, not
+       machinery.
+  OUT: `installWarningSeveritySubstantivenessPack` and
+       `cmd/backstop/gate_substantiveness_severity_test.go`.
+  OUT: `pkg/pack/engine/allowlist.go` and CI's semgrep install steps (sharp edge 11).
+  OUT: the external mirror `backstop-ai/go-substantiveness`. Nothing in this lane
+       changes pack CONTENT, so no version bump, no tag, no `pack update`, no push.
+
+  ── CLAIM LEDGER (ISSUE-158 carries no CLM ids; this lane defines them) ───────
+    CLM-001  The zero-match harness's patched pack copy INSTALLS: `pack add` succeeds
+             and the installed tree passes ALL SIX packval phases through the real
+             pipeline, with `phase3-fixtures` explicitly reporting `pass` — never
+             merely an overall pass that came from phase3 being skipped.
+    CLM-002  The patched rule's `files:` scope is MANIFEST-DERIVED and ROOT-ANCHORED:
+             its entries EQUAL the fixture paths the copy's own `pack.yml` declares
+             for rule `referenced-symbol-go`, and no entry begins with a wildcard
+             segment. The derivation REFUSES LOUDLY — named error, nothing installed —
+             rather than patching blind, in BOTH degenerate cases: an empty derived
+             list, and a declared fixture path that is not a clean pack-relative path.
+             Both refusal branches are PINNED BY TEST (via a fake repo root carrying a
+             doctored `pack.yml`), not left as unexercised defensive code.
+    CLM-003  ISSUE-113's meaning survives, STRUCTURALLY: the `referenced-symbol-go`
+             rule yields ZERO findings anywhere in the zero-match consumer workspace
+             — and that darkness holds even when the installed pack tree under
+             `.backstop/packs/` IS scanned, so it is not an accident of ast-grep
+             skipping hidden directories. This is the assertion that discriminates the
+             chosen glob from the `**/`-prefixed one that also passes `pack test`.
+    CLM-004  All four affected E2E tests pass with real ast-grep, REACHING and
+             asserting the code under test:
+             `TestE2E_ZeroMatchClassification_RefusesInsteadOfPerTestViolations`,
+             `TestE2E_ZeroMatchClassification_RefusalIsNotWaivable`,
+             `TestE2E_HollowEvidenceBlocksZeroMatchRefusal`,
+             `TestE2E_HollowEvidenceBlocksRefusal_IsNotVacuous`.
+             None skipped, none weakened, none rewritten.
+    CLM-005  The `installZeroMatchSubstantivenessPack` docstring no longer asserts the
+             falsified ISSUE-092 premise and states the real mechanism (phase3 reads
+             `RuleSourcePath()` and DOES run these fixtures; the copy stays validatable
+             because the patched scope is anchored at the pack directory, which is the
+             working directory packval runs the engine from). Pinned by
+             a source-scan test, so the correction cannot silently rot back.
+    CLM-006  Non-regression: `packs/substantiveness/**` byte-identical to HEAD, no
+             fixture weakened, no `t.Skip` added to any of the four tests, and no gate
+             red newly attributable to this lane — established by a real control-vs-
+             treatment reading, not asserted.
+
+  ── SHARP EDGES ───────────────────────────────────────────────────────────────
+   1. ROOT-ANCHORED, NEVER `**/`-PREFIXED. A `**/` variant PASSES `pack test`, so it
+      looks correct, and leaks 2 `referenced-symbol-go` findings the moment hidden
+      directories are scanned. Measured above. Do not "simplify" the derived paths by
+      prefixing `**/`, and do not replace an exact fixture path with a `*.go` glob
+      unless you re-measure BOTH the `--no-ignore hidden` and explicit-file shapes.
+   2. NEVER `t.Skip` ANY OF THE FOUR TESTS. `requireAstGrepE2E`
+      (`gate_substantiveness_e2e_test.go`) is `t.Fatalf` BY DESIGN. A skipped
+      real-engine E2E is silent vacuous green. Same for the new tests.
+   3. NEVER WEAKEN A FIXTURE. `packs/substantiveness/**` is out of scope entirely. If
+      you find yourself editing a fixture, you have taken the forbidden fix.
+   4. THE IN-REPO PACK SOURCE IS NEVER MUTATED BY A TEST. Copy to a temp dir and patch
+      the COPY — editing `packs/substantiveness` from a test corrupts this repo's own
+      dogfood install. This already holds; keep it holding.
+   5. SCOPE THE CLM-003 ASSERTION TO `referenced-symbol-go`, NOT TO "zero findings".
+      Under `--no-ignore hidden` the installed pack's own `negative.go` still yields
+      ONE `hollow-test-go` finding. That rule is untouched and out of scope; a
+      "zero findings of any rule" assertion would drag it into this lane and go red
+      for a reason this plan does not own.
+   6. NO DIRECT `exec.Command` IN `cmd/backstop` TESTS. Route every ast-grep
+      invocation through the package's sanctioned `execCommand` seam
+      (`cmd/backstop/root_test.go`). PLAN-ISSUE-148 tripped backstop-self's
+      `no-baked-tool-exec` on exactly this and had to reroute before landing. And
+      pass the tool name as DATA, not as an inline `"ast-grep"` literal — see sharp
+      edge 15, which is the other half of the same trap.
+   7. LOCATE EDIT SITES BY NAME, NEVER BY THE LINE NUMBERS QUOTED HERE.
+      `func (w *e2eWorkspace) installZeroMatchSubstantivenessPack`, the `patched :=`
+      string concatenation that appends the `files:` block, and the comment block
+      beginning "WHY THE PATCHED PACK STILL PASSES". This file has moved repeatedly
+      across recent lanes.
+   8. SHARED TREE. Never bare `git stash` (it sweeps another agent's uncommitted
+      edits). Do not run the whole suite or a full `gate --all` concurrently with a
+      mid-flight implementer in this tree.
+   9. ONE LITERAL FOR THE RULE ID. The harness already spells `referenced-symbol-go`
+      in a `filepath.Join`; the manifest join needs the same id. Introduce ONE
+      package-level constant and use it for both, or the two spellings drift and the
+      derivation silently patches a rule whose fixtures it did not read.
+  10. AN EMPTY DERIVATION MUST FAIL LOUD. If the manifest declares no fixtures for
+      that rule, an empty `files:` list is a silent trap — return an error naming the
+      rule id and the manifest path, never write an empty block.
+  11. DO NOT TOUCH `pkg/pack/engine/allowlist.go` OR CI's SEMGREP INSTALL STEPS. The
+      stale 1.96.0 pin was found and fixed by a separate lane earlier tonight. It is
+      not this plan's scope and re-touching it would collide.
+  12. ISSUE-151 IS ADJACENT, NOT THE SAME. That defect is semgrep `paths.include` under
+      the live gate's explicit-file dispatch; this one is ast-grep `files:` under two
+      different WORKING DIRECTORIES. Different tool, different mechanism, different
+      surface. Do
+      not route this fix through that one's conclusions — and note this lane MEASURED
+      that ast-grep's `files:` is NOT inert under explicit-file dispatch.
+  13. NO PARALLELISM IS AVAILABLE AND NONE IS FAKED. The lane touches exactly two
+      files, one of which every task after Phase 1 must read. The phases are a strict
+      chain on purpose; splitting them to look parallel would only create file-set
+      collisions under D-081.
+  14. THE FAKE REPO ROOT IS THE REFUSAL SEAM — DO NOT ADD A NEW EXPORTED HELPER FOR
+      IT. `installZeroMatchSubstantivenessPack(repoRoot)` resolves its source through
+      `substantivenessSourceDir(repoRoot)` = `<repoRoot>/packs/substantiveness`, so a
+      `t.TempDir()` holding a doctored `packs/substantiveness/` copy drives the
+      derivation's refusal branches through the EXISTING signature. Extracting a new
+      helper just to test them would make TASK-001 reference a not-yet-written symbol
+      and break the package's compile for every other lane (sharp edge 8).
+  15. `const astGrepTool = "ast-grep"` ALREADY EXISTS at package scope in
+      `cmd/backstop/substantiveness_fixture_polarity_test.go`. REUSE IT. Redeclaring
+      it makes `cmd/backstop` fail to compile — the exact hazard TASK-001 is written
+      to avoid — and inlining the `"ast-grep"` literal instead reds backstop-self's
+      `no-baked-tool-exec` (precedent documented in that same file, above
+      `scanWithCombinedRuleset`). Also note `scanWithCombinedRuleset` cannot be
+      reused for the CLM-003 scan: its argv is fixed and carries neither
+      `--no-ignore hidden` nor a working directory. Build that one invocation
+      locally rather than widening a helper whose existing callers depend on its
+      shape.
+  16. NEVER HARDCODE THE INSTALLED PACK PATH. The manifest name is
+      `backstop/substantiveness`, so `pack add` installs to
+      `.backstop/packs/backstop/substantiveness` — TWO segments. Read
+      `ws.installInfo.InstalledPath` (`*distribution.AddResult`). A hardcoded
+      `.backstop/packs/substantiveness` is wrong and fails on the first run; this was
+      caught in review, not in the loop, which is exactly why it is written down.
+  17. ★ TO FORCE AN EMPTY DERIVATION, DROP THE WHOLE `claims:` BLOCK — NOT JUST
+      `fixtures:`. MEASURED: `validateFixtures` (`pkg/pack/manifest.go`, invoked from
+      `ParseManifestFile`'s rule loop) hard-requires at least one positive AND one
+      negative fixture per claim, so a claim with `fixtures:` removed makes
+      `ParseManifestFile` itself fail with
+      `rule "referenced-symbol-go" claim "sub-referenced-symbol-go" fixtures:
+      fixtures.positive must contain at least one entry`. TASK-002 (b) parses BEFORE
+      (c) checks, so that doctoring never reaches the refusal branch at all — and the
+      subtest STILL GOES GREEN, because a parse error is also a non-nil error naming
+      the rule id and the manifest path. That is a vacuous green pinning the wrong
+      code path, and it was caught in review rather than in the loop.
+      There is NO rule-level "claims must be non-empty" check (the `len(Claims) == 0`
+      requirement in that file is for `tool_configs`, not rules), so dropping the whole
+      block parses clean and derives zero paths — VERIFIED. The lesson generalizes:
+      when a test doctors artifact DATA to reach a branch, prove the doctored input
+      still parses, and assert the branch's OWN message, not merely "an error".
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Phase 1: RED — pin the harness contract with executable tests
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: RED — executable pins on the harness contract"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Pin the zero-match harness contract: installable copy, anchored derivation, structural consumer darkness, corrected docstring (RED)"
+        description: |
+          Create `cmd/backstop/gate_substantiveness_zero_match_harness_test.go`
+          (package main). ALL FIVE tests MUST FAIL before TASK-002. Run them first
+          and RECORD THE ACTUAL FAILURE OUTPUT — a plan that only asserts red is not
+          evidence.
+
+          THESE TESTS INTRODUCE NO NEW PRODUCTION SYMBOL, DELIBERATELY — INCLUDING THE
+          REFUSAL TESTS. They drive the EXISTING
+          `(*e2eWorkspace).installZeroMatchSubstantivenessPack` and then inspect what
+          it installed. That keeps the RED a RUNTIME failure. A test that referenced a
+          not-yet-written helper would fail to COMPILE, and a non-compiling
+          `cmd/backstop` blocks every other lane working in this shared tree (sharp
+          edge 8). The refusal branches are reachable through that same signature
+          because it takes a `repoRoot` and resolves the pack source through
+          `substantivenessSourceDir(repoRoot)` = `<repoRoot>/packs/substantiveness` —
+          so a FAKE repo root is all it takes to feed the derivation a doctored
+          manifest (sharp edge 14).
+
+          ★ NEVER HARDCODE THE INSTALLED PACK PATH. Read
+          `ws.installInfo.InstalledPath` (`*distribution.AddResult`, set by the
+          harness on success). The manifest name is `backstop/substantiveness`, so the
+          real install path is `<ws.root>/.backstop/packs/backstop/substantiveness` —
+          two segments, not the one the source directory's name suggests. See the
+          INSTALL PATH note in this plan's header; a hardcoded
+          `.backstop/packs/substantiveness` fails on the first run.
+
+          Every test calls `requireAstGrepE2E(t)` first (sharp edge 2). Every ast-grep
+          invocation goes through the package's `execCommand` seam, never
+          `exec.Command` directly (sharp edge 6). Reuse the existing helpers and
+          constants rather than re-deriving or re-declaring them: `repoRoot(t)`
+          (`pack_gate_test.go`), `substantivenessSourceDir(repoRoot)`,
+          `copyPackSourceTree(src, dst)` (`gate_substantiveness_e2e.go`), the
+          zero-match workspace constructor already used by
+          `cmd/backstop/gate_substantiveness_zero_match_e2e_test.go`, and — critically
+          — the EXISTING package-level `const astGrepTool = "ast-grep"` in
+          `cmd/backstop/substantiveness_fixture_polarity_test.go` (sharp edge 15).
+
+          AND THE SAME COLLISION TRAP ONE LEVEL DOWN: TASK-002 (a) introduces a new
+          package-level const in `gate_substantiveness_e2e.go` for the rule id
+          `referenced-symbol-go`. These tests need that same id string — spell it as a
+          PLAIN STRING LITERAL in the test file. Do NOT declare a second const for it:
+          `cmd/backstop` is one package, so a colliding name fails the compile, and a
+          differently-named duplicate const is the two-spellings drift sharp edge 9
+          exists to prevent. (Referencing TASK-002's const by name is not an option
+          here either — TASK-001 must compile BEFORE TASK-002 exists.)
+
+          HEADER-COMMENT THE FILE WITH THE NON-OBVIOUS PART, because a future reader
+          will otherwise "tidy" the glob straight back into the defect: packval runs
+          the engine with the PACK dir as its working directory and the gate runs it
+          with the PROJECT dir as its working directory, and it is only that
+          difference that lets one anchored glob be both fixture-visible and
+          consumer-dark.
+
+          TestZeroMatchHarnessPack_InstallsAndPassesAllPackvalPhases (CLM-001).
+            Build a zero-match workspace, call
+            `ws.installZeroMatchSubstantivenessPack(repoRoot(t))` and require NO
+            error — that call is where the defect currently dies. Then run the REAL
+            validation pipeline against the INSTALLED tree, whose location comes from
+            `ws.installInfo.InstalledPath` (already absolute) and NEVER from a
+            hardcoded `.backstop/packs/...` literal:
+              packval.NewPipeline(ws.installInfo.InstalledPath, packval.PipelineOptions{Mode: "test"}).Run()
+            Assert `ws.installInfo` is non-nil first, so a future harness change that
+            stops recording the result fails with a legible message rather than a nil
+            dereference.
+            Assert `result.Status == "pass"` AND that the phase results contain
+            `phase3-fixtures` with status `pass`. Asserting only the overall status
+            would let a SKIPPED phase3 read as success — the exact vacuous shape this
+            DIR-032 cluster exists to prevent. On failure print every error entry with
+            its Phase, Check, Rule, Claim and Message so the red state is legible
+            without a second run.
+            PRE-FIX STATE: fails at the install call with "pack validation (test) of
+            the validation copy failed in phase3-fixtures: 1 validation error(s)".
+
+          TestZeroMatchHarnessGlob_IsManifestDerivedAndRootAnchored (CLM-002).
+            After the same install, read the INSTALLED
+            `ast-grep/rules/referenced-symbol-go.yml` — resolved as
+            `filepath.Join(ws.installInfo.InstalledPath, "ast-grep", "rules", ...)`,
+            never from a hardcoded install path — parse it as YAML, and take its
+            top-level `files:` list. Assert:
+              * the key EXISTS and the list is NON-EMPTY;
+              * NO entry begins with a wildcard segment — reject any entry whose first
+                path segment contains `*`, and reject any entry containing `**`
+                anywhere. This is the assertion that forbids the `**/`-prefixed
+                variant structurally rather than by convention;
+              * the SET of entries EQUALS the set of pack-relative fixture paths the
+                INSTALLED `pack.yml` declares for rule id `referenced-symbol-go`
+                (again under `ws.installInfo.InstalledPath`), read through the real
+                manifest reader `pack.ParseManifestFile` and walking
+                `Content.Ruleset.Rules[].Claims[].Fixtures.Positive/Negative`.
+                Compare as SETS so declaration order is not load-bearing.
+            Say WHY in the body: equality-with-the-manifest is what makes the patch
+            immune to a fixture-layout move. A hardcoded path here would be the same
+            silent-drift class as the defect being fixed.
+            PRE-FIX STATE: fails at install; if driven past that, the shipped list is
+            `["harness/fixtures/**/*.go"]`, which fails all three assertions.
+
+          TestZeroMatchHarnessDerivation_RefusesLoudlyRatherThanPatchingBlind (CLM-002).
+            THE FAIL-LOUD PIN, and it needs no new production symbol — it feeds the
+            harness a FAKE repo root. `installZeroMatchSubstantivenessPack` resolves
+            its source through `substantivenessSourceDir(repoRoot)` =
+            `<repoRoot>/packs/substantiveness`, so a `t.TempDir()` containing a
+            `packs/substantiveness/` copy is a fully valid input (sharp edge 14).
+            Build each doctored source with `copyPackSourceTree` from the real pack,
+            then rewrite ONLY the COPY's `pack.yml`. Two subtests:
+              * EMPTY DERIVATION — remove the ENTIRE `claims:` block from the
+                `referenced-symbol-go` rule. ★ NOT just its `fixtures:` block, and
+                this is not a stylistic preference — see sharp edge 17. Assert the
+                call returns a NON-NIL error, assert its message contains the
+                derivation's OWN distinguishing refusal phrase (TASK-002 (c) fixes
+                that phrase; state the literal exactly ONCE in the test), and assert
+                it names the rule id AND the resolved manifest path. Then assert
+                NOTHING was installed: no `.backstop/packs` tree under the workspace,
+                and `ws.installed` still false. An empty `files:` block written
+                silently is the trap this pins (sharp edge 10).
+                THE DISTINGUISHING-PHRASE ASSERTION IS LOAD-BEARING, NOT BELT-AND-
+                BRACES. "non-nil error mentioning the rule id and the manifest path"
+                is ALSO true of a manifest PARSE error, so an assertion that stops
+                there passes while exercising a completely different code path —
+                which is exactly what the weaker doctoring recipe did (sharp edge 17).
+                Comment that in the test body.
+              * WILDCARD-LED PATH — rewrite one declared fixture path to a
+                wildcard-led value such as `**/negative.go`. This one parses clean
+                (verified: 2 derived paths, wildcard present), so branch (d) is
+                genuinely reached. Assert the same fail-loud shape, against branch
+                (d)'s own distinguishing phrase, with the offending value quoted in
+                the message. This is what keeps the anchoring property (sharp edge 1)
+                from being silently un-anchored by pack DATA rather than by code.
+            The refusal MUST be ordered before `pack add` runs — TASK-002 (c)/(d)
+            place it there — so these subtests must NOT depend on packval's verdict.
+            Say WHY in the body: both branches are cheap to write and impossible to
+            notice once broken, because a silently-wrong scope still installs and
+            still looks green.
+            PRE-FIX STATE: fails — today's harness has no derivation and no refusal,
+            so it proceeds to `pack add` and dies with the phase3-fixtures error
+            instead of the expected named refusal.
+
+          TestZeroMatchHarnessGlob_LeavesReferencedSymbolDarkEvenInHiddenDirs (CLM-003).
+            THE DISCRIMINATING TEST. After the same install, run real ast-grep over the
+            WHOLE workspace with hidden directories FORCED INTO THE SCAN:
+              ast-grep scan --json --no-ignore hidden \
+                --config <installed>/ast-grep/sgconfig.yml \
+                <ws.root>
+            where `<installed>` is `ws.installInfo.InstalledPath`, run with the process
+            working directory set to `ws.root`, via `execCommand` using the EXISTING
+            `astGrepTool` const. The existing helper `scanWithCombinedRuleset`
+            (`substantiveness_fixture_polarity_test.go`) CANNOT be reused here — its
+            argv is fixed and carries no `--no-ignore hidden` and no working-directory
+            control — so build the command locally rather than widening that helper,
+            whose current callers depend on its exact shape.
+            Assert ZERO results whose `ruleId` is `referenced-symbol-go`.
+            SCOPE THE ASSERTION TO THAT RULE ID (sharp edge 5): the pack's own
+            `negative.go` legitimately yields one `hollow-test-go` result under this
+            flag, and that rule is out of scope.
+            Comment the flag's purpose in the body, because it looks gratuitous and is
+            not: WITHOUT `--no-ignore hidden` this test passes for a `**/`-prefixed
+            glob too, since ast-grep skips the hidden `.backstop/` tree by default —
+            the assertion would be accidentally satisfied rather than discriminating.
+            MEASURED 2026-08-17, real ast-grep 0.43.0, on scratch copies:
+              root-anchored (chosen)                        -> 0 referenced-symbol-go
+              "**/testdata/fixtures/rules/.../*.go"         -> 2 referenced-symbol-go
+              "**/fixtures/rules/**/*.go"                   -> 2 referenced-symbol-go
+            Also assert the DEFAULT-flags shape yields zero `referenced-symbol-go`
+            results, as a second subtest, so the everyday dispatch is pinned too.
+            PRE-FIX STATE: fails at install.
+
+          TestZeroMatchHarnessDocstring_DropsTheFalsifiedPhase3Premise (CLM-005).
+            Read `cmd/backstop/gate_substantiveness_e2e.go` from disk (resolve it under
+            `repoRoot(t)`, do not hardcode a relative path from the test's CWD) and
+            assert that NEITHER of these two byte-identical phrases appears anywhere in
+            the file:
+              packval never RUNS these fixtures at all
+              rule.File == ""
+            Both are present TODAY, on single lines, inside the falsified block. State
+            each literal exactly ONCE in the test, in a slice the loop reads, so the
+            two spellings cannot drift into variants.
+            Say WHY in the body: ISSUE-092 closed the hole those sentences describe, so
+            the comment now asserts the opposite of the truth, and it is precisely why
+            the patch looked safe for as long as it did. This is a PROSE-DRIFT GUARD,
+            not style policing — an unfalsifiable comment about a validation hole is
+            how a validation hole gets re-opened.
+            PRE-FIX STATE: fails on both literals.
+        files:
+          - cmd/backstop/gate_substantiveness_zero_match_harness_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-005
+        depends_on: []
+        test_names:
+          - TestZeroMatchHarnessPack_InstallsAndPassesAllPackvalPhases
+          - TestZeroMatchHarnessGlob_IsManifestDerivedAndRootAnchored
+          - TestZeroMatchHarnessDerivation_RefusesLoudlyRatherThanPatchingBlind
+          - TestZeroMatchHarnessGlob_LeavesReferencedSymbolDarkEvenInHiddenDirs
+          - TestZeroMatchHarnessDocstring_DropsTheFalsifiedPhase3Premise
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Phase 2: GREEN — derive the scope from the manifest, correct the docstring
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: GREEN — manifest-derived anchored scope + docstring correction"
+    tasks:
+      - id: TASK-002
+        type: implementation
+        title: "Derive the zero-match files: scope from the copy's own pack.yml and correct the falsified docstring"
+        description: |
+          Edit `cmd/backstop/gate_substantiveness_e2e.go`. Two changes, one file, one
+          task — they are inseparable: the comment explains the code being changed.
+
+          (1) THE PATCH CONSTRUCTION, inside
+          `(*e2eWorkspace).installZeroMatchSubstantivenessPack`. Today it appends a
+          hardcoded `files:\n  - "harness/fixtures/**/*.go"\n` to the COPY's
+          `ast-grep/rules/referenced-symbol-go.yml`. Replace the hardcoded list with
+          one DERIVED from the copy's own manifest, AFTER `copyPackSourceTree` and
+          BEFORE `newProductionAddCommand().Run(...)`:
+            a. Introduce ONE package-level constant for the rule id
+               (`referenced-symbol-go`) and use it BOTH for the `filepath.Join` that
+               builds the rule file path AND for the manifest lookup (sharp edge 9).
+            b. `pack.ParseManifestFile(filepath.Join(packCopy, "pack.yml"))`; walk
+               `Content.Ruleset.Rules` for the rule whose `ID` equals that constant;
+               collect every `Claims[].Fixtures.Positive[].Path` and
+               `.Negative[].Path`, de-duplicated, in declaration order.
+            c. REFUSE LOUDLY on an empty result (sharp edge 10): return an error
+               naming the rule id and the resolved manifest path. Never write an empty
+               `files:` block — an empty scope is a silent trap that would make the
+               copy either match everything or nothing depending on the tool's mood.
+            d. REFUSE LOUDLY on a path that is not a clean pack-relative path:
+               normalize to forward slashes and reject anything absolute, anything
+               starting with `.` or `..`, and anything whose first segment contains a
+               wildcard. The anchoring is the whole mechanism (sharp edge 1); a
+               manifest that ever declared a wildcard-led fixture path would silently
+               un-anchor the scope, so refuse rather than emit it.
+            ★ GIVE (c) AND (d) DISTINCT, DISTINGUISHING MESSAGE TEXT. Each refusal
+               must carry a phrase that appears in NO other error reachable from this
+               function — in particular not in a `ParseManifestFile` failure, which
+               also names a rule id and a path. TASK-001's refusal subtests assert
+               those exact phrases, and that assertion is the only thing standing
+               between "the branch refused" and "something upstream refused first"
+               (sharp edge 17). Do not reword them afterwards without updating the
+               single literal in the test.
+            e. Append the block as valid YAML, each entry double-quoted, preserving a
+               short explanatory comment above it. The rule file ships with NO
+               top-level `files:` key, so a plain top-level append is well-formed —
+               verify that the patched YAML still parses before handing it to
+               `pack add`.
+          The resulting scope, at today's manifest:
+            files:
+              - "testdata/fixtures/rules/referenced-symbol-go/positive.go"
+              - "testdata/fixtures/rules/referenced-symbol-go/negative.go"
+
+          NOTHING ELSE ABOUT THE HARNESS CHANGES. The copy-then-patch-then-real-
+          `pack add` shape, the temp dir placed BESIDE `w.root` (never inside it, or
+          the pack tree gets swept into the engine's own scan targets), the untouched
+          `hollow-test-go.yml` / `sgconfig.yml` / convert script / `pack.yml`, and the
+          in-repo pack source staying unmutated (sharp edge 4) all stay exactly as they
+          are.
+
+          (2) THE DOCSTRING. Rewrite the block beginning "WHY THE PATCHED PACK STILL
+          PASSES `pack test`". It currently claims packval never runs these fixtures
+          because `rule.File == ""` under a `rule_path:` declaration, and cites
+          ISSUE-092 as an open hole. ISSUE-092 IS CLOSED — phase3 reads
+          `rule.RuleSourcePath()`, RUNS the fixtures, and WOULD refuse a patch that
+          took them out of scope. The replacement must say, in the author's own words:
+            * packval DOES run these fixtures now, so the patched copy must stay
+              validatable — `pack add` validates unconditionally;
+            * the scope is derived from the pack's OWN declared fixture paths, so the
+              pack's negative fixture still triggers under packval;
+            * it is ROOT-ANCHORED, and that is load-bearing: ast-grep resolves a
+              rule's `files:` globs against the INVOKING PROCESS'S WORKING DIRECTORY,
+              and packval runs the engine from the PACK dir while the gate runs it
+              from the PROJECT dir — so the same anchored path matches the fixture in
+              one context and nothing in the other;
+            * a `**/`-prefixed variant would also pass `pack test` while being
+              consumer-dark only by accident of ast-grep skipping hidden directories —
+              name that trap so nobody "simplifies" the glob into it;
+            * ISSUE-158 is the reference, ISSUE-113 keeps the intent citation.
+          Do NOT leave either falsified phrase in the file — TASK-001's guard scans for
+          them (sharp edge 7: find the block by its opening words, not by line number).
+
+          Run `backstop gate` after this task, as the implementer contract requires.
+        files:
+          - cmd/backstop/gate_substantiveness_e2e.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: verification
+        title: "Verify the changed harness and the new pins against the diff-scoped gate"
+        description: |
+          Run the diff-scoped gate over the two files this lane touches:
+
+              backstop gate --file cmd/backstop/gate_substantiveness_e2e.go
+              backstop gate --file cmd/backstop/gate_substantiveness_zero_match_harness_test.go
+
+          Then run the Phase 1 tests and require all five GREEN:
+
+              go test ./cmd/backstop/ -run "TestZeroMatchHarness" -race -count=1
+
+          Record the actual output. Two findings classes to expect and FIX AT SOURCE
+          rather than waive:
+            * `no-baked-tool-exec` on the new test file if any ast-grep invocation
+              bypassed the `execCommand` seam (sharp edge 6);
+            * any backstop-self finding on the edited harness file.
+          If a violation belongs to another lane, attribute it explicitly (name the
+          path and the owning lane) rather than absorbing or waiving it.
+        files:
+          - cmd/backstop/gate_substantiveness_e2e.go
+          - cmd/backstop/gate_substantiveness_zero_match_harness_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-005
+        depends_on:
+          - TASK-002
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Phase 3: the four named regression tests + full-sweep verification
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: regression proof on the four named tests, then the full sweep"
+    tasks:
+      - id: TASK-004
+        type: verification
+        title: "Re-verify the four named E2E tests unmodified, and prove the non-regression"
+        description: |
+          ★ EVERY PATH IN THIS TASK'S `files:` IS READ-ONLY. They are the SUBJECTS of
+          the verification — the two test files that must run unchanged, and the four
+          `packs/substantiveness` paths whose byte-identity to HEAD is the measurement.
+          Listing them is D-080 scope declaration, NOT an edit license. If this task
+          produces a diff in any of them, the task has failed.
+
+          THE REGRESSION CHECK IS THE FOUR EXISTING TESTS, RUN UNCHANGED (CLM-004).
+          No assertion softened, no `t.Skip`, no `requireAstGrepE2E` change (sharp
+          edges 2 and 3).
+
+              go test ./cmd/backstop/ -run "TestE2E_ZeroMatchClassification|TestE2E_HollowEvidenceBlocks" -race -count=1
+
+          Require all of these GREEN, and confirm from the output that each one
+          REACHED the code under test rather than merely stopping at a clean install —
+          they were failing at `pack add` before, so "no install error" alone is not
+          the proof:
+            TestE2E_ZeroMatchClassification_RefusesInsteadOfPerTestViolations
+            TestE2E_ZeroMatchClassification_RefusalIsNotWaivable
+            TestE2E_HollowEvidenceBlocksZeroMatchRefusal
+            TestE2E_HollowEvidenceBlocksRefusal_IsNotVacuous
+          `TestE2E_ZeroMatchClassification_ControlPackReportsNoViolations` installs the
+          PRISTINE pack via a different helper and was already green; it must STAY
+          green — a regression there would mean the edit leaked out of the harness.
+
+          THEN PROVE THE NON-REGRESSION (CLM-006), by measurement:
+            * `git status --porcelain packs/substantiveness` → EMPTY, and
+              `git diff --stat packs/substantiveness` → EMPTY. Byte-identical to HEAD.
+            * `git diff` over the TWO test files carrying the four named tests
+              (`gate_substantiveness_zero_match_e2e_test.go`,
+              `gate_substantiveness_refusal_boundary_e2e_test.go`) → EMPTY. State the
+              command and its output; do not assert it from memory.
+            * grep those same two files for `t.Skip` → zero hits.
+            * run the broader substantiveness suite and report the result:
+              `go test ./cmd/backstop/ -run "Substantiveness" -race -count=1`.
+          If any test outside this lane's scope is red, establish whether it was red
+          BEFORE by measuring a control (a detached worktree at clean HEAD is the
+          reliable way; a carried reading is not), and attribute it to its owning lane
+          by name. Never absorb another lane's red and never waive one.
+        files:
+          - cmd/backstop/gate_substantiveness_zero_match_e2e_test.go
+          - cmd/backstop/gate_substantiveness_refusal_boundary_e2e_test.go
+          - packs/substantiveness/pack.yml
+          - packs/substantiveness/ast-grep/rules/referenced-symbol-go.yml
+          - packs/substantiveness/testdata/fixtures/rules/referenced-symbol-go/positive.go
+          - packs/substantiveness/testdata/fixtures/rules/referenced-symbol-go/negative.go
+        claims:
+          - CLM-004
+          - CLM-006
+        depends_on:
+          - TASK-002
+          - TASK-003
+        test_names:
+          - TestE2E_ZeroMatchClassification_RefusesInsteadOfPerTestViolations
+          - TestE2E_ZeroMatchClassification_RefusalIsNotWaivable
+          - TestE2E_HollowEvidenceBlocksZeroMatchRefusal
+          - TestE2E_HollowEvidenceBlocksRefusal_IsNotVacuous
+
+      - id: TASK-005
+        type: verification
+        title: "Full kill chain: backstop gate --all plus artifact validation"
+        description: |
+          THE FINAL, UNSCOPED SWEEP. Run both, and read the results:
+
+              backstop gate --all
+              backstop artifact validate --plan PLAN-ISSUE-158
+              backstop artifact validate --issue ISSUE-158
+
+          `gate --all` covers the code half (pack lock verification, pack engines,
+          test verification, substantiveness, coverage, contracts, status drift,
+          traceability, waivers, baseline, ledger integrity); `artifact validate`
+          covers the artifact half, since this lane's plan artifact is itself new.
+
+          ATTRIBUTION IS THE DELIVERABLE, NOT THE RAW COUNT. This repo carries
+          inherited reds from other lanes. For every violation, decide and STATE
+          whether it is this lane's:
+            * grep the full violation set explicitly for each path this lane touched
+              (`cmd/backstop/gate_substantiveness_e2e.go`,
+              `cmd/backstop/gate_substantiveness_zero_match_harness_test.go`) and
+              report the hit count, zero or otherwise;
+            * anything attributable to this lane is FIXED AT SOURCE, never waived and
+              never made green by weakening a test (sharp edges 2, 3).
+          Record honest caveats rather than smoothing them: if the reading was taken in
+          a worktree lacking `.backstop/baseline.json` it is STRICTER, not more
+          permissive; pack-derived rule ids embed the install path, which can resurface
+          bound waivers as spuriously unused. If sibling commits landed between control
+          and treatment, say so and do not claim a clean whole-repo delta.
+
+          THE HEADLINE THIS LANE OWES THE RELEASE: report whether the four
+          `go-test`-channel reds that ISSUE-158 owns are GONE from `gate --all`, and
+          what the remaining non-advisory blocking set is. That is the v0.2.0 CI-green
+          question this plan exists to answer.
+        files:
+          - cmd/backstop/gate_substantiveness_e2e.go
+          - cmd/backstop/gate_substantiveness_zero_match_harness_test.go
+          - plans/PLAN-ISSUE-158-zero-match-harness-glob-collision.plan.yml
+          - issues/ISSUE-158-zero-match-harness-patch-makes-pack-unvalidatable.issue.md
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-002
+          - TASK-004
+
+      - id: TASK-006
+        type: documentation
+        title: "File follow-ons for anything surfaced; absorb nothing"
+        description: |
+          Discharge the follow-on obligation EXPLICITLY, even if the answer is "none",
+          and hand ISSUE-158 itself off for closure.
+
+          EVERY ARTIFACT TOUCH IN THIS TASK IS ROUTED THROUGH `/issue` (the
+          issue-author agent). This lane never hand-edits an artifact file — that is
+          why `issues/ISSUE-158-...` appears in this task's `files:`: it is the file
+          the ROUTED close-out writes, not a file this task opens in an editor.
+
+          (1) REQUEST THE CLOSE-OUT OF ISSUE-158 via `/issue`, handing over TASK-004's
+          and TASK-005's measured results (the four tests green, the attribution
+          reading, the byte-identity checks) as the evidence. Do NOT flip a status
+          field directly and do NOT claim closure on this task's own authority —
+          `closed` has real teeth and issue-author owns the ceremony. If the evidence
+          does not support closure, say so and leave it open.
+
+          (2) FILE ANY FOLLOW-ON, ABSORBING NOTHING. Candidates already known at
+          authoring, listed so nobody re-discovers them as if new:
+            * If TASK-005's attribution surfaces a red belonging to another lane, file
+              or confirm-already-filed rather than absorbing it.
+            * If the `--no-ignore hidden` measurement shows the pack's own
+              `negative.go` yielding a `hollow-test-go` finding in a way that turns out
+              to matter for the live gate (it does not today — `.backstop/` is hidden
+              and the substantiveness classifier excludes `**/testdata/**`), that is a
+              SEPARATE issue about installed-pack trees entering consumer scans. File
+              it; do not widen this lane.
+            * If the derivation work reveals that other harnesses in `cmd/backstop`
+              patch pack copies in ways packval would now refuse — the sibling
+              `installWarningSeveritySubstantivenessPack` was checked and is CLEAN, so
+              this is about any OTHER copy-and-patch helper added since — file it
+              rather than fixing it here.
+
+          Then report the terminal state plainly: what landed, what was measured, what
+          was filed, and what is left. If nothing needed filing, say so explicitly —
+          silence is not a discharge.
+        files:
+          - issues/ISSUE-158-zero-match-harness-patch-makes-pack-unvalidatable.issue.md
+        claims:
+          - CLM-006
+        depends_on:
+          - TASK-005
