@@ -1,13 +1,15 @@
 ---
 title: "backstop pack new ships a sample validator that always exits 0 — no fresh pack ever discriminates"
 schema_version: issue/v1
+delivered_by: PLAN-ISSUE-146
 
 issue:
   id: ISSUE-146
   title: "backstop pack new ships a sample validator that always exits 0 — no fresh pack ever discriminates"
   type: bug
-  status: open
+  status: closed
   created: "2026-08-16"
+  closed: "2026-08-17"
 
 complexity:
   scope: isolated
@@ -108,3 +110,46 @@ correctly dispatching; the defect is in what gets scaffolded, not in how it's ch
   `ISSUE-049` (pack check/test ignoring a positional path argument; unrelated defect on the same
   command). Neither is a duplicate; neither owns this defect. No open issue or bundle charter
   already covers it.
+
+## Resolution
+
+`pkg/pack/scaffold.go`'s sample validator/fixture pair — the same one every freshly-scaffolded
+pack (`engine`, `mechanism`, `toolchain`) ships — no longer exits 0 unconditionally. The old
+`validator` literal was `#!/bin/sh ... exit 0`, and the paired negative fixture carried no
+discriminating property, so `pack test` on a fresh scaffold reported PASS by construction, not
+because anything was checked. The validator is now a POSIX-builtins-only marker scanner
+(`marker='BACKSTOP-SAMPLE-VIOLATION'`, no `grep`/`sed`/external process — required because the
+darwin sandbox profile does not allowlist `/usr/bin`) that fires on any regular file carrying the
+marker and exits 0 on a directory argument (the shape `runSandboxEngine` hands it at gate time via
+`[ -f "$target" ] || continue`). The negative fixture carries the marker; the positive fixture does
+not.
+
+Falsified in both directions through the real packval pipeline, not just asserted: removing the
+marker from the negative fixture makes phase 3 fail with `validator-negative`; planting the marker
+in the positive fixture makes phase 3 fail with `validator-positive`; both fixtures correct passes
+clean. The prose that stated the defect outright (the `manifest` format string's rule comment,
+`scaffoldEnginePack`'s doc comment) was rewritten to describe what the sample actually enforces,
+including the honest statement that the guard means no project file is scanned at gate time unless
+an author adds `input_scope` — not "it looked and found nothing."
+
+Three-leg promise check (`cmd/backstop/pack_new.go`'s Long help — "passes pack check, pack test,
+and the gate"), recorded without collapsing into a single verdict: `pack check` strengthened
+(unchanged shape, now describes a rule that does something); `pack test` genuinely strengthened
+(the pass is now earned and falsifiable in both directions — this lane's real win); `backstop
+gate` NOT strengthened — with no `input_scope` declared, the validator is handed the project root
+directory and the `[ -f ]` guard skips it, so nothing is scanned; behaviorally identical to the old
+`exit 0` validator at gate time. This is stated plainly in the shipped code's own doc comment
+rather than left for a reader to discover.
+
+Proven inert to the unrelated, already-filed `ISSUE-147` (relative-packDir sandbox refusal):
+`TestPackAuthoringLoop_EndToEnd` stays red on darwin after this fix, reproduced directly against a
+fully-fixed scaffolded pack (absolute packDir passes all six phases; relative packDir — what that
+E2E does — still crashes identically). No absolute-path workaround, skip, or waiver was added to
+mask it.
+
+Delivered by `PLAN-ISSUE-146` (`status: completed`, committed at `bec4a9e`).
+
+**Residual, not fixed here:** whether the scaffold should declare `input_scope` so the gate leg
+strengthens too — trading a deliberate gate-time no-op for a rule that walks and scans every
+project file — is a founder-level product decision, not an implementer's call. Being filed
+separately as a follow-on issue rather than decided here.
