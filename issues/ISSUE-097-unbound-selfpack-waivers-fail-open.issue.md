@@ -6,8 +6,11 @@ issue:
   id: ISSUE-097
   title: "Unbound Selfpack Waivers Fail Open"
   type: bug
-  status: open
+  status: closed
   created: "2026-07-28"
+  closed: "2026-08-17"
+
+delivered_by: PLAN-ISSUE-097
 
 complexity:
   scope: contained
@@ -16,6 +19,36 @@ complexity:
 ---
 
 # ISSUE-097: Unbound Selfpack Waivers Fail Open
+
+## Resolution
+
+Delivered by PLAN-ISSUE-097 (`status: completed`, landed across three commits on
+`main`, HEAD at close-out `6c32a17`).
+
+- **New `pkg/waiver.Unbound` classifier** — a well-formed three-segment `@waiver`
+  token whose org/pack namespace matches no pack recorded in the project's
+  `backstop.lock` is now flagged as a non-blocking `warning`-severity gate finding.
+  Surfaced through `gate --all`'s `waiver_resolution` step
+  (`pkg/gate/step_waiver.go`, `WithUnboundWaiverScan` option, `res.Unbound`
+  attached at severity `warning`) and through `backstop waiver list`'s new
+  always-labeled "Unbound / unknown pack" section. This closes Solution part (b) —
+  the detection gap is tree-driven now, not finding-driven, so an orphaned token no
+  longer needs a live finding nearby to become visible.
+- **All five stale `backstop/self`-prefixed tokens re-keyed** to the current
+  `backstop-ai/backstop-self` namespace, across `cmd/backstop/pack_gate.go`,
+  `cmd/backstop/pack_gate_provision.go`, and `tests/smoke/smoke_test.go` — this
+  closes Solution part (a), including the third token
+  (`tests/smoke/smoke_test.go:33`, `no-baked-tool-exec`) discovered mid-issue.
+  Measured FIVE → ZERO unbound tokens through the production harvester.
+- **Important finding**: one of the five tokens
+  (`tests/smoke/smoke_test.go:33`, `no-baked-tool-exec`) turned out to be ACTIVE,
+  not dormant — this was not purely stale-string cleanup. It was a real fail-open
+  bug that had been silently suppressing a live finding since the 2026-07-27
+  org/pack rename, now fixed.
+- **One follow-on left unfiled by this lane**: SPEC-049's `waiver.Result` contract
+  signature is missing the new `Unbound []Diagnostic` field. This is a
+  record-correctness gap only — not gate-visible, since the contract check
+  name-matches the type declaration rather than enumerating its fields.
 
 ## Problem
 
