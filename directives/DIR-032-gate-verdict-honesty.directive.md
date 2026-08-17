@@ -5,7 +5,8 @@ created: "2026-08-10"
 schema_version: directive/v1
 
 directive:
-  status: queued
+  status: done
+  completed: "2026-08-17"
   source:
     - "ISSUE-066"
     - "ISSUE-067"
@@ -1842,3 +1843,19 @@ run.
 Priority note, stated as observation and explicitly NOT as a reorder
 (backlog-pm has no reorder authority): DIR-032 sits at BACKLOG.yml position 2
 and this slot does not change its rank.
+
+**Full roster delivered (2026-08-17).** Independently verified, item by item
+against `issues/`: all 21 source issues (ISSUE-066, 067, 091, 092, 093, 097,
+100, 106, 112, 113, 114, 118, 129, 136, 140, 142, 144, 146, 148, 151, 160) —
+i.e. all 21 numbered roster members above — carry `status: closed`. The
+last to close, ISSUE-160 (item 21), landed via `efc2ceb` ("close(ISSUE-160):
+packval executor ignores CrashGuard/StrictSarif/Producer"), its backing
+`PLAN-ISSUE-160` at `status: completed` and committed. `directive.status`
+moved `queued` → `done` with `completed: "2026-08-17"`, following the
+precedent set by DIR-016 (also an issue-only roster, `done` with a
+`completed` date and no `spec:` field — this directive has no bundle/spec
+lineage either, so the same shape applies). Observation for Brandon, not a
+change made here (position/reorder authority is not backlog-pm's or
+directive-author's): now that the roster is fully delivered, this
+directive's BACKLOG.yml position 2 may warrant revisiting — left entirely
+to founder judgment.
