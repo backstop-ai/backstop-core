@@ -1,0 +1,1552 @@
+---
+plan_id: PLAN-ISSUE-142
+spec_id: ISSUE-142
+created: "2026-08-17"
+status: completed
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./pkg/packval/... -race -count=1"
+coverage_threshold: 90
+
+notes: |
+  ══════════════════════════════════════════════════════════════════════════════
+  AS-BUILT — CLOSED 2026-08-17. status: draft → completed.
+  ══════════════════════════════════════════════════════════════════════════════
+  The tasks, claims and sharp edges BELOW this banner are the AUTHORED record of
+  what was planned and are deliberately left unrewritten. This banner is what
+  reconciles them to what actually shipped. Every shape below was re-read out of
+  the working tree at close-out, not transcribed from a report.
+
+  ── COMMITTED AT 239e8cf — SUPERSEDES TWO STALE LINES BELOW ────────────────
+  This banner was first drafted while the lane was still uncommitted, and two of
+  its statements are now WRONG. They are corrected here rather than deleted, so
+  the record shows what changed after the first draft:
+
+    · "No commits, no pushes" (NOT DONE, ON PURPOSE, below) is SUPERSEDED. The
+      lane is committed on `main` as 239e8cf, "feat(ISSUE-142): pattern-arg pack
+      rules dispatch through phase3 fixture execution". Nothing was pushed.
+    · "this lane's work is entirely uncommitted, so the control isolates this
+      diff exactly" (in the `go test ./...` reading below) is SUPERSEDED AS A
+      PRESENT-TENSE FACT. It was true when that control run was taken against
+      clean-HEAD 81ec8f7, which is what makes the inherited-failure attribution
+      still valid — but it no longer describes the tree.
+
+  239e8cf's file list, read back from git and matching this plan's declared scope
+  exactly (13 files, +592/-21):
+    packs/contracts/pack.yml, packs/contracts/testdata/fixtures/sig-absent.go,
+    packs/contracts/testdata/fixtures/sig-kinds-absent.go,
+    pkg/packval/manifest.go, pkg/packval/phase3.go,
+    pkg/packval/contracts_pack_dispatch_test.go,
+    pkg/packval/phase3_patternarg_dispatch_test.go,
+    pkg/packval/testdata/patternarg-pack/{pack.yml,fixtures/valid/clean.go,
+      fixtures/invalid/violating.go},
+    pkg/packval/testdata/patternarg-pack-broken-negative/{pack.yml,
+      fixtures/valid/clean.go,fixtures/invalid/compliant.go}.
+  No file outside this plan's scope rode along. `pkg/packval/executor.go` is
+  absent from the commit, so SE1 held through the commit as well as the edit.
+
+  THIS PLAN FILE IS ITSELF UNTRACKED AND WAS NOT PART OF 239e8cf. `git status`
+  reports it as `??` and `git log -- <this file>` is empty — the code commit did
+  not carry the plan artifact. That is a real gap in the durable record, not a
+  close-out decision, and it is surfaced rather than silently fixed: committing
+  it is the founder's call, not this close-out's. The same is NOT true of the
+  filed follow-on — ISSUE-157 is committed at f83a1f5.
+
+  ── DELIVERED STATE RE-VERIFIED AGAINST THE COMMITTED TREE ────────────────
+  Every shape below was re-read at close-out from the files as they stand at
+  HEAD, not from the implementer's report:
+    · `pkg/packval/manifest.go` — `Pattern` field present with the
+      `yaml:"pattern,omitempty"` binding; `RuleDispatchInput(mode)` present and
+      branching on `engine.InputModePatternArg`.
+    · `pkg/packval/phase3.go` — eligibility reads `ruleSource != "" ||
+      rule.Pattern != ""`; the `pattern-arg-input` blocking error is present;
+      SE2 held — the semgrep-rule-id cross-check still carries its own
+      `ruleSource != "" && ... InputModeRuleFlags` guard; both fixture loops
+      dispatch `[]string{dispatchInput, f.Path}`.
+    · `packs/contracts/pack.yml` — `version: 1.2.0`; contract-signature's
+      positive slot points at `sig-absent.go` and its negative at
+      `sig-present.go`; the fixture-polarity comment now states the real
+      BUNDLE-005 REQ-011 convention.
+    · SE7 held — `sig-mismatch.go` and `sig-kinds-mismatch.go` are both still on
+      disk in `packs/contracts/testdata/fixtures/`.
+    · All EIGHT mandated test functions are present in the two committed test
+      files (seven in `phase3_patternarg_dispatch_test.go`, one in
+      `contracts_pack_dispatch_test.go`). CLM-009 mandates no test name of its
+      own — it is verified by running the pre-existing suites it names.
+
+  ── WHAT SHIPPED: pkg/packval ──────────────────────────────────────────────
+  `pkg/packval/manifest.go` — one new field on `Rule`, placed immediately after
+  `File`, and one new single-authority accessor declared immediately after
+  `RuleSourceManifestKey`:
+
+      Pattern string `json:"pattern,omitempty" yaml:"pattern,omitempty"`
+
+      func (r Rule) RuleDispatchInput(mode engine.InputMode) string {
+          if mode == engine.InputModePatternArg {
+              return r.Pattern
+          }
+          return r.RuleSourcePath()
+      }
+
+  No new import was needed — `pkg/pack/engine` was already imported by
+  `resolveEngine`. This is the ISSUE-092 shape mirrored exactly (one field, one
+  accessor named beside `RuleSourcePath`), which is what CLM-004 asked for and what
+  keeps residual R2's future unification a collapse of two congruent things.
+
+  `pkg/packval/phase3.go` — the top of `RunFixtures`' ruleset loop, as landed:
+    · `ruleSource := rule.RuleSourcePath()` kept UNCHANGED.
+    · `dispatchInput := ""` declared ABOVE the eligibility block so the fixture
+      loops can read it.
+    · Eligibility widened from `ruleSource != ""` to
+      `ruleSource != "" || rule.Pattern != ""`.
+    · After the engine resolve: `dispatchInput = rule.RuleDispatchInput(binding.InputMode)`.
+    · NEW blocking error when `haveBinding && dispatchInput == ""` — Check
+      `"pattern-arg-input"`, `Rule` = rule.ID, Message formatting as
+      `rule %q resolves to engine %q, which declares input_mode %q, but the rule
+      declares no inline pattern for it to consume`, plus a FixHint pointing the
+      author at the `pattern:` key.
+    · SE2 HONORED — the semgrep-rule-id cross-check now reads
+      `if ruleSource != "" && haveBinding && binding.InputMode == engine.InputModeRuleFlags`,
+      so widening eligibility did NOT widen a check that reads a file off disk.
+    · Both fixture-loop guards moved from `ruleSource != "" && haveBinding` to
+      `dispatchInput != "" && haveBinding`, and both `RunEngine` calls now pass
+      `[]string{dispatchInput, f.Path}`.
+    · SE3 HONORED — the rule-id comment block is byte-intact and NO tool name was
+      added to phase3.go.
+    · SE1 HONORED — `pkg/packval/executor.go` was never opened for edit here.
+      `buildEngineArgv` is unchanged; the fix is entirely in WHAT phase 3 passes as
+      the first target, exactly as the argv trace below predicted.
+
+  ── WHAT SHIPPED: packs/contracts (1.1.0 → 1.2.0) ──────────────────────────
+  The version bump was taken only AFTER SE8's grep guard came back clean — no Go
+  test pins `backstop/contracts` to a version string.
+    · NEW `packs/contracts/testdata/fixtures/sig-absent.go` — `package fix` with NO
+      function declaration (one package-level var). contract-signature's positive
+      (clean) slot.
+    · NEW `packs/contracts/testdata/fixtures/sig-kinds-absent.go` — `package fix`
+      plus exactly one plain function; no type, no `const NAME =`, no `var NAME =`,
+      no method, no interface. The shared positive slot for all five kind rules.
+    · contract-signature positive → sig-absent.go (negative sig-present.go
+      unchanged). All five kind rules: positive → sig-kinds-absent.go, negative →
+      sig-kinds-present.go. contract-absence UNCHANGED — it was already correct.
+    · The stale comment "positive fixtures DECLARE the kind, negatives OMIT the
+      declared names" — which IS the inversion written down — was replaced with a
+      statement of the real BUNDLE-005 REQ-011 convention plus the note that
+      name-agnostic self-test patterns need the construct wholly ABSENT as the
+      clean case.
+    · SE7 HONORED — `sig-mismatch.go` and `sig-kinds-mismatch.go` are untouched on
+      disk (confirmed present in `packs/contracts/testdata/fixtures/` and absent
+      from `git status`), still read by
+      `pkg/pack/engine/contracts_kind_signature_test.go`.
+    · SE9 HONORED — no `pack relock`, no `pack update`, `.backstop/**` untouched.
+
+  ── MANDATED TESTS: ALL PRESENT, ALL GREEN ─────────────────────────────────
+  `pkg/packval/phase3_patternarg_dispatch_test.go`:
+    TestPackVal_Manifest_PatternArgRuleCapturesInlinePattern
+    TestPackVal_Manifest_DispatchInputIsSingleAuthority
+    TestPackVal_P3_PatternArgRuleDispatchesFixtures
+    TestPackVal_P3_PatternArgTargetsCarryTheInlinePatternNotAPath
+    TestPackVal_P3_PatternArgRuleWithoutPatternFailsLoud
+    TestPackVal_P3_RulePathDispatchUnchangedByPatternArgSupport
+    TestPackVal_P3_PatternArgPhaseThreeFailsWhenNegativeFixtureNoLongerViolates
+  `pkg/packval/contracts_pack_dispatch_test.go`:
+    TestContractsPack_PatternArgFixturesDispatchAndDiscriminate
+  None renamed. New testdata: `pkg/packval/testdata/patternarg-pack/`
+  {pack.yml, fixtures/valid/clean.go, fixtures/invalid/violating.go} and
+  `pkg/packval/testdata/patternarg-pack-broken-negative/`
+  {pack.yml, fixtures/valid/clean.go, fixtures/invalid/compliant.go}. NEITHER
+  declares a `provision:` block (SE4). Polarity was verified with real semgrep
+  1.156.0 BEFORE the tests were written: violating.go → 1 result, clean.go → 0,
+  broken-negative compliant.go → 0.
+
+  ── FALSIFICATION BAR: MET, AND TWO OF ITS OWN PREDICTIONS FALSIFIED ───────
+  Observed pre-fix RED per test, in two deliberate stages.
+
+  STAGE A (tests written, no source change): COMPILE ERROR — `Rule has no field or
+  method Pattern` (7 sites) and `Rule has no field or method RuleDispatchInput`.
+  That is the legitimate red for CLM-001 and CLM-004, which are NEW API SURFACE.
+
+  STAGE B (Pattern field + accessor added, phase3.go still untouched) — staged on
+  purpose so the four EXISTING-DEFECT claims would red with the defect's OWN
+  message rather than being masked by a compile error:
+    TestPackVal_Manifest_PatternArgRuleCapturesInlinePattern ......... PASS (new
+        surface, now satisfied)
+    TestPackVal_Manifest_DispatchInputIsSingleAuthority .............. PASS (new
+        surface, now satisfied)
+    TestPackVal_P3_PatternArgRuleDispatchesFixtures ................. FAIL
+        "phase 3 dispatched ZERO engine runs for a pattern-arg rule — this is
+        exactly the ISSUE-142 vacuous green"
+    TestPackVal_P3_PatternArgTargetsCarryTheInlinePatternNotAPath .... FAIL
+        "no dispatch recorded; the target shape cannot be asserted"
+    TestPackVal_P3_PatternArgRuleWithoutPatternFailsLoud ............. FAIL
+        "the failure must name the rule and its declared input mode; got
+        [{Check:semgrep-positive Rule:R1 ...}]"
+    TestPackVal_P3_RulePathDispatchUnchangedByPatternArgSupport ...... PASS — the
+        non-regression CONTROL, green before AND after, as required.
+    TestPackVal_P3_PatternArgPhaseThreeFailsWhenNegativeFixtureNoLongerViolates
+        ................................................................ FAIL, the
+        broken-negative sub-case reported status "pass" with zero errors.
+
+  PREDICTION 1, FALSIFIED AND RECORDED AS SUCH. The FALSIFICATION BAR below
+  predicted TestPackVal_P3_PatternArgRuleWithoutPatternFailsLoud would red as
+  "`res.Status == "pass"` with zero errors — the silent skip". It did NOT. That
+  fixture's rule declares `file:`, which ALREADY satisfied the pre-fix
+  `ruleSource != ""` guard, so pre-fix the rule DID dispatch and produced a
+  `semgrep-positive` error. The test still red-ed for the right reason — the loud,
+  named, input-mode-bearing error did not exist — but by a different failure mode
+  than the plan predicted.
+
+  TestContractsPack_PatternArgFixturesDispatchAndDiscriminate, the required
+  TWO-STAGE reading:
+    · pre-phase-1: 0 dispatches — the vacuous green in its original habitat.
+    · post-phase-1 / pre-phase-2: the COUNT sub-test PASSED (14 dispatches = 7 rules
+      x 2 fixtures, every `targets[0]` a declared `pattern:` value) while the VERDICT
+      sub-test FAILED. That split is precisely what proves phase 1 made dispatch live
+      and that phase 2 does real work.
+    · post-phase-2: PASS, 0 errors, through the real ast-grep 0.43.0.
+
+  PREDICTION 2, UNDER-COUNTED AND RECORDED AS SUCH. The bar predicted "6 of 7 rules
+  fail with semgrep-positive". The MEASURED pre-phase-2 reading is 9 ERRORS ACROSS 6
+  RULES — 6 `semgrep-positive: positive fixture triggered the rule (false positive)`
+  (contract-signature, type-, const-, var-, method-, interface-signature) PLUS 3
+  `semgrep-negative: negative fixture not triggered` (const-signature,
+  var-signature, interface-signature, whose declared negative sig-kinds-mismatch.go
+  yields 0 ast-grep matches for the const, var and interface patterns). The plan's
+  own MEASURED TABLE already carried those three zeros; only its summary sentence
+  under-counted them. All 9 are closed by TASK-005. The same 9-error figure appeared
+  verbatim in the pkg/pack/distribution failure text ("pack validation (test) …
+  failed in phase3-fixtures: 9 validation error(s)"), which is how TASK-003's
+  expected collateral was confirmed real rather than vacuous.
+
+  ── SIBLING-LANE FILES PRESENT IN THE TREE AT CLOSE-OUT ────────────────────
+  `git status` at close-out also shows `pkg/packval/executor.go`,
+  `pkg/packval/phase2.go`, `pkg/packval/pathscope*.go` and
+  `pkg/packval/testdata/path-scope/` modified or untracked. NONE of that is this
+  lane's: executor.go is PLAN-ISSUE-144's declared scope and phase2.go/pathscope*
+  are PLAN-ISSUE-151's. Both were named in the CROSS-LANE COLLISION CHECK below and
+  the intersection with this plan's scope is still empty. This lane's contribution
+  is exactly manifest.go, phase3.go, its two new test files, its two new testdata
+  packs, packs/contracts/pack.yml and the two new contracts fixtures.
+
+  ── VERIFICATION AT CLOSE-OUT (TASK-008 readings, verbatim) ────────────────
+  `./bin/backstop gate --all` → EXIT=1. Step table:
+    pack_lock_verification pass (52ms) | artifact_validation FAIL (2984ms, 1) |
+    pack_engines FAIL (636139ms, 76 blocking + 65 warnings) | test_verification pass
+    (416ms) | test_substantiveness FAIL (10690ms, 34) | coverage_threshold FAIL
+    (453766ms, 13) | contract_signature FAIL (38956ms, 2) | artifact_status_drift
+    pass (1630ms) | artifact_status_drift_advisory warning (21) |
+    requirement_traceability pass (731ms) | requirement_traceability_advisory
+    warning (173) | waiver_resolution pass (31ms, 5 waivers) | baseline_comparison
+    skipped | ledger_integrity skipped.
+    Steps: 5 passed, 5 failed, 2 skipped, 2 warned. Total violations: 126
+    (+259 warnings).
+
+  ATTRIBUTION — ZERO of the 126 blocking violations cite ANY file in this plan's
+  declared scope. Checked by grepping every violation line for `pkg/packval`,
+  `packs/contracts` and `patternarg`. The only three `pkg/packval` hits are
+  `pathscope_test.go` (untracked = sibling PLAN-ISSUE-151's declared file),
+  `rule_source_key_test.go` and `sandbox_security_test.go` (both absent from
+  `git status` = pre-existing, untouched by any lane). coverage_threshold's 13 cite
+  `cmd/backstop` and `pkg/{check,gate,pack,scaffold,validate}`, none in scope.
+  contract_signature's 2 cite `cmd/backstop/testdata/go-toolchain/**`.
+  artifact_validation's 1 cites PLAN-ISSUE-066. test_substantiveness' 34 cite
+  neither `pkg/packval` nor `packs/contracts`. This close-out therefore does NOT
+  claim a green full sweep — it claims, and evidences, that nothing in the red is
+  this lane's.
+
+  `go test ./... -count=1 -timeout 40m` → EXIT=1, cmd/backstop 487.960s. EXACTLY 5
+  failures, ALL in cmd/backstop, ALL proven INHERITED against a clean-HEAD detached
+  control worktree at 81ec8f7 (this lane's work was entirely uncommitted WHEN THAT
+  READING WAS TAKEN, so the control isolated this diff exactly; the lane has since
+  been committed as 239e8cf — see the COMMITTED AT block above):
+    · TestE2E_HollowEvidenceBlocksZeroMatchRefusal,
+      TestE2E_HollowEvidenceBlocksRefusal_IsNotVacuous,
+      TestE2E_ZeroMatchClassification_RefusesInsteadOfPerTestViolations,
+      TestE2E_ZeroMatchClassification_RefusalIsNotWaivable — the ISSUE-148
+      substantiveness cluster (its zeromatch pack fails `pack add` at
+      phase3-fixtures). Control reports 3 validation errors, this tree 1; that 3→1
+      delta is NOT this lane's either — it is sibling implementer-issue148's four
+      uncommitted edits under `packs/substantiveness/testdata/fixtures/rules/**`.
+      This lane is provably a NO-OP for that pack: `packs/substantiveness` declares
+      `input_mode: config-file` with `rule_path:`, so `RuleDispatchInput` returns
+      exactly what the pre-fix `ruleSource` returned.
+    · TestPackAuthoringLoop_EndToEnd — fails BYTE-IDENTICALLY in control and
+      treatment with `phase3-fixtures/validator-positive: layer3 positive failed` on
+      the `pack new` scaffolded pack. That is the VALIDATOR seam, untouched here;
+      ISSUE-146 territory.
+  Every other package ok, including pkg/packval 153.037s, pkg/pack 4.531s,
+  pkg/pack/distribution 45.243s, pkg/pack/engine 9.268s. An earlier
+  `go test ./cmd/backstop/...` at the DEFAULT timeout measured 605.934s and then
+  `panic: test timed out after 10m0s`; the 40m budget is what produced the complete,
+  untruncated reading of record.
+
+  `./bin/backstop artifact validate --plan PLAN-ISSUE-142` → "All checks passed"
+  (re-run after this banner and the status flip, per TASK-007).
+
+  COVERAGE, MEASURED RATHER THAN INFERRED. The diff-scoped gate over this lane's
+  file set reported its ONLY blocking failure as 2x `coverage_unmeasured` on
+  `pkg/packval/manifest.go` and `pkg/packval/phase3.go`. That is a
+  producer-starvation artifact, NOT a coverage gap: measured directly,
+  `go test ./pkg/packval/ -coverprofile -timeout 25m` yields
+  `coverage: 95.1% of statements` against a threshold of 90, with
+  `RuleDispatchInput` at 100.0%, `RuleSourceManifestKey` at 100.0% and `RunFixtures`
+  at 90.8%. The gate's coverage step burned 621258ms (10.35 min), matching the
+  10-minute `go test` default wall that the cmd/backstop package now exceeds in this
+  contended shared tree — so no profile reaches the gate for ANY file, not just
+  these two. Every other dimension of that scoped run passed:
+  pack_lock_verification, artifact_validation, pack_engines, test_verification,
+  test_substantiveness, contract_signature, artifact_status_drift,
+  requirement_traceability, waiver_resolution.
+
+  ── ONE PROCESS NOTE, RECORDED HONESTLY ────────────────────────────────────
+  The FIRST TASK-003 gate run was invalidated by the implementer's own sequencing:
+  TASK-005 was applied while that gate was still in flight, so it sampled a mid-edit
+  tree and reported the pre-fix `semgrep-positive` failure against a test file that
+  did not exist when the run started. That reading was DISCARDED, not reported, and
+  the gate was re-run against the settled tree over the UNION of TASK-003's and
+  TASK-006's file scopes — a strictly LARGER scope than either task specified. The
+  union run is the reading of record.
+
+  ── RESIDUALS AT CLOSE-OUT ─────────────────────────────────────────────────
+  R1 is no longer a residual; R2, R3 and R4 are restated so they are not misread as
+  delivered. Nothing here was resolved by this lane.
+
+    R1  NOW A POINTER, NOT A RESIDUAL. FILED by TASK-009 as ISSUE-157
+        (`issues/ISSUE-157-go-contracts-mirror-inverted-fixture-polarity.issue.md`,
+        182 lines, `status: open`, validates clean). It carries all four mandated
+        facts as measured 2026-08-17: the installed mirror's 7 `pattern:` / 0
+        `rule_path` with identical inverted slots AND the identical stale comment;
+        the mirror becoming uninstallable via `pack add`/`update`/`upgrade` (all
+        three route through `RunValidationOnScratchCopy`,
+        pkg/pack/distribution/command.go lines 257, 684, 828); CI and the gate being
+        unaffected because `pack install` takes no Validator (`NewInstallCommand`,
+        command.go:399) and CI's fleet step is `./bin/backstop pack install`
+        (.github/workflows/ci.yml lines 86 and 249); and the fix shape including
+        that a simple slot swap is insufficient under name-agnostic patterns. Do NOT
+        re-file.
+
+    R2  UNIFYING `pkg/pack.Rule` AND `pkg/packval.Rule`. STILL OPEN, NOT FILED.
+        Now THREE documented drift instances: the rule-file key (ISSUE-092),
+        `pattern` (this lane) and `Layer` (PLAN-ISSUE-092 F2). This lane
+        deliberately MIRRORED the ISSUE-092 shape so a future unification has two
+        congruent things to collapse rather than two divergent ones. FOR THE FOUNDER
+        TO ROUTE.
+
+    R3  A PHASE-1 STRUCTURAL CHECK FOR "THIS RULE DECLARES NO ENGINE INPUT AT ALL".
+        STILL OPEN, NOT FILED. CLM-006 explicitly does NOT close it: the new guard
+        lives INSIDE the widened eligibility block, so a rule declaring NEITHER a
+        source NOR a pattern is still silently skipped — strictly narrower than the
+        gate's own `gatherEngineInputs`. This is new ecosystem-wide strictness, not
+        a bug fix. FOR THE FOUNDER TO ROUTE.
+
+    R4  `pkg/packval`'s `RunValidator` dispatch still gates on `rule.Layer`
+        (PLAN-ISSUE-092 F2). Untouched here. STILL OPEN, NOT FILED.
+
+  ── NOT DONE, ON PURPOSE ───────────────────────────────────────────────────
+  `spec_version` is left ABSENT — this plan was authored against ISSUE-142 as it
+  stood on 2026-08-17 and nothing repins it. ISSUE-142's own frontmatter remains
+  `status: open` — re-read at close-out to confirm, not assumed; flipping an
+  issue's status is issue-author work, not a plan close-out's, and it still owes
+  a `## Resolution` section plus a `resolved_by` pointer at 239e8cf.
+  "No commits, no pushes" is SUPERSEDED — see the COMMITTED AT block at the top of
+  this banner: the lane is committed as 239e8cf, nothing was pushed, and this plan
+  file itself remains untracked. Nothing was waived, no test was weakened, and no
+  skip was added to any pre-existing suite.
+  ══════════════════════════════════════════════════════════════════════════════
+
+  ── WHAT THIS LANE IS ─────────────────────────────────────────────────────
+  ISSUE-142, DIR-032 (Gate Verdict Honesty) item 16. `pkg/packval`'s
+  authoring-time `Rule` model has no field for the YAML `pattern:` key, so for a
+  `pattern-arg` rule the key is silently discarded at unmarshal and phase 3's
+  dispatch guard — which asks only for a rule SOURCE PATH — is permanently false.
+  `executor.RunEngine` is never invoked for either fixture polarity, `res.Errors`
+  stays empty, and `phase3-fixtures` prints `pass` for a pack whose fixtures have
+  never been executed. This lane makes the pattern-arg declaration style dispatch
+  for real, and then makes the one in-repo pack that uses it tell the truth.
+
+  ── CITE BY NAME, NOT BY LINE ─────────────────────────────────────────────
+  Every location below is named by FUNCTION or SYMBOL. The line numbers in
+  ISSUE-142's own text (`phase3.go:31/62/76`, `manifest.go:75-88`) are already
+  stale — PLAN-ISSUE-092 landed in between and moved them. Locate `RunFixtures`,
+  `buildEngineArgv`, `Rule`, `RuleSourcePath` by name.
+
+  ── PREMISE RE-VERIFICATION (performed 2026-08-17 against the live tree) ───
+  The issue was filed 2026-08-16, BEFORE PLAN-ISSUE-092 landed. Its central
+  premise was re-measured today, not relayed. Three findings:
+
+  STILL REPRODUCES, in its essential shape.
+    · `grep -rn Pattern pkg/packval/*.go` → ZERO hits. packval's `Rule` still has
+      no `Pattern` field; `pkg/pack/manifest.go`'s runtime `Rule` still does.
+    · `packs/contracts/pack.yml`: `rule_path` appears 0 times, `pattern:` 7 times.
+      All 7 rules, 100% of the pack, are pattern-arg-declared. Unchanged.
+    · `RunFixtures` still gates all dispatch on a rule SOURCE PATH being non-empty,
+      so all 7 rules still dispatch ZERO engine runs and the phase still says pass.
+
+  THE ISSUE'S CODE QUOTES ARE STALE — the guard is no longer `rule.File != ""`.
+  PLAN-ISSUE-092 landed the `rule_path`/`file` reconciliation: `RunFixtures` now
+  reads `ruleSource := rule.RuleSourcePath()` once at the top of the rule loop and
+  guards on `ruleSource != "" && haveBinding`. The defect is identical in effect
+  (a pattern-arg rule has neither key, so `RuleSourcePath()` returns "") but the
+  edit sites are the THREE `ruleSource` reads, not three `rule.File` reads. Read
+  the current function before editing; do not pattern-match the issue's snippet.
+
+  ONE OF THE ISSUE'S DERIVED CLAIMS IS FALSIFIED, and this lane does NOT act on it.
+  DIR-032 item 16 asserts "a fourth dead site the issue itself does not name:
+  `phase1.go:51` carries the same `rule.File != ""` guard, so the 'the rule file
+  you declared exists' structural check is dead for these rules too." Read today,
+  `RunStructural` guards that check with `if src := rule.RuleSourcePath(); src !=
+  ""`. For a pattern-arg rule there IS no declared file, so there is nothing on
+  disk to check — the guard is correct by construction, not dead. Nothing in
+  phase 1 changes here, and `pkg/packval/phase1.go` is deliberately absent from
+  every task's file scope. (Whether phase 1 should gain a NEW check — "a rule
+  declares no engine input at all" — is a real question, but it is new structural
+  strictness against every pack in the ecosystem, not this lane's bug fix. It is
+  recorded in RESIDUALS below, unfiled, for the founder to route.)
+
+  ── EXISTENCE-IN-WORLD CHECK (re-performed 2026-08-17, against CURRENT state) ─
+  No artifact owns this surface.
+    · `plans/` sweep for `pattern`, `packval`, `142`: PLAN-ISSUE-019 (de-Go the
+      packval harness) is `completed` and predates the two-model drift entirely.
+      PLAN-ISSUE-140 (never-started predicate) and PLAN-ISSUE-141 (Convert
+      application) are `completed` and both scoped strictly to
+      `DefaultExecutor.RunEngine`'s BODY — neither touches eligibility, the
+      `Rule` model, or `RunFixtures`.
+    · PLAN-ISSUE-092 is the closest neighbour and it explicitly DISCLAIMS this
+      surface, in its own F7-a finding: `packs/contracts` "CAN NEVER DISPATCH,
+      EVEN AFTER THIS LANE… Fixing this is modelling work on top of CLM-001, not
+      a variation of it," and its F8 ruling: "`packs/contracts` stays dead
+      (F7-a) — NOT a regression … follow-on (i) picks it up later." This plan is
+      follow-on (i).
+    · No SUBSUMPTION: no phase of any committed plan, and no phase of any
+      in-flight DIR-032-tail sibling (re-read in full, see below), delivers a
+      `Pattern` field on packval's `Rule` or a pattern-arg argv shape in
+      `RunFixtures`.
+    · ISSUE-092 is the `rule_path` declaration style (wrong key name on a field
+      that EXISTS); this is the `pattern-arg` style (a MISSING field plus a new
+      invocation shape). Structurally distinct, as the issue's own filing note
+      argues.
+
+  ── CROSS-LANE COLLISION CHECK (RE-VERIFIED 2026-08-17 against CURRENT plans) ─
+  SUPERSEDES AN EARLIER, NOW-STALE READING. When this plan was first authored the
+  four DIR-032-tail sibling plans were empty scaffolds, and this section said so.
+  They are ALL FULLY AUTHORED NOW. The disjointness conclusion is unchanged, but
+  it is re-derived below from each sibling's ACTUAL declared file scope — read
+  out of the current plan files, not inferred from scaffold mtimes. A fifth
+  sibling, PLAN-ISSUE-151, did not exist at first authoring and is included.
+
+  Sibling file scopes as declared TODAY (`status: draft`, all five untracked):
+
+    PLAN-ISSUE-144  727 lines, 2 phases
+      pkg/packval/executor.go, pkg/packval/executor_stdout_artifact_test.go,
+      its own plan file.
+    PLAN-ISSUE-146  744 lines, 3 phases
+      cmd/backstop/pack_new_falsification_test.go, pkg/pack/scaffold.go,
+      pkg/pack/scaffold_test.go, its own plan file.
+    PLAN-ISSUE-148  916 lines, 5 phases
+      backstop.yml, five cmd/backstop/gate_substantiveness_*/substantiveness_*
+      test files, four packs/substantiveness/testdata/fixtures/rules/** files,
+      issues/, its own plan file.
+    PLAN-ISSUE-151  700 lines, 5 phases   ← SAME PACKAGE AS THIS LANE
+      pkg/packval/phase2.go, pkg/packval/pathscope.go,
+      pkg/packval/pathscope_test.go, pkg/packval/pathscope_mask_test.go,
+      pkg/packval/testdata/path-scope/** (7 pack.yml fixtures),
+      cmd/backstop/ci_glob_scoping_authority_test.go,
+      cmd/backstop/ci_recipes_harness_test.go.
+
+  THIS PLAN'S SCOPE, for the comparison:
+    pkg/packval/manifest.go, pkg/packval/phase3.go,
+    pkg/packval/phase3_patternarg_dispatch_test.go,
+    pkg/packval/contracts_pack_dispatch_test.go,
+    pkg/packval/testdata/patternarg-pack{,-broken-negative}/**,
+    packs/contracts/pack.yml, packs/contracts/testdata/fixtures/sig-absent.go,
+    packs/contracts/testdata/fixtures/sig-kinds-absent.go, its own plan file.
+
+  INTERSECTION: EMPTY, pairwise, against all four. The two nearest misses are
+  worth naming so nobody widens scope into them:
+    · PLAN-ISSUE-151 shares `pkg/packval/` but owns `phase2.go` +
+      `pathscope*.go` + `testdata/path-scope/**`; this lane owns `phase3.go` +
+      `manifest.go` + `testdata/patternarg-pack*/**`. No file in common. Both
+      lanes add NEW files to `pkg/packval/` — neither may edit the other's.
+    · PLAN-ISSUE-148 shares the "inverted fixture polarity" DEFECT SHAPE but a
+      different pack: `packs/substantiveness/**`. This lane owns
+      `packs/contracts/**`. No file in common.
+    · PLAN-ISSUE-144 owns `pkg/packval/executor.go`. This plan does NOT list
+      `executor.go` in any task's files — `buildEngineArgv` needs no change (see
+      SE1) — so the two lanes are textually disjoint. If PLAN-ISSUE-144 lands
+      first, nothing needs coordinating beyond not editing `executor.go` here.
+      Do not "helpfully" adjust it.
+
+  `git status --porcelain` on every file this plan scopes, same date:
+    pkg/packval/manifest.go                        CLEAN, no lane
+    pkg/packval/phase3.go                          CLEAN, no lane
+    pkg/packval/testdata/**                        CLEAN, no lane
+    packs/contracts/pack.yml                       CLEAN, no lane
+    packs/contracts/testdata/fixtures/**           CLEAN, no lane
+
+  ── WHY buildEngineArgv NEEDS NO CHANGE (the argv shape, traced) ──────────
+  ISSUE-142 Direction item 3 asks whoever plans this to trace how a pattern-arg
+  engine actually wants its arguments shaped rather than assume. Traced, both
+  sides, and MEASURED:
+
+    GATE SIDE — `gatherEngineInputs` (cmd/backstop/pack_gate.go), case
+    `engine.InputModePatternArg`: emits `binding.InputFlag, rule.Pattern` per
+    rule; `runFindingsEngine` then appends the scan targets. Net argv:
+        <command words...> <input_flag> <pattern> <target...>
+
+    PACKVAL SIDE — `buildEngineArgv` (pkg/packval/executor.go): takes the command
+    words, appends `binding.InputFlag` ONCE when set, then appends every target.
+    Net argv:
+        <command words...> <input_flag> <target[0]> <target[1]...>
+
+  THE TWO SHAPES ALREADY AGREE when `target[0]` is the pattern string. So the
+  fix is entirely in WHAT phase 3 passes as the first target, not in how the argv
+  is built. `buildEngineArgv` is READ ONLY in this lane and is absent from every
+  task's `files` list. This is the single most important scoping fact in the plan:
+  the obvious-looking "add a pattern-arg branch to buildEngineArgv" is WRONG and
+  would fork a second argv authority for no gain.
+
+  Verified against the real tools, not reasoned about:
+      $ ast-grep run --json --pattern 'func $NAME($$$PARAMS)' \
+          packs/contracts/testdata/fixtures/sig-present.go | sh packs/contracts/ast-grep/to-sarif.sh
+      → SARIF with 1 result
+      $ semgrep --sarif --lang go -e 'forbiddenCall(...)' <violating.go>  → 1 result
+      $ semgrep --sarif --lang go -e 'forbiddenCall(...)' <clean.go>      → 0 results
+
+  ── THE MEASURED CONSEQUENCE: packs/contracts GOES RED, AND MUST ──────────
+  This is the fact that decides the plan's shape, and it was measured, not
+  predicted. Making dispatch live turns `pack test packs/contracts` RED today,
+  because that pack's own fixtures are filed under INVERTED polarity slots — the
+  exact ISSUE-148 defect shape (DIR-032 item 19) one pack over.
+
+  backstop's convention, stated on the findings seam in `RunFixtures` itself and
+  in BUNDLE-005 REQ-011: POSITIVE fixture = the CLEAN case that must NOT fire;
+  NEGATIVE fixture = the VIOLATING case that MUST fire. `packs/contracts/pack.yml`
+  authored its fixtures under the opposite meaning — its own comment says
+  "positive fixtures DECLARE the kind, negatives OMIT the declared names."
+
+  Measured 2026-08-17 by running each rule's declared pattern against each
+  declared fixture with the real `ast-grep 0.43.0` (match counts):
+
+    rule                  declared POSITIVE (want 0)          declared NEGATIVE (want >=1)
+    contract-signature    sig-mismatch.go        = 1  ✗       sig-present.go        = 1  ✓
+    type-signature        sig-kinds-present.go   = 3  ✗       sig-kinds-mismatch.go = 2  ✓
+    const-signature       sig-kinds-present.go   = 1  ✗       sig-kinds-mismatch.go = 0  ✗
+    var-signature         sig-kinds-present.go   = 1  ✗       sig-kinds-mismatch.go = 0  ✗
+    method-signature      sig-kinds-present.go   = 1  ✗       sig-kinds-mismatch.go = 1  ✓
+    interface-signature   sig-kinds-present.go   = 1  ✗       sig-kinds-mismatch.go = 0  ✗
+    contract-absence      absence-clean.go       = 0  ✓       absence-present.go    = 1  ✓
+                          (grep -rn -e legacyProbeSymbol; exit 1 vs exit 0)
+
+  Six of seven rules fail once dispatch is live. That breaks, at minimum,
+  `TestInstallContractsLocalPack_ContractsPackPassesUnconditionalValidation`
+  (pkg/pack/distribution) — which asserts the packs/contracts SOURCE passes
+  `pack check` AND `pack test` — and every test that installs that source
+  through `distribution.Add`, since validation is unconditional on the add path
+  (the contracts provisioning and gate contract E2E harnesses both do).
+
+  THEREFORE THE PACK FIX IS IN THIS LANE, NOT DEFERRED. Landing phase 1 alone
+  would knowingly leave the suite red. Phase 2 corrects the in-repo pack so the
+  newly-live dispatch reports the truth, and it is ordered so the red window
+  opened by phase 1 closes in the same sitting.
+
+  WHY THE ROOT CAUSE IS NOT A SIMPLE SLOT SWAP. `packs/contracts`' self-test
+  patterns are deliberately NAME-AGNOSTIC (`type $NAME $$$`, `func
+  $NAME($$$PARAMS)`), while its fixtures were built for the NAME-SPECIFIC
+  compiled patterns that `pkg/pack/engine/contracts_kind_signature_test.go`
+  drives. A name-agnostic `type $NAME $$$` matches `type Other struct{}` in the
+  "mismatch" file too, so swapping the two files' slots still leaves
+  type-signature and method-signature non-discriminating (measured above: 2 and
+  1 matches on the mismatch file). The correct fix is to add genuinely CLEAN
+  fixtures for the positive slots and keep the present-file as the negative.
+
+  THE FIX, VERIFIED AGAINST ast-grep BEFORE BEING PRESCRIBED. Two new fixtures:
+
+    sig-absent.go       — a Go file with NO function declaration at all
+    sig-kinds-absent.go — a Go file with NO type, no `const NAME =`, no
+                          `var NAME =`, no method, no interface; one plain func
+
+  Measured with real ast-grep 0.43.0 (every reading below is an actual run):
+
+    sig-absent.go       vs `func $NAME($$$PARAMS)`              = 0  ✓
+    sig-kinds-absent.go vs `type $NAME $$$`                     = 0  ✓
+    sig-kinds-absent.go vs `const $NAME = $$$`                  = 0  ✓
+    sig-kinds-absent.go vs `var $NAME = $$$`                    = 0  ✓
+    sig-kinds-absent.go vs `func ($R $T) $NAME($$$PARAMS) $$$`  = 0  ✓
+    sig-kinds-absent.go vs `type $NAME interface { $$$ }`       = 0  ✓
+    sig-present.go      vs `func $NAME($$$PARAMS)`              = 1  ✓ (negative fires)
+    sig-kinds-present.go fires >=1 for all five kind patterns   ✓ (negatives fire)
+
+  So the full 7-rule pack discriminates correctly with the positive slots
+  re-pointed at the two new clean files and every negative slot re-pointed at
+  the PRESENT file.
+
+  sig-mismatch.go AND sig-kinds-mismatch.go MUST BE KEPT ON DISK even though
+  pack.yml stops referencing them. `pkg/pack/engine/contracts_kind_signature_test.go`
+  reads both by name (via its `kindFixture` helper) to assert the kind-aware
+  compiler's NAME-SPECIFIC output finds zero matches in them. Deleting them reds
+  that suite for an unrelated reason. Do not delete, do not rename, do not edit
+  their contents.
+
+  ── TWO OWNERS: THE EXTERNAL MIRROR IS A FILED FOLLOW-ON, NOT THIS LANE ────
+  An in-repo pack source and its published mirror are two owners.
+  `.backstop/packs/backstop-ai/go-contracts` (declared `backstop-ai/go-contracts:
+  1.2.0` in backstop.yml, present in backstop.lock) carries the SAME 7
+  pattern-arg rules with the SAME inverted fixture slots — verified today by
+  reading the installed manifest: 7 `pattern:` keys, 0 `rule_path`, and
+  positive/negative slots identical to the in-repo source's (`contract-signature`
+  positive -> sig-mismatch.go, the five kind rules positive ->
+  sig-kinds-present.go). It even carries the same stale comment: "positive
+  fixtures DECLARE the kind, negatives OMIT the declared names."
+
+  DO NOT CITE PLAN-ISSUE-148 AS PRECEDENT FOR DEFERRING THIS. An earlier draft of
+  this plan did, and it was BACKWARDS: PLAN-ISSUE-148 fixes its own external
+  mirror IN-LANE. Its sharp edge 8 reads "TWO OWNERS. The in-repo copy is a test
+  SOURCE. The gate consumes the external mirror through the lock. In-repo alone
+  is a half fix," and it carries a phase-4 "prepare the mirror locally, then
+  HALT" plus a phase-5 FOUNDER-GATED publish+relock, plus a dedicated filing task
+  (TASK-005) for the residuals it will not absorb. ISSUE-148's mirror is
+  `go-substantiveness`, a DIFFERENT pack from this lane's `go-contracts`, so
+  there is no collision — but there is also no precedent for silence.
+
+  DEFERRAL IS STILL THE RIGHT CALL HERE, FOR TWO MEASURED REASONS THAT DIFFER
+  FROM ISSUE-148's SITUATION. Both were verified in the source today:
+
+   (a) THE MIRROR BECOMES UNINSTALLABLE VIA `pack add`/`update`/`upgrade` THE
+       MOMENT PHASE 1 LANDS. All three route through
+       `RunValidationOnScratchCopy` (pkg/pack/distribution/command.go —
+       AddCommand.Run, UpdateCommand.Run, UpgradeCommand.Run), which runs the
+       same `pkg/packval` pipeline this lane makes dispatch-live. Six of the
+       mirror's seven rules will then fail `semgrep-positive`, exactly as the
+       in-repo source does. This is a real, dated consequence and it must be
+       stated in the filed issue, not discovered by whoever next runs `pack
+       update backstop-ai/go-contracts`.
+
+   (b) IT DOES NOT AFFECT CI OR THE GATE, WHICH IS WHY IT CAN WAIT.
+       `pack install` does NOT validate: `NewInstallCommand(git GitCloner)`
+       (command.go) takes no `Validator` at all, and `InstallCommand.Run` never
+       calls `RunValidationOnScratchCopy`. CI's fleet step is exactly
+       `./bin/backstop pack install` (.github/workflows/ci.yml, "Install the pack
+       fleet", and again in the baseline job), so the installed mirror keeps
+       restoring and the gate keeps consuming it unchanged. Nothing in this repo
+       validates the mirror as a pack source.
+
+  So the mirror needs the same fixture correction, a version bump in the
+  `backstop-ai/go-contracts` repo, and a `pack update` + relock here to adopt it —
+  out of scope (packs are external repos), no test in this repo asserts against
+  it. It is residual R1 and TASK-009 FILES IT, with both facts above.
+
+  ── THE ALREADY-CORRECT PATTERN-ARG PACK, AND WHY IT MATTERS ──────────────
+  `cmd/backstop/testdata/hermetic-remote/acceptance-lint-pack` declares a
+  pattern-arg `marker-lint` engine (grep + a to-sarif convert) and a rule whose
+  fixtures are filed under the CORRECT polarity: positive
+  `testdata/fixtures/marker-absent.txt` (no marker → must not fire), negative
+  `testdata/fixtures/marker-present.txt` (marker → must fire). It has likewise
+  never dispatched. After phase 1 it will, and it should PASS. Its convert runs
+  through `SandboxedRunStdout` — the same seam PLAN-ISSUE-141 wired and the gate
+  already exercises for these exact scripts, so the sandbox path is proven, not
+  assumed. TASK-006 re-runs the `cmd/backstop` suite specifically to confirm it.
+  That pack's files are NOT in scope; it is an observation to verify, not to edit.
+
+  ── SWEEP: WHO ELSE IS AFFECTED (performed 2026-08-17) ────────────────────
+  Every `pack.yml` in the repo declaring `input_mode: pattern-arg`, and what
+  phase 1 does to it:
+
+    packs/contracts                         7 rules, all pattern-only.
+                                            → newly dispatches; phase 2 fixes it.
+    cmd/backstop/testdata/hermetic-remote/
+      acceptance-lint-pack                  1 rule, pattern-only, correct polarity.
+                                            → newly dispatches; expected to PASS.
+      scaffold-templating-pack              engine declared, NO ruleset rules.
+      scaffold-recipe-pack                  engine declared, NO ruleset rules.
+                                            → no change either way.
+    pkg/gate/testdata/traceability-pack     2 rules declaring BOTH rule_path AND
+                                            pattern → dispatch input becomes the
+                                            PATTERN. Not driven through packval by
+                                            any test (verified); gate-side unaffected.
+    pkg/gate/testdata/ts-proof-pack         its pattern-arg engine is `grep`;
+                                            hollow-test-ts uses base `ast-grep`
+                                            (rule-flags) → unchanged. Not driven
+                                            through packval by any test.
+
+  NOTHING trips CLM-006's new fail-loud (a pattern-arg rule declaring no pattern):
+  no pack in the repo has that shape. The check exists so a future one fails loud
+  instead of silently, narrowing — not matching — the gate's own `broken pack %s:
+  pattern-arg rule %s declares no pattern` refusal in `gatherEngineInputs`. See
+  CLM-006 for exactly how far the parity goes and where it stops.
+
+  ── A NEW TOOL DEPENDENCY LANDS ON THREE PRE-EXISTING SUITES ──────────────
+  READ THIS BEFORE IMPLEMENTING. Today `./bin/backstop pack test packs/contracts`
+  runs ZERO subprocesses — that is the defect. After phase 1 it runs 14 real
+  dispatches, and those dispatches need tools that were never needed at
+  `go test` time before:
+
+    ast-grep 0.43.0   — the six signature rules ride `ast-grep run --json`.
+    grep              — the contract-absence rule.
+    jq                — BOTH of packs/contracts' convert scripts
+                        (`ast-grep/to-sarif.sh`, `grep/to-sarif.sh`) pipe
+                        through it. Verified by grep of both scripts.
+
+  THE NEW REQUIREMENT IS NOT CONFINED TO THIS LANE'S OWN TESTS. SE5 mandates
+  loud skips for the tests this plan writes, but three PRE-EXISTING suites drive
+  `packs/contracts` through validation and will now HARD-FAIL, not skip, if the
+  tools are missing:
+
+    pkg/pack/distribution/contracts_local_install_test.go
+    pkg/pack/distribution/contracts_provisioning_test.go
+    cmd/backstop/gate_contract_e2e_test.go
+
+  This lane does NOT add skip guards to those three — they are outside every
+  task's file scope, and adding a skip to a pre-existing suite to accommodate a
+  new dependency is exactly the vacuous-green move this repo forbids. The
+  requirement is stated here so a failure on a bare machine is read as "install
+  the tools", not as a defect in the change.
+
+  CI IS ALREADY COVERED — CHECKED, NOT ASSUMED (.github/workflows/ci.yml read
+  2026-08-17):
+    · ast-grep 0.43.0 is explicitly installed in BOTH jobs, in the "Install
+      provisioned engine tools at their allowlist pins" step — the gate job
+      (curl of the 0.43.0 release zip into $HOME/.local/bin) and the baseline
+      job. semgrep is pipx-installed at 1.96.0 alongside it.
+    · jq is NOT installed by ci.yml, and it does not need to be: jq is ALREADY a
+      hard CI requirement today, independently of this lane. `backstop.yml`
+      declares `backstop-ai/go-contracts: 1.2.0` and `backstop-ai/
+      go-substantiveness`; the fleet step (`./bin/backstop pack install`) runs
+      BEFORE the gate; and both packs' convert scripts pipe through jq. CI being
+      green today is therefore direct evidence jq is present on the runner. What
+      this lane changes is only WHICH phase needs it (go-test time as well as
+      gate time), not WHETHER the runner has it.
+    · grep is POSIX and allowlisted at version "*" (presence, not a pin).
+  If a future CI image drops jq, the gate breaks before these tests do — so the
+  gate, not this lane, is the canary.
+
+  ── ON UNIFYING THE TWO Rule MODELS (Direction item 5, answered: NO) ──────
+  ISSUE-142 and DIR-032 both ask whether this and ISSUE-092 should land as one
+  unification of `pkg/pack.Rule` and `pkg/packval.Rule` rather than N field
+  patches. The answer for THIS lane is no, and the reason is not timidity:
+  ISSUE-092 already shipped its half as a field-plus-single-accessor
+  (`RuleSourcePath`), so a unification now would be a THIRD shape landing on top
+  of a two-week-old second one, in a shared tree, with `pkg/packval` consumed by
+  `pack check`, `pack test`, `pack add`, `pack update` and the whole distribution
+  E2E surface. This lane deliberately MIRRORS the ISSUE-092 shape instead
+  (CLM-004): one new field, one new single-authority accessor named beside
+  `RuleSourcePath`, so the two drift fixes look identical and a future
+  unification has two congruent things to collapse rather than two divergent
+  ones. The unification question stays open and is recorded in RESIDUALS.
+
+  ── WHAT IS DELIBERATELY NOT FIXED HERE (RESIDUALS) ───────────────────────
+  R1  The external mirror `backstop-ai/go-contracts` (declared at 1.2.0) carries
+      the same inverted fixture polarity. Needs its own fixture correction +
+      version bump in that repo + `pack update`/relock here. FILED BY TASK-009,
+      which is a first-class task of this plan — not a note. It must carry both
+      measured facts from THE TWO OWNERS above: the mirror becomes uninstallable
+      via `pack add`/`update`/`upgrade` once phase 1 lands (all three route
+      through `RunValidationOnScratchCopy`), and CI/the gate are unaffected
+      because `pack install` takes no validator.
+  R2  Unifying `pkg/pack.Rule` and `pkg/packval.Rule` into one model. Three
+      documented drift instances now (rule-file key / ISSUE-092, `pattern` /
+      this lane, `Layer` / PLAN-ISSUE-092's F2 finding, which still gates
+      `RunValidator` dispatch on a field SPEC-031 REQ-002 retired from the
+      runtime model). NOT filed as a single artifact yet.
+  R3  A phase-1 structural check for "this rule declares no engine input at all".
+      New ecosystem-wide strictness, not a bug fix; would red any pack with a
+      claimless placeholder rule. Not filed.
+  R4  `pkg/packval`'s `RunValidator` dispatch still gates on `rule.Layer`
+      (PLAN-ISSUE-092 F2). Untouched here; `pkg/packval/phase3.go`'s validator
+      branches are read-only in this lane except for the dispatch-eligibility
+      restructure above them.
+
+  ── CLAIMS ────────────────────────────────────────────────────────────────
+  This plan is issue-sourced, so it defines its own claims. Every one is mapped
+  to at least one task below.
+
+    CLM-001  THE MODEL GAP. `pkg/packval`'s `Rule` carries a `Pattern` field bound
+             to the YAML `pattern:` key, mirroring the gate-runtime model's own
+             field (`pkg/pack.Rule`, SPEC-035 REQ-004). A parsed pattern-arg
+             manifest exposes the declared pattern instead of silently dropping it.
+             Mandated: TestPackVal_Manifest_PatternArgRuleCapturesInlinePattern
+
+    CLM-002  THE DISPATCH. A rule declaring ONLY `pattern:` — no `rule_path:`, no
+             `file:` — reaches `executor.RunEngine`, once per declared fixture,
+             both polarities. Asserted on the CALL COUNT, never on the phase
+             verdict alone: zero dispatches also report `pass`, which is the exact
+             defect this lane exists to kill.
+             Mandated: TestPackVal_P3_PatternArgRuleDispatchesFixtures
+
+    CLM-003  THE ARGV SHAPE. For a pattern-arg engine the FIRST target handed to
+             `RunEngine` is the inline pattern STRING, not a filesystem path, and
+             it is not `os.Stat`-ed or joined to packDir. This is what makes
+             packval's argv agree with `gatherEngineInputs`' gate-side shape
+             without forking a second argv authority.
+             Mandated: TestPackVal_P3_PatternArgTargetsCarryTheInlinePatternNotAPath
+
+    CLM-004  SINGLE AUTHORITY. Exactly ONE function decides "pattern or path" —
+             `Rule.RuleDispatchInput(mode)`, named and documented beside
+             `RuleSourcePath`, which ISSUE-092 established as the single authority
+             for the rule-file keys. `RunFixtures` calls it and re-derives nothing;
+             a future caller cannot choose differently.
+             Mandated: TestPackVal_Manifest_DispatchInputIsSingleAuthority
+
+    CLM-005  NON-REGRESSION ON THE PATH STYLE. A `rule_path:`- or `file:`-declared
+             rule dispatches exactly as before — rule source path first, fixture
+             second — and the `semgrep-rule-id` cross-check still runs ONLY for
+             `input_mode: rule-flags` rules that declare a rule FILE. Widening
+             dispatch eligibility must not widen a check that reads a file off disk.
+             Mandated: TestPackVal_P3_RulePathDispatchUnchangedByPatternArgSupport
+
+    CLM-006  NO SILENT SKIP AT THE NEW SEAM — AND EXACTLY HOW FAR THAT GOES.
+             A rule that DECLARES AN ENGINE INPUT but whose resolved engine cannot
+             consume it — concretely, a `pattern-arg` engine on a rule that declares
+             a rule source (`rule_path:`/`file:`) but an empty `Pattern` — is a
+             NAMED, BLOCKING phase-3 error identifying the rule, the engine and the
+             declared input_mode. It is never a quiet skip.
+
+             THE BOUND, STATED PLAINLY SO IT IS NOT MISREAD AS PARITY. The guard
+             lives INSIDE the widened eligibility block, whose condition is
+             `ruleSource != "" || rule.Pattern != ""`. A rule declaring NEITHER a
+             source NOR a pattern never enters the block and is therefore STILL
+             silently skipped by phase 3. That is strictly narrower than the gate,
+             whose `gatherEngineInputs` refuses EVERY pattern-arg rule with an empty
+             `Pattern` regardless of what else the rule declares. This claim is
+             deliberately scoped to the declares-something case; closing the
+             declares-nothing case is ecosystem-wide new strictness against every
+             pack and is recorded as residual R3, not delivered here.
+             Mandated: TestPackVal_P3_PatternArgRuleWithoutPatternFailsLoud
+
+    CLM-007  THE FALSIFICATION. Run through the REAL `DefaultExecutor` — a mocked
+             engine cannot prove a tool ran — phase 3 FAILS for a pattern-arg pack
+             whose negative fixture no longer violates its rule, and PASSES for an
+             otherwise-identical pack whose fixtures are honest. The pair
+             discriminates on fixture content and nothing else.
+             Mandated: TestPackVal_P3_PatternArgPhaseThreeFailsWhenNegativeFixtureNoLongerViolates
+
+    CLM-008  THE MEASURED CONSEQUENCE, CLOSED. `packs/contracts` — 7 rules, 100%
+             pattern-arg, the pack this issue names — dispatches for real (14 engine
+             runs: 7 rules x 2 fixtures) AND discriminates: every positive fixture
+             produces zero findings, every negative produces at least one, and
+             `RunFixtures` reports `pass` for a reason. Asserted on BOTH the
+             dispatch count and the verdict, so a regression back to zero dispatches
+             cannot pass as a green.
+             Mandated: TestContractsPack_PatternArgFixturesDispatchAndDiscriminate
+
+    CLM-009  NOTHING ELSE MOVES. The kind-aware compiler suite
+             (`pkg/pack/engine/contracts_kind_signature_test.go`) still finds
+             `sig-mismatch.go` and `sig-kinds-mismatch.go` on disk with their
+             contents unchanged, the contracts local-install validation
+             (`pkg/pack/distribution`) passes `pack check` AND `pack test` against
+             the corrected source, and the contract gate E2E suite is unaffected.
+             Verified by running those suites, not by assertion.
+
+  ── SHARP EDGES ───────────────────────────────────────────────────────────
+    SE1  DO NOT TOUCH `buildEngineArgv`. The argv shapes already agree once the
+         first target is the pattern (traced above). Adding a pattern-arg branch
+         there forks a second argv authority and breaks the rule-flags path.
+         `pkg/packval/executor.go` is absent from every task's `files` list —
+         which also keeps this lane textually disjoint from PLAN-ISSUE-144.
+
+    SE2  THE RULE-ID CROSS-CHECK MUST NOT WIDEN. `RunFixtures`' `semgrep-rule-id`
+         check reads the declared rule FILE off disk and parses it as a semgrep
+         rule list. It currently sits inside the `ruleSource != ""` block. Once
+         that block's condition widens to "declares a source OR a pattern", the
+         cross-check needs `ruleSource != ""` restored as its OWN condition,
+         alongside the existing `binding.InputMode == engine.InputModeRuleFlags`
+         guard. Forgetting this makes packval try to read a PATTERN STRING as a
+         file path. `pkg/packval/phase3_ruleid_inputmode_test.go` pins the
+         input-mode half and must stay green.
+
+    SE3  DO NOT REWRITE THE RULE-ID BLOCK'S COMMENT, and do not spell any tool
+         name into `pkg/packval/phase3.go`.
+         `TestExecutor_ToolConfigResolvesViaBindingNotSwitch` greps that file for
+         baked tool names and does not distinguish prose from code. The existing
+         comment says so explicitly; leave it intact.
+
+    SE4  THE TESTDATA FALSIFICATION PACK MUST NOT DECLARE A `provision:` BLOCK —
+         AND HERE IS THE REAL REASON, BECAUSE AN EARLIER DRAFT GOT IT WRONG.
+         `CheckToolAllowed` (pkg/pack/engine/allowlist.go) compares the DECLARED
+         version against the allowlist pin. It NEVER inspects the installed
+         binary. So `provision: {tool: semgrep, version: 1.96.0}` would PASS the
+         trust gate no matter what version is actually on PATH — the earlier
+         claim that a 1.156.0 dev binary would cause a refusal is FALSE. Proof
+         in-tree: `pkg/packval/testdata/rulepath-pack` declares no `engines:`
+         block, so `engine: semgrep` resolves to the BASE binding, which DOES
+         carry `provision: {semgrep, 1.96.0}` (pkg/baseengines), and its dispatch
+         test passes today with semgrep 1.156.0 installed.
+
+         THE PRESCRIPTION IS UNCHANGED, for two different reasons:
+           · The only genuinely refusable declaration is the TRUE installed
+             version — `provision: {semgrep, 1.156.0}` IS rejected, because
+             1.156.0 != the 1.96.0 pin. So the block can only ever carry a
+             version the test does not actually run. A declaration that cannot
+             be falsified by the test that reads it earns nothing.
+           · These two packs exist to exercise DISPATCH ELIGIBILITY. The trust
+             floor is owned and pinned by `pkg/pack/engine`'s own allowlist
+             tests; re-declaring it here would put a second, weaker assertion of
+             it in a fixture.
+         Omit the block. Note the contrast, and do NOT "normalize" it away:
+         `packs/contracts` DOES declare `provision:` on both its engines
+         (ast-grep 0.43.0, grep "*"), both matching the allowlist exactly — which
+         is why TASK-004's real-engine sub-test clears the trust gate and then
+         runs whatever ast-grep is on PATH. Leave those blocks alone.
+
+    SE5  THE FALSIFICATION TEST MUST SKIP LOUDLY, NEVER SILENTLY. Mirror
+         `requireSemgrep` in `pkg/packval/phase3_rulepath_dispatch_test.go`
+         verbatim in spirit: `t.Skipf` naming the missing binary and stating that
+         a falsification test is being skipped and is NOT being reported as a
+         pass. Same for the ast-grep requirement in TASK-004.
+
+    SE6  ASSERT ON DISPATCH COUNT, NOT ONLY ON VERDICT. Every dispatch test in
+         this lane must fail when the count is zero. A test that only checks
+         `res.Status == "pass"` reproduces ISSUE-142 inside its own regression
+         test — the pre-fix tree passes it.
+
+    SE7  KEEP `sig-mismatch.go` AND `sig-kinds-mismatch.go`. They stop being
+         referenced by `pack.yml` but `pkg/pack/engine/contracts_kind_signature_test.go`
+         reads both by name. Unreferenced-but-present is correct here; phase 1
+         structural validation only checks fixtures a manifest DECLARES.
+
+    SE8  BUMP `packs/contracts/pack.yml`'s version to 1.2.0, but GREP FIRST.
+         Verified 2026-08-17 that no Go test pins `backstop/contracts` to a
+         version string (the `"1.1.0"` literals in `cmd/backstop` belong to the
+         hermetic-remote fixture packs and to `packs/substantiveness`). Re-run
+         `grep -rn '1\.1\.0' --include='*.go' .` before bumping and, if a
+         contracts-specific pin has appeared since, leave the version alone and
+         report it rather than editing the test.
+
+    SE9  THE PACK IS INSTALLED BY PATH AND HASH, NOT BY VERSION.
+         `packs/contracts` is a LOCAL source that `distribution.Add` installs into
+         temp workspaces; `backstop.lock` in THIS repo pins the unrelated external
+         `backstop-ai/go-contracts`. Editing `packs/contracts/**` does not
+         invalidate `backstop.lock` and no relock is needed. Do not run
+         `pack relock` or `pack update` in this lane.
+
+    SE10 THE RED WINDOW IS EXPECTED AND MUST CLOSE IN THE SAME SITTING. TASK-001
+         leaves `pkg/packval` red by design; TASK-004 leaves the contracts
+         validation red by design. Neither is a defect. Proceed straight to the
+         paired implementation task each time. Do not hand off, context-switch, or
+         report "done" with either window open.
+
+  ── FALSIFICATION BAR ─────────────────────────────────────────────────────
+  Each mandated test must be observed RED at the pre-fix tree state, with the
+  failure mode recorded, before its implementation task is written. Predicted
+  pre-fix failures:
+
+    TestPackVal_Manifest_PatternArgRuleCapturesInlinePattern
+        compile error: `Rule` has no field `Pattern`.
+    TestPackVal_Manifest_DispatchInputIsSingleAuthority
+        compile error: `Rule` has no method `RuleDispatchInput`.
+    TestPackVal_P3_PatternArgRuleDispatchesFixtures
+        0 dispatches recorded.
+    TestPackVal_P3_PatternArgTargetsCarryTheInlinePatternNotAPath
+        no dispatch to inspect.
+    TestPackVal_P3_PatternArgRuleWithoutPatternFailsLoud
+        `res.Status == "pass"` with zero errors — the silent skip.
+    TestPackVal_P3_PatternArgPhaseThreeFailsWhenNegativeFixtureNoLongerViolates
+        BOTH sub-cases report `pass`; the broken-negative pack does not fail.
+    TestPackVal_P3_RulePathDispatchUnchangedByPatternArgSupport
+        GREEN pre-fix by design — it is the non-regression control and must stay
+        green throughout. Record that it was green before AND after.
+    TestContractsPack_PatternArgFixturesDispatchAndDiscriminate
+        pre-phase-1: 0 dispatches. post-phase-1 / pre-phase-2: 6 of 7 rules fail
+        with `semgrep-positive: positive fixture triggered the rule (false
+        positive)`. Both readings must be recorded — the second is what proves the
+        pack fix in phase 2 is doing real work.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Make pattern-arg rules dispatch in packval"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Write the failing pattern-arg dispatch tests and the falsification pack pair"
+        description: |
+          Create the tests and testdata that pin every claim in phase 1. All of them
+          must be RED (or fail to compile) before TASK-002 is written — record the
+          observed failure mode for each, per the FALSIFICATION BAR above.
+
+          NEW TEST FILE: pkg/packval/phase3_patternarg_dispatch_test.go, package
+          packval_test. It reuses the in-package helpers that
+          pkg/packval/phase3_rulepath_dispatch_test.go already defines —
+          `recordingExecutor`, `testdataPack`, `requireSemgrep` — rather than
+          redefining them. Read that file first; it is the direct precedent for
+          this lane and its shape should be matched, not reinvented.
+
+          MANDATED TESTS (exact names, all six):
+
+          TestPackVal_Manifest_PatternArgRuleCapturesInlinePattern (CLM-001)
+            Parse a manifest declaring `pattern:` on a rule via
+            packval.ParseManifest and assert the field round-trips. Pre-fix this is
+            a COMPILE ERROR, which is a legitimate red.
+
+          TestPackVal_Manifest_DispatchInputIsSingleAuthority (CLM-004)
+            Table over the input modes: for engine.InputModePatternArg,
+            Rule.RuleDispatchInput returns the inline Pattern; for rule-flags,
+            config-file and none it returns RuleSourcePath(). Include the case
+            where BOTH are declared (traceability-pack's real shape) and assert
+            pattern-arg picks the PATTERN. Also assert the empty-declaration case
+            returns "" so CLM-006's caller has something to test.
+
+          TestPackVal_P3_PatternArgRuleDispatchesFixtures (CLM-002)
+            Load testdata/patternarg-pack through `testdataPack`, run
+            packval.RunFixtures with a `recordingExecutor`, assert len(calls) != 0
+            with an explicit message naming the vacuous green, then assert
+            len(calls) == 2 (one positive + one negative on the single claim).
+            SE6: the count assertion is the point.
+
+          TestPackVal_P3_PatternArgTargetsCarryTheInlinePatternNotAPath (CLM-003)
+            Over the same recorded dispatches: each target slice is exactly
+            [pattern, fixturePath]; targets[0] equals the manifest's declared
+            pattern string VERBATIM; targets[0] does NOT resolve to a path on disk
+            under packDir (os.Stat must fail); targets[1] DOES resolve and is not a
+            directory (ISSUE-091's undercount trap, same guard the rulepath test
+            applies).
+
+          TestPackVal_P3_PatternArgRuleWithoutPatternFailsLoud (CLM-006)
+            Build a manifest IN CODE (t.TempDir, no testdata pack) with a
+            pack-declared pattern-arg engine and a rule that declares `file:` but
+            no `pattern:`. Assert res.Status == "fail", that some error names the
+            rule ID, and that its Message mentions the declared input mode. Assert
+            explicitly that this is NOT reported as a passing phase with zero
+            errors — the pre-fix behavior.
+
+          TestPackVal_P3_RulePathDispatchUnchangedByPatternArgSupport (CLM-005)
+            The non-regression control. Run RunFixtures over the EXISTING
+            testdata/rulepath-pack with a recordingExecutor and assert 2 dispatches
+            whose targets[0] is `rules/no-global.yml` — the rule SOURCE PATH, not a
+            pattern. Green before and after; it fails only if this lane breaks the
+            path style.
+
+          TestPackVal_P3_PatternArgPhaseThreeFailsWhenNegativeFixtureNoLongerViolates (CLM-007)
+            THE CENTRAL FALSIFICATION. Real `&packval.DefaultExecutor{}`, not a
+            mock. Two sub-tests over the two new testdata packs: the
+            broken-negative pack must report res.Status == "fail" and some error
+            must name rule `no-forbidden-call` and claim `C-001`; the honest pack
+            must report res.Status == "pass". Both halves are required — a test
+            that reds on both discriminates on nothing. Guard with
+            `requireSemgrep(t)` (SE5).
+
+          NEW TESTDATA — testdata/patternarg-pack (THE HONEST PACK):
+            pack.yml declares a pack-level engine
+              semgrep-pattern:
+                command: semgrep --sarif --lang go
+                input_mode: pattern-arg
+                input_flag: -e
+                scope_kind: file-args
+                category: opinion
+                gate_type: lint
+            with NO `provision:` block (SE4), and one rule:
+              id: no-forbidden-call, engine: semgrep-pattern,
+              risk_class: correctness, pattern: "forbiddenCall(...)",
+              claim C-001 with positive fixtures/valid/clean.go and negative
+              fixtures/invalid/violating.go.
+            fixtures/invalid/violating.go calls forbiddenCall(); fixtures/valid/
+            clean.go does not. The manifest's description states, as
+            testdata/rulepath-pack's does, that the polarity was VERIFIED by
+            running the engine directly. It was, today:
+              semgrep --sarif --lang go -e 'forbiddenCall(...)' violating.go -> 1 result
+              semgrep --sarif --lang go -e 'forbiddenCall(...)' clean.go      -> 0 results
+            semgrep emits SARIF natively under --sarif, so this pack needs no
+            convert script.
+
+          NEW TESTDATA — testdata/patternarg-pack-broken-negative: byte-identical
+          to the honest pack except its negative fixture
+          (fixtures/invalid/compliant.go) does NOT call forbiddenCall(). Mirror
+          testdata/rulepath-pack-broken-negative's naming and its manifest's
+          self-describing description.
+
+          Do NOT edit pkg/packval/phase3.go, pkg/packval/manifest.go or
+          pkg/packval/executor.go in this task.
+        files:
+          - pkg/packval/phase3_patternarg_dispatch_test.go
+          - pkg/packval/testdata/patternarg-pack/pack.yml
+          - pkg/packval/testdata/patternarg-pack/fixtures/valid/clean.go
+          - pkg/packval/testdata/patternarg-pack/fixtures/invalid/violating.go
+          - pkg/packval/testdata/patternarg-pack-broken-negative/pack.yml
+          - pkg/packval/testdata/patternarg-pack-broken-negative/fixtures/valid/clean.go
+          - pkg/packval/testdata/patternarg-pack-broken-negative/fixtures/invalid/compliant.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        test_names:
+          - TestPackVal_Manifest_PatternArgRuleCapturesInlinePattern
+          - TestPackVal_Manifest_DispatchInputIsSingleAuthority
+          - TestPackVal_P3_PatternArgRuleDispatchesFixtures
+          - TestPackVal_P3_PatternArgTargetsCarryTheInlinePatternNotAPath
+          - TestPackVal_P3_PatternArgRuleWithoutPatternFailsLoud
+          - TestPackVal_P3_RulePathDispatchUnchangedByPatternArgSupport
+          - TestPackVal_P3_PatternArgPhaseThreeFailsWhenNegativeFixtureNoLongerViolates
+        depends_on: []
+
+      - id: TASK-002
+        type: implementation
+        title: "Add the Pattern field, the single dispatch-input authority, and pattern-arg eligibility"
+        description: |
+          Two files, both edits additive.
+
+          pkg/packval/manifest.go — add to `Rule`, beside the RulePath/File pair:
+
+              // Pattern is the INLINE rule expression a pattern-arg engine passes as a
+              // command argument instead of resolving a rule file on disk. It mirrors the
+              // gate-runtime model's own field (pkg/pack.Rule, SPEC-035 REQ-004); packval's
+              // model never carried it, so the key was silently dropped at unmarshal and
+              // every pattern-arg rule's fixtures went undispatched (ISSUE-142).
+              Pattern string `json:"pattern,omitempty" yaml:"pattern,omitempty"`
+
+          and, immediately after `RuleSourceManifestKey`, the single authority:
+
+              // RuleDispatchInput resolves the FIRST engine argument for this rule's fixture
+              // dispatch, and is the ONLY place that choice is made — the same
+              // single-authority shape RuleSourcePath established for the rule-file keys
+              // (ISSUE-092). A pattern-arg engine consumes the inline pattern STRING as a
+              // command argument; every other input mode consumes the declared rule SOURCE
+              // PATH. An empty return means the rule declares nothing this engine can
+              // consume, and the caller must fail loud rather than skip.
+              func (r Rule) RuleDispatchInput(mode engine.InputMode) string {
+                  if mode == engine.InputModePatternArg {
+                      return r.Pattern
+                  }
+                  return r.RuleSourcePath()
+              }
+
+          `pkg/pack/engine` is already imported by this file (resolveEngine), so no
+          new import is needed.
+
+          pkg/packval/phase3.go — restructure the TOP of `RunFixtures`' ruleset loop
+          only. Locate the loop by name; the issue's line numbers are stale.
+
+            1. Keep `ruleSource := rule.RuleSourcePath()` as it is.
+            2. Widen the eligibility condition from `if ruleSource != ""` to
+               `if ruleSource != "" || rule.Pattern != ""`, with a comment stating
+               that a rule is dispatch-eligible when it declares ANY engine input
+               and that gating on the path alone left every pattern-arg rule
+               permanently undispatched (ISSUE-142).
+            3. Inside, after the binding resolves, compute
+               `dispatchInput := rule.RuleDispatchInput(binding.InputMode)` (declared
+               `dispatchInput := ""` above the block so it is in scope for the
+               fixture loops).
+            4. When `haveBinding && dispatchInput == ""`, append a ValidationError
+               with Check "pattern-arg-input", Rule set to rule.ID, a Message naming
+               the engine and its declared input_mode and saying the rule declares no
+               inline pattern, and a FixHint pointing the pack author at the
+               `pattern:` key. This is CLM-006 and it mirrors the gate's own
+               `broken pack %s: pattern-arg rule %s declares no pattern` refusal in
+               `gatherEngineInputs`.
+            5. SE2 — the `semgrep-rule-id` cross-check must now carry
+               `ruleSource != ""` as its own condition in addition to the existing
+               `haveBinding && binding.InputMode == engine.InputModeRuleFlags`.
+               Do not touch its comment block (SE3).
+            6. Change the two fixture-loop guards from
+               `if ruleSource != "" && haveBinding` to
+               `if dispatchInput != "" && haveBinding`, and both
+               `executor.RunEngine(packDir, binding, []string{ruleSource, f.Path})`
+               calls to pass `dispatchInput` as the first target.
+
+          DO NOT touch: the validator branches (their inverted polarity is
+          deliberate and pinned by TestPackVal_P3_ValidatorPolarityUnchangedByFindingsFix),
+          the tool_config loop, the scaffold loop, `buildEngineArgv` (SE1), or
+          pkg/packval/phase1.go.
+
+          Run `go test ./pkg/packval/... -race -count=1` and land all seven
+          TASK-001 tests green before moving on.
+        files:
+          - pkg/packval/manifest.go
+          - pkg/packval/phase3.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: verification
+        title: "Gate the packval dispatch change diff-scoped"
+        description: |
+          Run, from the repo root:
+
+              ./bin/backstop gate --file pkg/packval/manifest.go pkg/packval/phase3.go pkg/packval/phase3_patternarg_dispatch_test.go
+              go test ./pkg/packval/... -race -count=1
+
+          Both must be green before phase 2 opens. Record the readings.
+
+          EXPECTED COLLATERAL, AND IT IS NOT A DEFECT IN THIS TASK: the
+          `pkg/pack/distribution` and `cmd/backstop` contract suites are now RED,
+          because `packs/contracts` dispatches for real for the first time and its
+          own fixtures are inverted (see THE MEASURED CONSEQUENCE above). Do NOT
+          try to fix that here and do NOT weaken anything to make it go away —
+          phase 2 is the fix and it starts immediately (SE10). If those suites are
+          GREEN, stop and report: it means dispatch did not actually go live and
+          the lane has produced a vacuous green.
+        files:
+          - pkg/packval/manifest.go
+          - pkg/packval/phase3.go
+          - pkg/packval/phase3_patternarg_dispatch_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-002
+
+  - id: phase-2
+    name: "Phase 2: Make packs/contracts tell the truth under live dispatch"
+    tasks:
+      - id: TASK-004
+        type: test
+        title: "Pin real dispatch and discrimination for the packs/contracts pattern-arg rules"
+        description: |
+          NEW TEST FILE: pkg/packval/contracts_pack_dispatch_test.go, package
+          packval_test.
+
+          MANDATED TEST:
+            TestContractsPack_PatternArgFixturesDispatchAndDiscriminate (CLM-008)
+
+          It resolves the repo root from the test's own location (walk up to the
+          directory containing go.mod — the same shape
+          pkg/pack/engine/contracts_kind_signature_test.go uses for its
+          `packs/contracts` reads) and drives the REAL in-repo pack source at
+          <root>/packs/contracts.
+
+          Two assertions, both required:
+
+            1. DISPATCH COUNT. With a `recordingExecutor` wrapping the mock, assert
+               exactly 14 RunEngine dispatches — 7 rules x 2 fixtures. A count of 0
+               is the ISSUE-142 vacuous green; assert against it with a message that
+               says so. Assert too that every dispatch's targets[0] equals the
+               declaring rule's `pattern:` value, so the test cannot pass on a
+               path-shaped argv.
+
+            2. VERDICT, THROUGH THE REAL ENGINE. With `&packval.DefaultExecutor{}`,
+               assert `RunFixtures(...).Status == "pass"` and that res.Errors is
+               empty, dumping every error verbatim on failure. Guard the whole
+               sub-test with a loud ast-grep skip mirroring `requireSemgrep`
+               (SE5) — this pack's six signature rules ride ast-grep, pinned at
+               0.43.0 by the trusted-tool allowlist.
+
+          RECORD BOTH PRE-FIX READINGS (the falsification bar): with phase 1
+          landed and phase 2 not yet applied, the count assertion should now PASS
+          (14 dispatches) while the verdict assertion FAILS with six
+          `semgrep-positive: positive fixture triggered the rule (false positive)`
+          errors. That split is the proof that phase 1 made dispatch live and that
+          phase 2's pack fix is doing real work rather than papering over a
+          still-dead dispatch.
+
+          Do NOT edit packs/contracts in this task.
+        files:
+          - pkg/packval/contracts_pack_dispatch_test.go
+        claims:
+          - CLM-008
+        test_names:
+          - TestContractsPack_PatternArgFixturesDispatchAndDiscriminate
+        depends_on:
+          - TASK-003
+
+      - id: TASK-005
+        type: implementation
+        title: "Add clean positive fixtures to packs/contracts and re-point its inverted slots"
+        description: |
+          The pack's fixtures are filed under inverted polarity slots — the
+          ISSUE-148 shape one pack over. backstop's convention: POSITIVE = the
+          CLEAN case that must NOT fire, NEGATIVE = the VIOLATING case that MUST
+          fire. Every reading prescribed below was measured with real ast-grep
+          0.43.0 on 2026-08-17; see THE MEASURED CONSEQUENCE in the notes for the
+          full table.
+
+          TWO NEW FIXTURE FILES.
+
+          packs/contracts/testdata/fixtures/sig-absent.go — the CLEAN case for
+          contract-signature: a valid Go file in `package fix` with NO function
+          declaration at all (a single package-level string var is enough). A short
+          comment states why it is empty of funcs: the pack's self-test pattern
+          `func $NAME($$$PARAMS)` is name-agnostic, so any function at all would
+          fire it.
+            measured: 0 matches for `func $NAME($$$PARAMS)`.
+
+          packs/contracts/testdata/fixtures/sig-kinds-absent.go — the CLEAN case
+          shared by the five kind rules: `package fix` plus exactly one plain
+          function, and NO type declaration, NO `const NAME = ...`, NO
+          `var NAME = ...`, NO method (no receiver), NO interface. A short comment
+          states that it is the shared clean fixture for all five kind patterns.
+            measured: 0 matches for each of `type $NAME $$$`, `const $NAME = $$$`,
+            `var $NAME = $$$`, `func ($R $T) $NAME($$$PARAMS) $$$`, and
+            `type $NAME interface { $$$ }`.
+
+          MANIFEST EDITS — packs/contracts/pack.yml, fixture slots only:
+            contract-signature    positive -> testdata/fixtures/sig-absent.go
+                                  negative -> testdata/fixtures/sig-present.go  (unchanged)
+            type-signature        positive -> testdata/fixtures/sig-kinds-absent.go
+                                  negative -> testdata/fixtures/sig-kinds-present.go
+            const-signature       same re-pointing as type-signature
+            var-signature         same
+            method-signature      same
+            interface-signature   same
+            contract-absence      UNCHANGED — already correct (positive
+                                  absence-clean.go does not contain the probed
+                                  symbol, negative absence-present.go does).
+
+          Also correct the stale explanatory comment above the per-kind rules,
+          which currently reads "positive fixtures DECLARE the kind, negatives OMIT
+          the declared names" — that IS the inversion, written down. Replace it
+          with a statement of the real convention and a one-line note that the
+          name-agnostic self-test patterns need a fixture with the construct wholly
+          ABSENT as the clean case, since a name-specific contrast cannot
+          discriminate under a name-agnostic pattern.
+
+          Bump `version:` 1.1.0 -> 1.2.0, subject to SE8's grep guard.
+
+          DO NOT DELETE OR EDIT sig-mismatch.go or sig-kinds-mismatch.go (SE7).
+          They stop being referenced by pack.yml and stay on disk because
+          pkg/pack/engine/contracts_kind_signature_test.go reads both by name.
+
+          DO NOT run `pack relock` or `pack update` (SE9), and do not touch
+          .backstop/packs/** — the external mirror is residual R1.
+
+          Then run, and land green:
+              go test ./pkg/packval/... -race -count=1
+              go test ./pkg/pack/... -count=1
+        files:
+          - packs/contracts/pack.yml
+          - packs/contracts/testdata/fixtures/sig-absent.go
+          - packs/contracts/testdata/fixtures/sig-kinds-absent.go
+        claims:
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-004
+
+      - id: TASK-006
+        type: verification
+        title: "Gate the pack correction and re-run every contracts-consuming suite"
+        description: |
+          Run, from the repo root:
+
+              ./bin/backstop gate --file packs/contracts/pack.yml packs/contracts/testdata/fixtures/sig-absent.go packs/contracts/testdata/fixtures/sig-kinds-absent.go pkg/packval/contracts_pack_dispatch_test.go
+              go test ./pkg/packval/... -race -count=1
+              go test ./pkg/pack/... -count=1
+              go test ./cmd/backstop/... -count=1
+
+          All four green. The last two are the point of this task — they are the
+          suites TASK-003 knowingly left red:
+
+            · pkg/pack/distribution —
+              TestInstallContractsLocalPack_ContractsPackPassesUnconditionalValidation
+              asserts the packs/contracts source passes `pack check` AND `pack
+              test`. It was red after phase 1 and must be green now.
+            · pkg/pack/engine — contracts_kind_signature_test.go must still find
+              sig-mismatch.go and sig-kinds-mismatch.go with unchanged contents
+              (CLM-009 / SE7).
+            · cmd/backstop — the contract gate E2E harness installs
+              packs/contracts through the real distribution.Add path, where
+              validation is unconditional. It also newly exercises
+              testdata/hermetic-remote/acceptance-lint-pack's pattern-arg rule for
+              the first time; that pack's polarity is already correct and it is
+              expected to PASS. If it does not, STOP AND REPORT rather than editing
+              that pack — an unexpected failure there is a finding about the
+              sandboxed convert path, not a fixture to adjust.
+
+          Record the readings verbatim. If any suite is still red, do not proceed
+          to phase 3 and do not weaken a test.
+        files:
+          - packs/contracts/pack.yml
+          - packs/contracts/testdata/fixtures/sig-absent.go
+          - packs/contracts/testdata/fixtures/sig-kinds-absent.go
+          - pkg/packval/contracts_pack_dispatch_test.go
+        claims:
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-005
+
+  - id: phase-3
+    name: "Phase 3: Full kill chain, residual filing, and close-out"
+    tasks:
+      # ORDERING NOTE. The full kill chain (TASK-008) runs FIRST in this phase and
+      # the close-out (TASK-007) depends on it, because the close-out banner has to
+      # RECORD the kill-chain readings. An earlier draft had this the other way
+      # round — TASK-007 was asked to transcribe readings from a task that had not
+      # run yet. Do not restore that order.
+      - id: TASK-008
+        type: verification
+        title: "Full kill chain, whole-repo suite, and artifact validation"
+        description: |
+          Run, from the repo root, and read every result:
+
+              ./bin/backstop gate --all
+              go test ./... -count=1
+              ./bin/backstop artifact validate --plan PLAN-ISSUE-142
+
+          `gate --all` is the unscoped kill chain: artifact validation, findings
+          engines, test verification, substantiveness, coverage, contracts, status
+          drift, traceability, waivers, baseline, ledger integrity.
+
+          TOOL PRECONDITION. `go test ./... -count=1` now needs ast-grep 0.43.0,
+          grep and jq on PATH — three PRE-EXISTING suites
+          (pkg/pack/distribution/contracts_local_install_test.go,
+          contracts_provisioning_test.go, cmd/backstop/gate_contract_e2e_test.go)
+          drive packs/contracts through validation and HARD-FAIL without them.
+          See "A NEW TOOL DEPENDENCY" in the notes. If a tool is missing, install
+          it and re-run — do NOT add a skip to a pre-existing suite, and do not
+          report a green over a tool-absence failure.
+
+          Coverage: `pkg/packval` must stay at or above this plan's threshold. The
+          new code is small and directly exercised; if coverage drops, add
+          assertions rather than lowering the bar.
+
+          INHERITED RED IS NOT THIS LANE'S TO ABSORB. This is a shared tree with
+          concurrent lanes and a known open cluster (ISSUE-148 keeps
+          packs/substantiveness's own fixtures inverted, which reds a set of
+          cmd/backstop tests independent of this work). If a failure is present,
+          prove it is inherited — reproduce it in a clean-HEAD control worktree —
+          name the owning issue, and record the reading. Never waive it, and never
+          claim green over it.
+
+          This task validates the plan while it still reads `status: draft`, which
+          is correct — the status flip is TASK-007's, and TASK-007 re-runs
+          `artifact validate --plan PLAN-ISSUE-142` after making it.
+
+          Do not commit, push, or open a PR. Report the readings verbatim; they
+          are TASK-007's input.
+        files:
+          - pkg/packval/manifest.go
+          - pkg/packval/phase3.go
+          - pkg/packval/phase3_patternarg_dispatch_test.go
+          - pkg/packval/contracts_pack_dispatch_test.go
+          - packs/contracts/pack.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-005
+          - TASK-006
+
+      - id: TASK-009
+        type: documentation
+        title: "File the external go-contracts mirror residual (R1) rather than leaving it a note"
+        description: |
+          R1 is a real, dated consequence of landing phase 1 and it gets FILED,
+          matching the rigor PLAN-ISSUE-148 applies to its own analogous residual
+          (its TASK-005). Do NOT absorb it into this lane and do NOT leave it as
+          an unfiled note in the notes block.
+
+          Route it properly: `./bin/backstop artifact new issue --slug
+          go-contracts-mirror-inverted-fixture-polarity` to reserve the ID, then
+          hand the content to the issue-author agent. Do NOT hand-write the issue
+          file.
+
+          THE ISSUE MUST CARRY ALL FOUR OF THESE, stated as measured, with the
+          measurement date (2026-08-17) and the reading method:
+
+            1. THE DEFECT. `.backstop/packs/backstop-ai/go-contracts` (declared
+               `backstop-ai/go-contracts: 1.2.0` in backstop.yml, present in
+               backstop.lock) carries the same 7 pattern-arg rules as the in-repo
+               `packs/contracts` source with the SAME inverted fixture slots —
+               `contract-signature` positive -> sig-mismatch.go, the five kind
+               rules positive -> sig-kinds-present.go — and the same stale
+               comment "positive fixtures DECLARE the kind, negatives OMIT the
+               declared names." Read out of the installed manifest.
+
+            2. THE NEWLY-CREATED CONSEQUENCE. Once this plan's phase 1 lands, the
+               mirror becomes UNINSTALLABLE via `pack add`, `pack update` and
+               `pack upgrade`: all three route through
+               `RunValidationOnScratchCopy` (pkg/pack/distribution/command.go —
+               AddCommand.Run, UpdateCommand.Run, UpgradeCommand.Run), which runs
+               the `pkg/packval` pipeline this lane makes dispatch-live. Six of
+               the seven rules will fail `semgrep-positive` there, exactly as the
+               in-repo source does today.
+
+            3. WHY IT IS NOT URGENT, AND WHAT WOULD MAKE IT URGENT. `pack install`
+               does NOT validate — `NewInstallCommand(git GitCloner)` takes no
+               `Validator` and `InstallCommand.Run` never calls
+               `RunValidationOnScratchCopy` — and CI's fleet step is exactly
+               `./bin/backstop pack install` (.github/workflows/ci.yml, both
+               jobs). So the gate and CI are unaffected. It becomes blocking the
+               first time anyone runs `pack update backstop-ai/go-contracts` or
+               adds the pack to a new consumer repo.
+
+            4. THE FIX SHAPE. Same correction as this plan's TASK-005 applied in
+               the `backstop-ai/go-contracts` repo (two new clean fixtures,
+               re-pointed positive slots, corrected comment), a version bump with
+               a matching git tag, then `pack update` + relock here to adopt it.
+               Note that publishing is FOUNDER-GATED, as PLAN-ISSUE-148's phase 5
+               establishes for the analogous `go-substantiveness` mirror.
+
+          Do NOT file R2, R3 or R4 here — they are pre-existing questions this
+          lane surfaces but does not create, and TASK-007 restates them for the
+          founder to route. R1 is the one this lane's own change makes true.
+
+          Write no separate report, summary or findings file.
+        files:
+          - issues/
+        claims:
+          - CLM-008
+        depends_on:
+          - TASK-006
+
+      - id: TASK-007
+        type: documentation
+        title: "Stamp the AS-BUILT close-out on this plan"
+        description: |
+          Prepend an AS-BUILT banner to this plan's `notes` and flip `status:
+          draft` -> `completed`, following the convention this repo's close-outs
+          use (see PLAN-ISSUE-141 for the shape). The tasks, claims and sharp edges
+          are the AUTHORED record and are left unrewritten; the banner reconciles
+          them to what shipped.
+
+          It must record, verified against the working tree rather than
+          transcribed from memory:
+            · the final shape of the `RunFixtures` eligibility block and the
+              `RuleDispatchInput` accessor as they actually landed;
+            · every mandated test name, confirmed present;
+            · the FALSIFICATION BAR outcome per test — the observed pre-fix red and
+              its failure mode, including the two-stage reading for
+              TestContractsPack_PatternArgFixturesDispatchAndDiscriminate;
+            · the `backstop gate --all` and whole-repo `go test` readings TASK-008
+              produced, verbatim, including any inherited red with its owning
+              issue named;
+            · the ISSUE ID TASK-009 reserved for R1, so R1 stops being a residual
+              and becomes a pointer;
+            · residuals R2-R4 restated with their current status, so the founder
+              can route R2 (the two-Rule-model unification) and R3 (the phase-1
+              declares-nothing structural check, which CLM-006 explicitly does not
+              close) as issues.
+
+          Then re-run `./bin/backstop artifact validate --plan PLAN-ISSUE-142`
+          against the edited file — the status flip happened after TASK-008's
+          validation, so this is what confirms the plan still validates as
+          `completed`.
+
+          Write no separate report, summary or findings file. This plan is the
+          record.
+        files:
+          - plans/PLAN-ISSUE-142-packval-pattern-arg-fixtures-never-dispatch.plan.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-006
+          - TASK-008
+          - TASK-009
