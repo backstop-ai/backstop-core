@@ -1,0 +1,831 @@
+---
+plan_id: PLAN-ISSUE-146
+spec_id: ISSUE-146
+created: "2026-08-17"
+status: completed
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./pkg/pack/... ./cmd/backstop/... -run 'TestScaffoldPack|TestPackNew' -race"
+coverage_threshold: 90
+
+notes: |
+  ╔═══════════════════════════════════════════════════════════════════════════╗
+  ║ AS-BUILT — CLOSED 2026-08-17, status: completed, commit bec4a9e on main.  ║
+  ╚═══════════════════════════════════════════════════════════════════════════╝
+  Everything BELOW this banner is the plan AS AUTHORED and is left verbatim —
+  no task, claim or premise has been rewritten after the fact. This banner is
+  the only as-built layer. Where the delivered work differs from what the plan
+  predicted, the banner says so; it does not edit the prediction away.
+
+  ── WHAT ACTUALLY LANDED ───────────────────────────────────────────────────
+  Three files, exactly this plan's scope fence, nothing else (`git show --stat
+  bec4a9e`):
+    pkg/pack/scaffold.go                        +64 / -9
+    pkg/pack/scaffold_test.go                   +165
+    cmd/backstop/pack_new_falsification_test.go +142 (new)
+  Every file fenced OUT stayed out: `pkg/packval/**`, `cmd/backstop/pack_new.go`,
+  `cmd/backstop/pack_new_test.go` and `cmd/backstop/pack_authoring_loop_test.go`
+  are absent from the commit. The shipped acceptance test
+  `TestPackNew_ScaffoldPassesCheckAndTest` went green BY THE FIX, unedited —
+  which is what makes its green worth anything.
+
+  ── CLAIM-BY-CLAIM, VERIFIED AGAINST THE FILES AT CLOSE-OUT ────────────────
+  Re-read from the committed tree today, not carried from the implementer's
+  report.
+
+    CLM-001/002 — DELIVERED. `validator` in `scaffoldEnginePack` is a
+      POSIX-builtins-only marker scanner over `marker='BACKSTOP-SAMPLE-VIOLATION'`
+      that prints `"$target: sample rule fired (found $marker)"` and exits 1.
+      `negativeFixture` carries the marker in its comment; `positiveFixture`
+      names it nowhere. Pinned by
+      `TestScaffoldPack_SampleValidatorFiresOnNegativeFixture` and
+      `...IsSilentOnPositiveFixture` (pkg/pack/scaffold_test.go).
+
+    CLM-003 — DELIVERED, AND THIS IS THE LANE'S REAL WIN.
+      `TestPackNew_ScaffoldedPackTestFailsWhenNegativeFixtureLosesTheMarker` and
+      `...WhenPositiveFixtureGainsTheMarker` drive the real packval pipeline and
+      pin the CHECK (`validator-negative` / `validator-positive`), not merely a
+      non-pass status. Neither carries a `runtime.GOOS` skip — the prohibition in
+      TASK-002 held, so the falsification is live on Linux CI too.
+
+    CLM-004 — DELIVERED. The `[ -f "$target" ] || continue` guard ships, with an
+      in-script comment naming the gate-time directory argument as its reason.
+      `TestScaffoldPack_SampleValidatorIgnoresNonFileTargets` pins it.
+
+    CLM-005 — DELIVERED, INCLUDING THE PART THAT WAS EASY TO GET WRONG.
+      `TestScaffoldPack_ScaffoldedBytesDoNotClaimAlwaysPasses` forbids the
+      SUBSTRING `always pass` over NORMALISED text (`normalizeScaffoldProse` —
+      lower-case then collapse newline/whitespace/`#` runs to a single space),
+      across all three pack types and all three arms. The pack.yml arm — the one
+      premise 7 measured as green-under-a-raw-scan and therefore vacuous — is
+      genuinely covered: the manifest's rule comment now reads "flags any file
+      carrying the marker BACKSTOP-SAMPLE-VIOLATION: the negative fixture carries
+      it, the positive fixture does not." The `packTypeBlurb` arm shipped
+      unedited, correctly: it was already honest and TASK-003 forbade
+      manufacturing a red for it.
+
+  ── THE THREE-LEG PROMISE CHECK, RECORDED HONESTLY ─────────────────────────
+  TASK-005 required these reported separately rather than collapsed. They were:
+    · `pack check` — strengthened (shape unchanged, but it now describes a rule
+      that does something).
+    · `pack test`  — GENUINELY strengthened. The phase-3 pass was unfalsifiable
+      before this lane and is falsified in both directions now.
+    · `backstop gate` — NOT strengthened. Behaviourally IDENTICAL to the old
+      `exit 0` validator: no `input_scope`, so the single argument is the project
+      root directory and the `[ -f ]` guard skips it. Nothing is scanned.
+      This is stated in `scaffoldEnginePack`'s doc comment in the shipped code —
+      "because the sample scans NOTHING there, not because it looked and found a
+      project clean" — rather than left for a reader to discover. The close-out
+      does not claim the gate leg improved.
+  `cmd/backstop/pack_new.go` needed no edit under any leg, as TASK-005 predicted.
+
+  ── INHERITED RED, CORRECTLY NOT MASKED ────────────────────────────────────
+  R-1 / ISSUE-147 held exactly as premise 4 predicted:
+  `TestPackAuthoringLoop_EndToEnd` stays red on darwin. Proven inert to this lane
+  by reproducing against a FULLY FIXED pack — absolute packDir passes all six
+  phases; relative packDir (what that E2E does) still crashes identically. No
+  absolute-path workaround, no skip, no waiver was added to make it green. The
+  temptation TASK-005 named was refused.
+
+  ── RESIDUAL TO ROUTE ──────────────────────────────────────────────────────
+  R-2 remains OPEN and UNFILED as of this close-out: should the scaffold ship
+  `input_scope` so the gate leg strengthens too? That trade — a sample rule that
+  walks and scans every project file, versus one that is a deliberate gate-time
+  no-op — is a founder-level product decision, not an implementer's call. Route
+  to issue-author. Until it is filed, the honest statement of this lane's reach
+  is: a freshly scaffolded pack now discriminates under `pack test`, and still
+  enforces nothing at gate time.
+
+  ══ WHAT THIS LANE IS, IN ONE SENTENCE ═════════════════════════════════════
+  `backstop pack new` writes a sample sandbox validator that is `exit 0` and a
+  negative fixture byte-identical in substance to the positive one, so no
+  freshly-scaffolded pack has ever discriminated between its own positive and
+  negative fixtures. The dispatch machinery is CORRECT (PLAN-ISSUE-092 fixed it);
+  the AUTHORED CONTENT is the defect. Fix = the three string literals in
+  `pkg/pack/scaffold.go`. `pkg/packval` is NOT touched.
+
+  ── CLAIM ROSTER ───────────────────────────────────────────────────────────
+  ISSUE-146 carries no `claims:` block (issues are not required to). This plan
+  therefore DEFINES its own five claims here; every `claims:` entry on every task
+  below resolves against this roster and nothing else.
+
+    CLM-001 — The validator `backstop pack new` writes DISCRIMINATES: run against
+      the scaffolded negative fixture it exits non-zero and prints a message
+      naming the target; run against the scaffolded positive fixture it exits
+      zero. Neither half alone satisfies this claim.
+    CLM-002 — The scaffolded FIXTURE PAIR carries the discriminating property, not
+      just the script: the negative fixture contains the marker the validator
+      detects and the positive fixture does not contain it anywhere, comments
+      included.
+    CLM-003 — The green is EARNED, proven by falsification through the real
+      packval pipeline: a freshly scaffolded pack passes `pack test`, AND
+      neutralising the negative fixture's marker makes phase 3 fail with
+      `validator-negative`, AND planting the marker in the positive fixture makes
+      phase 3 fail with `validator-positive`.
+    CLM-004 — The scaffolded pack remains GATE-GREEN in a real consumer project:
+      the validator exits zero when handed a non-regular-file target, which is the
+      project-root DIRECTORY that `runSandboxEngine` passes at gate time.
+    CLM-005 — No shipped byte still advertises the defect: after NORMALISING each
+      artefact's text — collapsing every run of newline + leading whitespace +
+      optional `#` comment-continuation prefix down to a single space — neither
+      the written validator, nor the written `pack.yml`, nor any `packTypeBlurb`
+      string contains `always pass` in any casing or inflection. THE
+      NORMALISATION IS LOAD-BEARING, NOT COSMETIC: a raw substring scan is
+      VACUOUS on the pack.yml arm, which is the arm that matters most. See
+      premise 7.
+
+  ── PREMISES RE-MEASURED FRESH AT HEAD c586af3 (2026-08-17) ────────────────
+  Every number below was produced by running the real binary and the real test
+  suite in this tree today. Nothing is carried from the issue's prose.
+
+  1. THE DEFECT REPRODUCES, EXACTLY AS FILED.
+       $ backstop pack new --type engine --language go --slug demoprobe
+       $ backstop pack test /abs/path/demoprobe
+       status: fail
+       ERROR [phase3-fixtures/validator-negative] layer3 negative unexpectedly passed
+     `phase3-fixtures` is the ONLY failing phase; 1, 2 pass and 4, 5, 6 are
+     skipped behind it. The scaffolded files are verbatim what the issue quotes:
+     validator = `exit 0`, positive and negative fixtures differ only in their
+     leading comment line.
+
+  2. `TestPackNew_ScaffoldPassesCheckAndTest` (cmd/backstop/pack_new_test.go) is
+     RED RIGHT NOW, on all three pack types, with exactly that message:
+       type engine:    ... layer3 negative unexpectedly passed
+       type mechanism: ... layer3 negative unexpectedly passed
+       type toolchain: ... layer3 negative unexpectedly passed
+     This test builds its packDir from `t.TempDir()` — an ABSOLUTE path — so it
+     is clean of the ISSUE-147 confound described in premise 4. ITS RED IS THIS
+     LANE'S RED, and turning it green is this lane's primary acceptance signal.
+
+  3. ★ THE FIX SHAPE IS MEASURED, NOT PROPOSED. Two candidate validators were
+     built into a real scaffolded pack in a scratch tree and run through the REAL
+     `pack test` pipeline under the REAL darwin sandbox (`sandbox-exec`):
+       (A) POSIX-shell-builtins only (`while read` + `case`)  -> phase3 PASS
+       (B) external `grep -q`                                 -> phase3 PASS
+     Both work. **This plan prescribes (A).** Reason: (A) spawns no external
+     process, so it makes NO assumption about which binaries the sandbox read
+     allowlist exposes. The darwin profile (`darwinSandboxProfile`,
+     pkg/packval/sandbox_nonlinux.go) grants file-read only on packDir plus a
+     handful of system/dyld/Homebrew subpaths — `/usr/bin` is NOT among them, and
+     (B) happens to work only because `(import "bsd.sb")` covers it. The Linux
+     arm is a completely different mechanism (Landlock + seccomp re-exec
+     trampoline, pkg/packval/sandbox_linux.go) and was NOT measured here. A
+     builtin-only validator is correct under both by construction.
+
+     Candidate (A) was FALSIFIED IN BOTH DIRECTIONS on the real pipeline — this
+     is what proves the green is earned rather than structural:
+       · marker removed from the negative fixture
+           -> `[validator-negative] layer3 negative unexpectedly passed`  (FAIL)
+       · marker planted in the positive fixture
+           -> `[validator-positive] layer3 positive failed`               (FAIL)
+       · both fixtures correct
+           -> phase3 PASS, whole pipeline PASS, exit 0
+     TASK-002 exists to encode exactly these two falsifications as tests.
+
+  4. ⚠ ⚠ THE SECOND NAMED TEST IS RED FOR A DIFFERENT REASON, AND THIS LANE
+     CANNOT TURN IT GREEN. ISSUE-146's body names two failing tests. The second,
+     `TestPackAuthoringLoop_EndToEnd` (cmd/backstop/pack_authoring_loop_test.go),
+     fails at STEP 3 with a DIFFERENT message:
+       pack_authoring_loop_test.go:96: pack test failed (exit 1):
+       ERROR [phase3-fixtures/validator-positive] layer3 positive failed
+     Not `validator-negative`. That test invokes `runBackstop(t, bin, packDir,
+     "pack", "test")` with cwd=packDir and NO positional path, so packval receives
+     a RELATIVE packDir of "." — which is ISSUE-147 (a relative packDir makes
+     sandbox-exec refuse the profile outright, exit 71, stderr discarded). Every
+     validator run then reports not-passed, so the POSITIVE fixture fails first
+     and ISSUE-146 is masked behind it.
+
+     PROVEN DIRECTLY, not inferred: the scratch pack carrying the FIXED candidate
+     (A) validator and fixtures was run both ways —
+       relative packDir (what the E2E does) -> `[validator-positive] layer3 positive failed`
+       absolute packDir                     -> phase3 PASS, pipeline PASS
+     So `TestPackAuthoringLoop_EndToEnd` STAYS RED ON DARWIN after this lane
+     lands. It is blocked on ISSUE-147, which is `status: open` with NO plan in
+     `plans/` as of 2026-08-17.
+
+     ✋ DO NOT "FIX" IT BY PASSING AN ABSOLUTE PATH IN THAT TEST. Editing the
+     E2E to hand `pack test` an absolute packDir would turn the test green while
+     masking a filed, unfixed, critical-risk defect — the exact vacuous-green
+     move DIR-032 exists to kill. That file is OUT of this plan's scope (see the
+     SCOPE FENCE) and must not be touched. On Linux CI the test SKIPS
+     (`runtime.GOOS != "darwin"` -> t.Skip), so CI is unaffected either way.
+     This is a sequencing/priority judgment call and is being surfaced to the
+     founder rather than resolved inside this plan.
+
+  5. THE GATE-TIME TARGET IS A DIRECTORY, AND THAT IS LOAD-BEARING. The
+     scaffolded rule declares no `input_scope`, so at gate time
+     `runSandboxEngine` (cmd/backstop/pack_gate.go, the `targets :=
+     []string{projectRoot}` branch) hands the validator ONE argument: the project
+     ROOT DIRECTORY. A non-zero exit there becomes a blocking gate violation. A
+     naive marker-scanning validator that does not guard for this would red every
+     consumer's gate on its first run. The `[ -f "$target" ] || continue` guard in
+     TASK-003 is what prevents that, and CLM-004/TASK-001 is what pins it. The
+     guard was probed directly: directory argument -> exit 0.
+     ⚠ READ THE COROLLARY, NOT JUST THE GUARD: because the ONLY argument is that
+     directory and the guard skips it, the sample rule scans NOTHING at gate
+     time — after this lane exactly as before it. Gate-green here means "cannot
+     fire", not "checked and clean". That gap is residual R-2 below; every piece
+     of prose this plan prescribes must respect it.
+
+  6. MARKER STRING IS UNUSED IN THIS REPO. `grep -rl BACKSTOP-SAMPLE-VIOLATION .`
+     returns zero hits at HEAD c586af3, so introducing it creates no collision
+     with backstop-core's own corpus, its `packs/`, or its installed
+     `.backstop/packs/backstop-ai`.
+
+  7. ★ CLM-005's THREE ARMS ARE NOT SYMMETRIC, AND ONLY ONE IS RED-FIRST UNDER A
+     RAW SCAN. Measured on a fresh `pack new --type engine --slug demoprobe` at
+     HEAD c586af3, case-insensitive whole-file scan for the literal `always pass`:
+
+       arm                          raw scan     normalised scan
+       ─────────────────────────────────────────────────────────
+       validators/demoprobe.sh      MATCH (red)  MATCH (red)
+       pack.yml                     NO MATCH     MATCH (red)
+       packTypeBlurb (all 3 types)  NO MATCH     NO MATCH
+
+     The pack.yml arm's raw MISS is not an absence of the defect — the phrase IS
+     there, split across a line break by the `manifest` format string, which
+     emits the bytes:
+
+         # Sample enforcement rule. Its validator (validators/%s.sh) currently always
+         #  passes — replace it with your real detection and make the negative fixture
+
+     i.e. `...currently always\n      # passes — replace it...`. A raw substring
+     scan therefore reports GREEN on the single most consequential arm: the
+     comment every new pack author reads first. A guard built that way would let
+     an implementer fix only the `validator:` literal and ship a pack.yml still
+     telling authors "its validator currently always passes", with the build
+     green. NORMALISE BEFORE MATCHING. TASK-001 specifies the normalisation.
+
+     The `packTypeBlurb` arm is NOT red-first under either scan — today's three
+     blurbs say "Replace the sample sandbox validator with your own", which makes
+     no always-pass claim. Its guard is a REGRESSION FENCE, not a red-first
+     assertion, and that is fine: it is the one arm TASK-003 may legitimately
+     leave byte-identical. Do not manufacture a red for it.
+
+  ── RESIDUALS ROUTED OUT OF THIS LANE ──────────────────────────────────────
+  Known-true limitations this lane deliberately does NOT close. Each is to be
+  handed to issue-author as a follow-on at close-out, not fixed here.
+
+  R-1. ISSUE-147 (already filed, `status: open`, no plan): a RELATIVE packDir
+       makes sandbox-exec refuse the profile outright, so every validator run
+       reports not-passed. This is why `TestPackAuthoringLoop_EndToEnd` stays red
+       on darwin after this lane lands. Full evidence in premise 4.
+
+  R-2. NOT YET FILED — file it at close-out. THE SAMPLE RULE SCANS NO PROJECT
+       FILE AT GATE TIME UNTIL AN AUTHOR ADDS `input_scope`. The scaffolded rule
+       declares no `input_scope`, so `runSandboxEngine`
+       (`cmd/backstop/pack_gate.go`, the `targets := []string{projectRoot}`
+       branch) hands the validator exactly ONE argument — the project ROOT
+       DIRECTORY — and the `[ -f "$target" ] || continue` guard skips it. Net
+       gate-time behaviour after this fix is IDENTICAL to the old `exit 0`
+       validator: nothing is scanned, no violation is possible.
+
+       This lane still fixes a real defect — the `pack check` / `pack test` legs
+       genuinely gain discrimination — but it does NOT make a scaffolded pack
+       enforce anything against a consumer project. Do not let the plan's prose,
+       the scaffolder's doc comment, or TASK-005's write-up claim otherwise.
+       Closing R-2 means deciding whether the scaffold should ship
+       `input_scope: single-file` (which makes the gate WALK AND SCAN EVERY
+       PROJECT FILE — a real product decision with a real cost, explicitly out of
+       scope here per TASK-003) or should keep the directory shape and say so
+       plainly in the author-facing comment.
+
+  ── EXISTENCE-IN-WORLD CHECK (2026-08-17) ──────────────────────────────────
+  No artifact already owns this surface.
+    * `grep -rln pkg/pack/scaffold.go plans/ specs/` returns PLAN-ISSUE-032,
+      PLAN-SPEC-011, PLAN-SPEC-039 and SPEC-011/039/054. All are `completed` or
+      predate the defect: PLAN-ISSUE-032 DELIVERED the pack.yml-emitting
+      scaffolder these literals live in but never addressed validator/fixture
+      CONTENT; PLAN-SPEC-011 is the original `pack new`; PLAN-SPEC-039/SPEC-039
+      cite the file only for the deleted-standards-writer tombstone.
+    * PLAN-ISSUE-092 (`status: completed`) names ISSUE-146 explicitly in its
+      as-built close-out and scoped it OUT by name: "This is THIS lane's own true
+      positive, correctly scoped OUT: it lives in pkg/pack/scaffold.go, outside
+      this plan's file list." No subsumption — that plan's fix is the reason this
+      defect became visible, not a delivery of it.
+    * The four in-flight DIR-032 phase3 siblings (PLAN-ISSUE-142, -144, -148,
+      -151) are now ALL FULLY AUTHORED, and none of them names any file this plan
+      claims. Measured file-scope disjointness, not emptiness — see the collision
+      check below.
+
+  ── CROSS-LANE COLLISION CHECK (2026-08-17, HEAD c586af3) ──────────────────
+  `git status --porcelain` was run against the intended file scope before it was
+  named. Result: **ZERO collisions.** None of this plan's four files is modified
+  or untracked in the working tree.
+    · pkg/pack/scaffold.go                        — clean, not in git status
+    · pkg/pack/scaffold_test.go                   — clean, not in git status
+    · cmd/backstop/pack_new_falsification_test.go — new file, does not exist yet
+    · plans/PLAN-ISSUE-146-...plan.yml            — this file (untracked, ours)
+  The tree IS heavily shared tonight (~60 untracked agent-memory files plus the
+  four sibling DIR-032 plans and two untracked layout test files under
+  cmd/backstop/ and pkg/gate/), but `git status --porcelain pkg/pack` is EMPTY —
+  nothing touches pkg/pack/ at all.
+
+  ★ THE SIBLINGS ARE NO LONGER EMPTY SCAFFOLDS. An earlier revision of this plan
+  cleared them on the grounds that all four were `phases: []`. That premise is
+  now STALE and has been discarded. All four are fully authored (PLAN-ISSUE-142:
+  963 lines / 8 tasks; -144: 655 / 5; -148: 907 / 9; -151: 690 / 11). The
+  conclusion was therefore RE-DERIVED from scratch on the authored text, by
+  extracting every `files:` entry from every task of every sibling and
+  intersecting it with this plan's three source files. THE INTERSECTION IS
+  EMPTY. Restated as measured disjointness:
+    * PLAN-ISSUE-142 — packs/contracts/**, pkg/packval/{manifest,phase3}.go and
+      its patternarg testdata + tests. It DOES touch pkg/packval/phase3.go, the
+      one genuine near-miss; it fences the validator branches out of its own
+      scope by name ("DO NOT touch: the validator branches"), which is the same
+      seam this plan fences OUT. Compatible, not colliding.
+    * PLAN-ISSUE-144 — pkg/packval/executor.go + one new executor test.
+    * PLAN-ISSUE-148 — packs/substantiveness/** , the external
+      backstop-go-substantiveness-pack repo, backstop.yml/.lock, and six
+      cmd/backstop/gate_substantiveness_*/substantiveness_* test files. It is the
+      only sibling sharing a PACKAGE (cmd/backstop) with this lane, and it names
+      no `pack_new*` file — this plan's cmd/backstop file is
+      pack_new_falsification_test.go, which appears in no sibling's scope.
+    * PLAN-ISSUE-151 — pkg/packval/pathscope*.go, phase2.go, its path-scope
+      testdata, and two cmd/backstop/ci_* test files.
+  NONE of the four names pkg/pack/scaffold.go, pkg/pack/scaffold_test.go, or any
+  cmd/backstop/pack_new* file. If any of them is later amended to claim one,
+  STOP AND FLAG — this lane owns those three.
+    * The two untracked test files in the tree
+      (cmd/backstop/gate_substantiveness_layout_test.go,
+      pkg/gate/step_testverify_layout_test.go) belong to another lane and are in
+      neither of this plan's packages.
+  ⚠ CITE BY NAME, NOT BY LINE. Line numbers in ISSUE-146's body
+  (`scaffold.go:184`, `:135-182`, `:186`, `pack_new.go:30`) were taken 2026-08-16
+  and this file is short enough that any edit moves them. Locate the edit sites
+  by IDENTIFIER: the `validator`, `positiveFixture` and `negativeFixture` local
+  variables and the `manifest` format string inside `scaffoldEnginePack`, plus
+  `packTypeBlurb`.
+
+  ── SCOPE FENCE ────────────────────────────────────────────────────────────
+  IN : pkg/pack/scaffold.go
+         - `validator` literal            -> discriminating marker scanner
+         - `negativeFixture` literal      -> carries the marker
+         - `positiveFixture` literal      -> does not carry the marker
+         - the `manifest` format string's inline rule comment ("currently always
+           passes")
+         - `scaffoldEnginePack`'s doc comment ("runSandboxEngine runs the
+           always-pass validator")
+         - `packTypeBlurb`'s three per-type blurbs, only insofar as they assert
+           the sample does nothing
+       pkg/pack/scaffold_test.go            (unit-level discrimination + guards)
+       cmd/backstop/pack_new_falsification_test.go  (NEW — real-pipeline falsification)
+  OUT: pkg/packval/**  — ENTIRELY. The dispatch is correct post-PLAN-ISSUE-092;
+       the polarity comment on the validator seam in phase3.go is deliberate and
+       already carries its own "DO NOT HARMONIZE" warning. Touching it implements
+       a different issue.
+  OUT: cmd/backstop/pack_authoring_loop_test.go — blocked on ISSUE-147, see
+       premise 4. Do not edit it, do not add an absolute path, do not add a skip.
+  OUT: cmd/backstop/pack_new_test.go — `TestPackNew_ScaffoldPassesCheckAndTest`
+       must go green BY THE FIX, with its assertions untouched. It is the
+       shipped acceptance signal; editing it would forfeit that.
+  OUT: cmd/backstop/pack_new.go — its Long help ("a sample rule that passes pack
+       check, pack test, and the gate") becomes TRUE IN THE STRONGER SENSE once
+       this lands, per ISSUE-146's own ruling. TASK-005 re-reads it to confirm
+       that; it does not edit it.
+  OUT: ISSUE-147 itself (the relative-packDir sandbox refusal). Separate issue,
+       separate lane, critical risk, no plan yet.
+
+  ── THE VALIDATOR CONTRACT, STATED ONCE ────────────────────────────────────
+  Two callers, two argument shapes, and the script must be correct under both:
+    · `pack test` (pkg/packval/phase3.go -> DefaultExecutor.RunValidator ->
+      SandboxedRun): argv is ONE FIXTURE FILE path, relative to packDir, with
+      cwd=packDir. Non-zero exit == "this fixture violates".
+    · `backstop gate` (cmd/backstop/pack_gate.go -> runSandboxEngine): argv is
+      ONE PROJECT ROOT DIRECTORY. Non-zero exit == a blocking gate violation.
+  Therefore: flag on marker-bearing REGULAR FILES, and exit 0 on everything else.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Tests that pin a discriminating validator/fixture pair (red)"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Unit-pin the scaffolded validator/fixture pair: it fires on the negative, is silent on the positive, ignores directories, and no longer claims it always passes"
+        description: |
+          Add four tests to `pkg/pack/scaffold_test.go` (package `pack`, existing
+          file, currently clean in the working tree). They must be RED before
+          TASK-003 and GREEN after it.
+
+          These run the scaffolded validator DIRECTLY (`exec.Command("sh",
+          <validatorPath>, <target>)`) rather than through packval. That is
+          deliberate and is not a weaker proof — it is a DIFFERENT proof at a
+          different altitude, and it is the only one available here: `pkg/packval`
+          imports `pkg/pack`, so a test in package `pack` cannot import packval
+          without a cycle. The real-pipeline, real-sandbox proof lives in TASK-002
+          and in the already-shipped `TestPackNew_ScaffoldPassesCheckAndTest`.
+
+          Drive every test off a real `ScaffoldPack` call into `t.TempDir()` —
+          never off a hand-copied literal. A test that restates the expected
+          script bytes instead of executing the ones the scaffolder actually
+          wrote would pass while the shipped scaffolder was broken.
+
+          `TestScaffoldPack_SampleValidatorFiresOnNegativeFixture` (CLM-001,
+            CLM-002) — scaffold, then run the written validator against the
+            written NEGATIVE fixture path. Assert a NON-ZERO exit. Assert the
+            combined output is non-empty and names the target path — a silent
+            non-zero exit gives a pack author nothing to act on, and
+            `runSandboxEngine` uses that output verbatim as the violation
+            message (falling back to the bare error string when it is empty).
+
+          `TestScaffoldPack_SampleValidatorIsSilentOnPositiveFixture` (CLM-001,
+            CLM-002) — same setup, POSITIVE fixture, assert exit ZERO.
+            THESE TWO ARE A PAIR AND NEITHER IS SUFFICIENT ALONE. A validator
+            that exits non-zero unconditionally passes the first and fails the
+            second; the old `exit 0` validator passes the second and fails the
+            first. Only both together assert discrimination.
+
+          `TestScaffoldPack_SampleValidatorIgnoresNonFileTargets` (CLM-004) — run
+            the validator with the scaffolded PACK DIRECTORY as its single
+            argument and assert exit ZERO. This is the gate-time shape: see
+            premise 5 in the notes. Say so in the test's comment, and name
+            `runSandboxEngine` in it, so a future reader cannot mistake this for
+            an incidental edge case and delete it. Assert the same for a path
+            that does not exist at all.
+
+            ⚠ THE DIRECTORY ARGUMENT MUST BE THE SCAFFOLDED PACK DIRECTORY, NOT A
+            BARE `t.TempDir()`. This is what makes the test a REAL NEGATIVE
+            rather than a shape check: after TASK-003 the scaffolded pack dir
+            CONTAINS a marker-bearing file (`fixtures/invalid/example.txt`), so
+            passing it proves the validator refuses to recurse into a directory
+            even when the marker is demonstrably reachable underneath it. Handed
+            an empty temp dir instead, the assertion is satisfied trivially by a
+            validator with no `[ -f ]` guard at all — it would find nothing
+            regardless — and CLM-004 would be pinned by nothing. An implementer
+            "simplifying" this to `t.TempDir()` silently guts the test; DO NOT.
+            State this in the test's own comment so the next reader knows the
+            marker-bearing content is the point.
+
+          `TestScaffoldPack_ScaffoldedBytesDoNotClaimAlwaysPasses` (CLM-005) — a
+            DRIFT GUARD over the scaffolder's own prose. Scaffold one pack of each
+            of the three types and assert that NEITHER the written
+            `validators/<slug>.sh` NOR the written `pack.yml` NOR the value
+            returned by `packTypeBlurb` claims the sample always passes.
+
+            ★ NORMALISE THE TEXT BEFORE MATCHING — A RAW SUBSTRING SCAN IS
+            VACUOUS ON THE pack.yml ARM. Measured at HEAD c586af3 (notes, premise
+            7): the scaffolded pack.yml does NOT literally contain `always pass`,
+            because the `manifest` format string wraps the phrase across a line
+            break with a `#` comment-continuation prefix — the emitted bytes are
+            `...currently always\n      # passes — replace it...`. So a raw
+            `strings.Contains(strings.ToLower(b), "always pass")` reports GREEN on
+            the one arm an author actually reads. Instead, normalise each
+            artefact first: lower-case it, then collapse every run of
+            newline + whitespace + optional `#` + whitespace into a SINGLE SPACE
+            (a small regexp such as `(?s)\s*\n\s*#?\s*` → `" "`, applied before
+            the containment check, is sufficient and is what was measured to
+            catch the wrapped phrase). Then assert `always pass` is absent — the
+            substring, case-insensitively, so it also catches "always passes",
+            "always-pass" and "always passing". Forbid the SUBSTRING, never an
+            exact sentence: an exact-sentence assertion is evaded by any rewording
+            that keeps the claim.
+
+            ⚠ KNOW WHICH ARMS ARE RED-FIRST AND DO NOT FAKE THE REST. Under the
+            NORMALISED scan at HEAD, the validator arm is RED and the pack.yml arm
+            is RED — those two are this test's genuine red-first assertions and
+            TASK-003 must turn both. The `packTypeBlurb` arm is ALREADY GREEN
+            (today's blurbs say "Replace the sample sandbox validator with your
+            own", which asserts nothing about always passing). Its assertion is a
+            REGRESSION FENCE, and that is a legitimate reason for it to start
+            green — do not reword the blurbs merely to manufacture a red, and do
+            not delete the arm because it does not fail today.
+        files:
+          - pkg/pack/scaffold_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-004
+          - CLM-005
+        test_names:
+          - TestScaffoldPack_SampleValidatorFiresOnNegativeFixture
+          - TestScaffoldPack_SampleValidatorIsSilentOnPositiveFixture
+          - TestScaffoldPack_SampleValidatorIgnoresNonFileTargets
+          - TestScaffoldPack_ScaffoldedBytesDoNotClaimAlwaysPasses
+        depends_on: []
+
+      - id: TASK-002
+        type: test
+        title: "Falsify the scaffolded pack's pack test green in both directions through the real packval pipeline"
+        description: |
+          Create `cmd/backstop/pack_new_falsification_test.go` (NEW file — package
+          `main`, alongside the existing `pack_new_test.go`, which this lane does
+          NOT edit). Two tests, both driving the REAL `packval.NewPipeline(packDir,
+          packval.PipelineOptions{Mode: "test"}).Run()` with the real default
+          executor and the real sandbox, exactly as `pack_new_test.go` already
+          does.
+
+          ★ THESE ARE THE TESTS THAT MAKE THE GREEN MEAN SOMETHING.
+          `TestPackNew_ScaffoldPassesCheckAndTest` already asserts the scaffolded
+          pack PASSES. On its own that assertion is satisfiable by a pack that
+          cannot fail — which is precisely the defect being fixed here. These two
+          tests assert the pass is EARNED by mutating each fixture in turn and
+          requiring phase 3 to go RED. Both mutations were run against a real
+          scaffolded pack on 2026-08-17 and both produced the expected failure;
+          the exact observed messages are recorded in premise 3 of the notes.
+
+          `TestPackNew_ScaffoldedPackTestFailsWhenNegativeFixtureLosesTheMarker`
+            (CLM-003) — scaffold a pack, confirm `Mode: "test"` is `pass`, then
+            REWRITE the negative fixture so it no longer carries the marker, re-run
+            the pipeline, and assert the result is `fail` AND that some error
+            carries `Check == "validator-negative"`. Asserting only `!= "pass"` is
+            not enough: `Pipeline.Run` stops at the first failing phase, so an
+            unrelated phase-1/phase-2 defect would also produce a non-pass while
+            phase 3 never ran. Pin the CHECK, not just the status.
+
+          `TestPackNew_ScaffoldedPackTestFailsWhenPositiveFixtureGainsTheMarker`
+            (CLM-003) — the mirror. Scaffold, confirm pass, then APPEND the marker
+            to the positive fixture, re-run, assert `fail` with an error carrying
+            `Check == "validator-positive"`. This is the direction that catches a
+            validator which fires on everything.
+
+          Do not hardcode the marker literal in these tests. READ it out of the
+          scaffolded negative fixture, or export nothing and derive the mutation
+          by removing/copying the negative fixture's content. A hardcoded copy is
+          a second source of truth that silently rots when the scaffolder changes.
+
+          ⚠ ABSOLUTE PACKDIR, ALWAYS. Build packDir from `t.TempDir()` and pass it
+          whole. A relative packDir triggers ISSUE-147 on darwin — sandbox-exec
+          refuses the profile, EVERY validator run reports not-passed, and both
+          tests would then "pass" for entirely the wrong reason while asserting
+          nothing about fixture content. This is not hypothetical: it is exactly
+          why `TestPackAuthoringLoop_EndToEnd` is red today (notes, premise 4).
+
+          ⛔ DO NOT ADD A `runtime.GOOS` SKIP GATE TO EITHER OF THESE TESTS.
+          Both must run unconditionally on darwin AND on Linux. The nearby
+          `TestPackAuthoringLoop_EndToEnd` skips on `runtime.GOOS != "darwin"`
+          and it would be the natural thing to copy — copying it here would be a
+          defect. BOTH platforms have a real sandbox implementation
+          (`pkg/packval/sandbox_linux.go`, Landlock + seccomp, for linux;
+          `pkg/packval/sandbox_nonlinux.go`, sandbox-exec, for everything else),
+          and the sibling `TestPackNew_ScaffoldPassesCheckAndTest` already runs
+          on both with no GOOS guard at all. These two falsification tests are
+          this lane's ONLY proof that the green is earned; a GOOS gate would make
+          that proof silently dark on Linux CI — exactly the vacuous green
+          DIR-032 exists to kill. If the sandbox genuinely cannot run, let the
+          real error surface; do not pre-empt it with a platform check, and never
+          let a skipped run read as a pass.
+        files:
+          - cmd/backstop/pack_new_falsification_test.go
+        claims:
+          - CLM-003
+        test_names:
+          - TestPackNew_ScaffoldedPackTestFailsWhenNegativeFixtureLosesTheMarker
+          - TestPackNew_ScaffoldedPackTestFailsWhenPositiveFixtureGainsTheMarker
+        depends_on: []
+
+  - id: phase-2
+    name: "Phase 2: A sample validator and fixture pair that genuinely discriminate"
+    tasks:
+      - id: TASK-003
+        type: implementation
+        title: "Replace the always-pass validator and its inert fixture pair with a marker-discriminating triple, and correct the prose that advertised the defect"
+        description: |
+          Edit `pkg/pack/scaffold.go` only. Locate every site BY IDENTIFIER, not by
+          the line numbers ISSUE-146 quotes (notes: CITE BY NAME).
+
+          (1) THE `validator` LITERAL inside `scaffoldEnginePack`. Replace the
+              `exit 0` script with a marker scanner built from POSIX SHELL
+              BUILTINS ONLY — no `grep`, no `sed`, no external process. Shape,
+              measured working end-to-end under the real darwin sandbox on
+              2026-08-17:
+
+                #!/bin/sh
+                # Sample sandbox validator: flags any file containing the marker
+                # below. Replace the marker check with your real detection logic —
+                # exit non-zero and print a message to flag a violation.
+                marker='BACKSTOP-SAMPLE-VIOLATION'
+                status=0
+                for target in "$@"; do
+                  [ -f "$target" ] || continue
+                  while IFS= read -r line || [ -n "$line" ]; do
+                    case "$line" in
+                      *"$marker"*)
+                        echo "$target: sample rule fired (found $marker)"
+                        status=1
+                        break
+                        ;;
+                    esac
+                  done < "$target"
+                done
+                exit $status
+
+              Three properties are load-bearing and none is stylistic:
+                · BUILTINS ONLY. The darwin profile (`darwinSandboxProfile`)
+                  grants file-read on packDir plus a short system allowlist that
+                  does NOT include `/usr/bin`; the Linux arm is an entirely
+                  separate Landlock/seccomp mechanism and was not measured. A
+                  script that spawns nothing is correct under both by
+                  construction. An external `grep` was also measured passing on
+                  darwin — do not take that as license to use it.
+                · `[ -f "$target" ] || continue`. At gate time the single argument
+                  is the PROJECT ROOT DIRECTORY (notes, premise 5). Without this
+                  guard the sample rule reds every consumer's gate immediately.
+                · IT PRINTS THE TARGET. `runSandboxEngine` uses the validator's
+                  combined output verbatim as the violation message.
+
+              The `|| [ -n "$line" ]` on the `read` is deliberate, not noise: a
+              bare `while IFS= read -r line` DROPS a final line with no trailing
+              newline, so a marker on an unterminated last line would go
+              undetected. Probed directly on 2026-08-17 — without the guard the
+              marker is missed, with it the marker is found. No claim in this plan
+              depends on it, but this script becomes the example every pack author
+              copies, so it ships correct.
+
+              Keep the comment instructive: it should now tell an author what to
+              replace, not confess that nothing is enforced.
+
+          (2) THE `negativeFixture` LITERAL — must CARRY the marker. Keep it a
+              plausible sample file and make the comment say why it is expected to
+              trip the rule, e.g.:
+                // Negative fixture: the sample rule SHOULD fire here — this line
+                // carries the marker BACKSTOP-SAMPLE-VIOLATION.
+                package sample
+
+          (3) THE `positiveFixture` LITERAL — must NOT carry the marker anywhere,
+              including in its comment. Word its comment so it cannot drift into
+              naming the marker. e.g.:
+                // Positive fixture: clean. The sample rule must NOT fire here.
+                package sample
+
+          (4) THE PROSE THAT IS NOW FALSE. Three sites, all in this file:
+                · the `manifest` format string's inline rule comment, which
+                  currently reads "Its validator (validators/%s.sh) currently
+                  always passes — replace it...". Rewrite it to describe what the
+                  sample actually enforces and how to swap in real logic.
+                · `scaffoldEnginePack`'s doc comment, which says the sandbox shape
+                  makes the pack gate-green because "runSandboxEngine runs the
+                  always-pass validator".
+                  ⚠ DO NOT REPLACE THAT WITH "gate-green because the validator
+                  finds no marker in a real project" — THAT WOULD ALSO BE FALSE,
+                  and it is the more dangerous kind of false because it sounds
+                  like enforcement. Measured (notes, R-2): the scaffolded rule
+                  declares no `input_scope`, so `runSandboxEngine` passes the
+                  validator exactly ONE argument — the project ROOT DIRECTORY —
+                  and the `[ -f "$target" ] || continue` guard skips it outright.
+                  The validator does not scan a project file at gate time; it
+                  scans NOTHING. Write the comment to say that plainly: the pack
+                  is gate-green because the sample rule is handed the project
+                  directory and the `[ -f ]` guard makes it a no-op there, and an
+                  author who wants it to actually scan project files must declare
+                  `input_scope`. Naming the guard is required so the next reader
+                  knows the no-op is deliberate rather than a bug.
+                · `packTypeBlurb`'s three per-type blurbs, only where they assert
+                  the sample does nothing. Today's three make no always-pass
+                  claim, so this site may legitimately need NO edit (notes,
+                  premise 7) — read them, and leave them alone if they are already
+                  honest. Do not reword them just to have changed something.
+              TASK-001's drift guard forbids the NORMALISED substring `always
+              pass` (case-insensitive) in the written validator, the written
+              pack.yml, and every blurb. Because it normalises, it catches a
+              PARTIAL cleanup: fixing only the `validator:` literal leaves the
+              pack.yml comment's line-wrapped "currently always / # passes" in
+              place and the guard stays RED. (Under a raw substring scan it would
+              NOT — that is precisely the vacuity premise 7 documents and TASK-001
+              corrects.) The blurb arm starts green and is a regression fence.
+
+          DO NOT change the rule's declared shape: it keeps `validator:`, no
+          `layer:`, no `input_scope:`, `risk_class: correctness`, and its existing
+          positive/negative fixture paths. Changing `input_scope` to `single-file`
+          would make the gate walk and scan EVERY project file, which is a
+          different product decision and not this issue.
+          DO NOT touch `pkg/packval`. DO NOT touch `cmd/backstop/pack_new.go`.
+          DO NOT touch `cmd/backstop/pack_new_test.go` or
+          `cmd/backstop/pack_authoring_loop_test.go`.
+
+          All three pack types share this one code path, so one edit fixes engine,
+          mechanism and toolchain together — which is what
+          `TestPackNew_ScaffoldPassesCheckAndTest` asserts across all three.
+        files:
+          - pkg/pack/scaffold.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+        depends_on:
+          - TASK-001
+          - TASK-002
+
+      - id: TASK-004
+        type: verification
+        title: "Gate the changed scaffolder file"
+        description: |
+          Run `backstop gate --file pkg/pack/scaffold.go` and read the result.
+
+          Then confirm the two behavioural signals this lane is judged on, using
+          an ABSOLUTE packDir throughout (notes, premise 4):
+
+            go test ./cmd/backstop/ -run 'TestPackNew_ScaffoldPassesCheckAndTest' -count=1
+              -> must be GREEN for all three pack types. It is RED at HEAD c586af3
+                 with `layer3 negative unexpectedly passed`; this lane's fix is
+                 what turns it. If it is still red, the fix is not done — do not
+                 edit the test.
+
+            go test ./pkg/pack/... -run 'TestScaffoldPack' -count=1
+              -> TASK-001's four tests green.
+
+            go test ./cmd/backstop/ -run 'TestPackNew_Scaffolded' -count=1
+              -> TASK-002's two falsification tests green.
+
+          Do NOT run `backstop gate` unscoped here — the tree is shared with
+          several other lanes tonight (notes, collision check) and an unscoped
+          reading would be dominated by violations that are not this lane's. The
+          full sweep and its attribution belong to TASK-005.
+
+          If `pack test` reports `[validator-positive] layer3 positive failed`
+          anywhere, check the packDir you passed BEFORE suspecting the fix: a
+          relative path reproduces that exact message via ISSUE-147 regardless of
+          validator content.
+        files:
+          - pkg/pack/scaffold.go
+          - pkg/pack/scaffold_test.go
+          - cmd/backstop/pack_new_falsification_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+        depends_on:
+          - TASK-003
+
+  - id: phase-3
+    name: "Phase 3: Full-sweep verification and honest attribution"
+    tasks:
+      - id: TASK-005
+        type: verification
+        title: "Full gate sweep, artifact validation, and an attributed reading that does not overclaim"
+        description: |
+          THE COMPREHENSIVE PASS. Three commands, and one piece of honesty.
+
+          1. `backstop gate --all` — the full kill chain, unscoped.
+          2. `backstop artifact validate --plan PLAN-ISSUE-146` — this plan is an
+             artifact this lane authored and must validate clean.
+          3. `go test ./pkg/pack/... ./cmd/backstop/... -count=1` — the two
+             packages this lane touches, whole, not just the -run subsets.
+
+          ⚠ ATTRIBUTE THE SWEEP, DO NOT SUMMARISE IT. The tree is shared with many
+          concurrent lanes (notes, collision check: ~60 untracked agent-memory
+          files, four sibling DIR-032 plan scaffolds, two untracked layout test
+          files in other packages). A red `--all` reading is expected and is
+          mostly not this lane's. Attribute EVERY violation by file path to either
+          (a) a sibling lane, or (b) this lane's three files. Only category (b)
+          blocks. Record the reading and the attribution; do not present a raw
+          violation count as a verdict on this plan.
+
+          ⚠ ONE TEST STAYS RED ON DARWIN AND THAT IS THE CORRECT OUTCOME.
+          `TestPackAuthoringLoop_EndToEnd` will still fail at its step 3 with
+          `[phase3-fixtures/validator-positive] layer3 positive failed`. That is
+          ISSUE-147 (relative packDir defeats sandbox-exec), NOT this lane, and it
+          was measured to persist against a fully-FIXED scaffolded pack (notes,
+          premise 4). Report it as an inherited, separately-filed blocker with
+          that evidence. DO NOT edit the test to pass an absolute path, DO NOT add
+          a skip, DO NOT waive it. On Linux CI it skips on `runtime.GOOS !=
+          "darwin"`, so CI is unaffected.
+
+          FINALLY, THE PROMISE CHECK ISSUE-146 ASKED FOR — AND IT HAS THREE LEGS,
+          NOT ONE. Re-read `cmd/backstop/pack_new.go`'s `Long` help: "a valid
+          pack.yml with a declared engines: block and a sample rule that passes
+          pack check, pack test, and the gate". That sentence names THREE
+          promises, and this lane strengthens only two of them. Report each
+          separately; do NOT collapse them into a claim of uniform improvement.
+
+            · `pack check` — STRENGTHENED. Phases 1–2 validate the manifest and
+              the rule's declared shape; the shape is unchanged, so this leg
+              passes as before, but it now describes a rule that does something.
+
+            · `pack test` — GENUINELY STRENGTHENED, and this is the lane's real
+              win. Phase 3 now runs the validator against both fixtures and they
+              are classified differently. Before this lane the pass was
+              unfalsifiable; TASK-002's two tests prove it is now earned in both
+              directions.
+
+            · `backstop gate` — NOT STRENGTHENED. Unchanged in substance. With no
+              `input_scope` declared, `runSandboxEngine` hands the validator the
+              project ROOT DIRECTORY as its single argument and the
+              `[ -f "$target" ] || continue` guard skips it, so nothing is
+              scanned — behaviourally identical to the old `exit 0` validator.
+              The promise "passes the gate" remains TRUE, but it is true for the
+              same weak reason as before: the sample cannot fail. Say exactly
+              that in the write-up. This is residual R-2 (notes) — file it as a
+              follow-on issue via issue-author at close-out; do NOT fix it here,
+              and do NOT let the close-out imply the gate leg improved.
+
+          `pack_new.go` should need no edit under any of the three legs — its
+          sentence stays literally true. If you conclude it does need one, STOP
+          AND FLAG rather than editing; it is fenced OUT of this plan's scope.
+        files:
+          - pkg/pack/scaffold.go
+          - pkg/pack/scaffold_test.go
+          - cmd/backstop/pack_new_falsification_test.go
+          - plans/PLAN-ISSUE-146-pack-new-vacuous-sample-validator.plan.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+        depends_on:
+          - TASK-003
+          - TASK-004
