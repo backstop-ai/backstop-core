@@ -36,6 +36,21 @@ func WithWaiver(read waiver.LineReader, policy waiver.Policy, now time.Time) Opt
 	}
 }
 
+// WithUnboundWaiverScan attaches the inputs for the TREE-DRIVEN unbound-waiver check
+// (ISSUE-097): every well-formed waiver token the project carries, and the pack
+// namespaces backstop.lock records.
+//
+// Both arrive ALREADY RESOLVED. pkg/gate walks no filesystem and reads no lock — the
+// harvest and the lock read are cmd/backstop's, which is what lets the check compute
+// its own whole-tree file list rather than reading the gate run's active scope, and
+// therefore report identically under a diff-scoped run and an --all run.
+func WithUnboundWaiverScan(tokens []waiver.Waiver, namespaces []string) Option {
+	return func(g *Gate) {
+		g.projectWaiverTokens = tokens
+		g.knownPackNamespaces = namespaces
+	}
+}
+
 // StepWaiverResolutionFunc returns the registered placeholder waiver step. When
 // waivers are DISABLED it reports skipped; when enabled the Run loop replaces its
 // output with computeWaiverResult (mirroring the baseline swap).
@@ -137,23 +152,32 @@ func (g *Gate) computeWaiverResult(accumulated []StepResult, read waiver.LineRea
 
 	g.activeWaivers = res.Active
 
+	// The TREE-DRIVEN unbound scan (ISSUE-097), attached onto the same Result so the
+	// reason renderer stays single-argument. Adjudicate cannot produce these: it reads
+	// only the association window of a finding it was handed, so a token whose rule no
+	// longer fires is never harvested at all.
+	res.Unbound = waiver.Unbound(g.projectWaiverTokens, g.knownPackNamespaces)
+
 	// Malformed and non-waivable tokens are themselves gate findings (REQ-007 /
-	// REQ-006): a @waiver on a declared non-waivable rule is a gate ERROR.
-	wv := make([]Violation, 0, len(res.Malformed)+len(res.NonWaivable))
+	// REQ-006): a @waiver on a declared non-waivable rule is a gate ERROR. An UNBOUND
+	// token is rot rather than a broken promise, so it is loud and NON-BLOCKING —
+	// blocking on one would make a routine pack rename un-landable.
+	wv := make([]Violation, 0, len(res.Malformed)+len(res.NonWaivable)+len(res.Unbound))
 	for _, d := range res.Malformed {
-		wv = append(wv, waiverDiagToViolation(d))
+		wv = append(wv, waiverDiagToViolation(d, "error"))
 	}
 	for _, d := range res.NonWaivable {
-		wv = append(wv, waiverDiagToViolation(d))
+		wv = append(wv, waiverDiagToViolation(d, "error"))
+	}
+	for _, d := range res.Unbound {
+		wv = append(wv, waiverDiagToViolation(d, "warning"))
 	}
 
-	status := "pass"
-	if len(wv) > 0 {
-		status = "fail"
-	}
 	return StepResult{
-		StepName:   StepWaiverResolution,
-		Status:     status,
+		StepName: StepWaiverResolution,
+		// StepVerdict, not a length check: this step now emits two severities, and a
+		// raw count would report a warning-only run as a hard gate failure.
+		Status:     StepVerdict(wv),
 		Violations: wv,
 		Reason:     waiverReason(res),
 	}
@@ -164,15 +188,19 @@ func findingKey(file string, line int, rule string) string {
 	return file + "\x00" + strconv.Itoa(line) + "\x00" + rule
 }
 
-// waiverDiagToViolation converts a waiver Diagnostic (malformed / non-waivable)
-// into a gate Violation so it surfaces as a gate finding.
-func waiverDiagToViolation(d waiver.Diagnostic) Violation {
+// waiverDiagToViolation converts a waiver Diagnostic into a gate Violation at the
+// caller-supplied severity, so it surfaces as a gate finding.
+//
+// Severity is a PARAMETER rather than a second near-identical converter: the step now
+// emits both blocking (malformed, non-waivable) and non-blocking (unbound) kinds, and
+// two copies of this function is exactly how the two severities drift apart later.
+func waiverDiagToViolation(d waiver.Diagnostic, severity string) Violation {
 	return Violation{
 		Rule:     d.RuleID,
 		File:     d.File,
 		Line:     d.Line,
 		Message:  d.Message,
-		Severity: "error",
+		Severity: severity,
 	}
 }
 
@@ -193,6 +221,9 @@ func waiverReason(res waiver.Result) string {
 	if len(res.Unused) > 0 {
 		fmt.Fprintf(&b, "; %d unused/dangling (%s)", len(res.Unused), joinWaiverRules(res.Unused))
 	}
+	if len(res.Unbound) > 0 {
+		fmt.Fprintf(&b, "; %d unbound (%s)", len(res.Unbound), joinDiagnosticRules(res.Unbound))
+	}
 	if len(res.Malformed) > 0 {
 		fmt.Fprintf(&b, "; %d malformed", len(res.Malformed))
 	}
@@ -207,6 +238,17 @@ func joinWaiverRules(ws []waiver.Waiver) string {
 	ids := make([]string, 0, len(ws))
 	for _, w := range ws {
 		ids = append(ids, w.RuleID)
+	}
+	return strings.Join(ids, ", ")
+}
+
+// joinDiagnosticRules is joinWaiverRules' sibling for a diagnostic set. The two read
+// as a pair rather than one being widened with an interface, because a Diagnostic and
+// a Waiver are genuinely different values that happen to share one field name.
+func joinDiagnosticRules(ds []waiver.Diagnostic) string {
+	ids := make([]string, 0, len(ds))
+	for _, d := range ds {
+		ids = append(ids, d.RuleID)
 	}
 	return strings.Join(ids, ", ")
 }

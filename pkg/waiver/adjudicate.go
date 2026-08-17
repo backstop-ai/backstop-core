@@ -58,6 +58,12 @@ type Result struct {
 	Unused      []Waiver
 	Malformed   []Diagnostic
 	NonWaivable []Diagnostic
+	// Unbound carries tokens whose pack namespace matches no pack the project's lock
+	// records (ISSUE-097). ADJUDICATE NEVER POPULATES IT: it is produced by the
+	// tree-driven Unbound scan and attached by the caller. Reading a finding-driven
+	// Result and concluding the unbound class is covered is the precise misconception
+	// this field exists to correct.
+	Unbound []Diagnostic
 }
 
 // graceWindow is the pre-expiry warning window: an active waiver whose expiry is
