@@ -2,13 +2,101 @@
 plan_id: PLAN-ISSUE-093
 spec_id: ISSUE-093
 created: "2026-08-16"
-status: draft
+status: completed
 target_repo: backstop-core
 target_module: github.com/backstop-ai/backstop-core
 test_command: "go test ./cmd/backstop/... ./pkg/gate/... -race -count=1"
 coverage_threshold: 90
 
 notes: |
+  ══════════════════════════════════════════════════════════════════════════════
+  AS-BUILT — CLOSED 2026-08-17. status: draft → completed.
+  Everything BELOW this banner is the plan AS AUTHORED and is preserved verbatim;
+  no task, claim or sharp edge was rewritten after the fact. This banner records
+  what actually shipped, where it diverged, and what it left open.
+  ══════════════════════════════════════════════════════════════════════════════
+
+  DELIVERED AT commit 6c32a17 on `main` ("feat(ISSUE-093,ISSUE-097,ISSUE-106):
+  cmd/backstop half — three entangled lanes on gate.go"), with the pkg/gate half
+  in its predecessors. Independently verified by the team lead in a FRESH DETACHED
+  WORKTREE at that commit — `go build ./...` clean, every mandated test re-run from
+  scratch and green — not merely reported by the implementer.
+
+  WHAT LANDED, VERIFIED BY READING THE TREE AT CLOSE-OUT:
+    * `pkg/gate/classification.go` — `ClaimsPath(path) bool` (the SOURCE-glob OR
+      TEST-glob UNION of SE3/CLM-008, deliberately not `IsMeasurableSource`) and
+      `DeclaresAnyGlobs() bool` (the UNKNOWABLE-vs-CLAIMS-NOTHING companion that
+      makes CLM-006 answerable). Both present; the file stays language-neutral.
+    * `cmd/backstop/pack_gate_filemode.go` — `fileModeTestTarget` is GONE,
+      replaced by `fileModeTestTargets(m *pack.Manifest, binding, scope)
+      fileModeDecision`. The three-ness is STRUCTURAL as mandated: a named
+      `fileModeState` enum (`fileModeNotApplicable` / `fileModeTargetsDerived`
+      with the (C') capability-absent guard / `fileModeClaimsNothing`) inside a
+      `fileModeDecision` struct — not two collapsible bools. Wired into all three
+      of `runFindingsEngine`'s scope arms.
+    * `cmd/backstop/pack_gate.go` — both advisories construct with the MANDATED
+      field shape (`Severity: "warning"`, `File: ""`, `ProjectWide: true`,
+      `SourcePack: manifest.NormalizedName`, distinct Rule per state), and the
+      construction site carries the required comment explaining that
+      `ProjectWide: true` is LOAD-BEARING against `packValidatorStep`'s
+      `FilterViolations` and that it is outside baseline identity. Verified in
+      place, not taken on report.
+    * `cmd/backstop/gate.go` — `--file` is `StringArrayVar` (SE5 honored;
+      NOT StringSliceVar, with the one-line comment saying why), `Use:` now reads
+      `gate [--all | --file FILE [--file FILE]... [FILE...] | --base REV]`, and
+      empty entries are config errors.
+    * All 21 mandated test names exist and are located where the plan put them;
+      all five SE7 must-stay-green assertions still exist untouched, and the two
+      SE7 rewrites kept their names (`TestPackageScoped_KeyedOnDeclaredFlagNotName`
+      at pack_gate_filemode_test.go, `TestGate_FileFlagScopesExplicitFiles` at
+      gate_test.go). CLM-015 discharged structurally as designed.
+
+  ONE REAL DEVIATION FROM THE PLAN, FOUND AND FIXED AT IMPLEMENTATION TIME:
+  TASK-008 prescribed reading the flag with `cmd.Flags().GetStringArray("file")`.
+  That read SILENTLY DROPS A LONE EMPTY VALUE — pflag's `GetStringArray` renders
+  the accumulated slice through a CSV round-trip, so `--file ""` comes back as an
+  EMPTY SLICE and CLM-011's refusal loop is unreachable, restoring DEFECT-3 under
+  a new spelling. The shipped code therefore reads the exact accumulated slice via
+  `cmd.Flags().Lookup("file").Value.(pflag.SliceValue).GetSlice()`. The plan did
+  not anticipate this; the fix is strictly in service of CLM-011 and is documented
+  at the read site.
+
+  FALSIFICATION — RED-FIRST WAS OBSERVED, NOT ASSERTED. Run in a detached worktree
+  at the pre-fix commit against a REAL pre-fix binary: 9 of the 10 new phase-2
+  tests went RED with the issue's verbatim crash signature. The remaining TWO
+  mandated tests that COULD NOT be red pre-fix —
+  `TestFileMode_DiffScopeStillWholeModule` (CLM-013) and
+  `TestGate_RepeatableFileStillMutuallyExclusiveWithAllAndBase` (CLM-012) — are
+  NON-REGRESSION / LEAK guards by construction: they pin behavior that was already
+  correct. They were reported as such rather than forced red, which is the honest
+  reading of the FALSIFICATION BAR, not an exemption from it.
+
+  CROSS-LANE OUTCOME. The fences with ISSUE-097, ISSUE-106 and ISSUE-100 all HELD
+  — function-disjoint at every edit site, re-confirmed independently at commit
+  time. All three lanes' work landed in ONE combined commit (6c32a17) because
+  `cmd/backstop/gate.go` was genuinely entangled between them and git cannot split
+  a file. The commit message carries the full per-lane attribution breakdown.
+
+  GATE STATUS AT CLOSE-OUT, STATED HONESTLY. `go test ./... -race` showed 17
+  failures in cmd/backstop. SIXTEEN were PROVEN INHERITED via a detached-worktree
+  control at clean HEAD — the pre-existing `packs/substantiveness` phase3-fixtures
+  failure, ISSUE-148 territory, not this plan's. The 17th
+  (`TestCIRecipes_CoreAdoptsThePackWithoutApplyingAnyRecipe`) keys on
+  `.github/workflows/ci.yml`'s git DIRTINESS and self-clears now that the file is
+  committed. Nothing here was waived, silenced, or narrowed to pass.
+
+  THE SE4 BASELINE POSITION WAS NOT FALSIFIED. No baseline entry was added and no
+  refresh was run, exactly as the plan predicted.
+
+  LEFT OPEN, DELIBERATELY (TASK-011 / SE8 / CLM-016). The two in-tree sites citing
+  ISSUE-093 were corrected TEXT-ONLY: `.github/workflows/ci.yml`'s `Run the gate`
+  comment and `workflows_test.go`'s doc comment plus the `"--file"` REASON string.
+  The map KEY, the entry, the assertions and the gate invocation are untouched and
+  the ban REMAINS IN FORCE. The founder-level policy question this fix CREATES —
+  "may CI's blocking job now use `--file`, given both defects are fixed?" — was
+  FILED as a successor, never decided here, following PLAN-ISSUE-091's precedent
+  for the mirror-image `--all` call.
+
   ══════════════════════════════════════════════════════════════════════════════
   PLAN-ISSUE-093 — `gate --file` false-REDs a non-Go file whose directory holds
   no Go package, and `--file` silently collapses when repeated.
