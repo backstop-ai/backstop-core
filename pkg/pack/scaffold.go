@@ -115,9 +115,21 @@ func packTypeBlurb(packType string) string {
 // pack.yml declaring a self-contained sandbox engine (input_mode: none, no external
 // tool) in its engines: block with STRING enum values, a single sample rule carrying
 // an engine + risk_class + claims with positive/negative fixtures + a referenced
-// validator, plus the validator script and fixture files. The sandbox shape makes the
-// scaffolded pack gate-green with NO tool the author must install (runSandboxEngine
-// runs the always-pass validator); the author swaps in real detection logic.
+// validator, plus the validator script and fixture files.
+//
+// Under `pack test` the sample validator genuinely DISCRIMINATES (ISSUE-146): it flags
+// the marker-bearing negative fixture and stays silent on the clean positive one, so
+// the pack's phase-3 pass is earned rather than structural.
+//
+// At GATE time it enforces nothing, and the reason is worth stating plainly rather
+// than papering over. The sample rule declares no input_scope, so runSandboxEngine
+// hands the validator exactly ONE argument — the project ROOT DIRECTORY — and the
+// validator's `[ -f "$target" ] || continue` guard skips it. The scaffolded pack is
+// therefore gate-green with NO tool the author must install, but because the sample
+// scans NOTHING there, not because it looked and found a project clean. Naming the
+// guard here is deliberate: the no-op is by design, not a bug. An author who wants
+// the rule to actually scan project files must declare input_scope and swap in real
+// detection logic.
 func scaffoldEnginePack(opts ScaffoldOptions) (*ScaffoldResult, error) {
 	packDir := filepath.Join(opts.ProjectRoot, opts.Slug)
 	if _, err := os.Stat(packDir); err == nil {
@@ -152,9 +164,10 @@ content:
   ruleset:
     version: 0.1.0
     rules:
-      # Sample enforcement rule. Its validator (validators/%s.sh) currently always
-      # passes — replace it with your real detection and make the negative fixture
-      # trigger it while the positive fixture stays clean.
+      # Sample enforcement rule. Its validator (validators/%s.sh) flags any file
+      # carrying the marker BACKSTOP-SAMPLE-VIOLATION: the negative fixture carries
+      # it, the positive fixture does not. Replace the marker check with your real
+      # detection and rewrite both fixtures to match.
       - id: %s
         engine: %s
         validator: %s
@@ -181,9 +194,42 @@ content:
 		filepath.ToSlash(negativeRel),
 	)
 
-	validator := "#!/bin/sh\n# Sample sandbox validator: always passes. Replace with real enforcement —\n# exit non-zero and print a message to flag a violation.\nexit 0\n"
-	positiveFixture := "// Positive fixture: the sample rule must NOT fire on this compliant example.\npackage sample\n"
-	negativeFixture := "// Negative fixture: the sample rule SHOULD fire here once you add real logic.\npackage sample\n"
+	// The sample validator is built from POSIX SHELL BUILTINS ONLY — no grep, no sed,
+	// no external process. That is load-bearing, not stylistic: the darwin sandbox
+	// profile (pkg/packval/sandbox_nonlinux.go) grants file-read on packDir plus a
+	// short system allowlist that does NOT include /usr/bin, and the linux arm is an
+	// entirely separate Landlock/seccomp mechanism. A script that spawns nothing is
+	// correct under both by construction, and this script is the example every pack
+	// author copies.
+	//
+	// `|| [ -n "$line" ]` on the read is deliberate: a bare `while IFS= read -r line`
+	// DROPS a final line with no trailing newline, so a marker on an unterminated last
+	// line would go undetected.
+	validator := `#!/bin/sh
+# Sample sandbox validator: flags any file containing the marker below. Replace the
+# marker check with your real detection logic — exit non-zero and print a message
+# naming the target to flag a violation.
+marker='BACKSTOP-SAMPLE-VIOLATION'
+status=0
+for target in "$@"; do
+  # Skip anything that is not a regular file. At gate time this rule declares no
+  # input_scope, so it is handed the project ROOT DIRECTORY as its only argument and
+  # a non-zero exit there would be a blocking gate violation.
+  [ -f "$target" ] || continue
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      *"$marker"*)
+        echo "$target: sample rule fired (found $marker)"
+        status=1
+        break
+        ;;
+    esac
+  done < "$target"
+done
+exit $status
+`
+	positiveFixture := "// Positive fixture: clean. The sample rule must NOT fire here.\npackage sample\n"
+	negativeFixture := "// Negative fixture: the sample rule SHOULD fire here — this line carries the\n// marker BACKSTOP-SAMPLE-VIOLATION.\npackage sample\n"
 
 	files := []struct {
 		rel  string

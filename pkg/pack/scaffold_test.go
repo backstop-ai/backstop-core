@@ -2,8 +2,11 @@ package pack
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -236,5 +239,167 @@ func TestScaffoldPack_ResultFieldsAndOutput(t *testing.T) {
 	// confusingly. Assert the hint names the pack dir (slug) and the check command.
 	if !strings.Contains(human, "cd "+result.Slug) || !strings.Contains(human, "backstop pack check") {
 		t.Errorf("human output missing the `cd %s && backstop pack check` next-step hint (ISSUE-049); got:\n%s", result.Slug, human)
+	}
+}
+
+// --- Sample-validator discrimination tests (ISSUE-146) ---
+//
+// These drive the validator the scaffolder ACTUALLY WROTE, never a literal restated
+// here: a test that re-declared the expected script bytes would stay green while the
+// shipped scaffolder was broken. They execute it directly rather than through
+// pkg/packval because pkg/packval imports pkg/pack, so a test in this package cannot
+// reach the pipeline without an import cycle. The real-pipeline, real-sandbox proof
+// lives in cmd/backstop/pack_new_falsification_test.go.
+
+// scaffoldSamplePack scaffolds a pack of the given type into a fresh temp project and
+// returns its pack directory.
+func scaffoldSamplePack(t *testing.T, packType, slug string) string {
+	t.Helper()
+	root := tempProjectDir(t)
+	if _, err := ScaffoldPack(ScaffoldOptions{Type: packType, Language: "go", Slug: slug, ProjectRoot: root}); err != nil {
+		t.Fatalf("type %s: ScaffoldPack error: %v", packType, err)
+	}
+	return filepath.Join(root, slug)
+}
+
+// runScaffoldedValidator executes the scaffolded validator script against the given
+// targets and returns its exit code plus combined output.
+func runScaffoldedValidator(t *testing.T, packDir, slug string, targets ...string) (int, string) {
+	t.Helper()
+	args := append([]string{filepath.Join(packDir, "validators", slug+".sh")}, targets...)
+	out, err := exec.Command("sh", args...).CombinedOutput()
+	if err == nil {
+		return 0, string(out)
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode(), string(out)
+	}
+	t.Fatalf("running scaffolded validator: %v (output: %s)", err, out)
+	return 0, ""
+}
+
+// TestScaffoldPack_SampleValidatorFiresOnNegativeFixture proves the scaffolded
+// validator FLAGS the scaffolded negative fixture (CLM-001, CLM-002). It is one half
+// of a pair: a validator that exits non-zero unconditionally would also pass this, so
+// it means nothing without TestScaffoldPack_SampleValidatorIsSilentOnPositiveFixture.
+// The output assertion is not cosmetic — runSandboxEngine (cmd/backstop/pack_gate.go)
+// uses the validator's combined output VERBATIM as the violation message, so a silent
+// non-zero exit leaves a pack author nothing to act on.
+func TestScaffoldPack_SampleValidatorFiresOnNegativeFixture(t *testing.T) {
+	packDir := scaffoldSamplePack(t, "engine", "sample-check")
+	negative := filepath.Join(packDir, "fixtures", "invalid", "example.txt")
+
+	code, out := runScaffoldedValidator(t, packDir, "sample-check", negative)
+	if code == 0 {
+		t.Fatalf("scaffolded validator exited 0 on the negative fixture; it must flag it. output: %q", out)
+	}
+	if strings.TrimSpace(out) == "" {
+		t.Error("scaffolded validator flagged the negative fixture silently; runSandboxEngine reports this output as the violation message")
+	}
+	if !strings.Contains(out, negative) {
+		t.Errorf("validator output must name the target it flagged; got %q, want it to contain %q", out, negative)
+	}
+}
+
+// TestScaffoldPack_SampleValidatorIsSilentOnPositiveFixture is the other half of the
+// pair (CLM-001, CLM-002): the old `exit 0` validator passed THIS and failed its
+// sibling. Only both together assert discrimination.
+func TestScaffoldPack_SampleValidatorIsSilentOnPositiveFixture(t *testing.T) {
+	packDir := scaffoldSamplePack(t, "engine", "sample-check")
+	positive := filepath.Join(packDir, "fixtures", "valid", "example.txt")
+
+	code, out := runScaffoldedValidator(t, packDir, "sample-check", positive)
+	if code != 0 {
+		t.Fatalf("scaffolded validator exited %d on the clean positive fixture; it must stay silent. output: %q", code, out)
+	}
+}
+
+// TestScaffoldPack_SampleValidatorIgnoresNonFileTargets pins the GATE-TIME argument
+// shape (CLM-004). The scaffolded rule declares no input_scope, so runSandboxEngine
+// (cmd/backstop/pack_gate.go, the `targets := []string{projectRoot}` branch) hands the
+// validator exactly ONE argument: the project ROOT DIRECTORY. A non-zero exit there
+// becomes a blocking gate violation, so a marker-scanning validator without a
+// regular-file guard would red every consumer's gate on its first run.
+//
+// THE DIRECTORY MUST BE THE SCAFFOLDED PACK DIR, NOT A BARE t.TempDir(). The pack dir
+// CONTAINS a marker-bearing file (fixtures/invalid/example.txt), so passing it proves
+// the validator refuses to recurse into a directory even when the marker is
+// demonstrably reachable underneath. An empty temp dir would satisfy this assertion
+// trivially — even a validator with no regular-file guard finds nothing in it — and
+// CLM-004 would be pinned by nothing. Do not "simplify" this.
+func TestScaffoldPack_SampleValidatorIgnoresNonFileTargets(t *testing.T) {
+	packDir := scaffoldSamplePack(t, "engine", "sample-check")
+
+	// Guard the premise: the marker really is reachable under this directory.
+	negative, err := os.ReadFile(filepath.Join(packDir, "fixtures", "invalid", "example.txt"))
+	if err != nil {
+		t.Fatalf("reading scaffolded negative fixture: %v", err)
+	}
+	if code, _ := runScaffoldedValidator(t, packDir, "sample-check", filepath.Join(packDir, "fixtures", "invalid", "example.txt")); code == 0 {
+		t.Fatalf("premise broken: the marker-bearing file under %s does not trip the validator, so the directory case proves nothing (fixture: %q)", packDir, negative)
+	}
+
+	if code, out := runScaffoldedValidator(t, packDir, "sample-check", packDir); code != 0 {
+		t.Errorf("validator exited %d on the pack DIRECTORY; at gate time runSandboxEngine passes the project root directory and a non-zero exit is a blocking violation. output: %q", code, out)
+	}
+
+	missing := filepath.Join(packDir, "does-not-exist-anywhere")
+	if code, out := runScaffoldedValidator(t, packDir, "sample-check", missing); code != 0 {
+		t.Errorf("validator exited %d on a nonexistent path %s; it must ignore non-regular-file targets. output: %q", code, missing, out)
+	}
+}
+
+// scaffoldProseNormalizer collapses every run of newline + leading whitespace +
+// optional comment-continuation `#` + whitespace down to a single space.
+var scaffoldProseNormalizer = regexp.MustCompile(`(?s)\s*\n\s*#?\s*`) // nosemgrep: go.core.no-global-mutable-state — compile-once immutable regexp, never reassigned
+
+// normalizeScaffoldProse lower-cases text and unwraps its line breaks so a phrase
+// split across a wrapped comment is matched as the single phrase it reads as.
+func normalizeScaffoldProse(s string) string {
+	return scaffoldProseNormalizer.ReplaceAllString(strings.ToLower(s), " ")
+}
+
+// TestScaffoldPack_ScaffoldedBytesDoNotClaimAlwaysPasses is a DRIFT GUARD over the
+// scaffolder's own author-facing prose (CLM-005): no shipped byte may still advertise
+// that the sample validator does nothing.
+//
+// ★ THE NORMALISATION IS LOAD-BEARING, NOT COSMETIC. A raw substring scan is VACUOUS
+// on the pack.yml arm — the arm that matters most, because it is the comment every new
+// pack author reads first. The manifest format string wraps the phrase across a line
+// break, emitting `...currently always\n      # passes — replace it...`, so
+// strings.Contains(lower(b), "always pass") reports GREEN there while the claim is
+// plainly present. Unwrapping first is what makes a PARTIAL cleanup — fixing only the
+// validator literal — stay red.
+//
+// The SUBSTRING is forbidden, not an exact sentence: an exact-sentence assertion is
+// evaded by any rewording that keeps the claim, while the substring also catches
+// "always passes", "always-pass" and "always passing".
+//
+// The packTypeBlurb arm starts GREEN and is a REGRESSION FENCE, not a red-first
+// assertion — today's blurbs assert nothing about always passing. That is a legitimate
+// reason for it to pass on arrival; do not delete it because it does not fail.
+func TestScaffoldPack_ScaffoldedBytesDoNotClaimAlwaysPasses(t *testing.T) {
+	const forbidden = "always pass"
+
+	for _, typ := range []string{"engine", "mechanism", "toolchain"} {
+		packDir := scaffoldSamplePack(t, typ, "sample-check")
+
+		for _, artefact := range []struct{ label, rel string }{
+			{"validator", filepath.Join("validators", "sample-check.sh")},
+			{"pack.yml", "pack.yml"},
+		} {
+			data, err := os.ReadFile(filepath.Join(packDir, artefact.rel))
+			if err != nil {
+				t.Fatalf("type %s: reading scaffolded %s: %v", typ, artefact.label, err)
+			}
+			if got := normalizeScaffoldProse(string(data)); strings.Contains(got, forbidden) {
+				t.Errorf("type %s: scaffolded %s still claims the sample %q (normalised text: %q)", typ, artefact.label, forbidden, got)
+			}
+		}
+
+		if got := normalizeScaffoldProse(packTypeBlurb(typ)); strings.Contains(got, forbidden) {
+			t.Errorf("type %s: packTypeBlurb still claims the sample %q: %q", typ, forbidden, got)
+		}
 	}
 }
