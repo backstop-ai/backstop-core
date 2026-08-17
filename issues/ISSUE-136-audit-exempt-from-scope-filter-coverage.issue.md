@@ -1,13 +1,15 @@
 ---
 title: "No audit of findings-engine bindings for missing exempt_from_scope_filter — ISSUE-129's own Direction item (b) is unaddressed"
 schema_version: issue/v1
+delivered_by: PLAN-ISSUE-136
 
 issue:
   id: ISSUE-136
   title: "No audit of findings-engine bindings for missing exempt_from_scope_filter — ISSUE-129's own Direction item (b) is unaddressed"
   type: technical-debt
-  status: open
+  status: closed
   created: "2026-08-16"
+  closed: "2026-08-17"
 
 complexity:
   scope: cross-cutting
@@ -89,6 +91,34 @@ Not prescribed here — this is an audit/coverage task, not a fix for a specific
    consciously rather than silently defaulting to `false`. Not mandated here — a design decision
    for whoever picks this up, and per the zero-baked-language law any such check must be a pack
    rule, not baked core logic.
+
+## Resolution
+
+Delivered by PLAN-ISSUE-136 (`status: completed`, commit f0dd714 on main). `pack check` now
+surfaces an `exempt-scope-decision` advisory (warning-only, never blocks) for any project-wide
+engine that omits the `exempt_from_scope_filter` key — previously the key validated silently
+with zero signal that a decision had ever been made:
+
+- `pkg/packval/manifest.go` — `ParseManifest` always records each engine's declared keys
+  (including for no-engines manifests, via an unexported `declaredEngineKeys` field kept out of
+  the YAML/JSON surface); new exported `ExemptDecisionPending` returns the sorted list of pending
+  project-wide engines and is the single authority for "a decision is owed here."
+- `pkg/packval/phase2.go` — new coherence check (`Checks:` 6 → 7) emits one
+  `exempt-scope-decision` warning per pending engine, into `Warnings` only.
+- `packs/base-engines/pack.yml` — the `config-file` engine's own decision recorded explicitly
+  (`exempt_from_scope_filter: false`, citing ISSUE-070's delivered behavior) as the worked
+  example; no behavior change, since `false` was already the resolved default.
+- `pkg/pack/engine/binding.go` — comment-only: the stale per-engine roster in the doc comment is
+  deleted (not corrected) and replaced with a pointer to the executable roster
+  (`TestExemptAudit_EveryCommittedPackEngineHasAnIntentRow`) and the new advisory, rather than a
+  hand-maintained list that can drift again.
+- Verified via a real pre/post inversion on the installed external go-toolchain pack: `pack
+  check` went from 0 warnings to exactly 2 named advisories (`golangci`, `go-coverage`), exit 0
+  unchanged both times.
+
+The go-toolchain pack's own two pending engines are correctly non-exempt on inspection, but
+recording that requires an edit in that pack's own repo (external, gitignored install) — filed
+separately as ISSUE-155 rather than absorbed into this delivery.
 
 ## References
 
