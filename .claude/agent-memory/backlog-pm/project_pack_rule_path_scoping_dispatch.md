@@ -12,6 +12,28 @@ diff-scoped `backstop gate` has always done. Such a rule is dead on the
 everyday gate, in every consuming repo.** Single-segment globs
 (`*foo*.go`) are unaffected. Filed as ISSUE-151, homed DIR-032 item 20.
 
+**STATUS 2026-08-17: ISSUE-151 is CLOSED — but only the DETECTOR shipped.**
+`PLAN-ISSUE-151` added `pkg/packval/pathscope.go`, a phase-2 declaration-shape
+check emitting two non-blocking WARNs: `path-scope-dispatch` (slash-bearing
+include/exclude = inert) and `path-scope-fixture-mask` (the pack's fixtures are
+matched only by its slash-free "hook" patterns, so `pack test` green proves
+nothing). **The inert patterns themselves were NOT remediated** — 26 + 4 in
+`backstop-ai/backstop-self`, 11 in `cobra-cli-standards` — and that pack-side
+cleanup is explicitly "founder-sequenced; entangled with ISSUE-097" in
+ISSUE-151's own Resolution, and **still unfiled as an issue**. So: run
+`./bin/backstop pack check .backstop/packs/<pack>` to MEASURE darkness in
+seconds (I did, 2026-08-17), and never let a single-rule fix quietly become the
+vehicle for that unowned batch.
+
+**Corollary that bites remedy proposals:** "widen `paths.include` to the whole
+package" is NOT a fix — a full-package glob still contains a `/` and stays
+inert. ISSUE-024's own audit note proposed exactly that; it is falsified.
+Measured-dark in backstop-self: `no-baked-repo-layout-classification`,
+`no-language-literal-on-neutral-spine`, `no-structural-name-split-on-spine`,
+`no-pack-name-keyed-capability` (all four also fixture-masked). The three
+repo-wide `no-baked-*` rules (tool-exec, tool-command, language-token) declare
+no `include` and DO run.
+
 **Why:** semgrep resolves `paths.include` differently against a directory
 target (satisfied) than against an explicit file list (unsatisfied). Not a
 core bug — core shapes the args identically. `PLAN-ISSUE-091` collapsed

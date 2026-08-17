@@ -13,14 +13,14 @@
 - [Note-supersedes convention](project_corpus_note_supersedes.md) — stale-looking artifact lines are often deliberately preserved with a correcting note below; read the whole file before flagging drift
 - [Check the sibling's PLAN](project_check_the_siblings_plan.md) — "not a duplicate of ISSUE-NNN" argues about the ISSUE; read PLAN-ISSUE-NNN, which routinely merges both into one fix
 - [Gate-verdict-honesty cluster](project_gate_verdict_honesty_cluster.md) — DIR-032; 20 members; enumerate plans/ before any coverage count; SHOUT-vs-LIE is the DIR-024 boundary — settle it on the EMPTY-INPUT path
-- [Directory-prefixed paths.include = dead rule](project_pack_rule_path_scoping_dispatch.md) — matches ZERO files under the default gate's explicit-file dispatch; never take such a rule as live evidence that "the gate already catches that"
+- [Directory-prefixed paths.include = dead rule](project_pack_rule_path_scoping_dispatch.md) — ISSUE-151 shipped only the DETECTOR (`pack check` WARNs); 37 inert patterns unremediated + unfiled. "Widen to full-package glob" is NOT a fix
 - [packval phase3 family](project_packval_phase3_family.md) — PLAN-ISSUE-092's F7 named 3 blockers (142/141/**one still unfiled**); executor.go is a contended file — check which lane owns it
 - [Never read subagent .output](feedback_never_read_subagent_output_files.md) — it's the raw ~100k-token JSONL transcript; grep the target file or re-run validate instead
 - [Concurrent PM triage races](project_concurrent_pm_triage_races.md) — sibling-issue bursts fire parallel PMs into ONE directive; re-read it after the agent returns, fix stale cross-refs in place
 - [Record-only consequence filings](project_record_only_consequence_filings.md) — "file, don't absorb" plan tasks emit issues with NO defect; not clear fits, and they arrive as batches the hook under-delivers
 - [pm-trigger hook false-fires](project_pm_trigger_hook_misses_cli_scaffolded.md) — missed-artifact half FIXED 2026-08-17; still fires on testdata fixtures AND on RETIREMENTS. Check status line + path shape before triaging
-- [Homed-but-orphaned bundles](project_homed_but_orphaned_bundles.md) — BUNDLE-004/005/008 cited ONLY by `done` directives; check citers' status before calling a bundle homed. Also: pm-trigger hook can silently miss an artifact
-- [Orphaned issue backlog](project_orphaned_issue_backlog.md) — ~half of open issues cited by no directive; hook only catches post-install artifacts, compute uncited-open explicitly
+- [Done-directive RELEASE rule](project_homed_but_orphaned_bundles.md) — ★ covers bundles (2026-08-14, → BACKLOG.yml) AND issues (2026-08-17, → the done directive's Notes); citations always stay as provenance
+- [Orphaned issue backlog](project_orphaned_issue_backlog.md) — uncited-open has THREE buckets now (uncited / released / homed); hook only catches post-install artifacts, compute explicitly
 - [ISSUE-092 hollows acceptance bars](project_issue092_hollows_acceptance_bars.md) — any "passes pack test"/"fixtures falsify" criterion is vacuous while 092 lives; re-grep rule_path before citing
 - [Mechanism vs ecosystem](project_mechanism_vs_ecosystem_gap.md) — core capability lands green while zero packs/consumers use it; check the fleet, not just the tree
 - [Fix menus overstate core gaps](project_fix_menus_overstate_core_gaps.md) — "build it in core" options often name capability that already ships (project-wide/none dispatch); verify before homing

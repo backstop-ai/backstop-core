@@ -40,9 +40,21 @@ requirement needs a field in ANOTHER bundle's surface states the residue rather 
 inventing the field. So residue issues must never be slotted into the REQUIRING bundle's
 directive (e.g. ISSUE-121 into DIR-002) — that undoes the ruling by the back door.
 
-**Applied 2026-08-14: all three are now listed** (BUNDLE-004 first, then 005/008 after the
-founder extended the ruling). Caveat recorded in BACKLOG.yml itself — 005's and 008's
-substance already SHIPPED (`pkg/packval`; `GateScopeModeAll` in `cmd/backstop/gate.go`),
-and 005's residual defect ISSUE-092 is already carried by DIR-024/DIR-032. So those two
-entries mark unhomed *intent*, not uncarried *work*, and BUNDLE-008 may deserve a terminal
-state instead — escalated, not decided. See [[pm-trigger-hook-misses-cli-scaffolded-artifacts]].
+**Applied 2026-08-14, then partly reversed the same day: BUNDLE-004 and BUNDLE-005 are
+listed; BUNDLE-008 was re-listed and then REMOVED again** once it reached `maturity:
+delivered` (SPEC-018 back-annotated) — a delivered bundle is not an open backlog slot.
+Caveat recorded in BACKLOG.yml itself: 005's substance already SHIPPED (`pkg/packval`) and
+its residual defect ISSUE-092 was already carried elsewhere, so that entry marks unhomed
+*intent*, not uncarried *work*. See [[pm-trigger-hook-misses-cli-scaffolded-artifacts]].
+
+**EXTENDED TO ISSUES 2026-08-17 (founder, relayed via team-lead) — and the mechanism is
+DIFFERENT, so do not copy the bundle mechanics blindly.** An open issue cited only by
+`done` directives is **RELEASED**: it is no longer "orphaned / needs a home," it is free to
+be picked up standalone on the `issue → plan` track. Issues have no list in BACKLOG.yml, so
+the durable record went into the `done` directive's own `## Notes` (via directive-author,
+append-only), NOT into BACKLOG.yml. **Citations were deliberately left intact in both the
+bundle and issue cases — a citation on a `done` directive is provenance, not ownership.**
+Applied to five: ISSUE-083 + ISSUE-095 (DIR-026, `done`) and ISSUE-090 + ISSUE-109 +
+ISSUE-111 (DIR-001, `done`); guards travelling with ISSUE-083 (post-launch, not before
+REQ-039, unplannable until the founder picks a resolution model) were restated INSIDE the
+release note so they survive the release. See [[orphaned-issue-backlog]].

@@ -28,4 +28,17 @@ four gate-verdict-correctness issues orphaned because their natural charter
 (DIR-015) was already `done` — a `done` directive leaves its whole subject area
 unowned, and per the ISSUE-082 precedent we don't reopen done directives.
 
+**RELEASED is a THIRD state, distinct from orphaned — ruled 2026-08-17 (founder,
+via team-lead).** An open issue cited ONLY by `done` directives is *released*,
+not orphaned: it may be picked up standalone on the `issue → plan` track and
+needs no directive home. So a sweep's uncited-open count must be reported in
+three buckets — genuinely uncited, released (all citers `done`), and homed —
+because lumping released issues into "needs a home" manufactures work that was
+already ruled unnecessary. The record lives in the `done` directive's `## Notes`
+(citations stay put as provenance); full mechanics in
+[[homed-but-orphaned-bundles]]. First five: ISSUE-083/095 (DIR-026) and
+ISSUE-090/109/111 (DIR-001). The DIR-032 residual tail (149/150/152/154/155/156/
+157/159/161) is the same shape and inherits this by default unless the founder
+opens a successor directive.
+
 See [[project_launch_tiering]], [[pm-write-path]].

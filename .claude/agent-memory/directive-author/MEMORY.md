@@ -1,1 +1,2 @@
 - [DIR-002/DIR-019 reorder history](project_dir002_dir019_reorder.md) — dependency-driven position 1/2 swaps, not taste; check dated BACKLOG.yml comments before touching again
+- [Idle hook repeats after SendMessage](project_idle_hook_repeats_after_sendmessage.md) — fired 3x post-success on unnamed dispatch; don't endlessly resend, verify own turn history first
