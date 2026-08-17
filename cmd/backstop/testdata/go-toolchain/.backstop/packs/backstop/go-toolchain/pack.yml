@@ -61,8 +61,14 @@ engines:
   # from a finding-free green; ExemptFromScopeFilter stamps build violations
   # project-wide so an unchanged-file build break still REDs a diff-scoped gate
   # (SPEC-041 CLM-011). Declared HERE, not in the deleted baked DefaultRegistry.
+  # ISSUE-067: `go build` writes NOTHING to stdout — every compiler diagnostic goes
+  # to stderr, which core does not capture (SPEC-031 CLM-028). Without this producer
+  # build-to-sarif.sh received an EMPTY payload on every production run and had
+  # never once emitted a finding. The producer folds the tool's own stderr into its
+  # own stdout so the located diagnostics reach the convert.
   go-build:
     command: go build
+    producer: scripts/build-produce.sh
     input_mode: none
     scope_kind: project-wide
     project_target: "./..."
@@ -80,8 +86,14 @@ engines:
   # test is a binary correctness signal with no soft failure mode, so an
   # unchanged-file test failure must still RED a diff-scoped gate rather than being
   # silently discarded by diff-scope filtering.
+  # ISSUE-067: `go test` splits its output — an assertion failure lands on stdout,
+  # but a COMPILE or VET failure puts the located diagnostic on stderr while stdout
+  # carries only `FAIL <pkg> [build failed]`. Core captures stdout only, so those
+  # diagnostics were discarded before the convert ran and crash_guard reported an
+  # opaque crash instead of the failures. The producer folds stderr into stdout.
   go-test:
     command: go test
+    producer: scripts/test-produce.sh
     input_mode: none
     scope_kind: project-wide
     project_target: "./..."

@@ -1,0 +1,6 @@
+notes.go:12: check this
+--- FAIL: TestGenuinelyFails (0.00s)
+    e_test.go:14: real failure here
+FAIL
+FAIL	b1probe/sub/pkg	0.673s
+FAIL

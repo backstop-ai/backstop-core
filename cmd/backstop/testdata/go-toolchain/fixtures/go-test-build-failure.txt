@@ -1,0 +1,6 @@
+# b1probe/sub/pkg [b1probe/sub/pkg.test]
+sub/pkg/b_test.go:6:2: undefined: undefinedOne
+sub/pkg/b_test.go:7:2: undefined: undefinedTwo
+sub/pkg/b_test.go:8:2: undefined: undefinedThree
+FAIL	b1probe/sub/pkg [build failed]
+FAIL

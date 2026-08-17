@@ -1,0 +1,5 @@
+# b1probe/sub/pkg
+# [b1probe/sub/pkg]
+sub/pkg/c_test.go:6:10: (*testing.common).Logf format %d has arg "string" of wrong type string
+FAIL	b1probe/sub/pkg [build failed]
+FAIL

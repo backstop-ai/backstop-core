@@ -1,0 +1,2 @@
+FAIL	b1probe/sub/pkg [build failed]
+FAIL

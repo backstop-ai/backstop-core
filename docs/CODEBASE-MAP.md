@@ -167,7 +167,15 @@ InputModes: rule-flags (semgrep `--config` per rule file), config-file,
 pattern-arg, none (sandbox validator). Provisioning: backstop-introduced
 tools (semgrep/ast-grep) auto-provision at pinned versions
 (`allowlist.go:22`); Layer-0 tools (go, golangci-lint) must be on PATH else
-exit-2. Coverage is a separate channel: `dispatchPackCoverage`
+exit-2. PRODUCER SEAM (`binding.Producer`, ISSUE-067): a findings engine may
+ALSO declare a pack-relative `producer:` script that `runFindingsEngine` runs
+un-sandboxed via the runner IN PLACE of the command's tool. It replaces only the
+invoked NAME — core shapes `cmdArgs` identically, so diff scoping, testdata
+exclusion, `fileModeTestTarget` and ProjectTarget all survive — which is why it
+differs from `runCoverageEngine`'s BARE producer invocation. go-toolchain
+declares one on go-test/go-build because `go` writes located compiler/vet
+diagnostics to stderr while core captures stdout by design (SPEC-031 CLM-028),
+so the PACK owns the merge. Coverage is a separate channel: `dispatchPackCoverage`
 (`pack_gate.go:339`) → `ParsePackCoverage`, routed on `GateType==coverage`.
 PACK SEVERITY CONTRACT — a pack's SARIF `level: warning` is NON-BLOCKING by
 contract, `level: error` and an ABSENT level both block (fail-closed). Stated
