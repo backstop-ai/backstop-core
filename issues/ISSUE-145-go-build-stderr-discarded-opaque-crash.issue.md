@@ -142,3 +142,46 @@ core-side and requires no core change to adopt.
   findings: exit status 1`, no file/line/message. Expected after fix: a located SARIF finding
   naming the file, line, and compiler message — or, if a genuine crash-guard case remains
   reachable, an error message that includes the captured diagnostic text rather than none.
+
+## Resolution
+
+Fixed, but with no plan authored directly from this issue to close formally against —
+`delivered_by: PLAN-ISSUE-067` was attempted and rejected by the validator
+(`issue/delivered-by-spec-mismatch`: that plan's `spec_id` is `ISSUE-067`, not `ISSUE-145`),
+because the fix shipped as an in-scope extension of PLAN-ISSUE-067 rather than a plan sourced
+from this issue. That plan's own text (line 503) states the rationale directly: "This plan fixes
+`go-build` as well as `go-test`... they are ONE defect with one mechanism — go-build's [case] is
+the more severe [manifestation]." Recorded here open-but-fixed per repo convention rather than
+forcing a `delivered_by` pointer the schema correctly refuses.
+
+Independently verified in the installed pack (not taken on the plan's or a prior note's word):
+
+- `backstop.lock` records `backstop-ai/go-toolchain` at `version: 1.6.0`, `git_ref: v1.6.0`.
+- The installed `.backstop/packs/backstop-ai/go-toolchain/pack.yml` `go-build` binding now reads:
+
+  ```yaml
+  go-build:
+    command: go build
+    producer: scripts/build-produce.sh
+    input_mode: none
+    scope_kind: project-wide
+    project_target: "./..."
+    convert: scripts/build-to-sarif.sh
+    crash_guard: true
+    category: mechanism
+    gate_type: build
+    exempt_from_scope_filter: true
+  ```
+
+  This is exactly the mechanism the issue's Direction section asked for: a pack-level `producer`
+  script running un-sandboxed in place of the plain command, merging `go build`'s stderr into the
+  stream the convert step actually sees.
+
+- The installed `scripts/build-produce.sh` body is `go "$@" 2>&1` — the compiler's diagnostic
+  text (previously stderr-only, never reaching `build-to-sarif.sh`) is now folded into stdout
+  before the convert step runs, so a real compile break reaches the converter as located SARIF
+  findings instead of falling through to the crash-guard's opaque "no parseable findings" message.
+
+Status left `open` rather than `closed` because the schema's `delivered_by` sequencing rule
+requires the backing plan's own `spec_id` to name this issue, and none does; the fix itself is
+confirmed shipped and correct.
