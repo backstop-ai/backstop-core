@@ -182,9 +182,22 @@ type GateResult struct {
 	Scope                  *GateScope `json:"scope,omitempty"`
 	Pass                   bool       `json:"pass"`
 	TotalViolations        int        `json:"total_violations"`
-	StepsPassed            int        `json:"steps_passed"`
-	StepsFailed            int        `json:"steps_failed"`
-	StepsSkipped           int        `json:"steps_skipped"`
+	// TotalWarnings counts the entries whose severity explicitly declares them
+	// NON-BLOCKING (the pack severity contract documented on blocksVerdict), and
+	// TotalViolations counts the rest — the ones that actually block. The two are
+	// a PARTITION: total_violations + total_warnings equals every entry reported
+	// across every step, so nothing is dropped and the old
+	// count-everything number is reconstructible by addition.
+	//
+	// Added the way GitSHA/GeneratedAt and Trace/Properties were: ADDITIVE under
+	// the UNCHANGED gate/v1 schema. It carries NO omitempty, for the same reason
+	// ArtifactRootConfigured does not — zero is both the default and a meaningful
+	// answer ("this run surfaced no advisories"), and omitempty would drop it from
+	// --json for precisely the common case a consumer needs to read.
+	TotalWarnings int `json:"total_warnings"`
+	StepsPassed   int `json:"steps_passed"`
+	StepsFailed   int `json:"steps_failed"`
+	StepsSkipped  int `json:"steps_skipped"`
 	// StepsWarned counts steps with the non-failing "warning" status (SPEC-036
 	// REQ-005). A warning is loud-but-passing: it is counted here and rendered in
 	// the FormatHuman summary line so a class-2 capability-absent advisory cannot
@@ -199,6 +212,26 @@ type GateResult struct {
 	// deliberately ignoring, why, and until when" (REQ-015). Populated by
 	// computeWaiverResult via the Run loop; empty on a run with no active waivers.
 	ActiveWaivers []waiver.Waiver `json:"active_waivers,omitempty"`
+}
+
+// tallyBySeverity partitions violations by the SAME predicate the verdict uses
+// (blocksVerdict, pkg/gate/policy.go), so a rendered count can never disagree
+// with the pass/fail it sits beside. Re-deriving blockingness here instead would
+// let the tally drift from the verdict the next time the pack severity contract
+// moves — the ISSUE-100 defect reintroduced one layer over.
+//
+// Reporting only: it filters NOTHING. Every entry stays on StepResult.Violations
+// and lands in exactly one of the two returned counts, so blocking + warnings
+// always equals len(violations).
+func tallyBySeverity(violations []Violation) (blocking, warnings int) {
+	for _, v := range violations {
+		if blocksVerdict(v) {
+			blocking++
+		} else {
+			warnings++
+		}
+	}
+	return blocking, warnings
 }
 
 // StepFunc is the common signature for gate step functions.
@@ -258,7 +291,9 @@ func NewGateResultWithScope(steps []StepResult, scope *GateScope) GateResult {
 			// Pass — class 2 (capability-absent) warns-and-passes (exit 0).
 			r.StepsWarned++
 		}
-		r.TotalViolations += len(s.Violations)
+		blocking, warnings := tallyBySeverity(s.Violations)
+		r.TotalViolations += blocking
+		r.TotalWarnings += warnings
 		r.Steps = append(r.Steps, s)
 	}
 

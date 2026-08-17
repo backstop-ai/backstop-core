@@ -79,7 +79,7 @@ func FormatHuman(result GateResult, noColor bool) string {
 	// Summary table
 	for _, step := range result.Steps {
 		statusStr := formatStatus(step.Status, noColor)
-		violationCount := len(step.Violations)
+		blockingCount, warningCount := tallyBySeverity(step.Violations)
 		reason := step.Reason
 		if step.StepName == StepBaselineComparison && reason == "" {
 			if len(step.NewViolations) == 0 {
@@ -97,8 +97,17 @@ func FormatHuman(result GateResult, noColor bool) string {
 		if step.DurationMS > 0 {
 			line += fmt.Sprintf("  (%dms)", step.DurationMS)
 		}
-		if violationCount > 0 {
-			line += fmt.Sprintf("  (%d violations)", violationCount)
+		// The two classes are reported SEPARATELY, so one blocking problem beside a
+		// non-blocking notice is never rendered as two violations (ISSUE-100). A
+		// blocking-only step keeps the pre-fix "(N violations)" byte for byte —
+		// only the mixed and warning-only shapes change.
+		switch {
+		case blockingCount > 0 && warningCount > 0:
+			line += fmt.Sprintf("  (%d blocking, %d warnings)", blockingCount, warningCount)
+		case blockingCount > 0:
+			line += fmt.Sprintf("  (%d violations)", blockingCount)
+		case warningCount > 0:
+			line += fmt.Sprintf("  (%d warnings)", warningCount)
 		}
 		if reason != "" {
 			line += fmt.Sprintf("  (%s)", reason)
@@ -117,7 +126,15 @@ func FormatHuman(result GateResult, noColor bool) string {
 			if violation.SourcePack != "" && !strings.HasPrefix(rule, violation.SourcePack+"/") {
 				rule = violation.SourcePack + "/" + rule
 			}
-			sb.WriteString(fmt.Sprintf("    - [%s] %s", rule, violation.Message))
+			// A per-entry marker on the non-blocking findings, decided by the SAME
+			// predicate the verdict uses. It is what lets a reader map the row's
+			// warning count onto the specific listed entries instead of guessing
+			// which of them is merely informational.
+			marker := ""
+			if !blocksVerdict(violation) {
+				marker = "[warning] "
+			}
+			sb.WriteString(fmt.Sprintf("    - %s[%s] %s", marker, rule, violation.Message))
 			if violation.File != "" {
 				sb.WriteString(fmt.Sprintf(" (%s)", violation.File))
 			}
@@ -137,7 +154,15 @@ func FormatHuman(result GateResult, noColor bool) string {
 	// vanish from the at-a-glance summary on a green run.
 	sb.WriteString(fmt.Sprintf("  Steps: %d passed, %d failed, %d skipped, %d warned\n",
 		result.StepsPassed, result.StepsFailed, result.StepsSkipped, result.StepsWarned))
-	sb.WriteString(fmt.Sprintf("  Total violations: %d\n", result.TotalViolations))
+	// The literal "  Total violations: " prefix is load-bearing — cmd/backstop's
+	// stream-ordering probe asserts on it — so the warning count is APPENDED and
+	// only when there is one. A warning-free run's footer is byte-identical to
+	// what it rendered before the split.
+	if result.TotalWarnings > 0 {
+		sb.WriteString(fmt.Sprintf("  Total violations: %d (+%d warnings)\n", result.TotalViolations, result.TotalWarnings))
+	} else {
+		sb.WriteString(fmt.Sprintf("  Total violations: %d\n", result.TotalViolations))
+	}
 
 	// Overall verdict
 	sb.WriteString("\n")
