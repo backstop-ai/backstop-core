@@ -255,3 +255,39 @@ the pack it anticipated — so as of this ruling it is no longer merely
 aspirational framing; it is delivered, `source`-cited work. The original
 bullet is left intact above as accurate history of what was known
 2026-07-28; this paragraph is the dated correction.
+
+### Still-open cited issues are RELEASED, not homed (2026-08-17 founder ruling)
+
+The founder has ruled, extending to issues the identical logic already ruled
+for bundles on 2026-08-14 (applied to BUNDLE-004 and BUNDLE-005, see the
+rationale comments in `BACKLOG.yml`'s `bundles:` section): an open issue
+cited **only** by directives with `status: done` is **released** — it does
+not read as "orphaned, needing a directive home," and it may be picked up
+standalone via the normal `issue → plan` track without first finding or
+opening a directive to carry it.
+
+This directive is `status: done` and, per the 2026-08-02 done-directive
+convention, was removed from `BACKLOG.yml` — so its citation of an issue
+confers no live ownership over that issue. Three still-open issues cited
+above are released by this ruling:
+
+- **ISSUE-090** — the ID resolver must take `max(git tags, disk)`; fallback
+  allocations are tag-lossy.
+- **ISSUE-109** — the goreleaser derived-env cross-file falsifier.
+- **ISSUE-111** — backstop-core adopts the `go-distribution` pack
+  (ISSUE-101's residual).
+
+**What deliberately did not change:** all three remain in this directive's
+`source:` list above, verbatim — untouched, unreordered. As with the
+bundle-side precedent, the citation is preserved as provenance (it records
+where the work came from) and is not a claim of live ownership. Nothing in
+this section removes or supersedes the ISSUE-090, ISSUE-109, or ISSUE-111
+citation notes elsewhere in this file.
+
+One caveat for a reader picking either issue up standalone: ISSUE-111 sits
+downstream of BUNDLE-031's still-open OQ-3 (see the BUNDLE-031 paragraph
+above), which asks where the `go-distribution` pack's release-currency
+machinery should ultimately live and names this pack as only one of three
+candidate homes — that question is still unruled. Releasing ISSUE-111 from
+this `done` directive does not answer OQ-3; it only stops ISSUE-111 reading
+as covered by a directive that no longer carries live work.

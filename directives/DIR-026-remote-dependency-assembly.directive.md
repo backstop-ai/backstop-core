@@ -235,6 +235,42 @@ is not a name. The founder question to put verbatim when planning is
 proposed: "does a pack's identity stay its GitHub coordinate, or does the
 coordinate become separable from the name?"
 
+### Still-open cited issues are RELEASED, not homed (2026-08-17 founder ruling)
+
+The founder has ruled, extending to issues the identical logic already ruled
+for bundles on 2026-08-14 (applied to BUNDLE-004 and BUNDLE-005, see the
+rationale comments in `BACKLOG.yml`'s `bundles:` section): an open issue
+cited **only** by directives with `status: done` is **released** — it does
+not read as "orphaned, needing a directive home," and it may be picked up
+standalone via the normal `issue → plan` track without first finding or
+opening a directive to carry it.
+
+This directive is `status: done` and, per the 2026-08-02 done-directive
+convention, was removed from `BACKLOG.yml` — so its citation of an issue
+confers no live ownership over that issue. Two still-open issues cited
+above are released by this ruling:
+
+- **ISSUE-083** — `resolveGitURL` hardcodes the GitHub host.
+- **ISSUE-095** — `pack add` silently no-ops converting an installed local
+  pack to a git source.
+
+**What deliberately did not change:** both remain in this directive's
+`source:` list above, verbatim — untouched, unreordered. As with the
+bundle-side precedent, the citation is preserved as provenance (it records
+where the work came from) and is not a claim of live ownership. Nothing in
+this section removes or supersedes the ISSUE-083 or ISSUE-095 citation
+notes elsewhere in this file.
+
+Release does not dissolve the founder-ratified guards recorded above for
+ISSUE-083 (2026-07-27) — they travel with the release, not with the old
+citation prose, and a reader who picks ISSUE-083 up standalone must still
+meet them in full: it is post-launch; it must not be picked up ahead of
+REQ-039 (version/identity validation); and it must **not be planned at all**
+until the founder picks among its three candidate resolution models (a host
+field in `backstop.yml`, full-URL-as-coordinate, or resolver indirection via
+a host-prefix convention). ISSUE-095 carries no equivalent guard — it is
+released unguarded, same as its Notes-section treatment above.
+
 ## References
 
 - ISSUE-073 — original defect report (nil `GitCloner`, panic site, no
