@@ -1,0 +1,63 @@
+---
+plan_id: PLAN-ISSUE-066
+spec_id: ISSUE-066
+created: "2026-08-16"
+status: canceled
+
+notes: |
+  ─────────────────────────────────────────────────────────────────────────
+  RETIRED 2026-08-17 — status: canceled. NEVER AUTHORED. DO NOT IMPLEMENT.
+  ─────────────────────────────────────────────────────────────────────────
+  This is a CANCELLATION OF UNNECESSARY WORK, not a delivery and not a
+  replacement. No plan content was ever written: the file is the `artifact new`
+  scaffold exactly as the CLI emitted it (`phases: []`), reserved 2026-08-16 and
+  never filled in. There is no successor artifact, so there is no `replaced-by`
+  and no `obsoleted-by` — `canceled` is the terminal that fits (nothing shipped,
+  nothing was superseded).
+
+  WHY IT WAS NEVER AUTHORED. The assigned planner measured ISSUE-066's defect
+  live before writing a line of plan, and it did not reproduce. The measurement
+  was not a code read: a freshly built binary, an isolated worktree, a real
+  production defect injected out of the plan's `-run` filter scope, and a real
+  diff-scoped `backstop gate` run. The gate caught the injected breakage. There
+  is no hole left to plan against.
+
+  WHY THE DEFECT IS GONE. ISSUE-066 (filed ~2026-07-17) asserted that gate test
+  verification honors a plan's narrow `-run` filter, so test breakage outside
+  that filter passes unnoticed. The gate has since been rebuilt underneath that
+  premise by work that never names ISSUE-066. What closes it now is the
+  go-toolchain pack's go-test engine declaring `exempt_from_scope_filter: true`
+  (ISSUE-129) combined with its `project_target: "./..."` — the test engine runs
+  the whole module and its findings are exempt from diff-scope filtering, so
+  out-of-filter breakage reaches the verdict regardless of what a plan's
+  `test_command` scopes. SPEC-034/040/042 and ISSUE-070 contributed the
+  surrounding verdict plumbing.
+
+  ISSUE-066 ITSELF is closed SEPARATELY as resolved-by-accumulation. It is NOT
+  `delivered_by` this plan — this plan delivered nothing. Do not wire a
+  delivery pointer between them.
+
+  RELATED PROSE THAT NOW READS STALE. PLAN-ISSUE-067 cites this file by name as
+  "an EMPTY SCAFFOLD (`phases: []`) from the same batch" while declining to fold
+  ISSUE-066 into itself. That decline still stands and its reasoning is
+  unaffected; only the "empty scaffold, still open" framing is superseded by
+  this retirement. DIR-032 also counts PLAN-ISSUE-066 among its `status: draft`
+  scaffolds; that census line is now off by one.
+
+  VALIDATOR NOTE — READ BEFORE "FIXING" THIS FILE. `backstop artifact validate
+  --plan PLAN-ISSUE-066` reports `plan/phases-empty`. That violation is
+  EXPECTED and is a gap in the validator, not a defect in this artifact.
+  pkg/validate/plan.go runs validatePhases unconditionally; unlike spec.go,
+  bundle.go and issue.go — each of which gates its structural completeness
+  checks behind isTerminalStatus (pkg/validate/terminal.go) — plan.go has NO
+  terminal-status exemption, so a retired plan is still held to live-work phase
+  structure. DO NOT resolve it by inventing phases: a fabricated
+  test→implementation→verification triad on a canceled plan would be plan
+  content that was never authored and must never be implemented, which is
+  exactly the hazard the retirement exists to prevent. The correct fix is in
+  pkg/validate/plan.go (exempt terminal plans from the phase-structure checks,
+  mirroring spec.go), and it is worth doing systematically rather than here —
+  DIR-032 lists eleven `status: draft` PLAN-ISSUE scaffolds, several of which
+  will need this same retirement shape.
+
+phases: []
