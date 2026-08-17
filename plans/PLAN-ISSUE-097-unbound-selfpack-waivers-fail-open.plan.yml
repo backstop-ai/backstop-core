@@ -1,0 +1,1398 @@
+---
+plan_id: PLAN-ISSUE-097
+spec_id: ISSUE-097
+created: "2026-08-16"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./pkg/waiver/... ./pkg/gate/... ./cmd/backstop/... -race -count=1"
+coverage_threshold: 90
+
+notes: |
+  ══════════════════════════════════════════════════════════════════════════════
+  WHAT THIS PLAN DELIVERS
+  ══════════════════════════════════════════════════════════════════════════════
+  ISSUE-097 has two halves and this plan delivers both, in the order that makes
+  the first half FALSIFIABLE rather than merely asserted:
+
+    (b) FIRST — a tree-driven unbound-waiver check that can name a @waiver token
+        whose pack namespace matches no pack the lock records, WITHOUT requiring
+        a live finding at that location. Loud, non-blocking (severity `warning`).
+    (a) SECOND — re-key the stale `backstop/self`-prefixed tokens, with the
+        check from (b) as the red-then-green proof that they were unbound and
+        now are not.
+
+  Doing (a) first would leave the re-key verified by nothing but eyeballing —
+  and the whole point of this issue is that eyeballing is exactly what failed
+  for the last three weeks.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  MEASURED GROUND TRUTH — read this before designing anything differently
+  ══════════════════════════════════════════════════════════════════════════════
+  Measured against the working tree while authoring this plan (2026-08-16/17),
+  not inferred:
+
+  THE TOKENS. FIVE @waiver tokens carry the dead pre-rename `backstop/self`
+  prefix AND survive the pipeline this plan builds — not the two the issue's
+  Problem section names and not the three its "Measured confirmation" entry
+  names. Located BY ENCLOSING FUNCTION, never by line number — both cmd/backstop
+  files were under concurrent edit tonight and the issue's own cited line
+  numbers have already drifted twice (`:888` → `:981` → `:1015`):
+
+    1. `cmd/backstop/pack_gate.go`, in `splitCommand`
+       rule `...no-structural-name-split-on-spine`, reason `false-positive:2027-07-17`
+    2. `cmd/backstop/pack_gate_provision.go`, in `engineToolName`
+       rule `...no-structural-name-split-on-spine`, reason `false-positive:2027-07-17`
+    3. `tests/smoke/smoke_test.go` (first token, ~:33)
+       rule `...no-baked-tool-exec`, reason `deferred:2026-10-24`
+    4. `tests/smoke/smoke_test.go` (second token, ~:53)
+       rule `...no-baked-language-token`, reason `deferred:2026-10-24`
+    5. `tests/smoke/smoke_test.go` (third token, ~:246)
+       rule `...no-baked-language-token`, reason `deferred:2026-10-24`
+
+  FIVE, NOT SIX — AND THE SIXTH CANDIDATE IS A REAL LESSON, NOT AN OFF-BY-ONE.
+  An earlier revision of this plan listed a sixth token at
+  `pkg/waiver/adjudicate_nonwaivable_test.go` (~:33), carrying
+  `backstop/self/no-baked-language:accepted-risk:2999-01-01`. It is NOT unbound
+  and this plan does not touch it. That text lives inside a Go string literal
+  whose raw line ends `...:accepted-risk:2999-01-01"})`, so the raw-byte scan
+  hands `ParseToken` an expiry of `2999-01-01"})` and gets back
+  `waiver: invalid expiry "2999-01-01\"})": want YYYY-MM-DD`. It is MALFORMED,
+  and `HarvestTokens` skips malformed tokens by design (TASK-002), so `Unbound`
+  never sees it. It therefore belongs to the class this plan puts explicitly out
+  of scope — stale `backstop/self` text that no tree-driven unbound check can
+  see — alongside `pkg/gate/policy_perpack_test.go`'s `selfNeutralRule`. See
+  FOLLOW-ONS. This was caught by running the REAL `ParseToken` against the real
+  line rather than by reading the line and assuming it parsed; do the same
+  before adding any token to this census.
+
+  Tokens 4 and 5 are NOT named anywhere in ISSUE-097. They are the same
+  rename-orphan class and are folded in here rather than left to rot; the issue
+  should be annotated to match once this lands (see FOLLOW-ONS).
+
+  THE PACK. `.backstop/packs/backstop-ai/backstop-self/pack.yml:1` declares
+  `name: backstop-ai/backstop-self`, version `1.1.3` — NOT the `1.1.2` the
+  issue's References section records. All three rule ids (`no-baked-tool-exec`,
+  `no-baked-language-token`, `no-structural-name-split-on-spine`) are still
+  declared. NONE of them carries `non_waivable: true` — verified by grep over
+  the whole manifest. That fact is load-bearing; see SHARP EDGE 2.
+
+  THE FALSE-POSITIVE SURFACE — this is the part that decides the design. Every
+  number below was MEASURED by running the real `ParseToken` over every
+  `@waiver:` occurrence in the tree (dot-directories skipped, as
+  `resolveGateScopeAll` does) and then applying each filter in turn. Do not
+  adjust any of them by reasoning; re-measure.
+
+  Of 208 raw `@waiver:` occurrences, only 29 parse as WELL-FORMED tokens — the
+  other 179 are marker text embedded in prose, in Go string literals, or in the
+  compiled `bin/backstop` binary, and `HarvestTokens` drops all of them before
+  `Unbound` runs. Of the 29 well-formed tokens, 26 carry a pack prefix that is
+  not a `backstop.lock` entry name. So a NAIVE whole-tree "flag every well-formed
+  @waiver whose prefix is not a locked pack" reports 26, of which 5 are real: a
+  1-in-5 signal ratio that would be dismissed as noise inside a week and would
+  leave the check worse than useless (a warning nobody reads is silent green
+  wearing a costume).
+
+  THREE FILTERS, APPLIED TOGETHER, TAKE 26 → 5 — and the 5 are EXACTLY the five
+  real tokens listed above. Measured, not predicted:
+
+    F1. EXCLUDE THE ARTIFACT DIRECTORIES — 7 tokens. These are illustrative
+        tokens quoted inside artifact prose: 5 in `issues/` (2× ISSUE-061's
+        `error-type-suffix` example, 2× ISSUE-097's own quoted
+        `no-structural-name-split-on-spine`, 1× ISSUE-097's quoted
+        `no-baked-tool-exec`) and 2 in `plans/` (PLAN-ISSUE-116's
+        `test_substantiveness`, PLAN-ISSUE-075's literal `<RULE-ID>`
+        placeholder). An issue that QUOTES a broken waiver token is
+        documentation, not configuration.
+
+        USE THE PER-KIND DIRECTORIES, NOT THE PROJECT-WIDE ROOT. This is the
+        difference between a working check and a dead one. `backstop.yml`
+        declares NO `artifact_root`, so `artifact.ResolveRoot(projectRoot, "")`
+        returns `Root{Path: <project root>, Configured: false}` — the documented
+        unconfigured case. "Drop paths under `Root.Path`" would therefore drop
+        EVERY FILE IN THE REPOSITORY and the check would report nothing, forever,
+        in this repo. Enumerate `artifact.Kinds()` and drop paths under each
+        `Root.Dir(kind)` instead: with an unconfigured root those resolve to
+        `<project root>/specs`, `/plans`, `/adrs`, `/bundles`, `/issues`,
+        `/directives`, `/capabilities`, which is exactly the intended set, and
+        with a CONFIGURED root they follow it automatically. Still config-derived
+        — the directory NAMES come from `pkg/artifact`'s one layout table, never
+        from a hardcoded list written here.
+    F2. EXCLUDE `testdata` DIRECTORY SEGMENTS — 2 tokens, both in
+        `pkg/gate/testdata/waiver-e2e/src/app.go` (`backstop/waiver-e2e/
+        waivable-defect` and `.../protected-defect`). Do this by calling the
+        EXISTING `excludeTestdataPaths` in `cmd/backstop/pack_gate.go`
+        (ISSUE-040). Do NOT write a second implementation of this and do NOT
+        inline the string literal — there must stay exactly one authority on
+        "what is inert data".
+    F3. REQUIRE AN EXTRACTABLE PACK NAME — 12 tokens. A namespaced rule id is
+        built by `pack.NamespacedRuleID(manifest.NormalizedName, ruleID)` where
+        `NormalizedName` is `<org>/<pack>`, so a REAL pack-namespaced id always
+        has at least three `/`-separated segments. A token with fewer than three
+        carries no extractable pack name and is therefore UNCLASSIFIABLE, not
+        unbound. The 12 it removes, measured:
+
+          · `coverage_threshold`   — cmd/backstop/pack_upgrade.go (a real core
+                                     dimension id, slash-free by design)
+          · `pkg-rule` ×3          — pkg/waiver/waiver_grammar_test.go
+          · `r`                    — pkg/waiver/waiver_grammar_test.go
+          · `r1`, `mystery-rule`   — pkg/waiver/adjudicate_core_test.go
+          · `"+otherRule+"`        — pkg/recipe/apply_waiver_diagnostics_test.go
+          · `some.other.rule`,
+            `"+rule+"`             — pkg/recipe/apply_regenerate_test.go
+          · `test_substantiveness` ×2 — pkg/gate/baseline_test.go
+
+        This is a structural property of the ID SCHEME — not a language, tool, or
+        ecosystem assumption — and it is what makes the check precise.
+
+  ONE MEASUREMENT TRAP WORTH NAMING, because an earlier revision of this plan
+  fell into it: strings like `pkg/rule-a`, `pkg/ghost`, `pkg/expiring`,
+  `secrets/aws-key` and `go-standards/line-length` LOOK like the false positives
+  F3 exists to remove, and they do appear in this repo's waiver tests. But every
+  one of their occurrences sits inside a Go string literal that traps a closing
+  quote or paren into the expiry field, so they are dropped as MALFORMED long
+  before F3 sees them. Eyeballing a grep cannot tell those two mechanisms apart;
+  only running `ParseToken` can.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  WHY A TREE-DRIVEN HARVEST IS THE WHOLE POINT
+  ══════════════════════════════════════════════════════════════════════════════
+  `waiver.Adjudicate` NEVER scans the tree. It reads only the two-line
+  association window of each finding it was HANDED (`harvestWindow` /
+  `windowLines`, `pkg/waiver/adjudicate.go`). A token on a line where its own
+  rule no longer fires is never read into the `tokens` map at all — so it cannot
+  even reach the `Unused` bucket, which classifies only tokens that WERE
+  harvested. That is why `waiver_resolution` prints "clean — no active waivers"
+  (`pkg/gate/step_waiver.go`, `waiverReason`) over a tree carrying five dead
+  tokens.
+
+  ISSUE-097's own "Measured confirmation" entry is the dated proof: before
+  PLAN-ISSUE-091 landed, two of these tokens happened to sit one line above a
+  live finding, so `harvestWindow` caught them and they showed up as
+  "2 unused/dangling". After 091 landed, no finding lands there under any
+  dispatch shape, and the count for those two went 2 → 0. THE EVIDENCE
+  DISAPPEARED; THE DEFECT DID NOT. A dangling count that falls because the
+  witness left is a loss of honesty, not a cleanup. The check built here does
+  not depend on a witness.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  ARCHITECTURE — three layers, deliberately separated
+  ══════════════════════════════════════════════════════════════════════════════
+  LAYER 1 · `pkg/waiver/unbound.go` (PURE). Two exported functions, no file I/O,
+  no pack knowledge, no config:
+    · `HarvestTokens(file string, lines []string) []Waiver` — byte-scans raw
+      lines for the literal `@waiver:` marker using the EXISTING
+      `scanOccurrences` + `ParseToken`, and returns the well-formed tokens.
+      Malformed tokens are SKIPPED here; `Adjudicate` owns malformed reporting
+      and duplicating it would double-report. (Tree-wide malformed detection is
+      a real residual gap — see FOLLOW-ONS.) The zero-baked property is
+      preserved unchanged: no language identifier, no comment lexer, raw bytes
+      only.
+    · `Unbound(tokens []Waiver, namespaces []string) []Diagnostic` — returns one
+      `Diagnostic{Kind: DiagnosticUnbound}` per token whose extracted
+      `<org>/<pack>` name is in none of `namespaces`. Implements F3.
+    Plus the new `DiagnosticUnbound = "unbound"` kind constant alongside
+    `DiagnosticMalformed` / `DiagnosticNonWaivable`.
+
+  LAYER 2 · `pkg/gate` (SURFACING). A new Option carries the already-harvested
+  tokens and the known namespaces into the Gate; `computeWaiverResult` calls
+  `waiver.Unbound` and appends the diagnostics as violations at severity
+  `warning`, and renders `; N unbound (<rule-ids>)` into `waiverReason`.
+  pkg/gate does no file walking and reads no lock.
+
+  LAYER 3 · `cmd/backstop` (PRODUCTION HARVEST + CLI). Enumerates files, applies
+  F1/F2, reads the namespaces from `backstop.lock`, and wires both the gate
+  construction site and `backstop waiver list`.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  WHY `backstop.lock` IS THE NAMESPACE AUTHORITY, NOT THE INSTALLED MANIFESTS
+  ══════════════════════════════════════════════════════════════════════════════
+  `buildWaiverPolicy` reads namespaces from `loadInstalledPacks`, which walks
+  `.backstop/packs/` — a GITIGNORED directory. On a fresh clone, or any tree
+  where packs have not been installed, that returns nothing, and a check keyed
+  to it would declare EVERY pack-namespaced waiver in the repo unbound. That is
+  a false-positive storm triggered by a normal, supported state.
+
+  `backstop.lock` is TRACKED and is the project's durable record of pack
+  identity (CLAUDE.md: "the lock file is the durability boundary"). Its entries'
+  `name` field is the same normalized `<org>/<pack>` that
+  `pack.NamespacedRuleID` prefixes findings with, so it is not merely available
+  — it is the correct authority. Read it via
+  `distribution.ReadLockfile(filepath.Join(projectRoot, "backstop.lock"))`.
+  The issue's own acceptance criterion says `backstop.lock` in as many words.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  WHY THE CHECK IS SCOPE-INDEPENDENT (verified, not assumed)
+  ══════════════════════════════════════════════════════════════════════════════
+  ISSUE-097's 2026-08-16 "Additional evidence" entry requires the fix to surface
+  "regardless of gate scope, not just on a full sweep", because this project's
+  day-to-day loop is the diff-scoped `backstop gate`. Two facts make that
+  achievable and were both confirmed against the tree:
+
+    · The production harvest computes its OWN file list via
+      `gate.ComputeGateScope(projectRoot, gate.GateScopeModeAll, nil)` — the
+      single existing authority on "every file in the project" — and NEVER reads
+      the gate run's active scope. So a diff-scoped run harvests the same tree
+      an `--all` run does.
+    · `waiver_resolution` violations are NOT scope-filtered — but NOT for the
+      reason an earlier revision of this plan gave. That revision claimed a
+      single `FilterViolations` call site; there are FOUR. Measured, non-test:
+      the EXPORTED `(*GateScope).FilterViolations` is called once, at
+      `cmd/backstop/gate.go`'s pack_engines dispatch; the unexported
+      `filterViolations` is called three more times, at `pkg/gate/baseline.go`
+      (inside `CompareBaseline`) and twice in `pkg/gate/step_delegate.go`.
+
+      THE REAL MECHANISM is `accumulatedViolations` in `pkg/gate/gate.go`, which
+      builds the slice handed to `CompareBaseline` and EXPLICITLY SKIPS
+      `StepWaiverResolution` (along with `StepBaselineComparison` and
+      `StepLedgerIntegrity`). So the baseline call site never sees a waiver-step
+      violation to filter. The `step_delegate.go` sites filter only delegated
+      steps' own violations, and `waiver_resolution` is not one; the pack_engines
+      site filters only engine findings. `ApplyPolicy` touches only steps that
+      carry an explicit policy entry. The conclusion stands — nothing downstream
+      drops a waiver-step violation for being outside the diff — but it stands on
+      `accumulatedViolations`'s skip list, and THAT is the line to re-check if
+      this ever regresses.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  WHY `warning`, AND WHY THAT IS ALREADY FIRST-CLASS
+  ══════════════════════════════════════════════════════════════════════════════
+  CLAUDE.md: "Loud ≠ blocking. Block defects + broken promises; warn-with-
+  guidance for un-adopted capability." An unbound waiver is rot, not a broken
+  promise, and blocking on it would make a routine pack rename un-landable.
+
+  The vocabulary already exists and must be REUSED, not reinvented:
+  `blocksVerdict` (`pkg/gate/policy.go`) treats severity `warning` — and ONLY
+  `warning` — as non-blocking, and `StepVerdict` returns the tri-state
+  pass/warning/fail so a warning-only step reports "warning" (counted in
+  `StepsWarned`, visible in the summary) rather than "pass" (invisible).
+
+  ONE REAL CHANGE FALLS OUT OF THIS. `computeWaiverResult` currently hardcodes
+  `status := "pass"; if len(wv) > 0 { status = "fail" }`. Today that is
+  ACCIDENTALLY correct because every diagnostic it emits (malformed,
+  non-waivable) is severity `error`. Add a warning-severity diagnostic and that
+  line turns a warning into a hard gate failure. It must become
+  `StepVerdict(wv)` — behavior-identical for the existing two kinds, correct for
+  the third. This is CLM-012 and it is not optional cleanup.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  CLAIMS
+  ══════════════════════════════════════════════════════════════════════════════
+  ISSUE-097 carries no CLM ids of its own; this lane defines them. Every task's
+  `claims:` array refers to this roster and nothing else.
+
+    CLM-001  THE REPO INVARIANT. The working tree carries ZERO `@waiver` tokens
+             whose extracted `<org>/<pack>` namespace matches no `backstop.lock`
+             entry name — asserted by a durable test that reads the REAL tree
+             through the SAME production harvester and lock-namespace reader the
+             gate uses, never a reimplementation. It is the regression guard: any
+             future pack rename that orphans a waiver fails in the ordinary
+             `go test` run, with no one remembering to look. RED before the
+             re-key (naming exactly the five tokens under THE TOKENS) and GREEN
+             after; the recorded red is part of the claim, because a repo
+             invariant never observed failing is indistinguishable from one that
+             cannot fail (SE6).
+             TESTS: TestRepo_CarriesNoUnboundWaiverTokens
+
+    CLM-002  THE RE-KEY, IN BOTH HALVES OF THE RULE ID. All five stale tokens
+             are re-keyed to the current namespace in the COORDINATE half
+             (`backstop/self/` → `backstop-ai/backstop-self/`) AND in the dotted
+             semgrep rule-id half (`backstop.packs.backstop.self.rules.` →
+             `backstop.packs.backstop-ai.backstop-self.rules.`). Reason-code,
+             expiry date and the entire trailing note stay byte-for-byte
+             identical (SE1). THE TWO HALVES NEED SEPARATE PROOF: the unbound
+             check reads only the coordinate half, so a half-migrated token is
+             invisible to it (see TASK-011) and gets its own assertion.
+             TESTS: TestRepo_CarriesNoUnboundWaiverTokens (coordinate half),
+                    TestRepo_CarriesNoStalePreRenameWaiverRuleIDs (dotted half)
+
+    CLM-003  THE RE-KEYED TOKENS SUPPRESS NOTHING, AND THAT IS THE INTENDED END
+             STATE. ISSUE-151 owns the separate dispatch defect that keeps
+             `no-structural-name-split-on-spine` from producing a finding, so the
+             deliverable for part (a) is a CORRECTLY-KEYED DORMANT waiver that
+             binds the instant the rule fires again — not a live suppression
+             (SE7). The evidence for part (a) is therefore the FIVE → ZERO
+             before/after pair of unbound counts MEASURED on the real tree at
+             TASK-009 and TASK-013, captured verbatim, never an observed
+             suppression and never a paraphrased count.
+             TESTS: TestRepo_CarriesNoUnboundWaiverTokens, plus the two recorded
+                    `gate --all` waiver_resolution readings (TASK-009, TASK-013)
+
+    CLM-004  UNBOUND CLASSIFICATION. A harvested token whose extracted
+             `<org>/<pack>` name is in none of the known namespaces yields
+             exactly one `Diagnostic{Kind: DiagnosticUnbound}` carrying the
+             token's FULL rule-id (the string the reader must edit) and the
+             token's own File and Line, so the warning is navigable. The same
+             token re-keyed to a KNOWN namespace yields zero — without that leg a
+             function returning one diagnostic per token unconditionally would
+             satisfy the first.
+             TESTS: TestWaiver_Unbound_FlagsTokenWhosePackNamespaceIsNotInstalled,
+                    TestWaiver_Unbound_BindsTokenWhosePackNamespaceIsInstalled
+
+    CLM-005  UNCLASSIFIABLE IS NOT UNBOUND (filter F3). A rule id with fewer than
+             three `/`-separated segments carries no extractable pack name and is
+             SKIPPED, not flagged. This is a structural property of
+             `pack.NamespacedRuleID`'s `<org>/<pack>` + `/` + rule-id
+             construction — not a language, tool or ecosystem assumption — and it
+             is what takes the measured false-positive surface from 26 to 5.
+             TESTS: TestWaiver_Unbound_ExemptsRuleIDWithoutExtractablePackName
+
+    CLM-006  AN EMPTY OR ABSENT NAMESPACE SET YIELDS ZERO DIAGNOSTICS (SE3).
+             "No namespaces known" is indistinguishable from "no pack is
+             legitimate"; the fail-loud reading would flag every pack waiver in
+             the repo on a tree with no lock. Stay silent instead.
+             TESTS: TestWaiver_Unbound_EmptyNamespaceSetYieldsNoDiagnostics
+
+    CLM-007  THE HARVEST IS FINDING-INDEPENDENT. `HarvestTokens` byte-scans raw
+             lines for the literal `@waiver:` marker and returns well-formed
+             tokens with NO Finding ever constructed — the architectural break
+             from `Adjudicate`'s two-line association window, stated as a test.
+             Multiple tokens on one line are all returned; malformed tokens are
+             SKIPPED rather than returned half-parsed, because `Adjudicate` owns
+             malformed reporting and duplicating it would double-report. The
+             zero-baked property is preserved: no language identifier, no comment
+             lexer, raw bytes only, reusing the existing `scanOccurrences` and
+             `ParseToken`.
+             TESTS: TestWaiver_HarvestTokens_ReadsTokenWithNoFindingPresent
+
+    CLM-008  LOUD BUT NON-BLOCKING. An unbound token surfaces as a
+             waiver_resolution Violation at severity exactly "warning", for which
+             the REAL `blocksVerdict` predicate returns false, so `GateResult.Pass`
+             stays true and the exit code stays 0 — a routine pack rename stays
+             landable. The `waiverReason` string gains a `; N unbound (<rule-ids>)`
+             clause naming EVERY unbound rule-id beside the existing active /
+             expiring / unused clauses, which are unchanged.
+             TESTS: TestGate_WaiverUnbound_SurfacesAsNonBlockingWarning,
+                    TestGate_WaiverUnbound_DoesNotFlipGateVerdict,
+                    TestGate_WaiverUnbound_ReasonNamesEachUnboundRuleID
+
+    CLM-009  THE PRODUCTION PATH IS WIRED, LOCK-KEYED, AND SCOPE-INDEPENDENT.
+             Namespaces come from the TRACKED `backstop.lock`, not the gitignored
+             `.backstop/packs/`, so a fresh clone does not declare every pack
+             waiver unbound. The scan is reached through the REAL gate
+             construction site — a unit test of the harvest function alone cannot
+             detect an unwired Option, which is exactly how SPEC-049 shipped a
+             subsystem that suppressed nothing. And the harvest computes its own
+             all-mode file list rather than reading the gate run's active scope,
+             so a diff-scoped run and an `--all` run report an IDENTICAL unbound
+             clause and count.
+             TESTS: TestUnboundWaiverNamespaces_ReadFromLockNotInstalledPacks,
+                    TestGate_UnboundWaiverScanWiredAtConstructionSite,
+                    TestGate_UnboundWaiverScan_IdenticalAcrossScopes
+
+    CLM-010  `backstop waiver list` NAMES UNBOUND TOKENS in an always-labeled
+             section, present even at count ZERO, matching how the Active /
+             Expiring / Unused sections are always labeled. A section that
+             disappears when empty is how this class of rot hid in the first
+             place.
+             TESTS: TestWaiverList_NamesUnboundTokens
+
+    CLM-011  PRECISION — THE FILTERS THAT MAKE THE WARNING WORTH READING.
+             Artifact KIND directories are excluded (F1) and `testdata` directory
+             SEGMENTS are excluded (F2) via the existing `excludeTestdataPaths`,
+             with no second implementation and no inlined literal. F1 resolves
+             per-kind `Root.Dir(kind)` paths and NOT `Root.Path`: this repo
+             declares no `artifact_root`, so a `Root.Path` prefix test would drop
+             every file in the repository and the check would report nothing,
+             forever. The unconfigured-root leg is the load-bearing half of the
+             test for that reason.
+             TESTS: TestUnboundWaiverHarvest_ExcludesArtifactRootAndTestdata
+
+    CLM-012  THE STEP VERDICT BECOMES SEVERITY-DERIVED. `computeWaiverResult`'s
+             hardcoded `status := "pass"; if len(wv) > 0 { status = "fail" }` is
+             replaced by `StepVerdict(wv)`. That raw count is only ACCIDENTALLY
+             correct today, because every diagnostic it emits is severity
+             `error`; adding a warning-severity kind turns a warning into a hard
+             gate failure. With only unbound diagnostics the step reports
+             "warning" — not "fail", and not "pass", which would make a surfaced
+             warning invisible — while a malformed token still reports "fail",
+             proving the existing error path was not softened.
+             TESTS: TestGate_WaiverUnbound_StepStatusIsWarningNotFail
+
+  ══════════════════════════════════════════════════════════════════════════════
+  SHARP EDGES
+  ══════════════════════════════════════════════════════════════════════════════
+  SE1 · RE-KEY MEANS RE-KEY. ONLY the rule-id changes. The three
+        `tests/smoke/smoke_test.go` tokens carry `deferred:2026-10-24` because
+        self-pack scoping over backstop-core's OWN test harness is an ESCALATED,
+        undecided founder posture question. Silently promoting them to
+        `false-positive` would launder an open decision into a settled one and
+        would extend their life from ~2 months to a year. Preserve reason-code,
+        expiry date, and the full trailing note BYTE-FOR-BYTE. Same for the two
+        `false-positive:2027-07-17` tokens.
+
+  SE2 · RE-KEYING CAN CONVERT AN INVISIBLE FAIL-OPEN INTO A HARD RED, AND THAT
+        WOULD BE CORRECT BEHAVIOR — but it must not be a surprise. A token
+        binding a rule the pack declares `non_waivable: true` does NOT suppress;
+        `computeWaiverResult` emits a severity-`error` NonWaivable diagnostic and
+        the gate goes red. Grep of `.backstop/packs/backstop-ai/backstop-self/
+        pack.yml` at v1.1.3 found NO `non_waivable` key at all, so this is
+        currently safe — but the pack is external and versioned independently.
+        RE-VERIFY at implementation time. If any of the three rules has since
+        gained `non_waivable: true`: STOP, do not re-key that token, and
+        escalate — the correct answer is a posture decision, not a plan edit.
+
+  SE3 · AN EMPTY OR ABSENT LOCK MUST YIELD ZERO DIAGNOSTICS, NOT EVERYTHING.
+        "No namespaces known" is indistinguishable from "no pack is legitimate",
+        and the fail-loud reading flags every pack waiver in the repo. Stay
+        silent instead. This is CLM-006 and it gets its own mandated test.
+
+  SE4 · DO NOT ADD A DOT-DIRECTORY SKIP. `resolveGateScopeAll` already skips
+        every `.`-prefixed directory, which is what keeps `.backstop/packs/`
+        rule files and `.claude/agent-memory/` notes (both of which contain
+        @waiver examples) out of the harvest. Adding a second skip would create
+        a second authority that drifts from the first.
+
+  SE5 · THE IMPLEMENTER'S OWN SPLIT MAY TRIP A SELF-PACK RULE. Extracting
+        `<org>/<pack>` from a rule id is a string split, and
+        `no-structural-name-split-on-spine` is exactly the rule the first two
+        stale tokens waive. If it fires on the new code: fix it if the finding is
+        real, or waive it with a CORRECTLY-keyed token derived from the current
+        pack name. Under NO circumstances copy the stale `backstop/self` prefix
+        from the neighbouring lines — that would author a seventh instance of the
+        very defect this plan closes.
+
+  SE6 · THE UNIT TESTS MUST NOT ASSERT AGAINST THE LIVE TREE. After TASK-011 the
+        repo holds ZERO unbound tokens, so any unit test that measured the real
+        repo would be vacuously green forever. Every test in Phases 1–3 uses
+        synthetic in-memory fixtures. EXACTLY ONE test reads the live tree —
+        TASK-010's — and its whole value is that it is RED before TASK-011 and
+        GREEN after. Capture that red output; a repo-invariant test that was
+        never observed failing is indistinguishable from one that cannot fail.
+
+  SE7 · THE RE-KEYED TOKENS WILL STILL SUPPRESS NOTHING, AND THAT IS THE
+        INTENDED END STATE. ISSUE-151 owns the separate defect (explicit-file
+        dispatch is blind to directory-prefixed `paths.include` globs) that keeps
+        `no-structural-name-split-on-spine` from producing a finding under any
+        current dispatch shape. This plan does NOT fix that and must not try. The
+        deliverable for part (a) is a CORRECTLY-KEYED DORMANT waiver — one that
+        will bind the instant the rule fires again — not a live suppression. Do
+        not go hunting for the finding, and do not conclude the re-key failed
+        because `gate --file --json` shows nothing.
+
+  SE8 · CONCURRENT EDITS IN THE cmd/backstop FILES. `pack_gate.go` and
+        `pack_gate_provision.go` were both edited by other lanes tonight
+        (PLAN-ISSUE-091, -112, -134 among them). Locate every token by its
+        ENCLOSING FUNCTION (`splitCommand`, `engineToolName`) and by the rule-id
+        string. Every line number in this plan is ORIENTATION, NOT AN ADDRESS.
+
+  SE9 · INHERITED RED AT `gate --all` IS NOT THIS PLAN'S TO WAIVE. Several lanes
+        landed tonight. If the final sweep shows a failure this plan did not
+        cause, prove it with a clean-HEAD control reading, name the owning issue,
+        and RECORD it. Never waive it, and never weaken a test to clear it.
+
+  SE10 · CROSS-LANE COLLISION ON `pkg/gate/step_verdict_severity_test.go`. That
+        file's `TestClass3Sites_ViolationsAreErrorSeverityByConstruction` has
+        several numbered SITE blocks, and TWO in-flight plans edit it right now.
+        The ownership split is EXPLICIT and RECIPROCAL:
+
+          · THIS PLAN (PLAN-ISSUE-097) OWNS SITE 1 — the `waiverDiagToViolation`
+            block. TASK-005 changes that function's signature and deletes the
+            raw-count premise SITE 1 was written to protect.
+          · PLAN-ISSUE-106 OWNS SITE 2 — the substantiveness JOIN block. It is
+            being told the mirror image of this note in its own fix round.
+
+        Whichever plan lands second inherits a file the other already edited.
+        Before considering its own task complete, the SECOND lander must re-read
+        the whole test, confirm it still compiles and asserts what it claims, and
+        re-run `go test ./pkg/gate/... -race -count=1`. An implementer who finds
+        an UNEXPECTED change at the site this plan does NOT own must STOP and
+        report a genuine collision rather than silently resolving it — a quiet
+        merge here produces a test that compiles while asserting nothing.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  EXPLICITLY OUT OF SCOPE
+  ══════════════════════════════════════════════════════════════════════════════
+  · ISSUE-151's explicit-file dispatch blindness (SE7). Owned elsewhere.
+  · Tree-wide MALFORMED-token detection. A malformed token where no finding
+    lands is invisible for the same structural reason an unbound one is, but it
+    is a different diagnostic with a different remedy. FOLLOW-ON.
+  · STALE `backstop/self` TEXT THAT NO UNBOUND CHECK CAN SEE — two known
+    instances, one class, both FOLLOW-ON:
+      · `pkg/gate/policy_perpack_test.go`'s `selfNeutralRule` constant. A plain
+        Go string literal, not an `@waiver:` token at all.
+      · `pkg/waiver/adjudicate_nonwaivable_test.go`'s
+        `backstop/self/no-baked-language:accepted-risk:2999-01-01` fixture. It
+        IS `@waiver:` text, but embedded in a Go string literal that traps `"})`
+        into the expiry field, so it parses MALFORMED and `HarvestTokens` drops
+        it (see THE TOKENS).
+    Neither is a fail-open: neither suppresses anything and neither can, so no
+    check regresses by leaving them. Both are staleness, not risk.
+  · SPEC-049's `contracts` entry for `waiver.Result`. TASK-005 adds an `Unbound
+    []Diagnostic` field, which makes that entry's enumerated field list
+    incomplete. Verified NOT to red the gate — the contract compiler for `kind:
+    type` name-checks `type Result $$$` and does not enumerate fields — so this
+    is documentation drift only. FOLLOW-ON to spec-author; do NOT hand-edit the
+    spec from this lane.
+  · Any change to `waiver.Adjudicate`'s finding-driven harvest. The tree-driven
+    scan is ADDITIVE and sits beside it; rewriting adjudication to be
+    tree-driven would change suppression semantics for every existing waiver.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  FOLLOW-ONS TO FILE AT CLOSE-OUT (do not fold into this plan)
+  ══════════════════════════════════════════════════════════════════════════════
+  1. Annotate ISSUE-097 with tokens 4 and 5, which it does not name, and with
+     the corrected census of FIVE (not six, not three, not two).
+  2. Issue: tree-wide malformed-waiver detection (same blind spot, different
+     diagnostic).
+  3. Issue: stale `backstop/self` text no check can see — BOTH
+     `pkg/gate/policy_perpack_test.go`'s `selfNeutralRule` constant and
+     `pkg/waiver/adjudicate_nonwaivable_test.go`'s malformed fixture token.
+  4. Spec-author task on SPEC-049: update the `waiver.Result` contract signature
+     to include the `Unbound []Diagnostic` field TASK-005 adds, so the pinned
+     field list stops being false. Not gate-visible; correctness of the record.
+  5. Issue: the dotted rule-id half has no GENERAL guard. TASK-010's
+     TestRepo_CarriesNoStalePreRenameWaiverRuleIDs pins ONE dead literal segment
+     (`backstop.packs.backstop.self.rules.`), so the NEXT pack rename reopens the
+     same half-migration blind spot with a new dead segment. A general check
+     would have to assert the dotted segment mirrors the pack's on-disk path —
+     a semgrep-specific id convention that does not generalize across engines,
+     so it belongs in a pack rule or in the unbound classifier's contract, not
+     as a baked assumption in core test code. Worth deciding deliberately.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Tree-driven harvest and unbound classification (pure core)"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Falsify the unbound-waiver classifier and the finding-independent harvest"
+        description: |
+          Create pkg/waiver/unbound_test.go (NEW FILE — do not extend any existing
+          adjudicate_*_test.go, all of which belong to Adjudicate's finding-driven
+          path this work deliberately leaves alone).
+
+          Every fixture is SYNTHETIC and in-memory: a `[]string` of raw lines and a
+          hand-written `[]string` of namespaces. No file I/O, no lock, no real pack
+          names required (SE6). These tests must still pass unchanged after
+          TASK-011 re-keys the live tree.
+
+          MANDATED TESTS:
+
+          TestWaiver_Unbound_FlagsTokenWhosePackNamespaceIsNotInstalled (CLM-004) —
+            THE FALSIFICATION. Harvest a token keyed
+            `backstop/self/backstop.packs.backstop.self.rules.no-structural-name-split-on-spine`
+            and call Unbound with namespaces `["backstop-ai/backstop-self"]`.
+            Assert exactly one Diagnostic, its Kind is DiagnosticUnbound, and its
+            RuleID is the token's full rule-id (not the extracted pack name — the
+            reader needs the string they must edit). Assert File and Line carry the
+            token's own location so the warning is navigable.
+            MUST FAIL on the current tree — the symbol does not exist. Record it.
+
+          TestWaiver_Unbound_BindsTokenWhosePackNamespaceIsInstalled (CLM-004) —
+            the assertion that keeps the one above honest. The SAME token re-keyed to
+            `backstop-ai/backstop-self/...`, same namespace list, yields ZERO
+            diagnostics. Without this leg a function returning one diagnostic per
+            token unconditionally would pass the test above.
+
+          TestWaiver_Unbound_ExemptsRuleIDWithoutExtractablePackName (CLM-005) —
+            table-driven over ids with fewer than three `/`-segments, each against a
+            namespace list that contains none of them. EVERY one yields zero
+            diagnostics.
+
+            Use ids MEASURED as real F3 removals in this repo, not plausible-looking
+            invented ones: `coverage_threshold` (no slash at all — a real core
+            dimension id waived at cmd/backstop/pack_upgrade.go), `pkg-rule` and `r`
+            (pkg/waiver/waiver_grammar_test.go), `mystery-rule`
+            (pkg/waiver/adjudicate_core_test.go), and `some.other.rule`
+            (pkg/recipe/apply_regenerate_test.go). One-segment and two-segment cases
+            are both represented, which is the axis that matters.
+
+            DO NOT use `pkg/rule-a`, `pkg/ghost`, `pkg/expiring`, `secrets/aws-key`
+            or `go-standards/line-length` and DO NOT describe them as this repo's
+            measured F3 surface. An earlier revision did; measurement showed every
+            occurrence of those is dropped as MALFORMED before F3 runs, so citing
+            them as F3's justification misstates why the filter is needed. They are
+            fine as ADDITIONAL synthetic shapes if you want more table rows — just
+            do not claim provenance they do not have.
+
+          TestWaiver_Unbound_EmptyNamespaceSetYieldsNoDiagnostics (CLM-006) — SE3.
+            A perfectly ordinary three-segment token plus a nil namespace slice, and
+            separately an empty non-nil slice, both yield ZERO diagnostics. Assert
+            with a token that DOES produce a diagnostic under a populated list, so
+            the test proves the empty-set guard fired rather than that the token was
+            unclassifiable.
+
+          TestWaiver_HarvestTokens_ReadsTokenWithNoFindingPresent (CLM-007) — the
+            architectural claim, stated as a test. Hand HarvestTokens raw lines
+            containing an `@waiver:` token and assert it is returned WITHOUT any
+            Finding ever being constructed. Assert the parsed Waiver's RuleID,
+            Reason, Expiry and Line are all populated from the raw bytes. Include a
+            line bearing TWO tokens to prove multi-occurrence scanning, and a
+            malformed token (bad reason-code) to prove it is skipped rather than
+            returned half-parsed.
+        files:
+          - pkg/waiver/unbound_test.go
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on: []
+        test_names:
+          - TestWaiver_Unbound_FlagsTokenWhosePackNamespaceIsNotInstalled
+          - TestWaiver_Unbound_BindsTokenWhosePackNamespaceIsInstalled
+          - TestWaiver_Unbound_ExemptsRuleIDWithoutExtractablePackName
+          - TestWaiver_Unbound_EmptyNamespaceSetYieldsNoDiagnostics
+          - TestWaiver_HarvestTokens_ReadsTokenWithNoFindingPresent
+
+      - id: TASK-002
+        type: implementation
+        title: "Implement HarvestTokens and Unbound in pkg/waiver"
+        description: |
+          Create pkg/waiver/unbound.go (NEW FILE). Do not edit adjudicate.go beyond
+          what is unavoidable — and it should be avoidable entirely: `scanOccurrences`
+          and `ParseToken` are already reachable from within the package.
+
+          Add the third diagnostic kind constant beside the existing two. Put it in
+          unbound.go, not adjudicate.go, so the new surface is one file:
+
+            DiagnosticUnbound = "unbound"
+
+          `HarvestTokens(file string, lines []string) []Waiver` — for each line, use
+          the EXISTING `scanOccurrences` to find every `@waiver:` byte offset, then
+          `ParseToken(line[col:], Location{File: file, Line: i+1})`. Append only
+          tokens that parse without error. Lines are 1-INDEXED to match every other
+          location in this package. Reuse both helpers; do not write a second scanner
+          — the zero-baked byte-scan property (package doc, REQ-002) is a single
+          implementation or it is nothing.
+
+          `Unbound(tokens []Waiver, namespaces []string) []Diagnostic` —
+            · Return nil immediately when len(namespaces) == 0 (SE3, CLM-006).
+            · For each token, extract the candidate pack name: split RuleID on "/";
+              if fewer than 3 segments, SKIP (CLM-005); else candidate is
+              segments[0] + "/" + segments[1].
+            · If candidate is in namespaces, skip. Otherwise emit
+              Diagnostic{RuleID: token.RuleID, File: token.File, Line: token.Line,
+              Kind: DiagnosticUnbound, Message: ...}.
+            · The Message must name BOTH the unresolvable pack name and the remedy,
+              because the reader's next question is always "so what do I type": say
+              that the token's pack namespace matches no pack in backstop.lock, and
+              that the token suppresses nothing until it is re-keyed or removed.
+            · Preserve input order. Determinism is not decoration here — this string
+              lands in gate output that gets diffed across runs.
+
+          The three-segment rule is a property of `pack.NamespacedRuleID`'s
+          `<org>/<pack>` + `/` + rule-id construction. Say that in a comment, in one
+          line, because a future reader will otherwise read it as an arbitrary
+          magic number. Do NOT import pkg/pack to express it — pkg/waiver is pure and
+          takes no pack dependency.
+
+          SE5 applies to the split written here.
+        files:
+          - pkg/waiver/unbound.go
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: verification
+        title: "Gate the pure unbound classifier"
+        description: |
+          Run `./bin/backstop gate --file pkg/waiver/unbound.go` and
+          `./bin/backstop gate --file pkg/waiver/unbound_test.go`.
+
+          NEVER invoke a bare `backstop` — always `./bin/backstop`, and rebuild it
+          first if the binary predates this phase's edits. Export
+          `PATH=/Users/bmanson/go/bin:$PATH` so go-arch-lint resolves; without it the
+          architecture engine silently no-ops and the run is vacuously green.
+
+          All five TASK-001 tests must now pass. Confirm the RED output recorded in
+          TASK-001 is genuinely resolved by TASK-002 and not by a test edit.
+        files:
+          - pkg/waiver/unbound.go
+          - pkg/waiver/unbound_test.go
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-002
+
+  - id: phase-2
+    name: "Phase 2: Surface unbound tokens as a loud, non-blocking gate warning"
+    tasks:
+      - id: TASK-004
+        type: test
+        title: "Falsify the non-blocking surfacing and the StepVerdict correction"
+        description: |
+          Create pkg/gate/step_waiver_unbound_test.go (NEW FILE — the existing
+          step_waiver_*_test.go files belong to other claims and other lanes).
+
+          Drive `computeWaiverResult` through a constructed Gate exactly as the
+          neighbouring step_waiver tests already do; follow their construction
+          pattern rather than inventing a new harness. Fixtures stay synthetic (SE6).
+
+          MANDATED TESTS:
+
+          TestGate_WaiverUnbound_SurfacesAsNonBlockingWarning (CLM-008) — a Gate
+            carrying one unbound token and a namespace list that excludes it
+            produces a waiver_resolution Violation whose Severity is exactly
+            "warning" and whose Rule is the token's full rule-id. Assert
+            `blocksVerdict` returns FALSE for it — assert against the real predicate,
+            not against a string literal, so a future change to the severity
+            vocabulary breaks this test instead of silently escaping it.
+
+          TestGate_WaiverUnbound_StepStatusIsWarningNotFail (CLM-012) — the
+            StepVerdict correction. With ONLY unbound diagnostics present the step
+            Status is "warning": not "fail" (which is what today's
+            `len(wv) > 0 → fail` produces, so this test MUST FAIL before TASK-005)
+            and not "pass" (which would make a surfaced warning invisible). Add the
+            regression leg in the same test: a MALFORMED token still yields Status
+            "fail", proving the switch to StepVerdict did not soften the existing
+            error-severity path.
+
+          TestGate_WaiverUnbound_DoesNotFlipGateVerdict (CLM-008) — run a full
+            `Gate.Run` whose ONLY finding is an unbound-waiver warning and assert
+            GateResult.Pass stays TRUE and the exit code stays 0. This is the claim
+            that a pack rename stays landable.
+
+          TestGate_WaiverUnbound_ReasonNamesEachUnboundRuleID (CLM-008) — the
+            waiver_resolution Reason string contains a `; N unbound (...)` clause
+            listing every unbound rule-id, alongside the existing active /
+            expiring / unused clauses. Assert with TWO distinct unbound tokens that
+            BOTH ids appear and the count reads 2 — a single-token assertion cannot
+            distinguish a real list from a hardcoded singular. Assert the existing
+            clauses are unchanged in the same run.
+        files:
+          - pkg/gate/step_waiver_unbound_test.go
+        claims:
+          - CLM-008
+          - CLM-012
+        depends_on:
+          - TASK-003
+        test_names:
+          - TestGate_WaiverUnbound_SurfacesAsNonBlockingWarning
+          - TestGate_WaiverUnbound_StepStatusIsWarningNotFail
+          - TestGate_WaiverUnbound_DoesNotFlipGateVerdict
+          - TestGate_WaiverUnbound_ReasonNamesEachUnboundRuleID
+
+      - id: TASK-005
+        type: implementation
+        title: "Carry unbound scan inputs into the Gate and render them non-blocking"
+        description: |
+          Locate every edit BY NAME, not by line number (SE8).
+
+          pkg/gate/gate.go — add two unexported Gate fields carrying the harvested
+          tokens and the known namespaces, plus an Option that sets them, following
+          the shape `WithWaiver` already establishes immediately above. Name it for
+          what it carries, not for its mechanism. pkg/gate MUST NOT walk the
+          filesystem and MUST NOT read backstop.lock — Layer 3 owns both.
+
+          pkg/gate/step_waiver.go, in `computeWaiverResult` — after the existing
+          Adjudicate call and the suppression subtraction, call
+          `waiver.Unbound(<tokens>, <namespaces>)` and append each Diagnostic to the
+          same `wv` slice the malformed and non-waivable diagnostics already feed.
+          Convert them at severity "warning" — `waiverDiagToViolation` hardcodes
+          "error", so either give it a severity parameter or add a sibling
+          converter. Prefer the parameter: two near-identical converters is exactly
+          how the two severities drift apart later.
+
+          THE PARAMETER IS A COMPILE BREAK IN A TEST THIS TASK OWNS. Adding an
+          argument to `waiverDiagToViolation` breaks its only other caller,
+          `TestClass3Sites_ViolationsAreErrorSeverityByConstruction` in
+          pkg/gate/step_verdict_severity_test.go (SITE 1, the `waiverDiagToViolation`
+          block). That file is IN THIS TASK'S FILE SCOPE for that reason. Fixing it
+          is NOT a mechanical arity update: SITE 1's stated rationale is that
+          step_waiver.go's raw `len(wv) > 0` count "is correct ONLY while this is
+          error", and this task DELETES that raw count. Rewrite the block so it
+          asserts the new behavior and states the new reason — that the two
+          error-severity diagnostic kinds (malformed, non-waivable) still convert at
+          severity "error", so the switch to `StepVerdict(wv)` did not soften them,
+          and that the verdict is now severity-derived rather than count-derived.
+          Do NOT leave the old "raw count" wording in place with the assertion
+          patched underneath it; a comment that describes a mechanism the file no
+          longer contains is worse than no comment.
+
+          SE10 APPLIES TO THIS FILE. This plan owns SITE 1 only. PLAN-ISSUE-106 owns
+          SITE 2 (the substantiveness JOIN) and is in flight. If SITE 2 already looks
+          different from what SE10 describes, STOP and report a collision — do not
+          reconcile it silently.
+
+          Replace the hardcoded status derivation with `StepVerdict(wv)`. This is
+          behavior-identical for the two existing error-severity kinds and is the
+          only thing preventing a warning from failing the gate. Leave a one-line
+          comment saying why StepVerdict rather than a length check — the next
+          reader will otherwise "simplify" it back.
+
+          In `waiverReason`, add the `; %d unbound (%s)` clause after the existing
+          unused clause. NOTE the existing helper does NOT fit: `joinWaiverRules`
+          takes `[]waiver.Waiver`, and the unbound set is `[]waiver.Diagnostic`.
+          Add a small sibling that joins `[]Diagnostic` rule-ids in the same shape
+          and place it beside `joinWaiverRules` so the two read as a pair — do not
+          widen `joinWaiverRules` with an interface or a second parameter, and do
+          not build the string inline at the call site.
+          `waiverReason` takes a `waiver.Result`, which has no Unbound field —
+          either extend Result with `Unbound []Diagnostic` (populated only by this
+          path, since Adjudicate never sets it) or pass the diagnostics alongside.
+          Extending Result is cleaner and keeps the reason renderer single-argument;
+          if you do, say in the field comment that Adjudicate never populates it, or
+          a reader will assume the finding-driven path covers unbound tokens — the
+          precise misconception this whole issue is about.
+
+          Note for the close-out record, not for action here: adding `Unbound
+          []Diagnostic` makes SPEC-049's pinned `waiver.Result` contract signature
+          field-incomplete. It does NOT red the gate (the contract compiler
+          name-checks `type Result $$$` without enumerating fields) and it is a
+          spec-author follow-on, not a hand-edit from this lane. See FOLLOW-ONS.
+        files:
+          - pkg/gate/step_waiver.go
+          - pkg/gate/gate.go
+          - pkg/gate/step_verdict_severity_test.go
+        claims:
+          - CLM-008
+          - CLM-012
+        depends_on:
+          - TASK-004
+
+      - id: TASK-006
+        type: verification
+        title: "Gate the waiver-step surfacing change"
+        description: |
+          `PATH=/Users/bmanson/go/bin:$PATH ./bin/backstop gate --file pkg/gate/step_waiver.go`,
+          then the same for pkg/gate/gate.go and pkg/gate/step_waiver_unbound_test.go.
+
+          Then run `go test ./pkg/gate/... -race -count=1` in full. The StepVerdict
+          swap touches the status of a step that many other tests assert on — a
+          green `--file` run over the edited files does not prove the package is
+          green. Any pre-existing pkg/gate test that breaks here is a real signal
+          about the status change, not noise to route around.
+
+          Confirm specifically that
+          `TestClass3Sites_ViolationsAreErrorSeverityByConstruction` passes with
+          SITE 1 rewritten (TASK-005) and SITE 2 untouched. Per SE10, if SITE 2
+          differs from what SE10 describes, PLAN-ISSUE-106 landed first — re-verify
+          compatibility with its edit before calling this task done, and report a
+          collision rather than resolving it silently.
+        files:
+          - pkg/gate/step_waiver.go
+          - pkg/gate/gate.go
+          - pkg/gate/step_waiver_unbound_test.go
+          - pkg/gate/step_verdict_severity_test.go
+        claims:
+          - CLM-008
+          - CLM-012
+        depends_on:
+          - TASK-005
+
+  - id: phase-3
+    name: "Phase 3: Production tree harvest, lock namespaces, and CLI wiring"
+    tasks:
+      - id: TASK-007
+        type: test
+        title: "Falsify the production harvest, its exclusions, and scope-independence"
+        description: |
+          Create cmd/backstop/waiver_unbound_test.go (NEW FILE).
+
+          Build fixture PROJECTS in `t.TempDir()`: a backstop.yml, a backstop.lock
+          naming one or two packs, and source files carrying tokens. Do not assert
+          against the real repository here — TASK-010 owns that (SE6).
+
+          MANDATED TESTS:
+
+          TestUnboundWaiverHarvest_ExcludesArtifactRootAndTestdata (CLM-011) — the
+            precision claim, and the one that decides whether this feature survives
+            contact with the repo. Table-driven over TWO fixture projects that
+            differ ONLY in whether `backstop.yml` declares `artifact_root`. Both
+            legs are mandatory and the UNCONFIGURED one is the load-bearing half.
+
+            Each fixture project places the SAME unbound token in four places: a
+            plain source file, a file under the project's artifact directories
+            (e.g. `issues/`, or `<declared root>/issues/` in the configured leg), a
+            file under a `testdata/` directory, and a file under a directory named
+            `mytestdata` (NOT an exact segment match). In BOTH legs assert exactly
+            TWO are harvested — the plain source file and the `mytestdata` one —
+            and that the artifact-directory and `testdata/` copies are absent.
+
+            THE UNCONFIGURED LEG IS WHY THIS TEST EXISTS IN THIS SHAPE. This
+            repository declares no `artifact_root`, so `ResolveRoot` returns the
+            PROJECT ROOT with `Configured: false`. A configured-root-only fixture
+            would go green over an implementation that excludes everything under
+            `Root.Path` — which in the real repo means excluding the entire tree
+            and reporting nothing, forever. Assert in the unconfigured leg that the
+            plain source file at the project root IS still harvested; that single
+            assertion is what makes this test capable of failing against the
+            production shape.
+
+            The `mytestdata` leg is what proves the exclusion is an exact directory-
+            SEGMENT match rather than a substring, matching `excludeTestdataPaths`'s
+            documented contract.
+
+          TestUnboundWaiverNamespaces_ReadFromLockNotInstalledPacks (CLM-009) — the
+            fresh-clone claim. The fixture has a populated backstop.lock and NO
+            `.backstop/packs/` directory at all. Assert the namespace set is
+            non-empty and matches the lock's entry names, so a token keyed to a
+            locked pack is NOT flagged. Add the negative leg: with backstop.lock
+            ABSENT, the harvest yields zero unbound diagnostics rather than flagging
+            every token (SE3).
+
+          TestGate_UnboundWaiverScanWiredAtConstructionSite (CLM-009) — the
+            anti-dark-gate test. SPEC-049 shipped a fully-built waiver subsystem
+            that suppressed nothing for want of one call at the construction site;
+            this check must not repeat that. Drive the REAL gate construction path
+            over a fixture project carrying an unbound token and assert the
+            resulting waiver_resolution step names it. A unit test of the harvest
+            function alone cannot detect an unwired Option.
+
+          TestGate_UnboundWaiverScan_IdenticalAcrossScopes (CLM-009) — the claim
+            ISSUE-097's 2026-08-16 entry demands. Over ONE fixture project, run the
+            gate under GateScopeModeAll and under a narrow scope that EXCLUDES the
+            file carrying the unbound token, and assert the unbound clause and its
+            count are IDENTICAL. Excluding the token's own file is the point: a scope
+            that happens to contain it proves nothing.
+
+          TestWaiverList_NamesUnboundTokens (CLM-010) — `backstop waiver list` over
+            a fixture project prints a labeled unbound section naming the token's
+            rule-id. Assert the section header is present even when the count is
+            ZERO, matching how the Active / Expiring / Unused sections are always
+            labeled — a silent section is how this class of rot hid in the first
+            place.
+        files:
+          - cmd/backstop/waiver_unbound_test.go
+        claims:
+          - CLM-009
+          - CLM-010
+          - CLM-011
+        depends_on:
+          - TASK-006
+        test_names:
+          - TestUnboundWaiverHarvest_ExcludesArtifactRootAndTestdata
+          - TestUnboundWaiverNamespaces_ReadFromLockNotInstalledPacks
+          - TestGate_UnboundWaiverScanWiredAtConstructionSite
+          - TestGate_UnboundWaiverScan_IdenticalAcrossScopes
+          - TestWaiverList_NamesUnboundTokens
+
+      - id: TASK-008
+        type: implementation
+        title: "Wire the tree harvest and lock namespaces into gate and waiver list"
+        description: |
+          Locate every edit BY NAME (SE8). Both files are under concurrent edit by
+          other lanes tonight — re-read them before editing.
+
+          cmd/backstop/gate.go — add two helpers beside `buildWaiverPolicy` /
+          `buildWaiverLineReader`, whose shape and doc-comment style they should
+          follow:
+
+            · A project-token harvester. Enumerate files with
+              `gate.ComputeGateScope(projectRoot, gate.GateScopeModeAll, nil)` —
+              the single existing authority on "every file"; do NOT write a second
+              walk, and do NOT reuse the gate run's ACTIVE scope, which is what
+              would make the check scope-dependent. Drop paths under the artifact
+              KIND DIRECTORIES (F1), then pass the remainder through the EXISTING
+              `excludeTestdataPaths` in pack_gate.go (F2) — call it, do not copy it
+              and do not inline the string. Read each surviving file's lines and
+              call `waiver.HarvestTokens`. An unreadable file is skipped silently,
+              exactly as `buildWaiverLineReader` already skips an unopenable file:
+              a binary or a permission-denied path is not a waiver defect.
+
+              F1 IS PER-KIND, NOT THE ROOT PATH. Resolve the root once with
+              `artifact.ResolveRoot(projectRoot, cfg.ArtifactRoot)`, then build the
+              exclusion set by ranging `artifact.Kinds()` and taking `root.Dir(kind)`
+              for each. DO NOT exclude paths under `root.Path`: this project declares
+              no `artifact_root`, so `ResolveRoot` returns `Configured: false` with
+              `Path` equal to the PROJECT ROOT, and a `root.Path` prefix test would
+              drop every file in the repository and make the entire check silently
+              report nothing. The kind directories still come from `pkg/artifact`'s
+              one layout table, so this stays config-derived — no hardcoded directory
+              list belongs in this file.
+            · A lock-namespace reader. `distribution.ReadLockfile` over
+              `<projectRoot>/backstop.lock`, returning each entry's `Name`. A
+              missing or unparseable lock returns an EMPTY slice, which SE3 turns
+              into zero diagnostics — degrade quietly, exactly as the neighbouring
+              `buildWaiverPolicy` failure path already degrades rather than aborting
+              the gate.
+
+          Wire both into the Option added in TASK-005, in the same `opts = append(...)`
+          block as the existing `gate.WithWaiver(...)` call. That call site is the
+          one thing standing between this feature and a dark gate.
+
+          cmd/backstop/waiver.go — `runWaiverList` already computes projectRoot,
+          artifactRoot and an all-mode scope, so both helpers drop straight in.
+          Carry the diagnostics into `formatWaiverList` and render a new
+          "Unbound / unknown pack (N):" section in the same always-labeled style as
+          the three existing sections, listing each rule-id with its file:line so
+          the reader can navigate to the token they must edit.
+
+          TWO CONSTRAINTS ON cmd/backstop/waiver.go, BOTH ENFORCED BY EXISTING
+          MANDATED TESTS IN cmd/backstop/waiver_cli_test.go:
+
+            · `formatWaiverList`'s signature changes, which breaks its three call
+              sites in that file (inside TestWaiverList_ReportsActive,
+              TestWaiverList_ReportsExpiringSoon, TestWaiverList_ReportsUnused).
+              That file is IN THIS TASK'S FILE SCOPE for exactly that reason.
+              Update the call sites and their assertions to the new signature and
+              PRESERVE EVERY MANDATED TEST NAME IN THE FILE BYTE-FOR-BYTE — those
+              names are SPEC-049 claim anchors (CLM-046/047/048/049) and renaming
+              one silently orphans a claim. Prefer adding a parameter over changing
+              the receiver shape, so the diff at each call site stays one argument.
+            · `TestWaiver_ReadOnly_NoTokenAuthoringInCore` reads waiver.go's SOURCE
+              and fails if it contains any of `os.WriteFile`, `os.Create`,
+              `ioutil.WriteFile`, or the literal string `@waiver:`. The new unbound
+              section's label and format strings must therefore NOT contain the
+              literal `@waiver:` — say "waiver token" in prose instead. This test is
+              the read-only guarantee for the whole waiver CLI; it is not to be
+              relaxed, and hitting it means the label needs rewording, not the test.
+        files:
+          - cmd/backstop/gate.go
+          - cmd/backstop/waiver.go
+          - cmd/backstop/waiver_cli_test.go
+        claims:
+          - CLM-009
+          - CLM-010
+          - CLM-011
+        depends_on:
+          - TASK-007
+
+      - id: TASK-009
+        type: verification
+        title: "Gate the production wiring"
+        description: |
+          `PATH=/Users/bmanson/go/bin:$PATH ./bin/backstop gate --file cmd/backstop/gate.go`,
+          then the same for cmd/backstop/waiver.go and
+          cmd/backstop/waiver_unbound_test.go. Rebuild `./bin/backstop` first — the
+          CLI changed, and gating with a stale binary measures the previous commit.
+
+          Then `go test ./cmd/backstop/... -race -count=1`.
+
+          Finally, a REAL observation, not a test: run
+          `PATH=/Users/bmanson/go/bin:$PATH ./bin/backstop gate --all` and read the
+          waiver_resolution line. It should now name FIVE unbound tokens, and they
+          should be exactly the five listed under THE TOKENS. That count is the
+          pre-measured ground truth in this plan's notes; if it differs, STOP and
+          reconcile before TASK-010.
+
+          The two most likely wrong answers are diagnostic in themselves. ZERO means
+          F1 dropped the whole tree — check that the harvester excludes per-kind
+          `Root.Dir(kind)` paths and not `Root.Path`, which under this repo's
+          unconfigured `artifact_root` IS the project root. SIX or more means either
+          the malformed-skip is not firing (the
+          `pkg/waiver/adjudicate_nonwaivable_test.go` fixture token is the expected
+          extra — it must NOT appear) or a lane landed a genuinely new stale token,
+          which is worth knowing before the re-key erases the evidence.
+        files:
+          - cmd/backstop/gate.go
+          - cmd/backstop/waiver.go
+          - cmd/backstop/waiver_unbound_test.go
+          - cmd/backstop/waiver_cli_test.go
+        claims:
+          - CLM-009
+          - CLM-010
+          - CLM-011
+        depends_on:
+          - TASK-008
+
+  - id: phase-4
+    name: "Phase 4: Re-key the five orphaned tokens, proven by the new check"
+    tasks:
+      - id: TASK-010
+        type: test
+        title: "Assert the live repository carries zero unbound waiver tokens"
+        description: |
+          Create cmd/backstop/waiver_repo_unbound_test.go (NEW FILE). This is the
+          ONE test that reads the real tree (SE6), and it is the durable regression
+          guard: any future pack rename that orphans a waiver fails here, in the
+          normal `go test` run, without anyone remembering to look.
+
+          MANDATED TESTS:
+
+          TestRepo_CarriesNoUnboundWaiverTokens (CLM-001, CLM-002, CLM-003) —
+            resolve the repository root from the test's own location (the package
+            sits at `<root>/cmd/backstop`), run the SAME production harvester and
+            lock-namespace reader TASK-008 added — not a reimplementation — and
+            assert `waiver.Unbound` returns EMPTY.
+
+            On failure, print every diagnostic's file, line and rule-id. A bare
+            count is useless to whoever hits this in six months; the whole value of
+            the test is that its failure message tells them exactly which token to
+            re-key.
+
+            Read namespaces from backstop.lock, which is TRACKED, so this test does
+            NOT require `.backstop/packs/` to be installed and stays green on a
+            fresh clone and in CI. If the lock cannot be read, `t.Fatal` — do not
+            skip. A silent skip here rebuilds the exact invisibility this issue
+            exists to remove.
+
+          TestRepo_CarriesNoStalePreRenameWaiverRuleIDs (CLM-002) — THE OTHER
+            HALF OF THE STRING, and the reason this file has two tests instead of
+            one. `Unbound` tests ONLY the `<org>/<pack>` coordinate half of a rule
+            id; it is structurally blind to a token whose coordinate half was
+            migrated while its trailing DOTTED segment was not. That half-migrated
+            token is just as unbound in effect, produces no diagnostic, and no
+            live finding exists to catch it either (SE7). Nothing else in this
+            plan covers it. See TASK-011 for the worked example.
+
+            Run the SAME production harvester over the real tree, then assert that
+            NO returned token's RuleID contains the dead literal segment
+
+              backstop.packs.backstop.self.rules.
+
+            anywhere in the string. On failure print each offending file, line and
+            full rule-id, and say plainly that the coordinate half may already look
+            correct — that is precisely the failure this test exists to name.
+
+            Assert over HARVESTED TOKENS, not over raw file bytes. The needle
+            appears in prose and in Go string literals elsewhere in the tree
+            (including in this test's own source, and in the synthetic Violation
+            at `cmd/backstop/bun_ratchet_flip_test.go`), none of which is an
+            `@waiver:` token and none of which suppresses anything. Scanning raw
+            bytes would flag them all — including the test file itself — and this
+            test would be un-greenable.
+
+            SCOPE HONESTLY, IN A COMMENT: this is a guard against THIS rename's
+            dead segment, not a general well-formedness check on dotted rule ids.
+            A generic structural assertion would have to encode that a rule id's
+            dotted segment mirrors the pack's on-disk path — a semgrep-specific
+            convention that other engines do not share — and baking it here would
+            be a tool assumption in core test code. See FOLLOW-ONS.
+
+          BOTH TESTS MUST FAIL NOW. The first must name all FIVE tokens from this
+          plan's notes and no others; the second must name the same five, since
+          every one of them carries the dead dotted segment. RECORD BOTH RED
+          OUTPUTS before starting TASK-011. If either passes on the current tree,
+          something is wrong with the harvest or the exclusions — investigate
+          rather than proceeding, because a test that was never seen failing
+          proves nothing. If the first names a SIXTH at
+          `pkg/waiver/adjudicate_nonwaivable_test.go`, the malformed-skip is not
+          firing: that token is malformed by measurement and is explicitly out of
+          scope, so fix the harvest rather than widening the re-key.
+
+          THE RED WINDOW MUST CLOSE IN THIS SITTING. Proceed directly to TASK-011;
+          do not hand off or context-switch with the suite red.
+        files:
+          - cmd/backstop/waiver_repo_unbound_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on:
+          - TASK-009
+        test_names:
+          - TestRepo_CarriesNoUnboundWaiverTokens
+          - TestRepo_CarriesNoStalePreRenameWaiverRuleIDs
+
+      - id: TASK-011
+        type: refactor
+        title: "Re-key all five stale backstop/self waiver tokens to the current namespace"
+        description: |
+          FIRST, RE-VERIFY SE2 — grep `.backstop/packs/backstop-ai/backstop-self/
+          pack.yml` for `non_waivable`. At v1.1.3 there is no such key and re-keying
+          is safe. If any of the three rules has since gained `non_waivable: true`,
+          STOP and escalate: re-keying that token would bind it and turn an
+          invisible fail-open into a hard gate error, which is a founder posture
+          decision, not an implementation choice.
+
+          SECOND, derive the new namespace from the installed pack rather than
+          copying it out of this plan. Read `name:` from
+          `.backstop/packs/backstop-ai/backstop-self/pack.yml` — it is
+          `backstop-ai/backstop-self`. The finding id is built by
+          `pack.NamespacedRuleID(manifest.NormalizedName, sarifRuleID)`, so the
+          replacement is that name, a `/`, then the token's EXISTING dotted rule id
+          with `backstop.self` corrected to `backstop-ai.backstop-self`:
+
+            OLD prefix: backstop/self/backstop.packs.backstop.self.rules.
+            NEW prefix: backstop-ai/backstop-self/backstop.packs.backstop-ai.backstop-self.rules.
+
+          Note BOTH halves change — the coordinate prefix AND the dotted segment
+          inside the semgrep rule id, which is derived from the pack's on-disk path.
+
+          CHANGING ONLY THE FIRST HALF IS THE MOST LIKELY WAY TO GET THIS WRONG,
+          AND THE UNBOUND CHECK CANNOT SEE IT. Be precise about what covers what,
+          because the tempting wrong belief here is the same shape as the defect
+          this whole plan closes. `Unbound` (TASK-002) splits the rule id on `/`
+          and tests ONLY `segments[0] + "/" + segments[1]` against the lock's
+          namespaces. A half-migrated token —
+
+            backstop-ai/backstop-self/backstop.packs.backstop.self.rules.no-structural-name-split-on-spine
+
+          — yields candidate `backstop-ai/backstop-self`, which IS a real
+          `backstop.lock` entry name. `Unbound` emits NOTHING for it,
+          TestRepo_CarriesNoUnboundWaiverTokens goes green, TASK-012 would declare
+          the invariant flipped, and TASK-013 would read zero unbound. There is no
+          live finding to catch it either (SE7). The coordinate half is covered;
+          the dotted half is NOT, by construction.
+
+          THIS IS NOT HYPOTHETICAL IN THIS CODEBASE. The tree already carries
+          exactly that half-migrated shape at
+          `cmd/backstop/bun_ratchet_flip_test.go`, in the `Rule:` field of a
+          synthetic Violation built from `neutralSpineRuleFragment` — post-rename
+          coordinate, stale dotted segment. That instance is a Go string literal
+          matched by `strings.Contains`, not an `@waiver:` token; it suppresses
+          nothing, no harvest sees it, and it is OUT OF SCOPE here. It is cited
+          only as proof that this exact half-migration is easy to write.
+
+          WHAT ACTUALLY COVERS THE DOTTED HALF is the SECOND mandated test
+          TASK-010 adds — TestRepo_CarriesNoStalePreRenameWaiverRuleIDs — which
+          asserts no surviving `@waiver:` token's rule-id contains the dead
+          literal segment `backstop.packs.backstop.self.rules.` ANYWHERE in the
+          string. That test is RED now on all five tokens and GREEN only once
+          both halves of all five are corrected. Derive the replacement from the
+          installed pack as described above and verify BOTH halves by eye against
+          a live post-rename token before running either test.
+
+          THIRD, SE1: change ONLY the rule-id. Reason-code, expiry date and the
+          entire trailing note stay byte-for-byte identical. Re-read SE1 before
+          touching the `tests/smoke/smoke_test.go` tokens — their
+          `deferred:2026-10-24` encodes an OPEN escalation and must not become
+          `false-positive`.
+
+          THE FIVE TOKENS, located by enclosing function and rule-id (SE8 — every
+          line number here is orientation, not an address):
+
+            1. cmd/backstop/pack_gate.go, in `splitCommand`
+               no-structural-name-split-on-spine · false-positive:2027-07-17
+            2. cmd/backstop/pack_gate_provision.go, in `engineToolName`
+               no-structural-name-split-on-spine · false-positive:2027-07-17
+            3. tests/smoke/smoke_test.go, first token (~:33)
+               no-baked-tool-exec · deferred:2026-10-24
+            4. tests/smoke/smoke_test.go, second token (~:53)
+               no-baked-language-token · deferred:2026-10-24
+            5. tests/smoke/smoke_test.go, third token (~:246)
+               no-baked-language-token · deferred:2026-10-24
+
+          FIVE, AND ONLY FIVE. Two stale `backstop/self` strings elsewhere in the
+          tree are DELIBERATELY LEFT ALONE and re-keying them here is scope creep,
+          not thoroughness:
+
+            · pkg/waiver/adjudicate_nonwaivable_test.go's
+              `backstop/self/no-baked-language:accepted-risk:2999-01-01` fixture.
+              Measured MALFORMED (the enclosing Go string literal traps `"})` into
+              the expiry), so `HarvestTokens` drops it, `Unbound` never sees it, and
+              TASK-010 will not name it. No fail-open exists.
+            · pkg/gate/policy_perpack_test.go's `selfNeutralRule` constant, a plain
+              Go string literal that is not an `@waiver:` token at all.
+
+          Both are FOLLOW-ONS (see notes). Touching either would put files in this
+          task's scope that nothing in this plan tests.
+
+          Expect SE7: the re-keyed tokens will still suppress nothing, because the
+          rule produces no finding under any current dispatch shape (ISSUE-151). A
+          correctly-keyed dormant waiver IS the deliverable. Do not chase the
+          finding and do not conclude the re-key failed.
+        files:
+          - cmd/backstop/pack_gate.go
+          - cmd/backstop/pack_gate_provision.go
+          - tests/smoke/smoke_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on:
+          - TASK-010
+
+      - id: TASK-012
+        type: verification
+        title: "Gate the re-keyed files and confirm the repo invariant flipped green"
+        description: |
+          `PATH=/Users/bmanson/go/bin:$PATH ./bin/backstop gate --file cmd/backstop/pack_gate.go`,
+          then the same for cmd/backstop/pack_gate_provision.go and
+          tests/smoke/smoke_test.go. Rebuild `./bin/backstop` first.
+
+          Then run BOTH TASK-010 tests —
+          TestRepo_CarriesNoUnboundWaiverTokens and
+          TestRepo_CarriesNoStalePreRenameWaiverRuleIDs — and confirm each now
+          PASSES against the RED output recorded for it in TASK-010. Green here
+          without that recorded red is not evidence; it is the vacuous-green
+          failure mode this whole plan exists to close.
+
+          BOTH ARE REQUIRED TO CALL THE INVARIANT FLIPPED. The first covers only
+          the `<org>/<pack>` coordinate half of each rule id and is structurally
+          blind to a token whose dotted segment was left stale (TASK-011). A green
+          on the first alone does NOT establish the re-key landed.
+
+          Also run `go test ./tests/... ./cmd/backstop/... -race -count=1`. The
+          smoke-test tokens sit in a test file, and the two cmd/backstop tokens sit
+          in files other lanes edited tonight — a byte-level re-key that broke a
+          neighbouring assertion would otherwise surface only at TASK-013.
+        files:
+          - cmd/backstop/pack_gate.go
+          - cmd/backstop/pack_gate_provision.go
+          - tests/smoke/smoke_test.go
+          - cmd/backstop/waiver_repo_unbound_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on:
+          - TASK-011
+
+  - id: phase-5
+    name: "Phase 5: Full kill chain and artifact validation"
+    tasks:
+      - id: TASK-013
+        type: verification
+        title: "Run the unscoped gate and validate the artifacts"
+        description: |
+          Rebuild `./bin/backstop`, then run the FULL kill chain, unscoped:
+
+            PATH=/Users/bmanson/go/bin:$PATH ./bin/backstop gate --all
+
+          go-arch-lint MUST resolve on PATH or the pack_engines dimension silently
+          no-ops and the sweep is vacuously green. Confirm the engines actually ran
+          before reading the verdict.
+
+          Read the waiver_resolution line specifically. It must now report ZERO
+          unbound tokens — the count that read FIVE at TASK-009. That before/after
+          pair, both measured on the real tree, is the plan's evidence that part (a)
+          landed. Capture both strings verbatim for the close-out record; do not
+          paraphrase a count.
+
+          Then validate the artifacts:
+
+            ./bin/backstop artifact validate --plan PLAN-ISSUE-097
+            ./bin/backstop artifact validate --issue ISSUE-097
+
+          SE9 applies: several lanes landed tonight. If `gate --all` shows a failure
+          this plan did not cause, prove it with a clean-HEAD control reading in a
+          detached worktree, name the owning issue, and RECORD it. Never waive it,
+          and never weaken a test to clear it.
+
+          Confirm every mandated test name declared in this plan exists and passes:
+          the five in pkg/waiver/unbound_test.go, four in
+          pkg/gate/step_waiver_unbound_test.go, five in
+          cmd/backstop/waiver_unbound_test.go, and BOTH of
+          cmd/backstop/waiver_repo_unbound_test.go's —
+          TestRepo_CarriesNoUnboundWaiverTokens and
+          TestRepo_CarriesNoStalePreRenameWaiverRuleIDs.
+
+          Also confirm the mandated test names this plan EDITS rather than adds are
+          all still present under their original names:
+          TestClass3Sites_ViolationsAreErrorSeverityByConstruction
+          (pkg/gate/step_verdict_severity_test.go, TASK-005) and
+          TestWaiverList_ReportsActive / TestWaiverList_ReportsExpiringSoon /
+          TestWaiverList_ReportsUnused / TestWaiver_ReadOnly_NoTokenAuthoringInCore
+          (cmd/backstop/waiver_cli_test.go, TASK-008). Those are SPEC-049 claim
+          anchors; a rename orphans a claim silently.
+
+          NOTE ON THIS TASK'S depends_on. TASK-012 is the phase-4 verification that
+          must complete before this final sweep runs. TASK-011 is listed BESIDE it,
+          not instead of it, because the validator requires a verification task to
+          carry a DIRECT edge to an implementation or refactor task and TASK-012 is
+          itself a verification. TASK-008 is deliberately NOT listed: it is reached
+          transitively via TASK-011 → TASK-010 → TASK-009 → TASK-008.
+        files:
+          - pkg/waiver/unbound.go
+          - pkg/gate/step_waiver.go
+          - cmd/backstop/gate.go
+          - cmd/backstop/waiver.go
+          - plans/PLAN-ISSUE-097-unbound-selfpack-waivers-fail-open.plan.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+        depends_on:
+          - TASK-012
+          - TASK-011
