@@ -6,16 +6,65 @@ issue:
   id: ISSUE-092
   title: "Pack Test Phase3 Fixtures Cannot Fail"
   type: bug
-  status: open
+  status: closed
   created: "2026-07-27"
+  closed: "2026-08-16"
 
 complexity:
   scope: contained
   uncertainty: known
   risk: critical
+
+delivered_by: PLAN-ISSUE-092
 ---
 
 # Pack Test Phase3 Fixtures Cannot Fail
+
+## Resolution
+
+Delivered by PLAN-ISSUE-092
+(`plans/PLAN-ISSUE-092-pack-test-phase3-fixtures-cannot-fail.plan.yml`).
+
+`pkg/packval`'s pack-fixture-execution pipeline (`pack test`/`pack check`) had multiple
+compounding defects that together let every phase3 fixture pass regardless of its actual
+polarity:
+
+- **CLM-001** — the manifest-model drift diagnosed in Root cause is reconciled: packval's `Rule`
+  now reads the canonical `rule_path` key instead of the dead `file` key, matching the
+  gate-runtime parser (`pkg/pack/manifest.go`) every real pack.yml was already written for.
+- **CLM-002/CLM-003** — phase 3 genuinely dispatches for a `rule_path:`-declared rule, and CAN
+  FAIL: a pack whose negative fixture is rewritten to be compliant now turns `pack test` red
+  instead of the false `pass` this issue reported.
+- **CLM-004** — fixture polarity is corrected on both findings paths, resolving the
+  positive/negative vs. valid/invalid inversion flagged as a possible secondary defect above
+  (BUNDLE-005 REQ-011).
+- **CLM-005** — an engine/schema error is now a distinct, loud phase-3 failure, no longer
+  collapsible into either a genuine pass or a genuine fail (the "measurement trap" recorded
+  above).
+- **CLM-006** — phase 1's rule-file-existence structural check is live for `rule_path:`-declared
+  rules.
+- **CLM-007** — layer-3 validator dispatch no longer gates on the retired `Layer` field, which had
+  made freshly-scaffolded packs' sample validators structurally unreachable.
+- **CLM-008** — proven end-to-end through the real CLI, not just unit-level: a pack with a
+  genuinely broken negative fixture now correctly fails `pack test` where it previously passed
+  vacuously in 17ms.
+- **CLM-009** — a drift guard fails the build if the authoring-time and gate-runtime manifest
+  models diverge again, closing off silent recurrence of this exact defect class.
+- **CLM-010** — the semgrep-rule-id cross-check is conditioned on the resolved binding's declared
+  `input_mode`, not on the engine's name, so it does not break for non-semgrep engines.
+
+**Filed, not fixed, as follow-ons — this fix's own real execution exposed three genuinely
+pre-existing defects** that were previously invisible behind the dead dispatch paths this fix
+corrects. Each requires touching files outside this plan's declared scope, so each was filed
+separately rather than folded in:
+
+- ISSUE-146 — `pack new`'s vacuous scaffold validator (this fix's own direct true positive).
+- ISSUE-147 — darwin sandbox relative-packDir bug.
+- ISSUE-148 — the substantiveness pack's own fixture polarity being backwards.
+
+The final `gate --all` reading was red at close, but every violation was independently attributed
+to either other lanes' concurrent in-flight work or these three separately-filed, pre-existing
+defects — zero violations cite any file this plan's implementation touched.
 
 ## Problem
 
