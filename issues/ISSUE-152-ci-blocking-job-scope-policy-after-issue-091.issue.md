@@ -6,8 +6,11 @@ issue:
   id: ISSUE-152
   title: "Ci Blocking Job Scope Policy After Issue 091"
   type: technical-debt
-  status: open
+  status: closed
   created: "2026-08-16"
+  closed: "2026-08-17"
+
+resolved-by: "73eedb135b491685ea7251fc5fc4365ac9dbd5fa"
 
 complexity:
   scope: cross-cutting
@@ -135,6 +138,26 @@ PLAN-ISSUE-091's — to weigh:
 Raise this for founder review after PLAN-ISSUE-091 lands. It is a taste/policy call about CI
 strategy — exactly the class that escalates rather than getting decided inside an implementation
 lane.
+
+## Resolution
+
+**Founder ruling: the ban stays — permanently, on a different and durable basis.** Not because
+the original defect (ISSUE-091's `--all` under-report) is unfixed — it is — but as a deliberate,
+standing policy choice: CI's blocking job is a latency- and scope-sensitive path, and diff scope
+with an explicit base is the deliberately narrow, fast, predictable shape that job wants,
+independent of whether `--all` is now correct. This is not a placeholder pending further review;
+it is a durable decision.
+
+Recorded in code at commit `73eedb135b491685ea7251fc5fc4365ac9dbd5fa`:
+`workflows_test.go`'s `TestCIWorkflow_BlockingJobNeverUsesAllOrFileScope` doc comment and the
+`--all` flag-map rationale string were rewritten to state this ruling explicitly — the test's
+BEHAVIOR is unchanged (the ban was already enforced; nothing was lifted), only the stated
+rationale changed from "pending a founder decision" to "founder ruling: keep it, durably, on
+policy grounds." `.github/workflows/ci.yml`'s blocking gate invocation is likewise unchanged — it
+still passes no `--all`.
+
+This resolves the `--all` half of the question this issue posed. The `--file` half is the sibling
+question owned by ISSUE-156, ruled the same way.
 
 ## References
 
