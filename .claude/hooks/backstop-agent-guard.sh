@@ -77,20 +77,24 @@ case "$AGENT_NAME" in
     wblock
     ;;
   implementer*)
-    [[ "$FILE_PATH" == *.go ]] && exit 0
-    basename="$(basename "$FILE_PATH")"
-    [[ "$basename" == "go.mod" || "$basename" == "go.sum" || "$basename" == "Makefile" ]] && exit 0
-    if [[ "$FILE_PATH" == *.json || "$FILE_PATH" == *.yml ]]; then
-      [[ "$FILE_PATH" == .backstop/* || "$FILE_PATH" == artifacts/* ]] && exit 0
-    fi
+    # Language-agnostic by design (CLAUDE.md's zero-baked-language-knowledge
+    # first principle applies to this guard too, ISSUE-127): an implementer
+    # may write ANY source/config file. The boundary this arm actually
+    # enforces is "source/config, not artifacts" -- an implementer never
+    # authors a bundle/spec/issue/adr/directive/plan or BACKLOG.yml, since
+    # those belong to their own dedicated author families above.
+    #
     # Test-fixture corpora under any testdata/ dir are exempt from the
-    # artifact-filename restriction below -- pkg/artifact's own exclusion set
+    # artifact-filename check below -- pkg/artifact's own exclusion set
     # already treats testdata as outside the real corpus, so an
     # artifact-SHAPED fixture there (SPEC-NNN-x.spec.md etc.) is never a real
     # artifact and this guard has nothing to protect by refusing it.
     [[ "$FILE_PATH" == */testdata/* ]] && exit 0
-    wblock
-    ;;
+    basename="$(basename "$FILE_PATH")"
+    case "$basename" in
+      *.bundle.md|*.spec.md|*.issue.md|*.adr.md|*.directive.md|*.plan.yml|BACKLOG.yml) wblock ;;
+      *) exit 0 ;;
+    esac ;;
   spec-reviewer*|plan-reviewer*|impl-reviewer*|bundle-reviewer*) wblock ;;
   general-purpose*)
     [[ "$FILE_PATH" == */prototype/* ]] && exit 0
