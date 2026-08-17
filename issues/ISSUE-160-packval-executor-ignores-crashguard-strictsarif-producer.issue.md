@@ -6,8 +6,11 @@ issue:
   id: ISSUE-160
   title: "pkg/packval/executor.go's RunEngine ignores a binding's CrashGuard, StrictSarif, and Producer fields — all three honored by the real gate dispatch"
   type: bug
-  status: open
+  status: closed
   created: "2026-08-17"
+  closed: "2026-08-17"
+
+delivered_by: PLAN-ISSUE-160
 
 complexity:
   scope: contained
@@ -124,3 +127,43 @@ inside `RunEngine` directly.
   pkg/packval/*.go` and `grep -rn "Producer" pkg/packval/*.go` both return zero matches; the gate's
   honoring sites cited above (`pack_gate.go:429,778,869`, `pack_gate_golint.go:44`) were read
   directly to confirm they exist and do what this issue describes.
+
+## Resolution
+
+Delivered by `PLAN-ISSUE-160` (`status: completed`, committed at `c1e4ef4`/`a31d0ed`). This closes
+the last remaining open member of `DIR-032`'s 21-item roster.
+
+`pkg/packval/executor.go`'s `RunEngine` now honors all three previously-ignored `EngineBinding`
+fields, landed as three sequential TDD cycles matching the gate's own stage order:
+
+- **`Producer`** — a declared producer script is now substituted for the invoked command, with the
+  full ordered argv preserved (findings-path semantics), avoiding the PLAN-ISSUE-067-class bug where
+  a producer receives the wrong subcommand as `$1`. Sequenced first per this issue's "Direction"
+  section, as the highest real-world-impact of the three (the `go-toolchain` `go-coverage` rule).
+- **`CrashGuard`** — `RunEngine` now distinguishes a genuine clean pass from a non-zero-exit-with-
+  zero-findings run, mirroring `pack_gate.go:869`'s guard, instead of silently returning
+  `Passed: false, err: nil`.
+- **`StrictSarif`** — non-SARIF payload noise now fails loud before parsing instead of silently
+  reading as zero findings, mirroring `requireLintSarifShape`.
+
+All three landed inline in `RunEngine` (no helper extraction), matching the gate's own stage order:
+trust gate → buildEngineArgv → producer substitution → exec → never-started refusal →
+stdout_artifact selection → strict-SARIF shape guard → convert → ParsePackFindings → crash guard →
+return.
+
+Falsified via mutation testing on the finished implementation: ten regressions were introduced one
+at a time against the delivered code. One real gap was found — dropping the crash guard's
+`runErr != nil` conjunct — and closed by adding a second subtest leg to an existing mandated test,
+keeping the mandated set at exactly 16 rather than inventing a 17th.
+
+Two judgment calls were made and independently re-verified across two review rounds:
+
+1. **StrictSarif lands locally in `pkg/packval`**, not in a shared gate-mirroring location, because
+   `ISSUE-143`'s proposed Convert-stage consolidation has no plan yet as of this close.
+2. **Producer substitution uses findings-path argv-swap semantics** specifically (mirroring
+   `runFindingsEngine`'s pattern at `pack_gate.go:778-790`, not `runCoverageEngine`'s bare producer
+   invocation at `:429-450`).
+
+**Residual not fixed here (R4):** the external `go-toolchain` pack still needs fixtures and a rule
+source path for these three fields to actually fire in practice against a real pack. Tracked
+separately, not blocking this close.
