@@ -1,0 +1,1491 @@
+---
+plan_id: PLAN-ISSUE-093
+spec_id: ISSUE-093
+created: "2026-08-16"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./cmd/backstop/... ./pkg/gate/... -race -count=1"
+coverage_threshold: 90
+
+notes: |
+  ══════════════════════════════════════════════════════════════════════════════
+  PLAN-ISSUE-093 — `gate --file` false-REDs a non-Go file whose directory holds
+  no Go package, and `--file` silently collapses when repeated.
+  DIR-032 (Gate Verdict Honesty) member. Issue-sourced: this plan defines its own
+  claims.
+  ══════════════════════════════════════════════════════════════════════════════
+
+  ── FALSIFICATION: THE DEFECTS ARE REAL, REPRODUCED AT HEAD ────────────────
+  Not assumed from the issue text. Reproduced 2026-08-17 in a DETACHED WORKTREE
+  at HEAD a60015c (`git worktree add --detach`), with `.backstop/packs` copied in
+  and `PATH=/Users/bmanson/go/bin:$PATH` so go-arch-lint resolves and pack_engines
+  does not silently no-op. The shared tree was deliberately NOT used — several
+  implementers are live in it.
+
+  DEFECT-1 (primary), observed verbatim:
+
+      $ ./bin/backstop gate --file .github/workflows/ci.yml
+        pack_engines   fail  (50938ms)  (1 violations)
+          - [pack_engines] dispatching findings engine "go-test" for pack
+            backstop-ai/go-toolchain: pack backstop-ai/go-toolchain engine
+            "go test" crashed: non-zero exit with no parseable findings:
+            exit status 1
+      FAIL — Error: gate: exit code 2
+
+    NOTE THE PACK NAME. The issue (2026-07-27) says `backstop/go-toolchain`; the
+    installed pack is now `backstop-ai/go-toolchain` at v1.6.0. The issue's prose
+    is stale on the NAME only — the mechanism and the crash are unchanged. Do not
+    grep for `backstop/go-toolchain`.
+
+  DEFECT-2 (secondary), observed verbatim:
+
+      $ ./bin/backstop gate --file README.md --file .github/workflows/ci.yml
+        Gate running against 1 explicit files.
+
+    Only the LAST `--file` survives. pflag `StringVar` overwrites; it does not
+    accumulate.
+
+  DEFECT-3 — FOUND DURING FALSIFICATION, NOT IN THE ISSUE. An EMPTY `--file`
+  value silently becomes a DIFF-SCOPED SWEEP:
+
+      $ ./bin/backstop gate --file ""
+        Gate running against 259 changed files (use --all for full sweep).
+
+    `runGate` keys file-mode on `fileValue != ""`, so an empty value falls through
+    to diff scope. The operator asked for one file and got a 259-file sweep, with
+    only the summary line as the tell. This is the SAME honesty family and it is
+    NOT scope creep: making `--file` repeatable (DEFECT-2) FORCES an explicit
+    decision about empty entries, so it must be settled here or it becomes a new
+    silent hole. CLM-011 settles it as a config error.
+
+  DEFECT-4 — ALSO FOUND DURING FALSIFICATION, AND IT IS COUPLED TO DEFECT-2.
+  `fileModeTestTarget` derives its package target from `scope.Files[0]` ONLY
+  (`pack_gate_filemode.go`, the single `goTestPackageSelector(scope.Files[0])`
+  call). Today `--file a.go b.go` already accumulates via positional args, so
+  files 2..n are ALREADY never tested. Fixing DEFECT-2 without fixing this would
+  make a multi-`--file` run look thorough while testing exactly one package — a
+  FALSE GREEN manufactured by this very plan. CLM-007 closes it.
+
+  ── THE ROOT CAUSE, STATED PRECISELY ──────────────────────────────────────
+  `fileModeTestTarget` (`cmd/backstop/pack_gate_filemode.go`) fires whenever the
+  scope is `GateScopeModeFile` and the binding declares `PackageScoped: true`. It
+  then calls `goTestPackageSelector(scope.Files[0])`, which returns `"./" + dir`
+  with NO check that the pack dispatching the engine has any interest in that file
+  at all. `./.github/workflows` is handed to `go test`; there is no Go package
+  there; `go test` exits non-zero with no test output; the binding declares
+  `crash_guard: true`, so `runFindingsEngine`'s CrashGuard branch
+  (`pack_gate.go`, the `binding.CrashGuard && runErr != nil &&
+  len(checkViolations) == 0` guard) reports a legitimate no-op as an engine crash.
+
+  The missing question is NOT "does this directory contain Go code" — asking that
+  in core would BAKE A LANGUAGE, which CLAUDE.md's first principle forbids
+  outright. The missing question is:
+
+      DOES THE PACK DISPATCHING THIS ENGINE CLAIM ANY FILE IN THIS SCOPE?
+
+  That question is answerable from PACK DATA that already exists and is already
+  parsed: the top-level `classification:` block (`pack.Classification`,
+  `pkg/pack/manifest.go`), which the installed go-toolchain pack declares as
+  source `**/*.go`, test `**/*_test.go` + `**/testdata/**`. Core carries no `.go`
+  literal; the pack says what it owns. This is the SPEC-043 seam, reused.
+
+  ── DESIGN: THREE STATES, NOT TWO ─────────────────────────────────────────
+  The current signature `fileModeTestTarget(binding, scope) (string, bool)` has
+  only two states and that is why the defect exists. The fix needs three, and the
+  implementer must make the three-ness STRUCTURAL (a small result type or a named
+  enum), not two bools a future reader can collapse:
+
+    (A) NOT APPLICABLE — not file-mode, or the binding is not PackageScoped.
+        Behavior: unchanged. Caller appends `binding.ProjectTarget`. Diff scope
+        and `--all` land here and MUST keep running `./...` (CLM-013).
+
+    (B) TARGETS DERIVED — the pack claims one or more scoped files. Behavior:
+        append ONE deduped package selector PER CLAIMED FILE, in stable input
+        order (CLM-007). Not `Files[0]`.
+
+    (C) PACK CLAIMS NOTHING IN SCOPE — the pack declares classification globs and
+        none of the scoped files match. Behavior: DO NOT DISPATCH THE ENGINE AT
+        ALL, and SAY SO (CLM-001, CLM-002).
+
+  And one carve-out that is NOT a fourth state but a guard on (C):
+
+    (C') PACK DECLARES `package_scoped: true` BUT NO CLASSIFICATION GLOBS. The
+        pack has not told us what it owns, so "claims nothing" is UNKNOWABLE, not
+        FALSE. Collapsing (C') into (C) would turn a missing declaration into a
+        silent skip — the exact vacuous-green shape ISSUE-112 filed. Behavior:
+        PRESERVE today's derivation and emit a DISTINCT capability-absent
+        advisory (CLM-006).
+
+        (C') DERIVES FROM EVERY SCOPED FILE, NOT `Files[0]` — CLM-007'S RULE
+        APPLIES HERE TOO, AND THIS IS A STATED DECISION. "Preserve today's
+        derivation" means preserve its SHAPE (no claim check, no testdata drop),
+        NOT preserve its arity. Once TASK-008 makes `--file` repeatable, a
+        `Files[0]`-only (C') would test exactly ONE package while reading as
+        thorough for a multi-file scope — DEFECT-4 re-manufactured through the
+        carve-out door instead of the main one. So (C') emits one deduped
+        `goTestPackageSelector` result per scoped file, in stable input order,
+        exactly as (B) does. Every single-file scope is unaffected, which is why
+        the shipped (C') tests stay green.
+
+        (C') DELIBERATELY DOES **NOT** DROP TESTDATA, AND THAT RESIDUAL IS NAMED
+        RATHER THAN HIDDEN. SE1's testdata drop is sequenced with the claim check
+        and belongs to it; applying it in (C') would create a state with an EMPTY
+        target list and no honest answer (skipping would be the silent-skip
+        ISSUE-112 shape (C') exists to prevent; `ProjectTarget` would be the
+        `./...` fallback CLM-003 forbids). So `--file pkg/x/testdata/y.go` against
+        a pack that declares NO classification still derives `./pkg/x/testdata`
+        and still fails `[setup failed]` — EXACTLY as it does at HEAD today. That
+        is PRE-EXISTING behavior this plan neither fixes nor deepens; CLM-004
+        closes the door only for packs that declare what they own. Do not "tidy"
+        this by adding the drop.
+
+        THIS IS ALSO WHAT KEEPS FOUR SHIPPED TESTS GREEN. `selfTargetManifest()`
+        and `producerFindingsPack()` build manifests with no `classification:`
+        block; their tests assert `./pkg/foo` / `./pkg/widget` derivation. (C')
+        is why they keep passing. Verify this rather than assuming it — if either
+        fixture DOES declare classification, say so in the report instead of
+        weakening the test.
+
+  ── WHY (C) IS A SKIP AND NOT A `./...` FALLBACK ──────────────────────────
+  Falling back to `ProjectTarget` would run the entire Go test suite because
+  someone ran `gate --file README.md`. That is both a scope lie and a ~50s
+  regression on the fast per-file loop. It is also precisely the ANTI-FALLBACK
+  contract the rule-fed branch already carries (ISSUE-010 CLM-003, spelled out in
+  `pack_gate.go`: "when the resulting list is EMPTY, NOTHING is appended … It must
+  NEVER fall through to the directory branch above"). This plan extends that same
+  ratified rule to the project-wide package-scoped branch. CLM-003 pins it so a
+  future reader cannot "helpfully" restore a fallback.
+
+  ── WHY (C) IS LOUD AND NOT SILENT ────────────────────────────────────────
+  A silent skip is a smaller lie than a crash but it is still a lie: the operator
+  reads PASS and cannot tell whether the test engine ran. DIR-032's whole subject
+  is verdicts that read authoritative and are not. So the skip emits a
+  `severity: "warning"` violation naming the pack, the engine, and the reason.
+  Warning severity is NON-BLOCKING BY CONTRACT — `blocksVerdict`
+  (`pkg/gate/policy.go`) returns false for exactly `"warning"`, and `StepVerdict`
+  maps warning-only findings to status "warning", counted in
+  `GateResult.StepsWarned` and rendered in the human summary. Exit code stays 0.
+  This is "loud ≠ blocking" applied literally.
+
+  ── THE ADVISORY'S SCOPE FIELDS ARE MANDATED, NOT THE IMPLEMENTER'S CHOICE ─
+  BOTH new advisories — the (C) skip notice and the (C') capability-absent notice
+  — MUST be constructed with these three fields exactly:
+
+      Severity:    "warning"
+      File:        ""            ← MANDATED EMPTY
+      ProjectWide: true          ← MANDATED TRUE
+
+  (plus a DISTINCT `Rule` per state, and `SourcePack: manifest.NormalizedName`).
+  Leaving this unspecified is not a detail — it makes CLM-002 unsatisfiable, and
+  both halves below were measured against the real code, not reasoned about.
+
+  (i) WITHOUT `ProjectWide: true` THE ADVISORY IS SILENTLY DROPPED IN PRODUCTION.
+      Everything `runFindingsEngine` returns flows up through
+      `dispatchPackEngines` into `packValidatorStep`, which runs
+      `violations = activeScope.FilterViolations(violations)` (`cmd/backstop/
+      gate.go`, the ISSUE-070 filter) BEFORE the StepResult is built.
+      `filterViolations` (`pkg/gate/scope.go`) keeps a violation ONLY when
+      `ProjectWide == true`, OR when `File != ""` AND `scope.Contains(File)`. A
+      `File: ""` / `ProjectWide: false` advisory therefore never reaches the
+      StepResult at all: `pack_engines` reports `pass` with zero violations,
+      `StepsWarned` never increments, and the skip is SILENT — CLM-002 FALSE end
+      to end. Worse, it would be INVISIBLY false: CLM-002's dispatch-layer test
+      drives `dispatchPackEngines` directly, which sits PRE-filter, so it stays
+      green while the real gate is vacuous. That is exactly why CLM-002 ALSO
+      mandates a POST-filter, STEP-layer assertion
+      (TestPackEngines_UnclaimedSkipSurvivesScopeFilter, TASK-004).
+
+      `File: ""` is the honest value, not a workaround. State (C) exists PRECISELY
+      because no scoped file is attributable to this pack, and (C')'s notice is
+      about a missing DECLARATION rather than a file. Naming an arbitrary
+      `scope.Files[0]` to sneak past the filter would attach a dispatch-level
+      notice to a file that has nothing to do with it and would make its baseline
+      identity depend on argument order.
+
+      THE `ProjectWide` STAMPING BLOCK DOES NOT FORBID THIS, AND THE IMPLEMENTER
+      MUST SAY SO IN A COMMENT AT THE CONSTRUCTION SITE. That block in
+      `pack_gate.go` (the SPEC-041 REQ-004/CLM-012 bridge, `exempt :=
+      binding.ExemptFromScopeFilter`) governs violations PRODUCED BY THE TOOL:
+      each carries ITS binding's DECLARED exemption and no sniff may override it.
+      These two advisories are CORE-EMITTED dispatch DECISIONS — no tool produced
+      them, and no binding declaration describes them. Here `ProjectWide` carries
+      its operational meaning, which is filterViolations' own stated contract:
+      "not attributable to one scoped file, do not scope-drop it." Note also that
+      `ProjectWide` is `json:"-"` and EXCLUDED from `EnrichViolationIdentity`
+      (which folds only Rule|File|RegionHash(Message|Severity|SourcePack)), so
+      setting it cannot destabilize baseline identity for anything.
+
+  (ii) THE BASELINE RATCHET DOES NOT RED THIS RUN — AND THE REASON IS CONFIGURED,
+      NOT ACCIDENTAL. The question is real, not theoretical: `.backstop/
+      baseline.json` holds 174 warning-severity entries out of 308, so warnings
+      genuinely ride the baseline in this repo. And `computeBaselineResult`
+      (`pkg/gate/gate.go`) hardcodes `Status: "fail"` whenever
+      `comparison.NewViolations` is non-empty, with NO severity filter ANYWHERE on
+      that path — not in `accumulatedViolations`, not in `CompareBaseline`. A
+      brand-new project-wide warning WOULD red an unpoliced consumer.
+
+      IT DOES NOT RED backstop-core. `backstop.yml` declares a NON-EMPTY
+      `enforcement.policy` table (7 dimensions: artifact_status_drift,
+      artifact_validation, contract_signature, coverage_threshold, pack_engines,
+      test_substantiveness, test_verification), and `ApplyPolicy`
+      (`pkg/gate/policy.go`) NEUTRALIZES the aggregate `baseline_comparison` step
+      to `skipped` whenever ANY policy is configured — "per-dimension applies-to
+      supersedes it". `pack_engines` then reaches its verdict through
+      `applyScopedPolicy` (it declares a `sources:` override for
+      backstop-ai/backstop-self), where a violation failing `blocksVerdict`
+      increments `warned` and is NEVER appended to `blocking`. Result: status
+      "warning", `Pass` untouched, exit 0.
+
+      SO CLM-002 ("status warning, StepsWarned incremented") AND TASK-006 ("both
+      must exit 0") ARE BOTH SATISFIABLE AND DO NOT CONTRADICT EACH OTHER.
+
+      THIS PLAN ADDS NOTHING TO `.backstop/baseline.json` AND REQUIRES NO BASELINE
+      REFRESH. A baseline entry would be inert anyway: a file-mode scope REVOKES
+      grandfathering for touched files (`scopeTouches`, `pkg/gate/baseline.go`),
+      and an entry with `File: ""` can never be scope-matched in the first place.
+
+      THE RESIDUAL IS REAL AND IS A REPORT, NOT A FIX. The aggregate baseline
+      step's severity-blindness — a warning-only `NewViolations` set hardcoding
+      "fail" — is PRE-EXISTING, already applies to those 174 entries, and bites
+      only a consumer that has declared NO `enforcement.policy`. Fixing it would
+      change verdict semantics for every backstop consumer and is emphatically not
+      this plan's to decide. If TASK-006 or TASK-012 OBSERVES the advisory
+      blocking a run, the position above is falsified: REPORT it as a required
+      successor issue, never resolve it by downgrading the advisory to silence.
+
+  ── SHARP EDGES ───────────────────────────────────────────────────────────
+  SE1. TESTDATA IS A REAL RESIDUAL, AND CLASSIFICATION ALONE DOES NOT COVER IT.
+       The go-toolchain pack folds `**/testdata/**` into its TEST globs, so a
+       `.go` file under `testdata/` IS claimed by the pack — state (B) — and the
+       naive derivation would emit `./pkg/gate/testdata`. Probed for real at HEAD:
+
+           $ go test ./pkg/gate/testdata
+           found packages contractfix (...) and testdata (...) in .../pkg/gate/testdata
+           FAIL  github.com/.../pkg/gate/testdata [setup failed]
+
+       Same false RED, different door. The derivation MUST drop testdata paths
+       first. Reuse `excludeTestdataPaths` (`cmd/backstop/pack_gate.go`) — do NOT
+       write a second one. It is already the shipped, precedented, deliberately
+       language-neutral policy (ISSUE-040; its own comment: "no Go, tool, or
+       extension nouns", exact segment match, so `testdata_util.go` and
+       `mytestdata/` are NOT dropped). Order matters: drop testdata, THEN ask the
+       pack what it claims. A scope of only-testdata files therefore lands in
+       state (C), which is correct — testdata is inert data.
+
+  SE2. THE CLAIM CHECK IS PER-PACK, NEVER THE MERGED UNION. `buildGateSteps`
+       (`cmd/backstop/gate.go`, the loop appending
+       `manifest.Classification.Source/Test`) builds a MERGED classifier across
+       all installed packs, for coverage. Using that here would be a defect in a
+       multi-language repo: a `.ts` file claimed by a TypeScript pack would make
+       the GO pack's test engine fire and crash exactly as today. `runFindingsEngine`
+       already receives the dispatching `manifest` — read
+       `manifest.Classification` off THAT. CLM-005 falsifies the merged-union
+       mistake directly.
+
+  SE3. `ClaimsPath` IS NOT `IsMeasurableSource`. `IsMeasurableSource` is
+       `source AND NOT test` — it deliberately EXCLUDES `_test.go` files. Reusing
+       it here would mean `gate --file pkg/foo/foo_test.go` claims nothing and
+       skips the test engine, which is absurd. The predicate needed is the UNION:
+       `source OR test`. Add a new method; do not repurpose the existing one.
+
+  SE4. THE BASELINE QUESTION IS ALREADY SETTLED ABOVE — VERIFY THE POSITION, DO
+       NOT RE-DECIDE IT. The scope-fields section states it: `ProjectWide: true` /
+       `File: ""`, NO baseline entry, NO baseline refresh, and the aggregate
+       ratchet neutralized by the configured `enforcement.policy`. What remains is
+       CONFIRMATION, because a stated position verified by reading is still only
+       a reading: run a real
+       `./bin/backstop gate --file .github/workflows/ci.yml` and confirm the
+       END-TO-END verdict is PASS with exit 0 — not merely that pack_engines
+       stopped failing — and that `pack_engines` reports status "warning" with
+       StepsWarned incremented. If the advisory DOES surface as a blocking NEW
+       violation, the stated position is FALSIFIED: report it as a required
+       successor issue against the baseline step's severity-blindness. Never
+       resolve it by downgrading the advisory to silence.
+
+  SE5. `--file` MUST USE `StringArrayVar`, NOT `StringSliceVar`. `StringSliceVar`
+       splits on commas, so a path containing a comma would be silently split into
+       two nonexistent paths — a new silent-corruption bug replacing the old one.
+       `StringArrayVar` / `GetStringArray` do not split. The read site changes from
+       `cmd.Flags().GetString("file")` to `GetStringArray`, and every remaining
+       `fileValue != ""` test becomes `len(fileValues) > 0`. Be precise about
+       WHICH tests those are: of the three mutual-exclusion guards
+       (`cmd/backstop/gate.go:128-136`), only TWO reference `fileValue` —
+       `allFlag && fileValue != ""` and `baseValue != "" && fileValue != ""`.
+       The middle guard, `baseValue != "" && allFlag`, does NOT mention
+       `fileValue` at all and needs NO change. The scope-mode branch's
+       `fileValue != ""` test also becomes `len(fileValues) > 0`. All three
+       guard MESSAGES stay verbatim regardless.
+
+  SE6. THE `Use:` STRING ALREADY LIED AND MUST STOP. `Use: "gate [--all | --file
+       FILE [FILE...] | --base REV]"` (`cmd/backstop/gate.go`) advertises exactly
+       the repeatable shape that does not work — the issue names this as what
+       invites the mistake. Update it to spell the repeat form, and update the
+       flag's help text ("scope gate to one or more explicit files") to say that
+       `--file` may be repeated AND that trailing positional paths accumulate.
+       No test pins the current `Use:` string (verified by grep), so this is a
+       free correction — but the cobra-cli-standards pack is installed, so run the
+       gate after touching the command surface rather than assuming.
+
+  SE7. TWO SHIPPED TESTS BREAK ON THE SIGNATURE/FLAG-TYPE CHANGE AND MUST BE
+       REWRITTEN IN PLACE, KEEPING THEIR NAMES:
+         * `TestPackageScoped_KeyedOnDeclaredFlagNotName`
+           (`cmd/backstop/pack_gate_filemode_test.go`) calls
+           `fileModeTestTarget(binding, scope)` directly and asserts the 2-value
+           return. It is the CLM-024 declared-flag-vs-name-sniff guard — that
+           property is UNCHANGED by this plan and the test must keep proving it.
+           Adapt the call to the new shape; do not delete the assertions.
+
+           THE MANIFEST IS `divergentFlagsManifest(t)` AND IT PUTS THIS TEST IN
+           STATE (C') — A STATED DECISION, NOT AN OVERSIGHT. That helper
+           (`cmd/backstop/pack_gate_golint_test.go`) parses
+           `pkg/pack/testdata/pack-divergent-flags.yml`, which declares NO
+           top-level `classification:` block (verified by reading the fixture).
+           So post-fix, BOTH halves of this test — the `package-scoped-divergent`
+           and `go-test-named-no-pkgscope` bindings — resolve through the (C')
+           carve-out, and CLM-024's declared-flag-vs-name-sniff property is proven
+           on the (C') path rather than on state (B). That is CORRECT and
+           deliberate: the property under test is "which FLAG decides", which is
+           evaluated in step 1 of the decision order (before any classification is
+           consulted) and is therefore state-independent. KEEP the fixture as is —
+           adding a `classification:` block to `pack-divergent-flags.yml` to move
+           the test into state (B) would perturb a shared fixture that
+           `TestStrictSarif_GuardKeyedOnDeclaredFlagNotName` also reads. State (B)
+           is covered separately and thoroughly by TASK-004's new tests.
+         * `TestGate_FileFlagScopesExplicitFiles` (`cmd/backstop/gate_test.go`)
+           calls `cmd.Flags().GetString("file")` AND DISCARDS THE ERROR
+           (`fileFlag, _ := ...`). Against a `StringArrayVar` flag that does NOT
+           fail to compile — pflag returns the zero value with a swallowed error,
+           so the test fails at RUNTIME with `fileFlag == ""` against its
+           `fileFlag != "a.go"` assertion. Rewrite to `GetStringArray`; keep
+           proving that a `--file` plus trailing positionals both land in scope.
+       Five OTHER shipped tests must stay green UNTOUCHED —
+       `TestFileMode_TestPassScopedToChangedFilePackage`,
+       `TestFileMode_NoSilentWholeModuleRegression`,
+       `TestFileMode_ProjectWideModeStillWholeModule`
+       (`cmd/backstop/filemode_scoping_test.go`, whose fixture pack DOES declare
+       classification, so `pkg/widget/widget_test.go` is claimed → state (B)),
+       `TestRunFindingsEngine_FileModeGoTestPackageScopingPreserved`
+       (`cmd/backstop/pack_gate_findings_selftarget_test.go`, state (C')), and
+       the subtest
+       `"package_scoped binding under file-mode gets the changed file's package"`
+       inside `TestFindingsEngine_ProducerReceivesTheSameShapedArgsAsTheCommand`
+       (`cmd/backstop/pack_gate_producer_findings_test.go`). That fifth one is the
+       one most exposed to this plan: its manifest comes from
+       `producerFindingsPack`, a `pack.Manifest` literal with NO `Classification`
+       field set → state (C'), it sets `PackageScoped: true` with
+       `ProjectTarget: "ALL-TARGETS"` and a scope of
+       `["pkg/widget/widget_test.go"]`, and it asserts the producer args are
+       EXACTLY `"--plain ./pkg/widget"`. An EXACT-STRING assertion means the (C')
+       advisory must not leak into the recorded ARGS, and the (C')
+       all-files-deduped derivation must yield exactly one target for a
+       single-file scope. If any of the five goes red, the fix is wrong — do not
+       edit the test to match.
+
+  SE8. THIS FIX RETRACTS A SHIPPED, MANDATED RATIONALE IN TWO PLACES, AND THE
+       POLICY QUESTION IT OPENS IS NOT THIS PLAN'S TO DECIDE. ISSUE-093 is the
+       SOLE stated reason for the `--file` half of CI's blocking-job scope ban:
+         S1. `.github/workflows/ci.yml`, in the comment on the `Run the gate`
+             step — "…and never the per-file flag (ISSUE-093: it crashes on
+             non-Go directories and silently drops repeats)."
+         S2. `workflows_test.go` (repo root, package `backstopcore_test`), the doc
+             comment on `TestCIWorkflow_BlockingJobNeverUsesAllOrFileScope` and
+             the `"--file"` VALUE in that test's flag→reason map.
+       (Located BY NAME, not line number — both files moved tonight under
+       PLAN-ISSUE-091. Re-read the surrounding prose before editing; do not trust
+       a remembered line number.)
+
+       TASK-011 makes those corrections TEXT-ONLY. It MUST NOT change the
+       `"--file"` MAP KEY, MUST NOT remove the entry, and MUST NOT touch the
+       gate invocation in ci.yml. Whether CI's blocking job may now use `--file`
+       is a FOUNDER-LEVEL POLICY CALL that this fix CREATES — exactly as
+       PLAN-ISSUE-091 created the mirror-image call for `--all` and FILED rather
+       than settled it. Follow that precedent: the implementer REPORTS the need
+       for a successor issue in its completion report and does NOT author the
+       artifact itself (CLAUDE.md routes artifact authoring to the purpose-built
+       agents) and does NOT decide the policy. The ban stays in force; the test
+       keeps enforcing it.
+
+  ── CROSS-LANE COLLISION CHECK (2026-08-17) ───────────────────────────────
+  EXISTENCE-IN-WORLD: no artifact owns this surface. Thirteen plans mention
+  ISSUE-093; every one is a CITATION (a sibling roll-call, or the "one path per
+  `--file` invocation — ISSUE-093 is open" tooling note in PLAN-ISSUE-112 /
+  PLAN-ISSUE-140). PLAN-ISSUE-091 explicitly says the `--file` half is
+  "UNAFFECTED by this fix … do not touch it". No plan, completed or in flight,
+  delivers or subsumes this fix.
+
+  FILE CONTENTION, RE-VERIFIED at review round 2 (HEAD has moved again during
+  review: a60015c → a43acc9 → 1162f64 → 015526e, all plan commits). The situation
+  has CHANGED since round 1 and the guidance below supersedes it: `cmd/backstop/
+  gate.go` is NOW GENUINELY LIVE under another lane. Two concurrent lanes matter:
+
+    LANE 1 — PLAN-ISSUE-106, live in `cmd/backstop/gate.go`. Its edit is inside
+      `buildTestSubstantivenessStep` (around line 1390), replacing that step's raw
+      `len(violations) > 0` status with `gate.StepVerdict(violations)`. TASK-008's
+      edit sites in the SAME file are `newGateCommand` (the `Use:` string and the
+      `--file` flag registration, around lines 40-55) and `runGate`'s flag read
+      (around line 120). Verified by reading both: the two edits are TEXTUALLY
+      DISJOINT, roughly 1,270 lines apart, and share no symbol.
+
+    LANE 2 — PLAN-ISSUE-100, live in `pkg/gate/result.go`. It splits
+      `TotalViolations` into blocking-only and adds a `TotalWarnings` companion,
+      tallied through the same `blocksVerdict` predicate. This plan does NOT touch
+      `pkg/gate/result.go`, and CLM-002 is UNAFFECTED: `StepsWarned` and the
+      "warning" step status are untouched by that change (verified by reading the
+      diff). What it DOES change is the exact numeric readings TASK-006 and
+      TASK-012 record verbatim — once it lands, a warning-severity advisory counts
+      in `total_warnings` rather than `total_violations`. Read the numbers off the
+      real run at implementation time; do not reconcile them against a remembered
+      pre-ISSUE-100 shape.
+
+    LANE 3 — PLAN-ISSUE-097 (status `draft`, implementer ACTIVE), the only lane
+      that touches BOTH of this plan's files. Its tasks are still QUEUED, so the
+      diffs are not in the tree yet — they are expected to APPEAR mid-flight, and
+      their appearance is NOT a stall trigger. Its two edit sites:
+        * `cmd/backstop/gate.go` (its TASK-008) — adds helpers BESIDE
+          `buildWaiverPolicy` / `buildWaiverLineReader`. This plan's sites in the
+          same file are `newGateCommand` (the `Use:` string and `--file`
+          registration) and `runGate`'s flag read plus mutual-exclusion guards.
+          Function-disjoint; no shared symbol.
+        * `cmd/backstop/pack_gate.go` (its TASK-010) — re-keys a `@waiver:` token
+          INSIDE `splitCommand`. This plan's only edit in that file is TASK-005's
+          `runFindingsEngine` arm. Function-disjoint; no shared symbol.
+      Both disjointness findings were independently verified at review round 3.
+      Note this SUPERSEDES the "`cmd/backstop/pack_gate.go` shows NO live edits"
+      snapshot below: that reading was accurate when taken, but PLAN-ISSUE-097
+      owns a landing diff there. STOP only if a lane enters TASK-005's
+      `runFindingsEngine` arm or TASK-008's actual sites named above.
+
+  PROCEED, DO NOT STALL. This supersedes any generic "if another lane has entered
+  these files, STOP" reading: the collision above is KNOWN and CONFIRMED DISJOINT,
+  so TASK-008 goes ahead on its own hunk. Do NOT wait for PLAN-ISSUE-106 to land
+  first. But DO re-verify the disjointness is still real at actual implementation
+  time (`git diff cmd/backstop/gate.go` — files keep moving), and STOP and report
+  only if a lane has entered TASK-008's ACTUAL edit sites (`newGateCommand`,
+  `runGate`'s flag read, or the `Use:` string). One untracked file from another
+  lane exists in the same package (`cmd/backstop/gate_substantiveness_layout_test.go`)
+  — it is not in this plan's scope and must not be touched. `cmd/backstop/
+  pack_gate.go`, `cmd/backstop/pack_gate_filemode.go` and
+  `pkg/gate/classification.go` show NO live edits; several implementers ARE live in
+  the shared tree in other packages.
+
+  ── ENVIRONMENT / TOOLING FACTS (confirmed 2026-08-17) ────────────────────
+  1. `backstop code check` DOES NOT EXIST — removed, and its absence is
+     test-asserted. The inner loop is `go test`; the gate loop is
+     `./bin/backstop gate`.
+  2. NEVER invoke bare `backstop` — a stale Homebrew binary is on PATH. Always
+     `./bin/backstop`, and REBUILD IT (`go build -o bin/backstop ./cmd/backstop`)
+     after any Go change or the gate runs the previous binary.
+  3. Prefix gate invocations with `PATH=/Users/bmanson/go/bin:$PATH` so
+     go-arch-lint resolves; without it the architecture engine silently no-ops.
+  4. `--file` takes ONE PATH PER INVOCATION until TASK-008 lands. Until then, one
+     gate call per file.
+  5. `runFindingsEngine` already receives `manifest *pack.Manifest` — the
+     classification data is in hand at the decision site. No new seam is needed
+     to reach it.
+
+  ── CLAIMS ────────────────────────────────────────────────────────────────
+  This plan is issue-sourced, so it defines its own claims. Every one is mapped to
+  at least one task below.
+
+    CLM-001  THE PRIMARY DEFECT. Under a file-mode scope, a `package_scoped`
+             engine is NOT DISPATCHED when the dispatching pack's declared
+             `classification:` globs claim none of the scoped files. `gate --file
+             .github/workflows/ci.yml` therefore produces no go-test crash.
+             Test: TestFileMode_UnclaimedFileSkipsPackageScopedEngine
+
+    CLM-002  THE SKIP IS REPORTED, NEVER SILENT — AND IT SURVIVES THE SCOPE
+             FILTER. The non-dispatch emits exactly one violation with
+             `Severity: "warning"`, `File: ""` and `ProjectWide: true`, naming the
+             pack, the engine and the reason. `ProjectWide` is what carries it
+             past `packValidatorStep`'s `FilterViolations` call; without it the
+             notice is dropped BEFORE the StepResult exists and the skip is silent
+             in production even while the dispatch-layer test passes. Warning
+             severity is non-blocking by contract (`blocksVerdict`), so the run's
+             exit code is unchanged, but the step reports status "warning" and
+             increments StepsWarned — a skipped engine can never be mistaken for
+             one that ran clean.
+             Tests: TestFileMode_UnclaimedSkipIsReportedNotSilent (dispatch layer),
+                    TestPackEngines_UnclaimedSkipSurvivesScopeFilter (STEP layer,
+                    POST-FilterViolations)
+
+    CLM-003  ANTI-FALLBACK. The skip NEVER falls through to `binding.ProjectTarget`
+             — `gate --file README.md` must not run `go test ./...`. This extends
+             the ratified ISSUE-010 CLM-003 rule from the rule-fed branch to the
+             project-wide package-scoped branch.
+             Test: TestFileMode_UnclaimedSkipNeverFallsBackToProjectTarget
+
+    CLM-004  TESTDATA PATHS ARE NOT PACKAGE TARGETS. Package-target derivation
+             drops `testdata` path segments FIRST, through the SAME
+             `excludeTestdataPaths` the rule-fed branch uses — not a second copy.
+             `--file pkg/gate/testdata/x.go` does not derive `./pkg/gate/testdata`
+             (which fails `[setup failed]`), and an all-testdata scope lands in
+             the CLM-001 skip.
+             Test: TestFileMode_TestdataPathsAreNotPackageTargets
+
+    CLM-005  THE CLAIM IS PER-PACK, NOT THE MERGED UNION. A pack that claims none
+             of the scoped files skips even when a DIFFERENT installed pack claims
+             them. Read `manifest.Classification` off the dispatching manifest,
+             never the cross-pack merged classifier `buildGateSteps` assembles.
+             Test: TestFileMode_ClaimIsPerPackNotMergedUnion
+
+    CLM-006  CAPABILITY-ABSENT ≠ CLAIMS-NOTHING. A pack declaring
+             `package_scoped: true` with NO classification globs PRESERVES today's
+             derivation SHAPE — no claim check, no testdata drop — and emits a
+             DISTINCT capability-absent advisory carrying the SAME
+             `Severity: "warning"` / `File: ""` / `ProjectWide: true` shape as
+             CLM-002's notice, distinguishable from it only in Rule and wording. A
+             missing declaration must never become a silent skip (the ISSUE-112
+             shape). The (C') derivation is ALSO all-files-deduped (CLM-007's
+             rule, applied through the carve-out) so a MULTI-file (C') scope
+             cannot re-manufacture DEFECT-4 by testing only `Files[0]` while
+             reading as thorough.
+             Tests: TestFileMode_UndeclaredClassificationPreservesDerivationAndWarns,
+                    TestFileMode_UndeclaredClassificationDerivesEveryScopedFile
+
+    CLM-007  EVERY CLAIMED FILE BECOMES A TARGET, NOT JUST `Files[0]`. The
+             derivation yields one deduped package selector per claimed file in
+             stable input order. Without this, CLM-009 would manufacture a false
+             green: a multi-file invocation that tests exactly one package while
+             reading as thorough.
+             Test: TestFileMode_AllScopedFilesBecomePackageTargets
+
+    CLM-008  THE PREDICATE IS A NAMED, TESTED SEAM ON SourceClassifier, NOT AN
+             AD-HOC GLOB LOOP IN cmd/. `ClaimsPath` answers source OR test (the
+             UNION), which is deliberately DIFFERENT from `IsMeasurableSource`
+             (source AND NOT test) — a `_test.go` file IS claimed. A companion
+             predicate distinguishes "declared nothing" from "declared, no match"
+             so CLM-006 is answerable.
+             Tests: TestSourceClassifier_ClaimsPathUnionsSourceAndTestGlobs,
+                    TestSourceClassifier_ClaimsPathIsNotMeasurableSource,
+                    TestSourceClassifier_ClaimsPathFalseWithNoDeclaredGlobs
+
+    CLM-009  THE SECONDARY DEFECT. `--file` is REPEATABLE and ACCUMULATES.
+             `--file a --file b` scopes BOTH; no occurrence is silently dropped.
+             Test: TestGate_FileFlagIsRepeatableAndAccumulates
+
+    CLM-010  NON-REGRESSION ON THE SHAPE THAT ALREADY WORKED. `--file a b` (one
+             flag plus trailing positionals) still accumulates, and mixing the two
+             forms accumulates both.
+             Test: TestGate_RepeatedFileFlagAndPositionalArgsBothAccumulate
+
+    CLM-011  AN EMPTY `--file` VALUE IS A CONFIG ERROR (exit 2), never a silent
+             fall-through to a diff-scoped sweep. DEFECT-3, settled here because
+             repeatability forces the question.
+             Test: TestGate_EmptyFileValueIsConfigError
+
+    CLM-012  THE MUTUAL-EXCLUSION CONTRACT SURVIVES THE FLAG-TYPE CHANGE. `--all`
+             + `--file` and `--base` + `--file` still fail as config errors with
+             their existing messages, now keyed on a non-empty LIST rather than a
+             non-empty string.
+             Test: TestGate_RepeatableFileStillMutuallyExclusiveWithAllAndBase
+
+    CLM-013  SURGICAL: THE FILE-MODE NOTION DOES NOT LEAK. Diff scope, `--all` and
+             a nil scope still hand a project-wide package-scoped engine its
+             `ProjectTarget` (`./...`), so unchanged-file breakage still REDs a
+             full run.
+             Test: TestFileMode_DiffScopeStillWholeModule
+
+    CLM-014  THE ISSUE'S OWN REPRODUCTIONS, END TO END THROUGH THE REAL CLI. Both
+             the workflow-file case and the `specs/` case named in the issue's
+             Additional Evidence exit 0 with no crash violation, and a repeated
+             `--file` invocation reports the true count of files scoped.
+             Tests: TestIssue093_NonGoDirectoryFileDoesNotCrashGate,
+                    TestIssue093_MultipleFileFlagsAllReachTheScope
+
+    CLM-015  NO-DRIFT ON SHIPPED ASSERTIONS. The two shipped tests broken by the
+             signature and flag-type changes are REWRITTEN IN PLACE WITH THEIR
+             NAMES AND PROVEN PROPERTIES INTACT, and the FIVE shipped file-mode
+             scoping assertions that must not change stay green untouched. A shipped
+             test is never deleted or weakened to accommodate this fix.
+             (Discharged structurally by TASK-004, TASK-007 and TASK-012, not by a
+             test that asserts about other tests.)
+
+    CLM-016  THE STALE IN-TREE RATIONALE IS CORRECTED, AND THE POLICY CALL IT
+             OPENS IS FILED, NOT DECIDED. The two sites that cite ISSUE-093 as the
+             live reason for CI's `--file` ban are corrected TEXT-ONLY; the ban,
+             the test, the map KEY and the gate invocation are untouched; and the
+             founder-level question "may CI's blocking job now use `--file`?" is
+             surfaced as a required follow-on.
+
+  ── FALSIFICATION BAR ─────────────────────────────────────────────────────
+  Every test task must OBSERVE ITS PREDICTED RED at pre-fix tree state and record
+  the actual failure text in the completion report — not "it failed". A test that
+  is green before the fix is not evidence for a defect that reproduces at HEAD;
+  if one comes up green, STOP and report it, because either the test is vacuous or
+  the diagnosis is wrong.
+
+  THE TWO REWRITTEN SHIPPED TESTS (SE7) ARE THE EXCEPTION, AND THEIR PREDICTED RED
+  IS DIFFERENT FOR EACH — DO NOT STATE THEM UNIFORMLY:
+    * `TestPackageScoped_KeyedOnDeclaredFlagNotName` — COMPILE FAILURE pre-fix.
+      Rewritten to the new decision signature, it uses a 2-value return that no
+      longer exists (`assignment mismatch` / `not enough return values`).
+    * `TestGate_FileFlagScopesExplicitFiles` — RUNTIME FAILURE pre-fix, NOT a
+      compile failure. It does `fileFlag, _ := cmd.Flags().GetString("file")` with
+      the error DISCARDED; against a `StringArrayVar` flag pflag returns `""` plus
+      a swallowed type-mismatch error, so the rewritten form compiles fine and
+      fails its assertion at run time. Record the actual assertion text, and do
+      not report "failed to compile" for this one.
+
+  ── OUT OF SCOPE (deliberate) ─────────────────────────────────────────────
+  * The CI blocking-job scope policy (SE8) — filed, never decided here.
+  * ISSUE-067's opaque-crash FORMATTING. This plan removes one CAUSE of a crash
+    report; it does not change how a genuine crash is rendered.
+  * Diff-scope and `--all` behavior for package-scoped engines (CLM-013 pins them
+    UNCHANGED).
+  * `goTestPackageSelector`'s name, which carries a Go noun in core. It is
+    pre-existing debt on the eradication backlog; this plan does not deepen it
+    (every new decision reads pack DATA) and does not rename it either, because a
+    rename here would collide with lanes that cite it.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: The pack-claim predicate (pkg/gate seam)"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Red tests for SourceClassifier.ClaimsPath and the declared-vs-unmatched distinction"
+        description: |
+          Write the failing tests for the new classification predicates in
+          pkg/gate/classification_test.go. These are pure data+match tests — no
+          gate run, no pack install, no fixtures on disk.
+
+          THREE PROPERTIES, EACH ITS OWN TEST:
+
+          1. TestSourceClassifier_ClaimsPathUnionsSourceAndTestGlobs
+             Construct `NewSourceClassifier([]string{"**/*.go"},
+             []string{"**/*_test.go", "**/testdata/**"})` — the installed
+             go-toolchain pack's real declaration, not an invented one. Assert
+             ClaimsPath is TRUE for `pkg/foo/bar.go`, `pkg/foo/bar_test.go`,
+             `main.go` (root-level: the doublestar zero-leading-segment property
+             matters here, and gobwas-style globbing would wrongly miss it) and
+             `pkg/gate/testdata/x.go`. Assert FALSE for
+             `.github/workflows/ci.yml`, `README.md`,
+             `specs/SPEC-018-gate-diff-scope.spec.md`. Those three false cases are
+             the issue's reproductions expressed at the predicate level.
+
+          2. TestSourceClassifier_ClaimsPathIsNotMeasurableSource
+             THE ANTI-SHORTCUT GUARD (SE3). With the same classifier, assert that
+             for `pkg/foo/bar_test.go` ClaimsPath is TRUE while
+             IsMeasurableSource is FALSE. Without this, a future reader "simplifies"
+             ClaimsPath into IsMeasurableSource and `gate --file
+             pkg/foo/foo_test.go` silently stops running that package's tests —
+             a vacuous green strictly worse than the crash this plan removes.
+
+          3. TestSourceClassifier_ClaimsPathFalseWithNoDeclaredGlobs
+             Construct `NewSourceClassifier(nil, nil)`. Assert ClaimsPath is FALSE
+             for every path — AND assert the companion predicate that reports
+             "this classifier declares nothing" is FALSE, so a caller can tell
+             UNKNOWABLE apart from CLAIMS-NOTHING. CLM-006 is unanswerable without
+             that distinction. `HasSourceGlobs`/`HasTestGlobs` already exist; the
+             companion may compose them rather than store new state — decide in
+             TASK-002, but the test must pin the OBSERVABLE distinction either way.
+
+          PREDICTED RED: compile failure — `ClaimsPath` undefined. Record the
+          actual compiler text.
+        files:
+          - pkg/gate/classification_test.go
+        claims:
+          - CLM-008
+        depends_on: []
+        test_names:
+          - TestSourceClassifier_ClaimsPathUnionsSourceAndTestGlobs
+          - TestSourceClassifier_ClaimsPathIsNotMeasurableSource
+          - TestSourceClassifier_ClaimsPathFalseWithNoDeclaredGlobs
+
+      - id: TASK-002
+        type: implementation
+        title: "Add ClaimsPath and the declares-anything predicate to SourceClassifier"
+        description: |
+          Add the predicates to pkg/gate/classification.go. This file is the
+          SPEC-043 language-neutral seam: it holds declared globs plus match logic
+          and ZERO language knowledge. Keep it that way — no extension literal, no
+          ecosystem noun enters this file.
+
+          ClaimsPath(path string) bool — TRUE when the path matches at least one
+          declared SOURCE glob OR at least one declared TEST glob. Normalize the
+          path through the same `NormalizePath("", path)` the existing predicates
+          use, and match through the same `matchesAnyGlob` helper, so all three
+          predicates agree on path form and on malformed-glob handling (a bad glob
+          is a non-match, never a match-everything).
+
+          THE UNION IS THE POINT AND THE DOC COMMENT MUST SAY WHY. Spell out that
+          this deliberately DIFFERS from IsMeasurableSource's `source AND NOT test`:
+          the question here is "does this pack own this file at all", and a test
+          file is owned. State the consequence of getting it wrong (a `_test.go`
+          file would stop running its own package's tests).
+
+          Add the companion predicate that reports whether the classifier declares
+          ANY globs at all — the UNKNOWABLE-vs-CLAIMS-NOTHING distinction TASK-001
+          pinned. Composing the existing HasSourceGlobs/HasTestGlobs is fine and
+          preferred over new state.
+
+          Nothing else in this file changes. Do not touch IsMeasurableSource,
+          IsTestFile, or the constructor.
+        files:
+          - pkg/gate/classification.go
+        claims:
+          - CLM-008
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: verification
+        title: "Gate the pkg/gate classification seam"
+        description: |
+          Run `go test ./pkg/gate/... -race -count=1` UNFILTERED — not `-run`
+          scoped. pkg/gate is a large, heavily-consumed package and a change to a
+          classifier that coverage and test-verification both read has blast
+          radius; a `-run`-scoped green would hide it.
+
+          Then rebuild and gate the two touched files:
+            go build -o bin/backstop ./cmd/backstop
+            PATH=/Users/bmanson/go/bin:$PATH ./bin/backstop gate --file pkg/gate/classification.go
+            PATH=/Users/bmanson/go/bin:$PATH ./bin/backstop gate --file pkg/gate/classification_test.go
+
+          ONE PATH PER INVOCATION — `--file` is not yet repeatable at this point in
+          the plan (that is TASK-008). Report TRUE exit codes, not a summary of
+          them.
+
+          EXPECT A PRE-EXISTING FAILURE MODE HERE AND DO NOT BE CONFUSED BY IT:
+          `pkg/gate/classification.go` IS a Go file in a directory with a Go
+          package, so it does NOT trip ISSUE-093 and these two gate runs should be
+          clean. If they crash with the go-test signature, that is new information
+          about a DIFFERENT trigger — report it, do not absorb it.
+        files:
+          - pkg/gate/classification.go
+          - pkg/gate/classification_test.go
+        claims:
+          - CLM-008
+        depends_on:
+          - TASK-002
+
+  - id: phase-2
+    name: "Phase 2: File-mode package-target derivation (the primary defect)"
+    tasks:
+      - id: TASK-004
+        type: test
+        title: "Red tests for the three-state file-mode derivation, plus the two shipped-test rewrites"
+        description: |
+          All work in cmd/backstop/pack_gate_filemode_test.go. Drive the decision
+          function DIRECTLY where the property is about derivation, and drive
+          `dispatchPackEngines` / `runFindingsEngine` where the property is about
+          whether a process actually ran — the second kind cannot be proven by
+          inspecting a returned string.
+
+          Build fixture manifests IN-PACKAGE. `divergentFlagsManifest(t)`,
+          `selfTargetManifest()`, `producerFindingsPack(t, ...)` and
+          `goToolchainManifest(t)` already exist in this package; extend or mirror
+          them rather than inventing a parallel fixture vocabulary. You will need
+          at least one manifest that DECLARES classification globs and one that
+          declares NONE — verify which of the existing helpers is which by reading
+          them, and say so in the report (SE7 depends on this fact).
+
+          MANDATED TESTS:
+
+          TestFileMode_UnclaimedFileSkipsPackageScopedEngine (CLM-001) — THE
+          DEFECT. A pack declaring source `**/*.go` / test `**/*_test.go`, an
+          engine with `PackageScoped: true`, `ScopeKind: ProjectWide`,
+          `ProjectTarget: "./..."`, `CrashGuard: true`, and a file-mode scope of
+          `[".github/workflows/ci.yml"]`. Assert through a recording runner that
+          the engine's command was NEVER INVOKED. Asserting only "no crash error
+          returned" is too weak — it would pass if the engine ran and happened to
+          exit zero.
+
+          TestFileMode_UnclaimedSkipIsReportedNotSilent (CLM-002) — same setup;
+          assert EXACTLY ONE violation is returned, that its Severity is
+          `"warning"`, that its Message names the pack and the engine, and that
+          `ProjectWide` is TRUE while `File` is EMPTY. Assert the severity string
+          literally: `blocksVerdict` matches `"warning"` and nothing else, so
+          `"warn"` or `"info"` would silently become BLOCKING and turn this fix
+          into a new false RED. Assert the two scope fields literally too — they
+          are the fields the NEXT test proves are load-bearing.
+
+          TestPackEngines_UnclaimedSkipSurvivesScopeFilter (CLM-002) — THE
+          POST-FILTER PROOF, AND IT IS NOT REDUNDANT WITH THE TEST ABOVE. Every
+          other test in this file drives `dispatchPackEngines` /
+          `runFindingsEngine`, which sit BEFORE `packValidatorStep`'s
+          `activeScope.FilterViolations(violations)` call. A `File: ""` /
+          `ProjectWide: false` advisory passes every one of them and is still
+          DROPPED in production, leaving `pack_engines` reporting `pass` with zero
+          violations — CLM-002 false end to end with a green test suite. So this
+          test asserts at the STEP layer, AFTER the filter. Two acceptable shapes,
+          implementer's choice — say which was used and why:
+            (a) take the violations returned by a REAL `dispatchPackEngines` /
+                `runFindingsEngine` call driven with the unclaimed-file scope, and
+                feed THAT slice through `(*gate.GateScope).FilterViolations` with a
+                GateScopeModeFile scope whose Files do NOT include the advisory's
+                file; assert the advisory SURVIVES and that `gate.StepVerdict` over
+                the surviving set returns `"warning"` (not `"pass"`, not `"fail"`).
+                THE ADVISORY MUST COME FROM THE REAL DISPATCH — a hand-written
+                `gate.Violation{ProjectWide: true, ...}` literal fed to the filter
+                does NOT satisfy this test. Such a literal would only re-prove that
+                `filterViolations` keeps project-wide violations, which
+                `pkg/gate/scope_test.go` already covers, and it would stay GREEN if
+                the PRODUCTION construction site set `ProjectWide: false` — the
+                exact failure mode this test exists to catch. The assertion must be
+                able to fail when the production code is wrong;
+            (b) drive the assembled `pack_engines` step itself via the package's
+                existing gate-step harness and assert the resulting
+                `gate.StepResult` has Status `"warning"` and contains the
+                advisory.
+          Do NOT satisfy this by asserting only on the pre-filter slice — that is
+          the exact gap this test exists to close.
+
+          TestFileMode_UnclaimedSkipNeverFallsBackToProjectTarget (CLM-003) — same
+          setup with a DISTINCTIVE ProjectTarget sentinel (e.g. "ALL-TARGETS", the
+          shape the producer test already uses) so a fallback is unmistakable in
+          the recorded args. Assert no recorded invocation carries it, and none
+          carries the project root either.
+
+          TestFileMode_TestdataPathsAreNotPackageTargets (CLM-004, SE1) — a pack
+          whose TEST globs include `**/testdata/**`, scope
+          `["pkg/gate/testdata/contract-target.go"]`. The file IS claimed by the
+          pack, so only the testdata drop prevents `./pkg/gate/testdata` being
+          derived. Assert no derived target contains a `testdata` segment, and
+          that the run lands in the CLM-001 skip. ALSO assert the negative half of
+          the ISSUE-040 convention survives: `pkg/foo/testdata_util.go` and
+          `pkg/mytestdata/x.go` are NOT dropped — a substring match instead of an
+          exact segment match would silently narrow the gate.
+
+          TestFileMode_ClaimIsPerPackNotMergedUnion (CLM-005, SE2) — TWO manifests
+          in one dispatch: pack A declares `**/*.go`; pack B declares
+          `**/*.ts`. Scope is a single `.ts` file. Assert pack A's package-scoped
+          engine did NOT run while pack B's DID. A merged-union implementation
+          passes every other test in this file and fails only this one.
+
+          TestFileMode_UndeclaredClassificationPreservesDerivationAndWarns
+          (CLM-006, C') — a manifest with NO `classification:` block and a
+          package-scoped engine, SINGLE-file scope. Assert the engine DID run,
+          with the file's package selector derived exactly as today, AND that a
+          capability-absent advisory was emitted whose Rule and message are
+          DISTINGUISHABLE from CLM-002's skip notice — while carrying the SAME
+          `Severity: "warning"` / `File: ""` / `ProjectWide: true` field shape.
+          Two states that report identically are one state.
+
+          TestFileMode_UndeclaredClassificationDerivesEveryScopedFile (CLM-006 +
+          CLM-007, C' MULTI-FILE) — THE CARVE-OUT'S OWN DEFECT-4 GUARD, and the
+          state no other test in this list covers. Same no-classification
+          manifest, scope `["pkg/alpha/a.go", "pkg/beta/b.go", "pkg/alpha/c.go"]`.
+          Assert the invocation carries BOTH `./pkg/alpha` and `./pkg/beta`, that
+          `./pkg/alpha` appears exactly ONCE, and that the capability-absent
+          advisory is still emitted exactly once for the dispatch (not once per
+          file). A `Files[0]`-preserving (C') passes the single-file test above and
+          fails ONLY here — which is the point: "preserve today's derivation" means
+          preserve its SHAPE, not its arity, and a (C') that tests one package out
+          of three while reading as thorough is DEFECT-4 re-manufactured through
+          the carve-out door.
+
+          ALSO assert the stated NON-behavior of (C') so a later reader cannot
+          mistake it for an oversight: with the same no-classification manifest and
+          a scope of `["pkg/x/testdata/y.go"]`, the derived target IS
+          `./pkg/x/testdata` — testdata is NOT dropped in (C'). That is HEAD's
+          behavior, preserved deliberately (see the (C') block in DESIGN), and
+          CLM-004's drop applies only to packs that declare what they own.
+
+          TestFileMode_AllScopedFilesBecomePackageTargets (CLM-007, DEFECT-4) —
+          scope `["pkg/alpha/a.go", "pkg/beta/b.go", "pkg/alpha/c.go"]`. Assert
+          the invocation carries BOTH `./pkg/alpha` and `./pkg/beta`, that
+          `./pkg/alpha` appears exactly ONCE (dedup), and that order is stable
+          across repeated runs. A `Files[0]` implementation yields only
+          `./pkg/alpha` and fails here — which is the whole point.
+
+          TestFileMode_DiffScopeStillWholeModule (CLM-013) — the same
+          package-scoped engine under `GateScopeModeDiff` with a file list, and
+          again under `GateScopeModeAll`. Assert BOTH receive `./...`. This is the
+          leak guard: none of the new logic may reach a non-file-mode scope.
+
+          REWRITE IN PLACE, NAME AND PROPERTY INTACT (SE7):
+          TestPackageScoped_KeyedOnDeclaredFlagNotName — adapt to the new decision
+          signature. It proves the override keys on the DECLARED PackageScoped
+          flag and not a "go test" command sniff (CLM-024). Both halves stay: the
+          non-`go test` command with PackageScoped:true IS scoped, and the
+          `go test`-named command with PackageScoped:false is NOT. Do not delete
+          the fixture-invariant guards. It KEEPS `divergentFlagsManifest(t)` and
+          therefore exercises STATE (C') on both halves — a stated decision, see
+          SE7. Do not add a `classification:` block to the shared fixture to move
+          it into state (B).
+
+          PREDICTED RED: ELEVEN failures total — the TEN new tests fail on the
+          undefined new decision function / on today's
+          `Files[0]`-and-no-claim-check behavior, and the ONE rewritten shipped
+          test (TestPackageScoped_KeyedOnDeclaredFlagNotName) fails to COMPILE
+          (2-value return usage). That is every name in this task's `test_names`
+          list; count the reds against that list, not against this sentence, and
+          if fewer than eleven go red, STOP — a test that is green pre-fix is
+          either vacuous or evidence the diagnosis is wrong. Record the actual
+          text of each.
+        files:
+          - cmd/backstop/pack_gate_filemode_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-013
+          - CLM-015
+        depends_on:
+          - TASK-003
+        test_names:
+          - TestFileMode_UnclaimedFileSkipsPackageScopedEngine
+          - TestFileMode_UnclaimedSkipIsReportedNotSilent
+          - TestPackEngines_UnclaimedSkipSurvivesScopeFilter
+          - TestFileMode_UnclaimedSkipNeverFallsBackToProjectTarget
+          - TestFileMode_TestdataPathsAreNotPackageTargets
+          - TestFileMode_ClaimIsPerPackNotMergedUnion
+          - TestFileMode_UndeclaredClassificationPreservesDerivationAndWarns
+          - TestFileMode_UndeclaredClassificationDerivesEveryScopedFile
+          - TestFileMode_AllScopedFilesBecomePackageTargets
+          - TestFileMode_DiffScopeStillWholeModule
+          - TestPackageScoped_KeyedOnDeclaredFlagNotName
+
+      - id: TASK-005
+        type: implementation
+        title: "Make the file-mode decision three-state, claim-gated, testdata-safe and all-files"
+        description: |
+          Two production files.
+
+          cmd/backstop/pack_gate_filemode.go — REPLACE the two-state
+          `fileModeTestTarget(binding, scope) (string, bool)` with a THREE-STATE
+          decision. Make the three-ness STRUCTURAL: a small named result type or a
+          named enum, so a future reader cannot collapse it back into two bools.
+          The three states are (A) not applicable, (B) targets derived, (C) pack
+          claims nothing in scope — plus the (C') carve-out, per the DESIGN section
+          in this plan's notes.
+
+          The decision needs the dispatching pack's classification, so it takes the
+          manifest (or its Classification) as a parameter. Build the per-pack
+          classifier with `gate.NewSourceClassifier(m.Classification.Source,
+          m.Classification.Test)` and ask it `ClaimsPath` — never the merged
+          classifier from `buildGateSteps` (SE2).
+
+          ORDER OF OPERATIONS, AND IT IS LOAD-BEARING:
+            1. Not file-mode, or `!binding.PackageScoped` → state (A). Unchanged.
+            2. Classifier declares NO globs → state (C'): derive from the scoped
+               files with today's SHAPE — NO claim check and NO testdata drop —
+               but ALL files deduped in stable input order, NOT `Files[0]` (see
+               the (C') block in DESIGN: preserving arity would re-manufacture
+               DEFECT-4 through the carve-out once `--file` repeats). Signal
+               capability-absent. The testdata non-drop here is DELIBERATE and
+               already stated; do not "tidy" it into a drop.
+            3. Drop testdata paths via the EXISTING `excludeTestdataPaths` in
+               pack_gate.go. Do not write a second implementation (SE1).
+            4. Retain the files the classifier CLAIMS.
+            5. Empty after 3+4 → state (C). Non-empty → state (B): one
+               `goTestPackageSelector` result per retained file, DEDUPED, in stable
+               input order (CLM-007).
+
+          Keep `goTestPackageSelector` as-is. Its name carries a Go noun — that is
+          pre-existing debt, and renaming it here would collide with other lanes
+          that cite it by name. Every NEW decision in this file reads pack DATA, so
+          the fix does not deepen the debt.
+
+          Update the file's header comment: it currently explains the SPEC-034
+          REQ-010 preservation decision in two-state terms. Preserve that history
+          and ADD the ISSUE-093 reason for the third state. Do not delete the
+          SPEC-034 rationale — it is still why file-mode scoping exists at all.
+
+          cmd/backstop/pack_gate.go — in the ScopeKindProjectWide arm of
+          `runFindingsEngine`'s arg-shaping (the `if binding.ProjectTarget != ""`
+          branch that calls fileModeTestTarget today):
+            * state (A) → append `binding.ProjectTarget`. Unchanged.
+            * state (B) → append ALL derived targets.
+            * state (C) → RETURN EARLY, BEFORE `runner.RunStdout`, with exactly one
+              `gate.Violation` naming pack, engine and reason. Appending nothing
+              and letting the engine run is NOT equivalent — a bare `go test` with
+              no target still runs the current directory's package.
+            * state (C') → derive as above AND append the capability-absent
+              advisory to the returned violations, distinguishable in Rule and
+              wording from the (C) notice.
+
+          BOTH ADVISORIES ARE CONSTRUCTED WITH MANDATED FIELDS — read the
+          "THE ADVISORY'S SCOPE FIELDS ARE MANDATED" section of this plan's notes
+          IN FULL before writing either one:
+              Severity:    "warning"
+              File:        ""       ← MANDATED EMPTY
+              ProjectWide: true     ← MANDATED TRUE
+              SourcePack:  manifest.NormalizedName
+              Rule:        <distinct per state>
+          `ProjectWide: true` is NOT decoration: without it,
+          `packValidatorStep`'s `activeScope.FilterViolations(violations)` in
+          gate.go DROPS the advisory before the StepResult is built and the skip
+          becomes silent in production. Add a short comment at BOTH construction
+          sites recording (a) that these are CORE-EMITTED dispatch decisions, not
+          tool-produced findings, so the `exempt := binding.ExemptFromScopeFilter`
+          stamping rule below does not govern them, and (b) that `ProjectWide` is
+          `json:"-"` and outside `EnrichViolationIdentity`, so it cannot
+          destabilize baseline identity.
+
+          The early return must sit AFTER the trust gate and BEFORE the runner call
+          — the engine must not be invoked, and its producer must not be resolved.
+          Do not touch the never-started refusal, the StdoutArtifact read, the
+          strict-SARIF guard, the convert stage, or the CrashGuard branch: this
+          plan removes a CAUSE of the crash report, not the report.
+
+          Extend the existing block comment in this branch (the one enumerating the
+          four scope contracts a producer must not evaporate) so the new skip is
+          listed among them — otherwise the next producer-adjacent change silently
+          drops it.
+        files:
+          - cmd/backstop/pack_gate_filemode.go
+          - cmd/backstop/pack_gate.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-013
+        depends_on:
+          - TASK-004
+
+      - id: TASK-006
+        type: verification
+        title: "Gate the dispatch lane, and prove the issue's own reproduction is fixed"
+        description: |
+          Run `go test ./cmd/backstop/... -race -count=1` UNFILTERED. Name
+          EXPLICITLY in the report whether these FIVE shipped assertions are green
+          — they are the SE7 must-not-break set and a `-run`-scoped run would not
+          have executed them:
+            TestFileMode_TestPassScopedToChangedFilePackage
+            TestFileMode_NoSilentWholeModuleRegression
+            TestFileMode_ProjectWideModeStillWholeModule
+            TestRunFindingsEngine_FileModeGoTestPackageScopingPreserved
+            TestFindingsEngine_ProducerReceivesTheSameShapedArgsAsTheCommand —
+              specifically its subtest "package_scoped binding under file-mode
+              gets the changed file's package"
+          The fifth is the one most exposed to this task: it is a state-(C') path
+          asserting the producer args are EXACTLY "--plain ./pkg/widget", so it
+          goes red if the (C') advisory leaks into the ARGS or if the (C')
+          all-files derivation emits more than one target for its single-file
+          scope. If any of the five is red, the fix is wrong. Do NOT edit the test
+          to match the implementation — report it.
+
+          Then rebuild and gate the two production files, one path per invocation:
+            go build -o bin/backstop ./cmd/backstop
+            PATH=/Users/bmanson/go/bin:$PATH ./bin/backstop gate --file cmd/backstop/pack_gate_filemode.go
+            PATH=/Users/bmanson/go/bin:$PATH ./bin/backstop gate --file cmd/backstop/pack_gate.go
+
+          THEN THE REAL PROOF — run the issue's own reproduction against the real
+          binary, real packs, real engines:
+            PATH=/Users/bmanson/go/bin:$PATH ./bin/backstop gate --file .github/workflows/ci.yml
+            PATH=/Users/bmanson/go/bin:$PATH ./bin/backstop gate --file specs/SPEC-018-gate-diff-scope.spec.md
+
+          Both must exit 0. Report the TRUE exit codes and the pack_engines step
+          status verbatim.
+
+          SE4 — CHECK THE WHOLE VERDICT, NOT JUST THE STEP, AND CONFIRM THE
+          STATED BASELINE POSITION. This plan takes an explicit position (see
+          "THE ADVISORY'S SCOPE FIELDS ARE MANDATED", part (ii)): the aggregate
+          `baseline_comparison` step is NEUTRALIZED to `skipped` by `ApplyPolicy`
+          because backstop.yml declares a non-empty `enforcement.policy`, and
+          `pack_engines` resolves through `applyScopedPolicy` where a
+          warning-severity violation increments `warned` and never blocks. NOTHING
+          is added to `.backstop/baseline.json` and no baseline refresh is run.
+
+          REPORT ALL FIVE OF THESE READINGS VERBATIM, not a summary:
+            1. the run's overall result is PASS with exit code 0 — not merely that
+               pack_engines stopped failing;
+            2. pack_engines reports status "warning" (CLM-002 predicts it);
+            3. StepsWarned incremented;
+            4. baseline_comparison reports "skipped" with the
+               "superseded by per-dimension enforcement policy" reason;
+            5. `test_verification`'s status on this SAME run, WITH a one-line note
+               explaining it. State (C)'s fix turns this invocation from a loud
+               crash into an overall PASS on which `test_verification` reports
+               clean even though NO test engine actually ran — and no
+               `capability_absent` advisory fires either, because
+               `declaresTestVerdictEngine` (cmd/backstop/gate.go) keys on the
+               DECLARATION, and go-toolchain still declares a `gate_type: test`
+               engine that this run simply did not dispatch. That is PRE-EXISTING
+               ISSUE-118 behavior, NOT a defect this plan introduces and NOT this
+               plan's to fix. It is recorded here so a future reader cannot mistake
+               a clean `test_verification` on this specific invocation for "the
+               tests ran and passed." Record the status; do not act on it.
+          If (4) instead reports "fail" naming the new advisory, the stated
+          position is FALSIFIED — report it as a required successor issue against
+          the aggregate baseline step's severity-blindness (pre-existing: it
+          hardcodes Status "fail" on any non-empty NewViolations with no severity
+          filter, and .backstop/baseline.json already holds 174 warning entries).
+          Do NOT fix it by making the advisory silent, and do NOT add it to the
+          baseline.
+        files:
+          - cmd/backstop/pack_gate_filemode.go
+          - cmd/backstop/pack_gate.go
+          - cmd/backstop/pack_gate_filemode_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-013
+          - CLM-014
+        depends_on:
+          - TASK-005
+
+  - id: phase-3
+    name: "Phase 3: Repeatable --file (the secondary defect)"
+    tasks:
+      - id: TASK-007
+        type: test
+        title: "Red tests for repeatable --file, empty-value rejection, and the surviving exclusions"
+        description: |
+          PARALLEL-ELIGIBLE WITH PHASE 2 — this phase's files are disjoint from
+          phase 2's by construction. Do not edit any cmd/backstop/pack_gate*.go
+          file from this phase, and do not edit gate.go from phase 2.
+
+          New file cmd/backstop/gate_file_repeatable_test.go for the new
+          properties; rewrite one existing test in cmd/backstop/gate_test.go.
+
+          MANDATED TESTS:
+
+          TestGate_FileFlagIsRepeatableAndAccumulates (CLM-009) — THE DEFECT. Parse
+          `--file a.go --file b.go` and assert BOTH survive. Read them via
+          `cmd.Flags().GetStringArray("file")` and assert the slice is exactly
+          `[a.go b.go]` IN ORDER. Do not assert only on length — a two-element
+          slice of the same value would pass a length check.
+
+          TestGate_RepeatedFileFlagAndPositionalArgsBothAccumulate (CLM-010) —
+          `--file a.go --file b.go c.go d.go`: the two flag values plus the two
+          trailing positionals must ALL reach the scope, ordered flags-then-args.
+          This is the shape `runGate` composes; assert on the composed list, not
+          just the flag values.
+
+          TestGate_EmptyFileValueIsConfigError (CLM-011, DEFECT-3) — execute the
+          command with `--file ""` and assert an `*ExitCodeError` with Code
+          `ExitConfigError`, and that the message names the empty value. Assert
+          POSITIVELY that it did NOT enter diff scope: at HEAD this silently runs a
+          259-file sweep, and a test that only checks "some error occurred" would
+          not distinguish the fix from an unrelated failure. Cover `--file a.go
+          --file ""` too — one bad entry among good ones must still be refused
+          rather than quietly dropped.
+
+          TestGate_RepeatableFileStillMutuallyExclusiveWithAllAndBase (CLM-012) —
+          `--all --file a.go` and `--base HEAD --file a.go` both still return
+          ExitConfigError with their existing messages ("--all and --file are
+          mutually exclusive", "--base and --file are mutually exclusive"). The
+          checks change from `fileValue != ""` to a length test; this pins that the
+          rewrite did not invert or drop either.
+
+          REWRITE IN PLACE, NAME INTACT (SE7): TestGate_FileFlagScopesExplicitFiles
+          in cmd/backstop/gate_test.go calls `cmd.Flags().GetString("file")` and
+          DISCARDS the error (`fileFlag, _ := ...`). Rewrite to GetStringArray
+          while keeping exactly what it proves: one `--file` plus trailing
+          positionals both reach the scope.
+
+          PREDICTED RED, AND IT DIFFERS PER TEST — report them distinctly:
+            * the repeatable test sees only the last value;
+            * the empty-value test sees a diff-scoped run instead of an error;
+            * the rewritten TestGate_FileFlagScopesExplicitFiles fails AT RUNTIME,
+              NOT at compile time. Because the error is discarded, pflag's
+              GetString against a StringArrayVar flag returns `""` with a
+              swallowed type-mismatch error, so the code compiles and the
+              assertion fails with an empty `file=""`. Do not report this one as
+              a compile failure.
+          Record the actual text of each.
+        files:
+          - cmd/backstop/gate_file_repeatable_test.go
+          - cmd/backstop/gate_test.go
+        claims:
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-015
+        depends_on: []
+        test_names:
+          - TestGate_FileFlagIsRepeatableAndAccumulates
+          - TestGate_RepeatedFileFlagAndPositionalArgsBothAccumulate
+          - TestGate_EmptyFileValueIsConfigError
+          - TestGate_RepeatableFileStillMutuallyExclusiveWithAllAndBase
+          - TestGate_FileFlagScopesExplicitFiles
+
+      - id: TASK-008
+        type: implementation
+        title: "Make --file a repeatable string array, reject empty values, and correct the usage text"
+        description: |
+          All work in cmd/backstop/gate.go. Touch nothing else — phase 2 owns
+          pack_gate.go and pack_gate_filemode.go concurrently.
+
+          In `newGateCommand`: change `var fileFlag string` +
+          `cmd.Flags().StringVar` to a `[]string` + `cmd.Flags().StringArrayVar`.
+          `StringArrayVar`, NOT `StringSliceVar` (SE5) — StringSliceVar splits on
+          commas and would silently shred a path containing one, trading the old
+          bug for a subtler new one. Say so in a one-line comment so the next
+          reader does not "simplify" it.
+
+          Correct the two pieces of usage text that already lie (SE6):
+            * `Use:` currently reads `gate [--all | --file FILE [FILE...] | --base
+              REV]`, advertising exactly the repeatable shape that does not work.
+              Spell the repeat form explicitly.
+            * The flag help ("scope gate to one or more explicit files") must say
+              that `--file` may be REPEATED and that trailing positional paths also
+              accumulate.
+          Verified by grep at authoring time: no test pins the current `Use:`
+          string. Re-verify before editing.
+
+          In `runGate`: change the read from `cmd.Flags().GetString("file")` to
+          `GetStringArray`. Then:
+            * REJECT EMPTY ENTRIES EXPLICITLY (CLM-011). Any entry that is empty
+              (or whitespace-only) is an `ExitCodeError{Code: ExitConfigError}`
+              naming the problem. Do NOT silently drop empties — dropping the only
+              entry would fall through to a diff-scoped sweep, which is DEFECT-3
+              preserved under a new spelling.
+            * Retarget the mutual-exclusion guards' `fileValue` tests
+              (`cmd/backstop/gate.go:128-136`) to a non-empty-list test. Only TWO
+              of the three guards reference `fileValue` — `allFlag && fileValue
+              != ""` and `baseValue != "" && fileValue != ""`; the middle guard
+              `baseValue != "" && allFlag` does NOT, and its CONDITION needs no
+              change. All three guards' MESSAGES stay VERBATIM and unchanged —
+              CLM-012's test asserts on the exact strings.
+            * Change the scope-mode branch to `explicitFiles = append(append([]string{},
+              fileValues...), args...)`, preserving flags-then-args order. The
+              existing `else if len(args) > 0` unexpected-arguments guard stays
+              exactly as it is.
+
+          Nothing about `--all`, `--base`, scope computation, or step wiring
+          changes. If a diff appears in `buildGateSteps` or below, it is out of
+          scope.
+        files:
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+        depends_on:
+          - TASK-007
+
+      - id: TASK-009
+        type: verification
+        title: "Gate the flag lane"
+        description: |
+          Run `go test ./cmd/backstop/... -race -count=1` UNFILTERED. `--file` is
+          read in several shipped tests beyond the ones this phase rewrote — at
+          minimum `gate_base_test.go` (the `--base`/`--file` exclusion pair) and
+          `exit_surfacing_streams_test.go` (which passes `--all --file
+          does-not-matter.go` to exercise the exclusion). A flag-TYPE change is
+          exactly the kind of edit whose blast radius a `-run`-scoped run hides.
+          Name both of those explicitly in the report.
+
+          Rebuild and gate the touched file:
+            go build -o bin/backstop ./cmd/backstop
+            PATH=/Users/bmanson/go/bin:$PATH ./bin/backstop gate --file cmd/backstop/gate.go
+
+          Then exercise the fix through the real binary and report TRUE exit codes:
+            ./bin/backstop gate --help          (usage text reflects the repeat form)
+            PATH=/Users/bmanson/go/bin:$PATH ./bin/backstop gate --file README.md --file cmd/backstop/gate.go
+              → the scope line must report 2 explicit files, not 1
+            ./bin/backstop gate --file ""       → must be exit 2 with a config error,
+              NOT "Gate running against N changed files"
+
+          The cobra-cli-standards pack is installed and this task changes the
+          command surface — read the gate output for lint findings against gate.go
+          rather than assuming the flag change is invisible to it.
+        files:
+          - cmd/backstop/gate.go
+          - cmd/backstop/gate_test.go
+          - cmd/backstop/gate_file_repeatable_test.go
+        claims:
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+        depends_on:
+          - TASK-008
+
+  - id: phase-4
+    name: "Phase 4: Joint reconciliation, stale-rationale correction, and the full gate"
+    tasks:
+      - id: TASK-010
+        type: test
+        title: "End-to-end reconciliation: the issue's reproductions through the real CLI"
+        description: |
+          RECONCILIATION TASK. Phases 2 and 3 fix two halves of one command
+          surface independently; only together do they make a multi-file, mixed-
+          language `gate --file` invocation honest. These tests can only exist once
+          BOTH have landed, which is why they depend on both phases' verifications
+          rather than opening a new TDD cycle.
+
+          New file cmd/backstop/gate_issue093_e2e_test.go. Drive the ROOT COMMAND,
+          not the internal helpers — every unit-level property is already pinned in
+          phases 2 and 3, and what is unproven is that the composed CLI path
+          behaves. Use the package's existing e2e harness (`runGateCommand` /
+          `runBackstopStreams` and the `cmd/backstop/testdata` fixture projects) —
+          do not build a new harness.
+
+          TestIssue093_NonGoDirectoryFileDoesNotCrashGate (CLM-014) — a fixture
+          project with a go-toolchain-shaped pack (package_scoped + crash_guard +
+          declared classification) and a non-Go file in a directory containing no
+          Go source. Assert the run exits 0 and that NO violation carries the
+          crash signature ("crashed: non-zero exit with no parseable findings").
+          Assert on the ABSENCE OF THE CRASH SPECIFICALLY, not merely on exit 0 —
+          exit 0 could be reached by a future change that suppressed all findings.
+
+          TestIssue093_MultipleFileFlagsAllReachTheScope (CLM-014) — invoke with
+          `--file <goFile> --file <nonGoFile>` and assert the run's reported scope
+          contains BOTH paths, and that the go-toolchain-shaped engine received the
+          Go file's package (it is claimed) while the non-Go file contributed no
+          target. This is the composed property: repeatability (CLM-009) and
+          per-file claim-gating (CLM-001) holding at the same time. At HEAD this
+          invocation scopes ONE file and crashes; both halves must be gone.
+
+          These should be GREEN on first run given phases 2 and 3. That is expected
+          for a reconciliation task and is not a falsification-bar exemption for
+          the rest of the plan.
+
+          THE RED-FIRST DEMONSTRATION IS REQUIRED, NOT OPTIONAL, AND IT IS KNOWN
+          TO BE FEASIBLE. These two tests carry the issue's own closing evidence,
+          so "green on first run" is exactly the shape that proves nothing on its
+          own. Demonstrate that BOTH FAIL against a REAL PRE-FIX BINARY, using the
+          method already exercised on this issue in under five minutes:
+
+            git worktree add --detach <tmpdir> <pre-fix-rev>
+            cp -R .backstop/packs <tmpdir>/.backstop/
+            cd <tmpdir> && go build -o bin/backstop ./cmd/backstop
+            # copy the two new tests in, run them, record the failures
+
+          Record each pre-fix failure's ACTUAL text. Use a detached worktree, NOT
+          the shared tree — several implementers are live in it.
+
+          The explanation-only path ("state why the check was not possible") is
+          reserved for a genuinely extraordinary blocker — the worktree cannot be
+          created, or the packs cannot be materialized — and the report must name
+          the specific blocker and what was attempted. "It was green so I skipped
+          it" and "the harness made it awkward" are NOT acceptable reasons.
+        files:
+          - cmd/backstop/gate_issue093_e2e_test.go
+        claims:
+          - CLM-014
+        depends_on:
+          - TASK-006
+          - TASK-009
+        test_names:
+          - TestIssue093_NonGoDirectoryFileDoesNotCrashGate
+          - TestIssue093_MultipleFileFlagsAllReachTheScope
+
+      - id: TASK-011
+        type: documentation
+        title: "Correct the two in-tree sites citing ISSUE-093, and FILE (never decide) the policy question"
+        description: |
+          THIS TASK IS TEXT-ONLY. Read SE8 in this plan's notes in full before
+          starting.
+
+          ISSUE-093 is the SOLE stated reason for the `--file` half of CI's
+          blocking-job scope ban. Once this plan lands, that reason is retracted,
+          and two shipped sites say something that is no longer true.
+
+          LOCATE BOTH SITES BY NAME, NOT BY LINE NUMBER. Both files moved tonight
+          under PLAN-ISSUE-091; a remembered offset will be wrong.
+
+          S1. `.github/workflows/ci.yml` — the comment block on the step named
+              `Run the gate`, whose trailing clause reads "…and never the per-file
+              flag (ISSUE-093: it crashes on non-Go directories and silently drops
+              repeats)". Rewrite that clause to say the ISSUE-093 defects are FIXED
+              and that the flag is held out of the blocking job pending a founder
+              decision — mirroring, in structure and tone, the `--all` clause
+              immediately above it, which PLAN-ISSUE-091 already put in exactly
+              this shape.
+              DO NOT TOUCH the `run:` line. The blocking invocation stays
+              `./bin/backstop gate --base "$BASE"`.
+
+          S2. `workflows_test.go` (repo root, package `backstopcore_test`) — the
+              doc comment on `TestCIWorkflow_BlockingJobNeverUsesAllOrFileScope`
+              (the two sentences beginning "ISSUE-093: `--file` crashes on non-Go
+              directories…"), and the `"--file"` entry's REASON STRING inside that
+              test's flag→reason map.
+              DO NOT change the `"--file"` MAP KEY. DO NOT remove the entry. DO NOT
+              change the test's assertions. Only the human-readable reason text
+              changes. The ban stays in force and this test keeps enforcing it.
+
+          THEN REPORT, DO NOT AUTHOR: "May CI's blocking job now use `--file`?" is
+          a founder-level policy call this fix CREATES, exactly as PLAN-ISSUE-091
+          created the mirror-image call for `--all` and filed rather than settled
+          it. Surface it in the completion report as a REQUIRED FOLLOW-ON ISSUE,
+          naming both sites and both now-lifted defects. Do not author the issue
+          artifact yourself — artifact authoring routes to the purpose-built
+          agents — and do not lift the ban.
+
+          Run the root-package suite after editing; `workflows_test.go` has
+          sibling structural tests over the same workflow file, and a YAML comment
+          edit can move content those tests read:
+            go test . -race -count=1
+        files:
+          - .github/workflows/ci.yml
+          - workflows_test.go
+        claims:
+          - CLM-016
+        depends_on:
+          - TASK-006
+          - TASK-009
+
+      - id: TASK-012
+        type: verification
+        title: "Full gate sweep, artifact validation, and the shipped-test no-drift confirmation"
+        description: |
+          THE COMPREHENSIVE PASS. Rebuild first — the gate runs the binary on disk,
+          not the source:
+            go build -o bin/backstop ./cmd/backstop
+
+          1. FULL SUITE, UNFILTERED:
+               go test ./... -race -count=1
+             Report the true result. Name explicitly whether all SEVEN SE7
+             assertions are accounted for: the five that must be green untouched
+             (TestFileMode_TestPassScopedToChangedFilePackage,
+             TestFileMode_NoSilentWholeModuleRegression,
+             TestFileMode_ProjectWideModeStillWholeModule,
+             TestRunFindingsEngine_FileModeGoTestPackageScopingPreserved, and
+             TestFindingsEngine_ProducerReceivesTheSameShapedArgsAsTheCommand's
+             "package_scoped binding under file-mode gets the changed file's
+             package" subtest) and the two rewritten in place with their names
+             intact (TestPackageScoped_KeyedOnDeclaredFlagNotName,
+             TestGate_FileFlagScopesExplicitFiles). This discharges CLM-015.
+
+          2. FULL KILL CHAIN:
+               PATH=/Users/bmanson/go/bin:$PATH ./bin/backstop gate --all
+             The go-arch-lint PATH prefix is mandatory — without it the
+             architecture engine silently no-ops and the run is a false green.
+             Report the TRUE exit code and every failing dimension by name.
+
+          3. ARTIFACT VALIDATION:
+               ./bin/backstop artifact validate --plan PLAN-ISSUE-093
+             Must pass clean.
+
+          4. THE ISSUE'S CLOSING EVIDENCE — re-run both reproductions against the
+             freshly built binary and record the verbatim output:
+               PATH=/Users/bmanson/go/bin:$PATH ./bin/backstop gate --file .github/workflows/ci.yml
+               PATH=/Users/bmanson/go/bin:$PATH ./bin/backstop gate --file specs/SPEC-018-gate-diff-scope.spec.md
+               PATH=/Users/bmanson/go/bin:$PATH ./bin/backstop gate --file README.md --file .github/workflows/ci.yml
+             The third must report 2 explicit files. All three must exit 0.
+
+          5. NEVER invoke bare `backstop` anywhere in this task — a stale Homebrew
+             binary is on PATH and would produce a reading that describes a
+             different build.
+
+          If any step is red, report it with its real output. Do not waive, do not
+          add `nosemgrep`, and do not narrow a scope to make a dimension pass.
+        files:
+          - cmd/backstop/gate.go
+          - cmd/backstop/pack_gate.go
+          - cmd/backstop/pack_gate_filemode.go
+          - pkg/gate/classification.go
+          - plans/PLAN-ISSUE-093-gate-file-nongo-dir-crash.plan.yml
+        claims:
+          - CLM-014
+          - CLM-015
+          - CLM-016
+        depends_on:
+          - TASK-005
+          - TASK-006
+          - TASK-008
+          - TASK-009
+          - TASK-010
+          - TASK-011
