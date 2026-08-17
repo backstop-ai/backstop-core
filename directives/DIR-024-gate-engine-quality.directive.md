@@ -24,12 +24,19 @@ directive:
     - "ISSUE-143"
     - "ISSUE-145"
     - "ISSUE-147"
+    - "ISSUE-158"
 ---
 
 ## Description
 
 Seventeen gate/engine-quality gaps that don't fit the other three
 newly-added directives' themes:
+
+**Correction (2026-08-17):** the roster grew to EIGHTEEN with item 18
+(ISSUE-158), slotted by backlog-pm under the standing clear-fit grant, on
+charter fit against this directive's own catch-all scope and item 17's
+explicit loud-red-needs-a-legible-name line — not by any founder roster
+call.
 
 1. **Cross-platform sandbox — Linux is a hard no-op (ISSUE-020).**
    `pkg/packval/sandbox.go`'s `SandboxedRun` / `SandboxedRunStdout` dispatch
@@ -790,6 +797,98 @@ newly-added directives' themes:
     and item 15/ISSUE-135 (go-test's bare-basename `File`), both already
     homed here on that exact reasoning, not DIR-032's "computes a result but
     reports the wrong verdict about it."
+18. **The zero-match E2E harness's deliberate rule patch makes the copied
+    pack unvalidatable, so four substantiveness E2E tests never reach the
+    code under test (ISSUE-158).** `(*e2eWorkspace).
+    installZeroMatchSubstantivenessPack`
+    (`cmd/backstop/gate_substantiveness_e2e.go:297`) copies
+    `packs/substantiveness` to a temp dir and APPENDS `files:\n  -
+    "harness/fixtures/**/*.go"` to the copy's
+    `ast-grep/rules/referenced-symbol-go.yml`. ISSUE-113's intent for that
+    patch is legitimate and must be preserved: make the Q2
+    `referenced-symbol` rule match ZERO test files in the consumer's
+    workspace, producing a healthy-looking pack that yields no Q2 evidence.
+    The same glob ALSO takes the pack's OWN fixture tree
+    (`testdata/fixtures/rules/**`) out of the rule's scope, so the pack's
+    declared negative fixture for `referenced-symbol-go` can no longer
+    trigger, and `pack add` — which runs the full packval pipeline
+    unconditionally on a scratch copy — REFUSES the patched copy at
+    `phase3-fixtures`.
+    MEASURED, both numbers (by implementer-issue148, 2026-08-17, repo HEAD
+    `c586af3`, real ast-grep 0.43.0 — not re-measured today by backlog-pm):
+    applying the harness's exact patch to a scratch copy and running
+    `./bin/backstop pack test <abs path>` gives exit 1 / `phase3-fixtures`
+    fail with THREE errors on the pre-ISSUE-148 pack (one `semgrep-positive`
+    false positive, two `semgrep-negative` not-triggered) and ONE error on
+    the ISSUE-148-corrected pack (`semgrep-negative` not triggered). So the
+    ISSUE-148 lane takes this copy 3 -> 1 and does NOT clear it; the
+    residual is this harness's rule patch colliding with packval, not a
+    polarity problem.
+    BLAST RADIUS IS FOUR TESTS, NOT THREE — record this correction
+    explicitly, because PLAN-ISSUE-148's own notes predicted only three. All
+    four fail identically at `pack add` -> `pack test ... failed in
+    phase3-fixtures: 1 validation error(s)`, none reaching the code under
+    test: `TestE2E_ZeroMatchClassification_RefusesInsteadOfPerTestViolations`
+    and `TestE2E_ZeroMatchClassification_RefusalIsNotWaivable`
+    (`cmd/backstop/gate_substantiveness_zero_match_e2e_test.go:86,155`),
+    plus `TestE2E_HollowEvidenceBlocksZeroMatchRefusal` and
+    `TestE2E_HollowEvidenceBlocksRefusal_IsNotVacuous`
+    (`cmd/backstop/gate_substantiveness_refusal_boundary_e2e_test.go:52,112`)
+    — the last two share the harness and the failure mode and were outside
+    the original prediction.
+    `TestE2E_ZeroMatchClassification_ControlPackReportsNoViolations` is
+    unaffected: it installs the pristine pack via
+    `installSubstantivenessLocalPack`.
+    SECOND, SMALLER FINDING THE FIX MUST ALSO CORRECT: the comment block
+    above `installZeroMatchSubstantivenessPack` headed "WHY THE PATCHED PACK
+    STILL PASSES `pack test`" is now stale and asserts the exact opposite of
+    the truth. It claims packval never runs these fixtures because
+    packval's `Rule` struct reads the YAML key `file` while
+    `packs/substantiveness/pack.yml` declares `rule_path:`, and cites
+    ISSUE-092 as tracking that hole. ISSUE-092 is CLOSED and its fix is
+    committed at HEAD: `pkg/packval/phase3.go:34` now resolves
+    `rule.RuleSourcePath()` (`pkg/packval/manifest.go:160`), so phase3 does
+    run the fixtures and does notice the patch — which is precisely why
+    this defect became visible. (backlog-pm verified both the patch site
+    and the committed `RuleSourcePath` resolution in the tree, 2026-08-17.)
+    THE DESIGN JUDGMENT THIS ITEM MUST NOT PRE-DECIDE, stated as constraint
+    not solution: the fix needs a glob (or another mechanism) that preserves
+    ISSUE-113's meaning — "this rule matches nothing in the CONSUMER's
+    workspace" — while leaving the PACK's own fixture tree in scope so
+    packval can still validate the copy. The choice belongs to this issue's
+    own plan lane. Two things are ruled OUT up front by the issue and must
+    be recorded as such: do not weaken or delete a fixture, and do not
+    `t.Skip` any of the four tests — `requireAstGrepE2E` is a `t.Fatalf` by
+    design and a skipped real-engine E2E is silent vacuous green.
+    ADJACENCY WITHOUT CONFLATION: note ISSUE-151 (DIR-032 item 20,
+    path-scoped pack rules dark under file dispatch) as adjacent but
+    explicitly NOT the same defect — ISSUE-151 is the LIVE CONSUMER GATE's
+    dispatch shape (directory vs explicit-file) against a real repo; item 18
+    is a TEST HARNESS's deliberate rule patch colliding with packval's
+    unconditional validate-on-`pack-add` against the PACK'S OWN fixture
+    tree. Different mechanism, different surface; neither fix routes through
+    the other.
+    WHY DIR-024 AND NOT DIR-032 — decided, not skipped, and written in the
+    same shape item 17 uses: packval reports a CORRECT verdict here. The
+    patched copy genuinely is invalid, `pack add` refuses LOUDLY and
+    blockingly, and the four tests go RED — nothing reports a clean pass on
+    a scan that did not happen. DIR-032's charter sentence requires a step
+    that "computes a result internally but reports the wrong verdict about
+    it," and this fails that test the same way items 15 (ISSUE-135), 16
+    (ISSUE-145) and 17 (ISSUE-147) do: loud red, wrong or missing legible
+    name, homed here. Affirmative precedent as well as elimination: item 12
+    already homes test-fixture-hygiene-with-no-guard here, and items 13/14/17
+    already home `pkg/packval` machinery and its harnesses here. The
+    counter-pull is real and should be named honestly: the harness exists to
+    test DIR-032 item 10 (ISSUE-113), and it was surfaced by DIR-032 item
+    19's lane (ISSUE-148) — lane adjacency, not charter.
+    CROSS-DIRECTIVE COUPLING, state it once so neither directive reads as
+    contradicting the other: while item 18 is unfixed, DIR-032 item 10's
+    delivered zero-match refusal behavior has NO working E2E coverage — it
+    is failing loudly rather than passing vacuously, so this is a coverage
+    outage, not a false green. Whoever fixes item 18 must keep ISSUE-113's
+    zero-match meaning intact and should sequence after or independently of
+    PLAN-ISSUE-148, whose file scope explicitly fences this out.
 
 ## Notes
 
@@ -1209,6 +1308,25 @@ fix would use (`pack_gate.go:680-725`) already ships core-side.
 Priority note, stated as observation and explicitly NOT a reorder
 (directive-author has no reorder authority): DIR-024 sits at BACKLOG.yml
 position 5 and this slot does not change its rank.
+
+ISSUE-158 slotted here 2026-08-17 by backlog-pm under the standing
+clear-fit grant. Provenance is `PLAN-ISSUE-148` TASK-005 item 1, a MANDATED
+follow-on filing ("FILE IT, do not fix it here" — that plan's file scope
+lists `cmd/backstop/gate_substantiveness_e2e.go`'s zero-match harness as OUT
+at line 254-255), so this was surfaced, not caused, by that lane and
+ISSUE-148 is not at fault. IN-FLIGHT COVERAGE IS NIL BY CONSTRUCTION,
+established from the corpus with zero interviews: no plan in `plans/`
+targets ISSUE-158 or the zero-match harness, and PLAN-ISSUE-148 (status:
+draft, created 2026-08-17, actively mid-flight in the working tree) forbids
+absorbing it. The four reds were NOT independently re-measured by
+backlog-pm because the tree is being actively modified by that lane and any
+measurement would be unattributable — the patch site, the stale docstring
+and the committed `RuleSourcePath` resolution WERE verified in tree.
+Priority note, stated as observation and explicitly NOT a reorder
+(backlog-pm has no reorder authority): DIR-024 sits at BACKLOG.yml position
+5 and this slot does not change its rank, but the founder should know that
+until item 18 is fixed core's own suite carries four red E2E tests that no
+other lane will clear.
 
 ISSUE-147 discovered 2026-08-16 by `implementer-issue092` during
 PLAN-ISSUE-092 verification. Slotted here under the standing clear-fit
