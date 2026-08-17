@@ -18,7 +18,7 @@
 - [Never read subagent .output](feedback_never_read_subagent_output_files.md) — it's the raw ~100k-token JSONL transcript; grep the target file or re-run validate instead
 - [Concurrent PM triage races](project_concurrent_pm_triage_races.md) — sibling-issue bursts fire parallel PMs into ONE directive; re-read it after the agent returns, fix stale cross-refs in place
 - [Record-only consequence filings](project_record_only_consequence_filings.md) — "file, don't absorb" plan tasks emit issues with NO defect; not clear fits, and they arrive as batches the hook under-delivers
-- [pm-trigger hook is wrong BOTH ways](project_pm_trigger_hook_misses_cli_scaffolded.md) — misses `artifact new`+Edit artifacts AND false-fires on testdata fixtures (rootless glob). Check path shape first; enumerate issues/ vs pending.log every sweep
+- [pm-trigger hook false-fires](project_pm_trigger_hook_misses_cli_scaffolded.md) — missed-artifact half FIXED 2026-08-17; still fires on testdata fixtures AND on RETIREMENTS. Check status line + path shape before triaging
 - [Homed-but-orphaned bundles](project_homed_but_orphaned_bundles.md) — BUNDLE-004/005/008 cited ONLY by `done` directives; check citers' status before calling a bundle homed. Also: pm-trigger hook can silently miss an artifact
 - [Orphaned issue backlog](project_orphaned_issue_backlog.md) — ~half of open issues cited by no directive; hook only catches post-install artifacts, compute uncited-open explicitly
 - [ISSUE-092 hollows acceptance bars](project_issue092_hollows_acceptance_bars.md) — any "passes pack test"/"fixtures falsify" criterion is vacuous while 092 lives; re-grep rule_path before citing
@@ -26,6 +26,7 @@
 - [Fix menus overstate core gaps](project_fix_menus_overstate_core_gaps.md) — "build it in core" options often name capability that already ships (project-wide/none dispatch); verify before homing
 - [ISSUE-101 home ruling pending](project_issue101_home_ruling_pending.md) — go-distribution family (101/109/110/111 + BUNDLE-031) all wait on ONE unruled home; never slot a child
 - [ID reservation drift](project_id_reservation_drift.md) — IDs allocate from git tags w/ silent FS fallback; no remote → tags (088) lag files (089+); adding the launch remote re-issues colliding IDs
+- [Artifact extension = discovery](project_artifact_extension_is_discovery.md) — bare `.md` in an artifact dir is INVISIBLE to backstop (absent from validate counts, unfindable by ID); silent absence, never a red
 - [Phantom filed issues](project_phantom_filed_issues.md) — INBOX ≠ proof of existence; 102/103 were never written yet have burnt tags. `ls issues/ISSUE-NNN-*` before citing any ID
 - [Zero-baked violations have no home](project_zero_baked_violations_have_no_home.md) — DIR-014 is done; home baked-platform issues by the SURFACE that owns the code, not the invariant
 - [phase3 polarity + silent parse](project_phase3_polarity_and_silent_parse.md) — settles SHOUT-vs-LIE for RunEngine gaps: array=loud/DIR-024, empty-or-object=silent/DIR-032; positive fixture = CLEAN code; check `grep -c claims` for latency

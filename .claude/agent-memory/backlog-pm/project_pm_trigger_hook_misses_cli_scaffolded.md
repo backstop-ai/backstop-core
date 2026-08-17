@@ -1,15 +1,23 @@
 ---
 name: pm-trigger-hook-is-wrong-in-both-directions
-description: The pm-trigger hook both MISSES real artifacts (Write-only matcher vs `backstop artifact new`+Edit) and FABRICATES them from test fixtures (rootless path glob matches testdata/) — pending.log is neither complete nor trustworthy
+description: pm-trigger's missed-artifact half is FIXED (matcher now Write|Edit|MultiEdit); it still FABRICATES artifacts from testdata fixtures (rootless glob) and now also fires on RETIREMENTS — check status/path shape before triaging
 metadata:
   type: project
 ---
 
 `.claude/hooks/backstop-pm-trigger.sh` fails in **both** directions. Confirmed 2026-08-14.
 
-## Direction 1 — MISSES real artifacts (false negatives)
+## Direction 1 — MISSES real artifacts (false negatives) — **FIXED 2026-08-17**
 
-Registered in `.claude/settings.json` as **`PostToolUse` with `matcher: "Write"`** — fires
+**Status: the matcher half is FIXED.** Commit `bee8873` (`fix(ISSUE-123,ISSUE-127): pm-trigger
+fires on Edit`) changed the registration in `.claude/settings.json` to
+**`matcher: "Write|Edit|MultiEdit"`** — verified in the file 2026-08-17. The `backstop artifact
+new`-then-`Edit` blind spot below is HISTORY; do not re-report it. (Bash-only writes are still
+uncovered in principle, but the mandated fill path goes through Edit, so the practical gap is
+closed. The Direction-2 false-fires are NOT fixed — that half of ISSUE-123 remains open.)
+
+Historical mechanism, kept because the batch-enumeration habit it taught is still correct:
+registered as **`PostToolUse` with `matcher: "Write"`** — fired
 only on the **Write tool**. But the mandated creation path is `backstop artifact new` (see
 [[scaffold-via-cli]]), which scaffolds through the CLI in **Bash**. If the author then fills
 the scaffold with **Edit**, Write never touches the file and the hook **never fires**.
@@ -55,6 +63,28 @@ only 150 reached `pending.log`. When a hook-delivered issue cites a plan's "file
 task, **immediately enumerate that task's mandated filings** (`grep -n "TASK-00N" plans/<plan>`)
 and check each against `pending.log` — the batch, not the one artifact you were handed, is the
 real triage unit. See [[record-only-consequence-filings]].
+
+## Direction 3 — fires on RETIREMENTS, i.e. on the execution of your own recommendations
+
+**New 2026-08-17T14:24Z, and a direct consequence of the Direction-1 fix.** Now that the hook
+matches `Edit`, it fires on artifacts that are being **retired**, not created. ISSUE-022 and
+ISSUE-023 (empty 2026-06-21 stubs the 13:05Z sweep had recommended retiring) were rewritten
+hours later at `status: canceled` with a `## Resolution` — and each rewrite fired a fresh
+headless PM run to "triage a new artifact" that was in fact the sweep's own recommendation
+being carried out.
+
+Tell: the hook-delivered file has a **terminal status** (`canceled`/`replaced`/`deprecated`) or
+a `## Resolution` section, and/or its ID already appears in the INBOX. **Read the artifact's
+status line first.** A terminal-state artifact needs no directive home — cheap FYI, mark, stop.
+Grep the INBOX for the ID before writing anything: if a prior entry already recommended exactly
+this, the entry writes itself as "your call was executed" plus whatever loose end remains
+(in this case: the deletions of the old files were committed while the canceled replacements
+were still untracked — the removal permanent, the rationale not).
+
+Also seen in the same run: the hook fires **mid-write**. My first `Read` of ISSUE-022 returned
+the pre-rewrite empty stub; seconds later the same path held the full cancellation. Generalizes
+[[triage-races-plan-scaffold]] beyond plan scaffolds — re-check the file (or `git status` /
+`git log -1 --stat`) before concluding anything from a hook-delivered snapshot.
 
 Two mechanical details that matter when the fix is finally scoped: the dedupe guard is
 **per-path** (`grep -qF "$REL"`, line 24), so N fixture projects = N detached runs, never one;
