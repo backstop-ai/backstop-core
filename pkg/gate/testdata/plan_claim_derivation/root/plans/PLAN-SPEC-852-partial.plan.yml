@@ -1,0 +1,20 @@
+---
+plan_id: PLAN-SPEC-852
+spec_id: SPEC-852
+created: "2026-08-17"
+status: draft
+phases:
+  - id: phase-1
+    name: "Phase 1: Deliver CLM-001 and CLM-002"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Deliver both SPEC-852 claims"
+        description: "Derives Present + Absent; Absent is missing, so no advisory."
+        files:
+          - pkg/example/example_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+        depends_on: []
+---

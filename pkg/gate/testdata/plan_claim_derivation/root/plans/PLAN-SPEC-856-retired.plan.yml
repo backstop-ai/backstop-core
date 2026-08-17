@@ -1,0 +1,23 @@
+---
+plan_id: PLAN-SPEC-856
+spec_id: SPEC-856
+created: "2026-08-17"
+status: draft
+phases:
+  - id: phase-1
+    name: "Phase 1: Deliver CLM-001"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Deliver the SPEC-856 claim"
+        description: |
+          The source is retired (obsoleted), so this plan derives NOTHING.
+          TestPlanDerive_RetiredOnly IS in the calibrated present-set, so a
+          missing retired guard makes this plan look delivered and fires a
+          spurious advisory — that is what makes the guard falsifiable.
+        files:
+          - pkg/example/example_test.go
+        claims:
+          - CLM-001
+        depends_on: []
+---

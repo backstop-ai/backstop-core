@@ -252,18 +252,29 @@ func ResolveArtifactStatus(artifactRoot string) (*ArtifactStatusResolution, erro
 		return nil, fmt.Errorf("resolving directives: %w", err)
 	}
 
-	// Plans: whole-file YAML (.plan.yml). status + plan_id + spec_id, plus task test_names
-	// as MandatedTests (ISSUE-048). Index each plan by its spec_id for the issue->plan
-	// linkage.
+	// SE1 — THE PLAN WALK MUST STAY LAST, AND THIS INDEX IS WHY (ISSUE-114). A plan's
+	// mandated tests are DERIVED from its tasks' claims[] resolved against the SOURCE
+	// artifact's claim->tests map, and the index below is folded from records that are
+	// ALREADY APPENDED to res.Records — specs, bundles, issues, directives. Moving the
+	// plan walk any earlier silently empties every derivation: no error, no diagnostic,
+	// just an advisory that goes quiet again. Do not reorder these walks.
+	sourceClaims := buildSourceClaimIndex(res.Records)
+
+	// Plans: whole-file YAML (.plan.yml). status + plan_id + spec_id, plus mandated tests
+	// from BOTH channels — explicit task test_names (ISSUE-048) unioned with claim-derived
+	// tests (ISSUE-114). Index each plan by its spec_id for the issue->plan linkage.
 	if err := walkPlanDir(root.Dir(artifact.KindPlan), func(path string, fm *planFrontmatter) {
 		rec := ArtifactStatusRecord{
-			ID:            fm.PlanID,
-			Kind:          KindPlan,
-			Status:        fm.Status,
-			Class:         ClassifyArtifactStatus(KindPlan, fm.Status),
-			Path:          path,
-			SpecID:        fm.SpecID,
-			MandatedTests: planTaskMandatedTests(fm, path),
+			ID:     fm.PlanID,
+			Kind:   KindPlan,
+			Status: fm.Status,
+			Class:  ClassifyArtifactStatus(KindPlan, fm.Status),
+			Path:   path,
+			SpecID: fm.SpecID,
+			MandatedTests: unionPlanMandatedTests(
+				planTaskMandatedTests(fm, path),
+				planClaimDerivedMandatedTests(fm, path, sourceClaims),
+			),
 		}
 		res.Records = append(res.Records, rec)
 		if fm.SpecID != "" {
@@ -318,10 +329,19 @@ type claimBlock struct {
 }
 
 // planFrontmatter is the whole-file plan YAML shape the resolver reads (plans are pure
-// .plan.yml, not fenced markdown). It also reads phases[].tasks[].test_names (ISSUE-048):
-// the mandated test names a completed plan delivered, so a `completed` plan is held to the
-// SAME success-terminal absent-test BLOCK as issues/specs. yaml ignores tasks that carry
-// no test_names, so plans authored before this field carry no MandatedTests (unchanged).
+// .plan.yml, not fenced markdown). A plan's mandated tests arrive over TWO channels, and
+// the resolver UNIONS them (ISSUE-114):
+//
+//   - EXPLICIT: phases[].tasks[].test_names (ISSUE-048) — the names an author declared
+//     directly on the task.
+//   - DERIVED: phases[].tasks[].claims[] resolved against the SOURCE artifact's (spec_id)
+//     claim->tests map. Every plan task already carries a required claims[] array, so this
+//     channel needs no authoring and no backfill.
+//
+// The two sets are deduplicated by function name with the EXPLICIT entry winning, so a
+// `completed` plan is held to the same success-terminal absent-test BLOCK over both
+// channels, and a NON-TERMINAL plan whose mandated tests are all present now reaches the
+// delivered-but-open advisory even when it declares no test_names at all.
 type planFrontmatter struct {
 	PlanID string          `yaml:"plan_id"`
 	SpecID string          `yaml:"spec_id"`
@@ -330,8 +350,8 @@ type planFrontmatter struct {
 }
 
 // planPhaseNode / planTaskNode are the minimal phase/task shape the resolver reads to
-// surface task test_names. They deliberately read ONLY id + test_names — validate.Plan
-// owns full plan-structure validation.
+// surface a task's mandated tests over both channels. They deliberately read ONLY id +
+// test_names + claims — validate.Plan owns full plan-structure validation.
 type planPhaseNode struct {
 	Tasks []planTaskNode `yaml:"tasks"`
 }
@@ -339,6 +359,9 @@ type planPhaseNode struct {
 type planTaskNode struct {
 	ID        string   `yaml:"id"`
 	TestNames []string `yaml:"test_names"`
+	// Claims are the source-artifact claim ids this task delivers. An absent array leaves
+	// this nil, which is normal and silent — it simply derives nothing.
+	Claims []string `yaml:"claims"`
 }
 
 // bundleFrontmatter is the minimal bundle shape needed by traceability: bundle.name,
@@ -375,6 +398,104 @@ func planTaskMandatedTests(fm *planFrontmatter, path string) []MandatedTest {
 				})
 			}
 		}
+	}
+	return out
+}
+
+// sourceClaimKey identifies one claim on one source artifact — the join key a plan task's
+// `claims: [CLM-NNN]` entry resolves through, scoped by the plan's spec_id so two artifacts
+// that both declare CLM-001 never cross-contaminate.
+type sourceClaimKey struct {
+	sourceID string
+	claimID  string
+}
+
+// buildSourceClaimIndex folds already-resolved records into the (artifact id, claim id) ->
+// test names map that plan derivation reads.
+//
+// ClassRetiredTerminal records are SKIPPED — that is the retired-source guard, and it keys
+// on the record's Class rather than isTerminalSpecStatus BECAUSE THE TWO DISAGREE:
+// isTerminalSpecStatus does not name `obsoleted`, so an obsoleted spec still flows through
+// ExtractMandatedTests and genuinely carries MandatedTests on its record. A plan must never
+// be held to, or credited with, a promise its source has withdrawn.
+func buildSourceClaimIndex(records []ArtifactStatusRecord) map[sourceClaimKey][]string {
+	index := map[sourceClaimKey][]string{}
+	for _, rec := range records {
+		if rec.Class == ClassRetiredTerminal {
+			continue
+		}
+		for _, mt := range rec.MandatedTests {
+			if mt.ClaimID == "" {
+				continue
+			}
+			key := sourceClaimKey{sourceID: rec.ID, claimID: mt.ClaimID}
+			index[key] = append(index[key], mt.FuncName)
+		}
+	}
+	return index
+}
+
+// planClaimDerivedMandatedTests resolves every task's claims[] against the source artifact's
+// claim->tests map and returns the mandated tests the plan therefore owes.
+//
+// ATTRIBUTION POINTS AT THE PLAN, NOT THE SOURCE: SpecFile carries the PLAN's path and
+// SpecID the PLAN's id, so a drift violation files against the artifact whose status is
+// wrong. ClaimID carries the SOURCE claim id, because the broken-promise message renders it
+// as ", claim %s" and the source claim is what explains why the test is owed. (Explicit
+// entries from planTaskMandatedTests put the TASK id in that same field; that pre-existing
+// choice is deliberately left alone.)
+//
+// A claim reference that resolves to nothing — no such source, or no such claim, or a source
+// that declares no tests — contributes nothing and is SILENT. It is not a finding: most
+// issues carry no claims block at all, and reporting that would red the corpus for a
+// source-artifact authoring gap.
+func planClaimDerivedMandatedTests(fm *planFrontmatter, path string, index map[sourceClaimKey][]string) []MandatedTest {
+	if fm.SpecID == "" {
+		return nil
+	}
+	var out []MandatedTest
+	for _, phase := range fm.Phases {
+		for _, task := range phase.Tasks {
+			for _, claimID := range task.Claims {
+				for _, name := range index[sourceClaimKey{sourceID: fm.SpecID, claimID: claimID}] {
+					out = append(out, MandatedTest{
+						FuncName: name,
+						SpecFile: path,
+						SpecID:   fm.PlanID,
+						ClaimID:  claimID,
+					})
+				}
+			}
+		}
+	}
+	return out
+}
+
+// unionPlanMandatedTests merges a plan's explicit and derived mandated tests, deduplicated
+// by function name within this ONE plan record (never globally — two plans may each
+// legitimately owe the same test name).
+//
+// EXPLICIT WINS. Both orderings pass a naive "appears once" assertion and only one is
+// intended: an explicit declaration is the author's direct statement and its task-id
+// attribution is the more specific of the two. Duplication is not cosmetic here — two
+// identical entries yield two byte-identical drift violations on the same file with the
+// same message, i.e. a doubled baseline identity for one real finding.
+func unionPlanMandatedTests(explicit, derived []MandatedTest) []MandatedTest {
+	if len(derived) == 0 {
+		return explicit
+	}
+	taken := make(map[string]bool, len(explicit))
+	for _, mt := range explicit {
+		taken[mt.FuncName] = true
+	}
+	out := make([]MandatedTest, 0, len(explicit)+len(derived))
+	out = append(out, explicit...)
+	for _, mt := range derived {
+		if taken[mt.FuncName] {
+			continue
+		}
+		taken[mt.FuncName] = true
+		out = append(out, mt)
 	}
 	return out
 }

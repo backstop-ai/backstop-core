@@ -1,0 +1,22 @@
+---
+plan_id: PLAN-ISSUE-853
+spec_id: ISSUE-853
+created: "2026-08-17"
+status: draft
+phases:
+  - id: phase-1
+    name: "Phase 1: Deliver CLM-001"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Deliver the ISSUE-853 claim"
+        description: |
+          ISSUE-853 does not exist as a fixture at all, which is the point: an
+          unresolvable source is the strongest form of the unresolved-claim case.
+          Derives NOTHING and emits NOTHING — no violation of any kind.
+        files:
+          - pkg/example/example_test.go
+        claims:
+          - CLM-001
+        depends_on: []
+---

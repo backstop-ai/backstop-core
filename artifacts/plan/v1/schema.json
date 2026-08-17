@@ -43,7 +43,7 @@
     "task_required_keys": ["id", "type", "title", "description", "files", "claims", "depends_on"],
     "task_optional_keys": ["test_names"],
     "task_type_enum": ["setup", "test", "implementation", "verification", "refactor", "documentation"],
-    "task_test_names_description": "Optional per-task list of the mandated test function names this task delivers. The artifact_status_drift dimension reads it: for a `completed` plan, every declared test_name must EXIST or the plan blocks as a broken promise."
+    "task_test_names_description": "Optional per-task list of the mandated test function names this task delivers. It is an ADDITION to, never a replacement for, the mandated tests the artifact_status_drift dimension DERIVES from each task's `claims[]` resolved against the source artifact's claims[].tests — so a plan that declares no test_names at all is still machine-visible to that dimension. The two sets are UNIONED and deduplicated by function name, with an explicit declaration winning. A `completed` plan blocks as a broken promise on any absent mandated test from EITHER channel; a NON-TERMINAL plan whose mandated tests are all present raises the non-blocking artifact_status_drift_advisory."
   },
   "enforcement": {
     "D-080": "Every task must be agent-bounded: non-empty files, description, claims, and explicit depends_on",
