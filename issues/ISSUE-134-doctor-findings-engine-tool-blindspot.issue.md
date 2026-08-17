@@ -6,16 +6,44 @@ issue:
   id: ISSUE-134
   title: "Doctor Findings Engine Tool Blindspot"
   type: bug
-  status: open
+  status: closed
   created: "2026-08-15"
+  closed: "2026-08-17"
 
 complexity:
   scope: cross-cutting
   uncertainty: exploratory
   risk: moderate
+
+delivered_by: PLAN-ISSUE-134
 ---
 
 # Doctor findings-engine tool blindspot
+
+## Resolution
+
+`backstop doctor` never probed for findings-engine tools (ast-grep, semgrep), so it reported a
+clean bill of health on a machine missing them — the exact condition that produced a real
+incident (bclabs-portal's 397 false violations). Falsified live before any fix: `doctor` exited 0
+all-green while `gate --file` correctly failed at `pack_engines`, naming the absent tool.
+
+Fixed via a new `checkEngineToolsPresent` doctor check (`cmd/backstop/doctor_checks.go`),
+registered in doctor's check registry (`cmd/backstop/doctor.go`) after toolchain-runs. Design is
+extract-don't-rewrite: the collection half of `provisionEngines`'s existing rule-driven walk was
+pulled into a shared `collectRequiredEngineTools` (`cmd/backstop/pack_gate_provision.go`),
+consumed by both the gate (fail-fast) and doctor (enumerate-all) — one selection authority instead
+of two divergent ones. `pack_entrypoint_prober.go` (the shared prober `backstop init` also calls)
+is untouched, verified by source-level absence from the diff, so `init` stays structurally
+unaffected — the shared-prober blast-radius concern this issue raised did not materialize. Doctor
+reuses the gate's own `absentToolMessage` renderer verbatim, so the two diagnostic surfaces cannot
+render diverging remediation text for the same missing tool.
+
+Delivered by PLAN-ISSUE-134 (`status: completed`), commit `11fd585` ("closeout: PLAN/ISSUE-134 —
+doctor now probes findings-engine tools").
+
+This issue was the last open member of DIR-002's (`backstop init`) source roster
+(`directives/DIR-002-backstop-init.directive.md`) — its closure completes that directive's entire
+roster.
 
 ## Problem
 
