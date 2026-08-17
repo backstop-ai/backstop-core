@@ -31,6 +31,10 @@ type Gate struct {
 	waiverPolicy  waiver.Policy
 	waiverNow     time.Time
 	activeWaivers []waiver.Waiver
+	// Tree-driven unbound-waiver inputs (ISSUE-097). Both are supplied ALREADY
+	// RESOLVED by cmd/backstop: pkg/gate walks no filesystem and reads no lock.
+	projectWaiverTokens []waiver.Waiver
+	knownPackNamespaces []string
 }
 
 // Option is a functional option for configuring a Gate.
