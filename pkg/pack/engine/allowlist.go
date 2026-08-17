@@ -23,7 +23,7 @@ func TrustedToolAllowlist() map[string]string {
 		// The backstop-introduced findings/opinion engines (pinned via the lock
 		// path). These mirror the DefaultRegistry Provision pins — the allowlist is
 		// the trust floor, the lock is the proof a build is actually pinned there.
-		"semgrep":  "1.96.0",
+		"semgrep":  "1.156.0",
 		"ast-grep": "0.43.0",
 		// grep is the text-presence engine the contracts absence probe rides
 		// (SPEC-038 REQ-005/CLM-016). It is pack-DECLARED (no DefaultRegistry entry)

@@ -69,7 +69,7 @@ jobs:
         # pkg/packval/sandbox_linux_exec_test.go, which fails loudly on a host
         # without Landlock and runs inside the gate below.
         run: |
-          pipx install semgrep==1.96.0
+          pipx install semgrep==1.156.0
           curl -sSfL "https://github.com/ast-grep/ast-grep/releases/download/0.43.0/app-x86_64-unknown-linux-gnu.zip" -o ast-grep.zip
           mkdir -p "$HOME/.local/bin"
           unzip -o -q ast-grep.zip -d "$HOME/.local/bin"
@@ -228,7 +228,7 @@ jobs:
         # pkg/packval/sandbox_linux_exec_test.go, which fails loudly on a host
         # without Landlock and runs inside the gate below.
         run: |
-          pipx install semgrep==1.96.0
+          pipx install semgrep==1.156.0
           curl -sSfL "https://github.com/ast-grep/ast-grep/releases/download/0.43.0/app-x86_64-unknown-linux-gnu.zip" -o ast-grep.zip
           mkdir -p "$HOME/.local/bin"
           unzip -o -q ast-grep.zip -d "$HOME/.local/bin"

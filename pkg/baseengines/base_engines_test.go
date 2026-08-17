@@ -54,10 +54,10 @@ func TestBaseRegistry_SemgrepBindingFromPackData(t *testing.T) {
 		t.Errorf("semgrep Category = %v, want EngineCategoryOpinion", b.Category)
 	}
 	if b.Provision == nil {
-		t.Fatalf("semgrep Provision is nil, want {semgrep,1.96.0}")
+		t.Fatalf("semgrep Provision is nil, want {semgrep,1.156.0}")
 	}
-	if b.Provision.Tool != "semgrep" || b.Provision.Version != "1.96.0" {
-		t.Errorf("semgrep Provision = %+v, want {semgrep,1.96.0}", *b.Provision)
+	if b.Provision.Tool != "semgrep" || b.Provision.Version != "1.156.0" {
+		t.Errorf("semgrep Provision = %+v, want {semgrep,1.156.0}", *b.Provision)
 	}
 }
 

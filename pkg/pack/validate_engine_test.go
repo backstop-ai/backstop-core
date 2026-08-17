@@ -65,7 +65,7 @@ func TestValidateEngine_PackDeclaredEngineKnown(t *testing.T) {
     gate_type: findings
     provision:
       tool: semgrep
-      version: 1.96.0`
+      version: 1.156.0`
 	body := packWithEngineRule(enginesBlock, "acme-findings")
 
 	if _, err := pack.ParseManifestFile(writePackYAML(t, body)); err != nil {

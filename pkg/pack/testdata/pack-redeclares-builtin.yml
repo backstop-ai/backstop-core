@@ -21,7 +21,7 @@ engines:
     gate_type: findings
     provision:
       tool: semgrep
-      version: 1.96.0
+      version: 1.156.0
 content:
   ruleset:
     rules:

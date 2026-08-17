@@ -507,7 +507,7 @@ func TestResolveRegistry_PackBindingResolutionIsDeterministic(t *testing.T) {
 				Command:   redeclared,
 				InputMode: engine.InputModeRuleFlags,
 				InputFlag: "--config",
-				Provision: &engine.Provision{Tool: "semgrep", Version: "1.96.0"},
+				Provision: &engine.Provision{Tool: "semgrep", Version: "1.156.0"},
 				Category:  engine.EngineCategoryOpinion,
 			}},
 		},

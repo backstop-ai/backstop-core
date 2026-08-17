@@ -21,7 +21,7 @@ func baseTestRegistry() engine.Registry {
 			InputFlag: "--config",
 			ScopeKind: engine.ScopeKindFileArgs,
 			Category:  engine.EngineCategoryOpinion,
-			Provision: &engine.Provision{Tool: "semgrep", Version: "1.96.0"},
+			Provision: &engine.Provision{Tool: "semgrep", Version: "1.156.0"},
 			FieldContract: engine.FieldContract{
 				Requires: []string{engine.FieldRulePath, engine.FieldStandard},
 				Forbids:  []string{engine.FieldCategory, engine.FieldInputScope, engine.FieldValidator},

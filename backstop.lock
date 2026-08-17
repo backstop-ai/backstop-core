@@ -16,13 +16,13 @@ packs:
         source_type: git
         version: 1.1.3
     backstop-ai/ci-workflows:
-        content_hash: fe55e0ee260dc994c89009af041c3f6dff7577507b030e7f78499455bc7565ef
-        git_ref: v0.1.0
-        install_date: 2026-08-12T02:33:47Z
+        content_hash: f7c57f3f9f18d89302c1806ccb89d67fb23a1668fe8911bf7890ee5e4541088f
+        git_ref: v0.1.2
+        install_date: 2026-08-17T20:51:32Z
         name: backstop-ai/ci-workflows
         source_coordinate: backstop-ai/ci-workflows
         source_type: git
-        version: 0.1.0
+        version: 0.1.2
     backstop-ai/cobra-cli-standards:
         content_hash: d9d87c313022bddff02f640a881784b436c661c1dff511fa038d592850eeca4d
         git_ref: v0.2.1

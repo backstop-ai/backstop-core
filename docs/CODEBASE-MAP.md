@@ -31,7 +31,7 @@ file is only WHERE things are.
     typed refusals, and `CoordinateForEntry`), `lockfile.go`, `hash.go`,
     `provenance.go`, `config_merge.go`, `tamper.go`.
   - `pkg/pack/engine/` — engine bindings (`binding.go`), `GateType`
-    (`gatetype.go`), pinned tool versions (`allowlist.go` — semgrep 1.96.0).
+    (`gatetype.go`), pinned tool versions (`allowlist.go` — semgrep 1.156.0).
 - `pkg/check/` — findings execution + SARIF (`runner.go`, `parsers.go:42`
   `parseSarif`), coverage channel (`coverage.go`).
 - `pkg/waiver/` — `@waiver:` grammar (`waiver.go`), adjudication
