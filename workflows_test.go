@@ -729,10 +729,16 @@ func TestCIWorkflow_BlockingJobHasNoRawToolInvocations(t *testing.T) {
 // this constraint should now LIFT is an OPEN FOUNDER DECISION — see the
 // follow-on issue filed by PLAN-ISSUE-091 TASK-006 item 4. Until it is decided,
 // the ban stays in force and this test keeps enforcing it.
-// ISSUE-093: `--file` crashes on non-Go directories and silently drops repeated
-// occurrences. UNAFFECTED by ISSUE-091 — that half keeps its original reason.
+// ISSUE-093 is ALSO FIXED, and its half of this ban has likewise lost its stated
+// reason: a package-scoped engine is now SKIPPED with a loud non-blocking advisory
+// when the dispatching pack's declared classification claims nothing in the scope
+// (so an unclaimed file no longer crashes the engine), and `--file` accumulates
+// across occurrences instead of keeping only the last. Whether the `--file` half
+// of this constraint should now LIFT is a SECOND OPEN FOUNDER DECISION, mirroring
+// the `--all` one above. Until both are decided, the ban stays in force and this
+// test keeps enforcing it.
 // Diff scope with an explicit base is the shape CI's blocking job actually uses
-// today, and it stays that way pending that founder decision. (CLM-020)
+// today, and it stays that way pending those founder decisions. (CLM-020)
 func TestCIWorkflow_BlockingJobNeverUsesAllOrFileScope(t *testing.T) {
 	job := ciBlockingJob(t)
 
@@ -742,7 +748,7 @@ func TestCIWorkflow_BlockingJobNeverUsesAllOrFileScope(t *testing.T) {
 		}
 		for flag, issue := range map[string]string{
 			"--all":  "ISSUE-091 is fixed, but `--all` is held out of the blocking job pending a founder decision",
-			"--file": "ISSUE-093 — `--file` crashes on non-Go directories and drops repeats",
+			"--file": "ISSUE-093 is fixed, but `--file` is held out of the blocking job pending a founder decision",
 		} {
 			if strings.Contains(stepScript(step), flag) {
 				t.Errorf("%s: the gate invocation carries %s (%s):\n%s", ciWorkflowFile, flag, issue, stepScript(step))

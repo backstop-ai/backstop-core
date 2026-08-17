@@ -30,7 +30,7 @@ func TestMain(m *testing.M) {
 
 	// Build from the cmd/backstop package relative to the project root.
 	projectRoot := findProjectRoot()
-	// @waiver:backstop/self/backstop.packs.backstop.self.rules.no-baked-tool-exec:deferred:2026-10-24 self-pack scoping over backstop-core's OWN test harness is ESCALATED and pending a founder posture decision (this harness must build and probe the module under test because backstop-core IS that module); remove this waiver when that decision lands
+	// @waiver:backstop-ai/backstop-self/backstop.packs.backstop-ai.backstop-self.rules.no-baked-tool-exec:deferred:2026-10-24 self-pack scoping over backstop-core's OWN test harness is ESCALATED and pending a founder posture decision (this harness must build and probe the module under test because backstop-core IS that module); remove this waiver when that decision lands
 	cmd := exec.Command("go", "build", "-o", binaryPath, "./cmd/backstop/")
 	cmd.Dir = projectRoot
 	cmd.Stderr = os.Stderr
@@ -50,7 +50,7 @@ func findProjectRoot() string {
 		os.Exit(1)
 	}
 	for {
-		// @waiver:backstop/self/backstop.packs.backstop.self.rules.no-baked-language-token:deferred:2026-10-24 self-pack scoping over backstop-core's OWN test harness is ESCALATED and pending a founder posture decision (this harness must build and probe the module under test because backstop-core IS that module); remove this waiver when that decision lands
+		// @waiver:backstop-ai/backstop-self/backstop.packs.backstop-ai.backstop-self.rules.no-baked-language-token:deferred:2026-10-24 self-pack scoping over backstop-core's OWN test harness is ESCALATED and pending a founder posture decision (this harness must build and probe the module under test because backstop-core IS that module); remove this waiver when that decision lands
 		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
 			return dir
 		}
@@ -243,7 +243,7 @@ func createGoTest(t *testing.T, dir, pkgName, code string) string {
 func createGoMod(t *testing.T, dir, module string) {
 	t.Helper()
 	content := fmt.Sprintf("module %s\n\ngo 1.21\n", module)
-	// @waiver:backstop/self/backstop.packs.backstop.self.rules.no-baked-language-token:deferred:2026-10-24 self-pack scoping over backstop-core's OWN test harness is ESCALATED and pending a founder posture decision (this harness must build and probe the module under test because backstop-core IS that module); remove this waiver when that decision lands
+	// @waiver:backstop-ai/backstop-self/backstop.packs.backstop-ai.backstop-self.rules.no-baked-language-token:deferred:2026-10-24 self-pack scoping over backstop-core's OWN test harness is ESCALATED and pending a founder posture decision (this harness must build and probe the module under test because backstop-core IS that module); remove this waiver when that decision lands
 	writeFile(t, filepath.Join(dir, "go.mod"), content)
 }
 

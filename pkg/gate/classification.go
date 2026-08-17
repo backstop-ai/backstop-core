@@ -52,6 +52,38 @@ func (c SourceClassifier) IsTestFile(path string) bool {
 	return matchesAnyGlob(c.test, norm)
 }
 
+// ClaimsPath reports whether the pack that declared these globs OWNS this path at
+// all: it matches at least one declared SOURCE glob OR at least one declared TEST
+// glob. It is the predicate the file-mode dispatch decision reads to answer "does
+// the pack dispatching this engine claim any file in this scope" (ISSUE-093
+// CLM-008) without core ever asking a language-specific question.
+//
+// THE UNION IS THE POINT, AND IT IS DELIBERATELY DIFFERENT FROM
+// IsMeasurableSource. That predicate is `source AND NOT test` because its question
+// is "should this file's coverage be measured", and a test file's own coverage is
+// not the subject. The question HERE is "does this pack own this file", and a test
+// file is owned — emphatically so, since it is the file whose package a
+// package-scoped test engine would run. Collapsing the two would make a file-mode
+// scope over a TEST file claim nothing, skip the test engine, and report a clean
+// pass for a package whose tests never ran: a vacuous green strictly worse than
+// the crash ISSUE-093 removes.
+//
+// Path normalization and malformed-glob handling are shared with the other
+// predicates (a bad declared glob is a non-match, never a match-everything), so
+// all three agree on path form.
+func (c SourceClassifier) ClaimsPath(path string) bool {
+	norm := NormalizePath("", path)
+	return matchesAnyGlob(c.source, norm) || matchesAnyGlob(c.test, norm)
+}
+
+// DeclaresAnyGlobs reports whether the classifier carries ANY declaration at all,
+// in either set. It is what separates UNKNOWABLE from CLAIMS-NOTHING: a false
+// ClaimsPath on a classifier that DECLARES globs means the pack said what it owns
+// and this path is not it; the same false on a classifier that declares NOTHING
+// means the pack never said, and treating that as "owns nothing" would turn a
+// missing declaration into a silent skip (ISSUE-093 CLM-006).
+func (c SourceClassifier) DeclaresAnyGlobs() bool { return c.HasSourceGlobs() || c.HasTestGlobs() }
+
 // HasSourceGlobs reports whether any source globs are declared. The coverage step
 // reads it to surface the DISTINCT "classification capability absent" state when
 // no toolchain pack declares source globs, instead of a silent pass (REQ-004).

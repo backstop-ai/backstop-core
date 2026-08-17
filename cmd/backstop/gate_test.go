@@ -120,10 +120,16 @@ func TestGate_FileFlagScopesExplicitFiles(t *testing.T) {
 	if err := cmd.ParseFlags([]string{"--file", "a.go", "b.go"}); err != nil {
 		t.Fatalf("parse --file: %v", err)
 	}
-	fileFlag, _ := cmd.Flags().GetString("file")
+	// ISSUE-093: --file is a repeatable string ARRAY, so it is read through
+	// GetStringArray. The property this test proves is unchanged — one --file plus
+	// trailing positionals both reach the scope.
+	fileFlags, err := cmd.Flags().GetStringArray("file")
+	if err != nil {
+		t.Fatalf("read --file: %v", err)
+	}
 	args := cmd.Flags().Args()
-	if fileFlag != "a.go" || len(args) != 1 || args[0] != "b.go" {
-		t.Fatalf("expected one --file flag to consume multiple files via args, got file=%q args=%v", fileFlag, args)
+	if len(fileFlags) != 1 || fileFlags[0] != "a.go" || len(args) != 1 || args[0] != "b.go" {
+		t.Fatalf("expected one --file flag to consume multiple files via args, got file=%v args=%v", fileFlags, args)
 	}
 }
 

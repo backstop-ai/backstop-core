@@ -18,11 +18,13 @@ import (
 	"github.com/backstop-ai/backstop-core/pkg/config"
 	"github.com/backstop-ai/backstop-core/pkg/gate"
 	"github.com/backstop-ai/backstop-core/pkg/pack"
+	"github.com/backstop-ai/backstop-core/pkg/pack/distribution"
 	"github.com/backstop-ai/backstop-core/pkg/pack/engine"
 	"github.com/backstop-ai/backstop-core/pkg/schema"
 	"github.com/backstop-ai/backstop-core/pkg/validate"
 	"github.com/backstop-ai/backstop-core/pkg/waiver"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 // GateResult is re-exported from pkg/gate for the contract.
@@ -34,10 +36,10 @@ type StepResult = gate.StepResult
 // newGateCommand creates the Cobra command for backstop gate.
 func newGateCommand(jsonFlag *bool) *cobra.Command {
 	var allFlag bool
-	var fileFlag string
+	var fileFlags []string
 	var baseFlag string
 	cmd := &cobra.Command{
-		Use:   "gate [--all | --file FILE [FILE...] | --base REV]",
+		Use:   "gate [--all | --file FILE [--file FILE]... [FILE...] | --base REV]",
 		Short: "Run full verification gate",
 		Long: `Runs the complete backstop gate: the full reconciliation kill chain
 that orchestrates artifact validation, code checking, test verification,
@@ -52,7 +54,13 @@ it's green, it ships.`,
 		},
 	}
 	cmd.Flags().BoolVar(&allFlag, "all", false, "run the full project sweep")
-	cmd.Flags().StringVar(&fileFlag, "file", "", "scope gate to one or more explicit files")
+	// StringArrayVar, NOT StringSliceVar (ISSUE-093): StringSliceVar splits its
+	// value on commas, so a path containing one would be silently shredded into two
+	// nonexistent paths — trading the old silent-drop bug for a subtler
+	// silent-corruption one. StringArrayVar accumulates occurrences verbatim.
+	cmd.Flags().StringArrayVar(&fileFlags, "file", nil,
+		"scope gate to one or more explicit files. May be REPEATED (--file a --file b), "+
+			"and trailing positional paths accumulate on top of the flag values.")
 	cmd.Flags().StringVar(&baseFlag, "base", "",
 		"scope gate to files changed since the merge-base with REV, plus untracked files. "+
 			"For CI: a fresh checkout has a clean working tree, so the default diff scope "+
@@ -117,21 +125,49 @@ func runGate(cmd *cobra.Command, args []string) error {
 	}
 
 	allFlag, allErr := cmd.Flags().GetBool("all")
-	fileValue, fileErr := cmd.Flags().GetString("file")
+	fileValues, fileErr := cmd.Flags().GetStringArray("file")
 	baseValue, baseErr := cmd.Flags().GetString("base")
 	if flagErr := firstNonNil(allErr, fileErr, baseErr); flagErr != nil {
 		return &ExitCodeError{Code: ExitConfigError, Message: fmt.Sprintf("config: %s", flagErr)}
 	}
+	// READ THE EXACT SLICE, NOT pflag's CSV ROUND TRIP. GetStringArray renders the
+	// flag to its string form and re-parses it, and that path DISCARDS a lone empty
+	// entry: `--file ""` comes back as an EMPTY list rather than as [""]. Keying
+	// file mode on that would send the run straight back to a diff-scoped sweep —
+	// DEFECT-3 resurrected under the new spelling, with the empty-value refusal
+	// below silently unreachable. SliceValue.GetSlice returns the accumulated
+	// values verbatim, so the refusal actually sees what the operator typed.
+	if sliceValue, ok := cmd.Flags().Lookup("file").Value.(pflag.SliceValue); ok {
+		fileValues = sliceValue.GetSlice()
+	}
+	// An EMPTY --file value is a CONFIG ERROR, never a silent fall-through
+	// (ISSUE-093 DEFECT-3). File mode used to be keyed on a non-empty STRING, so
+	// `--file ""` fell through to a DIFF-SCOPED SWEEP: the operator asked for one
+	// file and got the whole changed set, with only the summary line as the tell.
+	// Empties are REFUSED rather than dropped — dropping the only entry would land
+	// in exactly that diff-scoped sweep again, preserving the defect under a new
+	// spelling.
+	for i, f := range fileValues {
+		if strings.TrimSpace(f) == "" {
+			return &ExitCodeError{
+				Code:    ExitConfigError,
+				Message: fmt.Sprintf("config: --file was given an empty value (occurrence %d); pass a path or omit the flag", i+1),
+			}
+		}
+	}
 	// The three scope selectors are mutually exclusive. This EXTENDS the existing
 	// check rather than adding a parallel one, so there is a single place that
-	// decides which scope a run uses.
-	if allFlag && fileValue != "" {
+	// decides which scope a run uses. Only the two guards that reference --file
+	// change with the flag type (a non-empty LIST now stands in for a non-empty
+	// string); every message is UNCHANGED, because callers and tests read the exact
+	// strings.
+	if allFlag && len(fileValues) > 0 {
 		return &ExitCodeError{Code: ExitConfigError, Message: "config: --all and --file are mutually exclusive"}
 	}
 	if baseValue != "" && allFlag {
 		return &ExitCodeError{Code: ExitConfigError, Message: "config: --base and --all are mutually exclusive"}
 	}
-	if baseValue != "" && fileValue != "" {
+	if baseValue != "" && len(fileValues) > 0 {
 		return &ExitCodeError{Code: ExitConfigError, Message: "config: --base and --file are mutually exclusive"}
 	}
 
@@ -140,9 +176,11 @@ func runGate(cmd *cobra.Command, args []string) error {
 	if allFlag {
 		scopeMode = gate.GateScopeModeAll
 	}
-	if fileValue != "" {
+	if len(fileValues) > 0 {
 		scopeMode = gate.GateScopeModeFile
-		explicitFiles = append([]string{fileValue}, args...)
+		// Flag values first, then trailing positionals — both accumulate, so
+		// `--file a --file b c` scopes all three.
+		explicitFiles = append(append([]string{}, fileValues...), args...)
 	} else if len(args) > 0 {
 		return &ExitCodeError{Code: ExitConfigError, Message: fmt.Sprintf("config: unexpected gate arguments: %s", strings.Join(args, " "))}
 	}
@@ -186,6 +224,14 @@ func runGate(cmd *cobra.Command, args []string) error {
 		waiverPolicy = waiver.NewDeclaredPolicy(nil, []string{"critical"})
 	}
 	opts = append(opts, gate.WithWaiver(buildWaiverLineReader(projectRoot, scope), waiverPolicy, time.Now()))
+	// ISSUE-097: feed the TREE-DRIVEN unbound-waiver scan here too. Both inputs are
+	// resolved on this side — pkg/gate walks no filesystem and reads no lock — and the
+	// harvest computes its own whole-tree file list rather than reading `scope`, which is
+	// what makes the unbound clause identical under a diff-scoped and an --all run.
+	opts = append(opts, gate.WithUnboundWaiverScan(
+		harvestProjectWaiverTokens(projectRoot, artifactRoot),
+		lockedPackNamespaces(projectRoot),
+	))
 
 	allowSeeding, changedFiles := ruleSetChangeSeedingContext(projectRoot, scope)
 	opts = append(opts, gate.WithRuleSetChangeSeedingAllowed(allowSeeding), gate.WithRuleSetChangeFiles(changedFiles))
@@ -1389,16 +1435,32 @@ func buildTestSubstantivenessStep(specDir, codeDir, projectRoot string, scope *g
 			}
 		}
 
-		status := "pass"
-		if len(violations) > 0 {
-			status = "fail"
-		}
 		if violations == nil {
 			violations = []gate.Violation{}
 		}
 		return gate.StepResult{
-			StepName:   gate.StepTestSubstantiveness,
-			Status:     status,
+			StepName: gate.StepTestSubstantiveness,
+			// SEVERITY-AWARE, not a raw count (ISSUE-106 hop B, mirroring the shape the
+			// pack_engines step already uses). This is the SAME fix as the join's, not
+			// scope creep: gate.HollowFindingsToViolations now makes a pack's declared
+			// severity SURVIVE the join, and this line is where it was about to be thrown
+			// away again. A raw count answers "are there findings", not "does anything
+			// here block", so a preserved `warning` still flipped this step to fail and
+			// still exited the gate 1 — hop A alone would have been invisible to every
+			// user.
+			//
+			// It also makes ApplyPolicy's existing docstring claim true ("the step
+			// builders NOW reach their verdict through StepVerdict", pkg/gate/policy.go),
+			// which was written during ISSUE-105 while this step was still a straggler.
+			//
+			// Behavior is unchanged for every violation set backstop-core produces today:
+			// StepVerdict returns "pass" for an empty slice and "fail" as soon as any
+			// entry blocks, and blocksVerdict treats everything that is not "warning" as
+			// blocking. The early-return error paths above are deliberately NOT routed
+			// through here — each hardcodes "error" on a violation it constructs about
+			// the tool's own state, and the refusal return is a ConfigErr whose three
+			// mechanical jobs a status change would disturb.
+			Status:     gate.StepVerdict(violations),
 			Violations: violations,
 		}
 	}
@@ -1765,6 +1827,128 @@ func buildWaiverLineReader(projectRoot string, _ *gate.GateScope) waiver.LineRea
 		}
 		return "", false
 	}
+}
+
+// harvestProjectWaiverTokens returns every well-formed waiver token the PROJECT carries
+// (ISSUE-097), independent of whether any finding currently lands at the token's line.
+//
+// IT COMPUTES ITS OWN ALL-MODE FILE LIST and never reads the gate run's ACTIVE scope.
+// That is the whole reason a diff-scoped run and an --all run report the same unbound
+// clause: a team whose day-to-day loop is the diff-scoped gate would otherwise carry an
+// orphaned waiver indefinitely without ever seeing it in the runs they actually watch.
+//
+// Two filters make the result worth reading. Artifact KIND directories are dropped
+// because an issue that QUOTES a broken token is documentation, not configuration; and
+// `testdata` directory segments are dropped through the EXISTING excludeTestdataPaths,
+// so there stays exactly one authority on what counts as inert data. An unreadable file
+// is skipped silently, exactly as buildWaiverLineReader already skips an unopenable one
+// — a binary or a permission-denied path is not a waiver defect.
+func harvestProjectWaiverTokens(projectRoot string, root artifact.Root) []waiver.Waiver {
+	scope, err := gate.ComputeGateScope(projectRoot, gate.GateScopeModeAll, nil)
+	if err != nil || scope == nil {
+		return nil
+	}
+	var out []waiver.Waiver
+	for _, rel := range excludeTestdataPaths(excludeArtifactKindPaths(projectRoot, root, scope.Files)) {
+		lines, ok := readSourceLines(filepath.Join(projectRoot, filepath.FromSlash(rel)))
+		if !ok {
+			continue
+		}
+		out = append(out, waiver.HarvestTokens(filepath.ToSlash(rel), lines)...)
+	}
+	return out
+}
+
+// excludeArtifactKindPaths drops project-relative paths that live under an artifact KIND
+// directory.
+//
+// IT USES THE PER-KIND DIRECTORIES, NEVER root.Path, and that distinction is the
+// difference between a working check and a dead one. A project that declares no
+// artifact_root resolves to Configured:false with Path equal to the PROJECT ROOT, so a
+// root.Path prefix test would drop every file in the repository and the check would
+// report nothing, forever. The directory NAMES still come from pkg/artifact's one layout
+// table, so this stays config-derived with no hardcoded list here.
+func excludeArtifactKindPaths(projectRoot string, root artifact.Root, files []string) []string {
+	absProject, err := filepath.Abs(projectRoot)
+	if err != nil {
+		return files
+	}
+	var excluded []string
+	for _, kind := range artifact.Kinds() {
+		dir := root.Dir(kind)
+		if dir == "" {
+			continue
+		}
+		// Root.Dir is ABSOLUTE while the scope's files are project-RELATIVE; reducing
+		// both to one relative form is what keeps the comparison from silently no-opping.
+		rel, relErr := filepath.Rel(absProject, dir)
+		if relErr != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			continue
+		}
+		excluded = append(excluded, filepath.ToSlash(rel)+"/")
+	}
+
+	kept := make([]string, 0, len(files))
+	for _, f := range files {
+		slashed := filepath.ToSlash(f)
+		under := false
+		for _, dir := range excluded {
+			if strings.HasPrefix(slashed, dir) {
+				under = true
+				break
+			}
+		}
+		if !under {
+			kept = append(kept, f)
+		}
+	}
+	return kept
+}
+
+// readSourceLines returns a file's raw lines, or ok=false when it cannot be read.
+func readSourceLines(path string) ([]string, bool) {
+	f, err := os.Open(path) //nolint:gosec // the path comes from this project's own gate scope
+	if err != nil {
+		return nil, false
+	}
+	defer func() { _ = f.Close() }()
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	var lines []string
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+	if scanner.Err() != nil {
+		return nil, false
+	}
+	return lines, true
+}
+
+// lockedPackNamespaces returns the pack namespaces backstop.lock records — the same
+// normalized <org>/<pack> that pack.NamespacedRuleID prefixes a finding's rule-id with.
+//
+// THE LOCK, NOT THE INSTALLED MANIFESTS. buildWaiverPolicy reads .backstop/packs/, which
+// is GITIGNORED: on a fresh clone it returns nothing, and a check keyed to it would
+// declare every pack-namespaced waiver in the repository unbound — a false-positive
+// storm triggered by a normal, supported state. backstop.lock is TRACKED and is the
+// project's durable record of pack identity.
+//
+// A missing or unparseable lock returns an EMPTY slice, which the classifier turns into
+// zero diagnostics: it degrades quietly, exactly as buildWaiverPolicy's failure path
+// already degrades rather than aborting the gate.
+func lockedPackNamespaces(projectRoot string) []string {
+	lf, err := distribution.ReadLockfile(filepath.Join(projectRoot, "backstop.lock"))
+	if err != nil || lf == nil {
+		return nil
+	}
+	names := make([]string, 0, len(lf.Packs))
+	for _, entry := range lf.Packs {
+		if entry.Name != "" {
+			names = append(names, entry.Name)
+		}
+	}
+	sort.Strings(names)
+	return names
 }
 
 // schemaIdentityList renders a cohort's per-SCHEMA identities, sorted so a gate result

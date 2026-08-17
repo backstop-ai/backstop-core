@@ -169,3 +169,99 @@ func TestClassifier_HasTestGlobsReportsDeclaration(t *testing.T) {
 		t.Errorf("a classifier with test globs must report HasTestGlobs()==true")
 	}
 }
+
+// ISSUE-093 CLM-008 — ClaimsPath is the "does this pack own this file at all"
+// predicate the file-mode dispatch decision reads. These three tests pin the
+// UNION semantics, the anti-shortcut guard against IsMeasurableSource, and the
+// UNKNOWABLE-vs-CLAIMS-NOTHING distinction a caller needs to tell a pack that
+// declared nothing apart from a pack that declared globs matching nothing.
+
+// TestSourceClassifier_ClaimsPathUnionsSourceAndTestGlobs proves ClaimsPath is
+// TRUE for a path matching EITHER a declared source glob OR a declared test glob,
+// and FALSE for the issue's own reproductions (a workflow file, a README, a spec
+// artifact) — expressed at the predicate level, below any dispatch machinery.
+// The globs are the installed go-toolchain pack's REAL declaration, not an
+// invented one.
+func TestSourceClassifier_ClaimsPathUnionsSourceAndTestGlobs(t *testing.T) {
+	c := NewSourceClassifier([]string{"**/*.go"}, []string{"**/*_test.go", "**/testdata/**"})
+
+	claimed := []string{
+		"pkg/foo/bar.go",
+		"pkg/foo/bar_test.go",
+		// Root-level: doublestar's zero-leading-segment property matters here —
+		// gobwas-style globbing would wrongly miss it and silently un-claim every
+		// root source file.
+		"main.go",
+		"pkg/gate/testdata/x.go",
+	}
+	for _, p := range claimed {
+		if !c.ClaimsPath(p) {
+			t.Errorf("ClaimsPath(%q) = false, want true — the path matches a declared source or test glob", p)
+		}
+	}
+
+	// The issue's three reproductions: none is claimed by a pack declaring only
+	// these globs, so a package-scoped engine from that pack has no business
+	// running for them.
+	unclaimed := []string{
+		".github/workflows/ci.yml",
+		"README.md",
+		"specs/SPEC-018-gate-diff-scope.spec.md",
+	}
+	for _, p := range unclaimed {
+		if c.ClaimsPath(p) {
+			t.Errorf("ClaimsPath(%q) = true, want false — the path matches no declared glob", p)
+		}
+	}
+}
+
+// TestSourceClassifier_ClaimsPathIsNotMeasurableSource is THE ANTI-SHORTCUT
+// GUARD. IsMeasurableSource is `source AND NOT test` and deliberately EXCLUDES a
+// test file; ClaimsPath is the UNION and deliberately INCLUDES it. Collapsing the
+// two would make `gate --file pkg/foo/foo_test.go` claim nothing and skip that
+// package's test engine — a vacuous green strictly worse than the crash ISSUE-093
+// removes.
+func TestSourceClassifier_ClaimsPathIsNotMeasurableSource(t *testing.T) {
+	c := NewSourceClassifier([]string{"**/*.go"}, []string{"**/*_test.go", "**/testdata/**"})
+
+	const testFile = "pkg/foo/bar_test.go"
+	if !c.ClaimsPath(testFile) {
+		t.Errorf("ClaimsPath(%q) = false, want true — a test file IS owned by the pack that declares it", testFile)
+	}
+	if c.IsMeasurableSource(testFile) {
+		t.Errorf("IsMeasurableSource(%q) = true, want false — the two predicates must not be the same question", testFile)
+	}
+	if c.ClaimsPath(testFile) == c.IsMeasurableSource(testFile) {
+		t.Errorf("ClaimsPath and IsMeasurableSource must DIVERGE on a test file; both returned %v", c.ClaimsPath(testFile))
+	}
+}
+
+// TestSourceClassifier_ClaimsPathFalseWithNoDeclaredGlobs pins the distinction
+// CLM-006 is unanswerable without: a classifier that declares NOTHING claims
+// nothing (ClaimsPath false everywhere) AND reports that it declares nothing, so
+// a caller can tell UNKNOWABLE ("the pack never said what it owns") apart from
+// CLAIMS-NOTHING ("the pack said, and none of these files matched").
+func TestSourceClassifier_ClaimsPathFalseWithNoDeclaredGlobs(t *testing.T) {
+	empty := NewSourceClassifier(nil, nil)
+	for _, p := range []string{"pkg/foo/bar.go", "main.go", "README.md", ".github/workflows/ci.yml", ""} {
+		if empty.ClaimsPath(p) {
+			t.Errorf("ClaimsPath(%q) = true on a classifier declaring no globs, want false", p)
+		}
+	}
+	if empty.DeclaresAnyGlobs() {
+		t.Errorf("DeclaresAnyGlobs() = true on a classifier built from (nil, nil), want false")
+	}
+
+	// The distinction is only useful if it is OBSERVABLE: a classifier that DID
+	// declare globs reports so, even when nothing in a given scope matches them.
+	declared := NewSourceClassifier([]string{"**/*.go"}, nil)
+	if !declared.DeclaresAnyGlobs() {
+		t.Errorf("DeclaresAnyGlobs() = false on a classifier with source globs, want true")
+	}
+	if declared.ClaimsPath("README.md") {
+		t.Errorf("declared-but-unmatched must still be ClaimsPath==false for README.md")
+	}
+	if !NewSourceClassifier(nil, []string{"**/*_test.go"}).DeclaresAnyGlobs() {
+		t.Errorf("DeclaresAnyGlobs() = false on a classifier with only TEST globs, want true — either set counts as a declaration")
+	}
+}

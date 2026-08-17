@@ -622,6 +622,11 @@ func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, sc
 
 	cmdName, cmdArgs := splitCommand(binding.Command)
 	cmdArgs = append(cmdArgs, inputs...)
+	// CORE-EMITTED DISPATCH DECISIONS (ISSUE-093), not tool-produced findings. They
+	// describe what backstop decided about running the engine, so they ride the
+	// returned violations WITHOUT ever reaching cmdArgs, and they are appended to
+	// the parsed output at the single return below.
+	var dispatchAdvisories []gate.Violation
 	// Scope-kind-aware arg-shaping (SPEC-034 REQ-010/CLM-034, N1; ISSUE-010).
 	// Rule-fed findings engines (semgrep --config X <targets>, ast-grep scan
 	// --config sgconfig.yml <targets>) and config-file engines with no self-declared target
@@ -639,15 +644,52 @@ func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, sc
 		// nothing (vacuous green). So append nothing for an empty ProjectTarget
 		// (SPEC-048 REQ-001/CLM-001, DEFECT-1 fix).
 		if binding.ProjectTarget != "" {
-			// File-mode go-test PACKAGE scoping (SPEC-034 REQ-010/CLM-034, N1): the
-			// `code check --file` hook scopes `go test` to the changed file's package,
-			// not ./..., to stay within its tight budget. fileModeTestTarget returns the
-			// package selector ONLY for the native go-test engine under a file-mode
-			// scope (pack_gate_filemode.go); every other project-wide pass keeps its
-			// ProjectTarget so unchanged-file breakage still fails a full run.
-			if target, ok := fileModeTestTarget(binding, scope); ok {
-				cmdArgs = append(cmdArgs, target)
-			} else {
+			// File-mode PACKAGE scoping (SPEC-034 REQ-010/CLM-034, N1): a `--file`
+			// scope narrows a package-scoped engine to the scoped files' packages,
+			// not ./..., to stay within its tight budget. fileModeTestTargets
+			// (pack_gate_filemode.go) returns a THREE-STATE decision; every other
+			// project-wide pass lands in state (A) and keeps its ProjectTarget so
+			// unchanged-file breakage still fails a full run.
+			//
+			// ISSUE-093: the decision is CLAIM-GATED on the DISPATCHING pack's own
+			// declared `classification:` globs. Core never asks whether a directory
+			// holds source of some language — it asks the pack what it owns, from data
+			// the manifest already carries.
+			decision := fileModeTestTargets(manifest, binding, scope)
+			switch decision.state {
+			case fileModeClaimsNothing:
+				// (C) RETURN EARLY, BEFORE runner.RunStdout — the engine must not be
+				// invoked and its producer must not even be resolved. Appending nothing
+				// and letting the engine run is NOT equivalent: a target-less invocation
+				// still runs against the working directory.
+				//
+				// ANTI-FALLBACK (the ratified ISSUE-010 CLM-003 rule, extended from the
+				// rule-fed branch to this one): this must NEVER fall through to
+				// binding.ProjectTarget. Doing so would run the pack's entire
+				// project-wide pass because someone scoped the gate to one unrelated
+				// file — a scope lie and a large regression on the fast per-file loop.
+				return []gate.Violation{dispatchAdvisory(
+					manifest,
+					"backstop/gate/package-scoped-engine-skipped-unclaimed-scope",
+					fmt.Sprintf("pack %s engine %q was NOT dispatched: the pack's declared classification globs claim none of the %d file(s) in this file-mode scope, so it has no package to run. This is a SKIP, not a clean pass — no check from this engine covered this run.",
+						manifest.NormalizedName, binding.Command, len(scope.Files)),
+				)}, nil
+			case fileModeTargetsDerived:
+				cmdArgs = append(cmdArgs, decision.targets...)
+				if decision.capabilityAbsent {
+					// (C') The pack declares package_scoped but never declared WHAT it
+					// owns, so "claims nothing" is unknowable rather than false. Today's
+					// derivation shape is preserved and the missing declaration is
+					// reported instead of silently becoming a skip. The advisory rides
+					// the returned violations — it must NOT reach cmdArgs.
+					dispatchAdvisories = append(dispatchAdvisories, dispatchAdvisory(
+						manifest,
+						"backstop/gate/package-scoped-engine-classification-absent",
+						fmt.Sprintf("pack %s declares package_scoped engine %q but NO top-level classification globs, so backstop cannot tell which scoped files it owns. The file-mode derivation was preserved unchecked; declare `classification:` so an unowned file can be skipped instead of guessed at.",
+							manifest.NormalizedName, binding.Command),
+					))
+				}
+			default:
 				cmdArgs = append(cmdArgs, binding.ProjectTarget)
 			}
 		}
@@ -716,8 +758,11 @@ func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, sc
 	//     ANTI-FALLBACK rule (an empty target list means scan NOTHING, never the
 	//     whole repo);
 	//   - excludeTestdataPaths (ISSUE-040);
-	//   - fileModeTestTarget — `gate --file` narrows a package_scoped engine to the
-	//     changed file's package (SPEC-034 REQ-010/CLM-035);
+	//   - fileModeTestTargets — `gate --file` narrows a package_scoped engine to the
+	//     scoped files' packages (SPEC-034 REQ-010/CLM-035), and SKIPS the engine
+	//     outright when the dispatching pack's declared classification claims none
+	//     of them (ISSUE-093). That skip returns before this point, so a producer
+	//     can never resurrect a dispatch core decided not to make;
 	//   - ProjectTarget vs self-targeting (SPEC-048 CLM-001).
 	//
 	// So here the producer REPLACES THE TOOL, NOT THE ARG SHAPING: every line above
@@ -864,7 +909,7 @@ func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, sc
 			// explicit-arg form. The scope-branch invocation shape (:632-636) is
 			// untouched — we normalize the OUTPUT path, never the engine INPUTS
 			// (CLM-006, ISSUE-010 preserved).
-			File:        gate.NormalizePath(projectRoot, v.File),
+			File: gate.NormalizePath(projectRoot, v.File),
 			// Carry the SARIF-reported start line so the SPEC-049 waiver
 			// reconciliation can byte-scan the finding's own line for a @waiver token.
 			// It rides through to gate.Violation.Line, which is line-INDEPENDENT of
@@ -884,7 +929,60 @@ func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, sc
 			Properties: v.Properties,
 		})
 	}
-	return out, nil
+	// The (C') capability-absent advisory, if the arg-shaping above raised one.
+	// Appended AFTER the tool's own findings so it reads as a note about the run
+	// rather than as one of the engine's results.
+	return append(out, dispatchAdvisories...), nil
+}
+
+// dispatchAdvisory builds one of the ISSUE-093 dispatch-decision advisories: the
+// (C) "engine skipped, the pack claims nothing here" notice and the (C')
+// "package_scoped declared but classification absent" notice. They differ only in
+// Rule and wording — two states that reported identically would be one state —
+// and share a MANDATED field shape:
+//
+//	Severity:    "warning"      non-blocking BY CONTRACT (blocksVerdict matches
+//	                            exactly this string), so the step reports status
+//	                            "warning" and increments StepsWarned while the
+//	                            run's exit code is unchanged. "loud ≠ blocking".
+//	File:        ""             the honest value: state (C) exists PRECISELY
+//	                            because no scoped file is attributable to this
+//	                            pack, and (C')'s notice is about a missing
+//	                            DECLARATION rather than about a file. Naming an
+//	                            arbitrary scoped file would attach a
+//	                            dispatch-level notice to a file that has nothing
+//	                            to do with it, and would make its baseline
+//	                            identity depend on argument order.
+//	ProjectWide: true           LOAD-BEARING, not decoration. packValidatorStep
+//	                            runs activeScope.FilterViolations BEFORE the
+//	                            StepResult is built, and filterViolations keeps a
+//	                            violation only when ProjectWide is true OR File is
+//	                            non-empty AND in scope. Without it this advisory is
+//	                            DROPPED in production: pack_engines reports `pass`
+//	                            with zero violations and the skip is silent — while
+//	                            any dispatch-layer test, which sits pre-filter,
+//	                            stays green.
+//
+// THE ExemptFromScopeFilter STAMPING RULE BELOW DOES NOT GOVERN THESE. That
+// bridge (SPEC-041 REQ-004/CLM-012) governs violations PRODUCED BY THE TOOL: each
+// carries ITS binding's DECLARED exemption and no sniff may override it. These
+// two are CORE-EMITTED dispatch DECISIONS — no tool produced them and no binding
+// declaration describes them — so here ProjectWide carries filterViolations' own
+// operational meaning: "not attributable to one scoped file, do not scope-drop
+// it."
+//
+// Setting it cannot destabilize baseline identity: ProjectWide is `json:"-"` and
+// is EXCLUDED from EnrichViolationIdentity, which folds only
+// Rule|File|RegionHash(Message|Severity|SourcePack).
+func dispatchAdvisory(manifest *pack.Manifest, rule, message string) gate.Violation {
+	return gate.Violation{
+		Rule:        rule,
+		Message:     message,
+		Severity:    "warning",
+		SourcePack:  manifest.NormalizedName,
+		File:        "",
+		ProjectWide: true,
+	}
 }
 
 // excludeTestdataPaths returns files minus any path that has a `testdata`
@@ -1012,7 +1110,7 @@ func runSandboxEngine(manifest *pack.Manifest, packRoot, projectRoot string, rul
 // splitCommand splits a binding's Command string ("semgrep", "ast-grep scan")
 // into the executable name and its leading subcommand args.
 func splitCommand(command string) (string, []string) {
-	// @waiver:backstop/self/backstop.packs.backstop.self.rules.no-structural-name-split-on-spine:false-positive:2027-07-17 legitimate command->argv tokenization (a command line IS whitespace-delimited by shell semantics), not name-from-message extraction (ISSUE-062)
+	// @waiver:backstop-ai/backstop-self/backstop.packs.backstop-ai.backstop-self.rules.no-structural-name-split-on-spine:false-positive:2027-07-17 legitimate command->argv tokenization (a command line IS whitespace-delimited by shell semantics), not name-from-message extraction (ISSUE-062)
 	fields := strings.Fields(command)
 	if len(fields) == 0 {
 		return "", nil

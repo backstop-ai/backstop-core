@@ -152,7 +152,12 @@ jobs:
         # file list and agrees with a diff-scoped run over the same files - so
         # that defect no longer justifies the ban; the flag stays out of the
         # blocking job pending a founder decision) and never the per-file flag
-        # (ISSUE-093: it crashes on non-Go directories and silently drops repeats).
+        # (ISSUE-093's crash-on-unclaimed-scope and silent repeat-dropping are
+        # both FIXED - a package-scoped engine is now skipped with a loud advisory
+        # when the dispatching pack claims nothing in scope, and --file
+        # accumulates across occurrences - so that defect no longer justifies the
+        # ban either; this flag likewise stays out of the blocking job pending a
+        # founder decision).
         #
         # THIS is the blocking invocation. Its exit is the job's, unchanged.
         run: ./bin/backstop gate --base "$BASE"

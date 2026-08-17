@@ -37,8 +37,8 @@ expiring-soon, and unused/dangling waivers over the current scope.`,
 	}
 
 	list := &cobra.Command{
-		Use:           "list",
-		Short:         "List active, expiring-soon, and unused/dangling waivers",
+		Use:   "list",
+		Short: "List active, expiring-soon, and unused/dangling waivers",
 		Long: `List the waivers backstop adjudicates over the current scope, grouped into
 active, expiring-soon, and unused/dangling sets. Read-only: this never writes or
 edits a waiver token — authoring is the human's or the runtime agent's job.`,
@@ -112,7 +112,16 @@ func projectWaiverResult(projectRoot string, root artifact.Root, scope *gate.Gat
 			findings = append(findings, waiver.Finding{RuleID: v.Rule, File: v.File, Line: v.Line, Severity: v.Severity})
 		}
 	}
-	return waiver.Adjudicate(findings, reader, policy, time.Now()), nil
+	res := waiver.Adjudicate(findings, reader, policy, time.Now())
+	// The TREE-DRIVEN unbound scan (ISSUE-097), attached onto the adjudication result.
+	// Adjudicate cannot report this class: it reads only the association window of a
+	// finding it was handed, so a token whose rule no longer fires is never harvested
+	// and cannot even reach the Unused bucket.
+	res.Unbound = waiver.Unbound(
+		harvestProjectWaiverTokens(projectRoot, root),
+		lockedPackNamespaces(projectRoot),
+	)
+	return res, nil
 }
 
 // formatWaiverList renders the read-only waiver report: the active set, the
@@ -135,6 +144,14 @@ func formatWaiverList(res waiver.Result, _ time.Time) string {
 	fmt.Fprintf(&b, "Unused / dangling (%d):\n", len(res.Unused))
 	for _, w := range res.Unused {
 		fmt.Fprintf(&b, "  - %s\n", w.RuleID)
+	}
+
+	// Always labeled even at zero, like the three sections above. A section that
+	// disappears when empty is how this class of rot hid in the first place — and each
+	// entry carries file:line because the reader's next act is to go edit that token.
+	fmt.Fprintf(&b, "Unbound / unknown pack (%d):\n", len(res.Unbound))
+	for _, d := range res.Unbound {
+		fmt.Fprintf(&b, "  - %s (%s:%d)\n", d.RuleID, d.File, d.Line)
 	}
 
 	return b.String()
