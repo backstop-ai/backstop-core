@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/backstop-ai/backstop-core/pkg/pack"
+	"github.com/backstop-ai/backstop-core/pkg/pack/engine"
 )
 
 // goToolchainPackRoot returns the absolute path to the in-worktree go-toolchain
@@ -51,8 +52,40 @@ type fixtureCall struct {
 
 func (r *fixtureRunner) Run(context.Context, string, ...string) ([]byte, error) { return nil, nil }
 
+// producerCommandAlias maps a pack-declared PRODUCER SCRIPT'S BASENAME to the
+// command key its canned output is registered under (ISSUE-067).
+//
+// WHY THE HARNESS NEEDS THIS. Declaring a producer changes the NAME the dispatch
+// invokes: core swaps argv[0] for the packRoot-resolved script path, so a large
+// existing corpus that keys canned output on `byCmd["go test"]` / `byCmd["go
+// build"]` would miss on every lookup and get nil back — silently observing ZERO
+// violations. Assertions that pass by GOING QUIET are the exact vacuous green this
+// issue is about, so the indirection is absorbed HERE, in one place, rather than
+// by re-keying (or deleting the assertions of) each affected file.
+//
+// TestFixtureRunner_ProducerAliasCoversEveryDeclaredProducer pins this table against
+// the real fixture manifest, so adding a findings producer to the pack without
+// teaching this double fails loudly instead of going quiet.
+//
+// It is a FUNCTION returning a fresh map, not a package-level var: the go-standards
+// no-global-mutable-state rule forbids package-level mutable state, and a shared map
+// is state one test could mutate out from under another.
+func producerCommandAlias() map[string]string {
+	return map[string]string{
+		"test-produce.sh":  "go test",
+		"build-produce.sh": "go build",
+	}
+}
+
 func (r *fixtureRunner) RunStdout(_ context.Context, name string, args ...string) ([]byte, error) {
 	r.calls = append(r.calls, fixtureCall{name: name, args: append([]string(nil), args...)})
+	// A producer path resolves back to the command key it stands for, so every
+	// existing registration keeps working through the producer indirection.
+	if alias, aliased := producerCommandAlias()[filepath.Base(name)]; aliased {
+		if out, ok := r.byCmd[alias]; ok {
+			return out, r.byCmdErr[alias]
+		}
+	}
 	key := name
 	if len(args) > 0 {
 		key = name + " " + args[0]
@@ -229,8 +262,13 @@ func TestGoToolchain_BuildTestArgShapingScopeKindAware(t *testing.T) {
 		t.Fatalf("expected one build invocation, got %d", len(runner.calls))
 	}
 	call := runner.calls[0]
-	if call.name != "go" {
-		t.Fatalf("expected `go` command, got %q", call.name)
+	// The invoked NAME is the binding's declared producer once it declares one
+	// (ISSUE-067) — core swaps argv[0] and nothing else. What this test PROVES is
+	// the arg shaping below, which the swap deliberately leaves untouched; both
+	// forms are accepted so the grounding tracks the declaration rather than
+	// pinning a tool name the pack is free to front with a producer.
+	if call.name != "go" && producerCommandAlias()[filepath.Base(call.name)] != "go build" {
+		t.Fatalf("expected the `go` tool or its declared producer, got %q", call.name)
 	}
 	for _, a := range call.args {
 		if a == root {
@@ -240,5 +278,55 @@ func TestGoToolchain_BuildTestArgShapingScopeKindAware(t *testing.T) {
 	joined := strings.Join(call.args, " ")
 	if !strings.Contains(joined, "./...") {
 		t.Errorf("build pass must target ./..., got args=%v", call.args)
+	}
+}
+
+// TestFixtureRunner_ProducerAliasCoversEveryDeclaredProducer pins the harness
+// alias against the REAL fixture manifest (ISSUE-067, sharp edge 2). A
+// hand-written producer→command alias in a test double can silently diverge from
+// the actual declaration, and the failure mode of that divergence is the corpus
+// going QUIET — which looks like passing. So: the set of producer basenames the
+// manifest declares across its FINDINGS-typed engine bindings must be EXACTLY the
+// alias map's key set.
+//
+// THE ENUMERATION IS SCOPED TO FINDINGS BINDINGS, ON PURPOSE. The pack also
+// declares a coverage producer (go-coverage / coverage-produce.sh), which rides a
+// STRUCTURALLY DIFFERENT dispatch: runCoverageEngine invokes it BARE — no args —
+// and its output goes to the coverage-RECORDS channel, never through the
+// `name + " " + args[0]` command-key resolution this alias exists to double.
+// Requiring it in a findings alias map would pin a relationship that does not
+// exist. The filter uses the SAME predicate production routes on
+// (dispatchPackCoverage's `GateType != engine.GateTypeCoverage`) so the pin tracks
+// the real routing rule rather than a second, drifting definition of it.
+//
+// The expected set is DERIVED from the parsed manifest, never hardcoded — a
+// hardcoded list would go inert exactly when it is needed.
+func TestFixtureRunner_ProducerAliasCoversEveryDeclaredProducer(t *testing.T) {
+	manifest := goToolchainManifest(t)
+
+	declared := map[string]string{}
+	for name, spec := range manifest.Engines {
+		if spec.Binding.GateType == engine.GateTypeCoverage {
+			continue
+		}
+		if spec.Binding.Producer == "" {
+			continue
+		}
+		declared[filepath.Base(filepath.FromSlash(spec.Binding.Producer))] = name
+	}
+
+	if len(declared) == 0 {
+		t.Fatal("no findings-typed binding declares a producer — the pin has nothing to protect, which means the pack data regressed")
+	}
+
+	for base, engineName := range declared {
+		if _, ok := producerCommandAlias()[base]; !ok {
+			t.Errorf("findings engine %q declares producer %q, which the fixture harness alias does not cover — every test keyed on that engine's command would silently observe ZERO violations", engineName, base)
+		}
+	}
+	for base := range producerCommandAlias() {
+		if _, ok := declared[base]; !ok {
+			t.Errorf("the harness aliases producer %q, which no findings-typed binding declares — the alias is stale", base)
+		}
 	}
 }
