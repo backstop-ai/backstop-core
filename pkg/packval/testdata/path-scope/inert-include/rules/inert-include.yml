@@ -1,0 +1,10 @@
+rules:
+  - id: sg-inert-include
+    message: path-scope corpus probe
+    languages: [go]
+    severity: WARNING
+    pattern: probeCall()
+    paths:
+      # Slash-bearing: inert under explicit-file dispatch in EVERY spelling.
+      include:
+        - "cmd/app/handler*.go"

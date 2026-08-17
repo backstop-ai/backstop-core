@@ -1,0 +1,42 @@
+name: acme/two-rule-cross-contamination
+version: 1.0.0
+language: generic
+archetype: enforcement
+description: >
+  Path-scope corpus: SE-11's falsifier. Two manifest rules, each with its own rule file
+  and its own claim, modelling the real copy-pasted-fixture-hook shape. probe-b's hook
+  was copy-pasted from probe-a and matches probe-a's fixtures, not its own. An
+  implementation reading phase2's PACK-WIDE referencedFixtures map instead of each
+  rule's own claims[].fixtures raises a FALSE mask on probe-b.
+engines:
+  pathprobe:
+    command: mytool run
+    input_mode: rule-flags
+    input_flag: "--config"
+    scope_kind: file-args
+    gate_type: lint
+content:
+  ruleset:
+    rules:
+      - id: probe-a-rule
+        engine: pathprobe
+        rule_path: rules/probe-a.yml
+        risk_class: correctness
+        claims:
+          - id: C-A-001
+            fixtures:
+              positive:
+                - fixtures/a-probe-positive.go
+              negative:
+                - fixtures/a-probe-negative.go
+      - id: probe-b-rule
+        engine: pathprobe
+        rule_path: rules/probe-b.yml
+        risk_class: correctness
+        claims:
+          - id: C-B-001
+            fixtures:
+              positive:
+                - fixtures/b-other-positive.go
+              negative:
+                - fixtures/b-other-negative.go

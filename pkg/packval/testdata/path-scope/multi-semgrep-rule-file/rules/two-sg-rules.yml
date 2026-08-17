@@ -1,0 +1,21 @@
+rules:
+  - id: sg-hooked
+    message: path-scope corpus probe
+    languages: [go]
+    severity: WARNING
+    pattern: probeCall()
+    paths:
+      include:
+        - "pkg/svc/*.go"
+        # This hook belongs to sg-hooked ALONE. sg-unhooked must not borrow it.
+        - "*hooked-probe*.go"
+  - id: sg-unhooked
+    message: path-scope corpus probe
+    languages: [go]
+    severity: WARNING
+    pattern: otherProbeCall()
+    paths:
+      include:
+        # Inert, and NO slash-free pattern of its own — so the only way sg-unhooked can
+        # be masked is by borrowing its sibling's hook, which is the union bug.
+        - "pkg/svc/*.go"

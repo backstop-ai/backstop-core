@@ -10,7 +10,7 @@ func RunCoherence(pack *PackManifest, packDir string) *PhaseResult {
 	res := &PhaseResult{
 		Phase:  "phase2-coherence",
 		Status: "pass",
-		Checks: 7, // claims, fixtures, unique-ids, tool-config-traceability, pairs-with, orphans, exempt-scope-decision
+		Checks: 9, // claims, fixtures, unique-ids, tool-config-traceability, pairs-with, orphans, exempt-scope-decision, path-scope-dispatch, path-scope-fixture-mask
 	}
 	if pack == nil {
 		res.Status = "fail"
@@ -124,6 +124,40 @@ func RunCoherence(pack *PackManifest, packDir string) *PhaseResult {
 				"diff-scoped gate when they land on a file the change never touched, false means they are filtered out",
 			FixHint: "add `exempt_from_scope_filter: true` or `exempt_from_scope_filter: false` to the " + name + " engine block, recording the decision either way",
 			Files:   []string{"pack.yml"},
+		})
+	}
+
+	// A slash-bearing paths.include/paths.exclude pattern is unsatisfied under the
+	// gate's explicit-file dispatch in every spelling, so the rule it scopes is dark:
+	// an include silently scans nothing, an exclude fails open. This lives in phase 2
+	// rather than phase 3 because EXECUTION CANNOT SEE IT — a pack whose rule keeps
+	// slash-free "fixture hooks" alongside its inert live scope passes its own
+	// fixtures, the fixture being the one file the rule can still match. Phase 2 also
+	// runs in CHECK mode, which skips fixture execution entirely. Advisory only: for
+	// several real patterns there is no lossless slash-free rewrite, so the remedy is a
+	// pack-authoring judgement call the validator does not get to force.
+	for _, f := range pathScopeDispatchFindings(pack, packDir) {
+		res.Warnings = append(res.Warnings, ValidationWarning{
+			Phase:   res.Phase,
+			Check:   pathScopeDispatchCheckName,
+			Message: pathScopeDispatchMessage(f),
+			FixHint: pathScopeFixHint,
+			Files:   []string{f.RuleSource},
+		})
+	}
+	// The SECOND, distinct advisory: a rule whose live scope is inert but whose declared
+	// fixtures are still matched by its own slash-free patterns. Those patterns are
+	// fixture HOOKS — they keep phase 3 green while every live-scope pattern is dark, so
+	// this is the reason a broken pack looks healthy. Reported separately from
+	// path-scope-dispatch because it answers a different question: not "which pattern is
+	// dark" but "why did nothing tell you".
+	for _, m := range pathScopeMaskFindings(pack, packDir) {
+		res.Warnings = append(res.Warnings, ValidationWarning{
+			Phase:   res.Phase,
+			Check:   pathScopeMaskCheckName,
+			Message: pathScopeMaskMessage(m),
+			FixHint: pathScopeFixHint,
+			Files:   []string{m.RuleSource},
 		})
 	}
 

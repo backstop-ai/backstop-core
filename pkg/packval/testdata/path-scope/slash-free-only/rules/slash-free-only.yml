@@ -1,0 +1,11 @@
+rules:
+  - id: sg-slash-free
+    message: path-scope corpus probe
+    languages: [go]
+    severity: WARNING
+    pattern: probeCall()
+    paths:
+      include:
+        - "handler*.go"
+      exclude:
+        - "*_test.go"

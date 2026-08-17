@@ -1,0 +1,7 @@
+# A project config, NOT a semgrep rule list. It is shaped like one on purpose so that an
+# implementation skipping the InputMode gate would happily parse it and emit a warning.
+rules:
+  - id: sg-config-file
+    paths:
+      include:
+        - "cmd/app/handler*.go"

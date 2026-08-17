@@ -1,0 +1,24 @@
+name: acme/non-ruleflags
+version: 1.0.0
+language: generic
+archetype: enforcement
+description: >
+  Path-scope corpus: CLM-007's falsifier. Its engine declares input_mode config-file, so
+  the declared source is a PROJECT CONFIG rather than a list of semgrep rules, and this
+  check must never read it. The config file below carries an inert-looking paths.include
+  anyway: an implementation that reads the rule source unconditionally reports it and
+  fails; a correctly InputMode-gated one is silent.
+engines:
+  configprobe:
+    command: mytool run
+    input_mode: config-file
+    input_flag: "--config"
+    scope_kind: file-args
+    gate_type: lint
+content:
+  ruleset:
+    rules:
+      - id: config-file-rule
+        engine: configprobe
+        rule_path: config/tool-config.yml
+        risk_class: correctness

@@ -1,0 +1,14 @@
+rules:
+  - id: sg-suggested
+    message: path-scope corpus probe
+    languages: [go]
+    severity: WARNING
+    pattern: probeCall()
+    paths:
+      include:
+        # semgrep's own "unanchored" recommendation — measured dark.
+        - "**/cmd/app/handler*.go"
+        # semgrep's own "anchored" recommendation — measured dark.
+        - "/cmd/app/handler*.go"
+        # A wildcard-segment spelling that still contains a slash — also dark.
+        - "*/*/handler*.go"

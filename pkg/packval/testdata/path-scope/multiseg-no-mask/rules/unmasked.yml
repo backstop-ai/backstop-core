@@ -1,0 +1,10 @@
+rules:
+  - id: sg-unmasked
+    message: path-scope corpus probe
+    languages: [go]
+    severity: WARNING
+    pattern: probeCall()
+    paths:
+      include:
+        # Inert, and the ONLY pattern: nothing here matches either declared fixture.
+        - "pkg/svc/*.go"

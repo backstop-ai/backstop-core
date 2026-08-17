@@ -1,0 +1,23 @@
+name: acme/slash-free-only
+version: 1.0.0
+language: generic
+archetype: enforcement
+description: >
+  Path-scope corpus: the CLM-004 SILENT case, and the pack that makes the whole check
+  falsifiable. Every pattern it declares is slash-free — the one spelling honored under
+  BOTH dispatch shapes — so an implementation that reports every pattern passes every
+  other test in the corpus and fails only here.
+engines:
+  pathprobe:
+    command: mytool run
+    input_mode: rule-flags
+    input_flag: "--config"
+    scope_kind: file-args
+    gate_type: lint
+content:
+  ruleset:
+    rules:
+      - id: slash-free-rule
+        engine: pathprobe
+        rule_path: rules/slash-free-only.yml
+        risk_class: correctness

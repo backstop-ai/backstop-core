@@ -1,0 +1,27 @@
+# MIRRORS THE REAL `no-structural-name-split-on-spine` RULE in
+# backstop-ai/backstop-self's rules/no-baked.yml. That rule's include list ends with
+# `*structural-name-split*.go` and `*structured-property-read*.go`, and each of its two
+# declared fixtures is matched by EXACTLY ONE of them — neither hook matches both.
+#
+# THE TWO DISJOINT HOOKS BELOW ARE LOAD-BEARING, NOT DECORATION. Do NOT collapse them
+# into one shared `*masked-probe*.go`. With at most one slash-free pattern per semgrep
+# rule anywhere in the corpus, the per-fixture ANY reading and the per-fixture ALL
+# reading return IDENTICAL results on every pack — so an ALL-patterns implementation
+# would pass the entire mask suite and then silently fail to flag the real flagship
+# rule, which is the exact case ISSUE-151 exists to catch. With two disjoint hooks, an
+# ALL-patterns implementation sees masked-alpha-positive.go as unmatched by
+# `*masked-beta*.go`, declines to raise the mask, and fails the mask test.
+rules:
+  - id: sg-masked
+    message: path-scope corpus probe
+    languages: [go]
+    severity: WARNING
+    pattern: probeCall()
+    paths:
+      include:
+        # The INTENDED live scope, and inert under explicit-file dispatch.
+        - "pkg/svc/*.go"
+        # Fixture hooks. Each matches exactly one declared fixture and neither matches
+        # the other's.
+        - "*masked-alpha*.go"
+        - "*masked-beta*.go"

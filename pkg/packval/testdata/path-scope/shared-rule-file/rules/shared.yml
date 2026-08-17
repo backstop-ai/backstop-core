@@ -1,0 +1,19 @@
+# One include and one exclude on purpose: a key-blind dedup that collapsed both patterns
+# into a single entry also has to fail.
+rules:
+  - id: sg-shared-one
+    message: path-scope corpus probe
+    languages: [go]
+    severity: WARNING
+    pattern: probeCall()
+    paths:
+      include:
+        - "cmd/app/one*.go"
+  - id: sg-shared-two
+    message: path-scope corpus probe
+    languages: [go]
+    severity: WARNING
+    pattern: otherProbeCall()
+    paths:
+      exclude:
+        - "pkg/svc/two.go"

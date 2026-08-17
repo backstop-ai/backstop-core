@@ -1,0 +1,24 @@
+name: acme/semgrep-suggested-spellings
+version: 1.0.0
+language: generic
+archetype: enforcement
+description: >
+  Path-scope corpus: SE-1's guard. semgrep 1.156.0 prints a deprecation warning
+  recommending that bare directory-prefixed globs be rewritten with a `**/` prefix or a
+  leading `/` anchor. BOTH were measured and BOTH stay dark under explicit-file
+  dispatch. All three patterns here must be reported, so an implementer cannot "fix" the
+  predicate into blessing semgrep's own recommended spellings.
+engines:
+  pathprobe:
+    command: mytool run
+    input_mode: rule-flags
+    input_flag: "--config"
+    scope_kind: file-args
+    gate_type: lint
+content:
+  ruleset:
+    rules:
+      - id: suggested-spellings-rule
+        engine: pathprobe
+        rule_path: rules/suggested-spellings.yml
+        risk_class: correctness

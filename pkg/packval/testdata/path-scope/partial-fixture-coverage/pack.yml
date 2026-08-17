@@ -1,0 +1,32 @@
+name: acme/partial-fixture-coverage
+version: 1.0.0
+language: generic
+archetype: enforcement
+description: >
+  Path-scope corpus: SE-16's falsifier, and the ONLY thing that separates the
+  ANY-fixture reading from the EVERY-fixture reading. Its claim declares TWO fixtures of
+  which exactly ONE is matched by the rule's slash-free hook. Coverage is partial, so
+  phase 3 would already be failing on the uncovered fixture — the pack does not look
+  healthy and the mask's premise is absent. An implementation using "ANY fixture
+  matched" raises a false mask here and passes every other test in the corpus.
+engines:
+  pathprobe:
+    command: mytool run
+    input_mode: rule-flags
+    input_flag: "--config"
+    scope_kind: file-args
+    gate_type: lint
+content:
+  ruleset:
+    rules:
+      - id: partial-rule
+        engine: pathprobe
+        rule_path: rules/partial.yml
+        risk_class: correctness
+        claims:
+          - id: C-PARTIAL-001
+            fixtures:
+              positive:
+                - fixtures/covered-probe-positive.go
+              negative:
+                - fixtures/uncovered-negative.go

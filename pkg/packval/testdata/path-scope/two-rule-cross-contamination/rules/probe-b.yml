@@ -1,0 +1,13 @@
+rules:
+  - id: sg-probe-b
+    message: path-scope corpus probe
+    languages: [go]
+    severity: WARNING
+    pattern: probeCall()
+    paths:
+      include:
+        - "pkg/other/*.go"
+        # The hook copy-pasted from probe-a, which is what a multi-rule pack author
+        # actually does. It matches NEITHER of probe-b's own fixtures, so probe-b must
+        # NOT raise a mask.
+        - "*a-probe*.go"

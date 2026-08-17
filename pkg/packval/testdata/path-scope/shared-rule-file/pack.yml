@@ -1,0 +1,36 @@
+name: acme/shared-rule-file
+version: 1.0.0
+language: generic
+archetype: enforcement
+description: >
+  Path-scope corpus: CLM-009's only falsifier, and the shape the REAL packs actually
+  have. backstop-self declares SEVEN manifest rules all naming rules/no-baked.yml. THREE
+  manifest rules here resolve to ONE two-semgrep-rule file carrying TWO distinct inert
+  patterns. The correct output is TWO path-scope-dispatch warnings; a per-manifest-rule
+  walk emits SIX. 3 rules x 2 patterns is chosen deliberately: with 2x2 a transposed
+  implementation could land on the right count by accident, and 6 != 2 is unambiguous.
+  No claims and no fixtures/ directory — a claimless rule with a resolving engine owes
+  no fixtures, and an unreferenced file under fixtures/ would draw an orphan-fixture
+  warning that pollutes the non-blocking assertions.
+engines:
+  pathprobe:
+    command: mytool run
+    input_mode: rule-flags
+    input_flag: "--config"
+    scope_kind: file-args
+    gate_type: lint
+content:
+  ruleset:
+    rules:
+      - id: alpha-rule
+        engine: pathprobe
+        rule_path: rules/shared.yml
+        risk_class: correctness
+      - id: beta-rule
+        engine: pathprobe
+        rule_path: rules/shared.yml
+        risk_class: correctness
+      - id: gamma-rule
+        engine: pathprobe
+        rule_path: rules/shared.yml
+        risk_class: correctness

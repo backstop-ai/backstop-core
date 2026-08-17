@@ -1,0 +1,23 @@
+name: acme/inert-exclude
+version: 1.0.0
+language: generic
+archetype: enforcement
+description: >
+  Path-scope corpus: the CLM-003 exclude-side case. Its rule file carries NO include at
+  all, only a slash-bearing exclude, so a check that looks only at paths.include finds
+  nothing here and fails. An inert exclude fails OPEN — the rule fires on files the pack
+  meant to exempt.
+engines:
+  pathprobe:
+    command: mytool run
+    input_mode: rule-flags
+    input_flag: "--config"
+    scope_kind: file-args
+    gate_type: lint
+content:
+  ruleset:
+    rules:
+      - id: inert-exclude-rule
+        engine: pathprobe
+        rule_path: rules/inert-exclude.yml
+        risk_class: correctness

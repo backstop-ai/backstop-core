@@ -1,0 +1,31 @@
+name: acme/multi-semgrep-rule-file
+version: 1.0.0
+language: generic
+archetype: enforcement
+description: >
+  Path-scope corpus: SE-15's falsifier. ONE manifest rule, ONE rule file, TWO semgrep
+  rules — one owning a slash-free fixture hook and one owning none, mirroring
+  no-baked-tool-exec and no-baked-language-token in the real no-baked.yml. An
+  implementation that unions the FILE's slash-free patterns raises a second, false mask
+  naming sg-unhooked, because the hook belongs to its sibling.
+engines:
+  pathprobe:
+    command: mytool run
+    input_mode: rule-flags
+    input_flag: "--config"
+    scope_kind: file-args
+    gate_type: lint
+content:
+  ruleset:
+    rules:
+      - id: probe-rule
+        engine: pathprobe
+        rule_path: rules/two-sg-rules.yml
+        risk_class: correctness
+        claims:
+          - id: C-PROBE-001
+            fixtures:
+              positive:
+                - fixtures/hooked-probe-positive.go
+              negative:
+                - fixtures/hooked-probe-negative.go

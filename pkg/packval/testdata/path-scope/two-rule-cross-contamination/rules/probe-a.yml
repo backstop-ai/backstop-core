@@ -1,0 +1,11 @@
+rules:
+  - id: sg-probe-a
+    message: path-scope corpus probe
+    languages: [go]
+    severity: WARNING
+    pattern: probeCall()
+    paths:
+      include:
+        - "pkg/svc/*.go"
+        # Hook matching BOTH of probe-a's own fixtures: the mask fires for probe-a.
+        - "*a-probe*.go"

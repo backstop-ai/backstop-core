@@ -1,0 +1,28 @@
+name: acme/inert-include
+version: 1.0.0
+language: generic
+archetype: enforcement
+description: >
+  Path-scope corpus: the CLM-002 positive. One rule-flags engine, one claimless rule
+  (the claimless-with-resolving-engine exemption, so this pack owes no fixtures), and
+  a rule file whose single semgrep rule declares one slash-bearing paths.include. That
+  pattern is inert under the gate's explicit-file dispatch, so the advisory must name it.
+engines:
+  # input_mode rule-flags is what gates the rule-source read (CLM-007). Change it and
+  # this pack goes silent, which is exactly what non-ruleflags/ exists to prove.
+  pathprobe:
+    command: mytool run
+    input_mode: rule-flags
+    input_flag: "--config"
+    scope_kind: file-args
+    gate_type: lint
+content:
+  ruleset:
+    rules:
+      # The MANIFEST rule id and the SEMGREP rule id inside rules/inert-include.yml are
+      # DELIBERATELY DIFFERENT (SE-4). An implementation that attributes findings to the
+      # manifest id instead of the semgrep id must fail the corpus.
+      - id: inert-include-rule
+        engine: pathprobe
+        rule_path: rules/inert-include.yml
+        risk_class: correctness

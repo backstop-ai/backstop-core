@@ -1,0 +1,10 @@
+rules:
+  - id: sg-inert-exclude
+    message: path-scope corpus probe
+    languages: [go]
+    severity: WARNING
+    pattern: probeCall()
+    paths:
+      # NO include key here on purpose: the exclude side must be scanned independently.
+      exclude:
+        - "cmd/app/handler.go"

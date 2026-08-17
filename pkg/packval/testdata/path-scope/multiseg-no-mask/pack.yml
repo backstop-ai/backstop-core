@@ -1,0 +1,31 @@
+name: acme/multiseg-no-mask
+version: 1.0.0
+language: generic
+archetype: enforcement
+description: >
+  Path-scope corpus: SE-7's counterfactual, and the reason CLM-006 is not vacuous. Same
+  shape as fixture-masked with the slash-free hooks REMOVED, so its declared fixtures
+  are matched by nothing. path-scope-dispatch fires here; path-scope-fixture-mask must
+  NOT. An implementation raising the mask whenever an inert pattern exists passes
+  fixture-masked and fails here.
+engines:
+  pathprobe:
+    command: mytool run
+    input_mode: rule-flags
+    input_flag: "--config"
+    scope_kind: file-args
+    gate_type: lint
+content:
+  ruleset:
+    rules:
+      - id: unmasked-rule
+        engine: pathprobe
+        rule_path: rules/unmasked.yml
+        risk_class: correctness
+        claims:
+          - id: C-UNMASKED-001
+            fixtures:
+              positive:
+                - fixtures/unmatched-positive.go
+              negative:
+                - fixtures/unmatched-negative.go

@@ -1,0 +1,29 @@
+name: acme/fixture-masked
+version: 1.0.0
+language: generic
+archetype: enforcement
+description: >
+  Path-scope corpus: the CLM-006 positive. Its live scope is inert while its declared
+  fixtures are matched only by slash-free "fixture hooks", which is the shape that keeps
+  execution-based validation GREEN while every live-scope pattern is dark.
+engines:
+  pathprobe:
+    command: mytool run
+    input_mode: rule-flags
+    input_flag: "--config"
+    scope_kind: file-args
+    gate_type: lint
+content:
+  ruleset:
+    rules:
+      - id: masked-rule
+        engine: pathprobe
+        rule_path: rules/masked.yml
+        risk_class: correctness
+        claims:
+          - id: C-MASK-001
+            fixtures:
+              positive:
+                - fixtures/masked-alpha-positive.go
+              negative:
+                - fixtures/masked-beta-negative.go

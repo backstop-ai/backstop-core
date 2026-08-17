@@ -1,0 +1,11 @@
+rules:
+  - id: sg-partial
+    message: path-scope corpus probe
+    languages: [go]
+    severity: WARNING
+    pattern: probeCall()
+    paths:
+      include:
+        - "pkg/svc/*.go"
+        # Matches covered-probe-positive.go and NOT uncovered-negative.go.
+        - "*covered-probe*.go"

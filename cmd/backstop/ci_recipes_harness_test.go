@@ -34,6 +34,7 @@ import (
 	"testing"
 
 	"github.com/backstop-ai/backstop-core/pkg/pack"
+	"github.com/backstop-ai/backstop-core/pkg/packval"
 	"github.com/backstop-ai/backstop-core/pkg/recipe"
 	"gopkg.in/yaml.v3"
 )
@@ -526,13 +527,7 @@ func ciGlobScopingProblems(t *testing.T, recipeID string, wantInclude []string) 
 			"], want exactly [" + strings.Join(want, " ") + "]"}
 	}
 
-	problems := []string{}
-	for _, pattern := range got {
-		if strings.Contains(pattern, "/") {
-			problems = append(problems, "include pattern "+pattern+
-				" is multi-segment; semgrep matches ZERO files against it under the gate's default explicit-file-target dispatch")
-		}
-	}
+	problems := ciMultiSegmentIncludeProblems(got)
 
 	target := ciRecipeManifest(t, recipeID).Ops[0].Target
 	if !ciAnyPatternMatches(t, got, target) {
@@ -552,6 +547,30 @@ func ciGlobScopingProblems(t *testing.T, recipeID string, wantInclude []string) 
 	for _, file := range ciTrackedFiles(t) {
 		if ciAnyPatternMatches(t, got, file) {
 			problems = append(problems, "the include set matches the tracked backstop-core file "+file)
+		}
+	}
+	return problems
+}
+
+// ciMultiSegmentIncludeProblems reports the include patterns that are inert under the
+// gate's default explicit-file-target dispatch.
+//
+// EXTRACTED AS A SEAM, and the extraction is the point. ciGlobScopingProblems cannot be
+// driven over synthetic patterns: it derives its set from ciIncludeSetFor, which parses
+// the REAL installed pack off disk, and it short-circuits before this loop whenever that
+// set does not equal the caller's want list. So the slash-detection branch was
+// unreachable from any test, and all four real callers pass slash-FREE include sets and
+// assert only that the problem list is non-empty.
+//
+// The verdict comes from packval.PathPatternInertUnderFileDispatch rather than an inline
+// slash test, so the inertness contract is STATED EXACTLY ONCE in the tree and the
+// harness cannot drift from the pack validator that reports the same defect.
+func ciMultiSegmentIncludeProblems(patterns []string) []string {
+	problems := []string{}
+	for _, pattern := range patterns {
+		if packval.PathPatternInertUnderFileDispatch(pattern) {
+			problems = append(problems, "include pattern "+pattern+
+				" is multi-segment; semgrep matches ZERO files against it under the gate's default explicit-file-target dispatch")
 		}
 	}
 	return problems
