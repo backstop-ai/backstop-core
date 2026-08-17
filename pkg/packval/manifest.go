@@ -139,7 +139,13 @@ type Rule struct {
 	// File is a BACK-COMPAT ALIAS for RulePath, kept because older testdata packs
 	// declare it. Never read it directly — call RuleSourcePath(), which is the single
 	// place the precedence between the two is decided.
-	File          string    `json:"file,omitempty" yaml:"file,omitempty"`
+	File string `json:"file,omitempty" yaml:"file,omitempty"`
+	// Pattern is the INLINE rule expression a pattern-arg engine passes as a
+	// command argument instead of resolving a rule file on disk. It mirrors the
+	// gate-runtime model's own field (pkg/pack.Rule, SPEC-035 REQ-004); packval's
+	// model never carried it, so the key was silently dropped at unmarshal and
+	// every pattern-arg rule's fixtures went undispatched (ISSUE-142).
+	Pattern       string    `json:"pattern,omitempty" yaml:"pattern,omitempty"`
 	Tool          string    `json:"tool,omitempty" yaml:"tool,omitempty"`
 	RiskClass     string    `json:"risk_class,omitempty" yaml:"risk_class,omitempty"`
 	Layer         int       `json:"layer,omitempty" yaml:"layer,omitempty"`
@@ -169,6 +175,19 @@ func (r Rule) RuleSourceManifestKey() string {
 		return "rule_path"
 	}
 	return "file"
+}
+
+// RuleDispatchInput resolves the FIRST engine argument for this rule's fixture
+// dispatch, and is the ONLY place that choice is made — the same single-authority
+// shape RuleSourcePath established for the rule-file keys (ISSUE-092). A pattern-arg
+// engine consumes the inline pattern STRING as a command argument; every other input
+// mode consumes the declared rule SOURCE PATH. An empty return means the rule declares
+// nothing this engine can consume, and the caller must fail loud rather than skip.
+func (r Rule) RuleDispatchInput(mode engine.InputMode) string {
+	if mode == engine.InputModePatternArg {
+		return r.Pattern
+	}
+	return r.RuleSourcePath()
 }
 
 type ToolConfigEntry struct {

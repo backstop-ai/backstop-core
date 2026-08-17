@@ -1,0 +1,35 @@
+name: acme/patternarg-broken-negative
+version: 1.0.0
+language: go
+archetype: enforcement
+description: >
+  THE FALSIFICATION PACK. Identical to acme/patternarg in every respect EXCEPT that
+  its declared NEGATIVE fixture (fixtures/invalid/compliant.go) does not violate the
+  rule. BUNDLE-005 REQ-011 requires every negative fixture to trigger its rule, so
+  this pack MUST fail phase3-fixtures once pattern-arg rules dispatch at all
+  (ISSUE-142). Verified by running the engine directly:
+  `semgrep --sarif --lang go -e 'forbiddenCall(...)'` yields 0 results on the
+  declared negative fixture. Do not repair the fixture — the non-violation IS the
+  fixture.
+engines:
+  semgrep-pattern:
+    command: semgrep --sarif --lang go
+    input_mode: pattern-arg
+    input_flag: -e
+    scope_kind: file-args
+    category: opinion
+    gate_type: lint
+content:
+  ruleset:
+    rules:
+      - id: no-forbidden-call
+        engine: semgrep-pattern
+        risk_class: correctness
+        pattern: "forbiddenCall(...)"
+        claims:
+          - id: C-001
+            fixtures:
+              positive:
+                - fixtures/valid/clean.go
+              negative:
+                - fixtures/invalid/compliant.go

@@ -32,7 +32,16 @@ func RunFixtures(pack *PackManifest, packDir string, executor FixtureExecutor) *
 		// accessor that decides `rule_path` (canonical, what every real pack writes)
 		// over the `file` back-compat alias (ISSUE-092).
 		ruleSource := rule.RuleSourcePath()
-		if ruleSource != "" {
+		// dispatchInput is the FIRST engine argument for this rule's fixture runs,
+		// resolved through the SINGLE authority that decides pattern-or-path. It is
+		// declared out here so the fixture loops below can read it.
+		dispatchInput := ""
+		// A rule is DISPATCH-ELIGIBLE when it declares ANY engine input. Gating on the
+		// rule SOURCE PATH alone left every pattern-arg rule permanently undispatched —
+		// such a rule declares an inline pattern and no file at all, so its fixtures
+		// never executed and the phase reported pass for a pack it had never run
+		// (ISSUE-142).
+		if ruleSource != "" || rule.Pattern != "" {
 			// The resolve runs FIRST because the rule-ID cross-check below is
 			// conditioned on the resolved binding's DECLARED input mode, which is not
 			// in hand until it has run. An unknown engine fails loud, naming it — never
@@ -43,6 +52,24 @@ func RunFixtures(pack *PackManifest, packDir string, executor FixtureExecutor) *
 			} else {
 				binding = b
 				haveBinding = true
+			}
+			dispatchInput = rule.RuleDispatchInput(binding.InputMode)
+			// NO SILENT SKIP AT THE WIDENED SEAM. The rule declared an engine input,
+			// but the resolved engine cannot consume the KIND of input it declared —
+			// concretely, a pattern-arg engine on a rule that names a rule source and
+			// no inline pattern. Skipping it quietly would reproduce ISSUE-142 one
+			// declaration style over. This narrows, and does not match, the gate's own
+			// gatherEngineInputs refusal, which rejects EVERY pattern-arg rule with an
+			// empty pattern regardless of what else the rule declares; a rule declaring
+			// NEITHER a source nor a pattern never enters this block at all.
+			if haveBinding && dispatchInput == "" {
+				res.Errors = append(res.Errors, ValidationError{
+					Phase:   res.Phase,
+					Check:   "pattern-arg-input",
+					Rule:    rule.ID,
+					Message: fmt.Sprintf("rule %q resolves to engine %q, which declares input_mode %q, but the rule declares no inline pattern for it to consume", rule.ID, rule.Engine, binding.InputMode),
+					FixHint: "An engine declaring this input mode consumes an inline expression as a command argument, not a rule file on disk. Declare the expression under the rule's `pattern:` key, or bind the rule to an engine whose input mode consumes the rule source file this rule declares.",
+				})
 			}
 			// THE RULE-ID CROSS-CHECK IS CONDITIONED ON THE DECLARED INPUT MODE, NEVER
 			// ON THE ENGINE'S NAME (CLM-010). semgrepFileContainsRuleID assumes the
@@ -67,7 +94,7 @@ func RunFixtures(pack *PackManifest, packDir string, executor FixtureExecutor) *
 			// phase 1's job for every engine, so nothing is lost, and a config-file
 			// engine's project config is no longer read by a phase that cannot
 			// interpret it.
-			if haveBinding && binding.InputMode == engine.InputModeRuleFlags {
+			if ruleSource != "" && haveBinding && binding.InputMode == engine.InputModeRuleFlags {
 				ruleFilePath := filepath.Join(packDir, ruleSource)
 				ruleData, err := os.ReadFile(ruleFilePath)
 				if err != nil {
@@ -89,12 +116,12 @@ func RunFixtures(pack *PackManifest, packDir string, executor FixtureExecutor) *
 		}
 		for _, claim := range rule.Claims {
 			for _, f := range claim.Fixtures.Positive {
-				if ruleSource != "" && haveBinding {
+				if dispatchInput != "" && haveBinding {
 					// FINDINGS SEAM. RunEngine's Passed means "the engine FIRED"
 					// (produced findings) — not "the fixture is acceptable". A positive
 					// fixture is the CLEAN example, so a finding on it is a FALSE
 					// POSITIVE and therefore a failure (BUNDLE-005 REQ-011).
-					r, err := executor.RunEngine(packDir, binding, []string{ruleSource, f.Path})
+					r, err := executor.RunEngine(packDir, binding, []string{dispatchInput, f.Path})
 					switch {
 					case err != nil:
 						res.Errors = append(res.Errors, engineError(res.Phase, rule.ID, claim.ID, f.Path, err))
@@ -117,8 +144,8 @@ func RunFixtures(pack *PackManifest, packDir string, executor FixtureExecutor) *
 				}
 			}
 			for _, f := range claim.Fixtures.Negative {
-				if ruleSource != "" && haveBinding {
-					r, err := executor.RunEngine(packDir, binding, []string{ruleSource, f.Path})
+				if dispatchInput != "" && haveBinding {
+					r, err := executor.RunEngine(packDir, binding, []string{dispatchInput, f.Path})
 					if err != nil {
 						res.Errors = append(res.Errors, engineError(res.Phase, rule.ID, claim.ID, f.Path, err))
 					} else if !r.Passed {

@@ -1,5 +1,5 @@
 name: backstop/contracts
-version: 1.1.0
+version: 1.2.0
 language: go
 archetype: enforcement
 description: >
@@ -57,7 +57,7 @@ content:
             text: A present declared signature matches via ast-grep; absent does not.
             fixtures:
               positive:
-                - testdata/fixtures/sig-mismatch.go
+                - testdata/fixtures/sig-absent.go
               negative:
                 - testdata/fixtures/sig-present.go
       # Per-kind signature rules (ISSUE-036): freeze the kind-aware compiler's
@@ -65,8 +65,11 @@ content:
       # exercises every non-func kind — the pack never having run a non-func
       # signature is why the func-only compiler shipped silently. Each pattern
       # equals what scripts/compile-signature.sh emits for that kind (name-agnostic
-      # here for the self-test); positive fixtures DECLARE the kind, negatives OMIT
-      # the declared names.
+      # here for the self-test). FIXTURE POLARITY, per BUNDLE-005 REQ-011: a POSITIVE
+      # fixture is the CLEAN case the rule must NOT fire on, a NEGATIVE fixture is the
+      # VIOLATING case it MUST fire on. Because these self-test patterns are
+      # name-agnostic, the clean case needs the construct wholly ABSENT — a
+      # name-specific contrast file cannot discriminate under a name-agnostic pattern.
       - id: type-signature
         engine: ast-grep-contracts
         risk_class: correctness
@@ -76,9 +79,9 @@ content:
             text: A type declaration matches the type structural pattern.
             fixtures:
               positive:
-                - testdata/fixtures/sig-kinds-present.go
+                - testdata/fixtures/sig-kinds-absent.go
               negative:
-                - testdata/fixtures/sig-kinds-mismatch.go
+                - testdata/fixtures/sig-kinds-present.go
       - id: const-signature
         engine: ast-grep-contracts
         risk_class: correctness
@@ -88,9 +91,9 @@ content:
             text: A constant declaration matches the const structural pattern (the '=' is required).
             fixtures:
               positive:
-                - testdata/fixtures/sig-kinds-present.go
+                - testdata/fixtures/sig-kinds-absent.go
               negative:
-                - testdata/fixtures/sig-kinds-mismatch.go
+                - testdata/fixtures/sig-kinds-present.go
       - id: var-signature
         engine: ast-grep-contracts
         risk_class: correctness
@@ -100,9 +103,9 @@ content:
             text: A variable declaration matches the var structural pattern.
             fixtures:
               positive:
-                - testdata/fixtures/sig-kinds-present.go
+                - testdata/fixtures/sig-kinds-absent.go
               negative:
-                - testdata/fixtures/sig-kinds-mismatch.go
+                - testdata/fixtures/sig-kinds-present.go
       - id: method-signature
         engine: ast-grep-contracts
         risk_class: correctness
@@ -112,9 +115,9 @@ content:
             text: A method with a receiver matches the method structural pattern (receiver preserved).
             fixtures:
               positive:
-                - testdata/fixtures/sig-kinds-present.go
+                - testdata/fixtures/sig-kinds-absent.go
               negative:
-                - testdata/fixtures/sig-kinds-mismatch.go
+                - testdata/fixtures/sig-kinds-present.go
       - id: interface-signature
         engine: ast-grep-contracts
         risk_class: correctness
@@ -124,9 +127,9 @@ content:
             text: An interface declaration matches the interface structural pattern.
             fixtures:
               positive:
-                - testdata/fixtures/sig-kinds-present.go
+                - testdata/fixtures/sig-kinds-absent.go
               negative:
-                - testdata/fixtures/sig-kinds-mismatch.go
+                - testdata/fixtures/sig-kinds-present.go
       # Symbol absence: forbidden symbol probed via grep text-presence over the scope.
       - id: contract-absence
         engine: grep
