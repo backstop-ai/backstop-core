@@ -154,9 +154,14 @@ requirements:
       (string), status (one of "pass", "fail", "skipped"), violations
       (array of violation objects, empty for pass/skipped), and reason
       (string, present only when status is "skipped"). The JSON output must
-      also include summary fields: total_violations (integer count of all
-      violations across all steps), steps_passed (integer), steps_failed
-      (integer), steps_skipped (integer). When --json is not set, the
+      also include summary fields: total_violations (integer count of the
+      BLOCKING violations across all steps — every entry whose severity is
+      not "warning", matching the gate's own verdict predicate),
+      total_warnings (integer count of the warning-severity violations
+      across all steps), steps_passed (integer), steps_failed (integer),
+      steps_skipped (integer). total_violations and total_warnings are a
+      total partition of every violation entry reported across every step:
+      their sum is the count of all violations. When --json is not set, the
       command must produce human-readable formatted text to stdout.
     supports: cli:REQ-007@1.0.0
 
@@ -728,7 +733,8 @@ to be plugged in without changing the orchestration loop.
 type GateResult struct {
     SchemaVersion   string       `json:"schema_version"`
     Pass            bool         `json:"pass"`
-    TotalViolations int          `json:"total_violations"`
+    TotalViolations int          `json:"total_violations"` // blocking only
+    TotalWarnings   int          `json:"total_warnings"`   // warning severity
     StepsPassed     int          `json:"steps_passed"`
     StepsFailed     int          `json:"steps_failed"`
     StepsSkipped    int          `json:"steps_skipped"`
