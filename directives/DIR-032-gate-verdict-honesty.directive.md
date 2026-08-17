@@ -435,6 +435,36 @@ The cluster's variants, so a planner does not read it as one uniform bug:
    cluster member, homed in DIR-024) touches the same surface and should be
    planned together or after this item.
 
+   **DELIVERED — correction (2026-08-17), the "Recommended fix shape"
+   spelling above is superseded, not what shipped.** `PLAN-ISSUE-100`
+   (`status: completed`) landed in commit `2d69e14` ("feat(ISSUE-100): tally
+   splits total_violations from total_warnings") and deliberately did NOT use
+   the `severity == "error"` spelling this item recommended — that spelling
+   is fail-OPEN: an unset `Severity` still BLOCKS per the ratified verdict
+   predicate, `pkg/gate/policy.go`'s `blocksVerdict`, so a raw `== "error"`
+   string comparison would misclassify a real blocking failure as a mere
+   notice and under-count it, the same class of bug item 7 exists to fix, not
+   a fresh instance of it. What shipped instead: a new `tallyBySeverity`
+   helper in `pkg/gate/result.go` that calls `blocksVerdict` directly —
+   never a hand-rolled severity string comparison — at both counting sites
+   (`pkg/gate/result.go`, `pkg/gate/output.go`). `GateResult.TotalViolations`
+   now counts only the blocking subset (partition is total by construction:
+   blocking + warnings == every entry); `GateResult.TotalWarnings`
+   (`json:"total_warnings"`, no `omitempty`) is the new companion field
+   recommended above, not a `Notices` slice. `FormatHuman`'s per-step summary
+   splits into "(N blocking, M warnings)" / "(M warnings)" / unchanged "(N
+   violations)" depending on the mix, with a footer "(+M warnings)" suffix
+   and per-entry `[warning]` markers — a zero-churn render on the common
+   blocking-only/warning-free case. `ISSUE-100` itself is still `status:
+   open` in `issues/` as of this writing — the fix has shipped and this
+   directive item is delivered against it, but formally closing the issue
+   artifact is a separate action left to whoever owns that lifecycle, not
+   implied here. Preserved the original "Recommended fix shape" text above
+   rather than rewriting it, per this directive's own convention (see item
+   9's in-body correction for precedent) — it documents what the issue
+   originally proposed, which is exactly the spelling this correction
+   refutes.
+
 8. **Substantiveness JOIN discards a pack-declared severity (ISSUE-106).**
    `pkg/gate/substantiveness_join.go` throws away a pack's declared severity
    one hop past where ISSUE-104/ISSUE-105 closed the same gap elsewhere. Q1
@@ -1635,3 +1665,19 @@ unsatisfiable on the real consumer gate. Neither closes the other.
 Priority note, stated as observation and explicitly NOT as a reorder
 (backlog-pm has no reorder authority): DIR-032 sits at BACKLOG.yml position 2
 and this slot does not change its rank.
+
+**Item 7 (ISSUE-100) DELIVERED (2026-08-17).** `PLAN-ISSUE-100` reached
+`status: completed`, landed in commit `2d69e14`. The item's own "Recommended
+fix shape" text proposed counting `total_violations` via `severity ==
+"error"`; that spelling was refuted before shipping — it is fail-OPEN
+against `pkg/gate/policy.go`'s `blocksVerdict` (an unset severity still
+blocks, so `== "error"` would under-count a real failure) — and the shipped
+fix instead calls `blocksVerdict` through a new `tallyBySeverity` helper,
+with `total_violations` now meaning "blocking entries only" and
+`total_warnings` as the new companion field. Full detail and citations are
+in the correction appended to item 7's own text, not repeated here.
+Bringing the running delivered tally current: five of the roster's twenty
+members are now delivered — items 9, 10, 12, 13 (the 2026-08-16 "overnight
+P0 batch," ISSUE-112/113/118/129) plus item 7 (ISSUE-100). `ISSUE-100` the
+issue artifact itself is still `status: open`; formally closing it is a
+separate action not taken here.
