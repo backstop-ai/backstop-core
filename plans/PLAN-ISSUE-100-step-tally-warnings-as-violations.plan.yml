@@ -2,13 +2,98 @@
 plan_id: PLAN-ISSUE-100
 spec_id: ISSUE-100
 created: "2026-08-16"
-status: draft
+status: completed
 target_repo: backstop-core
 target_module: github.com/backstop-ai/backstop-core
 test_command: "go test ./pkg/gate/... ./cmd/backstop/... -race -count=1"
 coverage_threshold: 90
 
 notes: |
+  ╔═══════════════════════════════════════════════════════════════════════════╗
+  ║ AS-BUILT — 2026-08-17. status: completed. Delivered at commit 2d69e14.    ║
+  ║ Everything below the banner is the AUTHORED plan, preserved verbatim.     ║
+  ╚═══════════════════════════════════════════════════════════════════════════╝
+
+  DELIVERED AS PLANNED. All nine claims satisfied, all twelve mandated test
+  names present under the names this plan mandates, both production files
+  changed exactly where the plan located them BY NAME. Every statement in this
+  banner was re-verified against the real file state at HEAD before it was
+  written — not transcribed from an implementer report.
+
+  ── WHAT SHIPPED ──────────────────────────────────────────────────────────
+  pkg/gate/result.go
+    - `tallyBySeverity(violations []Violation) (blocking, warnings int)` — the
+      shared partition helper, implemented STRICTLY over policy.go's
+      `blocksVerdict`. It passes whole Violation structs to the predicate and
+      never reads the Severity field, which is why the CLM-004 drift guard is
+      green against this file (see below).
+    - `GateResult.TotalWarnings int \`json:"total_warnings"\`` — new, NO
+      omitempty, documented as additive under the unchanged gate/v1.
+    - The accumulator inside `NewGateResultWithScope` is now
+      `blocking, warnings := tallyBySeverity(s.Violations)` incrementing both
+      counters, in the position the old `+= len(s.Violations)` occupied.
+      `total_violations` therefore counts ONLY the blocking subset — the
+      CI-run-30389988184 defect (1 blocking + 1 warning reported as "2
+      violations") is fixed at the source field.
+
+  pkg/gate/output.go — all three renders, exactly per Design Decision 4:
+    - Summary row: a `switch` on the tally emitting
+      "(N blocking, M warnings)" / unchanged "(N violations)" / "(M warnings)".
+    - Footer: " (+M warnings)" appended only when warnings are present; the
+      load-bearing "  Total violations: " prefix untouched (SE3).
+    - Detail lines: a per-entry "[warning] " marker placed immediately after
+      the existing "    - ", decided by `!blocksVerdict(violation)` — a call,
+      not a string compare.
+
+  ── VERIFICATION (all re-run fresh and independently, not carried) ────────
+    - All 12 mandated tests green. Whole `pkg/gate` package green under -race.
+      gofmt/vet clean. Re-confirmed clean in a fresh detached git worktree at
+      HEAD, so the reading is of committed state and not of a shared tree.
+    - NON-REGRESSION ANCHORS GREEN AND UNEDITED, confirmed by git history —
+      `pkg/gate/result_test.go`, `pkg/gate/output_warning_test.go` and
+      `cmd/backstop/exit_surfacing_streams_test.go` were all last touched by
+      96cbbad, long before this lane. `TestGate_JSONOutput_SummaryCounts`
+      (SPEC-010 CLM-025, SE7) passing untouched is the standing fail-CLOSED
+      proof SE1 demanded; the four SPEC-036 `TestReportSurface_*` tests and the
+      "Total violations:" stream-ordering probe (SE3) also hold.
+    - `pkg/gate/policy.go` NOT EDITED (SE2), confirmed at HEAD: its last commit
+      is d7d777c (ISSUE-105), not this lane's 2d69e14.
+    - SE8 and SE9 honored, confirmed in the shipped source: the detail-block
+      header `"\n  %s violations:\n"` is unchanged, and the
+      StepBaselineComparison reason branch still composes its count from
+      `len(step.Violations)` / `len(step.NewViolations)`, untouched.
+
+  ── DEVIATIONS FROM SOURCE — DELIBERATE, ARGUED, AND SHIPPED ──────────────
+    1. SE1 STANDS AS SHIPPED. ISSUE-100's own suggested spelling
+       (`severity == "error"`) was REFUTED and NOT implemented: an unset
+       severity blocks per `blocksVerdict`, so that spelling would classify a
+       real failure as a notice — fail-OPEN, strictly worse than the
+       over-reporting bug this lane fixes. The implementation calls
+       `blocksVerdict`. This plan overrode its own source on the record.
+    2. Design Decision 3 SHIPPED AS AUTHORED: the human output renders
+       "warning", not the "notice" ISSUE-100 and DIR-032 illustratively
+       suggest, matching the vocabulary the codebase already speaks
+       (`Violation.Severity == "warning"`, step status "warning",
+       `StepsWarned`). An intentional departure from an explicitly hedged
+       suggestion, not drift.
+
+  ── FOLLOW-ONS SURFACED, NOT FIXED HERE (TASK-007) ────────────────────────
+  All four are dispatched separately as their own artifact-evolution tasks.
+  They are recorded here for lineage only — do NOT re-plan them into this lane.
+    (a) SE6 — SPEC-010 REQ-008's prose now misdescribes `total_violations`.
+        spec-author amendment. SPEC-010 is `draft`, so nothing is red.
+    (b) SE5 — ISSUE-107 (coverage warning-only step reads as pass) already
+        filed, still unplanned, sequenced next per DIR-032 item 7.
+    (c) SE9 — the baseline-comparison reason line is a DIFFERENT, still
+        severity-blind count. No issue filed; founder decides whether it
+        warrants one.
+    (d) SE10 — DIR-032 item 7 and ISSUE-100's own Solution (b) still prescribe
+        the refuted `severity == "error"` spelling. directive-author +
+        issue-author-at-closeout amendments. Highest-priority of the four,
+        because item 7 is what the next planner on this surface reads.
+
+  ── AUTHORED PLAN FOLLOWS (unmodified) ────────────────────────────────────
+
   Implements ISSUE-100 — DIR-032 (Gate Verdict Honesty) item 7. SMALL, SURGICAL
   LANE: three phases, TWO production files, TWO new test files. Nothing else.
 
