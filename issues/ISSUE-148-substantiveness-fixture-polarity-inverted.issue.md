@@ -1,13 +1,15 @@
 ---
 title: "Substantiveness Fixture Polarity Inverted"
 schema_version: issue/v1
+delivered_by: PLAN-ISSUE-148
 
 issue:
   id: ISSUE-148
   title: "Substantiveness Fixture Polarity Inverted"
   type: bug
-  status: open
+  status: closed
   created: "2026-08-16"
+  closed: "2026-08-17"
 
 complexity:
   scope: contained
@@ -103,3 +105,45 @@ real, currently-failing state, not hypothetical.
   (`pack new`'s vacuous validator) are related-family siblings, not duplicates: both are
   dispatch/authoring gaps in different code, neither touches
   `packs/substantiveness/pack.yml`'s fixture polarity.
+
+## Resolution
+
+The real root cause was narrower — and different — than this issue's own originally-stated fix
+menu ("swap the `positive`/`negative` fixture-path assignment under each rule's `claims[].fixtures`,
+or swap the file contents to match their declared slot — either resolves the inversion"). That
+menu was measured wrong: both `packs/substantiveness` rules (`hollow-test-go`,
+`weak-assertion-go`) ship in one shared `ast-grep/sgconfig.yml`, so a fixture's `pack test`
+`Passed` result was answering "did the whole ast-grep engine fire on this file", not "did THIS
+rule fire" — a manifest-key swap alone changes nothing about which rule's pattern a given fixture
+body actually trips. Direct measurement confirmed this: the key-swap and a content-swap produced
+byte-identical failure output. Correcting this framing is filed separately as `ISSUE-159` (a prose
+correction to this issue and to `DIR-032`, not a code defect in its own right — nothing shipped
+under the wrong menu).
+
+Compounding the polarity swap, both of the two currently-declared negative fixtures were ALSO
+passing for the wrong reason — a sibling rule's pattern was accidentally matching them, producing
+a coincidental correct-looking result that was really a second, pre-existing vacuous green. This
+was corrected alongside the polarity fix rather than left latent. All four fixture bodies (positive
+and negative, both rules) were re-authored so each one discriminates against the COMBINED
+ruleset in the shared sgconfig, not just its own rule in isolation. `packs/substantiveness/pack.yml`
+itself was left untouched — still frozen at version `1.1.0` in-repo, per this repo's pack
+distribution model (the in-repo copy is not what the gate consumes).
+
+The external mirror `backstop-ai/go-substantiveness`, which carries the identical bug, was
+published at `v1.2.1` and adopted into this repo's `backstop.yml`/`backstop.lock`. That
+publication was founder-authorized directly — not via a relayed agent message — and the
+implementer correctly refused an earlier relayed-authorization attempt per the plan's own explicit
+publication gate; that refusal was respected rather than overridden. The adoption was proven
+necessary, not cosmetic, via a control: a worktree with `go-substantiveness@1.2.1` installed but
+`backstop.lock` still pinned at `1.2.0` hard-fails at the `pack_lock_verification` gate step; with
+the lock updated to `1.2.1`, the same worktree passes.
+
+Measured end-to-end impact: 14 pre-existing `cmd/backstop` test failures dropped to 4, including
+both of `PLAN-ISSUE-106`'s tests that had been deliberately left red pending exactly this fix —
+both now pass.
+
+The remaining 4 residual reds are a distinct, unrelated cause (a test harness's own glob-matching
+patch darkening the pack's own fixture tree, not a fixture-polarity or dispatch defect) — filed
+separately as `ISSUE-158` rather than fixed under this issue.
+
+Delivered by `PLAN-ISSUE-148` (`status: completed`, committed at `94f04c0`/`2cd3945`).
