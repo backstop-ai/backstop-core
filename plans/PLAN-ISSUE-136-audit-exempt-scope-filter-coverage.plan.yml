@@ -1,0 +1,1020 @@
+---
+plan_id: PLAN-ISSUE-136
+spec_id: ISSUE-136
+created: "2026-08-16"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./pkg/packval/... ./cmd/backstop/... ./pkg/pack/engine/... -run \"TestExemptDecision|TestExemptAudit|TestExemptDoc\" -race -count=1"
+coverage_threshold: 90
+
+notes: |
+  Implements ISSUE-136 — nothing in the repository asserts, engine by engine,
+  whether an engine binding's ABSENT `exempt_from_scope_filter` key is a
+  deliberate decision or an undetected instance of the ISSUE-129 gap (a
+  diff-scoped `backstop gate` PASS coexisting with a real, silently discarded,
+  out-of-scope violation). Rolls up under DIR-032 (Gate Verdict Honesty); it is
+  ISSUE-129's own deferred Direction item (b), which PLAN-ISSUE-129 explicitly
+  refused to absorb.
+
+  ── EXISTENCE-IN-WORLD (checked 2026-08-17, before authoring) ───────────────
+  `plans/`, `specs/`, `issues/`, `bundles/` and `directives/` were swept for
+  `exempt_from_scope_filter` / `ExemptFromScopeFilter`. No committed or
+  working-tree plan or spec owns this surface, and no larger plan subsumes it:
+    * PLAN-ISSUE-129 (completed) fixed EXACTLY ONE engine (go-test) and its own
+      notes record that it filed ISSUE-136 rather than absorbing the audit —
+      "the plan explicitly refused to absorb it, and that refusal held."
+    * PLAN-ISSUE-070 (completed) built the ADJACENT mechanism — it made the
+      pack_engines step apply the diff-scope filter at all. It is the reason the
+      flag is load-bearing, not a competing owner.
+    * PLAN-SPEC-041 (draft) ESTABLISHED the declared property this plan audits.
+    * ISSUE-137 (open, no plan) owns pack-fixture DRIFT, a different mechanism.
+  No plan currently in `implementing` touches `pkg/packval/phase2.go`,
+  `pkg/packval/manifest.go`, `packs/base-engines/pack.yml`, or
+  `pkg/pack/engine/binding.go`. PLAN-ISSUE-141 (packval, completed 2026-08-16)
+  is the most recent neighbour and has landed; this plan was authored against
+  the post-141 tree.
+
+  ── THE AUDIT, PERFORMED AGAINST THE LIVE TREE (2026-08-17) ─────────────────
+  Every engine binding declared by every pack this repo installs or embeds,
+  read directly from the manifests, not from ISSUE-136's prose:
+
+    engine                    pack                      scope_kind    exempt
+    ------------------------  ------------------------  ------------  ---------
+    semgrep                   base-engines (embedded)   file-args     absent
+    ast-grep                  base-engines (embedded)   file-args     absent
+    sandbox                   base-engines (embedded)   file-args     absent
+    config-file               base-engines (embedded)   project-wide  absent
+    grep                      go-contracts              file-args     absent
+    ast-grep-contracts        go-contracts              file-args     absent
+    ast-grep-substantiveness  go-substantiveness        file-args     absent
+    semgrep-ci                ci-workflows              file-args     absent
+    go-coverage               go-toolchain              project-wide  absent
+    go-build                  go-toolchain              project-wide  TRUE
+    go-test                   go-toolchain              project-wide  TRUE
+    golangci                  go-toolchain              project-wide  absent
+    go-arch-lint              core-architecture         project-wide  TRUE
+
+  CONCLUSIONS, each grounded rather than asserted:
+
+  1. NO ENGINE IS MIS-DECLARED. The audit found ZERO instances of the ISSUE-129
+     failure mode. Direction item 2 of the issue ("for any engine judged to need
+     the flag, file it as its own defect") therefore produces no per-engine
+     defect. That is a finding, not an absence of work.
+  2. EVERY file-args ENGINE IS CORRECTLY NON-EXEMPT, and the decision does not
+     even arise for it: a file-args engine is invoked with the scoped files as
+     arguments, so every finding it can produce is already ON a file in scope.
+     The filter is a no-op for it by construction. This covers eight of the
+     thirteen engines.
+  3. `golangci` IS CORRECTLY NON-EXEMPT, AND THAT IS LOAD-BEARING. Its
+     non-exemption is the delivered behaviour of ISSUE-070 ("Gate Diffscope
+     Leaks Projectwide Lint", closed 2026-07-27): project-wide lint findings on
+     files the change never touched MUST be filtered out, or the gate reds on
+     pre-existing debt. Flipping it would REGRESS a shipped fix. It is already
+     pinned by the shipped test
+     `TestExemption_BindingDeclaresExemptFromScopeFilterDecoupledFromScopeKind`
+     (`cmd/backstop/go_toolchain_engines_test.go`).
+  4. `config-file` (the generic native-linter shape in base-engines, of which
+     `golangci` is the instance) is correctly non-exempt for the same reason.
+  5. `go-coverage` is project-wide but its output never reaches the scope
+     filter at all: `gate_type: coverage` routes it to the coverage-records
+     channel (`dispatchPackCoverage` -> `ParsePackCoverage`), not the SARIF
+     findings channel that `filterViolations` guards.
+
+  WHAT THE AUDIT DID FIND is that three of those five decisions are recorded
+  NOWHERE — they are the ABSENCE of a key, indistinguishable from an oversight.
+  That is precisely the open-endedness ISSUE-136 exists to bound, and it is what
+  this plan closes.
+
+  ── WHAT THIS PLAN DELIVERS ────────────────────────────────────────────────
+  (a) A non-blocking `pack check` / `pack test` advisory that names every engine
+      declaring `scope_kind: project-wide` whose manifest OMITS the
+      `exempt_from_scope_filter` key, so a pack author — internal or
+      third-party — is prompted to make the decision consciously instead of
+      silently defaulting to false. This is ISSUE-136 Direction item 3, and it
+      is the only mechanism that reaches packs living in other repositories.
+  (b) The tri-state that makes the advisory silenceable: `ParseManifest` records
+      which engine keys the author actually WROTE, so an explicit
+      `exempt_from_scope_filter: false` is a recorded decision that quiets the
+      advisory, while an absent key stays a prompt. Without this the advisory
+      would nag forever on a correct declaration and be turned off.
+  (c) The audit above, made EXECUTABLE: a census test over every committed pack
+      source in this repo requiring an explicit intent row per engine, so a
+      newly added engine cannot join the corpus unaudited.
+  (d) `packs/base-engines/pack.yml` records its own decision explicitly.
+  (e) The stale per-engine roster in `pkg/pack/engine/binding.go`'s doc comment
+      — which still claims `go-test` declares the flag "false/unset", a claim
+      ISSUE-129 falsified — is replaced by a pointer to the executable roster,
+      AND a source-text test forbids an engine roster from ever being re-added
+      to that comment block, so the prose cannot go stale again by construction
+      rather than by good intentions.
+
+  ── BLAST RADIUS OF THE NEW ADVISORY (swept 2026-08-17) ────────────────────
+  The advisory fires on ANY parsed manifest with a project-wide engine and no
+  `exempt_from_scope_filter` key, so the existing testdata corpus was swept for
+  that exact shape rather than assumed clean. It is NOT clean, and that is fine:
+
+    * `pkg/packval/testdata/engine-pack/pack.yml` HAS THIS SHAPE TODAY. Its
+      `mycoverage` and `mylint` engines are both `scope_kind: project-wide` with
+      the key ABSENT (only `mybuild` declares it, `true`). After TASK-004 lands,
+      this fixture WILL surface TWO NEW `exempt-scope-decision` advisories. That
+      is the advisory working correctly, and it REDs nothing.
+    * A per-ENGINE sweep of ALL 88 `pack.yml` files in the tree (hidden
+      directories included) finds 45 engine bindings with the target shape,
+      spread over 28 distinct manifests (re-measured 2026-08-17). By tree:
+        24  cmd/backstop/testdata/
+         1  pkg/packval/testdata/    (engine-pack, itemised above)
+         1  pkg/gate/testdata/       (waiver-e2e, itemised below)
+         1  packs/                   (base-engines — the one TASK-007 EDITS)
+         1  .backstop/packs/backstop-ai/go-toolchain/  (the installed external
+                                      pack; CLM-001's falsifier and SE-3)
+      Every one of them is safe under the same mechanism.
+      `pkg/pack/distribution/testdata/` contains ZERO instances of the shape and
+      is NOT in the blast radius — an earlier draft of this plan listed it in
+      error; it is named here only so the correction is not silently re-broken.
+    * `pkg/gate/testdata/waiver-e2e/.backstop/packs/backstop/waiver-e2e/pack.yml`
+      (engine `fake-engine`) has the shape and is named explicitly here because
+      it sits outside the two testdata trees a `cmd/`+`packval` sweep would look
+      at.
+    * `cmd/backstop/testdata/hermetic-remote/scaffold-entrypoint-pack/pack.yml`
+      (engine `entrypoint`) has the shape and is THE MOST LOAD-BEARING ONE TO
+      VERIFY: it is the one fixture in this set actually driven through the real
+      `pack check` AND `pack test` CLI, by
+      `TestHermeticFixture_NewFixturesPassPackCheckAndPackTest`
+      (`cmd/backstop/hermetic_fixtures_test.go`, located by test name). That test
+      was traced: it asserts ONLY the process exit code is 0 — it counts no
+      warnings and matches no output — so it stays green under the discard
+      mechanism stated below. Confirm it green after TASK-004 rather than
+      assuming it.
+
+  THE MECHANISM THAT MAKES ALL OF THIS NON-BREAKING, stated so it is verified
+  rather than silently true: warnings never reach a verdict on any of these
+  paths. `Result.FinalizeStatus` keys status purely on `len(r.Errors)` (SE-5),
+  and `runPackvalPipeline` (`pkg/pack/distribution/validator.go`, located by
+  symbol) returns nil unless `result.Status` is the fail status — it reads the
+  status and DISCARDS `result.Warnings` entirely. `engine-pack` in particular is
+  consumed only through `ParseManifest` in unit tests, never through a
+  warning-counting assertion.
+
+  CONSEQUENCE FOR THE IMPLEMENTER: if a pre-existing packval or distribution test
+  goes red on a WARNING COUNT after TASK-004, that is a real assertion this sweep
+  missed — read it and report it, do NOT relax it. Adding an
+  `exempt_from_scope_filter` key to an existing fixture to quiet the advisory is
+  forbidden: those fixtures encode other checks' inputs, and silencing a correct
+  advisory by editing its subject is the failure mode this plan exists to bound.
+
+  ── WHY THIS IS NOT BAKED LANGUAGE/TOOL KNOWLEDGE ──────────────────────────
+  ISSUE-136 Direction item 3 cautions that any such check "must be a pack rule,
+  not baked core logic." The advisory added here names NO language, NO tool and
+  NO engine: it reads `scope_kind` and `exempt_from_scope_filter`, which are
+  backstop's OWN manifest vocabulary, exactly as `pkg/packval` phase 2 already
+  reads `engine` (the `engine-resolve` check) and phase 5 reads the same field.
+  It is manifest-schema validation, the same category as every other packval
+  check, and it is where the audit's teeth have to live: `pack check` runs in
+  the PACK AUTHOR's loop, including for packs in repositories this one will
+  never see. A repo-scoped rule pack cannot reach those manifests. If a reviewer
+  disagrees with this reading, that is a judgment call to escalate BEFORE
+  implementing, not to route around.
+
+  ── SHARP EDGES ────────────────────────────────────────────────────────────
+  SE-1. THE ADVISORY PROMPTS; IT MUST NEVER DERIVE. SPEC-041 CLM-017 requires
+        the exempt VALUE to be DECOUPLED from ScopeKind, and SPEC-041 REQ-004
+        prohibits deriving it from any structural signal. This advisory keys on
+        `scope_kind` to decide WHETHER A DECISION IS OWED, and never to decide
+        WHAT THE DECISION IS: it accepts `true` and `false` identically, changes
+        no binding value, and consults neither `gate_type` nor any engine name.
+        CLM-004 exists to pin that distinction. Any implementation that infers a
+        default, rewrites a binding, or special-cases a gate_type violates
+        SPEC-041 and must be rejected.
+  SE-2. DO NOT "FIX" `golangci`. Conclusion 3 above: its non-exempt state is
+        ISSUE-070's shipped behaviour. This plan edits no go-toolchain manifest.
+  SE-3. THE go-toolchain PACK IS EXTERNAL AND MIRRORED. Its released manifest
+        lives in another repository and `cmd/backstop/testdata/go-toolchain/
+        .backstop/packs/backstop/go-toolchain/pack.yml` is an in-repo fixture
+        copy of it; the two must move together (that lockstep is exactly
+        ISSUE-137's open hazard). This plan touches NEITHER. Adding the explicit
+        `exempt_from_scope_filter: false` to `golangci` and `go-coverage` is a
+        pack-manifest edit + version bump + tag + relock + fixture sync, and
+        ISSUE-136 Direction item 2 says to file it as its own defect — the
+        implementer MUST surface it as a follow-on rather than absorbing it.
+        Consequently, after this plan lands, `pack check` on the go-toolchain
+        pack WILL emit two advisories. That is the advisory working correctly on
+        a genuinely un-recorded decision, and it is non-blocking. It is an
+        expected outcome, not a regression, and must not be silenced.
+  SE-4. `packs/base-engines` CANNOT BE `pack check`ed. Verified 2026-08-17:
+        `go run ./cmd/backstop pack check packs/base-engines` fails phase 1 with
+        "content is required" — it is an engines-only pack with no `content:`
+        block. Its decision is therefore recorded by the census test (c), not by
+        the advisory. Do not "fix" base-engines by inventing a content block.
+  SE-5. THE ADVISORY MUST NEVER CHANGE AN EXIT CODE. `Result.FinalizeStatus`
+        keys status purely on `len(r.Errors)`, and `cmd/backstop/pack_check.go`
+        exits non-zero only on `result.Status == "fail"`. Emit into
+        `PhaseResult.Warnings` ONLY. Never append to `Errors`.
+  SE-6. A NIL DECLARED-KEY MAP IS A VACUOUS-GREEN TRAP. Key presence is knowable
+        only from a parsed manifest; a `PackManifest` built as a Go literal in a
+        test has no key record. The rule is: `ParseManifest` ALWAYS initialises
+        the map (non-nil, possibly empty), so "not parsed" is distinguishable
+        from "no keys declared", and CLM-005's test pins that invariant. Without
+        it the advisory can silently never fire and still look green.
+  SE-7. `RunCoherence` HARD-CODES ITS CHECK COUNT (`Checks: 6`, with a comment
+        enumerating them). Adding a check without bumping it to 7 and extending
+        that comment leaves the reported phase summary lying.
+  SE-8. OTHER AGENTS ARE ACTIVE IN THIS WORKTREE. Do not run a bare
+        `go test ./...` or `backstop gate --all` while another implementer is
+        mid-flight; coordinate first or the readings are noise. Never invoke a
+        bare `backstop` — a stale Homebrew binary is on PATH. Always build and
+        invoke `./bin/backstop` (`go build -o ./bin/backstop ./cmd/backstop`),
+        and export `PATH=/Users/bmanson/go/bin:$PATH` so `go-arch-lint` resolves
+        (without it the `pack_engines` architecture engine silently no-ops).
+  SE-9. LOCATE BY NAME, NOT BY LINE NUMBER. Every file this plan names has moved
+        under other lanes tonight. Find `RunCoherence`, `ParseManifest`,
+        `FinalizeStatus` and the `ExemptFromScopeFilter` field by symbol.
+
+  ── REQUIREMENTS / CLAIMS (plan-local, derived from the issue) ──────────────
+    REQ-001: The un-recorded decision is prompted where pack authors work.
+      CLM-001  `backstop pack check` / `pack test` emits a non-blocking
+               `exempt-scope-decision` advisory naming each engine binding
+               declared `scope_kind: project-wide` whose manifest OMITS the
+               `exempt_from_scope_filter` key. FALSIFIED FIRST: today
+               `go run ./cmd/backstop pack check
+               .backstop/packs/backstop-ai/go-toolchain` reports `status: pass`
+               with ZERO warnings, while that pack declares TWO such engines
+               (`golangci`, `go-coverage`) — observed verbatim 2026-08-17.
+      CLM-002  the advisory is SILENT when the key is present, whichever value
+               it carries — an explicit `false` is a recorded decision that
+               quiets it, which is what keeps it from becoming a permanent nag
+               on a correct declaration.
+      CLM-003  the advisory NEVER blocks: with the advisory as the only finding,
+               `Result.Status` stays `pass` and the real `pack check` command
+               exits 0, proven end-to-end through the CLI against a complete
+               fixture pack.
+      CLM-004  the advisory PROMPTS but never DERIVES — it changes no binding
+               value, and consults neither `gate_type` nor any engine/tool name,
+               so SPEC-041 CLM-017's "the exempt value is DECOUPLED from
+               ScopeKind" invariant is untouched (SE-1).
+      CLM-005  key presence is recorded at parse time and only at parse time:
+               `ParseManifest` always returns a NON-NIL declared-key record,
+               even for a manifest with no `engines:` block, so the advisory can
+               never go vacuously silent on a real pack (SE-6).
+    REQ-002: The audit is recorded engine-by-engine, executably.
+      CLM-006  every engine declared by every committed pack source in this repo
+               (`packs/*/pack.yml` plus the go-toolchain fixture mirror) carries
+               an explicit intent row stating whether it declares the key and
+               why; an engine with no row — a newly added engine — turns the
+               census test RED.
+      CLM-007  the census rows are GROUNDED, not asserted: `golangci`'s
+               non-exempt row cites ISSUE-070's delivered behaviour, and each
+               file-args row cites the by-construction argument (a file-args
+               engine only reports on files handed to it, which are in scope),
+               so a future reader can check the reasoning rather than trust it.
+    REQ-003: backstop-core's own committed pack data records its decision.
+      CLM-008  `packs/base-engines/pack.yml`'s `config-file` engine declares
+               `exempt_from_scope_filter: false` EXPLICITLY with its rationale,
+               and the embedded base-engines registry resolves IDENTICALLY
+               afterwards — the value is the zero value, so this records a
+               decision without changing behaviour.
+    REQ-004: The stale intent record inside core is corrected at the root.
+      CLM-009  `pkg/pack/engine/binding.go`'s `ExemptFromScopeFilter` doc
+               comment no longer enumerates which engines declare which value —
+               that enumeration is what went stale when ISSUE-129 made `go-test`
+               exempt while the comment kept claiming it declares "false/unset"
+               — and instead states the semantics and points at the executable
+               roster, so the prose has nothing left to drift from. The
+               de-enumeration is PINNED EXECUTABLY, not merely performed: a
+               source-text assertion fails if any engine-name literal is ever
+               re-introduced into that comment block, so the rot cannot silently
+               recur (a comment-only refactor with no guard would leave the
+               failure mode exactly as it was).
+
+               SCOPE IS DELIBERATELY EXACTLY ONE COMMENT BLOCK:
+               `binding.go`'s `ExemptFromScopeFilter` doc comment. CLM-009
+               claims nothing about any other prose anywhere in the repo.
+               SPEC-041 WAS CHECKED FOR THE SAME ROT AND IS CLEAN (measured
+               2026-08-17, so a later reader does not re-open this): SPEC-041's
+               contracts entry for this field reads "The go-build and go-test
+               engines declare it true; golangci declares it false/unset", which
+               is CORRECT against both go-toolchain manifests — `go-test`
+               declares `exempt_from_scope_filter: true` in each. Commit 140efc9
+               ("spec(SPEC-041): invert go-test exemption claims for ISSUE-129")
+               already corrected it, along with the matching CLM-017/REQ-004 and
+               C-1 prose. `binding.go` is the ONE place the inversion was never
+               propagated, which is why it is the only surface this claim owns.
+               No spec-author follow-on is owed.
+
+  Structure:
+    Phase 1: Fixture corpus (two parallel setup tasks, disjoint trees).
+    Phase 2: TDD for the advisory — red unit tests, then packval implementation.
+    Phase 3: TDD for the audit census + CLI-level non-blocking proof and the
+             doc-comment source pin, then the base-engines declaration and the
+             de-enumeration those tests gate.
+    Phase 4: Comprehensive verification — full kill chain + artifact validation.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: Fixture corpus
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: Tri-state fixture corpus"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Minimal packval fixture packs covering the exempt tri-state"
+        description: |
+          Create five MINIMAL fixture manifests under
+          `pkg/packval/testdata/exempt-decision/`. They exist to drive
+          `RunCoherence` (and `ParseManifest`) DIRECTLY in unit tests, so they
+          need only the fields the checks read — they are deliberately NOT
+          complete packs, and are not run through the full pipeline.
+
+          Follow the shape already used by `pkg/packval/testdata/bad-engine-pack`
+          for a manifest-only fixture. Each declares an `engines:` block:
+
+            projectwide-undeclared/pack.yml
+              one engine, `scope_kind: project-wide`, NO
+              `exempt_from_scope_filter` key. The positive case: this is the
+              shape the advisory must name.
+
+            projectwide-explicit-false/pack.yml
+              one engine, `scope_kind: project-wide`,
+              `exempt_from_scope_filter: false`. The tri-state's whole point:
+              the SAME effective value as the case above, but recorded — the
+              advisory must be silent here. If this fixture and the one above
+              cannot be told apart, the feature is not built.
+
+            projectwide-explicit-true/pack.yml
+              one engine, `scope_kind: project-wide`,
+              `exempt_from_scope_filter: true`. Silent.
+
+            filearg-undeclared/pack.yml
+              one engine, `scope_kind: file-args`, NO key. Silent — a file-args
+              engine only ever reports on files handed to it, so the scope
+              filter is a no-op for it and no decision is owed.
+
+            no-engines/pack.yml
+              a manifest with NO `engines:` block at all. Exists for CLM-005:
+              parsing it must still produce a NON-NIL declared-key record.
+
+          GATE_TYPE ASSIGNMENT IS LOAD-BEARING — get it exactly right, or
+          CLM-004's falsifier goes vacuous:
+            * the three `projectwide-*` fixtures carry DIFFERENT gate_type
+              values (`lint`, `coverage`, `test`), so an implementation keying on
+              gate_type cannot reproduce "warn on undeclared, silent on either
+              explicit value" across them;
+            * `filearg-undeclared` carries THE SAME gate_type value as
+              `projectwide-undeclared` (both `lint`). This is the half that makes
+              the guard real. If the file-args fixture were given a FOURTH
+              distinct gate_type, an implementation keying on
+              `gate_type ∈ {lint,coverage,test} AND key absent` — deriving from
+              entirely the wrong signal — would still pass all seven tests. Made
+              identical, the two fixtures are indistinguishable to any
+              gate_type-based rule while differing ONLY in `scope_kind`, so such
+              an implementation necessarily warns on `filearg-undeclared` and
+              fails `TestExemptDecision_FileArgsEngineNeverWarns`.
+          `scope_kind` is therefore the only field that separates the warn set
+          from the silent set across the whole corpus.
+
+          Do not add fixtures beyond these five; do not touch any existing
+          fixture pack.
+        files:
+          - pkg/packval/testdata/exempt-decision/projectwide-undeclared/pack.yml
+          - pkg/packval/testdata/exempt-decision/projectwide-explicit-false/pack.yml
+          - pkg/packval/testdata/exempt-decision/projectwide-explicit-true/pack.yml
+          - pkg/packval/testdata/exempt-decision/filearg-undeclared/pack.yml
+          - pkg/packval/testdata/exempt-decision/no-engines/pack.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-004
+          - CLM-005
+        depends_on: []
+
+      - id: TASK-002
+        type: setup
+        title: "Complete fixture pack for the end-to-end pack check exit-code proof"
+        description: |
+          CLM-003 is a CLI-level claim — the real `pack check` command must
+          report the advisory and STILL exit 0 — so it needs a pack that passes
+          the whole pipeline, not a manifest stub. TASK-001's fixtures cannot
+          serve: they fail phase 1 (`content is required`), exactly as
+          `packs/base-engines` does (SE-4), and a failing pack would exit
+          non-zero for an unrelated reason and prove nothing.
+
+          Build one COMPLETE fixture pack under
+          `cmd/backstop/testdata/exempt-decision-pack/`, modelled on
+          `pkg/packval/testdata/engine-pack` — take its STRUCTURE (`pack.yml`
+          with `language: generic`, `archetype: enforcement`, an `engines:`
+          block, and a `content:`/`ruleset:` block whose one claimed rule names
+          its engine; `rules/sample.yml`; and the `fixtures/valid/` +
+          `fixtures/invalid/` files that rule's claim references).
+
+          USE `engine-pack`, NOT `pkg/packval/testdata/valid-pack`. Measured
+          2026-08-17: `pack check pkg/packval/testdata/valid-pack` reports
+          `status: fail` with three `phase1-structural/file-exists` errors —
+          that directory contains ONLY `pack.yml`, so it cannot model a pack
+          this task requires to pass clean. `engine-pack` reports `status: pass`
+          with ZERO errors and ZERO warnings, and already carries a real
+          `engines:` block, so it is both correct and the closer structural fit.
+          (`cmd/backstop/testdata/hermetic-remote/valid-pack` also passes clean
+          but has no engines block, so it is the weaker model.) A copy of
+          `engine-pack` retargeted to this path was confirmed still
+          `status: pass` before this plan was written.
+
+          The ONE thing that distinguishes the new fixture: its `engines:` block
+          declares EXACTLY ONE engine, with `scope_kind: project-wide` and NO
+          `exempt_from_scope_filter` key — so the advisory count is unambiguously
+          one. Do NOT carry over engine-pack's three engines: `mybuild` declares
+          the key explicitly and `mycoverage`/`mylint` would each add a second
+          and third advisory, muddying the assertion.
+
+          DO NOT COPY THE `content:` BLOCK VERBATIM — A VERBATIM COPY MEASURABLY
+          FAILS. `engine-pack` declares TWO rules, and they name DIFFERENT
+          engines: `claimed-engine-rule` -> `mylint` and `mechanism-engine-rule`
+          -> `mybuild`. Reducing the engines block to one engine while carrying
+          both rules across leaves `mechanism-engine-rule` pointing at an engine
+          that no longer exists. Measured on a scratch copy 2026-08-17:
+          `status: fail`, `ERROR [phase2-coherence/engine-resolve] resolving rule
+          engine "mybuild": unknown engine "mybuild": no EngineBinding
+          registered`, exit 1 — destroying CLM-003's exit-0 proof for a reason
+          with NOTHING to do with the exempt-scope advisory, which is exactly the
+          confound this task exists to avoid.
+
+          `mechanism-engine-rule` must therefore be DROPPED (or repointed at the
+          one surviving engine). THE MEASURED-WORKING SHAPE, recorded here so it
+          need not be rediscovered: a single engine `mylint` (`scope_kind:
+          project-wide`, `input_mode: config-file`, NO `exempt_from_scope_filter`
+          key) paired with only `claimed-engine-rule` -> `mylint` — verified
+          `status: pass`, zero errors, zero warnings, all five phases pass.
+
+          Verify the fixture is genuinely clean apart from the advisory BEFORE
+          the feature exists, so the exit-0 proof cannot be confounded later:
+
+            go build -o ./bin/backstop ./cmd/backstop
+            ./bin/backstop pack check cmd/backstop/testdata/exempt-decision-pack
+
+          It must report `status: pass` with zero errors AND zero warnings
+          today. Record that output — it is the pre-state half of CLM-003.
+        files:
+          - cmd/backstop/testdata/exempt-decision-pack/pack.yml
+          - cmd/backstop/testdata/exempt-decision-pack/rules/sample.yml
+          - cmd/backstop/testdata/exempt-decision-pack/fixtures/valid/sample-ok.go
+          - cmd/backstop/testdata/exempt-decision-pack/fixtures/invalid/sample-bad.go
+        claims:
+          - CLM-003
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: The advisory
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: The exempt-scope-decision advisory"
+    tasks:
+      - id: TASK-003
+        type: test
+        title: "Red tests for the advisory, the tri-state, and the no-derivation guard"
+        description: |
+          Write `pkg/packval/exempt_decision_test.go`. Every test parses its
+          fixture through the real `ParseManifest` and drives the real
+          `RunCoherence` — no hand-built `PackManifest` literals, because a
+          literal has no declared-key record and would make these tests
+          vacuously green (SE-6).
+
+          All of these must be observed RED before Phase 2's implementation
+          begins; capture the failure output.
+
+          TestExemptDecision_ProjectWideEngineOmittingKeyWarns
+            `projectwide-undeclared` yields exactly one `exempt-scope-decision`
+            warning naming the engine, on the coherence phase. (CLM-001)
+
+          TestExemptDecision_ExplicitFalseIsSilent
+            `projectwide-explicit-false` yields NO such warning. This is the
+            tri-state proof: same effective boolean as the case above, opposite
+            outcome, so the check demonstrably reads key PRESENCE and not the
+            value. (CLM-002)
+
+          TestExemptDecision_ExplicitTrueIsSilent
+            `projectwide-explicit-true` yields no such warning. (CLM-002)
+
+          TestExemptDecision_FileArgsEngineNeverWarns
+            `filearg-undeclared` yields no such warning even though its key is
+            absent — no decision is owed for a file-args engine. (CLM-001)
+
+          TestExemptDecision_PromptsWithoutDerivingTheValue
+            Across all four engine fixtures: the parsed
+            `binding.ExemptFromScopeFilter` value is IDENTICAL before and after
+            validation (nothing is inferred or rewritten), and the warn/silent
+            outcome tracks `scope_kind` + key presence ALONE — the fixtures
+            deliberately carry differing `gate_type` values, and an
+            implementation keying on gate_type must fail this test. (CLM-004)
+
+          TestExemptDecision_ParseManifestAlwaysRecordsDeclaredKeys
+            `no-engines/pack.yml` parses to a NON-NIL declared-key record, and
+            so does every other fixture; the record for
+            `projectwide-explicit-false` contains the
+            `exempt_from_scope_filter` key while the record for
+            `projectwide-undeclared` does not. (CLM-005)
+
+          TestExemptDecision_AdvisoryNeverFailsTheRun
+            After `RunCoherence` on `projectwide-undeclared`, the phase status
+            is NOT `fail`, the warning is in `Warnings` and NOT in `Errors`, and
+            a `Result` carrying only this warning finalises to `pass` through
+            the real `FinalizeStatus`. (CLM-003)
+        files:
+          - pkg/packval/exempt_decision_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+        test_names:
+          - TestExemptDecision_ProjectWideEngineOmittingKeyWarns
+          - TestExemptDecision_ExplicitFalseIsSilent
+          - TestExemptDecision_ExplicitTrueIsSilent
+          - TestExemptDecision_FileArgsEngineNeverWarns
+          - TestExemptDecision_PromptsWithoutDerivingTheValue
+          - TestExemptDecision_ParseManifestAlwaysRecordsDeclaredKeys
+          - TestExemptDecision_AdvisoryNeverFailsTheRun
+        depends_on:
+          - TASK-001
+
+      - id: TASK-004
+        type: implementation
+        title: "Record declared engine keys at parse time and emit the advisory"
+        description: |
+          Two edits, both located by SYMBOL, not line number (SE-9).
+
+          `pkg/packval/manifest.go`:
+            * Give `PackManifest` an UNEXPORTED field recording, per engine
+              name, the set of manifest keys the author actually wrote — e.g.
+              `declaredEngineKeys map[string]map[string]bool`. Unexported keeps
+              it out of the JSON/YAML surface; packval's own tests share the
+              package.
+            * In `ParseManifest`, after the existing `yaml.Unmarshal`, run a
+              SECOND, deliberately loose unmarshal of the same bytes into a
+              presence probe — `struct{ Engines map[string]map[string]yaml.Node
+              \`yaml:"engines"\` }` — and populate the field from its key sets.
+              This is a PRESENCE PROBE, not a second parser: it reads which keys
+              exist and nothing about what they mean. It lives here rather than
+              on `engine.EngineBinding` so the shared binding type consumed by
+              the gate hot path (`cmd/backstop/pack_gate.go` stamps
+              `Violation.ProjectWide` from it) keeps its plain `bool` and is not
+              disturbed by a validator concern.
+            * ALWAYS assign a non-nil map, including when the manifest has no
+              `engines:` block, so "not parsed" stays distinguishable from "no
+              keys declared" (SE-6 / CLM-005).
+            * Add an EXPORTED, sorted accessor —
+              `func ExemptDecisionPending(m *PackManifest) []string` — returning
+              the names of engines declared `scope_kind: project-wide` whose
+              record lacks `exempt_from_scope_filter`. It returns nil for a
+              manifest whose record is nil (never parsed). This is the SINGLE
+              authority for "a decision is owed here"; Phase 3's census test
+              calls this same function rather than re-deriving the rule.
+
+          `pkg/packval/phase2.go`:
+            * In `RunCoherence`, iterate `ExemptDecisionPending(pack)` and
+              append one `ValidationWarning` per engine to `res.Warnings` with
+              `Phase: res.Phase`, `Check: "exempt-scope-decision"`, a `Message`
+              naming the engine and
+              stating BOTH consequences plainly (true => its violations still RED
+              a diff-scoped gate when they land on an unchanged file; false =>
+              they are filtered out), a `FixHint` telling the author to add
+              `exempt_from_scope_filter: true|false` to that engine's block, and
+              `Files: []string{"pack.yml"}`.
+              `Phase` IS NOT OPTIONAL: both existing phase-2 warnings
+              (`pairs_with` and `orphan-fixture`, located by their `Check`
+              strings) set it, and the renderer prints `WARN [%s/%s]` from
+              `Phase` and `Check` — omitting it renders the literal
+              `WARN [/exempt-scope-decision]` with an empty phase segment, which
+              a CLI-output assertion in TASK-006 would then be pinning as
+              correct. Match the neighbours exactly.
+            * Append to `Warnings` ONLY. Never to `Errors` (SE-5).
+            * Bump the hard-coded `Checks: 6` to 7 and extend its enumerating
+              comment (SE-7).
+
+          Consult `scope_kind` and key presence ONLY. No `gate_type` branch, no
+          engine-name or tool-name branch, no default inferred, no binding value
+          rewritten (SE-1).
+        files:
+          - pkg/packval/manifest.go
+          - pkg/packval/phase2.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+        depends_on:
+          - TASK-003
+
+      - id: TASK-005
+        type: verification
+        title: "Gate the packval lane diff-scoped and re-run the real falsification"
+        description: |
+          Build the binary fresh — never invoke a bare `backstop` (SE-8):
+
+            go build -o ./bin/backstop ./cmd/backstop
+            export PATH=/Users/bmanson/go/bin:$PATH
+
+          Gate this lane's files:
+
+            ./bin/backstop gate --file pkg/packval/manifest.go
+            ./bin/backstop gate --file pkg/packval/phase2.go
+            ./bin/backstop gate --file pkg/packval/exempt_decision_test.go
+
+          Then run the package suite for real:
+
+            go test ./pkg/packval/... -race -count=1
+
+          Confirm and report:
+            - all seven TASK-003 tests PASS, and each was observed RED first;
+            - no OTHER packval test regressed — `RunCoherence`'s check-count
+              change and the new warning stream touch shared assertions, so
+              re-read any phase-2 test that counts checks or warnings;
+            - the ORIGINAL falsification now inverts. Re-run the exact command
+              from CLM-001 against the real installed pack:
+
+                ./bin/backstop pack check .backstop/packs/backstop-ai/go-toolchain
+
+              It reported `status: pass` with zero warnings on 2026-08-17. It
+              must now report `status: pass` (still exit 0 — SE-5) WITH two
+              `exempt-scope-decision` advisories, naming `golangci` and
+              `go-coverage`. Both are EXPECTED and correct (SE-3): they are
+              genuinely un-recorded decisions in an EXTERNAL pack this plan does
+              not edit. Do not silence them, and do not edit that manifest or
+              its in-repo fixture mirror. Report the exact output.
+        files:
+          - pkg/packval/manifest.go
+          - pkg/packval/phase2.go
+          - pkg/packval/exempt_decision_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+        depends_on:
+          - TASK-004
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: The audit census, the CLI proof, and the recorded decisions
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: Executable audit census and recorded decisions"
+    tasks:
+      - id: TASK-006
+        type: test
+        title: "Red tests for the engine census and the CLI exit-code proof"
+        description: |
+          Write `cmd/backstop/exempt_audit_test.go`. It reaches the repo root
+          through the existing `repoRoot(t)` helper and parses manifests through
+          `packval.ParseManifest`, calling `packval.ExemptDecisionPending` so
+          there is ONE definition of "a decision is owed" (TASK-004).
+
+          THE CORPUS is every COMMITTED pack source in this repo — globbed
+          `packs/*/pack.yml` (so deleting a stale pack directory shrinks the
+          corpus instead of breaking the test) PLUS the one committed mirror of
+          a released pack,
+          `cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/pack.yml`.
+          Deliberately EXCLUDE the rest of `testdata/`: those are synthetic
+          fixtures, not real engine declarations, and sweeping them in would
+          drown the audit in noise.
+
+          TestExemptAudit_EveryCommittedPackEngineHasAnIntentRow
+            A table keyed `<pack source path>|<engine name>` gives every engine
+            in the corpus a row carrying its scope kind, whether it declares the
+            key, the intended value, and a WHY string. The test asserts, in both
+            directions, that the table and the corpus agree exactly: an engine
+            with no row FAILS (this is the ratchet — a newly added engine cannot
+            join unaudited), and a row naming an engine that no longer exists
+            FAILS (the record cannot outlive its subject). Each row's declared
+            flag and value must match what the manifest actually says.
+            (CLM-006)
+
+            The WHY strings are the audit, and must carry the grounding, not a
+            restatement: `golangci` cites ISSUE-070's delivered behaviour;
+            `config-file` cites being the generic shape golangci instantiates;
+            each file-args engine cites the by-construction argument; the
+            go-toolchain fixture's `golangci` and `go-coverage` rows are marked
+            PENDING an explicit declaration and name the follow-on that owns it
+            (SE-3). (CLM-007)
+
+          TestExemptAudit_PackCheckReportsAdvisoryAndExitsZero
+            Drive the REAL `pack check` command against
+            `cmd/backstop/testdata/exempt-decision-pack` the way the other
+            command-level tests in this package do. Assert: the reported status
+            is `pass`, the command returns NO error (exit 0), and the output
+            carries an `exempt-scope-decision` advisory naming the fixture's
+            project-wide engine. An advisory that blocks is the failure mode
+            this pins (SE-5). (CLM-003)
+
+            THIS ONE IS A GREEN-ON-ARRIVAL PIN, NOT A RED-FIRST TEST — do not
+            try to observe it red, and do not "fix" anything if it passes on the
+            first run. It depends on TASK-002 (the fixture) and TASK-005 (which
+            already gated TASK-004's implementation), so by the time this task
+            executes, both halves it exercises have landed and it CANNOT be red.
+            That is not a TDD gap: CLM-003's genuine red-first falsification
+            already lives in TASK-003's
+            `TestExemptDecision_AdvisoryNeverFailsTheRun`, observed red before
+            TASK-004 existed. What this test adds is END-TO-END reach — the real
+            CLI command and its real exit code, which a package-level test on
+            `FinalizeStatus` cannot cover. Its job is to LOCK the exit code
+            against future regression, so run it and confirm green.
+
+          Observe `TestExemptAudit_EveryCommittedPackEngineHasAnIntentRow` RED
+          first. It must be red specifically because `packs/base-engines/pack.yml`'s
+          `config-file` row expects an explicit declaration that TASK-007 has not
+          made yet — capture that failure text; it is the falsification for
+          CLM-008.
+        files:
+          - cmd/backstop/exempt_audit_test.go
+        claims:
+          - CLM-003
+          - CLM-006
+          - CLM-007
+          - CLM-008
+        test_names:
+          - TestExemptAudit_EveryCommittedPackEngineHasAnIntentRow
+          - TestExemptAudit_PackCheckReportsAdvisoryAndExitsZero
+        depends_on:
+          - TASK-002
+          - TASK-005
+
+      - id: TASK-011
+        type: test
+        title: "Red source-text pin forbidding an engine roster in the binding doc comment"
+        description: |
+          CLM-009 without this task is a comment-only edit with nothing stopping
+          the identical silent rot from recurring the next time someone
+          "helpfully" documents which engines declare what. This makes the
+          de-enumeration ENFORCED rather than merely done.
+
+          Write `pkg/pack/engine/exempt_doc_test.go`, in the SAME package as
+          `binding.go` so it can read the source relatively. Follow the shipped
+          precedent `TestPhase3_GoModTidyPreflightGone`
+          (`pkg/packval/pack_declared_setup_test.go`), which does exactly this
+          shape: `os.ReadFile` on a same-package source file, then
+          `strings.Contains` over banned literals.
+
+          TestExemptDoc_BindingCommentNamesNoEngine
+            Read `binding.go`. Isolate ONLY the doc comment block attached to the
+            `ExemptFromScopeFilter` field, anchoring on the field DECLARATION and
+            never on a line number (SE-9).
+
+            THE ANCHOR MUST EXCLUDE COMMENT LINES, OR IT SELECTS THE WRONG BLOCK.
+            The string `ExemptFromScopeFilter` occurs TWICE in `binding.go`
+            (measured 2026-08-17): once as the FIRST WORD of this field's own doc
+            comment (Go doc convention — the comment opens `// ExemptFromScopeFilter,
+            when true, ...`) and once as the actual field declaration ten lines
+            below it. A naive first-match scan on the bare field name therefore
+            hits the COMMENT line, walks backward, and collects the doc comment
+            belonging to the PRECEDING field (`FieldContract`) instead — a block
+            that names no engine, so the negative assertion passes vacuously,
+            while the positive `ScopeKind` assertion fails with a confusing
+            message pointing at entirely the wrong target.
+
+            Anchor on the DECLARATION line specifically. Either is acceptable and
+            both were verified to select uniquely:
+              * the line whose TRIMMED text begins with `ExemptFromScopeFilter`
+                AND does NOT begin with `//` (i.e. Go source, not prose); or
+              * the yaml tag literal `yaml:"exempt_from_scope_filter"`, which
+                occurs EXACTLY ONCE in the file.
+            The target block is then the contiguous run of `//`-prefixed lines
+            immediately ABOVE that declaration line, terminated upward by the
+            first non-comment line (verified: the run ends at the preceding
+            `FieldContract` field declaration).
+
+            Assert that block contains none of the engine-name literals:
+            `go-build`, `go-test`, `golangci`, `go-coverage`, `go-arch-lint`,
+            `semgrep`, `ast-grep`, `sandbox`, `config-file`.
+
+            THE BLOCK ISOLATION IS LOAD-BEARING, NOT TIDINESS. `binding.go`
+            legitimately names engines and tools in OTHER doc comments — the
+            `StrictSarif` comment cites the `golangci-lint` command-prefix sniff
+            it replaced, and `PackageScoped` cites the `go test` sniff. A
+            whole-file scan would therefore be permanently red for reasons this
+            claim has no business touching, and the obvious "fix" would be to
+            gut those unrelated, accurate comments. Scope to the one block.
+
+            Assert positively too, so the test cannot be satisfied by deleting
+            the comment outright: the block must still be non-empty and must
+            still reference `ScopeKind` (the decoupling semantics it is required
+            to state).
+
+          Observe RED first: today that block reads "the go-build engine declares
+          it true; golangci and go-test declare it false/unset", so `go-build`,
+          `golangci` and `go-test` all hit. Capture that failure text — it is
+          CLM-009's falsification, and it is also the direct evidence that the
+          comment is wrong (`go-test` has declared `true` since ISSUE-129).
+        files:
+          - pkg/pack/engine/exempt_doc_test.go
+        claims:
+          - CLM-009
+        test_names:
+          - TestExemptDoc_BindingCommentNamesNoEngine
+        depends_on:
+          - TASK-006
+
+      - id: TASK-007
+        type: implementation
+        title: "Record base-engines' own exempt decision explicitly"
+        description: |
+          In `packs/base-engines/pack.yml`, add
+          `exempt_from_scope_filter: false` to the `config-file` engine binding —
+          the only project-wide engine in a committed in-repo pack source — with
+          a comment giving the reason, not just the value: `config-file` is the
+          generic native-linter shape (a tool that runs its own built-in rules
+          project-wide from one config file), `golangci` is its instance, and
+          ISSUE-070 established that such findings on files outside the change
+          MUST be filtered rather than red the gate. Leave `semgrep`, `ast-grep`
+          and `sandbox` untouched — they are `file-args` and no decision is owed.
+
+          This is a RECORDING change, not a behaviour change: `false` is the
+          zero value the binding already resolved to. Prove that rather than
+          asserting it — the embedded registry (`pkg/baseengines`, which reads
+          this exact file through `backstopcore.BaseEnginesFS`) must resolve the
+          `config-file` binding identically before and after:
+
+            go test ./pkg/baseengines/... -race -count=1
+
+          If any base-engines test changes behaviour, stop: something other than
+          a recorded zero value was edited.
+        files:
+          - packs/base-engines/pack.yml
+        claims:
+          - CLM-006
+          - CLM-008
+        depends_on:
+          - TASK-006
+
+      - id: TASK-008
+        type: refactor
+        title: "De-enumerate the stale per-engine roster in the binding doc comment"
+        description: |
+          `pkg/pack/engine/binding.go`'s `ExemptFromScopeFilter` doc comment
+          still asserts a per-engine roster that ISSUE-129 falsified: it says
+          "the go-build engine declares it true; golangci and go-test declare it
+          false/unset". `go-test` has declared it TRUE since ISSUE-129 shipped
+          (confirmed in the released go-toolchain manifest and its in-repo
+          fixture mirror), so the comment is actively wrong about the very
+          intent this plan exists to make honest.
+
+          Do not merely correct the roster — DELETE it. An enumeration of which
+          engines declare which value is the thing that went stale, and it will
+          go stale again the moment a pack changes in a repository this comment
+          cannot see. Replace it with the SEMANTICS (an explicit, per-binding
+          decision, decoupled from ScopeKind per SPEC-041 CLM-017, resolved
+          per-violation) plus a pointer to the executable roster —
+          `TestExemptAudit_EveryCommittedPackEngineHasAnIntentRow` — and to the
+          `exempt-scope-decision` advisory that prompts for an unmade decision.
+
+          Change ONLY the comment. The field, its type, its yaml tag and every
+          consumer stay exactly as they are — this file is on the gate hot path
+          and a behavioural edit here is out of scope.
+
+          TASK-011's `TestExemptDoc_BindingCommentNamesNoEngine` is the
+          acceptance criterion: it fails while any engine-name literal remains in
+          this block, and it also fails if the block is emptied or stops
+          mentioning `ScopeKind` — so the replacement must genuinely state the
+          semantics, not just delete the roster. Leave every OTHER doc comment in
+          this file alone; the `StrictSarif` and `PackageScoped` comments name
+          tools accurately and deliberately, and are outside CLM-009's scope.
+        files:
+          - pkg/pack/engine/binding.go
+        claims:
+          - CLM-009
+        depends_on:
+          - TASK-006
+          - TASK-007
+          - TASK-011
+
+      - id: TASK-009
+        type: verification
+        title: "Gate the census and declaration lane diff-scoped"
+        description: |
+          Fresh build, real binary, go-arch-lint resolvable (SE-8):
+
+            go build -o ./bin/backstop ./cmd/backstop
+            export PATH=/Users/bmanson/go/bin:$PATH
+
+            ./bin/backstop gate --file cmd/backstop/exempt_audit_test.go
+            ./bin/backstop gate --file packs/base-engines/pack.yml
+            ./bin/backstop gate --file pkg/pack/engine/binding.go
+            ./bin/backstop gate --file pkg/pack/engine/exempt_doc_test.go
+
+          Then run the affected suites for real:
+
+            go test ./cmd/backstop/... -run "TestExemptAudit" -race -count=1
+            go test ./pkg/baseengines/... ./pkg/pack/... -race -count=1
+
+          Confirm and report:
+            - both TASK-006 tests PASS. `TestExemptAudit_EveryCommittedPackEngineHasAnIntentRow`
+              was observed RED first; `TestExemptAudit_PackCheckReportsAdvisoryAndExitsZero`
+              is the declared green-on-arrival exit-code pin and is confirmed
+              green, not red-first;
+            - TASK-011's `TestExemptDoc_BindingCommentNamesNoEngine` PASSES and
+              was observed RED first (it named `go-build`, `golangci` and
+              `go-test` before TASK-008 de-enumerated the block);
+            - `pkg/baseengines` and `pkg/pack/engine` tests are UNCHANGED in
+              outcome — TASK-007 recorded a zero value and TASK-008 touched only
+              a comment, so any behavioural delta here means the edit overreached;
+            - the shipped
+              `TestExemption_BindingDeclaresExemptFromScopeFilterDecoupledFromScopeKind`
+              still passes: it is the existing pin on `golangci` staying
+              non-exempt (SE-2), and this plan must not have disturbed it;
+            - NO go-toolchain manifest was edited — neither the installed pack
+              nor `cmd/backstop/testdata/go-toolchain/...` appears in
+              `git status` (SE-3).
+        files:
+          - cmd/backstop/exempt_audit_test.go
+          - packs/base-engines/pack.yml
+          - pkg/pack/engine/binding.go
+          - pkg/pack/engine/exempt_doc_test.go
+        claims:
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-007
+          - TASK-008
+          - TASK-011
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: Comprehensive verification
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Full kill chain and artifact validation"
+    tasks:
+      - id: TASK-010
+        type: verification
+        title: "Full kill chain, artifact validation, and the mandated follow-on"
+        description: |
+          Comprehensive, unscoped verification covering both work categories
+          this plan touched — Go code and pack/artifact data. Coordinate with
+          any other implementer active in this worktree BEFORE running an
+          unscoped sweep, or the readings are noise (SE-8).
+
+            go build -o ./bin/backstop ./cmd/backstop
+            export PATH=/Users/bmanson/go/bin:$PATH
+
+          CODE:
+
+            ./bin/backstop gate --all
+
+          ARTIFACTS:
+
+            ./bin/backstop artifact validate --plan PLAN-ISSUE-136
+
+          Then confirm the whole delivery, and report each:
+            - CLM-001..CLM-005: the advisory fires on an omitted key, is silent
+              on either explicit value, never blocks, derives nothing, and
+              cannot go vacuously silent.
+            - CLM-006/CLM-007: the census covers every engine in the committed
+              corpus with a grounded row.
+            - CLM-008/CLM-009: base-engines records its decision; the binding
+              doc no longer carries a roster that can go stale, and
+              `TestExemptDoc_BindingCommentNamesNoEngine` now FORBIDS one being
+              re-added.
+            - The go-toolchain pack was NOT edited, in either copy.
+
+          MANDATED FOLLOW-ON — surface it, do not absorb it (ISSUE-136 Direction
+          item 2, SE-3). Report to the founder, with the advisory output as
+          evidence, that the go-toolchain pack's `golangci` and `go-coverage`
+          engines still carry UNRECORDED (absent-key) exempt decisions and now
+          produce two standing advisories. The audit's finding is that both are
+          CORRECTLY non-exempt — `golangci` per ISSUE-070, `go-coverage` because
+          `gate_type: coverage` routes it to the coverage-records channel and
+          never through `filterViolations` — so the work is to RECORD those
+          decisions explicitly, which requires a pack-manifest edit, version
+          bump, tag, relock, and a matching update to the in-repo fixture
+          mirror. That is its own defect in an external repository. File it as
+          an issue; do not do it here.
+
+          If `backstop gate --all` is RED for a reason this plan did not cause,
+          say so plainly with the evidence and name the owning issue — never
+          waive, never weaken a test, never work around it.
+        files:
+          - pkg/packval/manifest.go
+          - pkg/packval/phase2.go
+          - pkg/packval/exempt_decision_test.go
+          - cmd/backstop/exempt_audit_test.go
+          - packs/base-engines/pack.yml
+          - pkg/pack/engine/binding.go
+          - pkg/pack/engine/exempt_doc_test.go
+          - plans/PLAN-ISSUE-136-audit-exempt-scope-filter-coverage.plan.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-004
+          - TASK-005
+          - TASK-007
+          - TASK-008
+          - TASK-009
