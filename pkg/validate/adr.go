@@ -155,9 +155,22 @@ func extractSlug(filename string) string {
 		return ""
 	}
 	rest := filename[9:] // after "ADR-NNNN-"
-	// Strip suffix: .adr.md
-	if strings.HasSuffix(rest, ".adr.md") {
-		return rest[:len(rest)-7]
+	// Strip suffix: .adr.md, read from the shared layout table (ISSUE-124).
+	//
+	// ★ THE LENGTH IS DERIVED, NOT WRITTEN. This used to close with `rest[:len(rest)-7]`,
+	// where 7 was len(".adr.md") as a bare integer — a SECOND private copy of the same
+	// fact, in a form no string scan can ever see. Converting only the HasSuffix call
+	// would leave that copy behind and look complete.
+	//
+	// The ok is handled rather than discarded: a zero-value KindLayout's Extension is
+	// EMPTY, HasSuffix against "" is always true, and `rest[:len(rest)-0]` would then
+	// return the whole remainder INCLUDING its extension.
+	adrLayout, ok := artifact.LayoutFor(artifact.KindADR)
+	if !ok {
+		return ""
+	}
+	if strings.HasSuffix(rest, adrLayout.Extension) {
+		return rest[:len(rest)-len(adrLayout.Extension)]
 	}
 	return ""
 }

@@ -10,12 +10,12 @@ import (
 )
 
 var (
-	bundleNameRe     = regexp.MustCompile(`^[a-z0-9-]+$`)                     // nosemgrep: go.core.no-global-mutable-state — immutable compiled-regex singleton, package idiom
-	semverRe         = regexp.MustCompile(`^\d+\.\d+\.\d+$`)                  // nosemgrep: go.core.no-global-mutable-state — immutable compiled-regex singleton, package idiom
-	dateRe           = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)             // nosemgrep: go.core.no-global-mutable-state — immutable compiled-regex singleton, package idiom
-	epicIDRe         = regexp.MustCompile(`^EPIC-[A-Z0-9-]+$`)                // nosemgrep: go.core.no-global-mutable-state — immutable compiled-regex singleton, package idiom
+	bundleNameRe     = regexp.MustCompile(`^[a-z0-9-]+$`)                       // nosemgrep: go.core.no-global-mutable-state — immutable compiled-regex singleton, package idiom
+	semverRe         = regexp.MustCompile(`^\d+\.\d+\.\d+$`)                    // nosemgrep: go.core.no-global-mutable-state — immutable compiled-regex singleton, package idiom
+	dateRe           = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)                // nosemgrep: go.core.no-global-mutable-state — immutable compiled-regex singleton, package idiom
+	epicIDRe         = regexp.MustCompile(`^EPIC-[A-Z0-9-]+$`)                  // nosemgrep: go.core.no-global-mutable-state — immutable compiled-regex singleton, package idiom
 	placeholderRe    = regexp.MustCompile(`(?i)\b(TBD|TODO|FIXME|XXX)\b|\?{3}`) // nosemgrep: go.core.no-global-mutable-state — immutable compiled-regex singleton, package idiom
-	bundleCategories = map[string]bool{ // nosemgrep: go.core.no-global-mutable-state — immutable enum lookup, package idiom
+	bundleCategories = map[string]bool{                                         // nosemgrep: go.core.no-global-mutable-state — immutable enum lookup, package idiom
 		"feature": true, "service": true, "integration": true,
 		"recipe": true, "infrastructure": true, "tool": true, "epic": true,
 	}
@@ -270,12 +270,42 @@ func validateNameFilenameConsistency(art *artifact.ParsedArtifact) []Violation {
 		return violations
 	}
 
-	// Extract stem: strip .epic.bundle.md or .bundle.md
+	// Extract stem: strip .epic.bundle.md or .bundle.md, with the bundle extension read
+	// from the shared layout table (ISSUE-124).
+	//
+	// ★ `.epic` STAYS A LITERAL AND THAT IS CORRECT. It is not a layout extension and
+	// there is no eighth kind: per artifacts/bundle/v1/schema.json the bundle filename
+	// pattern is `^[a-z0-9-]+(\.epic)?\.bundle\.md$`, so `.epic` is a bundle-SCHEMA
+	// category modifier sitting INSIDE the stem, before the kind extension. It is schema
+	// vocabulary, and composing epicSuffix from the table is what keeps the layout half
+	// derived while the schema half stays where it belongs.
+	//
+	// ★★ DO NOT COLLAPSE THIS INTO AN UNCONDITIONAL PAIR OF TrimSuffix CALLS. The
+	// tempting rewrite —
+	//
+	//	stem = strings.TrimSuffix(art.Filename, bundleLayout.Extension)
+	//	stem = strings.TrimSuffix(stem, ".epic")
+	//
+	// — is equivalent for every input that matches EITHER branch and wrong for one that
+	// matches NEITHER. This is an if/ELSE chain, so "foo.epic" falls through completely
+	// untouched; under the collapsed form the first trim is a no-op and the second strips
+	// ".epic", yielding "foo" and a different verdict. That input is filtered out
+	// upstream by the schema filename pattern today (this helper's ONE caller gates it on
+	// filenameOK), so the divergence is currently unreachable through Bundle() — but that
+	// is an accident of an upstream pattern, a coupling nothing here states or enforces,
+	// not a guarantee. Pinned by the "matches neither suffix" row in
+	// layout_literals_test.go, which calls this helper directly.
+	//
+	// On ok=false the stem is left UNTOUCHED and the existing bundle/name-filename-mismatch
+	// violation below fires; no new rule is invented for an impossible state.
 	stem := art.Filename
-	if strings.HasSuffix(stem, ".epic.bundle.md") {
-		stem = strings.TrimSuffix(stem, ".epic.bundle.md")
-	} else if strings.HasSuffix(stem, ".bundle.md") {
-		stem = strings.TrimSuffix(stem, ".bundle.md")
+	if bundleLayout, ok := artifact.LayoutFor(artifact.KindBundle); ok {
+		epicSuffix := ".epic" + bundleLayout.Extension
+		if strings.HasSuffix(stem, epicSuffix) {
+			stem = strings.TrimSuffix(stem, epicSuffix)
+		} else if strings.HasSuffix(stem, bundleLayout.Extension) {
+			stem = strings.TrimSuffix(stem, bundleLayout.Extension)
+		}
 	}
 	// Strip BUNDLE-NNN- prefix if present (e.g., "BUNDLE-007-baseline" → "baseline")
 	// This supports the numbered bundle convention from artifact new

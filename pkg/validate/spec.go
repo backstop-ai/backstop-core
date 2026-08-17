@@ -748,7 +748,15 @@ func extractSpecSlug(filename string) string {
 		return ""
 	}
 	rest := filename[9:] // after "SPEC-NNN-"
-	suffix := ".spec.md"
+	// The extension comes from the shared layout table (ISSUE-124), never from a private
+	// constant. On an unrecognized kind LayoutFor yields a zero-value KindLayout whose
+	// Extension is EMPTY, and HasSuffix against "" is always true — so the ok is handled
+	// rather than discarded, degrading to this function's EXISTING failure mode.
+	specLayout, ok := artifact.LayoutFor(artifact.KindSpec)
+	if !ok {
+		return ""
+	}
+	suffix := specLayout.Extension
 	if strings.HasSuffix(rest, suffix) {
 		return rest[:len(rest)-len(suffix)]
 	}

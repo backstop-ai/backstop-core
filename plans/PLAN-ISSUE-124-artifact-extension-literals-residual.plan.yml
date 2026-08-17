@@ -2,13 +2,122 @@
 plan_id: PLAN-ISSUE-124
 spec_id: ISSUE-124
 created: "2026-08-16"
-status: draft
+status: completed
 target_repo: backstop-core
 target_module: github.com/backstop-ai/backstop-core
 test_command: "go test ./pkg/artifact/ ./pkg/gate/ ./pkg/validate/ ./cmd/backstop/ -run 'TestLayout_NoConsumer|TestLayout_ConsumerScanBoundary|TestTestVerify_SpecDiscoveryAcceptsOnlySpecFiles|TestTestVerify_DecoyFixturesWouldChangeEveryExtractorIfWidened|TestValidate_SlugAndStemExtraction|TestValidate_CitingStatusClassifies|TestSubstantivenessE2E_WorkspaceSpecPaths' -count=1"
 coverage_threshold: 90
 
 notes: |
+  AS-BUILT — CLOSED 2026-08-16. status: draft → completed.
+  ══════════════════════════════════════════════════════════════════════════════
+  The tasks, claims and sharp edges BELOW this banner are the AUTHORED record of
+  what was planned and are deliberately left unrewritten. This banner is what
+  reconciles them to what actually shipped. Every statement below was verified
+  against the working tree at close-out — call sites read by name, mandated tests
+  re-run, waiver tokens grepped — not transcribed from the implementer's report.
+
+  ── ONE CORRECTION TO THE HAND-OFF REPORT ─────────────────────────────────
+  The close-out request named `pkg/artifact/spec.go` and `pkg/artifact/adr.go`.
+  Those files do not exist and were never in scope. The converted files are
+  `pkg/validate/spec.go` and `pkg/validate/adr.go`, exactly as TASK-004 declared.
+  Recorded here because the error would otherwise propagate into the ledger.
+
+  ── WHAT SHIPPED ───────────────────────────────────────────────────────────
+  All fifteen residual literals (thirteen extension, including the four composed
+  forms such as `.epic.bundle.md`; two directory) now route through the shared
+  `pkg/artifact` layout authority PLAN-SPEC-068 built. Six production files, all
+  six in TASK-004's declared scope, all verified by call site at close-out:
+
+    pkg/gate/step_testverify.go — FOUR sites, one per extractor, located by
+      enclosing function and not by line as the plan's census insisted:
+      ExtractMandatedTests (:137), CountTerminalSpecs (:243),
+      ExtractSpecVerifications (:652), ExtractContractEntries (:697). Each reads
+      `kind, isArtifact := artifact.ClassifyFilename(entry.Name())` and guards
+      `entry.IsDir() || !isArtifact || kind != artifact.KindSpec`.
+    pkg/validate/spec.go (:755)   — artifact.LayoutFor(artifact.KindSpec)
+    pkg/validate/adr.go (:168)    — artifact.LayoutFor(artifact.KindADR)
+    pkg/validate/bundle.go (:302) — artifact.LayoutFor(artifact.KindBundle)
+    pkg/validate/supports_resolution.go (:256) — ClassifyFilename, issue kind
+    cmd/backstop/gate_substantiveness_e2e.go — both workspace builders (:71,
+      :184) through one shared unexported helper `e2eSpecLayout(tmp)` (:45).
+
+  Diff across the six: 131 insertions, 24 deletions.
+
+  Four test files, all seven mandated test names present, none renamed, all GREEN
+  when re-run at close-out (`go test -count=1`, per package):
+    pkg/artifact/layout_consumer_scan_test.go — TestLayout_NoConsumerCarriesA
+      PrivateArtifactExtensionLiteral, ...ArtifactDirectoryLiteral,
+      TestLayout_ConsumerScanBoundaryIsNonEmptyAndEveryScopedPathExists
+    pkg/gate/step_testverify_layout_test.go — TestTestVerify_SpecDiscoveryAccepts
+      OnlySpecFilesFromSharedLayout, TestTestVerify_DecoyFixturesWouldChange
+      EveryExtractorIfWidened
+    pkg/validate/layout_literals_test.go — TestValidate_SlugAndStemExtractionAre
+      DerivedFromSharedLayout, TestValidate_CitingStatusClassifiesIssuesThrough
+      SharedLayout
+    cmd/backstop/gate_substantiveness_layout_test.go —
+      TestSubstantivenessE2E_WorkspaceSpecPathsComeFromSharedLayout
+
+  ── THE FALSIFICATION BAR WAS MET ──────────────────────────────────────────
+  The cross-package source scan (TASK-001) was RED at 15 hits before the swap and
+  is GREEN at 0 after it — the transition the plan was written to produce.
+  TASK-006's mutation round ran six mutations against six predicted reds; all six
+  reds appeared and all six mutations were reverted with no residue, each revert
+  confirmed by a `git diff` scoped to this plan's ten files. Re-verified at
+  close-out: the scan test passes and zero `@waiver:` tokens exist anywhere in
+  the ten files.
+
+  ── TWO IMPLEMENTATION JUDGMENT CALLS, BOTH SOUND ──────────────────────────
+  1. The four step_testverify.go guards use ClassifyFilename with NO error path.
+     This is correct and is documented in-file at :126-:136. ClassifyFilename's
+     bool IS the answer — there is no impossible state to report — whereas
+     LayoutFor would need an error arm that, on any non-artifact file present in
+     the corpus, would red the gate for a condition that is not a defect.
+  2. gate_substantiveness_e2e.go got ONE shared unexported helper rather than a
+     duplicated block in each builder. That helper is where the mandated
+     error-on-ok=false lives, once, for both builders.
+
+  ── TWO GENUINE BUGS FIXED IN PASSING (outside this plan's core scope) ──────
+  Two pre-existing go-standards `error-wrapping-required` findings in
+  gate_substantiveness_e2e.go — unwrapped errors in newE2EWorkspace and
+  newZeroMatchE2EWorkspace — were fixed to `fmt.Errorf("...: %w", err)`. They
+  were in this lane's declared file and would have blocked its own gate. This is
+  the whole of the incidental fix: the package-level mutable-var pattern issue
+  seen elsewhere in the working tree belongs to a DIFFERENT lane and was not
+  touched here. Do not conflate the two.
+
+  ── TASK-007: SIX OF SEVEN ASSERTIONS MADE; ONE RESIDUAL, INHERITED ────────
+  Final scoped gate reading: BEFORE the swap, FOUR dimensions failed on this
+  lane's files (202 violations across the whole diff scope); AFTER, ONE remains.
+  test_verification flipped to PASS and both error-wrapping findings are gone.
+  Nine of this plan's ten files show zero findings in the final run.
+
+  The sole remaining item is a COVERAGE FLOOR shortfall on
+  cmd/backstop/gate_substantiveness_e2e.go, and it is INHERITED, not caused:
+
+    - after this lane:            68/93 = 73.1%   (floor for cmd/backstop is 80)
+    - at clean HEAD, measured in a CONTROL WORKTREE (never by cleaning or
+      stashing this shared tree): 61/82 = 74.4% — ALREADY 5.6 points under the
+      floor before this lane touched the file.
+    - this lane's own contribution is real but marginal: 1.3pp down. Removing
+      every statement this lane added would still leave it at 76.4% — red.
+
+  It is therefore NOT fixable from inside this lane. The real fix requires the
+  fourteen currently-failing cmd/backstop tests (SPEC-037 CLM-031-034's
+  substantiveness e2e family) to pass again, which depends on ISSUE-148
+  (substantiveness pack fixture polarity inverted) — a genuinely pre-existing
+  PACK-CONTENT defect, filed 2026-08-16, and the actual owner of this cause.
+
+  ACCEPTED AS INHERITED. Not waived, not hacked green: waiver_resolution reports
+  clean and there are zero active waivers on this file (grep-verified at
+  close-out). TASK-007's like-for-like rule applies exactly here — a dimension
+  already red at baseline and red the same way now is UNCHANGED and is not this
+  lane's finding. It is recorded rather than papered over, and it closes when
+  ISSUE-148 closes.
+
+  Both artifact validations pass. ISSUE-124 is delivered.
+  ══════════════════════════════════════════════════════════════════════════════
+
   Implements ISSUE-124. SEVEN tasks, THREE phases, SIX production files, FOUR test
   files, FIFTEEN literal occurrences. The deliverable is that the SEVENTH hardcoding
   family — the residual artifact-type EXTENSION and DIRECTORY literals PLAN-SPEC-068

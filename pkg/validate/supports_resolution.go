@@ -249,7 +249,11 @@ func supportsValues(val interface{}) []string {
 // citingStatus resolves a citing artifact's status for the terminal exemption:
 // issues carry it in the issue.* block, every other type in top-level metadata.
 func citingStatus(art *artifact.ParsedArtifact) string {
-	if strings.HasSuffix(art.Filename, ".issue.md") {
+	// The kind decision goes through the shared layout table (ISSUE-124). This is the
+	// cleanest ClassifyFilename fit in that change: the question is "is this an issue",
+	// so the bool IS the answer and there is no zero-value hazard to handle — an
+	// unrecognized name falls through to metadata, which is what a non-issue does anyway.
+	if kind, isArtifact := artifact.ClassifyFilename(art.Filename); isArtifact && kind == artifact.KindIssue {
 		if issueVal, ok := art.Frontmatter["issue"].(map[string]interface{}); ok {
 			if s, ok := getStringField(issueVal, "status"); ok {
 				return s

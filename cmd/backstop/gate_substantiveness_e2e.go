@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/backstop-ai/backstop-core/pkg/artifact"
 	"github.com/backstop-ai/backstop-core/pkg/gate"
 	"github.com/backstop-ai/backstop-core/pkg/pack/distribution"
 )
@@ -29,6 +30,30 @@ func substantivenessSourceDir(repoRoot string) string {
 	return filepath.Join(repoRoot, "packs", "substantiveness")
 }
 
+// e2eSpecLayout resolves a workspace's spec directory and the shared spec extension
+// through the artifact layout authority (ISSUE-124), so neither builder below holds a
+// private "specs" directory literal or ".spec.md" fixture-name literal.
+//
+// ★ THE DIRECTORY COMES FROM ResolveRoot + Root.Dir, NOT FROM A HAND-BUILT Root STRUCT
+// LITERAL. Root.Path is absolute-and-cleaned by GUARANTEE of the resolver, and a literal
+// skips that absolutization — which is a misuse PLAN-SPEC-068 already paid a review round
+// for.
+//
+// Both callers return (*e2eWorkspace, error), so an unrecognized kind is reported as an
+// error naming it rather than degrading to a zero-value KindLayout whose empty Extension
+// would silently produce an extensionless fixture.
+func e2eSpecLayout(tmp string) (specDir string, specExt string, err error) {
+	root, rootErr := artifact.ResolveRoot(tmp, "")
+	if rootErr != nil {
+		return "", "", fmt.Errorf("resolving e2e artifact root at %s: %w", tmp, rootErr)
+	}
+	layout, ok := artifact.LayoutFor(artifact.KindSpec)
+	if !ok {
+		return "", "", fmt.Errorf("resolving e2e spec layout: artifact kind %q is unrecognized", artifact.KindSpec)
+	}
+	return root.Dir(artifact.KindSpec), layout.Extension, nil
+}
+
 // e2eWorkspace is a temp workspace with a backstop.yml + specs/ + a hollow mandated
 // test file, into which the substantiveness pack is installed as a local pack.
 type e2eWorkspace struct {
@@ -43,7 +68,10 @@ type e2eWorkspace struct {
 // a hollow test, and the hollow *_test.go source. It does NOT install the pack — the
 // caller decides (so the negative twin can run the SAME workspace uninstalled).
 func newE2EWorkspace(tmp string) (*e2eWorkspace, error) {
-	specDir := filepath.Join(tmp, "specs")
+	specDir, specExt, layoutErr := e2eSpecLayout(tmp)
+	if layoutErr != nil {
+		return nil, fmt.Errorf("scaffolding e2e workspace: %w", layoutErr)
+	}
 	if err := os.MkdirAll(specDir, 0o755); err != nil {
 		return nil, fmt.Errorf("creating e2e spec dir: %w", err)
 	}
@@ -87,7 +115,7 @@ claims:
 
 # E2E Sub Spec
 `
-	if err := os.WriteFile(filepath.Join(specDir, "e2e.spec.md"), []byte(spec), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(specDir, "e2e"+specExt), []byte(spec), 0o644); err != nil {
 		return nil, fmt.Errorf("writing e2e spec: %w", err)
 	}
 	// A genuinely HOLLOW backstop *_test.go source: calls a subject, asserts nothing.
@@ -153,7 +181,10 @@ func (w *e2eWorkspace) installSubstantivenessLocalPack(repoRoot string) error {
 // is why the unresolved `gate` import is fine (newE2EWorkspace's shipped fixture calls
 // an undefined doSubject() for exactly the same reason).
 func newZeroMatchE2EWorkspace(tmp string) (*e2eWorkspace, error) {
-	specDir := filepath.Join(tmp, "specs")
+	specDir, specExt, layoutErr := e2eSpecLayout(tmp)
+	if layoutErr != nil {
+		return nil, fmt.Errorf("scaffolding zero-match e2e workspace: %w", layoutErr)
+	}
 	if err := os.MkdirAll(specDir, 0o755); err != nil {
 		return nil, fmt.Errorf("creating zero-match spec dir: %w", err)
 	}
@@ -207,7 +238,7 @@ claims:
 
 # E2E ZeroMatch Spec
 `
-	if err := os.WriteFile(filepath.Join(specDir, "zeromatch.spec.md"), []byte(spec), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(specDir, "zeromatch"+specExt), []byte(spec), 0o644); err != nil {
 		return nil, fmt.Errorf("writing zero-match spec: %w", err)
 	}
 

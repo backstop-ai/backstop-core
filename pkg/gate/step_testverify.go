@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/backstop-ai/backstop-core/pkg/artifact"
 )
 
 // MandatedTest represents a test function mandated by a spec claim.
@@ -42,7 +44,7 @@ type specFrontmatter struct {
 	// deprecated — ISSUE-031 DQ-1) cause the spec to be EXCLUDED from gate
 	// enforcement: its mandated tests, verifications, and contracts are not
 	// extracted, because a retired spec's promises are deliberately no longer held.
-	Status         string `yaml:"status"`
+	Status string `yaml:"status"`
 	// Implementation carries the spec-level target unit. `subject` is the canonical
 	// language-neutral key (ISSUE-047); `package` is a DEPRECATED ALIAS retained so the
 	// ~40 unmigrated specs keep resolving. yaml.v3 struct tags cannot alias two keys
@@ -117,7 +119,23 @@ func ExtractMandatedTests(specDir string) ([]MandatedTest, error) {
 
 	var tests []MandatedTest
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".spec.md") {
+		// SPEC DISCOVERY GOES THROUGH THE SHARED LAYOUT TABLE (ISSUE-124). The same
+		// three-line decision appears in CountTerminalSpecs, ExtractSpecVerifications
+		// and ExtractContractEntries; all four used to carry a private ".spec.md".
+		//
+		// ★ ClassifyFilename RATHER THAN LayoutFor(KindSpec).Extension, and the choice is
+		// a safety property rather than a style one. LayoutFor returns a ZERO-VALUE
+		// KindLayout when its ok is false, and that zero value's Extension is the EMPTY
+		// STRING — so `!strings.HasSuffix(name, layout.Extension)` with a discarded ok
+		// silently inverts this filter from "specs only" into "accept every file in the
+		// directory", and the extractors below start parsing README.md as spec
+		// frontmatter. ClassifyFilename has no such hazard: its bool IS the answer, and a
+		// false simply means the name is not artifact-shaped, which is precisely the
+		// skip this loop wants. There is no ok to discard here and no impossible state to
+		// report. The IsDir guard is PRESERVED — a directory named x.spec.md classifies
+		// happily and must still be skipped.
+		kind, isArtifact := artifact.ClassifyFilename(entry.Name())
+		if entry.IsDir() || !isArtifact || kind != artifact.KindSpec {
 			continue
 		}
 
@@ -222,7 +240,8 @@ func CountTerminalSpecs(specDir string) (int, error) {
 	}
 	count := 0
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".spec.md") {
+		kind, isArtifact := artifact.ClassifyFilename(entry.Name())
+		if entry.IsDir() || !isArtifact || kind != artifact.KindSpec {
 			continue
 		}
 		fm, err := parseSpecFrontmatter(filepath.Join(specDir, entry.Name()))
@@ -630,7 +649,8 @@ func ExtractSpecVerifications(specDir string) ([]SpecVerification, error) {
 
 	var specs []SpecVerification
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".spec.md") {
+		kind, isArtifact := artifact.ClassifyFilename(entry.Name())
+		if entry.IsDir() || !isArtifact || kind != artifact.KindSpec {
 			continue
 		}
 
@@ -674,7 +694,8 @@ func ExtractContractEntries(specDir, projectRoot string) ([]ContractEntry, error
 
 	var contracts []ContractEntry
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".spec.md") {
+		kind, isArtifact := artifact.ClassifyFilename(entry.Name())
+		if entry.IsDir() || !isArtifact || kind != artifact.KindSpec {
 			continue
 		}
 
