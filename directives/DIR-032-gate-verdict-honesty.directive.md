@@ -26,6 +26,7 @@ directive:
     - "ISSUE-144"
     - "ISSUE-146"
     - "ISSUE-148"
+    - "ISSUE-151"
 ---
 
 ## Description
@@ -126,7 +127,28 @@ own real, in-repo, currently-installed fixture pair, where each fixture is
 individually a correct example of what its own file comment claims — the
 defect is purely which manifest key (`positive`/`negative`) each is filed
 under, inverted from backstop's positive=clean/negative=violating convention.
-See item 19 below and the Notes for the full distinction.
+See item 19 below and the Notes for the full distinction. **Correction
+(2026-08-17):** the roster grew again, to TWENTY, with item 20 (ISSUE-151),
+slotted by backlog-pm under the same standing clear-fit grant recorded above
+for items 12 (ISSUE-118), 13 (ISSUE-129), 14 (ISSUE-136), 16 (ISSUE-142), 17
+(ISSUE-144), 18 (ISSUE-146) and 19 (ISSUE-148) — on charter fit against this
+directive's own description, not by the founder's original 2026-08-10
+eleven-member roster. Item 20 is a THIRD layer, distinct from both layers
+this directive has named so far: items 4, 15, 16 and 17 are
+dispatch-MACHINERY gaps inside `pack test`/`pack check` phase3 (the check
+never runs, runs against the wrong bytes, or misreads the wrong YAML key),
+and items 18 and 19 are authoring-CONTENT gaps in the fixtures phase3
+validates. Item 20 is an authoring-content gap in the RULE'S OWN PATH
+SCOPING, and it is dead on the LIVE CONSUMER GATE — `backstop gate` itself,
+in its default diff-scoped invocation — not only inside the pack-authoring
+tool. It is also the first member whose blast radius is not bounded by
+backstop-core's own tree: it applies to any pack, in any consuming repo, that
+scopes a rule with a directory-prefixed `paths.include`. Filed by
+`PLAN-ISSUE-091` TASK-006 item 3 — one of four mandated follow-on filings
+from item 3's own lane; its three siblings are ISSUE-149, ISSUE-150 (both
+record-only behavior-change filings, escalated to the founder as unhomed,
+deliberately NOT slotted here) and ISSUE-152 (a founder scope-policy
+decision, not yet triaged).
 
 The cluster's variants, so a planner does not read it as one uniform bug:
 
@@ -200,6 +222,19 @@ The cluster's variants, so a planner does not read it as one uniform bug:
   currently bounds it, which is why it is `risk: moderate` rather than
   `critical`: it is an audit, not a known live defect, though any defect it
   surfaces inherits item 13's `critical` severity class.
+- **Item 20 (151) is a fourth variant and belongs to none of the buckets
+  above: the CONTRACT variant.** Items 4-10 mis-report a verdict the step DID
+  compute; items 11-12 starve (never compute anything for a trigger); item 13
+  suppresses (computes the truth, then discards it); item 14 is the audit for
+  item 13. Item 20 is none of these — the gate step runs, dispatches
+  correctly, and reports the verdict its inputs earn. The defect is that a
+  pack RULE, correctly declared by its author and correctly loaded by core,
+  is silently never APPLIED to the files it names, because its
+  `paths.include` globs are unsatisfiable under the dispatch shape the gate
+  actually uses. Nothing in core is wrong and nothing in the pack is
+  malformed; the two are individually correct and jointly vacuous. That is
+  why item 20's fix site is neither a gate step nor a packval phase — it is
+  the pack-authoring CONTRACT itself, and whatever validates it.
 
 1. **Gate test verification runs the full package, not a plan's narrow
    `-run` filter (ISSUE-066).** A spec/plan `test_command` commonly scopes
@@ -1102,6 +1137,106 @@ The cluster's variants, so a planner does not read it as one uniform bug:
     working exactly as designed. `type: bug`, `scope: contained`,
     `uncertainty: known`, `risk: critical`.
 
+20. **A pack rule whose `paths.include` names directory-prefixed globs is a
+    silent no-op under the gate's explicit-file dispatch — pre-existing,
+    ecosystem-wide, and the vacuous-green class (ISSUE-151).** Stated as the
+    observable contract without speculating about semgrep's internals: a
+    `paths.include` glob naming a directory prefix (`pkg/gate/*.go`,
+    `cmd/backstop/pack_gate*.go`) is SATISFIED when semgrep is handed a
+    DIRECTORY target and UNSATISFIED when the same file is handed over
+    EXPLICITLY. The gate's DEFAULT diff-scoped invocation has ALWAYS
+    dispatched explicit files, so such a rule has already been effectively
+    DEAD on the everyday `backstop gate` — this is not new behavior and item
+    3's fix did not create it. What item 3's fix (`PLAN-ISSUE-091`) did was
+    collapse `--all`'s dispatch onto that same explicit-file-list shape,
+    which EXTENDS the existing blindness to `--all` and thereby makes it
+    VISIBLE for the first time; previously `--all`'s directory-target
+    dispatch masked it by accident. Do not soften that framing: item 20 is
+    item 3's RESIDUAL, not item 3's regression.
+
+    Measured by `PLAN-ISSUE-091` at HEAD 1902644 (2026-08-16, real semgrep
+    1.156.0) and re-confirmed against the working tree, at backstop-self's
+    own `no-structural-name-split-on-spine` rule
+    (`.backstop/packs/backstop-ai/backstop-self/rules/no-baked.yml`), whose
+    `paths.include` list is directory-prefixed. Two ACTIVE rows (no
+    `nosemgrep` suppression, no matching waiver) appear under directory
+    dispatch and are ABSENT under explicit-file dispatch — CITE BOTH BY
+    FUNCTION NAME, NEVER BY LINE NUMBER, since both files are under
+    concurrent edit and `pack_gate.go` alone shifted ~112 lines during that
+    plan's own review: the `strings.Fields` call inside `splitCommand`
+    (`cmd/backstop/pack_gate.go`) and the `strings.Fields` call inside
+    `engineToolName` (`cmd/backstop/pack_gate_provision.go`). Reproduced with
+    targets spanning two top-level directories and with a file passed alone,
+    so it is not a common-root artifact. Reproduction recipe, for
+    re-derivation against any pack: assemble one `--config <abs path>` per
+    `rule_path` the pack's `pack.yml` declares, then run `semgrep --sarif
+    --quiet <configs> <target>` once per dispatch shape and diff the rows
+    carrying no `suppressions` entry (the ACTIVE layer — what `parseSarif`
+    keeps and the gate actually prints). Recorded so nobody loses a cycle to
+    it: build those `--config` flags as a SHELL ARRAY and expand as
+    `"${CONFIGS[@]}"` — zsh does not word-split unquoted parameter
+    expansions the way bash does, and a space-joined string fails with
+    `semgrep: error: File name too long`.
+
+    **Independent in-tree corroboration, and a ready-made fix seam.**
+    `ciGlobScopingProblems` (`cmd/backstop/ci_recipes_harness_test.go`)
+    documented this exact mechanism BEFORE `PLAN-ISSUE-091` existed, written
+    by someone else from a different starting point (CI-recipe glob
+    scoping), in its own words: "under the gate's DEFAULT diff-scoped
+    dispatch, which hands semgrep EXPLICIT FILE targets, a multi-segment
+    include matches ZERO files — not even the file it names." That function
+    does not merely comment on it — it ENFORCES it, reporting any include
+    pattern containing `/` as a problem. But it enforces it ONLY over the
+    `ci-workflows` recipe include sets; NOTHING scans pack RULE files the
+    same way, which is precisely why backstop-self's own rule shipped with a
+    directory-prefixed include and went dark unnoticed. That asymmetry is
+    the most concrete fix seam available and a planner should start there.
+
+    **Scope constraint the fix must honor — this is a pack-contract
+    question, NOT a core arg-shaping bug.** `PLAN-ISSUE-091` explicitly
+    REFUSED to add path rewriting, an `--include`-style flag, or a
+    directory-target fallback in backstop core, because any of those
+    re-introduces the exact two-code-paths disease (one dispatch shape for
+    diff-scoped gates, a different one for `--all`) that plan existed to
+    cure. The open question item 20 poses and deliberately does NOT answer
+    is: **how does a pack express path scoping such that it survives BOTH
+    dispatch shapes?** Any fix belongs on the pack-authoring side — how a
+    rule's `paths.include` is written, and/or how `pack check`/`packval`
+    validates it — and per the zero-baked-language law any such validation
+    must itself be a pack rule or a structural manifest check, never baked
+    semgrep knowledge in core.
+
+    **Sequencing coupling with item 6 (ISSUE-097), which neither issue
+    states and a planner will otherwise discover the hard way.** The two
+    `strings.Fields` sites above each carry an `@waiver:` token on the line
+    directly above, and both key the PRE-RENAME rule-ID prefix
+    `backstop/self/...` while `backstop.lock` records the manifest name
+    `backstop-ai/backstop-self` — item 6's exact fail-open condition, since
+    `Adjudicate` suppresses only on an EXACT rule-ID match. Today those two
+    findings are the ONLY thing that pulls those stale tokens into
+    `Adjudicate`'s harvest window at all. Consequences run in BOTH
+    directions and they are opposite: (a) once item 3's fix silences this
+    rule under explicit-file dispatch, nothing harvests those tokens, they
+    cannot even reach the `Unused` bucket, and their contribution to
+    `waiver_resolution`'s "N unused/dangling" clause drops from 2 to 0 — a
+    LOSS of honesty, not a cleanup, owned by item 6 and already appended
+    there, NOT duplicated here; (b) conversely, whenever item 20's own fix
+    lands and the rule becomes live under explicit-file dispatch, both sites
+    become ACTIVE findings that the stale tokens will FAIL to suppress,
+    turning the gate RED on two sites that were waived in intent. **Item
+    20's fix must therefore land with or after item 6's re-keying, or it
+    reds the gate on two legitimate false positives.** Whoever plans either
+    should read both.
+
+    `type: bug`, `scope: cross-cutting`, `uncertainty: exploratory`, `risk:
+    moderate` per the issue's own frontmatter — but note that the issue
+    deliberately leaves SEVERITY to the founder, stating the case honestly
+    without pre-judging it: any pack rule using a directory-prefixed
+    `paths.include` is currently a silent no-op on the diff-scoped gate, in
+    every consuming repo, which is the vacuous-green class this directive
+    exists to police. That ruling is pending as of 2026-08-17 and is
+    recorded in the PM inbox.
+
 ## Notes
 
 Grouping rationale and priority, stated once rather than per-item: four of
@@ -1470,6 +1605,32 @@ in-repo copy alone does not fix what the gate actually consumes. In-flight
 coverage is NIL, established from the corpus: no plan in `plans/` targets
 `ISSUE-148` or `packs/substantiveness/pack.yml`'s fixture polarity as of this
 slotting.
+
+Priority note, stated as observation and explicitly NOT as a reorder
+(backlog-pm has no reorder authority): DIR-032 sits at BACKLOG.yml position 2
+and this slot does not change its rank.
+
+ISSUE-151 ("path-scoped pack rules dark under file dispatch") slotted
+2026-08-17 by backlog-pm under the standing clear-fit grant. It is the third
+of four `PLAN-ISSUE-091` TASK-006 mandated filings, and the only one of the
+four that is a live defect — ISSUE-149 and ISSUE-150 are record-only
+behavior-change filings, escalated to the founder as unhomed and
+deliberately NOT slotted here; ISSUE-152 is a founder scope-policy decision
+awaiting triage.
+
+DIR-024 "Gate/Engine Quality" was considered and ruled out affirmatively.
+DIR-024's line is finding-data PRECISION — "reports exactly the verdict its
+regex earns" (items ISSUE-125, ISSUE-135, ISSUE-141) — which concerns a rule
+that DOES run and matches too broadly or too narrowly. Item 20 is a rule
+that never runs at all and yields a clean pass from a scan that never
+happened — the same discriminator that sent ISSUE-144 here and ISSUE-141 to
+DIR-024 hours earlier.
+
+Item 4's (ISSUE-092) measurement trap (a), "directory-scan vs
+explicit-file-list divergence," names the same MECHANISM but a different
+SURFACE: trap (a) is a constraint on packval's restored fixture dispatch not
+inheriting item 3's undercount, while item 20 is the rule DECLARATION being
+unsatisfiable on the real consumer gate. Neither closes the other.
 
 Priority note, stated as observation and explicitly NOT as a reorder
 (backlog-pm has no reorder authority): DIR-032 sits at BACKLOG.yml position 2
