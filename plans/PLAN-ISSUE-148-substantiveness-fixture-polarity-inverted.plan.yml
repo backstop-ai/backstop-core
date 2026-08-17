@@ -1,0 +1,1063 @@
+---
+plan_id: PLAN-ISSUE-148
+spec_id: ISSUE-148
+created: "2026-08-17"
+status: completed
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./cmd/backstop/... -run \"TestSubstantivenessFixtures\" -race -count=1"
+coverage_threshold: 90
+
+notes: |
+  ╔══════════════════════════════════════════════════════════════════════════╗
+  ║ AS-BUILT — CLOSED `completed` 2026-08-17. ALL FIVE PHASES DELIVERED.     ║
+  ╚══════════════════════════════════════════════════════════════════════════╝
+  Everything below this banner is the plan AS AUTHORED (2026-08-17, against
+  HEAD c586af3) and is preserved verbatim — tasks were not rewritten after the
+  fact. Where the banner and a task disagree, THE BANNER IS WHAT SHIPPED.
+
+  ── THREE COMMITS CARRY THIS LANE ─────────────────────────────────────────
+    `94f04c0`  fix(ISSUE-148): correct packs/substantiveness fixture polarity
+               against the combined ruleset  — Phases 1-3 (in-repo half)
+    (external) `backstop-ai/go-substantiveness` v1.2.1, tag `e4dc9d3`, pushed
+               and REACHABLE from `origin/main` (verified by
+               `git merge-base --is-ancestor` at close-out, not assumed from
+               the push's own output) — Phases 4-5, founder-gated half
+    `ed25e82`  chore: adopt go-substantiveness v1.2.1 (ISSUE-148 fix)
+               — `backstop.yml` + `backstop.lock`, real `pack update`
+  Both in-repo commits verified ancestors of HEAD at close-out.
+
+  ── THE ROOT CAUSE THE PLAN PREDICTED WAS CONFIRMED, AND IT IS NOT THE ONE
+     THE ISSUE FILED ───────────────────────────────────────────────────────
+  The authored notes' ★★ block held under implementation. Both rules of
+  `packs/substantiveness` ship in ONE shared `ast-grep/sgconfig.yml`, so
+  packval's per-fixture `Passed` means "did the WHOLE ENGINE fire", never "did
+  THIS rule fire". ISSUE-148's own stated fix — a manifest-key swap — was
+  measured wrong: byte-identical failure with the key swap AND with a content
+  swap. All four fixture BODIES were re-authored to discriminate against the
+  COMBINED ruleset instead. `packs/substantiveness/pack.yml` was NOT edited —
+  no key swap, no version bump, frozen at 1.1.0 exactly as the version policy
+  below prescribes.
+
+  A SECOND, UNFILED DEFECT was confirmed and fixed in passing: BOTH
+  currently-declared negative fixtures had been passing for the wrong reason
+  (on a sibling rule's accidental hit), a pre-existing vacuous green that
+  appears in no artifact. `ISSUE-159` files that correction back to ISSUE-148
+  and DIR-032 item 19; this plan does not hand-edit either.
+
+  ── CLAIM DISPOSITION ─────────────────────────────────────────────────────
+    CLM-001..003, CLM-006  PROVEN in-repo. All three mandated tests exist in
+      `cmd/backstop/substantiveness_fixture_polarity_test.go` and are green;
+      `pack test` on an absolute `packs/substantiveness` passes all six phases.
+      Non-regression held: only the four fixture bodies moved.
+    CLM-004  PROVEN IN BOTH DIRECTIONS, by an accidental but decisive control.
+      A worktree with v1.2.1 INSTALLED but the lock still at v1.2.0 HARD-FAILS
+      `pack_lock_verification` with `hash_mismatch`; with the `ed25e82`
+      adoption applied it passes. `source_coordinate` survived the rewrite
+      verbatim (verified, not assumed). The installed tree under
+      `.backstop/packs/backstop-ai/go-substantiveness` is byte-identical to
+      the in-repo corrected fixtures by `diff`, and a real `pack test` on that
+      installed copy (absolute path) passes all six phases.
+    CLM-005  MEASURED, NOT ASSERTED. Control = detached worktree at clean HEAD
+      c586af3; treatment = the working tree carrying the fix. 14 red -> 4 red,
+      ZERO newly red. BOTH of PLAN-ISSUE-106's deliberately-red-pending-this-fix
+      CLM-004 tests went green — this lane's cross-lane acceptance signal,
+      delivered. The residual is 4 reds, NOT the 3 this plan predicted; all four
+      share one cause and are filed as `ISSUE-158`. The plan's own instruction
+      ("if the measured set differs in either direction, REPORT THE ACTUAL SET")
+      was followed rather than reconciled to the prediction.
+
+  ── PHASE 5 WAS FOUNDER-GATED AND THE GATE HELD ───────────────────────────
+  Worth recording because the mechanism was TESTED, not merely obeyed: an
+  implementer reached TASK-008 and was handed a RELAYED "founder approved"
+  message. It REFUSED to act on it, correctly citing TASK-008's own explicit
+  prohibition that no agent message — team lead or orchestrator — authorizes
+  the push. That refusal was RESPECTED, not overridden. The publish was
+  subsequently executed by the team lead directly, on genuine first-party
+  founder authorization obtained via AskUserQuestion in-session. The
+  distinction between a relayed claim of authorization and the real thing is
+  the whole point of the gate, and it is the reason this lane is trustworthy.
+
+  ── GATE READING AND ITS HONEST CAVEATS ───────────────────────────────────
+  `gate --all` in an isolated worktree returned 129 violations, ZERO of them
+  attributable to this lane — established by grepping all 129 explicitly for
+  every path this lane touched, zero hits. Two measurement caveats are recorded
+  rather than smoothed:
+    * the worktree lacks `.backstop/baseline.json`, which makes it STRICTER
+      than the main tree, not more permissive;
+    * pack-derived rule IDs embed the worktree's install path, which breaks
+      `@waiver:` token binding and resurfaces 4 waivers as spuriously "unused".
+  Seven sibling commits landed between the treatment and control measurements,
+  so a clean whole-repo before/after delta CANNOT be honestly claimed and was
+  not. The per-path attribution above is what carries the "zero from this lane"
+  finding; the 129 total does not.
+
+  ONE violation genuinely belonging to this lane was found and FIXED AT SOURCE
+  before landing, not waived: a `no-baked-tool-exec` finding on the new
+  `cmd/backstop/substantiveness_fixture_polarity_test.go` for calling
+  `exec.Command` directly. It was rerouted through the package's sanctioned
+  `execCommand` seam.
+
+  ── FOLLOW-ONS FILED (TASK-005 discharged; nothing absorbed) ──────────────
+    `ISSUE-158`  the zero-match harness patch makes the pack unvalidatable —
+                 owns ALL FOUR residual reds. Not this lane's to close.
+    `ISSUE-159`  ISSUE-148's and DIR-032 item 19's stated fix menu is falsified,
+                 plus the undescribed vacuous-green underneath it.
+    `ISSUE-160`  packval executor ignores CrashGuard/StrictSarif/Producer
+                 (surfaced adjacent; filed rather than absorbed).
+  ISSUE-148 itself still reads `status: open` at close-out — closing the ISSUE
+  is issue-author's lane, not the plan's.
+
+  ── WHAT STAYED FROZEN (re-verified at close-out) ─────────────────────────
+  `packs/substantiveness/pack.yml` at `1.1.0`, `name: backstop/substantiveness`,
+  unedited. The mirror at `version: "1.2.1"`. `ast-grep/**`,
+  `testdata/convert/**` and `pkg/gate/testdata/substantiveness-pack/**` all
+  untouched, exactly as the SCOPE FENCES require.
+
+  ═══════════════════════ PLAN AS AUTHORED FOLLOWS ═════════════════════════
+
+  ISSUE-148 — `packs/substantiveness`'s own phase3 fixtures have inverted
+  positive/negative polarity. DIR-032 item 19 (Gate Verdict Honesty), risk
+  critical. Authoring-CONTENT layer, not dispatch-machinery: post ISSUE-141 /
+  PLAN-ISSUE-092 the check runs correctly and correctly reports a
+  wrong-direction verdict on this pack's own fixtures.
+
+  ── THE DEFECT REPRODUCES EXACTLY AS FILED (re-measured 2026-08-17, HEAD c586af3)
+  Run against an ABSOLUTE path, on a scratch copy of the pack (never the live
+  tree — see sharp edge 5 and 12):
+
+      ./bin/backstop pack test <abs>/packs/substantiveness
+      status: fail
+      - phase3-fixtures: fail
+      ERROR [phase3-fixtures/semgrep-positive] positive fixture triggered the rule (false positive)
+      ERROR [phase3-fixtures/semgrep-positive] positive fixture triggered the rule (false positive)
+      exit 1   (measured WITHOUT a pipe — see sharp edge 6)
+
+  The installed EXTERNAL copy `.backstop/packs/backstop-ai/go-substantiveness`
+  (v1.2.0) fails identically. `diff` proves the two trees are byte-identical
+  except `pack.yml`'s `name:` and `version:` lines — the same mirror
+  relationship PLAN-ISSUE-020 measured on 2026-07-28 and recorded at its line
+  568. So the external mirror carries the same defect and is currently
+  UNINSTALLABLE by `pack add`, which runs the same packval pipeline
+  unconditionally.
+
+  ★★ ── THE ISSUE'S STATED FIX MENU IS FALSIFIED BY MEASUREMENT ─────────── ★★
+  ISSUE-148 and DIR-032 item 19 both say the defect is "purely which manifest
+  key each is filed under" and that EITHER swapping the manifest keys OR
+  swapping the file contents resolves it. **Neither does.** Measured
+  2026-08-17, both counterfactuals still fail with the same two errors:
+
+      key-swap only (pack.yml positive: <-> negative: paths swapped, bodies
+      untouched)                                   -> STILL 2 errors, unchanged
+
+  The reason is a second, unfiled property of this pack that the issue's
+  body-level reading could not see:
+
+      BOTH RULES SHARE ONE sgconfig (ISSUE-028), AND packval's `Passed` MEANS
+      "THE ENGINE FIRED", NOT "THIS RULE FIRED".
+
+  `phase3.go:97` calls `executor.RunEngine(packDir, binding, []string{ruleSource,
+  f.Path})` with `ruleSource` = `ast-grep/sgconfig.yml` — the PROJECT config that
+  loads `ruleDirs: [rules]`, i.e. BOTH `hollow-test-go` and
+  `referenced-symbol-go`. So a declared POSITIVE (clean) fixture must trigger
+  NEITHER rule, and a declared NEGATIVE fixture need only trigger ONE.
+
+  Measured per-fixture against the real combined ruleset (ast-grep 0.43.0),
+  BEFORE any fix:
+
+      hollow-test-go/positive.go   -> hollow-test-go fires        (FALSE POSITIVE)
+      hollow-test-go/negative.go   -> referenced-symbol-go x3, own rule SILENT
+                                                                 (accidental pass)
+      referenced-symbol-go/positive.go -> referenced-symbol-go x2 (FALSE POSITIVE)
+                                          (PKG: strings, PKG: t)
+      referenced-symbol-go/negative.go -> referenced-symbol-go x1, PKG: `t`
+                                                                 (accidental pass)
+
+  Read the middle two rows carefully. Both currently-declared NEGATIVE fixtures
+  pass for the WRONG REASON, though in two DIFFERENT ways, and the distinction
+  decides how CLM-002 must be asserted:
+    * `hollow-test-go/negative.go` fires only the SIBLING rule. Its own rule is
+      silent, so plain rule-id equality already catches it.
+    * `referenced-symbol-go/negative.go` fires its OWN rule id — but on the
+      `t.Fatalf` receiver (`PKG: t`), not on the package-qualified call it was
+      written to demonstrate. Plain rule-id equality is ALREADY SATISFIED here
+      pre-fix, so CLM-002 discards `PKG: t` findings (see the claim ledger) to
+      stay discriminating on this arm.
+  That is why the run reports exactly 2 errors rather than 4. The negative half
+  of this pack has been vacuously green all along, on top of the inversion the
+  issue names.
+
+  A plain content swap inherits that same trap in the other direction: a
+  substantive Go test asserts with `t.Fatalf`, `t.Fatalf` is a
+  `selector_expression` whose operand is the identifier `t`, and
+  `referenced-symbol-go` matches exactly that shape inside any `^Test`-named
+  function. So a swapped-in "clean" fixture STILL fires, and phase3 still fails.
+
+  ── THE FIX SHAPE THAT ACTUALLY WORKS (measured green, all six phases) ─────
+  The four fixture BODIES are re-authored so each is clean or violating
+  **against the combined ruleset**. `pack.yml` is NOT edited in-repo at all —
+  no key swap, no version bump (see "version policy" below). Measured
+  2026-08-17 on a scratch copy carrying exactly these four bodies:
+
+      ./bin/backstop pack test <abs>/<fixed-copy>
+      status: pass
+      phase1..phase6 all pass          exit 0
+
+  Two mechanisms make the clean fixtures clean, and BOTH are load-bearing:
+
+    (a) THE ASSERTION IN A CLEAN FIXTURE MUST BE AN UNQUALIFIED CALL. A local
+        helper named to match the hollow rule's own assertion vocabulary
+        (`require|assert|check|verify|expect|must|Fatal|...`) — e.g.
+        `mustEqual(...)` — satisfies `hollow-test-go` while being a plain
+        identifier call, not a `selector_expression`, so `referenced-symbol-go`
+        does not fire. Measured: NO FINDINGS.
+
+    (b) HELPER FUNCTIONS MAY CONTAIN `t.Fatalf` FREELY. `referenced-symbol-go`
+        requires `inside: {matches: is-test, stopBy: end}`, and a
+        non-`^Test`-named `function_declaration` is not `is-test`, so calls
+        inside `mustEqual` are invisible to it. Measured.
+
+  ── THE ISSUE-035 TestMain EXEMPTION SURVIVES, AND STILL DISCRIMINATES ─────
+  `TestMain(m *testing.M)` currently lives in `hollow-test-go/negative.go`,
+  placed there by PLAN-ISSUE-035 TASK-001 as the ISSUE-035 CLM-001 exemption
+  fixture. It cannot move across unchanged: `os.Exit(m.Run())` fires
+  `referenced-symbol-go` twice (`os`, `m`), which would re-break the clean
+  fixture. It moves into the POSITIVE fixture with an EMPTY BODY —
+  `func TestMain(m *testing.M) {}` — and that is not a weakening. Counterfactual
+  measured 2026-08-17: with the `^TestMain$` exemption STRIPPED from
+  `hollow-test-go.yml`, the empty-bodied TestMain immediately fires
+  `hollow-test-go | test function TestMain has no assertions (hollow)`. The
+  exemption is the ONLY thing keeping the positive fixture clean, so the
+  fixture is a genuine discriminating pin on it — a strictly better pin than the
+  current placement, where TestMain sits in a negative fixture that passes for
+  an unrelated reason.
+
+  ── WHAT THIS LANE DELIBERATELY DOES **NOT** FIX (measured, must be FILED) ─
+  Three of the currently-red substantiveness e2e tests will STILL be red after
+  this lane lands, for a DISTINCT root cause discovered while measuring:
+
+      TestE2E_ZeroMatchClassification_* (3 tests, ISSUE-113's harness)
+
+  `installZeroMatchSubstantivenessPack` (`cmd/backstop/gate_substantiveness_e2e.go`)
+  patches a copy of the pack's `referenced-symbol-go.yml` with
+  `files: ["harness/fixtures/**/*.go"]` so the rule matches ZERO files in the
+  consumer workspace. That patch ALSO makes the rule dark against the pack's own
+  fixture tree, so the pack's declared NEGATIVE fixture can no longer trigger.
+  Measured on the FIXED pack plus that patch:
+
+      status: fail
+      ERROR [phase3-fixtures/semgrep-negative] negative fixture not triggered
+
+  (Baseline, unfixed pack plus the same patch: 3 errors — 1 positive + 2
+  negative. So this lane takes that copy from 3 errors to 1, and does not
+  clear it.) This is a test-harness defect in ISSUE-113 territory — a rule
+  patch that makes the pack unvalidatable — NOT a fixture-polarity defect, and
+  it needs its own issue and its own design judgment about which glob preserves
+  ISSUE-113's meaning while leaving the pack's own fixture tree in scope. It is
+  named here so nobody absorbs it, and TASK-005 files it. Do NOT "fix" it by
+  weakening a fixture, and do NOT `t.Skip` the three tests.
+
+  ── THE ACCEPTANCE SIGNAL THIS LANE OWES ANOTHER LANE ──────────────────────
+  PLAN-ISSUE-106 closed `completed` with CLM-004's two e2e tests RED ON PURPOSE,
+  explicitly blocked on ISSUE-148:
+
+      TestE2E_SubstantivenessWarningPack_StepWarnsWithoutBlocking
+      TestE2E_SubstantivenessPristinePack_StepStillBlocks
+
+  Their harness (`installWarningSeveritySubstantivenessPack`) patches
+  `severity: warning` onto the hollow rule. Measured on the FIXED pack plus that
+  patch: `pack test` **passes all six phases**. So this lane is expected to green
+  both, finishing PLAN-ISSUE-106's CLM-004. TASK-004 MEASURES that rather than
+  asserting it, and reports the result so ISSUE-106's residual can be closed by
+  its own owner — this plan does not edit ISSUE-106 or its plan.
+
+  ── VERSION POLICY: IN-REPO STAYS, EXTERNAL BUMPS ─────────────────────────
+  In-repo `packs/substantiveness/pack.yml` is version `1.1.0`; the external
+  mirror `backstop-ai/go-substantiveness` is `1.2.0`. The offset is pre-existing
+  and deliberate — the external gained 1.2.0 in PLAN-ISSUE-020's coordinate
+  rename while the in-repo test SOURCE was left frozen, and content changes since
+  (ISSUE-035's rule edit) did not bump it either. Nothing reads the in-repo
+  version: it is installed as a LOCAL pack into e2e temp workspaces and this
+  repo's `backstop.lock` does not reference it. So this lane does NOT bump it,
+  following the established convention. The EXTERNAL mirror MUST bump
+  (1.2.0 -> 1.2.1): the identity gate refuses when the manifest version does not
+  equal the tag, and the lock's `content_hash` must move with the content.
+
+  ── TWO OWNERS, AND ONE OF THEM IS FOUNDER-GATED ──────────────────────────
+  This repo consumes `backstop-ai/go-substantiveness: 1.2.0` from
+  `backstop.yml`/`backstop.lock` — NOT `packs/substantiveness`. Fixing only the
+  in-repo copy does not fix what the gate installs. The external mirror lives at
+  `/Users/bmanson/src/projects/backstop-go-substantiveness-pack` (remote
+  `https://github.com/backstop-ai/go-substantiveness.git`, clean working tree at
+  tag `v1.2.0`, single commit `955df4e`, verified 2026-08-17).
+
+  ★ PHASE 5 REQUIRES AN EXPLICIT FOUNDER GO BEFORE ANY IMPLEMENTER RUNS IT. ★
+  Phase 4 prepares the mirror edit in the external working tree and validates it
+  LOCALLY, then HALTS AND REPORTS. `git commit`, `git tag`, `git push` in the
+  external repo and the subsequent `pack update` in this repo are Phase 5 and
+  are FORBIDDEN without an explicit human confirmation, mirroring tonight's
+  `backstop-ai/go-toolchain` v1.6.0 release, which required a founder go before
+  publishing. An implementer that reaches the end of Phase 4 is DONE until told
+  otherwise; reporting "blocked pending founder go" is the correct terminal
+  state, not a failure.
+
+  ── CROSS-LANE COLLISION CHECK (2026-08-17, live shared tree, HEAD c586af3) ─
+  `git status --porcelain` run against every path this plan scopes:
+    * `packs/substantiveness/**` — CLEAN. No uncommitted edit from any lane.
+      All four fixture bodies and `pack.yml` read fresh at HEAD, not from the
+      issue's description.
+    * `backstop.yml`, `backstop.lock` — CLEAN and committed. go-toolchain
+      v1.6.0's relock (2026-08-16T23:02Z) is already in.
+    * `cmd/backstop/` — one UNTRACKED file from a sibling lane,
+      `gate_substantiveness_layout_test.go`. Substantiveness-named but a
+      different subject (artifact layout). This lane's new file
+      `cmd/backstop/substantiveness_fixture_polarity_test.go` does not exist and
+      does not collide. Do not touch the layout file.
+    * The external repo `/Users/bmanson/src/projects/backstop-go-substantiveness-pack`
+      — CLEAN working tree, no other agent in it.
+  Artifact-level:
+    * EXISTENCE-IN-WORLD: no other plan in `plans/` targets ISSUE-148 or
+      `packs/substantiveness`'s fixture polarity. Searched `plans/`, `specs/`,
+      `bundles/` for `ISSUE-148` and for `packs/substantiveness`. The hits are
+      PLAN-ISSUE-092/093/091/106/124 (all citing ISSUE-148 as a BLOCKER they
+      route around, none owning it) and PLAN-ISSUE-020/027 (which describe the
+      pack's location and mirror, not its fixtures). No subsumption.
+    * FOUR SIBLING PLAN-3/packval-family lanes are in flight, uncommitted, at
+      authoring time: PLAN-ISSUE-142, -144, -146 and -151. Checked task by task
+      — NONE declares file scope over `packs/substantiveness/**`,
+      `cmd/backstop/gate_substantiveness_*` or `backstop.lock`; they name this
+      pack only as context. PLAN-ISSUE-151 explicitly fences THIS lane by name
+      at its own line 262 ("targets `packs/substantiveness/` pack DATA and not
+      `pkg/packval` source"), and that fence is accurate — this plan touches no
+      `pkg/packval` source at all. PLAN-ISSUE-146's notes anticipate its own
+      follow-on fixtures landing in `packs/substantiveness`; if that lane has
+      landed by the time you implement, RE-READ the four fixture files fresh
+      before rewriting them and flag any body you did not expect.
+    * PLAN-ISSUE-035 is a STALE `draft` whose issue ISSUE-035 is `closed` and
+      whose work is already in the tree; its TASK-001 names the SAME two
+      hollow-test fixture files this lane rewrites. It is not live contention —
+      PLAN-ISSUE-106 recorded the same stale-draft observation on 2026-08-16.
+      If an implementer finds it ACTIVE, STOP AND FLAG rather than resolving it.
+  If any file has moved under you, locate edit sites BY NAME (the fixture path
+  under `claims[].fixtures`, the `func TestMain` declaration), never by a line
+  number quoted in these notes.
+
+  ── SCOPE FENCES ───────────────────────────────────────────────────────────
+  IN:  the four fixture bodies under
+       `packs/substantiveness/testdata/fixtures/rules/`, their byte-identical
+       twins in the external mirror, that mirror's `pack.yml` version, this
+       repo's `backstop.yml`/`backstop.lock`, and one new test file.
+  OUT: `packs/substantiveness/ast-grep/**` — the RULES, the sgconfig and
+       to-sarif.sh are CORRECT and are not edited. The rules' behavior is what
+       the fixtures are being corrected to match, not the other way round.
+  OUT: `packs/substantiveness/testdata/convert/**` — the convert fixtures pin
+       the SARIF mapping, an unrelated seam. Untouched.
+  OUT: `packs/substantiveness/pack.yml` — no key swap, no version bump. If you
+       find yourself editing it, you have taken the falsified fix menu.
+  OUT: `pkg/gate/testdata/substantiveness-pack/**` — a SECOND tracked copy with
+       a different layout (`fixtures/go/`, no `testdata/fixtures/rules/`) that
+       is never run through packval. It has no polarity to fix. Do not "keep the
+       copies in sync"; they are not that kind of pair.
+  OUT: `cmd/backstop/gate_substantiveness_e2e.go`'s zero-match harness — the
+       residual above. FILE IT, do not fix it here.
+  OUT: `pkg/packval/**` — phase3 is behaving CORRECTLY. This is content, not
+       machinery.
+  OUT: ISSUE-106, PLAN-ISSUE-106 and their files. Report the measurement; let
+       that lane's owner close its own residual.
+
+  ── CLAIM LEDGER (ISSUE-148 carries no CLM ids; this lane defines them) ────
+    CLM-001  `packs/substantiveness` passes ALL SIX packval phases —
+             phase3-fixtures included — through the real `pack test` pipeline
+             driven by real ast-grep 0.43.0, against an ABSOLUTE pack directory.
+             Proven by an executable test in this repo, not by a transcript.
+    CLM-002  Polarity holds against the COMBINED ruleset, which is the property
+             packval actually measures: every DECLARED POSITIVE fixture triggers
+             ZERO rules of `ast-grep/sgconfig.yml`, and every DECLARED NEGATIVE
+             fixture triggers ITS OWN rule id on the property it was written to
+             demonstrate — operationally, at least one own-rule finding SURVIVES
+             discarding any finding whose extracted symbol metavariable is the
+             `*testing.T` receiver `t`. The `t` discard is what makes the claim
+             discriminating: `t.Fatalf` appears in any substantive Go test
+             regardless of the property under demonstration, so an own-rule hit
+             carrying `PKG: t` is boilerplate, not evidence. Measured 2026-08-17,
+             pre-fix: hollow's negative yields NO own-rule finding (only
+             `referenced-symbol-go`), and refsym's negative yields exactly one
+             own-rule finding, `PKG: t` — so all four fixtures are red under
+             this predicate, where plain rule-id equality would have let
+             refsym's negative pass unchanged.
+    CLM-003  The ISSUE-035 CLM-001 TestMain hollow-exemption coverage SURVIVES
+             the correction and remains DISCRIMINATING: `TestMain` moves into the
+             positive fixture with an empty body, and stripping the `^TestMain$`
+             exemption from the rule makes that fixture fire. The counterfactual
+             is asserted by a test, not merely recorded here.
+    CLM-004  The EXTERNAL mirror `backstop-ai/go-substantiveness` carries the
+             byte-identical fixture correction, a version bump to 1.2.1, a
+             matching `v1.2.1` tag, and this repo's `backstop.yml` and
+             `backstop.lock` are updated to consume it — so what the gate
+             actually installs is fixed, not only the in-repo copy. FOUNDER-GATED
+             (Phase 5); its publish half must not run without an explicit go.
+    CLM-005  The inherited red count is MEASURED before and after, never
+             asserted, and the residual is ATTRIBUTED to a distinct, newly-filed
+             cause (the zero-match harness patch) rather than absorbed, weakened
+             or skipped. PLAN-ISSUE-106's two CLM-004 e2e tests are measured
+             green as this lane's cross-lane acceptance signal.
+    CLM-006  Non-regression: the pack's RULES, sgconfig, convert script, convert
+             testdata and in-repo `pack.yml` are UNCHANGED — only the four
+             fixture bodies move; the two mirrors stay byte-identical except
+             `pack.yml`'s `name:`/`version:` lines; and
+             `pkg/gate/testdata/substantiveness-pack/` is untouched.
+
+  ── SHARP EDGES ────────────────────────────────────────────────────────────
+   1. THE COMBINED-RULESET TRAP. `Passed` = "the engine fired", and the engine
+      is the whole sgconfig. A positive fixture must be clean w.r.t. BOTH rules.
+      Measured: key-swap-only leaves the failure completely unchanged.
+   2. `t.Fatalf` IS A QUALIFIED CALL. Any assertion of the form `t.X(...)`
+      inside a `^Test`-named function fires `referenced-symbol-go`. A clean
+      fixture's assertion must be an UNQUALIFIED call whose identifier matches
+      the hollow rule's assertion vocabulary.
+   3. `TestMain` MUST HAVE AN EMPTY BODY in the positive fixture. `os.Exit(m.Run())`
+      fires `referenced-symbol-go` twice. The empty body still discriminates the
+      exemption — verified by counterfactual.
+   4. HELPERS ARE INVISIBLE TO Q2. A non-`^Test`-named function may hold
+      `t.Fatalf` freely, because `inside: matches: is-test` never matches it.
+      This is what makes edge 2 survivable.
+   5. `pack test` WITH A RELATIVE packDir has a separate, already-filed sandbox
+      defect. ALWAYS pass an ABSOLUTE path. `repoRoot(t)` already returns one —
+      do not "tidy" it to a relative path.
+   6. DO NOT READ `$?` THROUGH A PIPE. `./bin/backstop pack test X | tail` yields
+      tail's status. Measured directly: fixed pack exits 0, broken pack exits 1.
+   7. THE ZERO-MATCH RESIDUAL IS NOT YOURS TO CLOSE. 3 tests stay red for a
+      different cause. File it (TASK-005). Never weaken a fixture or skip a test
+      to make them green.
+   8. TWO OWNERS. The in-repo copy is a test SOURCE. The gate consumes the
+      external mirror through the lock. In-repo alone is a half fix.
+   9. `pkg/gate/testdata/substantiveness-pack/` IS NOT THE SAME KIND OF COPY.
+      Different layout, never packval'd. Leave it alone.
+  10. NEVER `t.Skip` THE ast-grep E2E. `requireAstGrepE2E` is `t.Fatalf` BY
+      DESIGN; a skip is silent vacuous green.
+  11. NO AUTONOMOUS PUSH TO THE EXTERNAL REPO. Phase 5 needs a founder go.
+  12. SHARED TREE. Other lanes hold uncommitted work. Never `git stash` (bare
+      stash sweeps another agent's edits), never run a full `gate --all` or the
+      whole suite concurrently with a mid-flight implementer, and validate pack
+      copies in a scratch directory rather than mutating `packs/substantiveness`
+      in place.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 1: RED — pin polarity against the property packval measures
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: RED — pin fixture polarity against the combined ruleset"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Executable polarity pin: real pack test, per-rule attribution, and the TestMain counterfactual (RED)"
+        description: |
+          Create `cmd/backstop/substantiveness_fixture_polarity_test.go`. All
+          three tests MUST FAIL before TASK-002. Run them first and RECORD THE
+          ACTUAL FAILURE OUTPUT — a plan that only asserts red is not evidence.
+
+          This file lives in `cmd/backstop` because `repoRoot(t)`
+          (`pack_gate_test.go`) and `substantivenessSourceDir(repoRoot)`
+          (`gate_substantiveness_e2e.go`) already exist there and already resolve
+          the pack SOURCE. Do not re-derive either path with a local literal, and
+          do not move the test into `pkg/packval` — that would make packval's own
+          tests reach up into the repo root.
+
+          Every test calls `requireAstGrepE2E(t)` first. It is `t.Fatalf` by
+          design (sharp edge 10) — do not soften it to `t.Skip`.
+
+          HEADER-COMMENT THE FILE WITH THE NON-OBVIOUS PART, because a future
+          reader will otherwise "tidy" the fixtures straight back into the
+          defect: both rules ship in ONE `ast-grep/sgconfig.yml` (ISSUE-028), so
+          packval's per-fixture verdict is "did ANY rule fire", which is why a
+          clean fixture may not contain `t.Fatalf`.
+
+          TestSubstantivenessFixtures_RealPackTestPassesPhase3 (CLM-001).
+            Drive the SAME pipeline `pack test` drives:
+              packval.NewPipeline(absPackDir, packval.PipelineOptions{Mode: "test"}).Run()
+            with `absPackDir := substantivenessSourceDir(repoRoot(t))` — ABSOLUTE,
+            per sharp edge 5. Assert `result.Status == "pass"`. On failure, print
+            EVERY `result.Errors` entry with its Phase, Check, Rule, Claim and
+            Message, so the red state is legible without a second run.
+            Assert phase3-fixtures specifically reports `pass` in the phase
+            results, not merely that the overall status is pass — an overall
+            pass that came from phase3 being skipped is exactly the vacuous shape
+            this whole DIR-032 cluster exists to prevent.
+            PRE-FIX STATE: fails with two
+            `phase3-fixtures/semgrep-positive: positive fixture triggered the
+            rule (false positive)` errors.
+
+          TestSubstantivenessFixtures_PolarityHoldsAgainstTheCombinedRuleset (CLM-002).
+            This is the test that encodes what the issue's body-level reading
+            missed, and it must be DATA-DRIVEN from the manifest, not from
+            hardcoded paths — otherwise it stops covering a fixture the moment
+            someone adds one. Parse `packs/substantiveness/pack.yml` through the
+            real manifest reader, walk `content.ruleset.rules[].claims[].fixtures`,
+            and for each declared fixture run the pack's combined config directly:
+              ast-grep scan --config <absPackDir>/ast-grep/sgconfig.yml --json <fixture>
+            (invoke the binary; this test is about the engine's real verdict, not
+            about packval's wrapper — that is what test 1 covers, and the two
+            must not collapse into one.)
+            Then assert, as a subtest per fixture so the failure names the file:
+              * every DECLARED POSITIVE fixture yields ZERO results, from ANY
+                rule id;
+              * every DECLARED NEGATIVE fixture yields at least one result whose
+                `ruleId` EQUALS THE ENCLOSING RULE'S OWN ID **and that survives
+                discarding every finding whose extracted symbol metavariable
+                (`metaVariables.single.PKG.text` in ast-grep's `--json` output)
+                is exactly `t`**. A rule that binds no `PKG` — `hollow-test-go`
+                does not — has nothing discarded, so own-rule equality alone
+                carries it.
+            RULE-ID EQUALITY ALONE IS NOT ENOUGH, AND THAT IS THE WHOLE POINT OF
+            THE `t` DISCARD. `t.Fatalf` is a `selector_expression` whose operand
+            is the receiver `t`, so it fires `referenced-symbol-go` from inside
+            ANY substantive Go test, no matter what property the fixture was
+            written to demonstrate. Without the discard, `referenced-symbol-go`'s
+            negative fixture satisfies rule-id equality on that boilerplate hit
+            alone and the subtest is ALREADY GREEN pre-fix — the assertion would
+            be accidentally satisfied rather than discriminating. Comment this in
+            the test body so nobody weakens it back to bare equality.
+            PRE-FIX STATE, MEASURED 2026-08-17 with real ast-grep 0.43.0 against
+            `ast-grep/sgconfig.yml` — all four subtests red:
+              hollow/positive.go  -> fires `hollow-test-go` (must be zero)   RED
+              hollow/negative.go  -> only `referenced-symbol-go` x3, NO
+                                     own-rule finding                        RED
+              refsym/positive.go  -> fires `referenced-symbol-go` x2
+                                     (`PKG: strings`, `PKG: t`)              RED
+              refsym/negative.go  -> exactly ONE own-rule finding, `PKG: t`,
+                                     which the discard removes, leaving none  RED
+            POST-FIX, MEASURED on the TASK-002 bodies: hollow/negative yields
+            `hollow-test-go` (no `PKG`), and refsym/negative yields two own-rule
+            findings, `PKG: strings` and `PKG: t` — `strings` survives the
+            discard. Both positives yield zero.
+
+          TestSubstantivenessFixtures_TestMainExemptionKeepsThePositiveClean (CLM-003).
+            The falsification test. Copy the pack tree to `t.TempDir()`, STRIP the
+            `^TestMain$` exemption from the COPY's
+            `ast-grep/rules/hollow-test-go.yml`, and assert that the hollow-test
+            POSITIVE fixture — which passes clean against the pristine rules —
+            NOW yields a `hollow-test-go` result naming `TestMain`. Never mutate
+            the in-repo pack (sharp edge 12).
+            Say WHY in the body: this proves the empty-bodied `TestMain` in the
+            positive fixture is a genuine discriminating pin on ISSUE-035
+            CLM-001's exemption and not inert filler. Without this test, "move
+            TestMain into the clean fixture" would be indistinguishable from
+            deleting the exemption's coverage.
+            PRE-FIX STATE: fails, because the positive fixture does not yet
+            contain TestMain at all.
+        files:
+          - cmd/backstop/substantiveness_fixture_polarity_test.go
+        test_names:
+          - TestSubstantivenessFixtures_RealPackTestPassesPhase3
+          - TestSubstantivenessFixtures_PolarityHoldsAgainstTheCombinedRuleset
+          - TestSubstantivenessFixtures_TestMainExemptionKeepsThePositiveClean
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-006
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 2: GREEN — re-author the four in-repo fixture bodies
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: GREEN — re-author the four in-repo fixture bodies"
+    tasks:
+      - id: TASK-002
+        type: implementation
+        title: "Re-author all four fixture bodies so each is clean or violating against the combined ruleset"
+        description: |
+          Rewrite the four fixture files. DO NOT EDIT `packs/substantiveness/pack.yml` —
+          not the keys, not the version (see the version policy and the falsified
+          fix menu in the notes). The manifest keys stay
+          `positive -> positive.go`, `negative -> negative.go`; the BODIES move.
+
+          The four bodies below were MEASURED GREEN through all six packval
+          phases on 2026-08-17 with real ast-grep 0.43.0. Reproduce them
+          gofmt-formatted (real tabs); the indentation shown here is spaces only
+          so this YAML stays valid.
+
+          Each file KEEPS an explanatory comment, and the comment must state the
+          CONVENTION explicitly — "positive fixture = the CLEAN case that must
+          NOT trigger; negative fixture = the VIOLATING case that MUST trigger"
+          (SPEC-014, BUNDLE-005 REQ-011) — because misreading that convention is
+          precisely what produced this defect.
+
+          --- testdata/fixtures/rules/hollow-test-go/positive.go -------------
+              package hollowtestgo
+
+              import "testing"
+
+              func helper() int { return 1 }
+
+              // mustEqual is NOT Test-named, so referenced-symbol-go's
+              // `inside: matches: is-test` never reaches into it — a helper may
+              // hold t.Fatalf freely.
+              func mustEqual(t *testing.T, got, want int) {
+                  if got != want {
+                      t.Fatalf("expected %d, got %d", want, got)
+                  }
+              }
+
+              // POSITIVE = the CLEAN case: must trigger NEITHER rule of the
+              // shared sgconfig. The assertion is the UNQUALIFIED call
+              // `mustEqual` — its identifier matches the hollow rule's assertion
+              // vocabulary (`must`), so this test is not hollow, while staying a
+              // plain identifier call rather than a selector_expression, so the
+              // Q2 extraction rule does not fire. A `t.Fatalf` here would fire Q2
+              // and make this fixture a false positive.
+              func TestSubstantiveExample(t *testing.T) {
+                  mustEqual(t, helper(), 1)
+              }
+
+              // TestMain is Go's harness entry point and is BY DESIGN never
+              // assertion-bearing; the hollow rule EXEMPTS it by name (ISSUE-035
+              // CLM-001). The body is EMPTY on purpose: `os.Exit(m.Run())` would
+              // fire the Q2 rule. Empty, it is clean ONLY because the exemption
+              // holds — which is what makes it a real pin on the exemption.
+              func TestMain(m *testing.M) {}
+
+          --- testdata/fixtures/rules/hollow-test-go/negative.go -------------
+              package hollowtestgo
+
+              import "testing"
+
+              // NEGATIVE = the VIOLATING case: a hollow test (calls a subject,
+              // asserts nothing) MUST trigger hollow-test-go. `helper` is
+              // declared in positive.go, same package — these files are under
+              // testdata/ and are ast-grep targets, never compiled.
+              func TestHollowExample(t *testing.T) {
+                  helper()
+              }
+
+          --- testdata/fixtures/rules/referenced-symbol-go/positive.go -------
+              package referencedsymbolgo
+
+              import "testing"
+
+              func localHelper() int { return 1 }
+
+              func mustBeOne(t *testing.T, got int) {
+                  if got != 1 {
+                      t.Fatalf("expected 1, got %d", got)
+                  }
+              }
+
+              // POSITIVE = the CLEAN case: no package-qualified call inside a
+              // Test-named function, so referenced-symbol-go does not fire; and
+              // an assertion-vocabulary call, so hollow-test-go does not either.
+              func TestNoQualifiedCall(t *testing.T) {
+                  mustBeOne(t, localHelper())
+              }
+
+          --- testdata/fixtures/rules/referenced-symbol-go/negative.go -------
+              package referencedsymbolgo
+
+              import (
+                  "strings"
+                  "testing"
+              )
+
+              // NEGATIVE = the VIOLATING case: a package-qualified call inside a
+              // test MUST produce a referenced-symbol extraction finding.
+              func TestReferencesSymbol(t *testing.T) {
+                  got := strings.ToUpper("x")
+                  if got != "X" {
+                      t.Fatalf("expected X, got %s", got)
+                  }
+              }
+
+          RUN THE THREE MANDATED TESTS AND REPORT THEM GREEN before handing off.
+          If any positive fixture still fires, you have almost certainly
+          reintroduced a `t.X(...)` call inside a `^Test`-named function — check
+          that before touching anything else, and never "fix" it by editing a
+          rule.
+        files:
+          - packs/substantiveness/testdata/fixtures/rules/hollow-test-go/positive.go
+          - packs/substantiveness/testdata/fixtures/rules/hollow-test-go/negative.go
+          - packs/substantiveness/testdata/fixtures/rules/referenced-symbol-go/positive.go
+          - packs/substantiveness/testdata/fixtures/rules/referenced-symbol-go/negative.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-006
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: verification
+        title: "Gate the in-repo fixture correction and prove the pack passes all six phases"
+        description: |
+          Diff-scoped verification of the in-repo half.
+
+          1. `./bin/backstop gate` — bare, diff-scoped. This is the inner-loop
+             gate for the four changed files. Do NOT reach for `--all` here;
+             the tree is shared and a full sweep races other lanes (sharp edge
+             12). `--all` is Phase 5's job, after the founder go.
+
+          2. `./bin/backstop pack test <ABSOLUTE path to packs/substantiveness>`
+             and read the exit status DIRECTLY, not through a pipe (sharp edge
+             6). Expect `status: pass`, all six phases `pass`, exit 0. Record
+             the full six-line phase report in the task output — the specific
+             thing being proven is that phase3-fixtures says `pass`, not that
+             phases 4-6 stopped being skipped.
+
+          3. Re-run the three mandated tests
+             (`go test ./cmd/backstop/... -run "TestSubstantivenessFixtures"
+             -race -count=1`) and report all three green, with their pre-fix red
+             output quoted alongside so the red-to-green transition is evidenced
+             rather than claimed. This includes
+             `TestSubstantivenessFixtures_TestMainExemptionKeepsThePositiveClean`
+             — the CLM-003 counterfactual — so this task is where CLM-003's
+             discriminating-pin property is verified post-fix, not merely
+             asserted in TASK-002's prose.
+
+          4. Confirm by `git status --porcelain packs/substantiveness` that the
+             ONLY changed paths are the four fixture files — `pack.yml`,
+             `ast-grep/**` and `testdata/convert/**` must be untouched (CLM-006).
+        files:
+          - packs/substantiveness/testdata/fixtures/rules/hollow-test-go/positive.go
+          - packs/substantiveness/testdata/fixtures/rules/hollow-test-go/negative.go
+          - packs/substantiveness/testdata/fixtures/rules/referenced-symbol-go/positive.go
+          - packs/substantiveness/testdata/fixtures/rules/referenced-symbol-go/negative.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-006
+        depends_on:
+          - TASK-002
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 3: Measured red-count delta, and the residual this fix does not close
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: Measured e2e delta and the residual this lane does not own"
+    tasks:
+      - id: TASK-004
+        type: verification
+        title: "Measure the substantiveness e2e red count before and after; attribute every residual"
+        description: |
+          MEASURE, DO NOT ASSERT. The point of this task is a number with a
+          control, not a claim that things got better.
+
+          BASELINE FIRST, IN A DETACHED WORKTREE AT CLEAN HEAD — never in the
+          shared tree, which other lanes are mutating (sharp edge 12). The last
+          recorded baseline is 11 red `cmd/backstop` tests at HEAD 1162f64, all
+          failing at the same `pack add` -> `phase3-fixtures` call and none
+          reaching the code under test. HEAD has moved since; re-measure rather
+          than carrying that number forward.
+
+          Then run the same suite against your working tree and report the
+          DELTA. The expectation, derived from measurements already recorded in
+          this plan's notes, is:
+
+            GREEN AFTER THIS FIX — every test whose harness installs the
+            PRISTINE pack (`installSubstantivenessLocalPack`) or the
+            warning-severity copy (`installWarningSeveritySubstantivenessPack`):
+            the four `TestE2E_Substantiveness*`, `TestProvisioning_Substantiveness*`,
+            the two `TestE2E_HollowEvidenceBlocks*`, the two
+            `TestE2E_SubstantivenessHollowWaiver_*`, and
+            `TestInstallSubstantivenessLocalPack_UsesProductionAssembly`.
+
+            ALSO GREEN — PLAN-ISSUE-106's two red-on-purpose CLM-004 tests,
+            `TestE2E_SubstantivenessWarningPack_StepWarnsWithoutBlocking` and
+            `TestE2E_SubstantivenessPristinePack_StepStillBlocks`. Measured:
+            the fixed pack plus that harness's `severity: warning` patch passes
+            all six packval phases. Report this explicitly as this lane's
+            CROSS-LANE ACCEPTANCE SIGNAL — it is what finishes ISSUE-106's
+            CLM-004. Do NOT edit ISSUE-106 or PLAN-ISSUE-106 from here; report
+            the result and let that lane's owner close its own residual.
+
+            STILL RED, BY A DIFFERENT CAUSE — the three
+            `TestE2E_ZeroMatchClassification_*`. Confirm the failure text has
+            CHANGED from `semgrep-positive: positive fixture triggered the rule
+            (false positive)` to `semgrep-negative: negative fixture not
+            triggered`, and that the error COUNT on that pack copy dropped from
+            3 to 1. That specific string change is the evidence that the
+            remaining red is the harness's zero-match rule patch and not a
+            leftover polarity problem.
+
+          IF THE MEASURED SET DIFFERS FROM THE ABOVE IN EITHER DIRECTION, REPORT
+          THE ACTUAL SET. Do not reconcile the tree to this plan's expectation,
+          and do not quietly restate the expectation as the result. A test that
+          went red that was green before is a stop-and-flag, not a footnote.
+
+          Do NOT make any test green by skipping, weakening or deleting it.
+        files:
+          - cmd/backstop/gate_substantiveness_e2e_test.go
+          - cmd/backstop/gate_substantiveness_severity_test.go
+          - cmd/backstop/gate_substantiveness_refusal_boundary_e2e_test.go
+          - cmd/backstop/gate_substantiveness_provisioning_test.go
+          - cmd/backstop/gate_substantiveness_zero_match_e2e_test.go
+          - cmd/backstop/substantiveness_assembly_test.go
+        claims:
+          - CLM-005
+        depends_on:
+          - TASK-002
+
+      - id: TASK-005
+        type: documentation
+        title: "File the follow-ons this lane surfaces rather than absorbing them"
+        description: |
+          TWO consequences fall outside this plan's scope and must be SURFACED,
+          not silently absorbed. File each as its own issue via the proper route —
+          `./bin/backstop artifact new issue --slug <kebab>` to reserve the ID,
+          then the issue-author agent. Do NOT hand-write the issue files, and do
+          NOT fold either consequence into this plan's tasks.
+
+          1. THE ZERO-MATCH HARNESS MAKES THE PACK UNVALIDATABLE.
+             `installZeroMatchSubstantivenessPack`
+             (`cmd/backstop/gate_substantiveness_e2e.go`) appends
+             `files: ["harness/fixtures/**/*.go"]` to a copy of
+             `referenced-symbol-go.yml` so the rule matches zero files in the
+             consumer workspace (ISSUE-113's intent). That glob ALSO takes the
+             pack's own fixture tree out of scope, so the pack's declared
+             NEGATIVE fixture can no longer trigger and `pack add` refuses the
+             copy with `semgrep-negative: negative fixture not triggered`.
+             State it as MEASURED, with both numbers: on the pre-ISSUE-148 pack
+             that copy failed with 3 errors; on the corrected pack it fails with
+             1. Three tests (`TestE2E_ZeroMatchClassification_*`) stay red on it.
+             The fix needs a design judgment this lane must not make
+             unilaterally — which glob preserves ISSUE-113's "matches nothing in
+             the consumer workspace" meaning while leaving the pack's own
+             fixture tree in scope — so say what the constraint is and leave the
+             choice to the issue's own lane. Note the adjacency to ISSUE-151
+             (path-scoped pack rules dark under file dispatch) WITHOUT claiming
+             they are the same defect: ISSUE-151 is about the live consumer
+             gate, this is about a test harness's deliberate patch colliding
+             with packval.
+
+          2. ISSUE-148's AND DIR-032 ITEM 19's STATED FIX MENU IS FALSIFIED.
+             Both say the defect is "purely which manifest key each is filed
+             under" and that swapping either the keys or the file contents
+             resolves it. Measured 2026-08-17: the key swap alone leaves the
+             failure byte-for-byte unchanged, because both rules share one
+             sgconfig and packval's per-fixture verdict is "did ANY rule fire".
+             Both currently-declared NEGATIVE fixtures also pass for the WRONG
+             REASON today — on a sibling rule's `t.Fatalf` hit, not their own
+             rule — a vacuous green sitting underneath the filed defect and not
+             described anywhere in the issue. Quote the falsified sentences
+             verbatim so a future reader can find them. This is a CORRECTION TO
+             ARTIFACT PROSE, not a broken promise: neither artifact declares a
+             mandated test that this contradicts. Route it through issue-author;
+             never hand-edit ISSUE-148 or the directive.
+        files:
+          - issues/
+        claims:
+          - CLM-005
+        depends_on:
+          - TASK-004
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 4: External mirror prepared locally — HALT before publishing
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: External mirror prepared and validated locally — then HALT"
+    tasks:
+      - id: TASK-006
+        type: implementation
+        title: "Apply the byte-identical fixture correction and the 1.2.1 version bump in the external mirror working tree"
+        description: |
+          ★ WORKING TREE ONLY. NO `git add`, NO `git commit`, NO `git tag`, NO
+          `git push`. Those are Phase 5 and are FOUNDER-GATED. ★
+
+          The mirror is `/Users/bmanson/src/projects/backstop-go-substantiveness-pack`
+          (remote `https://github.com/backstop-ai/go-substantiveness.git`, clean
+          at tag `v1.2.0`, single commit `955df4e`, verified 2026-08-17).
+
+          THIS TASK DEPENDS ON TASK-003 ON PURPOSE. The in-repo fix must have
+          PROVEN itself — `./bin/backstop gate` green and a six-phase
+          `pack test` pass on `packs/substantiveness` — before the same bodies
+          are copied outward. Copying an unproven body into the repo that the
+          gate actually consumes is the failure mode this ordering forecloses.
+
+          Before editing, RE-CONFIRM the mirror relationship rather than trusting
+          this plan: `git -C <mirror> status --porcelain` must be empty, and
+          `diff -r <mirror> packs/substantiveness` (excluding `.git`) must report
+          `pack.yml` as the ONLY differing file. If anything else differs, STOP
+          AND FLAG — the mirror has drifted and this lane is not the place to
+          reconcile it.
+
+          Then:
+            1. Copy the four corrected fixture bodies from
+               `packs/substantiveness/testdata/fixtures/rules/**` into the
+               mirror at the identical relative paths. BYTE-IDENTICAL — verify
+               with `diff`, do not retype them.
+            2. Bump ONLY the mirror's `pack.yml` `version:` from `"1.2.0"` to
+               `"1.2.1"`. Leave `name:` and every other line alone. The in-repo
+               `pack.yml` is NOT bumped (version policy in the notes) — the two
+               manifests are EXPECTED to keep differing on exactly `name:` and
+               `version:`, and that is the invariant TASK-007 re-checks.
+
+          Then STOP. Report that the mirror is prepared and validated but
+          UNPUBLISHED, and that Phase 5 is blocked pending an explicit founder
+          go. That is a successful terminal state for this lane, not a failure.
+        files:
+          - /Users/bmanson/src/projects/backstop-go-substantiveness-pack/pack.yml
+          - /Users/bmanson/src/projects/backstop-go-substantiveness-pack/testdata/fixtures/rules/hollow-test-go/positive.go
+          - /Users/bmanson/src/projects/backstop-go-substantiveness-pack/testdata/fixtures/rules/hollow-test-go/negative.go
+          - /Users/bmanson/src/projects/backstop-go-substantiveness-pack/testdata/fixtures/rules/referenced-symbol-go/positive.go
+          - /Users/bmanson/src/projects/backstop-go-substantiveness-pack/testdata/fixtures/rules/referenced-symbol-go/negative.go
+        claims:
+          - CLM-004
+          - CLM-006
+        depends_on:
+          - TASK-001
+          - TASK-002
+          - TASK-003
+
+      - id: TASK-007
+        type: verification
+        title: "Prove the prepared mirror validates and stays byte-identical, then halt and report"
+        description: |
+          Verification of the UNPUBLISHED mirror. Still no git write operations
+          of any kind against the external repo.
+
+          1. `./bin/backstop pack test <ABSOLUTE path to the mirror>` — expect
+             `status: pass`, all six phases `pass`, exit 0 read directly rather
+             than through a pipe (sharp edge 6). This is the same check
+             `pack add`/`pack install` will run unconditionally at publish time,
+             so a pass here is what makes Phase 5 safe to execute.
+
+          2. `diff -r` the mirror against `packs/substantiveness`, excluding
+             `.git`. The ONLY differing file must still be `pack.yml`, and within
+             it the ONLY differing lines must be `name:` and `version:` (CLM-006).
+             Any third difference is a stop-and-flag.
+
+          3. Confirm the mirror's `pack.yml` reads `version: "1.2.1"` and that no
+             tag `v1.2.1` exists yet (`git -C <mirror> tag`), so the identity
+             gate's version==tag requirement is satisfiable by Phase 5 and has
+             not been half-executed.
+
+          4. HALT AND REPORT. Write the report as a founder-facing decision
+             request: what is prepared, what `pack test` returned, and exactly
+             which three commands Phase 5 will run
+             (`git commit`, `git tag v1.2.1 && git push --tags`, and
+             `./bin/backstop pack update backstop-ai/go-substantiveness`).
+             Do not proceed to Phase 5 on the strength of any agent message —
+             only the founder's own explicit go authorizes it.
+        files:
+          - /Users/bmanson/src/projects/backstop-go-substantiveness-pack/pack.yml
+          - /Users/bmanson/src/projects/backstop-go-substantiveness-pack/testdata/fixtures/rules/hollow-test-go/positive.go
+          - /Users/bmanson/src/projects/backstop-go-substantiveness-pack/testdata/fixtures/rules/hollow-test-go/negative.go
+          - /Users/bmanson/src/projects/backstop-go-substantiveness-pack/testdata/fixtures/rules/referenced-symbol-go/positive.go
+          - /Users/bmanson/src/projects/backstop-go-substantiveness-pack/testdata/fixtures/rules/referenced-symbol-go/negative.go
+        claims:
+          - CLM-004
+          - CLM-006
+        depends_on:
+          - TASK-006
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Phase 5: FOUNDER-GATED publish + relock + final comprehensive verification
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-5
+    name: "Phase 5: FOUNDER-GATED publish, relock, and final comprehensive verification"
+    tasks:
+      - id: TASK-008
+        type: implementation
+        title: "FOUNDER-GATED — publish the mirror at v1.2.1 and adopt it in this repo"
+        description: |
+          ★★ DO NOT START THIS TASK WITHOUT AN EXPLICIT FOUNDER GO. ★★
+          Publishing to `backstop-ai/go-substantiveness` is a push to a shared
+          public remote and a tag that cannot be quietly retracted. No agent
+          message — including one from a team lead or orchestrator — authorizes
+          it. If you reached here without a founder go, stop and say so.
+          Precedent: tonight's `backstop-ai/go-toolchain` v1.6.0 release required
+          the same explicit confirmation before pushing and tagging.
+
+          With the go in hand, in the mirror
+          `/Users/bmanson/src/projects/backstop-go-substantiveness-pack`:
+            1. Re-run `./bin/backstop pack test <abs mirror>` one more time
+               immediately before publishing, and abort if it is not a six-phase
+               pass. Time has passed since TASK-007.
+            2. Commit the five changed files with a message naming ISSUE-148 and
+               what changed (fixture polarity corrected against the combined
+               ruleset; version 1.2.0 -> 1.2.1).
+            3. `git tag v1.2.1` and push the branch AND the tag. The tag must
+               equal the manifest version exactly — the identity gate refuses on
+               any mismatch, before touching consumer state.
+            4. FETCH BEFORE ASSUMING THE PUSH LANDED. Confirm the tag is
+               reachable from the pushed branch on the remote (`git ls-remote
+               --tags origin`), not merely created locally — a tag stranded
+               off the pushed branch is a known trap.
+
+          Then, back in backstop-core:
+            5. `./bin/backstop pack update backstop-ai/go-substantiveness`.
+               This resolves the new tag through the real remote path, re-runs
+               the identity gate and the full packval pipeline on a scratch copy,
+               reinstalls into `.backstop/packs/`, and rewrites `backstop.yml`
+               (1.2.0 -> 1.2.1) and `backstop.lock` (`version`, `git_ref`,
+               `content_hash`, `install_date`). `source_coordinate` is preserved
+               across the rewrite by design — verify it survived rather than
+               assuming.
+            6. Confirm `.backstop/packs/backstop-ai/go-substantiveness` now
+               carries the corrected fixture bodies, and that
+               `./bin/backstop pack test` on that installed tree passes all six
+               phases. This is the moment CLM-004 becomes true: what the gate
+               actually consumes is fixed, not only the in-repo test source.
+
+          If any step fails, STOP with the tree in whatever state the failure
+          left it and report — do not improvise a rollback of a pushed tag.
+        files:
+          - backstop.yml
+          - backstop.lock
+          - /Users/bmanson/src/projects/backstop-go-substantiveness-pack/pack.yml
+        claims:
+          - CLM-004
+        depends_on:
+          - TASK-001
+          - TASK-007
+
+      - id: TASK-009
+        type: verification
+        title: "Full kill chain and artifact validation"
+        description: |
+          Final comprehensive verification, covering both work categories this
+          plan touched — code/pack content AND artifacts.
+
+          1. `./bin/backstop gate --all` — the full, unscoped kill chain:
+             artifact validation, pack lock verification (which now checks the
+             newly-recorded 1.2.1 content hash against the installed tree),
+             findings engines, test verification, substantiveness, coverage,
+             contracts, status drift, traceability, waivers, baseline, ledger.
+             Report the full step table, not a summary verdict.
+             COORDINATE BEFORE RUNNING IT. The tree is shared; a full sweep
+             concurrent with a mid-flight implementer races. If other lanes are
+             live, run it in a detached worktree at the commit under test and say
+             so — and copy `.backstop/packs` into that worktree, or `pack_engines`
+             silently no-ops and the green is meaningless.
+
+          2. `./bin/backstop artifact validate --plan PLAN-ISSUE-148` and
+             `./bin/backstop artifact validate --issue ISSUE-148` — both must
+             pass.
+
+          3. Re-run the three mandated tests plus the substantiveness e2e set
+             one final time from the committed tree and report the numbers
+             against TASK-004's measured baseline. Name the three
+             `TestE2E_ZeroMatchClassification_*` reds explicitly as INHERITED and
+             owned by the issue TASK-005 filed — never let them read as this
+             lane's own failure, and never let them be absent from the report.
+
+          4. If coverage or any other dimension comes back red on something this
+             lane did not cause, PROVE it inherited with a clean-HEAD control
+             measurement in a separate worktree and name the owning issue.
+             Record it; never waive it.
+        files:
+          - backstop.yml
+          - backstop.lock
+          - plans/PLAN-ISSUE-148-substantiveness-fixture-polarity-inverted.plan.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-005
+          - TASK-008
