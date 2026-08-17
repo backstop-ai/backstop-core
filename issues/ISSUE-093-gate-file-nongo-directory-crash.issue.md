@@ -6,8 +6,11 @@ issue:
   id: ISSUE-093
   title: "gate --file Falsely REDs Non-Go Files Whose Directory Holds No Go Package"
   type: bug
-  status: open
+  status: closed
   created: "2026-07-27"
+  closed: "2026-08-17"
+
+delivered_by: PLAN-ISSUE-093
 
 complexity:
   scope: contained
@@ -16,6 +19,36 @@ complexity:
 ---
 
 # gate --file Falsely REDs Non-Go Files Whose Directory Holds No Go Package
+
+## Resolution
+
+Fixed by PLAN-ISSUE-093 (completed 2026-08-17, commit 6c32a17 on `main`).
+
+`pkg/gate/classification.go` gained two predicates on `SourceClassifier`: `ClaimsPath` (the
+source-glob OR test-glob union — deliberately not `IsMeasurableSource`, so a `_test.go` file is
+still claimed) and `DeclaresAnyGlobs` (distinguishes "pack declared nothing" from "declared,
+no match"). `cmd/backstop/pack_gate_filemode.go`'s file-mode package-target derivation
+(`fileModeTestTarget`, now `fileModeTestTargets`) went from a two-state, `scope.Files[0]`-only
+derivation to a structural three-state `fileModeDecision`: not-applicable (diff/`--all`/nil scope
+unchanged), targets-derived (one deduped package selector per claimed file, with a
+capability-absent guard for packs that declare `package_scoped: true` but no classification
+globs), and claims-nothing (the engine is not dispatched at all, and a non-blocking `warning`
+advisory says so — never a silent skip, never a `./...` fallback). This is what stops a
+`package_scoped` engine like go-toolchain's `go-test` from being dispatched against a directory
+it has no interest in (e.g. `.github/workflows/ci.yml`), which was the root cause of the false RED.
+
+Separately, `cmd/backstop/gate.go`'s `--file` flag is now genuinely repeatable
+(`StringArrayVar`, accumulating with positional args) and refuses an empty value as a config
+error, instead of silently keeping only the last occurrence of a repeated flag or falling
+through to a diff-scoped sweep on an empty value.
+
+One real deviation from the plan was found and fixed during implementation: `pflag`'s
+`GetStringArray` silently drops a lone empty `--file` value via its CSV round-trip. The shipped
+code reads the raw accumulated slice via `pflag.SliceValue.GetSlice()` instead.
+
+The founder-level policy question this fix opens — may CI's blocking job now use `--file`, since
+both defects are fixed? — is filed separately as ISSUE-156 and was deliberately not decided or
+absorbed here; the existing ban on `--file`/`--all` in CI's blocking job stays in force.
 
 ## Problem
 
