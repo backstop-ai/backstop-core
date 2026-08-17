@@ -1,0 +1,6 @@
+# The PASS case. Its one pack binds a findings engine by a rule whose argv[0] the test
+# reports as FOUND through the injected binaryResolver, so the pass is deterministic and
+# does not depend on what happens to be installed on the host.
+project: doctor-engine-tool-present-fixture
+packs:
+    backstop/engine-tool-present: local

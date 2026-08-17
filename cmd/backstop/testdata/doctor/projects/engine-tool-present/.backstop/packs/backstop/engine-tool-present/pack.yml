@@ -1,0 +1,25 @@
+name: backstop/engine-tool-present
+version: 1.0.0
+language: none
+archetype: enforcement
+description: >
+  Fixture pack for ISSUE-134 CLM-001's pass arm: one rule-bound findings engine whose
+  tool the test's injected resolver reports as present. The message must still NAME the
+  probed tool, so a check that probed nothing at all cannot pass against it.
+engines:
+  # NIL PROVISION, DELIBERATELY — see engine-tool-absent's pack.yml for why.
+  present-findings:
+    command: backstop-present-engine-134 scan --json
+    input_mode: none
+    scope_kind: project-wide
+    category: mechanism
+    gate_type: findings
+content:
+  ruleset:
+    version: 1.0.0
+    rules:
+      - id: present-findings-rule
+        engine: present-findings
+        category: mechanism
+        risk_class: correctness
+        justification: binds the present-findings engine so the collection walk reaches it

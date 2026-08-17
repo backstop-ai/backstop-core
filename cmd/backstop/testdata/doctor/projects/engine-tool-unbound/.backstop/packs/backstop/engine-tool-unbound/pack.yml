@@ -1,0 +1,34 @@
+name: backstop/engine-tool-unbound
+version: 1.0.0
+language: none
+archetype: enforcement
+description: >
+  Fixture pack for ISSUE-134 CLM-002, the doctor-level twin of the unit-level rule-walk
+  guard. TWO findings engines, ONE rule. A collection widened to manifest.Engines returns
+  the unbound tool, doctor fails, and the parity biconditional against provisionEngines
+  breaks on this row.
+engines:
+  # NIL PROVISION ON BOTH, DELIBERATELY — see engine-tool-absent's pack.yml for why.
+  bound-findings:
+    command: backstop-present-engine-134 scan --json
+    input_mode: none
+    scope_kind: project-wide
+    category: mechanism
+    gate_type: findings
+  # ★ NO RULE BINDS THIS ONE, AND THAT IS THE WHOLE FIXTURE. Do not "fix" it by adding a
+  # rule: the absence is what makes the rule-driven walk falsifiable.
+  unbound-findings:
+    command: backstop-unbound-engine-134 scan --json
+    input_mode: none
+    scope_kind: project-wide
+    category: mechanism
+    gate_type: findings
+content:
+  ruleset:
+    version: 1.0.0
+    rules:
+      - id: bound-findings-rule
+        engine: bound-findings
+        category: mechanism
+        risk_class: correctness
+        justification: binds ONLY bound-findings; unbound-findings is deliberately unreferenced

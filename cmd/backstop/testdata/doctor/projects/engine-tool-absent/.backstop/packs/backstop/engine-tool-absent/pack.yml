@@ -1,0 +1,31 @@
+name: backstop/engine-tool-absent
+version: 1.0.0
+language: none
+archetype: enforcement
+description: >
+  Fixture pack for ISSUE-134 CLM-001: one findings engine, BOUND BY A RULE, whose
+  argv[0] is a fixed nonsense name. Doctor's engine-tools check must FAIL naming that
+  tool, the declaring pack and the engine key — the condition that used to report a
+  clean pass.
+engines:
+  # NO `provision:` BLOCK, DELIBERATELY. checkEngineToolAllowed returns nil immediately
+  # for a nil Provision (the Layer-0 exemption), so the PRESENCE PROBE is the only thing
+  # this fixture exercises. A stray provision: here would be refused by the trust gate
+  # before the probe ever ran and the fixture would prove nothing.
+  absent-findings:
+    command: backstop-absent-engine-134 scan --json
+    input_mode: none
+    scope_kind: project-wide
+    category: mechanism
+    gate_type: findings
+content:
+  # THE RULE IS THE POINT. Collection walks RULES, not the engines map, so a pack with
+  # engines and no ruleset exercises nothing here.
+  ruleset:
+    version: 1.0.0
+    rules:
+      - id: absent-findings-rule
+        engine: absent-findings
+        category: mechanism
+        risk_class: correctness
+        justification: binds the absent-findings engine so the collection walk reaches it

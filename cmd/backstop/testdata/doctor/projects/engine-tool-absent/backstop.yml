@@ -1,0 +1,10 @@
+# THE FIXTURE THAT REPRODUCES ISSUE-134's INCIDENT.
+#
+# Its one pack binds a findings engine, BY A RULE, whose argv[0] is a fixed nonsense
+# name with no path separator — so it is genuinely absent on every host and the fixture
+# never mutates PATH and never assumes a real tool happens to be missing. Before
+# ISSUE-134 `backstop doctor` reported this project all-green at exit 0 while
+# `backstop gate` refused it at exit 2.
+project: doctor-engine-tool-absent-fixture
+packs:
+    backstop/engine-tool-absent: local

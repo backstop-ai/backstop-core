@@ -188,10 +188,16 @@ func TestDoctor_RegistryHasNoCallSiteOtherThanRunDoctorAndGuidance(t *testing.T)
 // TestDoctor_CheckIDsAppearOnlyAsDeclaredConstants is a SOURCE SCAN (CLM-059,
 // kind: absence).
 //
-// Each of the seven id strings must appear in NON-test code exactly once, in the
+// Each of the eight id strings must appear in NON-test code exactly once, in the
 // declared const block. A literal anywhere else — including init.go's guidance — fails.
 // That is what makes a registry rename a compile-time event instead of a silent desync
 // between the registry and the text init prints.
+//
+// ★ THIS SLICE IS HARDCODED, NOT REGISTRY-DERIVED, AND THAT MAKES IT AN EDIT SITE. Both
+// the `wanted` filter and the assertion loop below iterate THIS slice, so an id missing
+// from it is never scanned at all — the scan would stay green over the ids it knows while
+// silently ceasing to cover the new one. A check added to doctorRegistry() owes this
+// slice an entry.
 func TestDoctor_CheckIDsAppearOnlyAsDeclaredConstants(t *testing.T) {
 	ids := []string{
 		doctorCheckConfigPresent,
@@ -200,6 +206,7 @@ func TestDoctor_CheckIDsAppearOnlyAsDeclaredConstants(t *testing.T) {
 		doctorCheckPacksInstalled,
 		doctorCheckBuildIdentity,
 		doctorCheckToolchainRuns,
+		doctorCheckEngineTools,
 		doctorCheckArtifactLayout,
 	}
 	wanted := map[string]bool{}

@@ -1,0 +1,7 @@
+# THE WARN-NOT-SILENT-PASS CASE. A GATHERED, VALID pack set — backstop.yml resolves and
+# the pack parses — that binds NO engine tool at all. It must be distinguishable from the
+# UNGATHERED case, which reuses the existing no-config / config-malformed /
+# config-missing-pack fixtures rather than adding a fifth here.
+project: doctor-engine-tool-none-fixture
+packs:
+    backstop/engine-tool-none: local

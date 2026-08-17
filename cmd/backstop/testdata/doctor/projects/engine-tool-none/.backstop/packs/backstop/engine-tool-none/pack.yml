@@ -1,0 +1,27 @@
+name: backstop/engine-tool-none
+version: 1.0.0
+language: none
+archetype: enforcement
+description: >
+  Fixture pack for ISSUE-134 CLM-006's warn branch: the pack GATHERS and PARSES, and its
+  one rule-bound engine declares an EMPTY command — the sandbox shape, which ships its own
+  executable — so the collection returns nothing to probe. Doctor warns; it never passes
+  silently, because a silent pass is the shape doctor exists to prevent.
+engines:
+  # EMPTY COMMAND, DELIBERATELY: engineToolName("") returns "" and the walk skips it, so
+  # this pack binds an engine and still requires no tool on PATH.
+  commandless:
+    command: ""
+    input_mode: none
+    scope_kind: project-wide
+    category: mechanism
+    gate_type: findings
+content:
+  ruleset:
+    version: 1.0.0
+    rules:
+      - id: commandless-rule
+        engine: commandless
+        category: mechanism
+        risk_class: correctness
+        justification: binds the commandless engine so the pack set is gathered and non-empty

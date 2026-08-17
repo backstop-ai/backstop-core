@@ -20,13 +20,18 @@ import (
 //
 // It also catches the other tempting additions the spec names by hand: orphan reservation
 // tags (an explicitly untaken founder call), gitleaks presence, .gitignore completeness.
-// Seven is the DECLARED set, not a starting point — growth belongs to the bundle.
+// EIGHT is the DECLARED set, not a starting point — growth belongs to the bundle, and the
+// eighth was authorized rather than assumed: DIR-002's founder-ruled scope expansion of
+// 2026-08-16 (directives/DIR-002-backstop-init.directive.md, the ISSUE-134 follow-on and
+// the "Founder-approved home and framing" paragraph) brought doctor's tool-detection
+// diagnostic coverage into that directive's charter, and ISSUE-134 added
+// engine-tools-present under it. A ninth needs the same authorization.
 //
 // It lands only now because this is the phase in which the registry becomes complete:
 // written earlier it would have been red for three phases and the phase gates would have
 // been dishonest.
 func TestDoctor_RegistersNoStackPolicyCheckAndReadsNoStackPolicySurface(t *testing.T) {
-	// (a) THE ID SET IS EXACTLY THE DECLARED SEVEN — no more, so an eighth check cannot
+	// (a) THE ID SET IS EXACTLY THE DECLARED EIGHT — no more, so a NINTH check cannot
 	// be added quietly, and no fewer, so one cannot be dropped either.
 	want := []string{
 		doctorCheckConfigPresent,
@@ -35,6 +40,7 @@ func TestDoctor_RegistersNoStackPolicyCheckAndReadsNoStackPolicySurface(t *testi
 		doctorCheckPacksInstalled,
 		doctorCheckBuildIdentity,
 		doctorCheckToolchainRuns,
+		doctorCheckEngineTools,
 		doctorCheckArtifactLayout,
 	}
 	var got []string

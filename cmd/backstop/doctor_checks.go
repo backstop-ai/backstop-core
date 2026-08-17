@@ -354,6 +354,105 @@ func entrypointOutputVerbatim(output []byte) string {
 	return text
 }
 
+// checkEngineToolsPresent verifies that every tool a pack-declared, RULE-BOUND engine
+// invokes resolves on PATH — the condition `backstop gate` refuses on at exit 2.
+//
+// ★ IT EXISTS BECAUSE DOCTOR AND THE GATE ONCE DISAGREED COMPLETELY (ISSUE-134). Doctor
+// consumed only packEntrypointProber, whose selection is BY STAGE (gate_type test/build),
+// so a findings engine was never selected, never probed, never mentioned — and doctor
+// reported an all-green exit 0 on the same tree, in the same second, that the gate
+// refused with exit 2 naming an absent semgrep. This check consumes the OTHER walk.
+//
+// ★ SELECTION IS RULE-DRIVEN, THROUGH THE SHARED collectRequiredEngineTools — the ONE
+// authority provisionEngines also consumes, so doctor's verdict and the gate's refusal
+// are the same predicate rather than two implementations that agree today. Widening it to
+// manifest.Engines looks more thorough and is wrong: an engine no rule binds is never
+// dispatched, so doctor would fail on a project the gate PASSES, and a diagnostic that
+// cries wolf is worth nothing on the day it is right.
+//
+// ★ THE PROBE IS PRESENCE, NEVER EXECUTION, through the same resolveBinaryResolver seam
+// the gate uses. Parity is the point — doctor's value here is answering "will the gate
+// refuse?", and the gate refuses on exactly this predicate, so a richer probe would answer
+// a question the gate does not ask. A findings tool run against nothing also has no
+// success signal distinguishable from a tool that scanned and found nothing, and running
+// pack-declared scanners at doctor time would make a diagnostic as slow as a gate run.
+//
+// ★ AN ABSENT TOOL IS `fail`, NOT `warn`, WHICHEVER KIND IT IS. That is ISSUE-112's
+// COLLAPSED SPLIT, not an unconsidered severity: pinned tools were once exempt from
+// presence probing on the assumption something auto-provisioned them, nothing did, and a
+// pinned engine with no binary flowed into dispatch and reported a clean pass. Both kinds
+// now fail loud; only the MESSAGE differs, because they have different remedies. Softening
+// this to a warn for pinned tools re-opens ISSUE-112 from a new surface.
+//
+// WHAT DOCTOR OWNS IS REPORT VOCABULARY: the skip-first branch, the rollup to ONE result,
+// the enumerate-every-absence disposition (where the gate stops at the first), and its own
+// disposition of a trust refusal as a check FAILURE — which the gate turns into a config
+// error instead, the same deliberate asymmetry describeEntrypointProbe already carries.
+func checkEngineToolsPresent(ctx doctorContext) doctorResult {
+	result := doctorResult{ID: doctorCheckEngineTools, Title: "pack-declared findings-engine tools resolve on PATH"}
+
+	// SKIP FIRST, BEFORE ANYTHING IS COLLECTED, and on ALL THREE CONDITIONS rather than
+	// on PacksErr alone. gatherDoctorContext calls loadInstalledPacks only when the config
+	// was BOTH discovered and loaded, so an absent or unloadable backstop.yml leaves Packs
+	// nil with PacksErr ALSO nil — indistinguishable from a gathered-and-empty pack set
+	// unless the config errors are read here too. A PacksErr-only predicate reports "no
+	// installed pack binds an engine tool" on a project whose packs were never looked at.
+	// checkToolchainRuns carries the identical predicate for the identical reason.
+	if ctx.ConfigPathErr != nil || ctx.ConfigErr != nil || ctx.PacksErr != nil {
+		result.Status = doctorStatusSkipped
+		result.Message = fmt.Sprintf("the installed pack set could not be gathered; %s owns that condition", doctorCheckPacksInstalled)
+		return result
+	}
+
+	tools, collectErr := collectRequiredEngineTools(ctx.Packs)
+	if collectErr != nil {
+		// THE TRUST REFUSAL. The tool was refused BEFORE it ran; reporting it as missing
+		// would send the reader looking for a binary that backstop would decline to run
+		// even if they installed it.
+		result.Status = doctorStatusFail
+		result.Message = fmt.Sprintf("a pack-declared engine tool was refused before it ran: %v", collectErr)
+		result.Remediation = "a pack declares a provisioned tool that is not on the trusted-tool allowlist at its pinned version; backstop will not run it"
+		return result
+	}
+
+	// A GATHERED PACK SET THAT BINDS NO ENGINE TOOL WARNS, NEVER PASSES SILENTLY. It
+	// mirrors checkToolchainRuns' outcome (d): nothing was probed is a fact to state, not
+	// a clean bill of health.
+	if len(tools) == 0 {
+		result.Status = doctorStatusWarn
+		result.Message = "no installed pack binds an engine tool, so nothing was probed"
+		result.Remediation = "install a pack whose ruleset binds an engine declaring a command; backstop runs only what packs declare"
+		return result
+	}
+
+	// ONE RESULT, whose message enumerates every probed tool on its own line and whose
+	// status is the WORST outcome among them. The gate stops at the first absence; a
+	// diagnostic that did the same would make the operator re-run it once per missing
+	// tool.
+	resolve := resolveBinaryResolver()
+	var lines []string
+	var remediations []string
+	status := doctorStatusPass
+	for _, tool := range tools {
+		attribution := fmt.Sprintf("%s (%s, engine %s)", tool.name, tool.pack, tool.engine)
+		if _, resolveErr := resolve(tool.name); resolveErr != nil {
+			lines = append(lines, fmt.Sprintf("  fail  %s — not found on PATH: %v", attribution, resolveErr))
+			// THE GATE'S OWN RENDERER, NOT A SECOND ONE. Reusing absentToolMessage is what
+			// makes doctor's advice and the gate's refusal the SAME WORDS by construction
+			// rather than two texts that drift.
+			remediations = append(remediations, absentToolMessage(tool))
+			status = worseDoctorStatus(status, doctorStatusFail)
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("  pass  %s", attribution))
+	}
+
+	result.Status = status
+	result.Message = fmt.Sprintf("%d required engine tool(s):\n%s", len(tools), strings.Join(lines, "\n"))
+	result.Remediation = strings.Join(remediations, "\n")
+	return result
+}
+
 // checkArtifactLayout reports each artifact-shaped file that is not DIRECTLY in the
 // directory the resolution expects for its own kind.
 //

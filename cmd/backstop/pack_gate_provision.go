@@ -72,36 +72,40 @@ type requiredTool struct {
 	provision *engine.Provision
 }
 
-// provisionEngines verifies that every engine tool the given packs reference
-// resolves on PATH, and fail-louds with a *check.ConfigError (exit 2) naming the
-// tool when one does not. It installs nothing.
+// collectRequiredEngineTools is THE ONE SITE that decides WHICH tools a pack set
+// requires on PATH: it walks each manifest's rules, resolves each rule's engine
+// through the registry, runs the trust gate, extracts argv[0], dedupes, and returns
+// the result in sorted probed-name order.
 //
-// BOTH kinds of binding are probed — assume-present Layer-0 tools (nil Provision)
-// and pinned ones alike (ISSUE-112). A pinned Provision is an allowlist trust
-// entry, not an installer, so exempting pinned bindings from this probe let an
-// engine with no binary report a clean, finding-free scan. Only the refusal
-// message differs between the two; see the file header.
+// ★ IT HAS TWO CONSUMERS WITH DIFFERENT DISPOSITIONS, AND THAT IS WHY IT EXISTS
+// SEPARATELY FROM provisionEngines. The gate FAILS FAST on the first absence (exit
+// 2); `backstop doctor`'s engine-tools check ENUMERATES every one and reports each.
+// A diagnostic that stopped at the first missing tool would be a worse gate rather
+// than a better diagnostic. So the COLLECTION is shared and the DISPOSITION is each
+// caller's — the same shape, and the same reasoning, as packEntrypointProber's two
+// callers. Before ISSUE-134 doctor had no consumer of this walk at all, which is how
+// doctor reported an all-green exit 0 on a project the gate refused with exit 2.
 //
-// It probes argv[0] of the DECLARED COMMAND (engineToolName), never
-// Provision.Tool. argv[0] is what exec resolves; Provision.Tool is the trust key,
-// and the two legitimately differ — ast-grep ships `sg` as a second entry point,
-// so a pack may pin `ast-grep` and invoke `sg`. Do not unify them: the pinned name
-// appears in the MESSAGE for attribution, while the probed name is the one that
-// has to exist.
+// It probes argv[0] of the DECLARED COMMAND (engineToolName), never Provision.Tool.
+// argv[0] is what exec resolves; Provision.Tool is the trust key, and the two
+// legitimately differ — ast-grep ships `sg` as a second entry point, so a pack may
+// pin `ast-grep` and invoke `sg`. Do not unify them: the pinned name appears in the
+// MESSAGE for attribution, while the probed name is the one that has to exist.
 //
-// The walk resolves engines through RULES, not through manifest.Engines. An engine
-// no rule binds is never dispatched, so its tool's absence cannot produce a vacuous
-// green, and probing it would refuse a run that was never going to invoke it — a
-// live fixture depends on that. Widening WHICH packs are walked is a caller's
-// decision; this function's rule-driven walk is not.
+// ★ THE WALK RESOLVES ENGINES THROUGH RULES, NOT THROUGH manifest.Engines, AND THAT
+// IS A CORRECTNESS PROPERTY RATHER THAN AN IMPLEMENTATION DETAIL. An engine no rule
+// binds is never dispatched, so its tool's absence cannot produce a vacuous green,
+// and probing it would refuse a run that was never going to invoke it — a live
+// fixture depends on that. Widening this to manifest.Engines looks more thorough and
+// makes BOTH consumers wrong: the gate would refuse, and doctor would fail on a
+// project the gate passes, which is the cries-wolf failure a diagnostic never
+// recovers from. Widening WHICH packs are walked is a caller's decision; this
+// function's rule-driven walk is not.
 //
 // Tool names are deduped so a pack declaring both go-build and go-test probes `go`
-// once, and probed in sorted order so a missing tool fails loud deterministically.
-func provisionEngines(packs []*pack.Manifest) error {
-	resolve := resolveBinaryResolver()
-
-	// Collect the tools to verify, deduped by probed name and carrying the
-	// attribution their refusal message needs.
+// once, and sorted so a missing tool fails loud deterministically — which is also
+// what makes doctor's per-tool report lines stable across runs.
+func collectRequiredEngineTools(packs []*pack.Manifest) ([]requiredTool, error) {
 	required := map[string]requiredTool{}
 	for _, manifest := range packs {
 		seenEngine := map[string]struct{}{}
@@ -113,20 +117,20 @@ func provisionEngines(packs []*pack.Manifest) error {
 
 			binding, lookupErr := resolveEngineRegistry(manifest).Lookup(rule.Engine)
 			if lookupErr != nil {
-				return fmt.Errorf("pack %s: %w", manifest.NormalizedName, lookupErr)
+				return nil, fmt.Errorf("pack %s: %w", manifest.NormalizedName, lookupErr)
 			}
-			// TRUST GATE (SPEC-035 REQ-003/CLM-030) — provisionEngines is the
-			// EARLIEST resolveEngineRegistry caller that leads to running a tool, so
-			// the allowlist check is routed HERE too: an un-allowlisted (or
-			// version-divergent) provisioned tool fails loud with a *check.ConfigError
-			// BEFORE any presence probe, the natural chokepoint ahead of validate +
-			// dispatch. It is the SAME engine.CheckToolAllowed the dispatch gate runs,
-			// via the shared checkEngineToolAllowed (a nil-Provision binding returns
-			// early there — the on-PATH fail-loud below governs it, not the
-			// allowlist+lock pin). Keep it AHEAD of the probe: a tool backstop refuses
-			// to trust should be reported as untrusted, not as missing.
+			// TRUST GATE (SPEC-035 REQ-003/CLM-030) — this collection is the EARLIEST
+			// resolveEngineRegistry walk that leads to running a tool, so the allowlist
+			// check is routed HERE too: an un-allowlisted (or version-divergent)
+			// provisioned tool fails loud with a *check.ConfigError BEFORE any presence
+			// probe, the natural chokepoint ahead of validate + dispatch. It is the SAME
+			// engine.CheckToolAllowed the dispatch gate runs, via the shared
+			// checkEngineToolAllowed (a nil-Provision binding returns early there — the
+			// on-PATH fail-loud in the CALLER governs it, not the allowlist+lock pin).
+			// Keep it AHEAD of the probe: a tool backstop refuses to trust should be
+			// reported as untrusted, not as missing.
 			if gateErr := checkEngineToolAllowed(manifest, binding); gateErr != nil {
-				return gateErr
+				return nil, gateErr
 			}
 			tool := engineToolName(binding.Command)
 			if tool == "" {
@@ -152,9 +156,37 @@ func provisionEngines(packs []*pack.Manifest) error {
 	}
 	sort.Strings(names)
 
+	tools := make([]requiredTool, 0, len(names))
 	for _, name := range names {
-		if _, err := resolve(name); err != nil {
-			return &check.ConfigError{Message: absentToolMessage(required[name])}
+		tools = append(tools, required[name])
+	}
+	return tools, nil
+}
+
+// provisionEngines verifies that every engine tool the given packs reference
+// resolves on PATH, and fail-louds with a *check.ConfigError (exit 2) naming the
+// tool when one does not. It installs nothing.
+//
+// SELECTION IS NOT ITS OWN: collectRequiredEngineTools decides which tools are
+// required and in what order, and doctor's engine-tools check consumes that same
+// authority. What lives HERE is the gate's DISPOSITION — return on the FIRST absent
+// name in sorted order, as a *check.ConfigError.
+//
+// BOTH kinds of binding are probed — assume-present Layer-0 tools (nil Provision)
+// and pinned ones alike (ISSUE-112). A pinned Provision is an allowlist trust
+// entry, not an installer, so exempting pinned bindings from this probe let an
+// engine with no binary report a clean, finding-free scan. Only the refusal
+// message differs between the two; see the file header.
+func provisionEngines(packs []*pack.Manifest) error {
+	tools, err := collectRequiredEngineTools(packs)
+	if err != nil {
+		return err
+	}
+
+	resolve := resolveBinaryResolver()
+	for _, tool := range tools {
+		if _, resolveErr := resolve(tool.name); resolveErr != nil {
+			return &check.ConfigError{Message: absentToolMessage(tool)}
 		}
 	}
 	return nil

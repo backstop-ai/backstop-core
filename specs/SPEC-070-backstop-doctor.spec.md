@@ -2,10 +2,10 @@
 title: "Backstop Doctor"
 number: SPEC-070
 created: "2026-08-13"
-updated: "2026-08-15"
+updated: "2026-08-16"
 status: implemented
 schema_version: spec/v1
-spec_version: 1.1.5
+spec_version: 1.1.6
 
 implementation:
   summary: >
@@ -23,8 +23,8 @@ implementation:
     REGISTRY that every consumer reads — the `--check` selector, the human
     renderer, the `--json` renderer, the exit-code computation, and init's
     guidance — so a check cannot exist in one of those and not the others, and
-    init cannot name a check id doctor does not register. SEVEN checks ship, in
-    two groups. Four exist because REQ-003's refuse-to-run conditions are only
+    init cannot name a check id doctor does not register. EIGHT checks ship, in
+    three groups. Four exist because REQ-003's refuse-to-run conditions are only
     reportable if some registered check produces them: `config-present`,
     `config-loads`, `git-repository`, and `packs-installed` turn the exact
     conditions that make `gate` exit 2 into ordinary check results carrying
@@ -38,7 +38,16 @@ implementation:
     because DD-6's evidence is that package-manager configuration lies and only
     execution is ground truth; `artifact-layout` reports each artifact-shaped
     file that lies outside the resolved artifact root, naming the path it
-    expected. The load-bearing posture across all seven is that doctor is the
+    expected. The EIGHTH check — `engine-tools-present` — was NOT in the set this
+    spec originally declared, and is not a quiet addition: it was authorized by
+    DIR-002's founder-ruled scope expansion of 2026-08-16, which brought doctor's
+    findings-engine tool-detection diagnostic coverage into that directive's
+    charter as an ongoing concern, and it was delivered under ISSUE-134 /
+    PLAN-ISSUE-134. It PROBES that every pack-declared, RULE-BOUND findings-engine
+    tool resolves on PATH — closing the gap where doctor reported all-green on a
+    project `backstop gate` refuses at exit 2 naming the same absent tool — and it
+    is a PRESENCE PROBE ONLY: doctor invokes no findings-engine command.
+    The load-bearing posture across all eight is that doctor is the
     command you run when everything else refuses: it reports an absent,
     unparseable, or gate-fatal `backstop.yml` as a CHECK RESULT and has no exit-2
     path at all, because a diagnostic that will not start on a broken setup
@@ -67,9 +76,12 @@ requirements:
   - id: REQ-002
     text: >
       Doctor's checks must live in ONE declared registry holding exactly the
-      seven checks this spec declares — `config-present`, `config-loads`,
-      `git-repository`, `packs-installed`, `build-identity`, `toolchain-runs`,
-      `artifact-layout` — and no other. Each entry carries a
+      eight checks this spec declares, in this report order — `config-present`,
+      `config-loads`, `git-repository`, `packs-installed`, `build-identity`,
+      `toolchain-runs`, `engine-tools-present`, `artifact-layout` — and no other.
+      `engine-tools-present` sits between `toolchain-runs` and `artifact-layout`
+      because the two tool-execution/tool-presence checks read the same installed
+      pack set and belong adjacent in the report. Each entry carries a
       stable, unique, lowercase-kebab id, a human title, and a function returning
       exactly one result whose status is one of `pass`, `warn`, `fail`,
       `skipped`. Registry order is report order and must be deterministic across
@@ -602,7 +614,7 @@ contracts:
       - name: doctorCheck
         kind: type
         signature: "type doctorCheck struct { ID string; Title string; Run func(ctx doctorContext) doctorResult }"
-        notes: "One registry entry. ID is the stable lowercase-kebab identifier init prints (REQ-004) and --check selects on (REQ-001). The seven ids themselves are carried in source as the grouped untyped consts doctorCheckConfigPresent/doctorCheckConfigLoads/doctorCheckGitRepository/doctorCheckPacksInstalled/doctorCheckBuildIdentity/doctorCheckToolchainRuns/doctorCheckArtifactLayout, and those consts carry NO `provides` entry of their own: a member of a grouped `const (…)` block is structurally inexpressible to the contracts pack's signature compiler, which binds only a standalone `const NAME = value` — the capability gap is ISSUE-078, and the disposition SPEC-054 and SPEC-035 v1.1.2 already took applies unchanged, because declaring an unverifiable entry buys a red, not a guarantee. The one-id-source invariant those consts exist for is NOT left unenforced: CLM-059 is a `kind: absence` source scan asserting that no check id is written as a literal anywhere outside them, which pins the property the dropped entries would only have gestured at."
+        notes: "One registry entry. ID is the stable lowercase-kebab identifier init prints (REQ-004) and --check selects on (REQ-001). The eight ids themselves are carried in source as the grouped untyped consts doctorCheckConfigPresent/doctorCheckConfigLoads/doctorCheckGitRepository/doctorCheckPacksInstalled/doctorCheckBuildIdentity/doctorCheckToolchainRuns/doctorCheckEngineTools/doctorCheckArtifactLayout, and those consts carry NO `provides` entry of their own: a member of a grouped `const (…)` block is structurally inexpressible to the contracts pack's signature compiler, which binds only a standalone `const NAME = value` — the capability gap is ISSUE-078, and the disposition SPEC-054 and SPEC-035 v1.1.2 already took applies unchanged, because declaring an unverifiable entry buys a red, not a guarantee. The one-id-source invariant those consts exist for is NOT left unenforced: CLM-059 is a `kind: absence` source scan asserting that no check id is written as a literal anywhere outside them, which pins the property the dropped entries would only have gestured at."
       - name: doctorResult
         kind: type
         signature: "type doctorResult struct { ID string `json:\"id\"`; Title string `json:\"title\"`; Status string `json:\"status\"`; Message string `json:\"message\"`; Remediation string `json:\"remediation\"` }"
@@ -610,7 +622,7 @@ contracts:
       - name: doctorRegistry
         kind: function
         signature: "func doctorRegistry() []doctorCheck"
-        notes: "THE single source. A SLICE, not a map, because report order is a requirement (CLM-007). It holds exactly the seven declared checks in report order: config-present, config-loads, git-repository, packs-installed, build-identity, toolchain-runs, artifact-layout (REQ-002, CLM-051). It has exactly TWO non-test readers with distinct roles, and no third (CLM-058): runDoctor, the ONE site that ENUMERATES it — every report's check SET comes from that one enumeration — and doctorGuidance, which resolves a SINGLE id against it, returns no set and feeds no report. That is the mechanism behind CLM-010: every consumer reads the results runDoctor enumerates, so a divergence would require a second ENUMERATION, and a keyed single-id lookup is not one."
+        notes: "THE single source. A SLICE, not a map, because report order is a requirement (CLM-007). It holds exactly the eight declared checks in report order: config-present, config-loads, git-repository, packs-installed, build-identity, toolchain-runs, engine-tools-present, artifact-layout (REQ-002, CLM-051) — the eighth added under DIR-002's founder-ruled scope expansion of 2026-08-16 and delivered by PLAN-ISSUE-134, never by an implementer's own judgement. It has exactly TWO non-test readers with distinct roles, and no third (CLM-058): runDoctor, the ONE site that ENUMERATES it — every report's check SET comes from that one enumeration — and doctorGuidance, which resolves a SINGLE id against it, returns no set and feeds no report. That is the mechanism behind CLM-010: every consumer reads the results runDoctor enumerates, so a divergence would require a second ENUMERATION, and a keyed single-id lookup is not one."
       - name: doctorGuidance
         kind: function
         signature: "func doctorGuidance(checkID string) (string, bool)"
@@ -664,6 +676,10 @@ contracts:
         kind: function
         signature: "func checkToolchainRuns(ctx doctorContext) doctorResult"
         notes: "REQ-006. It CONSUMES the shared packEntrypointProber (cmd/backstop/pack_entrypoint_prober.go) and owns no mechanical step of its own: selection by engine.GateTypeTest and engine.GateTypeBuild ONLY, and the three execution steps — the allowlist check, the command split, then the shared CommandRunner — happen one layer down inside the prober, in that order, the same three steps runFindingsEngine takes (pack_gate.go:573) minus the SARIF parse. Because init consumes that same type through its own thin adapter, there is exactly ONE execution route to audit rather than one per command. This function contributes the rollup: constructing the prober from ctx.Packs and ctx.Runner, calling Probe once, and mapping the returned probes onto the (a)/(b)/(c)/(d) outcomes and the single doctorResult. It is SKIPPED when ctx.PacksErr is non-nil, naming packs-installed as the owner of that condition, so an ungathered pack set is never read as outcome (d) (CLM-063)."
+      - name: checkEngineToolsPresent
+        kind: function
+        signature: "func checkEngineToolsPresent(ctx doctorContext) doctorResult"
+        notes: "REQ-002's eighth registered check, authorized by DIR-002's founder-ruled scope expansion of 2026-08-16 and delivered under ISSUE-134 / PLAN-ISSUE-134, which owns its behavioral claims and mandated test names; this spec owns its REGISTRY MEMBERSHIP (the enumeration in REQ-002, the order CLM-007 asserts, and the exactly-this-set tripwire CLM-051). Declared here rather than dropped because this `provides` block is kept 1:1 with the registry — one entry per check function — and an eighth check with no entry would silently break that correspondence. It CONSUMES the shared `collectRequiredEngineTools` (cmd/backstop/pack_gate_provision.go) and owns no registry walk and no trust gate of its own: the manifest-rule walk, the `resolveEngineRegistry` lookup, the `checkEngineToolAllowed` refusal and the argv[0] extraction all live in that one collection authority, whose OTHER consumer is `provisionEngines` — the gate's own disposition half — so doctor and the gate cannot disagree about WHICH tools are required. Dispositions: `skipped` on an ungathered pack set (ConfigPathErr || ConfigErr || PacksErr), naming packs-installed as that condition's owner, the identical predicate checkToolchainRuns carries for the identical reason; `fail` on a trust-gate refusal, because reporting a refused tool as merely missing would send the reader to install a binary backstop declines to run; `warn` when a gathered pack set binds no engine tool at all, mirroring checkToolchainRuns' outcome (d) rather than passing silently; `fail` enumerating EVERY absent tool where the gate stops at the FIRST, so an operator is not made to re-run once per missing tool; `pass` otherwise. Presence is probed through `resolveBinaryResolver()` ONLY — no findings-engine command is executed — and each absence's remediation is rendered by the gate's own `absentToolMessage`, so doctor's advice and the gate's refusal are the same words by construction rather than two texts that drift."
       - name: checkArtifactLayout
         kind: function
         signature: "func checkArtifactLayout(ctx doctorContext) doctorResult"
@@ -686,6 +702,14 @@ contracts:
         name: packEntrypointProber
         kind: type
         notes: "Declared in cmd/backstop/pack_entrypoint_prober.go, built by SPEC-069/PLAN-SPEC-069 phase 14 as THE ONE execution route for pack-declared test/build entrypoints. `checkToolchainRuns` constructs it from ctx.Packs and ctx.Runner and calls Probe once, consuming the same shared type `cmd/backstop/init_toolchain.go` consumes as a thin adapter. The three execution steps — allowlist check, command splitting, execution through check.CommandRunner.Run — plus the binding selection, the deterministic sorted-key walk, and the started-versus-exited-nonzero split all live INSIDE the prober, so this file names neither checkEngineToolAllowed nor splitCommand: it does not call them. That is the point of the extraction — the number of independent execution routes to audit is exactly one, not one per command. What this file adds on top of the raw []entrypointProbe is doctor's own rollup: the (a)/(b)/(c)/(d) mapping REQ-006 states and the one-result-per-check aggregation, which is the mirror image of init's owed-setup-versus-verbatim classification."
+      - source: cmd/backstop
+        name: collectRequiredEngineTools
+        kind: function
+        notes: "Declared in cmd/backstop/pack_gate_provision.go as THE ONE authority on which findings-engine tools a pack set requires: it walks each manifest's RULES, resolves each rule's engine through resolveEngineRegistry(manifest).Lookup, applies the checkEngineToolAllowed trust gate, extracts argv[0] and returns the deduped set sorted by probed name. `checkEngineToolsPresent` calls it and adds only doctor's disposition; the gate's `provisionEngines` calls the same function and adds only the gate's. That is the same two-consumers-one-authority shape `packEntrypointProber` has, and it is why doctor cannot report a required-tool set the gate does not use."
+      - source: cmd/backstop
+        name: absentToolMessage
+        kind: function
+        notes: "The gate's own renderer for an absent required tool (pack_gate_provision.go). `checkEngineToolsPresent` reuses it verbatim as its per-tool remediation rather than writing a second text, so doctor's advice and the gate's refusal cannot drift apart."
       - source: pkg/pack/engine
         name: GateType
         kind: type
@@ -803,6 +827,37 @@ non-doctor ones went:
 Row 9 is the one place this spec could have quietly widened REQ-020 and did not.
 Row 4 is the one place it could have quietly invented a pack surface and did not.
 
+### The eighth check, and the authority that admitted it
+
+`engine-tools-present` is in the REQ-002 registry and is produced by NO row of the
+table above and by no REQ-003 condition. That is deliberate and it is recorded
+rather than inferred, because the sharp edge below — "growth belongs to the
+bundle" — makes an unexplained eighth check indistinguishable from the quiet
+addition CLM-051 exists to catch.
+
+- **The gap.** `backstop doctor` reported an all-green exit 0 on a project whose
+  pack-declared, RULE-BOUND findings-engine tool was absent from PATH, while
+  `backstop gate` on the same project refused at exit 2 naming that tool. Doctor
+  consumed only the shared `packEntrypointProber`, whose selection is BY STAGE
+  (`gate_type: test` / `gate_type: build`), so a findings engine was never
+  selected, never probed, and never mentioned. Filed as ISSUE-134.
+- **The authority.** Not this spec's own judgement and not an implementer's:
+  DIR-002's founder-ruled scope expansion of 2026-08-16
+  (`directives/DIR-002-backstop-init.directive.md` — the ISSUE-134 follow-on and
+  the "Founder-approved home and framing" paragraph) states that this directive's
+  charter now includes doctor's tool-detection diagnostic reliability going
+  forward as an ongoing concern, not merely BUNDLE-003 residue.
+- **The ownership split.** This spec owns the check's REGISTRY MEMBERSHIP —
+  REQ-002's enumeration, its report position, the order CLM-007 asserts and the
+  exactly-this-set tripwire CLM-051 — and declares its function in the contracts
+  block. Its BEHAVIORAL claims and mandated test names are owned by ISSUE-134 /
+  `PLAN-ISSUE-134`, on the reactive `issue -> plan` track; this spec does not
+  restate them, because two owners for one guarantee is how a guarantee stops
+  having one.
+- **What did NOT change.** Bundle REQ-024 remains CARVED OUT and ISSUE-121 still
+  owns it; CLM-051's stack-policy source scan is intact and unweakened, and its
+  mandated test name is unchanged. Only the SIZE of the declared set moved.
+
 ### The four checks no ranked sharp edge produced
 
 The ranked list is a coverage FLOOR, not the registry's whole membership. REQ-020
@@ -837,17 +892,21 @@ say four things are broken when one is.
 Everything lands in `cmd/backstop` — the package that already holds
 `loadInstalledPacks`, the shared `packEntrypointProber` (SPEC-069's extracted
 execution route, `pack_entrypoint_prober.go`), and the command wiring — so no new
-package boundary is introduced for seven checks.
+package boundary is introduced for eight checks. The eighth check additionally
+consumes `collectRequiredEngineTools` from `pack_gate_provision.go`, which is in
+that same package.
 
 1. **The registry (REQ-002).** `doctorRegistry() []doctorCheck` in `doctor.go`
-   returns a SLICE literal of the seven checks in report order: `config-present`,
+   returns a SLICE literal of the eight checks in report order: `config-present`,
    `config-loads`, `git-repository`, `packs-installed`, `build-identity`,
-   `toolchain-runs`, `artifact-layout`. The four setup checks come first because
+   `toolchain-runs`, `engine-tools-present`, `artifact-layout`. The four setup
+   checks come first because
    they are what the rest depend on, so a reader sees why a later check skipped
    before reading the skip. A slice rather than a map
    is load-bearing: order is asserted (CLM-007), and map iteration would make the
-   report non-deterministic. Each entry's `ID` is one of the seven declared
-   constants (`doctorCheckConfigPresent` … `doctorCheckArtifactLayout`) — no id
+   report non-deterministic. Each entry's `ID` is one of the eight declared
+   constants (`doctorCheckConfigPresent` … `doctorCheckArtifactLayout`, including
+   `doctorCheckEngineTools`) — no id
    is written as a literal anywhere, including in init's guidance (CLM-059).
    Nothing may enumerate checks any other way: `doctorRegistry()` has exactly two
    non-test call sites and no third (CLM-058) — `runDoctor`, the ONE that
@@ -868,7 +927,7 @@ package boundary is introduced for seven checks.
    gathering, which is what makes CLM-057 provable — there is no second place an
    abort could originate.
 
-3. **The seven checks, in registry order.**
+3. **The eight checks, in registry order.**
    - `checkConfigPresent` (REQ-003) reports the discovered config path, or fails
      naming the directory the search started from. Its remediation names creating
      a `backstop.yml` or running `backstop init`.
@@ -910,6 +969,31 @@ package boundary is introduced for seven checks.
      REQ-006 states, and case (b) is distinguished from case (c) by the ONE signal
      that is mechanically honest: the executable could not be started at all
      versus it started and exited nonzero. No other classification is attempted.
+   - `checkEngineToolsPresent` (REQ-002's eighth registered entry; behavior owned
+     by ISSUE-134 / `PLAN-ISSUE-134` under DIR-002's 2026-08-16 scope expansion)
+     calls the shared `collectRequiredEngineTools(ctx.Packs)` ONCE and adds only
+     doctor's disposition. The collection authority — the manifest RULE walk, the
+     `resolveEngineRegistry(manifest).Lookup(rule.Engine)` resolution, the
+     `checkEngineToolAllowed` trust gate, the argv[0] extraction, the dedupe and
+     the sort by probed name — lives in `pack_gate_provision.go` and is shared
+     with `provisionEngines`, the gate's own disposition half, so the two cannot
+     disagree about WHICH tools are required. This check is SKIPPED on
+     `ctx.ConfigPathErr != nil || ctx.ConfigErr != nil || ctx.PacksErr != nil`,
+     naming `packs-installed` as that condition's owner — the identical predicate
+     `checkToolchainRuns` carries, for the identical reason: a `PacksErr`-only
+     predicate would report "no installed pack binds an engine tool" on a project
+     whose packs were never looked at. A trust-gate refusal FAILS distinctly from
+     an absence, because a refused tool is one backstop declines to run even once
+     installed. A gathered pack set binding no engine tool WARNS rather than
+     passing silently, mirroring `checkToolchainRuns`' outcome (d). Otherwise each
+     required tool is resolved with `resolveBinaryResolver()` — a PRESENCE PROBE;
+     no findings-engine command is executed — and the single result enumerates
+     EVERY probed tool with its pack and engine attribution, taking the worst
+     status among them. That enumeration is the one deliberate divergence from the
+     gate, which stops at the FIRST absence in sorted order: a diagnostic that did
+     the same would make the operator re-run it once per missing tool. Each
+     absence's remediation is rendered by the gate's own `absentToolMessage`, so
+     doctor's advice and the gate's refusal are the same words by construction.
    - `checkArtifactLayout` (REQ-007) resolves the artifact root through
      `artifact.ResolveRoot(projectRoot, declared)`, hands that resolution to
      `gate.FindUngatedArtifacts`, and reports each returned `UngatedArtifact` as a
@@ -1090,14 +1174,22 @@ by construction rather than by today's code happening to agree.
   a filtering mechanism over enforcement and the razor against check filtering
   applies to it.
 
-- **Seven checks is the declared set, not a starting point — but growth belongs to
-  the bundle.** REQ-020's "one per ranked sharp edge" is satisfied by the mapping
-  table above, including the rows that route elsewhere; the other four exist
-  because REQ-003's conditions need an owner. The temptation for an
-  implementer is to add the obvious missing ones (orphan reservation tags, gitleaks
-  presence, a `.gitignore` completeness check). Each of those is either an init
-  guardrail already assigned or an explicitly untaken founder call. CLM-051 is
-  the tripwire: it asserts the registry holds exactly the declared ids.
+- **Eight checks is the declared set, not a starting point — and growth requires a
+  RECORDED authorization, not an implementer's judgement.** REQ-020's "one per
+  ranked sharp edge" is satisfied by the mapping table above, including the rows
+  that route elsewhere; four more exist because REQ-003's conditions need an
+  owner; and the eighth, `engine-tools-present`, exists because DIR-002's
+  founder-ruled scope expansion of 2026-08-16 admitted doctor's findings-engine
+  tool-detection coverage into that directive's charter and ISSUE-134 /
+  `PLAN-ISSUE-134` delivered it. THAT is the shape a legitimate ninth must take:
+  a directive or bundle that admits it, an artifact that delivers it, and this
+  section amended to say so. The temptation for an implementer is to add the
+  obvious missing ones (orphan reservation tags, gitleaks presence, a `.gitignore`
+  completeness check) on their own initiative. Each of those is either an init
+  guardrail already assigned or an explicitly untaken founder call. CLM-051 is the
+  tripwire: it asserts the registry holds exactly the declared ids, so an
+  unauthorized addition reds rather than ships — the eighth check passed through
+  that tripwire deliberately, by amending the declared set here first.
 
 - **A local `--json` flag on doctor would work in every test that types it and
   fail the one invocation users type.** `--json` is a ROOT PERSISTENT flag
@@ -1108,11 +1200,12 @@ by construction rather than by today's code happening to agree.
   text. CLM-061 asserts the ROOT position specifically, because the sub-command
   position is the one that keeps working.
 
-- **A single absent `backstop.yml` could plausibly fail four checks, and must
-  fail exactly one.** `config-loads`, `packs-installed`, and `toolchain-runs` all
+- **A single absent `backstop.yml` could plausibly fail five checks, and must
+  fail exactly one.** `config-loads`, `packs-installed`, `toolchain-runs` and
+  `engine-tools-present` all
   read inputs that a missing config makes unavailable, and the reflexive
   implementation reports each as its own failure. That report tells a consumer
-  four things are broken when one is, and it makes CLM-016's exit comparison
+  five things are broken when one is, and it makes CLM-016's exit comparison
   meaningless because doctor would exit 1 for reasons unrelated to the condition
   under test. The rule is one condition, one owner, everything downstream
   `skipped` naming that owner — which is also the only natural producer of the
@@ -1195,9 +1288,13 @@ by construction rather than by today's code happening to agree.
    refuse-to-start behavior REQ-003 forbids.
 
 9. On a directory with no `backstop.yml`, how many checks report a FAILURE? The
-   answer must be one (`config-present`); `config-loads`, `packs-installed`, and
-   `toolchain-runs` must be `skipped`, each naming the check that owns the
-   condition. Four failures for one cause is the shape to reject.
+   answer must be one (`config-present`); `config-loads`, `packs-installed`,
+   `toolchain-runs` and `engine-tools-present` must be `skipped`, each naming the
+   check that owns the condition. Five failures for one cause is the shape to
+   reject. `engine-tools-present` in particular must skip on ANY of
+   `ConfigPathErr`, `ConfigErr`, `PacksErr` — a `PacksErr`-only predicate leaves
+   it reporting "no installed pack binds an engine tool" on a project whose packs
+   were never gathered, which is a WARN masquerading as a finding.
 
 10. Does `newDoctorCommand` declare its own `--json`? A local declaration shadows
     the root persistent flag, and every sub-command-position test still passes.
@@ -1337,6 +1434,27 @@ by construction rather than by today's code happening to agree.
   of them itself. `cmd/backstop/init_toolchain.go` is its other caller — a thin
   adapter over the same type — which is what makes "one execution route, two
   callers" true rather than aspirational.
+- `cmd/backstop/pack_gate_provision.go` — `collectRequiredEngineTools`, THE one
+  authority on which findings-engine tools a pack set requires (the manifest RULE
+  walk, the `resolveEngineRegistry` lookup, the `checkEngineToolAllowed` trust
+  gate, the argv[0] extraction, the dedupe and the sort), consumed BY NAME by
+  `engine-tools-present`; `provisionEngines` is its other consumer and keeps its
+  exact prior signature and observable behavior, owning only the gate's
+  disposition — the same "one authority, two consumers" shape
+  `packEntrypointProber` has. `absentToolMessage` is the shared remediation
+  renderer both use. `resolveBinaryResolver` is the presence probe doctor calls
+  and the only tool contact it makes.
+- `directives/DIR-002-backstop-init.directive.md` — the founder-ruled scope
+  expansion of 2026-08-16 (the ISSUE-134 follow-on paragraph and "Founder-approved
+  home and framing") that authorized the eighth check by bringing doctor's
+  findings-engine tool-detection diagnostic coverage into that directive's charter
+  as an ongoing concern. Without this citation an eighth check reads as exactly the
+  quiet addition CLM-051 exists to catch.
+- `issues/ISSUE-134` and `plans/PLAN-ISSUE-134-doctor-findings-engine-tool-blindspot.plan.yml`
+  — the defect (doctor exit 0 all-green while `backstop gate` refused at exit 2
+  naming the absent tool) and the plan that delivered `engine-tools-present`,
+  which OWNS that check's behavioral claims and mandated test names; this spec
+  owns only its registry membership.
 - `pkg/check/scope.go:37-48` — `DefaultGitExecutor.IsGitRepo`, the existing
   exported work-tree detector `git-repository` consumes; `pkg/gate/scope.go:220-222`
   — the gate's own warn-and-fall-back-to-`--all` behavior on a non-repo, which is
@@ -1355,6 +1473,62 @@ by construction rather than by today's code happening to agree.
   against machine-installed software.
 
 ## Version History
+
+- **1.1.6** (2026-08-16) — **THE EIGHTH CHECK: `engine-tools-present` is admitted to the
+  declared set, with its authorization recorded.** This is a RECONCILIATION of an
+  `implemented` spec against work that has already landed (PLAN-ISSUE-134, TASK-010), not
+  new design. No claim is added, deleted or reworded; no mandated test name changes; no
+  requirement is added or removed.
+  **What moved.** REQ-002's enumeration now holds eight ids in report order, with
+  `engine-tools-present` between `toolchain-runs` and `artifact-layout` — the position the
+  registry actually ships. Every count of the declared set was corrected from seven to
+  eight: the implementation summary, the narrative intro, REQ-002, the `doctorCheck` and
+  `doctorRegistry` contract notes, Implementation §1 and §3, and the growth sharp edge. The
+  `doctorCheck` note's grouped-const enumeration gains `doctorCheckEngineTools`.
+  Implementation §3 gains the check's own bullet; Requirements gains a subsection recording
+  the gap, the authority and the ownership split; References gains
+  `pack_gate_provision.go`, DIR-002 and ISSUE-134/PLAN-ISSUE-134.
+  **THREE unrelated "seven"s were deliberately NOT touched**, because a mechanical
+  seven→eight substitution corrupts them: the SEVEN `gate_type` values the REQ-006 matrix
+  covers (`pkg/pack/engine/gatetype.go` still declares seven and this change adds none); the
+  SEVEN-kind artifact filename vocabulary CLM-041 enumerates; and every "seven" inside a
+  version-history entry below, which records what a PAST revision did and is wrong the
+  moment it is edited to match the present.
+  **THE `provides` DISPOSITION — (a), DECLARED.** An eighth `provides` entry for
+  `checkEngineToolsPresent` (`kind: function`, matching the existing seven's format) was
+  ADDED to the `cmd/backstop/doctor_checks.go` contract, because that block is kept 1:1 with
+  the registry and an eighth check with no entry would silently break the correspondence
+  that makes the block readable as the check inventory. No grep of this file could have
+  surfaced that gap — the word "seven" appears nowhere near those entries. Two `consumes`
+  entries were added alongside it, `collectRequiredEngineTools` and `absentToolMessage`,
+  both genuinely referenced by the file. The grouped id-const block still carries NO
+  `provides` entry of its own: the v1.1.4 disposition (ISSUE-078 — a member of a grouped
+  `const (…)` block is structurally inexpressible to the contracts pack's signature
+  compiler) is UNCHANGED and was not reversed while adding the eighth function entry.
+  **THE AUTHORITY.** DIR-002's founder-ruled scope expansion of 2026-08-16
+  (`directives/DIR-002-backstop-init.directive.md`, the ISSUE-134 follow-on and the
+  "Founder-approved home and framing" paragraph) brought doctor's findings-engine
+  tool-detection diagnostic coverage into that directive's charter as an ongoing concern.
+  It is cited in three places rather than one, because the spec's own growth sharp edge
+  says growth belongs to the bundle, and an eighth check found with no recorded
+  authorization would be read — correctly — as the quiet addition CLM-051 forbids.
+  **OWNERSHIP, stated so it is not inferred.** This spec owns the eighth check's REGISTRY
+  MEMBERSHIP only: REQ-002's enumeration, its report position (CLM-007), the
+  exactly-this-set tripwire (CLM-051) and its contract entry. Its BEHAVIORAL claims and
+  mandated test names are owned by ISSUE-134 / PLAN-ISSUE-134 on the reactive
+  `issue -> plan` track and are deliberately NOT restated here — two owners for one
+  guarantee is how a guarantee stops having one.
+  **CLM-051 is UNCHANGED and still true.** Its text asserts the registry holds exactly the
+  DECLARED set and registers no stack-policy check; only the size of that set moved. Its
+  mandated test name, `TestDoctor_RegistersNoStackPolicyCheckAndReadsNoStackPolicySurface`,
+  is untouched, and arm (b)'s stack-policy source scan is intact and unweakened. Bundle
+  REQ-024 remains CARVED OUT with ISSUE-121 still owning it — nothing here closes it.
+  **Two prose consequences of the eighth check that are behavior, not bookkeeping.** The
+  absent-`backstop.yml` sharp edge and Review Question 9 now name FOUR downstream checks
+  that must skip rather than three: `engine-tools-present` skips on ANY of `ConfigPathErr`,
+  `ConfigErr`, `PacksErr`, the identical predicate `checkToolchainRuns` carries, because a
+  `PacksErr`-only predicate reports "no installed pack binds an engine tool" on a project
+  whose packs were never gathered.
 
 - **1.1.5** (2026-08-15) — **CLOSE-OUT: status `draft` -> `implemented`.** No requirement,
   claim, contract, test, or mechanism is added, removed, or reworded; all 64 claims and 65

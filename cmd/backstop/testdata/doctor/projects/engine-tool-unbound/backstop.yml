@@ -1,0 +1,8 @@
+# THE FIXTURE THAT REDS A manifest.Engines WALK (ISSUE-134 CLM-002). Its pack declares
+# TWO findings engines and binds only ONE by a rule. The bound one's tool resolves; the
+# unbound one's argv[0] is a different fixed nonsense name that is absent everywhere.
+# Doctor must PASS and must never name the unbound engine's tool — the gate passes this
+# project too, because an engine no rule binds is never dispatched.
+project: doctor-engine-tool-unbound-fixture
+packs:
+    backstop/engine-tool-unbound: local

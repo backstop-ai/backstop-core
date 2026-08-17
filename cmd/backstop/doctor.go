@@ -39,6 +39,7 @@ const (
 	doctorCheckPacksInstalled = "packs-installed"
 	doctorCheckBuildIdentity  = "build-identity"
 	doctorCheckToolchainRuns  = "toolchain-runs"
+	doctorCheckEngineTools    = "engine-tools-present"
 	doctorCheckArtifactLayout = "artifact-layout"
 )
 
@@ -109,6 +110,7 @@ func doctorRegistry() []doctorCheck {
 		{ID: doctorCheckPacksInstalled, Title: "declared packs are installed", Run: checkPacksInstalled},
 		{ID: doctorCheckBuildIdentity, Title: "the running binary's build identity", Run: checkBuildIdentity},
 		{ID: doctorCheckToolchainRuns, Title: "pack-declared test/build entrypoints execute", Run: checkToolchainRuns},
+		{ID: doctorCheckEngineTools, Title: "pack-declared findings-engine tools resolve on PATH", Run: checkEngineToolsPresent},
 		{ID: doctorCheckArtifactLayout, Title: "artifacts sit where the resolved root expects them", Run: checkArtifactLayout},
 	}
 }

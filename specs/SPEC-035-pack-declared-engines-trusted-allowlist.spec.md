@@ -4,7 +4,7 @@ number: SPEC-035
 created: "2026-06-20"
 status: draft
 schema_version: spec/v1
-spec_version: 1.1.5
+spec_version: 1.1.6
 
 implementation:
   summary: >
@@ -108,10 +108,11 @@ requirements:
       tool-allowlist check must hold at EVERY non-test caller of `resolveEngineRegistry`
       so an un-allowlisted tool cannot reach execution by any path: validation time
       (`validateEngine`, here), the EARLIEST tool-resolution walk
-      (`provisionEngines`, cmd/backstop/pack_gate_provision.go — the natural
+      (`collectRequiredEngineTools`, cmd/backstop/pack_gate_provision.go — the natural
       chokepoint, where the allowlist check is routed so an un-allowlisted tool
-      fails loud BEFORE provisioning), and dispatch time (`runFindingsEngine`,
-      REQ-002). The pack-separation reader (`pack_separation.go`) only looks up a
+      fails loud BEFORE provisioning, and whose consumers are `provisionEngines`, the
+      gate's disposition half, and doctor's `engine-tools-present` check), and dispatch
+      time (`runFindingsEngine`, REQ-002). The pack-separation reader (`pack_separation.go`) only looks up a
       binding's Category and never runs a command, so it needs no allowlist gate; that
       exemption is explicit, not an oversight.
 
@@ -333,7 +334,7 @@ claims:
       - TestValidateEngine_KnownEngineUnallowlistedToolRejected
   - id: CLM-030
     requirement: REQ-003
-    text: provisionEngines (the earliest tool-resolution walk, the second resolveEngineRegistry caller) fails loud on an un-allowlisted tool BEFORE provisioning, so an un-allowlisted tool is rejected at the earliest chokepoint as well as at validate and dispatch
+    text: provisionEngines fails loud on an un-allowlisted tool BEFORE provisioning — the earliest tool-resolution walk, which it performs by consuming the shared collectRequiredEngineTools (the resolveEngineRegistry caller that houses the walk and the trust gate) — so an un-allowlisted tool is rejected at the earliest chokepoint as well as at validate and dispatch
     tests:
       - TestProvisionEngines_UnallowlistedToolFailsLoudBeforeProvision
   - id: CLM-031
@@ -503,7 +504,7 @@ contracts:
       - name: CheckToolAllowed
         kind: function
         signature: "func CheckToolAllowed(allowlist map[string]string, tool string, lockedVersion string) error"
-        notes: "Returns a non-nil error (wrapped by callers into a *check.ConfigError) when tool is not on the allowlist OR lockedVersion does not match the allowlist's pinned version (REQ-002/CLM-006/CLM-007). The lockedVersion argument is read by callers from the existing backstop.lock / VerifyLock path, NOT from a literal in TrustedToolAllowlist, so the pin cannot drift from a second source (CLM-029). Pure function so all three resolveEngineRegistry callers that run a command — validateEngine (REQ-003), provisionEngines (CLM-030), and the dispatch gate (REQ-002) — call the SAME check."
+        notes: "Returns a non-nil error (wrapped by callers into a *check.ConfigError) when tool is not on the allowlist OR lockedVersion does not match the allowlist's pinned version (REQ-002/CLM-006/CLM-007). The lockedVersion argument is read by callers from the existing backstop.lock / VerifyLock path, NOT from a literal in TrustedToolAllowlist, so the pin cannot drift from a second source (CLM-029). Pure function so every path that leads to running a command — validateEngine (REQ-003), collectRequiredEngineTools (the earliest walk, which provisionEngines consumes, CLM-030), and the dispatch gate (REQ-002) — calls the SAME check."
     consumes: []
 
   - file: pkg/pack/manifest.go
@@ -559,10 +560,14 @@ contracts:
 
   - file: cmd/backstop/pack_gate_provision.go
     provides:
+      - name: collectRequiredEngineTools
+        kind: function
+        signature: "func collectRequiredEngineTools(packs []*pack.Manifest) ([]requiredTool, error)"
+        notes: "THE EARLIEST tool-resolution walk, and where REQ-003's trust gate is routed on this path. It walks each manifest's RULES, resolves each rule's engine through resolveEngineRegistry(manifest).Lookup, calls the shared checkEngineToolAllowed — the SAME engine.CheckToolAllowed the dispatch gate runs — and only then extracts argv[0] via engineToolName, deduping and sorting by probed name. An un-allowlisted or version-divergent tool therefore fails loud BEFORE any provisioning or presence probe (CLM-030), the natural chokepoint ahead of validate+dispatch, and the gate is AHEAD of the probe deliberately: a tool backstop refuses to trust must be reported as untrusted, not as missing. This function was EXTRACTED from provisionEngines by PLAN-ISSUE-134 (2026-08-16) when doctor's engine-tools-present check needed the same required-tool set; the walk and the gate moved here verbatim, and the extraction is why one authority now answers 'which tools are required' for both consumers instead of two implementations that agree today."
       - name: provisionEngines
         kind: function
         signature: "func provisionEngines(packs []*pack.Manifest) error"
-        notes: "The EARLIEST tool-resolution walk (it already iterates each pack's engines via resolveEngineRegistry). The allowlist check is routed HERE so an un-allowlisted tool fails loud with a *check.ConfigError BEFORE provisioning (REQ-003/CLM-030), the natural chokepoint ahead of validate+dispatch. provisionEngines already resolves each engine's tool name via engineToolName(binding.Command), so it has the tool in hand for the CheckToolAllowed call."
+        notes: "UNCHANGED SIGNATURE AND UNCHANGED OBSERVABLE BEHAVIOR — first-absent-in-sorted-order, *check.ConfigError, the same absentToolMessage — but it no longer performs the walk itself: since PLAN-ISSUE-134's extraction it consumes collectRequiredEngineTools and owns only the gate's DISPOSITION. It neither iterates engines via resolveEngineRegistry nor calls CheckToolAllowed directly; it receives tools already resolved and already trust-gated, so CLM-030 still holds THROUGH it by delegation and TestProvisionEngines_UnallowlistedToolFailsLoudBeforeProvision still exercises the same refusal at the same point in the sequence. Its other-half sibling is doctor's checkEngineToolsPresent (SPEC-070), which consumes the same collection and adds doctor's disposition instead."
     consumes:
       - source: pkg/pack/engine/allowlist.go
         name: TrustedToolAllowlist
@@ -720,9 +725,17 @@ The tool-allowlist must hold at every non-test caller that leads to running a co
 | Caller | Runs a command? | Allowlist gate |
 |---|---|---|
 | `validateEngine` (pkg/pack/manifest.go) | no (validation) | YES — reject un-allowlisted (CLM-013) |
-| `provisionEngines` (pack_gate_provision.go) | leads to it; earliest walk | YES — fail loud BEFORE provisioning (CLM-030) |
+| `collectRequiredEngineTools` (pack_gate_provision.go) | leads to it; earliest walk | YES — the gate lives HERE, ahead of every consumer (CLM-030) |
+| `provisionEngines` (pack_gate_provision.go) | leads to it; the gate's disposition half | INHERITED — consumes the gated collection; adds no walk and no second gate (CLM-030) |
 | `runFindingsEngine` (pack_gate.go) | yes (dispatch) | YES — gate before RunStdout (CLM-008) |
 | `pack_separation.go` | no (reads Category only) | EXEMPT — no execution path (CLM-031) |
+
+`collectRequiredEngineTools` has a SECOND consumer outside this spec's surface —
+doctor's `engine-tools-present` check (SPEC-070, delivered by PLAN-ISSUE-134) — which
+likewise adds only a disposition (report every absent tool rather than refuse at the
+first) and no walk and no second gate. That is the point of the extraction: one
+authority answers "which tools are required, and are they trusted", so a consumer
+cannot acquire an un-gated path by construction.
 
 ### Engine field-contract folds onto the binding (REQ-003)
 
@@ -830,20 +843,31 @@ the TOOL command only; the convert/validator scripts are governed by stage 8.
 
 ### 3. Allowlist at every `resolveEngineRegistry` caller (REQ-003)
 
-`resolveEngineRegistry` has three non-test callers; the tool-allowlist check must hold
-at every one that leads to running a command, so no path reaches execution
-un-allowlisted:
+The tool-allowlist check must hold at every non-test `resolveEngineRegistry` caller
+that leads to running a command, so no path reaches execution un-allowlisted. Where a
+caller consumes another's already-gated result rather than walking the registry itself,
+the gate is INHERITED and must not be duplicated — one authority, one check:
 
 - **`validateEngine`** (pkg/pack/manifest.go) — takes the manifest's declared engine
   bindings and checks the rule's engine against the pack-declared registry UNION the
   fallback registry, AND that the engine's tool is allowlisted. Unknown engine →
   blocking config error (existing). Known engine, un-allowlisted tool → blocking config
   error (new) (CLM-010..013).
-- **`provisionEngines`** (cmd/backstop/pack_gate_provision.go) — the EARLIEST
-  tool-resolution walk: it already iterates each pack's engines and resolves the tool
-  name via `engineToolName(binding.Command)`. Route the `CheckToolAllowed` call here so
-  an un-allowlisted tool fails loud BEFORE provisioning — the natural chokepoint ahead
-  of dispatch (CLM-030).
+- **`collectRequiredEngineTools`** (cmd/backstop/pack_gate_provision.go) — the EARLIEST
+  tool-resolution walk: it iterates each pack's RULES, resolves each rule's engine via
+  `resolveEngineRegistry(manifest).Lookup`, and resolves the tool name via
+  `engineToolName(binding.Command)`. The `CheckToolAllowed` call is routed here so an
+  un-allowlisted tool fails loud BEFORE provisioning — the natural chokepoint ahead of
+  dispatch (CLM-030) — and ahead of any presence probe, so a tool backstop refuses to
+  trust is reported as untrusted rather than as missing.
+- **`provisionEngines`** (cmd/backstop/pack_gate_provision.go) — the gate's DISPOSITION
+  half, and no longer a walk of its own: it consumes `collectRequiredEngineTools` and
+  returns the `*check.ConfigError` on the first absent tool in sorted order. It performs
+  no engine iteration and calls `CheckToolAllowed` nowhere, so CLM-030 holds through it
+  BY DELEGATION — which is the property to check, not whether the call appears in its
+  body. Its signature and observable behavior are unchanged by the extraction
+  (PLAN-ISSUE-134, 2026-08-16); its sibling consumer is doctor's
+  `checkEngineToolsPresent` (SPEC-070).
 - **`pack_separation.go`** — looks up only a binding's `Category` and runs NO command,
   so it is explicitly EXEMPT; an un-allowlisted engine there is not an execution path
   (CLM-031).
@@ -1176,11 +1200,15 @@ requirements and claims above are written to hold under EITHER resolution.
     platform-conditional residual gap (sandbox is a Linux no-op) surfaced LOUDLY rather
     than silently unconfined (CLM-035)?
 
-13. Is the tool-allowlist check routed through `provisionEngines` — the earliest
-    `resolveEngineRegistry` caller — so an un-allowlisted tool fails loud BEFORE
-    provisioning (CLM-030), in addition to validate and dispatch? And is the third
-    caller (`pack_separation.go`) correctly exempt because it runs no command
-    (CLM-031)?
+13. Is the tool-allowlist check routed through the earliest `resolveEngineRegistry`
+    walk — `collectRequiredEngineTools` — so an un-allowlisted tool fails loud BEFORE
+    provisioning (CLM-030), in addition to validate and dispatch? Since that walk was
+    extracted out of `provisionEngines` (PLAN-ISSUE-134), the check to make is that the
+    gate sits in the COLLECTION and that every consumer inherits it rather than
+    re-implementing or skipping it: a consumer that walks the registry itself, or that
+    probes tools it collected some other way, has re-opened the un-gated path this
+    requirement closes. And is `pack_separation.go` correctly exempt because it runs no
+    command (CLM-031)?
 
 14. Does the `CheckTypeSemgrep` → `CheckTypeFindings` rename neutralize the STRING
     surface — `String()` returning `"findings"` and `parseCheckType` accepting
@@ -1236,8 +1264,9 @@ requirements and claims above are written to hold under EITHER resolution.
   `gatherEngineInputs`, `resolveEngineRegistry`); cmd/backstop/pack_gate_golint.go
   (`isNativeSarifLintEngine`, `requireLintSarifShape`); cmd/backstop/pack_gate_filemode.go
   (`isNativeGoTestEngine`, `fileModeTestTarget`); cmd/backstop/pack_gate_provision.go
-  (`provisionEngines`, `engineToolName` — the per-pack engine walk the allowlist check
-  rides); pkg/pack/validate_manifest.go (`ExpectedLayout`, `validateEngineFields` — the
+  (`collectRequiredEngineTools`, `engineToolName` — the per-pack engine walk the
+  allowlist check rides; and `provisionEngines`, the consumer that owns the gate's
+  disposition since PLAN-ISSUE-134 extracted that walk); pkg/pack/validate_manifest.go (`ExpectedLayout`, `validateEngineFields` — the
   engine-name layout switch); pkg/check/manifest.go (`CheckType`, `CheckTypeSemgrep` →
   `CheckTypeFindings`); pkg/check/check.go (`passOrder`); pkg/pack/distribution/verify.go
   + lockfile.go (`VerifyLock` / `Lockfile` — the version-pin the allowlist rides);
@@ -1248,6 +1277,53 @@ requirements and claims above are written to hold under EITHER resolution.
   CLM-id map that travels under OQ-1 with `DefaultRegistry`).
 
 ## Version History
+
+- **1.1.6** (2026-08-16) — **DESCRIPTIVE RECONCILIATION against the
+  `collectRequiredEngineTools` extraction (PLAN-ISSUE-134, TASK-010). No behavior this
+  spec specifies changed.** The allowlist rule is untouched: no claim added, deleted or
+  re-scoped, no mandated test name changed, no requirement added or removed, and
+  `func provisionEngines(packs []*pack.Manifest) error` keeps its exact signature and its
+  exact observable behavior (first-absent-in-sorted-order, `*check.ConfigError`, the same
+  `absentToolMessage`). Only the FUNCTION THAT HOUSES the registry walk and the trust
+  gate moved, and this spec had four places asserting it lived in `provisionEngines`.
+  **Why it needed doing now, with nothing red to force it.** This spec is `status: draft`,
+  and the `contracts` and `requirement_traceability` gate dimensions read only
+  `implemented` specs — so the drift was real, total, and completely silent, and would
+  have surfaced for the first time at this spec's own close-out flip, long after the
+  context to resolve it had gone. `TestProvisionEngines_UnallowlistedToolFailsLoudBeforeProvision`
+  still passes BY DELEGATION throughout, which is exactly why nothing would have caught it.
+  **What moved.** (1) CLM-030's parenthetical dropped the ordinal "the second
+  resolveEngineRegistry caller" — an ordinal is what goes stale the moment a caller is
+  added — and now names `collectRequiredEngineTools` as the walk `provisionEngines`
+  consumes; the claim's assertion and its test are unchanged. (2) The
+  `pack_gate_provision.go` contract gained a `provides` entry for
+  `collectRequiredEngineTools`, and the `provisionEngines` note was rewritten: it no
+  longer claims to iterate engines via `resolveEngineRegistry` or to have the tool in
+  hand for `CheckToolAllowed`, because after the extraction it does NEITHER — it receives
+  tools already resolved and already trust-gated. (3) The REQ-003 caller table gained the
+  collection authority as its own row and marks `provisionEngines`' gate INHERITED. (4)
+  Implementation stage 3's `provisionEngines` bullet was split into the walk and the
+  disposition, and its lead-in stopped asserting a fixed caller COUNT. (5) The
+  `CheckToolAllowed` contract note and Review Question 13 were corrected the same way —
+  RQ13 now asks the sharper question the extraction creates: does every consumer INHERIT
+  the gate rather than re-walk or bypass it.
+  **The one requirement-text touch, stated plainly.** REQ-003's parenthetical naming the
+  earliest walk now says `collectRequiredEngineTools` instead of `provisionEngines`. The
+  file citation (`cmd/backstop/pack_gate_provision.go`) is unchanged because both
+  functions live there, and the requirement's normative content — the check must hold at
+  EVERY non-test `resolveEngineRegistry` caller that leads to execution — is verbatim
+  unchanged. It was corrected rather than left because a requirement pointing at a
+  function that no longer performs the act is worse than one pointing at nothing.
+  **Deliberately NOT touched, and why.** CLM-031 still calls `pack_separation.go` "the
+  third resolveEngineRegistry caller". Its assertion (reads `Category` only, runs no
+  command, exempt) is unaffected by this lane, and the ordinal looseness predates it —
+  re-scoping a claim outside the reconciliation's remit would be the substance expansion
+  TASK-010 explicitly forbids. Recorded here so a future reader knows it was seen, not
+  missed. Likewise unresolved and pre-existing: this spec's Implementation prose models
+  `resolveEngineRegistry` as having a small fixed set of non-test callers, while the tree
+  at 2026-08-16 has five non-test call sites (`pack_gate.go:126,283,355`,
+  `pack_gate_provision.go:118`, `pack_separation.go:34`). That gap is older than this
+  lane and is reported, not silently reconciled.
 
 - **1.1.5** (2026-07-06) — Retired the stale `claimFor` `provides` contract entry on the
   `pkg/pack/validate_manifest.go` contract (formerly `func claimFor(engineName, field, kind
