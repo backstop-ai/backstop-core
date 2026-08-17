@@ -6,8 +6,11 @@ issue:
   id: ISSUE-124
   title: "Residual Hardcoded Artifact Extension Literals"
   type: technical-debt
-  status: open
+  status: closed
   created: "2026-08-14"
+  closed: "2026-08-16"
+
+delivered_by: PLAN-ISSUE-124
 
 complexity:
   scope: cross-cutting
@@ -16,6 +19,41 @@ complexity:
 ---
 
 # ISSUE-124: Residual Hardcoded Artifact Extension Literals
+
+## Resolution
+
+Removed all 15 hand-typed artifact-extension/directory literals named in the Problem
+section (13 extension literals, including the 4 composed forms like `.epic.bundle.md`, and
+2 directory literals), across six files, each now routing through `pkg/artifact`'s shared
+layout authority (`LayoutFor`/`ClassifyFilename`) instead of an inline string:
+
+- `pkg/gate/step_testverify.go` — 4 sites (`ExtractMandatedTests`, `CountTerminalSpecs`,
+  `ExtractSpecVerifications`, `ExtractContractEntries`), converted to
+  `artifact.ClassifyFilename`-based guards rather than an error-returning accessor — the
+  right choice here since the classifier's bool already answers the question with no
+  impossible state to error on.
+- `pkg/validate/spec.go`, `pkg/validate/adr.go`, `pkg/validate/bundle.go`,
+  `pkg/validate/supports_resolution.go` — converted to `LayoutFor`/`ClassifyFilename`.
+- `cmd/backstop/gate_substantiveness_e2e.go` — a new shared `e2eSpecLayout(tmp)` helper
+  used by both test-fixture builders, replacing the hardcoded `"specs"` directory literal.
+
+A falsifying scan, `pkg/artifact/layout_consumer_scan_test.go`, went from RED (15 hits) to
+GREEN (0). Verified via 6 targeted mutations, each producing its predicted red, all reverted
+cleanly. All 7 mandated tests pass.
+
+While fixing this, two pre-existing go-standards `error-wrapping-required` violations were
+found and fixed in `gate_substantiveness_e2e.go` as a byproduct of the same edits. A
+remaining coverage-floor red on that same file was investigated and proven **inherited, not
+caused by this fix**: a control-worktree measurement showed the file was already under the
+80% coverage floor (74.4%) at clean HEAD, before this lane touched it. The real fix is
+downstream of ISSUE-148 (substantiveness pack fixture polarity), which is what's currently
+suppressing the tests that exercise this file. Accepted as inherited debt rather than waived
+or hacked green — `waiver_resolution` reports clean.
+
+This closes DIR-002's last open roster member (noted here for context only; DIR-002 itself
+is directive-author territory and is not edited by this closeout).
+
+Delivered by `PLAN-ISSUE-124` (status: `completed`, committed as `5121645`).
 
 ## Problem
 
