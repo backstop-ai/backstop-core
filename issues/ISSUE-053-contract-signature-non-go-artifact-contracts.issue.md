@@ -229,3 +229,25 @@ should make the schema/compiler boundary honest about what `kind: constant`
   scratch a third time, and to note the trigger condition generalizes — any bare `gate --all`/
   full-diff run touching this testdata path will keep re-surfacing it until this issue's fix
   lands.
+
+- **Fourth confirmed recurrence (2026-08-16, implementer-issue067, editing the same pack.yml's
+  go-build/go-test bindings).** Identical finding, same file, same symbol: `symbol
+  go-coverage-rule signature not found or mismatched in
+  cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/pack.yml: expected
+  "rule id: go-coverage, engine: go-coverage, gate_type: coverage"`. Verified latent and
+  edit-independent before this annotation was written: the go-coverage rule block is
+  byte-identical to HEAD (diff clean around it), the actual edit only touched the go-build/go-test
+  bindings, and the expected literal string appears zero times in the file at HEAD or after the
+  edit — confirming (again) that touching this file at all pulls its dormant finding into diff
+  scope regardless of what changed. A "split across two locations" theory was independently
+  proposed again during this occurrence (`- id: go-coverage` in the rule block vs. `gate_type:
+  coverage` in the engine binding) — this is the SAME theory the 2026-08-16 correction above
+  already retired as incidental, not causal; the real cause remains the Go-syntax-only compiler
+  (`compile-signature.sh`) being force-fit against a `.yml` target, independent of whether the
+  asserted facts are co-located. No new information beyond a fourth corroboration; recorded so a
+  fifth session doesn't re-propose the retired theory or re-diagnose from scratch. Also
+  re-confirms the non-waivable disposition: `contract_signature` findings carry `Line 0` and an
+  absolute path, but per the correction above the real reason `@waiver` cannot interim-suppress
+  this class is structural (excluded from `waivableDimension()`), not the Line/path bugs — do not
+  attempt a waiver workaround for this issue's instances; the fix is the compiler/schema change
+  described in Solution, not a per-occurrence suppression.
