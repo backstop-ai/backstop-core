@@ -33,6 +33,14 @@ import (
 // token, and every join here must FORWARD it. HollowFindingsToViolations was written
 // against the stale claim and silently zeroed the field, which made inline
 // test_substantiveness waivers a no-op. Do not re-derive that bug from this comment.
+//
+// ISSUE-106 (hop 3 of the pack-severity chain, after ISSUE-104's parser and ISSUE-105's
+// step verdicts): HollowFindingsToViolations ALSO hardcoded Severity "error", discarding
+// the severity the pack itself declared, so a pack whose hollow rule declared `warning`
+// still blocked the gate. It now FORWARDS the source finding's own severity verbatim.
+// The noTarget half deliberately does NOT — it synthesizes a severity it was never
+// handed, and that fixed "error" is a ratified decision recorded on NoTargetViolation.
+// Do not re-derive either bug, or the asymmetry, from a stale comment.
 
 // ReferencedSymbolSet is the set of package/symbol names a single test references,
 // assembled from the Q2 extraction findings keyed to that test.
@@ -65,6 +73,24 @@ func TargetPackageName(subject string) string {
 //	targetPkg != "" && samePackage           → satisfied (no violation)
 //	targetPkg != "" && !samePackage && in set → satisfied (no violation)
 //	targetPkg != "" && !samePackage && !in set → noTarget violation
+//
+// THE FIXED "error" SEVERITY IS A DECISION, NOT AN OVERSIGHT (ISSUE-106). Its sibling
+// HollowFindingsToViolations FORWARDS a pack's declared severity, and the asymmetry
+// between them is deliberate:
+//   - this violation is SYNTHESIZED by the decision table above from a set-membership
+//     test, not CONVERTED from any one pack finding, so there is no contributing finding
+//     whose severity could be forwarded — the sibling forwards because it was HANDED a
+//     value; this one has none to forward;
+//   - ReferencedSymbolSet is map[string]bool, presence only. The extraction findings that
+//     populate it carry no severity into the set at all, so there is nowhere for one to
+//     ride;
+//   - a noTarget verdict is a GATE-COMPUTED defect about the consumer's tests, not an
+//     advisory the pack authored. A fixed severity is the honest reading of what it is.
+//
+// Giving packs a knob here therefore means inventing a NEW declaration channel (a
+// severity carried alongside presence, or a noTarget-specific rule property). That is a
+// capability expansion, not a bug fix, and it belongs in its own issue rather than in an
+// edit here. TestNoTarget_SynthesizedSeverityIsFixedByDesign pins the decision.
 func NoTargetViolation(funcName, targetPkg string, referenced ReferencedSymbolSet, samePackage bool) (Violation, bool) {
 	if targetPkg == "" {
 		return Violation{}, false
@@ -302,9 +328,25 @@ func HollowFindingsToViolations(hollow []Violation) []Violation {
 			// preserves at cmd/backstop/pack_gate.go:744-748. Safe for baseline
 			// grandfathering: Line is json:"-" and excluded from identity hashing
 			// (pkg/gate/result.go:81-88), so identity stays line-INDEPENDENT.
-			Line:     v.Line,
-			Message:  stripFuncToken(v.Message),
-			Severity: "error",
+			Line:    v.Line,
+			Message: stripFuncToken(v.Message),
+			// FORWARD the pack's own declared severity, VERBATIM (ISSUE-106). The
+			// severity a pack declares IS its blockingness declaration (the ratified
+			// contract on blocksVerdict, pkg/gate/policy.go), so overwriting it here
+			// silently converted a pack's advisory into a blocker — the ISSUE-104 /
+			// ISSUE-105 defect recurring one hop later, inside a converter both of
+			// those fixes bypass.
+			//
+			// NO nonEmptySeverity WRAPPER, DELIBERATELY, for two reasons. The value has
+			// ALREADY been defaulted upstream: the production bridge in
+			// cmd/backstop/pack_gate.go applies nonEmpty(v.Severity, "error") before
+			// routing, so a second default here would be a second spelling of one rule.
+			// And forwarding an empty value is safe anyway, because blocksVerdict treats
+			// anything that is not "warning" as blocking — this join fails CLOSED by
+			// construction, never open. TestQ1_HollowFindingsToViolations_ForwardsPackDeclaredSeverity
+			// (substantiveness_severity_test.go) pins both halves. Do not "harden" this
+			// back into a second authority.
+			Severity: v.Severity,
 		})
 	}
 	return out

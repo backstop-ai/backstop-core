@@ -55,8 +55,17 @@ func TestQ1_GateConsumesHollowFindings_RaisesViolation(t *testing.T) {
 // line for a @waiver token (ISSUE-116). Two DISTINCT non-zero lines make the
 // assertion unsatisfiable by any constant, and the Line-0 input pins that a
 // locationless finding is passed through honestly rather than defaulted. The
-// non-Line fields are re-asserted because this fix must NOT become ISSUE-106's
-// severity change.
+// non-Line fields are re-asserted so a change to one of them cannot ride in
+// unnoticed on a Line fix.
+//
+// ISSUE-106 HAS SINCE LANDED, DELIBERATELY. This test's severity assertion was
+// planted by ISSUE-116 as a fence to announce ISSUE-106's severity change arriving;
+// it fired, and the expectation was updated with the change rather than around it.
+// The conversion now FORWARDS each source finding's own severity, so these three
+// severity-less inputs stay severity-less. The Line forwarding this test exists for
+// is unchanged. The authority on the forwarding behavior is
+// TestQ1_HollowFindingsToViolations_ForwardsPackDeclaredSeverity
+// (pkg/gate/substantiveness_severity_test.go) — this is a pointer, not a duplicate.
 func TestQ1_HollowFindingsToViolations_ForwardsSourceLine(t *testing.T) {
 	hollow := []Violation{
 		{Rule: testHollowRuleID, File: "a_test.go", Line: 12, Message: "test function TestA has no assertions (hollow) func=TestA"},
@@ -78,7 +87,9 @@ func TestQ1_HollowFindingsToViolations_ForwardsSourceLine(t *testing.T) {
 		}
 	}
 
-	// CLM-005 non-regression: Rule, File, Message and Severity are unchanged.
+	// CLM-005 non-regression: Rule, File and Message are unchanged. Severity is now
+	// FORWARDED from the source finding rather than overwritten (ISSUE-106) — which,
+	// for these three severity-less inputs, is the empty string.
 	wantFiles := []string{"a_test.go", "b_test.go", "c_test.go"}
 	wantMessages := []string{
 		"test function TestA has no assertions (hollow)",
@@ -95,8 +106,13 @@ func TestQ1_HollowFindingsToViolations_ForwardsSourceLine(t *testing.T) {
 		if v.Message != wantMessages[i] {
 			t.Errorf("violation[%d].Message = %q, want %q", i, v.Message, wantMessages[i])
 		}
-		if v.Severity != "error" {
-			t.Errorf("violation[%d].Severity = %q, want %q", i, v.Severity, "error")
+		if v.Severity != "" {
+			t.Errorf("violation[%d].Severity = %q, want %q — the conversion FORWARDS each source "+
+				"finding's own severity, and none of these three inputs declares one, so a "+
+				"severity-less finding must stay severity-less. Re-defaulting here would be a "+
+				"second spelling of the bridge's rule; it is unnecessary because the join fails "+
+				"CLOSED at the verdict anyway (blocksVerdict treats anything that is not "+
+				"\"warning\" as blocking)", i, v.Severity, "")
 		}
 	}
 }

@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/backstop-ai/backstop-core/pkg/waiver"
 )
 
 // step_verdict_severity_test.go — ISSUE-105. Step builders decided PASS/FAIL by RAW
@@ -252,31 +250,74 @@ func TestStepContractSignature_ScopeSkipAndEmptyResults(t *testing.T) {
 	}
 }
 
-// TestClass3Sites_ViolationsAreErrorSeverityByConstruction is the regression lock for
-// the three raw-count sites this lane deliberately does NOT convert (CLM-007).
+// TestClass3Sites_ViolationsAreErrorSeverityByConstruction is the severity lock for
+// three sites whose blocking violations must stay error-severity (CLM-007).
 //
-// WHY IT EXISTS: those counts are correct ONLY because their inputs are structurally
-// warning-free — every violation they can emit is built by a constructor that HARDCODES
-// error severity. That premise is an invariant someone can break in ONE LINE, and a
-// one-line edit making it false would silently reintroduce ISSUE-105 at a site nobody is
-// watching. That is exactly how the defect arrived at the other four. So it is asserted
-// at the CONSTRUCTOR level, not over hand-built inputs, which is what keeps it from
-// rotting into a tautology.
+// WHY IT EXISTS: each site's blocking severity is an invariant someone can break in ONE
+// LINE. A one-line edit making it false would silently change what those sites block on,
+// at a site nobody is watching — which is exactly how ISSUE-105 arrived elsewhere. It is
+// asserted as close to the deciding code as the site allows, not over hand-built inputs,
+// which is what keeps it from rotting into a tautology.
+//
+// WHAT THIS TEST DOES *NOT* TRACK, stated because an earlier version of this docstring
+// claimed it and was wrong: whether each site's CONSUMER still reaches its verdict by raw
+// count or now calls StepVerdict. That has drifted per site and is not this test's
+// subject. DO NOT reintroduce a count of raw-count sites here — a fresh number is just a
+// fresh thing to go stale, and a claim that outlived its truth is precisely the defect
+// class this file exists to guard.
 func TestClass3Sites_ViolationsAreErrorSeverityByConstruction(t *testing.T) {
-	// SITE 1 — waiverDiagToViolation (step_waiver.go), for both diagnostic kinds.
-	for _, kind := range []string{"malformed", "non-waivable"} {
-		diag := waiver.Diagnostic{
-			RuleID:  "some/pack/some-rule",
-			File:    "src/app.go",
-			Line:    12,
-			Message: "a waiver diagnostic",
-			Kind:    kind,
-		}
-		if got := waiverDiagToViolation(diag).Severity; got != "error" {
-			t.Errorf("waiverDiagToViolation(kind=%s) returned severity %q; step_waiver.go's raw count "+
-				"is correct ONLY while this is \"error\" — change it and that site silently blocks "+
-				"on a declared warning", kind, got)
-		}
+	// SITE 1 — the waiver step's blocking diagnostics (step_waiver.go).
+	//
+	// ASSERTED AT THE CALL SITE, NOT AT THE CONVERTER, AND THAT IS THE POINT.
+	// waiverDiagToViolation no longer hardcodes a severity: ISSUE-097 added an UNBOUND
+	// diagnostic kind that is deliberately non-blocking, so severity became a parameter
+	// and asserting it on the converter would now assert nothing but the argument just
+	// passed in. What still has to hold is that the step's two BLOCKING kinds — malformed
+	// and non-waivable — reach the report at severity "error", and that the step's verdict
+	// is derived from those severities rather than from a raw count of them. The raw count
+	// this block once protected is gone; a count would report the new warning kind as a
+	// hard gate failure.
+	malformedRes := (&Gate{}).computeWaiverResult(
+		[]StepResult{packEnginesStep(Violation{Rule: "pkg/rule-a", File: "app.go", Line: 5, Severity: "error"})},
+		memLineReader("app.go", map[int]string{
+			5: "risky() // @waiver:pkg/rule-a:not-a-reason-code:2999-01-01",
+		}),
+		nil, waiverTestNow,
+	)
+	if len(malformedRes.Violations) != 1 {
+		t.Fatalf("a malformed token must surface as exactly one waiver_resolution violation, got %d (%#v)",
+			len(malformedRes.Violations), malformedRes.Violations)
+	}
+	if got := malformedRes.Violations[0].Severity; got != "error" {
+		t.Errorf("a MALFORMED waiver diagnostic reached the report at severity %q, want \"error\"; "+
+			"malformed is a broken promise, not rot, and softening it here would let a broken token "+
+			"pass unnoticed", got)
+	}
+	if malformedRes.Status != StepVerdict(malformedRes.Violations) {
+		t.Errorf("the waiver step's status (%q) is not the severity-aware verdict over its own "+
+			"reported violations (%q)", malformedRes.Status, StepVerdict(malformedRes.Violations))
+	}
+	if malformedRes.Status != "fail" {
+		t.Errorf("a malformed token must still FAIL the step, got %q", malformedRes.Status)
+	}
+
+	nonWaivableRes := (&Gate{}).computeWaiverResult(
+		[]StepResult{packEnginesStep(Violation{Rule: "some/pack/protected", File: "app.go", Line: 5, Severity: "error"})},
+		memLineReader("app.go", map[int]string{
+			5: "risky() // @waiver:some/pack/protected:accepted-risk:2999-01-01",
+		}),
+		newTestPolicyNonWaivable("some/pack/protected"), waiverTestNow,
+	)
+	if len(nonWaivableRes.Violations) != 1 {
+		t.Fatalf("a token on a declared non-waivable rule must surface as exactly one violation, got %d (%#v)",
+			len(nonWaivableRes.Violations), nonWaivableRes.Violations)
+	}
+	if got := nonWaivableRes.Violations[0].Severity; got != "error" {
+		t.Errorf("a NON-WAIVABLE waiver diagnostic reached the report at severity %q, want \"error\"; "+
+			"a waiver on a protected rule is a gate error by REQ-006", got)
+	}
+	if nonWaivableRes.Status != "fail" {
+		t.Errorf("a non-waivable token must still FAIL the step, got %q", nonWaivableRes.Status)
 	}
 
 	// SITE 2 — the substantiveness JOIN (substantiveness_join.go).
@@ -285,27 +326,21 @@ func TestClass3Sites_ViolationsAreErrorSeverityByConstruction(t *testing.T) {
 		t.Fatal("NoTargetViolation must raise for a test that references nothing")
 	}
 	if noTarget.Severity != "error" {
-		t.Errorf("NoTargetViolation returned severity %q, want \"error\"", noTarget.Severity)
+		t.Errorf("NoTargetViolation returned severity %q, want \"error\". This value is fixed BY "+
+			"DESIGN (ISSUE-106): the violation is SYNTHESIZED from a presence-only set-membership "+
+			"test, so there is no contributing pack finding whose severity could be forwarded. It "+
+			"is a ratified decision, not the same defect surviving — see NoTargetViolation's "+
+			"docstring and TestNoTarget_SynthesizedSeverityIsFixedByDesign", noTarget.Severity)
 	}
 
-	// INCLUDING when the carried finding declares "warning" — the join OVERWRITES it.
-	// This documents SIBLING 1 rather than pretending it is not there: the pack's
-	// declared severity survives Q1 dispatch (substantiveness_q1_dispatch.go,
-	// nonEmptySeverity) and is then discarded here, so a pack declaring a `warning`
-	// substantiveness rule still blocks after this lane. Same contract, different axis —
-	// severity lost BEFORE the verdict rather than ignored BY it. Filed, not fixed here.
-	joined := HollowFindingsToViolations([]Violation{{
-		Rule:     "hollow",
-		File:     "./pkg/thing/thing_test.go",
-		Message:  "test TestThing has no assertions (hollow) func=TestThing",
-		Severity: "warning",
-	}})
-	if len(joined) != 1 {
-		t.Fatalf("expected one joined violation, got %d", len(joined))
-	}
-	if joined[0].Severity != "error" {
-		t.Errorf("HollowFindingsToViolations returned severity %q, want \"error\"", joined[0].Severity)
-	}
+	// NOT ASSERTED HERE, DELIBERATELY: HollowFindingsToViolations. That sibling USED to
+	// overwrite the pack's declared severity with a hardcoded "error" (ISSUE-106, hop 3 of
+	// the ISSUE-104/ISSUE-105 chain) and this block used to lock that behavior. It now
+	// FORWARDS the source finding's severity, so it is a pass-through rather than a
+	// by-construction site, and asserting it here would be asserting the defect. The single
+	// authority on the forwarding behavior is
+	// TestQ1_HollowFindingsToViolations_ForwardsPackDeclaredSeverity
+	// (pkg/gate/substantiveness_severity_test.go) — a pointer, not a duplicate assertion.
 
 	// SITE 3 — StepTestVerificationScopedFunc's missing-mandated-test violations.
 	root := t.TempDir()
@@ -333,8 +368,9 @@ func TestClass3Sites_ViolationsAreErrorSeverityByConstruction(t *testing.T) {
 		t.Fatalf("expected the violation to name the missing test, got %#v", verification.Violations[0])
 	}
 	if verification.Violations[0].Severity != "error" {
-		t.Errorf("a missing mandated test returned severity %q, want \"error\"; step_testverify.go's "+
-			"raw count depends on it", verification.Violations[0].Severity)
+		t.Errorf("a missing mandated test returned severity %q, want \"error\"; this site's violations "+
+			"are error-severity BY CONSTRUCTION, that invariant is breakable in one line, and the "+
+			"missing-mandated-test signal depends on it", verification.Violations[0].Severity)
 	}
 }
 
