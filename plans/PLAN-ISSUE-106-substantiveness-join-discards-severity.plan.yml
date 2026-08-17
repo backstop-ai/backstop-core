@@ -1,0 +1,1187 @@
+---
+plan_id: PLAN-ISSUE-106
+spec_id: ISSUE-106
+created: "2026-08-16"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./pkg/gate/... ./cmd/backstop/... -race -count=1"
+coverage_threshold: 90
+
+notes: |
+  Implements ISSUE-106, a DIR-032 (Gate Verdict Honesty) member and hop 3 of the
+  pack-severity chain (ISSUE-104 -> ISSUE-105 -> this). TWO one-line production
+  edits in TWO files, one design decision written down, three tests, and one
+  deliberate regression-lock flip. Nothing else is in scope.
+
+  ── THE ISSUE UNDERSTATES THE DEFECT: IT IS TWO HOPS, NOT ONE ──────────────
+  ISSUE-106 names ONE site — `HollowFindingsToViolations` hardcoding
+  `Severity: "error"`. Fixing only that site leaves the defect USER-INVISIBLE,
+  because the consuming step throws the preserved severity away one line later.
+
+  `buildTestSubstantivenessStep` (cmd/backstop/gate.go) still reaches its verdict
+  by RAW COUNT:
+
+      status := "pass"
+      if len(violations) > 0 {
+          status = "fail"
+      }
+
+  That is precisely the ISSUE-105 defect shape, at a step ISSUE-105 did not
+  convert. So a pack-declared `warning` that survives the join would still flip
+  the step to `fail` and still exit the gate 1. BOTH hops are required for the
+  issue's stated impact ("has that declaration silently overwritten to error ...
+  and the finding blocks the gate") to actually stop being true.
+
+  WORTH RECORDING BECAUSE IT IS AN OVERCLAIM SOMEONE WILL TRUST: ApplyPolicy's
+  own docstring (pkg/gate/policy.go, the "THE NO-ENTRY PASSTHROUGH IS CORRECT"
+  paragraph) already asserts "The step builders NOW reach their verdict through
+  StepVerdict". For this step that sentence is false at HEAD. This lane makes it
+  true. Do NOT edit policy.go to say something weaker — fix the straggler instead.
+  (policy.go is deliberately OUT of this lane's file scope; the docstring becomes
+  accurate with no edit.)
+
+  ── FALSIFIED FOR REAL WHILE PLANNING, 2026-08-16 ─────────────────────────
+  Measured in a DETACHED WORKTREE at clean HEAD (a60015c), never in the shared
+  tree — sibling lanes hold live uncommitted work and `git stash` there is unsafe.
+
+  Hop A, via the codebase's OWN shipped witness. At clean HEAD:
+
+      go test ./pkg/gate/ -run TestClass3Sites_ViolationsAreErrorSeverityByConstruction
+      --- PASS
+
+  That test feeds `HollowFindingsToViolations` a finding with `Severity:"warning"`
+  and asserts the output is `"error"`. It PASSING is the defect: warning-in,
+  error-out is the live behavior, asserted on purpose ("Filed, not fixed here").
+
+  Hop B, measured directly with a throwaway probe in that same worktree (probe
+  removed, worktree destroyed, HEAD untouched):
+
+      HOP-A join severity                  = "error"    (input was "warning")
+      HOP-B StepVerdict(joined)            = "fail"
+      HOP-B StepVerdict(true-warning)      = "warning"  <- raw count would say "fail"
+      raw-count status="fail"  => GateResult.Pass=false StepsFailed=1
+      StepVerdict status="warning" => GateResult.Pass=true  StepsWarned=1
+
+  So the two hops are independently real and independently observable, and the
+  second one is what the operator actually feels.
+
+  RE-OBSERVE THE RED ANYWAY. Planning's measurement is evidence the tests CAN go
+  red, not a substitute for the implementer watching them do it. A test written
+  after the fix and never seen failing is worth nothing here.
+
+  ── THE PACK-SIDE HALF IS REAL AND WAS VERIFIED, NOT ASSUMED ──────────────
+  A warning-declaring pack is not hypothetical; the whole wire path was exercised
+  with the REAL ast-grep 0.43.0 on PATH (/usr/local/bin/ast-grep), 2026-08-16:
+
+    * `severity: warning` appended to a copy of
+      packs/substantiveness/ast-grep/rules/hollow-test-go.yml makes ast-grep
+      report `severity=warning` in its `--json` output. Verified verbatim:
+          severity=warning rule=hollow-test-go fn=TestHollow
+    * packs/substantiveness/ast-grep/to-sarif.sh maps that to SARIF
+      `level: "warning"` (its jq has an explicit warning branch).
+    * check.ParsePackFindings -> Violation.Severity "warning";
+      cmd/backstop/pack_gate.go's bridge preserves it (`nonEmpty(v.Severity,
+      "error")` only defaults an EMPTY value).
+    * therefore a warning-severity hollow finding reaches
+      RouteSubstantivenessFindings intact, and the join is genuinely the first
+      and only place it dies.
+
+  BLAST RADIUS, MEASURED: ZERO on backstop-core's own dogfood. The SHIPPED
+  hollow-test-go.yml declares NO `severity:` key, so ast-grep reports `hint`,
+  which to-sarif.sh's `else` branch maps to `error`. Every substantiveness
+  violation backstop-core produces today is `error` and keeps blocking after both
+  hops. A verdict can only flip for a pack that EXPLICITLY declares `warning` —
+  exactly the "was severity-blind-overwriting a declared warning finding, should
+  never have blocked" shape the issue's blast-radius discipline demands. Confirm
+  this by re-running the full gate in phase 4, do not merely restate it.
+
+  ── THE DESIGN DECISION THE ISSUE ASKS FOR, RESOLVED ──────────────────────
+  ISSUE-106 explicitly refuses to prescribe the `NoTargetViolation` half and
+  requires the fix to STATE its resolution. THIS LANE'S RESOLUTION:
+
+    NoTargetViolation's severity STAYS a fixed "error", BY DESIGN, and that
+    decision is written into its docstring.
+
+  The rationale, which must appear in the code and not only here:
+    * It is SYNTHESIZED by the gate's own decision table from a SET-MEMBERSHIP
+      test, not converted from any one pack finding. There is no contributing
+      finding whose severity could be forwarded.
+    * ReferencedSymbolSet is `map[string]bool` — presence only. The extraction
+      findings that populate it carry no severity into the set at all.
+    * Giving packs a knob here means inventing a NEW declaration channel (a
+      severity carried alongside presence, or a noTarget-specific rule property).
+      That is a capability expansion, not a bug fix, and it does not belong in a
+      lane whose acceptance bar is "stop discarding a value you were handed."
+    * A noTarget verdict is a GATE-COMPUTED defect about the consumer's tests, not
+      an advisory the pack authored. Fixed severity is the honest reading of what
+      it is.
+
+  `SubstantivenessEvidenceRefusal` keeps its fixed "error" for the same reason and
+  needs no argument beyond it: it is a ConfigErr refusal about the PACK's
+  configuration, it short-circuits the step, and ApplyPolicy skips ConfigErr steps
+  entirely.
+
+  IF A REVIEWER WANTS THE KNOB ANYWAY, that is a new issue, not a scope widening
+  here. Say so and file it; do not build a severity channel into
+  ReferencedSymbolSet in this lane.
+
+  ── THE COUPLED TEST FLIP (the issue names this explicitly; do not miss it) ─
+  `TestClass3Sites_ViolationsAreErrorSeverityByConstruction`
+  (pkg/gate/step_verdict_severity_test.go) currently LOCKS the defect. Its SITE 2
+  block has two halves and they have DIFFERENT fates:
+
+    * the `NoTargetViolation(...).Severity == "error"` half is CORRECT and STAYS
+      (that is now a ratified design decision, CLM-003);
+    * the `HollowFindingsToViolations({Severity:"warning"}) == "error"` half plus
+      its "SIBLING 1 ... Filed, not fixed here" comment must GO, replaced by a
+      pointer to the new preservation test.
+
+  KEEP THE TEST NAME. It is cited by name in DIR-032, DIR-024 and
+  PLAN-ISSUE-105's test_names list. Renaming it strands three citations and can
+  read as a broken promise. The name also stays ACCURATE: after this lane there
+  are still exactly three by-construction sites (waiverDiagToViolation, the
+  SYNTHESIZED noTarget violation, StepTestVerificationScopedFunc's
+  missing-mandated-test violations). Only the hollow-conversion sub-assertion
+  leaves, because that site is no longer by-construction — it is now a
+  pass-through.
+
+  ── A SECOND SITE THAT PINS THE DEFECT AND MUST NOT BE DISTURBED ──────────
+  pkg/gate/substantiveness_join_nonregression_test.go has two touchpoints. Both
+  stay GREEN unchanged and neither needs editing — verified by reading, 2026-08-16:
+    * `TestNoTargetJoinUnchangedUnderEvidence` asserts the noTarget violation's
+      Severity is "error". Still true (CLM-003).
+    * `TestAbsenceSkipAndHollowConversionUnchanged`'s
+      `hollow_conversion_still_forwards_file_and_line` sub-test feeds
+      `Severity: "error"` and does not assert severity at all. Error-in,
+      error-out. Still green.
+  If either goes red, something other than this lane's change happened. Report it.
+
+  ── A THIRD TOUCHPOINT: A FENCE A PRIOR LANE PLANTED AGAINST THIS CHANGE ───
+  FOUND IN REVIEW ROUND 1, 2026-08-17, and it is the single thing most likely to
+  stall an implementer mid-lane. It is NOT an accidental regression; it is a
+  deliberate tripwire, and this lane is the change it was armed to catch.
+
+  `pkg/gate/substantiveness_hollow_violation_test.go`, inside
+  `TestQ1_HollowFindingsToViolations_ForwardsSourceLine`, asserts
+
+      if v.Severity != "error" { … }
+
+  over ALL THREE of its inputs — and NONE of those three literals sets a Severity
+  field at all. That assertion passes today only because the join HARDCODES
+  "error". Once TASK-003 forwards the source finding's own severity, the forwarded
+  value for all three is the EMPTY STRING, so the assertion goes RED with
+  `Severity = "", want "error"`. Verified by reading both files at HEAD, not
+  inferred.
+
+  IT WAS PLANTED ON PURPOSE. PLAN-ISSUE-116 (completed, prior lane) states in its
+  own TASK-002 that this assertion is "what keeps the fix from quietly becoming
+  ISSUE-106's severity change", and the test's docstring says so inline: "The
+  non-Line fields are re-asserted because this fix must NOT become ISSUE-106's
+  severity change." `grep -rn "ISSUE-106" --include='*.go' pkg cmd` returns that
+  line and nothing else — this is the only place in the Go tree that names this
+  issue.
+
+  SO: this red is KNOWN, ANTICIPATED and INTENTIONAL. It is the fence doing
+  exactly its job — announcing that ISSUE-106's severity change has arrived — and
+  the correct response is to walk through the gate, not to weaken TASK-003.
+  TASK-005 reports it expected-red BY NAME alongside
+  TestClass3Sites_ViolationsAreErrorSeverityByConstruction; TASK-006 updates it in
+  phase 3 alongside the other lock. Do not second-guess it, and do not treat it as
+  evidence the fix is wrong.
+
+  KEEP THE TEST NAME EXACTLY: `TestQ1_HollowFindingsToViolations_ForwardsSourceLine`.
+  It is PLAN-ISSUE-116's own mandated test name and its traceability anchor.
+  Renaming it strands that lane's citation and reads as a broken promise. Only the
+  severity ASSERTION changes; the Line-forwarding proof it exists for is untouched.
+
+  ── SHARP EDGE: THE noTARGET VIOLATION WILL MASK THE WARNING PROOF ────────
+  Inherited verbatim from PLAN-ISSUE-116, which paid for this discovery, and
+  re-confirmed by reading gate_substantiveness_e2e.go on 2026-08-16: the default
+  `newE2EWorkspace` writes a hollow test whose body calls `doSubject()`, and its
+  spec mandates that test against target package `gate`. That yields TWO
+  test_substantiveness violations — the hollow one AND a noTarget one.
+
+  For THIS lane that is fatal in a specific way: the noTarget violation is a
+  fixed-"error" SYNTHESIZED violation (CLM-003, by design), so it BLOCKS. A
+  warning-severity hollow finding sitting next to it produces a step that still
+  reads "fail", and the acceptance test would fail for a reason that has nothing
+  to do with the fix.
+
+  THE FIX IS IN THE FIXTURE, NOT IN THE CODE: give the severity workspace's hollow
+  test a body of `gate.Build()` instead of `doSubject()`. The referenced-symbol
+  rule captures `gate`, the noTarget set-join is SATISFIED, no noTarget violation
+  is raised — and the test stays genuinely hollow, because `Build` matches none of
+  the hollow rule's assertion vocabulary
+  (require|assert|check|verify|expect|must|Fatal|Error|Fail|Skip). Say this in the
+  fixture's own comment. DO NOT reach for `kind: absence` and DO NOT touch the
+  noTarget path to make the step non-blocking — either silently implements a
+  different issue.
+
+  ── SCOPE FENCE ───────────────────────────────────────────────────────────
+  IN : pkg/gate/substantiveness_join.go   (one field + docstrings)
+       cmd/backstop/gate.go               (one status expression + its comment)
+       pkg/gate/step_verdict_severity_test.go (SITE 2 flip + header correction)
+       pkg/gate/substantiveness_hollow_violation_test.go (ONE severity
+         expectation + its docstring — PLAN-ISSUE-116's deliberate fence; name
+         and Line proof preserved)
+       two new test files.
+  OUT: ISSUE-107 (coverage warning-only step reads as pass) and ISSUE-108
+       (contract carrier drops pack severity) — sibling residuals from the same
+       audit, each its own hop, each separately filed. Your cursor will be near
+       both. Leave them.
+  OUT: ISSUE-117 (noTarget findings carry no waivable line) — a DIFFERENT field
+       on the SAME violation. Do not bundle.
+  OUT: giving packs a way to DECLARE the noTarget severity. That is the knob this
+       lane deliberately declines to build (see the design decision above).
+  OUT: pkg/gate/policy.go. Its docstring becomes true with no edit.
+  OUT: `dispatchAstGrepRule` (pkg/gate/substantiveness_q1_dispatch.go). It is
+       TEST GLUE ONLY — no production caller, confirmed by grep 2026-08-16 — and
+       its `nonEmptySeverity(v.Severity)` is already a correct pass-through. The
+       issue cites it as EVIDENCE that severity survives dispatch, not as a site
+       to change. Do not edit it.
+
+  ── CROSS-LANE COLLISION CHECK (2026-08-16) ───────────────────────────────
+  Both production files were read FRESH at HEAD a60015c, not from an older
+  description. `git status` at planning time showed NO uncommitted edits to any
+  Go source — only .claude/agent-memory files. Specifically checked:
+    * PLAN-ISSUE-092 (pack test phase3 fixtures) — status completed; its file
+      scope is pkg/packval, NOT substantiveness_join.go or cmd/backstop/gate.go.
+      No overlap.
+    * PLAN-ISSUE-116 (substantiveness waiver line carry) — completed and LANDED;
+      the `Line: v.Line` forwarding is present in the file today. It explicitly
+      scoped ISSUE-106 OUT and predicted this exact cursor position.
+    * PLAN-ISSUE-105 (step verdict severity aware) — completed; converted four
+      step builders to StepVerdict and deliberately left OTHERS on a raw count.
+      DO NOT restate a specific leftover COUNT anywhere in this lane: an earlier
+      draft of these notes said "three raw-count sites", which is not what is in
+      the tree. Measured 2026-08-17 by grep, the raw-count `status := "pass" /
+      len(...) > 0` sites still standing at HEAD are pkg/gate/step_coverage.go,
+      pkg/gate/status_drift.go, pkg/gate/requirement_traceability.go and
+      pkg/gate/step_waiver.go, PLUS the substantiveness step in
+      cmd/backstop/gate.go that TASK-004 converts. That is five, not three, and
+      the exact number is NOT load-bearing to anything this lane does — which is
+      precisely why no task should assert one. See the TASK-006 note on
+      TestClass3Sites' header docstring, which currently carries the same bad
+      count and gets corrected there.
+    * PLAN-ISSUE-035 is still `draft` and names substantiveness_join.go, but its
+      subject (the `kind: absence` skip / NoTargetViolationForTest) is ALREADY IN
+      THE FILE at HEAD — it is a stale draft, not live contention. If an
+      implementer finds it active, STOP AND FLAG rather than resolving it.
+  If any of these files has moved under you by the time you implement, locate the
+  edit sites BY NAME (`HollowFindingsToViolations`, the `status := "pass"` block
+  inside `buildTestSubstantivenessStep`), never by the line numbers quoted above.
+
+  ── AN IN-FLIGHT SIBLING LANE: PLAN-ISSUE-097 — A SHARED TEST FILE, SPLIT BY SITE ─
+  Surfaced in review round 1 and made CONCRETE on 2026-08-17: PLAN-ISSUE-097's own
+  fix round has now added pkg/gate/step_verdict_severity_test.go to ITS file scope.
+  Both lanes therefore edit the SAME FILE, and specifically the same test —
+  TestClass3Sites_ViolationsAreErrorSeverityByConstruction. This is NOT a
+  duplicate (different issue, different defect) and it is NOT independent either.
+
+  THE OWNERSHIP SPLIT IS BY SITE, AND IT IS EXCLUSIVE:
+
+      SITE 1 (waiverDiagToViolation)   -> owned by PLAN-ISSUE-097
+      SITE 2 (the substantiveness join) -> owned by PLAN-ISSUE-106 (this lane)
+      SITE 3 (StepTestVerificationScopedFunc) -> owned by NEITHER; untouched
+
+  PLAN-ISSUE-097 gives `waiverDiagToViolation` a SEVERITY PARAMETER and converts
+  `computeWaiverResult` to StepVerdict (its CLM-012), and it fixes SITE 1's
+  assertion itself as part of that change. THIS lane touches SITE 2 and the
+  header docstring ONLY (TASK-006 PART B), and explicitly does not rewrite SITE 1
+  or SITE 3. Neither lane should edit the other's site, and neither should
+  "helpfully" repair the other's assertion while it is in the file.
+
+  WHAT THE IMPLEMENTER MUST DO — SYMMETRIC, whichever lane you are running:
+    * Whichever of 106/097 lands SECOND re-verifies compatibility AT THAT SPECIFIC
+      SITE against what actually landed, not against its own plan text. For this
+      lane that means: before touching SITE 2, re-read SITE 1 and confirm whether
+      097 has already changed `waiverDiagToViolation`'s signature and updated its
+      own call. If it has, leave it exactly as it is — a changed SITE 1 call shape
+      is 097 doing its job, not damage. If 097 has NOT landed, SITE 1 is the
+      untouched `waiverDiagToViolation(diag)` form; leave that alone too.
+    * AN UNEXPECTED CHANGE AT THE OTHER LANE'S SITE IS A STOP-AND-REPORT, NOT A
+      FIX. If SITE 1 is in a state neither this note nor 097's plan describes —
+      broken, half-edited, or asserting something new — do not resolve it
+      unilaterally and do not adjust your own edit to compensate. Report it and
+      let the two lanes be reconciled deliberately.
+    * The HEADER docstring is shared surface that this lane corrects (TASK-006
+      PART B). If 097 has already rewritten it, merge rather than overwrite: keep
+      whatever accurate statement is there and ensure the collective raw-count
+      overclaim is gone. Do not restore a count.
+  Also note: 097 touches cmd/backstop/gate.go as well, but in DIFFERENT functions
+  than TASK-004's `buildTestSubstantivenessStep` — a sequencing concern, not a
+  direct conflict. Do not fix PLAN-ISSUE-097 from here.
+
+  ── CLAIM LEDGER (ISSUE-106 carries no CLM ids; this lane defines them) ───
+    CLM-001  HollowFindingsToViolations FORWARDS each source hollow finding's
+             Severity onto the test_substantiveness Violation it constructs. A
+             pack-declared "warning" arrives as "warning"; "error" as "error".
+             The value is carried VERBATIM with no re-defaulting at the join, and
+             an empty input therefore fails CLOSED at the verdict (blocksVerdict
+             treats anything that is not "warning" as blocking).
+    CLM-002  buildTestSubstantivenessStep reaches its status through
+             gate.StepVerdict(violations) instead of `len(violations) > 0`, so a
+             warning-only substantiveness result reports "warning", leaves
+             GateResult.Pass true, and is counted in StepsWarned rather than
+             StepsFailed.
+    CLM-003  NoTargetViolation's severity is a FIXED "error" BY DESIGN — the
+             resolution ISSUE-106 demands be stated explicitly — because the
+             violation is synthesized from a presence-only set-membership test
+             with no contributing finding to forward from. The decision and its
+             rationale are written into the docstring, and the fixed value is
+             pinned across the decision table's raising inputs.
+    CLM-004  End-to-end through the REAL installed-pack path, a substantiveness
+             pack whose hollow rule declares `severity: warning` produces a step
+             that DOES NOT block; the pristine pack (no severity declared) still
+             blocks. The second half is the control that proves the first is not
+             a silent no-op.
+    CLM-005  BOTH shipped defect-locks are DELIBERATELY retired, and BOTH keep
+             their names. (a) The SITE 2 hollow sub-assertion in
+             TestClass3Sites_ViolationsAreErrorSeverityByConstruction is flipped —
+             the "Filed, not fixed here" lock is retired and replaced with a
+             pointer to the new preservation test — while the test NAME and its
+             three genuine by-construction guards survive, and its header
+             docstring's stale collective raw-count claim is corrected.
+             (b) TestQ1_HollowFindingsToViolations_ForwardsSourceLine's severity
+             assertion — PLAN-ISSUE-116's deliberate fence against this very
+             change — is updated from "error" to the verbatim-forwarded empty
+             string, with its NAME, its Line proof and its other non-regression
+             assertions intact.
+    CLM-006  Non-regression: the conversion's Rule, File, Line, Message and
+             Properties behavior is unchanged; every error-severity substantiveness
+             violation still blocks; and baseline identity is unchanged for every
+             finding whose forwarded severity is still "error".
+
+             SEVERITY *IS* PART OF THE IDENTITY HASH ON THIS PATH. An earlier draft
+             of this plan claimed it is not; that was false, and the correction is
+             recorded here rather than silently swapped, because a claim that
+             outlived its truth is this lane's entire subject. The real mechanism:
+             EnrichViolationIdentity (pkg/gate/baseline.go) folds
+             Rule|File|RegionHash, and when RegionHash is empty it FALLS BACK to
+             hash(Message|Severity|SourcePack). HollowFindingsToViolations builds a
+             FRESH Violation and does not carry RegionHash forward — the pack bridge
+             that sets it (cmd/backstop/pack_gate.go, `RegionHash: v.Fingerprint`) is
+             dropped by this conversion — so the fallback ALWAYS fires for a
+             substantiveness violation and Severity ALWAYS feeds its identity.
+             gate.Violation's own documentation (pkg/gate/result.go) states the same
+             fold; read it there, do not re-derive it.
+
+             CONSEQUENCE, stated plainly: for a pack that declares a `warning`
+             substantiveness rule, a finding's IdentityHash CHANGES when this lane
+             lands, so a previously baselined finding resurfaces as NEW. That is a
+             real downstream effect of the fix, not a defect in it — the pre-fix
+             identity was computed over an overwritten severity.
+
+             On backstop-core the radius is measured ZERO, and it is zero by
+             CONTINGENCY, not by structure: the shipped hollow rule declares no
+             `severity:` key, so the bridge's nonEmpty(...,"error") makes the
+             forwarded value "error" both before and after, and the hashed tuple is
+             byte-identical. TASK-008 CONFIRMS that equality on the real corpus
+             rather than assuming it.
+
+  ── VERIFICATION COMMANDS ─────────────────────────────────────────────────
+    inner: go build ./... &&
+           go test ./pkg/gate/... ./cmd/backstop/... -race -count=1
+    full:  go test ./... -race -count=1
+    final: go build -o bin/backstop ./cmd/backstop/
+           ./bin/backstop gate --all
+           ./bin/backstop artifact validate --plan PLAN-ISSUE-106
+           ./bin/backstop artifact validate --issue ISSUE-106
+
+  ── ENVIRONMENT / TOOLING FACTS (confirmed 2026-08-16) ────────────────────
+  1. NEVER run a bare `backstop`. A stale Homebrew binary is on PATH and gates the
+     OLD join, reporting a green that proves nothing about this change. Always
+     `go build -o bin/backstop ./cmd/backstop/` first, then `./bin/backstop`.
+  2. `backstop code check` DOES NOT EXIST — the command was removed and its
+     absence is test-asserted. `go test` is the inner loop; `./bin/backstop gate`
+     is the outer one.
+  3. Some verification steps need go-arch-lint on PATH: prefix with
+     `PATH=/Users/bmanson/go/bin:$PATH` or pack_engines silently no-ops.
+  4. ast-grep 0.43.0 is at /usr/local/bin/ast-grep. The e2e task sits behind the
+     existing fail-loud guard (requireAstGrepE2E). NEVER convert it to t.Skip — a
+     skipped real-engine test is silent vacuous green. That is also exactly WHY
+     TASK-002 pairs the e2e with a seam-injected unit test that always runs.
+  5. `gate --file` takes ONE file (ISSUE-093 open: repeated --file is silently
+     dropped). One invocation per file, or the full sweep.
+  6. Falsify in a DETACHED WORKTREE, never by stashing the shared tree — sibling
+     lanes hold live uncommitted work.
+  7. Report TRUE exit codes (`echo $?`); never mask a non-zero behind a pipe.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Red-first — pin both hops before touching either"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Unit pin: the join forwards pack severity, and the synthesized noTarget severity is fixed by design (RED)"
+        description: |
+          Create pkg/gate/substantiveness_severity_test.go. It must FAIL before
+          TASK-003 — run it and RECORD THE ACTUAL FAILURE OUTPUT before touching
+          substantiveness_join.go. Runs in parallel with TASK-002 (disjoint
+          files, no dependency between them).
+
+          Header-comment the file with what it is FOR: hop 3 of the pack-severity
+          chain (ISSUE-104 -> ISSUE-105 -> ISSUE-106), and the fact that the two
+          functions it covers are deliberately asymmetric — one FORWARDS a value
+          it was handed, the other SYNTHESIZES one it was never handed.
+
+          TestQ1_HollowFindingsToViolations_ForwardsPackDeclaredSeverity
+            (CLM-001, CLM-006). Feed HollowFindingsToViolations a hollow partition
+            in ONE call carrying DISTINCT severities so the assertion cannot be
+            satisfied by any constant:
+              * a finding with Severity "warning"  -> expect "warning"
+              * a finding with Severity "error"    -> expect "error"
+              * a finding with Severity ""         -> expect "" forwarded VERBATIM
+            Assert each output violation's Severity equals ITS OWN source
+            finding's Severity, by index. The mixed batch is the point: a
+            hardcoded literal fails the first case, and a blanket "always
+            warning" would fail the second.
+
+            THE EMPTY CASE NEEDS ITS OWN ASSERTION, not just the pass-through.
+            Also assert `StepVerdict([]Violation{out[emptyIdx]}) == "fail"`, and
+            say WHY in a comment: forwarding an empty value is safe precisely
+            because blocksVerdict treats anything that is not "warning" as
+            blocking, so the join fails CLOSED without needing to re-default. The
+            issue's own analysis (nonEmptySeverity already ran at dispatch) is why
+            no defaulting is added; this assertion is why that is not a risk.
+
+            In the SAME test, assert the non-regression surface explicitly
+            (CLM-006): for the warning finding, Rule == StepTestSubstantiveness,
+            File is the canonicalized repo-relative path, Line is forwarded
+            non-zero, and Message has the ` func=` routing token stripped. A
+            severity fix that quietly disturbs the ISSUE-116 Line carry or the
+            ISSUE-046 File canonicalization must fail HERE, locally, not three
+            packages away.
+
+          TestNoTarget_SynthesizedSeverityIsFixedByDesign (CLM-003).
+            This is NOT a copy of the one-shot assertion already in
+            substantiveness_join_nonregression_test.go. It exists because THIS
+            LANE creates the risk it guards: once the sibling half starts
+            forwarding severity, a future reader will "finish the job" by symmetry
+            and invent a severity channel for the noTarget violation. This test is
+            the note that says the asymmetry is deliberate.
+
+            Sweep every RAISING input of the decision table — populated set with
+            the target absent, and empty set with the target absent, each with
+            samePackage false — and assert the returned violation's Severity is
+            "error" in all of them. Then assert the same for
+            SubstantivenessEvidenceRefusal(1, 0, 0).
+
+            Comment the test body with the RATIONALE, not just the expectation:
+            synthesized from a presence-only set-membership test, no contributing
+            finding to forward from, gate-computed defect rather than a
+            pack-authored advisory. A reader who wants to change this must first
+            build a declaration channel — which is a new issue, not an edit here.
+
+            EXPECTED PRE-FIX STATE: this test PASSES before TASK-003. That is
+            correct and is not a vacuous-green problem — it is a LOCK on behavior
+            this lane deliberately does not change, sited next to the behavior it
+            does. Say so in the task report so a reviewer is not misled into
+            thinking the whole file was red.
+
+          Expected pre-fix red, verbatim shape to look for: the forwarding test
+          fails on the warning case with Severity "error", want "warning". If it
+          passes on the first run against unfixed code, STOP AND REPORT — the test
+          is not reaching the defect.
+        files:
+          - pkg/gate/substantiveness_severity_test.go
+        claims:
+          - CLM-001
+          - CLM-003
+          - CLM-006
+        depends_on: []
+        test_names:
+          - TestQ1_HollowFindingsToViolations_ForwardsPackDeclaredSeverity
+          - TestNoTarget_SynthesizedSeverityIsFixedByDesign
+
+      - id: TASK-002
+        type: test
+        title: "Step-verdict pins: a warning-only substantiveness result must not block, proven twice (RED)"
+        description: |
+          Create cmd/backstop/gate_substantiveness_severity_test.go. It must FAIL
+          before TASK-004 — run it and RECORD THE ACTUAL FAILURE. Runs in parallel
+          with TASK-001 (disjoint files, no dependency).
+
+          TWO TESTS AT TWO ALTITUDES, ON PURPOSE. The e2e is the honest proof but
+          sits behind an ast-grep guard; the seam test always runs. Neither
+          replaces the other, and the reason belongs in the file header: an
+          engine-guarded test that silently does not run is the vacuous green this
+          repo says it will not ship.
+
+          --- Altitude 1: the seam test (always runs, no engine needed) ---
+
+          TestSubstantivenessStep_WarningOnlyResultDoesNotBlock (CLM-002).
+            Drive the REAL buildTestSubstantivenessStep through the EXISTING
+            seams — do not build a parallel step. Copy the established shape from
+            gate_substantiveness_wiring_test.go in this same package:
+              * injectSubstantivenessManifest(t) — overrides
+                resolveSubstantivenessPacksFn so a pack set is present;
+              * override dispatchPackEnginesFn (save + t.Cleanup restore) to
+                return ONE hollow-role finding with Severity "warning", carrying
+                Properties{"substantiveness_role":"hollow", "func":"<the mandated
+                test name>"} and a File matching the fixture test file. The role
+                property is what RouteSubstantivenessFindings partitions on
+                (ISSUE-064) — a finding without it is silently ignored and the
+                test would pass vacuously, so assert the step saw exactly one
+                violation before asserting anything about status;
+              * goSubstDiscovery(t) + writeSubstantivenessSpec(t, specDir) for the
+                classifier/matcher and the mandated-test spec.
+
+            THE ONE PLACE THIS TEST MUST **DIVERGE** FROM THE WIRING-TEST SHAPE —
+            DELIBERATELY OMIT THE `writeMandatedTestFile(t, codeDir, ...)` CALL.
+            All three shipped wiring tests make it, and copying it here would
+            silently destroy this test's entire proof. Trace it:
+              * writeSubstantivenessSpec mandates TestSubjectHollow against target
+                package "gate";
+              * with the test file on disk, ResolveMandatedTestPaths resolves
+                mt.FilePath, so pass 1 counts the test as join-eligible and pass 2
+                raises a noTarget violation for it (nothing populates the
+                referenced set — dispatch is stubbed to return only the hollow
+                finding);
+              * that noTarget violation is a fixed-"error" SYNTHESIZED violation
+                (CLM-003, by design). Two violations reach the verdict, one of
+                them blocking, so res.Status stays "fail" AFTER BOTH HOPS LAND —
+                and the test fails for a reason that has nothing to do with the
+                fix.
+            OMITTING the call leaves mt.FilePath == "", which pass 1 skips with
+            `continue` BEFORE the eligibility check, so no noTarget violation is
+            ever raised. The hollow violation is unaffected: HollowFindingsToViolations
+            converts routed hollow findings directly and never consults the
+            resolved mandated tests. Verified by reading buildTestSubstantivenessStep
+            at HEAD, 2026-08-17.
+            The refusal cannot fire either, on two independent grounds:
+            SubstantivenessEvidenceRefusal requires eligible >= 1 (here 0) AND
+            hollow == 0 (here 1).
+            NOTE THE E2E USES A DIFFERENT REMEDY FOR THE SAME SHARP EDGE and that
+            is correct, not an inconsistency: at e2e altitude the mandated test
+            file MUST exist for the real engine to scan, so the noTarget join is
+            satisfied through the FIXTURE BODY (`gate.Build()`) instead. Here the
+            findings are injected at the seam, so there is nothing for a fixture
+            body to satisfy — the extraction partition comes from the stub's
+            return value, not from parsing. Do NOT try to transplant the
+            `gate.Build()` trick into this test; it has no effect at this seam.
+            SAY THIS IN THE TEST'S OWN COMMENT — an omitted call is invisible, and
+            the next reader "restoring" it for symmetry with the wiring tests will
+            otherwise reintroduce a baffling permanent red.
+            (The alternative disposition — injecting a paired referenced-symbol
+            finding with symbol=gate — also works but is strictly more machinery
+            for the same outcome. This lane picks the omission. Do not do both.)
+
+            Then assert, in this order so a reader can tell WHICH hop broke:
+              1. the step returned EXACTLY ONE violation and its Severity is
+                 "warning" — this is the hop-A half arriving intact at the step;
+              2. res.Status == "warning" (NOT "fail", NOT "pass");
+              3. feed the StepResult through gate.NewGateResult and assert
+                 Pass is true, StepsWarned == 1, StepsFailed == 0. The status
+                 string alone is not the user-visible outcome; the exit code is.
+            Pre-fix red lands at assertion 1 (Severity "error") and again at 2
+            (Status "fail").
+
+            THE CONTROL, in the same test or an adjacent sub-test: the SAME
+            injected finding with Severity "error" must still yield Status "fail"
+            and Pass false. Without it, "does not block" is indistinguishable from
+            "the step stopped working".
+
+          --- Altitude 2: the real installed-pack e2e ---
+
+          TestE2E_SubstantivenessWarningPack_StepWarnsWithoutBlocking (CLM-004).
+            requireAstGrepE2E(t) FIRST — fail-loud, never t.Skip.
+
+            Build the workspace with the existing helpers from
+            gate_substantiveness_e2e.go (same package; do NOT edit that file —
+            define the new installer here as a method on *e2eWorkspace):
+              newE2EWorkspace(t.TempDir())
+              -> OVERWRITE ws.hollowFile (see the fixture note below)
+              -> install a WARNING-DECLARING copy of the pack
+              -> ws.runProductionSubstantivenessStep()
+
+            THE WARNING-PACK INSTALLER. Mirror installZeroMatchSubstantivenessPack
+            exactly — it is the shipped precedent for a patched-pack fixture:
+              * os.MkdirTemp(filepath.Dir(w.root), "warnsev-pack-") — BESIDE the
+                workspace, never inside it, or the pack source is swept into the
+                engine's own scan targets;
+              * copyPackSourceTree(substantivenessSourceDir(repoRoot), packCopy);
+              * append "severity: warning\n" to
+                packCopy/ast-grep/rules/hollow-test-go.yml, with a comment in the
+                appended text naming it an ISSUE-106 FIXTURE PATCH;
+              * install via newProductionAddCommand().Run(packCopy,
+                distribution.AddOptions{ProjectDir: w.root}) — the REAL add path.
+            VERIFIED WHILE PLANNING with real ast-grep 0.43.0: that one appended
+            line makes ast-grep report `severity=warning`, which the pack's
+            to-sarif.sh maps to SARIF `level: warning`. This is not assumed.
+
+            THE FIXTURE BODY IS LOAD-BEARING. Overwrite ws.hollowFile with a
+            hollow test whose body calls `gate.Build()`, not `doSubject()`:
+
+              package sample_test
+
+              import "testing"
+
+              func TestE2EHollowSubject(t *testing.T) {
+                gate.Build()
+              }
+
+            Comment it with BOTH reasons: `gate.Build()` satisfies the noTarget
+            set-join so the hollow finding is the ONLY violation (with
+            `doSubject()` there are TWO, and the second is a fixed-"error"
+            synthesized noTarget violation that BLOCKS and masks this entire
+            proof); and it is still genuinely hollow because `Build` matches none
+            of the hollow rule's assertion vocabulary. A future reader who tidies
+            it back to `doSubject()` will otherwise reintroduce a baffling red.
+
+            Assert, in order:
+              1. EXACTLY ONE violation, and it is the hollow one (Rule ==
+                 gate.StepTestSubstantiveness, Message contains "has no
+                 assertions (hollow)"). Two violations means the fixture drifted —
+                 fail with the full violation dump, do not soldier on;
+              2. its Severity is "warning" — the pack's declaration survived the
+                 whole real chain: ast-grep -> to-sarif.sh -> ParsePackFindings ->
+                 the pack_gate bridge -> route -> join;
+              3. res.Status == "warning";
+              4. gate.NewGateResult over that result: Pass true, StepsWarned 1,
+                 StepsFailed 0.
+
+          TestE2E_SubstantivenessPristinePack_StepStillBlocks (CLM-004, THE
+            CONTROL). Same workspace shape and same `gate.Build()` fixture body,
+            but installed with the UNPATCHED pack via the existing
+            installSubstantivenessLocalPack(repoRoot). Assert the single hollow
+            violation carries Severity "error", res.Status == "fail", and
+            NewGateResult reports Pass false.
+
+            This is what makes the warning result meaningful: it proves the
+            harness CAN go red, that the difference is the pack's one-line
+            declaration and nothing else, and it locks the measured blast-radius
+            finding (the shipped rule declares no severity, so it keeps blocking).
+        files:
+          - cmd/backstop/gate_substantiveness_severity_test.go
+        claims:
+          - CLM-002
+          - CLM-004
+        depends_on: []
+        test_names:
+          - TestSubstantivenessStep_WarningOnlyResultDoesNotBlock
+          - TestE2E_SubstantivenessWarningPack_StepWarnsWithoutBlocking
+          - TestE2E_SubstantivenessPristinePack_StepStillBlocks
+
+  - id: phase-2
+    name: "Phase 2: The two-hop fix"
+    tasks:
+      - id: TASK-003
+        type: implementation
+        title: "Hop A: forward the pack's severity at the join, and write down the noTarget decision"
+        description: |
+          Edit pkg/gate/substantiveness_join.go ONLY. Locate both sites BY NAME,
+          not by line number — this file has moved repeatedly.
+
+          CHANGE 1 — HollowFindingsToViolations. Replace the hardcoded
+          `Severity: "error"` in the constructed Violation with
+          `Severity: v.Severity`. One field. That is the entire production change
+          on this hop.
+
+          Replace the comment on that field with one that says WHY forwarding is
+          correct AND why it does not need a defaulting guard:
+            * the severity a pack declares IS its blockingness declaration (the
+              ratified contract on blocksVerdict, pkg/gate/policy.go), so
+              overwriting it here silently converted a pack's advisory into a
+              blocker — the ISSUE-104/ISSUE-105 defect recurring one hop later,
+              inside a converter both of those fixes bypass;
+            * the value has ALREADY been defaulted upstream: the production bridge
+              in cmd/backstop/pack_gate.go applies nonEmpty(v.Severity, "error")
+              before routing, so a second default here would be a second spelling
+              of one rule;
+            * and forwarding an empty value is safe anyway, because blocksVerdict
+              treats anything that is not "warning" as blocking — the join fails
+              CLOSED by construction, never open. TASK-001 pins this.
+          Do NOT wrap the value in nonEmptySeverity. State that choice in the
+          comment so the next reader does not "harden" it back into a second
+          authority.
+
+          CHANGE 2 — NoTargetViolation's docstring. The severity value there does
+          NOT change; the docstring gains the resolution ISSUE-106 explicitly
+          requires be stated. Add a short block saying the fixed "error" is a
+          DECISION, not an oversight, with the four reasons from this plan's notes
+          (synthesized by the decision table, not converted from a finding; no
+          contributing finding exists; ReferencedSymbolSet is presence-only and
+          has nowhere to carry a severity; a noTarget verdict is a gate-computed
+          defect rather than a pack-authored advisory). Name the sibling
+          explicitly: HollowFindingsToViolations forwards because it was HANDED a
+          value; this one has none to forward. Say that giving packs this knob
+          requires a new declaration channel and is a separate issue.
+
+          CHANGE 3 — the file header. It currently documents the ISSUE-116 Line
+          history. Add one short paragraph recording the ISSUE-106 severity
+          history in the same spirit — the join used to hardcode error and
+          discarded the pack's declaration; it now forwards it; the noTarget half
+          deliberately does not. A future reader must not re-derive either bug
+          from a stale comment.
+
+          Do NOT touch SubstantivenessEvidenceRefusal's severity, the routing
+          helpers, ReferencedSetForTest, IsTestHollow, or anything in
+          substantiveness_q1_dispatch.go.
+
+          Run `go test ./pkg/gate/ -run TestQ1_HollowFindingsToViolations_ForwardsPackDeclaredSeverity`
+          and watch it go from the recorded red to green. Note that TWO shipped
+          tests are EXPECTED to go RED at this point — both are TASK-006's job,
+          neither is a surprise, and neither is a reason to weaken this change:
+          TestClass3Sites_ViolationsAreErrorSeverityByConstruction, and
+          TestQ1_HollowFindingsToViolations_ForwardsSourceLine (PLAN-ISSUE-116's
+          deliberate fence against this very change — see the notes section "A
+          THIRD TOUCHPOINT"; its three inputs carry no Severity, so forwarding
+          yields "" where it asserts "error").
+        files:
+          - pkg/gate/substantiveness_join.go
+        claims:
+          - CLM-001
+          - CLM-003
+          - CLM-006
+        depends_on:
+          - TASK-001
+
+      - id: TASK-004
+        type: implementation
+        title: "Hop B: the substantiveness step reaches its verdict through StepVerdict"
+        description: |
+          Edit cmd/backstop/gate.go ONLY, inside buildTestSubstantivenessStep.
+          Locate the site BY NAME: the `status := "pass" / if len(violations) > 0`
+          block immediately before the final `return gate.StepResult{...}`.
+
+          Replace the raw-count status computation with
+          `gate.StepVerdict(violations)`, keeping the `if violations == nil`
+          normalization to an empty slice. The final return becomes
+          `Status: gate.StepVerdict(violations)` — mirroring the shape already
+          used at cmd/backstop/gate.go's pack_engines step.
+
+          WHY THIS IS PART OF THE SAME FIX AND NOT SCOPE CREEP — put this in the
+          comment: TASK-003 makes the pack's declared severity SURVIVE the join,
+          and this line is where it was about to be thrown away again. A raw count
+          answers "are there findings", not "does anything here block"; without
+          this, a preserved `warning` still flips the step to fail and still exits
+          the gate 1, so hop A alone would be invisible to every user.
+
+          ALSO NOTE IN THE COMMENT that this makes ApplyPolicy's existing
+          docstring claim true — "the step builders NOW reach their verdict
+          through StepVerdict" (pkg/gate/policy.go) — which was written during
+          ISSUE-105 while this step was still a straggler. Do NOT edit policy.go.
+
+          LEAVE UNTOUCHED, and they are deliberately different cases:
+            * the three early-return error paths (mandated-test extraction
+              failure, pack resolution failure, dispatch failure). Each hardcodes
+              Severity "error" on a violation IT constructs about the tool's own
+              state, not about a pack finding. Correct as-is;
+            * the SubstantivenessEvidenceRefusal ConfigErr return. ConfigErr
+              short-circuits Gate.Run, is skipped by ApplyPolicy, and is
+              structurally unwaivable — three mechanical jobs a status change
+              would disturb;
+            * the scope filter loop and the two-pass eligible/refusal logic.
+
+          Verify no behavior change for the error case while you are here:
+          StepVerdict returns "pass" for an empty slice and "fail" when any entry
+          blocks, which is byte-identical to the raw count for every violation set
+          backstop-core produces today. TASK-002's control sub-tests assert this.
+        files:
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-002
+          - CLM-004
+        depends_on:
+          - TASK-002
+
+      - id: TASK-005
+        type: verification
+        title: "Inner-loop verification: both hops green, red-proof recorded per test"
+        description: |
+          Run from the repo root, reporting TRUE exit codes:
+            go build ./...
+            go test ./pkg/gate/... ./cmd/backstop/... -race -count=1
+
+          EXACTLY TWO SHIPPED TESTS ARE EXPECTED TO BE RED HERE, both by design,
+          both retired in phase 3 by TASK-006. Report each as expected-red BY NAME
+          with its observed failure text and proceed. Do NOT weaken TASK-003 to
+          make either pass, and do NOT jump ahead and edit them from this task:
+
+            1. TestClass3Sites_ViolationsAreErrorSeverityByConstruction
+               (pkg/gate/step_verdict_severity_test.go) — the shipped lock on the
+               defect this lane fixes. Its SITE 2 hollow sub-assertion feeds
+               Severity "warning" and demands "error".
+
+            2. TestQ1_HollowFindingsToViolations_ForwardsSourceLine
+               (pkg/gate/substantiveness_hollow_violation_test.go) — a fence
+               PLAN-ISSUE-116 planted DELIBERATELY against this exact change (see
+               the notes section "A THIRD TOUCHPOINT"). All three of its inputs
+               omit Severity, so forwarding yields "" where it asserts "error".
+               Expect roughly `violation[0].Severity = "", want "error"`, three
+               times. THIS IS THE FENCE WORKING, NOT A REGRESSION — it exists to
+               announce that ISSUE-106's severity change has arrived, and it just
+               did.
+
+          A THIRD unexpected red is NEW INFORMATION. Surface it; do not absorb it
+          into this list.
+
+          Every OTHER test must be green. In particular confirm by name that
+          pkg/gate/substantiveness_join_nonregression_test.go's
+          TestNoTargetJoinUnchangedUnderEvidence and
+          TestAbsenceSkipAndHollowConversionUnchanged are still green —
+          planning predicted they would be (they assert the noTarget "error",
+          which is preserved, and feed the hollow conversion an "error" input),
+          so a red there is NEW INFORMATION about an unintended side effect.
+          Report it, do not paper over it.
+
+          THEN STATE THE RED-PROOF EXPLICITLY, per test name, with the OBSERVED
+          pre-fix values — not "it was red", but the actual Severity string, the
+          actual step Status, and the actual GateResult.Pass. This lane's entire
+          claim is "a pack's declared warning used to block here"; without the
+          recorded before-state the acceptance tests are unfalsifiable. If any
+          test passed the first time it was run against unfixed code, STOP AND
+          REPORT: that means it is not reaching the defect.
+
+          Also run, and report which path executed:
+            go test ./cmd/backstop/ -run TestE2E_SubstantivenessWarningPack -v
+          If the ast-grep guard fired instead of the test body, say so plainly —
+          a guarded e2e that did not run has proven nothing, and the seam test is
+          then carrying CLM-002 alone.
+
+          (`backstop code check` does not exist. `go test` is the inner loop; the
+          gate runs in phase 4, against a FRESHLY BUILT ./bin/backstop.)
+        files:
+          - pkg/gate/substantiveness_join.go
+          - cmd/backstop/gate.go
+          - pkg/gate/substantiveness_severity_test.go
+          - cmd/backstop/gate_substantiveness_severity_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-006
+        depends_on:
+          - TASK-003
+          - TASK-004
+
+  - id: phase-3
+    name: "Phase 3: Retire the regression lock that pinned the defect"
+    tasks:
+      - id: TASK-006
+        type: refactor
+        title: "Retire both defect-locks: SITE 2's hollow assertion and PLAN-ISSUE-116's severity fence"
+        description: |
+          TWO FILES, TWO SHIPPED TESTS, ONE CATEGORY OF WORK: both assert the
+          pre-fix hardcoded "error" and both went red in TASK-005 exactly as
+          predicted. Neither is an accidental regression; each is retired
+          deliberately, and NEITHER TEST IS RENAMED.
+
+          THE ISSUE NAMES THE FIRST COUPLING EXPLICITLY and warns it is the thing
+          a bare test-suite pass would miss. Neither can be missed here because
+          TASK-005 already reported both red by name.
+
+          ═══ PART A — pkg/gate/substantiveness_hollow_violation_test.go ═══
+          Inside TestQ1_HollowFindingsToViolations_ForwardsSourceLine.
+
+          THIS IS A KNOWN, ANTICIPATED, INTENTIONAL CHANGE TO A DELIBERATELY
+          PLANTED FENCE. PLAN-ISSUE-116 (completed, prior lane) armed this
+          assertion specifically to catch ISSUE-106's severity change arriving —
+          its own TASK-002 calls it "what keeps the fix from quietly becoming
+          ISSUE-106's severity change", and the test's docstring says so inline.
+          It fired. Walking through it is the correct response; do not second-guess
+          the fix because a test that was built to notice it noticed it.
+
+          KEEP THE TEST NAME EXACTLY:
+          `TestQ1_HollowFindingsToViolations_ForwardsSourceLine`. It is
+          PLAN-ISSUE-116's own mandated test name and its traceability anchor —
+          renaming it strands that lane's citation and reads as a broken promise.
+          Keep the test's PURPOSE intact too: every Line assertion, and the Rule /
+          File / Message non-regression assertions, stay exactly as they are. Only
+          the SEVERITY assertion changes.
+
+          THE CHANGE. The loop currently ends with:
+
+              if v.Severity != "error" { … want "error" … }
+
+          All three of its input findings omit the Severity field entirely, so
+          after TASK-003 the forwarded value is the EMPTY STRING — verified by
+          reading both files at HEAD, 2026-08-17. Change the expectation to the
+          empty string, forwarded VERBATIM. Do not "fix" it by adding a Severity
+          to the three inputs: their severity-lessness is what makes this a
+          pass-through proof rather than a re-assertion of a constant.
+
+          Rewrite that assertion's failure message to say what it now guards: the
+          conversion FORWARDS each source finding's own severity, so a
+          severity-less finding stays severity-less, and the join fails CLOSED at
+          the verdict anyway because blocksVerdict treats anything that is not
+          "warning" as blocking.
+
+          Update the test's docstring, whose last sentence currently reads "The
+          non-Line fields are re-asserted because this fix must NOT become
+          ISSUE-106's severity change." That sentence is now historically true and
+          presently false, and it is the ONLY mention of ISSUE-106 anywhere in the
+          Go tree (`grep -rn "ISSUE-106" --include='*.go' pkg cmd` — one hit).
+          Replace it with a short record of what happened: the fence was planted by
+          ISSUE-116 to catch ISSUE-106's severity change, ISSUE-106 has now landed
+          deliberately, the severity expectation was updated with it, and the Line
+          forwarding this test exists for is unchanged. Point at
+          TestQ1_HollowFindingsToViolations_ForwardsPackDeclaredSeverity
+          (pkg/gate/substantiveness_severity_test.go) as the authority on the
+          forwarding behavior — a pointer, not a duplicate assertion.
+
+          A THIRD PROSE TARGET IN THE SAME FILE — the correction set is the failure
+          message, the docstring's last sentence, AND this. Three lines above the
+          assertion loop this task already edits (line 81 at HEAD; locate it by its
+          text, not its number, since the Line loop above it may shift):
+
+              // CLM-005 non-regression: Rule, File, Message and Severity are unchanged.
+
+          Severity is EXACTLY what this lane changes, so that line goes false the
+          moment the assertion beneath it is updated. Reword it to state what the
+          loop guards after the change: Rule, File and Message are unchanged, and
+          Severity is now FORWARDED from the source finding rather than overwritten
+          — which for these three severity-less inputs is the empty string. Keep
+          whatever claim-id prefix the line already carries; that is a traceability
+          anchor, not prose. Do NOT delete the line, and do NOT leave the old
+          wording standing over a patched assertion — a comment describing a
+          mechanism the file no longer contains is worse than no comment.
+
+          ═══ PART B — pkg/gate/step_verdict_severity_test.go ═══
+          Inside TestClass3Sites_ViolationsAreErrorSeverityByConstruction's SITE 2
+          block.
+
+          KEEP THE TEST NAME. It is cited by name in DIR-032, DIR-024 and
+          PLAN-ISSUE-105's test_names list; renaming strands three citations and
+          can read as a broken promise. The name also stays accurate — three
+          by-construction sites remain.
+
+          SITE 2 HAS TWO HALVES WITH DIFFERENT FATES. Do not delete the block
+          wholesale:
+            * KEEP the `NoTargetViolation(...).Severity == "error"` assertion. It
+              is now a ratified design decision (CLM-003), not an unexamined
+              hardcode. Extend its failure message to say so, so the next reader
+              understands it is deliberate rather than the same defect surviving.
+            * REMOVE the HollowFindingsToViolations warning-in/error-out
+              assertion AND the "SIBLING 1 ... Filed, not fixed here" comment
+              above it. That site is no longer by-construction — it is a
+              pass-through, so asserting it here would be asserting the defect.
+            * In its place leave ONE short comment recording the history and
+              pointing forward: the hollow conversion USED to overwrite the
+              pack's severity (ISSUE-106, hop 3 of the ISSUE-104/105 chain), it
+              now forwards it, and the forwarding is pinned by
+              TestQ1_HollowFindingsToViolations_ForwardsPackDeclaredSeverity in
+              pkg/gate/substantiveness_severity_test.go. A pointer, not a
+              duplicate assertion — there must be exactly one authority on that
+              behavior.
+
+          THE HEADER DOCSTRING IS ALSO WRONG AND MUST BE CORRECTED — and note the
+          irony, because getting this wrong would mint a fresh copy of the very
+          overclaim this lane exists to retire. The header currently opens:
+
+              "the regression lock for the three raw-count sites this lane
+               deliberately does NOT convert (CLM-007)"
+
+          That is a COLLECTIVE claim about all three sites, so editing only the
+          SITE 2 prose leaves it stale. Two independent problems with it:
+            * the count is already wrong at HEAD, before this lane changes
+              anything: SITE 3's consumer, pkg/gate/step_testverify.go:527, ALREADY
+              reads `Status: StepVerdict(violations)` — it is not a raw-count site
+              and has not been one since ISSUE-105;
+            * TASK-004 falsifies it for a SECOND member by converting the
+              substantiveness step, SITE 2's consumer, to StepVerdict.
+          Rewrite the header so it claims only what is true and load-bearing: these
+          are CONSTRUCTOR-LEVEL severity locks. Each of the three constructors
+          hardcodes "error", that invariant is breakable in one line, and the test
+          asserts it at the constructor so it cannot rot into a tautology. State
+          plainly that whether each site's CONSUMER still counts raw or now calls
+          StepVerdict has drifted and is not what this test tracks.
+          DO NOT SUBSTITUTE A NEW COUNT OF RAW-COUNT SITES. The number is not
+          load-bearing here and a fresh number is a fresh thing to go stale — this
+          lane's whole subject is a claim that outlived its truth. (For reference
+          only, measured 2026-08-17: pkg/gate/step_coverage.go, status_drift.go,
+          requirement_traceability.go and step_waiver.go still count raw. Do not
+          write "four" into the docstring either.)
+
+          Also update the test's own prose where it describes SITE 2, so it matches
+          what the body now does.
+
+          DO NOT REWRITE SITE 1. It is another lane's property, not merely out of
+          scope: PLAN-ISSUE-097 OWNS SITE 1 (waiverDiagToViolation) and fixes that
+          assertion itself as part of its own CLM-012 signature change; this lane
+          owns SITE 2. See the notes section "A SHARED TEST FILE, SPLIT BY SITE".
+          Before editing, read SITE 1 and note its state: whether or not 097 has
+          already landed and changed the call shape there, leave it exactly as
+          found. If SITE 1 is in a state neither plan describes, STOP AND REPORT
+          rather than repairing it or compensating for it in your own edit.
+
+          SITE 3 — ASSERTION UNTOUCHED, ITS PROSE CORRECTED. SITE 3 is NOT fenced
+          the way SITE 1 is, and the difference is ownership: SITE 1 has an owner
+          coming to fix it, SITE 3 has none. Its failure message currently ends
+
+              "…step_testverify.go's raw count depends on it"
+
+          which is false at HEAD for exactly the reason the header docstring is
+          false — pkg/gate/step_testverify.go reads `Status: StepVerdict(violations)`
+          and has since ISSUE-105. Leaving it would put a live falsehood three
+          statements away from the header rewrite that disclaims it, in a file this
+          task is already editing, in a lane whose whole subject is a claim that
+          outlived its truth.
+
+          So, precisely: leave SITE 3's fixture setup, its
+          StepTestVerificationScopedFunc call, and its `!= "error"` assertion exactly
+          as they are — the constructor-level guard is still live and still the
+          point. Rewrite ONLY the trailing clause of that assertion's failure
+          message so it states what is actually true: this site's violations are
+          error-severity by construction, that invariant is breakable in one line,
+          and the missing-mandated-test signal depends on it. Do NOT name a raw
+          count there, and do NOT substitute a new count — same reason the header
+          must not.
+
+          ═══ BOTH PARTS ═══
+          Verify no OTHER shipped test still locks the old behavior: grep for
+          `HollowFindingsToViolations` across *_test.go. Planning found THREE
+          touchpoints and each has a settled disposition:
+            * step_verdict_severity_test.go — PART B above;
+            * substantiveness_hollow_violation_test.go — PART A above;
+            * substantiveness_join_nonregression_test.go's
+              hollow_conversion_still_forwards_file_and_line, which feeds Severity
+              "error" and asserts nothing about severity. Error-in, error-out;
+              stays green, UNTOUCHED.
+          If a FOURTH lock exists that planning did not find, report it before
+          editing it.
+        files:
+          - pkg/gate/step_verdict_severity_test.go
+          - pkg/gate/substantiveness_hollow_violation_test.go
+        claims:
+          - CLM-005
+        depends_on:
+          - TASK-003
+        test_names:
+          - TestClass3Sites_ViolationsAreErrorSeverityByConstruction
+          - TestQ1_HollowFindingsToViolations_ForwardsSourceLine
+
+      - id: TASK-007
+        type: verification
+        title: "Both flipped locks are green and still falsifiable"
+        description: |
+          Reporting TRUE exit codes:
+            go test ./pkg/gate/ -run TestClass3Sites_ViolationsAreErrorSeverityByConstruction -v
+            go test ./pkg/gate/ -run TestQ1_HollowFindingsToViolations_ForwardsSourceLine -v
+            go test ./pkg/gate/... -race -count=1
+
+          All green. Confirm by name that BOTH retired locks now pass and that
+          neither was renamed — the two names above must still exist verbatim,
+          because DIR-032/DIR-024/PLAN-ISSUE-105 cite the first and PLAN-ISSUE-116
+          cites the second.
+
+          For TestQ1_HollowFindingsToViolations_ForwardsSourceLine specifically,
+          confirm it did not lose the thing it exists for: it must still assert the
+          three distinct Lines (12, 7, 0) positionally, and still assert Rule, File
+          and Message. If PART A removed more than the severity expectation, that
+          is a real coverage regression in PLAN-ISSUE-116's lane — report it rather
+          than accepting the green.
+
+          Then state, in the task report, what the flipped test would
+          now CATCH — a reader must be able to tell it is still a live guard and
+          not a weakened one. Specifically: SITE 1, the noTarget half of SITE 2,
+          and SITE 3 all still fail if their constructors stop hardcoding "error",
+          which is the invariant their raw-count call sites depend on.
+
+          A one-line sanity check that the assertion is not vacuous: confirm the
+          test file still references waiverDiagToViolation, NoTargetViolation and
+          StepTestVerificationScopedFunc. If the edit removed a site rather than
+          the one sub-assertion it was scoped to, that is a real regression in
+          coverage — report it rather than accepting the green.
+        files:
+          - pkg/gate/step_verdict_severity_test.go
+          - pkg/gate/substantiveness_hollow_violation_test.go
+        claims:
+          - CLM-005
+        depends_on:
+          - TASK-006
+
+  - id: phase-4
+    name: "Phase 4: Rebuild, full gate, and artifact validation"
+    tasks:
+      - id: TASK-008
+        type: verification
+        title: "Rebuild the binary, run the full gate and the full suite, validate both artifacts"
+        description: |
+          THE BINARY FIRST, or the gate is vacuous — this lane's whole subject is
+          a field carried inside that binary's own join, and a stale Homebrew
+          `backstop` on PATH would gate the OLD code and report a meaningless
+          green:
+            go build -o bin/backstop ./cmd/backstop/
+
+          Then, reporting TRUE exit codes and NEVER a bare `backstop`:
+            go test ./... -race -count=1
+            PATH=/Users/bmanson/go/bin:$PATH ./bin/backstop gate --all
+            ./bin/backstop artifact validate --plan PLAN-ISSUE-106
+            ./bin/backstop artifact validate --issue ISSUE-106
+
+          The full-suite run is not redundant with TASK-005: Violation.Severity is
+          read in more than one place, and a value that was previously always
+          "error" on this path can now be something else.
+
+          go-arch-lint must be on PATH or pack_engines silently no-ops and the
+          gate's green proves less than it appears to. If the PATH prefix does not
+          resolve it, say so rather than reporting the green as clean.
+
+          Covers both work categories: code (the gate over the changed Go files)
+          and artifacts (the plan and its source issue). For a per-file check use
+          a SINGLE invocation — `./bin/backstop gate --file
+          pkg/gate/substantiveness_join.go` — never two --file flags (ISSUE-093).
+
+          THE BLAST-RADIUS CONFIRMATION THE ISSUE DEMANDS. Planning MEASURED that
+          backstop-core's own dogfood radius is zero, because the shipped
+          hollow-test-go.yml declares no `severity:` key (ast-grep reports `hint`,
+          which the pack's converter maps to `error`). CONFIRM it, do not restate
+          it: compare the test_substantiveness step's status and violation count
+          from this gate run against the pre-change run. Every violation should
+          still be error-severity and the step's verdict should be unchanged.
+
+          IF ANY test_substantiveness VERDICT FLIPPED, that is the report, not a
+          footnote. Each flip must fit exactly one shape: "was severity-blind
+          overwriting a pack-declared warning finding, should never have blocked."
+          Anything that does not fit that sentence is a defect in this change —
+          surface it rather than accepting the green.
+
+          BASELINE IDENTITY IS PART OF THE BLAST RADIUS TOO — verdict and violation
+          count alone do not cover it. Severity DOES feed the identity hash on this
+          path; the mechanism (the empty-RegionHash fallback in
+          EnrichViolationIdentity, and the fact that this conversion never carries
+          RegionHash forward) is written out under CLM-006 in the notes. Read it
+          there before running this check.
+
+          The check itself is cheap because it rides the comparison above: confirm
+          every test_substantiveness violation in this run still carries severity
+          "error". An unchanged severity on an unchanged Message, with RegionHash and
+          SourcePack still empty on both sides, means a byte-identical hashed tuple
+          and therefore an unchanged IdentityHash — that equality IS the identity
+          check, and it is what makes "no baselined substantiveness finding
+          resurfaces as NEW" true here rather than merely hoped for.
+
+          A forwarded severity that is NOT "error" is a reportable finding for this
+          lane even when the verdict is unaffected: it means a pack declared one,
+          the identity moved with it, and a baselined finding will resurface. Report
+          it with the rule and file that produced it; do not fold it into the
+          verdict comparison and do not treat an unchanged verdict as clearing it.
+
+          Do NOT promote this plan's status or close ISSUE-106 from this task.
+          Close-out and status promotion are not this lane's to take.
+        files:
+          - pkg/gate/substantiveness_join.go
+          - cmd/backstop/gate.go
+          - pkg/gate/substantiveness_severity_test.go
+          - cmd/backstop/gate_substantiveness_severity_test.go
+          - pkg/gate/step_verdict_severity_test.go
+          - pkg/gate/substantiveness_hollow_violation_test.go
+          - plans/PLAN-ISSUE-106-substantiveness-join-discards-severity.plan.yml
+          - issues/ISSUE-106-substantiveness-join-discards-pack-severity.issue.md
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-003
+          - TASK-004
+          - TASK-005
+          - TASK-006
+          - TASK-007
