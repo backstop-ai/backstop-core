@@ -2,13 +2,213 @@
 plan_id: PLAN-ISSUE-067
 spec_id: ISSUE-067
 created: "2026-08-16"
-status: draft
+status: completed
 target_repo: backstop-core
 target_module: github.com/backstop-ai/backstop-core
 test_command: "go test ./cmd/backstop/... -run \"TestIssue067|TestFindingsEngine_|TestFixtureRunner_Producer\" -race"
 coverage_threshold: 90
 
 notes: |
+  ══ AS-BUILT — CLOSED 2026-08-16. ALL 13 TASKS DELIVERED. ═══════════════════
+
+  Everything below this banner is the plan AS AUTHORED (17fac05, after 4 review
+  rounds) and is left untouched as the historical record. This banner is the
+  layer over it: what actually shipped, where the as-built diverged, and what
+  was re-verified at close versus carried from the implementer's reports.
+
+  ── PROVENANCE: READ THIS BEFORE `git show`-ING ANY ONE COMMIT ──────────────
+
+  This lane's diff is spread over THREE commits, NONE of which is a clean
+  one-to-one record of it. A reader who opens any single one will mis-attribute.
+
+    f97b3c6  "fix(ISSUE-091): land the dispatch collapse"
+             Titled for a DIFFERENT issue. It is an honest combined commit —
+             its own message enumerates the three plans it carries — but the
+             SUBJECT LINE names only ISSUE-091. ISSUE-067 OWNS EXACTLY TWO OF
+             ITS THREE FILES:
+               * cmd/backstop/pack_gate.go       — THE CORE FIX (the producer
+                 swap in runFindingsEngine). Shared file: the same 182-line
+                 diff also carries PLAN-ISSUE-140's runNeverStarted deletion
+                 and PLAN-ISSUE-091's collapsed dispatch branch.
+               * cmd/backstop/filemode_scoping_test.go — this lane re-grounded
+                 the command selector onto the producer path (TASK-007);
+                 ISSUE-091 contributed comments to the same file.
+             NOT OURS: cmd/backstop/gate.go is entirely ISSUE-091's.
+
+    97ed4d0  "fix: land pack_gate_gotoolchain_test.go — HEAD failed to build"
+             An EMERGENCY BUILD FIX, not a planned step. f97b3c6 had committed
+             filemode_scoping_test.go's CALL to producerCommandAlias() without
+             the file DEFINING it, leaving cmd/backstop uncompilable at HEAD.
+             Carries this lane's TASK-007 harness alias (+90 lines).
+
+    953aa57  "fix(ISSUE-067): land the pack-data half — HEAD was red without it"
+             The only commit titled for this issue, and it is a CORRECTION of
+             97ed4d0's own partial landing: the alias pin test had shipped
+             without the pack.yml producer declarations it pins. Carries the
+             whole remaining lane — pack data, both mandated test files, the
+             lock/yml 1.6.0 pin, and the codebase-map paragraph.
+
+    THE PARTIAL-COMMIT SEQUENCE IS NOT A DEFECT IN THE WORK — IT IS THE
+    TRIPWIRE WORKING. TestFixtureRunner_ProducerAliasCoversEveryDeclaredProducer
+    (TASK-007's pin) fired correctly the moment the pack.yml declarations were
+    briefly absent from HEAD without it, which is precisely the drift it was
+    written to catch. It caught a real mistake in its own lane's landing.
+
+  ── WHAT LANDED, BY PHASE ──────────────────────────────────────────────────
+
+    Phase 1 (TASK-001) — 5 fixtures CAPTURED from real `go test` / `go build`
+      output, never fabricated: go-test-build-failure.txt,
+      go-test-build-failure-stdout-only.txt, go-test-vet-failure.txt,
+      go-test-hostile-stderr.txt, go-build-stderr-capture.txt.   [953aa57]
+
+    Phase 2 (TASK-002/003/004) — runFindingsEngine honors binding.Producer.
+      The producer is resolved under packRoot, os.Stat'd, and invoked via the
+      runner IN PLACE of the tool splitCommand would otherwise select. IT
+      REPLACES ONLY THE INVOKED NAME: every line computing cmdArgs is untouched,
+      so diff scoping, ISSUE-010's anti-fallback, excludeTestdataPaths,
+      fileModeTestTarget and ProjectTarget all survive the swap unchanged. A
+      missing-or-directory producer is a fail-loud broken-pack error raised
+      BEFORE the runner is reached. This is deliberately asymmetric with
+      runCoverageEngine's BARE producer invocation, and the code comment at
+      pack_gate.go:699 says why.                                  [f97b3c6]
+
+    Phase 3 (TASK-005/006/007/008) — fixture pack data + harness re-grounding.
+      pack.yml declares producer: on the go-test and go-build bindings
+      (go-coverage already had one); new scripts/test-produce.sh and
+      scripts/build-produce.sh, both mode 100755, both bodied `go "$@" 2>&1`;
+      test-to-sarif.sh widened with a STICKY `#`-header discriminator plus a
+      `[build failed]` floor. build-to-sarif.sh deliberately UNTOUCHED (last
+      modified fc5ce4b, confirmed at close). Harness gained
+      producerCommandAlias() + its pin test.            [97ed4d0 + 953aa57]
+
+    Phase 4 (TASK-009/010/011) — REAL external pack release. backstop-ai/
+      go-toolchain v1.6.0, tag 053322d951e099819f9f1d55e04db7cad33ebff6,
+      adopted via `pack update`.                                  [953aa57]
+
+    Phase 5 (TASK-012/013) — full verification (below) and the producer-seam
+      paragraph in docs/CODEBASE-MAP.md.                          [953aa57]
+
+  ── EVIDENCE AT CLOSE ──────────────────────────────────────────────────────
+
+  RE-VERIFIED INDEPENDENTLY AT CLOSE-OUT (2026-08-16, detached worktree at
+  953aa57, so no race with the other lanes live in the shared tree):
+
+    * The core fix IS at HEAD. `git show HEAD:cmd/backstop/pack_gate.go`
+      carries the binding.Producer branch in runFindingsEngine — checked
+      because the fix landed in a commit titled for ISSUE-091 and is exactly
+      the kind of thing a partial landing drops.
+    * Working tree CLEAN against HEAD for every file this lane owns.
+    * ALL 18 MANDATED TESTS PASS, ZERO SKIPS, no data races: 12 TestIssue067_*
+      + 6 TestFindingsEngine_* + TestFixtureRunner_ProducerAliasCovers-
+      EveryDeclaredProducer, run with -race -count=1 -v so a silently-skipped
+      subtest could not hide.
+    * THE CORPUS DID NOT GO QUIET. Full `go test ./cmd/backstop/...` at HEAD:
+      every one of the ten at-risk harness files the SHARP EDGES section below
+      enumerates passes — the producer swap broke no fixture lookup.
+    * THE 19 FAILING TESTS AT HEAD ARE PRE-EXISTING, PROVEN NOT ASSERTED. A
+      control run of the identical -run set at 6f16e00 (the commit BEFORE
+      f97b3c6, i.e. before any producer code existed) produced a
+      BYTE-IDENTICAL failure set: the packval/substantiveness family, the
+      TestRatchet_*UnGrandfatheredAfterDeGo trio, TestPackNew_Scaffold-
+      PassesCheckAndTest and TestPackAuthoringLoop_EndToEnd. None is in this
+      lane's file scope. Zero ISSUE-067-related failures at either revision.
+    * PACK RELEASE IS REAL AND REACHABLE. v1.6.0 resolves to
+      053322d951e099819f9f1d55e04db7cad33ebff6; `git merge-base --is-ancestor
+      v1.6.0 main` passes; the tag is on the REMOTE (git ls-remote confirms
+      the same SHA); the pack's own pack.yml declares version "1.6.0", so the
+      SPEC-056 identity gate's manifest-version-equals-tag check passes.
+    * backstop.lock records content_hash 85b718c31cc43f2b524849687d3d8650
+      a56f11b746a0331836931c1d313aaa9f at git_ref v1.6.0, source_type git;
+      backstop.yml pins backstop-ai/go-toolchain: 1.6.0.
+
+  CARRIED FROM THE IMPLEMENTER'S REPORTS, NOT RE-RUN AT CLOSE (each is a
+  historical or destructive measurement that cannot be re-taken from a
+  delivered tree — recorded as carried rather than dressed up as re-verified):
+
+    * The RED-phase falsification, which reproduced ISSUE-067's symptom
+      verbatim before any fix existed — `pack backstop/go-toolchain engine
+      "go test" crashed: non-zero exit with no parseable findings: exit
+      status 1` — with 10 of 12 TestIssue067_* and 5 of 6 TestFindingsEngine_*
+      failing.
+    * The targeted mutation runs (non-sticky header; tab-vs-space byte shape;
+      disabled harness alias), each of which isolated exactly the test(s)
+      written to catch it.
+    * The control-vs-treatment end-to-end proof through the real CLI on a
+      scratch module: a go-test compile break (3 undefined symbols, one
+      sticky header) and a go-build compile break (2 type errors) both
+      located and converted WITH the fix, both opaque WITHOUT it.
+    * The content-hash reproducibility reading — that the git-tag install and
+      an earlier local-path install independently computed the same hash,
+      which is the property SPEC-055's scratch-copy design exists to
+      guarantee. The lock value above is what is verifiable from the tree.
+
+  GATE READING AT CLOSE — RE-RUN INDEPENDENTLY, NOT CARRIED. A full
+  `backstop gate --all` was executed at 953aa57 in the close-out worktree
+  (`.backstop/packs` copied in, since it is gitignored and absent from a fresh
+  checkout, and `go-arch-lint` — an assume-present Layer-0 tool backstop never
+  auto-provisions — put on PATH from ~/go/bin). It is a REAL reading, not a
+  degraded one: pack_engines executed for 370s and produced 152 violations, so
+  the findings engines genuinely ran rather than reporting capability-absent.
+
+    Repo-wide result: 385 violations, 4 steps pass / 6 fail / 2 skipped.
+    ATTRIBUTABLE TO THIS LANE'S FILES: TWO, BOTH PRE-EXISTING AND UNRELATED.
+
+    The complete set of findings naming any file this lane touched:
+      * [contract_signature] symbol `go-coverage-rule` signature mismatched in
+        the fixture pack's pack.yml
+      * [contract_signature] symbol `coverage-to-records` signature mismatched
+        in scripts/coverage-to-records.sh
+
+    Both are the known contract_signature PROSE-SIGNATURE false positive that
+    is already tracked separately, and both are about the go-COVERAGE binding —
+    which this lane did not touch. Proof rather than assertion: 953aa57's
+    pack.yml diff is exactly two hunks, adding `producer:` to go-build and to
+    go-test and nothing else; the go-coverage binding is untouched, and
+    coverage-to-records.sh was last modified 2026-07-27, before this lane
+    existed.
+
+    ON THE `error-wrapping-required` QUESTION SPECIFICALLY: 40 such findings
+    exist repo-wide, and ZERO of them name any file in this lane's scope.
+    THIS LANE HAS NO error-wrapping RESIDUAL OF ITS OWN. (The residual of that
+    class belongs to PLAN-ISSUE-134 and must not be conflated with this one.)
+
+    NOT A GREEN GATE, AND NOT CLAIMED AS ONE. The repo-wide gate is RED at
+    this revision for reasons that predate and are independent of this lane —
+    pack_engines, test_verification, test_substantiveness, coverage_threshold,
+    contract_signature and artifact_status_drift all fail. This close-out
+    asserts only the narrower, verifiable thing: none of it is attributable
+    to ISSUE-067.
+
+  ── AS-BUILT DELTAS: WHERE THE PLAN WAS WRONG ──────────────────────────────
+
+  Four deviations from the plan's predictions, all surfaced by the implementer
+  rather than papered over, and all confirmed sound in review:
+
+    1. TWO TESTS CORRECTLY PASSED PRE-FIX. The plan predicted a fully red
+       TDD phase. A no-regression guard and a no-over-fire discriminator had
+       nothing to be red against — they assert that behavior does NOT change
+       and that the widened converter does NOT manufacture findings from
+       diagnostic-shaped test output. A test of that shape passing before the
+       fix is correct, not a weak test.
+    2. ONE TEST WAS STRENGTHENED BEYOND THE PLAN. An assertion on the
+       producer DECLARATION was added, converting a check that would have
+       passed against a fixture artifact regardless into one about production
+       reality.
+    3. ONE NEVER-STARTED SENTINEL and ONE RESIDUAL-TOKEN ASSERTION were
+       corrected as genuine bugs IN THE TEST, not in the implementation.
+    4. producerCommandAlias IS A FUNCTION RETURNING A FRESH MAP, not the
+       package-level var the plan's prose implies. Changed mid-implementation
+       to clear a real `no-global-mutable-state` finding; `git show HEAD:` on
+       the pre-existing file confirmed it had zero package-level vars, so the
+       function form preserves that property rather than inventing a rule.
+
+  ── CLOSING MECHANICS ──────────────────────────────────────────────────────
+
+  This close-out edit is UNCOMMITTED as written. It must land in the SAME
+  commit as ISSUE-067's own close, or HEAD carries a closed issue pointing at
+  a draft plan. Other lanes are live in this tree — stage the single plan path,
+  never a broad `git add`.
+
   ══ THE ISSUE'S PREMISE IS STALE. RE-DIAGNOSED AT HEAD, 2026-08-16. ══════════
 
   ISSUE-067 was filed 2026-07-17 and says the root cause is:
