@@ -115,6 +115,94 @@ not an isolated fixture bug but something systemic to how the pack's grep-based 
 under Linux CI — but that suggestion is exactly what needs to be confirmed by investigation, not
 assumed by this filing.
 
+## Root cause confirmed (2026-08-18)
+
+The root cause is now definitively confirmed via a real, fast, targeted GitHub Actions run on
+Linux — not guessed, not inferred from logs. A live diagnostic test was pushed to a throwaway
+branch and run directly on `ubuntu-latest`.
+
+### The bug
+
+`pkg/gate/testdata/traceability-pack/grep/to-sarif.sh` and `packs/contracts/grep/to-sarif.sh` are
+BYTE-IDENTICAL files (confirmed via `diff`, exit 0 — no difference at all), both containing an
+awk script that converts raw `grep -rn -e <pattern> <target>` output into SARIF. The awk script
+assumes every grep match line has the 3-field shape `file:line:text` (`NF -F: ... NF >= 3 {
+file=$1; line=$2; text=$0; sub(...) ... }`) and silently DROPS any line with fewer than 3
+colon-separated fields via that `NF >= 3` guard — no error, no warning, the line simply never
+becomes a SARIF result.
+
+### Why this only breaks on Linux
+
+GNU grep (what CI's `ubuntu-latest` runners use) OMITS the filename prefix from its output when
+given exactly ONE explicit file as a target (as opposed to a directory or multiple files) —
+producing bare `line:text` (2 fields) instead of `file:line:text` (3 fields). BSD grep (macOS,
+what every bit of local testing in this repo has used, tonight and presumably always) evidently
+DOES include the filename even for a single-file target, which is why this defect has been
+invisible on every local run and only surfaced once real Linux CI actually exercised this code
+path for the first time (tracing back through tonight's cascade: the `ISSUE-163` fix let CI run
+far enough to reach this test for the first time ever).
+
+### Direct evidence, captured from a real Linux CI run
+
+A throwaway diagnostic was pushed to branch `debug/issue166-contracts-grep-repro` (PR #3, now
+closed without merging, branch deleted). `grep -rn -e "legacyProbeSymbol" <single-file-path>` on
+Linux produced this exact raw stdout:
+
+```
+6:// "legacyProbeSymbol" appears here (even in a comment-adjacent identifier), the
+8:func legacyProbeSymbol() string { return "should have been deleted" }
+```
+
+No filename prefix, just `<line>:<text>` — confirming grep itself works CORRECTLY and finds the
+real matches (2 of them, exactly as expected), but the awk conversion script's `NF >= 3` guard
+treats each of these 2-field lines as unparseable and drops them, so the SARIF output has ZERO
+results despite grep having found genuine matches. This is a **silent false negative** in a
+security/compliance-relevant absence-probe rule — the whole point of `contract-absence` is to
+BLOCK when a forbidden symbol is present, and on Linux, for any single-file-scoped scan, it
+silently finds nothing regardless of what's actually there.
+
+### Blast radius, now precisely explainable
+
+Every one of the roughly 30 failing tests documented in this issue's original symptom list
+traces to this ONE mechanism — this supersedes the earlier "pattern observed, mechanism not
+traced" framing (which was correct and appropriately cautious at the time, but is now resolved).
+
+The `TestContractsPack_PatternArgFixturesDispatchAndDiscriminate` semgrep-labeled failure in the
+original symptom list is a red herring for THIS issue specifically: `phase3.go`'s
+"semgrep-negative"/"semgrep-positive" check-name strings are hardcoded literals used for EVERY
+findings-engine dispatch regardless of actual engine (confirmed earlier tonight by reading
+`pkg/packval/phase3.go` directly), so that failure's label doesn't actually indicate semgrep
+involvement — it may or may not share this same grep root cause. Leave that specific one as still
+worth double-checking rather than asserting it's covered, since it wasn't part of tonight's direct
+reproduction.
+
+### The fix (shape only — not this issue's job to implement)
+
+The awk script needs to handle BOTH grep output shapes correctly, via one or both of:
+
+- Always forcing grep to include the filename (e.g. passing `-H` to the grep invocation wherever
+  it's dispatched) — arguably the more robust fix since it fixes the INPUT shape rather than
+  working around it; and/or
+- Making the awk parsing logic robust to both `file:line:text` and `line:text` shapes rather than
+  assuming one universally.
+
+Both `pkg/gate/testdata/traceability-pack/grep/to-sarif.sh` (the testdata fixture script) and
+`packs/contracts/grep/to-sarif.sh` (the real production pack script) need the same fix since
+they're currently byte-identical. Open design question for the plan: should these two files be
+kept manually byte-identical as a convention (and if so, is there a way to make that structural
+rather than a hope), or should the fix instead go through wherever grep gets INVOKED (i.e. add
+`-H` to the dispatch call sites) so the conversion script itself never needs the awk robustness
+fix at all — both are legitimate approaches and the plan should decide, not this issue.
+
+### Why static analysis alone didn't find this
+
+This issue's original filing ruled out the grep pattern, ruled out fixture content, ruled out
+sandbox involvement, and ruled out a semgrep-crash-class explanation (via the hardcoded-label
+finding) — all correctly, but none of that reached the actual mechanism. It took a real Linux
+reproduction, run directly on `ubuntu-latest` with a live diagnostic test, to observe GNU grep's
+single-file filename-omission behavior directly; this was not visible from reading the scripts or
+CI logs alone.
+
 ## References
 
 - CI run `32108003542`, `gate-report.json` (`git_sha: 970512b`), `pack_engines` step — the
