@@ -27,6 +27,13 @@ directive:
     - "ISSUE-158"
     - "ISSUE-131"
     - "ISSUE-163"
+    - "ISSUE-165"
+    - "ISSUE-166"
+    - "ISSUE-168"
+    - "ISSUE-170"
+    - "ISSUE-169"
+    - "ISSUE-175"
+    - "ISSUE-177"
 ---
 
 ## Description
@@ -40,7 +47,41 @@ grant, as item 3's (ISSUE-082) own plan-mandated residual — not a new
 theme, and not by any founder roster call. It grew again to TWENTY the
 same day with item 20 (ISSUE-163), likewise slotted by backlog-pm under
 the standing clear-fit grant as item 1's (ISSUE-020) own delivery
-residual — not a new theme, not a founder roster call.
+residual — not a new theme, not a founder roster call. It grew again to
+TWENTY-ONE on 2026-08-18 with item 21 (ISSUE-165), likewise slotted by
+backlog-pm under the standing clear-fit grant as item 1's (ISSUE-020)
+SECOND delivery residual — the guard test PLAN-ISSUE-020 itself
+authored — not a new theme, not a founder roster call. It grew again to
+TWENTY-TWO the same day with item 22 (ISSUE-166), likewise slotted by
+backlog-pm under the standing clear-fit grant as another Linux-CI-
+viability residual of item 1 (ISSUE-020) — surfaced by the same v0.2.0
+release investigation that produced items 18 (ISSUE-158) and 20
+(ISSUE-163) — not a new theme, not a founder roster call. It grew again
+to TWENTY-THREE the same day with item 23 (ISSUE-168), likewise slotted
+by backlog-pm under the standing clear-fit grant as a fourth Linux-CI-
+viability residual of item 1 (ISSUE-020) — surfaced by the same v0.2.0
+release investigation that produced items 18 (ISSUE-158), 20 (ISSUE-163)
+and 22 (ISSUE-166) — not a new theme, not a founder roster call. It grew
+again to TWENTY-FOUR on 2026-08-18 with item 24 (ISSUE-170), slotted by
+backlog-pm under the standing clear-fit grant as a SECOND-ORDER residual —
+item 21's (ISSUE-165) own delivery residual, which makes it item 1's
+(ISSUE-020) grand-residual, since ISSUE-165 was itself item 1's residual —
+not a new theme, not a founder roster call. It grew again to TWENTY-FIVE
+the same day with item 25 (ISSUE-169), slotted by backlog-pm under the
+standing clear-fit grant as the DELIVERY RESIDUAL OF ITEM 21 (ISSUE-165) —
+mandated by that item's own plan, `PLAN-ISSUE-165` TASK-005 step (5), which
+explicitly refuses to absorb it — not a new theme, not a founder roster
+call. It grew again to TWENTY-SIX on 2026-08-18 with item 26 (ISSUE-175),
+slotted by backlog-pm under the standing clear-fit grant as the DELIVERY
+RESIDUAL OF ITEM 22 (ISSUE-166) — mandated by that item's own plan,
+`PLAN-ISSUE-166`, whose TASK-004/TASK-010 text explicitly refuses to absorb
+it — not a new theme, not a founder roster call. It grew again to
+TWENTY-SEVEN the same day with item 27 (ISSUE-177), slotted by backlog-pm
+under the standing clear-fit grant as ANOTHER RESIDUAL OF ITEM 22
+(ISSUE-166) — that same fix's own affected-test list names the test but
+`PLAN-ISSUE-166`'s fix does not clear it, and the asymmetry between it and
+its cleared siblings is exactly what the issue exists to investigate — not
+a new theme, not a founder roster call.
 
 1. **Cross-platform sandbox — Linux is a hard no-op (ISSUE-020).**
    `pkg/packval/sandbox.go`'s `SandboxedRun` / `SandboxedRunStdout` dispatch
@@ -1023,6 +1064,650 @@ residual — not a new theme, not a founder roster call.
     17/ISSUE-147 and this one), and that a BACKLOG.yml `PROPOSAL`/
     sequencing question for Brandon is recorded in `.backstop/pm/
     INBOX.md` — this file makes no position claim.
+21. **A `//go:build linux` AST wiring-guard test asserts a property its own
+    production code cannot satisfy, so Linux CI reds on correctly-wired
+    sandbox dispatch (ISSUE-165).**
+    Mechanism, verified in tree:
+    `TestSandboxLinux_ProductionPathUsesTheRealABIProbe`
+    (`pkg/packval/sandbox_linux_errors_test.go:146`, `//go:build linux`)
+    parses `sandbox_linux.go` with `go/parser` and walks every
+    `*ast.CallExpr` whose `Fun` is one of three tracked identifiers —
+    `linuxSandboxedRunWith`, `linuxSandboxedRunStdoutWith`,
+    `newSandboxHelperCommand` — asserting at each that the LAST argument is
+    literally the bare identifier `probeLandlockABI`. Four call sites: the
+    two OUTER hops, `sandbox_linux.go:214` (`platformSandboxedRun` →
+    `linuxSandboxedRunWith(..., probeLandlockABI)`) and `:240`
+    (`platformSandboxedRunStdout` → `linuxSandboxedRunStdoutWith(...,
+    probeLandlockABI)`), pass; the two INNER hops, `:221` and `:246` (both
+    inner functions → `newSandboxHelperCommand(..., probeABI)`), forward the
+    enclosing function's OWN PARAMETER, named `probeABI` (declared at `:220`
+    and `:245`), and can therefore never match the literal. The guard's
+    inner-hop assertion is UNSATISFIABLE BY CONSTRUCTION, not merely
+    unsatisfied today.
+    Correction to the issue's own text, stated so a planner is not
+    surprised: ISSUE-165 quotes a single failure message (the `:221` site).
+    The guard uses `t.Errorf`, not `t.Fatalf`, on that branch — so it emits
+    TWO errors per run, `:221` and `:246`. Both must be addressed; a fix
+    validated against one message alone is incomplete.
+    Why the parameter exists and must not simply be deleted:
+    `linuxSandboxedRunWith`'s own doc comment (`:216-218`) states it is
+    "`platformSandboxedRun`'s body with the ABI prober injected, which is
+    what makes the refusal wrap below reachable: on a healthy host the real
+    probe always succeeds, so without this seam the wrap could never
+    execute." `TestLinuxSandboxedRunWith_WrapsThePrepareFailure` drives it
+    with a fake prober. The seam is deliberate and load-bearing for coverage
+    of an otherwise-unreachable error path.
+    THE SHARPEST THING A PLANNER NEEDS, and it is not in the issue file:
+    ISSUE-165 offers as fix option (a) "rename the parameter to literally
+    `probeLandlockABI` so it happens to satisfy the naive check." That
+    option makes the test GREEN WITHOUT MAKING IT TRUE — the parameter would
+    shadow the package-level function inside both bodies, and the inner-hop
+    assertion would then pass for ANY caller-supplied prober including a
+    fake, because it is asserting a declaration's spelling rather than a
+    value's provenance. That is a vacuous green, and it retires the exact
+    divergence the guard's own header says it exists to catch ("a seam that
+    a test can fill is a seam PRODUCTION can be left holding the wrong thing
+    in"). Per the founder's standing never-hack-the-gate-green law, option
+    (a) must not be taken without an explicit founder ruling; option (b) —
+    trace parameter provenance from the outermost production call, or
+    restrict the tracked-identifier set to the two dispatch delegations and
+    assert the inner hop by a different means — is the shape that preserves
+    the guard's meaning. The plan must state its choice and say what the
+    guard still falsifies afterward.
+    Second structural hazard in the same test, found by backlog-pm and in
+    neither the issue nor the plan corpus: the test closes with `if
+    callSites != 4 { t.Fatalf(...) }` — an exact-count assertion whose own
+    comment says it exists "so the guard cannot pass vacuously after a
+    rename or a deletion." Any fix that changes which identifiers are
+    tracked, or that adds/removes a delegation, must update that literal 4
+    deliberately and in the same change; leaving it stale converts this from
+    a false-positive red into a DIFFERENT false red.
+    Why DIR-024 and not DIR-032/DIR-033 — apply this file's own
+    repeatedly-drawn test, now for the eighth time (ISSUE-096, ISSUE-115,
+    ISSUE-125, ISSUE-137, ISSUE-141, ISSUE-135, ISSUE-145, ISSUE-147,
+    ISSUE-158, ISSUE-163): Linux CI goes loudly RED. Nothing reports a
+    verdict it did not earn — DIR-032's charter sentence is "a gate step
+    computes a result internally but reports the WRONG VERDICT about it,"
+    and here the wrongness is a FALSE POSITIVE with a misleading legible
+    name ("The sandbox would negotiate its ABI through something other than
+    the kernel"), on a production path that is in fact correctly wired. Same
+    "loud red, wrong or missing legible name" shape as items 15/16/17/18/20.
+    DIR-032 is `done` in any case. DIR-033 "Gate Verdict Honesty Residual
+    Tail" homes follow-ons FILED BY DIR-032 MEMBER PLANS; this came out of
+    the v0.2.0 Linux-CI release investigation, the same lineage as item 18
+    (ISSUE-158) and item 20 (ISSUE-163), both already here. Affirmative
+    precedent, not mere elimination: this is item 1's (ISSUE-020, the Linux
+    sandbox) own DELIVERY RESIDUAL — PLAN-ISSUE-020 is the lane that
+    AUTHORED this guard test (its own text at line 353 and 1706 calls for
+    "an AST WIRING GUARD") — the identical shape item 19 (ISSUE-131) has to
+    item 3 and item 20 (ISSUE-163) has to item 1, a shape this directive's
+    own text already calls "a clear fit, not a founder roster call."
+    Exposure and blast radius, stated honestly: impact is CI-signal only.
+    The production dispatch chain does pass the real `probeLandlockABI` at
+    runtime — verified by reading `:214` and `:240` directly, not by
+    trusting the test. Both files are `//go:build linux` and have never
+    compiled on the darwin machine this suite is normally authored on, which
+    is why this survived undetected; ISSUE-163's `TestMain` fix (`970512b`)
+    only EXPOSED it by letting Linux CI reach the test. The cost of leaving
+    it is that it trains whoever triages Linux CI to distrust or waive a
+    sandbox security guard.
+    **Stale-fact correction (backlog-pm, 2026-08-18, superseding this
+    item's file/tag claims above, not rewriting them):** the guard
+    described above as `TestSandboxLinux_ProductionPathUsesTheRealABIProbe`
+    in `pkg/packval/sandbox_linux_errors_test.go` under `//go:build linux`,
+    with Linux CI as its only falsifier, has since MOVED. ISSUE-165's own
+    fix (commit `8d35706`, "move the ABI-probe wiring guard to an untagged
+    file, rewrite it seam-aware") relocated it to
+    `pkg/packval/sandbox_wiring_guard_test.go`, which carries NO build tag
+    and no `_linux` filename component — deliberately, per a 12-line header
+    comment there explaining that the guard parses `sandbox_linux.go` as
+    text rather than executing Linux-only code, "so it can, and must, run
+    on every platform." Verified in tree 2026-08-18. This item's mechanism
+    description, its evidence, and its DIR-024-not-DIR-032/DIR-033 charter
+    reasoning all still stand; only the file identity and the darwin-
+    invisibility claim are superseded. Consequence recorded for item 24
+    below: unlike this item, item 24's guard is untagged and darwin-
+    visible, so its planner must not carry over this item's Linux-CI-only
+    falsifier ceiling.
+22. **`packs/contracts` cannot pass its own `pack add`/`pack test`
+    phase3-fixtures self-validation on Linux CI, and its grep-based
+    absence probes report zero matches for symbols that are demonstrably
+    present (ISSUE-166).** Observed on CI run `32108003542` at commit
+    `970512b` — item 20's (ISSUE-163) own `TestMain` fix, which is what
+    first let the suite run far enough on GitHub's Linux runner for this
+    cluster to surface. Evidence is the downloaded `gate-report.json`
+    (`pack_engines` step), read directly by the issue's author;
+    backlog-pm did NOT re-measure the CI run.
+    TWO SYMPTOM CLUSTERS. (a) Roughly a dozen tests fail identically at
+    `pack add <repo>/packs/contracts: ... pack test ... failed: pack
+    validation (test) of the validation copy failed in phase3-fixtures:
+    14 validation error(s)` — including
+    `TestE2E_ContractsInstalledLocalPack_RealGate_MissingSignatureRed`,
+    `TestE2E_ContractsUninstalled_NoVacuousGreen`,
+    `TestE2E_ContractsRealAstGrepAndGrep_AndSandboxedConvert`,
+    `TestNoVacuousGreen_MissingSignatureBlocks`,
+    `TestDogfood_BackstopOwnContractSignatureTurnsGreen`,
+    `TestInstallContractsLocalPack_InstallsWithSuppliedCommand`. (b) A
+    more specific cluster shaped like a grep absence probe finding
+    nothing: `TestContract_AbsencePresentSymbolGrepMatchViolation` ("a
+    present forbidden symbol must produce a grep match (absence
+    VIOLATION), got 0"),
+    `TestContract_AbsenceUsesGrepTextPresenceNotAstGrep` ("got 0
+    matches"), `TestEngine_GrepConvertScriptEmitsValidSarif`,
+    `TestEquivalence_GoAbsencePresentAndAbsentMatchLegacy` ("pack verdict
+    (false) != analyzer verdict (true) — equivalence broken"), and
+    `TestContractsPack_PatternArgFixturesDispatchAndDiscriminate/the_fixtures_discriminate_through_the_real_engine`
+    ("phase3 error: check=semgrep-negative rule=contract-absence
+    claim=contract-absence-go message= negative fixture not
+    triggered").
+    THE MECHANISM IS NOT TRACED, and the issue says so emphatically — do
+    not let a planner read a cause into it. Candidates the issue lists
+    as explicitly NOT investigated and NOT ruled in: BSD-vs-GNU grep
+    behavior, a cross-platform path-resolution difference, something in
+    how the sandboxed convert step is invoked on Linux, or something
+    else. Ruled OUT by direct inspection: this is not the `/dev/null`
+    sandbox-write defect — `packs/contracts/ast-grep/to-sarif.sh` and
+    `packs/contracts/grep/to-sarif.sh` contain no `/dev/null` redirects,
+    and the `/dev/null` failures on the same CI run are the separate
+    `ISSUE-168`.
+    A CO-LOCATION FACT BACKLOG-PM VERIFIED IN TREE (2026-08-18), offered
+    as an investigation lead and NOT as a cause: cluster (b)'s failing
+    tests live in `pkg/pack/engine` (`contracts_grep_engine_test.go`,
+    `contracts_go_rules_test.go`), `pkg/pack/distribution`
+    (`contracts_local_install_test.go`) and `pkg/gate`
+    (`contract_equivalence_test.go`, `contract_pack_paths_test.go`) —
+    and NONE of those three packages declares a `func TestMain`.
+    `pkg/pack/engine` and `pkg/pack/distribution` are precisely the two
+    packages `ISSUE-164` ("Packval Importing Packages Missing TestMain
+    Guard", `type: question`, open, filed by item 20's own lane at
+    commit `8b3b3d8`) names as invisible to item 20's guard and to its
+    regression pin
+    `TestSandboxHelperGate_PresentInEveryPackvalReachingTestMain`.
+    ISSUE-164 states its central question is UNMEASURED — whether any
+    test in those packages actually drives real sandboxed dispatch on
+    Linux. This item is candidate evidence bearing on that question, and
+    whoever investigates either one should read the other first. Two
+    honest limits on the lead: `cmd/backstop` also appears in cluster
+    (a) yet DOES carry the guard today (verified in tree at
+    `cmd/backstop/integration_test.go:38`), so the guard gap cannot
+    explain the whole cluster; and `pkg/gate`'s contract tests reference
+    neither `packval` nor the sandbox directly (verified by grep), so
+    `pkg/gate` is not on ISSUE-164's packval-importer inventory at all.
+    WHY DIR-024 AND NOT DIR-032 — decided in the same shape items 15-20
+    use, and worth stating because cluster (b) invites the opposite
+    reading. As observed, every one of these failures is LOUD: `pack
+    add` refuses and blocks, the tests go RED, nothing reports a clean
+    verdict on a scan that did not happen. That fails DIR-032's charter
+    test ("computes a result internally but reports the wrong verdict
+    about it"). The affirmative precedent is nearly exact: item 18
+    (ISSUE-158) is a pack failing its OWN `phase3-fixtures`
+    self-validation and is homed here on this reasoning; item 20
+    (ISSUE-163) came out of this same v0.2.0 release investigation and
+    is homed here; and Linux/CI viability is item 1's (ISSUE-020)
+    surface, this directive's own launch-blocker thread. Not DIR-022
+    ("Contracts Engine Hardening", `queued`): that directive's charter
+    is capability extension of the `contract_signature` compiler —
+    relational-rule input mode and non-Go artifact contracts — and has
+    no claim on a platform-behavior defect in a pack's self-validation.
+    THE CONDITION UNDER WHICH THAT HOME SHOULD BE REVISITED, recorded
+    now so it is not re-derived: if investigation traces cluster (b) to
+    the PRODUCTION contracts dispatch path — i.e. a real Linux
+    consumer's forbidden-symbol absence check reporting no violation for
+    a symbol that IS present — then the underlying defect is a silent
+    false-clean on the real gate, which is DIR-032's charter and not
+    this directive's, even though today's symptom is a red test.
+    backlog-pm has flagged this to Brandon as a conditional re-home, not
+    a competing claim.
+    Not a duplicate of item 13/ISSUE-141 (`pkg/packval`'s executor never
+    applying a binding's `Convert`) nor of the now-closed `ISSUE-142`
+    (packval's `Rule` struct lacking `Pattern`, which made every
+    `pattern-arg` rule — all of `packs/contracts` — dispatch zero
+    fixtures; closed 2026-08-17 via `PLAN-ISSUE-142`). ISSUE-142's fix
+    is plausibly WHY these fixtures now dispatch far enough to fail
+    rather than silently not running, which makes this a newly-visible
+    defect rather than a regression — stated as observation, not
+    traced.
+23. **Both sandbox profiles deny ALL file writes with no `/dev/null` carve-out,
+    so the universal `command -v foo >/dev/null 2>&1` idiom dies under
+    Linux's Landlock with a confusing `exit status 127` (ISSUE-168).**
+    Two `pkg/packval` tests fail on real Linux CI (run `32108003542`,
+    `gate-report.json` at `git_sha: 970512b`, `pack_engines` step):
+    `TestLinuxSandbox_RealInterpreterRunsUnderTheFilter`
+    (`sandbox_linux_exec_test.go:437`) fails outright — its fixture
+    `pkg/packval/testdata/sandbox/convert-jq.sh:14` is `if command -v jq
+    >/dev/null 2>&1; then` and yields `exit status 127: cannot create
+    /dev/null: Permission denied`; and
+    `TestLinuxSandbox_NetworkAllowedControlLegSucceeds`
+    (`sandbox_linux_exec_test.go:310`) shows the same `/dev/null:
+    Permission denied` denials in its captured stderr.
+    State this distinction explicitly, it matters for whoever fixes the
+    other half: the `/dev/null` denials are NOT what makes
+    `TestLinuxSandbox_NetworkAllowedControlLegSucceeds` fail. That test's
+    `t.Errorf` fires because TCP and UDP were both blocked under a
+    capability that PERMITS the network (`TCP_OPEN`/`UDP_OPEN` markers
+    absent). Its network-blocking failure is a separate, still-unfiled
+    defect; only the `/dev/null` denials belong to ISSUE-168.
+    Root cause, symmetric by design: `pkg/packval/sandbox_capability.go`
+    sets `WritablePaths: nil` unconditionally in
+    `ConvertValidatorCapability` (line ~154), with the comment "EMPTY for
+    convert/validator work: darwin denies file-write* outright and parity
+    is the spec"; the darwin profile literal in
+    `pkg/packval/sandbox_nonlinux.go:93` is `(version 1)(import
+    "bsd.sb")(deny default)(allow process*)(allow
+    file-read*%s)(deny network*)(deny file-write*)` — a blanket deny with
+    no `/dev/null` exception either. Both verified by direct read. So this
+    is NOT a Linux regression and NOT a designed platform asymmetry.
+    Observed behavior IS asymmetric, and that was confirmed empirically
+    rather than assumed: the issue author ran darwin's analogue
+    `TestSandboxConvertWithRealInterpreter`
+    (`pkg/packval/sandbox_realconvert_test.go:52`) — which drives the SAME
+    `convert-jq.sh` fixture with the same idiom — locally on darwin, and
+    it PASSES. macOS Seatbelt evidently lets writes to the `/dev/null`
+    character device through as an emergent property, not because the
+    profile text says so. Profile-literal gap symmetric; observed breakage
+    Linux-only.
+    Why it is worth closing rather than a security restriction working as
+    intended: `command -v foo >/dev/null 2>&1` and `2>/dev/null`
+    noise-suppression are ubiquitous in real shell scripts, so any
+    third-party pack author's convert or validator script using the idiom
+    breaks under backstop's Linux sandbox with a signature (`exit status
+    127` / "Permission denied") that points nowhere near the sandbox. A
+    write to `/dev/null` persists no state, escapes no data, and has no
+    observable side effect — granting it narrowly weakens nothing.
+    Fix direction (mechanism left to the plan, per the issue): a Landlock
+    path rule scoped to `/dev/null` on Linux plus a corresponding `(allow
+    file-write* (literal "/dev/null"))` clause in the darwin profile. Note
+    for the planner: fix BOTH platforms even though only Linux is
+    observably broken — item 1's charter requires deny-write PARITY with
+    the macOS profile, and fixing only Linux would make the profiles'
+    stated intent diverge from their text again.
+    Why it homes here and not elsewhere: it is item 1's (ISSUE-020) own
+    surface — the Linux sandbox delivered by `PLAN-ISSUE-020` (`status:
+    completed`) — and its delivery residual, the same shape items 22
+    (ISSUE-166), 21 (ISSUE-165) and 20 (ISSUE-163) have. NOT DIR-032/
+    DIR-033: CI goes loudly RED and no unearned verdict is reported, so it
+    fails DIR-032's charter test; and DIR-033 homes follow-ons filed by
+    DIR-032 member plans, whereas this came from the same Linux-CI release
+    investigation that produced ISSUE-163 (item 20) and ISSUE-158 (item
+    18). Already cross-referenced from the neighboring item: item 22
+    (ISSUE-166) explicitly ruled ISSUE-168 out as its own cause during its
+    own investigation ("this is not the `/dev/null` sandbox-write defect
+    ... the `/dev/null` failures on the same CI run are the separate
+    `ISSUE-168`"), so that boundary is settled from both sides, not
+    asserted unilaterally here.
+    Distinct from item 20 (ISSUE-163), verified: ISSUE-163's own text
+    records that these two `pkg/packval` tests DO reach the instrumented
+    sandbox helper (they have a correctly-behaving `TestMain`) — so
+    ISSUE-163's fix cannot resolve this, and this is not a duplicate.
+    `PLAN-ISSUE-163` is `status: draft` and scoped to `cmd/backstop`'s
+    `TestMain`; `PLAN-ISSUE-020` is completed and never granted any
+    `/dev/null` write. No plan in `plans/` covers this.
+    Priority note, stated as observation and explicitly NOT a reorder
+    (directive-author has no reorder authority): DIR-024 sits at
+    BACKLOG.yml position 5 and this slot does not change its rank.
+24. **The rewritten prober-wiring guard is silently defeated by a `FuncLit`
+    whose OWN parameter shadows the injected prober identifier — a
+    deliberately-deferred blind spot the guard documents in its own source
+    (ISSUE-170).**
+    Mechanism, verified in tree: `proberWiringViolations`
+    (`pkg/packval/sandbox_wiring_guard_test.go:81`) attributes every
+    tracked call site to its enclosing `*ast.FuncDecl`, and the walk DOES
+    descend into `ast.FuncLit` bodies — an advertised strength, stated in
+    the comment at `:75-80`. But it resolves WHICH identifier counts as
+    "the injected prober" from that same enclosing `*ast.FuncDecl`'s
+    parameter list, never from the innermost enclosing scope:
+    `proberWiringProberParamNames` (`:311`). A PRECISION THE ISSUE
+    UNDERSTATES AND A PLANNER NEEDS: that resolution is BY TYPE, not by
+    name — it collects every `*ast.Field` whose type identifier is
+    `LandlockABIProbe`, returning every name those fields declare (so the
+    grouped spelling `probeABI, decoy LandlockABIProbe` correctly yields
+    two). The evasion still lands because a plausible closure parameter
+    carries the SAME TYPE, so the outer decl's resolution yields
+    `probeABI`, the call site's argument spells `probeABI`, and the names
+    match — while the value actually in scope is the closure's own
+    binding. Do not let a planner form the mental model "it matches by
+    name" and reach for a name-based fix. The rebind scanner
+    `proberWiringRebindsOf` (`:356`) cannot cover it: it matches
+    `*ast.AssignStmt` and `*ast.ValueSpec` only, and a `FuncLit` parameter
+    is neither — it is a new lexical binding, not an assignment. The
+    evasion shape is a legitimate refactor, not a contrived attack: a
+    retry/timeout wrapper closure that reuses the parameter name. Go warns
+    about neither the shadowing nor the outer parameter (still "used" as
+    the argument to the closure call).
+    Provenance — deferred deliberately, filed as owed, not an oversight:
+    this is the THIRD of three silent-green evasions found by the
+    ISSUE-165 impl-review; the other two (a dispatch-seam re-bind gap and a
+    `var` declaration-form re-bind gap) were CLOSED in commit `fc2b8ce`.
+    The guard's own source documents the deferral in place at `:353-355`,
+    directly above `proberWiringRebindsOf`: "STILL OUT OF REACH,
+    DELIBERATELY: a FuncLit whose own PARAMETER shadows the prober
+    identifier. That needs FuncLit-parameter-shadow detection and is
+    tracked as a follow-on to ISSUE-165, not silently absorbed."
+    `PLAN-ISSUE-165` TASK-005 clause (6) ("FILE ANYTHING ELSE SURFACED, and
+    if nothing needed filing, SAY SO EXPLICITLY — silence is not a
+    discharge") is the filing mandate. IN-FLIGHT COVERAGE IS THEREFORE NIL
+    BY CONSTRUCTION, established from the corpus with ZERO interviews — no
+    plan in `plans/` targets ISSUE-170; the only lane on this surface,
+    `PLAN-ISSUE-165` (`status: draft`), fences the work out by name in its
+    own source comment and in TASK-005.
+    THE SHARP EDGE A PLANNER MUST NOT MISS (backlog-pm's addition, in
+    neither the issue nor the plan): the guard closes with an exact-count
+    assertion at `sandbox_wiring_guard_test.go:434` — `if dispatch != 2 ||
+    forward != 2 || dispatch+forward != 4` — whose stated purpose is
+    anti-vacuity (a call the walk stops recognising stops being COUNTED, so
+    the counts catch selector-form and renamed callees the per-site rules
+    cannot see). Any scope-aware fix that changes what is tracked, or that
+    introduces a synthetic call site for the closure's own invocation, MUST
+    update those literals deliberately in the same change. There is also a
+    table-driven falsification harness in the same file asserting
+    per-case `wantDispatch`/`wantForward` (`:1131`, `:1136`) — a new
+    evasion case must be added there, not merely to the production-file
+    walk. Leaving either stale converts a closed blind spot into a NEW
+    false red — the exact failure item 21 exists to fix.
+    Direction (the issue's own, recorded as the issue's, not decided
+    here): for each tracked call site, walk outward through any enclosing
+    `ast.FuncLit` boundaries and check whether one declares a parameter of
+    type `LandlockABIProbe` before reaching the outer `FuncDecl`; if so,
+    the binding in effect is the closure's, and the value passed AT THE
+    CLOSURE'S CALL SITE becomes the thing to check. The issue explicitly
+    leaves how much scope-resolution machinery is proportionate to the
+    plan.
+    Why DIR-024 and not DIR-032/DIR-033 — and say plainly that this one
+    INVERTS this file's usual polarity, because a reader will notice: every
+    recent DIR-024 ruling here (items 15/ISSUE-135, 16/145, 17/147, 18/158,
+    20/163, 21/165) turned on "loud red with a wrong or missing legible
+    name." Item 24 is the opposite polarity — a SILENT green. It still
+    homes here, on a different and equally established line: DIR-032's
+    charter requires a GATE STEP reporting a wrong verdict on a product
+    surface; a false-green in backstop-core's own `go test` corpus is not
+    that. That discriminator was drawn for ISSUE-137 ("product-surface
+    false-green → DIR-032; repo test-harness false-green → DIR-024") and
+    again for item 18 (ISSUE-158, where the harness EXISTED to test a
+    DIR-032 member and still came here — lane adjacency is not charter).
+    The AFFIRMATIVE precedent is this file's own item 4, ISSUE-075: a
+    fixture that makes a test pass while proving nothing, deliberately left
+    behind by the 2026-08-10 DIR-032 carve-out. DIR-032 is `done` in any
+    case. DIR-033 "Gate Verdict Honesty Residual Tail" homes follow-ons
+    FILED BY DIR-032 MEMBER PLANS; this was filed by `PLAN-ISSUE-165`, a
+    DIR-024 item-21 lane, so provenance sends it here. And the
+    delivery-residual sub-precedent applies directly: residuals home to
+    their parent item's directive as clear fits, not founder roster calls
+    — the shape item 19 (ISSUE-131) has to item 3 and item 20 (ISSUE-163)
+    has to item 1.
+    Exposure and blast radius, stated honestly: ZERO today, and the issue
+    says so itself. The guard executes no production code — it parses
+    `sandbox_linux.go` as text at test time — and no current code in
+    `sandbox_linux.go` uses the evasion shape. The residual risk is narrow
+    and forward-looking: a future refactor introducing a same-named
+    closure parameter around either injectable seam would pass this guard
+    silently while genuinely defeating the prober injection the guard
+    exists to protect. Priority-wise this is the LOWEST-urgency member of
+    the ISSUE-165 family — record that so a cold picker does not mistake
+    "silent green" for "urgent."
+    Correction to the parent's ceiling, worth one line here too: unlike
+    item 21, whose only falsifier was Linux CI, item 24's guard is untagged
+    and runs on darwin — a fix here is locally red-to-green verifiable.
+    That is the durable half of ISSUE-165's fix paying off.
+    Priority note, stated as observation and explicitly NOT a reorder
+    (neither directive-author nor backlog-pm has reorder authority):
+    DIR-024 sits at BACKLOG.yml position 5 and this slot does not change
+    its rank. It rides on charter fit and displaces nothing — in
+    particular it must NOT displace item 1 (ISSUE-020) or the ISSUE-092
+    sequencing already recorded in this file.
+25. **Stale doc comment argues for the refused option (a) at the ABI-probe
+    seam (ISSUE-169).**
+    `newSandboxHelperCommand`'s doc comment
+    (`pkg/packval/sandbox_linux.go:163-175`) still closes with: "Test
+    SandboxLinux_ProductionPathUsesTheRealABIProbe asserts both production
+    call sites hand it the real probeLandlockABI, so the seam cannot become
+    a place where test and production diverge" — verified byte-present in
+    the current tree. Item 21's fix (`8d35706`, then `fc2b8ce`) left
+    `sandbox_linux.go` byte-unchanged BY DESIGN — its CLM-006 is asserted
+    mechanically by that lane's own TASK-003 — so this sentence was never
+    in that lane's scope, and nothing has corrected it since.
+    Why it matters: at the two INNER seams this comment governs
+    (`newSandboxHelperCommand`'s only two call sites,
+    `sandbox_linux.go:221` and `:246`, inside `linuxSandboxedRunWith` /
+    `linuxSandboxedRunStdoutWith`) the rewritten guard now requires the
+    ENCLOSING FUNCTION'S OWN injected `LandlockABIProbe`-typed parameter
+    and flags the literal `probeLandlockABI` there as its own violation.
+    The comment therefore states as settled fact the exact shape item 21
+    rejected as a vacuous green ("option (a)"). It is precisely the
+    sentence a future editor would cite to justify renaming `probeABI` to
+    `probeLandlockABI` "so the code matches its own documentation" — a
+    rename that shadows the package-level function inside both bodies and
+    makes the guard pass for any caller-supplied prober, including a fake.
+    CORRECTION TO THE ISSUE'S OWN NARRATIVE, found by backlog-pm and stated
+    so a planner does not inherit it: ISSUE-169 frames the sentence as
+    having been true until item 21's fix "inverted" it, and its
+    Existence-in-world check calls the original ISSUE-020 comment
+    "then-accurate." That is too generous. The sentence conflates two
+    claims with DIFFERENT histories: (i) "the test asserts this" — was true
+    at authoring (the old guard did demand the literal at all four sites)
+    and is FALSE now (the rewrite reversed the requirement at these two
+    sites); this half is what item 21's fix inverted. (ii) "both production
+    call sites hand it the real probeLandlockABI" — was NEVER true. `:221`
+    and `:246` have always forwarded `probeABI`, the injected parameter;
+    that mismatch is exactly why the old guard went red on Linux. The
+    comment asserted compliance the code never had. So the fix must correct
+    TWO independent falsehoods, not restore a formerly-accurate sentence. A
+    planner who reads only ISSUE-169 will under-scope this.
+    An authoritative replacement already exists in the tree, worth naming
+    so the fix is a pointer, not a second restatement:
+    `pkg/packval/sandbox_wiring_guard_test.go` (lines 397-407, the header
+    above `TestSandboxLinux_ProductionPathUsesTheRealABIProbe`) now spells
+    out the correct rule at length, including why the inner hop is asserted
+    against a typed parameter rather than a spelling and why option (a) is
+    refused. The repo currently carries TWO comments describing the same
+    seam that contradict each other; the test-file one is correct. Pointing
+    `sandbox_linux.go`'s comment at it beats restating the rule in a third
+    place that can drift again.
+    Scope/risk, stated plainly: documentation only, no behaviour change, no
+    gate dimension goes red on it today — the hazard is entirely in what a
+    future editor does while trusting it. It is darwin-visible and
+    Linux-CI-independent (unlike items 20-23), because the file is untagged
+    production source, so this one CAN be verified locally. Because the fix
+    is one sentence in production code and this repo's law is no
+    implementation without a validated plan, the natural discharge is to
+    fold it into whichever lane next legitimately edits
+    `pkg/packval/sandbox_linux.go` rather than standing up a plan for a
+    comment — but that is a founder sequencing call, recorded here as a
+    recommendation, not a decision.
+    Provenance and siblings: item 21 (ISSUE-165) is the parent — this is
+    its delivery residual, mandated by `PLAN-ISSUE-165` TASK-005 step (5),
+    which explicitly refuses to absorb it ("FILE ANYTHING ELSE SURFACED").
+    Item 24 (ISSUE-170, the guard's `FuncLit` parameter-shadow blind spot)
+    is the SIBLING from the same TASK-005 closeout batch — both were
+    surfaced by the same review pass and filed together, but are
+    independent fixes: item 24 is a silent-green gap in the guard itself,
+    this item is a stale comment one function above it. Neither fix
+    subsumes the other.
+    Why DIR-024 and not DIR-032/DIR-033 — same test this file has drawn
+    repeatedly: nothing here reports a wrong verdict today (no gate step is
+    even involved), so it fails DIR-032's charter test outright; the risk
+    is entirely forward-looking, in a comment a future editor might trust.
+    Affirmative precedent: it is item 21's own delivery residual, the same
+    shape item 24 (ISSUE-170), item 20 (ISSUE-163) and item 19 (ISSUE-131)
+    already have to their respective parents.
+    Priority note, stated as observation and explicitly NOT a reorder
+    (backlog-pm has no reorder authority): DIR-024 sits at BACKLOG.yml
+    position 5 and this slot does not change its rank. It rides on charter
+    fit and displaces nothing — in particular it must NOT displace item 1
+    (ISSUE-020) or the ISSUE-092 sequencing already recorded in this file.
+
+26. **A pack manifest's declared `convert:` path is never checked for
+    existence at authoring time (ISSUE-175).**
+    THE ANCHOR, verified: `pkg/pack/engine/testdata/contracts-grep-engine.yml`
+    (manifest name `acme/contracts-grep-pack`) declares `convert:
+    grep/to-sarif.sh` at line 26; `pkg/pack/engine/testdata/grep/` does not
+    exist — the directory listing of `pkg/pack/engine/testdata/` is four
+    `.yml` files and nothing else. The fixture is declaration-level only,
+    read by `TestEngine_GrepPackDeclaredNotInDefaultRegistry`, never
+    dispatched.
+    ★ MATERIAL CORRECTION TO THE ISSUE'S SCOPE, and it is backlog-pm's, not
+    the issue's: this is NOT a singleton. A sweep of every `convert:`
+    declaration under `packs/`, `pkg/`, `cmd/` found the SAME dangling shape
+    in EVERY declaration-only manifest fixture in the repo —
+    `pkg/pack/testdata/pack-pattern-arg.yml` (`acme-query/to-sarif.sh`),
+    `pkg/pack/testdata/pack-divergent-flags.yml`
+    (`scripts/test-to-sarif.sh`, ×2), `pkg/pack/engine/testdata/
+    contracts-astgrep-engine.yml` (`ast-grep/to-sarif.sh`),
+    `pkg/pack/engine/testdata/engines-block-valid.yml` (`acme-grep/
+    to-sarif.sh`, `scripts/test-to-sarif.sh`),
+    `cmd/backstop/testdata/exempt-matrix-bindings.yml` (4 declarations),
+    `cmd/backstop/testdata/coverage-routing-bindings.yml` (5 declarations) —
+    roughly fifteen dangling references across seven files, none of them
+    backed by a script on disk. Consequence for a planner: the issue's
+    second candidate direction ("update this specific fixture to not
+    declare a `convert:` it doesn't back") is a ~15-site change across seven
+    files, not a one-liner; and its third candidate direction (confirm the
+    testdata-exclusion conventions cover these) is LOAD-BEARING, not
+    optional. The converts that live inside REAL pack directories all
+    resolve correctly (`packs/contracts` both, `packs/substantiveness`,
+    `pkg/gate/testdata/traceability-pack` both, `pkg/gate/testdata/
+    ts-proof-pack`, the three toolchain testdata packs) — the defect class
+    is confined to bare manifest fixtures that were never whole packs.
+    ★ THE DESIGN CONSTRAINT THAT FALSIFIES THE NAIVE FIX, also backlog-pm's
+    and the sharpest thing here: `packs/base-engines/pack.yml:48` — a REAL,
+    shipped pack, compiled into every backstop binary via root `embed.go`'s
+    `//go:embed all:packs/base-engines` and served as the default engine
+    registry by `pkg/baseengines.Registry()` — declares `convert:
+    ast-grep/to-sarif.sh`, and `packs/base-engines/` contains ONLY
+    `pack.yml`. That is BY CONSTRUCTION, not a defect: base bindings are
+    registry DEFAULTS merged into a CONSUMING pack's dispatch, and the
+    convert is resolved against the consuming pack's root, not the
+    declaring pack's — `cmd/backstop/pack_gate.go:271` computes `packRoot :=
+    filepath.Join(packDir, manifest.NormalizedName)` for the manifest being
+    dispatched, and `:845` joins the binding's `convert:` onto THAT root.
+    `packs/contracts/ast-grep/to-sarif.sh` and
+    `packs/substantiveness/ast-grep/to-sarif.sh` both exist at exactly that
+    relative path, which is the convention the base binding is asserting.
+    So a phase-1 check of the form "the declared `convert:` must exist
+    relative to the pack root" would FALSE-RED the base engine pack that
+    ships inside every backstop binary. Any implementation must either
+    exempt bindings inherited from the base registry, or be reframed as a
+    CONSUMER-side resolution check ("every pack that inherits a
+    convert-bearing base binding ships the script at the declared relative
+    path") — a materially different check from the one ISSUE-175 sketches.
+    State this as a constraint a planner must resolve, not as a decided
+    design.
+    CORRECTION TO THE ISSUE'S IMPACT FRAMING, and it sets the polarity so
+    this is not misfiled as a verdict-honesty item: dispatch-time behavior
+    is ALREADY LOUD. `pkg/packval/executor.go:218` stats the resolved
+    convert path and refuses; `cmd/backstop/pack_gate.go:845-847` does the
+    same on the gate path, returning `broken pack %s: missing convert
+    script %s` — a named refusal at the resolved path, not "whatever error
+    the runner produces". So the gap is EARLIER-AND-MORE-LEGIBLE AUTHORING
+    FEEDBACK, i.e. ergonomics, NOT a false verdict — nothing here reports a
+    clean scan that did not happen. Read the issue's "same silent-hole
+    shape" phrasing as an analogy to ISSUE-166, not as a claim of a silent
+    false-clean.
+    THE FIX SITE HAS A DIRECT IN-FILE PRECEDENT: `pkg/packval/phase1.go`
+    already stats four other declared paths — the rule source at `:52`,
+    declared fixtures at `:63`, `rule.Validator` at `:69`, and scaffold
+    paths at `:76`. An engine binding's `convert:` is the one path-bearing
+    declaration phase 1 does not check. `pkg/packval/phase2.go` carries no
+    convert handling at all.
+    SIBLING RESIDUAL A PLANNER SHOULD SEE, currently UNFILED:
+    `PLAN-ISSUE-142` (`status: completed`) records residual R3 at its lines
+    750-752 — "A phase-1 structural check for 'this rule declares no engine
+    input at all'. New ecosystem-wide strictness, not a bug fix; would red
+    any pack with a claimless placeholder rule. Not filed." That is the
+    same family as ISSUE-175: new phase-1 structural strictness applied
+    against every pack in the ecosystem, filed by nobody. Recommendation,
+    explicitly a recommendation and not a decision: whoever plans ISSUE-175
+    should scope R3 into the same lane, since both change the same
+    function's strictness contract and each alone would force a second
+    ecosystem-wide re-validation pass. (That plan's R2 — unifying
+    `pkg/pack.Rule` and `pkg/packval.Rule` — is likewise unfiled but is a
+    separate, larger question.)
+    IN-FLIGHT COVERAGE IS NIL BY CONSTRUCTION, established from the corpus
+    with ZERO interviews, but with one live sequencing hazard:
+    `PLAN-ISSUE-166` (`status: draft`, the lane that surfaced this) fences
+    the work OUT by name — its line 159 records that the sweep fixes
+    SCRIPTS that exist and "there is no script here to fix", and its line
+    362 states "OUT: creating the missing
+    `pkg/pack/engine/testdata/grep/to-sarif.sh`. The orphaned [reference is
+    a separate latent defect]". HOWEVER that lane DOES hold
+    `pkg/pack/engine/testdata/contracts-grep-engine.yml` in the file scope
+    of its TASK-004 and TASK-010 (it adds `-H -I` to that binding's command
+    for sweep-predicate consistency). So any fix that edits that fixture
+    must sequence AFTER PLAN-ISSUE-166 lands, or coordinate with it — do not
+    open a concurrent edit on that file.
+    Priority note, stated as observation and explicitly NOT a reorder
+    (backlog-pm has no reorder authority): DIR-024 sits at BACKLOG.yml
+    position 5 and this slot does not change its rank. Note also that
+    unlike items 18/20/21/22/23, this item is NOT Linux-CI-gated — every
+    fact above is verifiable on darwin.
+27. **`packs/contracts` still fails its own `pack add`/`pack test`
+    phase3-fixtures self-validation on Linux CI for ONE test after item
+    22's fix — byte-identical before and after, and the asymmetry itself
+    is unexplained (ISSUE-177).**
+    `TestInstallContractsLocalPack_InstallsWithSuppliedCommand` fails on
+    real Linux CI with `pack validation (test) of the validation copy
+    failed in phase3-fixtures: 14 validation error(s)`. Established by a
+    direct before/after comparison of two real CI runs' `gate-report.json`:
+    run `32172705491` (commit `9aa278e`, immediately pre-fix) and run
+    `32179966270` (commit `f8b3846`, item 22's/ISSUE-166's `-H -I` fix) —
+    same file, same message, same error count (14) in both.
+    This is item 22's (ISSUE-166) own residual, not a fresh symptom: the
+    test is named in ISSUE-166's original affected-test list, and roughly a
+    dozen structurally similar siblings on the identical `pack add`/`pack
+    test` phase3-fixtures path ALL went green from that fix. This one alone
+    did not. The asymmetry — same validation path, same pack, same fix
+    applied, different outcome for one test — is what the issue exists to
+    investigate, not the red itself.
+    The 14 errors' actual content is UNKNOWN and unread: `backstop gate`
+    truncates phase3-fixtures failures to the summary line, and
+    `.github/workflows/ci.yml` has no `go test -v` step for the package.
+    Reading them likely needs the throwaway `debug/*` diagnostic-branch
+    technique that established ISSUE-166's own root cause — precedent:
+    branch `debug/issue166-contracts-grep-repro` (PR #3, closed unmerged).
+    CORRECTION TO THE ISSUE AS FILED, verified in tree 2026-08-18 by
+    backlog-pm: ISSUE-177's own References section states the failing test
+    lives at `pkg/pack/engine/contracts_local_install_test.go`. **That path
+    does not exist.** The test is at
+    `pkg/pack/distribution/contracts_local_install_test.go:51` (its doc
+    comment cites CLM-092); `pkg/pack/engine` contains no such file.
+    Recorded so an implementer is not sent to a nonexistent file — the
+    issue text itself still needs correcting via issue-author.
+    LEAD, verified in tree 2026-08-18 by backlog-pm and worth trying
+    before any debug branch: the green/red split correlates exactly with
+    `func TestMain` presence. Every sibling ISSUE-177 names as having gone
+    green lives in a package that DECLARES `func TestMain` —
+    `cmd/backstop` (`integration_test.go:19`) and `pkg/packval`
+    (`main_test.go:36`). The one test that stayed red lives in
+    `pkg/pack/distribution`, which declares NO `func TestMain` at all
+    (confirmed: the package has none). That is precisely the sandbox-helper
+    `TestMain` invisibility item 20's (ISSUE-163) guard leaves open, which
+    `ISSUE-164` ("Packval Importing Packages Missing TestMain Guard",
+    `type: question`, open) asks about — and `pkg/pack/distribution` is
+    one of the two packages ISSUE-164 names by file as invisible to that
+    guard. State this as a HYPOTHESIS, not a finding: it is a correlation
+    over the tests ISSUE-177 itself enumerates, it has NOT been falsified
+    on Linux, and a known limit cuts against over-reading it — item 22's
+    separate grep cluster also failed in `cmd/backstop`, which DOES carry
+    the guard, so the guard gap cannot explain everything on its own. If
+    confirmed, ISSUE-177 would be the measurement ISSUE-164 itself asks
+    for.
+    LIFETIME CAVEAT: `DIR-027`'s thread-1 tier 2 (undelivered) deletes
+    `packs/contracts` from `backstop-core` and de-vendors
+    `pkg/pack/distribution/contracts_local_install.go` — which would
+    plausibly delete this very test. This item is homed here anyway
+    because DIR-024 owns live loud reds on the gate/engine path and
+    DIR-027 owns the ecosystem/publication side; if tier 2 lands first,
+    revisit whether this item is mooted by deletion rather than fixed.
+    HOME REASONING: homed here on the same test this directive has now
+    drawn repeatedly — a LOUD red whose cause is untraced is DIR-024; only
+    "computes a result internally but reports the wrong verdict about it"
+    is DIR-032. DIR-032 is `done` and DIR-033 takes only follow-ons filed
+    by DIR-032 member plans, so neither competes. Note also that this is
+    the THIRD PLAN-ISSUE-166 residual homed here, after item 24-or-later's
+    ISSUE-170 lineage and item 26 (ISSUE-175), consistent with that plan's
+    own refusal-to-absorb tasks.
+    Note the issue's own severity framing: low urgency in isolation, filed
+    because an unexplained residual red must not sit as an unexplained
+    line in a CI report.
 
 ## Notes
 
@@ -1509,3 +2194,74 @@ own status is left unchanged by this slotting.
 Priority note, stated as observation and explicitly NOT a reorder
 (directive-author has no reorder authority): DIR-024 sits at BACKLOG.yml
 position 5 and this slot does not change its rank.
+
+ISSUE-165 slotted 2026-08-18 by backlog-pm under the standing clear-fit
+grant; rides on charter fit and displaces nothing — in particular it must
+NOT displace item 1 (ISSUE-020) or the ISSUE-092 sequencing already
+recorded in this file. IN-FLIGHT COVERAGE IS NIL BY CONSTRUCTION,
+established from the corpus with ZERO interviews: no plan in `plans/`
+targets ISSUE-165, and `PLAN-ISSUE-163` — the only actively-authored lane
+in this neighborhood — fences `pkg/packval/**` OUT of its file scope by
+name at line 137 (`main_test.go`, `sandbox_linux*.go`,
+`sandbox_nonlinux.go`), so the lane that exposed this defect is
+contractually barred from fixing it. `PLAN-ISSUE-020` is `completed`.
+Also record: the fix is a DARWIN-INVISIBLE change — the test carries
+`//go:build linux`, so its only falsifier is Linux CI, exactly as item 20
+(ISSUE-163) noted for its own fix; a planner must not expect a local
+red-to-green on a Mac. Priority note, stated as observation and
+explicitly NOT a reorder (backlog-pm has no reorder authority): DIR-024
+sits at BACKLOG.yml position 5 and this slot does not change its rank.
+
+ISSUE-170 slotted 2026-08-18 by backlog-pm under the standing clear-fit
+grant; rides on charter fit and displaces nothing — in particular it must
+NOT displace item 1 (ISSUE-020) or the ISSUE-092 sequencing already
+recorded in this file. It is a SECOND-ORDER residual: item 21's
+(ISSUE-165) own delivery residual, which makes it item 1's (ISSUE-020)
+grand-residual, since ISSUE-165 was itself item 1's residual. IN-FLIGHT
+COVERAGE IS NIL BY CONSTRUCTION, established from the corpus with ZERO
+interviews: no plan in `plans/` targets ISSUE-170, and `PLAN-ISSUE-165`
+(`status: draft`) — the only lane on this surface — fences the work out by
+name in its own source comment and in TASK-005. Unlike item 21, this
+item's guard is untagged (moved off `//go:build linux` by ISSUE-165's own
+fix, commit `8d35706`) and darwin-visible, so a planner should NOT expect
+a Linux-CI-only falsifier here. Priority note, stated as observation and
+explicitly NOT a reorder (backlog-pm has no reorder authority): DIR-024
+sits at BACKLOG.yml position 5 and this slot does not change its rank.
+
+ISSUE-169 slotted 2026-08-18 by backlog-pm under the standing clear-fit
+grant; rides on charter fit and displaces nothing — in particular it must
+NOT displace item 1 (ISSUE-020) or the ISSUE-092 sequencing already
+recorded in this file. It is item 21's (ISSUE-165) own delivery residual,
+mandated by that item's own plan, `PLAN-ISSUE-165` TASK-005 step (5),
+which explicitly refuses to absorb it — not a new theme, not a founder
+roster call. IN-FLIGHT COVERAGE IS NIL BY CONSTRUCTION, established from
+the corpus with ZERO interviews: no plan in `plans/` targets ISSUE-169,
+and `PLAN-ISSUE-165` (`status: draft`) — the only lane on this surface —
+names it as an owed follow-on rather than in-scope work. Unlike item 21,
+this item's fix site is untagged production source
+(`pkg/packval/sandbox_linux.go`), so a planner should NOT expect a
+Linux-CI-only falsifier here — it is locally verifiable on darwin.
+Priority note, stated as observation and explicitly NOT a reorder
+(backlog-pm has no reorder authority): DIR-024 sits at BACKLOG.yml
+position 5 and this slot does not change its rank.
+
+ISSUE-175 slotted 2026-08-18 by backlog-pm under the standing clear-fit
+grant; rides on charter fit and displaces nothing — in particular it must
+NOT displace item 1 (ISSUE-020) or the ISSUE-092 sequencing already
+recorded in this file. It is item 22's (ISSUE-166) own delivery residual,
+mandated by that item's own plan, `PLAN-ISSUE-166`, whose TASK-004/TASK-010
+text holds the one fixture this item targets in scope for an unrelated
+edit (`-H -I` sweep-predicate consistency) while its own findings text
+records "there is no script here to fix" and explicitly excludes creating
+the missing script — the provenance test that decided this item's home is
+that same plan's own out-of-scope language, not a founder roster call.
+IN-FLIGHT COVERAGE IS NIL BY CONSTRUCTION, established from the corpus
+with ZERO interviews: no plan in `plans/` targets ISSUE-175, and
+`PLAN-ISSUE-166` (`status: draft`) — the only lane on this surface — fences
+the fix out by name while still touching the one fixture this item would
+edit, which is why any implementation must sequence after that plan lands
+or coordinate with it rather than opening a concurrent edit. Unlike items
+18/20/21/22/23, this item is NOT Linux-CI-gated — every fact underpinning
+it is verifiable on darwin. Priority note, stated as observation and
+explicitly NOT a reorder (backlog-pm has no reorder authority): DIR-024
+sits at BACKLOG.yml position 5 and this slot does not change its rank.

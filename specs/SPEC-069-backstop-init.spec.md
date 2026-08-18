@@ -2708,7 +2708,7 @@ fixture source therefore declares:
   BOTH acceptance profiles;
 - a REAL command built from an allowlisted, hermetic, no-provisioning tool with a pack-declared
   convert normalizing its output to SARIF — the shape `packs/contracts`' own `grep` engine already
-  proves end to end in this repository (`command: grep -rn`, `input_mode: pattern-arg`,
+  proves end to end in this repository (`command: grep -rn -H -I`, `input_mode: pattern-arg`,
   `input_flag: -e`, `convert: grep/to-sarif.sh`, `provision: {tool: grep, version: "*"}`), lifted
   to `gate_type: lint`. Nothing is downloaded and no network is touched;
 - one rule carrying a distinctive marker pattern that appears nowhere in a freshly-initialized
@@ -3190,7 +3190,7 @@ a stated prerequisite.
 - `packs/contracts/pack.yml` — NOT an acceptance pack (its `gate_type: contracts` engines are
   excluded from the generic dispatch and disabled outright under the pack-only profile), but the
   reference implementation of the ENGINE SHAPE the acceptance fixture copies: an allowlisted,
-  no-provisioning `grep -rn` command with `input_mode: pattern-arg`, `input_flag: -e` and a
+  no-provisioning `grep -rn -H -I` command with `input_mode: pattern-arg`, `input_flag: -e` and a
   pack-declared `grep/to-sarif.sh` convert normalizing matches to SARIF.
 - `cmd/backstop/pack_gate.go:107` (`gateTypeHasDedicatedStep`) and `:123`
   (`excludeDedicatedStepRules`), called at `cmd/backstop/gate.go:828` — the routing that strips

@@ -3,6 +3,7 @@
 - [Report via SendMessage](feedback_report_via_sendmessage.md) — text output is INVISIBLE to the team lead; end every teammate task with SendMessage or it reads as going idle
 - [Verify the loss claim](feedback_verify_the_loss_claim.md) — mechanism real ≠ consequence real; go look for the "lost" file / RUN the "failing right now" test before ranking off that claim
 
+- [Mirror-sync-guard family](project_mirror_sync_guard_family.md) — ★ home these by LIFETIME not wording: 137's fixture is permanent (DIR-024), 174's pack source is deleted by DIR-027 tier 2; `ls packs/` is the whole exposure set
 - [Done directive orphans its tail](project_done_directive_orphans_its_tail.md) — ★ DIR-032 closed 21/21 and stranded NINE plan-filed follow-ons; trace provenance by grep, escalate the family as ONE ruling
 - [DIR-033 + the 3-way gate boundary](project_dir033_and_the_three_way_gate_boundary.md) — ★ DIR-033 exists (queued, absent from BACKLOG.yml by design); home by FILING PROVENANCE — goes RED ⇒ DIR-024; delivery residuals = clear fits
 - [PM write path](project_pm_write_path_blocked.md) — FULLY OPEN as of 2026-07-26; BACKLOG.yml is structurally directive-author-only; RENAMES need `main`; teammate roster is flat
@@ -17,6 +18,7 @@
 - [Directory-prefixed paths.include = dead rule](project_pack_rule_path_scoping_dispatch.md) — ISSUE-151 shipped only the DETECTOR (`pack check` WARNs); 37 inert patterns unremediated + unfiled. "Widen to full-package glob" is NOT a fix
 - [packval phase3 family](project_packval_phase3_family.md) — PLAN-ISSUE-092's F7 named 3 blockers (142/141/**one still unfiled**); executor.go is a contended file — check which lane owns it
 - [Never read subagent .output](feedback_never_read_subagent_output_files.md) — it's the raw ~100k-token JSONL transcript; grep the target file or re-run validate instead
+- [Linux-CI-green cluster](project_linux_ci_green_cluster.md) — ★ one CI run (32108003542) is feeding DIR-024 items 18/20/21/22/23; all ISSUE-020 delivery residuals = clear fits; sandbox fixes are darwin-invisible
 - [Concurrent PM triage races](project_concurrent_pm_triage_races.md) — sibling-issue bursts fire parallel PMs into ONE directive; re-read it after the agent returns, fix stale cross-refs in place
 - [Record-only consequence filings](project_record_only_consequence_filings.md) — "file, don't absorb" plan tasks emit issues with NO defect; not clear fits, and they arrive as batches the hook under-delivers
 - [pm-trigger hook false-fires](project_pm_trigger_hook_misses_cli_scaffolded.md) — missed-artifact half FIXED 2026-08-17; still fires on testdata fixtures AND on RETIREMENTS. Check status line + path shape before triaging
@@ -26,7 +28,8 @@
 - [Mechanism vs ecosystem](project_mechanism_vs_ecosystem_gap.md) — core capability lands green while zero packs/consumers use it; check the fleet, not just the tree
 - [Fix menus overstate core gaps](project_fix_menus_overstate_core_gaps.md) — "build it in core" options often name capability that already ships (project-wide/none dispatch); verify before homing
 - [ISSUE-101 home ruling pending](project_issue101_home_ruling_pending.md) — go-distribution family (101/109/110/111 + BUNDLE-031) all wait on ONE unruled home; never slot a child
-- [ID reservation drift](project_id_reservation_drift.md) — IDs allocate from git tags w/ silent FS fallback; no remote → tags (088) lag files (089+); adding the launch remote re-issues colliding IDs
+- [Convert path resolution](project_convert_path_resolution_semantics.md) — ★ `convert:` resolves against the CONSUMING pack's root; base-engines' dangling convert is BY DESIGN and ~15 fixture converts dangle harmlessly
+- [ID reservation drift](project_id_reservation_drift.md) — ★ fired TWICE on 2026-08-18: reused ID (ISSUE-167) and untagged phantom (ISSUE-171); 090+167 RELEASED, no home; suspect the SPEC-068 edit
 - [Artifact extension = discovery](project_artifact_extension_is_discovery.md) — bare `.md` in an artifact dir is INVISIBLE to backstop (absent from validate counts, unfindable by ID); silent absence, never a red
 - [Phantom filed issues](project_phantom_filed_issues.md) — INBOX ≠ proof of existence; 102/103 were never written yet have burnt tags. `ls issues/ISSUE-NNN-*` before citing any ID
 - [Zero-baked violations have no home](project_zero_baked_violations_have_no_home.md) — DIR-014 is done; home baked-platform issues by the SURFACE that owns the code, not the invariant
@@ -36,4 +39,6 @@
 - [Harness config has no home](project_harness_config_has_no_home.md) — `.claude/` agent-guard/hooks are orphaned (DIR-016 done, SPEC-003 deprecated); NO FIT by default, recommend direct fix not a directive
 - [Clean pack addition = no artifact](project_clean_pack_addition_no_artifact.md) — "consumed with zero citation" is NOT a gap absent a defect; don't restate in prose what backstop.lock already records
 - [Substantiveness extraction semantics](project_substantiveness_extraction_semantics.md) — Q2 rule matches CALLS only (not type refs, not helper-mediated); RUN ast-grep to settle join-membership claims, gate --file can't (go-arch-lint)
+- [Linux-CI residual family](project_linux_ci_residual_family.md) — ★ 158/163/164/165/166/168 all → DIR-024 on the loud-red test; ISSUE-166's home is CONDITIONAL; 3 TestMain-less pkgs are the lead
 - [Shared-tree git-status assertions](project_shared_tree_git_status_assertions.md) — purity tests over `git status` can't attribute across concurrent lanes; RUN them (reds are live), home by the mandating SPEC not the named package
+- [AST wiring guards assert spelling](project_ast_wiring_guards_assert_spelling.md) — ★ they false-red on any injectable-parameter hop; the "rename the param" fix is a VACUOUS GREEN (spelling ≠ provenance). Watch the exact callSites!=N tail

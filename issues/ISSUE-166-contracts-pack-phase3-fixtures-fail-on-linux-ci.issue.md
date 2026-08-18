@@ -203,12 +203,171 @@ reproduction, run directly on `ubuntu-latest` with a live diagnostic test, to ob
 single-file filename-omission behavior directly; this was not visible from reading the scripts or
 CI logs alone.
 
+## Verification ceiling — fix landed and CI-confirmed, closure held on one external block (2026-08-18)
+
+**The fix has landed on `main` (commit `f8b3846`, via `PLAN-ISSUE-166`, 2 independent
+plan-reviewer rounds to signoff). This issue stays `open` — do not read this note as a close.**
+Formal closure via `delivered_by: PLAN-ISSUE-166` requires that plan's own `status` field to read
+`completed`; it currently reads `draft`, and — more than a stale field — one of its own tasks
+(`TASK-008` step 5 / `TASK-009`, Phase 3) has not actually finished executing, for a reason
+external to this fix. See "What is genuinely still open" below before assuming this is ready to
+close.
+
+### The fix, restated precisely
+
+Two halves, both required (neither alone closes the gap):
+
+- **Half A — force the input shape.** Every repo-owned convert-bearing `command: grep`
+  declaration (six manifests, one of them `pkg/pack/engine/testdata/contracts-grep-engine.yml`,
+  not named `pack.yml` and found only by a structural sweep, not a filename-keyed one) and every
+  in-repo test helper that shells real grep (four call sites) now pass both `-H` (forces the
+  filename header GNU grep omits for a single explicit-file target) and `-I` (suppresses grep's
+  non-match `Binary file … matches` stdout line, which a naive loud refusal would otherwise choke
+  on).
+- **Half B — make the silent drop loud.** Every repo-owned grep→SARIF convert script (five of
+  them, discovered structurally rather than listed) now REFUSES — nonzero exit, a stderr
+  diagnostic naming the offending line and the `-H -I` remedy — on a stdin line it cannot parse as
+  `<file>:<line>:<text>`, instead of silently dropping it. A heuristic 2-field parse was measured
+  and rejected: `6:42: text` is genuinely ambiguous and such a parser fabricates a finding at a
+  nonexistent file named `6` (a silent false positive traded for the silent false negative being
+  fixed).
+
+A 2-field parse was the alternative this issue's own "fix shape" section floated; it was measured
+and rejected in favor of forcing the input shape at the source, for the reason above.
+
+### Two facts this issue got slightly wrong, now corrected
+
+- **Three in-repo copies of the identical convert script, not two.** This issue named
+  `packs/contracts/grep/to-sarif.sh` and `pkg/gate/testdata/traceability-pack/grep/to-sarif.sh` as
+  byte-identical. A third, `pkg/gate/testdata/ts-proof-pack/grep/to-sarif.sh`, was also
+  byte-identical and carried the identical defect, but was not named here — found only by
+  `PLAN-ISSUE-166`'s own discovery sweep. A fourth copy, the installed external mirror
+  (`.backstop/packs/backstop-ai/go-contracts/grep/to-sarif.sh`), also carried it. See `ISSUE-174`
+  below for the general gap this asymmetry surfaced.
+- **BSD grep DOES prefix the filename for a single-file `-rn` target.** This issue's "fix shape"
+  section left open whether local (darwin) testing could even observe the platform divergence.
+  It's now measured directly: BSD grep 2.6.0-FreeBSD at `/usr/bin/grep` DOES print the filename
+  under `-rn` for a single explicit file, which is exactly why this defect was invisible on every
+  local run and only GNU grep (Linux CI) omits it. The divergence is real and now confirmed on
+  both sides, not merely inferred from GNU's behavior alone.
+
+### Local evidence
+
+Re-run 2026-08-18 against the committed tree at `f8b3846`, the plan's own mandated test command:
+
+```
+go test ./pkg/pack/engine/ ./pkg/gate/ ./pkg/packval/ -run "TestGrepConvert|TestGrepEngineDeclarations|TestGrepTestHelpers|TestThinExecutor_NoGrepInvocation|TestRealGrep|TestInstalledGoContractsPack|TestContract_Absence|TestEngine_Grep|TestTSPack_ContractAbsenceGrep|TestEquivalence_GoAbsence|TestPackVerdict_|TestPackContractResult_|TestContractsPack_PatternArg" -race -count=1
+```
+
+Exactly one failure: `TestInstalledGoContractsPack_CarriesFilenameHeaderFix` — a DELIBERATE
+true-RED (see "What is genuinely still open" below). Everything else green, no skips.
+`backstop gate --all` run locally the same day: 2 violations, neither attributable to this lane
+(a pre-existing empty-`phases` defect on an unrelated plan, and this machine's own
+`go-arch-lint`-not-on-PATH capability gap) — zero violations on any file this lane touched.
+
+### Real Linux CI evidence — TASK-012's obligation, satisfied by direct comparison
+
+Per this plan's own rule, none of the above is evidence the ~30-test Linux CI cluster is actually
+fixed — only a real Linux run is. Two real CI runs' `gate-report.json` were read directly and
+compared: `32172705491` (commit `9aa278e`, the plan commit BEFORE the fix's implementation tasks)
+against `32179966270` (commit `f8b3846`, the fix itself).
+
+**BEFORE: 35 blocking `pack_engines` errors, including this issue's entire original symptom
+cluster** — every test named in "The broad symptom" and "A separate, more specific symptom
+cluster" above (`gate_contract_e2e_test.go` x5, `gate_contract_novacuous_test.go` x3,
+`gate_contract_wiring_test.go`, `init_acceptance_test.go` x7, `init_seams_test.go` x2,
+`contract_equivalence_test.go`, `contract_pack_paths_test.go` x3, `contracts_go_rules_test.go`
+x3, `contracts_grep_engine_test.go`, `contracts_ts_rules_test.go`, `contracts_pack_dispatch_test.go`
+including the `TestContractsPack_PatternArgFixturesDispatchAndDiscriminate` semgrep-labeled red
+herring), plus 3x `bun_ratchet_flip_test.go` and 1x `contracts_local_install_test.go`.
+
+**AFTER: 5 blocking errors.** Every test in that cluster is GONE, including the specific eight
+named in the plan's own `TASK-012`: `TestContract_AbsencePresentSymbolGrepMatchViolation`,
+`TestContract_AbsenceScopeFileOrPathParameterized`, `TestContract_AbsenceUsesGrepTextPresenceNotAstGrep`,
+`TestEngine_GrepConvertScriptEmitsValidSarif`, `TestEquivalence_GoAbsencePresentAndAbsentMatchLegacy`,
+`TestPackVerdict_PresentAndAbsencePolarities`, `TestPackContractResult_AllPolaritiesOverRealEngines`,
+`TestPackContractResult_ScopeFallbackAndMissingFile` — all confirmed green. The
+`pack add … packs/contracts … phase3-fixtures` refusal this issue opened with is gone. The
+semgrep-labeled red herring is ALSO resolved, reported here as an observation per the plan's own
+instruction not to claim it as part of this lane's targeted fix.
+
+**The 5 remaining errors were each checked byte-identical between the BEFORE and AFTER runs —
+genuinely pre-existing, not caused or left behind by this fix — and are now each attributed to
+their own filed issue rather than absorbed:**
+
+1. **3x `bun_ratchet_flip_test.go`** — CI's `gate` job has no `.backstop/baseline.json` to read at
+   all (gitignored, nothing in `ci.yml` restores or generates one before "Run the gate"). Filed as
+   `ISSUE-176`; explicitly not the same gap as `ISSUE-086` (which covers the separate `baseline`
+   job's packless generation, not the `gate` job having nothing to read).
+2. **1x `contracts_local_install_test.go: TestInstallContractsLocalPack_InstallsWithSuppliedCommand`**
+   — was named in this issue's own original affected-test list, but did NOT clear despite going
+   through the same `pack add`/`pack test` `phase3-fixtures` path as roughly a dozen structural
+   siblings that all cleared. A real anomaly, not expected residue — filed as `ISSUE-177` for its
+   own investigation (the itemized 14 validation errors have not yet been read; CI's gate output
+   truncates to the summary line and there is no separate verbose test step).
+3. **1x `grep_installed_pack_test.go: TestInstalledGoContractsPack_CarriesFilenameHeaderFix`** —
+   the deliberate true-RED, exactly as designed. See below.
+
+**Not yet measured, recorded as an outstanding gap rather than claimed:** the plan's `TASK-012`
+also asks what stream and wording GNU grep's own binary-file notice uses without `-I` (sharp edge
+15's decision — `-I` was chosen specifically to make this question moot rather than match
+unmeasurable wording). That has not been spent on a dedicated CI round as of this writing; it is
+non-load-bearing for the fix (the SARIF output is unaffected either way, per the plan's own
+measurement) but is left open here rather than silently dropped.
+
+### What is genuinely still open — why this is not yet a close
+
+`TestInstalledGoContractsPack_CarriesFilenameHeaderFix` is a DELIBERATE true-RED, not a bug: it
+pins that `backstop.lock` still records `backstop-ai/go-contracts` at `1.2.0`, and that the
+INSTALLED pack — the one core's OWN contracts gate actually consumes — still carries neither the
+`-H -I` flags nor the loud-refusal convert. The external mirror repo was independently fixed,
+version-bumped to `1.3.0`, tagged and pushed, and verified from a fresh clone. But
+`./bin/backstop pack update backstop-ai/go-contracts` in THIS repo is blocked: `pack update`
+re-runs the full `packval` validation pipeline against the new tag, and `1.3.0` still carries
+`ISSUE-157`'s SEPARATE, PRE-EXISTING, already-filed, founder-gated inverted-fixture-polarity
+defect (a different rule family — signature/ast-grep, not this issue's grep-absence family) —
+confirmed byte-identical on the pristine pre-fix `v1.2.0` tag via a real `pack test`
+control-vs-treatment comparison, so this is genuinely unrelated to this fix, not caused by it.
+
+This is not a paperwork gap. It is the exact production risk this issue's own "Root cause
+confirmed" section names: until the INSTALLED pack is updated, core's own contracts gate remains
+silently vacuous on Linux for any file-scoped absence contract, regardless of what the file
+contains — the same silent false negative this issue exists to close, just not yet closed in the
+one place backstop-core's own gate actually reads from. `PLAN-ISSUE-166`'s own `TASK-008` text
+anticipated this exact outcome as a legitimate stopping point ("If `pack update` refuses, report
+the typed refusal verbatim and STOP... not an obstacle to route around") — so this is the plan
+working as designed, not a defect in this lane's execution. It genuinely blocks that plan's own
+`CLM-006` ("core consumes it... via the real `pack update`") from being true yet, which is why the
+plan cannot honestly be marked `completed`, and why `delivered_by` cannot yet be used to close this
+issue.
+
+**Path to close, once `ISSUE-157` is separately resolved (founder-gated, out of this lane's
+control):** re-run `pack update backstop-ai/go-contracts` (should then succeed against the fixed
+`1.3.0`), confirm `TestInstalledGoContractsPack_CarriesFilenameHeaderFix` goes green, flip
+`PLAN-ISSUE-166` to `completed`, and close this issue via `delivered_by: PLAN-ISSUE-166`. Until
+then this issue accurately reflects reality by staying `open` with this note, rather than a
+`closed` status the evidence does not yet support.
+
 ## References
 
 - CI run `32108003542`, `gate-report.json` (`git_sha: 970512b`), `pack_engines` step — the
   source of every test name and message quoted above, downloaded and inspected directly.
+- CI runs `32172705491` (commit `9aa278e`) and `32179966270` (commit `f8b3846`) — the real
+  before/after comparison establishing the fix's effect and the 5 residual, pre-existing errors.
 - `packs/contracts/ast-grep/to-sarif.sh`, `packs/contracts/grep/to-sarif.sh` — the pack's own
   convert scripts, inspected and confirmed to contain no `/dev/null` redirects.
+- `PLAN-ISSUE-166` — the implementing plan (2 plan-reviewer rounds to signoff), currently
+  `status: draft` pending `TASK-008`/`TASK-009`.
+- `ISSUE-157` — the pre-existing, unrelated, founder-gated `backstop-ai/go-contracts` defect
+  (inverted signature/ast-grep fixture polarity) that blocks `pack update` and therefore this
+  issue's own formal closure.
+- `ISSUE-174` — the general pack-source/external-mirror sync gap this fix's own discovery
+  surfaced (four copies of one script, three carrying the same defect).
+- `ISSUE-175` — the orphaned `convert:` reference found during the same discovery sweep.
+- `ISSUE-176` — the CI `gate` job's missing `.backstop/baseline.json`, one of the 5 residual
+  errors, confirmed pre-existing.
+- `ISSUE-177` — the `TestInstallContractsLocalPack_InstallsWithSuppliedCommand` anomaly, the
+  other residual error, confirmed pre-existing but unexplained.
 - `ISSUE-158` — "Zero Match Harness Patch Makes Pack Unvalidatable" (closed) — similarly-shaped
   prior defect (a different pack failing its own phase3-fixtures self-validation), explicitly
   flagged here as likely a DIFFERENT mechanism, not assumed to share this issue's root cause.

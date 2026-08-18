@@ -59,4 +59,14 @@ Fix it in place through directive-author with a short note-and-supersede clause
 leave the other directive's `source:` alone — correcting prose is not
 re-homing.
 
-See [[project_gate_verdict_honesty_cluster]], [[project_triage_races_plan_scaffold]].
+**2026-08-18 (ISSUE-164..168 batch, five artifacts in ~15 min): the race is
+survivable if you brief for it.** Three PMs hit DIR-024 at once; my brief said
+"item 21" and directive-author **re-read the file mid-edit and landed at 23**
+on its own, chaining the roster-count paragraph (NINETEEN→…→TWENTY-THREE)
+correctly and cross-referencing the sibling item. Nothing needed repair. What
+made that work: the brief said *where* to anchor (after the last numbered item,
+before `## Notes`) and *what* to update (the count paragraph), not a hard
+number. Keep doing that — anchor semantically, then read the number back.
+
+See [[project_gate_verdict_honesty_cluster]], [[project_triage_races_plan_scaffold]],
+[[project_linux_ci_green_cluster]].
