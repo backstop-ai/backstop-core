@@ -59,7 +59,12 @@ touched files (source + tests) made pack_engines pass regardless of baseline sta
   (`var errSabotaged = errors.New(...)`) — the rule keys on `var` at package scope, not on
   mutability in fact. Fix cheaply by making it a function: `func sabotage() error { return
   errors.New(...) }`. Same ergonomics at call sites, no finding, and each call gets a fresh
-  value (SPEC-055 phase 7).
+  value (SPEC-055 phase 7). SAME RULE, SAME FIX, SECOND SHAPE (PLAN-ISSUE-165, 2026-08-18): a
+  package-level LOOKUP TABLE in a test file — `var xTracked = map[string]bool{a: true, ...}`
+  used only for set membership — is flagged identically. It was the ONLY blocking violation on
+  an otherwise-clean new test file. Replace the map with a predicate function over a `switch`
+  (`func isTracked(name string) bool { switch name { case a, b, c: return true; default:
+  return false } }`): no package-level var, no allocation, and the call site is unchanged.
 - go-toolchain errcheck: unchecked `os.RemoveAll/Remove/MkdirAll/WriteFile`. For genuine
   fire-and-forget cleanup use `_ = os.RemoveAll(...)` (and `defer func() { _ = os.RemoveAll(x) }()`
   for defers — the codebase idiom); for the MATERIALIZATION path check + propagate wrapped.

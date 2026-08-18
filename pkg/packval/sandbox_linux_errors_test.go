@@ -3,9 +3,6 @@
 package packval
 
 import (
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"os"
 	"strings"
 	"testing"
@@ -135,76 +132,14 @@ func TestNewSandboxHelperCommand_RefusesWhenTheMechanismIsUnavailable(t *testing
 	}
 }
 
-// TestSandboxLinux_ProductionPathUsesTheRealABIProbe is the WIRING GUARD for the seam
-// the test above introduces.
-//
-// A seam that a test can fill is a seam PRODUCTION can be left holding the wrong
-// thing in. That divergence — test and production taking different paths through the
-// same code — caused two of this lane's three runner failures, so the seam ships with
-// a structural assertion that both real call sites pass the real prober. Parsing,
-// not executing, because these lines only run on a host with a sandbox.
-func TestSandboxLinux_ProductionPathUsesTheRealABIProbe(t *testing.T) {
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "sandbox_linux.go", nil, 0)
-	if err != nil {
-		t.Fatalf("parsing sandbox_linux.go: %v", err)
-	}
-
-	// BOTH hops are asserted: the two dispatch delegations that pass the prober down,
-	// and the two inner functions that hand it to newSandboxHelperCommand. Checking
-	// only the inner hop would let a delegation quietly pass something else.
-	wanted := map[string]int{
-		"linuxSandboxedRunWith":       0,
-		"linuxSandboxedRunStdoutWith": 0,
-		"newSandboxHelperCommand":     0,
-	}
-	callSites := 0
-	ast.Inspect(file, func(n ast.Node) bool {
-		call, ok := n.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		ident, ok := call.Fun.(*ast.Ident)
-		if !ok {
-			return true
-		}
-		if _, tracked := wanted[ident.Name]; !tracked {
-			return true
-		}
-		wanted[ident.Name]++
-		callSites++
-		last, ok := call.Args[len(call.Args)-1].(*ast.Ident)
-		if !ok || last.Name != "probeLandlockABI" {
-			t.Errorf("a production call to newSandboxHelperCommand at %s does not pass probeLandlockABI as "+
-				"its prober. The sandbox would negotiate its ABI through something other than the kernel, "+
-				"which is the test/production divergence this guard exists to prevent",
-				fset.Position(call.Pos()))
-		}
-		return true
-	})
-
-	// Two delegations + two inner calls = four sites that must all carry the real
-	// prober. The exact count is asserted so the guard cannot pass vacuously after a
-	// rename or a deletion.
-	if callSites != 4 {
-		t.Fatalf("expected 4 prober-carrying call sites (2 dispatch delegations + 2 inner calls to "+
-			"newSandboxHelperCommand), found %d — this guard asserts a property OF those sites and is "+
-			"meaningless if they moved. counts: %v", callSites, wanted)
-	}
-	for fn, n := range wanted {
-		if n == 0 {
-			t.Errorf("no call to %s carries the prober; the chain from the platform-neutral dispatch down "+
-				"to the helper command is broken", fn)
-		}
-	}
-}
-
 // TestLinuxSandboxedRunWith_WrapsThePrepareFailure drives platformSandboxedRun's
 // refusal wrap, which is unreachable through the production entry point.
 //
 // The wrap only fires when newSandboxHelperCommand fails from INSIDE this function,
-// and the production call site passes the real prober — as the wiring guard above
-// enforces — so on a healthy runner it never executes. Injecting the failure here is
+// and the production call site passes the real prober — as
+// TestSandboxLinux_ProductionPathUsesTheRealABIProbe enforces, from the untagged
+// sandbox_wiring_guard_test.go where it now lives so it runs on every platform — so
+// on a healthy runner it never executes. Injecting the failure here is
 // the only honest way to reach it, and what it locks is that the refusal is WRAPPED
 // with context rather than returned bare: a caller seeing "prepare the linux sandbox"
 // knows the sandbox never came up, not that the command itself failed.
