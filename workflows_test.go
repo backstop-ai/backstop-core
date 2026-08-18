@@ -96,11 +96,6 @@ func (p *workflowPermissions) UnmarshalYAML(node *yaml.Node) error {
 	}
 }
 
-// declared reports whether a `permissions:` key was present in either shape.
-func (p workflowPermissions) declared() bool {
-	return p.Scalar != "" || p.Scopes != nil
-}
-
 type workflowStep struct {
 	Name string            `yaml:"name"`
 	Uses string            `yaml:"uses"`
@@ -1446,7 +1441,7 @@ func TestCIWorkflow_GateJobProvesTheBaselineLandedAfterTheGate(t *testing.T) {
 			"blocking run. The ordering leg below anchors on the LAST of them, so a third would silently "+
 			"re-anchor it", ciWorkflowFile, len(gateSteps), selfGateInvocation, stepNames(job, gateSteps))
 	}
-	lastGate := gateSteps[len(gateSteps)-1]
+	lastGate := lastStepIndex(job, selfGateInvocation)
 
 	confirmations := stepIndexes(job, committedBaselinePath)
 	if len(confirmations) != 1 {
@@ -1527,7 +1522,7 @@ func TestCIWorkflow_TheOnlyBaselinePullFollowsEveryGateInvocation(t *testing.T) 
 		t.Fatalf("%s: %d gate-job steps invoke %q (%v), want exactly 2 — a third would re-anchor the ordering leg "+
 			"below", ciWorkflowFile, len(gateSteps), selfGateInvocation, stepNames(job, gateSteps))
 	}
-	lastGate := gateSteps[len(gateSteps)-1]
+	lastGate := lastStepIndex(job, selfGateInvocation)
 
 	if pulls[0] <= lastGate {
 		t.Errorf("%s: the only `%s` is step %d, at or before the LAST gate invocation (step %d). It must follow "+
