@@ -133,3 +133,69 @@ Performed 2026-08-18 before authoring: `grep -ril` over `issues/` and `bundles/`
 injectable-prober seam this guard tests — not a duplicate of this specific test-naming defect —
 and this issue's own not-yet-authored file. No open issue or bundle charter already owns this
 surface.
+
+## Verification ceiling — fix landed, awaiting CI confirmation (2026-08-18)
+
+**The fix has landed on `main`, across three commits. This issue stays `open` — do not read this
+note as a close.**
+
+- `8d35706` — the primary fix: moved the guard from `sandbox_linux_errors_test.go`
+  (`//go:build linux`) into a new, untagged file, `pkg/packval/sandbox_wiring_guard_test.go`, and
+  rewrote `proberWiringViolations` to classify each tracked call site by its ENCLOSING FUNCTION
+  rather than doing a flat identifier-name match — closing the false positive this issue
+  documents. `sandbox_linux.go` itself is untouched by this commit; only the guard's own logic
+  changed.
+- `fc2b8ce` — two more evasions closed after adversarial impl-review prototyped the rewritten
+  guard against the real shipped code and found three new silent-green gaps beyond the two prior
+  review rounds: (1) a **dispatch-seam re-bind gap** — the dispatch seam (`platformSandboxedRun`
+  → `linuxSandboxedRunWith`, and its stdout sibling) had no re-bind protection at all, despite the
+  guard's own docs calling it the more critical seam; (2) a **declaration-form re-bind gap** — the
+  re-bind scanner matched only `*ast.AssignStmt` (`=`/`:=`), missing a `var x T = fake`
+  `*ast.ValueSpec` declaration in a nested block, which is legal Go and evaded the scan entirely.
+  A third, unrelated cosmetic fix landed alongside: a blank-identifier (`_`) prober parameter
+  previously produced nonsense advice instead of being flagged as its own defect. All three are
+  pinned by dedicated fixtures, each confirmed via mutation testing (fixture fails when its rule
+  is removed). A fourth evasion found in the same review pass — a `FuncLit` whose own parameter
+  shadows the outer injected prober — was explicitly deferred, not fixed here; see `ISSUE-170`.
+
+### Why local verification is capped by construction
+
+`pkg/packval/sandbox_linux_errors_test.go` remains `//go:build linux`-gated and is therefore
+invisible to every native darwin command on this machine — proved, not assumed: a deliberate type
+error introduced into that file left `go build ./...`, `go vet ./pkg/packval/`, and
+`go test ./pkg/packval/` all clean on darwin, while `GOOS=linux GOARCH=amd64 go test -c` against
+the same tree caught it immediately. So local evidence establishes only that the rewritten guard
+— now living in the untagged `sandbox_wiring_guard_test.go`, which DOES run on darwin — passes
+against the same `sandbox_linux.go` CI reads, and that the remaining linux-tagged test file
+(`sandbox_linux_errors_test.go`) still compiles under a Linux cross-compile. It never establishes
+that the CI failure this issue was filed from is resolved — that requires a real Linux CI run,
+which this lane cannot produce locally.
+
+### CI-watch criterion — state this precisely
+
+Workflow `.github/workflows/ci.yml`, job `gate` (display name "Backstop Gate", `runs-on:
+ubuntu-latest`), blocking step "Run the gate." Download the `gate-report` artifact from a CI run
+at or after commit `fc2b8ce` and confirm: the `backstop-ai/go-toolchain/go-test` violations
+contain **no result** on `sandbox_linux_errors_test.go` or `sandbox_wiring_guard_test.go` whose
+message contains "does not pass probeLandlockABI." There is only ever one such row when present,
+never two — the converter emits one result per failing test regardless of how many individual
+`t.Errorf` assertions fire inside it. Do **not** gate this confirmation on `.scope.files`
+containing `pkg/packval` — that package's `go-test` binding is `exempt_from_scope_filter: true`
+and runs project-wide regardless of diff scope, so its absence from the scope file list proves
+nothing either way. **Total violation count is not a valid confirmation criterion** — CI runs are
+not comparably scoped to each other, so a lower (or higher) count establishes nothing about this
+specific fix.
+
+**Partial real confirmation already obtained, as of this writing.** CI run `32143000202` (commit
+`8d35706`, the primary-fix commit, completed with overall conclusion `failure` for unrelated
+reasons) was downloaded and read directly: `pkg/packval/sandbox_linux_errors_test.go` and
+`pkg/packval/sandbox_wiring_guard_test.go` both appear in `.scope.files`, the string
+`probeLandlockABI` does not appear anywhere in the report's violations, and neither file produces
+any `backstop-ai/go-toolchain/go-test` violation. This confirms the PRIMARY fix (`8d35706`) alone
+already cleared Linux CI's original false-positive. It does **not** yet confirm `fc2b8ce`'s two
+additional evasion closures — the CI run for that commit (`32150146086`) was still `in_progress`
+at authoring time, not completed. Treat the primary defect as CI-confirmed fixed and the two
+adversarial-evasion closures as still awaiting their own CI read.
+
+State plainly: fix landed, awaiting full CI confirmation. Do not claim or imply the complete fix
+(through `fc2b8ce`) is confirmed working, and do not close this issue.

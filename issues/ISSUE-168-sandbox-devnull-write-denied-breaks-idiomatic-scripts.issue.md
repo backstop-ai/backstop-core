@@ -136,3 +136,105 @@ behavior. The specific mechanism is left to this issue's plan.
 Performed 2026-08-18 before authoring: `grep -ril` over `issues/` and `bundles/` for "dev/null"
 and "devnull" matched no open issue or bundle charter — only this issue's own not-yet-authored
 file. No duplicate ownership of this surface exists.
+
+## Verification ceiling — fix landed, awaiting CI confirmation (2026-08-18)
+
+**The fix has landed on `main`, across two commits. This issue stays `open` — do not read this
+note as a close.**
+
+- `4f3a810` — the primary fix, darwin and Linux code together: darwin's `sandbox-exec` profile
+  literal (`pkg/packval/sandbox_nonlinux.go`) gained `(allow file-write* (literal "/dev/null"))`
+  appended after the existing blanket `(deny file-write*)`; Linux (`pkg/packval/sandbox_capability.go`)
+  gained one appended Landlock path rule for `/dev/null` with rights
+  `READ_FILE|WRITE_FILE|TRUNCATE|IOCTL_DEV`.
+- `23b08ac` — a follow-on coverage-exclusion fix, not a behavior change: CI flagged
+  `pkg/packval/sandbox_nonlinux.go` as unmeasurable (`//go:build !linux` means it never compiles
+  on CI's `ubuntu-latest` runners, so it can structurally never produce a coverage record there),
+  and this commit added it to `.backstop/coverage-exclusions` following the exact existing
+  precedent already recorded for `sandbox_linux_helper.go`'s mirror-image gap (that file is
+  `//go:build linux`-excluded from darwin's own coverage runs for the analogous reason).
+
+### Darwin — verified for real; Linux — compile/link only, kernel behavior awaits CI
+
+The **darwin half was verified behaviorally on a real macOS host**: real `sandbox-exec` runs,
+both by the implementer and independently by the impl-reviewer, confirmed the `/dev/null` write
+now succeeds under the production profile while an ordinary write to a sibling path in `packDir`
+stays denied under the same profile — narrow and non-widening, confirmed directly rather than
+inferred.
+
+The **Linux half is only compile+link verified** (`GOOS=linux GOARCH=amd64 go test -c -o /dev/null
+./pkg/packval/`) plus the pure-derivation arithmetic (the rights mask and rule-uniqueness tests,
+which run natively on darwin since they touch no Landlock syscall). The kernel's actual verdict
+on the rule — whether Landlock genuinely accepts and enforces it — is unverifiable on this
+machine (no Landlock-capable kernel available locally) and awaits CI.
+
+### Partial real CI confirmation already obtained, as of this writing
+
+CI run `32142326172` (`gate-report.json` downloaded and read directly), for the pre-coverage-fix
+commit `4f3a810`, was checked against the specific failure signature this issue documents:
+`.scope.files` includes `pkg/packval/sandbox_capability.go`, `sandbox_capability_test.go`,
+`sandbox_darwin_test.go`, `sandbox_devnull_test.go`, `sandbox_linux_exec_test.go`, and
+`sandbox_nonlinux.go` — so `pkg/packval` was genuinely in scope for this run, not merely expected
+to be. No violation in the report's `backstop-ai/go-toolchain/go-test` results mentions
+`cannot create /dev/null`, `/dev/null: Permission denied`, or `exit status 127` in the packval
+channel — the specific `/dev/null` failure signature is confirmed **GONE** from this run's
+violations. (The run's overall conclusion was still `failure`, for unrelated reasons — most
+visibly a `coverage_unmeasured` violation on `sandbox_nonlinux.go`, which is exactly the gap the
+follow-on commit `23b08ac` was written to close.)
+
+**What this does and does not establish:** this is real, partial confirmation that the `/dev/null`
+denial signature is gone from a genuine CI run with the package in scope. It does **not** yet
+confirm the coverage-exclusion follow-up commit (`23b08ac`) — that commit has not itself been
+through a fresh CI run as of this writing. It also does not, on its own, adjudicate the separate
+network-blocking failure in `TestLinuxSandbox_NetworkAllowedControlLegSucceeds`; see the note
+below.
+
+State plainly: the primary `/dev/null` fix is real-CI-confirmed working; the coverage-exclusion
+follow-up awaits its own CI run. Do not close this issue.
+
+## Open premise correction owed to DIR-024 (not this lane's to hand-edit)
+
+This issue's own "Root cause, fully traced" section above states, as a settled distinction: "the
+`/dev/null` denials are visible in the captured output and are a real, independent instance of
+this same defect, but they are NOT what makes this particular test fail" (referring to
+`TestLinuxSandbox_NetworkAllowedControlLegSucceeds`). Local investigation during this fix's
+implementation produced a real, platform-independent measurement (documented in
+`plans/PLAN-ISSUE-168-sandbox-devnull-write-allowance.plan.yml` as "M7") that makes this doubtful:
+`networkProbeBody` (`pkg/packval/sandbox_linux_exec_test.go`) attaches `2>/dev/null` to the shell
+`if` CONDITION itself —
+
+```
+if (exec 3<>/dev/tcp/127.0.0.1/%d) 2>/dev/null; then echo TCP_OPEN; else echo TCP_BLOCKED; fi
+```
+
+— and a real-bash probe run locally against an OPEN loopback port showed that an unopenable
+redirect target on an `if` condition makes the shell take the ELSE branch WITHOUT ever attempting
+the command inside — reproducing the CI output's exact shape (`TCP_BLOCKED`/`UDP_BLOCKED` with no
+socket ever attempted). If that holds, both failing tests may share the single `/dev/null` root
+cause this issue fixes, rather than the network-blocking test hiding a second, independent
+defect.
+
+**This was left, correctly, as an unconfirmed hypothesis pending a real CI read — not asserted as
+fact.** It is recorded here rather than resolved because a real CI run against the fix is what
+adjudicates it: control leg (`TestLinuxSandbox_NetworkAllowedControlLegSucceeds`) GREEN once the
+`/dev/null` fix lands means this issue accounted for both failures and nothing further needs
+filing for the network; control leg still RED with the `/dev/null` stderr lines gone means a
+genuine, previously-masked network-permission defect exists and needs its own issue, filed with
+the newly-clean evidence.
+
+**`directives/DIR-024-gate-engine-quality.directive.md`, lines ~1241-1247 (item 23), currently
+states the ORIGINAL, now-uncertain claim verbatim as settled fact** — the same sentence this
+issue's own "Root cause" section carries above. DIR-024 is the committed backlog layer a future
+session reads FIRST, before any individual issue, so leaving it stale there defeats the purpose
+of correcting it here: a future reader would still be sent after a defect that may not exist,
+just through a different door.
+
+**DIR-024 is a directive, not an issue, and it is currently being actively modified in the
+working tree by the backlog-pm lane** (`git status` at authoring time showed
+`M directives/DIR-024-gate-engine-quality.directive.md`, from that lane's ongoing auto-triage of
+other same-night filings). Per this repo's routing rules, directives are never hand-edited by an
+issue-authoring lane. This note exists so the obligation is not silently lost: **once a real CI
+run confirms or refutes the M7 hypothesis above, DIR-024 lines ~1241-1247 need the same
+correction this issue's own text would need if it turned out wrong** — a backlog-pm-owned
+correction to route through that lane (or whatever mechanism supersedes it), not one for a future
+session to hand-edit directly.
