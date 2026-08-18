@@ -140,6 +140,59 @@ Add the same `MaybeRunSandboxHelper()` first-statement check to
 `cmd/backstop/integration_test.go`'s `TestMain`, mirroring `pkg/packval/main_test.go`'s exact
 pattern, before its `go build` step. Issues never carry the fix — this belongs in a plan.
 
+## Verification
+
+**Status: fix landed, awaiting CI confirmation.** This issue stays `open` — it is not closed on
+the strength of local evidence alone.
+
+### What landed
+
+The fix (`PLAN-ISSUE-163`, TASK-002) landed at commit `970512b` on `main`, pushed. It adds the
+`packval.MaybeRunSandboxHelper()` first-statement guard to `cmd/backstop/integration_test.go`'s
+`TestMain`, mirroring `pkg/packval/main_test.go`'s existing correct pattern, and adds a new
+structural-pin test file, `cmd/backstop/sandbox_helper_testmain_guard_test.go`. An independent
+implementation review of the change passed clean — PASS, no code changes requested.
+
+### The verification ceiling — read before trusting any local claim about this fix
+
+This entire investigation, and the whole implementation lane, ran on **macOS (darwin)**.
+`pkg/packval/sandbox_linux.go` and `pkg/packval/sandbox_linux_helper.go` — the Linux-only
+sandbox re-exec mechanism this issue is about — are both `//go:build linux`-gated. They do not
+compile on darwin at all; `MaybeRunSandboxHelper()` resolves to the `!linux` no-op stub on this
+platform. **The actual Linux-side behavior this fix is meant to correct cannot be confirmed
+locally, by construction — not "wasn't tried," cannot be.**
+
+What local evidence DOES establish, and no more than this:
+
+- The guard's **structural shape** is correctly present. Two new AST-based tests pin it: the
+  guard is the literal first statement of `TestMain`'s body (position zero, above the temp-dir
+  creation and the `go build` step), the error is checked (not a bare call), and the exit path
+  reuses the package's existing `sandboxHelperExitCode` constant rather than a fresh literal.
+- Those two pins were mutation-tested against **8 real regressions total**, run by both the
+  implementer and an independent implementation reviewer, and every one of the 8 was caught
+  correctly — including the deliberate carveout that the propagation-roster test must **not**
+  flag `pkg/packval/main_test.go`'s legitimate bare `os.Exit(126)` literal, since that package
+  has no shared exit-code constant to reference (a different-package property, not a defect).
+- The full existing `cmd/backstop` test suite passes unchanged, except one pre-existing,
+  already-tracked red (`TestPackAuthoringLoop_EndToEnd`, `ISSUE-147` lineage — attributed, not
+  absorbed).
+
+None of the above confirms the Linux mechanism itself is fixed. It confirms the edit is
+structurally correct and provably inert on the one platform this session can measure.
+
+### What real confirmation requires
+
+Reading CI's actual `gate-report.json` from a `ubuntu-latest` run (`.github/workflows/ci.yml`,
+job `gate`) that includes this commit, and confirming both: (a) `cmd/backstop` is genuinely in
+that run's diff-scoped `.scope.files` list, and (b) the `"failed to build binary"` / `"no Go
+files in"` signature is gone from
+`TestSubstantivenessFixtures_RealPackTestPassesPhase3`'s result. **That reading has not happened
+yet from this session.** Whether/when to push in a way that triggers it is a separate decision,
+not made here.
+
+State plainly: **fix landed, awaiting CI confirmation** — the fix is not claimed or implied to
+be confirmed working.
+
 ## References
 
 - `pkg/packval/main_test.go` — the correct precedent: `TestMain` calling
