@@ -144,6 +144,27 @@ func proberWiringViolations(fset *token.FileSet, file *ast.File) (violations []s
 			}
 		}
 
+		// ★ THE DISPATCH SEAM GETS RE-BIND PROTECTION TOO, AND IT IS NOT OPTIONAL.
+		// The comment above calls this the ONE hop where the real prober enters the
+		// chain and says nothing downstream can recover from getting it wrong — and
+		// yet for one review round this was the WEAKER seam, because the re-bind scan
+		// lived only inside bucket B. A local
+		//     probeLandlockABI := someFake
+		// in the dispatch body makes the forwarded identifier spell correctly while
+		// naming something else entirely, and that produced ZERO violations
+		// (reviewer's repro, ISSUE-165 impl-review). The strictest seam must not be
+		// the least defended one.
+		if len(dispatchCalls) > 0 {
+			for _, rebind := range proberWiringRebindsOf(fn.Body, proberWiringRealProber) {
+				report("%s: the platform-neutral dispatch seam %s RE-BINDS or SHADOWS the identifier %s inside "+
+					"its own body, so the name it forwards is no longer the package-level prober even though it "+
+					"still spells correctly. This is the ONE hop where the real prober enters the chain, so "+
+					"nothing downstream can recover from it. This guard checks IDENTIFIER BINDING, not dataflow "+
+					"provenance — real provenance would need go/types, which it deliberately does not use",
+					at(rebind), enclosing, proberWiringRealProber)
+			}
+		}
+
 		// ── BUCKET B — THE INJECTABLE SEAMS (CLM-002) ───────────────────────────
 		if len(forwardCalls) > 0 {
 			// RESOLVE THE PROBER PARAMETER BY TYPE, NEVER POSITIONALLY. A trailing
@@ -183,6 +204,20 @@ func proberWiringViolations(fset *token.FileSet, file *ast.File) (violations []s
 					at(fn), enclosing, proberWiringProberType, proberWiringRealProber)
 			}
 
+			// A BLANK-IDENTIFIER PROBER PARAMETER IS ITS OWN DEFECT, and reporting it
+			// as one is also what stops the B1 message below degenerating into the
+			// nonsense advice "it must forward its OWN prober parameter _". A seam
+			// that accepts an injection and names it `_` has thrown the injection
+			// away at the signature: it cannot forward it, and every caller-supplied
+			// fake is silently discarded.
+			if resolved == "_" {
+				report("%s: the injectable seam %s names its %s parameter _ (the blank identifier), so it "+
+					"DISCARDS the prober its caller injected and can never forward it. An injection seam that "+
+					"throws its injection away at the signature is a defect, not a naming choice",
+					at(fn), enclosing, proberWiringProberType)
+				resolved = ""
+			}
+
 			for _, call := range forwardCalls {
 				last, empty := proberWiringLastArg(call)
 				if empty {
@@ -214,12 +249,12 @@ func proberWiringViolations(fset *token.FileSet, file *ast.File) (violations []s
 
 			// B3 — the honest mitigation for the provenance this checker does not do.
 			if resolved != "" {
-				for _, assign := range proberWiringAssignmentsTo(fn.Body, resolved) {
-					report("%s: the injectable seam %s RE-BINDS its prober parameter %s inside its own body, so "+
-						"the forwarded name is no longer the injected value even though it still spells "+
+				for _, rebind := range proberWiringRebindsOf(fn.Body, resolved) {
+					report("%s: the injectable seam %s RE-BINDS or SHADOWS its prober parameter %s inside its own "+
+						"body, so the forwarded name is no longer the injected value even though it still spells "+
 						"correctly. This guard checks IDENTIFIER BINDING, not dataflow provenance — real "+
 						"provenance would need go/types, which it deliberately does not use",
-						at(assign), enclosing, resolved)
+						at(rebind), enclosing, resolved)
 				}
 			}
 		}
@@ -300,18 +335,41 @@ func proberWiringLastArg(call *ast.CallExpr) (arg ast.Expr, empty bool) {
 	return call.Args[len(call.Args)-1], false
 }
 
-// proberWiringAssignmentsTo finds every assignment whose left-hand side binds name.
-func proberWiringAssignmentsTo(body *ast.BlockStmt, name string) []*ast.AssignStmt {
-	var found []*ast.AssignStmt
+// proberWiringRebindsOf finds every place inside body that binds name to something
+// new — the AST-visible ways a correctly-SPELLED forward can be carrying the wrong
+// VALUE.
+//
+// TWO NODE SHAPES, AND THE SECOND ONE IS EASY TO MISS. An *ast.AssignStmt covers
+// `name = x` and `name := x`. It does NOT cover the DECLARATION form
+// `var name LandlockABIProbe = someFake`, which the parser gives as an
+// *ast.DeclStmt wrapping a *ast.GenDecl of *ast.ValueSpec — a different node type
+// entirely, and in a nested block it is legal Go that shadows the parameter for
+// every statement after it. An assignment-only scan reported ZERO violations on
+// exactly that shape (reviewer's repro, ISSUE-165 impl-review), so both are matched
+// here. Matching the ValueSpec also flags a shadow declared in an inner block even
+// when it never reaches the forward: this guard resolves no scopes, so it reports
+// the ambiguity rather than guessing which binding wins.
+//
+// STILL OUT OF REACH, DELIBERATELY: a FuncLit whose own PARAMETER shadows the
+// prober identifier. That needs FuncLit-parameter-shadow detection and is tracked
+// as a follow-on to ISSUE-165, not silently absorbed.
+func proberWiringRebindsOf(body *ast.BlockStmt, name string) []ast.Node {
+	var found []ast.Node
 	ast.Inspect(body, func(node ast.Node) bool {
-		assign, isAssign := node.(*ast.AssignStmt)
-		if !isAssign {
-			return true
-		}
-		for _, lhs := range assign.Lhs {
-			if ident, isIdent := lhs.(*ast.Ident); isIdent && ident.Name == name {
-				found = append(found, assign)
-				return true
+		switch bound := node.(type) {
+		case *ast.AssignStmt:
+			for _, lhs := range bound.Lhs {
+				if ident, isIdent := lhs.(*ast.Ident); isIdent && ident.Name == name {
+					found = append(found, bound)
+					return true
+				}
+			}
+		case *ast.ValueSpec:
+			for _, declared := range bound.Names {
+				if declared.Name == name {
+					found = append(found, bound)
+					return true
+				}
 			}
 		}
 		return true
@@ -660,6 +718,115 @@ func linuxSandboxedRunStdoutWith(command string, args []string, packDir string, 
 }
 `
 
+// ★ proberWiringReboundProberAtDispatch is the DISPATCH-SEAM twin of the case
+// above, and it is here because for one review round it was the hole the guard's
+// own prose said could not exist.
+//
+// The forwarded identifier spells probeLandlockABI exactly, so the bucket-A
+// last-argument rule passes — while a local binding one line earlier has made that
+// name mean someFake. The re-bind scan originally ran only inside the bucket-B
+// branch, so this produced ZERO violations at the seam the checker calls "the ONE
+// place the real prober enters the chain, and nothing downstream can recover from
+// getting it wrong here." The strictest seam must not be the least defended one.
+const proberWiringReboundProberAtDispatch = `package packval
+
+func platformSandboxedRun(command string, args []string, packDir string) ([]byte, error) {
+	probeLandlockABI := someFake
+	return linuxSandboxedRunWith(command, args, packDir, probeLandlockABI)
+}
+
+func linuxSandboxedRunWith(command string, args []string, packDir string, probeABI LandlockABIProbe) ([]byte, error) {
+	helper, err := newSandboxHelperCommand(command, args, packDir, probeABI)
+	if err != nil {
+		return nil, err
+	}
+	return helper.CombinedOutput()
+}
+
+func platformSandboxedRunStdout(command string, args []string, packDir string, stdin []byte) ([]byte, error) {
+	return linuxSandboxedRunStdoutWith(command, args, packDir, stdin, probeLandlockABI)
+}
+
+func linuxSandboxedRunStdoutWith(command string, args []string, packDir string, stdin []byte, probeABI LandlockABIProbe) ([]byte, error) {
+	helper, err := newSandboxHelperCommand(command, args, packDir, probeABI)
+	if err != nil {
+		return nil, err
+	}
+	return helper.CombinedOutput()
+}
+`
+
+// ★ proberWiringVarFormShadowedProber is the DECLARATION-form re-bind, and it is
+// legal, compiling Go rather than a contrivance: an inner block declares
+// `var probeABI LandlockABIProbe = someFake`, shadowing the injected parameter, and
+// the forward inside that block picks up the shadow. The forwarded name still
+// spells probeABI, so B1 passes; the parameter is still correctly named, so B2
+// passes. An assignment-only re-bind scan sees an *ast.AssignStmt and this is an
+// *ast.DeclStmt/*ast.ValueSpec, so it reported ZERO violations.
+const proberWiringVarFormShadowedProber = `package packval
+
+func platformSandboxedRun(command string, args []string, packDir string) ([]byte, error) {
+	return linuxSandboxedRunWith(command, args, packDir, probeLandlockABI)
+}
+
+func linuxSandboxedRunWith(command string, args []string, packDir string, probeABI LandlockABIProbe) ([]byte, error) {
+	if command != "" {
+		var probeABI LandlockABIProbe = someFake
+		helper, err := newSandboxHelperCommand(command, args, packDir, probeABI)
+		if err != nil {
+			return nil, err
+		}
+		return helper.CombinedOutput()
+	}
+	return nil, nil
+}
+
+func platformSandboxedRunStdout(command string, args []string, packDir string, stdin []byte) ([]byte, error) {
+	return linuxSandboxedRunStdoutWith(command, args, packDir, stdin, probeLandlockABI)
+}
+
+func linuxSandboxedRunStdoutWith(command string, args []string, packDir string, stdin []byte, probeABI LandlockABIProbe) ([]byte, error) {
+	helper, err := newSandboxHelperCommand(command, args, packDir, probeABI)
+	if err != nil {
+		return nil, err
+	}
+	return helper.CombinedOutput()
+}
+`
+
+// proberWiringBlankProberParameter: the injectable seam names its prober parameter
+// `_`. The seam still ADVERTISES an injection point in its signature and then
+// discards it, so every caller-supplied fake is silently thrown away — and before
+// this was its own rule, the B1 message degenerated into the nonsense advice "it
+// must forward its OWN prober parameter _", which is itself evidence of the defect
+// rather than a diagnosis of it.
+const proberWiringBlankProberParameter = `package packval
+
+func platformSandboxedRun(command string, args []string, packDir string) ([]byte, error) {
+	return linuxSandboxedRunWith(command, args, packDir, probeLandlockABI)
+}
+
+func linuxSandboxedRunWith(command string, args []string, packDir string, _ LandlockABIProbe) ([]byte, error) {
+	helper, err := newSandboxHelperCommand(command, args, packDir, someFake)
+	if err != nil {
+		return nil, err
+	}
+	return helper.CombinedOutput()
+}
+
+func platformSandboxedRunStdout(command string, args []string, packDir string, stdin []byte) ([]byte, error) {
+	return linuxSandboxedRunStdoutWith(command, args, packDir, stdin, probeLandlockABI)
+}
+
+func linuxSandboxedRunStdoutWith(command string, args []string, packDir string, stdin []byte, probeABI LandlockABIProbe) ([]byte, error) {
+	helper, err := newSandboxHelperCommand(command, args, packDir, probeABI)
+	if err != nil {
+		return nil, err
+	}
+	return helper.CombinedOutput()
+}
+`
+
 // proberWiringUnclassifiedSite: a third delegation appears that nobody classified.
 // A silently skipped site is the failure mode this arm exists to prevent — the four
 // known sites stay correct and a fifth quietly does whatever it likes.
@@ -852,6 +1019,33 @@ func TestSandboxLinux_ABIProbeWiringGuardFalsifiesEachDefectShape(t *testing.T) 
 			src:           proberWiringReboundProber,
 			wantViolation: true,
 			wantMentions:  []string{"linuxSandboxedRunWith", "re-bind"},
+			wantDispatch:  2,
+			wantForward:   2,
+		},
+		{
+			name:          "re-bound prober identifier inside a DISPATCH seam body",
+			why:           "the forwarded name spells probeLandlockABI exactly while meaning someFake; the strictest seam must not be the least defended one",
+			src:           proberWiringReboundProberAtDispatch,
+			wantViolation: true,
+			wantMentions:  []string{"platformSandboxedRun", "re-bind"},
+			wantDispatch:  2,
+			wantForward:   2,
+		},
+		{
+			name:          "declaration-form shadow of the prober parameter",
+			why:           "var probeABI LandlockABIProbe = someFake is an *ast.DeclStmt/*ast.ValueSpec, not an *ast.AssignStmt, so an assignment-only scan sees nothing",
+			src:           proberWiringVarFormShadowedProber,
+			wantViolation: true,
+			wantMentions:  []string{"linuxSandboxedRunWith", "shadow"},
+			wantDispatch:  2,
+			wantForward:   2,
+		},
+		{
+			name:          "blank-identifier prober parameter",
+			why:           "the seam advertises an injection point and discards it; without its own rule the forwarding message degenerates into advice to forward `_`",
+			src:           proberWiringBlankProberParameter,
+			wantViolation: true,
+			wantMentions:  []string{"linuxSandboxedRunWith", "blank identifier"},
 			wantDispatch:  2,
 			wantForward:   2,
 		},

@@ -1,109 +1,110 @@
-- [Agent-guard blocks Write/Edit](feedback_agent_guard_testdata.md) — non-Go always; ALL files when named impl-phase-N/impl-task-N (use Bash heredoc); artifacts blocked BOTH ways -> route to spec-author/planner
-- [Dogfood/gate quirks (SPEC-031)](project_dogfood_gate_quirks.md) — contract checker collapsed defined types; no-global-mutable-state false-fired on const; both fixed by precision, not weakening
-- [Pack dispatch not bypass](feedback_pack_dispatch_not_bypass.md) — pack-consuming gate steps route engine exec through dispatchPackEngines seam (sandbox+allowlist), never raw exec; spy the sandbox seam in the E2E
-- [Net-negative gate baseline](feedback_netnegative_gate_baseline.md) — behavior-preserving diffs go gate-RED on pre-existing pack_engines findings (whole-file scope, no local baseline); prove net-new=0 via HEAD-vs-NOW semgrep, fix only yours, report inherited red to the user
-- [Coverage producer stream bug](project_coverage_producer_stream_bug.md) — SPEC-042 producer feeds the convert go-test's SUMMARY stdout not the cover.out profile; changed .go files get no record so gate falsely reds; fix = declared stdout_artifact
-- [Struct-contract compiler RESOLVED](project_struct_contract_compiler_gap.md) — kind-aware since ISSUE-036/d5efd5b; `type X struct` contracts PASS (re-verified on manifest.go); the old "ignore the red" advice would now hide a real finding
-- [Semgrep key-literal FP](feedback_semgrep_key_literal_fp.md) — secrets pack flags "Hardcoded credentials" on any key/secret/token/password identifier assigned a string literal; rename to clear
-- [Smoke dark-pack pre-failures](project_smoke_darkpack_prefailures.md) — tests/smoke has 4 PRE-EXISTING substantiveness/contracts/coverage failures; diff against a green base before claiming a regression
-- [Config strict loader / inert key](project_config_strict_loader_inert_key.md) — backstop.yml is STRICT (KnownFields+schema-required), NOT non-strict; retiring a config field needs schema required-drop + exported inline catch-all
-- [Editing a file pulls it into gate scope](project_editing_file_pulls_it_into_gate_scope.md) — first edit to a tracked file surfaces latent per-file landmines (contract-absence prose grep FP; unfaithful on-disk test fixture); fix at source, do not revert
-- [DefaultRegistry eradication (ISSUE-027)](project_defaultregistry_eradication.md) — built-ins now from embedded base-engines pack + external go-toolchain pack; validateEngine defers unknown-engine to gate; separation stays non-vacuous
-- [Gate residual reds after ISSUE-027](project_gate_residual_reds_issue027.md) — self-pack GREEN (binding.go 6→0); residual contract_signature + coverage reds are pre-existing file-scope/struct-compiler/types-only/root-file quirks, not eradication failures
-- [Self-pack backlog closed (ISSUE-021)](project_self_pack_backlog_closed.md) — DIR-014 last self-finding cleared 2026-07-06; backstop/self whole-repo GREEN, 0 active; residual gate reds all non-self
-- [Coverage zero-stmt proxy unsound (ISSUE-045 case-1)](project_coverage_zerostmt_proxy_unsound.md) — gate-side directory proxy for zero-statement N/A defeats bun anti-vacuous-green guard; fix belongs producer-side (emit total=0 N/A records), not in pkg/gate
-- [ISSUE-042 drift blast radius](project_issue042_drift_blast_radius.md) — measured 39 block + 10 warn (not ~84); plans carry no mandated tests, so the estimate double-counted PLAN-SPEC-001
-- [go-standards rule mechanics](feedback_gostandards_rule_mechanics.md) — constructor-injection false-fires on CachePath-style field names (hoist field out of literal); no-ignored-errors flags any `, _ :=` even non-error; touching a file pulls its WHOLE pre-existing finding set (incl tests) into blocking diff scope
-- [Pack copies + stale gate binary](project_pack_copies_and_stale_gate_binary.md) — a local pack has source + gitignored .backstop/ installed + pkg/gate/testdata copies (sync all, relock); `backstop gate` runs the stale /usr/local/bin binary not your source (rebuild to scratch to verify, phantom reds otherwise)
-- [Capturing .env fixtures](feedback_capturing_env_fixtures.md) — .env.local reads are classifier-blocked; capture the committed .env.example surface (no redaction needed) + cite sha256
-- [No `backstop code check`](project_no_code_check_command.md) — the command plans/contract mandate does not exist; use diff-scoped `backstop gate` + `go test` for red/green
-- [Synthesized fixture hides the path base](project_synthesized_fixture_hides_path_base.md) — a test that creates the file at the computed path cannot falsify WHICH base was used; only the real-installed-pack E2E can
-- [Hermetic pack fixture recipe](project_hermetic_pack_fixture_recipe.md) — claimless engine rule = passes packval executing nothing; rule-file id mismatch = check-pass/test-fail; missing rule file = validator-only reject
-- [main.go seam-extraction landmines](project_main_seam_extraction_landmines.md) — errcheck fires on Fprintln to an io.Writer (os.Stderr is default-excluded); main.go can never hit the 80% coverage floor; the PACK .golangci.yml is the one that runs
-- [Never stash in the shared tree](feedback_never_stash_shared_tree.md) — siblings have live uncommitted work; prove reds inherited via cited-file compare, per-file gate, or control-vs-treatment from `git archive HEAD`; sibling MID-REFACTOR (arity split flipping sides) → detached worktree at HEAD, also for falsification mutations on unowned code
-- [":" not "true" in hermetic fixtures](feedback_colon_not_true_hermetic_fixture.md) — LookPath("true") resolves /usr/bin/true; builtin-ness ≠ PATH-absence, only the latter is checkable; use ":" (POSIX special builtin)
-- [New-file coverage floor](project_new_file_coverage_floor.md) — a phase that opens a tiny file early reds coverage_threshold (per-file 80%); cover the orphaned surface in a file YOUR task owns
-- [Minimal valid pack fixture](project_minimal_valid_pack_fixture.md) — the 4-line toy pack.yml fails check; exact passing recipe + why unconditional validation breaks 7 cmd tests at once
-- [Upgrade coverage cap](project_upgrade_coverage_cap.md) — pack_upgrade.go capped at ~57% by design (REQ-009 makes its success path dead); don't chase it with a double
-- [Subprocess e2e earns no coverage](project_subprocess_e2e_earns_no_coverage.md) — built-binary tests add ZERO coverage credit; inline wiring in thin cmd files reds the 80% floor (measured: pack_update 81.2→73.7); use a unit-tested helper file
-- [Re-derive the retirement class](feedback_rederive_retirement_class.md) — a plan's "exactly N sanctioned retirements" is stale; grep the CLASS, report extras, leave them untouched and compiling
-- [Code motion shifts gate scope](project_code_motion_shifts_gate_scope.md) — moving a body relocates its findings and recomputes per-file coverage; worktree HEAD-vs-NOW before calling it a regression
-- [Absence tests via go/ast](project_absence_tests_via_goast.md) — parse non-test sources, assert declarations were FOUND; expect many to pass on arrival once constructors made the defect unreachable
-- [Publish-ops classifier friction](project_publish_ops_classifier_friction.md) — batched multi-repo loops always blocked, single pushes blocked stochastically; retry with a variant form
-- [`waiver list` scope excludes tests](project_waiver_list_scope_excludes_tests.md) — test-file waivers never appear there; the gate's waiver_resolution step is the authoritative ACTIVE signal
-- [Spec/source textual coupling](project_spec_source_textual_coupling.md) — contract_signature_test.go diffs SPEC-054 signature strings against apply.go; only `go test` catches drift, so both must move together
-- [Scratch-module probes](project_scratch_module_probes_production.md) — replace-directive module + archetype swap proves a red-phase fixture fails for exactly ONE reason, touching no repo file
-- [Plan file lists under-enumerate](feedback_plan_files_underenumerate_fixtures.md) — setup tasks omit payloads their own prose mandates; create inside your new tree and report, don't halt
-- [Traceability red is corpus-level](project_traceability_red_is_corpus_level.md) — a bundle promotion strands dependent specs' `supports` pins; prove inherited via merge-base ancestry, route the fix to spec-author
-- [Self-pack rule scope: A, not B2](project_selfpack_b2_token_rule_scope.md) — B2 now excludes *_test.go; no-baked-tool-exec is the family left, escape = execCommand parametric dispatch (root_test.go:360), never nosemgrep
-- [gate --all under-reports vs diff](project_gate_all_underreports_vs_diff.md) — NOT a superset; 111 diff-only findings on files --all reported zero for; derive blocking sets from diff --json, never --all
-- [pack test phase3 is vacuous](project_packtest_phase3_vacuous.md) — a compliant "negative" fixture still passes; prove rules via direct semgrep on EXPLICIT file targets, assert errors==0
-- [Pack rename migration recipe](project_pack_rename_migration_recipe.md) — pack add leaves old yml key/dir/lock entry AND silently unbinds waivers + policy sources; 7 steps, 6 of them silent
-- [goreleaser check preconditions](project_goreleaser_check_preconditions.md) — needs a git remote; `brews:` deprecation alone fails `check`; isolate in a scratch repo with a remote
-- [gate --file on non-Go dirs](project_gate_file_scope_nongo_dir_crash.md) — package-scoped go-test derives `.github/workflows` as a target and crashes; reproduces on untouched ci.yml; diff-scoped gate unaffected
-- [Green gate by scope exit](project_green_gate_by_scope_exit.md) — committed phases leave diff scope, so an "expect RED" gate goes green; prove carve-outs still live with a single --file run
-- [`gate --file` is repeatable now](project_gate_file_flag_takes_positional_args.md) — ISSUE-093 FIXED the silent last-path-wins drop; both forms accumulate, empty value = exit 2; still read back "running against N explicit files"
-- [pflag GetStringArray drops a lone empty](project_pflag_getstringarray_drops_lone_empty.md) — CSV round-trip makes `--flag ""` read back as an EMPTY list, so an empty-value guard is unreachable; use `Lookup().Value.(pflag.SliceValue).GetSlice()`
-- [Full-CLI gate fixture reqs](project_full_cli_gate_fixture_reqs.md) — temp-dir gate fixtures need backstop.lock (local entry) + specs/ or exit 2 masquerades as your assertion failing; ProjectWide is the wrong ratchet vehicle
-- [Workflow shape tests must decomment](project_workflow_tests_decomment.md) — matching raw `run:` text hits SHELL COMMENTS; the mandated ci.yml rationale comments name the very strings the tests forbid
-- [Packless baseline fails at pack_loading](project_packless_baseline_fails_at_pack_loading.md) — empty .backstop/packs = ONE exit-2 config error naming the first pack; baseline generate writes nothing; missing_pack never runs
-- [Build-tagged file CI never compiles](project_buildtag_file_never_measurable.md) — `!linux && !darwin` is PERMANENTLY coverage_unmeasured (linux-tagged resolves on the runner); fold the arm into a tag CI compiles
-- [AST locks untestable wiring](project_ast_locks_untestable_wiring.md) — pure-function tests miss missing WIRING; go/parser reads build-tagged files the host cannot compile; falsify in a worktree at the pre-fix commit
-- [Local baseline makes gate permissive](project_local_baseline_makes_gate_permissive.md) — gitignored .backstop/baseline.json means local PASS vs CI FAIL on identical findings; check it before calling a local gate green
-- [Signature change strands a cross-lane caller](project_signature_change_strands_crosslane_caller.md) — "edit gate.go ONLY" + a new param breaks a test caller in the sibling's file; grep callers first, escalate the one-line diff
-- [Verdict decided AFTER the step](project_verdict_decided_after_the_step.md) — policy.go recomputes Status by COUNTING and never read Severity; a warning-only step FAILED; grep the policy layer, not just the step
-- [Information existed, surfacing did not](project_information_existed_surfacing_did_not.md) — 3 lane defects of one shape (stderr to /dev/null, Severity unread, result.Steps discarded); fix the surfacing BEFORE re-running
-- [Predict the number before the run](project_predict_the_number_before_the_run.md) — commit a predicted measurement; the WRONG prediction was the most valuable because it made the error locatable in one command
-- [Red TDD state poisons package coverage](project_red_tdd_state_poisons_package_coverage.md) — a deliberately-red test kills the whole package's coverage profile; coverage_unmeasured on healthy files is a phantom that self-clears
-- [Compile-red vs behavioral-red](feedback_choose_compile_red_or_behavioral_red.md) — new API surface: compile-red is complete; existing DEFECT: the red must be the defect's own message
+- [Agent-guard blocks Write/Edit](feedback_agent_guard_testdata.md) — non-Go always; ALL files when named impl-phase-N/impl-task-N
+- [Dogfood/gate quirks (SPEC-031)](project_dogfood_gate_quirks.md) — contract checker collapsed defined types
+- [Pack dispatch not bypass](feedback_pack_dispatch_not_bypass.md) — pack-consuming gate steps route engine exec through dispatchPackEngines seam
+- [Net-negative gate baseline](feedback_netnegative_gate_baseline.md) — behavior-preserving diffs go gate-RED on pre-existing pack_engines findings
+- [Coverage producer stream bug](project_coverage_producer_stream_bug.md) — producer feeds the convert go-test's SUMMARY stdout, not the cover.out profile; fix = declared stdout_artifact
+- [Struct-contract compiler RESOLVED](project_struct_contract_compiler_gap.md) — kind-aware since ISSUE-036/d5efd5b; `type X struct` contracts PASS
+- [Semgrep key-literal FP](feedback_semgrep_key_literal_fp.md) — secrets pack flags "Hardcoded credentials" on any key/secret/token/password
+- [Smoke dark-pack pre-failures](project_smoke_darkpack_prefailures.md) — tests/smoke has 4 PRE-EXISTING substantiveness/contracts/coverage failures
+- [Config strict loader / inert key](project_config_strict_loader_inert_key.md) — backstop.yml is STRICT (KnownFields+schema-required)
+- [Editing a file pulls it into gate scope](project_editing_file_pulls_it_into_gate_scope.md) — first edit to a tracked file surfaces latent
+- [DefaultRegistry eradication (ISSUE-027)](project_defaultregistry_eradication.md) — built-ins now from embedded base-engines pack + external
+- [Gate residual reds after ISSUE-027](project_gate_residual_reds_issue027.md) — self-pack GREEN; residual contract_signature + coverage reds are pre-existing quirks, not eradication failures
+- [Self-pack backlog closed (ISSUE-021)](project_self_pack_backlog_closed.md) — DIR-014 last self-finding cleared 2026-07-06
+- [Coverage zero-stmt proxy unsound (ISSUE-045 case-1)](project_coverage_zerostmt_proxy_unsound.md) — gate-side directory proxy for zero-statement
+- [ISSUE-042 drift blast radius](project_issue042_drift_blast_radius.md) — measured 39 block + 10 warn (not ~84); plans carry no mandated tests
+- [go-standards rule mechanics](feedback_gostandards_rule_mechanics.md) — constructor-injection false-fires on CachePath-style field names
+- [Pack copies + stale gate binary](project_pack_copies_and_stale_gate_binary.md) — a local pack has source + installed .backstop/ + testdata copies (sync all, relock); `backstop gate` runs a STALE binary
+- [Capturing .env fixtures](feedback_capturing_env_fixtures.md) — .env.local reads are classifier-blocked
+- [No `backstop code check`](project_no_code_check_command.md) — the command plans/contract mandate does not exist
+- [Synthesized fixture hides the path base](project_synthesized_fixture_hides_path_base.md) — a test that creates the file at the computed path
+- [Hermetic pack fixture recipe](project_hermetic_pack_fixture_recipe.md) — claimless engine rule = passes packval executing nothing
+- [main.go seam-extraction landmines](project_main_seam_extraction_landmines.md) — errcheck fires on Fprintln to an io.Writer
+- [Never stash in the shared tree](feedback_never_stash_shared_tree.md) — siblings have live uncommitted work
+- [":" not "true" in hermetic fixtures](feedback_colon_not_true_hermetic_fixture.md) — LookPath("true") resolves /usr/bin/true
+- [New-file coverage floor](project_new_file_coverage_floor.md) — a phase that opens a tiny file early reds coverage_threshold (per-file 80%)
+- [Minimal valid pack fixture](project_minimal_valid_pack_fixture.md) — the 4-line toy pack.yml fails check
+- [Upgrade coverage cap](project_upgrade_coverage_cap.md) — pack_upgrade.go capped at ~57% by design (REQ-009 makes its success path dead)
+- [Subprocess e2e earns no coverage](project_subprocess_e2e_earns_no_coverage.md) — built-binary tests add ZERO coverage credit
+- [Re-derive the retirement class](feedback_rederive_retirement_class.md) — a plan's "exactly N sanctioned retirements" is stale; grep the CLASS
+- [Code motion shifts gate scope](project_code_motion_shifts_gate_scope.md) — moving a body relocates its findings and recomputes per-file coverage
+- [Absence tests via go/ast](project_absence_tests_via_goast.md) — parse non-test sources, assert declarations were FOUND
+- [Publish-ops classifier friction](project_publish_ops_classifier_friction.md) — batched multi-repo loops always blocked
+- [`waiver list` scope excludes tests](project_waiver_list_scope_excludes_tests.md) — test-file waivers never appear there
+- [Spec/source textual coupling](project_spec_source_textual_coupling.md) — contract_signature_test.go diffs SPEC-054 signature strings against
+- [Scratch-module probes](project_scratch_module_probes_production.md) — replace-directive module + archetype swap proves a red-phase fixture fails
+- [Plan file lists under-enumerate](feedback_plan_files_underenumerate_fixtures.md) — setup tasks omit payloads their own prose mandates
+- [Traceability red is corpus-level](project_traceability_red_is_corpus_level.md) — a bundle promotion strands dependent specs' `supports` pins
+- [Self-pack rule scope: A, not B2](project_selfpack_b2_token_rule_scope.md) — B2 now excludes *_test.go; no-baked-tool-exec is the family left
+- [gate --all under-reports vs diff](project_gate_all_underreports_vs_diff.md) — NOT a superset; 111 diff-only findings on files --all reported
+- [pack test phase3 is vacuous](project_packtest_phase3_vacuous.md) — a compliant "negative" fixture still passes
+- [Pack rename migration recipe](project_pack_rename_migration_recipe.md) — pack add leaves old yml key/dir/lock entry AND silently unbinds waivers
+- [goreleaser check preconditions](project_goreleaser_check_preconditions.md) — needs a git remote; `brews:` deprecation alone fails `check`
+- [gate --file on non-Go dirs](project_gate_file_scope_nongo_dir_crash.md) — package-scoped go-test derives `.github/workflows` as a target and crashes; diff-scoped gate unaffected
+- [Green gate by scope exit](project_green_gate_by_scope_exit.md) — committed phases leave diff scope, so an "expect RED" gate goes green
+- [`gate --file` is repeatable now](project_gate_file_flag_takes_positional_args.md) — ISSUE-093 FIXED the silent last-path-wins drop
+- [pflag GetStringArray drops a lone empty](project_pflag_getstringarray_drops_lone_empty.md) — CSV round-trip makes `--flag ""` read back EMPTY, so an empty-value guard is unreachable; use SliceValue.GetSlice()
+- [Full-CLI gate fixture reqs](project_full_cli_gate_fixture_reqs.md) — temp-dir gate fixtures need backstop.lock (local entry) + specs/ or exit 2
+- [Workflow shape tests must decomment](project_workflow_tests_decomment.md) — matching raw `run:` text hits SHELL COMMENTS
+- [Packless baseline fails at pack_loading](project_packless_baseline_fails_at_pack_loading.md) — empty .backstop/packs = ONE exit-2 config error
+- [Build-tagged file CI never compiles](project_buildtag_file_never_measurable.md) — `!linux && !darwin` is PERMANENTLY coverage_unmeasured
+- [AST locks untestable wiring](project_ast_locks_untestable_wiring.md) — pure-function tests miss missing WIRING
+- [Local baseline makes gate permissive](project_local_baseline_makes_gate_permissive.md) — gitignored .backstop/baseline.json means local PASS vs CI FAIL on identical findings; check it before calling a gate green
+- [Signature change strands a cross-lane caller](project_signature_change_strands_crosslane_caller.md) — "edit file X ONLY" + a new param breaks a test caller in a sibling's file; grep callers first, escalate the one-line diff
+- [Verdict decided AFTER the step](project_verdict_decided_after_the_step.md) — policy.go recomputes Status by COUNTING and never read Severity
+- [Information existed, surfacing did not](project_information_existed_surfacing_did_not.md) — 3 lane defects of one shape (stderr to /dev/null
+- [Predict the number before the run](project_predict_the_number_before_the_run.md) — commit a predicted measurement; the WRONG prediction was the most valuable, it made the error locatable in one command
+- [Red TDD state poisons package coverage](project_red_tdd_state_poisons_package_coverage.md) — a deliberately-red test kills the whole package's
+- [Compile-red vs behavioral-red](feedback_choose_compile_red_or_behavioral_red.md) — new API surface: compile-red is complete
 - [Pin the crossing, not blanket absence](feedback_pin_the_crossing_not_blanket_absence.md) — a blanket "must never appear" guard reds against the sanctioned seam; assert this-callee-from-this-caller exactly-once
-- [Lock the chain, falsify per hop](project_lock_the_chain_falsify_per_hop.md) — layer tests that hand-build the mid-chain value lock only the last hop; drive the real entry point, then mutate each hop and check the RIGHT test catches it
-- [zsh $PIPESTATUS is 1-indexed](feedback_zsh_pipestatus_is_one_indexed.md) — `${PIPESTATUS[0]}` is ALWAYS EMPTY in zsh; an exit code reported that way is no evidence
-- [Pack gate-order trap](project_pack_recipes_archetype_gate_order.md) — archetype:recipes fails pack check until the recipes: index EXISTS; land the index in setup or gate after the recipes task
-- [SARIF WARNING severity — 2 hops](project_sarif_warning_severity_lost.md) — FIXED for pack_engines (ISSUE-104 parser + ISSUE-105 StepVerdict, consumer-verified); still lost where substantiveness/contract hardcode error
-- [Recipe payload sharp edges](project_recipe_payload_sharp_edges.md) — substituter reads {{ }} in COMMENTS; a mention-only rule anchor fires on planning artifacts; require structure via lookahead
-- [Captured SARIF fixtures already exist](project_captured_sarif_fixture_inventory.md) — golangci-v2.sarif = real result-level; semgrep descriptor captures NOW COMMITTED (incl. pinned 1.96.0) — never re-capture; setuptools==70.3.0 pin required
-- [Plain text is not a message](feedback_plaintext_reports_never_received.md) - SendMessage or it did NOT happen; lost two full boundary reports to plain text, lead read it as stalled and closed on its own evidence
-- [Red-proof by worktree flip](project_redproof_by_worktree_flip.md) - sequence-red is weak; detached worktree at HEAD + tests/fixtures only, then flip ONE file red->green and cite the diff --stat
-- [Verify the severity SOURCE before a flip test](project_verify_severity_source_before_flip_test.md) — grep the CONSTRUCTOR; and helper-first staging turns each flip-test into a free class audit (PASS = misclassified class-3 site)
-- [go-distribution v0.1.0 SHIPPED](project_go_distribution_pack_shipped.md) — public pack: release-trinity recipe + 9 rules; one provisioned binding is mandatory, name it distinctly; pack remove before any re-add
-- [First consumer finds what dogfood hides](feedback_first_consumer_finds_what_dogfood_hides.md) — the reference repo's CONFIG is the blind spot; 2 core defects found by the first policy-sparse consumer; prove capability on a PLAINER second project
-- [Packs ship AFTER the core release](project_pack_ships_after_the_core_release.md) — a pack leaning on core BEHAVIOR can't declare a version floor (BUNDLE-020); publication order is the only mechanism
-- [Agent shell PATH misses GOPATH/bin](project_agent_shell_path_misses_gopath_bin.md) — a "go-arch-lint not found" pack_engines red is a phantom that HALTS the gate at step 3; prefix PATH=/Users/bmanson/go/bin
-- [Substantiveness join needs a CALL](project_substantiveness_subject_join_needs_a_call.md) — `pkg.Func()` in the test's OWN body; a selector or `var _ pkg.Iface = v` satisfies nothing and fires 2 more rules
-- [Path scans need symlink resolution](project_path_scans_need_symlink_resolution.md) — Abs is not enough; /var vs /private/var yields one finding per artifact, which looks correct
-- [Scope entry surfaces pack FPs](project_gate_scope_entry_surfaces_pack_false_positives.md) — a mandated mechanical repair drags a file's whole dormant finding set in; some need a PACK release, not code
-- [A resolver can't count its alternatives](feedback_a_resolver_cannot_count_its_own_alternatives.md) - re-calling a first-match resolver counts 0 or 1 only; assert against the TABLE plus a suffix-shadowing check
-- [Write path and read path share one root](project_write_path_and_read_path_must_share_one_root.md) - location tests stay green while id numbering restarts; replace the loose field, don't add beside it
-- [Init gate-guard fires on sibling lanes](project_init_gate_guard_fires_on_sibling_lanes.md) — SPEC-069 CLM-063 reds whenever `git status -- pkg/gate` is dirty, whoever dirtied it; attribute + control-run before owning it
-- [contract_signature is unwaivable](project_contract_signature_unwaivable.md) — Line 0 + absolute path means the @waiver: token is NEVER harvested; waiver_resolution says "no active waivers", not "rejected" — probe before promising a waiver
-- [Arch pack forbids gate→pack/engine](project_arch_pack_forbids_gate_to_engine.md) — "no import cycle" ≠ "allowed"; declare the string locally like traceability_polarity.go + a BEHAVIORAL lockstep test; _test.go is exempt
-- [Diff-mode scope ignores your file list](project_diffmode_scope_ignores_file_list.md) — ComputeGateScope(diff, files) DISCARDS files and silently whole-repo's in a non-git tempdir; git init+commit, THEN plant the file; assert scope.Files
-- [Pack release push order](project_pack_release_push_order.md) — fetch before trusting ahead/behind, push main BEFORE the tag; a stale ref landed v1.3.0 on a commit unreachable from main — fix by MERGE, never by moving the tag
-- [Shared-tree guard test reds](project_worktree_guard_test_fails_shared_tree.md) — SPEC-069's init guard fatals on ANY dirty pkg/gate file, so it reds for every lane at once (2 dimensions, 1 cause); attribute via git status, don't debug it
-- [Synthetic PATH proves a presence check](project_synthetic_path_proves_presence_check.md) — symlink farm missing ONE tool runs the real gate and yields the verbatim refusal; fails at step 3 in ~2s; `command -v` can self-symlink and fake a false refusal
-- [Pack rename leaves dangling waivers](project_pack_rename_dangling_waivers.md) — old-id @waiver: tokens stop binding; findings resurface ONLY under gate --all while waiver_resolution still PASSES, reporting them as "unused/dangling"
-- [No-regression guards can't be red](feedback_noregression_guards_cannot_be_red.md) — a plan demanding ALL mandated tests red-first is wrong for baseline + no-over-fire guards; report the split, and check for a red that fires for the WRONG reason
-- [Long suite samples a moving tree](project_long_suite_samples_a_moving_tree.md) — a 300s run straddles sibling commits; failures in UNTRACKED files are their red-phase TDD, re-run before attributing
-- [Sandbox exit 71 = profile rejected](project_sandbox_exit71_means_profile_rejected.md) — relative packDir makes sandbox-exec REFUSE the profile (ISSUE-147); same-content-different-path isolates it; pass absolute paths to `pack test`
-- [Gate blind to non-mandated test failures](project_gate_blind_to_nonmandated_test_failures.md) — test_verification only joins MANDATED test names; a failing test no spec mandates is invisible to `gate --all` (measured: ISSUE-146 absent from every dimension)
-- [Poll, don't idle on background results](feedback_poll_dont_idle_on_background_results.md) — RECURRED twice on 2026-08-16 (ISSUE-067, ISSUE-124); an armed watch is not a wakeup, and never call a result you have not read "all clear"
-- [ci.yml byte-identity guard](project_ciyml_byte_identity_guard.md) — SPEC-067 CLM-007 reds on ANY uncommitted ci.yml edit (dirtiness, not content); self-clears on commit, fires in 2 dimensions
-- [Control vs treatment by preserved binary](project_control_vs_treatment_by_preserved_binary.md) — copy the PRE-FIX binary before editing; run both against ONE tree so sibling churn cancels; zsh won't word-split flag strings
-- [Parity test can't catch a shared walk](project_parity_test_cannot_catch_shared_walk.md) — a biconditional between two consumers of ONE extracted authority stays green when the shared walk is wrong; guard at the collection level
-- [Trust gate fires at manifest parse](project_trust_gate_fires_at_manifest_parse.md) — an un-allowlisted `provision:` dies in ParseManifest, so a trust-refusal FIXTURE PROJECT only ever yields `skipped`; drive that case in-memory
-- [Falsification-worktree setup traps](project_falsification_worktree_setup_traps.md) — `ln -sfn` nests silently; a gitignored baseline.json makes the gate PERMISSIVE (false green); a hot shared file is not HEAD+your diff — reconstruct it
-- [pgrep waiter matches itself](project_pgrep_waiter_matches_itself.md) — a chained waiter whose pgrep pattern sits in its own command line waits forever; chain on an `EXIT=` file marker instead
-- [Fixture joins the corpus it measures](project_fixture_joins_the_corpus_it_measures.md) — a whole-tree scanner walks your own test file; literal fixtures become REAL instances (census read 6 not 5). Assemble the marker at runtime
-- [Site-split fence holds](project_site_split_fence_holds.md) — two lanes, one test file, ownership BY SITE survived a mid-lane collision; sibling MERGED the shared docstring; re-read the foreign site AFTER your verify run too
-- [Background wrapper exit code lies](project_background_wrapper_exit_code_lies.md) — `(cmd; echo EXIT=$?)` makes the SUBSHELL exit 0, so a 13-failure run was announced "exit code 0"; use a separate .done sentinel
-- [Substantiveness e2e still red, NEW cause](project_issue148_blocks_all_substantiveness_e2e.md) — ISSUE-148 CLOSED and the pack passes; the e2e helper's own deliberate rule patch now trips phase3-fixtures instead
-- [go -overlay control/mutation harness](project_go_overlay_control_and_mutation_harness.md) — swap a source file at COMPILE time, shared tree untouched; score "NOT CAUGHT" only after checking it compiled
-- [Prove inertness by zero declarations](project_prove_inertness_by_zero_declarations.md) — a guarded `if binding.X != ""` branch is provably innocent when no pack declares X; one grep beat five suspicious e2e reds
-- [Gate contention in a shared tree](project_gate_contention_in_shared_tree.md) - 9 live lanes: a 3-file `gate --file` blows 10 min and `gate --all` gets KILLED at exit 144 with a 0-byte file; run detached + poll an `EXIT=` marker
-- [Shared sgconfig collapses fixture polarity](project_shared_sgconfig_collapses_fixture_polarity.md) — packval's per-fixture verdict is "did ANY rule fire"; key-swap and content-swap BOTH fail; discard `PKG: t` or the negative assertion is boilerplate
-- [cmd/backstop 10m starves coverage](project_cmd_backstop_10m_starves_coverage.md) — a default-timeout panic in cmd/backstop means NO coverage profile reaches the gate; `coverage_unmeasured` on your files is a phantom, re-measure the package alone with -timeout 25m
-- [Mutation matrix beats sequence-red](project_mutation_matrix_beats_sequence_red.md) — mutate the FINISHED impl into each wrong variant and log the catcher; a "NOT CAUGHT" is usually a no-op MUTATION, not a weak test
-- [Prove a carve-out by mutating into it](project_prove_a_carveout_by_mutating_into_it.md) — flip the code into the carved-out shape: the strict test reds AND the roster stays GREEN, proving both halves in one run
-- [Seatbelt permits device nodes](project_seatbelt_permits_device_nodes.md) — darwin ALREADY allows /dev/null+/dev/zero writes under a blanket deny; a darwin behavioural test for that carve-out is a regression lock, NOT a red->green
-- [Falsify a sandbox allow by retargeting](falsify_sandbox_allow_by_retargeting.md) — a grant on an already-permissive path can't be falsified there; retarget the clause at an ENFORCED path (+ typo leg = exit 65, loud not silent)
+- [Lock the chain, falsify per hop](project_lock_the_chain_falsify_per_hop.md) — layer tests that hand-build the mid-chain value lock only the last
+- [zsh $PIPESTATUS is 1-indexed](feedback_zsh_pipestatus_is_one_indexed.md) — `${PIPESTATUS[0]}` is ALWAYS EMPTY in zsh
+- [Pack gate-order trap](project_pack_recipes_archetype_gate_order.md) — archetype:recipes fails pack check until the recipes: index EXISTS
+- [SARIF WARNING severity — 2 hops](project_sarif_warning_severity_lost.md) — FIXED for pack_engines (ISSUE-104 parser + ISSUE-105 StepVerdict
+- [Recipe payload sharp edges](project_recipe_payload_sharp_edges.md) — substituter reads {{ }} in COMMENTS
+- [Captured SARIF fixtures already exist](project_captured_sarif_fixture_inventory.md) — golangci-v2.sarif = real result-level
+- [Plain text is not a message](feedback_plaintext_reports_never_received.md) - SendMessage or it did NOT happen; lost two full boundary reports to plain text, read as stalled
+- [Red-proof by worktree flip](project_redproof_by_worktree_flip.md) - sequence-red is weak; detached worktree at HEAD + tests/fixtures only
+- [Verify the severity SOURCE before a flip test](project_verify_severity_source_before_flip_test.md) — grep the CONSTRUCTOR; and helper-first
+- [go-distribution v0.1.0 SHIPPED](project_go_distribution_pack_shipped.md) — public pack: release-trinity recipe + 9 rules
+- [First consumer finds what dogfood hides](feedback_first_consumer_finds_what_dogfood_hides.md) — the reference repo's CONFIG is the blind spot
+- [Packs ship AFTER the core release](project_pack_ships_after_the_core_release.md) — a pack leaning on core BEHAVIOR can't declare a version floor
+- [Agent shell PATH misses GOPATH/bin](project_agent_shell_path_misses_gopath_bin.md) — a "go-arch-lint not found" pack_engines red is a phantom
+- [Substantiveness join needs a CALL](project_substantiveness_subject_join_needs_a_call.md) — `pkg.Func()` in the test's OWN body
+- [Path scans need symlink resolution](project_path_scans_need_symlink_resolution.md) — Abs is not enough; /var vs /private/var yields one finding
+- [Scope entry surfaces pack FPs](project_gate_scope_entry_surfaces_pack_false_positives.md) — a mandated mechanical repair drags a file's whole
+- [A resolver can't count its alternatives](feedback_a_resolver_cannot_count_its_own_alternatives.md) - re-calling a first-match resolver counts 0
+- [Write path and read path share one root](project_write_path_and_read_path_must_share_one_root.md) - location tests stay green while id numbering
+- [Init gate-guard fires on sibling lanes](project_init_gate_guard_fires_on_sibling_lanes.md) — SPEC-069 CLM-063 reds whenever `git status
+- [contract_signature is unwaivable](project_contract_signature_unwaivable.md) — Line 0 + absolute path means the @waiver: token is NEVER harvested
+- [Arch pack forbids gate→pack/engine](project_arch_pack_forbids_gate_to_engine.md) — "no import cycle" ≠ "allowed"; declare the string locally
+- [Diff-mode scope ignores your file list](project_diffmode_scope_ignores_file_list.md) — ComputeGateScope(diff, files) DISCARDS files and silently
+- [Pack release push order](project_pack_release_push_order.md) — fetch before trusting ahead/behind, push main BEFORE the tag
+- [Shared-tree guard test reds](project_worktree_guard_test_fails_shared_tree.md) — SPEC-069's init guard fatals on ANY dirty pkg/gate file
+- [Synthetic PATH proves a presence check](project_synthetic_path_proves_presence_check.md) — symlink farm missing ONE tool runs the real gate and yields the verbatim refusal; `command -v` can fake a false refusal
+- [Pack rename leaves dangling waivers](project_pack_rename_dangling_waivers.md) — old-id @waiver: tokens stop binding
+- [No-regression guards can't be red](feedback_noregression_guards_cannot_be_red.md) — wrong for baseline + no-over-fire guards; report the split, and check for a red that fires for the WRONG reason
+- [Long suite samples a moving tree](project_long_suite_samples_a_moving_tree.md) — a 300s run straddles sibling commits
+- [Sandbox exit 71 = profile rejected](project_sandbox_exit71_means_profile_rejected.md) — relative packDir makes sandbox-exec REFUSE the profile
+- [Gate blind to non-mandated test failures](project_gate_blind_to_nonmandated_test_failures.md) — test_verification only joins MANDATED test names
+- [Poll, don't idle on background results](feedback_poll_dont_idle_on_background_results.md) — RECURRED twice on 2026-08-16 (ISSUE-067, ISSUE-124)
+- [ci.yml byte-identity guard](project_ciyml_byte_identity_guard.md) — SPEC-067 CLM-007 reds on ANY uncommitted ci.yml edit (dirtiness, not content)
+- [Control vs treatment by preserved binary](project_control_vs_treatment_by_preserved_binary.md) — copy the PRE-FIX binary before editing
+- [Parity test can't catch a shared walk](project_parity_test_cannot_catch_shared_walk.md) — a biconditional between two consumers of ONE extracted
+- [Trust gate fires at manifest parse](project_trust_gate_fires_at_manifest_parse.md) — an un-allowlisted `provision:` dies in ParseManifest
+- [Falsification-worktree setup traps](project_falsification_worktree_setup_traps.md) — `ln -sfn` nests silently; a gitignored baseline.json makes
+- [pgrep waiter matches itself](project_pgrep_waiter_matches_itself.md) — a chained waiter whose pgrep pattern sits in its own command line waits
+- [Fixture joins the corpus it measures](project_fixture_joins_the_corpus_it_measures.md) — a whole-tree scanner walks your own test file
+- [Site-split fence holds](project_site_split_fence_holds.md) — two lanes, one test file, ownership BY SITE survived a mid-lane collision
+- [Background wrapper exit code lies](project_background_wrapper_exit_code_lies.md) — `(cmd; echo EXIT=$?)` makes the SUBSHELL exit 0
+- [Substantiveness e2e still red, NEW cause](project_issue148_blocks_all_substantiveness_e2e.md) — ISSUE-148 CLOSED and the pack passes
+- [go -overlay control/mutation harness](project_go_overlay_control_and_mutation_harness.md) — swap a source file at COMPILE time, shared tree
+- [Prove inertness by zero declarations](project_prove_inertness_by_zero_declarations.md) — a guarded `if binding.X != ""` branch is provably
+- [Gate contention in a shared tree](project_gate_contention_in_shared_tree.md) - 9 live lanes: a 3-file `gate --file` blows 10 min and `gate
+- [Shared sgconfig collapses fixture polarity](project_shared_sgconfig_collapses_fixture_polarity.md) — packval's per-fixture verdict is "did ANY
+- [cmd/backstop 10m starves coverage](project_cmd_backstop_10m_starves_coverage.md) — a default-timeout panic in cmd/backstop means NO coverage
+- [Mutation matrix beats sequence-red](project_mutation_matrix_beats_sequence_red.md) — mutate the FINISHED impl into each wrong variant and log
+- [Prove a carve-out by mutating into it](project_prove_a_carveout_by_mutating_into_it.md) — flip the code into the carved-out shape: the strict
+- [Seatbelt permits device nodes](project_seatbelt_permits_device_nodes.md) — darwin ALREADY allows /dev/null+/dev/zero writes under a blanket deny
+- [Re-bind scan incomplete in 2 dimensions](project_rebind_scan_incomplete_two_dimensions.md) — AssignStmt misses `var x T = v`; and the scan sat only in one seam's branch, leaving the strictest seam undefended
+- [Falsify a sandbox allow by retargeting](falsify_sandbox_allow_by_retargeting.md) — a grant on an already-permissive path can't be falsified there
