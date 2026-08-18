@@ -165,8 +165,20 @@ func TestContract_SignatureStructuralMatchIgnoresParamNames(t *testing.T) {
 // produces a grep MATCH (CLM-008) over a real fixture.
 func TestContract_AbsencePresentSymbolGrepMatchViolation(t *testing.T) {
 	root := repoRoot(t)
-	if got := grepMatchCount(t, root, "legacyProbeSymbol", td(root, "contract-absence-present.go")); got == 0 {
-		t.Fatal("a present forbidden symbol must produce a grep match (absence VIOLATION), got 0")
+	scope := td(root, "contract-absence-present.go")
+	got := grepMatchCount(t, root, "legacyProbeSymbol", scope)
+	if got == 0 {
+		// TEMP DIAGNOSTIC (ISSUE-166, remove before merge): the throwaway
+		// standalone probe tripped no-baked-tool-exec and never surfaced
+		// output, so this enriches the EXISTING failing assertion instead.
+		vOut := runEngineStdout(t, "grep", "--version")
+		data, readErr := os.ReadFile(scope)
+		raw := runEngineStdout(t, "grep", "-rn", "-e", "legacyProbeSymbol", scope)
+		t.Fatalf("a present forbidden symbol must produce a grep match (absence VIOLATION), got 0\n"+
+			"DEBUG166: grep --version out=%q\n"+
+			"DEBUG166: scope=%q statErr=%v readErr=%v len=%d content=%q\n"+
+			"DEBUG166: raw grep -rn -e legacyProbeSymbol <scope> stdout=%q",
+			vOut, scope, func() error { _, e := os.Stat(scope); return e }(), readErr, len(data), data, raw)
 	}
 }
 
