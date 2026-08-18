@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/backstop-ai/backstop-core/pkg/packval"
 )
 
 // binaryPath holds the path to the built backstop binary.
@@ -15,6 +17,29 @@ var binaryPath string
 
 // TestMain builds the backstop binary once for all integration tests.
 func TestMain(m *testing.M) {
+	// FIRST STATEMENT, before the temp dir and therefore before the `go build`
+	// below. Under `go test` the Linux sandbox trampoline re-execs THIS TEST
+	// BINARY with its working directory set to the pack directory, so without this
+	// gate the unconditional build runs in a directory holding no .go files and
+	// dies with "failed to build binary: ... no Go files in <dir>" before the
+	// helper is ever recognised — the pack's real command never runs. That is
+	// ISSUE-163.
+	//
+	// When this process is not a helper the call returns nil immediately, having
+	// done nothing (on darwin it is sandbox_nonlinux.go's unconditional stub). When
+	// it IS one, a successful call NEVER RETURNS — the helper execs the pack's
+	// command. A non-nil error means this binary IS a helper whose sandbox failed
+	// to install, so running the suite at that point would hand the parent the
+	// suite's output as the sandboxed command's output.
+	//
+	// The other two members of this wiring family: pkg/packval/main_test.go's
+	// TestMain (packval's own test binary) and cmd/backstop/main.go's runWith (the
+	// shipped binary).
+	if err := packval.MaybeRunSandboxHelper(); err != nil {
+		fmt.Fprintf(os.Stderr, "backstop sandbox helper: %v\n", err)
+		os.Exit(sandboxHelperExitCode)
+	}
+
 	// Build the binary
 	tmpDir, err := os.MkdirTemp("", "backstop-integration-*")
 	if err != nil {

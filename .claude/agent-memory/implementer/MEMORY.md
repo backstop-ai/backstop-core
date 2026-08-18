@@ -104,3 +104,4 @@
 - [Shared sgconfig collapses fixture polarity](project_shared_sgconfig_collapses_fixture_polarity.md) — packval's per-fixture verdict is "did ANY rule fire"; key-swap and content-swap BOTH fail; discard `PKG: t` or the negative assertion is boilerplate
 - [cmd/backstop 10m starves coverage](project_cmd_backstop_10m_starves_coverage.md) — a default-timeout panic in cmd/backstop means NO coverage profile reaches the gate; `coverage_unmeasured` on your files is a phantom, re-measure the package alone with -timeout 25m
 - [Mutation matrix beats sequence-red](project_mutation_matrix_beats_sequence_red.md) — mutate the FINISHED impl into each wrong variant and log the catcher; a "NOT CAUGHT" is usually a no-op MUTATION, not a weak test
+- [Prove a carve-out by mutating into it](project_prove_a_carveout_by_mutating_into_it.md) — flip the code into the carved-out shape: the strict test reds AND the roster stays GREEN, proving both halves in one run
