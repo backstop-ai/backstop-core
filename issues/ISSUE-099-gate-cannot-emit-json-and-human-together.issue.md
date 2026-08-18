@@ -121,3 +121,48 @@ should be rewritten accordingly.
 - Loud-not-blocking framing: this is ergonomics/cost debt with a measured, cited cost (roughly 2x
   wall time on the CI gate step), not a correctness defect — nothing here produces a wrong
   verdict.
+
+## Update (2026-08-18) — fresh evidence and founder priority
+
+**Existence-in-world check performed tonight:** a fresh issue (ISSUE-171) was scaffolded to track
+this exact defect, then correctly abandoned once this issue was found to already own the same
+surface. This section adds tonight's evidence and priority signal to the existing issue rather
+than forking a duplicate.
+
+**Real, measured cost from an actual CI run.** Run `32151610956`'s `gate-report.json` was
+downloaded and inspected directly. Within a SINGLE gate invocation, step timings were wildly
+skewed: `pack_engines` took 629797ms (~10.5 minutes) and `coverage_threshold` took 612148ms
+(~10.2 minutes) — every other step combined was under 10 seconds. Because `.github/workflows/
+ci.yml`'s blocking job runs the ENTIRE gate twice per push — once with `--json` for the
+diagnostic artifact, once without for the actual blocking check, same scope, same base, genuinely
+duplicate work — this duplication alone adds roughly 20+ minutes to every single CI run. This is
+more concrete and current than the ~2m40s→~5m estimate already cited above, and confirms the cost
+scales with whatever `pack_engines`/`coverage_threshold` cost on a given run, not a fixed offset.
+
+**Direct code verification that a single invocation could serve both purposes.**
+`cmd/backstop/gate.go`'s `runGate` computes `exitCode` at line 244 (`result, exitCode :=
+g.Run(context.Background())`) — before any branch on `--json` exists in the function. The
+`jsonFlag` branch (`gate.FormatJSON(result)` vs. `gate.FormatHuman(result, noColor)`) spans lines
+267–292 and is nothing more than two alternate FORMATTERS over the same already-decided verdict;
+neither branch touches `exitCode`. The final check, `if exitCode != 0 { return &ExitCodeError{...}
+}`, is at line 294 and is unconditional — it does not care which formatter ran above it. This
+directly confirms the mechanism this issue's `--json-out FILE` proposal already assumes: one
+`g.Run` call is sufficient to produce both surfaces, so a flag that writes the JSON to a file
+alongside the existing stdout render (rather than replacing it) is a formatting-layer change, not
+a re-run of the kill chain. Reinforces the existing proposed fix direction — this update does not
+redesign it.
+
+**This is now a founder-flagged priority, not just a nice-to-have.** In tonight's conversation the
+founder directly flagged CI's runtime as a real scalability problem — "we cannot have two gate
+runs on the entire project every single CI run... not scalable" — and asked directly how to fix
+it. In the same conversation, a separate-but-related finding was filed as ISSUE-172 (gate's
+internal steps also run sequentially rather than in parallel, independent of this issue's
+duplicate-invocation waste).
+
+**Cross-reference ISSUE-172 — the two combine multiplicatively.** Fixing this issue (ISSUE-099)
+alone eliminates the duplicate full-gate run, roughly halving worst-case CI time (~42min →
+~21min, using tonight's measured ~21min-per-invocation figure). Fixing both issues takes the
+critical path down further, to roughly ~11min — the max of `pack_engines`'s and
+`coverage_threshold`'s individual durations — since the two steps are structurally independent of
+each other and could run concurrently once this issue's duplicate-run waste is also eliminated.
+Neither fix alone reaches that floor; both together do.
