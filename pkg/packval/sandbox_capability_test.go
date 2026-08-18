@@ -55,6 +55,20 @@ func containsSyscall(denied []string, name string) bool {
 // cleanly, the syscalls all return 0, and the sandbox looks correct from every angle
 // except the one that matters. So: the write family must be HANDLED, and NO
 // path_beneath rule may grant any of it. (CLM-011, CLM-034)
+//
+// ─── THE ONE EXEMPTION, AND WHY IT DOES NOT SOFTEN THIS TEST (ISSUE-168) ────────
+// The write family is still HANDLED in full, and it is still granted NOWHERE except
+// the null device. /dev/null is a write-only sink: nothing written to it persists,
+// leaks or can be corrupted, so a write right on that one inode does not weaken the
+// confinement this test exists to protect. It is exempted BY PATH, precisely — never
+// by loosening the assertion, which would stop this test noticing a genuine grant on
+// a real file.
+//
+// The exemption's SHAPE is deliberately not checked here, where nothing would notice
+// it widening. TestSandboxCapability_DevNullCarriesANarrowWriteGrant
+// (sandbox_devnull_test.go) asserts the exact mask by EQUALITY, that the rule is
+// unique, and that no OTHER rule carries a write right. Widen the grant and that test
+// fails; this one would not.
 func TestSandboxCapability_HandlesWriteRightsAndGrantsNone(t *testing.T) {
 	spec := DeriveSandboxRestrictions(convertCapabilityForTest(t, 7))
 
@@ -79,8 +93,13 @@ func TestSandboxCapability_HandlesWriteRightsAndGrantsNone(t *testing.T) {
 		}
 	}
 
-	// And nothing may GRANT them back.
+	// And nothing may GRANT them back — except the /dev/null sink (see this test's
+	// docstring). Exempted by exact path, so any other rule acquiring a write right
+	// still fails here.
 	for _, rule := range spec.PathRules {
+		if rule.Path == "/dev/null" {
+			continue
+		}
 		for name, right := range writeRights {
 			if rule.AllowedAccess&right != 0 {
 				t.Errorf("path rule %q grants write right %s (0x%x); the convert/validator capability "+
@@ -189,6 +208,14 @@ func TestSandboxCapability_SystemPathsKeepInterpreterReadable(t *testing.T) {
 	systemRules := 0
 	for _, rule := range spec.PathRules {
 		if strings.HasPrefix(rule.Path, "/tmp/packdir") {
+			continue
+		}
+		// The /dev/null grant (ISSUE-168) is not a system READ path and this loop's
+		// requirements do not apply to it: it is a CHARACTER DEVICE, and READ_DIR is a
+		// directory-only right that the kernel rejects against a non-directory — one
+		// rejected rule aborts the entire restriction install. Its absence there is
+		// deliberate, and the rule's real shape is asserted in sandbox_devnull_test.go.
+		if rule.Path == "/dev/null" {
 			continue
 		}
 		systemRules++

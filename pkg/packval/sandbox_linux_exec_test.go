@@ -460,3 +460,107 @@ func TestLinuxSandbox_RealInterpreterRunsUnderTheFilter(t *testing.T) {
 		t.Fatalf("the convert produced %q, want %q", got, "42")
 	}
 }
+
+// devNullProbeBody is the ISSUE-168 probe: a positive leg for the /dev/null
+// redirect, a negative control for an ordinary packDir write, and a completion
+// marker.
+//
+// EACH LEG RUNS IN A SUBSHELL, for the same reason networkProbeBody parenthesises
+// its legs: a failed redirection must not be able to abort the probe before the
+// remaining legs and the marker run. A probe that dies early produces exactly the
+// ambiguous non-zero exit this file's header exists to rule out.
+//
+// LEG 1 IS THE VERDICT. `echo` cannot fail on its own, so the subshell's exit
+// status is precisely "did the redirect open /dev/null for write". LEG 2 runs the
+// EXACT reported idiom for shape, and deliberately asserts nothing on its exit
+// status — that status reports the missing binary, not the redirect. LEG 3, the
+// negative control, deliberately does NOT redirect its own stderr to /dev/null,
+// because a control whose plumbing depends on the mechanism under test cannot
+// falsify it.
+//
+// ── A NOTE ON networkProbeBody, WHICH USES `2>/dev/null` ON ITS `if` CONDITIONS ──
+// A shell performs a command's redirections BEFORE running it, so when /dev/null
+// cannot be opened for write the subshell never attempts the socket at all: it
+// exits non-zero and the ELSE branch prints ..._BLOCKED. That means
+// TestLinuxSandbox_NetworkAllowedControlLegSucceeds' TCP_BLOCKED/UDP_BLOCKED
+// markers may have been an ARTEFACT of this very defect rather than evidence of a
+// network-permission bug. This lane changes nothing about that test; the reading is
+// adjudicated against a real CI run.
+func devNullProbeBody(packDirTarget string) string {
+	return fmt.Sprintf(`#!/bin/bash
+# ISSUE-168 probe. /dev/null is a write-only sink, so a write there is safe; an
+# ordinary file inside packDir must still be refused.
+if ( echo probe >/dev/null 2>&1 ); then echo DEVNULL_WRITE_OK; else echo DEVNULL_WRITE_DENIED; fi
+command -v definitely-not-a-real-binary >/dev/null 2>&1 || true
+echo DEVNULL_IDIOM_RAN
+if ( : > %q ); then echo PACKDIR_WRITE_LEAKED; else echo PACKDIR_WRITE_BLOCKED; fi
+echo DEVNULL_PROBE_COMPLETED
+`, packDirTarget)
+}
+
+// TestLinuxSandbox_DevNullWriteIsPermittedAndOtherWritesAreNot is the direct Linux
+// assertion for ISSUE-168: the universal `>/dev/null` idiom works inside the
+// sandbox, and nothing else became writable.
+//
+// ★ ITS PRE-FIX STATE IS AN ASSERTION ABOUT CI, NOT AN OBSERVATION. Nothing in this
+// file compiles on the darwin development machine — sandbox_linux.go and
+// sandbox_linux_helper.go are //go:build linux, no Landlock ruleset is ever created
+// there, and no trampoline re-exec happens. A Docker container does not lift that
+// ceiling either: the Docker-Desktop LinuxKit kernel reports Landlock ABI 0 and is
+// REFUSED by resolveLandlockMechanism, by design. So the expectation recorded here —
+// that DEVNULL_WRITE_OK was ABSENT before the fix, because Landlock enforced the
+// profile's stated "no writes" literally and the redirect was refused with
+// `cannot create /dev/null: Permission denied`, exit 127 — is derived from the
+// reported CI evidence, not from a local run.
+//
+// THE TWO LEGS ARE ONE TEST ON PURPOSE. A green /dev/null leg beside a red packDir
+// leg would mean the carve-out WIDENED the write surface rather than scoping it, and
+// splitting them across two tests makes that combination easy to miss in a CI log.
+func TestLinuxSandbox_DevNullWriteIsPermittedAndOtherWritesAreNot(t *testing.T) {
+	requireLandlock(t)
+	packDir := sandboxPackDir(t)
+	bash := requireExecutable(t, "bash")
+
+	target := filepath.Join(packDir, "should-not-exist.txt")
+	script := writeProbeScript(t, packDir, "devnull-probe.sh", devNullProbeBody(target))
+
+	out, err := SandboxedRun(bash, []string{script}, packDir)
+	if err != nil {
+		t.Fatalf("the ISSUE-168 probe did not run to completion: %v\nreport:\n%s", err, string(out))
+	}
+	report := string(out)
+
+	if !strings.Contains(report, "DEVNULL_PROBE_COMPLETED") {
+		t.Fatalf("the probe never ran to its completion marker, so nothing below is readable as a "+
+			"permission or a denial — the sandbox may have failed to start at all (ISSUE-168 probe).\n"+
+			"expected marker %q\nreport:\n%s", "DEVNULL_PROBE_COMPLETED", report)
+	}
+
+	if !strings.Contains(report, "DEVNULL_WRITE_OK") {
+		t.Errorf("ISSUE-168 IS UNFIXED ON THIS KERNEL: `echo probe >/dev/null 2>&1` was REFUSED inside "+
+			"the sandbox, so the expected marker %q is absent (the probe printed DEVNULL_WRITE_DENIED "+
+			"instead). `command -v foo >/dev/null 2>&1` is a universal shell idiom and a pack-supplied "+
+			"convert or validator script must be able to use it; when the redirect is refused the shell "+
+			"reports `cannot create /dev/null: Permission denied` and exits 127, which reads as a broken "+
+			"converter rather than as a sandbox decision. Check that DeriveSandboxRestrictions still "+
+			"emits the /dev/null rule and that landlock_add_rule accepted it.\nreport:\n%s",
+			"DEVNULL_WRITE_OK", report)
+	}
+
+	// The anti-widening control: the carve-out must be ONE inode, not a relaxed
+	// write policy.
+	if strings.Contains(report, "PACKDIR_WRITE_LEAKED") {
+		t.Errorf("a file was created INSIDE packDir; the ISSUE-168 carve-out widened the write surface "+
+			"instead of scoping it to the /dev/null sink. Expected %q, got %q in the report.\nreport:\n%s",
+			"PACKDIR_WRITE_BLOCKED", "PACKDIR_WRITE_LEAKED", report)
+	}
+	if !strings.Contains(report, "PACKDIR_WRITE_BLOCKED") {
+		t.Errorf("the negative control marker %q is absent, so the packDir write leg cannot be read as "+
+			"a denial — the probe may have been cut short between the /dev/null leg and the completion "+
+			"marker.\nreport:\n%s", "PACKDIR_WRITE_BLOCKED", report)
+	}
+	if _, statErr := os.Stat(target); statErr == nil {
+		t.Errorf("%q EXISTS on disk despite the write denial; the marker-based reading above disagrees "+
+			"with the filesystem, and the filesystem is authoritative.\nreport:\n%s", target, report)
+	}
+}

@@ -63,6 +63,14 @@ type SandboxCapability struct {
 	// WritablePaths may be written. EMPTY for convert/validator work: darwin denies
 	// file-write* outright and parity is the spec, so a convenience /tmp would be a
 	// real divergence from the macOS trust model rather than an ergonomic detail.
+	//
+	// AN EMPTY SET STILL MEANS "THIS POLICY GRANTS NO WRITABLE PATH", and it stays
+	// true after ISSUE-168. The one write the MECHANISM grants is the /dev/null sink,
+	// emitted unconditionally by DeriveSandboxRestrictions for every capability and
+	// matched one-for-one by darwin's `(allow file-write* (literal "/dev/null"))`. It
+	// is deliberately NOT expressed here — see the rationale on the appended rule in
+	// DeriveSandboxRestrictions — so do not "restore parity" by moving it into this
+	// field or by deleting the rule.
 	WritablePaths []string
 	// Network reports whether the command may use the socket family at all.
 	Network bool
@@ -220,6 +228,48 @@ func landlockReadRights() uint64 {
 	return AccessFSReadFile | AccessFSReadDir
 }
 
+// sandboxDevNullPath is the null device — the ONE path this mechanism grants a write
+// on, on both platforms.
+//
+// A const rather than a var or a slice: the neighbours above are functions
+// specifically to avoid mutable package state a caller could widen (go-standards
+// no-global-mutable-state), and for a single path an immutable const gets the same
+// guarantee more directly.
+const sandboxDevNullPath = "/dev/null"
+
+// landlockDevNullRights is the exact grant for the null device, and every one of the
+// four rights is here on purpose.
+//
+//   - WRITE_FILE — the point. `command -v foo >/dev/null 2>&1` is a universal shell
+//     idiom that a pack-supplied convert or validator script has every right to use,
+//     and without this right Landlock refuses the redirect: the shell reports
+//     `cannot create /dev/null: Permission denied` and exits 127, which reads as a
+//     broken converter rather than as a sandbox decision (ISSUE-168).
+//   - TRUNCATE — required, not decoration. The shell's `>` opens with O_TRUNC, and
+//     TRUNCATE is a right this mechanism HANDLES from ABI 3 onward. Granting
+//     WRITE_FILE alone therefore risks the redirect still being refused on exactly
+//     the modern kernels CI runs (ubuntu-latest reports ABI 4+). Whether the kernel
+//     demands it for a character device is version-dependent; it costs nothing on a
+//     sink that discards data, and omitting it risks shipping a fix that fixes
+//     nothing.
+//   - IOCTL_DEV — /dev/null is a CHARACTER DEVICE, and IOCTL_DEV is handled from
+//     ABI 5. Programs routinely isatty()/TCGETS a redirected fd, and an un-granted
+//     ioctl on an ABI-5 kernel returns EACCES. Inert on the null device, and it
+//     removes a whole class of future ABI-5-only breakage.
+//   - READ_FILE — `</dev/null`, feeding a command empty stdin, is the same idiom
+//     family and is just as safe: reading the null device reads nothing.
+//
+// EXECUTE IS DELIBERATELY ABSENT. The mechanism leaves EXECUTE UNHANDLED (see
+// DeriveSandboxRestrictions), so granting it back on any rule would be contradictory;
+// TestSandboxCapability_SystemPathsKeepInterpreterReadable asserts no rule does.
+//
+// Every right here is in Landlock's file-applicable class, which is what makes the
+// rule safe against a character device — see the appended rule in
+// DeriveSandboxRestrictions for why that matters so much.
+func landlockDevNullRights() uint64 {
+	return AccessFSReadFile | AccessFSWriteFile | AccessFSTruncate | AccessFSIoctlDev
+}
+
 // landlockDirectoryOnlyRights is the class of access rights the kernel accepts ONLY on
 // a directory. It exists as one named classification so that adding a right means
 // classifying it in exactly one place, rather than open-coding a bitmask wherever the
@@ -298,7 +348,8 @@ func DeriveSandboxRestrictions(capability SandboxCapability) SandboxRestrictionS
 		capability.LandlockABI,
 	)
 
-	rules := make([]SandboxPathRule, 0, len(capability.ReadablePaths)+len(capability.WritablePaths))
+	// +1 for the unconditional /dev/null rule appended after both loops.
+	rules := make([]SandboxPathRule, 0, len(capability.ReadablePaths)+len(capability.WritablePaths)+1)
 	for _, path := range capability.ReadablePaths {
 		rules = append(rules, SandboxPathRule{
 			Path:          path,
@@ -316,6 +367,46 @@ func DeriveSandboxRestrictions(capability SandboxCapability) SandboxRestrictionS
 			),
 		})
 	}
+
+	// THE NULL-DEVICE SINK (ISSUE-168), granted for EVERY capability.
+	//
+	// WHY IT IS UNCONDITIONAL. The rationale is universal rather than a property of any
+	// one capability: /dev/null discards everything written to it, so nothing persists,
+	// nothing leaks and nothing can be corrupted. That makes the grant a FLOOR of the
+	// mechanism, which is also exact parity with darwin — whose profile literal carries
+	// `(allow file-write* (literal "/dev/null"))` unconditionally and does not derive it
+	// from a capability struct at all.
+	//
+	// WHY NOT `WritablePaths: []string{"/dev/null"}`, THE OBVIOUS ALTERNATIVE. The
+	// writable loop above grants landlockReadRights|landlockWriteRights|TRUNCATE — i.e.
+	// MAKE_REG, MAKE_DIR, MAKE_SYM, REMOVE_FILE, READ_DIR and the rest. Those are inert
+	// on a character device ONLY because narrowRuleToInodeType strips them at install
+	// time on the Linux host. The DERIVED DATA would still claim them, and the derived
+	// data is the only artefact through which this mechanism can be reviewed off-Linux.
+	// A spec asserting "you may create directories under /dev/null" is a lie in exactly
+	// the place the reviewing happens.
+	//
+	// CHARACTER-DEVICE SAFETY IS WHY THE MASK IS EXACT. landlock_add_rule REJECTS a
+	// path_beneath rule carrying a directory-only right against a non-directory, and ONE
+	// rejected rule aborts the ENTIRE restriction install — CI run 30383453888 is this
+	// repo's recorded case. Every right in landlockDevNullRights is file-applicable, so
+	// narrowRuleToInodeType(mask, false) returns it unchanged and the kernel cannot
+	// EINVAL on it. TestSandboxCapability_DevNullGrantIsCharDeviceSafe pins that as an
+	// intended property rather than an accident.
+	//
+	// Required: true is the loud-over-silent choice. A host with no /dev/null refuses by
+	// name instead of silently reproducing ISSUE-168 there.
+	//
+	// ORDERING CONTRAST, SO NOBODY MIRRORS THE WRONG RULE ACROSS PLATFORMS: Landlock
+	// rules UNION and have no precedence — there is no deny rule and no last-match-wins,
+	// so this rule's position in the slice is irrelevant to the kernel and it is
+	// appended last only for readability. On darwin the opposite holds: the Seatbelt
+	// clause's position AFTER `(deny file-write*)` is load-bearing.
+	rules = append(rules, SandboxPathRule{
+		Path:          sandboxDevNullPath,
+		AllowedAccess: narrowToABI(landlockDevNullRights(), capability.LandlockABI),
+		Required:      true,
+	})
 
 	denied := []string{}
 	if !capability.Network {

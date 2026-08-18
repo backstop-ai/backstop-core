@@ -105,3 +105,5 @@
 - [cmd/backstop 10m starves coverage](project_cmd_backstop_10m_starves_coverage.md) — a default-timeout panic in cmd/backstop means NO coverage profile reaches the gate; `coverage_unmeasured` on your files is a phantom, re-measure the package alone with -timeout 25m
 - [Mutation matrix beats sequence-red](project_mutation_matrix_beats_sequence_red.md) — mutate the FINISHED impl into each wrong variant and log the catcher; a "NOT CAUGHT" is usually a no-op MUTATION, not a weak test
 - [Prove a carve-out by mutating into it](project_prove_a_carveout_by_mutating_into_it.md) — flip the code into the carved-out shape: the strict test reds AND the roster stays GREEN, proving both halves in one run
+- [Seatbelt permits device nodes](project_seatbelt_permits_device_nodes.md) — darwin ALREADY allows /dev/null+/dev/zero writes under a blanket deny; a darwin behavioural test for that carve-out is a regression lock, NOT a red->green
+- [Falsify a sandbox allow by retargeting](falsify_sandbox_allow_by_retargeting.md) — a grant on an already-permissive path can't be falsified there; retarget the clause at an ENFORCED path (+ typo leg = exit 65, loud not silent)

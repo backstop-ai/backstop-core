@@ -69,6 +69,32 @@ func MaybeRunSandboxHelper() error { return nil }
 // dyld shared cache and the dirs a Homebrew interpreter's dylibs live in on both
 // Intel (/usr/local/...) and Apple-Silicon (/opt/homebrew) hosts. NO project /
 // non-pack / non-system path is readable.
+//
+// ─── THE ONE SCOPED WRITE EXCEPTION: /dev/null (ISSUE-168) ──────────────────────
+// The write denial above is otherwise total, and it stays total for every path that
+// can hold state. /dev/null is a write-only sink: nothing written to it persists,
+// leaks or can be corrupted, so the exception costs the trust model nothing. It
+// exists because `command -v foo >/dev/null 2>&1` is a universal shell idiom that a
+// pack-supplied convert or validator script has every right to use, and because the
+// Linux half of this sandbox grants the same single path through a Landlock rule in
+// sandbox_capability.go — the two platforms must say the same thing.
+//
+// It is a `literal`, never a `subpath`: `(subpath "/dev")` would grant write to every
+// device node on the system. It is placed AFTER `(deny file-write*)` because Seatbelt
+// evaluates LAST-MATCH-WINS, so a preceding allow would simply be overridden.
+//
+// ★ THE MEASURED FACT, FIRST: ON DARWIN THIS CLAUSE CHANGES NO OBSERVABLE BEHAVIOUR.
+// Writes to /dev/null ALREADY succeeded under the profile without it — measured
+// 2026-08-18 through real sandbox-exec — as an emergent Seatbelt property of device
+// nodes generally (/dev/zero behaves identically) that the profile text never stated.
+// Linux's Landlock, meanwhile, enforced the same stated intent literally and broke
+// the idiom. THAT ASYMMETRY IS THE WHOLE DEFECT.
+//
+// ★ AND THEN THE FRAMING: what the clause buys is that darwin's stated intent now
+// matches its actual behaviour, and that both platforms' profiles say the same thing
+// — a guarantee where there was an accident. That is what stops a future macOS
+// tightening, or a reader deleting the clause as decorative, from silently
+// re-opening ISSUE-168 on the platform where it currently happens to work.
 func darwinSandboxProfile(packDir string) string {
 	resolved := packDir
 	if r, err := filepath.EvalSymlinks(packDir); err == nil {
@@ -90,7 +116,7 @@ func darwinSandboxProfile(packDir string) string {
 		fmt.Fprintf(&b, " (subpath \"%s\")", p)
 	}
 	return fmt.Sprintf(
-		"(version 1)(import \"bsd.sb\")(deny default)(allow process*)(allow file-read*%s)(deny network*)(deny file-write*)",
+		"(version 1)(import \"bsd.sb\")(deny default)(allow process*)(allow file-read*%s)(deny network*)(deny file-write*)(allow file-write* (literal \"/dev/null\"))",
 		b.String(),
 	)
 }
