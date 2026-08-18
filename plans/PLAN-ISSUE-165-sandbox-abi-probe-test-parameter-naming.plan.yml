@@ -1,0 +1,767 @@
+---
+plan_id: PLAN-ISSUE-165
+spec_id: ISSUE-165
+created: "2026-08-18"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./pkg/packval/ -run \"TestSandboxLinux_ProductionPathUsesTheRealABIProbe|TestSandboxLinux_ABIProbeWiringGuardFalsifiesEachDefectShape\" -v -count=1"
+coverage_threshold: 90
+
+notes: |
+  ISSUE-165 — `TestSandboxLinux_ProductionPathUsesTheRealABIProbe`
+  (`pkg/packval/sandbox_linux_errors_test.go`) is an AST wiring guard that walks
+  `sandbox_linux.go` for every call to `linuxSandboxedRunWith`,
+  `linuxSandboxedRunStdoutWith` or `newSandboxHelperCommand` and asserts the LAST
+  ARGUMENT at each is literally the bare identifier `probeLandlockABI`. The two OUTER
+  hops satisfy that. The two INNER hops cannot: `linuxSandboxedRunWith` (`:220-221`) and
+  `linuxSandboxedRunStdoutWith` (`:245-246`) forward their OWN parameter, `probeABI
+  LandlockABIProbe`, to `newSandboxHelperCommand` — a deliberate, load-bearing injection
+  seam that `TestLinuxSandboxedRunWith_WrapsThePrepareFailure` drives with a fake prober.
+  A flat identifier-name match cannot tell a correctly-forwarded parameter from a
+  hardcoded wrong prober, so the assertion is UNSATISFIABLE BY CONSTRUCTION at those two
+  sites. The production wiring is correct; the assertion mechanism is the defect.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  ★ THE CHOSEN FIX SHAPE: OPTION (b). OPTION (a) IS REJECTED ON THE RECORD.
+  ══════════════════════════════════════════════════════════════════════════════
+  ISSUE-165 offers two shapes and declines to pick. This plan picks (b) — make the guard
+  SEAM-AWARE, checking each hop against what correctness actually requires THERE, with the
+  inner hop resolved against the enclosing function's own typed prober parameter — and
+  REFUSES (a) (rename `probeABI` to `probeLandlockABI` so the naive check happens to match).
+  (ISSUE-165 calls option (b) "trace parameter provenance". This plan deliberately does NOT
+  claim dataflow provenance: see "WHAT THIS IS AND IS NOT" below. It delivers option (b)'s
+  intent by binding, and says where that stops.) DIR-024 item 21 states the reason and this plan adopts it: a
+  parameter spelled `probeLandlockABI` SHADOWS the package-level function inside both
+  bodies, so the inner-hop assertion would then pass for ANY caller-supplied prober,
+  including the fake one the tests inject. That is green-without-being-true — it retires
+  the exact test/production divergence the guard's own header says it exists to catch, and
+  it is the founder's standing never-hack-the-gate-green law in its purest form. Option (a)
+  must not be taken without an explicit founder ruling; nothing in this lane takes it.
+
+  A CONSEQUENCE WORTH STATING: `pkg/packval/sandbox_linux.go` IS NOT EDITED BY THIS LANE
+  AT ALL. Every changed line lives in a `_test.go` file. Read `sandbox_linux.go`; do not
+  touch it, and do not rename `probeABI`.
+
+  ── WHAT THE REWRITTEN GUARD ASSERTS, HOP BY HOP ────────────────────────────────
+  The guard stops treating four call sites as one undifferentiated set. It classifies each
+  tracked call by its ENCLOSING FUNCTION and applies the assertion that is actually
+  correct there:
+
+    BUCKET A — THE PRODUCTION DISPATCH SEAMS (2 sites). Enclosing `platformSandboxedRun`
+    calling `linuxSandboxedRunWith`; enclosing `platformSandboxedRunStdout` calling
+    `linuxSandboxedRunStdoutWith`. These functions take NO prober parameter — they are the
+    platform-neutral seam shared with `sandbox_nonlinux.go` — so this is the ONE place the
+    real prober enters the chain, and the last argument MUST be the package-level
+    identifier `probeLandlockABI`. Unchanged in spirit from today's check.
+
+    BUCKET B — THE INJECTABLE SEAMS (2 sites). Enclosing `linuxSandboxedRunWith` and
+    `linuxSandboxedRunStdoutWith`, each calling `newSandboxHelperCommand`. The last
+    argument MUST be the identifier that names THAT function's PROBER PARAMETER — and the
+    prober parameter is resolved BY TYPE, as "the enclosing decl's EXACTLY ONE parameter
+    whose declared type is `LandlockABIProbe`", NEVER as "the last parameter". Positional
+    resolution is a measured hole, not a hypothetical: a trailing decoy
+    (`..., probeABI LandlockABIProbe, decoy LandlockABIProbe`) forwarding `decoy` produces
+    ZERO violations under a positionally-last rule, in both the separate-field and
+    grouped-field spellings. By-type resolution closes it and, as a bonus, makes a
+    two-prober signature itself a loud violation rather than a silent pass.
+    Two rules apply at each of these sites and BOTH are evaluated UNCONDITIONALLY (see
+    sharp edge 14 — the natural if/else ordering silently reinstates option (a)):
+      B1 the forwarded identifier equals the resolved prober parameter's name;
+      B2 the prober parameter is NOT ITSELF NAMED `probeLandlockABI`, and the forwarded
+         identifier is not the literal `probeLandlockABI`. B2 is option (a)'s refusal made
+         ENFORCEABLE rather than merely documented: under option (a) B1 passes trivially
+         (the name matches itself) while the seam has become vacuous.
+
+    ANY OTHER SITE. A tracked call in any other enclosing function, or at file scope, is a
+    LOUD failure ("unclassified prober-carrying call site"), never a silent skip. A third
+    delegation added later cannot slip past unchecked.
+
+    WHAT THIS IS AND IS NOT — SAID PLAINLY SO THE GUARD IS NOT OVERSOLD. This is
+    IDENTIFIER BINDING, not dataflow provenance. It resolves the forwarded name against the
+    ENCLOSING DECL's own typed parameter instead of against nothing, which is strictly
+    stronger than today's flat package-scope spelling match — but a body that RE-BINDS that
+    identifier (`probeABI = someFake` before the call) still passes the name check. Real
+    provenance needs `go/types`, which this guard deliberately does not use: it must stay a
+    text-and-AST check over a file that may not even build for the host platform. The
+    mitigation is cheap and mandated (B3): flag any `*ast.AssignStmt` in the enclosing body
+    that assigns to the prober parameter's identifier. This limitation is inherited from the
+    original guard, not introduced here — but it gets stated rather than papered over.
+
+  WHAT THE GUARD STILL FALSIFIES AFTERWARD (DIR-024 item 21 asks the plan to say):
+  a dispatch seam handed anything but the real `probeLandlockABI`; an inner seam handed
+  anything but its own typed prober parameter (including the real prober, which would be
+  vacuity); an inner seam whose prober parameter has been RENAMED to `probeLandlockABI`,
+  i.e. option (a) itself; a decoy second `LandlockABIProbe` parameter; a re-bind of the
+  prober identifier inside the body; a seam or a hop DELETED (the counts); a new
+  prober-carrying call site nobody classified.
+  What it deliberately does NOT falsify: whether `probeLandlockABI` itself is correct (that
+  is `sandbox_linux_exec_test.go`'s job on a real host); anything about callers outside
+  `sandbox_linux.go`; and any value-level substitution that does not go through an
+  identifier the guard can see — a text-and-AST guard cannot reach that, and this plan does
+  not pretend otherwise.
+
+  ── AND THE GUARD STOPS BEING DARK ON THE AUTHORING MACHINE ─────────────────────
+  ISSUE-165's "Why this was never caught before tonight" is the durable half of this
+  defect: the guard lives in a `//go:build linux` file, so it has NEVER compiled — let
+  alone run — on the darwin machine this suite is authored on. A rewrite that leaves it
+  linux-gated leaves the NEXT mechanism bug equally undiscoverable until CI finds it.
+  The guard executes no Linux syscall and touches no linux-only symbol: it parses
+  `sandbox_linux.go` as TEXT, and that file is on disk on every platform. So it MOVES,
+  keeping its name, into a new UNTAGGED test file in the same package, where it runs
+  everywhere. This is a deliberate, stated scope decision — reject it cleanly in review if
+  it is unwanted; it is one file move within one package and nothing else depends on it.
+
+  ── MEASURED AT AUTHORING (2026-08-18, darwin, live tree + a detached worktree) ──
+    * `pkg/packval/sandbox_linux.go` contains EXACTLY four tracked call sites, in the two
+      buckets above: `:214`, `:221`, `:240`, `:246` (`grep -n` on the three tracked names).
+      `newSandboxHelperCommand` itself declares `probeABI LandlockABIProbe` at `:174` but
+      calls nothing tracked, so it is not a site.
+    * `GOOS=linux GOARCH=amd64 go test -c -o /dev/null ./pkg/packval/` SUCCEEDS on darwin
+      in ~2s and DOES compile the linux-tagged test files. PROVED, not assumed: in a
+      detached worktree a deliberate type error was appended to
+      `sandbox_linux_errors_test.go`; the cross-compile reported
+      `pkg/packval/sandbox_linux_errors_test.go:250:41: cannot use "not an int" ...` while
+      the darwin-native `GOOS=darwin GOARCH=arm64 go test -c` of the same tree passed
+      CLEAN. That pair is the whole verification ceiling in one experiment: the linux half
+      is invisible to every native command here, and the cross-compile is the one local
+      instrument that sees it. Worktree removed; tree left clean.
+    * `GOOS=linux GOARCH=amd64 go vet ./pkg/packval/` also catches it, and is clean on the
+      unmodified tree.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  ★★ THE VERIFICATION CEILING — READ BEFORE PLANNING ANY "PROVE IT" STEP ★★
+  ══════════════════════════════════════════════════════════════════════════════
+  `pkg/packval/sandbox_linux_errors_test.go` carries `//go:build linux`. On darwin it is
+  not compiled, not vetted and not run by ANY native command — `go build ./...`,
+  `go vet ./pkg/packval/` and `go test ./pkg/packval/` all pass while it is arbitrarily
+  broken (measured above). Nothing in this lane may claim to have RUN the edited half of
+  that file, or to have watched the reported CI failure disappear locally.
+
+  What IS locally establishable, and is exactly what Phase 1's verification asks for:
+    (a) the NEW untagged file's tests — the rewritten guard AND its falsification table —
+        RUN AND PASS ON DARWIN. This is a real execution of the fix's whole mechanism, not
+        a consolation prize: the guard reads `sandbox_linux.go` from disk, so its verdict
+        on the production wiring is identical to the verdict it will return on Linux.
+    (b) the file we cut FROM still compiles for its real platform:
+        `GOOS=linux GOARCH=amd64 go test -c -o /dev/null ./pkg/packval/` plus
+        `GOOS=linux GOARCH=amd64 go vet ./pkg/packval/`.
+    (c) the darwin `pkg/packval` suite is unregressed.
+  What is NOT establishable: that the Linux CI red is gone. Only CI answers that.
+
+  THE ACTUAL "DID THIS WORK" ANSWER COMES FROM CI, AND FROM NOWHERE ELSE.
+  `.github/workflows/ci.yml`, job `gate` (display name "Backstop Gate"),
+  `runs-on: ubuntu-latest`. Blocking step `Run the gate`: `./bin/backstop gate --base
+  "$BASE"`. The step before it writes `gate-report.json`, uploaded as the `gate-report`
+  artifact with `if: always()` — the same artifact ISSUE-165 was filed from (run
+  32108003542). TASK-005 owns reading it. ISSUE-165 STAYS OPEN until that reading exists.
+
+  ── VACUOUS-GREEN TRAP, SPELLED OUT BECAUSE IT WILL BE WALKED INTO ──────────────
+  On darwin, `go test ./pkg/packval/ -run TestSandboxLinux_<anything currently in the
+  linux-tagged file>` prints `ok` with ZERO tests matched, because the file is not in the
+  build. Today that is true of the guard; after the move it is true of every OTHER test in
+  `sandbox_linux_errors_test.go`. ALWAYS run the targeted commands with `-v` and confirm a
+  `--- PASS:` line PER NAMED TEST. An `ok` with no `--- PASS:` lines is a test that did not
+  run, and reporting it as a pass is false grounding.
+
+  ── CLAIM LEDGER (ISSUE-165 carries no CLM ids; this lane defines them) ─────────
+    CLM-001  DISPATCH HOP: at the two platform-neutral seams (`platformSandboxedRun` →
+             `linuxSandboxedRunWith`, `platformSandboxedRunStdout` →
+             `linuxSandboxedRunStdoutWith`) the guard requires the last argument to be the
+             package-level identifier `probeLandlockABI`. This is where the real prober
+             enters the chain and it stays strictly asserted.
+    CLM-002  INNER HOP, BOUND-IDENTIFIER CHECK (NOT DATAFLOW PROVENANCE — the honest
+             wording): at the two injectable seams the guard requires the call to
+             `newSandboxHelperCommand` to pass the identifier BOUND BY THE ENCLOSING
+             FUNCTION'S OWN PROBER PARAMETER, resolved BY TYPE as that decl's exactly one
+             parameter of type `LandlockABIProbe` (never positionally, which a trailing
+             decoy defeats). It additionally REFUSES option (a) mechanically — the prober
+             parameter must not itself be named `probeLandlockABI`, and the forwarded
+             identifier must not be that literal — with both rules evaluated
+             unconditionally rather than as alternatives. It FLAGS a re-bind of the prober
+             identifier inside the body, and it does not claim to catch value substitutions
+             invisible to an AST-only check. The false positive ISSUE-165 reports is gone at
+             BOTH sites (`:221` and `:246`).
+    CLM-003  NO SILENT SKIPS, AND THE COUNTS ARE DELIBERATE: every tracked call site is
+             classified into exactly one bucket; anything else fails loudly as
+             unclassified. Counts are asserted PER BUCKET (2 dispatch + 2 forward) and in
+             total (4), deliberately replacing today's bare `callSites != 4` and preserving
+             its stated anti-vacuous purpose rather than leaving the literal stale. The
+             count assertion is also what catches the shapes the identifier check cannot
+             see at all — a selector-form call (`x.newSandboxHelperCommand(...)`) or a
+             tracked call nested inside a `FuncLit` — because those stop being counted.
+    CLM-004  THE GUARD STILL FALSIFIES, BY MEASUREMENT: the checker is exercised against a
+             table of doctored-but-PARSING miniature sources — one POSITIVE CONTROL in the
+             correct four-site shape that must yield ZERO violations, plus one case per
+             defect shape (fake prober at a dispatch seam; literal `probeLandlockABI` at an
+             inner seam; the FULL OPTION-(a) SHAPE, parameter renamed to `probeLandlockABI`
+             AND correctly forwarded; a trailing decoy `LandlockABIProbe` parameter
+             forwarded in place of the real one; a foreign identifier at an inner seam; a
+             re-bound prober identifier; a tracked call in an unclassified function; a
+             deleted seam) each of which must yield a violation naming its site.
+    CLM-005  THE GUARD RUNS ON EVERY PLATFORM: it keeps its name and moves into a new
+             UNTAGGED test file, so the mechanism that went undetected for its whole life
+             because it never compiled on darwin now executes on darwin. The filename is
+             chosen so Go's implicit `_GOOS`-suffix file constraint does not silently
+             re-gate it.
+    CLM-006  PRODUCTION CODE UNTOUCHED, OPTION (a) REFUSED: `pkg/packval/sandbox_linux.go`
+             is not edited, `probeABI` is not renamed, and the plan records why the rename
+             would be a vacuous green rather than a fix.
+    CLM-007  THE CEILING IS RECORDED, NOT PAPERED OVER: the linux-tagged half of the edit
+             is unverifiable in this environment, the plan says so in the artifact rather
+             than in a chat message, and the confirmation of the CI red's disappearance is
+             a read of the `gate` job's `gate-report` artifact. ISSUE-165 is not closed on
+             local evidence.
+
+  ── SHARP EDGES ────────────────────────────────────────────────────────────────
+   1. NEVER CLAIM A LOCAL RUN OF THE LINUX-TAGGED HALF. See the ceiling. The measured
+      experiment above shows a broken `sandbox_linux_errors_test.go` passing every native
+      darwin command; "I ran it and it's green" about that file is false grounding.
+   2. THE `-run` VACUOUS GREEN. Targeted runs use `-v` and are read for `--- PASS:` lines
+      per named test. `ok` alone proves nothing (see the trap section).
+   3. TWO ERRORS TODAY, NOT ONE. The guard uses `t.Errorf`, not `t.Fatalf`, so it emits a
+      failure for `:221` AND for `:246`. ISSUE-165 quotes only the first. A fix validated
+      against one message is incomplete.
+   4. THE EXACT-COUNT ASSERTION IS PART OF THE EDIT, NOT SCENERY. Today's
+      `if callSites != 4 { t.Fatalf(...) }` exists, by its own comment, "so the guard
+      cannot pass vacuously after a rename or a deletion." The rewrite replaces it with
+      per-bucket counts plus the total and carries that reasoning into the new message.
+      Leaving the old literal behind converts a false positive into a DIFFERENT false red.
+   5. THE TEST NAME SURVIVES: `TestSandboxLinux_ProductionPathUsesTheRealABIProbe`. It is
+      named by ISSUE-165, by DIR-024 item 21 and by the CI failure being chased, and it is
+      PLAN-ISSUE-020's delivery. Move it and rewrite its body; never rename it.
+   6. FILENAME BUILD CONSTRAINTS ARE IMPLICIT IN GO. A file named `*_linux_test.go` is
+      linux-only with no `//go:build` line at all. The new file is
+      `pkg/packval/sandbox_wiring_guard_test.go` — no `_linux`, no `_darwin`, and NO build
+      tag. Naming it `sandbox_wiring_guard_linux_test.go` would silently re-gate the guard
+      and quietly undo CLM-005 while every local command still passed.
+   7. THE NEW FILE MUST REFERENCE NO LINUX-ONLY SYMBOL. It is `package packval` compiled on
+      every platform, so it may use only `go/ast`, `go/parser`, `go/token`, `testing` and
+      the like — never `unix.*`, never `LandlockABIProbe` as a TYPE, never
+      `probeLandlockABI` as a value. `LandlockABIProbe` appears only as a STRING compared
+      against an AST node's spelling.
+   8. DOCTORED FIXTURES MUST PARSE, AND MUST BE DOCTORED AT THE RIGHT LAYER. The
+      falsification cases are Go source strings handed to `parser.ParseFile`. A fixture
+      with a syntax error fails at PARSE and never reaches the checker, so the subtest
+      greens for entirely the wrong reason. Assert `err == nil` from every fixture's parse
+      and fail loudly if not.
+   9. THE POSITIVE CONTROL IS LOAD-BEARING. Without a correct-shape fixture asserted to
+      yield ZERO violations, a checker that flags everything passes every negative case.
+  10. LOCATE BY NAME, NEVER BY THE LINE NUMBERS QUOTED HERE. `sandbox_linux.go` and
+      `sandbox_linux_errors_test.go` line numbers have already moved across tonight's
+      lanes. Find `func TestSandboxLinux_ProductionPathUsesTheRealABIProbe` and the four
+      call sites by their enclosing function names.
+  11. SHARED TREE, WITH LIVE SIBLING LANES. Enumerated at authoring by a DATE-SCOPED
+      method — `git status --porcelain` over `plans/` plus
+      `grep -l 'created: "2026-08-1[78]"' plans/*.plan.yml` — so this is "every non-
+      `completed` plan created on 2026-08-17/18", NOT a global claim about every live plan
+      in the repo. On that scope, two besides this one: PLAN-ISSUE-163 (`draft`;
+      `cmd/backstop/**`) and
+      PLAN-ISSUE-168 (`draft`, empty scaffold; its issue names
+      `pkg/packval/sandbox_capability.go`, `pkg/packval/sandbox_nonlinux.go`,
+      `pkg/packval/sandbox_linux_exec_test.go`, `pkg/packval/testdata/sandbox/convert-jq.sh`).
+      ISSUE-168's lane works in THIS package. File sets are disjoint from this lane's two
+      files — but never bare `git stash` (it sweeps their uncommitted edits), and do not run
+      the full package suite or `gate --all` while they are mid-flight.
+  12. TASK-001 LEAVES `pkg/packval`'s TEST BUILD NON-COMPILING — that is its honest RED, and
+      with sibling lane ISSUE-168 in this package it must not linger. DEFAULT ROUTE: take
+      the red in a DETACHED WORKTREE, record the compiler output, then apply TASK-001 and
+      TASK-002 together in the main tree. FALLBACK: run them back to back in the main tree
+      with NO intervening commit or push. `go build ./...` is unaffected either way (test
+      files only), but `go test ./pkg/packval/` inside the window fails for everyone.
+  13. DO NOT "FIX" THE CWD-RELATIVE PARSE. The guard reads `sandbox_linux.go` by bare
+      relative name because `go test` runs with the working directory set to the package
+      directory. That works on every platform and is out of scope.
+  14. ★ RULE PRECEDENCE IS PART OF THE SPEC, NOT AN IMPLEMENTATION DETAIL — GET THIS WRONG
+      AND THE LANE SILENTLY SHIPS OPTION (a). Bucket B's two rules must BOTH be evaluated,
+      with the option-(a) refusal (B2) checked FIRST and UNCONDITIONALLY. Written as the
+      natural alternative —
+        `if last.Name != want { violation } else if last.Name == "probeLandlockABI" { … }`
+      — the full option-(a) shape (parameter RENAMED to `probeLandlockABI` and forwarded
+      correctly) yields ZERO violations, because B1 passes trivially when the name matches
+      itself and the else branch never fires. That is the exact vacuous green this plan
+      refuses, reinstated by an `else`. Reproduced by the plan reviewer against a prototype
+      of this checker; treat it as measured, not theoretical. TASK-001's table carries this
+      shape as its own case so the ordering is enforced by a test rather than by this note.
+  15. ZERO-ARG TRACKED CALL PANICS A NAIVE CHECKER. `call.Args[len(call.Args)-1]` on a call
+      with no arguments is an index-out-of-range panic, which reads as a broken test rather
+      than as the defect it is. Guard `len(call.Args) == 0` and emit a violation.
+  16. THIS FIX INVERTS A DOC COMMENT IN A FILE IT MAY NOT EDIT, AND THAT COMMENT IS EXACTLY
+      WHAT SOMEONE WILL CITE FOR OPTION (a). `pkg/packval/sandbox_linux.go:163-175`
+      (`newSandboxHelperCommand`'s doc comment) ends: "TestSandboxLinux_ProductionPathUses
+      TheRealABIProbe asserts both production call sites hand it the real probeLandlockABI,
+      so the seam cannot become a place where test and production diverge." After this
+      lane, a literal `probeLandlockABI` at those two sites is a VIOLATION, not the
+      requirement — the sentence becomes false in a way that argues FOR the rejected shape.
+      DO NOT FIX IT HERE: CLM-006 keeps `sandbox_linux.go` byte-unchanged and that is
+      mechanically asserted (TASK-003 step 3). TASK-005 files it as a follow-on instead, so
+      the staleness is recorded rather than either silently carried or silently smuggled
+      into this diff.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Phase 1: RED on the checker's semantics, then the seam-aware rewrite
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: falsification table (RED), seam-aware guard (GREEN), and everything darwin can actually measure"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Write the falsification table for the prober-wiring checker (RED)"
+        description: |
+          Create `pkg/packval/sandbox_wiring_guard_test.go`, `package packval`, WITH NO
+          BUILD TAG and with a filename carrying no `_linux`/`_darwin` component (sharp
+          edges 6 and 7 — an implicit filename constraint would re-gate the guard silently).
+
+          This task writes ONE test, `TestSandboxLinux_ABIProbeWiringGuardFalsifiesEachDefectShape`
+          (CLM-004), and NOTHING ELSE. The checker it calls does not exist yet; TASK-002
+          writes it. THIS IS THE RED, and it is a COMPILE failure of `pkg/packval`'s test
+          build, not an assertion failure — take it in a DETACHED WORKTREE per sharp edge
+          12, record the compiler's actual output, and do not leave the main tree in that
+          state while sibling lane ISSUE-168 is working in this package.
+
+          THE FIXTURE TABLE IS THIS PLAN'S ONLY MECHANICAL FALSIFIER FOR CLM-001, CLM-002
+          AND CLM-003 — the guard proper only ever sees the one correct source on disk, so
+          every rule stated in this plan is proved (or not) HERE. That is why this task
+          claims those three alongside CLM-004.
+
+          THE SEAM THIS TEST PINS, which TASK-002 must then satisfy exactly:
+
+              // proberWiringViolations reports every way the parsed sandbox_linux.go fails
+              // to carry the real ABI prober from the platform-neutral dispatch seams down
+              // to newSandboxHelperCommand.
+              func proberWiringViolations(fset *token.FileSet, file *ast.File) (violations []string, dispatch, forward int)
+
+          It returns human-readable violation strings (each naming the offending site's
+          position via `fset.Position`) plus the per-bucket site counts. It reports; it does
+          not call `t.Errorf`. That separation is what makes this test possible at all.
+
+          THE TABLE. Each case is a MINIATURE Go SOURCE STRING parsed with
+          `parser.ParseFile(fset, "sandbox_linux.go", src, 0)` — never a file on disk.
+          Assert the parse error is nil for EVERY fixture before checking anything (sharp
+          edge 8: a fixture that fails to parse never reaches the checker and its subtest
+          greens for the wrong reason). Each miniature declares the four real seams with
+          their real names and signatures — `platformSandboxedRun`,
+          `platformSandboxedRunStdout`, `linuxSandboxedRunWith(..., probeABI
+          LandlockABIProbe)`, `linuxSandboxedRunStdoutWith(..., probeABI LandlockABIProbe)`
+          — with bodies trimmed to the call under test. Stub whatever the bodies need so
+          they parse; the checker never type-checks.
+
+            1. POSITIVE CONTROL (sharp edge 9, LOAD-BEARING): the correct four-site shape,
+               copied faithfully from today's `sandbox_linux.go`. MUST yield ZERO
+               violations, `dispatch == 2` and `forward == 2`. Without this every negative
+               case passes for a checker that flags everything.
+            2. FAKE PROBER AT A DISPATCH SEAM: `platformSandboxedRun` calls
+               `linuxSandboxedRunWith(..., someOtherProbe)`. Violation naming that site
+               (CLM-001).
+            3. LITERAL AT AN INNER SEAM: `linuxSandboxedRunWith` calls
+               `newSandboxHelperCommand(..., probeLandlockABI)` while its parameter is still
+               named `probeABI`. Violation — this is the state in which every fake-prober
+               test in this package silently drives the real kernel probe (CLM-002).
+            4. ★ THE FULL OPTION-(a) SHAPE, AND THE MOST IMPORTANT CASE IN THIS TABLE:
+               the inner seam's parameter is RENAMED to `probeLandlockABI` AND forwarded
+               correctly (`func linuxSandboxedRunWith(..., probeLandlockABI LandlockABIProbe)`
+               calling `newSandboxHelperCommand(..., probeLandlockABI)`). MUST still be a
+               violation (CLM-002, rule B2). A checker that evaluates the literal check as
+               an `else` branch of the name check returns ZERO violations here — the
+               reviewer reproduced exactly that — so this case is what stops the lane from
+               shipping the shape it went to the trouble of refusing. Comment it as such.
+            5. TRAILING DECOY PARAMETER (CLM-002, by-type resolution): the inner seam
+               declares `..., probeABI LandlockABIProbe, decoy LandlockABIProbe` and
+               forwards `decoy`. MUST be a violation. Under a positionally-last rule this
+               returns ZERO violations (measured by the reviewer, in both the separate-field
+               and grouped-field spellings), which is why the rule resolves the prober
+               parameter BY TYPE and why a two-prober signature is itself a violation.
+               Include the grouped form (`probeABI, decoy LandlockABIProbe`) as a subcase.
+            6. FOREIGN IDENTIFIER AT AN INNER SEAM: forwards some other in-scope identifier
+               rather than the enclosing function's own parameter. Violation (CLM-002).
+            7. RE-BOUND PROBER (CLM-002, rule B3): the inner seam assigns
+               `probeABI = someFake` before forwarding `probeABI`. MUST be a violation.
+               Comment the honest limit here: the forward itself still looks correct to a
+               name check, this is why the guard flags the ASSIGNMENT rather than claiming
+               dataflow provenance, and a value substitution that never touches this
+               identifier remains out of reach of any AST-only guard.
+            8. UNCLASSIFIED SITE: a tracked call (say `newSandboxHelperCommand`) inside some
+               other function entirely. Violation naming it as unclassified — a silently
+               skipped site is the failure mode this arm exists to prevent (CLM-003).
+            9. A DELETED SEAM: one dispatch delegation removed. The returned counts must
+               show it (`dispatch == 1`), which is what the count assertion in the guard
+               proper then converts into a failure (CLM-003).
+           10. ZERO-ARG TRACKED CALL: `newSandboxHelperCommand()` with no arguments. Must
+               produce a VIOLATION and must NOT panic (sharp edge 15).
+
+          For every negative case assert the violation set is NON-EMPTY and that at least
+          one message names the expected function or position — not merely that the count
+          is nonzero, so a checker returning generic strings cannot satisfy it. Give each
+          subtest a legible failure message; these functions are not exempt from the
+          hollow-test rule.
+
+          DO NOT touch `sandbox_linux_errors_test.go` in this task, and DO NOT touch
+          `sandbox_linux.go` in any task of this plan.
+        files:
+          - pkg/packval/sandbox_wiring_guard_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+        depends_on: []
+        test_names:
+          - TestSandboxLinux_ABIProbeWiringGuardFalsifiesEachDefectShape
+
+      - id: TASK-002
+        type: implementation
+        title: "Write the seam-aware checker and move the guard onto it, keeping its name"
+        description: |
+          Two files, one commit with TASK-001 (sharp edge 12).
+
+          (1) IN `pkg/packval/sandbox_wiring_guard_test.go` (the untagged file TASK-001
+          created), implement `proberWiringViolations` exactly as TASK-001's seam declares,
+          and MOVE `TestSandboxLinux_ProductionPathUsesTheRealABIProbe` into this file —
+          SAME NAME, new body (sharp edge 5). The moved guard parses `sandbox_linux.go` by
+          bare relative name as today (sharp edge 13), hands the AST to the checker, and
+          turns each returned violation into a `t.Errorf`, then asserts the counts.
+
+          THE CHECKER'S RULES, keyed on the ENCLOSING `*ast.FuncDecl` rather than on a flat
+          identifier set. Walk `file.Decls`, and for each `*ast.FuncDecl` inspect its body
+          for `*ast.CallExpr` whose `Fun` is an `*ast.Ident` in the tracked set
+          {`linuxSandboxedRunWith`, `linuxSandboxedRunStdoutWith`,
+          `newSandboxHelperCommand`}. Inspecting per-FuncDecl is what makes the enclosing
+          function known without a parent map.
+
+            BUCKET A — DISPATCH (CLM-001). Enclosing `platformSandboxedRun` calling
+            `linuxSandboxedRunWith`, or enclosing `platformSandboxedRunStdout` calling
+            `linuxSandboxedRunStdoutWith`. REQUIRE the last argument to be an `*ast.Ident`
+            named `probeLandlockABI`. These seams take no prober parameter — they are the
+            platform-neutral contract shared with `sandbox_nonlinux.go` — so this is the
+            single point where the real prober enters the chain. Increment `dispatch`.
+
+            BUCKET B — FORWARD (CLM-002). Enclosing `linuxSandboxedRunWith` or
+            `linuxSandboxedRunStdoutWith` calling `newSandboxHelperCommand`. Increment
+            `forward`.
+            RESOLVE THE PROBER PARAMETER BY TYPE, NEVER POSITIONALLY. Walk every
+            `*ast.Field` of `decl.Type.Params` whose type is the identifier
+            `LandlockABIProbe` — compared as a STRING, never referenced as a type (sharp
+            edge 7) — and collect every `Name` in those fields (a field may declare several
+            names, so the grouped form `probeABI, decoy LandlockABIProbe` yields two).
+            Require EXACTLY ONE such name and violate otherwise: zero means the injectable
+            seam this guard describes no longer exists; two or more means a decoy prober is
+            in scope, which is a defect in its own right and is precisely what defeats a
+            positionally-last rule (measured — see sharp edge 14's sibling case in
+            TASK-001's table, case 5).
+            THEN APPLY BOTH RULES, UNCONDITIONALLY AND WITH B2 FIRST (sharp edge 14 — an
+            `else` here silently reinstates option (a) and the lane ships the thing it
+            refused):
+              B2 (checked first, always): the resolved parameter's NAME must not be
+                 `probeLandlockABI`, and the call's last argument must not be the literal
+                 identifier `probeLandlockABI`. Two distinct, self-explaining messages: a
+                 parameter so named SHADOWS the package-level prober and makes this whole
+                 assertion satisfiable by any caller-supplied fake (that is option (a),
+                 refused by this plan and by DIR-024 item 21); an argument so spelled
+                 BYPASSES the injected parameter and makes every fake-prober test in this
+                 package exercise the real kernel probe.
+              B1 (also always evaluated): the call's last argument is an `*ast.Ident` whose
+                 name equals the resolved parameter's name.
+              B3: scan the enclosing body for an `*ast.AssignStmt` whose LHS is that
+                 identifier — a re-bind makes B1 pass while the forwarded value is
+                 something else entirely. Violate, and say in the message that this guard
+                 checks IDENTIFIER BINDING, not dataflow; real provenance would need
+                 `go/types`, which this guard deliberately does not use.
+            GUARD `len(call.Args) == 0` BEFORE INDEXING (sharp edge 15) — in both buckets.
+            A zero-arg tracked call is a violation, not a panic.
+
+            ANY OTHER ENCLOSING FUNCTION (CLM-003): violation, "unclassified
+            prober-carrying call site at <pos>", stating that a new delegation must be
+            classified into one of the two buckets rather than silently trusted.
+
+          The failure messages replace today's text, which is misleading in two ways worth
+          fixing while here: it names `newSandboxHelperCommand` even for calls to the other
+          two functions, and it tells the reader the sandbox "would negotiate its ABI
+          through something other than the kernel" at sites where nothing of the sort is
+          true. Each new message names the actual enclosing function, the actual callee, the
+          actual last argument and what was required instead.
+
+          COUNTS (CLM-003, sharp edge 4). The guard asserts `dispatch == 2` AND
+          `forward == 2` AND their total `== 4`, with a `t.Fatalf` carrying today's stated
+          reasoning — the guard asserts a property OF those sites and is meaningless if they
+          moved — plus the per-bucket numbers in the message. Today's bare `callSites != 4`
+          is REPLACED here deliberately; do not leave it behind anywhere.
+
+          Give the moved guard a header comment that keeps the original's point (a seam a
+          test can fill is a seam production can be left holding the wrong thing in) and
+          adds the facts this lane established: (i) why the inner hop is asserted against
+          the enclosing decl's own TYPED parameter rather than against a package-level
+          spelling, naming option (a) as the vacuous green it would be; (ii) why the file is
+          untagged — the guard parses source text, executes no Linux syscall, and being
+          `//go:build linux` is exactly why its own defect survived undetected until Linux
+          CI reached it.
+          And give the CHECKER a header comment stating its reach honestly, so the next
+          reader neither oversells nor "fixes" it: it is an identifier-binding check, not
+          dataflow provenance (B3 is a mitigation, not a proof); and calls it cannot see as
+          tracked identifiers at all — a selector-form `x.newSandboxHelperCommand(...)`, or
+          a tracked call nested inside a `FuncLit` — are caught by the COUNT assertion
+          rather than by the per-site rules, because they stop being counted. That is a real
+          strength of pairing the two, and it is worth naming so nobody removes the counts
+          as redundant.
+
+          (2) IN `pkg/packval/sandbox_linux_errors_test.go`, DELETE the old
+          `TestSandboxLinux_ProductionPathUsesTheRealABIProbe` and its header comment, and
+          drop any import (`go/ast`, `go/parser`, `go/token`) that becomes unused — the
+          remaining tests in that file must still compile for linux, which TASK-003 checks
+          by cross-compilation. Change NOTHING else in that file: the other tests there are
+          correct, are the injectable seam's real coverage, and belong to other lanes'
+          surface. Where the deleted guard is referenced in a neighbouring comment (e.g.
+          `TestLinuxSandboxedRunWith_WrapsThePrepareFailure`'s "as the wiring guard above
+          enforces"), adjust the wording to point at the new file rather than leaving a
+          dangling "above".
+
+          `pkg/packval/sandbox_linux.go` IS NOT EDITED (CLM-006). Do not rename `probeABI`.
+
+          Run `backstop gate` after this task, as the implementer contract requires.
+        files:
+          - pkg/packval/sandbox_wiring_guard_test.go
+          - pkg/packval/sandbox_linux_errors_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-001
+        test_names:
+          - TestSandboxLinux_ProductionPathUsesTheRealABIProbe
+          - TestSandboxLinux_ABIProbeWiringGuardFalsifiesEachDefectShape
+
+      - id: TASK-003
+        type: verification
+        title: "Measure what darwin can measure: the guard running for real, and the linux-tagged half cross-compiled"
+        description: |
+          ★ READ THE VERIFICATION CEILING SECTION FIRST. Do not attempt to reproduce the CI
+          failure or to confirm it is gone; neither is possible here (sharp edge 1).
+
+          (1) THE FIX'S OWN MECHANISM, EXECUTED (CLM-001..CLM-005) — this is a real run, not
+              a proxy, because the guard now runs on this platform and reads the same
+              `sandbox_linux.go` CI reads:
+                go test ./pkg/packval/ -run "TestSandboxLinux_ProductionPathUsesTheRealABIProbe|TestSandboxLinux_ABIProbeWiringGuardFalsifiesEachDefectShape" -v -count=1
+              `-v` IS MANDATORY. Confirm a `--- PASS:` line for BOTH names and for every
+              subtest of the falsification table, and report them. A bare `ok` with no
+              per-test lines means nothing matched (sharp edge 2) and is NOT a pass.
+
+          (2) THE LINUX-TAGGED HALF STILL COMPILES FOR ITS REAL PLATFORM (CLM-006) — the
+              only instrument that sees the file TASK-002 cut from:
+                GOOS=linux GOARCH=amd64 go test -c -o /dev/null ./pkg/packval/
+                GOOS=linux GOARCH=amd64 go vet ./pkg/packval/
+              Both were measured working and clean at authoring; a leftover unused import
+              in `sandbox_linux_errors_test.go` is the likeliest way this goes red and is
+              invisible to every native darwin command.
+
+          (3) PRODUCTION CODE UNTOUCHED, MECHANICALLY (CLM-006) — the one claim in this
+              plan that prose cannot carry, since "we didn't edit it" is exactly what an
+              accidental edit also says:
+                git status --porcelain pkg/packval/sandbox_linux.go
+              MUST print NOTHING. Report the command and its empty output verbatim. If it
+              prints anything at all — including a whitespace-only or comment-only change —
+              this lane took option (a) or drifted into it; revert that file and say so.
+              (Sharp edge 16: the stale doc comment at `sandbox_linux.go:163-175` is a known
+              casualty of this fix and is deliberately NOT repaired here; TASK-005 files it.)
+
+          (4) NATIVE BUILD AND VET:
+                go build ./...
+                go vet ./pkg/packval/
+
+          (5) DARWIN NON-REGRESSION for the package:
+                go test ./pkg/packval/ -count=1
+              Report honestly INCLUDING pre-existing reds — this package carries inherited
+              failures from other lanes. For any red, establish whether it predates this
+              lane by measuring a control at clean HEAD in a detached worktree (a carried
+              reading is not evidence) and ATTRIBUTE it by name to its owning lane. Never
+              absorb another lane's red and never waive one. If sibling lane ISSUE-168 is
+              mid-flight in this package (sharp edge 11), say so plainly and run this when
+              the tree is quiet rather than substituting a narrower run and calling it the
+              suite.
+
+          (6) DIFF-SCOPED GATE over both touched files:
+                backstop gate --file pkg/packval/sandbox_wiring_guard_test.go
+                backstop gate --file pkg/packval/sandbox_linux_errors_test.go
+              Fix anything attributable to this lane AT SOURCE. Do not waive; do not weaken
+              a test to clear a finding.
+
+          (7) STATE THE CEILING EXPLICITLY IN THE REPORT (CLM-007): none of the above
+              exercises the remaining `//go:build linux` tests in
+              `sandbox_linux_errors_test.go`, and none of it confirms the CI red is gone —
+              that is TASK-005's reading. A report listing green checks without that
+              sentence is incomplete.
+        files:
+          - pkg/packval/sandbox_wiring_guard_test.go
+          - pkg/packval/sandbox_linux_errors_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-002
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Phase 2: full sweep, then the honest handoff to CI
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: full kill chain, then the CI-confirmation handoff"
+    tasks:
+      - id: TASK-004
+        type: verification
+        title: "Full kill chain: backstop gate --all plus artifact validation"
+        description: |
+          THE FINAL, UNSCOPED SWEEP. Run all three and read the results:
+
+              backstop gate --all
+              backstop artifact validate --plan PLAN-ISSUE-165
+              backstop artifact validate --issue ISSUE-165
+
+          `gate --all` covers the code half (pack lock verification, artifact validation,
+          pack engines, test verification, substantiveness, coverage, contracts, status
+          drift, requirement traceability, waivers, baseline, ledger integrity);
+          `artifact validate` covers the artifact half, since this lane's plan artifact is
+          new and its source issue is in flight.
+
+          ATTRIBUTION IS THE DELIVERABLE, NOT THE RAW COUNT. This repo carries inherited
+          reds from other lanes and two sibling lanes are live (sharp edge 11). For every
+          violation, decide and STATE whether it is this lane's:
+            * grep the full violation set explicitly for each path this lane touched
+              (`pkg/packval/sandbox_wiring_guard_test.go`,
+              `pkg/packval/sandbox_linux_errors_test.go`) and report the hit count, zero or
+              otherwise;
+            * anything attributable to this lane is FIXED AT SOURCE, never waived and never
+              made green by weakening a test.
+
+          ENVIRONMENT CAVEATS GET RECORDED, NOT SMOOTHED. A `pack_engines` step exiting 2
+          with `required tool "..." not found on PATH` is an environment artifact, NOT a
+          clean run — `go-arch-lint` and `golangci-lint` v2 must be on PATH or the dimension
+          silently contributes nothing; and a reading taken in a worktree lacking
+          `.backstop/baseline.json` is STRICTER, not more permissive. If either applies, say
+          so and do not report the run as authoritative.
+
+          ★ AND STATE THE CEILING AGAIN (CLM-007): a green `gate --all` on darwin does not
+          confirm ISSUE-165's fix. This machine never compiles the linux-tagged tests and
+          never runs the Linux job. It confirms this lane broke nothing; TASK-005 owns the
+          confirmation that it fixed something.
+        files:
+          - pkg/packval/sandbox_wiring_guard_test.go
+          - pkg/packval/sandbox_linux_errors_test.go
+          - plans/PLAN-ISSUE-165-sandbox-abi-probe-test-parameter-naming.plan.yml
+          - issues/ISSUE-165-sandbox-abi-probe-wiring-test-naming-mismatch.issue.md
+        claims:
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-002
+          - TASK-003
+
+      - id: TASK-005
+        type: documentation
+        title: "Hand the real verification to CI: name what to read, record the ceiling, close nothing early"
+        description: |
+          Everything before this proves the edit is sound; only this proves the CI red is
+          gone — and it cannot be discharged from this machine.
+
+          EVERY ARTIFACT TOUCH HERE IS ROUTED THROUGH `/issue` (the issue-author agent).
+          This lane never hand-edits an artifact file — which is why
+          `issues/ISSUE-165-...` appears in this task's `files:`: it is the file a ROUTED
+          author writes, not a file this task opens in an editor.
+
+          (1) RECORD THE CEILING IN THE ARTIFACT, NOT IN A CHAT MESSAGE (CLM-007). Hand the
+          routed author the measured statement: `sandbox_linux_errors_test.go` is
+          `//go:build linux` and is invisible to every native darwin command (proved at
+          authoring — a deliberate type error in it left `go build ./...`, `go vet` and
+          `go test` on darwin all clean, while `GOOS=linux GOARCH=amd64 go test -c` caught
+          it). Local evidence establishes "the guard now runs, and passes, on this
+          platform, and the linux half still compiles" — never "the Linux CI failure is
+          resolved."
+
+          (2) NAME THE CI RUN TO WATCH AND WHAT COUNTS AS CONFIRMATION. Workflow
+          `.github/workflows/ci.yml`, job `gate` (display name "Backstop Gate"),
+          `runs-on: ubuntu-latest`, blocking step `Run the gate`
+          (`./bin/backstop gate --base "$BASE"`). The step before it writes
+          `gate-report.json`, uploaded as the `gate-report` artifact with `if: always()`.
+          Download it. THE CONFIRMATION IS ONE CRITERION, AND IT MUST BE READ, NOT INFERRED:
+
+            THE SIGNATURE IS GONE. Search the `go-test`-channel violations (rule
+            `backstop-ai/go-toolchain/go-test`) for a violation on
+            `sandbox_linux_errors_test.go` — or, after this lane, on
+            `sandbox_wiring_guard_test.go` — whose message contains the literal text
+            `does not pass probeLandlockABI`. It must be ABSENT.
+            ★ SINGULAR, NOT "both occurrences". The guard emits two `t.Errorf` calls today
+            (`:221` and `:246`, sharp edge 3), but the go-toolchain producer's SARIF
+            converter captures only the FIRST failing position per test and emits EXACTLY
+            ONE result per failing test, however many `t.Errorf`s fired inside it. Verified
+            by the plan reviewer against the producer script and against the local
+            `.backstop/baseline.json`. Expecting two rows and finding one would look like a
+            half-fix; there is only ever one row.
+            ★ DO NOT look for a PASS. The converter emits FAILURES ONLY, and CI runs
+            `go test` without `-v`, so `gate-report.json` contains no positive signal for
+            this or any test. "The test now passes" is not obtainable from this artifact —
+            TASK-003's darwin execution already establishes that the guard runs and passes
+            against the same `sandbox_linux.go` CI reads, and that is where that half of the
+            evidence lives.
+
+            ★ DO NOT REQUIRE `pkg/packval` IN `.scope.files`, AND DO NOT DISCARD AN
+            OTHERWISE-CONFIRMING RUN FOR ITS ABSENCE. The go-toolchain `go-test` binding
+            declares `project_target: "./..."` AND `exempt_from_scope_filter: true`
+            (verified at authoring in the pack's own `pack.yml`), so this channel runs
+            PROJECT-WIDE and its findings bypass diff-scope filtering entirely — which is in
+            fact WHY ISSUE-165 was discoverable at all from a run whose diff lived in
+            `cmd/backstop`. `.scope.files` governs the diff-scoped dimensions, not this one.
+            Read it for context if useful; never treat it as a gate on this criterion.
+
+            ★ THE TOTAL VIOLATION COUNT IS NOT A CONFIRMATION CRITERION EITHER. Report the
+            remaining blocking set as CONTEXT, clearly labelled as context and not as proof
+            — this lane owns exactly one of those violations and claims nothing about the
+            rest.
+          The change has to reach a branch CI runs on before any of this exists. WHETHER AND
+          WHEN TO PUSH IS THE FOUNDER'S CALL — deliver the watch instruction and the
+          criteria, and if no CI run has happened yet, say exactly that rather than implying
+          one did.
+
+          (3) DO NOT CLOSE ISSUE-165 ON LOCAL EVIDENCE (CLM-007). Request closure through
+          `/issue` ONLY once (2)(a) and (2)(b) have both been read from a real run, handing
+          the routed author that reading as the evidence. Until then the honest status is
+          "fix landed, awaiting CI confirmation."
+
+          (4) RECORD THE SCOPE DECISIONS THE NEXT READER WOULD OTHERWISE RE-LITIGATE
+          (CLM-005, CLM-006): option (a) was refused and why; the guard was made
+          platform-neutral and why that is the durable half of the fix. If the founder
+          would rather the guard had stayed linux-gated, that is a one-file revert and the
+          issue should say so.
+
+          (5) FILE THE STALE DOC COMMENT AS A FOLLOW-ON (sharp edge 16, CLM-006). Route a
+          NEW issue through `/issue`: `pkg/packval/sandbox_linux.go:163-175`
+          (`newSandboxHelperCommand`'s doc comment) still says
+          "TestSandboxLinux_ProductionPathUsesTheRealABIProbe asserts both production call
+          sites hand it the real probeLandlockABI" — which this lane INVERTS: at those two
+          sites the literal is now a violation and the injected parameter is the
+          requirement. State plainly that this lane left the file byte-unchanged on purpose
+          (CLM-006 is asserted mechanically by TASK-003 step 3), and that the sentence is
+          the one a future reader would cite to justify the rejected option (a), so it
+          should be corrected in a lane that legitimately edits production code. One
+          sentence of prose, no behaviour change — but it does not ride in this diff.
+
+          (6) FILE ANYTHING ELSE SURFACED, and if nothing needed filing, SAY SO EXPLICITLY —
+          silence is not a discharge. In particular, if the CI reading shows OTHER
+          `pkg/packval` reds that are not this lane's, file or attribute them by name rather
+          than absorbing them. Then report the terminal state plainly: what landed, what was
+          measured, what was not measurable and why, what was filed, and what is still owed.
+        files:
+          - issues/ISSUE-165-sandbox-abi-probe-wiring-test-naming-mismatch.issue.md
+        claims:
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-004
