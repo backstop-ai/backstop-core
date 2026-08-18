@@ -1,0 +1,1406 @@
+---
+plan_id: PLAN-ISSUE-166
+spec_id: ISSUE-166
+created: "2026-08-18"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./pkg/pack/engine/ ./pkg/gate/ ./pkg/packval/ -run \"TestGrepConvert|TestGrepEngineDeclarations|TestGrepTestHelpers|TestThinExecutor_NoGrepInvocation|TestRealGrep|TestInstalledGoContractsPack|TestContract_Absence|TestEngine_Grep|TestTSPack_ContractAbsenceGrep|TestEquivalence_GoAbsence|TestPackVerdict_|TestPackContractResult_|TestContractsPack_PatternArg\" -race -count=1"
+coverage_threshold: 90
+
+notes: |
+  ISSUE-166 — `packs/contracts` fails its own phase3-fixtures self-validation on Linux
+  CI, and ~30 contracts tests fail with "got 0 matches". The issue's
+  "## Root cause confirmed (2026-08-18)" section carries the real, CI-verified
+  mechanism. This plan does not re-derive it; it decides the FIX, which the issue
+  deliberately left open.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  THE MECHANISM, RESTATED IN ONE PARAGRAPH
+  ══════════════════════════════════════════════════════════════════════════════
+  A pack-declared grep engine runs `grep -rn -e <pattern> <target>` and pipes stdout
+  into a pack-shipped `grep/to-sarif.sh`. That script's awk guard is `NF >= 3` over
+  `-F:` — it assumes `file:line:text`. GNU grep (Linux CI) OMITS the filename when the
+  target is exactly ONE explicit file, emitting 2-field `line:text`. The guard drops
+  every such line SILENTLY. The absence probe therefore reports zero matches for any
+  single-file scope on Linux, whatever the file actually contains.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  EVIDENCE MEASURED FOR THIS PLAN (2026-08-18, darwin, this repo at HEAD 722d5f1)
+  ══════════════════════════════════════════════════════════════════════════════
+  Every number below was produced by running the command, not inferred.
+
+  ── (1) THE DEFECT, REPRODUCED WITHOUT LINUX ─────────────────────────────────
+  The CI-captured 2-field bytes were fed straight into the shipped script:
+
+      printf '6:// "legacyProbeSymbol" appears here (even in a comment-adjacent identifier), the\n8:func legacyProbeSymbol() string { return "should have been deleted" }\n' \
+        | /bin/sh packs/contracts/grep/to-sarif.sh
+
+  → exit 0, `"results": []`. TWO real matches, ZERO SARIF results, no diagnostic.
+  THE DEFECT IS FULLY REPRODUCIBLE ON DARWIN because it lives in the CONSUMING side,
+  not in grep. No Linux runner is needed to drive it RED.
+
+  ── (2) WHY A HEURISTIC 2-FIELD PARSE IS THE WRONG FIX ───────────────────────
+  The issue offers "make the awk robust to both shapes" as a candidate. It was
+  MEASURED and it is unsound — the two shapes are not distinguishable:
+
+      printf '6:42: legacyProbeSymbol\n' | /bin/sh packs/contracts/grep/to-sarif.sh
+      → exit 0, ONE result, uri "6", startLine 42
+
+  That is line 6 of some file, whose matched text happens to begin `42:`. A parser
+  that "handles both shapes" must guess, and here it FABRICATES a finding at a file
+  named `6` that does not exist. A silent false negative would be traded for a silent
+  false positive in the same security-relevant probe. Related, also measured:
+
+      printf '6:note: legacyProbeSymbol here\n' | /bin/sh packs/contracts/grep/to-sarif.sh
+      → exit 5, `jq: parse error: Invalid numeric literal` (loud, but illegible)
+      printf '' | /bin/sh packs/contracts/grep/to-sarif.sh
+      → exit 0, well-formed SARIF with an EMPTY results array (correct; must survive)
+
+  ── (3) `-H` IS SAFE, IDEMPOTENT, AND SUPPORTED ON BOTH PLATFORMS ────────────
+  Measured against the real BSD grep at `/usr/bin/grep`
+  (`grep (BSD grep, GNU compatible) 2.6.0-FreeBSD`) over a two-file fixture tree.
+  ★ USE THE ABSOLUTE PATH `/usr/bin/grep` WHEN RE-MEASURING BY HAND: an interactive
+  shell in this environment may define a `grep` FUNCTION wrapping `ugrep`, which is
+  NOT what Go's `exec.Command("grep", ...)` resolves. `command -v -p grep` →
+  `/usr/bin/grep`, and that is the only `grep` binary on PATH.
+
+      target                     without -H                  with -H
+      one explicit file, -rn     one.go:2:…                  one.go:2:…   (identical)
+      one explicit file, no -r   2:…                         one.go:2:…   (DIFFERS)
+      two explicit files         one.go:2:… sub/three.go:2:… identical
+      a directory                ./one.go:2:… ./sub/…        identical
+
+  Two conclusions, both load-bearing:
+    * `-H` is IDEMPOTENT for every case that works correctly today (multi-file and
+      directory targets are byte-identical with and without it), so adding it is not
+      a behavior change for the working paths — it only pins the one that diverges.
+    * BSD grep 2.6.0 supports `-H` and documents it ("-H  Always print filename
+      headers with output lines."); GNU grep documents the same flag with the same
+      meaning. This is genuine darwin/Linux parity, not a Linux-only patch.
+
+  ── (3b) grep EMITS NON-MATCH LINES ON STDOUT, AND HALF B WOULD REFUSE THEM ──
+  ★ THE TRAP THAT ALMOST SHIPPED. `-H` is not the only thing that shapes stdout.
+  Measured on real BSD grep over a tree containing a binary file:
+
+      /usr/bin/grep -rn -H -e legacyProbeSymbol .        # 2>/dev/null
+      → ./one.go:1:legacyProbeSymbol here
+        ./sub/two.go:1:legacyProbeSymbol two
+        Binary file ./blob.bin matches        ← STDOUT. stderr was EMPTY.
+
+  That last line is not a match and has no `file:line:` shape. TODAY the `NF >= 3`
+  guard drops it, which is CORRECT — it is not a finding. Under a naive Half B it
+  becomes a HARD REFUSAL: a false gate failure, on darwin as well as Linux, and worst
+  of all in the RELEASED pack, where any consumer's directory-scoped absence contract
+  over a tree containing a single binary file would hard-fail their gate.
+  Repo-wide `grep -rn -H` over backstop-core already produces 9 such lines. It does
+  not fire in-repo today only because core's own contract scopes are `.go` files and
+  `pkg/gate` — an accident of scope, not a property of the design.
+
+  THE DECISION: option (a) — pass `-I` alongside `-H` at every declaration and helper.
+  It is chosen over a wording-based carve-out in the refusal predicate for three
+  measured reasons:
+    * `-I` IS SARIF-OUTPUT-NEUTRAL. Through the CURRENT (unfixed) script, the same
+      corpus yields 2 results WITH `-I` and 2 results WITHOUT it — the binary line
+      never became a finding either way. So `-I` changes ZERO output today; it removes
+      only the line Half B would otherwise refuse. Same idempotence argument as `-H`,
+      same method.
+    * `-I` IS CROSS-PLATFORM BY ITS OWN DOCUMENTATION. BSD grep 2.6.0: "-I  Ignore
+      binary files. This option is equivalent to the `--binary-files=without-match`
+      option." GNU grep documents `-I` as that exact equivalence. One flag, one
+      meaning, both greps.
+    * IT MAKES THE UNVERIFIABLE QUESTION MOOT. GNU grep ≥3.5 reportedly routes this
+      notice to STDERR with different wording. ★ THAT WAS NOT VERIFIED HERE — there is
+      no GNU grep on this darwin machine (`ggrep` absent from both homebrew prefixes,
+      checked). A carve-out predicate would have to match wording and stream that this
+      session cannot measure, which is precisely the guessing Half A exists to avoid.
+      With `-I` the line is never emitted on EITHER platform, so the difference stops
+      mattering. TASK-012 still reports the GNU-side behavior from the real Linux run,
+      as a recorded observation rather than a load-bearing assumption.
+  A pack that declares grep WITHOUT `-I` now gets a LOUD refusal instead of a silent
+  drop. That is the intended trade — it is actionable, and TASK-003 requires the
+  refusal diagnostic to name `-I`/`-H` as the remedy so an operator is not left
+  guessing (sharp edge 15).
+
+  ── (4) SWEEP A — EVERY grep COMMAND DECLARATION, ENUMERATED AND CLASSIFIED ──
+  ★ THE CANONICAL SWEEP. Run it byte-identically; do not paraphrase it into variants.
+  ★ IT IS DELIBERATELY NOT `--include=pack.yml`. A `pack.yml`-only sweep MISSES a real
+  convert-bearing declaration (see the sixth entry below) — that narrower spelling was
+  this plan's own first draft and it was falsified in one command. A pack manifest is
+  identified by its SHAPE, not by its filename.
+
+      /usr/bin/grep -rn --include='*.yml' --include='*.yaml' -e 'command: grep' . \
+        | /usr/bin/grep -v '/.backstop/' | /usr/bin/grep -v '^./plans/'
+
+  → 11 hits (2026-08-18), plus the two excluded classes explained below. SIX REQUIRE
+  the flags (a grep command whose engine also declares a `convert:`, so its stdout IS
+  filename-parsed):
+
+      packs/contracts/pack.yml:20                                            engine `grep`
+      pkg/gate/testdata/traceability-pack/pack.yml:28                        engine `grep`
+      pkg/gate/testdata/ts-proof-pack/pack.yml:17                            engine `grep`
+      cmd/backstop/testdata/hermetic-remote/acceptance-lint-pack/pack.yml:46 engine `marker-lint`
+      cmd/backstop/testdata/hermetic-remote/scaffold-entrypoint-pack/pack.yml:61 engine `grep`
+      pkg/pack/engine/testdata/contracts-grep-engine.yml:15                  engine `grep`  ★
+
+  ★ THE SIXTH IS THE ONE A `pack.yml` SWEEP CANNOT SEE, and it is exactly the "silent
+  sibling" class this lane exists to close. `pkg/pack/engine/testdata/contracts-grep-engine.yml`
+  (manifest name `acme/contracts-grep-pack`) declares `command: grep -rn` with
+  `convert: grep/to-sarif.sh` — but `pkg/pack/engine/testdata/grep/` DOES NOT EXIST
+  (verified). So its convert reference is ORPHANED: the fixture drives declaration-level
+  tests (`TestEngine_GrepPackDeclaredNotInDefaultRegistry` per its header comment), never
+  a real dispatch, which is why the dangling path has gone unnoticed. TWO consequences,
+  both handled:
+    * it is IN TASK-004's edit list — a convert-bearing declaration gets the flags,
+      whether or not the convert currently resolves. Leaving it out would make
+      TASK-002's widened sweep produce a RED that TASK-004's fenced file list cannot
+      green, which is the inconsistency risk to avoid;
+    * it is NOT in TASK-001's or TASK-003's scope, because TASK-001 discovers convert
+      SCRIPTS that exist on disk and there is no script here to fix. The orphaned
+      reference is a separate latent defect and TASK-010 files it as a follow-on rather
+      than absorbing it into this lane.
+
+  Four are EXEMPT — no `convert:` on the binding, so nothing ever parses a filename
+  out of that stdout (verified: `grep -c 'convert:' <manifest>` = 0 for each):
+
+      cmd/backstop/testdata/hermetic-remote/scaffold-templating-pack/pack.yml:26  `recipe-engine`
+      cmd/backstop/testdata/hermetic-remote/scaffold-recipe-pack/pack.yml:37      `recipe-engine`
+      cmd/backstop/testdata/test-verdict-e2e/.backstop/packs/acme/verdict-probe/pack.yml:34
+      cmd/backstop/testdata/test-verdict-absent-e2e/.backstop/packs/acme/verdict-probe/pack.yml:31
+
+  The eleventh is `.backstop/packs/backstop-ai/go-contracts/pack.yml:20` — the INSTALLED
+  copy of the released external pack. It is gitignored and is NEVER edited in place
+  ([[feedback_packs_always_external]]); it is fixed at its SOURCE repo and brought in
+  via `pack update`. That is Phase 3.
+
+  THE TWO EXCLUDED CLASSES, both deliberate and both asserted by TASK-002:
+    * `/.backstop/` — installed output. Covers the go-contracts copy AND the two
+      `verdict-probe` fixture packs, which live under a testdata-embedded
+      `.backstop/packs/` path.
+    * `plans/` and `specs/` — `command: grep` appears there inside PROSE and inside
+      illustrative YAML blocks (PLAN-SPEC-069, PLAN-ISSUE-118, and this plan itself).
+      They are not manifests and must never be edited by a code task. TASK-002's test
+      does not filter by directory at all: it filters STRUCTURALLY, by whether the file
+      PARSES as a pack manifest via the real reader, which excludes prose for free and
+      would keep working if a manifest moved.
+
+  ── (5) SWEEP B — EVERY TEST HELPER THAT SHELLS REAL grep ────────────────────
+  ★ THE SECOND CANONICAL SWEEP. Byte-identical, no variants.
+
+      /usr/bin/grep -rn --include='*_test.go' -e '"grep", "-rn"' .
+
+  → exactly 4 hits (2026-08-18):
+
+      pkg/pack/engine/contracts_ts_rules_test.go:60      (tsGrepMatchCount)
+      pkg/pack/engine/contracts_grep_engine_test.go:160  (runGrep)
+      pkg/pack/engine/contracts_go_rules_test.go:63      (grepMatchCount)
+      pkg/gate/contract_equivalence_harness_test.go:189  (grepProbe)
+
+  These bypass `pack.yml` entirely, which is the decisive fact against a
+  manifest-only fix: `-H` added ONLY to the declarations would leave four real-grep
+  call sites still producing the broken shape on Linux.
+
+  ── (6) THE CONVERT SCRIPT IS DUPLICATED FOUR WAYS ───────────────────────────
+      for f in $(find . -name to-sarif.sh); do diff -q "$f" packs/contracts/grep/to-sarif.sh; done
+
+  → byte-identical to `packs/contracts/grep/to-sarif.sh`:
+      pkg/gate/testdata/traceability-pack/grep/to-sarif.sh   (named in the issue)
+      pkg/gate/testdata/ts-proof-pack/grep/to-sarif.sh       ★ NOT named in the issue
+      .backstop/packs/backstop-ai/go-contracts/grep/to-sarif.sh  (installed copy of
+        /Users/bmanson/src/projects/backstop-go-contracts-pack/grep/to-sarif.sh,
+        also confirmed byte-identical against its source repo)
+
+  The issue names TWO copies. There are FOUR. The third in-repo copy (`ts-proof-pack`)
+  is exactly the kind of silent sibling the byte-identity convention was supposed to
+  protect and did not.
+
+  Two FURTHER grep converts exist and are DELIBERATELY different (own `ruleId`,
+  pure-awk JSON assembly, no `jq`):
+      cmd/backstop/testdata/hermetic-remote/acceptance-lint-pack/grep/to-sarif.sh
+      cmd/backstop/testdata/hermetic-remote/scaffold-entrypoint-pack/grep/to-sarif.sh
+  Their guard is `/^[^:]*:[0-9]+:/` rather than `NF >= 3`. It has the SAME defect
+  class: a 2-field `line:text` fails the pattern and is dropped silently, and a
+  2-field `line:<digits>:text` matches and fabricates a result. Different spelling,
+  identical failure mode. They are IN SCOPE.
+
+  ── (7) WHY THIS IS A LIVE PRODUCTION FALSE NEGATIVE, NOT ONLY A TEST FAILURE ─
+  `pkg/gate/step_contract.go` documents the absence probe's scope as "file-OR-path"
+  (REQ-012/CLM-010) and `pkg/gate/contract_verdict.go:105` falls the absence scope
+  back to `File` when `Scope` is empty. A SINGLE-FILE absence scope is a first-class,
+  documented input — and it is precisely the shape GNU grep breaks. backstop-core's
+  own spec corpus declares real absence contracts: the marker is the `absent: true`
+  field on a `contracts.provides` entry (39 occurrences across `specs/`, mapping to
+  `ContractEntry.Absent`). ★ IT IS NOT `kind: absence` — an earlier draft of this plan
+  said that, and it is wrong: inside a `provides` entry `kind:` names the declared
+  TYPE (function/method/type), and grepping the literal `kind: absence` returns 112
+  CLAIM-level hits that have nothing to do with contracts. The substance is unchanged;
+  the field name was. So on Linux CI, core's own
+  contracts gate silently confirms absence for every file-scoped absence contract
+  regardless of what the file contains. That is the vacuous green this repo exists to
+  prevent, and it is why Phase 3 (the released pack) is not optional polish.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  THE CHOSEN FIX — BOTH HALVES, AND WHY NEITHER ALONE IS ENOUGH
+  ══════════════════════════════════════════════════════════════════════════════
+  The issue asked the plan to choose between fixing the INPUT shape and fixing the
+  CONSUMING side. The measured answer is that they are not alternatives: one is the
+  correctness fix and the other is what stops the same class recurring silently.
+
+  HALF A — FORCE THE INPUT SHAPE (`-H -I`). This is THE fix. It removes the ambiguity
+  rather than guessing at it, both flags are idempotent for every path that works today
+  (measured, sections 3 and 3b), and both behave identically on GNU and BSD grep.
+  `-H` guarantees the filename is present; `-I` guarantees grep emits no non-match
+  informational line on stdout for Half B to trip over. Applied at all SIX
+  convert-bearing declarations AND all four test helpers.
+
+  HALF B — MAKE THE SILENT DROP LOUD. The `NF >= 3` guard is not merely wrong about
+  the shape; it is wrong about what to DO with input it cannot parse. Dropping a line
+  from a security-relevant absence probe with exit 0 and no diagnostic is the exact
+  silent-vacuous-green shape this repo forbids. Half B replaces the drop with a
+  REFUSAL: nonzero exit plus a stderr diagnostic naming the offending line. It does
+  NOT add a 2-field parse (section 2 shows why that fabricates findings).
+
+  Why both: Half A alone leaves the trap armed. Any future pack author declaring
+  `command: grep -rn` without `-H` — the obvious spelling, and the one four packs in
+  this repo already used — re-arms an identical silent false negative that nothing
+  catches until a real Linux run. With Half B, that same mistake goes RED loudly on
+  the first dispatch. Half B is what makes the convention operable rather than a
+  comment nobody reads.
+
+  ── WHAT CORE DOES NOT DO, DELIBERATELY ──────────────────────────────────────
+  ★ CORE GAINS NO grep KNOWLEDGE. Not a `-H` injection, not a filename-shape
+  normalizer, not a grep-aware SARIF fallback. `grep -rn` is a PACK-DECLARED
+  `command:` string; backstop is a thin executor with zero baked tool knowledge
+  (CLAUDE.md, first principle). The fix is pack DATA and test-helper argv, in every
+  case. Any diff that adds a grep literal to non-test code under `pkg/` or `cmd/` has
+  taken the forbidden fix. CLM-007 pins this by measurement.
+
+  ── THE ISSUE'S OPEN "KEEP THEM BYTE-IDENTICAL?" QUESTION, ANSWERED ──────────
+  DECISION: do NOT make byte-identity the enforced convention. Make the BEHAVIOR
+  structural instead.
+    * Byte-identity cannot cover the family. Two of the six grep converts in this repo
+      are deliberately divergent (section 6) — they carry their own `ruleId` and avoid
+      `jq` on purpose. A byte-identity rule would have to exempt them, producing a
+      two-tier convention that drifts exactly the way the current "hope" already did.
+    * Byte-identity cannot cross the repo boundary. The fourth copy lives in
+      `backstop-ai/go-contracts`, a separate repo on its own release cycle. No test in
+      core can assert equality against it.
+    * The property that actually FAILED is behavioral, not textual: a grep→SARIF
+      convert silently dropped a line. `TestGrepConvert_RefusesUnparseableGrepLineLoudly`
+      asserts that property over EVERY grep convert the repo owns, divergent ones
+      included, by DISCOVERING them rather than listing them. A new copy — the failure
+      mode that hid `ts-proof-pack` — is covered the moment it exists.
+  RESIDUAL, EXPLICITLY DEFERRED, NOT ABSORBED: nothing proves the in-repo pack sources
+  and their released external mirrors stay in sync. That is a general problem across
+  `go-contracts`, `go-substantiveness` and the traceability packs — not specific to
+  this defect, and not something a contained bug fix should invent a mechanism for.
+  TASK-011 files it as its own issue via a routed `/issue` dispatch.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  HOW THIS IS TESTED HONESTLY ON DARWIN
+  ══════════════════════════════════════════════════════════════════════════════
+  The defect is a GNU-vs-BSD divergence and this session's platform is darwin. The
+  split that keeps the tests meaningful:
+
+    * CONVERSION LOGIC — tested with SYNTHETIC stdin, grep never invoked. The exact
+      bytes GNU grep emitted on the real Linux run (quoted verbatim in the issue) are
+      piped into each convert script. This is platform-independent, reproduces the
+      defect exactly, and is a genuine correctness assertion. It is the RED.
+    * REAL GREP — a CHARACTERIZATION test, and only its platform-INVARIANT half is
+      asserted: with `-H`, output always carries the filename prefix; and for
+      multi-file and directory targets, `-H` and non-`-H` output are byte-identical.
+      Both hold on GNU and BSD. The single-file WITHOUT-`-H` shape is RECORDED with
+      `t.Log`, never asserted — darwin's grep is DIFFERENT, not WRONG, and an
+      assertion there would be a platform lock-in masquerading as a correctness check.
+    * WHAT DARWIN CANNOT PROVE: that the ~30 named CI tests go green on Linux. Only a
+      real Linux run confirms that. TASK-012 owns the CI confirmation and it is
+      recorded as a CI-only obligation, not claimed from a local reading
+      ([[project_platform_gated_defect_verification_ceiling]]).
+
+  ══════════════════════════════════════════════════════════════════════════════
+  CROSS-LANE COLLISION CHECK (2026-08-18, live shared tree)
+  ══════════════════════════════════════════════════════════════════════════════
+      git status --porcelain packs/contracts pkg/gate/testdata/traceability-pack \
+        pkg/gate/testdata/ts-proof-pack pkg/pack/engine pkg/gate \
+        cmd/backstop/testdata/hermetic-remote backstop.yml backstop.lock
+  → EMPTY. Every path this plan scopes is clean and committed at HEAD `722d5f1`.
+  Other lanes hold uncommitted work only under `.claude/agent-memory/` and
+  `directives/DIR-024-*` — none of it in this lane's scope.
+      cd /Users/bmanson/src/projects/backstop-go-contracts-pack && git status --porcelain
+  → EMPTY, at `c55d38b`, tag `v1.2.0`, remote `backstop-ai/go-contracts`.
+
+  EXISTENCE-IN-WORLD (performed BEFORE authoring): searched `plans/` and `specs/`,
+  committed and working tree, for `ISSUE-166`, `to-sarif`, `NF >= 3`, `grep -H` and
+  "filename prefix". The only artifact naming ISSUE-166 is this plan's own scaffold.
+  The 28 plans/specs matching `to-sarif` were checked for SUBSUMPTION: every one is
+  `completed` and none owns the grep output-shape surface — the closest, PLAN-SPEC-038
+  (built the pack and the script) and PLAN-ISSUE-142 (pattern-arg fixture dispatch),
+  predate the Linux reproduction entirely. PLAN-ISSUE-158 is `completed` and adjacent
+  in symptom shape only (ast-grep glob scope, a different mechanism, stated as such in
+  the issue). No live plan owns this surface; nothing subsumes it.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  SCOPE FENCES
+  ══════════════════════════════════════════════════════════════════════════════
+  IN:  the five repo-owned grep→SARIF convert scripts that EXIST on disk (Half B);
+       the SIX repo-owned convert-bearing `command: grep` declarations (Half A);
+       the four real-grep test helpers (Half A);
+       three new test files under `pkg/pack/engine/`;
+       the external `backstop-ai/go-contracts` source repo + `backstop.yml`/`.lock`;
+       SPEC-069's stale prose, via a ROUTED `/spec` dispatch (TASK-011) — never a
+       hand-edit.
+  OUT: ALL non-test code under `pkg/` and `cmd/`. Nothing in core changes. If the fix
+       is reaching into `pkg/check`, `pkg/gate` or `cmd/backstop` production files,
+       it has become a baked-grep-knowledge fix — stop and re-read the fence above.
+  OUT: the four EXEMPT grep declarations enumerated in section 4. They declare no
+       `convert:`; adding the flags there would be cargo-cult and would make the sweep
+       test's predicate a lie.
+  OUT: `plans/**` and `specs/**` as CODE targets. `command: grep` occurs there in prose
+       and illustrative YAML (PLAN-SPEC-069, PLAN-ISSUE-118, this plan). No code task
+       edits them. The single exception is SPEC-069's prose, which is corrected by a
+       ROUTED `/spec` dispatch in TASK-011 and by nothing else.
+  OUT: creating the missing `pkg/pack/engine/testdata/grep/to-sarif.sh`. The orphaned
+       convert reference is a real latent defect and TASK-010 FILES it; inventing the
+       script here would be scope creep into a fixture nothing dispatches.
+  OUT: `.backstop/packs/**`. Gitignored install output. Fixed at source, brought in by
+       `pack update` (TASK-008), never edited in place.
+  OUT: the ast-grep converts (`*/ast-grep/to-sarif.sh`). ast-grep emits JSON with
+       explicit file fields; it has no filename-omission mode. Untouched.
+  OUT: ISSUE-168 (`/dev/null` sandbox writes). Separate defect, separate lane. It is
+       cited here only as the reason Half B must not open `/dev/stderr` (sharp edge 4).
+  OUT: `TestContractsPack_PatternArgFixturesDispatchAndDiscriminate`. The issue flags
+       it as possibly-unrelated (its "semgrep" label is a hardcoded literal). TASK-012
+       REPORTS its post-fix state on Linux; this lane does not claim it.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  CLAIM LEDGER (ISSUE-166 carries no CLM ids; this lane defines them)
+  ══════════════════════════════════════════════════════════════════════════════
+    CLM-001  Every grep→SARIF convert script this repo owns REFUSES LOUDLY on a stdin
+             line it cannot parse as `<file>:<line>:<text>` — nonzero exit plus a
+             stderr diagnostic naming the offending line and the expected shape —
+             instead of dropping it silently. Pinned by feeding each script the
+             VERBATIM 2-field bytes GNU grep produced on the real Linux run. The
+             scripts are DISCOVERED, not listed, so a future copy is covered on
+             creation.
+    CLM-002  The behavior that was already correct is preserved exactly: a 3-field
+             line still becomes one SARIF result carrying the right uri, 1-indexed
+             startLine and matched text (including text containing colons), and EMPTY
+             stdin still yields a well-formed SARIF document with an EMPTY results
+             array at exit 0 — a zero-match run is a clean pass, never a refusal.
+    CLM-003  Every repo-owned engine binding whose command is grep AND which declares a
+             `convert:` forces BOTH the filename header (`-H`) and binary-file
+             suppression (`-I`), so its convert's input is `file:line:text` on every
+             line, under GNU grep and BSD grep alike, for single-file, multi-file and
+             directory targets, and with no non-match informational line mixed in.
+             Pinned by a sweep test that identifies manifests STRUCTURALLY (does the
+             file parse as a pack manifest) rather than by the filename `pack.yml` —
+             the narrower predicate provably misses a real declaration — and whose
+             exemption set is enumerated with a stated reason per entry.
+    CLM-004  Every in-repo test helper that shells real grep for a contracts probe
+             passes `-H` too, so the test path and the dispatch path produce the same
+             shape. Pinned by a source sweep over `*_test.go`, so a fifth helper
+             cannot be added without the flag.
+    CLM-005  BOTH flags are proven platform-safe and idempotent by a real-grep
+             characterization test: with `-H` the filename prefix is ALWAYS present
+             (asserted — invariant on both greps); for the multi-file and directory
+             targets that already worked, `-H` and non-`-H` output are byte-identical
+             (asserted); and `-I` changes the SARIF result set not at all, while
+             removing grep's non-match `Binary file … matches` stdout line that a
+             loud-refusal convert would otherwise reject (asserted, both legs). The
+             single-file non-`-H` shape is RECORDED, never asserted.
+    CLM-006  The released `backstop-ai/go-contracts` pack carries the same fix and
+             core consumes it: source repo edited, version bumped, tagged and pushed;
+             `backstop.yml` + `backstop.lock` updated via the real `pack update`; and
+             the installed tree's declaration and convert both verified in-repo,
+             following the established `installedContractsPackName` guard convention.
+    CLM-007  Non-regression AND thin-executor purity: the contracts test family
+             ISSUE-166 names passes locally, with no fixture weakened, no assertion
+             softened, no `t.Skip` added and no `requireAstGrepE2E` guard changed; and
+             non-test code under `pkg/` and `cmd/` declares NO grep invocation — the
+             tool name reaches the runner only from pack DATA. ★ THIS IS PINNED BY AN
+             EXECUTABLE SWEEP, not by a reviewer's manual grep. A fence carried only by
+             prose in a verification report is the same "kept aligned by hope" failure
+             this lane exists to remove, and it would be the one claim in this plan with
+             nothing checking it.
+    CLM-008  SPEC-069 (`status: implemented`) no longer pins the stale literal
+             `command: grep -rn` in the prose describing the hermetic-remote acceptance
+             fixture packs this lane edits. Corrected via a ROUTED `/spec` dispatch, in
+             the open, per this repo's align-predating-artifacts convention — not left
+             to drift silently because it happens not to red the gate.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  SHARP EDGES
+  ══════════════════════════════════════════════════════════════════════════════
+   1. NEVER ADD A 2-FIELD PARSE. Section 2 measured it: `6:42: text` is genuinely
+      ambiguous, and a "robust" parser emits a finding at a file named `6`. Trading a
+      silent false negative for a silent false positive in an absence probe is worse
+      than the bug. The convert REFUSES what it cannot parse; it never guesses.
+   2. THE LOUD REFUSAL MUST NOT FIRE ON EMPTY INPUT. Zero matches is the ORDINARY
+      case for an absence probe and must stay exit 0 with an empty `results` array
+      (measured in section 2). The refusal is per-LINE, for lines that exist and do
+      not parse. Getting this backwards turns every clean run into a red.
+   3. STRENGTHEN THE PREDICATE, DO NOT JUST COUNT FIELDS. `NF >= 3` also admits
+      `6:note: text` (which currently dies in `jq` with an illegible numeric-literal
+      error) and `a:b.go:8:text`. The parse condition is `<something>:<digits>:` —
+      field 2 must be all digits. Anything else refuses with the legible diagnostic.
+      Filenames containing colons remain unsupported; that is already true today, and
+      after this change it is LOUD instead of a `jq` stack trace.
+   4. DO NOT OPEN `/dev/stderr` FROM awk. ISSUE-168 is an open, separately-filed
+      defect about `/dev/null` WRITES being denied under the convert sandbox; treat
+      `/dev/stderr` as equally suspect. The proven-safe mechanisms in this script are
+      the shell's own `>&2` (already used at line 11 of the contracts convert) and
+      awk's EXIT STATUS. The default shape is therefore: capture awk's stdout in a
+      command substitution, and on a nonzero awk status have the SHELL echo the
+      captured diagnostic to `>&2` and exit nonzero — no new file opens, no new
+      spawned process. If a different mechanism is chosen, it must be MEASURED under
+      `TestE2E_ContractsRealAstGrepAndGrep_AndSandboxedConvert`, not assumed.
+   5. FIVE CONVERTS, NOT TWO, AND TWO OF THEM ARE A DIFFERENT SCRIPT. The issue names
+      two files. Section 6 enumerates five repo-owned ones; the two hermetic-remote
+      converts use `/^[^:]*:[0-9]+:/` and pure-awk JSON with no `jq`. Their fix is the
+      same PROPERTY, not the same PATCH — do not paste the `jq` version over them, and
+      do not "harmonize" their `ruleId` or drop their awk-only assembly. That
+      independence is deliberate (their header comments say so).
+   6. DO NOT REDECLARE EXISTING PACKAGE CONSTS OR HELPERS. `pkg/pack/engine` is ONE
+      package and already defines `repoRoot(t)`
+      (`contracts_grep_engine_test.go:24`), `tracePackRel`, `tsPackRel` and
+      `durablePackRel`. A colliding declaration in a new test file fails the compile
+      and blocks every other lane in this shared tree; a differently-named duplicate
+      is silent drift. Reuse them.
+   7. `-H` GOES BEFORE `-e`, IN THE `command:` STRING. Dispatch shapes argv as
+      [command tokens…] [input_flag] [pattern] [targets…], so the manifest becomes
+      `command: grep -rn -H`, yielding `grep -rn -H -e PAT target`. Verified to work.
+      Do NOT try to append it after the pattern and do NOT reach into core to inject
+      it (fence: core gains no grep knowledge).
+   8. THE INTERACTIVE SHELL'S `grep` MAY NOT BE THE DISPATCHED ONE. In this
+      environment an interactive shell defines a `grep` FUNCTION wrapping `ugrep`;
+      `exec.Command("grep", …)` resolves `/usr/bin/grep`. When hand-measuring grep
+      behavior, use the absolute path, or a "confirmed" reading will describe a tool
+      the gate never runs.
+   9. `.backstop/packs/` IS NEVER EDITED. It is gitignored install output. The
+      installed `go-contracts` copy is fixed at
+      `/Users/bmanson/src/projects/backstop-go-contracts-pack`, bumped, TAGGED and
+      pushed, then pulled in with `pack update`. Version resolution is git-TAG-based:
+      a `pack.yml` version bump with no matching `v<version>` tag pushed to
+      `backstop-ai/go-contracts` will not resolve, and the failure looks like a
+      network problem rather than a missing tag.
+  10. A TEST THAT READS AN INSTALLED PACK NEEDS THE ESTABLISHED GUARD. Follow
+      `cmd/backstop/pack_claim_index_test.go` (see `installedContractsPackName`,
+      ~line 333): load through the production path, and `t.Skipf` with a
+      `./bin/backstop pack install` directive when the fleet is absent — a LOAD ERROR
+      still fails. Do not invent a new guard shape, and do not `t.Skip` anything else
+      in this lane (sharp edge 12).
+  11. THE FALSIFICATION WINDOW IS ORDER-DEPENDENT AND UNRECOVERABLE. Each RED must be
+      OBSERVED and its output RECORDED before the corresponding fix lands. "It would
+      have failed" is not evidence. In particular, run
+      `TestGrepConvert_RefusesUnparseableGrepLineLoudly` against the UNFIXED scripts
+      and capture the exit-0/empty-results state — after TASK-003 that state cannot be
+      reproduced without a revert.
+  12. NO `t.Skip` IN THIS LANE'S NEW TESTS, AND NONE ADDED TO EXISTING ONES. The one
+      sanctioned exception is the installed-fleet guard in sharp edge 10. A skipped
+      test in a defect whose whole nature is a SILENT pass is the same failure wearing
+      a different hat.
+  13. CHECK WHETHER THE `Scanned` GUARD WAS ALSO LYING. `pkg/gate/contract_verdict.go`
+      carries a "declared scope was not scanned — refusing to pass silently" branch. If
+      `Scanned` is derived from the convert's SARIF output, then the silent drop
+      disarmed that guard too, and Half B restores it. MEASURE which it is and say so
+      in TASK-006's report; do not assume either way. If the guard turns out to be
+      independent of the SARIF, that is worth recording as the reason the failure
+      surfaced as "got 0" rather than as a refusal.
+  14. LOCATE EVERY EDIT SITE BY NAME, NOT BY LINE NUMBER. The line numbers in sections
+      4, 5 and 6 were true at HEAD `722d5f1` and are navigational aids only. Find
+      `command: grep` in each manifest and the `"grep", "-rn"` argv in each helper by
+      searching for the text.
+  15. NOT EVERY LINE ON grep's STDOUT IS A MATCH, AND HALF B MUST NOT PRETEND OTHERWISE.
+      BSD grep writes `Binary file ./blob.bin matches` to STDOUT, interleaved with real
+      matches (measured, notes section 3b; stderr was empty). Today it is harmlessly
+      dropped; a naive loud refusal turns it into a FALSE gate failure — most damagingly
+      in the released pack, where a consumer's directory-scoped absence contract over a
+      tree holding any binary would hard-fail. The chosen answer is `-I` at the source
+      (output-neutral, cross-platform by its own man page), NOT a wording-based
+      carve-out in the refusal predicate — GNU's wording and stream for this notice
+      could not be measured from darwin, and matching text this session cannot observe
+      is the guessing Half A exists to avoid. TASK-001 carries a fixture for it.
+      Consequently the refusal DIAGNOSTIC must name `-H`/`-I` as the remedy: whoever
+      trips this is a pack author who omitted a flag, and the message is their only clue.
+  16. A PACK MANIFEST IS IDENTIFIED BY SHAPE, NOT BY FILENAME. `pkg/pack/engine/testdata/
+      contracts-grep-engine.yml` is a real convert-bearing grep declaration that is not
+      called `pack.yml`. Any sweep, predicate or edit list keyed on the literal filename
+      is already known to be incomplete. Parse candidates with the real manifest reader
+      and let the parse decide — that also excludes plan/spec prose for free. If a
+      widened walk ever finds a SEVENTH declaration, that is a genuine finding: fix it
+      and say so, do not narrow the predicate until the count matches the plan.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Phase 1: RED — pin the output-shape contract with executable tests
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: RED — executable pins on grep's output shape and its conversion"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Pin convert-script robustness against the real GNU 2-field shape, and characterize -H (RED)"
+        description: |
+          Create `pkg/pack/engine/grep_convert_shape_test.go` (package `engine`, the
+          same package as `contracts_grep_engine_test.go`). Run these BEFORE TASK-003
+          and RECORD THE ACTUAL FAILURE OUTPUT — sharp edge 11.
+
+          Reuse `repoRoot(t)` from `contracts_grep_engine_test.go`; do NOT redeclare it
+          or any of `tracePackRel` / `tsPackRel` / `durablePackRel` (sharp edge 6).
+
+          ★ THESE TESTS INVOKE NO NEW GO SYMBOL. They shell existing scripts and real
+          grep, so the RED is a RUNTIME failure, never a compile failure — a
+          non-compiling `pkg/pack/engine` would block every other lane in this shared
+          tree.
+
+          TestGrepConvert_RefusesUnparseableGrepLineLoudly (CLM-001).
+            DISCOVER the convert scripts rather than listing them: walk from
+            `repoRoot(t)` for files matching `*/grep/to-sarif.sh`, EXCLUDING any path
+            under `.backstop/` (installed output, not repo-owned) and under `.git/`.
+            Assert the discovered set is NON-EMPTY and log the paths — a discovery bug
+            that finds nothing would otherwise pass vacuously. At HEAD the set is the
+            five in section 6 of the notes; assert the COUNT is at least five and log
+            any extras rather than hardcoding the list, so a new copy is covered on
+            creation (this is the byte-identity decision made operable).
+            For EACH discovered script, run it under `/bin/sh` with the VERBATIM bytes
+            GNU grep emitted on the real Linux run, quoted from ISSUE-166:
+
+                6:// "legacyProbeSymbol" appears here (even in a comment-adjacent identifier), the
+                8:func legacyProbeSymbol() string { return "should have been deleted" }
+
+            State those two lines ONCE as a single test-file constant and feed every
+            script from it. Assert, per script:
+              * the exit status is NON-ZERO;
+              * stderr NAMES the offending line (contains a distinctive substring of
+                it) AND states the expected `<file>:<line>:<text>` shape, so an
+                operator can tell WHICH line and WHY without re-running;
+              * stdout carries NO SARIF result — an empty document or nothing at all,
+                but never a fabricated finding.
+            PRE-FIX STATE, measured 2026-08-18: exit 0, stderr only the existing
+            "grep to-sarif: transforming matches" banner, stdout a well-formed SARIF
+            with `"results": []`. That is the silent false negative, verbatim.
+
+            ★ THIRD FIXTURE — grep's OWN NON-MATCH LINE (sharp edge 15). This case is
+            the one the first draft of this test set would have missed entirely, and
+            missing it is what would have shipped a false gate failure. Feed each
+            script a realistic INTERLEAVED stream, exactly as BSD grep emits it:
+
+                ./one.go:1:legacyProbeSymbol here
+                Binary file ./blob.bin matches
+                ./sub/two.go:1:legacyProbeSymbol two
+
+            Assert the script REFUSES (nonzero exit) and that its stderr names the
+            `Binary file …` line specifically AND names `-I` as the remedy — an
+            operator who trips this is a pack author who omitted a flag, and the
+            message is their only clue. Comment in the test body that this refusal is
+            DELIBERATE and is why every declaration passes `-I`: the correct fix is to
+            stop the line being emitted, not to teach the convert grep's notice
+            wording, which differs between BSD and GNU and could not be measured for
+            GNU from darwin (notes section 3b).
+            ★ DO NOT assert that the two real matches still convert here. Refusal means
+            refusal; a test expecting partial output would license a "skip the weird
+            line and keep going" implementation, which is the silent drop returning
+            under a new name.
+
+          TestGrepConvert_ThreeFieldMatchesAndEmptyInputUnchanged (CLM-002).
+            The preservation leg — it must be GREEN before AND after, and it is what
+            stops TASK-003 from "fixing" the drop by refusing everything. Over the
+            same discovered set, three subtests:
+              * HAPPY PATH — `a.go:8:func legacyProbeSymbol() string { return "x" }`
+                yields exit 0 and exactly ONE result with uri `a.go`, startLine 8, and
+                the matched text intact.
+              * COLON IN MATCH TEXT — `a.go:8:const x = "http://y"` still yields ONE
+                result whose text retains everything after the SECOND colon. Only the
+                first two colons are structural; a naive field re-join truncates here.
+              * EMPTY STDIN — exit 0 and a well-formed SARIF document with an EMPTY
+                results array (sharp edge 2). Assert the document PARSES; empty stdout
+                is a failure, not a pass.
+            The two hermetic-remote converts emit their own `ruleId`s, so assert on
+            result COUNT and location, never on a `ruleId` literal (sharp edge 5).
+
+          TestRealGrep_FilenameHeaderWithDashHIsPlatformInvariant (CLM-005).
+            THE CHARACTERIZATION TEST. Build a `t.TempDir()` fixture: two TEXT files
+            containing the probe token, one of them in a subdirectory, PLUS a BINARY
+            file that also contains it (write bytes including a NUL and a high byte —
+            that is what makes grep classify it binary). The binary file is required,
+            not decoration: it is what lets the `-I` legs below be able to fail.
+            Resolve grep with `exec.LookPath("grep")` and `t.Fatalf` if absent (no skip,
+            sharp edge 12); LOG the resolved absolute path, because the shell's `grep`
+            may be a different tool entirely (sharp edge 8).
+            ASSERT ONLY WHAT IS TRUE ON BOTH GREPS:
+              * WITH `-H`, EVERY output line carries a filename prefix — for a single
+                explicit file, for two explicit files, and for a directory target.
+                Apply this only to MATCH lines; see the `-I` leg for why there are no
+                others once the flags are right.
+                This is the invariant the whole fix rests on.
+              * `-H` IS IDEMPOTENT where it already worked: for the two-file target and
+                for the directory target, output WITH `-H` is byte-identical to output
+                WITHOUT it (after sorting lines, since directory walk order is not
+                specified). This is what proves TASK-004/TASK-005 are not a behavior
+                change for the paths that work.
+              * WITH `-I`, EVERY stdout line of a directory scan parses as
+                `<file>:<digits>:<text>` — i.e. grep emits no informational line at all.
+                This is the assertion that keeps sharp edge 15 closed, and it is
+                platform-neutral: it asserts the ABSENCE of a notice rather than its
+                wording, so it holds whether the host grep would have written that
+                notice to stdout (BSD, measured) or to stderr (GNU, reported but NOT
+                measurable from darwin).
+              * `-I` IS RESULT-NEUTRAL: pipe the directory scan through the pack convert
+                both WITH and WITHOUT `-I` and assert the SARIF result COUNT is the
+                same. Measured 2026-08-18 against the unfixed script: 2 results either
+                way. The binary file's content never became a finding, so suppressing it
+                removes no evidence — it removes only the line Half B must not choke on.
+                ★ This leg must pass BOTH before and after TASK-003; if it ever fails
+                after, the refusal was implemented too broadly.
+            RECORD, NEVER ASSERT: run the single-explicit-file target WITHOUT `-H` and
+            `t.Log` the raw stdout with a comment explaining that GNU omits the
+            filename here and BSD does not, that both are correct, and that asserting
+            either would be a platform lock-in. Measured on darwin 2026-08-18: BSD grep
+            2.6.0-FreeBSD PRINTS the filename for `-rn` over a single file, so this leg
+            logs the 3-field shape locally and the 2-field shape on Linux. Say so in
+            the test body so a future reader does not "fix" the log into an assertion.
+        files:
+          - pkg/pack/engine/grep_convert_shape_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-005
+        test_names:
+          - TestGrepConvert_RefusesUnparseableGrepLineLoudly
+          - TestGrepConvert_ThreeFieldMatchesAndEmptyInputUnchanged
+          - TestRealGrep_FilenameHeaderWithDashHIsPlatformInvariant
+        depends_on: []
+
+      - id: TASK-002
+        type: test
+        title: "Pin the -H/-I convention over every declaration and helper, and the thin-executor fence (RED)"
+        description: |
+          Create `pkg/pack/engine/grep_dispatch_convention_test.go` (package `engine`).
+          All three tests are SOURCE SWEEPS — they read repo files, invoke nothing, and
+          are what make these conventions operable instead of comments. Run them BEFORE
+          TASK-004/TASK-005 and record the RED (sharp edge 11).
+
+          Reuse `repoRoot(t)`; declare no colliding helper (sharp edge 6).
+
+          TestGrepEngineDeclarations_ForceFilenameHeader (CLM-003).
+            ★ WALK FOR MANIFESTS BY SHAPE, NOT BY FILENAME (sharp edge 16). Walk from
+            `repoRoot(t)` over every `*.yml`/`*.yaml`, EXCLUDING paths under `.git/` and
+            under any `.backstop/` directory, and treat a file as a manifest iff the
+            REAL reader (`pack.ParseManifestFile`) parses it into a manifest with a
+            non-empty name and a non-empty `engines:` block. A `pack.yml`-only walk is
+            KNOWN INCOMPLETE — it misses
+            `pkg/pack/engine/testdata/contracts-grep-engine.yml`, a genuine
+            convert-bearing grep declaration (notes section 4). Do not narrow it back.
+            ★ THE `.backstop/` EXCLUSION IS LOAD-BEARING TWICE: it drops the installed
+            `backstop-ai/go-contracts` copy (fixed at source in Phase 3, never edited
+            here) AND the two `verdict-probe` fixture packs, which live under a
+            testdata-embedded `.backstop/packs/` path.
+            Parsing-as-manifest also excludes `plans/`/`specs/` prose for free — those
+            files contain `command: grep` inside narrative and illustrative YAML and
+            must never be treated as edit targets. Do NOT add a directory-name filter
+            for them; let the parse decide, so a relocated manifest keeps being found.
+            For every engine binding whose `command` names grep as its tool AND which
+            declares a non-empty `convert`, assert the command's token list contains
+            BOTH `-H` AND `-I`. Assert both flags in ONE test — they are added by the
+            same edit, for the same reason (a convert that must parse every stdout
+            line), and splitting them invites half the fix.
+            Assert the sweep ACTUALLY MATCHED SOMETHING: require at least the SIX
+            bindings enumerated in notes section 4 and log every binding examined with
+            its verdict. A sweep that silently matches nothing is the vacuous shape
+            this whole lane is about. If it finds a SEVENTH, that is a real finding —
+            fail, report it, and fix the declaration; never trim the expectation to
+            match (sharp edge 16).
+            Assert the EXEMPTIONS explicitly, so the predicate cannot quietly widen:
+            for each of the four exempt declarations in notes section 4, assert the
+            binding declares NO `convert` — that, and not a hardcoded path list, is
+            why it is exempt. If a future binding gains a `convert`, it leaves the
+            exempt set automatically and the sweep demands both flags.
+            PRE-FIX STATE: all six convert-bearing bindings fail; none carries either
+            flag.
+
+          TestGrepTestHelpers_ForceFilenameHeader (CLM-004).
+            The four helpers in notes section 5 shell real grep directly, bypassing
+            manifests entirely — a declaration-only fix leaves them broken on Linux.
+            Walk from `repoRoot(t)` for `*_test.go` (excluding `.git/`), and for every
+            file containing the argv fragment `"grep", "-rn"`, assert the SAME call
+            expression also passes `"-H"` and `"-I"`. Match within the call, not merely
+            within the file, so an unrelated flag elsewhere cannot satisfy it.
+            Assert the sweep found at least the FOUR call sites enumerated in notes
+            section 5, and log each path and line — the count is the exhaustiveness
+            proof, and a fifth helper added later must trip this test.
+            EXCLUDE this test file and TASK-001's file from the scan (they carry grep
+            argv fragments as test DATA, and the exclusion must be by exact path with a
+            comment saying why).
+            PRE-FIX STATE: all four call sites fail.
+
+          TestThinExecutor_NoGrepInvocationInNonTestCode (CLM-007).
+            ★ THE FENCE, MADE EXECUTABLE. This plan argues everywhere that a convention
+            carried only by prose drifts; CLM-007 was the one claim carried only by a
+            reviewer's manual grep, which is the same failure in this plan's own voice.
+            Walk `pkg/` and `cmd/` for `*.go`, SKIPPING `_test.go` and anything under a
+            `testdata/` directory, and assert NO file declares a grep invocation —
+            i.e. no `exec.Command("grep"…)`, no `"grep"` as a command name, and no
+            `grep …` command literal. Backstop is a thin executor: the tool name must
+            reach the runner only from pack DATA.
+            ★ SCOPE THE PREDICATE TO INVOCATION, NOT TO THE WORD. The substring `grep`
+            appears legitimately in identifiers and comments across these packages
+            (`ast-grep`, `astGrepMatchCount`, `runFindingsEngine` docs, `semgrep`). A
+            bare word-match reds instantly for the wrong reason and will be "fixed" by
+            weakening it. Assert on the ARGV/command position — the first token of a
+            declared command string, or the name argument of an `exec.Command`-shaped
+            call — and explicitly allow `ast-grep`/`semgrep` as distinct tool names.
+            Log every file examined and every candidate rejected, with the reason.
+            PRE-FIX STATE: this test is expected GREEN from the start — core carries no
+            grep invocation today and this lane adds none. ★ SAY THAT IN THE TEST BODY.
+            It is a REGRESSION FENCE, not a RED: its job is to fail the day someone
+            "fixes" a future grep-shape bug inside core instead of in a pack. Because it
+            cannot go red on its own, TASK-006 MUST falsify it deliberately — add a
+            throwaway `exec.Command("grep", "-rn")` to a non-test file, observe the
+            test go RED, and revert. An unfalsified always-green test is exactly the
+            vacuous assertion this repo forbids.
+        files:
+          - pkg/pack/engine/grep_dispatch_convention_test.go
+        claims:
+          - CLM-003
+          - CLM-004
+          - CLM-007
+        test_names:
+          - TestGrepEngineDeclarations_ForceFilenameHeader
+          - TestThinExecutor_NoGrepInvocationInNonTestCode
+          - TestGrepTestHelpers_ForceFilenameHeader
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Phase 2: GREEN — both halves of the fix, in-repo
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: GREEN — loud refusal in the converts, -H at every declaration and helper"
+    tasks:
+      - id: TASK-003
+        type: implementation
+        title: "Replace the silent NF>=3 drop with a loud, legible refusal in all five repo-owned grep converts"
+        description: |
+          HALF B. Make every repo-owned grep→SARIF convert REFUSE input it cannot parse
+          instead of dropping it. Do NOT add a 2-field parse (sharp edge 1).
+
+          THE PARSE PREDICATE, stated once and applied in both script families: a line
+          is parseable iff it matches `<anything>:<one-or-more-digits>:` — i.e. field 2
+          under `-F:` is entirely digits (sharp edge 3). Everything before the first
+          colon is the file; everything after the second is the text, recovered by
+          stripping the prefix, never by re-joining fields (a match may contain colons).
+
+          ON AN UNPARSEABLE LINE: emit a diagnostic to STDERR naming the offending line
+          and the expected `<file>:<line>:<text>` shape, and exit NON-ZERO. Emit no
+          SARIF result for it. ON EMPTY INPUT: unchanged — exit 0 with a well-formed
+          SARIF document carrying an EMPTY results array (sharp edge 2). The refusal is
+          per-LINE and only for lines that exist.
+
+          ★ THE DIAGNOSTIC MUST NAME THE REMEDY, NOT ONLY THE SYMPTOM (sharp edge 15).
+          Whoever trips this is almost always a pack author whose grep declaration is
+          missing a flag — most commonly `-I`, because grep writes
+          `Binary file <path> matches` to STDOUT as a NON-match line and this predicate
+          correctly refuses it. State in the message that the command must pass `-H -I`.
+          Without that sentence the refusal is a mystery exit code in someone else's
+          repo. NOTE WHAT THIS DELIBERATELY DOES NOT DO: it does not special-case grep's
+          notice wording. That wording and its stream differ between BSD and GNU and
+          could not be measured for GNU from this machine; matching unmeasurable text is
+          the guessing Half A exists to avoid. `-I` stops the line being produced at all.
+
+          ★ THE STDERR MECHANISM IS CONSTRAINED BY THE SANDBOX (sharp edge 4). Do not
+          open `/dev/stderr` or `/dev/null` from awk — ISSUE-168 is an open defect about
+          exactly that class of denial. The DEFAULT SHAPE, which uses only mechanisms
+          this script already proves work (the shell's `>&2`, and awk's exit status):
+
+              out=$(awk '…')            # awk prints the diagnostic text to STDOUT and
+              st=$?                     # exits 1 on the first unparseable line
+              if [ "$st" -ne 0 ]; then
+                echo "grep to-sarif: $out" >&2
+                exit 1
+              fi
+              printf '%s\n' "$out" | jq -s '…'
+
+          If a different mechanism is chosen it must be MEASURED under
+          `TestE2E_ContractsRealAstGrepAndGrep_AndSandboxedConvert`, not assumed.
+
+          TWO SCRIPT FAMILIES, ONE PROPERTY, TWO PATCHES (sharp edge 5):
+            * The `jq`-based family — `packs/contracts/grep/to-sarif.sh`,
+              `pkg/gate/testdata/traceability-pack/grep/to-sarif.sh`,
+              `pkg/gate/testdata/ts-proof-pack/grep/to-sarif.sh` — currently byte-
+              identical. Keep them byte-identical to each other after this change; that
+              is a convenience, not the enforced contract (the notes explain why the
+              contract is behavioral).
+            * The pure-awk family —
+              `cmd/backstop/testdata/hermetic-remote/acceptance-lint-pack/grep/to-sarif.sh`
+              and `.../scaffold-entrypoint-pack/grep/to-sarif.sh` — guards with
+              `/^[^:]*:[0-9]+:/`, assembles JSON in awk alone and uses no `jq`, ON
+              PURPOSE (their header comments say so). Give them the same REFUSAL
+              PROPERTY without pasting the `jq` version over them, without changing
+              their `ruleId`s, and without introducing a `jq` dependency.
+
+          UPDATE EACH SCRIPT'S HEADER COMMENT to state the new contract: input MUST
+          carry the filename (which is why the declarations pass `-H`), unparseable
+          input is REFUSED rather than dropped, and zero matches remains a clean pass.
+          Say WHY in one line — GNU grep omits the filename for a single explicit file
+          target and the old guard turned that into a silent false negative — so the
+          next reader does not "simplify" the refusal back into a drop.
+        files:
+          - packs/contracts/grep/to-sarif.sh
+          - pkg/gate/testdata/traceability-pack/grep/to-sarif.sh
+          - pkg/gate/testdata/ts-proof-pack/grep/to-sarif.sh
+          - cmd/backstop/testdata/hermetic-remote/acceptance-lint-pack/grep/to-sarif.sh
+          - cmd/backstop/testdata/hermetic-remote/scaffold-entrypoint-pack/grep/to-sarif.sh
+        claims:
+          - CLM-001
+          - CLM-002
+        depends_on:
+          - TASK-001
+
+      - id: TASK-004
+        type: implementation
+        title: "Force filename header and binary suppression at every convert-bearing grep declaration"
+        description: |
+          HALF A, declaration side. In each of the SIX manifests below, find the
+          engine binding BY NAME (sharp edge 14 — line numbers move) and add `-H -I` to
+          its `command:` string:
+
+              command: grep -rn        ->  command: grep -rn -H -I
+
+          The one exception in spelling, same in substance:
+          `scaffold-entrypoint-pack`'s binding carries its pattern and target inline —
+          `command: grep -rn BACKSTOP_SCAFFOLD_PRESENT_9C21 src`. Insert the flags among
+          the FLAGS, before the pattern:
+          `grep -rn -H -I BACKSTOP_SCAFFOLD_PRESENT_9C21 src`.
+
+          FLAG ORDER MATTERS (sharp edge 7): dispatch shapes argv as
+          [command tokens…] [input_flag] [pattern] [targets…], so the manifest string
+          holds the flags and the result is `grep -rn -H -I -e PAT target`.
+
+          ★ THE SIXTH MANIFEST IS NOT NAMED `pack.yml`.
+          `pkg/pack/engine/testdata/contracts-grep-engine.yml` (`acme/contracts-grep-pack`)
+          is a real convert-bearing grep declaration that a `pack.yml`-keyed edit list
+          would silently skip — and TASK-002's sweep, which identifies manifests
+          STRUCTURALLY, would then RED with nothing in scope able to green it. Edit it
+          like the others. Do NOT create the `grep/to-sarif.sh` its `convert:` points at:
+          that path does not exist, the orphaned reference is a separate latent defect,
+          and TASK-010 files it (scope fence).
+
+          TOUCH NOTHING ELSE IN THESE MANIFESTS. No version bumps here —
+          `packs/contracts` is `pack add`ed from source by its tests and carries no lock
+          entry, and the testdata packs are fixtures. In particular do NOT add the flags
+          to the four EXEMPT declarations enumerated in notes section 4: they declare no
+          `convert:`, nothing parses a filename out of their stdout, and TASK-002's
+          sweep asserts that exemption reason explicitly — adding the flags there would
+          make the predicate a lie. Likewise do not touch `plans/` or `specs/`, where
+          `command: grep` occurs only as prose (SPEC-069's stale copy is corrected by a
+          routed `/spec` dispatch in TASK-013, never here).
+
+          Add a SHORT comment beside each edited command naming why BOTH flags are there
+          (`-H`: GNU grep omits the filename for a single explicit file target and the
+          convert needs `file:line:text`; `-I`: grep otherwise writes a non-match
+          `Binary file … matches` line to stdout that the convert must not be asked to
+          parse). These manifests already carry explanatory comments; match that style.
+          Without the comment the flags look removable.
+        files:
+          - packs/contracts/pack.yml
+          - pkg/gate/testdata/traceability-pack/pack.yml
+          - pkg/gate/testdata/ts-proof-pack/pack.yml
+          - cmd/backstop/testdata/hermetic-remote/acceptance-lint-pack/pack.yml
+          - cmd/backstop/testdata/hermetic-remote/scaffold-entrypoint-pack/pack.yml
+          - pkg/pack/engine/testdata/contracts-grep-engine.yml
+        claims:
+          - CLM-003
+        depends_on:
+          - TASK-002
+
+      - id: TASK-005
+        type: implementation
+        title: "Force filename header and binary suppression in the four real-grep test helpers"
+        description: |
+          HALF A, helper side. These four shell real grep directly and never read a
+          manifest, so TASK-004 does not reach them — on Linux they would keep
+          producing the 2-field shape and, after TASK-003, would now fail LOUDLY at the
+          convert (which is the refusal working, not a new bug).
+
+          Locate each BY the argv fragment `"grep", "-rn"` (sharp edge 14) and insert
+          BOTH `"-H"` and `"-I"` into the same call:
+
+              pkg/pack/engine/contracts_go_rules_test.go      grepMatchCount
+              pkg/pack/engine/contracts_ts_rules_test.go      tsGrepMatchCount
+              pkg/pack/engine/contracts_grep_engine_test.go   runGrep
+              pkg/gate/contract_equivalence_harness_test.go   grepProbe
+
+          Update each helper's docstring, which currently states the argv as
+          `grep -rn -e <pattern> <target>`, so the stated shape and the real shape do
+          not drift apart — that drift is how this class hides.
+
+          CHANGE NOTHING ELSE. No assertion softened, no `t.Skip` added, no
+          `requireAstGrepE2E` guard touched (CLM-007). BOTH flags are idempotent on
+          darwin — `-H` for output shape (notes section 3) and `-I` for SARIF result
+          count (notes section 3b, measured 2 results either way) — so every existing
+          assertion in these files must still pass locally with no other edit. If one
+          does not, STOP: that is a real finding about the test, not a licence to adjust
+          the assertion. ★ WATCH `TestContract_AbsenceScopeFileOrPathParameterized`
+          especially: it compares a file-scoped count against a path-scoped count over
+          `pkg/gate/testdata`, so it is the assertion most exposed to `-I` changing a
+          directory-scan result set. It must be unchanged; if it moves, report the
+          measurement rather than adjusting the expectation.
+        files:
+          - pkg/pack/engine/contracts_go_rules_test.go
+          - pkg/pack/engine/contracts_ts_rules_test.go
+          - pkg/pack/engine/contracts_grep_engine_test.go
+          - pkg/gate/contract_equivalence_harness_test.go
+        claims:
+          - CLM-004
+          - CLM-005
+        depends_on:
+          - TASK-001
+          - TASK-002
+
+      - id: TASK-006
+        type: verification
+        title: "Verify the in-repo fix: six mandated tests green and falsified, contracts family unregressed, gate clean"
+        description: |
+          Run the diff-scoped gate over every file this phase touched:
+
+              backstop gate
+
+          Then require the six Phase 1 mandated tests GREEN:
+
+              go test ./pkg/pack/engine/ \
+                -run "TestGrepConvert|TestGrepEngineDeclarations|TestGrepTestHelpers|TestThinExecutor_NoGrepInvocation|TestRealGrep" \
+                -race -count=1
+
+          Then the REGRESSION FAMILY — the contracts tests ISSUE-166 names that CAN run
+          on darwin. These were not modified by this lane and must still pass:
+
+              go test ./pkg/pack/engine/ ./pkg/gate/ ./pkg/packval/ \
+                -run "TestContract_Absence|TestEngine_Grep|TestTSPack_ContractAbsenceGrep|TestEquivalence_GoAbsence|TestPackVerdict_|TestPackContractResult_|TestContractsPack_PatternArg" \
+                -race -count=1
+
+          READ THE RESULT TEST BY TEST, never from a package-level `ok` — a `t.Skip` in
+          a real-engine test is exactly the silent pass this lane exists to remove
+          (sharp edge 12). Report the skip count explicitly; it must be zero.
+
+          ★ FALSIFY THE ALWAYS-GREEN FENCE. `TestThinExecutor_NoGrepInvocationInNonTestCode`
+          is GREEN from birth (core carries no grep invocation today), so passing it
+          proves nothing on its own. Deliberately break it: add a throwaway
+          `exec.Command("grep", "-rn")` to ONE non-test file under `pkg/`, re-run the
+          test, CONFIRM IT GOES RED and record the message, then revert and confirm the
+          tree is clean (`git status --porcelain` on that path → empty). An unfalsified
+          always-green test is a vacuous assertion, which is the thing this whole lane
+          is about. Do the same one-mutation check for at least one leg of
+          `TestGrepEngineDeclarations_ForceFilenameHeader` (drop `-I` from one manifest,
+          observe RED, restore) — the flags are added by the same edit and a test that
+          only ever saw them together may not actually discriminate.
+
+          TWO THINGS THIS TASK OWES A WRITTEN ANSWER TO, not a guess:
+            * SHARP EDGE 13 — is `pkg/gate/contract_verdict.go`'s `Scanned` guard
+              derived from the convert's SARIF output or independently? If it is
+              derived, the silent drop disarmed it too and Half B restores it; if it is
+              independent, say so and record that as the reason the failure surfaced as
+              "got 0" rather than as the guard's own refusal. Read the code, state
+              which.
+            * SHARP EDGE 15 IN THE REAL REPO — run `grep -rn -H` (no `-I`) over the repo
+              root and report how many non-match `Binary file …` lines land on stdout
+              (9 at authoring). Then confirm that with `-I` the count is zero. This is
+              the measurement that says whether the trap is theoretical or live here.
+              It is a REPORT, not a gate: core's own contract scopes are `.go` files and
+              `pkg/gate`, so the exposure is largest in consumer repos, not this one.
+
+          Anything red that belongs to another lane must be ATTRIBUTED by path and
+          owning lane, never absorbed and never waived.
+        files:
+          - packs/contracts/grep/to-sarif.sh
+          - packs/contracts/pack.yml
+          - pkg/pack/engine/testdata/contracts-grep-engine.yml
+          - pkg/pack/engine/grep_convert_shape_test.go
+          - pkg/pack/engine/grep_dispatch_convention_test.go
+          - pkg/gate/contract_equivalence_harness_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-007
+        depends_on:
+          - TASK-003
+          - TASK-004
+          - TASK-005
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Phase 3: the RELEASED pack — where core's own gate actually reads the defect
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: carry the fix into the released backstop-ai/go-contracts pack and relock"
+    tasks:
+      - id: TASK-007
+        type: test
+        title: "Pin that the INSTALLED go-contracts pack carries both halves of the fix (RED)"
+        description: |
+          Create `pkg/pack/engine/grep_installed_pack_test.go` (package `engine`).
+
+          WHY THIS PHASE EXISTS AT ALL: the pack that runs in backstop-core's REAL gate
+          is the installed `backstop-ai/go-contracts`, not the in-repo
+          `packs/contracts` source (they have already diverged on name and version —
+          see the comment at `cmd/backstop/pack_claim_index_test.go` ~line 333). Core's
+          spec corpus declares real absence contracts (`absent: true` on a
+          `contracts.provides` entry — NOT `kind: absence`, see notes section 7) and the
+          absence scope may
+          be a single FILE (notes section 7), so until the RELEASED pack is fixed,
+          core's contracts gate silently confirms absence on Linux regardless of file
+          content.
+
+          TestInstalledGoContractsPack_CarriesFilenameHeaderFix (CLM-006).
+            Resolve the installed pack through the PRODUCTION path, then follow the
+            ESTABLISHED GUARD SHAPE exactly (sharp edge 10): a load ERROR is
+            `t.Fatalf`; the pack simply not being installed is
+            `t.Skipf("… run `./bin/backstop pack install` …")`. Do not invent a new
+            guard and do not skip for any other reason.
+            With the installed tree in hand, assert BOTH halves:
+              * its `grep` engine binding's `command` contains BOTH `-H` and `-I`;
+              * its `grep/to-sarif.sh` REFUSES the verbatim 2-field GNU bytes — reuse
+                the same constant and the same runner TASK-001 established rather than
+                re-spelling either (a second spelling of the fixture bytes is exactly
+                the drift this lane is about).
+            Also assert `backstop.lock` records `backstop-ai/go-contracts` at a version
+            STRICTLY GREATER than `1.2.0`, read through the real lockfile reader. That
+            leg is tracked data, so it holds even where the pack fleet is not installed
+            and the content legs skipped — it is what keeps this test from being
+            vacuous in a fresh checkout.
+            PRE-FIX STATE: installed pack is v1.2.0, `command: grep -rn` with neither
+            `-H` nor `-I`, and its convert exits 0 with empty results on the 2-field
+            bytes.
+        files:
+          - pkg/pack/engine/grep_installed_pack_test.go
+        claims:
+          - CLM-006
+        test_names:
+          - TestInstalledGoContractsPack_CarriesFilenameHeaderFix
+        depends_on:
+          - TASK-006
+
+      - id: TASK-008
+        type: implementation
+        title: "Fix, bump, tag and push backstop-ai/go-contracts; pack update + relock in core"
+        description: |
+          The external pack repo is legitimate task file scope — packs live outside core
+          by design ([[feedback_packs_always_external]]). Work in
+          `/Users/bmanson/src/projects/backstop-go-contracts-pack` (remote
+          `backstop-ai/go-contracts`, currently `c55d38b`, tag `v1.2.0`, working tree
+          verified clean 2026-08-18).
+
+          IN THAT REPO:
+            1. `grep/to-sarif.sh` — apply the SAME change TASK-003 made to the `jq`
+               family. It is byte-identical to `packs/contracts/grep/to-sarif.sh` at
+               HEAD, so the fixed version should be too; DIFF them before committing
+               and reconcile any gap deliberately rather than by hand-retyping.
+            2. `pack.yml` — add `-H -I` to the `grep` engine's `command:` (same edit as
+               TASK-004) and bump `version:` from `1.2.0` to `1.3.0`. ★ `-I` MATTERS
+               MOST HERE. This is the pack real consumers install, and without it any
+               consumer whose absence contract scopes a DIRECTORY containing a single
+               binary file would hit the Half B refusal and hard-fail their gate. The
+               in-repo copies are comparatively safe (core's contract scopes are `.go`
+               files); the released one is where the blast radius lives. This is a
+               behavior fix in a shipped rule path, so it is a MINOR bump, not a patch.
+            3. Validate in that repo with the real commands before pushing anything:
+               `backstop pack check .` and `backstop pack test .`. A pack that fails its
+               own validation must never be tagged.
+            4. Commit, then TAG `v1.3.0` and push BOTH the commit and the tag.
+               ★ Version resolution is git-TAG-based (sharp edge 9): a `pack.yml` bump
+               with no matching `v1.3.0` tag pushed to the remote will NOT resolve, and
+               `pack update` will fail in a way that reads like a network problem. Fetch
+               first and confirm the local branch is not behind before pushing.
+
+          IN CORE:
+            5. `./bin/backstop pack update backstop-ai/go-contracts` (by NAME). Confirm
+               it rewrites `backstop.yml` to `1.3.0` and refreshes the `backstop.lock`
+               entry — version, `git_ref`, `content_hash` and `install_date`.
+            6. NEVER edit `.backstop/packs/**` by hand (sharp edge 9). If the installed
+               tree looks wrong, re-run the update; do not patch the install.
+
+          If `pack update` refuses, report the typed refusal verbatim and STOP. An
+          identity or version refusal here is real information about the tag, not an
+          obstacle to route around.
+        files:
+          - /Users/bmanson/src/projects/backstop-go-contracts-pack/grep/to-sarif.sh
+          - /Users/bmanson/src/projects/backstop-go-contracts-pack/pack.yml
+          - backstop.yml
+          - backstop.lock
+        claims:
+          - CLM-006
+        depends_on:
+          - TASK-007
+
+      - id: TASK-009
+        type: verification
+        title: "Verify the relocked pack: installed-pack pin green, lock verified, contracts dimension re-read"
+        description: |
+          Run the diff-scoped gate over the config and lock change:
+
+              backstop gate
+
+          `pack_lock_verification` is the step that matters most here — it recomputes
+          the installed tree's content hash against the lock entry. A mismatch means the
+          scratch-copy/hash invariant was broken somewhere in TASK-008; report it, do
+          not re-run until it goes away.
+
+          Then require TASK-007's pin GREEN, and confirm it did NOT skip:
+
+              go test ./pkg/pack/engine/ -run "TestInstalledGoContractsPack" -race -count=1 -v
+
+          Read the `-v` output for `--- SKIP`. A skip here means the pack fleet is not
+          installed and the content legs never ran — that is NOT a pass for CLM-006.
+          If it skips, run `./bin/backstop pack install` and re-run.
+
+          Finally re-read the CONTRACTS dimension end to end, since that is the
+          production consumer this phase exists for:
+
+              go test ./pkg/gate/ -run "TestContract|TestEquivalence" -race -count=1
+
+          Report the contracts-dimension verdict from `backstop gate` explicitly —
+          whether any absence contract's verdict CHANGED now that the probe can see its
+          matches. A newly-surfaced absence violation would be a TRUE finding this fix
+          uncovered, not a regression: fix it at source and say where it came from
+          ([[feedback_no_grandfather_changed_files]]). Do not waive it and do not
+          quietly narrow a contract's scope to make it go away.
+        files:
+          - backstop.yml
+          - backstop.lock
+          - pkg/pack/engine/grep_installed_pack_test.go
+        claims:
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-008
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Phase 4: full kill chain, artifact close-out, and the Linux confirmation
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: full sweep, artifact validation, follow-ons, and the CI-only confirmation"
+    tasks:
+      - id: TASK-010
+        type: documentation
+        title: "Close ISSUE-166 and file the mirror-sync follow-on; absorb nothing"
+        description: |
+          EVERY ARTIFACT TOUCH IN THIS TASK IS ROUTED THROUGH `/issue` (the
+          issue-author agent). This lane never hand-edits an artifact file — that is why
+          `issues/ISSUE-166-…` appears in this task's `files:`: it is the file the
+          ROUTED close-out writes, not a file this task opens in an editor.
+
+          TWO OBLIGATIONS, both discharged explicitly even if an answer is "none":
+
+          (a) CLOSE ISSUE-166. Hand off the resolution with the decision this plan made
+              and WHY the alternative was rejected: `-H` at the source plus a loud
+              refusal at the convert; a heuristic 2-field parse was measured and
+              rejected because `6:42: text` is genuinely ambiguous and such a parser
+              fabricates a finding at a nonexistent file (notes section 2). Also record
+              the two facts the issue got slightly wrong or did not know: there are
+              THREE in-repo copies of the identical convert, not two (`ts-proof-pack`
+              was missed), plus two more with the same defect in a different spelling;
+              and BSD grep at `/usr/bin/grep` DOES prefix under `-rn` for a single file,
+              so the divergence is real and now measured on both sides.
+
+          (b) FILE THE DEFERRED FOLLOW-ON, as its own issue. The residual this plan
+              names and does NOT solve: nothing proves an in-repo pack SOURCE and its
+              released external mirror stay in sync. It bit here — four copies of one
+              script, three of them carrying the same defect, kept aligned by hope. It
+              is general across `go-contracts`, `go-substantiveness` and the
+              traceability packs, and inventing a cross-repo sync mechanism is out of
+              scope for a contained bug fix. File it with the concrete evidence from
+              this lane rather than as an abstract concern.
+
+          (c) FILE THE ORPHANED-CONVERT DEFECT.
+              `pkg/pack/engine/testdata/contracts-grep-engine.yml` declares
+              `convert: grep/to-sarif.sh` while `pkg/pack/engine/testdata/grep/` does
+              not exist (verified 2026-08-18). The fixture drives declaration-level
+              tests only, so the dangling reference has never been dispatched and has
+              gone unnoticed. TASK-004 gives it the flags; nobody in this lane creates
+              the missing script. File it with that measurement, and note the general
+              question it raises: nothing validates that a declared `convert:` path
+              resolves, which is the same silent-hole class as the defect being fixed.
+
+          If TASK-006 or TASK-009 surfaced anything else — a `Scanned`-guard finding, a
+          newly-surfaced absence violation, a fifth grep helper, a SEVENTH manifest —
+          file it. Surfacing is the deliverable; absorbing it silently is the failure
+          mode.
+        files:
+          - issues/ISSUE-166-contracts-pack-phase3-fixtures-fail-on-linux-ci.issue.md
+        claims:
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-009
+
+      - id: TASK-013
+        type: documentation
+        title: "Align SPEC-069's stale prose with the -H/-I declarations, via a routed /spec dispatch"
+        description: |
+          ROUTED THROUGH `/spec` (the spec-author agent). This lane never hand-edits an
+          artifact — that is why `specs/SPEC-069-backstop-init.spec.md` appears in this
+          task's `files:`: it is the file the ROUTED dispatch writes.
+
+          THE DRIFT, MEASURED. `specs/SPEC-069-backstop-init.spec.md` is
+          `status: implemented` and pins the literal command string in PROSE at two
+          places (verified 2026-08-18 with `grep -n "grep -rn"`):
+            * ~line 2711 — describes the acceptance fixture pack as proving the shape
+              "`command: grep -rn`, `input_mode: pattern-arg`, …" end to end;
+            * ~line 3193 — "no-provisioning `grep -rn` command with
+              `input_mode: pattern-arg`, `input_flag: -e` and a …".
+          Both describe `cmd/backstop/testdata/hermetic-remote/*-pack` manifests that
+          TASK-004 edits, so after this lane the spec describes a command string that no
+          longer exists. A third hit at ~line 2686 is narrative about those commands
+          "never running at all"; include it in the dispatch's scope and let the
+          spec-author judge whether it needs touching.
+
+          WHY THIS IS NOT LEFT ALONE. It will not red the gate — this is prose, not a
+          `signature:` contract, so nothing joins it to a test. That is exactly the
+          argument this plan rejects elsewhere: a statement kept true by hope drifts,
+          and this repo's convention is to align predating artifacts OPENLY rather than
+          let them rot. The correction is one clause in each sentence
+          (`command: grep -rn` → `command: grep -rn -H -I`) plus, ideally, the one-line
+          reason, so a future reader sees why the flags are load-bearing rather than
+          decorative.
+
+          SCOPE THE DISPATCH TIGHTLY: prose alignment ONLY. No requirement added, no
+          claim added, no status change, no version bump beyond whatever SPEC-069's own
+          version-history convention requires for an editorial correction. If the
+          spec-author finds the change is larger than editorial, STOP and report rather
+          than widening — that would be a real finding about SPEC-069's coupling to
+          fixture internals, and it belongs in its own artifact.
+        files:
+          - specs/SPEC-069-backstop-init.spec.md
+        claims:
+          - CLM-008
+        depends_on:
+          - TASK-004
+
+      - id: TASK-011
+        type: verification
+        title: "Full kill chain: backstop gate --all plus artifact validation"
+        description: |
+          THE FINAL, UNSCOPED SWEEP. Run all four and read the results:
+
+              backstop gate --all
+              backstop artifact validate --plan PLAN-ISSUE-166
+              backstop artifact validate --issue ISSUE-166
+              backstop artifact validate --spec SPEC-069
+
+          `gate --all` covers the code half (pack lock verification, artifact
+          validation, pack engines, test verification, substantiveness, coverage,
+          contracts, status drift, traceability, waivers, baseline, ledger integrity);
+          the three `artifact validate` runs cover the artifact half, since this lane
+          creates a plan artifact, TASK-010 rewrites the issue, and TASK-013 edits an
+          `implemented` spec — the last of which is the one most able to break something
+          downstream, so validate it explicitly rather than trusting the gate step.
+
+          ATTRIBUTION IS THE DELIVERABLE, NOT THE RAW COUNT. This repo carries inherited
+          reds from other lanes. For every violation, decide and STATE whether it is
+          this lane's:
+            * grep the full violation set explicitly for each path this lane touched —
+              the five convert scripts, the SIX manifests, the four helpers, the three
+              new test files, `backstop.yml`, `backstop.lock` and SPEC-069 — and report
+              the hit count, zero or otherwise;
+            * anything attributable to this lane is FIXED AT SOURCE, never waived and
+              never made green by weakening a test (sharp edges 1, 12).
+
+          Record honest caveats rather than smoothing them: a reading taken in a
+          worktree lacking `.backstop/baseline.json` is STRICTER, not more permissive;
+          `pack_engines` silently no-ops if a Layer-0 tool such as `go-arch-lint` is
+          absent from that shell's PATH, which reads exactly like a clean run
+          ([[project_closeout_real_gate_in_worktree]]) — confirm the tools are present
+          before claiming a zero.
+
+          THE HEADLINE THIS LANE OWES: state plainly that the local reading CANNOT
+          confirm the ~30 Linux CI failures are resolved — the defect is a GNU-grep
+          behavior darwin does not reproduce. Report what WAS proven locally (the
+          conversion logic refuses the real GNU bytes; `-H -I` are present everywhere,
+          and both are idempotent on BSD) and hand the Linux question to TASK-012.
+        files:
+          - packs/contracts/grep/to-sarif.sh
+          - packs/contracts/pack.yml
+          - pkg/pack/engine/testdata/contracts-grep-engine.yml
+          - pkg/pack/engine/grep_convert_shape_test.go
+          - pkg/pack/engine/grep_dispatch_convention_test.go
+          - pkg/pack/engine/grep_installed_pack_test.go
+          - plans/PLAN-ISSUE-166-contracts-grep-convert-singlefile-filename.plan.yml
+          - issues/ISSUE-166-contracts-pack-phase3-fixtures-fail-on-linux-ci.issue.md
+          - specs/SPEC-069-backstop-init.spec.md
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+        depends_on:
+          - TASK-003
+          - TASK-004
+          - TASK-005
+          - TASK-008
+          - TASK-010
+          - TASK-013
+
+      - id: TASK-012
+        type: verification
+        title: "Confirm on real Linux CI — the only run that can prove this fix"
+        description: |
+          ★ THIS IS A CI-ONLY OBLIGATION AND MUST NOT BE CLAIMED FROM A LOCAL READING
+          ([[project_platform_gated_defect_verification_ceiling]]). Darwin's grep does
+          not exhibit the filename omission, so no local run — however green — is
+          evidence that the Linux failures are gone.
+
+          Push the branch and let the real `ubuntu-latest` workflow run. Then download
+          and read the run's `gate-report.json` directly, the same way ISSUE-166's root
+          cause was established — not the summary, the artifact.
+
+          REPORT, BY NAME:
+            * whether the `pack add … packs/contracts … phase3-fixtures` refusal is
+              gone;
+            * the state of each grep-absence test the issue enumerates:
+              `TestContract_AbsencePresentSymbolGrepMatchViolation`,
+              `TestContract_AbsenceScopeFileOrPathParameterized`,
+              `TestContract_AbsenceUsesGrepTextPresenceNotAstGrep`,
+              `TestEngine_GrepConvertScriptEmitsValidSarif`,
+              `TestEquivalence_GoAbsencePresentAndAbsentMatchLegacy`,
+              `TestPackVerdict_PresentAndAbsencePolarities`,
+              `TestPackContractResult_AllPolaritiesOverRealEngines`,
+              `TestPackContractResult_ScopeFallbackAndMissingFile`;
+            * the state of the ~dozen E2E/no-vacuous-green tests in the issue's first
+              symptom cluster;
+            * SEPARATELY, `TestContractsPack_PatternArgFixturesDispatchAndDiscriminate`.
+              The issue flags it as a possible RED HERRING for this defect (its
+              "semgrep" check-name is a hardcoded literal used for every findings
+              engine). Report its state and say explicitly whether this fix resolved it
+              or whether it remains and needs its own issue — do NOT fold it into this
+              lane's claimed result either way.
+
+          ALSO RECORD, AS AN OBSERVATION AND NOT A CLAIM: GNU grep's actual handling of
+          the binary-file notice. Sharp edge 15 was decided WITHOUT measuring the GNU
+          side — there is no GNU grep on darwin, and `-I` was chosen precisely because
+          it makes the answer irrelevant. Now that a real Linux runner is available, run
+          `grep -rn -H` (no `-I`) over a tree containing a binary file and report which
+          STREAM the notice goes to and its exact wording. If it turns out GNU writes it
+          to stdout like BSD, that CONFIRMS `-I` was load-bearing rather than
+          precautionary — write that down, because the next person to read this plan
+          will otherwise wonder whether the flag can be dropped.
+
+          Anything still red is FILED, not absorbed. If the fix works but a NEW failure
+          appears — including a genuine absence violation the probe can now finally see
+          — that is a true finding surfaced by this fix and it gets its own issue.
+        files:
+          - packs/contracts/grep/to-sarif.sh
+          - packs/contracts/pack.yml
+          - backstop.lock
+          - issues/ISSUE-166-contracts-pack-phase3-fixtures-fail-on-linux-ci.issue.md
+        claims:
+          - CLM-001
+          - CLM-003
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-008
+          - TASK-011
