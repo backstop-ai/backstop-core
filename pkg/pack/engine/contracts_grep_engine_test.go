@@ -102,7 +102,7 @@ func TestEngine_GrepConvertScriptEmitsValidSarif(t *testing.T) {
 	fixture := filepath.Join(root, "pkg", "gate", "testdata", "contract-absence-present.go")
 
 	// Run REAL grep: -rn -e <forbidden> <file> → "file:line:matchline".
-	grepOut, _ := runGrep(t, "legacyProbeSymbol", fixture)
+	grepOut := runGrep(t, "legacyProbeSymbol", fixture)
 	if len(bytes.TrimSpace(grepOut)) == 0 {
 		t.Fatal("real grep produced no match on a fixture that contains the forbidden symbol — fixture/grep invariant broken")
 	}
@@ -152,17 +152,23 @@ func TestEngine_GrepConvertScriptEmitsValidSarif(t *testing.T) {
 	}
 }
 
-// runGrep runs real grep -rn -e <pattern> <target> and returns its stdout. grep
+// runGrep runs real grep -rn -H -I -e <pattern> <target> and returns its stdout. grep
 // exits non-zero when there is no match; a match yields exit 0 with stdout, so a
-// non-nil err on a match-present fixture is unexpected but stdout is the contract.
-func runGrep(t *testing.T, pattern, target string) ([]byte, error) {
+// non-zero exit on a match-present fixture is unexpected but stdout is the contract.
+// -H -I are required, not optional (ISSUE-166): -H because GNU grep OMITS the
+// filename for a single explicit file target and the convert parses
+// <file>:<line>:<text>; -I because grep otherwise puts a non-match
+// "Binary file <path> matches" line on stdout. Both are idempotent on BSD grep, so
+// the shape is identical on darwin and Linux.
+//
+// It routes the tool name through runEngineStdout — the package's PARAMETRIC
+// DISPATCH seam, which the three sibling grep helpers already use — rather than
+// naming the tool in an exec.Command literal. That is the shape the self-pack's
+// no-baked-tool-exec rule sanctions (its own valid fixture is exec-variable.go):
+// a tool name reaches exec.Command as a VARIABLE, never baked at the call site.
+func runGrep(t *testing.T, pattern, target string) []byte {
 	t.Helper()
-	cmd := exec.Command("grep", "-rn", "-e", pattern, target)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-	return stdout.Bytes(), err
+	return runEngineStdout(t, "grep", "-rn", "-H", "-I", "-e", pattern, target)
 }
 
 // runConvertScript shells the pack convert script with stdin and returns stdout.

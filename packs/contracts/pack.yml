@@ -17,7 +17,12 @@ engines:
   # pins the tool name so the dispatch trust gate runs the allowlist check; grep is a
   # Layer-0 tool (version "*" = presence on the allowlist is the trust requirement).
   grep:
-    command: grep -rn
+    # -H -I are load-bearing, not decorative (ISSUE-166). -H: GNU grep OMITS the
+    # filename when the target is exactly ONE explicit file, and this binding's
+    # convert parses <file>:<line>:<text>. -I: grep otherwise writes a non-match
+    # "Binary file <path> matches" line to STDOUT that the convert must not be
+    # asked to parse. The convert REFUSES either shape rather than dropping it.
+    command: grep -rn -H -I
     input_mode: pattern-arg
     input_flag: -e
     scope_kind: file-args

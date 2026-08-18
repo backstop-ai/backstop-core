@@ -52,12 +52,19 @@ func tsAstGrepMatchCount(t *testing.T, root, pattern, file string) int {
 	return sarifResultCount(t, pipeConvert(t, convert, raw))
 }
 
+// tsGrepMatchCount runs real grep -rn -H -I -e <symbol> over a scope (file OR
+// path) and pipes through the TS pack's grep convert, returning the SARIF count.
+// -H -I are required, not optional (ISSUE-166): -H because GNU grep OMITS the
+// filename for a single explicit file target and the convert parses
+// <file>:<line>:<text>; -I because grep otherwise puts a non-match
+// "Binary file <path> matches" line on stdout. Both are idempotent on BSD grep, so
+// the shape is identical on darwin and Linux.
 func tsGrepMatchCount(t *testing.T, root, symbol, scope string) int {
 	t.Helper()
 	if _, err := exec.LookPath("grep"); err != nil {
 		t.Fatalf("real grep is required (no t.Skip): %v", err)
 	}
-	raw := runEngineStdout(t, "grep", "-rn", "-e", symbol, scope)
+	raw := runEngineStdout(t, "grep", "-rn", "-H", "-I", "-e", symbol, scope)
 	convert := filepath.Join(root, tsPackRel, "grep", "to-sarif.sh")
 	return sarifResultCount(t, pipeConvert(t, convert, raw))
 }

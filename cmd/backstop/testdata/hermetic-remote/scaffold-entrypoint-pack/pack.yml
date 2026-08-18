@@ -58,7 +58,12 @@ engines:
     # Self-contained: input_mode none contributes no inputs, and scope_kind
     # project-wide with NO project_target means the generic findings dispatch appends
     # no scan target either, so the command that runs is exactly the command declared.
-    command: grep -rn BACKSTOP_SCAFFOLD_PRESENT_9C21 src
+    # -H -I are load-bearing, not decorative (ISSUE-166). -H: GNU grep OMITS the
+    # filename when the target is exactly ONE explicit file, and this binding's
+    # convert parses <file>:<line>:<text>. -I: grep otherwise writes a non-match
+    # "Binary file <path> matches" line to STDOUT that the convert must not be
+    # asked to parse. The convert REFUSES either shape rather than dropping it.
+    command: grep -rn -H -I BACKSTOP_SCAFFOLD_PRESENT_9C21 src
     input_mode: none
     scope_kind: project-wide
     category: opinion

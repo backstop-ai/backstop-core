@@ -183,10 +183,15 @@ func astGrepProbe(convert, pattern, file string) ([]SarifLocation, error) {
 	return convertToLocations(convert, raw)
 }
 
-// grepProbe runs real grep -rn -e symbol over scope (file OR path), pipes through the
-// pack grep convert, and returns the SARIF locations.
+// grepProbe runs real grep -rn -H -I -e symbol over scope (file OR path), pipes
+// through the pack grep convert, and returns the SARIF locations.
+// -H -I are required, not optional (ISSUE-166): -H because GNU grep OMITS the
+// filename for a single explicit file target and the convert parses
+// <file>:<line>:<text>; -I because grep otherwise puts a non-match
+// "Binary file <path> matches" line on stdout. Both are idempotent on BSD grep, so
+// the shape is identical on darwin and Linux.
 func grepProbe(convert, symbol, scope string) ([]SarifLocation, error) {
-	raw := engineStdout("grep", "-rn", "-e", symbol, scope)
+	raw := engineStdout("grep", "-rn", "-H", "-I", "-e", symbol, scope)
 	return convertToLocations(convert, raw)
 }
 
