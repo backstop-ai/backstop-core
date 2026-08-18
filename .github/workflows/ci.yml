@@ -24,6 +24,21 @@ jobs:
   gate:
     name: Backstop Gate
     runs-on: ubuntu-latest
+    permissions:
+      # A JOB-LEVEL permissions block REPLACES the workflow-level one outright,
+      # and every scope it does not list becomes `none`. contents:read is
+      # RE-DECLARED for that reason, not for symmetry: without it actions/checkout
+      # fails, and it reads as a mystery rather than as a permissions error.
+      contents: read
+      # WHY THIS JOB NEEDS actions:read, and why only this job. `backstop gate`
+      # self-heals a missing .backstop/baseline.json before it runs -
+      # resolveBaselineCache -> refreshBaselineFromRemote -> runBaselinePull -
+      # and that pull calls `gh api repos/.../actions/runs` and
+      # `.../actions/artifacts`. Without this scope both 403 and the gate
+      # degrades SILENTLY to a nil baseline (ISSUE-176). It is READ-ONLY, and it
+      # is scoped here rather than at the workflow level so the baseline job and
+      # every future job keep the unwidened `contents: read`.
+      actions: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -144,9 +159,25 @@ jobs:
         # so a capture placed after it would be skipped on exactly the runs worth
         # diagnosing. The `|| echo` records the exit instead of acting on it - this
         # step reports, the next step decides.
+        #
+        # THE TOKEN IS BOUND AT THE STEP, NOT AT THE JOB, and the difference is not
+        # cosmetic: a job-level env: would hand it to every step in this job,
+        # including the two remote installers that pipe `curl | sh` and run
+        # `pipx install` and the one that clones eight pack repositories. None of
+        # those needs it. This step does, because `backstop gate` runs the
+        # self-healing baseline pull, whose ensureGitHubAuth shells `gh auth
+        # status` before anything reaches the GitHub API (ISSUE-176).
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./bin/backstop gate --base "$BASE" --json > gate-report.json || echo "diagnostic capture exited $? - the blocking run is the next step"
 
       - name: Run the gate
+        # The id is what the confirmation step below addresses this step by
+        # (steps.run_gate.conclusion). Adding an `id:` is safe where an `if:`
+        # would not be: TestCIWorkflow_PackInstallFailureFailsTheJob fails any
+        # step whose script contains the gate invocation AND declares a
+        # condition, and it does not look at ids.
+        id: run_gate
         # Diff-scoped with an explicit base. NEVER the all-scope flag (ISSUE-091's
         # under-report is FIXED - the all scope now dispatches its own explicit
         # file list and agrees with a diff-scoped run over the same files - so
@@ -160,7 +191,43 @@ jobs:
         # founder decision).
         #
         # THIS is the blocking invocation. Its exit is the job's, unchanged.
+        #
+        # Same step-level token binding as the diagnostic capture above, and for
+        # the same reason: this invocation also runs resolveBaselineCache.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./bin/backstop gate --base "$BASE"
+
+      - name: Confirm the self-healing baseline pull landed a file
+        # WHY THIS IS NOT A `baseline pull` STEP: the pull already runs INSIDE the
+        # gate, in resolveBaselineCache, before the pack_engines step spawns the
+        # test subprocess. A pull step placed BEFORE the gate would create this
+        # file itself and prove nothing. This step runs after, and only observes.
+        #
+        # WHY IT EXISTS AT ALL: ApplyPolicy overwrites baseline_comparison's
+        # reason unconditionally on this repo's dogfood policy, so neither the
+        # printed table nor --json can tell anyone whether the pull worked. This
+        # step can. (ISSUE-176)
+        #
+        # THE GUARD IS NOT `always()` ALONE. This job can die at tool install, at
+        # build, or at pack install - unobserved in the last 78 runs, but one
+        # `curl | sh` away - and then "Run the gate" never executes. Under a bare
+        # always() this step would still run, find no baseline (nothing had a
+        # chance to fetch one), and blame ISSUE-176 for a failure that happened
+        # three steps earlier. Skipping when the gate was SKIPPED keeps the
+        # diagnosis attributable, which is the entire point of the step. A FAILED
+        # gate still runs it - that is the informative case.
+        if: always() && steps.run_gate.conclusion != 'skipped'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -f .backstop/baseline.json ]; then
+            echo "baseline present: $(wc -c < .backstop/baseline.json) bytes"
+            exit 0
+          fi
+          echo "::error::.backstop/baseline.json absent after the gate ran - the self-healing pull did not succeed (ISSUE-176)"
+          ./bin/backstop baseline pull || echo "bare baseline pull exited $?"
+          exit 1
 
       - name: Upload the gate JSON report
         # always(), because the run worth diagnosing is the one that FAILED - a

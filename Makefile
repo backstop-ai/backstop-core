@@ -1,4 +1,4 @@
-.PHONY: build test lint coverage ci clean
+.PHONY: build test lint coverage ci clean baseline
 
 COVERAGE_THRESHOLD := 90
 
@@ -7,6 +7,21 @@ build:
 
 test:
 	go test -race ./...
+
+# baseline fetches the CI-published baseline artifact into .backstop/baseline.json.
+#
+# IT IS A PREREQUISITE OF THE RATCHET TESTS (cmd/backstop/bun_ratchet_flip_test.go),
+# which read that file and FAIL loudly when it is absent — it is a generated,
+# gitignored artifact CI publishes, not committed source, so a fresh clone has none.
+#
+# IT IS DELIBERATELY NOT A PREREQUISITE OF `test:` OR `ci:`. Wiring it in would make
+# every local `make test` shell a GitHub API call; no local test run may hit the
+# network by default (ISSUE-176). Run it yourself, once, when you need it.
+#
+# `build` is required, not decoration: the recipe runs ./bin/backstop, and bin/ is
+# untracked and removed by `make clean`.
+baseline: build
+	./bin/backstop baseline pull
 
 lint:
 	go tool golangci-lint run ./...
