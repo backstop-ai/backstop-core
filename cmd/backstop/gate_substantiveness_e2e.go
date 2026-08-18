@@ -10,7 +10,9 @@ import (
 
 	"github.com/backstop-ai/backstop-core/pkg/artifact"
 	"github.com/backstop-ai/backstop-core/pkg/gate"
+	"github.com/backstop-ai/backstop-core/pkg/pack"
 	"github.com/backstop-ai/backstop-core/pkg/pack/distribution"
+	"gopkg.in/yaml.v3"
 )
 
 // gate_substantiveness_e2e.go is the cmd/backstop E2E harness the provisioning + REAL
@@ -272,12 +274,18 @@ claims:
 	return &e2eWorkspace{root: tmp, specDir: specDir}, nil
 }
 
+// zeroMatchRuleID is the ONE spelling of the rule the zero-match harness patches. It
+// addresses BOTH the rule file on disk AND the manifest entry the patched scope is
+// derived from; two spellings would let the derivation silently patch a rule whose
+// declared fixtures it never read.
+const zeroMatchRuleID = "referenced-symbol-go"
+
 // installZeroMatchSubstantivenessPack installs a PATCHED COPY of packs/substantiveness
 // through the SAME real newProductionAddCommand() path installSubstantivenessLocalPack
-// uses. The copy's Q2 referenced-symbol rule gains a `files:` restriction naming a path
-// that exists nowhere in the workspace — the bclabs-portal defect verbatim: a real,
+// uses. The copy's Q2 referenced-symbol rule gains a `files:` restriction that matches
+// nothing in the consumer's workspace — the bclabs-portal defect verbatim: a real,
 // valid, installable pack whose classification globs are baked to the PACK AUTHOR's own
-// harness layout rather than the consumer's.
+// repo layout rather than the consumer's.
 //
 // Everything else — hollow-test-go.yml, sgconfig.yml, the convert script, pack.yml — is
 // left UNTOUCHED, so the engine still runs, still exits 0, and the pack still installs
@@ -287,13 +295,31 @@ claims:
 // The in-repo pack source is NEVER mutated: editing packs/substantiveness from a test
 // would corrupt this repo's own dogfood install.
 //
-// WHY THE PATCHED PACK STILL PASSES `pack test`: it is NOT that the patched rule's
-// fixtures still match — packval never RUNS these fixtures at all. packval's Rule struct
-// reads the YAML key `file` (pkg/packval/manifest.go), while packs/substantiveness/pack.yml
-// declares `rule_path:` for both rules, so `rule.File == ""` and every fixture-execution
-// site in pkg/packval/phase3.go is guarded behind `rule.File != ""` and skipped. The
-// install therefore cannot notice the patch. That pack-validation hole is ALREADY TRACKED
-// as ISSUE-092 ("Pack Test Phase3 Fixtures Cannot Fail"); this lane does not fix it.
+// ★ WHY THE PATCHED COPY STILL VALIDATES (ISSUE-158). `pack add` runs the FULL packval
+// pipeline unconditionally on a scratch copy, and packval phase3 RUNS this rule's
+// declared fixtures — it resolves them through `rule.RuleSourcePath()`, so a `rule_path:`
+// declaration is no longer invisible to it (that was the hole ISSUE-092 CLOSED). A scope
+// that took the pack's own negative fixture out of range would therefore make phase3
+// refuse the copy, and every test driving this harness would die at install before
+// reaching the code under test. So the scope is DERIVED FROM THE COPY'S OWN pack.yml —
+// the exact pack-relative fixture paths that manifest declares for this rule — and the
+// pack's negative fixture still triggers under packval.
+//
+// ★ AND IT IS ROOT-ANCHORED, WHICH IS THE WHOLE MECHANISM. ast-grep has no scan-root
+// concept: it resolves a rule's `files:` globs against the INVOKING PROCESS'S WORKING
+// DIRECTORY. packval runs the engine from the PACK directory (DefaultExecutor.RunEngine
+// sets cmd.Dir = packDir), while the consumer gate runs it from the PROJECT directory
+// (buildTestSubstantivenessStep's ExecCommandRunner Dir = projectRoot). One anchored,
+// pack-relative path therefore matches the fixture in one context and NOTHING in the
+// other — which is precisely the ISSUE-113 property this fixture exists to demonstrate.
+//
+// ★ DO NOT "SIMPLIFY" THESE PATHS INTO A `**/`-PREFIXED GLOB. A wildcard-led variant
+// also passes `pack test`, so nothing in the ordinary loop catches it, but it is
+// consumer-dark only by ACCIDENT of ast-grep skipping hidden directories (`.backstop/`
+// is hidden) — force hidden directories into the scan and it leaks findings from the
+// installed pack's own fixtures. The derivation refuses a wildcard-led path for that
+// reason, and TestZeroMatchHarnessGlob_LeavesReferencedSymbolDarkEvenInHiddenDirs pins
+// the difference by scanning hidden directories on purpose.
 func (w *e2eWorkspace) installZeroMatchSubstantivenessPack(repoRoot string) error {
 	// Beside w.root, never inside it: a pack source tree inside the workspace would be
 	// swept into the engine's own scan targets.
@@ -305,15 +331,38 @@ func (w *e2eWorkspace) installZeroMatchSubstantivenessPack(repoRoot string) erro
 		return fmt.Errorf("copying the substantiveness pack source: %w", err)
 	}
 
-	rulePath := filepath.Join(packCopy, "ast-grep", "rules", "referenced-symbol-go.yml")
+	// Derived from the COPY's own manifest, and derived BEFORE anything is installed, so a
+	// manifest that cannot yield an anchored scope refuses with nothing written to the
+	// consumer workspace.
+	scope, err := zeroMatchClassificationScope(filepath.Join(packCopy, "pack.yml"))
+	if err != nil {
+		return fmt.Errorf("deriving the zero-match classification scope: %w", err)
+	}
+
+	rulePath := filepath.Join(packCopy, "ast-grep", "rules", zeroMatchRuleID+".yml")
 	pristine, err := os.ReadFile(rulePath)
 	if err != nil {
 		return fmt.Errorf("reading the referenced-symbol rule for patching: %w", err)
 	}
-	patched := string(pristine) + "\n# ISSUE-113 FIXTURE PATCH: classification globs baked to a layout that exists\n" +
-		"# nowhere in the consumer's workspace, so this rule matches ZERO test files.\n" +
-		"files:\n  - \"harness/fixtures/**/*.go\"\n"
-	if err := os.WriteFile(rulePath, []byte(patched), 0o644); err != nil {
+	// The rule ships with NO top-level `files:` key, so a plain top-level append is
+	// well-formed — but the result is parsed back before `pack add` sees it rather than
+	// trusted.
+	var patched strings.Builder
+	patched.WriteString(string(pristine))
+	patched.WriteString("\n# ISSUE-113 FIXTURE PATCH (mechanism corrected by ISSUE-158): classification\n" +
+		"# scope anchored at the PACK directory, derived from this pack's own declared\n" +
+		"# fixture paths. packval runs the engine from the pack dir, so the fixtures still\n" +
+		"# match; the gate runs it from the consumer's project dir, where these paths exist\n" +
+		"# nowhere — so this rule matches ZERO of the consumer's test files.\n")
+	patched.WriteString("files:\n")
+	for _, p := range scope {
+		patched.WriteString("  - \"" + p + "\"\n")
+	}
+	var probe map[string]any
+	if err := yaml.Unmarshal([]byte(patched.String()), &probe); err != nil {
+		return fmt.Errorf("the patched %s rule is not parseable YAML: %w", zeroMatchRuleID, err)
+	}
+	if err := os.WriteFile(rulePath, []byte(patched.String()), 0o644); err != nil {
 		return fmt.Errorf("writing the patched referenced-symbol rule: %w", err)
 	}
 
@@ -328,6 +377,82 @@ func (w *e2eWorkspace) installZeroMatchSubstantivenessPack(repoRoot string) erro
 	w.installed = true
 	w.installInfo = res
 	return nil
+}
+
+// zeroMatchClassificationScope reads a pack manifest and returns the pack-relative
+// fixture paths it declares for zeroMatchRuleID, in declaration order, de-duplicated.
+// Those paths ARE the patched rule's `files:` scope.
+//
+// DERIVATION, NOT A LITERAL, IS THE POINT: a hardcoded fixture path in this harness is
+// the same silent-drift class as the defect ISSUE-158 fixed — it goes stale the moment
+// the pack's fixture layout moves, and a stale scope takes the pack's own fixtures out of
+// its own rule's range, which makes `pack add` refuse the copy.
+//
+// It REFUSES rather than patching blind, because both degenerate inputs still install
+// clean and still look green:
+//   - no declared fixture paths at all, which would write an empty `files:` block;
+//   - a path that is not cleanly pack-relative, which would silently UN-ANCHOR the scope
+//     and make the fixture's consumer-darkness accidental rather than structural.
+//
+// Each refusal carries its own distinguishing phrase, so a caller's test can tell the
+// branch apart from a manifest PARSE failure — which also names a rule id and a path.
+func zeroMatchClassificationScope(manifestPath string) ([]string, error) {
+	manifest, err := pack.ParseManifestFile(manifestPath)
+	if err != nil {
+		return nil, fmt.Errorf("parsing %s for rule %q: %w", manifestPath, zeroMatchRuleID, err)
+	}
+
+	var paths []string
+	seen := map[string]bool{}
+	for _, rule := range manifest.Content.Ruleset.Rules {
+		if rule.ID != zeroMatchRuleID {
+			continue
+		}
+		for _, claim := range rule.Claims {
+			for _, entry := range append(append([]pack.FixtureEntry{}, claim.Fixtures.Positive...), claim.Fixtures.Negative...) {
+				if seen[entry.Path] {
+					continue
+				}
+				seen[entry.Path] = true
+				paths = append(paths, entry.Path)
+			}
+		}
+	}
+
+	if len(paths) == 0 {
+		return nil, fmt.Errorf("rule %q in %s declares no fixture paths to anchor the zero-match scope on; "+
+			"writing an empty files: block would leave the rule's scope at the tool's discretion rather than "+
+			"pinned to this pack's own layout", zeroMatchRuleID, manifestPath)
+	}
+	for _, p := range paths {
+		if reason := zeroMatchUnanchoredReason(p); reason != "" {
+			return nil, fmt.Errorf("rule %q in %s declares fixture path %q, which is not a clean pack-relative "+
+				"fixture path (%s); the zero-match scope must stay anchored at the pack directory, because that "+
+				"anchoring is the only reason the same path matches under packval and matches nothing in the "+
+				"consumer's tree", zeroMatchRuleID, manifestPath, p, reason)
+		}
+	}
+	return paths, nil
+}
+
+// zeroMatchUnanchoredReason reports why a declared fixture path cannot anchor the scope,
+// or "" when it can. Slash-normalized first so the check reads the same on any host.
+func zeroMatchUnanchoredReason(declared string) string {
+	p := filepath.ToSlash(declared)
+	switch {
+	case strings.TrimSpace(p) == "":
+		return "it is empty"
+	case strings.HasPrefix(p, "/") || filepath.IsAbs(declared):
+		return "it is absolute"
+	case p == "." || p == ".." || strings.HasPrefix(p, "./") || strings.HasPrefix(p, "../"):
+		return "it is relative to something other than the pack root"
+	case strings.Contains(p, "**"):
+		return "it carries a `**` segment"
+	}
+	if first, _, _ := strings.Cut(p, "/"); strings.Contains(first, "*") {
+		return "its first segment is a wildcard"
+	}
+	return ""
 }
 
 // copyPackSourceTree recursively copies a pack source tree, preserving the executable
