@@ -1,13 +1,15 @@
 ---
 title: "Zero Match Harness Patch Makes Pack Unvalidatable"
 schema_version: issue/v1
+delivered_by: PLAN-ISSUE-158
 
 issue:
   id: ISSUE-158
   title: "Zero Match Harness Patch Makes Pack Unvalidatable"
   type: bug
-  status: open
+  status: closed
   created: "2026-08-17"
+  closed: "2026-08-17"
 
 complexity:
   scope: contained
@@ -16,6 +18,34 @@ complexity:
 ---
 
 # Zero Match Harness Patch Makes Pack Unvalidatable
+
+## Resolution
+
+`(*e2eWorkspace).installZeroMatchSubstantivenessPack` no longer patches the copy's
+`referenced-symbol-go` rule with a hardcoded, fictional `files: ["harness/fixtures/**/*.go"]`
+glob. The scope is now DERIVED from the patched copy's own `pack.yml` fixture paths for that
+rule and root-anchored — the same relative paths match under packval's scan root (`cmd.Dir =
+packDir`) so the pack's own negative fixture still triggers and `pack add` no longer refuses
+the copy at `phase3-fixtures`, while remaining dark under the consumer gate's scan root
+(`projectRoot`), preserving `ISSUE-113`'s original intent that the rule match zero of the
+consumer's own test files. Two loud refusal branches (empty derivation; a non-clean or
+wildcard-led derived path) replace the prior silent-misbehavior surface, and the stale
+docstring describing the pre-`ISSUE-092` "packval never runs these fixtures" mechanism was
+corrected to state the real, current mechanism.
+
+All four originally-broken tests — `TestE2E_ZeroMatchClassification_RefusesInsteadOfPerTestViolations`,
+`TestE2E_ZeroMatchClassification_RefusalIsNotWaivable`, `TestE2E_HollowEvidenceBlocksZeroMatchRefusal`,
+`TestE2E_HollowEvidenceBlocksRefusal_IsNotVacuous` — now pass, confirmed independently by both
+an impl-reviewer and a direct re-run. `packs/substantiveness/**` and the 4 E2E test files are
+byte-identical to HEAD — no fixture weakened, no test skipped, both explicit constraints this
+issue stated honored. The impl-reviewer ran 6 real mutation-based falsification checks against
+the new tests (reverting to the old glob, prefixing with `**/`, deleting each refusal branch,
+reinserting the falsified docstring, dropping the `files:` block entirely) and confirmed each
+correctly flips the relevant test red.
+
+Implemented against a plan (`PLAN-ISSUE-158`) that went through 2 independent plan-reviewer
+rounds to clean signoff plus 1 impl-reviewer round to a PASS verdict. Fixed at `722d5f1`
+(`fix(ISSUE-158): derive zero-match harness scope from the pack's own manifest`).
 
 ## Problem
 

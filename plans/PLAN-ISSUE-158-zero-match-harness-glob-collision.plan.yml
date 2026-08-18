@@ -2,13 +2,113 @@
 plan_id: PLAN-ISSUE-158
 spec_id: ISSUE-158
 created: "2026-08-17"
-status: draft
+status: completed
 target_repo: backstop-core
 target_module: github.com/backstop-ai/backstop-core
 test_command: "go test ./cmd/backstop/ -run \"TestZeroMatchHarness|TestE2E_ZeroMatchClassification|TestE2E_HollowEvidenceBlocks\" -race -count=1"
 coverage_threshold: 80
 
 notes: |
+  AS-BUILT — CLOSED 2026-08-17. status: draft → completed.
+  ══════════════════════════════════════════════════════════════════════════════
+  The phases, tasks, claims and sharp edges BELOW this banner are the AUTHORED
+  record of what was PLANNED and are deliberately left unrewritten. This banner
+  is what reconciles them to what actually shipped. Every statement in it was
+  verified against the working tree at close-out — the fix's distinguishing
+  structure read out of the file by name, the mandated tests re-run, the
+  constraint greps re-executed — not transcribed from the implementer's report.
+
+  ── WHAT LANDED ────────────────────────────────────────────────────────────
+  Commit `722d5f1` on `main` ("fix(ISSUE-158): derive zero-match harness scope
+  from the pack's own manifest"), HEAD at close-out. Exactly the two files the
+  SCOPE FENCES admit, at the sizes the plan implies:
+
+    cmd/backstop/gate_substantiveness_e2e.go                    +155 / −15
+    cmd/backstop/gate_substantiveness_zero_match_harness_test.go   +583 (new)
+
+  (The commit also carries four agent-memory files — lessons, not lane scope.)
+
+  The chosen mechanism is the one TASK-002 specified, confirmed by reading the
+  landed file rather than the report: `const zeroMatchRuleID =
+  "referenced-symbol-go"` at package scope (sharp edge 9 discharged — ONE
+  literal, used for both the `filepath.Join` and the manifest lookup); the
+  `files:` block derived from the COPY's own `pack.yml` and derived BEFORE
+  anything is installed; and two loud refusal branches, each carrying its own
+  distinguishing phrase so a caller's test can tell WHICH branch refused
+  (sharp edge 17's whole point). The falsified ISSUE-092 docstring premise is
+  gone: `grep 'packval never RUNS these fixtures at all|rule.File == ""'` over
+  the landed file returns ZERO hits.
+
+  ── THE MANDATED SET SURVIVED, AND GREW BY TWO ─────────────────────────────
+  All five TASK-001 test names are present under their authored spellings —
+  none renamed, none dropped:
+    TestZeroMatchHarnessPack_InstallsAndPassesAllPackvalPhases
+    TestZeroMatchHarnessGlob_IsManifestDerivedAndRootAnchored
+    TestZeroMatchHarnessDerivation_RefusesLoudlyRatherThanPatchingBlind
+    TestZeroMatchHarnessGlob_LeavesReferencedSymbolDarkEvenInHiddenDirs
+    TestZeroMatchHarnessDocstring_DropsTheFalsifiedPhase3Premise
+  The implementation ADDED two unit-level pins the plan did not mandate:
+    TestZeroMatchScope_AnchoringPredicateRejectsUnanchoredPaths
+    TestZeroMatchScope_DerivationReadsTheManifest
+  Recorded as ADDITIONS, not substitutions — the mandated set is intact, which
+  is the property that matters when a plan's test_command is the contract.
+
+  ── RE-VERIFIED AT CLOSE-OUT, NOT TRANSCRIBED ──────────────────────────────
+      go test ./cmd/backstop/ \
+        -run "TestZeroMatchHarness|TestZeroMatchScope|TestE2E_ZeroMatchClassification|TestE2E_HollowEvidenceBlocks" \
+        -race -count=1
+      → 12/12 PASS, ok 11.235s
+  That is the five mandated + the two additions + the four named regression
+  tests (CLM-004) + `TestE2E_ZeroMatchClassification_ControlPackReportsNoViolations`,
+  the control TASK-004 required to STAY green. Zero skips — the run was read
+  test-by-test, not from a package-level `ok`, precisely because a `t.Skip` in
+  a real-engine E2E is the vacuous shape sharp edge 2 forbids.
+
+  ── THE FALSIFICATION BAR WAS MET ──────────────────────────────────────────
+  An independent impl-reviewer returned PASS after SIX real mutation-based
+  falsification checks, each confirmed to flip the relevant test RED for the
+  right reason: reverting to the old hardcoded `harness/fixtures/**/*.go`
+  glob; prefixing the derived paths with `**/` (sharp edge 1 — the variant
+  that passes `pack test` and is dark only by accident); deleting each of the
+  two refusal branches, separately; reinserting the falsified docstring; and
+  dropping the `files:` block entirely. The `**/` mutation reddening CLM-003's
+  test is the one that proves the discriminating assertion actually
+  discriminates.
+
+  ── BOTH ISSUE-158 CONSTRAINTS HELD (CLM-006), BY MEASUREMENT ──────────────
+    * `git status --porcelain cmd/backstop packs` at close-out → EMPTY. So
+      `packs/substantiveness/**` and the four originally-affected E2E test
+      files are byte-identical to HEAD: no fixture weakened, no assertion
+      softened, no `requireAstGrepE2E` change.
+    * Zero `t.Skip` calls anywhere in the touched files.
+  Coverage on the touched production file ROSE: 76.3% (71/93) at clean HEAD →
+  84.2% (112/133), above this plan's `coverage_threshold: 80`.
+
+  ── GATE READING, WITH ITS CAVEAT STATED ───────────────────────────────────
+  `backstop gate --file` on both touched files: ZERO violations attributable
+  to this lane. The one remaining local finding, `TestPackAuthoringLoop_EndToEnd`,
+  was attributed by git-history bisection — pre-existing since commit `6923dba`,
+  untouched by this work, and darwin-only-skipped so it is not a CI signal. It
+  was ATTRIBUTED, never absorbed and never waived.
+  CAVEAT, recorded rather than smoothed: a close-out re-run of that same
+  command exited 2 with `required tool "go-arch-lint" not found on PATH` —
+  an environment artifact of the close-out shell, NOT a finding against this
+  lane's files. `go-arch-lint` is installed at `~/go/bin`, which was absent
+  from that shell's PATH; the re-run WITH it on PATH was still in flight when
+  this banner was written and is not claimed as a result here. The
+  authoritative zero-violation reading is the implementation lane's, taken in
+  a shell where the Layer-0 tool was present. Written down because a
+  pack_engines step that cannot find its tool is exactly the shape that would
+  otherwise be mistaken for a clean run.
+
+  ── WHAT THIS CLOSE-OUT DID NOT TOUCH ──────────────────────────────────────
+  TASK-006's artifact work — closing ISSUE-158 and filing the follow-on for
+  the `TestPackAuthoringLoop_EndToEnd` discovery — is being discharged in
+  parallel by a routed issue-author dispatch, as TASK-006 itself requires
+  (this lane never hand-edits an artifact it does not own). This close-out
+  wrote ONLY this plan file. `issues/ISSUE-158-*.issue.md` was not opened.
+  ══════════════════════════════════════════════════════════════════════════════
+
   ISSUE-158 — the zero-match E2E harness patches a copy of `packs/substantiveness`'s
   `referenced-symbol-go` rule with `files: ["harness/fixtures/**/*.go"]` to starve the
   consumer workspace of Q2 evidence. That same glob also takes the PACK'S OWN fixture

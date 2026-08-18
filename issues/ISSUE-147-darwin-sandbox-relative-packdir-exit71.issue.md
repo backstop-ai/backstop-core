@@ -117,6 +117,61 @@ it shares the exact file and call site as the primary defect, and because a
 future opaque exit-71 will be just as undiagnosable as this one was unless
 both are fixed together.
 
+### Also manifests on the validator seam, with a different visible symptom (added 2026-08-17)
+
+The root cause described above is not confined to the convert step. It also breaks the
+**validator** seam (`RunValidator`, `pkg/packval/executor.go`) — same relative-packDir cause,
+same silently-mismatching sandbox `subpath` clause, but a *different* visible failure signature,
+which is what let this go unrecognized as ISSUE-147 the first time it was hit on this seam.
+
+**Why the two seams look unrelated even though they share one cause:**
+
+- **Convert seam** (`platformSandboxedRunStdout`, `sandbox_nonlinux.go:133-149`): when
+  `sandbox-exec` refuses to apply a profile with a relative `subpath` clause, the command exits
+  71 and its stderr — which would carry `sandbox-exec`'s own "could not apply profile" text — is
+  discarded (the compounding defect documented above). The caller sees a bare, opaque
+  `exit status 71`.
+- **Validator seam** (`RunValidator`, `pkg/packval/executor.go:261-267`): here the profile *does*
+  apply — it's just a relative `subpath` clause that matches nothing, so the sandboxed process
+  gets `Operation not permitted` reading its own pack files. `RunValidator` collapses that run
+  failure into `Passed:false` with a **nil error**, and the phase-3 fixture harness
+  (`pkg/packval/phase3.go:141`) fires the same generic message —
+  `ERROR [phase3-fixtures/validator-positive] layer3 positive failed` — whether the validator ran
+  and returned a genuinely wrong verdict, or never usefully ran at all because the sandbox denied
+  it its own pack. (The harness's **negative**-fixture branch, `phase3.go:163-168`, does
+  distinguish these cases; only the positive branch does not.) A relative packDir therefore
+  produces a message that reads exactly like a real fixture-polarity bug in the scaffolded
+  validator, not like a sandbox access failure — which is what makes it a convincing false lead.
+
+**Concrete instance: `TestPackAuthoringLoop_EndToEnd`.** This darwin-only acceptance test
+(`cmd/backstop/pack_authoring_loop_test.go`) runs `pack test` from *inside* the freshly-scaffolded
+pack via its `runBackstop` helper (`cmd.Dir = packDir`, no path argument), which is exactly the
+relative/implicit-packDir shape this issue describes (`pack test` with no argument defaults
+`packDir` to `"."`, `cmd/backstop/pack_test_cmd.go:29`). It fails at
+`phase3-fixtures/validator-positive` with the generic message above. This was misdiagnosed once
+as a distinct, untracked defect and filed as `ISSUE-162` — retracted and closed as a duplicate of
+this issue once both the repo's backlog-pm auto-triage hook (which traced this exact mechanism
+from source, `.claude/agent-memory/backlog-pm/project_relative_packdir_masquerades.md`) and a
+direct reproduction (same scaffolded pack, relative packDir fails at
+`phase3-fixtures/validator-positive`; identical pack, absolute packDir passes clean across all
+six phases) independently corroborated it. See `ISSUE-162`'s Resolution section for the full
+retraction record.
+
+The backlog-pm memory file's standing triage guidance is now independently corroborated and
+should be treated as settled, not merely asserted: **any darwin `pack test` failure reading
+`ERROR [phase3-fixtures/validator-positive] layer3 positive failed` is this issue's mechanism
+until an absolute-packDir re-run says otherwise** — one command (re-run the same pack with an
+absolute path) distinguishes a real fixture-polarity bug from this sandbox defeat, and should be
+run *before* suspecting the fixture/validator itself.
+
+**Blast radius correction.** This issue was originally filed as convert-step-only. The actual
+blast radius is larger: `pack test`/`pack check` run from inside any validator-bearing pack on
+macOS is exposed on the validator seam too, not just at the convert step. Still invisible to CI
+(darwin-skip on the test side, Landlock — not `sandbox-exec` — on Linux), so this remains a
+local-dev-experience defect on macOS, not a CI blocker, but the fix in this issue's Solution
+section (guarantee `darwinSandboxProfile`'s embedded path is absolute) resolves both seams at
+once since it corrects the shared root cause; no separate fix is needed for the validator seam.
+
 ### Platform scope: darwin-only, not shared with Linux
 
 Verified against `pkg/packval/sandbox_linux.go`: the Linux path
@@ -179,3 +234,21 @@ Not prescribed in full — for the planner. At minimum:
   instance of the same class, in a file ISSUE-145 does not cover.
 - Discovered during PLAN-ISSUE-092 verification, 2026-08-16, by
   `implementer-issue092`.
+- `pkg/packval/executor.go:261-267` — `RunValidator`, where the validator-seam manifestation
+  collapses a sandbox run failure into `Passed:false` with a nil error (added 2026-08-17).
+- `pkg/packval/phase3.go:141` — the positive-fixture check that fires the generic
+  `layer3 positive failed` message regardless of cause; contrast with the negative branch at
+  `phase3.go:163-168`, which does distinguish.
+- `cmd/backstop/pack_authoring_loop_test.go` — `TestPackAuthoringLoop_EndToEnd`, the concrete
+  darwin-only instance of the validator-seam manifestation.
+- `cmd/backstop/pack_test_cmd.go:29` — `pack test` with no path argument defaults `packDir` to
+  `"."`, the relative-packDir trigger this test's `runBackstop` helper hits by construction.
+- `ISSUE-162` (retired 2026-08-17, `status: replaced`, `replaced-by: ISSUE-147`) — filed as a
+  distinct defect for the validator-seam symptom above, retracted once traced to this issue's
+  mechanism. Its Resolution section carries the full retraction record and both lines of
+  corroborating evidence.
+- `.claude/agent-memory/backlog-pm/project_relative_packdir_masquerades.md` — the backlog-pm
+  auto-triage memory that first traced the validator-seam mechanism in tree while triaging
+  `ISSUE-162`, and states the standing rule this section restates: treat
+  `phase3-fixtures/validator-positive` on darwin as this issue's mechanism until an
+  absolute-packDir re-run says otherwise.

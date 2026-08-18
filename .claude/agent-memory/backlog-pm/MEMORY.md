@@ -29,6 +29,7 @@
 - [Artifact extension = discovery](project_artifact_extension_is_discovery.md) — bare `.md` in an artifact dir is INVISIBLE to backstop (absent from validate counts, unfindable by ID); silent absence, never a red
 - [Phantom filed issues](project_phantom_filed_issues.md) — INBOX ≠ proof of existence; 102/103 were never written yet have burnt tags. `ls issues/ISSUE-NNN-*` before citing any ID
 - [Zero-baked violations have no home](project_zero_baked_violations_have_no_home.md) — DIR-014 is done; home baked-platform issues by the SURFACE that owns the code, not the invariant
+- [Relative packDir masquerades](project_relative_packdir_masquerades.md) — ★ darwin `validator-positive: layer3 positive failed` = ISSUE-147 until an ABSOLUTE-packDir re-run says otherwise; RunValidator nils the error
 - [phase3 polarity + silent parse](project_phase3_polarity_and_silent_parse.md) — settles SHOUT-vs-LIE for RunEngine gaps: array=loud/DIR-024, empty-or-object=silent/DIR-032; positive fixture = CLEAN code; check `grep -c claims` for latency
 - [Pack rule-precision family](project_pack_rule_precision_family.md) — pack-rule FPs home under DIR-024 by charter; ISSUE-061 in DIR-021 is a deadline exception, not precedent. 061+125 = one pack bump, waiver expires 2026-10-12
 - [Harness config has no home](project_harness_config_has_no_home.md) — `.claude/` agent-guard/hooks are orphaned (DIR-016 done, SPEC-003 deprecated); NO FIT by default, recommend direct fix not a directive
