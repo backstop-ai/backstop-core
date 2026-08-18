@@ -341,12 +341,14 @@ working as designed, not a defect in this lane's execution. It genuinely blocks 
 plan cannot honestly be marked `completed`, and why `delivered_by` cannot yet be used to close this
 issue.
 
-**Path to close, once `ISSUE-157` is separately resolved (founder-gated, out of this lane's
-control):** re-run `pack update backstop-ai/go-contracts` (should then succeed against the fixed
-`1.3.0`), confirm `TestInstalledGoContractsPack_CarriesFilenameHeaderFix` goes green, flip
-`PLAN-ISSUE-166` to `completed`, and close this issue via `delivered_by: PLAN-ISSUE-166`. Until
-then this issue accurately reflects reality by staying `open` with this note, rather than a
-`closed` status the evidence does not yet support.
+**Path to close:** `ISSUE-157` has been separately resolved (`PLAN-ISSUE-157`, `status: completed`,
+closed 2026-08-18) — its fix landed as `1.4.0`, not the `1.3.0` this paragraph originally expected,
+because `1.3.0` still carried `ISSUE-157`'s inverted-fixture-polarity defect and was never actually
+adoptable. `pack update backstop-ai/go-contracts` has already been re-run as part of that plan and
+core is now relocked to `1.4.0`; `TestInstalledGoContractsPack_CarriesFilenameHeaderFix` is
+confirmed green. What remains is to flip `PLAN-ISSUE-166` to `completed` and close this issue via
+`delivered_by: PLAN-ISSUE-166`. Until then this issue accurately reflects reality by staying `open`
+with this note, rather than a `closed` status its own close-out has not yet performed.
 
 ## References
 

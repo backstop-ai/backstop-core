@@ -108,3 +108,5 @@
 - [Seatbelt permits device nodes](project_seatbelt_permits_device_nodes.md) — darwin ALREADY allows /dev/null+/dev/zero writes under a blanket deny
 - [Re-bind scan incomplete in 2 dimensions](project_rebind_scan_incomplete_two_dimensions.md) — AssignStmt misses `var x T = v`; and the scan sat only in one seam's branch, leaving the strictest seam undefended
 - [Falsify a sandbox allow by retargeting](falsify_sandbox_allow_by_retargeting.md) — a grant on an already-permissive path can't be falsified there
+- [Inheritance proof at --all scale](project_inheritance_proof_by_head_worktree_gate_all.md) — HEAD worktree + its OWN pack install; PATH-NORMALIZE both lists or 36 bogus deltas
+- [Satisfy no-baked by reading the manifest](feedback_satisfy_nobaked_by_reading_the_manifest.md) — take tool+flag from the pack's engines: block, not a helper hiding the literal

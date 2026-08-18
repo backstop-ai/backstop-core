@@ -33,4 +33,20 @@ exact opposite of what the cross-lane section is for.
 - Reciprocity is cheap: if a sibling plan already names yours as disjoint, say so and
   return the acknowledgment.
 
+**THE ENUMERATING COMMAND ITSELF CAN BE THE BUG — sanity-check its shape before trusting a
+low count.** Authoring PLAN-ISSUE-157 I enumerated a Go test package's symbols with
+`for f in *_test.go; do p=$(head -1 "$f"); if [ "$p" = "package engine_test" ]; ...`. `head -1`
+assumes the package clause is line 1; two of the three files open with a doc comment, so the
+loop silently skipped them and I wrote "all three symbols" into the plan. The real count was
+TEN across THREE files — and the one I missed (`conventionRepoRoot`) was the FIRST thing the
+implementer would need. Reviewer caught it. A filter that returns suspiciously few members
+deserves one falsifying probe (grep the pattern across ALL candidates unfiltered and compare
+counts) before the number goes in the artifact. Use `grep -q '^package X' "$f"` over
+whole-file matching, not a positional `head`/`sed` read.
+
+Corollary: when the enumeration is FOR an implementer joining an existing package, hand them
+the deriving command too, and say the list was accurate as of a date — packages grow, and a
+stale "these are the only helpers" line causes exactly the redeclaration collision the guard
+existed to prevent.
+
 Related: [[shared-tree-assertions-cannot-attribute]], [[cite-by-name-in-contended-files]].

@@ -1113,9 +1113,26 @@ phases:
                first and confirm the local branch is not behind before pushing.
 
           IN CORE:
-            5. `./bin/backstop pack update backstop-ai/go-contracts` (by NAME). Confirm
-               it rewrites `backstop.yml` to `1.3.0` and refreshes the `backstop.lock`
-               entry — version, `git_ref`, `content_hash` and `install_date`.
+            5. ★ ALREADY DONE — DO NOT RE-EXECUTE (corrected in place 2026-08-18 by
+               `PLAN-ISSUE-157` TASK-010, which is what made the original text false).
+               This step originally read: "`./bin/backstop pack update
+               backstop-ai/go-contracts` (by NAME). Confirm it rewrites `backstop.yml`
+               to `1.3.0` and refreshes the `backstop.lock` entry — version, `git_ref`,
+               `content_hash` and `install_date`." Both halves of that are now stale.
+               `PLAN-ISSUE-157` TASK-007 PERFORMED that exact `pack update`, and it
+               jumped 1.2.0 -> 1.4.0 (not 1.3.0): 1.3.0 shipped the `-H -I` fix this
+               plan owns but ALSO carried ISSUE-157's inverted fixture polarity, which
+               made it fail its own phase3 validation and therefore un-installable —
+               so core never adopted 1.3.0 and went straight to the fixed 1.4.0.
+               STATE AT CORRECTION TIME: `backstop.yml` line 7 reads
+               `backstop-ai/go-contracts: 1.4.0`; the lock entry reads `version: 1.4.0`,
+               `git_ref: v1.4.0`, `content_hash: 13f4424168725ab0...`, `install_date:
+               2026-08-18T22:43:06Z`. This plan's own pin
+               `TestInstalledGoContractsPack_CarriesFilenameHeaderFix` is GREEN against
+               that installed tree (measured: installed grep command `grep -rn -H -I`).
+               TASK-008 therefore has nothing left to run — only its already-completed
+               EXTERNAL half (steps 1-4) ever executed here, and the core half arrived
+               via the other lane. Re-running `pack update` is a no-op at best.
             6. NEVER edit `.backstop/packs/**` by hand (sharp edge 9). If the installed
                tree looks wrong, re-run the update; do not patch the install.
 

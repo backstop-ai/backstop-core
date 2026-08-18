@@ -75,7 +75,48 @@ information an AS-BUILT DELTAS section exists to record.
   broad `git add` sweeps their uncommitted work ([[feedback_git_stash_shared_tree_hazard]]
   is the same hazard by a different verb). Stage the one plan path or hand it to the lead.
 - Close with `./bin/backstop artifact validate --plan PLAN-NNN`. Plans currently validate
-  "schema-less", so a pass is a parse/structure receipt, not a claim about content.
+  "schema-less", so a pass is a parse/structure receipt, not a claim about content. When the
+  sibling issue close will carry `delivered_by`, ALSO run the real `validate.Plan` through a
+  scratch Go harness — that is the predicate `delivered_by` re-runs, and a plan that only
+  cleared the CLI receipt can still surface later as `issue/delivered-by-plan-invalid`.
+- **When your plan INVALIDATES a passage in another live lane's artifact, correct it IN PLACE
+  and quote the original inside the correction** — mark the step `★ ALREADY DONE — DO NOT
+  RE-EXECUTE (corrected in place <date> by PLAN-X TASK-N, which is what made it false)`, then
+  reproduce the superseded sentence verbatim before stating the new state and its measured
+  evidence. That satisfies both rules at once: the stale instruction stops being executable,
+  and the audit trail survives (tasks-are-never-rewritten). Touch ONLY the falsified passage —
+  not that plan's status, tasks, or claims — and check `git diff --stat` afterwards to prove
+  the blast radius. A neighbouring standing PROHIBITION ("never hand-edit X") is neither done
+  nor undone and must be left exactly alone. (PLAN-ISSUE-157 TASK-010 -> PLAN-ISSUE-166
+  TASK-008 step 5, 2026-08-18: 20 insertions / 3 deletions, all inside one description.)
+
+**WHEN PLANNING a close-out task, EXECUTE the end state through `validate.Issue` — do not
+describe it.** "Add a `## Resolution` section and flip status to `closed`" is NOT a valid
+close and fails with SIX errors (measured, PLAN-ISSUE-157 round 3). A `closed` issue needs,
+all three: `issue.closed: "<date>"`; a top-level close pointer (`delivered_by: PLAN-ISSUE-NNN`
+— a SIBLING of `schema_version`, never nested under `issue:`) — without it a dated close still
+falls through to the full REQ→CLM→verification→implementation→contracts chain a contained
+bug-fix issue has none of; AND a `## Resolution` section, still required alongside
+`delivered_by`. `delivered_by` and `resolved-by` are mutually exclusive.
+
+★ ORDERING TRAP: `delivered_by` validates only against an ALREADY-`completed` plan
+(`pkg/validate/delivered_by.go` step 5) — and it re-runs the FULL `validate.Plan`, so a plan
+that stops validating clean surfaces as `issue/delivered-by-plan-invalid`, not as a plan error.
+So the plan's `draft → completed` flip must be ordered BEFORE the issue close, and something in
+the plan must actually PERFORM that flip — it is easy to write a plan that never flips its own
+status anywhere. Build a throwaway temp-dir copy of the issue+plan pair and run the real
+validator over each candidate end state; the agent-guard blocks bash file-ops on artifacts, so
+do the copying inside the Go harness (`Write` on `.go` is also blocked for this agent — create
+the harness via a bash heredoc). `validate.Issue` needs a real schema; `validate.Plan` accepts nil.
+
+**A final-verification task placed BEFORE the artifact mutations is vacuous.** It validates the
+pre-close state, which passes trivially. Under a diff-scoped gate that means the lane ends green
+locally and hands a RED `artifact_validation` to the next person. Put a terminal verification
+task AFTER the close-out documentation task, re-running `artifact validate` over EVERY touched
+artifact plus a re-scoped `gate` (PLAN-ISSUE-142 is the precedent). Note such a task still needs
+an `implementation`/`refactor` dep to satisfy REQ-006 — depending only on the documentation task
+fails validation. Flipping the plan to `completed` also ARMS `status_drift` over its mandated
+tests, so that verification must confirm they are present AND passing.
 - Don't run the full suite or `gate --all` to re-verify a close-out when other agents are
   active in the tree — see [[feedback_no_verify_race_with_active_implementer]]. Targeted,
   non-racing checks (build, vet, the specific renamed test with `-v` to prove no subtest

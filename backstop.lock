@@ -32,13 +32,13 @@ packs:
         source_type: git
         version: 0.2.1
     backstop-ai/go-contracts:
-        content_hash: 996b99ca6019201a928c73cd5c0261c5b919a1bf4cc8ce72bcd97609487b2941
-        git_ref: v1.2.0
-        install_date: 2026-07-28T13:51:36Z
+        content_hash: 13f4424168725ab065cf182dbc1ba8a3bce091c17eca418437c9df02758ff851
+        git_ref: v1.4.0
+        install_date: 2026-08-18T22:43:06Z
         name: backstop-ai/go-contracts
         source_coordinate: backstop-ai/go-contracts
         source_type: git
-        version: 1.2.0
+        version: 1.4.0
     backstop-ai/go-standards:
         content_hash: b0133b1e0be691a4cafde237d2c74195435648eede8a140433e73631f2ea47d8
         git_ref: v1.2.1

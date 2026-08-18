@@ -2265,3 +2265,30 @@ or coordinate with it rather than opening a concurrent edit. Unlike items
 it is verifiable on darwin. Priority note, stated as observation and
 explicitly NOT a reorder (backlog-pm has no reorder authority): DIR-024
 sits at BACKLOG.yml position 5 and this slot does not change its rank.
+
+ISSUE-177 slotted 2026-08-18 by backlog-pm under the standing clear-fit
+grant; rides on charter fit and displaces nothing — in particular it must
+NOT displace item 1 (ISSUE-020) or the ISSUE-092 sequencing already
+recorded in this file. It is ANOTHER delivery residual of item 22
+(ISSUE-166): the failing test was named in ISSUE-166's own original
+affected-test list, but `PLAN-ISSUE-166`'s `-H -I` fix left it
+byte-identically failing while roughly a dozen structural siblings on the
+same phase3-fixtures path cleared — an unexplained asymmetry the fix's own
+lane did not absorb, not a new theme, not a founder roster call. IN-FLIGHT
+COVERAGE IS NIL BY CONSTRUCTION, established from the corpus with ZERO
+interviews: no plan in `plans/` targets ISSUE-177, and `PLAN-ISSUE-166`
+(`status: draft`) is the fix whose own affected-test list this issue's
+residual test came from, not an owner of this residual. Correction filed
+here rather than assumed correct: the issue's own References section
+names the failing test's location as
+`pkg/pack/engine/contracts_local_install_test.go`, which does not exist —
+the test is at
+`pkg/pack/distribution/contracts_local_install_test.go:51`; route the
+correction through issue-author. Unlike items 18/20/21/22/23, this item's
+own investigation is NOT Linux-CI-gated to start — the file-location
+correction and the `TestMain`-presence correlation lead are both
+verifiable on darwin, though confirming the underlying CI failure itself
+requires the same kind of real Linux-CI evidence item 22 used. Priority
+note, stated as observation and explicitly NOT a reorder (backlog-pm has
+no reorder authority): DIR-024 sits at BACKLOG.yml position 5 and this
+slot does not change its rank.

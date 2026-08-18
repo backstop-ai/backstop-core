@@ -1,13 +1,15 @@
 ---
 title: "Go Contracts Mirror Inverted Fixture Polarity"
 schema_version: issue/v1
+delivered_by: PLAN-ISSUE-157
 
 issue:
   id: ISSUE-157
   title: "Go Contracts Mirror Inverted Fixture Polarity"
   type: bug
-  status: open
+  status: closed
   created: "2026-08-17"
+  closed: "2026-08-18"
 
 complexity:
   scope: contained
@@ -180,3 +182,61 @@ issue does not authorize a push to `backstop-ai/go-contracts` on its own.
   `issues/` and `bundles/` for `go-contracts`. No open issue or bundle
   charter already owns this defect; the two hits (`ISSUE-111`,
   `ISSUE-115`, `BUNDLE-031`) are unrelated to the mirror's fixture content.
+
+## Resolution
+
+The external mirror `backstop-ai/go-contracts` was bumped `1.3.0` -> `1.4.0`
+(tag `v1.4.0`, commit `e21e41c`), fixing the inverted positive/negative
+fixture polarity on the 6 pattern-arg signature rules
+(`contract-signature`, `type-signature`, `const-signature`,
+`var-signature`, `method-signature`, `interface-signature`): two new
+genuinely-clean fixtures were added (`sig-absent.go`,
+`sig-kinds-absent.go`), the six affected slots were re-pointed (never
+swapped) to them, and the stale comment that wrote the inversion down as
+if it were the rule was corrected to the real `BUNDLE-005` REQ-011
+convention. `contract-absence` was untouched — it was already correctly
+polarized and not part of this defect.
+
+Verified via `pack test` going from `status: fail`, exit 1 (9
+`phase3-fixtures` errors — 6 `semgrep-positive` + 3 `semgrep-negative`) to
+`status: pass`, exit 0 (all six phases green), with per-rule real-ast-grep
+match counts reproduced exactly: `contract-signature` 0/1,
+`type-signature` 0/3, `const-signature` 0/1, `var-signature` 0/1,
+`method-signature` 0/1, `interface-signature` 0/1 (positive matches /
+negative matches).
+
+A new mandated test,
+`TestInstalledGoContractsPack_FixturePolarityIsCorrect`
+(`pkg/pack/engine/contracts_installed_pack_polarity_test.go`), pins the
+installed mirror's fixture polarity from core and went RED -> GREEN across
+this fix.
+
+Core was relocked via `pack update backstop-ai/go-contracts`, jumping
+`1.2.0` -> `1.4.0` directly — skipping the still-defective `1.3.0`, which
+core had never adopted precisely because it still carried this defect.
+
+`gate --all` was verified clean of new defects via a differential
+comparison against a clean-HEAD control worktree: 385 vs 380
+path-normalized violation lines, with the only difference being the
+removed `TestInstalledGoContractsPack_CarriesFilenameHeaderFix` failure in
+the control — the differential proof that this fix removed something and
+added nothing.
+
+**Not absorbed by this close, recorded for the next reader:**
+
+- `ISSUE-166` is now unblocked — its `pack update` blocker is gone — but
+  stays open. This issue does not close it; it keeps its own issue, plan,
+  claims and close-out.
+- `ISSUE-174` (no guard keeps an in-repo pack source and its mirror in
+  sync) stays open. This fix is a second concrete instance of the general
+  gap that issue names, not a fix for the gap itself.
+- `ISSUE-176` and `ISSUE-177` are unrelated and were untouched by this
+  work.
+- Correction to this issue's own hedge (section 7, above): the mirror's
+  `sig-mismatch.go` and `sig-kinds-mismatch.go` have NO core consumer —
+  `pkg/pack/engine/contracts_kind_signature_test.go` reads only the
+  in-repo `packs/contracts` source's copies, via its `durablePackRel =
+  "packs/contracts"` constant. They were kept for source/mirror parity,
+  not because a consumer requires it.
+
+Delivered by `PLAN-ISSUE-157` (`status: completed`).

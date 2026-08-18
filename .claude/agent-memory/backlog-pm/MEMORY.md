@@ -3,6 +3,7 @@
 - [Report via SendMessage](feedback_report_via_sendmessage.md) — text output is INVISIBLE to the team lead; end every teammate task with SendMessage or it reads as going idle
 - [Verify the loss claim](feedback_verify_the_loss_claim.md) — mechanism real ≠ consequence real; go look for the "lost" file / RUN the "failing right now" test before ranking off that claim
 
+- ["Committed baseline" premise](project_baseline_committed_premise.md) — ★ baseline.json is gitignored; "CI has no baseline" = a TEST defect (gate.go:331 warns+skips per SPEC-019). Generating one = vacuous green (zero backstop-self findings)
 - [Mirror-sync-guard family](project_mirror_sync_guard_family.md) — ★ home these by LIFETIME not wording: 137's fixture is permanent (DIR-024), 174's pack source is deleted by DIR-027 tier 2; `ls packs/` is the whole exposure set
 - [Done directive orphans its tail](project_done_directive_orphans_its_tail.md) — ★ DIR-032 closed 21/21 and stranded NINE plan-filed follow-ons; trace provenance by grep, escalate the family as ONE ruling
 - [DIR-033 + the 3-way gate boundary](project_dir033_and_the_three_way_gate_boundary.md) — ★ DIR-033 exists (queued, absent from BACKLOG.yml by design); home by FILING PROVENANCE — goes RED ⇒ DIR-024; delivery residuals = clear fits
@@ -39,6 +40,6 @@
 - [Harness config has no home](project_harness_config_has_no_home.md) — `.claude/` agent-guard/hooks are orphaned (DIR-016 done, SPEC-003 deprecated); NO FIT by default, recommend direct fix not a directive
 - [Clean pack addition = no artifact](project_clean_pack_addition_no_artifact.md) — "consumed with zero citation" is NOT a gap absent a defect; don't restate in prose what backstop.lock already records
 - [Substantiveness extraction semantics](project_substantiveness_extraction_semantics.md) — Q2 rule matches CALLS only (not type refs, not helper-mediated); RUN ast-grep to settle join-membership claims, gate --file can't (go-arch-lint)
-- [Linux-CI residual family](project_linux_ci_residual_family.md) — ★ 158/163/164/165/166/168 all → DIR-024 on the loud-red test; ISSUE-166's home is CONDITIONAL; 3 TestMain-less pkgs are the lead
+- [Linux-CI residual family](project_linux_ci_residual_family.md) — ★ 158/163/164/165/166/168/177 → DIR-024 on the loud-red test; ISSUE-177 measured it: surviving phase3 reds sit in TestMain-less pkgs; filings cite nonexistent paths
 - [Shared-tree git-status assertions](project_shared_tree_git_status_assertions.md) — purity tests over `git status` can't attribute across concurrent lanes; RUN them (reds are live), home by the mandating SPEC not the named package
 - [AST wiring guards assert spelling](project_ast_wiring_guards_assert_spelling.md) — ★ they false-red on any injectable-parameter hop; the "rename the param" fix is a VACUOUS GREEN (spelling ≠ provenance). Watch the exact callSites!=N tail

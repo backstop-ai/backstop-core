@@ -1,0 +1,1333 @@
+---
+plan_id: PLAN-ISSUE-157
+spec_id: ISSUE-157
+created: "2026-08-18"
+status: completed
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./pkg/pack/engine/ -run \"TestInstalledGoContractsPack\" -race -count=1"
+coverage_threshold: 90
+
+notes: |
+  ══════════════════════════════════════════════════════════════════════════════
+  ★ AS-BUILT — CLOSED 2026-08-18.  status: draft -> completed
+  ══════════════════════════════════════════════════════════════════════════════
+  PROVENANCE CAVEAT: this plan was never committed BEFORE implementation — it was
+  still untracked (`?? plans/PLAN-ISSUE-157-...`) when this close-out ran, so a future
+  reader has no `git show <plan commit>` baseline. The AS-BUILT DELTAS section below is
+  therefore the authority on where the as-built diverged from the plan. The phases,
+  tasks, claim mappings and original prose below this banner are UNCHANGED historical
+  record and were deliberately NOT rewritten.
+
+  ── WHAT LANDED, BY PHASE ────────────────────────────────────────────────────
+  Phase 1 (TASK-001) — `pkg/pack/engine/contracts_installed_pack_polarity_test.go`
+    added, carrying `TestInstalledGoContractsPack_FixturePolarityIsCorrect`. The RED
+    was re-measured FIRST and matched notes (3) exactly: `pack test` against the mirror
+    clone -> `status: fail`, exit 1, 9 `phase3-fixtures` errors (6 `semgrep-positive`,
+    3 `semgrep-negative`), phases 4-6 skipped. The pin was RED at TASK-001 and RED
+    again at TASK-003 step 4 against IDENTICAL test code — a real falsification, not a
+    test rewritten into a pass.
+  Phase 2 (TASK-002/003) — in the mirror clone
+    `/Users/bmanson/src/projects/backstop-go-contracts-pack`: `sig-absent.go` and
+    `sig-kinds-absent.go` copied in from `packs/contracts`, the six slots RE-POINTED
+    (never swapped), the stale inversion-justifying comment replaced with the real
+    BUNDLE-005 REQ-011 convention, version 1.3.0 -> 1.4.0. `pack check` and `pack test`
+    both `status: pass`, exit 0, all six phases.
+  Phase 3 (TASK-004/005/006) — THE FOUNDER GATE WAS PUT AND AUTHORIZATION WAS GIVEN.
+    Commit `e21e41c` ("fix(ISSUE-157): correct inverted fixture polarity on the 6
+    signature rules") and tag `v1.4.0` pushed to `backstop-ai/go-contracts`. At close:
+    `v1.4.0` = `origin/main` = HEAD = `e21e41c`, tree clean, in sync; the mirror's own
+    `tag-integrity` workflow ran GREEN on the tag push (run `32193833130`).
+  Phase 4 (TASK-007/008) — `./bin/backstop pack update backstop-ai/go-contracts` ->
+    `Updated backstop-ai/go-contracts: 1.2.0 -> 1.4.0`, the double jump across the
+    never-adopted 1.3.0 that notes section (8) predicted. `backstop.yml` line 7 -> 1.4.0;
+    lock entry refreshed (`version: 1.4.0`, `git_ref: v1.4.0`, `content_hash:
+    13f4424168725ab0...`, `install_date: 2026-08-18T22:43:06Z`) with `source_coordinate`
+    and `source_type: git` preserved by construction. Nothing under `.backstop/packs/**`
+    was hand-edited.
+  Phase 5 (TASK-009/010/011) — full kill chain with a real inheritance proof (see
+    EVIDENCE). TASK-010 was executed as: this banner + status flip; the ISSUE-157 close
+    (separate routed `/issue` dispatch, ordered AFTER this flip); and the in-place
+    correction of `PLAN-ISSUE-166` TASK-008 step 5 + `ISSUE-166`'s "Path to close"
+    paragraph. TASK-011 re-validates all four artifacts AFTER those mutations.
+
+  ── EVIDENCE AT CLOSE ────────────────────────────────────────────────────────
+  RE-VERIFIED BY THE CLOSING AGENT (run at close-out, not carried):
+    · `go test ./pkg/pack/engine/ -run "TestInstalledGoContractsPack" -race -count=1 -v`
+      -> BOTH pins PASS, neither SKIPPED.
+      `TestInstalledGoContractsPack_FixturePolarityIsCorrect` reads `backstop.lock` at
+      version 1.4.0 and prints the acceptance table exactly: contract-signature 0/1,
+      type-signature 0/3, const-signature 0/1, var-signature 0/1, method-signature 0/1,
+      interface-signature 0/1 (positive matches / negative matches).
+      `TestInstalledGoContractsPack_CarriesFilenameHeaderFix` — ISSUE-166's pin — PASS,
+      reporting the installed grep command as `grep -rn -H -I`.
+    · `./bin/backstop pack test /Users/bmanson/src/projects/backstop-go-contracts-pack`
+      -> `status: pass`, EXIT 0 read UNPIPED (sharp edge 10), all six phases pass.
+    · Mirror repo: `## main...origin/main`, tree clean, `pack.yml` `version: "1.4.0"`,
+      remote carries `v1.2.0`/`v1.3.0`/`v1.4.0`, `v1.4.0` -> `e21e41c`.
+    · Core `backstop.yml` / `backstop.lock` diffs read exactly 1.2.0 -> 1.4.0.
+  CARRIED FROM THE IMPLEMENTATION RUN (deliberately NOT re-run at close-out: the
+  sibling ISSUE-176 lane is live and uncommitted in this tree, so a full sweep here
+  would race it):
+    · `gate --all` is RED (exit 1) in this tree — AND red in a CLEAN-HEAD CONTROL
+      worktree built at `3fdebfd` with its own `pack install` (i.e. carrying the
+      PRE-relock 1.2.0 fleet). Path-normalized violation sets: 385 vs 380 lines.
+      ONLY IN THIS TREE (4 blocking, 2 advisory), none of them this lane's:
+        `TestCIRecipes_CoreAdoptsThePackWithoutApplyingAnyRecipe` and its
+        `mandated_test_failed` twin — SPEC-067 CLM-007's byte-identity guard firing on
+        the ISSUE-176 lane's UNCOMMITTED `.github/workflows/ci.yml`; 2x `unused` in
+        root `workflows_test.go`, that same lane's RED-phase helpers; plus two
+        NON-BLOCKING "looks delivered" advisories (PLAN-ISSUE-157 — cleared by this
+        very flip — and PLAN-ISSUE-176).
+      ONLY IN THE CONTROL (1): `TestInstalledGoContractsPack_CarriesFilenameHeaderFix`
+      FAILING. That one line is the DIFFERENTIAL PROOF that this lane fixed something.
+      Everything else — 71 blocking `pack_engines`, 34 substantiveness, 13 coverage,
+      2 `contract_signature`, `PLAN-ISSUE-066 phases-empty`, and
+      `TestPackAuthoringLoop_EndToEnd` (darwin-only; ISSUE-162 -> open ISSUE-147) — is
+      BYTE-IDENTICAL in the control, i.e. inherited. NO waiver was added, NO baseline
+      entry written, NO test weakened; `waiver_resolution` reports the same 5
+      pre-existing waivers.
+
+  ── AS-BUILT DELTAS ──────────────────────────────────────────────────────────
+   1. TASK-001's helper as first written shelled out via `exec.Command("ast-grep", ...)`,
+      which the gate correctly flagged as `no-baked-tool-exec`. FIXED, NOT WAIVED: the
+      helper now reads tool name, base args and input flag out of the pack's OWN
+      `engines:` block, so the test drives the DECLARED invocation and core bakes no
+      tool name. The shipped pin is strictly stronger than the plan described.
+   2. `v1.4.0` was pushed as a LIGHTWEIGHT tag (the plan prescribed a bare
+      `git tag v1.4.0`), whereas `v1.2.0`/`v1.3.0` are annotated. Consequence for a
+      future reader: `git ls-remote --tags origin` prints ONE line for `v1.4.0` rather
+      than the `ref` + `ref^{}` pair the older tags produce. The deref resolves
+      correctly and `tag-integrity` passed — the single line is not a missing tag.
+   3. The publish-op classifier refused an `&&`-chained `git push` + tag push, so the
+      two pushes were issued as separate commands. Operational only; no plan change.
+   4. TASK-010/011 were NOT executed by the implementer. It had no artifact-write
+      channel (agent-guard blocks artifact edits in BOTH Write/Edit and Bash) and no
+      dispatch tool, so it stopped after TASK-009 and handed off — the close-out ran as
+      a separate routed planner dispatch. The plan's load-bearing ordering was honored:
+      this plan reached `completed` BEFORE the ISSUE-157 `delivered_by` close.
+
+  ── WHAT THIS LANE DID NOT DO (recorded, not absorbed) ───────────────────────
+   · ISSUE-166 is UNBLOCKED, NOT CLOSED — and this plan is what unblocked it. The
+     relock delivered `PLAN-ISSUE-166` TASK-008's CORE half and turned its
+     `TestInstalledGoContractsPack_CarriesFilenameHeaderFix` green. ISSUE-166 keeps its
+     own issue, plan, claims and close-out. TASK-010 corrected only the two passages
+     THIS plan made false, and touched neither its status, its tasks, nor its claims.
+   · ISSUE-174 (no guard keeps an in-repo pack source and its mirror in sync) REMAINS
+     OPEN and unaddressed. This fix is a second concrete INSTANCE of the general gap it
+     names — evidence FOR that issue, not a fix for it. Nothing here builds a sync guard.
+   · ISSUE-176 and ISSUE-177 REMAIN OPEN and were never this lane's (sharp edge 12).
+     ISSUE-176's lane is live and uncommitted in this tree; its files were not touched,
+     and its violations were proven inherited rather than waived.
+   · CORRECTION CARRIED FORWARD from notes section (7): the mirror's `sig-mismatch.go`
+     and `sig-kinds-mismatch.go` have NO core consumer today —
+     `contracts_kind_signature_test.go` reads `packs/contracts` via its `durablePackRel`
+     constant. They were kept for SOURCE/MIRROR PARITY; the issue's stated reason was a
+     hedge that did not hold. A future reader should not re-derive this.
+
+  ── COMMIT NOTE ──────────────────────────────────────────────────────────────
+  This close-out edit is UNCOMMITTED as written and must land in the SAME commit as the
+  ISSUE-157 close (`delivered_by` re-validates the backing plan, so a committed closed
+  issue pointing at a draft plan is a broken HEAD), together with `backstop.yml`,
+  `backstop.lock` and `pkg/pack/engine/contracts_installed_pack_polarity_test.go`.
+  Everything else dirty in this tree belongs to the live ISSUE-176 lane — stage paths
+  EXPLICITLY, never a broad `git add`.
+  ══════════════════════════════════════════════════════════════════════════════
+
+  ISSUE-157 — the released mirror `backstop-ai/go-contracts` carries INVERTED
+  positive/negative fixture polarity on its 7 pattern-arg signature rules, which
+  makes it fail its own phase3-fixtures validation and therefore UNINSTALLABLE via
+  `pack add` / `pack update` / `pack upgrade`.
+
+  The issue is unusually complete: it names the defect, the mechanism, the exact fix
+  shape and the required fixture properties. This plan does NOT re-derive any of that.
+  What this plan adds is (a) re-measurement against the mirror's CURRENT state, which
+  has moved since the issue was written, (b) an executable core-side falsifier, and
+  (c) the founder-gated publish + adopt sequence.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  WHAT MOVED SINCE THE ISSUE WAS WRITTEN (re-measured 2026-08-18)
+  ══════════════════════════════════════════════════════════════════════════════
+  The issue's 2026-08-17 snapshot says the mirror is at 1.2.0. IT IS NOT ANY MORE.
+  Every line below was read from the real repo/working tree, not carried forward.
+
+  ── (1) THE MIRROR IS AT 1.3.0, NOT 1.2.0 ────────────────────────────────────
+  Local clone: `/Users/bmanson/src/projects/backstop-go-contracts-pack`
+    · `git remote -v`   → https://github.com/backstop-ai/go-contracts.git (confirmed)
+    · `git status -sb`  → `## main...origin/main`, working tree CLEAN
+    · `git rev-list --left-right --count origin/main...main` → `0  0` (in sync)
+    · `pack.yml` line 2 → `version: "1.3.0"`
+    · local tags        → `v1.2.0`, `v1.3.0`
+    · `git ls-remote --tags origin` → BOTH tags present on the remote; `v1.3.0^{}`
+      resolves to `28f0aeb`, which is HEAD ("fix(ISSUE-166): force -H -I and refuse
+      unparseable grep output").
+
+  So `PLAN-ISSUE-166` TASK-008's EXTERNAL half has already executed: the mirror is
+  fixed, bumped, tagged and pushed at 1.3.0. THE FIXTURE POLARITY DEFECT IS UNTOUCHED
+  BY THAT BUMP — it rode along into 1.3.0 unchanged.
+
+  ── (2) THE DEFECT IS STILL PRESENT AT 1.3.0, VERBATIM ───────────────────────
+  Read line-by-line from the CURRENT `pack.yml` at HEAD:
+    · `contract-signature` (lines 56-67): positive → `testdata/fixtures/sig-mismatch.go`,
+      negative → `testdata/fixtures/sig-present.go`.  INVERTED.
+    · the five kind rules `type-/const-/var-/method-/interface-signature`
+      (lines 75-134): ALL FIVE positive → `testdata/fixtures/sig-kinds-present.go`,
+      ALL FIVE negative → `testdata/fixtures/sig-kinds-mismatch.go`.  INVERTED.
+    · `contract-absence` (lines 136-147): positive → `absence-clean.go`, negative →
+      `absence-present.go`.  ALREADY CORRECT — NOT part of this defect, DO NOT TOUCH.
+    · the stale inversion-justifying comment survives at lines 73-74:
+      "positive fixtures DECLARE the kind, negatives OMIT the declared names".
+  Fixture dir at HEAD holds exactly six files: `absence-clean.go`, `absence-present.go`,
+  `sig-kinds-mismatch.go`, `sig-kinds-present.go`, `sig-mismatch.go`, `sig-present.go`.
+  Neither clean fixture exists yet.
+
+  ── (3) THE RED IS REAL, RUN TODAY, NOT PREDICTED ────────────────────────────
+      ./bin/backstop pack test /Users/bmanson/src/projects/backstop-go-contracts-pack
+
+    → `status: fail`; EXIT CODE 1 (measured with stdout/stderr discarded, so the exit
+      code is backstop's and not a pipeline's).
+    → phase1-structural PASS, phase2-coherence PASS, phase3-fixtures FAIL,
+      phases 4/5/6 SKIPPED ("reason: phase3-fixtures failed").
+    → EXACTLY 9 `ERROR [phase3-fixtures/...]` lines (counted with `grep -c`):
+      6 x `semgrep-positive: positive fixture triggered the rule (false positive)`
+      3 x `semgrep-negative: negative fixture not triggered`
+    THIS MATCHES THE ISSUE'S MEASURED COUNT OF 9 EXACTLY. The issue's warning that a
+    naive reading under-counts at 6 is confirmed: the three non-firing negatives are
+    real, separate errors.
+
+    ★ THE RED IS OBSERVABLE RIGHT NOW because `PLAN-ISSUE-142` is `status: completed`
+      — its phase-1 widening of `pkg/packval`'s `RunFixtures` dispatch-eligibility
+      guard has LANDED, so pattern-arg fixtures dispatch for real. The issue described
+      this as a future consequence; it is present tense. No precondition remains.
+
+  ── (4) THE FIX IS ALREADY VALIDATED END-TO-END, IN A SCRATCH COPY ───────────
+  The mirror was copied to a scratch dir (`.git` removed), the two clean fixtures
+  copied BYTE-FOR-BYTE from `packs/contracts/testdata/fixtures/`, the six slots
+  re-pointed, the comment corrected and the version set to 1.4.0. Then:
+
+      ./bin/backstop pack check <scratch>   → status: pass, EXIT 0
+                                              (phases 1,2,4,5,6 all pass)
+      ./bin/backstop pack test  <scratch>   → status: pass, EXIT 0
+                                              (ALL SIX phases pass, incl. phase3-fixtures)
+
+  THE FIX IS NOT A PROPOSAL. It is a measured RED → GREEN transition. The implementer
+  is reproducing a verified diff, not searching for one.
+
+  ── (5) PER-PATTERN ast-grep COUNTS, REAL ast-grep 0.43.0 (`/usr/local/bin/ast-grep`)
+  Measured against the scratch copy's fixtures, `ast-grep run --pattern P --json F`,
+  counting JSON array length:
+
+    rule                 pattern                              CLEAN(positive)=0   VIOLATING(negative)
+    contract-signature   func $NAME($$$PARAMS)                sig-absent.go = 0   sig-present.go       = 1
+    type-signature       type $NAME $$$                       kinds-absent  = 0   sig-kinds-present.go = 3
+    const-signature      const $NAME = $$$                    kinds-absent  = 0   sig-kinds-present.go = 1
+    var-signature        var $NAME = $$$                      kinds-absent  = 0   sig-kinds-present.go = 1
+    method-signature     func ($R $T) $NAME($$$PARAMS) $$$    kinds-absent  = 0   sig-kinds-present.go = 1
+    interface-signature  type $NAME interface { $$$ }         kinds-absent  = 0   sig-kinds-present.go = 1
+
+  Identical to the issue's own numbers (0 for the absent fixtures; 1 and 3/1/1/1/1 for
+  the present ones). These are the acceptance numbers for TASK-003.
+
+  ── (6) THE TWO CLEAN FIXTURES ALREADY EXIST — COPY, DO NOT RE-AUTHOR ────────
+  `PLAN-ISSUE-142` TASK-005 shipped both into the IN-REPO source, and they are on disk
+  now at `packs/contracts/testdata/fixtures/`:
+
+    sig-absent.go       — `package fix` + a doc comment + `var placeholder = "..."`.
+                          NO function declaration at all.
+    sig-kinds-absent.go — `package fix` + a doc comment + exactly ONE plain function
+                          `func plainFunction() string`. No type, no `const NAME =`,
+                          no `var NAME =`, no method (no receiver), no interface.
+
+  Copy them VERBATIM. Re-authoring them by hand is how a subtly-different file (a
+  stray `var`, a receiver, a second declaration) silently breaks a 0-match property.
+
+  ★ SHARP: THE TWO FILES ARE NOT INTERCHANGEABLE, and neither is clean for the other's
+    rules. `sig-absent.go` contains `var placeholder = ...`, which MATCHES
+    `var $NAME = $$$`. `sig-kinds-absent.go` contains `func plainFunction()`, which
+    MATCHES `func $NAME($$$PARAMS)`. Each is clean ONLY for the rules it is assigned
+    to. Cross-wiring them re-creates the bug in a new shape.
+
+  ── (7) THE "KEEP THE MISMATCH FIXTURES" CONSTRAINT — VERIFIED, AND CORRECTED ─
+  The issue says keep `sig-mismatch.go` / `sig-kinds-mismatch.go` on disk in the mirror
+  because `pkg/pack/engine/contracts_kind_signature_test.go` reads them by name. That
+  test WAS read (it exists, `package engine`, and reads both files at lines 68, 107,
+  127, 144, 174, 191) — but its root constant is:
+
+      const durablePackRel = "packs/contracts"      // contracts_kind_signature_test.go:27
+
+  so it reads the IN-REPO source, NOT the mirror. A repo-wide grep for those filenames
+  finds NO core consumer that reads the MIRROR's copies. The issue hedged this
+  correctly ("if that repo has a consumer equivalent to this one's"); the hedge
+  resolves to: no such consumer exists today.
+
+  THE CONSTRAINT STANDS ANYWAY, for reasons that survive the correction:
+    · Deleting them buys nothing — they cost 184 bytes and break nothing by existing.
+    · The mirror is supposed to MIRROR `packs/contracts`, where both files are kept
+      (`PLAN-ISSUE-142` sharp edge SE7). Divergence here is exactly the drift ISSUE-174
+      exists to name.
+    · `durablePackRel` is one constant away from pointing at the installed mirror.
+  So: KEEP THEM, UNMODIFIED — but the plan records the real reason rather than passing
+  along an unverified one.
+
+  ── (8) THE ISSUE-166 RELATIONSHIP: THIS PLAN IS THE UNBLOCKER ───────────────
+  ★ THE CAUSAL DIRECTION MATTERS AND IS EASY TO STATE BACKWARDS. This plan's relock is
+    not an incidental byproduct that happens to help ISSUE-166. IT IS THE THING
+    ISSUE-166 IS BLOCKED ON. Commit `3fdebfd`'s own message says so in as many words:
+
+        "ISSUE-166 stays open by design — core's installed go-contracts pack still
+         needs `pack update`, blocked on the unrelated, pre-existing ISSUE-157"
+
+    and `f8b3846`'s message says the same from the other side: "pack update
+    backstop-ai/go-contracts is blocked by the already-filed, already-founder-gated
+    ISSUE-157 ... core's installed pack stays at 1.2.0 pending that separate
+    resolution."
+
+  WHAT IS ALREADY DELIVERED OF PLAN-ISSUE-166 (verified against the commits, 2026-08-18,
+  NOT assumed — an earlier draft of this plan carried a stale list and was wrong):
+    · TASK-003/004/005 — the in-repo converts and the four real-grep test helpers:
+      DELIVERED in `f8b3846` (6 convert-bearing declarations found by structural sweep,
+      plus 4 helpers). `grep -rln REFUSING` confirms the loud refusal is live in
+      `packs/contracts/`, `pkg/gate/testdata/traceability-pack/` and
+      `pkg/gate/testdata/ts-proof-pack/`.
+    · TASK-013 — SPEC-069's stale `command: grep -rn` prose: DELIVERED in `3fdebfd`;
+      the spec now reads `grep -rn -H -I` at both formal manifest-field quotes.
+    · TASK-012 — Linux CI confirmation: DELIVERED, CI run `32179966270` (35 blocking
+      `pack_engines` errors before the fix, 5 after), recorded in `3fdebfd`.
+    · TASK-008's EXTERNAL half — mirror fixed, bumped to 1.3.0, tagged, pushed.
+
+  WHAT ACTUALLY REMAINS OF PLAN-ISSUE-166, and nothing else:
+      TASK-008's CORE half (`pack update` + relock)  ← THIS PLAN DELIVERS IT
+      TASK-009 (verify the relocked pack)
+      TASK-010 (close-out)
+      TASK-011 (full kill chain)
+  After this plan runs, PLAN-ISSUE-166 has essentially nothing substantive left but its
+  close-out and verification tail.
+
+  `backstop.yml` line 7 pins `backstop-ai/go-contracts: 1.2.0`; `backstop.lock` pins
+  version `1.2.0`, `git_ref: v1.2.0`. That is the blocked state, and it is blocked
+  because adopting 1.3.0 would drag in the polarity defect this plan fixes.
+
+  `TestInstalledGoContractsPack_CarriesFilenameHeaderFix`
+  (`pkg/pack/engine/grep_installed_pack_test.go`) is ISSUE-166's deliberate true-RED
+  pin, waiting on exactly that relock. ITS LOCK LEG WAS READ IN FULL:
+
+      const preFixContractsPackVersion = "1.2.0"
+      if !semverGreater(t, entry.Version, preFixContractsPackVersion) { t.Errorf(...) }
+
+  It is a `semverGreater` BAR against 1.2.0 — NOT an exact-version pin. So relocking to
+  1.4.0 satisfies it just as 1.3.0 would, and its DECLARATION and CONVERT legs read the
+  installed tree, which at 1.4.0 carries both halves of the ISSUE-166 fix unchanged.
+
+  ★ THIS PLAN STILL DOES NOT OWN, CLOSE, OR SUBSUME `ISSUE-166`. Unblocking a lane is
+    not the same as closing it: ISSUE-166 keeps its own issue, its own plan, and its own
+    close-out, and its CLM-006 ("core consumes it") is for ITS lane to assert, not this
+    one. What this plan does is remove the blocker — and in doing so it makes TWO
+    passages in OTHER live artifacts false, both naming the superseded 1.3.0 and both
+    assuming a `pack update` this plan will already have performed:
+      · `PLAN-ISSUE-166` TASK-008 "IN CORE" steps 5-6 ("confirm it rewrites
+        `backstop.yml` to `1.3.0`") — will read 1.4.0, and both steps will be done.
+      · `ISSUE-166`'s "Path to close" paragraph ("re-run `pack update ...` (should then
+        succeed against the fixed `1.3.0`)") — same wrong version, and the update will
+        already have happened.
+    TASK-010 CORRECTS BOTH IN PLACE via routed `/plan` and `/issue` dispatches, behind a
+    concurrency guard. Recording the staleness only inside ISSUE-157 would leave the
+    contradiction live where its actual audience reads.
+
+  ── (9) EXISTENCE-IN-WORLD CHECK (performed 2026-08-18, BEFORE authoring) ────
+  `grep -rln "go-contracts"` over `issues/` and `plans/`, plus a repo-wide grep for the
+  four fixture filenames. Hits adjudicated:
+    · `ISSUE-166` / `PLAN-ISSUE-166` — DIFFERENT defect (GNU-grep single-file filename
+      omission in the grep→SARIF convert) in the SAME repo. Its external half is done;
+      its TASK-008 overlaps this plan ONLY on the `pack update` + relock step, handled
+      in (8). No subsumption in either direction.
+    · `ISSUE-174` (`pack-source-mirror-sync-no-guard`) — the GENERAL gap (nothing keeps
+      an in-repo pack source and its mirror in sync). Its own text explicitly disclaims
+      ownership of this defect: "ISSUE-157 ... and ISSUE-148 ... are concrete instances
+      of the general gap this issue names, not owners of the general gap itself." Stays
+      open and untouched by this plan.
+    · `ISSUE-148` — the SAME defect shape in a DIFFERENT pack
+      (`backstop-ai/go-substantiveness`). Different pack, different repo, no collision.
+    · `PLAN-ISSUE-142` — `completed`. Fixed the IN-REPO `packs/contracts` source and
+      filed this issue as its own residual R1. Its fix is the template this plan ports.
+    · `ISSUE-111`, `ISSUE-115`, `BUNDLE-031` — unrelated to fixture content.
+  NO existing artifact owns this surface. Authoring proceeds.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  WHAT "RED" MEANS HERE — STATED PLAINLY, NOT FORCE-FIT
+  ══════════════════════════════════════════════════════════════════════════════
+  This is a FIXTURE-DATA fix in an EXTERNAL repo. There is no Go production code to
+  drive with a unit test, and the primary falsifier is `backstop pack test`'s own
+  validation verdict, measured in (3): exit 1, 9 phase3-fixtures errors → exit 0, six
+  phases green. That measurement IS the falsification bar and TASK-003 re-runs it.
+
+  But a verdict measured once in a terminal is not a durable pin, so this plan ALSO
+  adds a real, executable, CURRENTLY-RED core test — TASK-001 — following the exact
+  precedent `PLAN-ISSUE-166` set with `grep_installed_pack_test.go`: assert a property
+  of the INSTALLED mirror, from core, so the claim survives after the terminal scrolls
+  away. It is RED today (the installed 1.2.0 tree has inverted slots), STAYS RED
+  through phases 2 and 3 (core cannot see an unpublished, unadopted fix), and goes
+  GREEN only at TASK-007's relock. That interim RED is DELIBERATE and is named
+  explicitly wherever a gate is run before phase 4.
+
+  ★ A COMPILE ERROR IS NOT THE DELIBERATE RED. Because this plan tells the implementer
+    to expect a failing test, there is a real risk a `redeclared in this block` compile
+    error (sharp edge 11) gets waved through as "the expected RED." It is not. The
+    expected RED is a RUNNING test reporting a failed ASSERTION — a lock-version bar and
+    inverted positive-slot match counts, with the counts printed. If the package does not
+    COMPILE, or the failure is anything other than those assertions, stop and fix it.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  CLAIM LEDGER
+  ══════════════════════════════════════════════════════════════════════════════
+    CLM-001  The defect is present in the CURRENT released mirror (1.3.0, not the
+             1.2.0 the issue snapshotted) and its falsifier is measured, not assumed:
+             `backstop pack test <clone>` exits 1 with exactly 9 phase3-fixtures
+             errors — 6 `semgrep-positive` and 3 `semgrep-negative` — and phases 4-6
+             skipped. Recorded before any edit.
+
+    CLM-002  Core pins the mirror's fixture polarity EXECUTABLY, not by prose: a test
+             resolves the INSTALLED `backstop-ai/go-contracts` through the production
+             readers and asserts, for every pattern-arg signature rule, that the
+             POSITIVE fixture yields ZERO real ast-grep matches for that rule's own
+             pattern and the NEGATIVE fixture yields at least one — plus a tracked-data
+             lock leg that cannot be skipped in a fresh checkout.
+
+    CLM-003  Two genuinely-clean fixtures exist in the mirror, BYTE-IDENTICAL to the
+             `packs/contracts` counterparts `PLAN-ISSUE-142` shipped:
+             `testdata/fixtures/sig-absent.go` (no function declaration at all → 0
+             matches for `func $NAME($$$PARAMS)`) and
+             `testdata/fixtures/sig-kinds-absent.go` (no type, no `const NAME =`, no
+             `var NAME =`, no method, no interface → 0 matches for all five kind
+             patterns).
+
+    CLM-004  The slots are re-pointed, NOT swapped: `contract-signature` positive →
+             `sig-absent.go` with its negative UNCHANGED at `sig-present.go`; all five
+             kind rules positive → `sig-kinds-absent.go`, negative →
+             `sig-kinds-present.go`. `contract-absence` is untouched — it was already
+             correct.
+
+    CLM-005  The stale comment that wrote the inversion down as if it were the rule is
+             replaced by the real convention (BUNDLE-005 REQ-011: positive = the CLEAN
+             case the rule must NOT fire on; negative = the VIOLATING case it MUST fire
+             on) together with the reason a slot swap cannot work here — these patterns
+             are name-agnostic, so a differently-NAMED contrast file still matches and
+             the clean case needs the construct wholly ABSENT.
+
+    CLM-006  `sig-mismatch.go` and `sig-kinds-mismatch.go` remain on disk in the mirror,
+             byte-unchanged, even though `pack.yml` no longer references them from these
+             slots.
+
+    CLM-007  The mirror validates for real BEFORE anything is tagged: `backstop pack
+             check` and `backstop pack test` against the local clone both report
+             `status: pass` and exit 0 with ALL SIX phases passing, driven by real
+             ast-grep 0.43.0 — and the six per-rule match counts equal the table in
+             notes section (5).
+
+    CLM-008  The release is published under an explicit founder gate: version 1.3.0 →
+             1.4.0 with a matching `v1.4.0` git tag, commit and tag pushed to
+             `backstop-ai/go-contracts` ONLY after the founder authorizes the push in
+             so many words. No push happens on this plan's authority.
+
+    CLM-009  Core adopts the release through the REAL command: `pack update
+             backstop-ai/go-contracts` rewrites `backstop.yml` to 1.4.0 and refreshes
+             the `backstop.lock` entry (version, `git_ref`, `content_hash`,
+             `install_date`), with no hand-editing of `.backstop/packs/**`; CLM-002's
+             pin flips GREEN, and ISSUE-166's `TestInstalledGoContractsPack_
+             CarriesFilenameHeaderFix` flips GREEN as a byproduct that this plan
+             records but does not claim.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  SHARP EDGES
+  ══════════════════════════════════════════════════════════════════════════════
+   1. NEVER SWAP THE EXISTING SLOTS. The issue is explicit and notes (5)/(6) confirm
+      it by measurement: `sig-kinds-mismatch.go` yields 2 matches for `type $NAME $$$`
+      and 1 for the method pattern. Under a NAME-AGNOSTIC pattern a name-specific
+      contrast file is still a match. The clean case needs the construct ABSENT. A swap
+      would trade 6 positive errors for a different set of errors, not fix anything.
+
+   2. THE TWO CLEAN FIXTURES ARE NOT INTERCHANGEABLE. `sig-absent.go` carries a `var`
+      (matches `var $NAME = $$$`); `sig-kinds-absent.go` carries a `func` (matches
+      `func $NAME($$$PARAMS)`). Each is clean only for its assigned rules. Copy them to
+      their assigned slots exactly as notes (6) specifies.
+
+   3. COPY THE FIXTURES, DO NOT RE-AUTHOR THEM. They exist and are verified at
+      `packs/contracts/testdata/fixtures/`. Hand-retyping is how a stray declaration
+      silently breaks a 0-match property that nothing else in the mirror would catch.
+
+   4. `contract-absence` IS ALREADY CORRECT. Do not touch its slots, its fixtures, or
+      its comment. It is not part of this defect and changing it is pure risk.
+
+   5. KEEP `sig-mismatch.go` AND `sig-kinds-mismatch.go`. See notes (7) for the real,
+      corrected reason. They stop being referenced from these slots; they do not stop
+      existing, and their bytes do not change.
+
+   6. VERSION RESOLUTION IS GIT-TAG-BASED. A `pack.yml` bumped to 1.4.0 with no
+      `v1.4.0` tag pushed to the remote will NOT resolve, and `pack update` fails in a
+      way that reads like a network problem. The mirror also ships
+      `.github/workflows/tag-integrity.yml`, which asserts tag/version agreement on tag
+      push — so a mismatched pair fails CI in that repo too. Push the commit AND the
+      tag, and fetch first to confirm the branch is not behind.
+
+   7. THE PUSH IS FOUNDER-GATED AND THE GATE IS THE POINT. Edit → validate → commit
+      locally → STOP → ask → only then tag and push. This mirrors `PLAN-ISSUE-166`
+      TASK-008 and `PLAN-ISSUE-148` phase 5. Do not treat an answer to a scoping
+      question, or this plan's own existence, as authorization.
+
+   8. NEVER HAND-EDIT `.backstop/packs/**`. The installed tree is the OUTPUT of `pack
+      update`. If it looks wrong after an update, re-run the update and report the
+      typed refusal verbatim; do not patch the install to make a test pass.
+
+   9. THE CORE PIN IS DELIBERATELY RED UNTIL TASK-007. TASK-001's test cannot pass
+      before the mirror is published AND adopted. Any gate run in phases 2-3 will show
+      that ONE failure. It is expected and named. It is NOT licence to accept a second,
+      different failure, and it is NOT licence to weaken the test, add a `t.Skip`, or
+      soften an assertion to get a green in the meantime.
+
+  10. `pack test` PIPED INTO `tail` REPORTS THE PIPELINE'S EXIT CODE, NOT BACKSTOP'S.
+      Measured during authoring: piping showed EXIT=0 while the real code was 1. Read
+      the exit code from an unpiped run (`cmd >/dev/null 2>&1; echo $?`) or read
+      `status: fail` out of the output. Do not certify a verdict from a piped `$?`.
+
+  11. THE NEW TEST SHARES A PACKAGE WITH ISSUE-166's PIN, AND THREE SYMBOL NAMES ARE
+      ALREADY TAKEN. `package engine_test` already declares
+      `installedContractsPackName`, `preFixContractsPackVersion = "1.2.0"` and
+      `semverGreater` in `grep_installed_pack_test.go`. Reuse the first and third;
+      NEVER bind this plan's lock bar to `preFixContractsPackVersion`, whose 1.2.0 the
+      defective 1.3.0 already clears — declare a new, distinctly-named 1.3.0 constant
+      instead. Full instructions in TASK-001 LEG 1. Redeclaring any of the three is a
+      compile error, and a compile error is NOT this plan's deliberate RED.
+
+  12. KNOWN INHERITED REDS EXIST IN THIS REPO RIGHT NOW. `ISSUE-176` (3x
+      `bun_ratchet_flip_test.go`, every CI run, because `.backstop/baseline.json` is
+      gitignored and nothing restores it before the gate step) and `ISSUE-177`
+      (`TestInstallContractsLocalPack_InstallsWithSuppliedCommand`, a pre-existing
+      unexplained phase3 anomaly) were both filed from ISSUE-166's CI run and are OPEN.
+      Neither belongs to this lane. Do not fix them here, do not waive them, and do not
+      let them masquerade as this plan's deliberate RED — prove inheritance and name the
+      owner, per the clause in TASK-003 step 4 and TASK-009.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Record the measured RED and pin the mirror's fixture polarity from core"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Pin the INSTALLED go-contracts pack's fixture polarity, and record the pack-test RED (RED)"
+        description: |
+          TWO jobs, in this order. The first is a MEASUREMENT that establishes the
+          falsification bar; the second turns it into a durable, executable pin.
+
+          ── JOB 1: RE-MEASURE AND RECORD THE RED (do this FIRST, before any edit) ──
+          Confirm the external clone is still the state this plan was authored against:
+
+              cd /Users/bmanson/src/projects/backstop-go-contracts-pack
+              git status -sb            # expect: `## main...origin/main`, tree CLEAN
+              git remote -v             # expect: backstop-ai/go-contracts.git
+              git ls-remote --tags origin   # expect v1.2.0 and v1.3.0 present
+              grep -n '^version:' pack.yml  # expect: version: "1.3.0"
+
+          If ANY of these disagrees with notes section (1), STOP and report — the
+          mirror has moved again and the diff must be re-derived, not forced.
+
+          Then drive the falsifier and record the numbers verbatim:
+
+              ./bin/backstop pack test /Users/bmanson/src/projects/backstop-go-contracts-pack
+
+          Expected (measured 2026-08-18): `status: fail`; phase3-fixtures FAIL; phases
+          4/5/6 SKIPPED; EXACTLY 9 `ERROR [phase3-fixtures/...]` lines — 6
+          `semgrep-positive` and 3 `semgrep-negative`. Take the exit code from an
+          UNPIPED run (sharp edge 10) and expect 1. A count other than 9, or an exit
+          code of 0, means the premise has changed: STOP and report rather than
+          proceeding to a fix whose bar you cannot state.
+
+          ── JOB 2: THE DURABLE CORE PIN ──────────────────────────────────────────
+          Create `pkg/pack/engine/contracts_installed_pack_polarity_test.go` declaring
+          `TestInstalledGoContractsPack_FixturePolarityIsCorrect`.
+
+          PACKAGE: `package engine_test`. This is NOT a style choice — the test must
+          resolve the pack through the PRODUCTION readers (`pack.ParseManifestFile`,
+          `distribution.ReadLockfile`), and `pkg/pack` imports `pkg/pack/engine`, so an
+          in-package test importing them is an import cycle. This is the same reason
+          `grep_installed_pack_test.go` gives at its head; follow that file closely —
+          it is the direct precedent for this test and shares its subject.
+
+          THREE LEGS, split by what each can prove where (mirroring the precedent):
+
+            LEG 1 — THE LOCK (tracked data, NEVER skipped). Read `backstop.lock` via
+              `distribution.ReadLockfile`. A tracked lockfile that will not read is a
+              broken repo, so `t.Fatalf`, never a skip. Require an entry for
+              `backstop-ai/go-contracts` and assert its version is strictly GREATER
+              than the pre-fix `1.3.0`.
+
+              ★★ PACKAGE-SCOPE HAZARD — READ BEFORE WRITING THE FILE. Your new file
+                 joins an EXISTING package that already declares helpers you will reach
+                 for. Redeclaring any of them is a `redeclared in this block` compile
+                 error, and a compile error is NOT this plan's deliberate RED
+                 (sharp edge 11).
+
+                 `package engine_test` spans THREE files —
+                 `grep_dispatch_convention_test.go`, `grep_installed_pack_test.go`,
+                 `import_cycle_test.go` — carrying TEN package-scope declarations.
+                 Re-derive the current list yourself before writing (the package grows;
+                 this list was accurate 2026-08-18 and an earlier draft of this plan
+                 undercounted it as three):
+
+                     cd pkg/pack/engine && for f in *_test.go; do \
+                       grep -q '^package engine_test' "$f" && \
+                       grep -Hn '^func [a-z]\|^const \|^var \|^type ' "$f"; done
+
+                 THE FOUR THAT MATTER HERE:
+                   · REUSE `conventionRepoRoot(t) string`
+                     (`grep_dispatch_convention_test.go:45`) — walks up to the module
+                     root. THIS IS THE FIRST LINE YOU NEED, in all three legs, to locate
+                     `backstop.lock` and the installed `pack.yml`; the precedent test
+                     opens with exactly `root := conventionRepoRoot(t)`. DO NOT write a
+                     second root-walker. (Note it deliberately does NOT reuse package
+                     `engine`'s `repoRoot` — see that file's package comment for why;
+                     do not "unify" them.)
+                   · REUSE `installedContractsPackName` (`grep_installed_pack_test.go:36`)
+                     — do NOT redeclare it.
+                   · REUSE `semverGreater(t, a, b) bool` (`:45`) — do NOT write a second
+                     comparator.
+                   · DO **NOT** reuse `preFixContractsPackVersion` (`:41`). Its value is
+                     `"1.2.0"`, which the already-published, still-defective 1.3.0
+                     ALREADY SATISFIES. Binding this leg to it would make the assertion
+                     pass against a mirror that still carries the polarity defect — a
+                     silently weakened check that reads green for the wrong reason. Do
+                     not redeclare or EDIT it either; it belongs to ISSUE-166's pin and
+                     changing it breaks that test.
+                 INSTEAD declare a NEW, DISTINCTLY NAMED constant in the new file, e.g.
+
+                     const prePolarityFixContractsPackVersion = "1.3.0"
+
+                 with a comment saying it is the version that carried the INVERTED
+                 FIXTURE POLARITY (a different defect, a different bar, from the same
+                 pack), and assert `semverGreater(t, entry.Version,
+                 prePolarityFixContractsPackVersion)`.
+
+                 The remaining six (`commandTool`, `commandHasFlag`, `walkRepoFiles`,
+                 `grepDeclaration`, `stringLitArgs`, `hasArg`, all in
+                 `grep_dispatch_convention_test.go`) are lower collision risk but real —
+                 do not shadow them with same-named local helpers.
+
+              This leg is what keeps the test non-vacuous in a fresh checkout where the
+              pack fleet is not installed.
+
+            LEG 2 — THE SLOTS. Parse the installed
+              `.backstop/packs/backstop-ai/go-contracts/pack.yml` with
+              `pack.ParseManifestFile`. Follow the established guard: if the manifest
+              will not parse AND the file does not exist, `t.Skipf` with a
+              `./bin/backstop pack install` directive; if it exists and will not parse,
+              `t.Fatalf`.
+
+              THE REAL SHAPE (`pkg/pack/manifest.go:139-199`, through
+              `FixtureEntry.Path`) — note it is a level
+              deeper than "rules have fixtures", and the leaves are STRUCTS, not
+              strings:
+
+                  Manifest.Content.Ruleset.Rules[]        // pack.Rule
+                    .ID, .Engine, .Pattern
+                    .Claims[]                             // pack.Claim
+                      .Fixtures.Positive[] / .Negative[]  // []pack.FixtureEntry
+                        .Path                             // the string you want
+
+              THE DISCRIMINATOR IS `Engine`, NOT "declares a pattern". Selecting on
+              `.Pattern != ""` picks up SEVEN rules, because `contract-absence` declares
+              `pattern: "legacyProbeSymbol"` too — it is a grep rule, already correctly
+              polarized, and not part of this defect (sharp edge 4). Select the six on
+              `rule.Engine == "ast-grep-contracts"`, which is exactly the set whose
+              polarity this test owns, and assert you found SIX so a future rule
+              addition cannot silently shrink the sweep.
+
+              Assert each of the six declares at least one positive and one negative
+              fixture path, and that NO rule declares the SAME path in both slots.
+
+            LEG 3 — THE POLARITY, BY REAL MATCH COUNT (the substantive leg). For each
+              of the six pattern-arg signature rules, run REAL ast-grep with THAT
+              RULE'S OWN declared `pattern` against its declared positive fixture and
+              its declared negative fixture, and assert:
+                  positive fixture → EXACTLY 0 matches   (the CLEAN case must not fire)
+                  negative fixture → AT LEAST 1 match    (the VIOLATING case must fire)
+              Failure messages must name the rule id, the fixture path, the pattern and
+              both counts — the audience is someone looking at a pack in another repo.
+
+              Require real ast-grep with `exec.LookPath` and `t.Fatalf` if absent — NO
+              `t.Skip` on a missing tool; that is the convention `astGrepMatchCount`
+              already follows in this package. `astGrepMatchCount` itself lives in
+              `package engine` (`contracts_go_rules_test.go`) and is NOT reachable from
+              `engine_test`, so define a small unexported local helper in the new file
+              that shells `ast-grep run --pattern P --lang go --json F` and returns the
+              JSON array length. Do NOT export a new helper from `package engine` for
+              this — a local helper is sufficient and adds no cross-package surface.
+
+            EXCLUDE `contract-absence` from legs 2 and 3 explicitly, with a comment
+            saying why: it is a grep rule, already correctly polarized, and not part of
+            this defect (sharp edge 4).
+
+          THIS TEST IS EXPECTED TO FAIL WHEN WRITTEN, and to keep failing until
+          TASK-007. That is the point (sharp edge 9). Record which legs fail and why —
+          against the installed 1.2.0 tree, LEG 1 fails on the version bar and LEG 3
+          fails on the inverted positive slots. Do not weaken it to get a green.
+
+          ★ BUT THE PACKAGE MUST COMPILE AND THE TEST MUST RUN. The expected RED is a
+            running test reporting FAILED ASSERTIONS with its counts printed. A
+            `redeclared in this block` compile error (sharp edge 11), a panic, or a skip
+            is NOT the expected RED — it is a defect in this task's own work. Confirm
+            you can see the assertion messages before declaring the RED established.
+        files:
+          - pkg/pack/engine/contracts_installed_pack_polarity_test.go
+        test_names:
+          - TestInstalledGoContractsPack_FixturePolarityIsCorrect
+        claims:
+          - CLM-001
+          - CLM-002
+        depends_on: []
+
+  - id: phase-2
+    name: "Phase 2: Correct the mirror's fixtures, slots and polarity comment"
+    tasks:
+      - id: TASK-002
+        type: implementation
+        title: "Add the two clean fixtures, re-point the six slots, correct the comment, bump to 1.4.0"
+        description: |
+          All edits happen in the EXTERNAL repo
+          `/Users/bmanson/src/projects/backstop-go-contracts-pack` (remote
+          `backstop-ai/go-contracts`). An external pack repo is legitimate task file
+          scope — packs live outside core by design. NOTHING is committed, tagged or
+          pushed in this task; TASK-004 owns that, behind the founder gate.
+
+          1. COPY, DO NOT AUTHOR, the two clean fixtures (sharp edge 3):
+
+               cp packs/contracts/testdata/fixtures/sig-absent.go \
+                  /Users/bmanson/src/projects/backstop-go-contracts-pack/testdata/fixtures/sig-absent.go
+               cp packs/contracts/testdata/fixtures/sig-kinds-absent.go \
+                  /Users/bmanson/src/projects/backstop-go-contracts-pack/testdata/fixtures/sig-kinds-absent.go
+
+             Then `diff` both pairs and confirm byte-identity before moving on. Their
+             required properties (CLM-003): `sig-absent.go` is `package fix` with NO
+             function declaration at all; `sig-kinds-absent.go` is `package fix` plus
+             exactly ONE plain function, with no type, no `const NAME =`, no
+             `var NAME =`, no method (no receiver) and no interface.
+
+          2. RE-POINT THE SIX SLOTS in `pack.yml`. Re-point, do not swap (sharp edge 1):
+
+               contract-signature   positive -> testdata/fixtures/sig-absent.go
+                                    negative -> testdata/fixtures/sig-present.go   (UNCHANGED)
+               type-signature       positive -> testdata/fixtures/sig-kinds-absent.go
+                                    negative -> testdata/fixtures/sig-kinds-present.go
+               const-signature      positive -> testdata/fixtures/sig-kinds-absent.go
+                                    negative -> testdata/fixtures/sig-kinds-present.go
+               var-signature        positive -> testdata/fixtures/sig-kinds-absent.go
+                                    negative -> testdata/fixtures/sig-kinds-present.go
+               method-signature     positive -> testdata/fixtures/sig-kinds-absent.go
+                                    negative -> testdata/fixtures/sig-kinds-present.go
+               interface-signature  positive -> testdata/fixtures/sig-kinds-absent.go
+                                    negative -> testdata/fixtures/sig-kinds-present.go
+               contract-absence     UNTOUCHED — already correct (sharp edge 4)
+
+             Locate these by RULE ID, not by line number — the manifest's line numbers
+             have already moved once (the ISSUE-166 bump) since ISSUE-157 recorded
+             them, and will move again as this edit lands.
+
+          3. CORRECT THE STALE COMMENT that heads the per-kind rule block — the one
+             that currently ends "positive fixtures DECLARE the kind, negatives OMIT
+             the declared names", which is the inversion written down as if it were the
+             rule. Replace that clause with the real convention and the reason a swap
+             cannot work. `packs/contracts/pack.yml` already carries the corrected
+             wording `PLAN-ISSUE-142` wrote for the identical block — port it, so the
+             two manifests say the same thing in the same words rather than drifting a
+             second time. Keep the surrounding ISSUE-036 rationale intact.
+
+          4. BUMP `version:` from `1.3.0` to `1.4.0`. MINOR, not patch: this is the
+             same call `PLAN-ISSUE-142` TASK-005 made for the identical correction in
+             the in-repo source (1.1.0 -> 1.2.0), and the pack goes from
+             self-invalidating to installable — a consumer-visible change in what the
+             artifact can do, even though no rule's enforcement behavior changes.
+
+          5. DO NOT DELETE OR EDIT `sig-mismatch.go` or `sig-kinds-mismatch.go`
+             (sharp edge 5). Do not touch `grep/to-sarif.sh`, `ast-grep/to-sarif.sh`,
+             `scripts/compile-signature.sh`, the `engines:` block, or the
+             `.github/workflows/` file — none is part of this defect, and the `-H -I`
+             grep declaration that arrived with 1.3.0 must survive this edit intact.
+
+          The expected end state is exactly the scratch copy notes section (4) already
+          validated GREEN. If `pack test` does not pass in TASK-003, the diff differs
+          from that verified one — find the difference, do not adjust the fixtures.
+        files:
+          - /Users/bmanson/src/projects/backstop-go-contracts-pack/testdata/fixtures/sig-absent.go
+          - /Users/bmanson/src/projects/backstop-go-contracts-pack/testdata/fixtures/sig-kinds-absent.go
+          - /Users/bmanson/src/projects/backstop-go-contracts-pack/pack.yml
+        claims:
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: verification
+        title: "Verify the mirror locally with real pack check/test and the six per-rule match counts"
+        description: |
+          THE FALSIFICATION BAR FOR THIS PLAN. Nothing is committed until this passes.
+
+          1. THE PACK'S OWN VERDICT — the RED from TASK-001 must invert:
+
+               ./bin/backstop pack check /Users/bmanson/src/projects/backstop-go-contracts-pack
+               ./bin/backstop pack test  /Users/bmanson/src/projects/backstop-go-contracts-pack
+
+             Both must report `status: pass` and exit 0, with ALL SIX phases passing on
+             `pack test` — phase3-fixtures included, and phases 4/5/6 no longer skipped.
+             Read the exit code from an UNPIPED run (sharp edge 10). Zero
+             `ERROR [phase3-fixtures/...]` lines, down from the 9 recorded in TASK-001.
+
+          2. THE PER-RULE COUNTS — assert the numbers, not just the verdict. With real
+             ast-grep 0.43.0, for each rule's declared pattern and declared fixtures,
+             reproduce the table in notes section (5):
+               contract-signature   sig-absent.go = 0        sig-present.go       = 1
+               type-signature       sig-kinds-absent.go = 0  sig-kinds-present.go = 3
+               const-signature      sig-kinds-absent.go = 0  sig-kinds-present.go = 1
+               var-signature        sig-kinds-absent.go = 0  sig-kinds-present.go = 1
+               method-signature     sig-kinds-absent.go = 0  sig-kinds-present.go = 1
+               interface-signature  sig-kinds-absent.go = 0  sig-kinds-present.go = 1
+             Confirm the ast-grep on PATH is 0.43.0 (`ast-grep --version`) — the pack
+             pins that version in its provision block and the counts were measured
+             under it.
+
+          3. THE KEEP-CONSTRAINT AND THE BLAST RADIUS — in the external clone:
+
+               git status --porcelain
+
+             must show EXACTLY three paths: two new (`testdata/fixtures/sig-absent.go`,
+             `testdata/fixtures/sig-kinds-absent.go`) and one modified (`pack.yml`).
+             Anything else is scope leakage. Additionally confirm `sig-mismatch.go` and
+             `sig-kinds-mismatch.go` are still on disk and byte-unchanged (CLM-006), and
+             that `git diff pack.yml` shows the grep engine's `command: grep -rn -H -I`
+             untouched.
+
+          4. CORE-SIDE GATE — run the diff-scoped gate in backstop-core:
+
+               ./bin/backstop gate
+
+             ★ EXPECTED, DELIBERATE RED (sharp edge 9): the new
+             `TestInstalledGoContractsPack_FixturePolarityIsCorrect` fails, because core
+             is still locked to the unadopted 1.2.0 install. Confirm that failure is
+             present and is an ASSERTION failure, not a compile error (sharp edge 11).
+
+             ★ A SECOND FAILURE IS NOT AUTOMATICALLY YOURS. Known-open, pre-existing
+             reds live in this repo right now (sharp edge 12) and are the first
+             candidates to check against:
+               · `ISSUE-176` — 3x `bun_ratchet_flip_test.go`. Fails on EVERY CI run,
+                 not just this branch: `.backstop/baseline.json` is gitignored and
+                 nothing restores it before the gate step.
+               · `ISSUE-177` — `TestInstallContractsLocalPack_InstallsWithSuppliedCommand`,
+                 a pre-existing phase3 anomaly that failed identically before and after
+                 the ISSUE-166 fix and is still unexplained.
+             For any additional failure: PROVE it is inherited (a clean-HEAD control
+             reading plus the counterfactual that this lane's diff does not move it),
+             NAME the owning issue, and RECORD it — do not fix it here, do not waive it,
+             and do not absorb it into this plan's scope. If it is NOT inherited, it is
+             a real problem in this lane's own work and must be fixed here, not carried
+             into phase 3.
+        files:
+          - /Users/bmanson/src/projects/backstop-go-contracts-pack/pack.yml
+          - /Users/bmanson/src/projects/backstop-go-contracts-pack/testdata/fixtures/sig-absent.go
+          - /Users/bmanson/src/projects/backstop-go-contracts-pack/testdata/fixtures/sig-kinds-absent.go
+          - pkg/pack/engine/contracts_installed_pack_polarity_test.go
+        claims:
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-002
+
+  - id: phase-3
+    name: "Phase 3: Publish backstop-ai/go-contracts v1.4.0 — FOUNDER-GATED"
+    tasks:
+      - id: TASK-004
+        type: implementation
+        title: "Commit the verified fix locally in the mirror — NO tag, NO push — then STOP and ask"
+        description: |
+          ★★ THIS TASK ENDS IN A HARD STOP. IT DOES NOT PUBLISH ANYTHING. ★★
+          The publish is a SEPARATE task (TASK-005) precisely so the authorization
+          boundary is a task boundary and not a paragraph an implementer can read past.
+
+          STEP A — COMMIT LOCALLY (no authorization needed). In
+          `/Users/bmanson/src/projects/backstop-go-contracts-pack`, stage exactly the
+          three paths TASK-003 verified and commit with a message naming ISSUE-157 and
+          the polarity correction. Everything so far is local and reversible.
+
+          DO NOT run `git tag`. DO NOT run `git push`. Those belong to TASK-005 and
+          TASK-005 does not start without an explicit founder go-ahead.
+
+          STEP B — STOP AND ASK. Report to the founder and WAIT. State:
+            · the pack and the version transition (backstop-ai/go-contracts, 1.3.0 ->
+              1.4.0, tag `v1.4.0` to be created)
+            · the verdict transition measured in TASK-001 and TASK-003 (exit 1 with 9
+              phase3-fixtures errors -> exit 0, six phases green)
+            · the three-path diff, and that the two mismatch fixtures were kept
+            · that the push is to a PUBLIC repo other consumers install from
+            · that this plan's TASK-007 will then relock core to 1.4.0, which also
+              UNBLOCKS `PLAN-ISSUE-166`'s last substantive task (notes section 8)
+
+          Publishing to `backstop-ai/go-contracts` is FOUNDER-GATED (sharp edge 7),
+          exactly as `PLAN-ISSUE-166` TASK-008 and `PLAN-ISSUE-148` phase 5 establish.
+          Neither this plan's existence nor an answer to a scoping question is
+          authorization.
+
+          IF THE FOUNDER DOES NOT AUTHORIZE: the plan stops here. The local commit
+          stands, nothing is published, TASK-005 onward do not run, and TASK-010 leaves
+          ISSUE-157 OPEN with the measurements recorded. Report that plainly as a
+          stopped lane, never as a partial success.
+        files:
+          - /Users/bmanson/src/projects/backstop-go-contracts-pack/pack.yml
+          - /Users/bmanson/src/projects/backstop-go-contracts-pack/testdata/fixtures/sig-absent.go
+          - /Users/bmanson/src/projects/backstop-go-contracts-pack/testdata/fixtures/sig-kinds-absent.go
+        claims:
+          - CLM-008
+        depends_on:
+          - TASK-001
+          - TASK-003
+
+      - id: TASK-005
+        type: implementation
+        title: "ON EXPLICIT FOUNDER AUTHORIZATION ONLY: tag v1.4.0 and push commit + tag"
+        description: |
+          ★★ DO NOT START THIS TASK WITHOUT AN EXPLICIT, IN-SO-MANY-WORDS GO-AHEAD from
+             the founder, given in response to TASK-004's STEP B report. This is the
+             first irreversible action in the plan: it publishes to a PUBLIC repo other
+             consumers install from. ★★
+
+          If you are reading this without that authorization in hand, STOP. Re-read
+          sharp edge 7. An answer to a scoping question is not a go.
+
+          ON AUTHORIZATION, in `/Users/bmanson/src/projects/backstop-go-contracts-pack`:
+
+              git fetch origin && git status -sb     # confirm not behind before pushing
+              git tag v1.4.0
+              git push origin main
+              git push origin v1.4.0
+
+          ★ The tag is not optional and not cosmetic (sharp edge 6): version resolution
+            is git-TAG-based, so a 1.4.0 manifest with no `v1.4.0` tag on the remote
+            will not resolve, and TASK-007's `pack update` will fail in a way that reads
+            like a network fault. The repo's own
+            `.github/workflows/tag-integrity.yml` asserts tag/version agreement on tag
+            push — watch that run go green.
+
+          Never force-push and never move an existing tag. If `v1.4.0` somehow already
+          exists on the remote, STOP and report rather than overwriting a published
+          version other consumers may already have installed.
+        files:
+          - /Users/bmanson/src/projects/backstop-go-contracts-pack/pack.yml
+          - /Users/bmanson/src/projects/backstop-go-contracts-pack/testdata/fixtures/sig-absent.go
+          - /Users/bmanson/src/projects/backstop-go-contracts-pack/testdata/fixtures/sig-kinds-absent.go
+        claims:
+          - CLM-008
+        depends_on:
+          - TASK-001
+          - TASK-004
+
+      - id: TASK-006
+        type: verification
+        title: "Verify the publish landed: remote tag, tag/commit agreement, tree clean"
+        description: |
+          Confirm the release is really on the remote — a tag that exists only locally
+          is the exact failure mode sharp edge 6 describes, and it surfaces later as a
+          confusing `pack update` error.
+
+              cd /Users/bmanson/src/projects/backstop-go-contracts-pack
+              git ls-remote --tags origin        # `v1.4.0` AND `v1.4.0^{}` present
+              git rev-list --left-right --count origin/main...main   # expect `0  0`
+              git status --porcelain             # expect EMPTY
+
+          Assert the dereferenced tag `v1.4.0^{}` resolves to the SAME commit as
+          `origin/main` HEAD, and that the `pack.yml` at that commit self-declares
+          `version: "1.4.0"` — tag/manifest agreement is what the identity gate checks
+          on the way in, and catching a mismatch here beats catching it as a typed
+          refusal during TASK-007.
+
+          Also confirm the repo's `tag-integrity` workflow run for the tag push
+          finished green.
+
+          If the founder declined authorization at TASK-004's STEP B, neither TASK-005
+          nor this task runs and the plan stops there. Say so plainly rather than
+          reporting a partial success.
+        files:
+          - /Users/bmanson/src/projects/backstop-go-contracts-pack/pack.yml
+        claims:
+          - CLM-008
+        depends_on:
+          - TASK-005
+
+  - id: phase-4
+    name: "Phase 4: Core adopts v1.4.0 — pack update, relock, and the pin flips green"
+    tasks:
+      - id: TASK-007
+        type: implementation
+        title: "pack update backstop-ai/go-contracts and relock core to 1.4.0"
+        description: |
+          Adopt the published release through the REAL command, in backstop-core:
+
+              ./bin/backstop pack update backstop-ai/go-contracts
+
+          By NAME, not by path — `update` takes a pack name (`relock` is the one that
+          takes a path; the asymmetry is a known, filed gap and guessing wrong errors
+          loudly).
+
+          Confirm it rewrites `backstop.yml` (line 7, `backstop-ai/go-contracts`) from
+          `1.2.0` to `1.4.0` and refreshes the `backstop.lock` entry — `version`,
+          `git_ref` (`v1.4.0`), a NEW `content_hash`, and a new `install_date` — while
+          PRESERVING `source_coordinate: backstop-ai/go-contracts` and
+          `source_type: git`.
+
+          ★ NOTE THE DOUBLE JUMP: core is at 1.2.0 and the remote is at 1.4.0, so this
+            single update crosses the 1.3.0 release too. That is deliberate and
+            correct, and it is why this task also satisfies the CORE half of
+            `PLAN-ISSUE-166` TASK-008 (notes section 8). It does NOT close ISSUE-166.
+
+          NEVER hand-edit `.backstop/packs/**` (sharp edge 8) and never hand-edit
+          `backstop.lock` — both are outputs. If `pack update` refuses, report the typed
+          refusal VERBATIM and STOP: an identity or version refusal here is real
+          information about the tag, not an obstacle to route around. In particular a
+          `*VersionMismatchError` means the manifest and the tag disagree, which sends
+          you back to TASK-006, not forward.
+        files:
+          - backstop.yml
+          - backstop.lock
+        claims:
+          - CLM-009
+        depends_on:
+          - TASK-001
+          - TASK-006
+
+      - id: TASK-008
+        type: verification
+        title: "Verify adoption: the polarity pin greens, and PLAN-ISSUE-166 is unblocked"
+        description: |
+          1. THE PIN THIS PLAN ADDED — all three legs, now against the 1.4.0 install:
+
+               go test ./pkg/pack/engine/ -run "TestInstalledGoContractsPack" -race -count=1
+
+             `TestInstalledGoContractsPack_FixturePolarityIsCorrect` must PASS: LEG 1's
+             lock bar (1.4.0 > 1.3.0), LEG 2's slot readings, and LEG 3's six real
+             match-count pairs. This is the first moment it can pass, and its passing is
+             the whole point of the lane.
+
+             ★ FALSIFY IT, do not just observe green. Confirm the test was capable of
+               failing: it was RED in TASK-001 and RED again in TASK-003 step 4 against
+               the same code. Record that transition. A test that has never been seen
+               red is not evidence.
+
+          2. PLAN-ISSUE-166 IS NOW UNBLOCKED — verify and RECORD, do not close.
+             `TestInstalledGoContractsPack_CarriesFilenameHeaderFix` (same `-run`
+             filter, `pkg/pack/engine/grep_installed_pack_test.go`) must ALSO now pass:
+             its lock leg's `semverGreater` bar against 1.2.0 is satisfied by 1.4.0, and
+             its declaration and convert legs read a 1.4.0 tree that carries the
+             `-H -I` command and the refusing convert.
+
+             ★ STATE THE DIRECTION CORRECTLY (notes section 8): the relock is not an
+               incidental byproduct — it is the thing ISSUE-166 was BLOCKED ON, per
+               commit `3fdebfd`'s own message. This task delivers `PLAN-ISSUE-166`
+               TASK-008's core half, leaving that plan with only TASK-009 (verify
+               relocked), TASK-010 (close-out) and TASK-011 (kill chain) outstanding.
+
+             DO NOT close ISSUE-166 and do not assert its CLM-006 here. Unblocking a
+             lane is not closing it; its close-out is its own to run.
+
+          3. THE LOCK ITSELF — run the diff-scoped gate over the config and lock change:
+
+               ./bin/backstop gate
+
+             The `pack_lock_verification` dimension must pass against the refreshed
+             `content_hash`, which is the real check that the installed tree matches
+             what was published. Expect this lane's own deliberate RED — named in
+             TASK-003 step 4 — to be RESOLVED by TASK-007. Any remaining failure is
+             either a real finding in this lane or one of the known inherited reds
+             (sharp edge 12: ISSUE-176, ISSUE-177); adjudicate which, with the
+             prove-and-name clause from TASK-003 step 4. Never waive.
+
+          4. CONTRACTS DIMENSION SANITY — confirm the contracts family still passes and
+             nothing regressed from crossing two pack versions at once:
+
+               go test ./pkg/pack/engine/ ./pkg/gate/ -count=1
+
+             No fixture weakened, no assertion softened, no `t.Skip` added to reach
+             green.
+        files:
+          - backstop.yml
+          - backstop.lock
+          - pkg/pack/engine/contracts_installed_pack_polarity_test.go
+        claims:
+          - CLM-002
+          - CLM-009
+        depends_on:
+          - TASK-007
+
+  - id: phase-5
+    name: "Phase 5: Full kill chain and close-out"
+    tasks:
+      - id: TASK-009
+        type: verification
+        title: "Full kill chain: backstop gate --all plus artifact validation"
+        description: |
+          The unscoped sweep, covering both work categories this plan touched — Go code
+          (the new test file) and artifacts (this plan, and the issue TASK-010 closes):
+
+              ./bin/backstop gate --all
+              ./bin/backstop artifact validate --plan PLAN-ISSUE-157
+              ./bin/backstop artifact validate --issue ISSUE-157
+
+          `gate --all` must be green with NO waivers added, NO baseline entry added for
+          anything this lane introduced, and no test weakened to get there. Coverage is
+          judged against the spec-derived floor for the touched package.
+
+          ★ IF AN INHERITED RED APPEARS — a failure this lane did not cause — do NOT
+            waive it and do NOT absorb it. Prove it is inherited (clean-HEAD control
+            reading plus the counterfactual), name the owning issue, and RECORD it. This
+            repo has live sibling lanes touching adjacent surfaces; a red from one of
+            them is theirs to fix.
+
+          Re-run the pack's own verdict once more as a final cross-check that the
+          published artifact and the adopted one agree:
+
+              ./bin/backstop pack test /Users/bmanson/src/projects/backstop-go-contracts-pack
+        files:
+          - backstop.yml
+          - backstop.lock
+          - pkg/pack/engine/contracts_installed_pack_polarity_test.go
+          - plans/PLAN-ISSUE-157-go-contracts-mirror-fixture-polarity.plan.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-007
+          - TASK-008
+
+      - id: TASK-010
+        type: documentation
+        title: "Close ISSUE-157; correct the two ISSUE-166 artifacts this plan invalidates"
+        description: |
+          Route each edit through its purpose-built agent (`/plan`, `/issue`) — never
+          hand-edit an artifact's freeform prose.
+
+          ★★ ORDER IS LOAD-BEARING: STEP 1 BEFORE STEP 2. A `delivered_by` close is only
+             valid when the backing plan is ALREADY `completed`
+             (`pkg/validate/delivered_by.go` step 5). Closing the issue first produces
+             `issue/delivered-by-plan-not-completed`. This was MEASURED, not reasoned:
+             the four candidate end states were run through the real `validate.Issue`
+             during authoring, and the results are quoted in each step below.
+
+          ── STEP 1: FLIP THIS PLAN TO `completed` (via a routed `/plan` dispatch) ──
+          `plans/PLAN-ISSUE-157-go-contracts-mirror-fixture-polarity.plan.yml`:
+          `status: draft` → `status: completed`, following this repo's close-out
+          convention — prepend an AS-BUILT banner to `notes` recording what actually
+          happened versus what was planned, and NEVER rewrite the tasks themselves.
+
+          Two constraints on this flip:
+            · Only flip it if the work is GENUINELY complete and evidenced. If the
+              founder declined the publish at TASK-004's STEP B, the plan does NOT go
+              `completed` and neither does the issue close — see the STOPPED-LANE
+              branch at the end of this task.
+            · The plan must still VALIDATE CLEAN after the flip: `validateDeliveredBy`
+              re-runs the full `validate.Plan` over it and treats ANY violation as
+              `issue/delivered-by-plan-invalid`. Run
+              `./bin/backstop artifact validate --plan PLAN-ISSUE-157` after editing.
+
+          ── STEP 2: CLOSE ISSUE-157 (via a routed `/issue` dispatch) ─────────────
+          `issues/ISSUE-157-go-contracts-mirror-inverted-fixture-polarity.issue.md`
+          needs ALL THREE of the following. A `## Resolution` section alone is NOT a
+          valid close — measured: status `closed` with only a Resolution section fails
+          with SIX errors (`issue/closed-requires-date` plus the whole
+          verification/implementation/requirements/claims/contracts chain, which this
+          contained bug-fix issue has none of and should not grow).
+
+            (i)   `issue.status: closed` AND `issue.closed: "<YYYY-MM-DD>"`.
+                  Omitting the date is `issue/closed-requires-date`.
+            (ii)  `delivered_by: PLAN-ISSUE-157` at TOP-LEVEL frontmatter (a sibling of
+                  `schema_version`, NOT nested under `issue:`). This is the close
+                  pointer that relieves the issue of re-authoring requirements/claims —
+                  without it, a dated close still fails with FIVE errors. Carry
+                  `delivered_by` OR `resolved-by`, never both (`issue/
+                  close-pointer-conflict`); `delivered_by` is correct here because this
+                  lane has a real backing plan.
+            (iii) A `## Resolution` section — still required even with `delivered_by`
+                  (`issue/delivered-by-resolution-required`), as minimum standalone
+                  content. Record:
+                    · the released fix: `backstop-ai/go-contracts` 1.3.0 -> 1.4.0, tag
+                      `v1.4.0`
+                    · the measured verdict transition: `pack test` exit 1 with 9
+                      phase3-fixtures errors (6 positive / 3 negative) -> exit 0, six
+                      phases green, with the six per-rule match counts
+                    · the durable pin:
+                      `TestInstalledGoContractsPack_FixturePolarityIsCorrect`
+                    · that core adopted it via `pack update` + relock to 1.4.0
+
+          With STEP 1 done and all three present, the close validates clean (measured:
+          0 violations). TASK-011 re-checks this for real rather than trusting it.
+
+          ALSO RECORD IN THE RESOLUTION, without absorbing:
+            · ISSUE-166 REMAINS OPEN, AND THIS PLAN IS WHAT UNBLOCKED IT. Do not write
+              the relock up as an incidental byproduct — commit `3fdebfd` says ISSUE-166
+              "stays open by design — core's installed go-contracts pack still needs
+              `pack update`, blocked on the unrelated, pre-existing ISSUE-157." This
+              plan removed that blocker and delivered `PLAN-ISSUE-166` TASK-008's core
+              half, which also turns its
+              `TestInstalledGoContractsPack_CarriesFilenameHeaderFix` green.
+
+              ★ VERIFY THE REMAINING-SCOPE LIST AGAINST THE COMMITS BEFORE WRITING IT —
+                an earlier draft of this plan carried a stale one. As of 2026-08-18,
+                PLAN-ISSUE-166's in-repo converts and test-helper sweep (`f8b3846`),
+                SPEC-069 prose correction and Linux CI confirmation (`3fdebfd`, CI run
+                `32179966270`) are ALL DELIVERED. What remains is only: TASK-009 (verify
+                the relocked pack), TASK-010 (close-out) and TASK-011 (kill chain) —
+                i.e. essentially nothing substantive beyond its own close-out.
+            · ISSUE-176 and ISSUE-177 REMAIN OPEN and were never this lane's (sharp edge
+              12). If either was encountered as an inherited red during this plan,
+              record the observation against the owning issue; do not close either.
+            · ISSUE-174 REMAINS OPEN AND UNADDRESSED. This fix is a second concrete
+              instance of the general source-vs-mirror drift gap it names — evidence
+              FOR that issue, not a fix for it. Nothing in this plan builds a sync
+              guard.
+            · The CORRECTION recorded in notes section (7): the mirror's
+              `sig-mismatch.go` / `sig-kinds-mismatch.go` have NO core consumer today
+              (`contracts_kind_signature_test.go` reads `packs/contracts`, per its
+              `durablePackRel` constant). They were kept for source/mirror parity, and
+              the issue's stated reason was a hedge that did not hold. A future reader
+              should not re-derive this.
+
+          ── STEP 3: CORRECT THE TWO STALE ARTIFACTS THIS PLAN INVALIDATES ────────
+          Recording the staleness only in ISSUE-157 would put the correction somewhere
+          the PLAN-ISSUE-166 operator has no reason to open. Both stale passages live in
+          OTHER artifacts, so this task edits them THERE, each via its own routed
+          dispatch — `/issue` for the issue, `/plan` for the plan. Never hand-edit
+          either.
+
+          (a) `plans/PLAN-ISSUE-166-contracts-grep-convert-singlefile-filename.plan.yml`
+              — TASK-008's "IN CORE" block (at the time of writing near line 1116;
+              locate it by CONTENT, not line number, since it will move). Correct STEP 5
+              specifically: it says "Confirm it rewrites `backstop.yml` to `1.3.0`",
+              and after this plan the `pack update` + relock has ALREADY been performed
+              by `PLAN-ISSUE-157` TASK-007 and `backstop.yml` reads 1.4.0. Say that
+              step 5 needs no re-execution, leaving TASK-008 with only its
+              already-completed external half.
+              Leave STEP 6 alone: "NEVER edit `.backstop/packs/**` by hand" is a
+              STANDING PROHIBITION, not an executable step, so it is neither done nor
+              undone and nothing about it went stale.
+
+          (b) `issues/ISSUE-166-contracts-pack-phase3-fixtures-fail-on-linux-ci.issue.md`
+              — the "**Path to close, once `ISSUE-157` is separately resolved...**"
+              paragraph (near line 344). It says to "re-run `pack update
+              backstop-ai/go-contracts` (should then succeed against the fixed
+              `1.3.0`)". Two things wrong once this plan lands: the version is 1.4.0,
+              and the `pack update` has ALREADY HAPPENED. Correct it to: ISSUE-157 is
+              resolved, `PLAN-ISSUE-157` TASK-007 performed the `pack update` to 1.4.0,
+              and what remains for this issue is to confirm
+              `TestInstalledGoContractsPack_CarriesFilenameHeaderFix` is green, flip
+              `PLAN-ISSUE-166` to `completed`, and close via
+              `delivered_by: PLAN-ISSUE-166`.
+
+          ★ CONCURRENCY AND STALENESS GUARD — this task runs late, and PLAN-ISSUE-166 is
+            a LIVE lane that may move in the meantime. Before editing either file:
+              · re-read both passages; if that lane has already corrected them, record
+                that and change nothing.
+              · check `git status` on both paths and `PLAN-ISSUE-166`'s `status:` field.
+                If either file has uncommitted changes, or the plan has moved to
+                `implementing`/`completed`, or that lane appears mid-flight, DO NOT
+                write — hand the two corrections to the founder with the exact proposed
+                wording and say why you stopped. Racing another session's artifact write
+                is how committed work gets silently overwritten.
+            Correcting another lane's artifacts is in scope here ONLY because this plan
+            is what made them false. Do not expand beyond these two passages, and do not
+            touch PLAN-ISSUE-166's status, tasks, or claims.
+
+          ── THE STOPPED-LANE BRANCH ──────────────────────────────────────────────
+          If the founder declined the publish at TASK-004's STEP B, NONE of steps 1-3
+          apply: `PLAN-ISSUE-157` stays `draft`, ISSUE-157 stays `open` with the local
+          commit and the measured RED recorded in it, and the two ISSUE-166 passages are
+          NOT corrected — they are still true, because no `pack update` happened. Report
+          the lane as stopped-pending-authorization. Never dress a stopped lane as a
+          closed one, and never flip a status to make a validator quiet.
+        files:
+          - plans/PLAN-ISSUE-157-go-contracts-mirror-fixture-polarity.plan.yml
+          - issues/ISSUE-157-go-contracts-mirror-inverted-fixture-polarity.issue.md
+          - issues/ISSUE-166-contracts-pack-phase3-fixtures-fail-on-linux-ci.issue.md
+          - plans/PLAN-ISSUE-166-contracts-grep-convert-singlefile-filename.plan.yml
+        claims:
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-009
+
+      - id: TASK-011
+        type: verification
+        title: "Re-validate AFTER the artifact mutations: all four touched artifacts plus a re-scoped gate"
+        description: |
+          ★ WHY THIS TASK EXISTS, AND WHY TASK-009 DOES NOT COVER IT. TASK-009 runs the
+            kill chain BEFORE TASK-010 mutates any artifact, so its
+            `artifact validate --issue ISSUE-157` inspects the PRE-CLOSE state — an
+            still-`open` issue with no requirements, which passes trivially. That is
+            VACUOUS with respect to the close TASK-010 actually produces. The close was
+            measured to fail with 6 errors in its naive form, so validating the state
+            before it is precisely the wrong side of the change. PLAN-ISSUE-142 sets the
+            precedent: re-run artifact validation AFTER the artifacts change.
+            Because the gate is DIFF-SCOPED, skipping this would let this lane end green
+            locally while handing a RED `artifact_validation` to whoever touches the
+            repo next.
+
+          1. VALIDATE ALL FOUR TOUCHED ARTIFACTS, individually and by name:
+
+               ./bin/backstop artifact validate --plan  PLAN-ISSUE-157
+               ./bin/backstop artifact validate --issue ISSUE-157
+               ./bin/backstop artifact validate --plan  PLAN-ISSUE-166
+               ./bin/backstop artifact validate --issue ISSUE-166
+
+             All four must pass. Expect in particular that ISSUE-157 now carries
+             `issue.closed`, top-level `delivered_by: PLAN-ISSUE-157` and a
+             `## Resolution` section, and that PLAN-ISSUE-157 reads `status: completed`
+             — `delivered_by` re-validates the backing plan in full, so a plan that
+             stopped validating clean surfaces here as
+             `issue/delivered-by-plan-invalid` rather than as a plan-level error.
+
+             ★ IF `issue/delivered-by-plan-not-completed` APPEARS, the ordering inside
+               TASK-010 was inverted (issue closed before the plan flipped). Fix the
+               ORDER, never by removing `delivered_by` or by softening the close.
+
+          2. RE-SCOPED GATE over everything this lane changed, artifacts included:
+
+               ./bin/backstop gate
+
+             The `artifact_validation` and `status_drift` dimensions must both be clean
+             against the POST-mutation tree. `status_drift` is the one that reads a
+             `completed` plan's mandated tests as promises, so confirm
+             `TestInstalledGoContractsPack_FixturePolarityIsCorrect` is present AND
+             passing — a `completed` plan whose mandated test is absent or red is a
+             broken promise, and flipping the status in TASK-010 is what arms that
+             check.
+
+          3. INHERITED REDS: the sharp-edge-12 clause applies here unchanged (ISSUE-176,
+             ISSUE-177). Prove inheritance, name the owner, record — never waive, never
+             absorb.
+
+          IF THE LANE STOPPED at TASK-004's STEP B, this task validates the UNCHANGED
+          artifacts instead: ISSUE-157 still `open`, PLAN-ISSUE-157 still `draft`, both
+          ISSUE-166 artifacts untouched. That is a legitimate passing end state for a
+          stopped lane and must be reported as such, not as a completed one.
+        files:
+          - plans/PLAN-ISSUE-157-go-contracts-mirror-fixture-polarity.plan.yml
+          - issues/ISSUE-157-go-contracts-mirror-inverted-fixture-polarity.issue.md
+          - issues/ISSUE-166-contracts-pack-phase3-fixtures-fail-on-linux-ci.issue.md
+          - plans/PLAN-ISSUE-166-contracts-grep-convert-singlefile-filename.plan.yml
+        claims:
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-007
+          - TASK-010
+
