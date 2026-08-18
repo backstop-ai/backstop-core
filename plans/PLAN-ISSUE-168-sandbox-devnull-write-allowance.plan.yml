@@ -1,0 +1,1167 @@
+---
+plan_id: PLAN-ISSUE-168
+spec_id: ISSUE-168
+created: "2026-08-18"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./pkg/packval/ -run \"TestSandboxCapability_DevNull|TestSandboxCapability_HandlesWriteRightsAndGrantsNone|TestSandboxCapability_SystemPathsKeepInterpreterReadable|TestSandboxProfileGrantsDevNullWriteAndNothingElse|TestSandboxDarwin_DevNullIdiomRunsUnderTheRealProfile|TestSandboxSecurityDenialsHold|TestLinuxSandbox_DevNullWriteIsPermittedAndOtherWritesAreNot\" -race -count=1"
+coverage_threshold: 90
+
+notes: |
+  ISSUE-168 — neither sandbox profile grants write access to `/dev/null`, so the
+  universal POSIX idiom `command -v foo >/dev/null 2>&1` (and every `2>/dev/null`
+  noise-suppression) fails inside a sandboxed convert/validator script. On Linux it
+  fails LOUDLY AND WRONGLY: bash/dash report `cannot create /dev/null: Permission
+  denied` and exit 127, which reads as a broken converter rather than as a sandbox
+  decision.
+
+  THE GRANT IS SAFE AND THE ISSUE IS RIGHT ABOUT WHY. `/dev/null` is a write-only
+  sink: nothing persists, nothing leaks, nothing is corruptible. Granting write on it
+  and NOTHING else does not weaken either profile's actual security property. What
+  this plan must not do is reach that outcome by widening the write surface even
+  slightly further than that one inode.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  ★★ TWO HALVES, TWO DIFFERENT VERIFICATION CEILINGS — READ BEFORE PLANNING ANY
+     "PROVE IT" STEP ★★
+  ══════════════════════════════════════════════════════════════════════════════
+  This lane touches Linux-only AND darwin-only tagged code, and the two halves are
+  NOT equally provable on this machine. Conflating them is the single easiest way to
+  produce a false report here.
+
+  ── THE DARWIN HALF IS REALLY VERIFIABLE, LOCALLY, FOR REAL ────────────────────
+  `pkg/packval/sandbox_nonlinux.go` compiles here, `sandbox-exec` is present, and
+  `SandboxedRun`/`SandboxedRunStdout` drive the production profile on this host. So
+  the darwin half gets a REAL behavioural measurement, not a structural stand-in:
+  drive an actual `command -v jq >/dev/null 2>&1`-shaped script through the real
+  sandbox and read the result. TASK-002 and TASK-006 both require it. "I asserted the
+  profile string" is NOT a discharge of the darwin half.
+
+  ── THE LINUX HALF CANNOT BE EXECUTED HERE AT ALL ──────────────────────────────
+  `pkg/packval/sandbox_linux.go` and `sandbox_linux_helper.go` are `//go:build linux`;
+  on darwin they are not compiled, no Landlock ruleset is ever created, and no
+  trampoline re-exec happens. The ONLY local instruments for that half are:
+    (a) the PURE derivation — `DeriveSandboxRestrictions` and `narrowRuleToInodeType`
+        are untagged pure functions, deliberately so (their own docstrings say the
+        capability→spec derivation is kept portable precisely so it can be asserted
+        on the development machine). Everything this plan changes on the Linux side
+        is in that pure layer, which is why the Linux half is unusually well covered
+        locally FOR A LINUX FIX — but it is coverage of the ARITHMETIC, never of the
+        kernel's verdict.
+    (b) CROSS-COMPILATION, AND USE THE STRONGER INSTRUMENT:
+            GOOS=linux GOARCH=amd64 go build ./...
+            GOOS=linux GOARCH=amd64 go test -c -o /dev/null ./pkg/packval/
+        The second is a FULL COMPILE AND LINK of the package's test binary including
+        every `//go:build linux` test file — a sharper discriminator than
+        `GOOS=linux go vet`, which type-checks but does not link. It is also the
+        instrument PLAN-ISSUE-165 mandates for the same package on the same night, and
+        two same-package lanes reporting against the same instrument is what makes
+        their readings comparable. It matters concretely here: PLAN-ISSUE-165's
+        TASK-001 deliberately leaves this exact build non-compiling for a window
+        (sharp edge 7), so the instrument is also the attribution tool.
+  ── AND NO, DOCKER DOES NOT LIFT THIS CEILING (evidence already in the repo) ────
+  This host has `docker` on PATH (daemon not currently running), so an implementer
+  may reasonably think "spin up a Linux container and just run it." THE REPO ALREADY
+  RECORDS THAT THIS DOES NOT WORK. `pkg/packval/sandbox_capability_test.go`'s
+  `TestSandboxUnavailableMechanismIsLoudError` pins `const kernel =
+  "6.10.14-linuxkit"` — the Docker-Desktop-class kernel — and its docstring records
+  that ABI 0 / ENOSYS "is the LinuxKit case the 2026-07-27 spike hit";
+  ISSUE-163's own investigation independently confirmed that Docker Desktop's
+  linuxkit kernel lacks Landlock entirely. `resolveLandlockMechanism` REFUSES that
+  host loudly rather than degrading. So: do not spend time on it; and if you try it
+  anyway and hit `kernel 6.10.14-linuxkit ... does not provide Landlock` or `reports
+  Landlock ABI 0`, THAT IS THE KNOWN LINUXKIT LIMITATION AND THE REFUSAL PATH WORKING
+  AS DESIGNED — it is not a regression in this lane's fix and must not be reported as
+  one. A Linux host with a real (non-LinuxKit) kernel at ABI >= 1 would lift the
+  ceiling; nothing available here is one.
+  NO TASK MAY MANDATE "run the Linux test and watch it pass", and no report may claim
+  a local repro or a local fix-confirmation of the Landlock behaviour. That is false
+  grounding and is rejected in review. THE ACTUAL LINUX ANSWER COMES FROM CI:
+  `.github/workflows/ci.yml`, job `gate` (display name "Backstop Gate"),
+  `runs-on: ubuntu-latest`; blocking step `./bin/backstop gate --base "$BASE"`; the
+  step before it writes `gate-report.json`, uploaded as the `gate-report` artifact
+  with `if: always()`. TASK-008 owns that reading, exactly as PLAN-ISSUE-163's
+  TASK-005 does. ISSUE-168 STAYS OPEN until it exists.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  MEASURED AT AUTHORING (2026-08-18, this darwin host, live tree) — GROUNDING
+  ══════════════════════════════════════════════════════════════════════════════
+  Every design decision below rests on one of these readings, not on recollection.
+
+  (M1) SBPL HONOURS A SCOPED WRITE ALLOW ALONGSIDE A BLANKET DENY. Real
+       `sandbox-exec` probe, production-shaped profile (bsd.sb imported, deny
+       default, scoped file-read*, deny network*, deny file-write*) plus
+       `(allow file-write* (literal "/private/tmp/.../allowed.txt"))` appended AFTER
+       the deny:
+         touch <the literal>        -> exit 0, file created
+         touch <a sibling path>     -> "Operation not permitted", exit 1, not created
+       So the override is real AND it is narrow. The syntax
+       `(allow file-write* (literal "<path>"))` parses and works.
+  (M2) A MALFORMED CLAUSE IS LOUD, NOT SILENT. `sandbox-exec` on a profile with a
+       bogus operation name exits 65 with `unbound variable: ... at <input string>,
+       line 1, column 33`. A typo in the new clause therefore fails every sandboxed
+       run visibly; it cannot silently widen or silently no-op.
+  (M3) ORDERING: the same allow placed BEFORE the deny also worked in a probe. The
+       plan still mandates AFTER, because that is the arrangement measured in the
+       PRODUCTION-shaped profile (M1) and because last-match-wins is the documented
+       Seatbelt evaluation order. Do not read M3 as licence to move it.
+  (M4) DARWIN ALREADY PERMITS /dev/null WRITES UNDER THE CURRENT, UNFIXED PROFILE.
+       Running the exact current profile literal (no carve-out) through real
+       `sandbox-exec`: `command -v jq >/dev/null 2>&1; echo IDIOM_OK` -> exit 0,
+       IDIOM_OK printed; and under that same profile `echo x > <a temp file>` ->
+       "Operation not permitted", file not created. This CONFIRMS the issue's
+       empirical finding and has a sharp consequence for how the darwin tests are
+       classified — see "THE DARWIN RED IS STRUCTURAL, NOT BEHAVIOURAL" below.
+       ── AND THE PROPERTY IS GENERAL, NOT /dev/null-SPECIFIC: writes to `/dev/zero`
+       also succeed under BOTH the fixed and the unfixed darwin profile. Seatbelt is
+       evidently permissive about DEVICE NODES as a class, not about this one inode.
+       Recorded so a future reader does not mistake it for a hole this lane opened,
+       and does not read it as licence to widen scope: this lane grants exactly ONE
+       literal on each platform, and the Linux side — where the enforcement is
+       literal — grants nothing else regardless of what darwin tolerates.
+  (M5) `pkg/packval` IS GREEN ON THIS HOST TODAY: `go test ./pkg/packval/ -count=1`
+       -> `ok ... 69.948s`. That is the control reading for TASK-006; a red after the
+       edit is this lane's unless proven otherwise.
+  (M6) THE LINUX CROSS-TARGET IS CLEAN TODAY, ON BOTH INSTRUMENTS:
+       `GOOS=linux GOARCH=amd64 go build ./...` -> exit 0;
+       `GOOS=linux GOARCH=amd64 go vet ./pkg/packval/` -> exit 0;
+       `GOOS=linux GOARCH=amd64 go test -c -o /dev/null ./pkg/packval/` -> exit 0.
+       The THIRD is the one this plan mandates (see ceiling (b)) because it compiles
+       AND LINKS every `//go:build linux` test file; the other two are recorded so a
+       later reader knows all three were green before this lane touched anything.
+  (M7) ★ THE ISSUE'S READING OF THE SECOND FAILING TEST IS PROBABLY WRONG, AND THIS
+       WAS MEASURED. See "THE PREMISE CORRECTION" below — it is load-bearing for
+       TASK-008 and for what this lane may claim.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  THE PREMISE CORRECTION (M7) — DO NOT DROP THIS
+  ══════════════════════════════════════════════════════════════════════════════
+  ISSUE-168 states that the `/dev/null` denials visible in
+  `TestLinuxSandbox_NetworkAllowedControlLegSucceeds`'s output are a real instance of
+  this defect but are "NOT what makes this particular test fail" — that its actual
+  failure is TCP and UDP both being blocked under a capability that PERMITS the
+  network. Reading the probe makes that doubtful.
+
+  `networkProbeBody` (`pkg/packval/sandbox_linux_exec_test.go`) emits:
+
+      if (exec 3<>/dev/tcp/127.0.0.1/%d) 2>/dev/null; then echo TCP_OPEN; else echo TCP_BLOCKED; fi
+      if (exec 4<>/dev/udp/127.0.0.1/%d) 2>/dev/null; then echo UDP_OPEN; else echo UDP_BLOCKED; fi
+
+  The `2>/dev/null` is attached to the `if` CONDITION. A shell performs a command's
+  redirections BEFORE running it, so if `/dev/null` cannot be opened for write the
+  subshell never attempts the socket at all, exits non-zero, and the `else` branch
+  prints ..._BLOCKED. MEASURED LOCALLY, PLATFORM-INDEPENDENTLY (real bash, an open
+  loopback port, one leg redirecting to `/dev/null` and one to an unopenable path):
+
+      A_OPEN            <- redirect target writable: the socket really opened
+      B_BLOCKED         <- SAME port, redirect target unopenable
+      PROBE_COMPLETED
+      stderr: line 5: /no-such-dir/x: No such file or directory
+
+  That is byte-for-byte the shape of the CI output ISSUE-168 quotes: the denial
+  message on the original stderr, immediately followed by the _BLOCKED marker. So the
+  most likely truth is that BOTH failing tests are ISSUE-168, and the control leg's
+  TCP_BLOCKED/UDP_BLOCKED are an ARTEFACT of the `/dev/null` denial rather than
+  evidence of a network-permission defect.
+
+  ★ THIS IS A HYPOTHESIS WITH LOCAL MECHANISM EVIDENCE, NOT A FACT ABOUT THE CI RUN.
+  A genuine network defect could ALSO be present and simply masked. So:
+    * this lane does NOT claim to fix the control-leg test;
+    * TASK-008 reads the CI run and DECIDES: control leg green -> ISSUE-168 fixed
+      both, no residual to file, and say so; control leg still red with the
+      `/dev/null` stderr lines GONE -> a genuine, now-unmasked network defect, which
+      is filed as its own issue with the newly-clean evidence;
+    * TASK-008 routes a correction of this premise into BOTH artifacts that currently
+      carry it, because the issue is not the only place it lives:
+        - `issues/ISSUE-168-...` — its own text asserts the distinction "matters for
+          whoever fixes the network-blocking failure separately", and it may not exist.
+        - `directives/DIR-024-gate-engine-quality.directive.md` — VERIFIED AT
+          AUTHORING, it states verbatim: "the `/dev/null` denials are NOT what makes
+          `TestLinuxSandbox_NetworkAllowedControlLegSucceeds` fail ... Its
+          network-blocking failure is a separate, still-unfiled defect; only the
+          `/dev/null` denials belong to ISSUE-168."
+      ★ DIR-024 IS THE ONE THAT MATTERS MOST. It is the committed BACKLOG layer a
+      future session reads FIRST — before any individual issue — so leaving it stale
+      defeats the entire purpose of correcting the issue: someone would still be sent
+      after a defect that may not exist, just via a different door. Correcting only
+      ISSUE-168 is a half-discharge, and TASK-008 is failed by it.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  THE LINUX FIX, EXACTLY — AND WHY IT IS SHAPED THIS WAY
+  ══════════════════════════════════════════════════════════════════════════════
+  FILE: `pkg/packval/sandbox_capability.go` (untagged, pure, compiles everywhere).
+
+  (L1) A package-level CONST for the path and a named rights helper:
+
+         const sandboxDevNullPath = "/dev/null"
+
+         func landlockDevNullRights() uint64 {
+             return AccessFSReadFile | AccessFSWriteFile | AccessFSTruncate | AccessFSIoctlDev
+         }
+
+       A `const` string, NOT a `var` and NOT a slice — the file's own convention
+       (`linuxSystemReadPaths`, `seccompDeniedSyscalls` are functions specifically to
+       avoid mutable package state a caller could widen). A const string cannot be
+       mutated, so it is the right shape here.
+
+  (L2) In `DeriveSandboxRestrictions`, AFTER the readable and writable loops, append
+       exactly one rule:
+
+         rules = append(rules, SandboxPathRule{
+             Path:          sandboxDevNullPath,
+             AllowedAccess: narrowToABI(landlockDevNullRights(), capability.LandlockABI),
+             Required:      true,
+         })
+
+       and grow the `make(..., 0, N)` capacity hint by one.
+
+  (L3) WHY IN `DeriveSandboxRestrictions` AND NOT IN `ConvertValidatorCapability`.
+       Two candidate shapes were considered; this one is chosen deliberately.
+         * REJECTED: `WritablePaths: []string{"/dev/null"}`. The generic writable loop
+           grants `landlockReadRights()|landlockWriteRights()|AccessFSTruncate` — i.e.
+           MAKE_REG, MAKE_DIR, MAKE_SYM, REMOVE_FILE, READ_DIR and the rest. Those are
+           inert on a character device ONLY because `narrowRuleToInodeType` strips them
+           at install time on the Linux host. The DERIVED DATA would still claim them,
+           and the derived data is exactly what every darwin-side test in this package
+           reads. A spec that says "you may create directories under /dev/null" is a
+           lie in the one artefact this mechanism can be reviewed through.
+         * CHOSEN: an explicit rule with an exact mask, emitted for EVERY capability.
+           The rationale for the grant (a universally safe sink) is universal, so it is
+           a FLOOR of the mechanism rather than a property of one capability — which is
+           also the exact parity of the darwin side, where the profile literal is
+           unconditional and not derived from the struct at all. It keeps
+           `WritablePaths` meaning what its docstring says: paths the POLICY grants.
+       The `WritablePaths` docstring must be amended to say this explicitly, so the
+       next reader does not "restore parity" by deleting the rule.
+
+  (L4) WHY THESE FOUR RIGHTS, EACH ONE ON PURPOSE.
+       * WRITE_FILE — the point.
+       * TRUNCATE — REQUIRED, not decoration. The shell's `>` opens with O_TRUNC, and
+         Landlock gained a TRUNCATE right at ABI 3 which is HANDLED by this
+         mechanism's mask. Granting WRITE_FILE alone risks the redirect still being
+         refused on exactly the modern kernels CI runs (ubuntu-latest reports ABI 4+).
+         Whether the kernel actually demands it for a character device is
+         version-dependent; granting it costs nothing on a sink that discards data,
+         and NOT granting it risks shipping a fix that does not fix anything.
+       * IOCTL_DEV — `/dev/null` IS a character device, and IOCTL_DEV (ABI 5) is in
+         the handled mask. Programs routinely `isatty()`/`TCGETS` a redirected fd; an
+         un-granted ioctl on an ABI-5 kernel returns EACCES. Inert on /dev/null,
+         cheap, and it removes a whole class of future ABI-5-only breakage.
+       * READ_FILE — `</dev/null` (feeding a command empty stdin) is the same idiom
+         family and is just as safe. Granting read on the null device grants access to
+         nothing.
+       EXECUTE is deliberately absent: the mechanism leaves EXECUTE UNHANDLED, and
+       `TestSandboxCapability_SystemPathsKeepInterpreterReadable` asserts no rule
+       grants it back. Do not add it.
+
+  (L5) CHARACTER-DEVICE CORRECTNESS — THE PART THAT COULD SILENTLY TAKE THE WHOLE
+       SANDBOX DOWN. `landlock_add_rule` rejects a `path_beneath` rule carrying a
+       directory-only right against a non-directory, and ONE rejected rule aborts the
+       ENTIRE restriction install — CI run 30383453888 is this repo's recorded
+       instance (mask 0xc against the regular file `/etc/ld.so.cache`). The four
+       rights in (L4) are all in Landlock's file-applicable class, and this repo's
+       `landlockDirectoryOnlyRights()` contains none of them, so
+       `narrowRuleToInodeType(mask, false)` returns the mask UNCHANGED and the kernel
+       cannot EINVAL on it. THE EXISTING NARROWING LOGIC NEEDS NO CHANGE — a character
+       device is simply "not a directory" to `applyLandlock`'s `Fstat` test
+       (`stat.Mode&unix.S_IFMT == unix.S_IFDIR`), which is already correct for
+       S_IFCHR. CLM-003's test pins that as an intentional property rather than an
+       accident, because the accident is what aborts the install.
+
+  (L6) `Required: true`, ON PURPOSE. A host with no `/dev/null` then REFUSES loudly
+       ("open required sandbox path /dev/null: ...") instead of silently reproducing
+       this exact defect. Loud over silent is this repo's standing posture, and
+       `/dev/null` is present on every Linux system that can run a shell at all. The
+       choice is pinned by a test so a later reader flips it deliberately, not idly.
+
+  (L7) LANDLOCK HAS NO RULE PRECEDENCE — DO NOT MIRROR THE DARWIN ORDERING RULE HERE.
+       Landlock denies via the handled mask and grants via rules; rules union, there
+       is no "deny rule" and no last-match-wins. Position of the appended rule in the
+       slice is irrelevant to the kernel. It is appended last only for readability.
+       (Contrast the darwin side, where ordering IS mandated — see D2.)
+
+  ══════════════════════════════════════════════════════════════════════════════
+  THE DARWIN FIX, EXACTLY
+  ══════════════════════════════════════════════════════════════════════════════
+  FILE: `pkg/packval/sandbox_nonlinux.go`, `darwinSandboxProfile`.
+
+  (D1) The `fmt.Sprintf` format string becomes, with the new clause APPENDED AT THE
+       VERY END (the rest byte-identical):
+
+         "(version 1)(import \"bsd.sb\")(deny default)(allow process*)(allow file-read*%s)(deny network*)(deny file-write*)(allow file-write* (literal \"/dev/null\"))"
+
+  (D2) ORDER IS MANDATED: after `(deny file-write*)`. Verified in the
+       production-shaped profile (M1); last-match-wins is Seatbelt's documented
+       evaluation order. M3 found the reverse order also worked in a probe — that is
+       recorded so nobody re-derives it, NOT as permission to move the clause.
+
+  (D3) `literal`, NOT `subpath`. `(subpath "/dev")` would grant write to every device
+       node — a genuine widening. `/dev/null` is not a symlink on macOS, so unlike
+       `packDir` it needs no `EvalSymlinks` treatment; M1/M4 confirm a bare literal
+       matches.
+
+  (D4) ★ THE DARWIN RED IS STRUCTURAL, NOT BEHAVIOURAL — SAY SO, DO NOT DRESS IT UP.
+       M4 measured that darwin ALREADY permits `/dev/null` writes under the unfixed
+       profile, as an emergent Seatbelt property that the profile text never states.
+       So a behavioural darwin test asserting "the idiom succeeds" IS GREEN BEFORE THE
+       FIX. It is a REGRESSION LOCK — it goes red if a future macOS tightens Seatbelt,
+       or if someone removes the clause believing it was decorative — and it is the
+       real local measurement this lane owes the darwin half. It is NOT a red→green.
+       The darwin RED that genuinely flips is the PROFILE-LITERAL pin (CLM-006).
+       A report describing the behavioural darwin test as the red phase is wrong and
+       must be corrected in review.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  BLAST RADIUS ON THE EXISTING SUITE — MEASURED BY READING, NOT GUESSED
+  ══════════════════════════════════════════════════════════════════════════════
+  Adding a rule to the derived spec touches two shipped tests and NO others. Both
+  were checked line by line at authoring:
+
+   1. `TestSandboxCapability_HandlesWriteRightsAndGrantsNone`
+      (`pkg/packval/sandbox_capability_test.go`) — WILL RED. It loops every derived
+      rule and fails if ANY grants ANY write right. Its body must be amended (CLM-002).
+      ★ THE NAME MUST SURVIVE. `plans/PLAN-ISSUE-020-linux-sandbox-gate-in-ci.plan.yml`
+      is `completed` and names this test verbatim; a `completed` plan blocks as a
+      broken promise on an absent mandated test. Rewrite the BODY, never the name,
+      and never delete it.
+   2. `TestSandboxCapability_SystemPathsKeepInterpreterReadable` — WILL RED. It treats
+      every non-`/tmp/packdir` rule as a system read path and requires READ_DIR on it.
+      The `/dev/null` rule deliberately has no READ_DIR (directory-only, and it is not
+      a directory). Its loop must skip the `/dev/null` rule EXPLICITLY, with a comment
+      saying why. Same name-survival rule.
+
+  CHECKED AND UNAFFECTED, so nobody re-derives it:
+   * `TestSandboxCapability_ReadRulesCoverPackDirOnly` — `/dev/null` is not an ancestor
+     of packDir and does not match its `/home/` project-path check.
+   * `TestSandboxCapability_AddedReadablePathAddsPathBeneathRule` — asserts a DELTA of
+     one rule between two derivations; both now carry the `/dev/null` rule.
+   * `TestSandboxCapability_AbiMaskNarrowsToRunningKernel` — reads the handled mask
+     only, which this change does not touch.
+   * `TestNarrowRuleToInodeType_*` and
+     `TestConvertValidatorCapability_ReadableSetContainsRegularFiles`
+     (`sandbox_rights_test.go`) — all iterate `capability.ReadablePaths`, which this
+     change does not touch.
+   * `TestLinuxSandbox_WriteInsidePackDirIsDenied` — packDir writes stay denied; this
+     test is a load-bearing negative control for CLM-002 and must stay green in CI.
+   * `TestSandboxSecurityDenialsHold` / `TestSandboxDeniesFileWrite` (darwin) — assert
+     an ORDINARY write is refused; M4 confirms that still holds with the carve-out.
+   * `TestSandboxProfileAllowsDyldLibraries` (`sandbox_darwin_test.go`) — asserts
+     `(deny file-write*)` is still PRESENT (it is — the clause is appended, not
+     replaced) and that no BLANKET `(allow file-read*)` exists. The new clause is
+     `(allow file-write* (literal ...))`, which does not contain the substring
+     `(allow file-write*)` including its closing paren, so a mirrored blanket-guard
+     assertion is safe to add.
+
+  ── SCOPE FENCES ────────────────────────────────────────────────────────────────
+  IN:  `pkg/packval/sandbox_capability.go`      (the Linux derivation + its docstring)
+       `pkg/packval/sandbox_nonlinux.go`        (the darwin profile literal)
+       `pkg/packval/sandbox_devnull_test.go`    (NEW, untagged, derivation pins)
+       `pkg/packval/sandbox_capability_test.go` (the two amended tests, bodies only)
+       `pkg/packval/sandbox_darwin_test.go`     (darwin pins: literal + real behaviour)
+       `pkg/packval/sandbox_linux_exec_test.go` (the linux-tagged behavioural leg)
+  OUT: `pkg/packval/sandbox_linux_helper.go` — `applyLandlock` and
+       `narrowRuleToInodeType`'s call site are ALREADY correct for a character device
+       (L5). Read them; do not edit them. Editing this file also moves code across a
+       COVERAGE-EXCLUSION boundary the file header explicitly forbids widening.
+  OUT: `pkg/packval/sandbox_linux.go` — untouched, and it belongs to PLAN-ISSUE-165
+       tonight.
+  OUT: `pkg/packval/sandbox_linux_errors_test.go` — PLAN-ISSUE-165's file.
+  OUT: `pkg/packval/testdata/sandbox/convert-jq.sh` — the fixture is CORRECT AS IT
+       STANDS. Its `command -v jq >/dev/null 2>&1` on line 14 is the real-world idiom
+       this fix exists to support; "fixing" the fixture to avoid `/dev/null` would
+       delete the reproducer and hide the defect. DO NOT TOUCH IT.
+  OUT: the network-permission question in
+       `TestLinuxSandbox_NetworkAllowedControlLegSucceeds` — surfaced and adjudicated
+       by TASK-008 against real CI output, never fixed here.
+  OUT: `.github/workflows/ci.yml` — CI is already shaped to catch this.
+
+  ── CLAIM LEDGER (ISSUE-168 carries no CLM ids; this lane defines them) ─────────
+    CLM-001  LINUX GRANT, NARROW BY CONSTRUCTION: `DeriveSandboxRestrictions` emits
+             EXACTLY ONE path rule for `/dev/null`, for every capability, granting
+             exactly READ_FILE|WRITE_FILE|TRUNCATE|IOCTL_DEV narrowed to the running
+             ABI — and no MAKE_*, REMOVE_*, READ_DIR, REFER or EXECUTE bit.
+    CLM-002  NO WIDENING ANYWHERE ELSE: `/dev/null` is the ONLY rule carrying a write
+             right; `ConvertValidatorCapability.WritablePaths` stays nil; writes
+             inside packDir stay denied on both platforms.
+    CLM-003  CHARACTER-DEVICE CORRECTNESS: every right in the grant is
+             file-applicable, so `narrowRuleToInodeType(mask, false)` returns it
+             UNCHANGED and `landlock_add_rule` cannot reject the rule — the rejection
+             that aborts the entire install (run 30383453888). Pinned as an intended
+             property, not left to accident.
+    CLM-004  ABI NARROWING HOLDS FOR THE NEW GRANT: TRUNCATE (ABI 3) and IOCTL_DEV
+             (ABI 5) are dropped by `narrowToABI` on older kernels, so the rule cannot
+             carry a right the running kernel does not know; WRITE_FILE and READ_FILE
+             survive at every ABI including 1.
+    CLM-005  MISSING `/dev/null` IS LOUD: the rule is `Required`, so a host without it
+             refuses with a named path rather than silently re-creating this defect.
+    CLM-006  DARWIN PROFILE PARITY, STRUCTURALLY: the profile literal carries
+             `(allow file-write* (literal "/dev/null"))` positioned AFTER
+             `(deny file-write*)`; the blanket deny survives and no blanket
+             `(allow file-write*)` appears.
+    CLM-007  DARWIN BEHAVIOUR, REALLY MEASURED ON THIS HOST: the idiom runs through
+             the production `sandbox-exec` path and succeeds, while an ordinary file
+             write under the same profile is still refused. Classified honestly as a
+             REGRESSION LOCK (M4/D4), not as a red→green.
+    CLM-008  THE CEILING IS RECORDED AND THE CI HANDOFF IS DISCHARGED: the Linux half
+             is unverifiable locally; confirmation is a read of the ubuntu-latest
+             `gate` job and its `gate-report` artifact; ISSUE-168 stays open until
+             that read exists; and the premise correction (M7) plus any residual
+             network defect are routed into BOTH artifacts that carry the premise,
+             through their OWN channels — `issues/ISSUE-168-...` via `/issue`, and
+             `directives/DIR-024-gate-engine-quality.directive.md` via the
+             directive-owning backlog-pm lane (never hand-edited, and coordinated
+             rather than written over its uncommitted state). CORRECTING ONLY
+             ISSUE-168 DOES NOT DISCHARGE THIS CLAIM: DIR-024 is the committed backlog
+             layer a future session reads first, so a stale DIR-024 keeps the
+             misdirection fully operative through the door people actually use.
+
+  ── SHARP EDGES ─────────────────────────────────────────────────────────────────
+   1. NEVER CLAIM A LOCAL LINUX REPRO OR FIX-CONFIRMATION. `sandbox_linux*.go` do not
+      compile here. Cross-compile + pure-derivation tests are the ceiling (see the
+      ceiling section). A report saying "the Landlock rule now works" is false
+      grounding.
+   2. THE DARWIN BEHAVIOURAL TEST IS GREEN BEFORE THE FIX (M4). Do not present it as
+      the red phase, and do not "make it red" by weakening the profile first.
+   3. DO NOT RENAME OR DELETE
+      `TestSandboxCapability_HandlesWriteRightsAndGrantsNone` or
+      `TestSandboxCapability_SystemPathsKeepInterpreterReadable`. Both are named by
+      the `completed` PLAN-ISSUE-020, where an absent mandated test blocks as a broken
+      promise. Rewrite bodies only.
+   4. DO NOT PUT `/dev/null` IN `ReadablePaths` OR `WritablePaths`. The first emits a
+      SECOND, read-shaped rule for the same inode and reds
+      `TestSandboxCapability_SystemPathsKeepInterpreterReadable` on READ_DIR; the
+      second grants a mask this lane deliberately refuses (L3).
+   5. DO NOT TOUCH `narrowRuleToInodeType` OR `landlockDirectoryOnlyRights()`. They
+      are already correct for a character device (L5). Changing either to "handle
+      devices" would alter every rule in the mechanism to fix a problem that does not
+      exist.
+   6. THE DARWIN CLAUSE GOES AFTER `(deny file-write*)` (D2), and it is `literal`,
+      never `subpath` (D3). A `subpath "/dev"` grants write to every device node.
+   7. SHARED TREE, LIVE SIBLING LANES — enumerated at authoring, not sampled. Command:
+      `for f in plans/*.plan.yml; do grep -l "pkg/packval/sandbox" ...; done` over all
+      plans plus their `status:` — the non-`completed` plans naming a
+      `pkg/packval/sandbox*` file are EXACTLY TWO besides this one:
+        * PLAN-ISSUE-165 (`draft`, authored tonight) — files
+          `pkg/packval/sandbox_wiring_guard_test.go` (new) and
+          `pkg/packval/sandbox_linux_errors_test.go`. Its own sharp edge 11 fences
+          THIS lane's files out explicitly; the two file sets are disjoint.
+        * PLAN-ISSUE-163 (`draft`) — `cmd/backstop/**` only.
+      ★ PLAN-ISSUE-165's TASK-001 DELIBERATELY LEAVES `pkg/packval`'s TEST BUILD
+      NON-COMPILING for a window (its sharp edge 12). If a `pkg/packval` build error
+      names `probeABI` or `sandbox_linux_errors_test.go`, IT IS THAT LANE — attribute
+      it by name, do not absorb it, do not "fix" it. Never bare `git stash` (it sweeps
+      their uncommitted edits); do not run the full package suite or `gate --all`
+      while they are mid-flight.
+   8. LOCATE EDIT SITES BY NAME, NEVER BY LINE NUMBER. Line numbers in
+      `sandbox_capability.go`, `sandbox_capability_test.go` and
+      `sandbox_linux_exec_test.go` have moved repeatedly across tonight's lanes. Find
+      `func DeriveSandboxRestrictions`, `func darwinSandboxProfile`, and the two named
+      tests by their declarations.
+   9. NEW TEST FUNCTIONS ARE NOT EXEMPT FROM THE SUBSTANTIVENESS RULE. Give every one
+      real, discriminating assertions and legible failure messages naming the mask in
+      hex — a test that prints "mismatch" teaches nothing at 3am in CI.
+  10. `pkg/packval` CARRIES A COVERAGE FLOOR OF 90 AND `sandbox_linux_helper.go` IS
+      PACK-EXCLUDED FROM MEASUREMENT. Everything this lane adds to production code is
+      in MEASURED files (`sandbox_capability.go`, `sandbox_nonlinux.go`) and is
+      covered by the new pure/darwin tests. Do not "solve" a coverage finding by
+      moving code into the excluded file — its header forbids exactly that.
+  11. THE PACKAGE SUITE TAKES ~70s (M5). Budget for it; do not substitute a narrower
+      `-run` filter and describe it as the suite.
+  12. INFORMATIONAL, FLAG DO NOT FIX: the `completed` PLAN-ISSUE-020's prose describes
+      the derivation as one where "no path_beneath rule grants any of them" (the write
+      family). After this lane that sentence is stale as PROSE in a terminal artifact.
+      Do NOT rewrite a completed plan to keep its narrative tidy — its mandated TEST
+      NAMES are the enforced surface and they all survive (sharp edge 3). Mention the
+      staleness in the final report so the founder can decide whether it is worth a
+      routed touch; do not decide that here.
+  13. INFORMATIONAL, FOR WHOEVER PLANS ISSUE-147 NEXT: ISSUE-147
+      (`darwin-sandbox-relative-packdir-exit71`) will eventually also edit
+      `pkg/packval/sandbox_nonlinux.go`. IT HAS NO PLAN TODAY, so there is no collision
+      now — checked at authoring against every non-`completed` plan naming a
+      `pkg/packval/sandbox*` file (sharp edge 7's enumeration). Recorded so that lane's
+      author knows this lane touched the profile literal first.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Phase 1: RED — three independent pin sets, disjoint files, fully parallel
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: RED — pin the narrow grant (derivation), the darwin profile, and the Linux behaviour"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Pin the /dev/null grant in the PURE derivation, and amend the two shipped tests the grant reds (RED)"
+        description: |
+          The derivation is untagged and pure, so this is the one part of the LINUX fix
+          that is genuinely falsifiable on this machine. Everything here must run and be
+          read on darwin.
+
+          ── (A) NEW FILE `pkg/packval/sandbox_devnull_test.go`, `package packval`, NO
+          BUILD TAG. Reuse the existing helpers in `sandbox_capability_test.go`
+          (`convertCapabilityForTest`, `findPathRule`) rather than re-deriving them —
+          same package, same file set.
+
+          TestSandboxCapability_DevNullCarriesANarrowWriteGrant (CLM-001, CLM-002).
+            Derive at ABI 7 from the convert/validator capability. Assert:
+              * `findPathRule(spec, "/dev/null")` FINDS a rule — and assert exactly ONE
+                rule has that path (walk the slice and count); a duplicate would mean
+                someone also added it to a path list (sharp edge 4).
+              * its `AllowedAccess` EQUALS
+                `AccessFSReadFile|AccessFSWriteFile|AccessFSTruncate|AccessFSIoctlDev` —
+                an EQUALITY assertion, not a bitwise-contains one. Containment would
+                pass a mask that also carried MAKE_DIR, which is the exact over-grant
+                this lane refuses (L3). Print both masks in hex on failure.
+              * `Required` is true (CLM-005), with the failure message explaining that a
+                non-required rule silently reproduces ISSUE-168 on a host without
+                `/dev/null`.
+              * NO OTHER derived rule carries any bit of `landlockWriteRights()` or
+                `AccessFSTruncate` — the anti-widening half (CLM-002). Name the
+                offending rule and right in the message.
+            PRE-FIX STATE: fails at the first assertion; there is no such rule today.
+
+          TestSandboxCapability_DevNullGrantIsCharDeviceSafe (CLM-003).
+            THE ONE THAT PREVENTS A WHOLE-INSTALL ABORT. `/dev/null` is S_IFCHR, so
+            `applyLandlock` computes `isDir == false` for it and passes the rule's mask
+            through `narrowRuleToInodeType`. Assert:
+              * `narrowRuleToInodeType(rule.AllowedAccess, false)` EQUALS
+                `rule.AllowedAccess` — the mask survives non-directory narrowing intact;
+              * `rule.AllowedAccess & landlockDirectoryOnlyRights() == 0` — stated as the
+                REASON the line above holds, so a future reader sees the mechanism and
+                not a coincidence.
+            Comment the stakes in the test: `landlock_add_rule` rejects a directory-only
+            right against a non-directory with EINVAL, and ONE rejected rule aborts the
+            ENTIRE restriction install — this repo's recorded instance is CI run
+            30383453888, mask 0xc against `/etc/ld.so.cache`. That is why the grant is
+            checked against the classification rather than eyeballed.
+
+          TestSandboxCapability_DevNullGrantNarrowsWithTheRunningABI (CLM-004).
+            Derive at ABI 1, 3 and 7 and assert on the `/dev/null` rule at each:
+              * ABI 1: WRITE_FILE and READ_FILE PRESENT; TRUNCATE (ABI 3) and IOCTL_DEV
+                (ABI 5) ABSENT.
+              * ABI 3: TRUNCATE present, IOCTL_DEV absent.
+              * ABI 7: both present.
+            Say why in a comment: `landlock_create_ruleset` returns EINVAL for a right
+            the kernel does not recognise, so an un-narrowed grant does not degrade — it
+            fails the whole ruleset creation on Ubuntu 22.04 (kernel 5.15 = ABI 1).
+
+          TestSandboxCapability_DevNullGrantIsIndependentOfTheCapabilityFields (CLM-001).
+            The grant is a FLOOR of the mechanism, not a property of one capability
+            (L3). Derive from at least: the default convert/validator capability; the
+            same with `Network = true`; and a hand-built capability with empty
+            `ReadablePaths`, empty `WritablePaths` and an empty `PackDir`. The
+            `/dev/null` rule must be present with the identical mask in every one.
+            PRE-FIX STATE: fails on all three.
+
+          ── (B) AMEND, IN `pkg/packval/sandbox_capability_test.go`, EXACTLY TWO TEST
+          BODIES. Names stay byte-identical (sharp edge 3) — both are named by the
+          `completed` PLAN-ISSUE-020 and an absent mandated test blocks as a broken
+          promise.
+
+          TestSandboxCapability_HandlesWriteRightsAndGrantsNone (CLM-002).
+            Its "no rule may grant a write right" loop must now EXEMPT the `/dev/null`
+            rule — and exempt it BY PATH, precisely, never by loosening the assertion.
+            Keep the handled-mask half exactly as it is. Extend the docstring (do not
+            replace it) with: the write family is still HANDLED and still granted
+            NOWHERE except the null device, which is a sink that cannot leak or persist
+            anything; ISSUE-168 is the reason; and the narrow shape of that one
+            exemption is asserted by
+            `TestSandboxCapability_DevNullCarriesANarrowWriteGrant`. Point at it by name
+            so the exemption is never widened here where nothing checks its shape.
+            PRE-FIX STATE: with the exemption in place this test PASSES before and after
+            the fix — it is an anti-widening guard, not a red. Say so in the report
+            rather than implying a red.
+
+          TestSandboxCapability_SystemPathsKeepInterpreterReadable (CLM-002).
+            Its loop treats every non-`/tmp/packdir` rule as a system READ path and
+            requires READ_DIR. Skip the `/dev/null` rule explicitly (`continue` on the
+            path), with a comment: it is a character device, READ_DIR is directory-only
+            and is deliberately absent, and the rule's real shape is asserted in
+            `sandbox_devnull_test.go`. Leave the `systemRules == 0` anti-vacuous guard
+            and the EXECUTE assertions untouched — the new rule grants no EXECUTE, so
+            those still hold and still mean what they say.
+
+          RUN THE FILE AND RECORD THE ACTUAL FAILURE OUTPUT before TASK-004 — "it should
+          fail" is not evidence:
+            go test ./pkg/packval/ -run "TestSandboxCapability_" -count=1
+        files:
+          - pkg/packval/sandbox_devnull_test.go
+          - pkg/packval/sandbox_capability_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+        depends_on: []
+        test_names:
+          - TestSandboxCapability_DevNullCarriesANarrowWriteGrant
+          - TestSandboxCapability_DevNullGrantIsCharDeviceSafe
+          - TestSandboxCapability_DevNullGrantNarrowsWithTheRunningABI
+          - TestSandboxCapability_DevNullGrantIsIndependentOfTheCapabilityFields
+
+      - id: TASK-002
+        type: test
+        title: "Pin the darwin profile literal (the real RED) and measure the idiom through real sandbox-exec on this host"
+        description: |
+          Both tests go in `pkg/packval/sandbox_darwin_test.go` (`//go:build darwin`,
+          already exists). That file's build tag IS the platform guard — new tests there
+          need no `runtime.GOOS` check. LEAVE `TestSandboxProfileAllowsDyldLibraries`
+          BYTE-IDENTICAL, including its now-redundant `runtime.GOOS` guard: its
+          docstring records that CLM-016 requires it unmodified.
+
+          TestSandboxProfileGrantsDevNullWriteAndNothingElse (CLM-006).
+            ★ THIS IS THE ACTUAL DARWIN RED — the one assertion that is false before the
+            fix and true after. Build the profile via `darwinSandboxProfile` on a
+            symlink-resolved temp packDir (`mustEvalSymlinks`, untagged helper in
+            `sandbox_realconvert_test.go`) and assert:
+              * it CONTAINS `(allow file-write* (literal "/dev/null"))`;
+              * it STILL CONTAINS `(deny file-write*)` — the carve-out is an addition,
+                never a replacement;
+              * ORDERING: `strings.Index` of the allow clause is GREATER than
+                `strings.Index` of `(deny file-write*)`. Comment why (D2/M1/M3): Seatbelt
+                evaluates last-match-wins, this is the arrangement measured working in a
+                production-shaped profile, and the reverse order — although it also
+                worked in an authoring probe — is not what this profile ships;
+              * NO BLANKET `(allow file-write*)` appears — mirror the existing blanket
+                `(allow file-read*)` guard in this file. Note in a comment that the new
+                clause does not contain that substring (the closing paren differs), so
+                the guard is not self-defeating;
+              * `(subpath "/dev")` does NOT appear anywhere — the carve-out is one inode,
+                not a device tree (D3).
+            PRE-FIX STATE: fails on the first assertion.
+
+          TestSandboxDarwin_DevNullIdiomRunsUnderTheRealProfile (CLM-007, CLM-002).
+            THE REAL LOCAL MEASUREMENT THE DARWIN HALF OWES — production path, real
+            `sandbox-exec`, no stub. Write a script into a symlink-resolved temp packDir
+            shaped exactly like the fixture's line 14 idiom, e.g.
+
+                #!/bin/sh
+                if command -v jq >/dev/null 2>&1; then echo IDIOM_OK; else echo IDIOM_OK_NO_JQ; fi
+                echo probe > /dev/null 2>&1
+                echo DEVNULL_PROBE_COMPLETED
+
+            and drive it with `SandboxedRunStdout("/bin/sh", []string{script}, packDir,
+            nil)`. Assert a nil error AND the presence of `DEVNULL_PROBE_COMPLETED` in
+            the captured stdout — the completion marker is what distinguishes "the write
+            was permitted" from "the sandbox never started", which is this package's
+            standing rule (see the `sandbox_linux_exec_test.go` header on
+            `ubuntu-runner-probe.txt`). Do NOT assert on jq's presence; the idiom, not
+            jq, is under test.
+            THEN THE ANTI-WIDENING LEG, IN THE SAME TEST (CLM-002): under the SAME
+            profile, `SandboxedRun("/usr/bin/touch", []string{<a path inside packDir>},
+            packDir)` must still FAIL and must not create the file. Without this leg the
+            test cannot tell a narrow carve-out from a profile that stopped denying
+            writes at all.
+            ★ CLASSIFY IT HONESTLY IN THE DOCSTRING (D4, M4): darwin ALREADY permits
+            `/dev/null` writes under the unfixed profile — measured 2026-08-18 by running
+            the current profile literal through real `sandbox-exec` — as an emergent
+            Seatbelt property the profile text never stated. So this test PASSES BEFORE
+            THE FIX and is a REGRESSION LOCK: it goes red if a future macOS enforces the
+            blanket deny, or if someone deletes the clause believing it decorative. It is
+            NOT the red phase; `TestSandboxProfileGrantsDevNullWriteAndNothingElse` is.
+
+          RUN BOTH AND RECORD THE OUTPUT before TASK-005:
+            go test ./pkg/packval/ -run "TestSandboxProfileGrantsDevNullWriteAndNothingElse|TestSandboxDarwin_DevNullIdiomRunsUnderTheRealProfile" -count=1 -v
+        files:
+          - pkg/packval/sandbox_darwin_test.go
+        claims:
+          - CLM-002
+          - CLM-006
+          - CLM-007
+        depends_on: []
+        test_names:
+          - TestSandboxProfileGrantsDevNullWriteAndNothingElse
+          - TestSandboxDarwin_DevNullIdiomRunsUnderTheRealProfile
+
+      - id: TASK-003
+        type: test
+        title: "Add the Linux behavioural leg to the trampoline suite — CI-only, type-checked here (RED, unrunnable locally)"
+        description: |
+          Add ONE test to `pkg/packval/sandbox_linux_exec_test.go` (`//go:build linux`).
+          IT CANNOT RUN ON THIS MACHINE AND MUST NOT BE CLAIMED TO (sharp edge 1), and
+          a Docker container does not lift that ceiling either — the repo already
+          records why (see the ceiling section's LinuxKit paragraph). What IS
+          establishable locally is that it COMPILES AND LINKS, via the cross-target
+          instrument this plan mandates and PLAN-ISSUE-165 mandates for the same
+          package on the same night:
+
+              GOOS=linux GOARCH=amd64 go test -c -o /dev/null ./pkg/packval/
+
+          Run that and read it. It is the whole local discharge of this task. It was
+          clean before this lane (M6), so a failure here is either this task's or —
+          if it names `probeABI` or `sandbox_linux_errors_test.go` — PLAN-ISSUE-165's
+          deliberate red window (sharp edge 7). Attribute; do not absorb.
+
+          NOTE ON THIS PLAN'S `test_command`: it includes this test's name in its
+          `-run` alternation. On darwin that member matches nothing (the file is
+          linux-tagged) and is harmless; on a Linux runner it is the ONLY member that
+          exercises the Landlock half at all, which is why it must stay in.
+
+          READ THAT FILE'S HEADER FIRST. Two of its standing rules bind this test:
+          NO `t.Skip` in this file ever — an unavailable Landlock is a loud FAILURE via
+          `requireLandlock(t)`, not a skip; and every denial assertion needs a POSITIVE
+          CONTROL and a completion marker, because a bare non-zero exit cannot
+          distinguish "denied correctly" from "never started".
+
+          TestLinuxSandbox_DevNullWriteIsPermittedAndOtherWritesAreNot (CLM-001, CLM-002).
+            Use the file's existing helpers exactly as its neighbours do:
+            `requireLandlock(t)`, `sandboxPackDir(t)`, `requireExecutable(t, "bash")` (or
+            `"sh"`), `writeProbeScript(t, packDir, "devnull-probe.sh", body)`, and the
+            production entry point `SandboxedRun`.
+            The probe carries BOTH legs and a marker, in this order:
+              1. POSITIVE: `echo probe >/dev/null 2>&1` — and, to exercise the exact
+                 reported idiom, `command -v definitely-not-a-real-binary >/dev/null 2>&1`
+                 (its non-zero result is irrelevant; the REDIRECT is what is under test,
+                 so do not let the probe's exit status depend on it). Print
+                 `DEVNULL_WRITE_OK` when the redirect itself did not fail.
+              2. NEGATIVE CONTROL, in a subshell so a failed redirection cannot abort the
+                 probe (the same reason `networkProbeBody` parenthesises its legs):
+                 attempt to create a file inside packDir; print `PACKDIR_WRITE_BLOCKED`
+                 on failure and `PACKDIR_WRITE_LEAKED` on success.
+              3. `DEVNULL_PROBE_COMPLETED`.
+            Assert, on the combined output: the completion marker is present (else fail
+            with "the probe never ran; nothing below is readable as a permission");
+            `DEVNULL_WRITE_OK` is present; `PACKDIR_WRITE_BLOCKED` is present and
+            `PACKDIR_WRITE_LEAKED` is absent; and `os.Stat` confirms the packDir target
+            was not created.
+            ★ WRITE THE FAILURE MESSAGES FOR A CI READER WHO CANNOT ATTACH A DEBUGGER.
+            Name ISSUE-168, quote the expected marker, and dump the whole report.
+            PRE-FIX STATE ON LINUX: `DEVNULL_WRITE_OK` absent (the redirect is refused).
+            THIS IS AN ASSERTION ABOUT CI, NOT AN OBSERVATION — say so in the docstring.
+
+          ALSO ADD A SHORT NOTE IN THE PROBE'S COMMENT pointing at
+          `networkProbeBody`'s `2>/dev/null` legs and this plan's premise correction
+          (M7): a failed `2>` redirect on an `if` condition makes the shell take the
+          ELSE branch without running the command, which is why the network control
+          leg's TCP_BLOCKED/UDP_BLOCKED markers may have been an artefact of THIS defect.
+          Keep it to a comment — this lane changes nothing about that test.
+
+          DO NOT TOUCH any other test in this file, and do not touch
+          `testdata/sandbox/convert-jq.sh` — the fixture is the reproducer.
+        files:
+          - pkg/packval/sandbox_linux_exec_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-008
+        depends_on: []
+        test_names:
+          - TestLinuxSandbox_DevNullWriteIsPermittedAndOtherWritesAreNot
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Phase 2: GREEN — the two platform edits, then everything darwin CAN prove
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: GREEN — grant /dev/null narrowly on Linux and on darwin, then verify to the real ceiling"
+    tasks:
+      - id: TASK-004
+        type: implementation
+        title: "Grant /dev/null in the Linux derivation: one rule, an exact mask, Required"
+        description: |
+          Edit `pkg/packval/sandbox_capability.go` ONLY. Locate
+          `func DeriveSandboxRestrictions` BY NAME (sharp edge 8). Implement exactly (L1)
+          and (L2) from this plan's header:
+
+            * a package-level `const sandboxDevNullPath = "/dev/null"` — a const, not a
+              var and not a slice; this file's neighbours are functions specifically to
+              avoid mutable package state, and an immutable const is the right shape for
+              a single path;
+            * `func landlockDevNullRights() uint64` returning
+              `AccessFSReadFile | AccessFSWriteFile | AccessFSTruncate | AccessFSIoctlDev`;
+            * one appended `SandboxPathRule{Path: sandboxDevNullPath, AllowedAccess:
+              narrowToABI(landlockDevNullRights(), capability.LandlockABI), Required: true}`
+              after the readable and writable loops, with the `make(..., 0, N)` capacity
+              hint grown by one.
+
+          DOCUMENT THE FOUR RIGHTS INDIVIDUALLY on `landlockDevNullRights`, in your own
+          words, carrying the facts a future reader cannot infer (L4): WRITE_FILE is the
+          point; TRUNCATE is there because `>` opens O_TRUNC and TRUNCATE is a HANDLED
+          right from ABI 3, so omitting it risks the redirect still being refused on
+          exactly the kernels CI runs; IOCTL_DEV is there because `/dev/null` is a
+          CHARACTER DEVICE and IOCTL_DEV is handled from ABI 5, so an un-granted
+          `isatty`/TCGETS on a redirected fd would EACCES; READ_FILE is there because
+          `</dev/null` is the same idiom family and reading the null device reads
+          nothing. State that EXECUTE is deliberately absent because the mechanism leaves
+          EXECUTE unhandled.
+
+          DOCUMENT THE PLACEMENT DECISION on the appended rule (L3): it is emitted for
+          EVERY capability because the rationale is universal — a sink that discards data
+          cannot leak or persist anything — which is also exact parity with darwin, whose
+          profile literal is unconditional and not derived from the capability struct at
+          all. And state the rejected alternative and why: putting `/dev/null` in
+          `WritablePaths` would hand it the generic writable mask (MAKE_REG, MAKE_DIR,
+          REMOVE_FILE, READ_DIR, ...), inert only because the Linux host's inode-type
+          narrowing strips it at install time, while the DERIVED DATA — the only artefact
+          this mechanism can be reviewed through off-Linux — would claim rights nobody
+          intends.
+
+          AMEND THE `WritablePaths` FIELD DOCSTRING. It currently says the set is EMPTY
+          for convert/validator work because darwin denies `file-write*` outright and
+          parity is the spec. That is still true and must stay; add that the sole write
+          the mechanism grants is the `/dev/null` sink, emitted by
+          `DeriveSandboxRestrictions` for every capability and matched one-for-one by
+          darwin's `(allow file-write* (literal "/dev/null"))`, so an empty
+          `WritablePaths` still means "this POLICY grants no writable path". Without this
+          the next reader deletes the rule to "restore parity".
+
+          NOTE THE ORDERING CONTRAST briefly (L7): Landlock rules UNION and have no
+          precedence — unlike Seatbelt, where the darwin clause's position after the deny
+          is load-bearing. Say it once, here, so nobody mirrors the darwin ordering rule
+          into the derivation or vice versa.
+
+          DO NOT TOUCH `narrowRuleToInodeType`, `landlockDirectoryOnlyRights`,
+          `linuxSystemReadPaths`, `ConvertValidatorCapability`'s `WritablePaths` value,
+          the handled mask, or `sandbox_linux_helper.go` (sharp edges 4, 5; the helper
+          file's header forbids growing its coverage exclusion).
+
+          Run `backstop gate` after this task, as the implementer contract requires.
+        files:
+          - pkg/packval/sandbox_capability.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+        depends_on:
+          - TASK-001
+          - TASK-003
+
+      - id: TASK-005
+        type: implementation
+        title: "Add the scoped /dev/null write allow to the darwin sandbox-exec profile"
+        description: |
+          Edit `pkg/packval/sandbox_nonlinux.go` ONLY. Locate `func darwinSandboxProfile`
+          BY NAME (sharp edge 8) and append ONE clause to the END of the `fmt.Sprintf`
+          format string, leaving every other byte of that literal untouched (D1):
+
+              ...(deny network*)(deny file-write*)(allow file-write* (literal \"/dev/null\"))
+
+          AFTER the blanket deny, not before (D2), and `literal`, never `subpath` (D3).
+
+          Extend the function's docstring — do not replace it. The existing text
+          describes the trust model as HARD: `(deny default)`, `(deny file-write*)`,
+          `(deny network*)`. Add, in your own words: the ONE scoped exception is
+          `/dev/null`, a sink that discards everything written to it, so the write denial
+          is unchanged for every path that can hold state; Seatbelt evaluates
+          last-match-wins, which is why the clause follows the deny; and this exists for
+          parity with the Linux Landlock rule in `sandbox_capability.go`, because
+          `command -v foo >/dev/null 2>&1` is a universal shell idiom that a
+          pack-supplied convert or validator script has every right to use (ISSUE-168).
+
+          RECORD THE ONE NON-OBVIOUS FACT A FUTURE READER CANNOT RECOVER, AND RECORD IT
+          IN THIS ORDER — THE MEASUREMENT FIRST, THE FRAMING SECOND:
+            (i) THE MEASURED FACT: on darwin today this clause CHANGES NO OBSERVABLE
+                BEHAVIOUR. `/dev/null` writes already succeeded under the unfixed
+                profile — measured 2026-08-18 through real `sandbox-exec` — as an
+                emergent Seatbelt property of device nodes generally (`/dev/zero`
+                behaves the same), which the profile text never stated. Meanwhile
+                Linux's Landlock enforced the same stated intent literally and broke
+                the idiom. THAT ASYMMETRY IS THE WHOLE DEFECT.
+            (ii) THEN THE FRAMING: what the clause buys is that darwin's stated intent
+                now matches its actual behaviour and the two platforms' profiles say
+                the same thing — a guarantee where there was an accident, which is what
+                stops a future macOS tightening (or a reader deleting the clause as
+                decorative) from silently re-opening ISSUE-168 on the platform where it
+                currently happens to work.
+          ★ DO NOT INVERT THAT ORDER, and do not let (ii) leak into the commit message
+          as "this fixes darwin." It does not fix darwin's behaviour today; it fixes
+          darwin's PROMISE. Overclaiming here is the exact false grounding this plan's
+          D4/M4 section exists to prevent.
+
+          DO NOT touch `readSubpaths`, `sandboxExecCommand`, `MaybeRunSandboxHelper`, the
+          `!linux` build tag (narrowing it silently disarms the Linux sandbox — the file
+          header and `TestNonLinuxSandboxHelperTagIsNotNarrowed` both say so), or either
+          `platformSandboxedRun*` function.
+
+          Run `backstop gate` after this task, as the implementer contract requires.
+        files:
+          - pkg/packval/sandbox_nonlinux.go
+        claims:
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-002
+
+      - id: TASK-006
+        type: verification
+        title: "Verify to the real ceiling: real darwin sandbox behaviour, the pure derivation, the full package suite, and the Linux cross-target"
+        description: |
+          ★ READ THE TWO-CEILINGS SECTION IN THIS PLAN'S HEADER FIRST. The darwin half
+          gets a REAL behavioural verdict here. The Linux half does not, and no wording
+          in this report may suggest otherwise (sharp edge 1).
+
+          (1) THE DARWIN HALF, FOR REAL (CLM-006, CLM-007) — this is the task's
+              centrepiece, not a formality:
+                go test ./pkg/packval/ -run "TestSandboxProfileGrantsDevNullWriteAndNothingElse|TestSandboxDarwin_DevNullIdiomRunsUnderTheRealProfile|TestSandboxProfileAllowsDyldLibraries|TestSandboxSecurityDenialsHold|TestSandboxConvertWithRealInterpreter" -race -count=1 -v
+              Report PER-TEST results, not a package-level `ok`. These drive real
+              `sandbox-exec` on this host: the idiom is genuinely executed under the
+              production profile, and `TestSandboxSecurityDenialsHold` /
+              `TestSandboxDeniesFileWrite` are the anti-widening counterweight — an
+              ordinary write must STILL be refused. If either direction is wrong, the
+              carve-out is wrong.
+
+          (2) THE PURE DERIVATION (CLM-001..CLM-005):
+                go test ./pkg/packval/ -run "TestSandboxCapability_|TestNarrowRuleToInodeType_|TestConvertValidatorCapability_" -race -count=1
+              This is the whole locally-provable surface of the LINUX change. State
+              plainly in the report that it proves the ARITHMETIC and not the kernel's
+              verdict.
+
+          (3) THE LINUX CROSS-TARGET (CLM-008) — the only Linux instrument available:
+                GOOS=linux GOARCH=amd64 go build ./...
+                GOOS=linux GOARCH=amd64 go test -c -o /dev/null ./pkg/packval/
+              Both must be clean. The second COMPILES AND LINKS the package's test
+              binary including every `//go:build linux` test file, which is what makes
+              TASK-003's new test checkable at all — and it is the same instrument
+              PLAN-ISSUE-165 mandates for this package tonight, so the two lanes'
+              readings are directly comparable. Both were clean at authoring (M6), so a
+              failure here is this lane's UNLESS it names `probeABI` or
+              `sandbox_linux_errors_test.go` (sharp edge 7).
+              DO NOT SUBSTITUTE `go vet` FOR THE SECOND COMMAND. Vet type-checks; it
+              does not link, and a link failure is exactly the class this instrument
+              exists to catch.
+              AND DO NOT REACH FOR DOCKER TO GO FURTHER — the ceiling section records
+              the evidence that a Docker-Desktop LinuxKit kernel reports Landlock ABI 0
+              and is REFUSED by design; hitting that refusal is not a finding.
+
+          (4) THE FULL PACKAGE SUITE, as the non-regression measurement:
+                go test ./pkg/packval/ -race -count=1
+              CONTROL READING (M5): `go test ./pkg/packval/ -count=1` was `ok ...
+              69.948s` on this host at authoring, so this package was GREEN before this
+              lane. Budget ~70s+ under `-race`; do not substitute a narrower `-run` and
+              call it the suite (sharp edge 11).
+              ★ ATTRIBUTION, NOT ABSORPTION. PLAN-ISSUE-165 is live in THIS package and
+              its TASK-001 deliberately leaves the test build non-compiling for a window
+              (sharp edge 7). A build error naming `probeABI` or
+              `sandbox_linux_errors_test.go` is THAT lane — name it, do not fix it, do
+              not absorb it. For any other red, establish whether it predates this lane
+              by measuring a control at clean HEAD in a DETACHED WORKTREE (a carried
+              reading is not evidence) and attribute it by name. Never waive.
+
+          (5) DIFF-SCOPED GATE over every file this lane touched:
+                backstop gate --file pkg/packval/sandbox_capability.go
+                backstop gate --file pkg/packval/sandbox_nonlinux.go
+                backstop gate --file pkg/packval/sandbox_devnull_test.go
+                backstop gate --file pkg/packval/sandbox_capability_test.go
+                backstop gate --file pkg/packval/sandbox_darwin_test.go
+                backstop gate --file pkg/packval/sandbox_linux_exec_test.go
+              Fix anything attributable to this lane AT SOURCE — never by weakening a
+              test, never by a waiver. Expect substantiveness attention on the new test
+              functions (sharp edge 9) and a possible coverage remark on
+              `sandbox_capability.go`; the answer to the latter is a better test, never
+              moving code into the excluded helper file (sharp edge 10).
+
+          (6) STATE THE CEILING EXPLICITLY IN THE REPORT. It must contain, in substance:
+              "the darwin half is verified behaviourally on this host; NOTHING above
+              verifies the Landlock behaviour ISSUE-168 describes, which is confirmed
+              only by the CI reading TASK-008 owns." A report listing green checks
+              without that sentence is incomplete.
+        files:
+          - pkg/packval/sandbox_capability.go
+          - pkg/packval/sandbox_nonlinux.go
+          - pkg/packval/sandbox_devnull_test.go
+          - pkg/packval/sandbox_capability_test.go
+          - pkg/packval/sandbox_darwin_test.go
+          - pkg/packval/sandbox_linux_exec_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+        depends_on:
+          - TASK-004
+          - TASK-005
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Phase 3: full kill chain, then the honest handoff to CI
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: full kill chain, then the CI-confirmation handoff and the premise correction"
+    tasks:
+      - id: TASK-007
+        type: verification
+        title: "Full kill chain: backstop gate --all plus artifact validation of the plan and its issue"
+        description: |
+          THE FINAL, UNSCOPED SWEEP. Run all three and read the results:
+
+              backstop gate --all
+              backstop artifact validate --plan PLAN-ISSUE-168
+              backstop artifact validate --issue ISSUE-168
+
+          `gate --all` covers the code half (pack lock verification, artifact validation,
+          pack engines, test verification, substantiveness, coverage, contracts, status
+          drift, requirement traceability, waivers, baseline, ledger integrity);
+          `artifact validate` covers the artifact half, since this lane's plan artifact
+          is new and its source issue is in flight.
+
+          ATTRIBUTION IS THE DELIVERABLE, NOT THE RAW COUNT. This repo carries inherited
+          reds from other lanes. For every violation, decide and STATE whether it is this
+          lane's:
+            * grep the full violation set explicitly for each of the six paths this lane
+              touched and report the hit count, zero or otherwise;
+            * anything attributable to this lane is FIXED AT SOURCE — never waived, never
+              made green by weakening a test;
+            * anything from PLAN-ISSUE-165 (`pkg/packval/sandbox_wiring_guard_test.go`,
+              `pkg/packval/sandbox_linux_errors_test.go`) or PLAN-ISSUE-163
+              (`cmd/backstop/**`) is named and left alone.
+
+          COORDINATE BEFORE RUNNING IT. `gate --all` in a shared tree with a mid-flight
+          sibling implementer produces a reading that belongs to nobody (sharp edge 7).
+          If the tree is not quiet, say so plainly and run it when it is — do not
+          substitute a scoped run and describe it as the full chain.
+
+          ENVIRONMENT CAVEATS GET RECORDED, NOT SMOOTHED. Two shapes that have produced
+          misleading readings in this repo before: a `pack_engines` step exiting 2 with
+          `required tool "..." not found on PATH` is an ENVIRONMENT artefact and NOT a
+          clean run — `go-arch-lint` and `golangci-lint` v2 must be on PATH or the
+          dimension silently contributes nothing; and a reading taken in a worktree
+          lacking `.backstop/baseline.json` is STRICTER, not more permissive. If either
+          applies, say so and do not report the run as authoritative.
+
+          ★ AND STATE THE CEILING AGAIN HERE: a green `gate --all` on darwin does not
+          confirm ISSUE-168's Linux fix. This machine never compiles `sandbox_linux*.go`
+          and never installs a Landlock ruleset. It confirms this lane broke nothing and
+          that the darwin half works; TASK-008 owns the confirmation that the Linux half
+          FIXED something.
+        files:
+          - pkg/packval/sandbox_capability.go
+          - pkg/packval/sandbox_nonlinux.go
+          - pkg/packval/sandbox_devnull_test.go
+          - pkg/packval/sandbox_darwin_test.go
+          - pkg/packval/sandbox_linux_exec_test.go
+          - plans/PLAN-ISSUE-168-sandbox-devnull-write-allowance.plan.yml
+          - issues/ISSUE-168-sandbox-devnull-write-denied-breaks-idiomatic-scripts.issue.md
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-006
+          - CLM-007
+          - CLM-008
+        depends_on:
+          - TASK-004
+          - TASK-005
+          - TASK-006
+
+      - id: TASK-008
+        type: documentation
+        title: "Hand the Linux half to CI: name the run, adjudicate the network control leg, correct the issue's premise, close nothing early"
+        description: |
+          THIS TASK IS THE POINT OF THE PLAN'S CAREFULNESS FOR THE LINUX HALF. Everything
+          before it proves the edit is safe and that darwin works; only this proves the
+          Linux fix WORKED — and it cannot be discharged from this machine.
+
+          EVERY ARTIFACT TOUCH HERE IS ROUTED THROUGH `/issue` (the issue-author agent).
+          This lane never hand-edits an artifact file — which is why the ISSUE-168 file
+          appears in this task's `files:`: it is the file a ROUTED author writes, not one
+          this task opens in an editor.
+
+          (1) RECORD THE ASYMMETRIC CEILING IN THE ARTIFACT, NOT IN A CHAT MESSAGE
+          (CLM-008). Hand the routed author the exact statement: the DARWIN half was
+          verified behaviourally on a real macOS host (the idiom executed under the
+          production `sandbox-exec` profile, with an ordinary write still refused under
+          the same profile); the LINUX half is unverifiable locally because
+          `pkg/packval/sandbox_linux.go` and `sandbox_linux_helper.go` are
+          `//go:build linux` and never compile here, so local evidence for it is limited
+          to the pure derivation's arithmetic plus a `GOOS=linux` cross-compile and a
+          full test-binary link (`go test -c -o /dev/null ./pkg/packval/`) — which
+          establishes that the linux-tagged code COMPILES AND LINKS, never that the
+          kernel accepts the rule.
+
+          (2) NAME THE CI RUN TO WATCH AND WHAT COUNTS AS CONFIRMATION.
+          Workflow `.github/workflows/ci.yml`, job `gate` (display name "Backstop Gate"),
+          `runs-on: ubuntu-latest`. Blocking step `./bin/backstop gate --base "$BASE"`;
+          the step before it writes `gate-report.json`, uploaded as the `gate-report`
+          artifact with `if: always()` — download it, as ISSUE-163's investigation did.
+          Confirmation is a CONJUNCTION and each half must be READ, never inferred:
+            (a) `pkg/packval` is actually IN SCOPE for that run. CI gates DIFF-SCOPED,
+                and every file this lane changes lives in `pkg/packval/`, so the package's
+                tests are EXPECTED to run — expected, not established. Read the path list
+                at `.scope.files` in `gate-report.json` (`GateResult.Scope` is
+                `json:"scope"`, `GateScope.Files` is `json:"files"` —
+                `pkg/gate/result.go`, `pkg/gate/scope.go`). If `pkg/packval` is not in
+                it, the run proves nothing about this fix and you must say so rather than
+                reading its green as success.
+            (b) THE `/dev/null` SIGNATURE IS GONE. Search the report and the job log for
+                the literal `cannot create /dev/null`, `/dev/null: Permission denied`,
+                and `exit status 127` in the packval channel. The primary reproducing
+                test is `TestLinuxSandbox_RealInterpreterRunsUnderTheFilter`
+                (`pkg/packval/sandbox_linux_exec_test.go`), driving
+                `pkg/packval/testdata/sandbox/convert-jq.sh` line 14. This lane's own new
+                test `TestLinuxSandbox_DevNullWriteIsPermittedAndOtherWritesAreNot` is
+                the direct assertion — read its verdict specifically, and read
+                `TestLinuxSandbox_WriteInsidePackDirIsDenied` alongside it, because a
+                green on the first with a red on the second would mean the carve-out
+                widened rather than fixed.
+          ★ THE VIOLATION COUNT IS NOT A CONFIRMATION CRITERION. CI's blocking gate is
+          diff-scoped, so counts across differently-scoped runs are not comparable and
+          "the number went down" is trivially true of a run where nothing was fixed.
+          Report the remaining blocking set as CONTEXT, clearly labelled as context.
+          The change has to reach a branch CI runs on before any of this exists. WHETHER
+          AND WHEN TO PUSH IS THE FOUNDER'S CALL — deliver the watch instruction and the
+          criteria, and if no CI run has happened yet, say exactly that rather than
+          implying one did.
+
+          (3) ★ ADJUDICATE THE NETWORK CONTROL LEG, AND CORRECT THE ISSUE'S PREMISE
+          (CLM-008). ISSUE-168 asserts that the `/dev/null` denials in
+          `TestLinuxSandbox_NetworkAllowedControlLegSucceeds` are NOT what makes that
+          test fail. This plan's header records a local, platform-independent measurement
+          (M7) that makes that doubtful: `networkProbeBody` attaches `2>/dev/null` to the
+          `if` CONDITION, and a real-bash probe on an OPEN loopback port showed that an
+          unopenable redirect target makes the shell take the ELSE branch — printing
+          _BLOCKED — without ever attempting the socket, reproducing the CI output's
+          exact shape. Read the CI run and decide, ON EVIDENCE:
+            * control leg GREEN -> ISSUE-168 accounted for BOTH failing tests. Say so,
+              and file NOTHING for the network.
+            * control leg still RED, with the `/dev/null` stderr lines GONE -> a genuine,
+              previously MASKED network-permission defect. File it as its own issue,
+              with the now-clean evidence attached and the masking history stated.
+            * `/dev/null` lines still present -> this fix did not reach that path; do not
+              claim it did, and investigate before filing anything.
+          ★ ROUTE THE CORRECTION INTO BOTH ARTIFACTS THAT CARRY THE PREMISE, IN EVERY
+          BRANCH ABOVE — stating what was MEASURED and what was INFERRED, and marking
+          M7 as a hypothesis confirmed-or-refuted by the run you actually read:
+            (i) `issues/ISSUE-168-...`, through `/issue`. Its text says the distinction
+                "matters for whoever fixes the network-blocking failure separately".
+            (ii) `directives/DIR-024-gate-engine-quality.directive.md` — VERIFIED
+                STALE AT AUTHORING; it states verbatim that "the `/dev/null` denials
+                are NOT what makes `TestLinuxSandbox_NetworkAllowedControlLegSucceeds`
+                fail ... Its network-blocking failure is a separate, still-unfiled
+                defect". DIR-024 IS THE COMMITTED BACKLOG LAYER A FUTURE SESSION READS
+                FIRST, before any individual issue, so correcting only (i) leaves the
+                misdirection fully operative through the door people actually use.
+                Correcting only ISSUE-168 does NOT discharge this task.
+          ⚠ DIR-024 IS A DIRECTIVE AND IT IS CURRENTLY MODIFIED IN THE WORKING TREE BY
+          THE backlog-pm LANE (confirmed by `git status` at authoring: ` M
+          directives/DIR-024-gate-engine-quality.directive.md`). So:
+            * NEVER hand-edit it — artifact authoring is routed, always;
+            * route it through the backlog/directive-owning agent (backlog-pm), handing
+              over the exact stale passage and the exact replacement finding;
+            * COORDINATE FIRST rather than writing over an uncommitted edit. If that
+              lane is mid-flight, say so plainly and hand off the correction with the
+              evidence attached instead of forcing it in — a silent overwrite of
+              another agent's uncommitted work is a defect in this repo, not a
+              shortcut. If the correction cannot be landed in this task's window, the
+              task reports it as OWED, by name, rather than as done.
+
+          (4) DO NOT CLOSE ISSUE-168 ON LOCAL EVIDENCE. `closed` has real teeth in this
+          repo. Request closure through `/issue` ONLY once (2)(a) and (2)(b) have both
+          been READ from a real run, handing the routed author that reading as the
+          evidence. Until then the honest status is "fix landed, darwin half verified
+          locally, Linux half awaiting CI confirmation."
+
+          (5) FILE ANYTHING ELSE SURFACED, and if nothing needed filing, SAY SO
+          EXPLICITLY — silence is not a discharge. Then report the terminal state
+          plainly: what landed, what was measured (and on which platform), what was NOT
+          measurable and why, what was filed, and what is still owed.
+        files:
+          - issues/ISSUE-168-sandbox-devnull-write-denied-breaks-idiomatic-scripts.issue.md
+          - directives/DIR-024-gate-engine-quality.directive.md
+        claims:
+          - CLM-008
+        depends_on:
+          - TASK-007
