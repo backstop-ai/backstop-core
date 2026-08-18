@@ -94,6 +94,28 @@ func applyRestrictionsAndExec(request sandboxHelperRequest) error {
 		return fmt.Errorf("resolve %s: %w", request.Command, err)
 	}
 
+	// TEMP DIAGNOSTIC (issue-158-followup, remove before merge): dump exactly what
+	// is about to be exec'd, to stderr so it survives even if stdout is the SARIF
+	// channel being captured.
+	if fi, statErr := os.Stat(resolved); statErr == nil {
+		fmt.Fprintf(os.Stderr, "SANDBOX-DEBUG: command=%q resolved=%q dir=%q args=%q mode=%v size=%d\n",
+			request.Command, resolved, request.Dir, request.Args, fi.Mode(), fi.Size())
+		if data, readErr := os.ReadFile(resolved); readErr == nil {
+			n := len(data)
+			if n > 200 {
+				n = 200
+			}
+			fmt.Fprintf(os.Stderr, "SANDBOX-DEBUG: first bytes=%q\n", data[:n])
+		} else {
+			fmt.Fprintf(os.Stderr, "SANDBOX-DEBUG: read %s failed: %v\n", resolved, readErr)
+		}
+	} else {
+		fmt.Fprintf(os.Stderr, "SANDBOX-DEBUG: stat %s failed: %v\n", resolved, statErr)
+	}
+	if wd, wdErr := os.Getwd(); wdErr == nil {
+		fmt.Fprintf(os.Stderr, "SANDBOX-DEBUG: cwd=%q\n", wd)
+	}
+
 	// STEP 5 of the pair: exec FROM THIS LOCKED THREAD. execve replaces the process
 	// image and kills sibling threads, so the new image inherits exactly the domain
 	// installed above.
