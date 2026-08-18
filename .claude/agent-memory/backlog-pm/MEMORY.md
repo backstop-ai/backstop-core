@@ -4,6 +4,7 @@
 - [Verify the loss claim](feedback_verify_the_loss_claim.md) — mechanism real ≠ consequence real; go look for the "lost" file / RUN the "failing right now" test before ranking off that claim
 
 - [Done directive orphans its tail](project_done_directive_orphans_its_tail.md) — ★ DIR-032 closed 21/21 and stranded NINE plan-filed follow-ons; trace provenance by grep, escalate the family as ONE ruling
+- [DIR-033 + the 3-way gate boundary](project_dir033_and_the_three_way_gate_boundary.md) — ★ DIR-033 exists (queued, absent from BACKLOG.yml by design); home by FILING PROVENANCE — goes RED ⇒ DIR-024; delivery residuals = clear fits
 - [PM write path](project_pm_write_path_blocked.md) — FULLY OPEN as of 2026-07-26; BACKLOG.yml is structurally directive-author-only; RENAMES need `main`; teammate roster is flat
 - [Interview tooling limits](project_interview_tooling_constraints.md) — `--fork-session` blocked in headless runs; transcript grep DOES work — fingerprint by artifact-ID counts, label it corpus-based
 - [Workaround-and-file pattern](project_workaround_and_file_pattern.md) — hook-delivered issues come from implementers who worked AROUND the defect; coverage is ~always nil, check corpus not interview

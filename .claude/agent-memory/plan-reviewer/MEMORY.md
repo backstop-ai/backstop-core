@@ -66,3 +66,4 @@
 - [Cited fixture precedent reads other files](project_cited_fixture_precedent_reads_other_file.md) — "follow the shape in testdata/X" goes vacuous when the NEW check reads rule files while X's check read only pack.yml; derive the file set from the check's own reads
 - [Quantifier pinned by cardinality one](project_quantifier_pinned_by_cardinality_one.md) — "ANY half is already pinned by pack X" is vacuous when X's quantified set has size 1; tabulate the dimension per unit and check the real case's cardinality
 - [Doctored fixture pre-empted by validation](project_doctored_fixture_preempted_by_validation.md) — "remove the fixtures: block to force an empty derivation" hits a parse error FIRST; the subtest still greens on the wrong branch
+- [Diff-scoped CI count confound](project_diffscoped_ci_count_confound.md) — "expect fewer than the failed run's 62 violations" is trivially true: CI gates DIFF-SCOPED, so a 2-file push shrinks the count regardless of the fix

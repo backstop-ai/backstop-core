@@ -1,0 +1,636 @@
+---
+plan_id: PLAN-ISSUE-163
+spec_id: ISSUE-163
+created: "2026-08-17"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./cmd/backstop/ -run \"TestIntegrationTestMain_RunsSandboxHelperGateAsItsFirstStatement|TestSandboxHelperGate_PresentInEveryPackvalReachingTestMain\" -race -count=1"
+coverage_threshold: 80
+
+notes: |
+  ISSUE-163 — `cmd/backstop/integration_test.go`'s `TestMain` runs `go build -o <tmp> .`
+  as its very first action with no sandbox-helper check. On Linux, any test in package
+  `cmd/backstop` that triggers real sandboxed dispatch causes the sandbox trampoline to
+  RE-EXEC THIS TEST BINARY with `Dir` set to the pack directory — so the re-exec'd copy
+  re-enters `TestMain`, tries `go build` in a directory with no `.go` files, prints
+  `failed to build binary: ... no Go files in <dir>` and `os.Exit(1)` BEFORE
+  `runSandboxHelper` ever reads `BACKSTOP_SANDBOX_HELPER_SPEC`. The pack's real command
+  never runs.
+
+  ★ THE FIX IS FIVE LINES AND FULLY PRECEDENTED. `pkg/packval/main_test.go`'s `TestMain`
+  already does it correctly, and `cmd/backstop/main.go`'s `run()` does it for the SHIPPED
+  BINARY via `runWith(stdout, stderr, packval.MaybeRunSandboxHelper, NewRootCommand)`.
+  This plan is deliberately small. Its real weight is not the edit — it is the HONEST
+  VERIFICATION CEILING (see the next section), and the two structural pins that stop the
+  pattern from failing to propagate a third time.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  ★★ THE VERIFICATION CEILING — READ THIS BEFORE PLANNING ANY "PROVE IT" STEP ★★
+  ══════════════════════════════════════════════════════════════════════════════
+  THIS DEFECT CANNOT BE REPRODUCED OR CONFIRMED-FIXED ON THIS MACHINE. Not "is hard
+  to", not "was not tried" — CANNOT. `pkg/packval/sandbox_linux.go` and
+  `pkg/packval/sandbox_linux_helper.go` carry `//go:build linux`; on darwin they are
+  not compiled at all, `newSandboxHelperCommand` does not exist, no re-exec ever
+  happens, and `MaybeRunSandboxHelper` resolves to the `!linux` stub
+  (`pkg/packval/sandbox_nonlinux.go`: `func MaybeRunSandboxHelper() error { return nil }`).
+  Setting `BACKSTOP_SANDBOX_HELPER_SPEC` by hand on darwin proves NOTHING — the stub
+  ignores it.
+
+  So NO TASK IN THIS PLAN MAY MANDATE "run the failing test and watch it pass." Any
+  report claiming a local repro or a local fix-confirmation of the Linux behavior is
+  FALSE GROUNDING and must be rejected in review.
+
+  What is genuinely establishable locally, and is therefore what Phase 2 asks for:
+    (a) the module still builds and vets — `go build ./...`, `go vet ./cmd/backstop/...`;
+    (b) the darwin side is PROVABLY UNCHANGED — the whole `cmd/backstop` package suite
+        still passes, which is only possible if `TestMain`'s build-and-run path still
+        works, because every test in the package depends on the `binaryPath` it builds;
+    (c) the guard is STRUCTURALLY in the right place — asserted by AST, not by eye.
+  (b) is a real proof, not a consolation prize: it is exactly the risk the edit carries
+  on the platform we can measure. It is NOT a proof of (the Linux fix).
+
+  THE ACTUAL "DID THIS WORK" ANSWER COMES FROM CI, AND FROM NOWHERE ELSE.
+  `.github/workflows/ci.yml`, job `gate` (display name "Backstop Gate"),
+  `runs-on: ubuntu-latest`. Its blocking step is `./bin/backstop gate --base "$BASE"`;
+  the step before it captures `gate-report.json`, uploaded as the `gate-report` artifact
+  with `if: always()` — the same artifact ISSUE-163's investigation downloaded to extract
+  the 62 violations. TASK-005 owns reading it. ISSUE-163 STAYS OPEN until that reading
+  exists.
+
+  ── WHY CI WILL ACTUALLY EXERCISE THE FIX (expected, and to be CONFIRMED, not assumed) ──
+  CI's blocking gate is DIFF-SCOPED, not `--all`. Both files this lane touches live in
+  `cmd/backstop/`, so the changed set pulls that package into scope and its tests run.
+  That is the expectation; it is not a fact until read. `gate-report.json` carries the
+  in-scope path LIST (ci.yml documents that as the reason the JSON step exists at all) —
+  TASK-005 confirms `cmd/backstop` is in it rather than asserting it.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  THE EDIT, EXACTLY
+  ══════════════════════════════════════════════════════════════════════════════
+  `cmd/backstop/integration_test.go`, `func TestMain(m *testing.M)`. Insert as the FIRST
+  STATEMENT — above the existing `os.MkdirTemp`, not merely above the `go build`:
+
+      if err := packval.MaybeRunSandboxHelper(); err != nil {
+          fmt.Fprintf(os.Stderr, "backstop sandbox helper: %v\n", err)
+          os.Exit(sandboxHelperExitCode)
+      }
+
+  plus the import `github.com/backstop-ai/backstop-core/pkg/packval`. `fmt` and `os` are
+  already imported. NOTHING ELSE IN THE FUNCTION CHANGES.
+
+  `sandboxHelperExitCode` (= 126) ALREADY EXISTS at package scope in
+  `cmd/backstop/main.go` — same package `main`. USE IT; do not write a bare `126` and do
+  NOT declare a second constant (see sharp edge 1). `pkg/packval/main_test.go` spells the
+  literal only because it is a different package with no such constant in reach.
+
+  ── MEASURED AT AUTHORING (2026-08-17, live tree, darwin) ────────────────────────
+    * `go build ./...` → clean.
+    * `grep -rn "failed to build binary" --include="*.go" .` (excluding `.backstop/`)
+      → EXACTLY ONE hit: `cmd/backstop/integration_test.go:33`. The issue's mechanism
+      confirmation reproduced.
+    * `grep -rn "func TestMain" --include="*.go" .` (excluding `.backstop/`) → 5 hits,
+      enumerated in full below.
+    * `grep -rl "backstop-core/pkg/packval" --include="*.go" cmd pkg tests | xargs -n1
+      dirname | sort -u` → 4 directories: `cmd/backstop`, `pkg/pack/distribution`,
+      `pkg/pack/engine`, `pkg/packval`.
+
+  ── THE FIVE `TestMain` DECLARATIONS, ENUMERATED AND CLASSIFIED (not sampled) ────
+    1. `cmd/backstop/integration_test.go:17`      → THE DEFECT SITE. Fixed here.
+    2. `pkg/packval/main_test.go:36`              → ALREADY CORRECT. The precedent. Untouched.
+    3. `tests/smoke/smoke_test.go:17`             → OUT OF SCOPE, DELIBERATELY. See sharp edge 7.
+    4. `packs/substantiveness/testdata/fixtures/rules/hollow-test-go/positive.go:37`
+                                                  → A FIXTURE (`{}`, intentionally empty),
+                                                    under a `testdata/` segment. EXCLUDED.
+    5. `pkg/gate/testdata/substantiveness-pack/fixtures/go/testmain_fixture_test.go:13`
+                                                  → A FIXTURE, under a `testdata/` segment.
+                                                    EXCLUDED.
+  The roster test's exclusions are therefore DERIVED, not hand-listed: skip any path with
+  a `testdata` segment (Go's own tooling ignores those) and any hidden directory
+  (`.backstop/` holds installed packs). That covers 4 and 5 without naming either file.
+
+  ── THE PROPAGATION PROBLEM THIS LANE ALSO PINS ─────────────────────────────────
+  ISSUE-163's own diagnosis is that "the pattern was known and documented; it was simply
+  never propagated." A one-site fix leaves that failure mode intact. So the lane adds ONE
+  extra structural test (CLM-003) asserting the gate on every non-fixture `TestMain` in a
+  package that can BECOME the re-exec target — derived as "the package imports
+  `pkg/packval`, or IS `pkg/packval`" — with an anti-vacuous assertion that the derived
+  roster is non-empty and contains both known members.
+
+  ── A REAL, UNMEASURED ADJACENT HOLE — SURFACE IT, DO NOT FIX IT HERE ───────────
+  `pkg/pack/distribution` and `pkg/pack/engine` import `pkg/packval` and have NO
+  `TestMain` AT ALL. `pkg/pack/distribution/validator.go:60` runs the real pipeline
+  (`packval.NewPipeline(packDir, ...).Run()`). If any test in either package can reach
+  real sandboxed dispatch on Linux, its test binary becomes the re-exec target, Go's
+  DEFAULT `TestMain` runs `m.Run()`, and the parent reads the WHOLE SUITE'S OUTPUT as the
+  sandboxed command's output — the same defect class in a quieter shape.
+  ★ WHETHER THAT PATH IS ACTUALLY REACHABLE FROM THOSE PACKAGES' TESTS IS UNMEASURED BY
+  THIS LANE. Do not assert it as a confirmed defect, do not fix it here, and do not widen
+  the roster into demanding those packages grow a `TestMain`. TASK-005 files it as an
+  issue with the open question stated AS an open question.
+
+  ── SCOPE FENCES ────────────────────────────────────────────────────────────────
+  IN:  `cmd/backstop/integration_test.go` — the guard + one import, nothing else.
+       ONE new test file, `cmd/backstop/sandbox_helper_testmain_guard_test.go`.
+  OUT: `cmd/backstop/main.go` — `run()`/`runWith` are ALREADY correct and are the
+       production half of the wiring pair. Read it, do not edit it.
+  OUT: `pkg/packval/**` — `main_test.go`, `sandbox_linux*.go`, `sandbox_nonlinux.go` are
+       all correct. Nothing here is a packval defect.
+  OUT: `tests/smoke/smoke_test.go` (sharp edge 7).
+  OUT: `pkg/pack/distribution/**`, `pkg/pack/engine/**` — surfaced, not touched.
+  OUT: `.github/workflows/ci.yml` — CI is already shaped to catch this; this lane changes
+       no workflow.
+  OUT: every other test in `cmd/backstop`. They are the REGRESSION CHECK, run unchanged.
+
+  ── CLAIM LEDGER (ISSUE-163 carries no CLM ids; this lane defines them) ──────────
+    CLM-001  `cmd/backstop`'s `TestMain` calls `packval.MaybeRunSandboxHelper()` as its
+             FIRST STATEMENT — before the temp-dir creation and therefore before the
+             `go build` — and CHECKS the returned error rather than discarding it. Pinned
+             STRUCTURALLY (parsed AST, not substring match), so it cannot rot back.
+    CLM-002  The guard's failure exit reuses the package's existing
+             `sandboxHelperExitCode` constant (126, `cmd/backstop/main.go`) rather than a
+             fresh literal or a redeclared constant, so the test binary and the shipped
+             binary report a failed sandbox install with the same code.
+    CLM-003  PROPAGATION: every non-fixture `TestMain` in a package that can become the
+             re-exec target — derived as "imports `pkg/packval`, or is `pkg/packval`" —
+             carries the gate as its first statement. The derived roster is asserted
+             NON-EMPTY and asserted to contain both `cmd/backstop` and `pkg/packval`, so
+             a predicate that silently narrows to nothing fails loudly instead of passing
+             vacuously. The check accepts BOTH call spellings (qualified and unqualified).
+    CLM-004  DARWIN NON-REGRESSION, BY MEASUREMENT: the guard is a no-op on non-Linux
+             (`sandbox_nonlinux.go` returns nil unconditionally), so `TestMain`'s existing
+             build-and-run path is unchanged. Established by the whole `cmd/backstop`
+             package suite passing — every test in it depends on the binary `TestMain`
+             builds — plus `go build ./...` and `go vet ./cmd/backstop/...`. Not asserted
+             from the source of the stub.
+    CLM-005  THE CEILING IS RECORDED, NOT PAPERED OVER: the Linux behaviour this issue is
+             about is UNVERIFIABLE in this environment, the plan says so in the artifact
+             rather than in a chat message, and the real confirmation is a read of the
+             GitHub Actions `ubuntu-latest` run (`gate` job + its `gate-report` artifact).
+             ISSUE-163 is not closed on local evidence.
+
+  ── SHARP EDGES ─────────────────────────────────────────────────────────────────
+   1. DO NOT REDECLARE `sandboxHelperExitCode`. It already exists at package scope in
+      `cmd/backstop/main.go`, and `cmd/backstop` is ONE package — a second declaration
+      fails the compile for every other lane working in this shared tree. Reference it.
+   2. DO NOT BUILD-TAG THE NEW `TestMain` BODY OR THE GUARD. `MaybeRunSandboxHelper`
+      exists on EVERY platform on purpose: `sandbox_nonlinux.go` is tagged `!linux` and
+      MUST STAY `!linux` — `pkg/packval/sandbox_nonlinux_test.go`'s
+      `TestNonLinuxSandboxHelperTagIsNotNarrowed` pins that structurally, and
+      `pkg/packval/main_test.go`'s own docstring spells out why a build-tagged `TestMain`
+      would leave one platform's build without one. Add the guard unconditionally.
+   3. FIRST STATEMENT MEANS FIRST STATEMENT — above `os.MkdirTemp`, not merely above the
+      `go build`. The helper must run before anything else consumes argv or does work;
+      that is the invariant both existing call sites document. CLM-001's test asserts
+      position 0 of the body, so "above the build but below the temp dir" goes red.
+   4. `sandboxHelperEnvVar` (`BACKSTOP_SANDBOX_HELPER_SPEC`) IS UNEXPORTED AND
+      LINUX-ONLY. A `cmd/backstop` test cannot reference the identifier. If a test needs
+      the string, spell it as a literal — and remember that setting it on darwin proves
+      nothing, because the `!linux` stub never looks at it (sharp edge 5).
+   5. NEVER CLAIM A LOCAL REPRO OR A LOCAL FIX-CONFIRMATION. See the VERIFICATION CEILING
+      section. The Linux mechanism does not compile on this machine. A task report saying
+      "reproduced the failure and it now passes" is false grounding, not evidence.
+   6. THE REST OF `TestMain` STAYS BYTE-IDENTICAL. In particular do NOT convert the
+      explicit `os.RemoveAll(tmpDir)` after `m.Run()` into a `defer` — the existing
+      comment states exactly why (`os.Exit` skips deferred calls). And do not touch the
+      `execCommand("go", "build", ...)` seam or its comment: that seam is what keeps the
+      harness clear of backstop-self's `no-baked-tool-exec`.
+   7. `tests/smoke/smoke_test.go`'s `TestMain` STAYS UNGUARDED, DELIBERATELY. Its tests
+      drive the BUILT BINARY as a subprocess (`runBackstop`), so on Linux the re-exec
+      target is that binary — which is already guarded through `runWith` — never this
+      test binary. It does not import `pkg/packval`, so the CLM-003 predicate excludes it
+      by derivation rather than by an exception. Do not "harmonize" it, and do not
+      broaden the predicate until something measures that package reaching in-process
+      sandboxed dispatch.
+   8. THE ROSTER MUST ACCEPT BOTH CALL SPELLINGS. `cmd/backstop` calls
+      `packval.MaybeRunSandboxHelper()` (an `*ast.SelectorExpr`); `pkg/packval`'s own
+      `TestMain` calls `MaybeRunSandboxHelper()` (a bare `*ast.Ident`, same package). A
+      selector-only matcher reds `pkg/packval` for entirely the wrong reason and looks
+      like a real defect. Match on the FUNCTION NAME in both shapes.
+   8b. ★ THE ROSTER CHECK IS THE GUARD SHAPE ONLY — IT MUST NOT ASSERT THE EXIT-CODE
+      IDENTIFIER. CLM-001's test is the FULLER check: it also requires `os.Exit`'s
+      argument to be the identifier `sandboxHelperExitCode` (CLM-002), which is correct
+      for `cmd/backstop` because that constant is declared in the SAME package. It is
+      WRONG as a roster-wide rule: `pkg/packval/main_test.go:46` legitimately spells
+      `os.Exit(126)` as a bare literal, because it is a different package with no such
+      constant in reach — this plan's own header says so. So a roster that reuses
+      CLM-001's assertion wholesale reds the ALREADY-CORRECT PRECEDENT, and the failure
+      reads like a real defect in the one file that was right all along. The roster
+      asserts EXACTLY: `Body.List[0]` is an error-checked `if` around a call to
+      `MaybeRunSandboxHelper` in either spelling. Nothing about the exit code, nothing
+      about the message text. Where CLM-001 and CLM-003 overlap on `cmd/backstop`, the
+      overlap is deliberate and the stricter half belongs only to CLM-001.
+   9. THE ERROR MUST BE CHECKED, NOT CALLED BARE. PLAN-ISSUE-020 records that this exact
+      gate shipped as a BARE STATEMENT in six places before being corrected. A bare
+      `packval.MaybeRunSandboxHelper()` compiles, passes a naive "is the call present"
+      scan, and silently runs the suite as a broken helper. CLM-001's assertion is on the
+      `if err := ...; err != nil` SHAPE, not on the call's presence.
+  10. SHARED TREE. Never bare `git stash` (it sweeps another agent's uncommitted edits).
+      Do not run the whole suite or `gate --all` concurrently with a mid-flight
+      implementer in this tree.
+  11. LOCATE THE EDIT SITE BY NAME, NOT BY THE LINE NUMBERS QUOTED HERE:
+      `func TestMain(m *testing.M)` in `cmd/backstop/integration_test.go`. Line numbers in
+      this file have moved across recent lanes.
+  12. `TestMain` IS EXEMPT FROM THE HOLLOW-TEST RULE BY NAME (`^TestMain$`), so the edit
+      itself adds no substantiveness finding — but the NEW test file's functions are NOT
+      exempt. Give them real, discriminating assertions with legible failure messages.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Phase 1: RED — structural pins on the guard and on its propagation
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: RED — AST pins on the helper gate and its propagation"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Pin the sandbox-helper gate structurally: first statement in cmd/backstop's TestMain, and present in every packval-reaching TestMain (RED)"
+        description: |
+          Create `cmd/backstop/sandbox_helper_testmain_guard_test.go` (package main).
+          BOTH tests MUST FAIL before TASK-002. Run them first and RECORD THE ACTUAL
+          FAILURE OUTPUT — "it should fail" is not evidence.
+
+          THESE TESTS INTRODUCE NO NEW PRODUCTION SYMBOL. They read Go SOURCE from disk
+          and assert on the parsed AST, so the RED is a legible assertion failure rather
+          than a compile break. A non-compiling `cmd/backstop` blocks every other lane
+          working in this shared tree.
+
+          WHY STRUCTURAL AND NOT BEHAVIOURAL, stated in the file header because a
+          reviewer will otherwise ask for the behavioural test: the behaviour this guard
+          fixes exists ONLY on Linux — `pkg/packval/sandbox_linux.go` and
+          `sandbox_linux_helper.go` are `//go:build linux` and do not compile on the
+          development machine at all, and `MaybeRunSandboxHelper` there is the `!linux`
+          no-op stub. A "set the env var and observe the helper take over" test is
+          impossible to write honestly on darwin and would be a vacuous green if written
+          anyway (sharp edges 4 and 5). The AST pin is what IS falsifiable everywhere:
+          delete the guard and both tests go red on any platform.
+
+          Reuse the existing helpers rather than re-deriving them: `repoRoot(t)`
+          (`cmd/backstop/pack_gate_test.go`) resolves the module root. `go/parser` +
+          `go/ast` are already used across this package (e.g.
+          `cmd/backstop/gate_wiring_test.go`, `cmd/backstop/pack_wiring_test.go`) — follow
+          whichever of those reads cleanest. Do not shell out.
+
+          TestIntegrationTestMain_RunsSandboxHelperGateAsItsFirstStatement (CLM-001, CLM-002).
+            Parse `<repoRoot>/cmd/backstop/integration_test.go` with `go/parser`
+            (`parser.ParseFile`, comments not required). Locate the `*ast.FuncDecl` named
+            `TestMain` — BY NAME, never by line number (sharp edge 11) — and fail loudly
+            with a legible message if it is absent.
+            Assert, on `decl.Body.List[0]` — POSITION ZERO, which is what makes "above the
+            build but below the temp dir" red (sharp edge 3):
+              * it is an `*ast.IfStmt`;
+              * its `Init` is an assignment binding a call to `MaybeRunSandboxHelper`,
+                accepted in EITHER spelling (`*ast.SelectorExpr` with `Sel.Name ==
+                "MaybeRunSandboxHelper"`, or a bare `*ast.Ident` of that name) — sharp
+                edge 8;
+              * its `Cond` is a `*ast.BinaryExpr` whose `Op` is `token.NEQ` — pin the
+                OPERATOR, not merely "compares against nil" — with the bound error on one
+                side and `nil` on the other, i.e. the error is CHECKED and checked in the
+                right direction. A bare call statement must FAIL this test (sharp edge 9);
+                say so in a comment, because "the call is present" is the weaker assertion
+                someone will otherwise simplify it into. (The inverted `token.EQL` form
+                would blow the suite up loudly rather than pass silently, so this is
+                belt-and-braces — but it is one token to spell and it makes the assertion
+                say what it means.)
+            Then assert the guard's exit uses the package's existing constant: the `if`
+            body contains a call to `os.Exit` whose argument is the IDENTIFIER
+            `sandboxHelperExitCode`, not an integer literal (CLM-002). Comment WHY: the
+            constant is declared once in `cmd/backstop/main.go` with the reasoning for
+            126 attached to it, and a second spelling here is the drift that makes the
+            two halves of the wiring pair disagree.
+            Also assert the file imports
+            `github.com/backstop-ai/backstop-core/pkg/packval` when the call is the
+            qualified spelling — a guard that somehow lost its import would not compile,
+            but naming the import in the failure message is what makes a partially-applied
+            edit legible.
+            PRE-FIX STATE: fails at the position-zero assertion — today `Body.List[0]` is
+            the `os.MkdirTemp` assignment.
+
+          TestSandboxHelperGate_PresentInEveryPackvalReachingTestMain (CLM-003).
+            THE PROPAGATION PIN. ISSUE-163 exists because a known, documented pattern was
+            never propagated; this is the test that makes the next omission loud.
+            Walk the module from `repoRoot(t)` with `filepath.WalkDir`. SKIP, by
+            DERIVATION rather than by a hand-written file list:
+              * any directory named `testdata` and everything under it — Go's own tooling
+                ignores those, and both fixture `TestMain`s in this repo live there (the
+                enumeration is in this plan's header);
+              * any hidden directory (name beginning `.`) — `.backstop/` holds installed
+                pack trees;
+              * `vendor` if present.
+            For every remaining `*.go` file, parse it and collect the directories that
+            declare a `func TestMain(m *testing.M)`.
+            Then REDUCE that set to the packages that can become the re-exec target:
+            a directory qualifies when any `.go` file in it imports
+            `github.com/backstop-ai/backstop-core/pkg/packval`, OR the directory IS
+            `pkg/packval` itself (a package cannot import itself). State that predicate in
+            a comment as the DELIBERATE, documented approximation it is — direct import,
+            not transitive reach — so a future reader widens it on evidence rather than on
+            a hunch.
+            ANTI-VACUOUS ASSERTIONS FIRST, and they are load-bearing: assert the reduced
+            roster is NON-EMPTY, and assert it contains BOTH `cmd/backstop` and
+            `pkg/packval`. Without these a predicate that quietly matches nothing passes
+            while checking nothing — the exact vacuous-green shape this repo's DIR-032
+            cluster exists to prevent.
+            Then, for EVERY member of the roster, assert THE GUARD SHAPE AND ONLY THE
+            GUARD SHAPE: `TestMain`'s `Body.List[0]` is an error-checked `if` around a
+            call to `MaybeRunSandboxHelper`, in either spelling (sharp edge 8 —
+            `pkg/packval` calls it unqualified, and a selector-only matcher would red the
+            ALREADY-CORRECT precedent).
+            ★ DO NOT REUSE THE FIRST TEST'S CHECK WHOLESALE (sharp edge 8b). That one ALSO
+            asserts `os.Exit`'s argument is the identifier `sandboxHelperExitCode`, which
+            is a `cmd/backstop`-only property: `pkg/packval/main_test.go:46` correctly
+            spells `os.Exit(126)` as a bare literal because it is a different package with
+            no such constant in reach. A roster carrying that assertion reds the very file
+            this fix is modelled on. Factor the shared part into ONE small helper used by
+            both tests if that reads cleanest — but the helper checks the guard shape, and
+            the exit-code assertion stays in the first test alone.
+            EXPECTED ROSTER AT AUTHORING, MEASURED: exactly `cmd/backstop` and
+            `pkg/packval`. `tests/smoke` has a `TestMain` but does NOT import
+            `pkg/packval`, so it is excluded BY THE PREDICATE, not by an exception — do
+            not add it and do not special-case it (sharp edge 7).
+            PRE-FIX STATE: fails on the `cmd/backstop` member; `pkg/packval` already
+            satisfies it, which is what proves the check works before the fix exists.
+        files:
+          - cmd/backstop/sandbox_helper_testmain_guard_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on: []
+        test_names:
+          - TestIntegrationTestMain_RunsSandboxHelperGateAsItsFirstStatement
+          - TestSandboxHelperGate_PresentInEveryPackvalReachingTestMain
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Phase 2: GREEN — the five-line guard, then everything darwin CAN prove
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: GREEN — add the guard, then verify what this platform can actually verify"
+    tasks:
+      - id: TASK-002
+        type: implementation
+        title: "Add the MaybeRunSandboxHelper first-statement guard to cmd/backstop's TestMain"
+        description: |
+          Edit `cmd/backstop/integration_test.go`. ONE function, one import, nothing else.
+
+          Locate `func TestMain(m *testing.M)` BY NAME (sharp edge 11) and insert, as the
+          FIRST STATEMENT of its body — above the existing `os.MkdirTemp`, not merely
+          above the `go build` (sharp edge 3):
+
+              if err := packval.MaybeRunSandboxHelper(); err != nil {
+                  fmt.Fprintf(os.Stderr, "backstop sandbox helper: %v\n", err)
+                  os.Exit(sandboxHelperExitCode)
+              }
+
+          Add `"github.com/backstop-ai/backstop-core/pkg/packval"` to the import block
+          (gofmt grouping: it is a module-local import, so it goes in the same group as
+          any other `github.com/backstop-ai/...` import if the file grows one; today the
+          file has only stdlib imports, so give it its own group after them). `fmt` and
+          `os` are ALREADY imported — do not re-add them.
+
+          `sandboxHelperExitCode` IS ALREADY DECLARED at package scope in
+          `cmd/backstop/main.go` (`= 126`, with the reasoning for that code attached).
+          Reference it. DO NOT declare a second constant — `cmd/backstop` is one package
+          and the redeclaration fails the compile (sharp edge 1) — and do not inline `126`.
+
+          NO BUILD TAG, on the guard or on the file (sharp edge 2). `MaybeRunSandboxHelper`
+          resolves on every platform by design: on Linux it is the real gate, on darwin it
+          is `sandbox_nonlinux.go`'s `return nil` stub, whose `!linux` tag is itself pinned
+          by `pkg/packval/sandbox_nonlinux_test.go`. That stub is precisely what makes this
+          edit provably inert on the platform we can measure — the call returns nil
+          immediately and control falls through to the untouched build logic.
+
+          NOTHING ELSE IN `TestMain` CHANGES (sharp edge 6): the temp-dir creation, the
+          `execCommand("go", "build", "-o", binaryPath, ".")` seam and its comment, the
+          `cmd.Dir`/`cmd.Stderr` assignment, and the explicit `os.RemoveAll(tmpDir)` after
+          `m.Run()` all stay byte-identical. Do NOT turn that RemoveAll into a `defer`;
+          the comment above it says why (`os.Exit` skips deferred calls).
+
+          WRITE A SHORT COMMENT ABOVE THE GUARD, in your own words, carrying the two facts
+          a future reader needs and cannot infer: (i) under `go test` the sandbox
+          trampoline re-execs THIS TEST BINARY with its working directory set to the pack
+          directory, so without this gate the unconditional `go build` below dies with
+          "no Go files in <dir>" before the helper is ever recognised — which is ISSUE-163;
+          (ii) a successful call in helper mode NEVER RETURNS, and a non-nil error means
+          this process IS a helper whose sandbox failed to install, so running the suite
+          at that point would hand the parent the suite's output as the sandboxed
+          command's output. Point at `pkg/packval/main_test.go` and `cmd/backstop/main.go`'s
+          `runWith` as the other two members of the same wiring family.
+
+          DO NOT TOUCH `cmd/backstop/main.go`, `pkg/packval/**`, `tests/smoke/**`, or
+          `.github/workflows/ci.yml`. All are already correct or deliberately out of scope.
+
+          Run `backstop gate` after this task, as the implementer contract requires.
+        files:
+          - cmd/backstop/integration_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: verification
+        title: "Verify everything darwin CAN verify — compile, vet, the two new pins, and the unchanged package suite"
+        description: |
+          ★ READ THE VERIFICATION CEILING SECTION IN THIS PLAN'S HEADER BEFORE STARTING.
+          This task deliberately does NOT ask you to reproduce ISSUE-163 or to confirm the
+          Linux fix. Neither is possible here, and a report claiming either is rejected in
+          review (sharp edge 5).
+
+          (1) THE MODULE STILL BUILDS AND VETS (CLM-004):
+                go build ./...
+                go vet ./cmd/backstop/...
+              Both must be clean. `go vet` is named explicitly because the likeliest
+              mechanical failure of this edit is an import that gofmt grouped but vet
+              flags, or an unused import if the call was written unqualified by mistake.
+
+          (2) THE TWO NEW PINS ARE GREEN (CLM-001, CLM-002, CLM-003):
+                go test ./cmd/backstop/ -run "TestIntegrationTestMain_RunsSandboxHelperGateAsItsFirstStatement|TestSandboxHelperGate_PresentInEveryPackvalReachingTestMain" -race -count=1
+              Report the per-test result, not a package-level `ok`.
+
+          (3) THE DARWIN PATH IS PROVABLY UNCHANGED (CLM-004) — this is the real
+              non-regression measurement, not a formality:
+                go test ./cmd/backstop/ -race -count=1
+              EVERY test in this package depends on the binary `TestMain` builds into
+              `binaryPath`, so a suite that still passes is direct evidence that the
+              inserted guard fell through to the untouched build logic exactly as the
+              `!linux` stub promises. Report the result honestly, INCLUDING pre-existing
+              reds: this package carries known inherited failures from other lanes. For
+              any red, establish whether it predates this lane by measuring a control at
+              clean HEAD (a detached worktree is the reliable way; a carried reading is
+              not) and ATTRIBUTE it by name to its owning lane. Never absorb another
+              lane's red and never waive one.
+              If the full package run is impractical because another agent is mid-flight
+              in this shared tree (sharp edge 10), say so plainly and run it when the tree
+              is quiet — do not substitute a narrower run and describe it as the suite.
+
+          (4) THE DIFF-SCOPED GATE over the two files this lane touches:
+                backstop gate --file cmd/backstop/integration_test.go
+                backstop gate --file cmd/backstop/sandbox_helper_testmain_guard_test.go
+              Fix anything attributable to this lane AT SOURCE. Two classes to expect:
+              a backstop-self finding on the new test file, and any lint complaint about
+              the added import. Do not waive; do not weaken a test to clear one.
+
+          (5) STATE THE CEILING IN THE REPORT, EXPLICITLY. The report must contain a line
+              to the effect of: "none of the above verifies the Linux behaviour ISSUE-163
+              describes; that is confirmed only by the CI reading TASK-005 owns." A report
+              that lists green checks without that sentence is incomplete.
+        files:
+          - cmd/backstop/integration_test.go
+          - cmd/backstop/sandbox_helper_testmain_guard_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+        depends_on:
+          - TASK-002
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Phase 3: full sweep, then the honest handoff to CI
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: full kill chain, then the CI-confirmation handoff"
+    tasks:
+      - id: TASK-004
+        type: verification
+        title: "Full kill chain: backstop gate --all plus artifact validation"
+        description: |
+          THE FINAL, UNSCOPED SWEEP. Run all three and read the results:
+
+              backstop gate --all
+              backstop artifact validate --plan PLAN-ISSUE-163
+              backstop artifact validate --issue ISSUE-163
+
+          `gate --all` covers the code half (pack lock verification, artifact validation,
+          pack engines, test verification, substantiveness, coverage, contracts, status
+          drift, requirement traceability, waivers, baseline, ledger integrity);
+          `artifact validate` covers the artifact half, since this lane's plan artifact is
+          itself new and its source issue is in flight.
+
+          ATTRIBUTION IS THE DELIVERABLE, NOT THE RAW COUNT. This repo carries inherited
+          reds from other lanes. For every violation, decide and STATE whether it is this
+          lane's:
+            * grep the full violation set explicitly for each path this lane touched
+              (`cmd/backstop/integration_test.go`,
+              `cmd/backstop/sandbox_helper_testmain_guard_test.go`) and report the hit
+              count, zero or otherwise;
+            * anything attributable to this lane is FIXED AT SOURCE, never waived and
+              never made green by weakening a test.
+
+          ENVIRONMENT CAVEATS GET RECORDED, NOT SMOOTHED. Two known shapes that have
+          produced misleading readings in this repo before: a `pack_engines` step that
+          exits 2 with `required tool "..." not found on PATH` is an environment artifact,
+          NOT a clean run — `go-arch-lint` and `golangci-lint` v2 must be on PATH or the
+          dimension silently contributes nothing; and a reading taken in a worktree
+          lacking `.backstop/baseline.json` is STRICTER, not more permissive. If either
+          applies, say so and do not report the run as authoritative.
+
+          ★ AND STATE THE CEILING AGAIN HERE: a green `gate --all` on darwin does not
+          confirm ISSUE-163's fix. `gate --all` on this machine never compiles
+          `sandbox_linux*.go` and never exercises a re-exec. It confirms this lane broke
+          nothing; TASK-005 owns the confirmation that it FIXED something.
+        files:
+          - cmd/backstop/integration_test.go
+          - cmd/backstop/sandbox_helper_testmain_guard_test.go
+          - plans/PLAN-ISSUE-163-cmd-backstop-testmain-sandbox-helper-guard.plan.yml
+          - issues/ISSUE-163-cmd-backstop-testmain-missing-sandbox-helper-check.issue.md
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+        depends_on:
+          - TASK-002
+          - TASK-003
+
+      - id: TASK-005
+        type: documentation
+        title: "Hand the real verification to CI: name what to watch, record the ceiling, file the adjacent hole, close nothing early"
+        description: |
+          THIS TASK IS THE POINT OF THE PLAN'S CAREFULNESS. Everything before it proves the
+          edit is safe; only this proves it WORKED — and it cannot be discharged from this
+          machine (see the VERIFICATION CEILING section).
+
+          EVERY ARTIFACT TOUCH HERE IS ROUTED THROUGH `/issue` (the issue-author agent).
+          This lane never hand-edits an artifact file — which is why
+          `issues/ISSUE-163-...` appears in this task's `files:`: it is the file a ROUTED
+          author writes, not a file this task opens in an editor.
+
+          (1) RECORD THE CEILING IN THE ARTIFACT, NOT IN A CHAT MESSAGE (CLM-005). Hand
+          the routed author the exact statement: the fix is unverifiable on darwin because
+          `pkg/packval/sandbox_linux.go` and `sandbox_linux_helper.go` are
+          `//go:build linux` and never compile here, so `MaybeRunSandboxHelper` is the
+          `!linux` no-op stub and no re-exec can occur. Local evidence establishes only
+          "nothing broke on darwin", never "the Linux path is fixed."
+
+          (2) NAME THE CI RUN TO WATCH, AND WHAT WOULD COUNT AS CONFIRMATION.
+          Workflow `.github/workflows/ci.yml`, job `gate` (display name "Backstop Gate"),
+          `runs-on: ubuntu-latest`. Blocking step: `./bin/backstop gate --base "$BASE"`.
+          The step before it writes `gate-report.json`, uploaded as the `gate-report`
+          artifact with `if: always()` — download it, as ISSUE-163's own investigation did
+          to extract the 62 violations. Confirmation is a CONJUNCTION, and each half must
+          be read, not inferred:
+            (a) `cmd/backstop` is actually IN SCOPE for that run. CI gates diff-scoped, and
+                both files this lane changes live in `cmd/backstop/`, so the package's
+                tests are expected to run — EXPECTED, not established. Read the path list
+                at `.scope.files` in `gate-report.json` (`GateResult.Scope` is
+                `json:"scope"`, `GateScope.Files` is `json:"files"` — `pkg/gate/result.go`
+                and `pkg/gate/scope.go`); ci.yml documents that list as the reason the JSON
+                step exists at all. If `cmd/backstop` is NOT in it, the run proves nothing
+                about this fix and you must say so rather than reading its green as
+                success.
+            (b) the `go-test`-channel violations that trace to this defect are GONE. The
+                signature to search for is the literal `failed to build binary` and the
+                `no Go files in` text beneath it, and the primary reproducing test named
+                by the issue is
+                `TestSubstantivenessFixtures_RealPackTestPassesPhase3`
+                (`cmd/backstop/substantiveness_fixture_polarity_test.go`).
+            ★ THE VIOLATION COUNT IS NOT A CONFIRMATION CRITERION — DO NOT COMPARE IT TO
+            THE 62. The two numbers are not comparable, because the runs are not
+            comparably scoped: CI's blocking gate is DIFF-SCOPED (`gate --base "$BASE"`,
+            never `--all`), and the v0.2.0 release attempt's 62 came from a large diff
+            while a push carrying only these two `cmd/backstop` files has a far smaller
+            in-scope set NO MATTER WHETHER THE GUARD WORKS. "The number went down" is
+            therefore trivially true of a run where nothing was fixed, and reporting it as
+            evidence is exactly the false confirmation this plan's ceiling section exists
+            to prevent. Confirmation rests on (a) AND (b) ALONE — the scope list and the
+            absence of that specific signature. Report the remaining blocking set as
+            CONTEXT for the release, clearly labelled as context and not as proof; zero is
+            not promised by this lane (ISSUE-163 owns the MAJORITY of those 62, not all)
+            and must not be claimed on its behalf.
+          The change has to reach a branch CI runs on before any of this exists. WHETHER
+          AND WHEN TO PUSH IS THE FOUNDER'S CALL, not this task's — deliver the watch
+          instruction and the criteria, and if no CI run has happened yet, say exactly
+          that instead of implying one did.
+
+          (3) DO NOT CLOSE ISSUE-163 ON LOCAL EVIDENCE (CLM-005). `closed` has real teeth
+          in this repo. Request closure through `/issue` ONLY once (2)(a) and (2)(b) have
+          both been READ from a real run, handing the routed author that reading as the
+          evidence. Until then ISSUE-163 stays open, and the honest status is
+          "fix landed, awaiting CI confirmation."
+
+          (4) FILE THE ADJACENT HOLE, ABSORBING NOTHING. `pkg/pack/distribution` and
+          `pkg/pack/engine` import `pkg/packval` and have NO `TestMain` at all, and
+          `pkg/pack/distribution/validator.go` runs the real packval pipeline. If a test
+          in either package can reach real sandboxed dispatch on Linux, its binary becomes
+          the re-exec target and Go's DEFAULT `TestMain` runs the whole suite as the
+          "sandboxed command" — the same class, quieter. ★ THIS LANE DID NOT MEASURE
+          WHETHER THAT PATH IS REACHABLE. File it as an issue with that stated AS AN OPEN
+          QUESTION to be measured, not as a confirmed defect, and do not fix it here.
+
+          (5) FILE ANYTHING ELSE SURFACED, and if nothing needed filing, SAY SO
+          EXPLICITLY — silence is not a discharge. Then report the terminal state plainly:
+          what landed, what was measured, what was NOT measurable and why, what was filed,
+          and what is still owed.
+        files:
+          - issues/ISSUE-163-cmd-backstop-testmain-missing-sandbox-helper-check.issue.md
+        claims:
+          - CLM-005
+        depends_on:
+          - TASK-004

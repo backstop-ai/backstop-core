@@ -30,3 +30,4 @@
 - [Falsify via scratch module + `replace`](project_falsify_via_scratch_module_replace.md) — measure an exported symbol's real verdict outside the repo; no `_test.go` in a shared tree, `git status` stays clean
 - [Doctored fixtures must still parse](project_doctored_fixture_must_still_parse.md) — stripping `fixtures:` trips `validateFixtures` at PARSE time, so the refusal branch never runs and the subtest greens anyway; drop the whole `claims:` block and assert the branch's OWN message
 - [ast-grep `files:` anchors on CWD](project_astgrep_files_glob_anchoring.md) — honored under explicit-file dispatch (unlike semgrep `paths.include`); a `**/`-prefixed glob passes `pack test` but is dark only via hidden-dir skipping — test with `--no-ignore hidden`
+- [Platform-gated defect ceiling](project_platform_gated_defect_verification_ceiling.md) — build-tag-gated mechanism = no local repro; AST pin substitutes, CI run + report artifact is the only confirmation

@@ -26,6 +26,7 @@ directive:
     - "ISSUE-147"
     - "ISSUE-158"
     - "ISSUE-131"
+    - "ISSUE-163"
 ---
 
 ## Description
@@ -36,7 +37,10 @@ newly-added directives' themes:
 **Correction (2026-08-17):** the roster grew to NINETEEN with item 19
 (ISSUE-131), slotted by directive-author under the standing clear-fit
 grant, as item 3's (ISSUE-082) own plan-mandated residual — not a new
-theme, and not by any founder roster call.
+theme, and not by any founder roster call. It grew again to TWENTY the
+same day with item 20 (ISSUE-163), likewise slotted by backlog-pm under
+the standing clear-fit grant as item 1's (ISSUE-020) own delivery
+residual — not a new theme, not a founder roster call.
 
 1. **Cross-platform sandbox — Linux is a hard no-op (ISSUE-020).**
    `pkg/packval/sandbox.go`'s `SandboxedRun` / `SandboxedRunStdout` dispatch
@@ -913,6 +917,112 @@ theme, and not by any founder roster call.
     This is a clear fit, not a founder roster call: it is not a new theme,
     it is item 3's own deliberately-deferred tail, and this directive
     already owns the allowlist surface via item 3.
+20. **`cmd/backstop`'s test-binary `TestMain` never checks whether it was
+    re-exec'd as a sandbox helper, so every `cmd/backstop` test that
+    triggers real sandboxed dispatch dies on Linux before the dispatched
+    command runs (ISSUE-163).**
+    Mechanism A: `pkg/packval/sandbox_linux.go`'s `newSandboxHelperCommand`
+    implements sandboxed dispatch by RE-EXECUTING the currently running
+    binary as a helper subprocess — `os.Executable()`, `exec.Command(self)`
+    with `Dir` set to the pack directory being validated, and
+    `BACKSTOP_SANDBOX_HELPER_SPEC` in the environment to tell that copy it
+    is the helper. Under `go test` that "self" is the TEST binary.
+    Mechanism B: `cmd/backstop/integration_test.go`'s `TestMain`
+    unconditionally runs `execCommand("go","build","-o",binaryPath,".")`
+    with `cmd.Dir = "."` as its very first action, with no prior gate of
+    any kind. VERIFIED IN TREE by backlog-pm 2026-08-17: the function has
+    no `MaybeRunSandboxHelper()` call anywhere, and a repo-wide grep for
+    the literal `"failed to build binary"` returns exactly one source, that
+    same `TestMain`.
+    The collision: for a `cmd/backstop`-resident test that drives real
+    sandboxed dispatch (concretely
+    `TestSubstantivenessFixtures_RealPackTestPassesPhase3` in
+    `cmd/backstop/substantiveness_fixture_polarity_test.go`, which runs
+    `packval.NewPipeline(absPackDir, ...).Run()` against
+    `packs/substantiveness`), the re-exec'd helper IS that same
+    `cmd/backstop` test binary, so it re-enters `TestMain`, tries `go
+    build` in the cwd the trampoline set to the PACK directory (no `.go`
+    files there), dies with Go's `"no Go files in <dir>"` wrapped as
+    `"failed to build binary: %v"` + `os.Exit(1)` — entirely BEFORE
+    `runSandboxHelper`'s `BACKSTOP_SANDBOX_HELPER_SPEC` check. The pack's
+    real convert script never executes; packval reports it up the stack as
+    a generic engine-run failure.
+    THE HOME REASONING, and it is the sharpest fact about this item: this
+    is item 1's (ISSUE-020) own delivery residual, exactly the shape item
+    19 (ISSUE-131) has relative to item 3. `PLAN-ISSUE-020`
+    (`status: completed`) explicitly designed this as a WIRING PAIR and
+    said so in prose — `pkg/packval/main_test.go`'s own `TestMain` header
+    calls itself "the test-side half of a WIRING PAIR whose other half is
+    `packval.MaybeRunSandboxHelper()` as the first statement of
+    `cmd/backstop`'s `runWith`", and names both failure directions. What
+    the plan's model never considered is a THIRD site in the same family:
+    a test binary in a DIFFERENT package that also triggers sandboxed
+    dispatch. `cmd/backstop` is that third site. Both halves the plan
+    built are correctly in place today (verified: `pkg/packval/
+    sandbox_linux.go:119` / `sandbox_nonlinux.go:47`, `pkg/packval/
+    main_test.go`, and `cmd/backstop/main.go`'s `runWith(stdout, stderr,
+    packval.MaybeRunSandboxHelper, NewRootCommand)`); the gap is a site the
+    pair was never extended to.
+    Blast radius: EVERY test resident in package `cmd/backstop` that
+    triggers real sandboxed dispatch against a local pack on Linux, not
+    just the one named repro. Per the issue's own investigation (relayed
+    from the issue, NOT re-measured by backlog-pm): this accounts for the
+    majority of the 62 violations in the `gate-report.json` artifact from
+    the failed v0.2.0 release CI run on `ubuntu-latest`, across contracts,
+    substantiveness and init dimensions, all surfacing as variants of
+    `"pack add ... pack test for ... failed"`.
+    Darwin: does NOT reproduce, and the reason is structural rather than
+    luck — `sandbox_linux.go`/`sandbox_linux_helper.go` are
+    `//go:build linux`-gated and never compile on macOS, and
+    `pkg/packval/sandbox_nonlinux.go:47`'s `MaybeRunSandboxHelper()` is a
+    bare `return nil` stub (verified in tree). Corollary a planner should
+    have: adding the call to `cmd/backstop`'s `TestMain` is a behavioral
+    no-op on darwin, so the fix cannot be validated on a Mac — its
+    falsifier is Linux CI.
+    How the issue's author established it, worth preserving as evidence
+    quality: a throwaway debug PR added diagnostic printfs immediately
+    before the final `unix.Exec` in `applyRestrictionsAndExec` and was run
+    on real GitHub Actions. The printfs appeared for two sandboxed tests
+    resident in `pkg/packval` (which has the correct `TestMain`) and NEVER
+    for `TestSubstantivenessFixtures_RealPackTestPassesPhase3`, which
+    showed the unchanged `"no Go files ... failed to build binary"` —
+    proving the helper process dies before reaching any code that is only
+    reachable after `runSandboxHelper` has taken over.
+    Direction, kept as constraint not design (the issue states it
+    explicitly as context-only): add the same first-statement
+    `packval.MaybeRunSandboxHelper()` gate to
+    `cmd/backstop/integration_test.go`'s `TestMain`, mirroring
+    `pkg/packval/main_test.go`'s pattern (check the error, `os.Exit(126)`
+    on failure), BEFORE the `go build` step. One thing a planner must
+    settle rather than assume: whether `cmd/backstop` is the only
+    remaining package with both a `TestMain` and sandbox-triggering tests,
+    or whether the pair needs a general guard — the same "two
+    hand-maintained copies drift" concern items 13/14 already record for
+    the Convert step applies to a wiring pair that is now a wiring triple.
+    WHY DIR-024 AND NOT DIR-032/DIR-033 — decided, in the same shape items
+    15-18 use: nothing here reports a verdict it did not earn. CI goes RED,
+    loudly and blockingly; the defect is that the red is misattributed — a
+    harness gate that never runs, surfacing as an opaque build failure and
+    then as a generic engine-run failure — so it fails DIR-032's charter
+    test ("computes a result internally but reports the wrong verdict about
+    it") exactly as items 15-18 do. It is also NOT DIR-033 ("Gate Verdict
+    Honesty Residual Tail"): that directive homes follow-ons FILED BY
+    DIR-032 member plans, and ISSUE-163 was not filed by one — it came out
+    of the v0.2.0 release investigation, the same investigation that
+    produced item 18's ISSUE-158, which is already homed here. Affirmative
+    precedent, not just elimination: item 18 is a test-harness defect that
+    stops `cmd/backstop` E2E tests from reaching the code under test and is
+    homed here; this is the same class in the same package, one layer
+    deeper.
+    Sequencing/urgency, recorded as fact not as a priority claim
+    (backlog-pm has no reorder authority): a plan scaffold
+    `plans/PLAN-ISSUE-163-cmd-backstop-testmain-sandbox-helper-guard.plan.yml`
+    already exists in `draft` with empty `phases:` as of 2026-08-17T22:14
+    local — a lane is mid-authoring. Note also that this directive now
+    carries TWO items whose issues ask to be the next lane opened (item
+    17/ISSUE-147 and this one), and that a BACKLOG.yml `PROPOSAL`/
+    sequencing question for Brandon is recorded in `.backstop/pm/
+    INBOX.md` — this file makes no position claim.
 
 ## Notes
 
