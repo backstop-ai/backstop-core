@@ -1,0 +1,17 @@
+name: zzz-fast-debug-throwaway
+on:
+  push:
+    branches:
+      - debug/issue166-contracts-grep-repro
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: grep version
+        run: grep --version
+      - name: run the one test, verbose, no backstop involved
+        run: go test ./pkg/pack/engine/ -run TestContract_AbsencePresentSymbolGrepMatchViolation -v
