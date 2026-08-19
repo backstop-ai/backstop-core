@@ -4,3 +4,4 @@
 - [Contract compiler Go-only](project_contract_compiler_go_only.md) — ISSUE-053 owns non-Go-target contract false-mismatches (e.g. pack.yml); check before filing a dup
 - [Body H1 required for title](feedback_body_h1_required_for_title.md) — art.Title reads body H1, not frontmatter title:; add `# Title` line or validate fails "title is missing"
 - [Schema properties block unenforced](project_schema_properties_block_unenforced.md) — MetadataRules parsed but never consulted by any validator; schema-vs-validator drift is doc-only, not a live bug (see ISSUE-153)
+- [Baseline-pull follow-ons](project_baseline_pull_followons.md) — ISSUE-178 (workflow-name filter gap) follows ISSUE-176; note-only edits into an issue awaiting a plan's close-out task are fine, don't flip status

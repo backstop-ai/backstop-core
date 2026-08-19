@@ -12,6 +12,7 @@ directive:
     - "ISSUE-056"
     - "ISSUE-086"
     - "ISSUE-120"
+    - "ISSUE-178"
 ---
 
 ## Description
@@ -26,6 +27,8 @@ Per ISSUE-120, `backstop baseline pull`'s GitHub-Actions-specific knowledge (Git
 runs/artifact lookup, `gh auth status`, GitHub-naming error strings) is a candidate zero-baked-
 platform-knowledge violation whose disposition — accepted narrow exception vs. an extracted
 provider seam — is an open founder decision this directive owns.
+
+Per ISSUE-178, `backstop baseline pull`'s run selection is incomplete: `resolveLatestSuccessfulMainRun` (`cmd/backstop/baseline.go:202-224`) decodes each candidate run's `Name` field but never filters on it, returning the newest successful run on `main` from ANY workflow rather than specifically the `CI` workflow whose `baseline` job publishes the `backstop-baseline-v1` artifact. Latent today, and its fix is entangled with the ISSUE-120 decision above — the obvious repair bakes a fourth GitHub-Actions-specific literal (the workflow NAME) into the same file whose GitHub coupling ISSUE-120 already asks the founder to rule on. These two should be planned together, not separately.
 
 ## Notes
 
@@ -98,3 +101,8 @@ provider seam — is an open founder decision this directive owns.
   their rendered workflows invoke `baseline pull` — nothing breaks when they land. The real
   consequence is narrower: a GitLab/Bitbucket/Jenkins consumer wired up by that recipe has no
   path to adopt the baseline ratchet at all.
+- **ISSUE-178, filed 2026-08-18: `backstop baseline pull` selects a workflow run without filtering on workflow name.** Filed as the deferred follow-on from PLAN-ISSUE-176's CLM-007(a), which recorded the defect and explicitly declined to fix it in that lane. Verified in tree by the PM, not relayed: the loop at `cmd/backstop/baseline.go:218-222` tests only `HeadBranch == "main" && Conclusion == "success"` while `Name` is decoded at `:207-213` and never read. THREE PM-MEASURED CORRECTIONS a planner needs, none of them in the issue:
+  (a) **The issue's premise "this repository currently runs exactly one workflow against `main`" is wrong as stated.** `.github/workflows/` holds THREE workflows — `CI` (ci.yml), `release` (release.yml), and `tag-integrity` (tag-integrity.yml). The landmine is nonetheless still dormant, but for a reason the issue never gives: `release` and `tag-integrity` are both triggered by `push: tags: ['v*']`, so their runs carry the TAG as `head_branch` and are excluded by the `?branch=main` query parameter — not because they do not exist. A planner who "verifies" the issue's premise by listing workflow files will find three and may wrongly conclude the defect is already live; a planner who trusts the premise will not know the tag-trigger fact is the only thing holding it dormant. Either way the correct trigger to watch for is the first BRANCH-triggered second workflow on `main`, not the first second workflow.
+  (b) **The issue's proposed one-line fix, applied verbatim, goes RED against the existing test suite.** `cmd/backstop/baseline_test.go:248` already exercises this function through a fake `gh` whose fixture payload emits `"name":"ci"` — LOWERCASE — while `.github/workflows/ci.yml` declares `name: CI`, uppercase. So adding `run.Name == "CI"` breaks the currently-passing assertion at `baseline_test.go:267` (`runID != 42`). The fixture is also, by that same mismatch, demonstrably not captured from real GitHub API output, which this repo's fixtures-from-real-output convention requires — so the fixture needs correcting on its own merits, and that correction must land in the SAME change as any name filter, or the fix is red on arrival.
+  (c) **"Redundant" must not be read as "delete it."** The issue calls the client-side `HeadBranch == "main"` check redundant given the server-side `branch=main` parameter. That client-side check is the only in-process guard should the server-side filter's treatment of tag-triggered runs ever differ from the assumption in (a); removing it as dead code would convert a documented assumption into an undocumented one. Keep it.
+  The issue itself declines to prescribe the fix shape, correctly, offering a literal-name match versus a "select the run whose artifacts actually include `backstop-baseline-v1`" scan; the latter has no workflow-name coupling and so is the option that does NOT enlarge ISSUE-120's surface. That trade-off is a founder/planner call, not settled here. Sequencing is clear: PLAN-ISSUE-176 is `status: draft` and in flight in this shared tree, but its file scope is `.github/workflows/ci.yml`, `cmd/backstop/bun_ratchet_flip_test.go` and `cmd/backstop/baseline_prerequisite_test.go` — it does NOT hold `cmd/backstop/baseline.go` or `cmd/backstop/baseline_test.go`, so this work does not collide with it.

@@ -4,6 +4,7 @@
 - [Verify the loss claim](feedback_verify_the_loss_claim.md) — mechanism real ≠ consequence real; go look for the "lost" file / RUN the "failing right now" test before ranking off that claim
 
 - ["Committed baseline" premise](project_baseline_committed_premise.md) — ★ baseline.json is gitignored; "CI has no baseline" = a TEST defect (gate.go:331 warns+skips per SPEC-019). Generating one = vacuous green (zero backstop-self findings)
+- [baseline-pull family](project_baseline_pull_family.md) — ★ production baseline.go → DIR-003, test harness → DIR-024; THREE workflows exist (2 tag-triggered); fixture says "ci", real name is "CI"
 - [Mirror-sync-guard family](project_mirror_sync_guard_family.md) — ★ home these by LIFETIME not wording: 137's fixture is permanent (DIR-024), 174's pack source is deleted by DIR-027 tier 2; `ls packs/` is the whole exposure set
 - [Done directive orphans its tail](project_done_directive_orphans_its_tail.md) — ★ DIR-032 closed 21/21 and stranded NINE plan-filed follow-ons; trace provenance by grep, escalate the family as ONE ruling
 - [DIR-033 + the 3-way gate boundary](project_dir033_and_the_three_way_gate_boundary.md) — ★ DIR-033 exists (queued, absent from BACKLOG.yml by design); home by FILING PROVENANCE — goes RED ⇒ DIR-024; delivery residuals = clear fits

@@ -1,0 +1,1767 @@
+---
+plan_id: PLAN-ISSUE-176
+spec_id: ISSUE-176
+created: "2026-08-18"
+status: completed
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test . ./cmd/backstop/ -run \"TestCIWorkflow_GateJob|TestCIWorkflow_TheOnlyBaselinePull|TestCommittedBaselineAbsence|TestRatchetBaselineRead|TestMakefile_DeclaresOptIn|TestRatchet_\" -count=1 -v"
+coverage_threshold: 90
+
+notes: |
+  ══════════════════════════════════════════════════════════════════════════════
+  ★ AS-BUILT — CLOSED 2026-08-18.  status: draft -> completed
+  ══════════════════════════════════════════════════════════════════════════════
+  PROVENANCE CAVEAT, same shape PLAN-ISSUE-157 recorded a day earlier: this plan was
+  never committed BEFORE implementation — it was still untracked
+  (`?? plans/PLAN-ISSUE-176-...`) when this close-out ran, so a future reader has no
+  `git show <plan commit>` baseline to diff the as-built against. The AS-BUILT DELTAS
+  section below is therefore the authority on where the as-built diverged. The phases,
+  tasks, claim mappings and original prose below this banner are UNCHANGED historical
+  record and were deliberately NOT rewritten.
+
+  ── ★ WHICH VERDICT MODE SHIPPED — the SECOND FLAGGED DECISION, ANSWERED ─────
+  HARD FAIL. `::error::` + `exit 1` — this plan's default AND its stated
+  recommendation — shipped, on explicit founder authorization ("full send"). The
+  one-line softening (`::warning::` + `exit 0`) was NOT taken. It is readable at HEAD
+  in `.github/workflows/ci.yml`, step "Confirm the self-healing baseline pull landed a
+  file":
+
+      if [ -f .backstop/baseline.json ]; then
+        echo "baseline present: $(wc -c < .backstop/baseline.json) bytes"
+        exit 0
+      fi
+      echo "::error::.backstop/baseline.json absent after the gate ran - the
+      self-healing pull did not succeed (ISSUE-176)"
+      ./bin/backstop baseline pull || echo "bare baseline pull exited $?"
+      exit 1
+
+  CONSEQUENCE, ACCEPTED KNOWINGLY: from this commit forward ANY baseline-unavailable
+  condition REDS the blocking gate job — including the transient-GitHub-API case and
+  the CLM-007(c) artifact-expiry case around 2026-11-14 that the flag itself named as
+  arguments against. On both real runs below the step PASSED, so the hard verdict has
+  not yet fired in anger; nothing about the shipped mode is inferred from a non-firing
+  step — it is read out of the workflow file.
+
+  ── ★ REAL CI EVIDENCE FOR CLM-004 (the CI-only claim — sharp edge 12) ───────
+  Read out of the runs themselves via `gh run view <id> --log`, not from summaries.
+
+  RUN 32194863181 — head `0ee071d` (PR #4 branch), diff base `3fdebfd`, created
+  2026-08-18T22:54:41Z. In job "Backstop Gate" every step succeeded EXCEPT "Run the
+  gate".
+    · Step 11, "Confirm the self-healing baseline pull landed a file" => SUCCESS,
+      printing exactly:   baseline present: 240442 bytes
+      ★ 240442 is the SAME byte count notes section (1) measured on the baseline
+      artifact published by run 31921681066 — and 31921681066 is STILL the newest
+      successful `main` run at close-out (re-checked here:
+      `gh api ".../actions/runs?branch=main&status=success"` returns it first). So
+      `resolveLatestSuccessfulMainRun` selected that run and landed that exact file.
+      THAT IS CLM-007(b) CONFIRMED AS A PREDICTION, NOT A FINDING: the artifact was
+      generated 2026-08-16T02:26:32Z at git_sha `872bc9c9...`, i.e. roughly 2.9 days
+      stale when pulled — the ≥2-day staleness TASK-007 predicted. Stated precisely:
+      `generated_at` / `git_sha` are NOT observable in the run log, so the
+      identification is (byte count match) + (still-newest-success re-check), and is
+      recorded as that rather than dressed up as a direct read.
+    · The three named ratchet tests appear ZERO times in the entire 1120-line log
+      (`grep -c UnGrandfatheredAfterDeGo` => 0). Absent, not "failing differently" —
+      which is the distinction TASK-010's precondition insisted on.
+    · Gate verdict: `Total violations: 4 (+194 warnings)`, `pack_engines` the only
+      failing dimension. ALL FOUR ATTRIBUTED, none absorbed:
+        2x [go-toolchain/unused] `workflowPermissions.declared`, `lastStepIndex`
+           — THIS LANE'S OWN, self-introduced by TASK-002. Fixed AT SOURCE in
+           `a230337`, never waived (see DELTA 1).
+        1x [go-toolchain/go-test] `TestInstallContractsLocalPack_InstallsWithSupplied
+           Command` — ISSUE-177, pre-existing, not this lane's.
+        1x [go-toolchain/go-test] `TestInstalledGoContractsPack_CarriesFilenameHeader
+           Fix` — ISSUE-157/166's, red ONLY because this branch's base `3fdebfd`
+           predates the go-contracts relock in `0943ec4`.
+
+  RUN 32197980951 — head `a230337` (same PR branch, after the lint fix and past
+  `0943ec4`), created 2026-08-18T23:37:58Z.
+    · Confirmation step => SUCCESS again: `baseline present: 240442 bytes`.
+    · Ratchet names: ZERO occurrences again.
+    · Gate verdict: `Total violations: 1 (+194 warnings)` — ISSUE-177's
+      `TestInstallContractsLocalPack_InstallsWithSuppliedCommand`, and NOTHING else.
+      Both self-introduced `unused` findings gone; ISSUE-157's gone with the rebase.
+
+  ★ THE DELTA, MEASURED RATHER THAN ASSERTED. Run 32197663701 — head `0943ec4`, plain
+  `main`, the LAST pre-fix run, created 2026-08-18T23:33:20Z — reports
+  `Total violations: 4` and names all three failures with the ISSUE-176 message:
+      TestRatchet_CoverageMeasurablePathSiteUnGrandfatheredAfterDeGo:
+        read committed baseline: open /home/runner/... (no such file or directory)
+      TestRatchet_TestVerifyDiscoverySiteUnGrandfatheredAfterDeGo:  same
+      TestRatchet_GoPackageMatchersSiteUnGrandfatheredAfterDeGo:    same
+  Post-fix run 32197980951 over the same corpus: 4 -> 1, those three GONE, the single
+  survivor being ISSUE-177's. That before/after pair IS CLM-004.
+
+  MERGED as `14d87ad` — "fix(ISSUE-176): authorize CI's self-healing baseline pull
+  (#4)", the squash of `0ee071d` + `a230337`: 6 files, +788/-9.
+
+  ★ NOT YET OBSERVED, SAID PLAINLY: the post-merge `main` run at `14d87ad` is
+  32200897995, and it was still `in_progress` when this banner was written. Both
+  evidence runs above are PR-BRANCH runs, not `main` runs. The branch's workflow file
+  is what merged, so the wiring is identical — but a main-triggered confirmation has
+  NOT been read by anyone. Expect `baseline present: 240442 bytes` and a single
+  ISSUE-177 violation there; anything else is a finding worth its own issue.
+
+  THE GATE JOB IS STILL RED OVERALL and that is not this lane's to fix or to claim
+  (sharp edge 12). This close means "the three named ratchet failures are resolved",
+  NOT "CI is green".
+
+  ── WHAT LANDED, BY PHASE ────────────────────────────────────────────────────
+  Phase 1 (TASK-001/002/003) — FIX 1, `.github/workflows/ci.yml` (+67) and
+    `workflows_test.go` (+426/-9 across both commits). Step-level
+    `GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}` on exactly the three `gh`-shelling steps
+    (both gate invocations, which run `resolveBaselineCache`, plus the new
+    confirmation step) — STEP-level and not job-level by design, so the two remote
+    installers that pipe `curl | sh` / run `pipx install` and the eight-repo pack
+    clone never see the token. Job-level `permissions: {contents: read, actions: read}`
+    on `gate` ONLY, with `contents: read` RE-declared because a job-level block
+    REPLACES the workflow-level one outright and unlisted scopes become `none`; the
+    workflow-level block is untouched. The confirmation step is guarded on
+    `always() && steps.run_gate.conclusion != 'skipped'` so an early job death is not
+    misattributed to ISSUE-176, and its mandated test pins the `id:`/`if:` consistency
+    that guard depends on. Four mandated tests, all present and passing:
+    `TestCIWorkflow_GateJobAuthenticatesTheSelfHealingBaselinePull`,
+    `TestCIWorkflow_GateJobGrantsActionsReadWithoutWideningTheWorkflow`,
+    `TestCIWorkflow_GateJobProvesTheBaselineLandedAfterTheGate`,
+    `TestCIWorkflow_TheOnlyBaselinePullFollowsEveryGateInvocation`.
+  Phase 2 (TASK-004/005/006) — FIX 2, `Makefile` (+17/-…),
+    `cmd/backstop/baseline_prerequisite_test.go` (+133, new), `makefile_test.go`
+    (+123, new), `cmd/backstop/bun_ratchet_flip_test.go` (+31/-…). The ratchet
+    baseline read routes through ONE remedy-naming helper (`readGeneratedBaseline`)
+    whose error names the file, `backstop baseline pull` and `make baseline`, and says
+    WHY the file is absent; the failure stays a `t.Fatalf` — never a skip. `make
+    baseline` (depends on `build`) is OPT-IN: neither `test:` nor `ci:` lists it, so
+    no local `go test` run touches the network. Three mandated tests:
+    `TestCommittedBaselineAbsence_FailsWithActionableRemedy`,
+    `TestRatchetBaselineRead_NeverSkipsAndNeverPullsImplicitly`,
+    `TestMakefile_DeclaresOptInBaselineTargetOutsideTestAndCI`.
+  Phase 3 (TASK-007) — the follow-on was filed as **ISSUE-178** ("Baseline Pull
+    Workflow Name Unfiltered"): `resolveLatestSuccessfulMainRun`
+    (`cmd/backstop/baseline.go:202-224`) decodes each candidate run's `Name` and never
+    filters on it. It is registered on DIR-003 alongside ISSUE-056/086/120, where the
+    PM added three measured corrections a future planner needs (the repo has THREE
+    workflows, not one — `release` and `tag-integrity` are tag-triggered and so
+    excluded by `?branch=main`, which is the only thing keeping the defect dormant;
+    the issue's verbatim one-line fix goes RED against
+    `cmd/backstop/baseline_test.go:248`'s lowercase `"name":"ci"` fixture; and the
+    "redundant" client-side `HeadBranch == "main"` check must be KEPT). CLM-007(b)/(c)
+    were recorded as carried observations, not fixed.
+  Phase 4 (TASK-008/009) — full kill chain locally, then the Linux CI runs above,
+    which are the only thing that can prove CLM-004.
+  Phase 5 (TASK-010/011) — TASK-010 STEP 1 is this banner plus the status flip, run as
+    a SEPARATE routed planner dispatch (see DELTA 3). The ISSUE-176 `delivered_by`
+    close is STEP 2 and is ordered strictly AFTER this flip, per the task's
+    load-bearing ordering; TASK-011 re-validates both artifacts AFTER the mutations.
+
+  ── AS-BUILT DELTAS ──────────────────────────────────────────────────────────
+   1. TASK-002's first cut left TWO helpers unused, and CI run 32194863181's gate job
+      flagged both (`backstop-ai/go-toolchain/unused`). FIXED AT SOURCE in `a230337`,
+      NOT waived and NOT baselined — but "two unused helpers were removed" would be
+      the wrong summary, and the distinction matters to a reader of the diff:
+      `workflowPermissions.declared` was DELETED (the assertion it was written for
+      ended up reading `Scalar`/`Scopes` directly), while `lastStepIndex` was WIRED IN
+      at the two call sites that had been resolving the ordering anchor inline off
+      `stepIndexes` — which is precisely what this plan mandated in the first place.
+      One helper removed, one made real.
+   2. TASK-009's proof came from PR-BRANCH runs, not a `main` run. The task said "push
+      the branch and let the real `ubuntu-latest` workflow run", so this is congruent
+      with the plan as written — but it is a weaker position than a green main-run
+      confirmation, and run 32200897995 (the main run at `14d87ad`) was still
+      in-flight at close. Recorded above rather than papered over.
+   3. TASK-010 was NOT executed by the implementer: agent-guard blocks artifact edits
+      in BOTH the Write/Edit and Bash channels for that agent, so it stopped after
+      TASK-009 and handed off. The close-out ran as a separate routed planner
+      dispatch — the identical shape PLAN-ISSUE-157 recorded one lane earlier.
+   4. Delivery route: the work merged via GitHub PR #4 as a SQUASH (`14d87ad`), which
+      is why the two implementation commits `0ee071d` and `a230337` are reachable
+      individually but do not appear on `main`'s first-parent history. The plan
+      prescribed no delivery route; recorded so the run-id ↔ commit mapping above
+      stays legible.
+
+  ── VERIFIED AT CLOSE-OUT (re-run by the closing agent, not carried) ─────────
+   · The plan's own `test_command`, verbatim, with `-v`: ALL SEVEN mandated test names
+     RUN and PASS, none skipped — 13 `=== RUN` lines in total, the extra four being
+     the other `TestRatchet_` family members the `-run` pattern also matches
+     (`FlipSequencedAfterPillarASitesClean`,
+     `ReintroducedBakedLanguageLiteralRedsOutright`,
+     `SelfPackEnforcementFlipsToBlockZeroBaselineWhenAllSitesClean`, plus the three
+     ISSUE-176 sites). `ok github.com/backstop-ai/backstop-core` and
+     `ok .../cmd/backstop`. This is what makes the `completed` flip an honest one:
+     `status_drift` reads a completed plan's mandated tests as promises.
+   · Newest successful `main` run re-queried and still 31921681066 — the basis for the
+     artifact identification above.
+
+  ── WHAT THIS LANE DID NOT DO (recorded, not absorbed) ───────────────────────
+   · ISSUE-177 REMAINS OPEN and is the sole surviving blocking violation in the gate
+     job. Never this lane's.
+   · ISSUE-086 and PLAN-SPEC-019 REMAIN OPEN — the producer-side baseline gaps. This
+     lane only authorized the CONSUMER-side pull; it touched neither.
+   · ISSUE-178 REMAINS OPEN (filed by TASK-007, see Phase 3). This lane recorded the
+     `Name`-filter defect and explicitly declined to fix it.
+   · CLM-007(c) STANDS AS A LIVE CONSEQUENCE, not a closed question: if `main` is
+     still red around 2026-11-14 the newest successful main run's artifact expires,
+     the pull finds nothing, and — under the HARD-FAIL mode that shipped — the gate
+     job reds on that. That is the trade the founder accepted, and it is the one thing
+     in this banner most likely to surprise a future reader.
+   · Nothing here makes the gate job green, and no claim in this plan should be read
+     as saying otherwise.
+
+  ── COMMIT NOTE ──────────────────────────────────────────────────────────────
+  This close-out edit is UNCOMMITTED as written. It must land in the SAME commit as
+  the ISSUE-176 close (`delivered_by` re-validates the backing plan IN FULL, so a
+  committed closed issue pointing at a `draft` plan is a broken HEAD), together with
+  this plan file itself, `issues/ISSUE-176-...`, the untracked
+  `issues/ISSUE-178-baseline-pull-workflow-name-unfiltered.issue.md` and the DIR-003
+  edit that registers it. Everything else dirty in this tree is agent memory —
+  stage paths EXPLICITLY, never a broad `git add`.
+  ══════════════════════════════════════════════════════════════════════════════
+
+  ISSUE-176 — CI's `gate` job runs `backstop gate` against a worktree with no
+  `.backstop/baseline.json`, and three ratchet tests in
+  `cmd/backstop/bun_ratchet_flip_test.go` fail identically on every run as a result.
+
+  THE DIAGNOSIS IS NOT RE-DERIVED HERE. ISSUE-176's "## Root cause, sharpened"
+  section carries it in full with file:line citations: the self-healing pull already
+  exists end to end (`resolveBaselineCache` → `refreshBaselineFromRemote` →
+  `runBaselinePull`, `cmd/backstop/gate.go` / `cmd/backstop/baseline.go`), runs
+  unconditionally before `g.Run()`, and degrades silently to a nil baseline. The gap
+  is CI wiring: no `GH_TOKEN` anywhere in `.github/workflows/ci.yml` (so
+  `ensureGitHubAuth`'s `gh auth status` fails first), and no `actions: read` (so the
+  pull's `gh api .../actions/runs` and `.../actions/artifacts` calls would 403 even
+  with a token). This plan decides and sequences the FIX.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  EVIDENCE MEASURED FOR THIS PLAN (2026-08-18, darwin, this repo at HEAD 722d5f1)
+  ══════════════════════════════════════════════════════════════════════════════
+  Every number below was produced by running the command, not inferred.
+
+  ── (1) ★ THE DECISIVE MEASUREMENT: THE ARTIFACT THE PULL WILL FETCH IS ──────
+  ──     BYTE-IDENTICAL TO THE FILE THAT MAKES THE THREE TESTS PASS TODAY ────
+
+  ISSUE-176 argues the wiring fix will resolve the three failures. That is a
+  PREDICTION about a file nobody had opened. It was checked directly, because the
+  fix's whole premise dies if the published artifact happens to carry neutral-spine
+  findings for the three sites — the tests would still fail, only with a different
+  message.
+
+      gh api "repos/backstop-ai/backstop-core/actions/runs?branch=main&status=success&per_page=20"
+      → 20 rows, ALL of them workflow `CI`. Newest: run 31921681066,
+        head_branch main, conclusion success, created 2026-08-16T02:20:43Z.
+        THIS IS THE RUN `resolveLatestSuccessfulMainRun` SELECTS TODAY.
+
+      gh api "repos/backstop-ai/backstop-core/actions/runs/31921681066/artifacts"
+      → backstop-baseline-v1  id 9256587025  expired=false  32366 zip bytes
+                              created 2026-08-16T02:26:33Z
+        (also gate-report, id 9256561882 — not what the pull wants)
+
+      gh api "repos/.../actions/artifacts/9256587025/zip" > a.zip && unzip -q a.zip
+      → baseline.json, 240442 bytes
+        schema_version baseline/v1
+        generated_at   2026-08-16T02:26:32Z
+        git_sha        872bc9c976a43b08f7d7b815ac82d7bb18a93f14
+        308 violations total
+        neutral-spine findings (rule contains
+        `no-language-literal-on-neutral-spine`): ZERO
+          SITE step_coverage.go     → 0
+          SITE step_testverify.go   → 0
+          SITE cmd/backstop/gate.go → 0
+
+      shasum -a256 <downloaded>  .backstop/baseline.json
+      → 0d45fbebeda709f7ccbdbd7d7b46e26a994c70b8937de4bef8387a36dcdb3bc7
+        0d45fbebeda709f7ccbdbd7d7b46e26a994c70b8937de4bef8387a36dcdb3bc7
+        ★ BYTE-IDENTICAL.
+
+  What that pair of hashes establishes, and it is the strongest fact in this plan:
+  this darwin checkout's `.backstop/baseline.json` IS the CI-published artifact,
+  already self-healed onto disk by some earlier local `backstop gate` run. So the
+  three tests passing on darwin and failing on Linux CI is not a platform behavior
+  difference at all — it is the SAME FILE, present here and absent there. Landing
+  the wiring fix puts that exact byte sequence on the runner, and the three tests
+  then read precisely what they read locally today. The fix's premise is measured,
+  not argued.
+
+      go test ./cmd/backstop/ -run 'TestRatchet_(CoverageMeasurablePathSite|TestVerifyDiscoverySite|GoPackageMatchersSite)UnGrandfatheredAfterDeGo' -count=1
+      → ok  github.com/backstop-ai/backstop-core/cmd/backstop  2.654s
+
+  ── (2) THE TWO CI BLOCKERS, RE-CONFIRMED IN THE FILE ────────────────────────
+      `.github/workflows/ci.yml`: zero occurrences of `GH_TOKEN` or `GITHUB_TOKEN`
+      anywhere in the file; the only `permissions:` block is workflow-level at
+      lines 9-10 and reads `contents: read`, with no `actions:` scope. The `gate`
+      job declares no `permissions:` and no `env:` of its own.
+
+  ── (3) LANE-COLLISION CHECK (required before finalizing) ────────────────────
+      PLAN-ISSUE-157 is in flight concurrently. Its complete file scope, read out
+      of the plan: `backstop.yml`, `backstop.lock`,
+      `pkg/pack/engine/contracts_installed_pack_polarity_test.go`, THREE paths in
+      the EXTERNAL `backstop-go-contracts-pack` repo (`pack.yml`,
+      `testdata/fixtures/sig-absent.go`, `testdata/fixtures/sig-kinds-absent.go` —
+      counted from the union of its tasks' `files:`, ten paths in total), plus its
+      own plan and issue artifacts. It touches `.github/workflows/ci.yml` NOT AT ALL.
+      THE INTERSECTION WITH THIS PLAN'S FILE SET IS EMPTY. Confirmed, no
+      sequencing constraint between the two lanes.
+
+  ── (4) WHERE THE GATE JOB ACTUALLY DIES — MEASURED, BECAUSE AN EARLIER ─────
+  ──     DRAFT ASSERTED THIS INSTEAD OF RUNNING IT ───────────────────────────
+  Sharp edge 19's guard was first justified with "this job dies at tool install,
+  build and pack install often enough that it is the common case." THAT CLAIM WAS
+  NEVER MEASURED, and it is FALSE. In a plan whose evidence section opens "every
+  number below was produced by running the command, not inferred," that is the one
+  thing that must not happen, so the real numbers are recorded here.
+
+      gh run list --workflow=ci.yml --limit 78 --json databaseId,conclusion
+        → 40 failed runs.
+      For each, the gate job's failing step names via
+      `gh api repos/.../actions/runs/<id>/jobs`. ALL 40 ACCOUNTED FOR — the first
+      draft of this section enumerated 39 and claimed exhaustiveness, which is the
+      same failure mode as the frequency claim it was written to correct
+      ([[feedback_enumerations_assert_exhaustiveness]]):
+        → 38 runs failed at "Run the gate"
+        →  0 runs failed at ANY step before it
+        →  1 run (30398137055) had NO failing gate-job step at all — its gate job
+           SUCCEEDED and the separate `baseline` job is what failed
+        →  1 run (30356959810) predates the job rename entirely: its only job is
+           "Lint + Test + Coverage", which has no "Run the gate" step to die at or
+           before. It is outside this workflow's current topology and cannot bear on
+           the question either way.
+
+  SO PRE-GATE DEATH IS POSSIBLE BUT UNOBSERVED: 0 of 38 runs that had a gate step
+  at all. The guard stays — it is
+  one expression, it is correct, and "unobserved in 78 runs" is not "impossible,"
+  particularly for a job whose tool-install steps `curl` from three external hosts.
+  But it is INSURANCE, not a fix for a live problem, and the plan should not
+  overstate what it is buying.
+
+  ★ THE GUARD'S MECHANISM IS SEPARATELY CONFIRMED ON REAL EVIDENCE, which matters
+  more than the frequency — and BOTH runs the enumeration above set aside as
+  irrelevant to frequency turn out to confirm it:
+    · run `30398137055`, `baseline` job: step 6 "Generate baseline" → `failure`,
+      step 7 "Publish baseline" → `skipped`.
+    · run `30356959810`, `Lint + Test + Coverage` job: step 4 "Lint" → `failure`,
+      step 5 "Test with coverage" → `skipped`, step 6 "Enforce coverage threshold"
+      → `skipped`.
+  That is the exact shape the guard keys on, observed twice in this repository, in
+  two different jobs: when an earlier step kills a job, every later step's
+  `conclusion` is `skipped` — not `failure`, not empty. Combined with
+  `TestCIWorkflow_PackInstallFailureFailsTheJob` forbidding any `if:` on the gate
+  step — so condition-false is unreachable for it — `skipped` can mean ONE thing
+  and the discriminator is sound.
+
+  ── (5) EXISTENCE-IN-WORLD ──────────────────────────────────────────────────
+      `grep -rl 'ci\.yml'` over `plans/` returns 19 plans; every one is a delivered
+      lane that edited ci.yml for its own reason (ISSUE-020's gate flip,
+      SPEC-067's CI recipe pack, ISSUE-087's release pipeline, ...). None owns the
+      baseline-pull authorization surface.
+
+      THE THREE NEAREST NEIGHBOURS, NAMED RATHER THAN BLANKET-CLASSIFIED, because
+      "no plan subsumes this" is a conclusion that has to survive being specific:
+
+        * PLAN-SPEC-019 (`baseline-ci-generated-immutable-violation-reference`,
+          status DRAFT) is the closest thing to an owner and the one that most
+          deserves naming. It owns the baseline artifact's GENERATION and
+          PUBLICATION surface — the `baseline` job, the artifact's schema and
+          immutability, "latest successful main" selection semantics. It is the
+          lane the pull CONSUMES the output of. It does not own, and nowhere
+          mentions, the `gate` job's authorization to perform that consumption:
+          no `permissions:`, no token binding, no `gate`-job edit. Consumer-side
+          authorization is this lane; producer-side publication is that one. They
+          compose, and neither blocks the other.
+        * ISSUE-086 (`published-baseline-generated-packless`) — adjacent and
+          explicitly distinguished by ISSUE-176 itself: the `baseline` JOB's
+          packless generation, not the `gate` job's missing file. Whatever the
+          pull downloads is whatever that job published, so 086's gap flows
+          through this fix unchanged in either direction.
+        * ISSUE-056 (`local-first-baseline-seeding`, open) — owns the case where
+          the pull is IMPOSSIBLE: a fresh repo with no `origin` remote, where
+          `resolveRepositoryFromOrigin` fails outright and the step's own
+          suggested remedy cannot work for the person reading it. Distinct from
+          this lane, where origin exists and the pull is merely UNAUTHORIZED.
+          Fix 2 here deliberately does not seed (opt-in `make baseline` only,
+          CLM-006); if seeding is ever wanted it is 056's call, not this lane's
+          to smuggle in.
+
+      No plan or spec subsumes this one.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  WHAT "TDD RED" MEANS FOR THIS LANE — STATED EXPLICITLY, BECAUSE IT IS UNUSUAL
+  ══════════════════════════════════════════════════════════════════════════════
+  Neither half of this fix is ordinary Go behavior change, so the RED is named
+  rather than assumed. There are THREE distinct kinds here and each is honest about
+  what it can and cannot prove:
+
+    A. FIX 1 IS A WORKFLOW-STRUCTURE RED, and it is a real executable one. This
+       repo already asserts on PARSED `ci.yml` structure — root-level
+       `workflows_test.go` carries SIXTEEN such tests (counted)
+       (`TestCIWorkflow_BlockingJobRunsBackstopGate`,
+       `TestCIWorkflow_BaselineJobInstallsTheSameToolsAsGate`, ...). TASK-001's
+       FOUR new tests (matching its `test_names` — the count drifted to "three"
+       after round 2 split out the uniqueness falsifier, which is exactly the
+       rename-drift sharp edge 15 warns about) fail against today's `ci.yml` on
+       darwin, with no runner and no network, because the token binding, the
+       job-scoped permissions block, the guarded confirmation step and its
+       uniqueness property are all genuinely absent. TASK-002 edits `ci.yml` and
+       they go green. That is a full red/green cycle over config.
+
+    B. FIX 1'S BEHAVIORAL CLAIM IS NOT LOCALLY OBSERVABLE, AND IS NOT CLAIMED
+       LOCALLY. "The pull now succeeds on the runner" cannot be reached from any
+       darwin run — see (1): the file is already here, so the three ratchet tests
+       are GREEN locally both before and after this fix. A green local suite is
+       therefore ZERO evidence for CLM-004. That claim is discharged only by
+       TASK-009 reading a real Linux CI run
+       ([[project_platform_gated_defect_verification_ceiling]]).
+
+    C. FIX 2 IS A COMPILE-FAILURE RED plus a MANUAL FALSIFICATION. TASK-004's
+       tests call a helper that does not exist yet — the package does not build,
+       which is the reddest available red — and assert a `Makefile` target that is
+       not there. TASK-006 then falsifies for real by moving
+       `.backstop/baseline.json` aside, running the three ratchet tests, and
+       reading the actual failure text.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  THE DECISION FIX 2 LEAVES OPEN, AND WHY THIS PLAN CHOOSES AS IT DOES
+  ══════════════════════════════════════════════════════════════════════════════
+  ISSUE-176 deliberately does not prescribe Fix 2's shape. It names two hard
+  constraints: no network on every local `go test` by default, and no silent
+  `t.Skip` (which would quietly stop protecting the ratchet property). It names two
+  plausible directions: a `TestMain`-level pull gated on file absence, or a
+  documented local prerequisite.
+
+  THIS PLAN TAKES THE DOCUMENTED-PREREQUISITE DIRECTION, made ACTIONABLE. Reasons,
+  in order of weight:
+
+    * A `TestMain` pull gated on absence still hits the network on a fresh clone,
+      inside `go test`, invisibly — the exact "every local run may hit the network"
+      shape the constraint rules out, merely made rarer. It also puts a network
+      dependency inside the unit-test path of a package whose tests are otherwise
+      hermetic, and it would make `go test` behavior depend on whether `gh` is
+      authenticated on the developer's machine.
+    * The current failure is already LOUD; what it is not is ACTIONABLE. It reads
+      `read committed baseline: open .../.backstop/baseline.json: no such file or
+      directory` and names no remedy. Turning that into a message that names
+      `backstop baseline pull` / `make baseline` costs one helper, changes the
+      ratchet property not at all, and is the smallest change that resolves the
+      real complaint.
+    * The remedy becomes runnable rather than folkloric: an OPT-IN `make baseline`
+      target that neither `test:` nor `ci:` depends on. The prerequisite is
+      documented in the one place a developer running `make test` will look.
+    * `t.Skip` is off the table outright and TASK-004 pins its absence by sweep, so
+      a future edit cannot quietly reintroduce it.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  ★ REVIEWER-ATTENTION FLAG — THIS IS A CI TRUST-BOUNDARY CHANGE ★
+  ══════════════════════════════════════════════════════════════════════════════
+  NOT DECIDED UNILATERALLY IN PROSE. TASK-002 changes what the `gate` job's
+  `GITHUB_TOKEN` can do, and that deserves an explicit reviewer look even though
+  every element of it is the least-privileged available option:
+
+    * The token is the AUTO-GENERATED `${{ secrets.GITHUB_TOKEN }}` (equivalently
+      `${{ github.token }}`), never a new PAT. It is scoped to this repository, is
+      minted per run, and expires when the job ends. No secret is created, and
+      TASK-001 pins the absence of any other `secrets.*` reference in the job so a
+      PAT cannot be substituted later without failing a test.
+    * The added PERMISSION scope is `actions: read` — READ-ONLY, and the narrowest
+      scope that lets `gh api repos/.../actions/runs` and `.../actions/artifacts`
+      answer. It grants no write anywhere.
+    * The PERMISSION is scoped AT THE JOB, per ISSUE-176's own recommendation, not
+      at the workflow. The `baseline` job and any future job keep the unchanged
+      workflow-level `contents: read`. TASK-001 asserts the workflow-level block is
+      still exactly `contents: read` — the blast-radius fence is a test, not a
+      comment.
+    * ★ THE TOKEN EXPOSURE IS SCOPED AT THE STEP, WHICH IS NARROWER THAN THE
+      PERMISSION, AND THE DIFFERENCE IS NOT COSMETIC. A job-level `env:` — the
+      obvious spelling, and this plan's own first draft — hands `GH_TOKEN` to ALL
+      TEN steps in the gate job. Three of those are worth naming: "Install Layer-0
+      analyzer binaries" pipes `curl -sSfL <url> | sh`, "Install provisioned engine
+      tools" runs `pipx install semgrep==...` and unzips a downloaded release
+      binary, and "Install the pack fleet" clones all eight git-sourced pack
+      repositories in `backstop.lock` (counted, not estimated).
+      Those are the steps in this job that execute the most third-party code, and
+      none of them needs the token. Binding it on the three steps that shell `gh`
+      (the two gate invocations plus the confirmation step's failure branch) is
+      strictly narrower and exactly as sufficient. Recorded because "job-level, per
+      the issue's recommendation" is true of the PERMISSION and would have been
+      wrong to carry over to the TOKEN by analogy — the issue recommends job-level
+      permissions and says nothing about env placement.
+    * Net effect on what a compromised step could do: a step holding the token
+      could ENUMERATE and DOWNLOAD this repository's own Actions runs and
+      artifacts. It could not write to them, could not reach another repository,
+      and could not push code. Those artifacts are already published from this same
+      public repository.
+
+  Flagging it anyway, because "read-only and narrowly scoped" is a judgment about
+  blast radius and blast-radius judgments belong to a reviewer, not to the plan.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  ★ SECOND FLAGGED DECISION — THIS CHANGES THE GATE JOB'S VERDICT SURFACE ★
+  ══════════════════════════════════════════════════════════════════════════════
+  ALSO NOT DECIDED UNILATERALLY. The confirmation step's `exit 1` converts a
+  condition that is SOFT today into one that HARD-FAILS the blocking CI job, and
+  that is a policy change wearing the clothes of a diagnostic.
+
+  TODAY: a failed pull degrades to a nil baseline and the job still passes —
+  `resolveBaselineCache` returns a warning string, and `ApplyPolicy` supersedes
+  `baseline_comparison` entirely under this repo's per-dimension policy. Nothing
+  reds.
+
+  AFTER THIS PLAN, AS WRITTEN: any baseline-unavailable condition fails the gate
+  job. That includes cases with nothing to do with authorization — a transient
+  GitHub API blip, and specifically the artifact-expiry case CLM-007(c) PREDICTS
+  for around 2026-11-14 if main is still red then.
+
+  THE ARGUMENT FOR BLOCKING (this plan's default): once this lane wires the pull,
+  a silently-nil baseline is a BROKEN PROMISE, and this repo blocks broken promises
+  and warns only for un-adopted capability ([[feedback_loud_not_blocking]]). A
+  ratchet comparing against a baseline that silently is not there is the vacuous
+  green the whole gate exists to prevent — and the three tests ISSUE-176 is about
+  are precisely the ones that go quiet again if it degrades unnoticed.
+
+  THE ARGUMENT AGAINST: it couples the blocking job's verdict to a third-party API
+  and an artifact-retention clock, neither of which the diff under test controls.
+  A red CI job that means "GitHub was slow" trains people to ignore red.
+
+  THE SOFTENING IS ONE LINE, deliberately, so this is cheap to reverse: replace
+  `::error::` + `exit 1` with `::warning::` + `exit 0` in the confirmation step.
+  The step still prints the bare pull's exit code and stderr — the diagnostic
+  ISSUE-176 asked for survives either way; only the verdict changes. TASK-001's
+  assertion should be written against whichever is chosen, and TASK-009 must report
+  which one shipped.
+
+  RECOMMENDATION, offered as input and not as a decision: keep the hard failure.
+  This lane exists because a silent degradation went unnoticed for 21 consecutive
+  runs; shipping the fix in a mode that can degrade silently again would be
+  self-defeating. If the 2026-11-14 expiry case actually arrives, that is a real
+  condition worth a red — the underlying problem then is that main has been red for
+  three months.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  CLAIM LEDGER (ISSUE-176 carries no CLM ids; this lane defines them)
+  ══════════════════════════════════════════════════════════════════════════════
+    CLM-001  The CI `gate` job AUTHENTICATES the already-built self-healing pull:
+             `GH_TOKEN` is bound to the auto-generated `secrets.GITHUB_TOKEN` (or
+             `github.token`) and is reachable from EVERY step that can shell `gh` —
+             the two that invoke `backstop gate` ("Capture the gate report as JSON"
+             and "Run the gate", both of which run `resolveBaselineCache`) AND the
+             confirmation step, whose failure branch runs a bare `baseline pull` —
+             so `ensureGitHubAuth`'s `gh auth status` shell-out succeeds instead of
+             failing before the pull reaches the GitHub API. The binding is
+             STEP-LEVEL on exactly those three steps, not job-level: a job-level
+             `env:` would hand the token to all ten steps including the two
+             remote-installer steps that pipe `curl | sh` and run `pipx install`.
+             THE NARROWING IS PINNED NEGATIVELY AS WELL AS POSITIVELY — no step
+             outside those three declares `GH_TOKEN`/`GITHUB_TOKEN`, and the job
+             declares no `env:` binding either name — because an assertion that
+             merely accepts a step-level binding would also accept the job-level
+             one it is supposed to rule out. No other `secrets.*` reference appears
+             anywhere in the job: the least-privileged auto-token is pinned, a
+             hand-rolled PAT is fenced out.
+
+    CLM-002  The `gate` job carries a JOB-LEVEL `permissions:` block granting
+             EXACTLY `contents: read` and `actions: read`. `actions: read` is what
+             stops the pull's `gh api repos/.../actions/runs` and
+             `.../actions/artifacts` calls 403-ing. `contents: read` is RE-DECLARED
+             because a job-level block REPLACES the workflow-level one outright and
+             every unlisted scope becomes `none` — omitting it would break
+             `actions/checkout` and read as a mystery failure. The WORKFLOW-level
+             block is unchanged at `contents: read` with no `actions:` scope, so
+             the widening reaches this one job and no other.
+
+    CLM-003  The wiring carries its own DURABLE, IN-BAND falsifier. A step placed
+             AFTER the blocking gate step, `if: always()`, asserts
+             `.backstop/baseline.json` exists; on absence it emits a
+             `::error::` annotation, runs a BARE `backstop baseline pull` and
+             reports that command's own exit code and stderr, then fails the step.
+             This is the confirmation route ISSUE-176 prescribes, and it is the
+             only one available: `ApplyPolicy` (`pkg/gate/policy.go`) overwrites
+             `baseline_comparison`'s `Reason` unconditionally on this repo's
+             dogfood policy, so neither the printed table nor `--json` can confirm
+             or refute a pull. Two properties make it a real proof rather than a
+             self-fulfilling one, and BOTH are asserted WITHOUT relying on a
+             positional index comparison (sharp edge 16):
+               (0)  it is GUARDED so it only speaks when it has something to say:
+                  `if: always() && steps.<gate-step-id>.conclusion != 'skipped'`,
+                  with the blocking gate step carrying that `id`. A bare `always()`
+                  fires on runs where the gate never executed at all, and would then
+                  report a missing baseline as an ISSUE-176 regression when nothing
+                  had yet had the chance to fetch one — the same misattribution
+                  burden ISSUE-176 exists to remove, reintroduced by its own fix. A
+                  FAILED gate still runs the step, which is the case worth seeing.
+                  ★ THE GUARD IS CHEAP INSURANCE AGAINST AN UNOBSERVED CASE, NOT A
+                  FIX FOR A COMMON ONE — see notes section (4) for the measurement.
+             (i)  the confirmation step is the ONLY step in the gate job whose
+                    decommented script contains `baseline pull`. This is the load-
+                    bearing half. An ordering-only fence anchored on the FIRST
+                    gate-invoking step is escapable: `ci.yml` invokes the gate
+                    TWICE, at step indices 7 and 8, so a forging pull step inserted
+                    BETWEEN them lands at index 8 — greater than the first anchor,
+                    and through the fence. A uniqueness assertion has no such hole
+                    at any index.
+               (ii) it is ordered after the LAST gate-invoking step, resolved by
+                    last match rather than first, with the count of gate-invoking
+                    steps asserted to be exactly two so a third cannot silently
+                    re-anchor the assertion.
+
+    CLM-004  On a real Linux CI run, `.backstop/baseline.json` is present after the
+             gate and the three named ratchet tests
+             (`TestRatchet_CoverageMeasurablePathSiteUnGrandfatheredAfterDeGo`,
+             `TestRatchet_TestVerifyDiscoverySiteUnGrandfatheredAfterDeGo`,
+             `TestRatchet_GoPackageMatchersSiteUnGrandfatheredAfterDeGo`) no longer
+             fail with `no such file or directory`. ★ CI-ONLY. This claim cannot be
+             taken from any local reading — see WHAT "TDD RED" MEANS, item B.
+
+    CLM-005  The non-gate paths (`make test`, `make ci`, bare `go test ./...`) fail
+             LOUDLY AND ACTIONABLY on an absent baseline — never silently, never by
+             skipping. `committedBaselineNeutralSpineFiles`' bare `os.ReadFile` in
+             `cmd/backstop/bun_ratchet_flip_test.go` routes through one helper whose
+             error names the remedy (`backstop baseline pull` / `make baseline`) and
+             says why the file is absent. The ratchet property is unchanged: the
+             failure stays a `t.Fatalf`, and the absence of `t.Skip` is pinned by an
+             executable sweep rather than by reviewer vigilance.
+
+    CLM-006  The remedy is OPT-IN. `Makefile` declares a `baseline` target invoking
+             `backstop baseline pull`, and NEITHER `test:` NOR `ci:` lists it as a
+             prerequisite — so no local `go test` run hits the network by default,
+             which is ISSUE-176's stated hard constraint. Pinned by a Makefile
+             structure test, so wiring it into `test:` later fails.
+
+    CLM-007  Two adjacent findings are RECORDED rather than absorbed or silently
+             dropped ([[feedback_thorough_followons]]):
+             (a) `resolveLatestSuccessfulMainRun` DECODES each run's `Name` field
+                 and never filters on it — it returns the newest successful main
+                 run of ANY workflow. Measured today: all 20 rows are `CI`, so the
+                 gap is latent, not firing. If a second workflow ever runs on main,
+                 the pull selects a run with no `backstop-baseline-v1` artifact and
+                 fails with "missing artifact" — a real latent defect in the pull,
+                 outside this lane's fix, filed as a follow-on.
+             (b) The artifact this fix first pulls will be ≥2 days stale: the
+                 `baseline` job is `needs: gate`, the gate job has failed on every
+                 main push for 21 consecutive runs since 2026-08-16, so the newest
+                 publishable baseline is run 31921681066's. EXPECTED and
+                 NON-BLOCKING — it resolves itself the first time any main push
+                 gates green. Not a defect in this plan's scope, and this plan is
+                 explicitly NOT scoped around forcing a green gate.
+             (c) STALENESS HAS A HARD DEADLINE, and it is worth naming beside (b)
+                 rather than discovering it. GitHub expires Actions artifacts after
+                 the repository's retention window — 90 days by default, and this
+                 repo sets no override in `ci.yml` (no `retention-days:` on either
+                 `upload-artifact` step, confirmed). Artifact 9256587025 was created
+                 2026-08-16, so it expires around 2026-11-14. If the gate is still
+                 red on main by then, `resolveBaselineArtifactID` finds the run but
+                 `expired: true` makes the download fail, and the pull starts failing
+                 for a SECOND, different reason than the one this lane fixed. This
+                 is self-diagnosing rather than silent — the confirmation step's own
+                 stderr from the bare `baseline pull` would name it — which is
+                 exactly why the step is worth having. Named, not scoped.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  SHARP EDGES
+  ══════════════════════════════════════════════════════════════════════════════
+   1. ★ A JOB-LEVEL `permissions:` BLOCK REPLACES THE WORKFLOW-LEVEL ONE. Every
+      scope not listed becomes `none`. Writing only `actions: read` on the `gate`
+      job silently revokes `contents: read` and `actions/checkout` fails. BOTH
+      scopes must be listed. This is the single most likely way to get this fix
+      wrong, and CLM-002's test exists specifically to catch it.
+
+   2. DO NOT put `actions: read` at the workflow level. It would widen the
+      `baseline` job and every future job for no reason. ISSUE-176 recommends job
+      level explicitly; CLM-002's test asserts the workflow-level block is
+      untouched, so a "simpler" top-level edit fails.
+
+   3. THE CONFIRMATION STEP MUST NOT CREATE THE FILE IT CHECKS FOR. It runs AFTER
+      the gate and pulls ONLY inside its failure branch. A `baseline pull` step
+      placed before the gate would make the check pass by construction and prove
+      nothing — TASK-001 asserts no such pre-gate step exists.
+
+   4. ★ THE NEW STEP MUST NOT TRIP THE EXISTING WORKFLOW TESTS, and three of them
+      are close enough to fire:
+        * `TestCIWorkflow_PackInstallFailureFailsTheJob` scans every step whose
+          DECOMMENTED script contains `pack install` or the literal `backstop gate`
+          and forbids `if:`, `continue-on-error:` and `|| true` on it. The
+          confirmation step carries `if: always()`, so its decommented script must
+          NOT contain the literal `backstop gate`. Write `./bin/backstop baseline
+          pull`; keep any explanation that names the gate in a COMMENT — `stepScript`
+          strips comment lines, which is exactly what that helper exists for.
+        * `TestCIWorkflow_BlockingJobHasNoRawToolInvocations` forbids `go test`,
+          `golangci-lint run` and `go tool cover` in ANY gate-job step.
+        * `ciBlockingJob` uses `findJob`, which FATALS unless EXACTLY ONE job's
+          steps mention `backstop gate`. Nothing here adds a job, but do not add
+          the literal to the `baseline` job either.
+
+   5. `|| echo` IS FINE, `|| true` IS NOT. The existing "Capture the gate report as
+      JSON" step already uses `|| echo` and is precedent. GitHub runs `run:` blocks
+      under `bash -e`, so `cmd; status=$?` ABORTS before the echo — capture the bare
+      pull's exit with `|| echo "... exited $?"` and keep the step's own `exit 1`
+      after it.
+
+   6. NO `.gitignore` CHANGE IS NEEDED, and both reasons should be stated rather
+      than one assumed. `.backstop/baseline.json` is ALREADY ignored (`.gitignore`
+      line 43, alongside `.backstop/packs/`), so
+      `TestCIWorkflow_LeavesNoUngitignoredDroppings`' concern does not apply. AND
+      `ComputeGateScopeWithBase` runs BEFORE `resolveBaselineCache` in `runGate`, so
+      a baseline written mid-run cannot enter that run's diff scope even if it were
+      not ignored. `writeBaselineAtomically` also writes a transient
+      `.backstop/baseline.json.tmp` and removes it on failure; it is never left
+      behind on the success path. Do not add ignore patterns speculatively.
+
+   7. NEVER CONFIRM VIA `baseline_comparison`'s PRINTED REASON. `ApplyPolicy`
+      overwrites it to "superseded by per-dimension enforcement policy" regardless
+      of whether the baseline is nil or populated. ISSUE-176 spent real effort
+      establishing this; a verification report that cites that line has confirmed
+      nothing.
+
+   8. NEVER `t.Skip` ON A MISSING BASELINE. It would quietly retire the ratchet
+      property these three tests exist to guard, which is strictly worse than
+      today's loud failure. TASK-004 pins the absence by sweep.
+
+   9. `workflowJob` IN `workflows_test.go` DECODES NEITHER `env` NOR `permissions`
+      TODAY, and `workflowStep` does not decode `id` (needed by sharp edge 19's
+      guard assertion). TASK-001 must extend both structs. `permissions:` also accepts the
+      SCALAR forms `read-all` / `write-all` in GitHub's schema, so decoding it as a
+      bare `map[string]string` fails to parse a scalar rather than reporting it —
+      decode it in a way that FAILS LOUDLY naming the shape it found, in the same
+      spirit as the existing `workflowStringList` scalar-or-sequence handling.
+
+  10. ASSERT THE TOKEN REACHES ALL THREE `gh`-SHELLING STEPS, NOT JUST ONE.
+      `ci.yml` invokes `backstop gate` TWICE — the diagnostic `--json` capture
+      (step 7) and the blocking run (step 8) — and BOTH run `resolveBaselineCache`.
+      The confirmation step is the third: its failure branch shells a bare
+      `baseline pull`, which is useless unauthenticated, and it is the one an
+      implementer is most likely to forget because it is new. With STEP-LEVEL
+      bindings this is three separate `env:` blocks and three chances to miss one,
+      which is precisely why CLM-001's test asserts reachability PER STEP over a
+      derived set (every step that shells `gh`) rather than checking one location.
+      A half-wired binding must fail that test, and the failure message should name
+      which step is missing it. AND THE TEST MUST HAVE A NEGATIVE LEG: without one
+      ("or from the job's `env:`" was the first draft's wording), a job-level
+      binding — the spelling this plan deliberately rejected — passes everything,
+      and CLM-001's "step-level" half is unpinned prose. Assert no step outside the
+      derived set binds the token, and that the job binds neither name.
+
+  11. ACCEPT EITHER `${{ secrets.GITHUB_TOKEN }}` OR `${{ github.token }}` — they
+      are the same token. FORBID any other `secrets.*` reference in the job, so the
+      least-privilege choice is pinned rather than merely intended.
+
+  12. A GREEN LOCAL SUITE PROVES NOTHING FOR FIX 1. The three ratchet tests pass on
+      darwin before and after this change (measured, section 1). Do not report them
+      as evidence. CLM-004 belongs to TASK-009 alone.
+
+  13. `make baseline` MUST NOT BECOME A PREREQUISITE OF `test:` OR `ci:`. That is
+      the whole point of CLM-006, and it is the change most likely to look like a
+      helpful follow-up later.
+
+  14. THE FOLLOW-ON ISSUE IS FILED THROUGH THE ROUTED AGENT, never hand-written.
+      Artifact authoring goes through the purpose-built agents
+      (`backstop artifact new issue` for the id, then the issue agent), per this
+      repo's never-hand-edit-artifacts rule.
+
+  15. ★ `go test -run <pattern>` EXITS 0 WHEN THE PATTERN MATCHES NOTHING. It
+      prints `ok <pkg> [no tests to run]` and passes. A verification command aimed
+      at the WRONG PACKAGE therefore reports success having executed nothing —
+      measured on this very plan's first draft, where
+      `go test . -run "TestMakefile_DeclaresOptIn"` returned
+      `ok github.com/backstop-ai/backstop-core 0.523s [no tests to run]` because
+      the test had been placed in `cmd/backstop`. EVERY scoped test command in this
+      plan's verification tasks must be run with `-v` and the RUN lines counted
+      against the expected test names. A count of zero is a FAILED verification,
+      not a pass. This is the single cheapest way for this lane to fake its own
+      green, and it already happened once.
+
+      ★ THE RULE APPLIES TO THIS PLAN'S OWN COMMANDS, INCLUDING THE FRONTMATTER
+      `test_command`, and enforcing it caught two more misses in round 2: the
+      frontmatter regex named a test that no longer exists
+      (`TestCIWorkflow_NoBaselinePullBefore`, zero matches, a leftover from the
+      pre-restructure draft) while failing to match
+      `TestCIWorkflow_TheOnlyBaselinePullFollowsEveryGateInvocation` — the
+      load-bearing falsifier for CLM-003 — and TASK-006's falsification pair ran
+      without `-v`. WHENEVER A TEST IS RENAMED, RE-CHECK THE FRONTMATTER REGEX
+      against the full mandated-name list by actually running the match, not by
+      reading it.
+
+  16. ★ `stepIndex` RETURNS THE FIRST MATCH, AND THERE ARE TWO GATE INVOCATIONS.
+      `workflows_test.go`'s existing `stepIndex(job, selfGateInvocation)` helper
+      resolves to step 7, the diagnostic `--json` capture — NOT step 8, "Run the
+      gate". Any new assertion phrased as "after the blocking gate step" that
+      reuses it is anchored one step too early, and a forging `baseline pull` step
+      inserted between 7 and 8 sits at index 8 and passes the fence. Resolve the
+      anchor by LAST match (or by literal step name), assert the gate-invoking step
+      count is exactly two, and make uniqueness — not ordering — the primary fence
+      (CLM-003(i)). Do not change `stepIndex` itself: SIX existing call sites
+      across THREE tests depend on its first-match semantics (counted —
+      `TestCIWorkflow_BlockingJobRunsBackstopGate` ×3,
+      `TestCIWorkflow_DerivesDiffBasePerEvent` ×1,
+      `TestCIWorkflow_BaselineJobInstallsPacksBeforeGenerating` ×2). Add a
+      last-match helper beside it rather than altering its contract.
+
+  17. ★ THE `os.ReadFile` SWEEP PREDICATE MUST BE LINE-SCOPED, NOT FILE-SCOPED.
+      `cmd/backstop/bun_ratchet_flip_test.go` will still contain `os.ReadFile`
+      after TASK-005 — twice: inside the new helper itself, and at the pre-existing
+      call at line 194 that reads SOURCE files for `pillarASitesClean` and has
+      nothing to do with the baseline. A whole-file `!contains("os.ReadFile")`
+      assertion is therefore PERMANENTLY RED and unsatisfiable; a vaguer one is
+      vacuous. THE EXACT PREDICATE IS: no single line contains BOTH `os.ReadFile`
+      AND `baseline.json`. That is satisfiable and discriminating only if TASK-005's
+      helper takes the path as a PARAMETER — then the helper's read line carries no
+      `baseline.json` literal and the caller's path expression carries no
+      `os.ReadFile`. Stated here so an implementer meets the constraint at design
+      time rather than discovering the tension at GREEN time and weakening the test
+      to escape it.
+
+      ★ THIS TRAP BIT TWICE IN THIS PLAN, in two different sweep legs, so check
+      EVERY leg rather than only the one that already burned. The second instance
+      was "the file contains no `baseline pull`": measured ZERO occurrences today,
+      so GREEN at RED time — and TASK-004(A) REQUIRES the helper's error text to
+      name `backstop baseline pull` verbatim, so it would flip RED after the GREEN
+      task. The plan would have mandated a string in one task and forbidden it in
+      another.
+
+      THE GENERAL RULE, worth more than either instance: a sweep leg that forbids a
+      LITERAL the fix itself must introduce is inverted. Forbid the MECHANISM
+      instead — imports and call sites distinguish EXECUTING a command from NAMING
+      one, and a string in an error message trips neither. Before shipping any
+      sweep leg, evaluate it against the file AS IT WILL LOOK AFTER the fix and
+      confirm it is both satisfiable and not already satisfied for the wrong reason.
+
+  18. `make baseline` MUST DEPEND ON `build`. The target invokes `./bin/backstop`,
+      which does not exist on a clean tree — `make clean` removes `bin/` and the
+      directory is untracked. `baseline: build` costs nothing and turns a confusing
+      "no such file or directory" into a working command. This does NOT touch
+      CLM-006, which forbids only `test:`/`ci:` depending on `baseline`.
+
+  19. ★ A BARE `if: always()` ON THE CONFIRMATION STEP WOULD MISATTRIBUTE AN EARLY
+      FAILURE TO THIS LANE. The gate job CAN die at "Install Layer-0 analyzer
+      binaries", at "Build the backstop CLI" or at "Install the pack fleet" — all
+      BEFORE "Run the gate". MEASURED FREQUENCY, because the first draft of this
+      edge asserted one instead of running it: across the last 78 CI runs (40
+      failures), 38 died at "Run the gate" itself and ZERO died before it — see
+      notes section (4). So this is INSURANCE against an unobserved case, not a fix
+      for a live one; the guard stays because it is one expression and correct, not
+      because the case is common. On such a run, an
+      unguarded confirmation step finds no baseline (nothing had a chance to fetch
+      one), prints "the self-healing pull did not succeed (ISSUE-176)", attempts a
+      pull that fails for the same unrelated pre-build reason, and exits 1. The
+      result is a red step blaming ISSUE-176 for a defect three steps upstream —
+      exactly the "mentally discount these" attribution burden ISSUE-176 was FILED
+      about, reintroduced by its own fix. GUARD IT:
+      `if: always() && steps.<id>.conclusion != 'skipped'`, with an `id:` on "Run
+      the gate". A FAILED gate still runs the step (informative); a SKIPPED gate
+      does not (nothing to say).
+
+      WHY `'skipped'` IS THE RIGHT DISCRIMINATOR, and it is a stronger argument than
+      it first looks: `TestCIWorkflow_PackInstallFailureFailsTheJob` already forbids
+      ANY `if:` on a step whose script contains `backstop gate`, so "Run the gate"
+      can never carry a condition of its own. Condition-false is therefore
+      UNREACHABLE for it, and `conclusion == 'skipped'` can only mean one thing:
+      an earlier step killed the job before it ran. That is exactly the case worth
+      suppressing, and nothing else lands in it.
+
+      THE MECHANISM IS CONFIRMED ON THIS REPOSITORY'S OWN HISTORY, not assumed: run
+      `30398137055`'s `baseline` job records step 6 "Generate baseline" → `failure`
+      followed by step 7 "Publish baseline" → `skipped`. A later step in a
+      job killed by an earlier one really does report `skipped`. Unlike the
+      frequency claim above, this half was measured before it was written down.
+
+      ★ AND THE ID-CONSISTENCY ASSERTION EXISTS BECAUSE A BAD ID FAILS **OPEN**, NOT
+      CLOSED. An earlier draft of this plan stated the opposite — that a guard naming
+      a nonexistent id "silently evaluates to a permanent skip" — and that is
+      BACKWARDS under GitHub Actions expression semantics. Trace it: a missing
+      context property resolves to `null`; comparing `null != 'skipped'` compares
+      mismatched types, so both are COERCED TO NUMBER (`null` → 0, and the string
+      `'skipped'` → NaN because it does not parse as a number); every comparison
+      involving NaN is false, so `null == 'skipped'` is FALSE and the `!=` is TRUE.
+      The condition collapses to `always() && true` and the step runs on EVERY run —
+      including the early-death runs this guard exists to suppress. A typo'd id
+      therefore silently restores the bare-`always()` misattribution bug while
+      looking correct in the diff. This matters beyond wording because the failure
+      message TASK-001 writes will carry this rationale to whoever trips it: it must
+      say the guard goes INERT, not that it fails safe.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Fix 1 — authorize the self-healing pull in CI's gate job"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "RED: pin the token binding, the job-scoped permissions and the post-gate proof"
+        description: |
+          Extend root-level `workflows_test.go` — this repo's existing home for
+          assertions on PARSED `ci.yml` structure — with FOUR tests that fail
+          against today's file (four, matching this task's `test_names` below; an
+          earlier draft said three and dropped the uniqueness falsifier from the
+          count). No runner and no network needed: today's `ci.yml` has zero
+          `GH_TOKEN` occurrences, no job-level `permissions:` on `gate`, no
+          post-gate confirmation step, and — the fourth, and the one most easily
+          forgotten because absence-of-a-second-thing reads like nothing at all —
+          no step establishing that a `baseline pull` occurs exactly once and after
+          the gate. All FOUR therefore RED immediately (see WHAT "TDD RED" MEANS,
+          item A).
+
+          FIRST, EXTEND THE PARSER. `workflowJob` decodes neither `env` nor
+          `permissions`, and `workflowStep` does not decode `id` (sharp edge 9). Add
+          all three. `permissions:` accepts the scalar
+          forms `read-all`/`write-all` as well as a mapping, so decode it the way
+          `workflowStringList` handles scalar-or-sequence: fail loudly naming the
+          shape found rather than silently yielding an empty map, or the permissions
+          assertions become vacuously green on a scalar.
+
+          TestCIWorkflow_GateJobAuthenticatesTheSelfHealingBaselinePull (CLM-001).
+          DERIVE the set of steps that need the token rather than listing indices:
+          every gate-job step whose decommented script shells `gh` — which is every
+          step invoking `backstop gate` (TWO of them, the `--json` diagnostic
+          capture and the blocking run, both running `resolveBaselineCache`) plus
+          every step invoking `baseline pull` (the confirmation step's failure
+          branch). Assert the set is non-empty first, or the loop below is
+          vacuous. For EACH member assert `GH_TOKEN` (or `GITHUB_TOKEN`) is declared
+          in THAT STEP'S OWN `env:`, and name the offending step in the failure
+          message (sharp edge 10). Assert its value references
+          `secrets.GITHUB_TOKEN` or `github.token` (sharp edge 11).
+
+          ★ THEN THE NEGATIVE LEG, WITHOUT WHICH CLM-001's "step-level, not
+          job-level" HALF IS UNPINNED PROSE. An earlier draft of this test accepted
+          the token "from that step's own `env:` OR from the job's `env:`" — which
+          means a job-level binding, the exact spelling round 1 moved away from
+          because it hands the token to `curl | sh`, `pipx install` and an
+          eight-repo clone, would have passed every assertion in this plan. A claim
+          whose forbidden alternative also passes is not a claim. Assert BOTH:
+            * NO gate-job step OUTSIDE the derived set declares `GH_TOKEN` or
+              `GITHUB_TOKEN` in its `env:` — enumerate the offenders by step name in
+              the failure message;
+            * the gate JOB's own `env:` block declares neither name (an absent job
+              `env:` satisfies this trivially and correctly).
+          These two are what make the narrowing real rather than intended, exactly
+          as CLM-002's workflow-level assertion does for the permission scope.
+
+          Then assert NO other `secrets.` reference appears anywhere in the gate
+          job — a hand-rolled PAT must fail this test. SCAN SURFACE, stated
+          explicitly because a parsed-only scan would miss the most likely
+          smuggling route: the union of (a) every step's `env:` values, (b) every
+          step's `with:` values, (c) the job's own `env:` values, and (d) every
+          step's RAW `run:` script — raw, not decommented, since a `secrets.`
+          expression interpolated directly into a script body is the case that
+          matters most and a comment mentioning one is worth flagging anyway. The
+          existing `stepMentions` helper covers (a) and the decommented script
+          only, so this needs its own scan; do not reuse it and assume coverage.
+
+          The failure message should name `ensureGitHubAuth`'s `gh auth status`
+          shell-out as what goes wrong without the token, so the next reader does
+          not have to re-derive ISSUE-176.
+
+          TestCIWorkflow_GateJobGrantsActionsReadWithoutWideningTheWorkflow
+          (CLM-002). Assert the `gate` job's OWN `permissions:` block is exactly
+          `{contents: read, actions: read}` — both keys present, `actions` exactly
+          `read`, and no third scope and no `write` value anywhere in it. THE
+          `contents: read` LEG IS NOT REDUNDANT: a job-level block replaces the
+          workflow-level one and unlisted scopes become `none`, so omitting it
+          breaks `actions/checkout` (sharp edge 1) — say that in the failure
+          message. Then assert the WORKFLOW-level block is still exactly
+          `{contents: read}` with no `actions` key: that is the blast-radius fence
+          (sharp edge 2), and it is the assertion that makes the narrow scoping a
+          test rather than a comment.
+
+          TestCIWorkflow_GateJobProvesTheBaselineLandedAfterTheGate (CLM-003(ii)).
+          Assert a gate-job step exists whose decommented script references
+          `.backstop/baseline.json`; that it does not swallow with `|| true`; and —
+          sharp edge 4 — that its decommented
+          script does NOT contain the literal `backstop gate`, which would drag it
+          into `TestCIWorkflow_PackInstallFailureFailsTheJob`'s fence and fail on
+          the `if:`.
+
+          ★ THE `if:` GUARD IS ASSERTED PRECISELY, NOT AS "declares `if: always()`"
+          (sharp edge 19). Assert the condition contains `always()` AND references
+          the blocking gate step's `id` with a `!= 'skipped'` comparison. Then
+          assert the blocking gate step actually DECLARES that `id`, and CHECK THE
+          TWO HALVES AGAINST EACH OTHER — extract the id the `if:` references and
+          require the gate step to declare that exact value — rather than matching
+          both against a hardcoded literal, which would pass a pair that agrees with
+          the test and with nothing else.
+
+          ★ THE FAILURE MESSAGE MUST SAY THE GUARD GOES **INERT**, NOT THAT IT FAILS
+          SAFE (sharp edge 19). A guard naming an id no step declares does not skip
+          the step — GitHub resolves the missing context to `null`, coerces both
+          sides of `null != 'skipped'` to number (`null` → 0, `'skipped'` → NaN),
+          and every NaN comparison is false, so the `!=` is TRUE and the condition
+          collapses to `always() && true`. The step then runs on every run,
+          including the early-death runs the guard exists to suppress. Getting this
+          backwards in the message would tell a future reader a typo fails closed
+          when it fails OPEN, which is the more dangerous direction and the reason
+          this assertion is here at all.
+
+          `workflowStep` does not decode `id` today, so extend it alongside `env`
+          and `permissions` (sharp edge 9).
+
+          THE ORDERING LEG MUST NOT USE `stepIndex` (sharp edge 16). That helper
+          returns the FIRST match and `ci.yml` invokes the gate TWICE, so it
+          resolves to step 7 (the `--json` capture) rather than step 8 ("Run the
+          gate"). Collect ALL gate-invoking step indices, assert there are exactly
+          two — so a third cannot silently re-anchor this — and compare against the
+          LAST of them. Do not modify `stepIndex` itself — six call sites across
+          three tests rely on its first-match semantics (sharp edge 16 enumerates
+          them). Add a last-match helper beside it.
+
+          TestCIWorkflow_TheOnlyBaselinePullFollowsEveryGateInvocation
+          (CLM-003(i)). ★ THE LOAD-BEARING FALSIFIER, and it is deliberately
+          INDEX-FREE. Collect every gate-job step whose decommented script contains
+          `baseline pull` and assert there is EXACTLY ONE — the confirmation step
+          itself. Uniqueness, not ordering, is what actually closes the hole: an
+          ordering fence anchored on the first gate invocation lets a forging pull
+          step inserted BETWEEN indices 7 and 8 sit at index 8, greater than the
+          anchor, and pass. Uniqueness has no such hole at any index. Then, as a
+          second leg, assert that one step's index exceeds the LAST gate-invoking
+          index. The failure message must explain WHY a second `baseline pull`
+          anywhere in this job is disqualifying: it would create the file the
+          confirmation step checks for, making the proof self-fulfilling (sharp
+          edge 3).
+        files:
+          - workflows_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on: []
+        test_names:
+          - TestCIWorkflow_GateJobAuthenticatesTheSelfHealingBaselinePull
+          - TestCIWorkflow_GateJobGrantsActionsReadWithoutWideningTheWorkflow
+          - TestCIWorkflow_GateJobProvesTheBaselineLandedAfterTheGate
+          - TestCIWorkflow_TheOnlyBaselinePullFollowsEveryGateInvocation
+
+      - id: TASK-002
+        type: implementation
+        title: "GREEN: wire GH_TOKEN plus job-scoped actions:read, and add the post-gate proof step"
+        description: |
+          Edit `.github/workflows/ci.yml`. Three changes, all inside the `gate` job;
+          the workflow-level `permissions:` block at lines 9-10 is NOT touched.
+
+          (1) JOB-LEVEL `permissions:` ON `gate`:
+
+                  permissions:
+                    contents: read   # RE-DECLARED: a job-level block REPLACES the
+                                     # workflow-level one and every unlisted scope
+                                     # becomes `none` — without this, checkout fails.
+                    actions: read    # the pull's `gh api repos/.../actions/runs`
+                                     # and `.../actions/artifacts` calls 403 without it.
+
+          (2) STEP-LEVEL `env:` ON THE THREE STEPS THAT SHELL `gh`, and on no
+              others:
+
+                  env:
+                    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+              added to "Capture the gate report as JSON", to "Run the gate" (both
+              run `resolveBaselineCache`), and to the confirmation step from (3),
+              whose failure branch runs a bare `baseline pull`. All three, or the
+              wiring is half-done (sharp edge 10). The auto-generated token, never a
+              PAT (sharp edge 11).
+
+              ★ STEP-LEVEL, NOT JOB-LEVEL, AND THIS IS A DELIBERATE REVERSAL. A
+              job-level `env:` is the obvious spelling and was this plan's first
+              draft; it hands the token to all ten steps, including the two that
+              pipe `curl | sh` and run `pipx install` and the one that clones eight
+              remote pack repositories. None of those needs it. Note the asymmetry
+              with (1) and do not "simplify" the two into agreement: ISSUE-176
+              recommends job-level for the PERMISSION and says nothing about env
+              placement, and the narrowest correct answer differs between them.
+
+          (3) A CONFIRMATION STEP, placed AFTER "Run the gate" and before (or after)
+              the artifact upload:
+
+                  - name: Confirm the self-healing baseline pull landed a file
+                    # WHY THIS IS NOT A `baseline pull` STEP: the pull already runs
+                    # INSIDE the gate, in resolveBaselineCache, before the pack_engines
+                    # step spawns the test subprocess. A pull step placed BEFORE the
+                    # gate would create this file itself and prove nothing. This step
+                    # runs after, and only observes.
+                    #
+                    # WHY IT EXISTS AT ALL: ApplyPolicy overwrites baseline_comparison's
+                    # reason unconditionally on this repo's dogfood policy, so neither
+                    # the printed table nor --json can tell anyone whether the pull
+                    # worked. This step can. (ISSUE-176)
+                    #
+                    # THE GUARD IS NOT `always()` ALONE. This job can die at tool
+                    # install, at build, or at pack install - unobserved in the last
+                    # 78 runs, but one `curl | sh` away - and then "Run the gate"
+                    # never executes. Under a bare always() this
+                    # step would still run, find no baseline (nothing had a chance to
+                    # fetch one), and blame ISSUE-176 for a failure that happened
+                    # three steps earlier. Skipping when the gate was SKIPPED keeps
+                    # the diagnosis attributable, which is the entire point of the
+                    # step. A FAILED gate still runs it - that is the informative case.
+                    if: always() && steps.run_gate.conclusion != 'skipped'
+                    env:
+                      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                    run: |
+                      if [ -f .backstop/baseline.json ]; then
+                        echo "baseline present: $(wc -c < .backstop/baseline.json) bytes"
+                        exit 0
+                      fi
+                      echo "::error::.backstop/baseline.json absent after the gate ran - the self-healing pull did not succeed (ISSUE-176)"
+                      ./bin/backstop baseline pull || echo "bare baseline pull exited $?"
+                      exit 1
+
+              ★ THE COMMENT'S HEDGE IS DELIBERATE AND SHIPS AS WRITTEN. "unobserved
+              in the last 78 runs, but one `curl | sh` away" is the MEASURED claim
+              (notes section 4: 0 pre-gate deaths in 40 failures). An earlier draft
+              of this plan said "it has done so", which is false. This comment is
+              PERMANENT IN-REPO COMMENTARY that will outlive this plan's notes, so
+              it is the one place the overstatement would have survived every
+              correction — do not "tighten" it back into a claim of past occurrence.
+
+              …which requires giving the blocking step an id:
+
+                  - name: Run the gate
+                    id: run_gate
+                    ...
+
+              ADDING `id:` IS SAFE AND `if:` WOULD NOT BE.
+              `TestCIWorkflow_PackInstallFailureFailsTheJob` scans steps whose
+              script contains `backstop gate` and fails them on a non-empty `if:`,
+              on `continue-on-error:` and on `|| true`. "Run the gate" is such a
+              step: it gets an `id:` only, which that test does not look at, and
+              nothing else about it changes. The CONFIRMATION step's script contains
+              neither `pack install` nor `backstop gate`, so its own `if:` is
+              outside that test's scope (sharp edge 4) — and its `if:` expression
+              references `steps.run_gate`, not the forbidden literal.
+
+              `if: always()` because the run worth diagnosing is the one that failed
+              — same reasoning as the existing artifact-upload step. `|| echo` and
+              not `|| true` (sharp edge 5); `bash -e` would abort on a bare
+              `cmd; status=$?`. The decommented script must not contain the literal
+              `backstop gate` (sharp edge 4).
+
+          DO NOT touch `.gitignore` — sharp edge 6 gives both reasons it is already
+          covered. DO NOT add `actions: read` at the workflow level (sharp edge 2).
+          DO NOT add a pre-gate `baseline pull` step (sharp edge 3).
+        files:
+          - .github/workflows/ci.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: verification
+        title: "Verify the CI wiring: diff-scoped gate plus the four workflow tests"
+        description: |
+          Run and read the results:
+
+              backstop gate --file .github/workflows/ci.yml
+              backstop gate
+              go test . -run "TestCIWorkflow_" -count=1 -v
+
+          ★ `-v`, AND COUNT THE `=== RUN` LINES (sharp edge 15). `go test -run`
+          exits 0 printing `[no tests to run]` when the pattern matches nothing, so
+          a bare exit code proves nothing. Report the executed count and confirm all
+          four new test names appear by name in the output. A count that does not
+          include them is a FAILED verification.
+
+          THE WHOLE `TestCIWorkflow_` FAMILY, not just the four new tests. SIXTEEN
+          existing tests assert on this same file and three of them sit close enough
+          to the new step to fire (sharp edge 4): `PackInstallFailureFailsTheJob`,
+          `BlockingJobHasNoRawToolInvocations`, and anything routing through
+          `ciBlockingJob`'s exactly-one-job `findJob`. A run scoped to only the new
+          names would miss exactly the regressions this edit can cause.
+
+          Also re-parse the edited file and STATE, from the parse rather than from
+          the diff: the workflow-level `permissions:` block still reads exactly
+          `contents: read`; the `gate` job's block reads exactly `contents: read` +
+          `actions: read`; and `gh api`-facing scopes appear nowhere else.
+
+          ★ REPORT HONESTLY WHAT THIS CANNOT SHOW. This verification proves the
+          workflow file now DECLARES the wiring. It proves nothing about whether the
+          pull SUCCEEDS — the three ratchet tests are green on darwin before and
+          after (sharp edge 12, measured in section 1). Say so plainly and hand the
+          behavioral question to TASK-009 rather than implying a local green
+          resolves ISSUE-176.
+        files:
+          - .github/workflows/ci.yml
+          - workflows_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on:
+          - TASK-002
+
+  - id: phase-2
+    name: "Phase 2: Fix 2 — make the non-gate test paths fail actionably, not mysteriously"
+    tasks:
+      - id: TASK-004
+        type: test
+        title: "RED: pin the actionable remedy message, the no-skip fence and the opt-in Makefile target"
+        description: |
+          PARALLEL-ELIGIBLE WITH PHASE 1 — the two file sets are disjoint and there
+          is no dependency between them (D-081).
+
+          TWO FILES, AND THE SPLIT IS NOT COSMETIC — it is what makes each red
+          legible on its own.
+
+          ── (A) `cmd/backstop/baseline_prerequisite_test.go` (NEW) ──────────────
+          RED by COMPILE FAILURE (see WHAT "TDD RED" MEANS, item C).
+
+          TestCommittedBaselineAbsence_FailsWithActionableRemedy (CLM-005). Call the
+          helper TASK-005 will add — a function that takes a PATH PARAMETER and
+          returns `([]byte, error)` — against a path that certainly does not exist
+          (a `t.TempDir()` child). Assert an error is returned, and that its text
+          names BOTH remedies verbatim: `backstop baseline pull` and
+          `make baseline`. Assert it also names the file it could not read, so the
+          message is self-locating. Assert it does NOT contain "skip". The helper is
+          undefined today, so the package does not compile.
+
+          TestRatchetBaselineRead_NeverSkipsAndNeverPullsImplicitly (CLM-005,
+          CLM-006). A source sweep over `cmd/backstop/bun_ratchet_flip_test.go`.
+          Three legs, and the middle one's SHAPE IS PRESCRIBED because the obvious
+          spelling is unsatisfiable (sharp edge 17):
+            * no `t.Skip` and no `t.Skipf` anywhere in the file — whole-file, which
+              is correct here because neither belongs in it at all (sharp edge 8);
+            * ★ NO SINGLE LINE CONTAINS BOTH `os.ReadFile` AND `baseline.json`.
+              NOT a whole-file `!contains("os.ReadFile")` check: that file will
+              still contain `os.ReadFile` twice after TASK-005 — once inside the new
+              helper, and once at the pre-existing line 194 that reads SOURCE files
+              for `pillarASitesClean` and is unrelated to the baseline. The
+              line-scoped form is satisfiable precisely because the helper takes the
+              path as a parameter, and it forbids exactly the thing worth
+              forbidding: re-inlining the bare baseline read. Say so in the failure
+              message, or the next person "fixes" it by loosening it;
+            * ★ THE TEST PATH NEVER SHELLS OUT AND NEVER OPENS A SOCKET, asserted
+              STRUCTURALLY: the file's imports include neither `os/exec` nor
+              `net/http`, and no line calls `exec.Command` or
+              `exec.CommandContext`. (Measured: it imports `encoding/json`, `os`,
+              `path/filepath`, `strings`, `testing`, plus two internal packages, and
+              contains zero `exec.` references — so this is satisfiable today and
+              stays satisfiable after TASK-005.)
+
+              ★ IT IS DELIBERATELY NOT "the file contains no `baseline pull`", which
+              is the SAME INVERTED-POLARITY TRAP sharp edge 17 documents for
+              `os.ReadFile`, and it took a second review round to spot in this
+              second location. Measured: `baseline pull` appears ZERO times in that
+              file today, so such a leg would be GREEN at RED time and go RED after
+              the GREEN task — because TASK-004(A) REQUIRES the helper's error text
+              to name `backstop baseline pull` verbatim. The plan would mandate a
+              string in one task and forbid it in another. The remedy text is a
+              STRING LITERAL and must stay one; what actually needs forbidding is
+              EXECUTION, and imports plus `exec.` call sites are what distinguish
+              executing a command from naming one.
+
+          ── (B) `makefile_test.go` (NEW, ROOT PACKAGE `backstopcore_test`) ──────
+          TestMakefile_DeclaresOptInBaselineTargetOutsideTestAndCI (CLM-006). Parse
+          `Makefile`: assert a `baseline:` target exists and its recipe invokes
+          `baseline pull`; assert `.PHONY` names it; assert it declares `build` as a
+          prerequisite (sharp edge 18); and assert NEITHER the `test:` NOR the `ci:`
+          target lists `baseline` among its prerequisites (sharp edge 13). The
+          failure message should say why: wiring it in would make every `make test`
+          hit the network, which is the thing ISSUE-176 rules out.
+
+          ★ ROOT PACKAGE, NOT `cmd/backstop`, FOR TWO INDEPENDENT REASONS.
+            (1) CONVENTION: repo-structural assertions live at the root in
+                `package backstopcore_test` — `workflows_test.go`,
+                `module_path_test.go`, `pack_fleet_test.go`, `release_config_test.go`,
+                `embed_test.go`. The `Makefile` is repo structure, and no test
+                asserts on it today, so this establishes the file rather than
+                displacing anything.
+            (2) THE RED STAYS LEGIBLE. In `cmd/backstop` this test would share a
+                package with the compile-failure red from (A), so it could never
+                show its OWN specific failure — every run would die at the build
+                step. In the root package it fails on its own terms, naming the
+                missing target.
+          It is a SEPARATE file from `workflows_test.go` so TASK-004 and TASK-001
+          stay file-disjoint and Phase 1 / Phase 2 parallel-eligibility survives
+          (D-081). Do not merge the two.
+        files:
+          - cmd/backstop/baseline_prerequisite_test.go
+          - makefile_test.go
+        claims:
+          - CLM-005
+          - CLM-006
+        depends_on: []
+        test_names:
+          - TestCommittedBaselineAbsence_FailsWithActionableRemedy
+          - TestRatchetBaselineRead_NeverSkipsAndNeverPullsImplicitly
+          - TestMakefile_DeclaresOptInBaselineTargetOutsideTestAndCI
+
+      - id: TASK-005
+        type: implementation
+        title: "GREEN: route the baseline read through one remedy-naming helper, add the opt-in make target"
+        description: |
+          Two edits.
+
+          (1) `cmd/backstop/bun_ratchet_flip_test.go`. Add the helper TASK-004
+          calls — a path-taking, error-returning read that wraps the underlying
+          `os.ReadFile` failure in a message naming the file, both remedies
+          (`backstop baseline pull` and `make baseline`) and, in one line, WHY the
+          file is absent: it is a generated, gitignored artifact published by CI's
+          `baseline` job, not committed source. Then rewire
+          `committedBaselineNeutralSpineFiles` to call it and `t.Fatalf` with the
+          returned error.
+
+          ★ THE PATH IS A PARAMETER, NOT BAKED INTO THE HELPER, and this is a
+          CONSTRAINT rather than a style note (sharp edge 17). TASK-004 asserts that
+          no single line contains both `os.ReadFile` and `baseline.json`. A helper
+          that builds the path internally puts both on one line and cannot satisfy
+          it; a parameter puts the `os.ReadFile` in the helper and the
+          `baseline.json` literal at the call site. It is also what lets
+          TestCommittedBaselineAbsence_FailsWithActionableRemedy point the helper at
+          a `t.TempDir()` child at all. If this feels like the test dictating the
+          signature — it is, and that is TDD working: the message-shape assertion
+          needs a seam to reach.
+
+          ★ THE REMEDY TEXT IS A STRING LITERAL AND NOTHING MORE. The helper NAMES
+          `backstop baseline pull`; it must never RUN it. Do not add an `os/exec`
+          or `net/http` import to this file, and do not "helpfully" shell the pull
+          when the read fails — TASK-004's structural sweep forbids exactly that,
+          and it is the whole point of the opt-in direction (CLM-006): the test path
+          never hits the network, so a developer's `go test ./...` cannot silently
+          acquire a network dependency.
+
+          WHAT DOES NOT CHANGE, and this is the point: the failure stays a FATAL.
+          No `t.Skip`, no network call, no conditional. The three ratchet tests
+          protect exactly the property they protected before; only the message
+          improves. Keep the helper in this `_test.go` file — it is test support,
+          and putting it in `cmd/backstop/baseline.go` would add dead production
+          code for a test-only concern.
+
+          (2) `Makefile`. Add an OPT-IN target:
+
+                  baseline: build
+                          ./bin/backstop baseline pull
+
+              `build` IS REQUIRED, not decoration (sharp edge 18): the recipe runs
+              `./bin/backstop`, and `bin/` is untracked and removed by `make clean`,
+              so on a clean tree the bare target fails with "no such file or
+              directory" — the exact class of unhelpful error this whole lane exists
+              to remove.
+
+              Add `baseline` to `.PHONY`, with a short comment recording that it is
+              a PREREQUISITE for the ratchet tests and is deliberately NOT a
+              prerequisite of `test:` or `ci:` — no local `go test` run may hit the
+              network by default (CLM-006, sharp edge 13). That comment plus the
+              remedy-naming error message together ARE the "documented local
+              prerequisite" direction this plan chose; there is no third place to
+              keep it in sync.
+        files:
+          - cmd/backstop/bun_ratchet_flip_test.go
+          - Makefile
+        claims:
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-004
+
+      - id: TASK-006
+        type: verification
+        title: "Verify Fix 2 by real falsification: move the baseline aside and read the message"
+        description: |
+          Run and read the results:
+
+              backstop gate
+              go test ./cmd/backstop/ -run "TestCommittedBaselineAbsence|TestRatchetBaselineRead|TestRatchet_" -count=1 -v
+              go test . -run "TestMakefile_DeclaresOptIn" -count=1 -v
+
+          ★ NOTE THE PACKAGE ARGUMENTS AND VERIFY THE COUNTS (sharp edge 15). The
+          Makefile test is in the ROOT package (`.`), the other two are in
+          `./cmd/backstop/`; this plan's first draft had them crossed, and
+          `go test . -run "TestMakefile_DeclaresOptIn"` returned
+          `ok github.com/backstop-ai/backstop-core 0.523s [no tests to run]` —
+          exit 0, zero tests executed, a verification that checked nothing. Run both
+          with `-v`, count the `=== RUN` lines, and report the executed test names.
+          Zero executed is a FAILED verification, not a pass.
+
+          ONE NOTE ON THE `TestRatchet_` PATTERN so a transient red is not
+          misattributed. `TestRatchet_` matches SIX tests in `cmd/backstop`, of
+          which three are this lane's; the other THREE all load `backstop.yml`
+          through `dogfoodPolicy(t)` (counted, with the call sites):
+            * TestRatchet_SelfPackEnforcementFlipsToBlockZeroBaselineWhenAllSitesClean
+              (`dogfoodPolicy(t)` at bun_ratchet_flip_test.go:102)
+            * TestRatchet_ReintroducedBakedLanguageLiteralRedsOutright  (:151)
+            * TestRatchet_FlipSequencedAfterPillarASitesClean           (:211)
+          The third was missing from this note's first draft — the enumeration is
+          exhaustive now precisely because a partial one gives false confidence
+          ([[feedback_enumerations_assert_exhaustiveness]]). PLAN-ISSUE-157 is
+          concurrently rewriting `backstop.yml`; its edit is a pack VERSION PIN, not
+          enforcement policy, so interference is unlikely. But if ANY of those three
+          reds while the three named ratchet tests are green, check
+          `git diff backstop.yml` before attributing it here.
+
+          ★ THEN FALSIFY FOR REAL, because a green suite over a present baseline
+          exercises none of this. With the tree otherwise clean:
+
+              mv .backstop/baseline.json /tmp/baseline-176.json
+              go test ./cmd/backstop/ -run "TestRatchet_" -count=1 -v  # expect FAIL
+              mv /tmp/baseline-176.json .backstop/baseline.json
+              go test ./cmd/backstop/ -run "TestRatchet_" -count=1 -v  # expect ok
+
+          `-v` ON BOTH LEGS, AND THE RUN COUNT IS PART OF THE EVIDENCE (sharp edge
+          15 — which this plan violated in its own falsification pair until round 2,
+          so it is worth restating rather than assuming). Expect SIX `=== RUN`
+          lines each time. A "FAIL" leg that executed zero tests is not a
+          falsification, and the pass leg with a count below six means the pattern
+          silently stopped matching.
+
+          QUOTE THE FAILURE TEXT VERBATIM in the report and confirm against it that
+          the message names the file, names `backstop baseline pull`, names
+          `make baseline`, and is a FAILURE rather than a skip. Confirm the restored
+          file's sha256 is
+          `0d45fbebeda709f7ccbdbd7d7b46e26a994c70b8937de4bef8387a36dcdb3bc7` — the
+          measured value from section 1 — so the move-aside is provably reversed and
+          no later reading is taken against a mutated baseline.
+
+          THIS IS A SHARED TREE. Check `git status` before moving anything and do
+          not use `git stash` ([[feedback_git_stash_shared_tree_hazard]]);
+          `.backstop/baseline.json` is gitignored so the move does not show in
+          `git status`, which makes restoring it a manual obligation, not something
+          the tree will remind you about.
+
+          Also verify `make baseline` is real: run `make -n baseline` and confirm it
+          prints BOTH the `go build` from its `build` prerequisite AND the pull
+          invocation (sharp edge 18 — a target that cannot run is not a remedy), and
+          `make -n test` and confirm it prints neither.
+        files:
+          - cmd/backstop/bun_ratchet_flip_test.go
+          - cmd/backstop/baseline_prerequisite_test.go
+          - makefile_test.go
+          - Makefile
+        claims:
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-005
+
+  - id: phase-3
+    name: "Phase 3: Record the adjacent findings rather than absorbing them"
+    tasks:
+      - id: TASK-007
+        type: documentation
+        title: "File the workflow-name-filter follow-on and record the stale-artifact expectation"
+        description: |
+          CLM-007. Two findings surfaced while grounding this plan. Neither is in
+          this lane's fix, and neither may be silently dropped
+          ([[feedback_thorough_followons]]).
+
+          (a) FILE A FOLLOW-ON ISSUE for `resolveLatestSuccessfulMainRun`
+          (`cmd/backstop/baseline.go`). It queries
+          `repos/<repo>/actions/runs?branch=main&status=success&per_page=20`, DECODES
+          each run's `Name` field, and then filters only on `HeadBranch == "main"`
+          and `Conclusion == "success"` — the decoded `Name` is never read. So it
+          returns the newest successful main run of ANY workflow, and
+          `resolveBaselineArtifactID` then fails with "missing artifact" when that
+          run is not the one publishing `backstop-baseline-v1`. MEASURED TODAY: all
+          20 rows are workflow `CI`, so the gap is LATENT, not firing — say that in
+          the issue, with the query and its output, so the next reader knows the
+          severity. It becomes live the moment a second workflow runs on main.
+          Route it properly: `backstop artifact new issue --slug <kebab>` for the
+          id, then the issue agent — never hand-written (sharp edge 14). Cite this
+          plan and ISSUE-176 as the lane that surfaced it.
+
+          (b) RECORD, in ISSUE-176 itself via a routed `/issue` dispatch, that the
+          first artifact this fix pulls will be ≥2 days stale, with the reason: the
+          `baseline` job is `needs: gate`, and the gate job has failed on every main
+          push for 21 consecutive runs since 2026-08-16, so the newest publishable
+          baseline is run 31921681066's (`generated_at 2026-08-16T02:26:32Z`). This
+          is an EXPECTED, NON-BLOCKING consequence that resolves itself the first
+          time a main push gates green. It is recorded so that a stale pull during
+          TASK-009 reads as predicted rather than as a new defect — and explicitly
+          so that nobody scopes this lane around forcing a green gate.
+        files:
+          - issues/ISSUE-176-ci-gate-missing-baseline-json.issue.md
+        claims:
+          - CLM-007
+        depends_on: []
+
+  - id: phase-4
+    name: "Phase 4: Full kill chain, then the Linux CI run that is the only real proof"
+    tasks:
+      - id: TASK-008
+        type: verification
+        title: "Full kill chain: backstop gate --all plus artifact validation"
+        description: |
+          THE FINAL, UNSCOPED SWEEP. Run all three and read the results:
+
+              backstop gate --all
+              backstop artifact validate --plan PLAN-ISSUE-176
+              backstop artifact validate --issue ISSUE-176
+
+          `gate --all` covers the code half (pack lock verification, artifact
+          validation, pack engines, test verification, substantiveness, coverage,
+          contracts, status drift, traceability, waivers, baseline, ledger
+          integrity); the two `artifact validate` runs cover the artifact half,
+          since this lane creates a plan artifact and TASK-007 rewrites the issue.
+
+          ATTRIBUTION IS THE DELIVERABLE, NOT THE RAW COUNT. This repo carries
+          inherited reds from other lanes — PLAN-ISSUE-157 is in flight
+          concurrently, and the `--all` reading will see whatever it has landed. For
+          every violation, decide and STATE whether it is this lane's: grep the
+          violation set explicitly for each of this lane's SIX paths
+          (`.github/workflows/ci.yml`, `workflows_test.go`, `makefile_test.go`,
+          `cmd/backstop/baseline_prerequisite_test.go`,
+          `cmd/backstop/bun_ratchet_flip_test.go`, `Makefile`) and report the hit
+          count, zero or otherwise. Anything attributable to this lane is FIXED AT
+          SOURCE — never waived, never made green by weakening a test.
+
+          Confirm before claiming a zero that `go-arch-lint`, `golangci-lint`,
+          `semgrep` and `ast-grep` are on this shell's PATH: `pack_engines` silently
+          no-ops on an absent Layer-0 tool and reads exactly like a clean run
+          ([[project_closeout_real_gate_in_worktree]]).
+
+          THE HEADLINE THIS LANE OWES: state plainly that this local reading CANNOT
+          confirm ISSUE-176 is resolved. Report what WAS proven locally — the
+          workflow declares the wiring, the whole `TestCIWorkflow_` family is green,
+          the absent-baseline path now names its remedy, `make baseline` is opt-in —
+          and hand the behavioral question to TASK-009.
+        files:
+          - .github/workflows/ci.yml
+          - workflows_test.go
+          - makefile_test.go
+          - cmd/backstop/baseline_prerequisite_test.go
+          - cmd/backstop/bun_ratchet_flip_test.go
+          - Makefile
+          - plans/PLAN-ISSUE-176-ci-gate-baseline-pull-wiring.plan.yml
+          - issues/ISSUE-176-ci-gate-missing-baseline-json.issue.md
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-002
+          - TASK-003
+          - TASK-005
+          - TASK-006
+          - TASK-007
+
+      - id: TASK-009
+        type: verification
+        title: "Confirm on real Linux CI — the only run that can prove Fix 1"
+        description: |
+          ★ THIS IS A CI-ONLY OBLIGATION AND MUST NOT BE CLAIMED FROM A LOCAL
+          READING (sharp edge 12,
+          [[project_platform_gated_defect_verification_ceiling]]). This darwin
+          checkout's `.backstop/baseline.json` is byte-identical to the CI-published
+          artifact (section 1), so the three ratchet tests are green here before and
+          after this fix. No local run, however green, is evidence for CLM-004.
+
+          Push the branch and let the real `ubuntu-latest` workflow run. Then read
+          the run DIRECTLY — `gh run view <id> --log` and
+          `gh run download <id> -n gate-report` — the same way ISSUE-176's root
+          cause was established. Not the summary; the log and the artifact.
+
+          REPORT, BY NAME:
+            * The "Confirm the self-healing baseline pull landed a file" step's
+              outcome. THIS IS THE HEADLINE. If it passed, quote the byte count it
+              printed. If it failed, quote the bare `baseline pull` invocation's own
+              exit code and stderr — that output is the direct confirmation
+              ISSUE-176 asked for and could not obtain from existing artifacts, and
+              it is worth capturing whichever way it goes.
+            * The state of each of the three named ratchet tests
+              (`TestRatchet_CoverageMeasurablePathSiteUnGrandfatheredAfterDeGo`,
+              `TestRatchet_TestVerifyDiscoverySiteUnGrandfatheredAfterDeGo`,
+              `TestRatchet_GoPackageMatchersSiteUnGrandfatheredAfterDeGo`) — present
+              or absent from the `go-test` findings, and if present, with WHICH
+              message. A different message is a different defect, not a partial fix.
+            * WHICH artifact was pulled, if it can be told: run id, `generated_at`
+              and `git_sha` from the landed file. Cross-check against
+              `generated_at 2026-08-16T02:26:32Z` / `git_sha 872bc9c9...` — if it
+              matches, that is the ≥2-day-stale artifact TASK-007 predicted, and it
+              is EXPECTED and NON-BLOCKING (CLM-007b), not a finding. Record it as a
+              confirmed prediction.
+            * `resolveBaselineCache`'s warning string, if it now surfaces anywhere.
+              DO NOT read `baseline_comparison`'s printed reason for this — sharp
+              edge 7: `ApplyPolicy` overwrites it either way, and citing it would
+              confirm nothing.
+            * The gate job's total violation count before and after, so the three
+              removed failures are visible as a delta rather than asserted.
+            * ★ WHICH VERDICT MODE SHIPPED — the hard `::error::` + `exit 1` this
+              plan defaults to, or the softened `::warning::` + `exit 0` — and, if
+              the step fired, whether its verdict actually blocked the job. This is
+              the reporting half of the SECOND FLAGGED DECISION and it is owed here
+              rather than only in the flag: the founder is choosing a verdict
+              surface, and the only honest way to close that loop is to say what the
+              first real run did with it. If the mode was softened after this plan
+              was written, say so explicitly rather than letting the plan's default
+              stand as the record.
+
+          ANYTHING STILL RED IS FILED, NOT ABSORBED. This job has failed on every
+          main push for 21 consecutive runs; several of those failures belong to
+          other lanes (ISSUE-157, ISSUE-177) and are NOT this lane's to fix or to
+          claim. Attribute each remaining failure explicitly, and do not scope this
+          lane around forcing the gate green. If the pull works but a NEW failure
+          appears — including one the now-present baseline finally makes visible —
+          that is a true finding surfaced by this fix and it gets its own issue.
+        files:
+          - .github/workflows/ci.yml
+          - workflows_test.go
+          - issues/ISSUE-176-ci-gate-missing-baseline-json.issue.md
+        claims:
+          - CLM-004
+          - CLM-007
+        depends_on:
+          - TASK-002
+          - TASK-008
+
+  - id: phase-5
+    name: "Phase 5: Close-out — flip the plan, close the issue, then re-validate"
+    tasks:
+      - id: TASK-010
+        type: documentation
+        title: "Flip PLAN-ISSUE-176 to completed, then close ISSUE-176 with delivered_by"
+        description: |
+          Route BOTH edits through their purpose-built agents (`/plan`, `/issue`) —
+          never hand-edit an artifact's freeform prose.
+
+          ★★ ORDER IS LOAD-BEARING: STEP 1 BEFORE STEP 2. A `delivered_by` close is
+             only valid when the backing plan is ALREADY `completed`
+             (`pkg/validate/delivered_by.go` step 5). Closing the issue first yields
+             `issue/delivered-by-plan-not-completed`. PLAN-ISSUE-157 learned this in
+             its own round 3; this task mirrors the shape that then validated clean
+             rather than rediscovering it.
+
+          ── PRECONDITION: DO NOT CLOSE ON AN UNPROVEN LANE ───────────────────────
+          This close is gated on TASK-009's REAL CI EVIDENCE, not on a local green.
+          CLM-004 is the claim being closed against and it is CI-only (sharp edge
+          12).
+
+          ★ THE TRIGGER IS THE EVIDENCE, NOT THE CONFIRMATION STEP'S OWN VERDICT,
+          and the distinction is load-bearing rather than pedantic. Under the
+          SOFTENED verdict mode the second flagged decision offers
+          (`::warning::` + `exit 0`), an absent baseline produces a PASSING step —
+          so a precondition phrased as "if the confirmation step failed" would never
+          fire, and a lane with CLM-004 unproven would satisfy it literally while
+          proving nothing. The step's exit code is NOT the discriminator in that
+          mode. Key on the two facts CLM-004 actually asserts, both of which
+          TASK-009 reports regardless of verdict mode:
+            (a) was `.backstop/baseline.json` PRESENT after the gate ran; and
+            (b) what is the real state of the three named ratchet tests in the CI
+                run — gone, or still failing with the `no such file or directory`
+                message, or failing with a DIFFERENT message (which is a different
+                defect, not a partial pass).
+
+          IF EITHER IS UNPROVEN — including the case where TASK-009 could not run at
+          all — the lane is NOT complete: PLAN-ISSUE-176 stays `draft`, ISSUE-176
+          stays `open` with the measured CI observation recorded in it, and this task
+          reports a stopped lane. Never dress an unproven lane as a closed one, and
+          never flip a status to quiet a validator.
+
+          ── STEP 1: FLIP THIS PLAN TO `completed` (routed `/plan` dispatch) ──────
+          `plans/PLAN-ISSUE-176-ci-gate-baseline-pull-wiring.plan.yml`:
+          `status: draft` → `status: completed`, per this repo's close-out
+          convention — prepend an AS-BUILT banner to `notes` recording what actually
+          happened versus what was planned, and NEVER rewrite the tasks themselves.
+          The banner should name, at minimum: which verdict mode shipped (the second
+          flagged decision), and whether the first real pull fetched the predicted
+          ≥2-day-stale artifact from run 31921681066.
+
+          The plan must still VALIDATE CLEAN after the flip — `validateDeliveredBy`
+          re-runs the full `validate.Plan` and treats ANY violation as
+          `issue/delivered-by-plan-invalid`. Run
+          `./bin/backstop artifact validate --plan PLAN-ISSUE-176` after editing.
+
+          ── STEP 2: CLOSE ISSUE-176 (routed `/issue` dispatch) ───────────────────
+          `issues/ISSUE-176-ci-gate-missing-baseline-json.issue.md` needs ALL THREE.
+          A `## Resolution` section alone is NOT a valid close:
+            (i)   `issue.status: closed` AND `issue.closed: "<YYYY-MM-DD>"` —
+                  omitting the date is `issue/closed-requires-date`.
+            (ii)  `delivered_by: PLAN-ISSUE-176` at TOP-LEVEL frontmatter (a sibling
+                  of `schema_version`, NOT nested under `issue:`). Carry
+                  `delivered_by` OR `resolved-by`, never both
+                  (`issue/close-pointer-conflict`); `delivered_by` is correct here
+                  because this lane has a real backing plan.
+            (iii) A `## Resolution` section — still required even with
+                  `delivered_by` (`issue/delivered-by-resolution-required`).
+                  Record: the two CI-wiring changes (step-level `GH_TOKEN` on the
+                  three `gh`-shelling steps, job-level `permissions: contents+actions
+                  read`); the guarded confirmation step and its first real verdict;
+                  the three named ratchet tests' CI state as measured by TASK-009;
+                  and Fix 2's shape (remedy-naming helper plus opt-in `make
+                  baseline`, no network in the test path).
+
+          ALSO RECORD IN THE RESOLUTION, WITHOUT ABSORBING:
+            · The follow-on issue TASK-007 filed for
+              `resolveLatestSuccessfulMainRun`'s unused `Name` filter — by its
+              assigned id, so the two are linked in both directions.
+            · CLM-007(b)/(c): the stale-artifact expectation and the ~2026-11-14
+              retention deadline. These are OBSERVATIONS carried forward, not
+              defects this lane fixed.
+            · ISSUE-086 and PLAN-SPEC-019 REMAIN OPEN and were never this lane's.
+              Closing ISSUE-176 does not touch the producer-side gaps they own.
+            · Whether the gate job is now green OVERALL. Almost certainly not —
+              other lanes' failures are not this lane's to fix or to claim (sharp
+              edge 12). Say plainly that this close means "the three named ratchet
+              failures are resolved", not "CI is green".
+        files:
+          - plans/PLAN-ISSUE-176-ci-gate-baseline-pull-wiring.plan.yml
+          - issues/ISSUE-176-ci-gate-missing-baseline-json.issue.md
+        claims:
+          - CLM-004
+          - CLM-007
+        depends_on:
+          - TASK-009
+
+      - id: TASK-011
+        type: verification
+        title: "Re-validate AFTER the artifact mutations, not before"
+        description: |
+          ★ WHY THIS EXISTS AND WHY TASK-008 DOES NOT COVER IT. TASK-008 runs its
+            `artifact validate --issue ISSUE-176` BEFORE TASK-010 mutates anything,
+            so it inspects the PRE-CLOSE state — a still-`open` issue with no
+            requirements, which passes trivially. That is VACUOUS with respect to
+            the close TASK-010 actually produces. Validating the state before the
+            change is precisely the wrong side of it, and because the gate is
+            DIFF-SCOPED, skipping this would let the lane end green locally while
+            handing a RED `artifact_validation` to whoever touches the repo next.
+
+          1. VALIDATE BOTH MUTATED ARTIFACTS, individually and by name:
+
+               ./bin/backstop artifact validate --plan  PLAN-ISSUE-176
+               ./bin/backstop artifact validate --issue ISSUE-176
+
+             Both must pass. Expect ISSUE-176 to carry `issue.closed`, top-level
+             `delivered_by: PLAN-ISSUE-176` and a `## Resolution` section, and
+             PLAN-ISSUE-176 to read `status: completed`. `delivered_by` re-validates
+             the backing plan IN FULL, so a plan that stopped validating clean
+             surfaces here as `issue/delivered-by-plan-invalid` rather than as a
+             plan-level error — do not be misled by the rule name.
+
+             ★ IF `issue/delivered-by-plan-not-completed` APPEARS, TASK-010's
+               ordering was inverted (issue closed before the plan flipped). Fix the
+               ORDER — never by removing `delivered_by`, never by softening the
+               close.
+
+             ALSO validate the follow-on issue TASK-007 filed, by its assigned id.
+
+          2. RE-SCOPED GATE over everything this lane changed, artifacts included:
+
+               ./bin/backstop gate
+
+             `artifact_validation` and `status_drift` must both be clean against the
+             POST-mutation tree. `status_drift` is the one the flip ARMS: it reads a
+             `completed` plan's mandated tests as promises, so confirm all SEVEN
+             mandated test names are present AND passing. A `completed` plan whose
+             mandated test is absent or red is a broken promise, and TASK-010 is
+             what makes that check live.
+
+             Run the plan's own `test_command` here with `-v` and count the RUN
+             lines (sharp edge 15) — seven names, none missing.
+
+          3. INHERITED REDS: sharp edge 12's clause applies unchanged. Prove
+             inheritance, name the owner, record — never waive, never absorb.
+
+          IF THE LANE STOPPED at TASK-010's precondition, this task validates the
+          UNCHANGED artifacts instead: ISSUE-176 still `open`, PLAN-ISSUE-176 still
+          `draft`. That is a legitimate passing end state for a stopped lane and must
+          be reported as such, not as a completed one.
+        files:
+          - plans/PLAN-ISSUE-176-ci-gate-baseline-pull-wiring.plan.yml
+          - issues/ISSUE-176-ci-gate-missing-baseline-json.issue.md
+          - .github/workflows/ci.yml
+          - workflows_test.go
+          - makefile_test.go
+          - cmd/backstop/baseline_prerequisite_test.go
+          - cmd/backstop/bun_ratchet_flip_test.go
+          - Makefile
+        claims:
+          - CLM-004
+          - CLM-007
+        depends_on:
+          - TASK-002
+          - TASK-005
+          - TASK-010

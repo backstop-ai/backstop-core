@@ -110,3 +110,4 @@
 - [Falsify a sandbox allow by retargeting](falsify_sandbox_allow_by_retargeting.md) — a grant on an already-permissive path can't be falsified there
 - [Inheritance proof at --all scale](project_inheritance_proof_by_head_worktree_gate_all.md) — HEAD worktree + its OWN pack install; PATH-NORMALIZE both lists or 36 bogus deltas
 - [Satisfy no-baked by reading the manifest](feedback_satisfy_nobaked_by_reading_the_manifest.md) — take tool+flag from the pack's engines: block, not a helper hiding the literal
+- [CI baseline pull authorized (ISSUE-176)](project_ci_baseline_pull_authorized.md) — step-level GH_TOKEN + job actions:read; run 32194863181 printed "baseline present: 240442 bytes", the 3 ratchet failures are GONE; baseline_comparison can NEVER confirm a pull

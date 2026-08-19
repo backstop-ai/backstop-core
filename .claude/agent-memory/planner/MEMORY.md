@@ -35,3 +35,4 @@
 - [Fetch the artifact the fix would pull](project_fetch_the_artifact_the_fix_would_pull.md) — hash the CI artifact against the local file; "darwin green / Linux red" was the SAME FILE present vs absent, not a platform difference
 - [Run the command you prescribe](project_run_the_command_you_prescribe.md) — `go test -run` no-match exits 0; forbid the MECHANISM not the string; an "X not Y" claim needs a leg that fails Y; `if: always()` misattributes
 - [Actions `if:` guard fails OPEN](project_actions_if_guard_fails_open.md) — a missing `steps.<id>` coerces to null→0 vs NaN, so `!= 'skipped'` is TRUE and the step always runs; state fails-OPEN, assert id-consistency
+- [CI evidence run is branch, not main](project_ci_evidence_run_is_branch_not_main.md) — a "post-merge run" is usually a PR-BRANCH run; check headSha vs the merge commit, cite the pre-fix main run as the counterfactual
