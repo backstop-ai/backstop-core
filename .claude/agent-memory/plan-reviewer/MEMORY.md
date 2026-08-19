@@ -75,3 +75,4 @@
 - [GHA steps-context null coercion](project_gha_steps_context_null_coercion.md) — `steps.<bad-id>.conclusion != 'skipped'` is TRUE (null→0 vs NaN): guard goes INERT, not skip; plans state the inverse
 - [Retracted claim survives in shipping text](project_retracted_claim_survives_in_shipping_text.md) — a retraction lands in notes/sharp-edges but the copy inside a task's PRESCRIBED yaml comment / error string ships anyway; grep the literal
 - [Monotone counter ships stale](project_monotone_counter_ships_stale.md) — "N consecutive failing runs" measured at plan time is wrong by implement time; re-query each round, demand ≥/date-stamped phrasing
+- [Cited issue's self-retracted evidence](project_cited_issue_self_retracted_evidence.md) — a plan quoting `ISSUE-NNN lines X-Y` often lands on Evidence bullets the SAME issue's Root cause section retracts

@@ -1,13 +1,15 @@
 ---
 title: "Gate Steps Run Sequentially Not Parallel"
 schema_version: issue/v1
+delivered_by: PLAN-ISSUE-172
 
 issue:
   id: ISSUE-172
   title: "Gate Steps Run Sequentially Not Parallel"
   type: technical-debt
-  status: open
+  status: closed
   created: "2026-08-18"
+  closed: "2026-08-19"
 
 complexity:
   scope: cross-cutting
@@ -116,6 +118,161 @@ split that does not also address that sharing could reintroduce the double-suite
 paid down. Whichever approach the plan picks needs to weigh implementation risk (in-process
 concurrency in the enforcement checkpoint) against verification cost (splitting gate dimensions
 across CI jobs without silently narrowing what gates).
+
+## Investigation (2026-08-19)
+
+This issue asked whether `pack_engines` and `coverage_threshold` — the two dominant gate steps —
+are truly independent and therefore safe to parallelize. They are not. The independence inference
+in the section above is **false**, and there is a second, separate finding underneath it about
+what the two steps are actually doing.
+
+### The independence inference is false: a hidden cross-step dependency
+
+`cmd/backstop/gate.go:956-957` declares package-level `var collectedVerdicts []gate.Violation` and
+`verdictEngineDeclared bool` inside `buildGateSteps`. They are **written** inside the `pack_engines`
+step's own implementation, `packValidatorStep`, at `cmd/backstop/gate.go:1133-1134`. They are
+**read** by a `TestVerdictSupplier` closure invoked by a **different** step, `test_verification`,
+via `pkg/gate/step_testverify.go:391` (the supplier itself documented at `:365-377`, invoked at
+`:424-427`).
+
+This channel's safety today rests entirely on the two steps running in the current sequential
+assembly order — documented only in a comment at `cmd/backstop/gate.go:947-950`, never enforced by
+any test or synchronization primitive. If the two steps were naively parallelized (approach A from
+the Problem section above, with only the `results` slice append made safe), the failure mode is
+**not a crash** — it is silent enforcement loss. The two writes at `gate.go:1133-1134` are separate
+statements (the slice, then the bool), so an unsynchronized concurrent reader can observe either of
+two distinct bad states:
+
+- **Path 1 (clean reorder, both zero-valued):** `verdictEngineDeclared == false` routes
+  `test_verification` to a non-blocking `test_verification_verdict_capability_absent` advisory
+  instead of the correct `critical` `mandated_test_failed` violation. The gate goes green over a
+  genuinely failing mandated test, but it at least says something.
+- **Path 2 (the race artifact — worse):** the bool is read `true` but the slice is read empty,
+  since the two writes are unsynchronized and the Go memory model permits observing one without the
+  other. This routes to an unqualified **pass**, with not even the advisory — indistinguishable
+  from a healthy green.
+
+### The two dominant steps are the same test suite, run twice
+
+Separately, and more fundamentally: `pack_engines` and `coverage_threshold` are not two genuinely
+independent ~10-minute workloads — they are the **same** full `go test ./...` suite, run twice. The
+installed `go-toolchain` pack's `go-test` engine runs `go test` with no coverage flags; the
+`go-coverage` engine's producer script independently re-runs `go test -coverprofile=cover.out ./...`
+from scratch, with no freshness or reuse check anywhere in the script. The measured durations from
+the Problem section (629797ms for `pack_engines` vs. 612148ms for `coverage_threshold`, a ~17.6s
+delta attributable to `go build` and `golangci-lint` riding along in `pack_engines`) are consistent
+with two whole-module test runs back to back, not two genuinely different workloads.
+
+This is literally the same defect class `ISSUE-068` already found and fixed for other toolchains
+— a "single-run convention" where the test command produces a coverage profile that the coverage
+step then reuses instead of re-running the suite from scratch. `ISSUE-068` explicitly parked the
+Go-specific follow-on as "not scoped here" ("the same combined-run convention... can be adopted by
+`go-toolchain`... Not filed as a separate issue; noted for whoever next touches go-toolchain's
+coverage path") and it was never picked up — `go-toolchain` sat at v1.6.0 across six releases with
+no reuse check. A reference implementation already ships in production for `typescript-toolchain`
+(v1.3.0): adopting the same convention there dropped `coverage_threshold` from ~174s to ~0.75s with
+zero change in verdicts.
+
+## Direction
+
+Both original candidate approaches from the Problem/Alternative sections above are **declined**:
+
+- **(A) in-process concurrency in the gate orchestrator** — declined for two independent reasons.
+  First, it is unsafe as originally imagined: the hidden `collectedVerdicts`/`verdictEngineDeclared`
+  dependency above is real, and neither a mutex-guarded `results` append nor a channel collector
+  addresses it — both synchronize the wrong variable, leaving the silent-enforcement-loss race
+  intact. Second, the `max(10.5, 10.2)` arithmetic that motivated the estimated speedup is unsound
+  on its own terms: the two steps are not resource-independent — both saturate CPU running the same
+  whole-module suite on a shared runner — so parallelizing them would not actually yield anywhere
+  close to the naive `max()` estimate.
+- **(B) splitting into two parallel CI jobs** — declined because it would reintroduce the
+  double-suite-run "by construction," at roughly 2x today's compute (two runners, two independent
+  whole-module `go test` invocations), and would require a dimension-subset flag core does not have
+  — especially now that ISSUE-099 just consolidated CI down to exactly one gate invocation per push.
+
+**(C) is recommended**: apply ISSUE-068's proven single-run convention to the external
+`backstop-ai/go-toolchain` pack, so the `go-test` engine's command carries `-coverprofile=cover.out`
+and the `go-coverage` producer reuses that profile when fresh instead of re-running the suite. This
+reaches the same end-state speedup the issue originally projected for approach (A) — roughly the
+gate's ~20.7-minute critical path dropping to ~10-11 minutes — at **half** today's compute (one
+suite run instead of two), with zero change to the gate orchestrator itself (`pkg/gate/gate.go`
+stays untouched), which is lower risk than either original option given the gate is "the primary
+enforcement checkpoint."
+
+This decision was pending founder sign-off as of the investigation above. Sign-off has since been
+**granted** ("Yes I assumed that was what we would do anyway"), and implementation of (C) is now
+in progress.
+
+## Resolution
+
+This issue is **not resolved by either approach it originally proposed.** Neither (A) in-process
+concurrency in `(*Gate).Run` nor (B) parallel CI jobs shipped. `pkg/gate/gate.go` is untouched and
+`.github/workflows/ci.yml` is untouched.
+
+What actually shipped is approach (C) from the Direction section above: `backstop-ai/go-toolchain`
+was republished at v1.7.0 (commit `fb2b947`), adopting a single-run convention — the `go-test`
+engine's command now carries `-coverprofile=cover.out`, so the same `go test` invocation that used
+to run once for `pack_engines` now also produces the coverage profile that `coverage_threshold`
+reuses (via a stamp-and-reuse-if-fresh check in the producer scripts), instead of the `go-coverage`
+engine re-running the full suite from scratch. This discharges the go-toolchain follow-on that
+`ISSUE-068` explicitly parked and nobody had picked up.
+
+**Measured result (local).** A before/after gate run on this workstation:
+
+| Step | Before | After | Change |
+|---|---|---|---|
+| `pack_engines` | 318359ms | 405797ms | same order of magnitude |
+| `coverage_threshold` | 294530ms | 2211ms | ~133x collapse |
+
+`coverage_threshold` was 92% of `pack_engines`'s duration; it is now 0.5% of it. `pack_engines`
+itself stayed roughly flat (its rise is attributable to a wider gate scope on the "after" run plus
+the coverage instrumentation the combined run now carries, not a regression). The collapse is
+confirmed non-vacuous: the 2211ms run produced real per-file coverage measurements (e.g. `49/55`,
+`112/133`, `19/24`), i.e. it parsed a genuine whole-module profile rather than an empty one.
+
+**Measurement scope — read before citing these numbers.** These are LOCAL numbers only, and the two
+readings are not scope-identical: the "before" reading is diff-scoped (`14 changed files`) taken
+while the installed pack was still v1.6.0; the "after" reading is a `gate --all` run at installed
+v1.7.0. The ratio is the load-bearing signal, not the absolute deltas. **Real CI confirmation is
+still outstanding as of this close** — no post-merge CI run has been observed at v1.7.0. The only
+CI-grade measurement in evidence remains the pre-fix run this issue was authored against (CI run
+32151610956: `pack_engines` 629797ms, `coverage_threshold` 612148ms). This issue closes on a
+measured local collapse and a projected CI win, nothing more; capturing the next push's
+`gate-report.json` and recording its two durations is an open obligation for whoever watches it.
+
+**Standing constraint for any future in-process-concurrency attempt (CLM-002/CLM-003).** The
+investigation found a real hidden cross-step ordering dependency that a naive parallelization of
+(A)'s shape would not have caught: `cmd/backstop/gate.go` (around lines 956-957, written around
+1133-1134) declares a package-level `collectedVerdicts`/`verdictEngineDeclared` channel, written by
+the `pack_engines` step and read by a `TestVerdictSupplier` inside `test_verification`, with no
+synchronization. Its safety today rests entirely on `pack_engines` running before
+`test_verification` in the fixed sequential assembly order. If the two steps were ever run
+concurrently, the failure mode would not be a crash — it is silent enforcement loss: either a
+`critical` `mandated_test_failed` violation silently downgrades to a non-blocking advisory, or
+(worse, under partial visibility of the unsynchronized writes) the step returns an unqualified pass
+with not even the advisory, indistinguishable from a healthy green. This is now pinned by an
+executable guard, `TestGateStepOrdering_PackEnginesPrecedesItsDependentSteps`, so this constraint
+does not need rediscovering if in-process concurrency is revisited later.
+
+**Recorded without absorbing:**
+
+- `ISSUE-068` was updated with a short note recording this discharge (already done, as a separate
+  edit) — it stays `closed` and carries no `resolved-by`/`delivered-by` pointer back to this issue,
+  since the work was delivered as a byproduct of this issue's plan rather than tracked by ISSUE-068
+  itself.
+- `PLAN-ISSUE-066` carries `status: canceled` with `phases: []`, which reds `plan/phases-empty` in
+  `artifact_validation` repo-wide. This is a known, already-tracked issue — `ISSUE-154`, filed
+  2026-08-17, confirmed via existence-in-world check before this close. Not a duplicate filing.
+- Two smaller items surfaced during implementation are owed follow-ons, judged too minor to warrant
+  their own artifact right now, recorded here for visibility instead:
+  - No guard exists asserting the `backstop-ai/go-toolchain` pack source and backstop-core's own
+    go-toolchain test fixture stay in semantic agreement — the fixture is a deliberately frozen
+    older snapshot (different name, version, and feature set), and "deliberate divergence" vs.
+    "silent drift" are indistinguishable to the corpus today without a hand check.
+  - A documented, bounded edge case in the coverage producer's stamp: a crash between the stamp
+    write and the coverage step could leave a stamp on disk that a later coverage-only invocation
+    honors against a matching-age `cover.out`. The window is one gate invocation and the
+    consequence is a slightly-stale coverage number, never a suppression.
 
 ## References
 

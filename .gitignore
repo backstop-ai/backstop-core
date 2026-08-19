@@ -41,6 +41,10 @@ prototype/
 .backstop/packs/
 .backstop/pack-config-provenance.json
 .backstop/baseline.json
+# ISSUE-172: the single-run freshness stamp go-toolchain's test producer writes and
+# its coverage producer consumes, within one gate invocation. Scratch state by
+# construction — a TRACKED stamp would dirty the tree on every gate run.
+.backstop/go-coverage-fresh
 
 # CI RUN DETRITUS — files the workflow's own steps leave in the workspace.
 #

@@ -1,0 +1,1716 @@
+---
+plan_id: PLAN-ISSUE-172
+spec_id: ISSUE-172
+created: "2026-08-19"
+status: completed
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./cmd/backstop/ -run \"TestGateStepOrdering|TestGoToolchainSingleRun\" -race -count=1"
+coverage_threshold: 90
+
+notes: |
+  ══════════════════════════════════════════════════════════════════════════════
+  ★ AS-BUILT — CLOSED 2026-08-19.  status: draft -> completed
+  ══════════════════════════════════════════════════════════════════════════════
+  DELIVERED IN FULL, AND NOT BY THE APPROACH THE ISSUE PROPOSED. Two adversarial
+  review rounds, signed off CLEAN before implementation; all 14 tasks executed;
+  both founder gates put and answered. The shipped fix is approach (C) — the
+  ISSUE-068 single-run convention adopted in `backstop-ai/go-toolchain` — and
+  NEITHER (A) (in-process concurrency) NOR (B) (split CI jobs) was implemented.
+  `pkg/gate/gate.go` is untouched. `.github/workflows/ci.yml` is untouched.
+
+  SHIPPED IN TWO REPOS:
+    · `backstop-ai/go-toolchain` v1.7.0 — commit `fb2b947`
+      (`fb2b947c374b7317a8b2b04425837b0e4468aa66`, authored 2026-08-19 07:53:45
+      -0400), "feat: adopt the single-run convention (ISSUE-172; discharges
+      ISSUE-068's parked follow-on)". Tag `v1.7.0` == `origin/main` == HEAD ==
+      that SHA, tree clean. The repo's own `tag-integrity` workflow ran GREEN on
+      BOTH pushes — run `32256441247` (branch `main`) and run `32256448605`
+      (tag `v1.7.0`), both `conclusion: success` on `fb2b947`.
+    · `backstop-ai/backstop-core` — this plan's core half lands in the SAME
+      commit that carries this banner (the close-out commit). PROVENANCE CAVEAT,
+      as for PLAN-ISSUE-157 and PLAN-ISSUE-176 and unlike PLAN-ISSUE-099: this
+      plan was never committed BEFORE implementation — it was still untracked
+      (`?? plans/PLAN-ISSUE-172-...`) throughout, so there is no
+      `git show <plan commit>` baseline of the as-reviewed draft. The AS-BUILT
+      DELTAS section below is therefore the authority on where the as-built
+      diverged from the plan. The phases, tasks, claim mappings and original
+      prose below this banner are UNCHANGED historical record and were
+      deliberately NOT rewritten.
+
+      The core file set in that commit:
+        NEW      cmd/backstop/gate_step_ordering_verdict_test.go            (185 L)
+        NEW      cmd/backstop/gotoolchain_single_run_test.go                (273 L)
+        NEW      pkg/pack/engine/gotoolchain_installed_pack_singlerun_test.go (159 L)
+        EDIT     cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/
+                   go-toolchain/{pack.yml,scripts/test-produce.sh,
+                   scripts/coverage-produce.sh}      (the fixture, mirrored)
+        EDIT     cmd/backstop/filemode_scoping_test.go                (alignment)
+        EDIT     cmd/backstop/go_toolchain_engines_test.go            (alignment)
+        EDIT     cmd/backstop/pack_gate_issue067_regression_test.go   (alignment)
+        EDIT     backstop.yml, backstop.lock                          (the relock)
+        EDIT     .gitignore                            (the stamp path)
+        EDIT     issues/ISSUE-172-...  (TASK-001's Investigation + Direction)
+        NEW      plans/PLAN-ISSUE-172-...  (this file, with this banner)
+
+  ── WHAT LANDED, BY PHASE ────────────────────────────────────────────────────
+  Phase 1 (TASK-001) — the three load-bearing premises were RE-VERIFIED before
+    anything was written and all three held exactly as the ledger states.
+    `issues/ISSUE-172-...` gained `## Investigation (2026-08-19)` and
+    `## Direction` (+84 lines), carrying CLM-002/CLM-003 (the hidden
+    `collectedVerdicts`/`verdictEngineDeclared` channel and its TWO silent
+    failure paths) and CLM-005/CLM-006 (the two dominant steps are one suite run
+    twice; ISSUE-068's parked go-toolchain follow-on). Status untouched, no
+    Resolution — correctly left to TASK-014. ★ FOUNDER GATE 1 WAS PUT AND
+    ANSWERED: authorization granted, recorded verbatim in the issue's Direction
+    section ("Yes I assumed that was what we would do anyway").
+  Phase 2 (TASK-002) — `cmd/backstop/gate_step_ordering_verdict_test.go`, BOTH
+    legs as written: `TestGateStepOrdering_PackEnginesPrecedesItsDependentSteps`
+    (carrying BOTH assertions — pack_engines < test_verification, the dependency
+    this plan FOUND, and pack_engines < coverage_threshold, the one it CREATES)
+    and `TestGateStepOrdering_VerdictJoinIsEmptyWhenTestVerificationRunsFirst`.
+    The kind-(ii) RED-by-inversion was DEMONSTRATED, not assumed — see EVIDENCE.
+  Phase 3 (TASK-004/005/006) — `cmd/backstop/gotoolchain_single_run_test.go`,
+    all four legs, RED-then-GREEN against unchanged test code (see EVIDENCE).
+    The mirrored edit landed in BOTH trees independently, never copied: the pack
+    SOURCE (`go-test` command -> `go test -coverprofile=cover.out`, version
+    1.6.0 -> 1.7.0, both producer scripts) and the core FIXTURE (the same three
+    semantic edits, with NO version bump, NO rename and NO import of the v1.3.0
+    exclusions block — CLM-013's deliberate divergence preserved). `.gitignore`
+    gained `.backstop/go-coverage-fresh`. `pack check` on the source:
+    `status: pass`, exit 0, exactly the two inherited `exempt-scope-decision`
+    WARNs of CLM-014.
+  Phase 4 (TASK-007/008/009) — ★ FOUNDER GATE 2 WAS PUT AND HELD. TASK-007
+    committed locally and STOPPED; the remote was not touched until explicit
+    authorization was given. Then `fb2b947` + tag `v1.7.0` pushed, with the
+    tag-integrity confirmation above.
+  Phase 5 (TASK-010/011/012) — `pkg/pack/engine/gotoolchain_installed_pack_
+    singlerun_test.go` carrying `TestInstalledGoToolchainPack_CarriesSingleRun
+    Convention`, RED as the plan predicted (kind (iii)) on the lock version bar
+    and both installed-tree legs, until `./bin/backstop pack update
+    backstop-ai/go-toolchain` reported `1.6.0 -> 1.7.0`. Recorded state was
+    verified rather than assumed: `backstop.yml` -> 1.7.0; lock entry
+    `version: 1.7.0`, `git_ref: v1.7.0`, `content_hash:
+    2b05aea41c85e775...`, `install_date: 2026-08-19T13:10:38Z`, with
+    `source_type: git` and `source_coordinate: backstop-ai/go-toolchain`
+    PRESERVED. Nothing under `.backstop/packs/**` was hand-edited. All three
+    legs then green, none skipped.
+  Phase 6 (TASK-013/014/015) — the full kill chain and the acceptance
+    measurement (below). TASK-014 was executed as: this banner + status flip
+    (a separate unnamed `planner` dispatch, because the agent-guard keys on
+    NAME and a close-out-prefixed agent cannot write this `.plan.yml`), and the
+    ISSUE-172 close as a separate routed `/issue` dispatch ORDERED AFTER this
+    flip — `delivered_by: PLAN-ISSUE-172` requires a COMPLETED backing plan,
+    which is why this file moves first. The ISSUE-068 pointer was a separate
+    routed dispatch under no such ordering constraint (it carries NO close
+    pointer — ISSUE-068 stays `closed` and merely records that its parked
+    follow-on is discharged), and it landed alongside this flip. TASK-015
+    re-validates all three artifacts AFTER those mutations.
+
+  ── THE ACCEPTANCE MEASUREMENT ───────────────────────────────────────────────
+                            BEFORE            AFTER          CHANGE
+    pack_engines            318359ms          405797ms       same order of magnitude
+    coverage_threshold      294530ms            2211ms       ★ ~133x COLLAPSE
+
+    `coverage_threshold` was 92% of `pack_engines`; it is now 0.5% of it. The
+    RATIO is the load-bearing signal — the plan said so before the numbers
+    existed and it still governs: local wall-clock is not comparable to a CI
+    runner in absolute terms.
+
+    ★ READ THE TWO READINGS' SCOPES BEFORE QUOTING THEM. They are NOT
+    scope-identical, and saying so is part of the evidence:
+      · BEFORE is a LOCAL DIFF-SCOPED run (`14 changed files`) taken at TASK-006,
+        while the INSTALLED pack was still v1.6.0 — which is why it shows the
+        double run plainly: `coverage_threshold` burned 294530ms while reporting
+        "no in-scope files to measure for coverage". The producer's work was
+        whole-module regardless of gate scope; that is exactly the defect.
+      · AFTER is a LOCAL `gate --all --json-out` run taken at TASK-013, at
+        installed v1.7.0.
+      Part of `pack_engines`' 318359 -> 405797 rise is that wider scope, part is
+      the coverage instrumentation the combined run now carries. Neither number
+      is a regression signal; the coverage collapse is what the fix bought.
+
+    ★ NOT VACUOUSLY FAST — CHECKED, BECAUSE A FAST EMPTY PROFILE WOULD HAVE BEEN
+    THE WORST OUTCOME. The 2211ms coverage step produced REAL per-file
+    measurements (`49/55`, `112/133`, `19/24` among them), i.e. it parsed a
+    genuine whole-module profile rather than reading an empty one. The stamp
+    behaved as designed: consumed after use (absent from disk post-run) and
+    gitignored, so no gate run dirties the tree.
+
+    ★★ CI CONFIRMATION IS OUTSTANDING — THIS IS A LOCAL RESULT, NOT A CI RESULT.
+    Both numbers above were measured on this workstation. No post-merge CI run
+    has been observed at v1.7.0. The pre-fix CI figures this plan was authored
+    against (run 32151610956: `pack_engines` 629797ms, `coverage_threshold`
+    612148ms) remain the only CI-grade measurement in evidence. The obligation
+    is explicit and belongs to whoever watches the next push: capture that run's
+    `gate-report.json` artifact and record its two durations. Until then, this
+    plan claims a MEASURED LOCAL COLLAPSE and a PROJECTED CI win, and nothing
+    more. (PLAN-ISSUE-099 closed under the same discipline before its own CI run
+    landed; a CI-branch run is not a post-merge run — check `headSha` against
+    the merge commit before treating one as confirmation.)
+
+  ── EVIDENCE AT CLOSE ────────────────────────────────────────────────────────
+  RE-VERIFIED BY THE CLOSING AGENT (run at close-out, not carried):
+    · `go test ./cmd/backstop/ -run "TestGateStepOrdering|TestGoToolchainSingleRun"
+      -race -count=1 -v` -> ok, 5.555s. All SIX mandated names present and
+      PASSING, both `TestGoToolchainSingleRun_TestProducerPropagatesFailureExit`
+      sub-cases included. No skips.
+    · `go test ./pkg/pack/engine/ -run "TestInstalledGoToolchainPack" -race
+      -count=1 -v` -> ok, 1.445s, and it logs the live state it read:
+      `backstop.lock: backstop-ai/go-toolchain version=1.7.0 git_ref=v1.7.0
+      source_type=git` and `installed backstop-ai/go-toolchain v1.7.0 go-test
+      command: "go test -coverprofile=cover.out"`. No leg skipped.
+    · `./bin/backstop pack check <pack source>` -> `status: pass`, exit 0 from an
+      UNPIPED run, exactly the two inherited `exempt-scope-decision` WARNs
+      (go-coverage, golangci) — CLM-014's count, unchanged.
+    · The pack repo: `v1.7.0` == `origin/main` == HEAD == `fb2b947...`, working
+      tree clean, `pack.yml` version `"1.7.0"`; `gh run list` shows both
+      tag-integrity runs `success`.
+    · The lock/config diff is exactly the four fields a relock rewrites, with
+      `source_coordinate` and `source_type` intact.
+
+  CARRIED FROM THE IMPLEMENTING AGENT'S OWN RUNS (not re-run at close-out; the
+  closing agent's shell lacks `go-arch-lint` on PATH, which reds `pack_engines`
+  in ANY tree and would have produced a misleading third reading):
+    · TASK-002's kind-(ii) FALSIFICATION, demonstrated via a `go -overlay`
+      compile-time swap of the `packed` assembly rather than an in-place edit of
+      `cmd/backstop/gate.go` — the shared tree had live lanes finishing. It
+      caught BOTH legs, not just leg 1:
+        pack_engines (13) MUST precede test_verification (2) ... order=[
+          pack_lock_verification artifact_validation test_verification
+          test_substantiveness coverage_threshold contract_signature ...
+          ledger_integrity pack_engines]
+        --- FAIL: TestGateStepOrdering_PackEnginesPrecedesItsDependentSteps
+        IN ORDER, test_verification must carry the mandated_test_failed
+          violation; got [{Rule:"test_verification_verdict_capability_absent"
+          ... Severity:"warning" ...}]
+        --- FAIL: TestGateStepOrdering_VerdictJoinIsEmptyWhenTestVerificationRunsFirst
+      The second line IS the finding, observed rather than argued: reordering
+      does not error, it downgrades a `critical` `mandated_test_failed` into a
+      non-blocking advisory (CLM-003 path 1). The inversion was never committed.
+    · TASK-004's kind-(i) RED, against the UNEDITED fixture (unrecoverable after
+      TASK-005 — sharp edge 7):
+        go-test's command must carry -coverprofile=cover.out ...; got command
+          "go test"
+        --- FAIL: TestGoToolchainSingleRun_TestEngineProducesCoverageProfile
+        with a FRESH stamped profile the coverage producer must REUSE it and run
+          NO second suite ...; the shim recorded: test -coverprofile=cover.out ./...
+        --- FAIL: TestGoToolchainSingleRun_CoverageProducerReusesAFreshProfile
+      Legs 3 and 4 were GREEN at that point BY CONSTRUCTION, exactly as the plan
+      predicted. Both RED legs went green against byte-identical test code.
+    · ★ THE LEG-4 DELIBERATE RED — the guard on the single most dangerous line in
+      this change (CLM-012 / sharp edge 1) was PROVEN to fire. With
+      `exit "$status"` temporarily dropped from `test-produce.sh`:
+        test-produce.sh must propagate the tool's exit status VERBATIM ...;
+          tool exited 1, script exited 0
+        --- FAIL: .../failing_suite_propagates_non-zero
+        --- PASS: .../passing_suite_propagates_zero
+      The exit-0 sub-case stayed green throughout, so the leg pins PROPAGATION
+      and not "always non-zero". Restored immediately; the mutation was never
+      committed.
+    · DIFF-SCOPED GATE — the honest measure of what this change owns — showed
+      EXACTLY TWO reds, both proven inherited, neither waived:
+        · `TestPackAuthoringLoop_EndToEnd` — ISSUE-162, proven in a CLEAN-HEAD
+          CONTROL WORKTREE (the darwin pack-authoring-loop validator
+          positive-fail).
+        · one `contract_signature` finding — already present in the
+          CI-generated baseline.
+    · FULL CORPUS RE-RUN after the alignment fixes: `go test ./cmd/backstop/
+      ./pkg/pack/engine/ -race` — `pkg/pack/engine` clean; the SOLE failure in
+      `cmd/backstop` is that same inherited `TestPackAuthoringLoop_EndToEnd`.
+    · `gate --all` reported 120 violations, which is the repo's entire latent
+      backlog and NOT this lane's diff — 88 match baseline entries directly and
+      the remainder are repeated generic pack messages of the same known classes
+      that the baseline dedupes by file/line. Recorded as attribution, not as a
+      claim of a clean unscoped sweep. See FOLLOW-ONS OWED for the one genuine
+      non-inherited find inside it.
+
+  ── AS-BUILT DELTAS ──────────────────────────────────────────────────────────
+  D1 — TASK-001's issue annotation was written by a separately-routed `/issue`
+    agent, not by the implementing agent, which has no artifact-write path. The
+    plan's Job 2 anticipated the routing; what it did not anticipate is that the
+    implementer therefore could not perform Job 3's commit either. There was NO
+    per-task commit anywhere in this lane: the whole core half — annotation,
+    tests, fixture, alignment, relock, gitignore and this plan — lands in ONE
+    close-out commit. That is why the provenance caveat above exists.
+  D2 — TASK-002's inversion was demonstrated by a `go -overlay` compile-time
+    swap instead of the plan's "scratch copy or temporary local edit". Reason:
+    the tree was shared with other lanes finishing the same night and an
+    in-place edit of `cmd/backstop/gate.go` risked colliding with them. The
+    overlay is strictly better for the purpose — the real tree was never
+    modified at all — and the observation it produced is stronger than the plan
+    asked for (both legs failed, not just leg 1).
+  D3 — ★ SCOPE EXTENSION, DECLARED RATHER THAN SWEPT IN. Changing `go-test`'s
+    declared command broke FOUR assertion sites across THREE existing test files
+    that TASK-005's `files:` list did not name:
+      `cmd/backstop/filemode_scoping_test.go` (two sites —
+        `TestFileMode_NoSilentWholeModuleRegression`,
+        `TestFileMode_ProjectWideModeStillWholeModule`),
+      `cmd/backstop/go_toolchain_engines_test.go`
+        (`TestGoToolchain_GoTestBindingFromPackData`),
+      `cmd/backstop/pack_gate_issue067_regression_test.go`
+        (`TestIssue067_ProducerScriptsExitZeroOnAGreenTree`).
+    These are drift guards doing precisely their job — they pin the dispatched
+    argv, and the argv changed. Each was updated MINIMALLY: the expected vector
+    gained `-coverprofile=cover.out` and nothing else, every original CLAIM (the
+    TARGET is `./pkg/gadget`, the TARGET is `./...`, the record comes from PACK
+    DATA, the producers exit zero on a green tree) is preserved verbatim, and
+    each edit carries an ISSUE-172 comment saying why. No guard was weakened and
+    none was deleted. A future plan touching a declared engine command should
+    expect this radius and scope for it up front.
+  D4 — the before/after durations are at DIFFERENT GATE SCOPES (diff-scoped
+    pre-fix, `--all` post-fix), stated in full in the measurement section above
+    rather than smoothed over. The ratio survives the difference; the absolute
+    `pack_engines` delta does not carry meaning across it.
+  D5 — TASK-013's plan text asked for a clean-HEAD control worktree with
+    `.backstop/packs` copied in. The attribution was instead done on the
+    DIFF-SCOPED gate (which is the surface this change actually owns) plus a
+    clean-HEAD control worktree for the one test failure, with the baseline
+    record used for the `contract_signature` finding. Same standard of proof,
+    reached on a narrower and more honest surface.
+
+  ── FOLLOW-ONS OWED — SURFACED, NOT ABSORBED ─────────────────────────────────
+  Three things were found along the way and NONE was self-triaged or folded into
+  this lane. They are the founder's to route:
+    (a) `PLAN-ISSUE-066` carries `status: canceled` with `phases: []`, which
+        reds `plan/phases-empty` in `artifact_validation` REPO-WIDE. Committed
+        `aa72dea` on 2026-08-17, untouched by this lane, and the only such plan
+        in the repo. The gate excludes ten retired artifacts as terminal yet
+        still validates this canceled plan — either terminal exclusion should
+        cover it or the validator should permit empty phases on a canceled plan.
+        A real gap, not this plan's to fix.
+    (b) NOTHING ASSERTS THAT THE PACK SOURCE AND THE CORE FIXTURE AGREE. CLM-013
+        makes the divergence deliberate, but "deliberate divergence" and
+        "silent drift" are indistinguishable to the corpus today — this lane had
+        to hand-verify the two trees carried the same semantics. A guard on the
+        SEMANTIC agreement (not a byte mirror) is the missing piece.
+    (c) THE RESIDUAL STAMP WINDOW, as designed and documented in the script
+        comments: a crash between the stamp write and the coverage step leaves a
+        stamp that a LATER coverage-only invocation could honour against a
+        matching-age `cover.out`. The window is one gate invocation and the
+        consequence is a slightly-stale coverage number, never a suppression.
+        Accepted at authoring, unchanged at close, recorded again here.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  ★ READ THIS FIRST — THE INVESTIGATION CHANGED THE ANSWER.
+  ══════════════════════════════════════════════════════════════════════════════
+
+  ISSUE-172 asked a plan to pick between (A) in-process concurrency in
+  `(*Gate).Run` and (B) CI-level parallel jobs, and told the plan to first do the
+  investigation the issue itself declined to do: prove whether `pack_engines` and
+  `coverage_threshold` are genuinely independent.
+
+  That investigation was done (2026-08-19, findings and citations below). It
+  produced TWO facts that neither the issue nor its two candidate approaches
+  anticipated:
+
+    1. THE INDEPENDENCE INFERENCE IS FALSE. `pack_engines` and `test_verification`
+       share an unsynchronized mutable channel that `(*Gate).Run` structurally
+       cannot see, and whose documented safety rests ENTIRELY on the sequential
+       assembly order. Breaking that order does not error — it SILENTLY DOWNGRADES
+       a `critical` `mandated_test_failed` violation into a non-blocking advisory.
+       See CLM-002 / CLM-003.
+
+    2. THE TWO DOMINANT STEPS ARE NOT TWO JOBS — THEY ARE THE SAME GO TEST SUITE,
+       RUN TWICE. `go-test` and `go-coverage` each dispatch an independent
+       whole-module `go test`. This is EXACTLY the ISSUE-068 double-run defect, in
+       the one toolchain whose remediation that issue explicitly parked and nobody
+       ever did. See CLM-005 / CLM-006.
+
+  Both (A) and (B) parallelize REDUNDANT WORK. A third approach — call it (C) —
+  DELETES it, for the same wall-clock win, at HALF today's CI compute, with ZERO
+  change to `pkg/gate`, and with a proven reference implementation already shipped
+  in a sibling pack.
+
+  ── (C) — THE RECOMMENDED APPROACH ───────────────────────────────────────────
+  Adopt the ISSUE-068 single-run convention in `backstop-ai/go-toolchain`:
+  `go-test`'s command carries `-coverprofile=cover.out`, so ONE whole-module run
+  emits both the test output AND the profile; `go-coverage`'s producer gains a
+  reuse-if-fresh check and skips its redundant second suite run. This is a
+  PACK-DATA change plus a producer-script change — no core orchestration touched.
+
+  Projected effect on the measured CI run (32151610956): `coverage_threshold`
+  612148ms -> near-zero (a parse of an existing file); `pack_engines` 629797ms ->
+  roughly unchanged (its `go test` gains coverage instrumentation, which the
+  measurement already shows costs ~0: the coverage step's instrumented run took
+  612148ms against pack_engines' uninstrumented 629797ms MINUS ~17.6s of build and
+  lint). Gate critical path ~20.7min -> ~10.6min. The same endpoint the issue
+  projected for (A), obtained by removing work rather than overlapping it.
+
+  ── WHY NOT (A) — IN-PROCESS CONCURRENCY ─────────────────────────────────────
+  Three independent reasons, in descending order of force:
+
+    · IT IS UNSAFE AS THE ISSUE IMAGINES IT. The issue's own caveat ("a step could
+      still have a hidden dependency `Run` never sees") is CORRECT and the hidden
+      dependency EXISTS — CLM-002. A bare parallel loop with a mutex-guarded
+      `results` append, which is exactly what the issue proposes, fixes the append
+      and leaves the real hazard untouched: `collectedVerdicts` is written by
+      pack_engines and read by test_verification with no synchronization at all,
+      and the consequence of losing the race is a SILENT ENFORCEMENT GAP, not a
+      crash. `-race` would catch the race; nothing catches the silence.
+
+    · THE SPEEDUP ARITHMETIC DOES NOT HOLD. `max(10.5, 10.2)` assumes the two
+      steps are independent in RESOURCE terms. They are not: both saturate CPU
+      running the SAME whole-module Go suite (which `go test` already parallelizes
+      across packages up to GOMAXPROCS), on a shared runner. See CLM-009 — and
+      note the citation trap recorded there: ISSUE-068's Problem section reads
+      like empirical corroboration for this and ISSUE-068 ITSELF RETRACTED IT.
+      Do not cite it.
+
+    · IT IS THE WRONG FIX EVEN IF IT WORKED. Overlapping a duplicated suite run
+      makes the duplication cheaper and therefore permanent. (C) removes it.
+
+    (A) IS NOT PLANNED HERE. What this plan DOES deliver from the (A) line of
+    inquiry is the finding itself, pinned as an executable regression guard
+    (TASK-002), so that if anyone revisits in-process concurrency later, the
+    ordering contract is stated in a test rather than in a comment.
+
+  ── WHY NOT (B) — CI-LEVEL PARALLEL JOBS ─────────────────────────────────────
+    · IT REINTRODUCES ISSUE-068 BY CONSTRUCTION. The issue flagged this as a
+      hazard to check. Checked: it is not a hazard, it is a certainty. Two
+      `backstop gate` invocations on two runners each dispatch their own
+      whole-module `go test` (CLM-005), so the split PRESERVES the double run and
+      merely pays for it on two machines — ~2x compute minutes for a wall-clock
+      result (C) reaches at ~0.5x today's compute.
+    · IT NEEDS A CORE MECHANISM THAT DOES NOT EXIST. CI runs exactly ONE gate
+      invocation (`.github/workflows/ci.yml:195`, ISSUE-099's collapse, shipped
+      hours ago). There is no `--only <dimension>` flag and no dimension-subset
+      scope; inventing one is a larger core change than (A), in the same
+      enforcement-critical surface, with a new silent-narrowing failure mode of its
+      own (a dimension that lands in neither job gates nothing and says nothing).
+    · IT COMPLICATES A SURFACE JUST SIMPLIFIED. ISSUE-099 spent this session
+      collapsing two gate invocations into one. Splitting back into two, days
+      later, for a worse outcome, would be churn.
+
+  ── WHAT IS AND IS NOT A FOUNDER CALL ────────────────────────────────────────
+  The choice between (A) and (B) is NOT a taste call and this plan does not defer
+  it: the investigation produced a technical fact (the double run) that dominates
+  both. What IS founder-owned, and what this plan STOPS for, is TWO things:
+
+    GATE 1 (TASK-001, phase 1) — the REDIRECT itself. ISSUE-172 is titled and
+      framed as a parallelization issue; this plan answers it with de-duplication.
+      That is a change in what the issue is about, it lands in the permanent
+      record, and it decides whether ISSUE-172 CLOSES on (C) or stays open for a
+      residual. Phase 2 must not begin without an explicit go.
+
+    GATE 2 (TASK-008, phase 4) — PUBLISHING the pack. Tagging and pushing
+      `backstop-ai/go-toolchain` v1.7.0 is an irreversible act against a public
+      repo that other consumers install from. TASK-007 commits locally and STOPS;
+      TASK-008 must not start without explicit authorization.
+
+  Both gates are TASK BOUNDARIES, not paragraphs (the PLAN-ISSUE-157 convention).
+
+  ══════════════════════════════════════════════════════════════════════════════
+  CLAIM LEDGER — the investigation, with citations. Every claim below was READ or
+  RUN on 2026-08-19; none is carried from the issue's prose.
+  ══════════════════════════════════════════════════════════════════════════════
+
+  CLM-001 — THE DISPATCH LOOP, CONFIRMED AS DESCRIBED. `pkg/gate/gate.go:150` is a
+    plain `for _, stepFn := range g.steps`; `:152` is the blocking `stepFn(ctx)`;
+    `:163` is the non-synchronized `results = append(results, result)`. The only
+    two steps reading accumulated results are post-call swaps: `waiver_resolution`
+    at `:153-158` (`g.computeWaiverResult(results, ...)`) and
+    `baseline_comparison` at `:159-161` (`g.computeBaselineResult(results)`).
+    `ApplyPolicy(results, ...)` at `:172` and `NewGateResultWithScope` at `:174`
+    both run strictly after the loop. `StepFunc` is
+    `func(ctx context.Context) StepResult` (`pkg/gate/result.go:238`). The issue's
+    reading of `Run` is accurate.
+
+  CLM-002 — ★ THE HIDDEN DEPENDENCY THE ISSUE ASKED ABOUT. It EXISTS, and it is
+    invisible from `pkg/gate` because it lives in the WIRING, not in `Run`:
+
+      · `var collectedVerdicts []gate.Violation` and
+        `verdictEngineDeclared := false` are declared in `buildGateSteps`
+        (`cmd/backstop/gate.go:956-957`).
+      · They are WRITTEN inside `packValidatorStep` — the pack_engines step —
+        at `cmd/backstop/gate.go:1133-1134`.
+      · They are READ by the `TestVerdictSupplier` closure at
+        `cmd/backstop/gate.go:959`, which is invoked at STEP-RUN TIME by
+        `gate.StepTestVerificationVerdictFunc`
+        (`pkg/gate/step_testverify.go:391`, supplier documented at `:365-377`).
+      · The safety of this is documented as resting ENTIRELY on assembly order —
+        `cmd/backstop/gate.go:947-950`: "ORDERING IS WHAT MAKES A SUPPLIER SAFE...
+        If that assembly order is ever changed, THIS is what breaks, and the
+        verdict would silently go empty." The order is realized at
+        `cmd/backstop/gate.go:1152-1156` (`lockStep`, `steps[0]`,
+        `packValidatorStep`, then `steps[1:]` beginning at test_verification).
+
+    Concurrent dispatch of pack_engines and test_verification is therefore a real
+    Go data race on a slice header plus a bool, AND a correctness break. Neither
+    the issue's mutex-guarded `results` append, its channel collector, nor its
+    pre-sized indexed slice addresses it — all three synchronize the WRONG
+    variable.
+
+  CLM-003 — THE FAILURE MODE IS SILENT NARROWING, NOT A CRASH — AND THERE ARE TWO
+    PATHS, THE SECOND WORSE THAN THE FIRST. The two writes at
+    `cmd/backstop/gate.go:1133-1134` are SEPARATE STATEMENTS (the slice, then the
+    bool), and nothing orders them for a concurrent reader.
+
+    PATH 1 — CLEAN REORDER (both zero-valued). `verdictEngineDeclared == false`
+      routes test_verification to `verdictCapabilityAbsentViolation()`
+      (`pkg/gate/step_testverify.go:505-516`, built at `:541-550`): a
+      warning-severity, NON-blocking advisory. The gate goes green over a failing
+      mandated test, but it does at least SAY something.
+
+    PATH 2 — THE RACE, WITH PARTIAL VISIBILITY (empty slice, bool TRUE). If a
+      reader observes the `verdictEngineDeclared = true` write but NOT the
+      `collectedVerdicts = ...` write — which the Go memory model permits outright
+      for unsynchronized access — control takes the `else` arm at
+      `pkg/gate/step_testverify.go:514`, calling
+      `MandatedTestFailures(mandated, verdicts, scope)` with an EMPTY verdict set.
+      It joins nothing, appends nothing, and the step returns an UNQUALIFIED PASS
+      with NOT EVEN THE ADVISORY. This is strictly worse than path 1: total
+      silence, indistinguishable from a healthy green.
+
+    Path 2 is the one that matters for approach (A) specifically, because (A) IS
+    the racing scenario — the exact vacuous-green class backstop exists to
+    prevent, produced by the change intended to make the gate faster.
+    See also `cmd/backstop/gate.go:952-955` and `docs/CODEBASE-MAP.md`
+    (TEST-VERDICT CHANNEL).
+
+  CLM-004 — THE OTHER SHARED STATE IS SAFE BY CONSTRUCTION, AND THE SET IS
+    COMPLETE. `buildGateSteps` (`cmd/backstop/gate.go:872-1157`) was read in full.
+    The only other cross-step sharing is two lazily-computed pairs, both guarded
+    by `sync.Once`: `buildStatusDriftSteps` (`cmd/backstop/gate.go:1175-1205`;
+    `once sync.Once` at `:1177`, `once.Do(compute)` at `:1198` and again in the
+    advisory closure) and `buildRequirementTraceabilitySteps` (same shape, `once
+    sync.Once` at `:1248`, `once.Do(compute)` at `:1256` and `:1260`). Everything
+    else assigned at build time (`testSubstantivenessStep`, `coverageStep`,
+    `contractStep` at `:999-1001`) is written BEFORE `Run` is entered and only
+    read after. `collectedVerdicts`/`verdictEngineDeclared` are the ONLY
+    run-time-mutable cross-step channel.
+
+    FILESYSTEM SCRATCH STATE, TODAY: no collision. `cover.out` at the project root
+    is written by exactly one participant, `go-coverage`'s producer (it is that
+    engine's declared `stdout_artifact`); `go-build`/`go-test` producers write no
+    files; `$GOCACHE` is concurrency-safe by the Go toolchain's own contract.
+
+    ★ THE FIX CREATES A SECOND ORDERING DEPENDENCY — SAME HAZARD CLASS, PINNED
+    RATHER THAN LEFT IN A COMMENT. After (C), `coverage_threshold`'s FAST PATH
+    depends on `pack_engines` having already run and written `cover.out` + the
+    stamp IN THE SAME PROCESS. That is structurally the same shape as CLM-002: an
+    ordering dependency invisible to `(*Gate).Run`, carried by shared filesystem
+    state instead of a shared closure variable.
+
+    IT IS DELIBERATELY BENIGN BY DESIGN — losing the order costs SPEED, not
+    CORRECTNESS: no stamp means no reuse, and the producer runs the tool exactly
+    as it does today (the "slow-but-correct, never wrong" property CLM-007's
+    precedent names). But benign is not the same as observable: if someone
+    reorders the steps later, the fix SILENTLY STOPS WORKING and nothing reds —
+    the gate just quietly goes back to ~20min. So TASK-002 leg 1 pins
+    `pack_engines` BEFORE `coverage_threshold` alongside the pack_engines/
+    test_verification assertion, converting this comment into an executable
+    contract exactly as it does for the dependency this plan FOUND.
+
+    AND THE WRITER COUNT CHANGES: after the fix `go-test` ALSO writes `cover.out`,
+    so a future (A) would be racing two writers on one file — where losing THAT
+    race corrupts a profile rather than merely slowing things down. (A) and (C)
+    are not naively composable, which is moot, because after (C) there is nothing
+    left for (A) to overlap.
+
+  CLM-005 — ★ THE DOMINANT STEPS RUN THE SAME SUITE TWICE. Read from the INSTALLED
+    manifest, `.backstop/packs/backstop-ai/go-toolchain/pack.yml` (v1.6.0):
+
+      · `go-test`: `command: go test`, `producer: scripts/test-produce.sh`,
+        `scope_kind: project-wide`, `project_target: "./..."`, `gate_type: test`.
+        `test-produce.sh`'s single executable line is `go "$@" 2>&1` — i.e.
+        `go test ./...`.
+      · `go-coverage`: `command: go test -coverprofile=cover.out ./...`,
+        `producer: scripts/coverage-produce.sh`, `gate_type: coverage`.
+        `coverage-produce.sh`'s first executable line is
+        `go test -coverprofile=cover.out ./... >/dev/null 2>&1 || true`, with NO
+        freshness or reuse check anywhere in the file.
+
+    The measurement corroborates exactly this: `pack_engines` 629797ms vs
+    `coverage_threshold` 612148ms — a ~17.6-second delta, which is the `go build`
+    and `golangci-lint` passes that ride in pack_engines. Two ~10.2-minute
+    whole-module `go test` runs, back to back.
+
+  CLM-006 — THIS IS ISSUE-068, IN THE TOOLCHAIN WHOSE FIX WAS PARKED.
+    `issues/ISSUE-068-gate-double-runs-test-suite.issue.md:188-192`: "**Follow-on
+    (not scoped here):** the same combined-run convention (one native run emits
+    both artifacts + a freshness-reuse check on the second consumer) can be
+    adopted by `go-toolchain` (`go test -json -coverprofile=...` feeding both
+    `go-test`'s test results and the existing `coverage-produce.sh` reuse check).
+    Not filed as a separate issue; noted for whoever next touches go-toolchain's
+    coverage path." ISSUE-068 is `closed`; the follow-on was never filed and never
+    done (go-toolchain is at v1.6.0 across six releases with no reuse check). NO
+    ARTIFACT OWNS THIS SURFACE — see the existence-in-world section below.
+
+  CLM-007 — THE CONVENTION IS PROVEN AND HAS A REFERENCE IMPLEMENTATION TO PORT.
+    `backstop-ai/typescript-toolchain` v1.3.0 (the manifest's own `name:`; ISSUE-068
+    calls it `backstop/typescript-toolchain`, which predates the org rename)
+    (`/Users/bmanson/src/projects/backstop-packs/typescript-toolchain`):
+      · `pack.yml:169` — `ts-test`'s command carries the coverage flags, so ONE
+        vitest run emits both the test report and the coverage summary.
+      · `scripts/coverage-produce.sh` — the reuse-if-fresh block: `fresh=0`, then
+        `if [ -f "$summary" ] && [ -f "$test_results" ] && [ ! "$summary" -ot
+        "$test_results" ]; then fresh=1; fi`, and the tool runs only when
+        `fresh -eq 0`. Its comment names the exact property this plan needs:
+        "the degraded path is slow-but-correct, never wrong."
+    ISSUE-068 records the realized effect on a real consumer: `coverage_threshold`
+    ~174s -> ~0.75s, gate PASSES, zero change in violations or verdicts.
+
+  CLM-008 — MEASURED 2026-08-19: `-coverprofile` DOES NOT CORRUPT THE TEST CONVERT.
+    Run: `go test -coverprofile=<scratch>/c.out ./pkg/waiver/`.
+    stdout (verbatim, one line):
+      `ok  	github.com/backstop-ai/backstop-core/pkg/waiver	(cached)	coverage: 95.2% of statements`
+    Piped through the pack's own `scripts/test-to-sarif.sh`, the output was
+    exactly `{"version":"2.1.0","runs":[{"results":[]}]}` — ZERO spurious
+    findings. The convert manufactures a result only from a `--- FAIL:` block or a
+    diagnostic under a `#` import-path header (`scripts/test-to-sarif.sh:7-30`),
+    and the coverage summary line matches neither. Note also `(cached)`: adding
+    `-coverprofile` did not defeat the Go test cache.
+
+  CLM-009 — (A)'s SPEEDUP ARITHMETIC IS UNSOUND, GROUNDED ON THIS PLAN'S OWN
+    FINDING. `max(10.5, 10.2)` models two independent jobs. CLM-005 establishes
+    they are not two jobs: they are the SAME whole-module `go test ./...`, run
+    twice. Two instances of one CPU-saturating suite — which `go test` ALREADY
+    parallelizes across packages up to GOMAXPROCS — do not complete in `max()` of
+    their serial times on a fixed core count; they contend, and the realistic
+    result is closer to the SUM plus scheduling and memory overhead. So (A)'s
+    projected ~10.5min is not a conservative estimate, it is the wrong model, and
+    the honest expected outcome of (A) is "little or no wall-clock gain, plus a
+    race in the enforcement checkpoint."
+
+    ★ CITATION TRAP — DO NOT RE-INTRODUCE THE ISSUE-068 REFERENCE HERE. An earlier
+    draft of this claim cited `ISSUE-068:40-46` ("`pack_engines` ≈ 174s and
+    `coverage_threshold` ≈ 174s — near-identical and overlapping… the gate pays
+    ~2x the single-run cost, CONCURRENTLY. The concurrency ALSO forced the
+    consumer to cap vitest parallelism") as empirical corroboration. THAT PASSAGE
+    IS RETRACTED BY ITS OWN ISSUE. `ISSUE-068:56-68` (Root cause): "Corrected
+    2026-07-18 by code-grounded investigation — the original 'serialize /
+    concurrency' framing below was WRONG and is replaced, not extended… The gate
+    runs FULLY SEQUENTIALLY… there is no concurrent double-run and nothing to
+    'serialize'… The portal's vitest fork-cap addresses vitest's OWN within-run
+    parallelism… It is NOT evidence of a backstop concurrency bug."
+
+    The retraction is easy to miss because the Problem section above it was never
+    rewritten — the two sections contradict each other and only the later one is
+    live. WHAT SURVIVES from that issue is the DOUBLE-RUN cost (~2x a single run),
+    which this plan uses in CLM-005/CLM-007 and which the Resolution section
+    (lines 173-186, also live) confirms. WHAT DOES NOT SURVIVE is any claim that
+    the two runs OVERLAPPED or that contention forced the fork-cap. This matters
+    beyond hygiene: TASK-001 writes this ledger into ISSUE-172's permanent
+    Investigation section and TASK-014 into its Resolution, so a retracted claim
+    would ship as a founder-signed finding.
+
+  CLM-010 — (B) REINTRODUCES THE DOUBLE RUN AND NEEDS A MECHANISM THAT DOES NOT
+    EXIST. CI runs ONE gate invocation today:
+    `.github/workflows/ci.yml:195` — `./bin/backstop gate --base "$BASE"
+    --json-out gate-report.json` — and its own header comment (`ci.yml:173-184`)
+    already names this issue's measurement as the reason the previous two-run
+    split was retired. Splitting the gate by dimension would require a
+    dimension-subset flag core does not have, and each split job would still
+    dispatch its own whole-module `go test` (CLM-005).
+
+  CLM-011 — `package_scoped` IS A FILE-MODE-ONLY NARROWING, AND IT IS THE ONE CASE
+    WHERE A PROFILE MUST NOT BE REUSED. `go-test` declares
+    `package_scoped: true`, but that only takes effect through
+    `fileModeTestTargets` (`cmd/backstop/pack_gate.go:646-696`), whose
+    `fileModeTargetsDerived` arm appends the narrowed package targets; every
+    non-file scope lands in the `default:` arm at `cmd/backstop/pack_gate.go:694`
+    and appends `binding.ProjectTarget` (`./...`). So under `--base` and `--all`
+    the combined run is whole-module and its profile is complete — but under
+    `--file` the profile would be PARTIAL, which is precisely the case the reuse
+    check must refuse.
+
+  CLM-012 — `test-produce.sh`'s EXIT STATUS IS LOAD-BEARING AND THE FILE SAYS SO.
+    Its last executable line is `go "$@" 2>&1`, so the script's status IS the
+    tool's. Its own comment: "THE TOOL'S EXIT STATUS MUST SURVIVE VERBATIM.
+    crash_guard and the non-zero-exit contract both read it. Do NOT add `|| true`
+    or `exit 0`: the tolerant tail in coverage-produce.sh is correct for a PROFILE
+    producer and catastrophic here, because it would turn a failing suite into a
+    clean-looking run." Any edit appending a post-run stamp MUST capture `$?` and
+    re-`exit` it. This is the single most dangerous line in the whole change: get
+    it wrong and every failing suite reads GREEN.
+
+  CLM-013 — THE FIXTURE IS A FROZEN OLDER SNAPSHOT, NOT A MIRROR. DO NOT SYNC IT.
+    The core fixture `cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/
+    go-toolchain/` is what `goToolchainPackRoot` and `goToolchainManifest` read
+    (`cmd/backstop/pack_gate_gotoolchain_test.go:16-26` and `:120-127`), and it is
+    the root for the ENTIRE go-toolchain test corpus — so a `pack update` of the
+    installed copy changes no test outcome. It has ALREADY DIVERGED from the
+    source repo, deliberately:
+      · fixture `name: backstop/go-toolchain`, `version: 1.1.0`;
+        source `name: backstop-ai/go-toolchain`, `version: "1.6.0"`.
+      · `pack.yml` differs by 13 diff lines (name, version, the ISSUE-122
+        `dependency_dirs` block).
+      · `scripts/coverage-produce.sh` differs: the fixture predates the v1.3.0
+        consumer-declared-exclusions block (43 lines absent).
+      · `scripts/test-produce.sh` and `scripts/test-to-sarif.sh` are byte-identical.
+    APPLY THE SAME SEMANTIC CHANGE TO BOTH, INDEPENDENTLY. An `rsync`/copy would
+    silently rename the fixture pack, jump its version 1.1.0 -> 1.7.0 and import
+    the exclusions feature — a large uncontrolled change to the corpus root,
+    dressed as tidiness.
+    The other two fixture copies are OUT OF SCOPE, verified:
+    `cmd/backstop/testdata/classifier-e2e/...` declares `go-coverage` only (no
+    `go-test`), and `cmd/backstop/testdata/spec045-discovery/...` declares neither.
+
+  CLM-014 — BASELINE FOR ATTRIBUTION, MEASURED 2026-08-19.
+    `./bin/backstop pack check /Users/bmanson/src/projects/backstop-go-toolchain-pack`
+    -> `status: pass`, exit 0, all five reported phases pass, and EXACTLY TWO
+    pre-existing `WARN [phase2-coherence/exempt-scope-decision]` lines (one for
+    `go-coverage`, one for `golangci`). Those two WARNs are INHERITED — they are
+    not this plan's to fix and their persistence is not a regression. The pack
+    declares NO `fixtures:` block, so `pack test` phase 3 has nothing to execute;
+    `pack check` is the falsifier surface for the manifest edit, and the new core
+    tests are the falsifier surface for the script edits.
+
+  CLM-015 — THE TWO FOUNDER GATES AND THE CLOSE-OUT. See "WHAT IS AND IS NOT A
+    FOUNDER CALL" above. Recorded as a claim so the gates are mapped to tasks and
+    cannot be dropped as prose.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  WHAT "RED" MEANS HERE — read before TASK-002 and TASK-004
+  ══════════════════════════════════════════════════════════════════════════════
+  This is a pack-data + producer-script change, so the REDs do not look like a
+  feature's. There are THREE distinct kinds and they are not interchangeable:
+
+  KIND (i) — A GENUINELY-FAILING NEW ASSERTION (TASK-004, legs 1 and 2). The
+      fixture's `go-test` command does not contain `-coverprofile`, and the
+      fixture's `coverage-produce.sh` unconditionally runs the tool. Both legs
+      FAIL with printed assertion output when first written. This is the real RED.
+      ★ A COMPILE ERROR, PANIC, OR SKIP IS NOT THIS RED. If the new file does not
+      build, that is a defect in the test, not the deliberate failure — fix it
+      and re-observe an actually-running failure before proceeding.
+
+  KIND (ii) — A CHARACTERIZATION PIN WHOSE FALSIFICATION MUST BE DEMONSTRATED,
+      NOT ASSUMED (TASK-002). A guard asserting today's ordering contract passes
+      the moment it is written, which proves nothing. Its RED is produced
+      DELIBERATELY and TEMPORARILY: invert the assembly order in a scratch copy,
+      observe the guard fail, revert. That observation is the evidence; the
+      inversion is never committed. A guard whose failure was never observed is a
+      guard that may assert nothing.
+
+  KIND (iii) — AN INTERIM RED THAT IS EXPECTED AND NAMED (TASK-010). The
+      installed-pack pin is RED from the moment it is written until TASK-011's
+      relock lands. Every gate step between those two tasks must name it by test
+      name and expect exactly that one failure — any SECOND failure is not
+      inherited.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  KNOWN INHERITED REDS — name these by id at EVERY gate step, not just the last
+  ══════════════════════════════════════════════════════════════════════════════
+  This repo carries open CI-wide reds that are NOT this plan's. Do not absorb them
+  and do not let them mask a real regression. Before blaming any failure on
+  inheritance, PROVE it: reproduce it in a clean-HEAD control worktree and cite
+  the owning artifact. Candidates to check first:
+    · ISSUE-176 residual / ISSUE-178 — baseline pull + workflow-name gap.
+    · ISSUE-162 — darwin pack-authoring-loop validator positive-fail.
+    · The two `exempt-scope-decision` pack-check WARNs (CLM-014) — inherited, and
+      WARNs, not failures.
+  Anything else is yours.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  EXISTENCE-IN-WORLD CHECK — performed 2026-08-19 before authoring
+  ══════════════════════════════════════════════════════════════════════════════
+  · GATE-STEP PARALLELIZATION: no artifact owns it. ISSUE-172's own check (issue
+    lines 145-153) grepped `issues/` and `bundles/` for goroutine/concurren/
+    errgroup/parallel and found nothing; re-confirmed against `plans/`. ISSUE-068
+    describes the sequential loop only as corroborating evidence for a different
+    defect and proposes no parallelization.
+  · THE go-toolchain SINGLE-RUN CONVENTION: no artifact owns it either, and the
+    absence is DELIBERATE and documented — ISSUE-068 lines 188-192 explicitly
+    declined to file it ("Not filed as a separate issue; noted for whoever next
+    touches go-toolchain's coverage path"). ISSUE-172 is that moment. There is no
+    subsumption: `PLAN-ISSUE-068-engine-shared-run-key-dedup.plan.yml` is
+    `obsoleted` and delivered a CORE mechanism that was then REMOVED; this plan
+    delivers the PACK convention that replaced it, which that plan never carried.
+  · `.github/workflows/ci.yml` COLLISION: EXHAUSTIVE ENUMERATION, not a sample.
+    `grep -l "\.github/workflows/ci\.yml" plans/*.plan.yml` returns 17 plans:
+      PLAN-ISSUE-020, PLAN-ISSUE-087, PLAN-ISSUE-091, PLAN-ISSUE-093,
+      PLAN-ISSUE-098, PLAN-ISSUE-099, PLAN-ISSUE-101, PLAN-ISSUE-112,
+      PLAN-ISSUE-129, PLAN-ISSUE-142, PLAN-ISSUE-157, PLAN-ISSUE-163,
+      PLAN-ISSUE-165, PLAN-ISSUE-168, PLAN-ISSUE-176, PLAN-SPEC-019,
+      PLAN-SPEC-067.
+    Thirteen are `completed` (historical noise). FOUR are still `draft`:
+    PLAN-ISSUE-163, PLAN-ISSUE-165, PLAN-ISSUE-168 (the sandbox lane) and
+    PLAN-SPEC-019 (the baseline lane). NONE of the four touches gate step
+    scheduling or job topology, and THIS PLAN DOES NOT TOUCH `ci.yml` AT ALL — the
+    (B) approach that would have is not the recommended one. Zero collision.
+  · PLAN-ISSUE-099 (`--json-out`, `status: completed`, commits `e20e960` and
+    `404f15f`): RESIDUAL OVERLAP IS ZERO IN FILES AND POSITIVE IN VALUE. It
+    touched `cmd/backstop/gate.go` and `ci.yml`; this plan touches neither. Its
+    `--json-out` mechanism is what makes TASK-013's post-fix measurement a
+    single-invocation read of real step durations, and its `ci.yml` comment block
+    (lines 173-184) already carries this issue's measurement — TASK-014 should
+    check whether that comment wants a one-line follow-up once the durations
+    change, and file it rather than editing `ci.yml` here.
+  · WORKING TREE at authoring: clean apart from this plan file (`git status
+    --porcelain` -> `?? plans/PLAN-ISSUE-172-...`). Sibling lanes ISSUE-158/162
+    are committed.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  DESIGN OF THE FIX — the exact shape TASK-005 implements
+  ══════════════════════════════════════════════════════════════════════════════
+  Three edits, mirrored (NOT copied — CLM-013) into the pack source and the core
+  fixture:
+
+  (1) `pack.yml`, `go-test` engine — the command gains the profile flag:
+        command: go test -coverprofile=cover.out
+      The dispatch appends the target itself (`./...` in project scope, narrowed
+      packages in file scope — CLM-011), so the flag goes on the COMMAND, never a
+      hardcoded `./...`. `go-coverage`'s own `command:` is UNCHANGED — its
+      producer replaces the invoked tool anyway, so editing it would be noise.
+
+  (2) `scripts/test-produce.sh` — write a STAMP after a whole-module run:
+      after `go "$@" 2>&1`, capture `status=$?` FIRST (CLM-012 — this is the
+      catastrophic line), then, ONLY when the argument list contains the literal
+      `./...` AND `cover.out` now exists, `mkdir -p .backstop` and truncate the
+      stamp `.backstop/go-coverage-fresh`; finally `exit "$status"`.
+      THE `./...` CONDITION IS THE WHOLE POINT: a file-mode run produces a PARTIAL
+      profile (CLM-011) and must NOT stamp it as reusable.
+
+  (3) `scripts/coverage-produce.sh` — reuse if stamped, else behave exactly as
+      today. Before the existing `go test -coverprofile=... || true` line:
+      reuse only when the stamp exists AND `cover.out` exists AND `cover.out` is
+      not older than the stamp (`[ ! cover.out -ot <stamp> ]`); in every other
+      case run the tool as today. EITHER WAY, REMOVE THE STAMP before continuing.
+      Everything downstream of that line — the `#backstop-module`,
+      `#backstop-gofile` and `#backstop-coverage-exclude` enrichment — is
+      UNCHANGED and still runs, because the convert depends on it.
+
+      WHY CONSUME-ONCE IS BETTER THAN THE TS PRECEDENT. The TS reuse check
+      compares two files that could BOTH be stale from an earlier run, and would
+      then reuse a stale summary. Deleting the stamp makes reuse structurally
+      impossible without a test run in THIS invocation having written it: no
+      stamp, no reuse, fall back to running the tool. The degraded path is
+      slow-but-correct, exactly as the precedent says.
+
+      RESIDUAL, STATED HONESTLY: a crash between the stamp write and the coverage
+      step leaves a stamp on disk that a LATER coverage-only invocation could
+      honour against a matching-age `cover.out`. The window is one gate
+      invocation, the profile in question is a real whole-module profile, and the
+      consequence is a slightly-stale coverage number rather than a suppression.
+      Accepted; recorded here rather than engineered away.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  SHARP EDGES
+  ══════════════════════════════════════════════════════════════════════════════
+   1. THE EXIT-STATUS LINE (CLM-012). `test-produce.sh` currently ENDS on the tool
+      invocation. Appending anything after it changes what the script's status is.
+      Capture `$?` immediately and `exit "$status"` last. A `|| true`, a bare
+      trailing command, or an `exit 0` turns every failing suite GREEN — the worst
+      possible outcome of this plan, and invisible.
+   2. DO NOT SYNC THE FIXTURE TO THE SOURCE (CLM-013). Two independent edits, same
+      semantics. A copy silently renames the pack, jumps its version and imports a
+      feature the fixture deliberately lacks.
+   3. THE FIX MAKES THE STAMP FILE PART OF THE CONTRACT. `.backstop/` is
+      gitignored (`.gitignore:41-43` covers `packs/`, provenance and baseline);
+      confirm the new stamp path is ignored too and add a line if not. A tracked
+      stamp would make every gate run dirty the tree.
+   4. `cover.out` IS ALREADY GITIGNORED (`.gitignore:30` `/cover.out`, `:32`
+      `/cover*.out`) and CI already uploads it as an artifact
+      (`.github/workflows/ci.yml`, the gate-report upload). Having `go-test` write
+      it changes WHO writes it, not whether it exists. No CI edit needed.
+   5. A FAILING SUITE STILL PRODUCES A PARTIAL PROFILE, BOTH BEFORE AND AFTER.
+      Today `coverage-produce.sh` tolerates a non-zero exit (`|| true`) and parses
+      whatever profile exists; after the change the reused profile comes from the
+      same failing run. Behaviour is equivalent — say so, do not "improve" it here.
+   6. VERSION RESOLUTION IS GIT-TAG-BASED. A `pack.yml` version bump with no
+      matching `v<version>` tag pushed will NOT resolve via `pack update`. The bump
+      (TASK-005), the commit (TASK-007) and the tag+push (TASK-008) are three
+      different acts and only the last one makes the version installable.
+   7. THE FALSIFICATION WINDOW IS ORDER-DEPENDENT AND UNRECOVERABLE. TASK-004's
+      legs must be observed RED against the UNEDITED fixture. Once TASK-005 lands,
+      that evidence cannot be re-obtained without reverting. Record the printed
+      failure output before editing anything.
+   8. `pack test` REPORTS THE PIPELINE'S EXIT CODE. Read `$?` from an UNPIPED run,
+      or trust the `status:` line in the output — `... | tail` will lie to you.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Record the investigation and STOP for founder authorization on the redirect"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Annotate ISSUE-172 with the investigation findings and the A/B/C decision, then STOP (FOUNDER GATE 1)"
+        description: |
+          This task exists to put the redirect in the permanent record and to make
+          the founder's go/no-go a structural boundary rather than a sentence.
+
+          ── JOB 1: RE-VERIFY THE PREMISES BEFORE WRITING ANYTHING ────────────
+          The claim ledger was measured 2026-08-19. Premises go stale in days in
+          this repo. Re-confirm the three load-bearing ones and STOP AND REPORT if
+          any disagrees, rather than writing a stale finding into an issue:
+
+              grep -n 'command:' .backstop/packs/backstop-ai/go-toolchain/pack.yml
+              grep -n 'go test -coverprofile' \
+                .backstop/packs/backstop-ai/go-toolchain/scripts/coverage-produce.sh
+              grep -n 'collectedVerdicts' cmd/backstop/gate.go
+
+          Expect: `go-test` command still `go test` with no `-coverprofile`;
+          `coverage-produce.sh` still runs the tool unconditionally with no
+          freshness check; `collectedVerdicts` still declared at ~:956, written at
+          ~:1133, read at ~:959. Line numbers in `cmd/backstop/gate.go` move
+          often — locate BY NAME and re-cite, do not trust the numbers in the
+          ledger above if the surrounding code has moved.
+
+          ── JOB 2: ANNOTATE THE ISSUE ────────────────────────────────────────
+          Route this through the `/issue` slash command (a purpose-built agent) —
+          artifacts are never hand-edited (CLAUDE.md). Ask it to add to
+          `issues/ISSUE-172-gate-steps-run-sequentially-not-parallel.issue.md`:
+
+            · An `## Investigation (2026-08-19)` section carrying CLM-002/CLM-003
+              (the independence inference is FALSE — the hidden dependency, its
+              citations, and that its failure mode is silent enforcement loss) and
+              CLM-005/CLM-006 (the two dominant steps are one suite run twice;
+              this is ISSUE-068's parked go-toolchain follow-on).
+            · A `## Direction` section recording that approaches (A) and (B) are
+              both DECLINED with the reasons above, that (C) is recommended, and
+              that the decision is pending founder sign-off.
+
+          Do NOT change the issue's `status`. Do NOT write a Resolution section —
+          nothing is resolved yet; that is TASK-014's job.
+
+          Also annotate `issues/ISSUE-068-gate-double-runs-test-suite.issue.md`?
+          NO — not here. ISSUE-068 is `closed`; touching it belongs to the
+          close-out (TASK-014), after the follow-on it parked has actually landed.
+
+          ── JOB 3: COMMIT, THEN STOP ─────────────────────────────────────────
+          Validate and commit the annotation plus this plan file:
+
+              ./bin/backstop artifact validate --issue ISSUE-172
+              ./bin/backstop artifact validate --plan PLAN-ISSUE-172
+
+          Then STOP.
+
+          ★ THE GATE. Report to the founder: the two investigation findings, that
+          (A) is declined as unsafe-as-imagined AND unsound-in-arithmetic, that
+          (B) is declined as reintroducing ISSUE-068 at 2x compute, and that (C)
+          is recommended. Ask explicitly whether to proceed with (C), and whether
+          ISSUE-172 should CLOSE on (C) or stay open for a residual.
+
+          PHASE 2 MUST NOT BEGIN WITHOUT AN EXPLICIT GO. An answer to a scoping
+          question is not authorization (CLAUDE.md).
+        files:
+          - issues/ISSUE-172-gate-steps-run-sequentially-not-parallel.issue.md
+          - plans/PLAN-ISSUE-172-gate-parallelize-dominant-steps.plan.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-005
+          - CLM-006
+          - CLM-009
+          - CLM-010
+          - CLM-015
+        depends_on: []
+
+  - id: phase-2
+    name: "Phase 2: Pin the cross-step ordering dependency the investigation found"
+    tasks:
+      - id: TASK-002
+        type: test
+        title: "Guard the pack_engines -> test_verification ordering contract, with its failure DEMONSTRATED (RED-by-inversion)"
+        description: |
+          DO NOT START WITHOUT TASK-001's EXPLICIT AUTHORIZATION.
+
+          WHY THIS EXISTS. ISSUE-172 asked whether the dominant steps are
+          independent. The answer is that `pack_engines` and `test_verification`
+          are NOT (CLM-002), and today that fact is protected by nothing but a
+          comment at `cmd/backstop/gate.go:947-950`. This task converts the
+          comment into an executable contract, so a future revisit of in-process
+          concurrency fails loudly instead of silently.
+
+          Create `cmd/backstop/gate_step_ordering_verdict_test.go`, package
+          `main` (matching the rest of `cmd/backstop`'s tests — confirm against a
+          neighbouring file rather than assuming, and re-derive the package-scope
+          helper names already declared there so you do not redeclare one; a
+          redeclaration compile error is NOT this task's RED).
+
+          ── LEG 1: THE STRUCTURAL ORDER — TWO DEPENDENCIES, NOT ONE ─────────
+          `TestGateStepOrdering_PackEnginesPrecedesItsDependentSteps`.
+          Build the real step list via `buildGateSteps` against a fixture project
+          that declares at least one pack (reuse an existing `cmd/backstop/testdata`
+          project; `testdata/go-toolchain` is the obvious candidate). Run each
+          returned `StepFunc` far enough to learn its `StepName`, or drive the
+          assembled `gate.New(gate.WithSteps(...)).Run(ctx)` and read
+          `GateResult.Steps` in order. Assert BOTH:
+
+            (a) index(`pack_engines`) < index(`test_verification`) — the dependency
+                this plan FOUND (CLM-002). Losing it costs CORRECTNESS: enforcement
+                silently narrows, by either of the two paths in CLM-003.
+
+            (b) index(`pack_engines`) < index(`coverage_threshold`) — the dependency
+                this plan CREATES (CLM-004). After TASK-005, coverage's fast path
+                consumes the `cover.out` + stamp that pack_engines' `go-test` run
+                writes in the same process. Losing it costs SPEED, not correctness
+                — the producer falls back to running the tool — but it does so
+                SILENTLY, so without this assertion the fix could be reordered into
+                a no-op and every gate would quietly go back to ~20 minutes with
+                nothing red.
+
+          ASSERT BOTH IN THE SAME TEST, and say in the comment WHY the two failure
+          modes differ (correctness vs speed) — a future reader who sees only "an
+          ordering assertion" will not know that (b) is allowed to degrade
+          gracefully while (a) is not, and may delete the wrong one.
+
+          WRITE (b) NOW, EVEN THOUGH THE DEPENDENCY IT GUARDS DOES NOT EXIST UNTIL
+          TASK-005. It is an assertion about STEP ORDER, which is already true
+          today — it passes on write for the same reason (a) does, and it is in
+          place before the fix that comes to rely on it.
+
+          ── LEG 2: THE BEHAVIOURAL DEPENDENCY (the real content) ─────────────
+          `TestGateStepOrdering_VerdictJoinIsEmptyWhenTestVerificationRunsFirst`.
+          This is the leg that PROVES the steps are not independent, and it is
+          what the issue's inference got wrong.
+
+          Use the existing `dispatchPackEnginesFn` test seam
+          (`cmd/backstop/pack_gate.go:252-266`) to inject a dispatcher that
+          returns one violation carrying a `gate_type: test` verdict for a
+          mandated test name the fixture's spec corpus declares as failing. Then
+          drive the assembled steps in TWO orders against the SAME wiring:
+
+            · IN ORDER (pack_engines then test_verification): assert the
+              test_verification result carries the `mandated_test_failed`
+              violation at severity `critical`.
+            · OUT OF ORDER (test_verification invoked BEFORE pack_engines):
+              assert the result carries NO `mandated_test_failed` violation and
+              instead the non-blocking
+              `test_verification_verdict_capability_absent` advisory.
+
+          The second assertion is the finding: reordering does not error, it
+          SILENTLY DOWNGRADES enforcement (CLM-003). Say that in the test's own
+          comment, with the `cmd/backstop/gate.go` citations, so the next reader
+          does not have to rediscover it.
+
+          ── WHAT RED MEANS HERE (kind (ii) — read the RED section above) ─────
+          Leg 1 passes the moment it is written; leg 2's out-of-order half is a
+          new observation and may too. THAT IS NOT PROOF. Demonstrate the guard's
+          falsifying power deliberately:
+
+            1. In a SCRATCH COPY of `cmd/backstop/gate.go` (or a temporary local
+               edit you will revert — never a commit), swap the `packed` assembly
+               at `cmd/backstop/gate.go:1152-1156` so `packValidatorStep` is
+               appended AFTER `steps[1:]`.
+            2. Run the new tests. Leg 1 MUST fail. Record the printed output.
+            3. REVERT the inversion completely and re-run: both legs green.
+
+          Report the recorded failure output. A guard whose failure was never
+          observed asserts nothing.
+
+          Run with `-race` (`go test ./cmd/backstop/ -run
+          "TestGateStepOrdering" -race -count=1 -v`) — the shared-variable subject
+          makes the race detector part of the point, not an extra.
+
+          SCOPE DISCIPLINE: this task adds a TEST ONLY. It changes no production
+          behaviour, and it does NOT implement approach (A). If it becomes
+          tempting to "just add a mutex while I'm here", stop — that is a
+          different, founder-gated decision this plan explicitly declines.
+        files:
+          - cmd/backstop/gate_step_ordering_verdict_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+        depends_on:
+          - TASK-001
+
+  - id: phase-3
+    name: "Phase 3: The single-run convention — RED first, then the mirrored edit"
+    tasks:
+      - id: TASK-004
+        type: test
+        title: "Assert the single-run convention against the go-toolchain FIXTURE (genuine RED, kind (i))"
+        description: |
+          DO NOT START WITHOUT TASK-001's EXPLICIT AUTHORIZATION.
+
+          ── JOB 1: RECORD THE RED BAR BEFORE TOUCHING ANYTHING (sharp edge 7) ─
+          Capture the pre-fix state verbatim; it is unrecoverable after TASK-005:
+
+              F=cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain
+              grep -n 'go-test:' -A 4 $F/pack.yml
+              grep -n 'go test -coverprofile' $F/scripts/coverage-produce.sh
+              ./bin/backstop pack check /Users/bmanson/src/projects/backstop-go-toolchain-pack
+
+          Expect: `command: go test` with NO `-coverprofile`; the coverage
+          producer running the tool unconditionally; `pack check` `status: pass`,
+          exit 0 (UNPIPED — sharp edge 8), with exactly the two inherited
+          `exempt-scope-decision` WARNs of CLM-014. A different WARN count means
+          the pack moved — STOP and report rather than folding someone else's
+          change into this one.
+
+          ── JOB 2: THE TESTS ─────────────────────────────────────────────────
+          Create `cmd/backstop/gotoolchain_single_run_test.go`. Everything here
+          asserts against the FIXTURE (CLM-013) via the existing
+          `goToolchainManifest(t)` / `goToolchainPackRoot(t)` helpers
+          (`cmd/backstop/pack_gate_gotoolchain_test.go:16-26`, `:120-127`) — do
+          NOT write a second root walker and do NOT reach into
+          `.backstop/packs/` from here (that is TASK-010's job).
+
+          LEG 1 — `TestGoToolchainSingleRun_TestEngineProducesCoverageProfile`.
+            Parse the fixture manifest; assert the `go-test` engine's `command`
+            contains `-coverprofile=cover.out`. Assert in the SAME test that
+            `go-coverage` still declares `stdout_artifact: cover.out`, so the two
+            engines are pinned to the same profile path and cannot drift apart
+            silently. RED today: the command is bare `go test`.
+
+          LEG 2 — `TestGoToolchainSingleRun_CoverageProducerReusesAFreshProfile`.
+            The executable falsifier for the script change. In `t.TempDir()`:
+              · create `.backstop/`, write a stamp file at the agreed path, and
+                write a `cover.out` whose mtime is not older than the stamp;
+              · put a recording `go` SHIM first on `PATH` — a tiny script that
+                appends its argv to a log file and exits 0;
+              · run the fixture's `scripts/coverage-produce.sh` with that temp dir
+                as cwd;
+              · assert the shim log records NO `test` invocation, and that
+                `cover.out` still carries the enrichment lines the convert needs
+                (`#backstop-module`, and the `#backstop-gofile` lines when the
+                shim supplies `go list` output).
+            RED today: the producer always runs the tool, so the log records a
+            `test` invocation.
+
+          LEG 3 — `TestGoToolchainSingleRun_CoverageProducerRerunsWithoutAStamp`.
+            The paired guard for the degraded path, and it must stay green
+            forever. Same harness, NO stamp present: assert the shim log DOES
+            record a `test` invocation. This leg is GREEN today by construction —
+            that is correct and expected; it exists so a later "optimization"
+            cannot turn the fallback off.
+
+          LEG 4 — `TestGoToolchainSingleRun_TestProducerPropagatesFailureExit`.
+            ★★ THE MOST IMPORTANT LEG IN THIS PLAN. Sharp edge 1 / CLM-012 names
+            the single most dangerous line in the whole change: appending a stamp
+            step to `test-produce.sh` without capturing `$?` and re-`exit`ing it
+            makes EVERY FAILING SUITE READ GREEN. Until now that hazard was
+            guarded only by human care in TASK-005 and eyeball review in TASK-007
+            — which is exactly the "prompts are vibes" failure mode. Make it
+            executable.
+
+            Reuse the SAME temp-dir + `PATH` shim harness as legs 2 and 3, with
+            the shim configured to `exit 1` (a failing suite). Run the fixture's
+            `scripts/test-produce.sh` with arguments matching what the real
+            dispatch passes — `test ./...` (core swaps only argv[0], so the
+            subcommand arrives IN the argument list; the script must not repeat
+            it). Assert the script's exit status is EXACTLY 1.
+
+            Add a second sub-case with the shim exiting 0 and assert status 0, so
+            the leg pins PROPAGATION rather than "always non-zero" — a script
+            hardcoding `exit 1` would otherwise satisfy it.
+
+            THIS LEG IS GREEN TODAY (the script currently ends on the tool call,
+            so the status already propagates) and that is fine: its job is to be
+            RED the moment TASK-005 appends a line carelessly. Verify that claim
+            rather than assuming it — while writing TASK-005, deliberately drop
+            the `exit "$status"` for one run, confirm this leg goes RED, then
+            restore it. A guard whose failure was never observed asserts nothing
+            (the same discipline TASK-002 applies to its own pin).
+
+          ── WHAT RED MEANS HERE (kind (i)) ───────────────────────────────────
+          Legs 1 and 2 must FAIL with printed assertion output, from a test that
+          COMPILES AND RUNS. A build failure, a panic, or a skip is not the RED —
+          fix the test and re-observe. Record the failure text; it is the
+          falsification evidence and sharp edge 7 makes it unrecoverable later.
+
+          Command:
+              go test ./cmd/backstop/ -run "TestGoToolchainSingleRun" -race -count=1 -v
+        files:
+          - cmd/backstop/gotoolchain_single_run_test.go
+        claims:
+          - CLM-005
+          - CLM-007
+          - CLM-008
+          - CLM-011
+          - CLM-013
+          - CLM-014
+        depends_on:
+          - TASK-001
+
+      - id: TASK-005
+        type: implementation
+        title: "Implement the single-run convention in the pack SOURCE and, independently, in the core FIXTURE"
+        description: |
+          Implement the design in the "DESIGN OF THE FIX" section above. Apply the
+          SAME SEMANTIC CHANGE to two trees INDEPENDENTLY — never copy one over
+          the other (CLM-013, sharp edge 2).
+
+          ── TREE A: THE PACK SOURCE ──────────────────────────────────────────
+          `/Users/bmanson/src/projects/backstop-go-toolchain-pack`. Confirm first:
+          `git status -sb` clean and on `main` in sync with origin;
+          `grep -n '^version:' pack.yml` -> `"1.6.0"`;
+          `git ls-remote --tags origin` -> `v1.6.0` present, no `v1.7.0`.
+          Disagreement means the pack moved — STOP and report.
+
+          Edits:
+            1. `pack.yml` — `go-test`'s `command:` becomes
+               `go test -coverprofile=cover.out`. The target is NOT hardcoded;
+               the dispatch appends it (CLM-011). Add a comment at the engine
+               naming ISSUE-172 and ISSUE-068's parked follow-on, and stating that
+               the profile is the shared artifact the coverage producer reuses.
+               `go-coverage`'s `command:` is UNCHANGED.
+            2. `pack.yml` — `version:` `"1.6.0"` -> `"1.7.0"`. MINOR, not patch:
+               this changes what a shipped engine executes.
+            3. `scripts/test-produce.sh` — the stamp write.
+               ★★ SHARP EDGE 1 / CLM-012. The file currently ENDS on
+               `go "$@" 2>&1`, so that line's status IS the script's status, and
+               the file's own comment forbids weakening it. Capture
+               `status=$?` on the very next line, do the stamp work, and
+               `exit "$status"` last. Stamp ONLY when the argument list contains
+               the literal `./...` AND `cover.out` exists afterwards. Extend the
+               existing comment block to say why the `./...` condition is there
+               (a file-mode run's profile is PARTIAL — CLM-011).
+            4. `scripts/coverage-produce.sh` — the reuse-if-stamped check, placed
+               immediately before the existing `go test -coverprofile=... || true`
+               line, consuming (deleting) the stamp on BOTH branches. Everything
+               after that line — module path, go-file list, consumer exclusions —
+               is UNCHANGED and still runs.
+
+          Then, in that repo:
+              ./bin/backstop pack check /Users/bmanson/src/projects/backstop-go-toolchain-pack
+          (run the backstop-core binary against the pack path). Expect
+          `status: pass`, exit 0 from an UNPIPED run, and EXACTLY the two
+          inherited `exempt-scope-decision` WARNs (CLM-014) — no new WARN, no new
+          phase failure. Do NOT commit yet; TASK-007 owns the commit.
+
+          ── TREE B: THE CORE FIXTURE ─────────────────────────────────────────
+          `cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/`.
+          Apply edits 1, 3 and 4 — the SAME semantics, written into a tree that is
+          at `name: backstop/go-toolchain`, `version: 1.1.0`, and whose
+          `coverage-produce.sh` deliberately lacks the v1.3.0 exclusions block.
+          DO NOT apply edit 2 (no version bump here), DO NOT rename the pack, DO
+          NOT import the exclusions block, DO NOT rsync. The divergence is
+          deliberate (CLM-013) and this task preserves it.
+
+          The other two fixture copies are verified out of scope:
+          `testdata/classifier-e2e` declares `go-coverage` only,
+          `testdata/spec045-discovery` declares neither engine (CLM-013). If
+          either turns out to declare `go-test` when you look, STOP — the fixture
+          corpus has changed and the scope must be re-derived, not widened
+          silently.
+
+          ── GITIGNORE (sharp edge 3) ─────────────────────────────────────────
+          Confirm the stamp path is gitignored. `.gitignore` already covers
+          `.backstop/packs/`, `.backstop/pack-config-provenance.json` and
+          `.backstop/baseline.json` — specific paths, not the whole directory — so
+          the new stamp likely needs its own line. Add it if absent; a tracked
+          stamp would dirty the tree on every gate run.
+
+          ── VERIFY THE TDD FLIP, THEN THE GATE ───────────────────────────────
+              go test ./cmd/backstop/ -run "TestGoToolchainSingleRun" -race -count=1 -v
+          All FOUR legs green, against the SAME test code TASK-004 observed RED —
+          a real falsification, not a test rewritten into a pass.
+
+          ★ AND WHILE YOU ARE IN `test-produce.sh`, PROVE LEG 4 CAN FAIL. Before
+          you finish, deliberately drop the trailing `exit "$status"` for ONE run
+          and confirm `TestGoToolchainSingleRun_TestProducerPropagatesFailureExit`
+          goes RED; then restore it and confirm green. That is the only evidence
+          that the guard on the most dangerous line in this change actually
+          guards it (CLM-012, sharp edge 1). Record the RED output.
+
+          Then `backstop gate` on the touched core files. Known inherited reds are
+          listed in the KNOWN INHERITED REDS section; name any you hit by issue id
+          and prove inheritance in a clean-HEAD control worktree. Anything else is
+          this task's.
+        files:
+          - /Users/bmanson/src/projects/backstop-go-toolchain-pack/pack.yml
+          - /Users/bmanson/src/projects/backstop-go-toolchain-pack/scripts/test-produce.sh
+          - /Users/bmanson/src/projects/backstop-go-toolchain-pack/scripts/coverage-produce.sh
+          - cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/pack.yml
+          - cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/scripts/test-produce.sh
+          - cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/scripts/coverage-produce.sh
+          - .gitignore
+        claims:
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+        depends_on:
+          - TASK-004
+
+      - id: TASK-006
+        type: verification
+        title: "Verify the convention lands green in both trees and breaks nothing in the go-toolchain corpus"
+        description: |
+          Four checks, all UNPIPED so exit codes are readable (sharp edge 8).
+
+          1. THE NEW TESTS, GREEN:
+                 go test ./cmd/backstop/ -run "TestGoToolchainSingleRun" -race -count=1 -v
+             All FOUR legs pass, including
+             `..._TestProducerPropagatesFailureExit`. Confirm the test code is
+             byte-identical to what TASK-004 observed RED (`git diff` on the test
+             file since TASK-004 should be empty), and that TASK-005 recorded the
+             deliberate leg-4 RED observation.
+
+          2. THE ORDERING GUARD, STILL GREEN:
+                 go test ./cmd/backstop/ -run "TestGateStepOrdering" -race -count=1
+
+          3. THE WHOLE go-toolchain CORPUS. The fixture is the root for every
+             go-toolchain test (CLM-013), so an engine-command edit can move
+             assertions far from here:
+                 go test ./cmd/backstop/ -race -count=1
+             Investigate every failure. Do NOT narrow the run to make it pass.
+
+          4. `pack check` ON THE SOURCE:
+                 ./bin/backstop pack check /Users/bmanson/src/projects/backstop-go-toolchain-pack
+             `status: pass`, exit 0, exactly the two inherited WARNs of CLM-014.
+
+          Then the gate over the touched files:
+                 ./bin/backstop gate
+
+          KNOWN INHERITED REDS — check against the named list before attributing
+          anything to inheritance: ISSUE-176 residual / ISSUE-178 (baseline pull),
+          ISSUE-162 (darwin validator positive-fail), and the two inherited
+          pack-check WARNs. Prove inheritance in a clean-HEAD control worktree and
+          cite the owning issue. Any failure you cannot attribute that way is
+          this phase's and must be fixed, not waived.
+        files:
+          - cmd/backstop/gotoolchain_single_run_test.go
+          - cmd/backstop/gate_step_ordering_verdict_test.go
+          - cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/pack.yml
+          - /Users/bmanson/src/projects/backstop-go-toolchain-pack/pack.yml
+        claims:
+          - CLM-007
+          - CLM-013
+          - CLM-014
+        depends_on:
+          - TASK-002
+          - TASK-005
+
+  - id: phase-4
+    name: "Phase 4: Publish backstop-ai/go-toolchain v1.7.0 — FOUNDER-GATED"
+    tasks:
+      - id: TASK-007
+        type: implementation
+        title: "Commit the pack change LOCALLY in its own repo, then STOP"
+        description: |
+          In `/Users/bmanson/src/projects/backstop-go-toolchain-pack` only.
+
+          Re-confirm the tree holds exactly TASK-005's edits and nothing else
+          (`git status --porcelain`, `git diff`) — three files: `pack.yml`,
+          `scripts/test-produce.sh`, `scripts/coverage-produce.sh`. Anything else
+          in the diff belongs to another lane; STOP and report rather than
+          sweeping it in.
+
+          Commit LOCALLY on `main` with a message naming ISSUE-172 and the
+          ISSUE-068 follow-on it discharges, and stating the mechanism in one
+          line: one `go test -coverprofile` run emits both the test output and the
+          profile; the coverage producer reuses a stamped fresh profile and falls
+          back to running the tool when there is none.
+
+          ★ DO NOT TAG. DO NOT PUSH. STOP HERE.
+
+          Report to the founder: the diff, the `pack check` result, the three
+          green test legs, and that the next task tags and pushes v1.7.0 to a
+          PUBLIC repo other consumers install from. Ask for explicit authorization.
+        files:
+          - /Users/bmanson/src/projects/backstop-go-toolchain-pack/pack.yml
+          - /Users/bmanson/src/projects/backstop-go-toolchain-pack/scripts/test-produce.sh
+          - /Users/bmanson/src/projects/backstop-go-toolchain-pack/scripts/coverage-produce.sh
+        claims:
+          - CLM-006
+          - CLM-012
+          - CLM-015
+        depends_on:
+          - TASK-004
+          - TASK-006
+
+      - id: TASK-008
+        type: implementation
+        title: "★ FOUNDER GATE 2 — tag v1.7.0 and push (MUST NOT START WITHOUT EXPLICIT AUTHORIZATION)"
+        description: |
+          ★ THIS TASK MUST NOT START WITHOUT THE FOUNDER'S EXPLICIT AUTHORIZATION
+          FROM TASK-007. An answer to a scoping question is not authorization
+          (CLAUDE.md). If you are unsure whether it was given, it was not — go
+          back and ask.
+
+          In `/Users/bmanson/src/projects/backstop-go-toolchain-pack`:
+
+            1. FETCH FIRST. `git fetch --tags origin` before any ahead/behind
+               judgement — a stale view can strand a tag unreachable from `main`.
+            2. Push `main`.
+            3. Tag `v1.7.0` on the commit TASK-007 made — the tag must match
+               `pack.yml`'s `version:` EXACTLY (the repo runs a `tag-integrity`
+               workflow asserting exactly this on tag push), and version
+               resolution is git-tag-based, so an untagged bump is uninstallable
+               (sharp edge 6).
+            4. Push the tag.
+
+          Then confirm, do not assume: `v1.7.0` resolves to the same SHA as
+          `origin/main` and as local `HEAD`, and the working tree is clean.
+        files:
+          - /Users/bmanson/src/projects/backstop-go-toolchain-pack/pack.yml
+        claims:
+          - CLM-015
+        depends_on:
+          - TASK-004
+          - TASK-007
+
+      - id: TASK-009
+        type: verification
+        title: "Verify v1.7.0 is published, reachable, and green on its own CI"
+        description: |
+          Evidence, not assertion:
+
+            · `git ls-remote --tags origin` lists `v1.7.0`.
+            · `v1.7.0` == `origin/main` == local `HEAD`, tree clean, in sync.
+            · The pack repo's own `tag-integrity` workflow ran GREEN on the tag
+              push — find the run and read its conclusion (`gh run list` in that
+              repo). A red tag-integrity run means the tag and manifest version
+              disagree; fix and re-tag rather than proceeding.
+            · A fresh resolution proves installability without mutating core yet:
+              clone the tag to a scratch dir and
+              `./bin/backstop pack check <scratch clone>` -> `status: pass`,
+              exit 0, exactly the two inherited WARNs (CLM-014).
+
+          Do not proceed to phase 5 on a red or missing CI run.
+        files:
+          - /Users/bmanson/src/projects/backstop-go-toolchain-pack/pack.yml
+          - /Users/bmanson/src/projects/backstop-go-toolchain-pack/scripts/coverage-produce.sh
+        claims:
+          - CLM-014
+          - CLM-015
+        depends_on:
+          - TASK-008
+
+  - id: phase-5
+    name: "Phase 5: Core adopts v1.7.0 — the installed-pack pin flips green"
+    tasks:
+      - id: TASK-010
+        type: test
+        title: "Pin the INSTALLED go-toolchain pack's single-run convention (interim RED until TASK-011)"
+        description: |
+          The fixture pin (TASK-004) proves the convention against a testdata copy.
+          The pack that actually runs in backstop-core's real gate is the INSTALLED
+          `backstop-ai/go-toolchain` under `.backstop/packs/`, which is a different
+          tree at a different name and version (CLM-013). Without this pin, the
+          claim dies with this plan's terminal.
+
+          Create `pkg/pack/engine/gotoolchain_installed_pack_singlerun_test.go`,
+          `package engine_test`, following `pkg/pack/engine/grep_installed_pack_test.go`
+          closely — it is the direct precedent and shares this shape. It is in
+          `engine_test` because it resolves the pack through the PRODUCTION readers
+          (`pack.ParseManifestFile`, `distribution.ReadLockfile`) and `pkg/pack`
+          imports `pkg/pack/engine`, so an in-package test importing them is an
+          import cycle.
+
+          ★★ PACKAGE-SCOPE HAZARD. `package engine_test` already declares helpers
+          you will reach for — at minimum `conventionRepoRoot`,
+          `installedContractsPackName`, `preFixContractsPackVersion` and
+          `semverGreater` across `grep_dispatch_convention_test.go`,
+          `grep_installed_pack_test.go` and `import_cycle_test.go`. RE-DERIVE the
+          current list yourself before writing (the package grows):
+
+              cd pkg/pack/engine && for f in *_test.go; do \
+                grep -q '^package engine_test' "$f" && \
+                grep -Hn '^func [a-z]\|^const \|^var \|^type ' "$f"; done
+
+          REUSE `conventionRepoRoot(t)` and `semverGreater(t, a, b)`. DO NOT reuse
+          `preFixContractsPackVersion` — it is 1.2.0 and belongs to a different
+          pack; reusing it would pass against a still-defective go-toolchain, a
+          weakened check reading green for the wrong reason. Declare your own
+          `preFixGoToolchainPackVersion = "1.6.0"`. Redeclaring an existing name is
+          a compile error, and a compile error is NOT this task's RED.
+
+          `TestInstalledGoToolchainPack_CarriesSingleRunConvention`, three legs:
+
+            LEG 1 — THE LOCK (tracked data, NEVER skipped). Read `backstop.lock`
+              via `distribution.ReadLockfile`; a tracked lockfile that will not
+              read is a broken repo, so `t.Fatalf`, never `t.Skip`. Require an
+              entry for `backstop-ai/go-toolchain` and assert its version is
+              STRICTLY GREATER than `1.6.0`. Note for the reader: this is a BAR,
+              not a PIN — a later unrelated bump keeps it green, which is
+              deliberate.
+
+            LEG 2 — THE INSTALLED MANIFEST (behind an install guard, since
+              `.backstop/packs/` is gitignored). Parse
+              `.backstop/packs/backstop-ai/go-toolchain/pack.yml`; assert
+              `go-test`'s command contains `-coverprofile=cover.out` and
+              `go-coverage`'s `stdout_artifact` is `cover.out`.
+
+            LEG 3 — THE INSTALLED PRODUCER (same guard). Read
+              `.backstop/packs/backstop-ai/go-toolchain/scripts/coverage-produce.sh`
+              and assert it contains the reuse branch (assert on the STAMP PATH
+              and the `-ot` comparison, which are the mechanism, not on a comment
+              string, which is prose that will drift).
+
+          ── WHAT RED MEANS HERE (kind (iii)) ─────────────────────────────────
+          This test is RED from the moment it is written until TASK-011's relock
+          lands. That is expected and correct. Its EXACT expected identity is:
+          `TestInstalledGoToolchainPack_CarriesSingleRunConvention` failing on the
+          lock version bar (1.6.0, not > 1.6.0) and on the two installed-tree
+          legs. Name it and that identity in every gate step between here and
+          TASK-011. ANY SECOND FAILURE IS NOT INHERITED.
+
+              go test ./pkg/pack/engine/ -run "TestInstalledGoToolchainPack" -race -count=1 -v
+        files:
+          - pkg/pack/engine/gotoolchain_installed_pack_singlerun_test.go
+        claims:
+          - CLM-005
+          - CLM-006
+          - CLM-013
+        depends_on:
+          - TASK-009
+
+      - id: TASK-011
+        type: implementation
+        title: "pack update backstop-ai/go-toolchain to v1.7.0 and relock"
+        description: |
+          Bring core onto the published tag:
+
+              ./bin/backstop pack update backstop-ai/go-toolchain
+
+          Expect `Updated backstop-ai/go-toolchain: 1.6.0 -> 1.7.0`.
+
+          Then verify the recorded state rather than assuming it:
+            · `backstop.yml` names 1.7.0 for this pack.
+            · The `backstop.lock` entry shows `version: 1.7.0`,
+              `git_ref: v1.7.0`, a refreshed `content_hash` and `install_date`,
+              with `source_type: git` and `source_coordinate` PRESERVED.
+            · `.backstop/packs/backstop-ai/go-toolchain/pack.yml` and
+              `scripts/coverage-produce.sh` carry the new content.
+
+          ★ NOTHING UNDER `.backstop/packs/**` IS HAND-EDITED, EVER. It is a
+          gitignored install tree (node_modules); if its content is wrong, the
+          pack source or the tag is wrong — go fix that and re-update.
+
+          If the update refuses on a content-hash mismatch, that is the scratch-copy
+          hash contract doing its job — re-read the pack lifecycle notes in
+          `docs/CODEBASE-MAP.md` and report rather than forcing.
+
+          Then confirm the interim RED has flipped:
+              go test ./pkg/pack/engine/ -run "TestInstalledGoToolchainPack" -race -count=1 -v
+          All three legs green, no leg SKIPPED (a skipped install-guarded leg means
+          the install tree is missing, not that the claim is proven).
+
+          Then `backstop gate` over the touched files.
+        files:
+          - backstop.yml
+          - backstop.lock
+        claims:
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-010
+
+      - id: TASK-012
+        type: verification
+        title: "Verify the adopted pack is live, hash-consistent, and green across the affected suites"
+        description: |
+          UNPIPED, exit codes read directly (sharp edge 8):
+
+            1. `go test ./pkg/pack/engine/ -run "TestInstalledGoToolchainPack" -race -count=1 -v`
+               — three legs green, none skipped.
+            2. `go test ./cmd/backstop/ -race -count=1` — the fixture corpus and
+               both new core test files still green.
+            3. `./bin/backstop pack list` (or the lock read) confirms 1.7.0 live.
+            4. `git status --porcelain` — the tracked diff is exactly
+               `backstop.yml` and `backstop.lock` plus this plan's own files.
+               Nothing under `.backstop/packs/` appears (it is gitignored) and no
+               stamp file appears (sharp edge 3).
+            5. `./bin/backstop gate` over the touched files.
+
+          KNOWN INHERITED REDS: ISSUE-176 residual / ISSUE-178, ISSUE-162, and the
+          two inherited pack-check WARNs. The TASK-010 interim RED is now GONE and
+          must not be cited again — if it is still failing, TASK-011 did not land.
+          Prove any other inheritance in a clean-HEAD control worktree and cite the
+          owning issue.
+        files:
+          - backstop.yml
+          - backstop.lock
+          - pkg/pack/engine/gotoolchain_installed_pack_singlerun_test.go
+        claims:
+          - CLM-006
+          - CLM-013
+        depends_on:
+          - TASK-011
+
+  - id: phase-6
+    name: "Phase 6: Full kill chain, the real measurement, and close-out"
+    tasks:
+      - id: TASK-013
+        type: verification
+        title: "Full kill chain, and MEASURE the actual step durations the fix produces"
+        description: |
+          ── THE FULL SWEEP ───────────────────────────────────────────────────
+              ./bin/backstop gate --all --json-out /tmp/gate-after.json
+
+          Read BOTH surfaces. Every dimension's verdict is in scope; do not filter
+          and do not narrow (the no-check-filtering razor). Name any inherited red
+          by issue id and prove it in a clean-HEAD control worktree
+          (ISSUE-176/ISSUE-178, ISSUE-162 are the candidates). Anything else is
+          this plan's.
+
+          NOTE ON THE WORKTREE: if you run the sweep in a worktree, copy in
+          `.backstop/packs` — it is gitignored, so a fresh worktree has no packs
+          and `pack_engines` will read differently than in the real tree.
+
+          ── THE MEASUREMENT — THIS IS THE ACCEPTANCE EVIDENCE ────────────────
+          `--json-out` (ISSUE-099, shipped this session) is what makes this a
+          single-invocation read of real per-step durations. From
+          `/tmp/gate-after.json`, record the `DurationMS` of `pack_engines` and
+          `coverage_threshold` verbatim.
+
+          THE BAR, against the pre-fix CI measurement (run 32151610956):
+            · BEFORE: `pack_engines` 629797ms, `coverage_threshold` 612148ms.
+            · EXPECTED AFTER: `coverage_threshold` collapses by roughly two orders
+              of magnitude — it should now be a parse of an existing profile, not
+              a suite run (the TS precedent went 174s -> 0.75s). `pack_engines`
+              stays in the same order of magnitude.
+
+          Note honestly that a LOCAL run is not comparable in absolute terms to a
+          CI runner — the load-bearing signal is the RATIO between the two steps,
+          not either number. `coverage_threshold` still sitting within a small
+          factor of `pack_engines` means the reuse is NOT firing: the stamp is not
+          being written, or not being found, and the fix is dark. Investigate
+          rather than reporting a win.
+
+          A CI confirmation on the next push is the real proof; capture the
+          `gate-report.json` artifact from that run and record its two durations
+          in the close-out (TASK-014). If the founder wants to close before that
+          run exists, say plainly that the CI number is outstanding rather than
+          implying it was observed.
+        files:
+          - backstop.yml
+          - backstop.lock
+          - cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/pack.yml
+          - cmd/backstop/gotoolchain_single_run_test.go
+          - cmd/backstop/gate_step_ordering_verdict_test.go
+          - pkg/pack/engine/gotoolchain_installed_pack_singlerun_test.go
+        claims:
+          - CLM-005
+          - CLM-007
+          - CLM-009
+        depends_on:
+          - TASK-002
+          - TASK-011
+          - TASK-012
+
+      - id: TASK-014
+        type: documentation
+        title: "Close out ISSUE-172, annotate ISSUE-068's discharged follow-on, flip the plan"
+        description: |
+          Route every artifact mutation through the purpose-built agents
+          (`/issue`, `/plan`) — artifacts are never hand-edited (CLAUDE.md). Note
+          that an agent whose NAME carries a close-out prefix cannot write this
+          `.plan.yml` (the agent-guard keys on name); spawn an unnamed `planner`
+          for the plan mutation.
+
+          ORDER MATTERS: flip the plan to `completed` FIRST, then close the issue
+          against it, then re-validate everything (TASK-015).
+
+          1. `plans/PLAN-ISSUE-172-...` — add an `★ AS-BUILT` banner at the head of
+             `notes` recording what landed by phase, the measured evidence
+             (TASK-004's RED text, TASK-002's inversion demonstration, TASK-013's
+             two durations), and any AS-BUILT DELTAS where the implementation
+             diverged. Do NOT rewrite the phases or tasks below the banner — they
+             are historical record. Flip `status: draft` -> `completed`.
+
+          2. `issues/ISSUE-172-...` — a `## Resolution` section stating plainly
+             that the issue was NOT resolved by the approach it proposed: neither
+             (A) nor (B) was implemented; the investigation found the two dominant
+             steps were the same suite run twice, and the fix removed the
+             duplication instead of overlapping it. Record the before/after
+             durations and name `backstop-ai/go-toolchain` v1.7.0 with its commit.
+             Record the CLM-002 ordering finding as a standing constraint on any
+             future parallelization attempt, naming the guard test so it is
+             findable, and the CLM-003 path-2 silent-pass finding with it.
+
+             ★ THE CLOSE POINTER — USE `delivered_by`, NOT `resolved-by`, AND SET
+             `closed`. The schema permits AT MOST ONE of the two
+             (`pkg/validate/issue.go:367-379`, "a closed issue may carry at most
+             one close pointer, not both delivered_by and resolved-by"). They are
+             not interchangeable: `resolved-by` is the LIGHTER close for a direct
+             fix with NO completed backing plan — which is why ISSUE-068 used it —
+             whereas `delivered_by: PLAN-ISSUE-172` traces to a COMPLETED backing
+             plan, which this issue will have (TASK-014 step 1 flips it first, and
+             the ordering matters for exactly this reason). A `delivered_by` close
+             still requires the `## Resolution` section
+             (`pkg/validate/issue.go:385-392`).
+
+             Also set `issue.closed: "YYYY-MM-DD"` explicitly — the schema wants
+             the close date and it will not be inferred. Use the real date on the
+             day the close runs, not this plan's `created` date, and not a date
+             you have not been given (no false grounding).
+
+             Then flip `status` per the founder's TASK-001 answer — CLOSED if (C)
+             satisfies the issue, or open-with-Resolution if a residual is kept.
+             If it stays OPEN, carry NEITHER close pointer and NO `closed` date:
+             an open issue with a close pointer is a status lie the drift
+             dimension is built to catch.
+
+          3. `issues/ISSUE-068-...` — a short note that its parked go-toolchain
+             follow-on (lines 188-192) is now DELIVERED by ISSUE-172 /
+             go-toolchain v1.7.0. ISSUE-068 stays `closed`; this is a pointer, not
+             a reopening. Its "Accepted residual" paragraph is now stale — say so.
+
+          4. Do NOT edit `.github/workflows/ci.yml`. Its comment block
+             (lines 173-184) cites this issue's pre-fix durations as historical
+             justification for the ISSUE-099 collapse, which stays TRUE. If the
+             stale numbers bother you, FILE a follow-on rather than editing a file
+             three other draft plans reference.
+
+          5. FILE, do not absorb, anything surfaced along the way. Two known
+             candidates: (a) nothing asserts the pack SOURCE and the core FIXTURE
+             agree, so they can drift silently — this plan had to hand-verify it;
+             (b) the residual stamp window named in the DESIGN section. Surface
+             both to the founder rather than self-triaging.
+        files:
+          - plans/PLAN-ISSUE-172-gate-parallelize-dominant-steps.plan.yml
+          - issues/ISSUE-172-gate-steps-run-sequentially-not-parallel.issue.md
+          - issues/ISSUE-068-gate-double-runs-test-suite.issue.md
+        claims:
+          - CLM-002
+          - CLM-003
+          - CLM-006
+          - CLM-009
+          - CLM-010
+          - CLM-015
+        depends_on:
+          - TASK-013
+
+      - id: TASK-015
+        type: verification
+        title: "Final comprehensive verification — artifacts AFTER the close-out mutations, and the full kill chain"
+        description: |
+          This task runs AFTER TASK-014's mutations, because validating before them
+          validates the wrong bytes.
+
+          ── ARTIFACT VALIDATION ──────────────────────────────────────────────
+              ./bin/backstop artifact validate --plan PLAN-ISSUE-172
+              ./bin/backstop artifact validate --issue ISSUE-172
+              ./bin/backstop artifact validate --issue ISSUE-068
+
+          All three must pass. A `completed` plan is held to a stricter bar than a
+          draft — every mandated test derived from its claims must EXIST, so a
+          rename between here and TASK-014 will surface as a broken promise.
+
+          ── THE FULL KILL CHAIN, UNSCOPED ────────────────────────────────────
+              ./bin/backstop gate --all
+
+          Every dimension, no filtering, no narrowing. Read the whole table.
+
+          ── THE TEST SURFACES THIS PLAN OWNS ─────────────────────────────────
+              go test ./cmd/backstop/ -run "TestGateStepOrdering|TestGoToolchainSingleRun" -race -count=1 -v
+              go test ./pkg/pack/engine/ -run "TestInstalledGoToolchainPack" -race -count=1 -v
+
+          Every mandated test present, RUNNING, and PASSING — none skipped. A
+          `t.Skip` on an install-guarded leg is not a pass; it means the install
+          tree is absent and the claim is unproven.
+
+          ── ATTRIBUTION ──────────────────────────────────────────────────────
+          KNOWN INHERITED REDS: ISSUE-176 residual / ISSUE-178, ISSUE-162, and the
+          two inherited `exempt-scope-decision` pack-check WARNs (CLM-014). Prove
+          each in a clean-HEAD control worktree (copying in `.backstop/packs`) and
+          cite the owning issue. NEVER waive an inherited red to close this plan —
+          record it, name its owner, and report it. Anything you cannot attribute
+          is this plan's and must be fixed.
+        files:
+          - plans/PLAN-ISSUE-172-gate-parallelize-dominant-steps.plan.yml
+          - issues/ISSUE-172-gate-steps-run-sequentially-not-parallel.issue.md
+          - issues/ISSUE-068-gate-double-runs-test-suite.issue.md
+          - backstop.yml
+          - backstop.lock
+        claims:
+          - CLM-014
+          - CLM-015
+        depends_on:
+          - TASK-011
+          - TASK-013
+          - TASK-014

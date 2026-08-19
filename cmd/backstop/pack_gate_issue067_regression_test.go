@@ -509,7 +509,13 @@ func TestIssue067_ProducerScriptsExitZeroOnAGreenTree(t *testing.T) {
 	}{
 		// Exactly what splitCommand(binding.Command) + the project-wide target
 		// shaping produce for each binding.
-		{engineName: "go-test", argv: []string{"test", "./..."}},
+		//
+		// ISSUE-172: go-test's declared command gained -coverprofile=cover.out (the
+		// single-run convention), so its real vector gained that flag — the drift
+		// guard below is what caught it. This case now also exercises the stamp path
+		// for real: the target IS `./...`, so a green run writes cover.out and the
+		// .backstop/go-coverage-fresh stamp inside the throwaway module.
+		{engineName: "go-test", argv: []string{"test", "-coverprofile=cover.out", "./..."}},
 		{engineName: "go-build", argv: []string{"build", "./..."}},
 	}
 

@@ -212,6 +212,18 @@ pack-side commit instead.
 tracked here as a note, not filed as a separate issue, since it is optional per-pack adoption with
 no forcing deadline.
 
+**Update 2026-08-19 — residual discharged.** The go-toolchain follow-on named in the paragraph
+above is now delivered: `backstop-ai/go-toolchain` was republished at v1.7.0 (commit `fb2b947`,
+that pack's own repo), adopting the same combined-run convention this issue established for
+`backstop/typescript-toolchain` — `go test -coverprofile=cover.out` now feeds both the `go-test`
+engine's test results and `coverage-produce.sh`'s freshness-reuse check from one native run,
+instead of a second full-suite run for coverage. This was delivered as a byproduct of
+`PLAN-ISSUE-172` (gate step parallelization investigation), a different issue's plan — not work
+ISSUE-068 itself tracked to completion, and not recorded via a `resolved-by`/`delivered-by`
+pointer on this issue for that reason. The "Accepted residual" paragraph immediately above is now
+stale/discharged; left in place rather than rewritten, per this issue's own convention of
+appending updates to the historical record instead of editing it.
+
 ## Verification
 
 - bclabs-portal real gate run: `coverage_threshold` step ~174s → ~0.75s, gate PASS, zero change in

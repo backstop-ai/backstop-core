@@ -93,7 +93,12 @@ func TestFileMode_NoSilentWholeModuleRegression(t *testing.T) {
 			t.Fatalf("file-mode test run silently regressed to whole-module ./...; args=%v", call.args)
 		}
 	}
-	if strings.Join(call.args, " ") != "test ./pkg/gadget" {
+	// ISSUE-172: the declared command now carries -coverprofile=cover.out (the
+	// single-run convention), so the vector gained that flag. The CLAIM is unchanged
+	// and is about the TARGET: exactly ./pkg/gadget, never ./... . Note what the flag
+	// means here — a file-mode run writes a PARTIAL profile, which is precisely why
+	// test-produce.sh stamps a profile as reusable ONLY after a `./...` run.
+	if strings.Join(call.args, " ") != "test -coverprofile=cover.out ./pkg/gadget" {
 		t.Errorf("file-mode test must target exactly ./pkg/gadget, got args=%v", call.args)
 	}
 }
@@ -113,7 +118,9 @@ func TestFileMode_ProjectWideModeStillWholeModule(t *testing.T) {
 		t.Fatalf("dispatchPackEngines: %v", err)
 	}
 	call := goTestCall(t, runner)
-	if strings.Join(call.args, " ") != "test ./..." {
+	// ISSUE-172: -coverprofile=cover.out rides on the declared command (the
+	// single-run convention). The CLAIM is unchanged and is about the TARGET: ./... .
+	if strings.Join(call.args, " ") != "test -coverprofile=cover.out ./..." {
 		t.Errorf("project-wide test must target ./..., got args=%v", call.args)
 	}
 }

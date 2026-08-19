@@ -91,8 +91,23 @@ engines:
   # carries only `FAIL <pkg> [build failed]`. Core captures stdout only, so those
   # diagnostics were discarded before the convert ran and crash_guard reported an
   # opaque crash instead of the failures. The producer folds stderr into stdout.
+  # ISSUE-172 — THE SINGLE-RUN CONVENTION. This engine's `go test` and go-coverage's
+  # `go test -coverprofile=cover.out` were TWO independent whole-module runs of the
+  # SAME suite, making the gate's two dominant steps one workload paid for twice
+  # (measured: pack_engines 629797ms vs coverage_threshold 612148ms, a delta that is
+  # only the build and lint passes riding in pack_engines). ISSUE-068 established the
+  # remedy for the other toolchains and explicitly PARKED go-toolchain's; this is that
+  # follow-on. The flag goes on the COMMAND, never a hardcoded target: the dispatch
+  # appends the target itself (`./...` project-wide, narrowed packages in file mode).
+  #
+  # THE PROFILE IS THE SHARED ARTIFACT. cover.out is go-coverage's declared
+  # stdout_artifact — the file its convert actually reads — so ONE run here emits both
+  # the test output this engine converts AND the profile the coverage engine consumes,
+  # and scripts/test-produce.sh stamps it fresh for scripts/coverage-produce.sh to
+  # reuse. Changing this path without changing go-coverage's stdout_artifact makes the
+  # reuse silently dark (the coverage producer simply re-runs the suite).
   go-test:
-    command: go test
+    command: go test -coverprofile=cover.out
     producer: scripts/test-produce.sh
     input_mode: none
     scope_kind: project-wide

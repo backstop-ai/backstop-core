@@ -36,3 +36,6 @@
 - [Run the command you prescribe](project_run_the_command_you_prescribe.md) — `go test -run` no-match exits 0; forbid the MECHANISM not the string; an "X not Y" claim needs a leg that fails Y; `if: always()` misattributes
 - [Actions `if:` guard fails OPEN](project_actions_if_guard_fails_open.md) — a missing `steps.<id>` coerces to null→0 vs NaN, so `!= 'skipped'` is TRUE and the step always runs; state fails-OPEN, assert id-consistency
 - [CI evidence run is branch, not main](project_ci_evidence_run_is_branch_not_main.md) — a "post-merge run" is usually a PR-BRANCH run; check headSha vs the merge commit, cite the pre-fix main run as the counterfactual
+- [Issues self-retract in place](project_issue_self_retraction.md) — a Problem/Evidence section can be killed by the same file's Root Cause/Resolution with both left in; retraction is often PARTIAL, so split the citation
+- [Mine the implementer's transcript](project_closeout_mine_the_implementer_transcript.md) — verbatim RED text lives in `subagents/agent-<id>.jsonl`, not in the final report; label carried vs re-verified
+- [Duration readings' scope mismatch](project_duration_readings_scope_mismatch.md) — before is usually diff-scoped, after is `--all`; quote the RATIO, check the fast number isn't vacuously fast

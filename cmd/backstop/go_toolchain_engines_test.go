@@ -74,8 +74,14 @@ func TestGoToolchain_GoTestBindingFromPackData(t *testing.T) {
 	}
 	b := spec.Binding
 
-	if b.Command != "go test" {
-		t.Errorf("go-test Command = %q, want %q", b.Command, "go test")
+	// ISSUE-172 — THE SINGLE-RUN CONVENTION. The command carries -coverprofile so ONE
+	// whole-module run emits both the test output this engine converts and the profile
+	// go-coverage consumes, instead of the two independent `go test ./...` runs that
+	// made the gate's two dominant steps one workload paid for twice. The claim this
+	// test makes is unchanged: the binding's record comes from PACK DATA.
+	const wantTestCommand = "go test -coverprofile=cover.out"
+	if b.Command != wantTestCommand {
+		t.Errorf("go-test Command = %q, want %q", b.Command, wantTestCommand)
 	}
 	if b.Convert != "scripts/test-to-sarif.sh" {
 		t.Errorf("go-test Convert = %q, want %q", b.Convert, "scripts/test-to-sarif.sh")
