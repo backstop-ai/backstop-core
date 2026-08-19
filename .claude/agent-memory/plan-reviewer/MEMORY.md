@@ -76,3 +76,5 @@
 - [Retracted claim survives in shipping text](project_retracted_claim_survives_in_shipping_text.md) — a retraction lands in notes/sharp-edges but the copy inside a task's PRESCRIBED yaml comment / error string ships anyway; grep the literal
 - [Monotone counter ships stale](project_monotone_counter_ships_stale.md) — "N consecutive failing runs" measured at plan time is wrong by implement time; re-query each round, demand ≥/date-stamped phrasing
 - [Cited issue's self-retracted evidence](project_cited_issue_self_retracted_evidence.md) — a plan quoting `ISSUE-NNN lines X-Y` often lands on Evidence bullets the SAME issue's Root cause section retracts
+- [Matrix-test subject provenance](project_matrix_test_subject_provenance.md) — "runs the CONDITION under N shells" without naming WHERE the condition comes from: both hardcodings break the red→green trajectory
+- [Rewritten body, absence predicate](project_rewritten_body_absence_predicate.md) — a "prove the BODY changed" close-out check must be PRESENCE-only; arrange code is legitimately identical, so an absence grep reds a correct fix

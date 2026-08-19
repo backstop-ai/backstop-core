@@ -34,6 +34,7 @@ directive:
     - "ISSUE-169"
     - "ISSUE-175"
     - "ISSUE-177"
+    - "ISSUE-179"
 ---
 
 ## Description
@@ -81,7 +82,10 @@ under the standing clear-fit grant as ANOTHER RESIDUAL OF ITEM 22
 (ISSUE-166) — that same fix's own affected-test list names the test but
 `PLAN-ISSUE-166`'s fix does not clear it, and the asymmetry between it and
 its cleared siblings is exactly what the issue exists to investigate — not
-a new theme, not a founder roster call.
+a new theme, not a founder roster call. It grew again to TWENTY-EIGHT on
+2026-08-19 with item 28 (ISSUE-179), slotted by backlog-pm under the
+standing clear-fit grant as a measured no-op in the coverage-reuse speedup
+`PLAN-ISSUE-172` shipped — not a new theme, not a founder roster call.
 
 1. **Cross-platform sandbox — Linux is a hard no-op (ISSUE-020).**
    `pkg/packval/sandbox.go`'s `SandboxedRun` / `SandboxedRunStdout` dispatch
@@ -1736,6 +1740,119 @@ a new theme, not a founder roster call.
     Note the issue's own severity framing: low urgency in isolation, filed
     because an unexplained residual red must not sit as an unexplained
     line in a CI report.
+28. **go-toolchain's coverage-reuse freshness comparison is directionally
+    backwards — reuse never fires on real Linux CI, so PLAN-ISSUE-172's
+    shipped speedup is a complete no-op where it matters (ISSUE-179).**
+    `PLAN-ISSUE-172` (closed 2026-08-19) shipped `backstop-ai/go-toolchain`
+    v1.7.0 with a coverage-profile-reuse mechanism: `scripts/test-produce.sh`
+    runs `go test -coverprofile=cover.out ./...` and THEN writes the stamp
+    `.backstop/go-coverage-fresh`; `scripts/coverage-produce.sh` reuses the
+    profile instead of re-running the whole suite when it judges it fresh.
+    The check at `coverage-produce.sh:38` is `if [ -f "$stamp" ] && [ -f
+    cover.out ] && [ ! cover.out -ot "$stamp" ]` — "reuse only if cover.out
+    is NOT OLDER than the stamp." Confirmed in the installed pack
+    (`.backstop/packs/backstop-ai/go-toolchain/scripts/coverage-produce.sh:
+    38`, v1.7.0) and in the in-repo fixture copy
+    (`cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/
+    go-toolchain/scripts/coverage-produce.sh:38`).
+    But `test-produce.sh` writes `cover.out` first (`:37`) and stamps at
+    `:58` — so the stamp is always strictly newer, and the condition can
+    never be true at full timestamp precision. macOS `/bin/sh` `test -ot`
+    compares at whole-second resolution so the few-millisecond gap ties and
+    reuse fires by accident; Ubuntu `dash` compares at nanosecond resolution
+    and reuse never fires. Measured on real Linux CI (run `32275399064`,
+    commit `2f8fa89` on `main`): `coverage_threshold` at ~602500ms vs. the
+    ~2211ms the mechanism promises — essentially the pre-fix ~612000ms
+    baseline. The pack's own comment block (`coverage-produce.sh:30-31`)
+    states the intent as "a profile older than the stamp … falls through" —
+    the DOCUMENTED semantics are inverted too, not just the expression; any
+    fix must correct the comment, or the next reader re-derives the same
+    backwards rule.
+    ★ CORRECTION ONE, backlog-pm's not the issue's — ISSUE-179's "Direction"
+    says "Fix lives entirely in the external pack repo … not backstop-core."
+    THAT IS FALSE, and it is the most important thing a planner needs. Two
+    core-side test files pin the defective expression and must change in the
+    same lane. `cmd/backstop/gotoolchain_single_run_test.go`'s
+    `TestGoToolchainSingleRun_CoverageProducerReusesAFreshProfile` is the
+    "executable falsifier" for the reuse half, and it is a VACUOUS GREEN: it
+    writes `cover.out`, then writes the stamp, then ages the stamp by one
+    second via `os.Chtimes(stamp, now-1s, …)` with the comment "a deliberate
+    mtime nudge so cover.out is NOT older than the stamp, which is the
+    freshness relation the producer tests." That manufactures the exact
+    relation production can never produce, since production writes the
+    profile first and stamps after. ★ This is why CI stayed green while the
+    mechanism was dead: the falsifier tests a filesystem state the real
+    chronology cannot create. The regression test ISSUE-179 asks for is not
+    a new test — it is this test's fixture reversed to match production
+    chronology (stamp strictly newer than `cover.out`, at sub-second
+    precision), and reversing it must be done as part of the fix or the same
+    blind spot ships again. The second pinning site, `pkg/pack/engine/
+    gotoolchain_installed_pack_singlerun_test.go`'s
+    `TestInstalledGoToolchainPack_CarriesSingleRunConvention`, asserts
+    `strings.Contains(producer, "-ot")` against the installed producer text,
+    plus a `semverGreater` bar over `preFixGoToolchainPackVersion = "1.6.0"`
+    — so the version bar needs raising to the fixed version, and the `-ot`
+    string assertion red-lines option (a) below outright.
+    ★ CORRECTION TWO — ISSUE-179 offers (a) drop the mtime comparison
+    entirely, trusting stamp-presence alone, and (b) flip the comparison to
+    assert the stamp is not older than `cover.out`. The issue presents (a)
+    as the cleaner option and argues it is safe because `rm -f "$stamp"`
+    unconditionally consumes the stamp. THAT SAFETY ARGUMENT DOES NOT HOLD,
+    because it assumes `coverage-produce.sh` always runs — it does not. A
+    concrete falsifying sequence: `gate --all` stamps and is interrupted
+    before coverage runs; a later file/diff-scoped `gate` re-runs `go-test`
+    with `-coverprofile=cover.out` narrowed to changed packages (the
+    `./...` case-guard at `test-produce.sh:47-53,54-61`), overwriting
+    `cover.out` with a PARTIAL profile and writing no stamp; under (a) the
+    leftover stamp plus the partial profile satisfies the check, and the
+    coverage dimension measures a partial profile with every unmeasured
+    file reading as absent — precisely the silent-narrowing class
+    `test-produce.sh` says the mechanism exists to prevent. Under (b) the
+    same sequence is safe, since the leftover stamp is older than the
+    freshly-overwritten `cover.out`, so reuse correctly declines. ★ So (b)
+    is not "a defensive check if one is still wanted" as the issue frames
+    it; the ordering assertion is load-bearing and (b) is the recommended
+    shape. Residual even under (b), recorded so a planner does not think
+    (b) closes everything: if the aborted run is followed by an invocation
+    where `go-test` does not run at all, `cover.out` keeps its old mtime,
+    the leftover stamp is still newer, and a STALE whole-module profile
+    from an earlier tree state is reused. Closing that needs the stamp
+    bound to the specific profile it certifies (e.g. `test-produce.sh`
+    writing `cover.out`'s mtime or content hash into the stamp and
+    `coverage-produce.sh` requiring the match) rather than any pure mtime
+    ordering — weigh that shape against (b) rather than assuming (b) is
+    complete.
+    Delivery shape: pack repo version bump (`backstop-ai/go-toolchain`,
+    local working copy `/Users/bmanson/src/projects/backstop-go-toolchain-
+    pack`) + `pack update`/relock in backstop-core, same shape as this
+    directive's ISSUE-129/ISSUE-135/ISSUE-145 pack-side precedents — but
+    unlike those, this one carries a mandatory core-side edit too (the two
+    guard tests above), so it is not a pure pack-side fix. The in-repo
+    fixture copy at `cmd/backstop/testdata/go-toolchain/.backstop/packs/
+    backstop/go-toolchain/scripts/coverage-produce.sh` carries the identical
+    backwards line; whether it is fixed alongside is a planner call, but it
+    must be a deliberate one — item 12 of this directive (ISSUE-137, the
+    unguarded fixture/pack drift) is the standing reason that copy diverges
+    silently.
+    IN-FLIGHT NOTE: an empty `PLAN-ISSUE-179` scaffold (`phases: []`, status
+    draft, untracked) already existed at triage time — a planner is
+    mid-authoring; these corrections are aimed at that lane.
+    Why DIR-024 and not DIR-032, following this file's own item 15/16 test:
+    nothing here computes or reports a WRONG VERDICT. The gate's pass/fail
+    is correct throughout; only the wall-clock cost the fix promised to
+    remove is not removed. That is this directive's charter (wrong or
+    missing DATA / cost on a correct verdict) and it has direct precedent in
+    this file's own item 7 (ISSUE-099, "a measured 2x CI cost") — a pure
+    gate-cost item already homed here. The vacuous-green half is a Go unit
+    test that cannot falsify, not a gate dimension reporting a false
+    verdict, and this directive already carries the test-harness-defect
+    class (items 12/21/27). It also sits directly on item 1's (ISSUE-020)
+    Linux-CI-viability line: the defect is invisible on darwin and
+    deterministic on Linux, and darwin-only verification is exactly what let
+    it ship.
+    Priority note, stated as observation and explicitly NOT a reorder
+    (backlog-pm has no reorder authority): DIR-024 sits at BACKLOG.yml
+    position 5 and this slot does not change its rank.
 
 ## Notes
 

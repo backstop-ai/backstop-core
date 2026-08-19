@@ -27,15 +27,41 @@
 # earlier run carries no stamp and is therefore never honoured. A file-mode run's
 # profile is PARTIAL and is never stamped at all.
 #
-# THE DEGRADED PATH IS SLOW-BUT-CORRECT, NEVER WRONG. No stamp, a missing profile, or
-# a profile older than the stamp all fall through to running the tool exactly as this
+# THE DIRECTION OF THE FRESHNESS COMPARISON IS THE WHOLE MECHANISM (ISSUE-179).
+# test-produce.sh writes cover.out via `go "$@"` and touches the stamp AFTER it, in the
+# same script, so on a genuine same-invocation success the STAMP is the NEWER of the two
+# — always, without exception. The check below therefore asks whether the stamp is at
+# least as new as the profile. That is false in exactly one situation, and it is the
+# situation worth refusing: a LATER run has overwritten cover.out without stamping it,
+# which is precisely what a file-scoped (PARTIAL) run does.
+#
+# The previous form asked the opposite — whether the profile was no older than the stamp
+# — which inverts the real write-then-touch order and so demanded a state a successful
+# run never produces. Where `-ot` compares at whole-second resolution the few-millisecond
+# gap ties and reuse fired by coincidence; where `-ot` reads nanoseconds (the /bin/sh
+# Ubuntu ships) it never fired at all, making the mechanism a complete no-op on the one
+# platform it was built for.
+#
+# THE DEGRADED PATH IS SLOW-BUT-CORRECT, NEVER WRONG. No stamp, a missing profile, or a
+# stamp older than the profile all fall through to running the tool exactly as this
 # producer always did. Losing the reuse costs SPEED only — which is also why the step
 # ordering it depends on is pinned by an executable guard in backstop-core
 # (TestGateStepOrdering_PackEnginesPrecedesItsDependentSteps) rather than left to a
 # comment: without it the reuse could be reordered into a no-op with nothing red.
+#
+# ONE RESIDUAL, STATED HONESTLY RATHER THAN CLAIMED AWAY. If an invocation aborts between
+# the test dispatch and this one its stamp survives (the file is gitignored, so nothing
+# surfaces it), and a later invocation that does NOT overwrite cover.out will honour it.
+# That covers a build-broken run, where the gate is already failing — but also a `--file`
+# scope holding no Go files, where the package-scoped test engine is never dispatched at
+# all and the verdict can come back GREEN over a measurement of a tree that has since
+# changed. The profile reused is always the COMPLETE one, never a PARTIAL one, which is
+# the dangerous case and the case this comparison refuses. Closing the window entirely
+# would mean clearing cover.out in test-produce.sh, which changes that script's semantics
+# for every consumer.
 stamp=".backstop/go-coverage-fresh"
 reuse=0
-if [ -f "$stamp" ] && [ -f cover.out ] && [ ! cover.out -ot "$stamp" ]; then
+if [ -f "$stamp" ] && [ -f cover.out ] && [ ! "$stamp" -ot cover.out ]; then
   reuse=1
 fi
 rm -f "$stamp"

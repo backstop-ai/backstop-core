@@ -113,6 +113,143 @@ full-precision mtime ordering (e.g. a deliberately sub-second write-then-touch g
 that could tie on a coarse clock the way this defect's original verification did, since that is
 exactly the gap that let this ship.
 
+## Investigation (2026-08-19)
+
+Run under `PLAN-ISSUE-179` TASK-001, before any fix was written. All numbers below were
+re-derived on 2026-08-19, not quoted from the plan.
+
+### Platform confirmation
+
+`ubuntu-latest` resolves to `ubuntu-24.04` (this repo's own captured runner probe,
+`pkg/packval/testdata/ubuntu-runner-probe.txt:13,108`). Confirmed inside `ubuntu:24.04`
+rather than assumed:
+
+```
+$ docker run --rm ubuntu:24.04 readlink -f /bin/sh
+/usr/bin/dash
+$ ls -l /bin/sh   ->  /bin/sh -> dash
+$ dpkg -l dash    ->  ii  dash  0.5.12-6ubuntu5  amd64  POSIX-compliant shell
+```
+
+### The end-to-end falsification, PRE-FIX
+
+The state was arranged by running the **real** `scripts/test-produce.sh` with a `go` shim
+that writes `cover.out` and then exits — i.e. the true production chronology including the
+real process-teardown gap — and then running the **real** `scripts/coverage-produce.sh`,
+observing through the shim whether the suite was re-run.
+
+`ubuntu:24.04`, `/bin/sh` (dash), source pack scripts at v1.7.0:
+
+```
+    2026-08-19 18:43:09.724408177 +0000 cover.out
+    2026-08-19 18:43:09.729408177 +0000 .backstop/go-coverage-fresh
+    CURRENT   (shipped, backwards): NO-REUSE
+    CANDIDATE (option b, flipped) : REUSE
+  over 50 trial(s): REUSED=0  RE-RAN=50
+```
+
+The core fixture's copy of the scripts behaves identically (`REUSED=0 RE-RAN=50`). The gap
+is ~5ms, `cover.out` is strictly older every time, and reuse never fires — **0 out of 50**.
+
+darwin 23.6.0, `/bin/sh`, the identical experiment on the identical scripts:
+
+```
+    1787165006.911838073 cover.out
+    1787165006.916016684 .backstop/go-coverage-fresh
+    CURRENT   (shipped, backwards): REUSE
+    CANDIDATE (option b, flipped) : REUSE
+  over 50 trial(s): REUSED=50  RE-RAN=0
+```
+
+Same true ordering (`cover.out` strictly older by ~4.18ms, visible in the raw fractional
+epoch fields), opposite verdict — **50 out of 50** reuse. That is the coincidental pass that
+made the original darwin verification structurally incapable of catching this.
+
+### The masking is a property of the shell build, not the shell's name
+
+Production chronology, both candidate conditions, every shell on the darwin authoring
+machine:
+
+```
+  /bin/sh    CURRENT=REUSE     FLIPPED=REUSE   cover.out=1787165011.998066957 stamp=1787165011.998358898
+  /bin/dash  CURRENT=REUSE     FLIPPED=REUSE   cover.out=1787165012.040864503 stamp=1787165012.041082833
+  /bin/bash  CURRENT=REUSE     FLIPPED=REUSE   cover.out=1787165012.075499438 stamp=1787165012.075708298
+  /bin/zsh   CURRENT=NO-REUSE  FLIPPED=REUSE   cover.out=1787165012.116894756 stamp=1787165012.117006963
+  /bin/ksh   CURRENT=NO-REUSE  FLIPPED=REUSE   cover.out=1787165012.175830209 stamp=1787165012.175947323
+```
+
+"dash is the precise one" is **false as a general statement**: macOS's own `/bin/dash`
+truncates to whole seconds exactly like `/bin/sh` and `/bin/bash`. What varies is whether a
+given shell's `test` builtin reads the seconds or the nanoseconds field of `stat` *as built
+for that platform*. On darwin only `zsh` and `ksh` read nanoseconds. A regression matrix of
+`{sh, dash, bash}` is therefore green on darwin with the defect fully live.
+
+### A measurement trap worth recording
+
+A *synthetic* zero-gap arrangement (`printf > cover.out; : > stamp` back to back) is **not**
+a faithful model of production. Under dash on the container filesystem it ties 191 times out
+of 200, so the backwards check reports REUSE 95.5% of the time and the defect appears not to
+reproduce. The production gap spans a whole `go` process exit (~5ms), which exceeds the
+filesystem's ~1ms timestamp granularity, and the reproduction is then deterministic. Any
+future probe of this mechanism must arrange the state through `test-produce.sh`, not by hand.
+
+### Option (a) is refuted by a reachable state
+
+Presence-of-stamp-plus-`cover.out` is not sufficient, because the `rm -f "$stamp"` consumption
+only runs *if the producer runs at all*:
+
+1. Gate invocation A runs project-wide; `test-produce.sh` writes a complete `cover.out` and
+   touches the stamp.
+2. Invocation A terminates between the test dispatch and the coverage dispatch — Ctrl-C, a CI
+   job timeout, an OOM kill. The stamp survives. `.backstop/go-coverage-fresh` is gitignored,
+   so nothing surfaces it in `git status`.
+3. Invocation B runs `./bin/backstop gate --file <path>` **explicitly** (not the bare
+   diff-scoped default — this issue already rules out diff mode as the narrowing path).
+   `go-test` declares `package_scoped: true`, so the dispatch narrows to the changed packages
+   and overwrites `cover.out` with a **partial** profile. `test-produce.sh`'s `./...` guard
+   does not match, so invocation B writes no stamp; A's leftover is still the only stamp.
+4. `coverage-produce.sh` now sees a stamp and a `cover.out`.
+
+Under option (a) step 4 reuses a **partial** profile: every unmeasured file reads as absent and
+the coverage dimension returns an incomplete measurement with nothing red — precisely the
+silent-narrowing outcome `test-produce.sh`'s own `./...` guard exists to prevent. Option (b)
+refuses this state correctly (stamp older than profile → no reuse).
+
+Option (a) would also require deleting a shipped guard: `pkg/pack/engine/gotoolchain_installed_pack_singlerun_test.go`
+asserts the installed producer carries an `-ot` freshness comparison. Dropping the comparison
+reds that assertion, and the only way to green it is to delete it.
+
+### The residual option (b) does not close
+
+If invocation A leaves both a stamp and a **complete** `cover.out`, and invocation B does not
+overwrite `cover.out`, option (b) reuses A's profile. Two ways to reach it:
+
+- **Build-broken**: B's `go test` fails to compile, so no `-coverprofile` output is written.
+  The gate is already failing.
+- **Green-verdict, and this one has no red anywhere** — confirmed in code, not derived from the
+  manifest. `gate --file <non-Go paths>`: `fileModeTestTargets` returns state (C)
+  `fileModeClaimsNothing` and `runFindingsEngine` **returns early before `runner.RunStdout`**
+  (`cmd/backstop/pack_gate.go:660-676`), so `go-test` is genuinely not dispatched and `cover.out`
+  is untouched. The skip is reported via `dispatchAdvisory`, whose `Severity` is `"warning"`
+  (`pack_gate.go:977-986`) — **non-blocking** by the pack severity contract. Meanwhile
+  `go-coverage` is `scope_kind: project-wide` and *not* `package_scoped`, so it dispatches
+  regardless, finds A's surviving stamp and A's untouched complete profile, and reports a
+  **green** verdict over a measurement of a tree that may since have changed.
+
+What still bounds it: the reused profile is always **complete**, never partial (option (b)
+refuses the partial case above); and it requires a prior invocation to have aborted abnormally
+between two dispatches. Closing it entirely would mean an unconditional `rm -f cover.out` at the
+head of `test-produce.sh`, which changes that script's semantics for every consumer and belongs
+in its own issue. It is recorded here as a known, bounded edge case, not fixed.
+
+### Version reasoning
+
+The bump is a **minor**, `v1.8.0`. The precedent is a shipped comment in
+`pkg/pack/engine/gotoolchain_installed_pack_singlerun_test.go`: a fix that "changes what a
+shipped engine executes ... is a behaviour change in a released rule path, not a patch." This
+fix changes what a shipped engine executes by strictly more than ISSUE-172's did — after it, the
+coverage engine stops running a whole test suite it currently always runs.
+
 ## Notes
 
 - Origin context: `PLAN-ISSUE-172` (closed 2026-08-19, delivered via `backstop-ai/go-toolchain`

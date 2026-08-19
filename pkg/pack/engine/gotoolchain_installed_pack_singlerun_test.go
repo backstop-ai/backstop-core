@@ -38,10 +38,23 @@ import (
 // diverged on both name and version.
 const installedGoToolchainPackName = "backstop-ai/go-toolchain"
 
-// preFixGoToolchainPackVersion is the version that carried the double run. The fix
-// ships as a MINOR bump above it: it changes what a shipped engine executes, which is
-// a behaviour change in a released rule path, not a patch.
-const preFixGoToolchainPackVersion = "1.6.0"
+// preFixGoToolchainPackVersion is the version that carried the BACKWARDS FRESHNESS
+// COMPARISON (ISSUE-179) — 1.7.0. That is a different defect from the one 1.6.0
+// carried: 1.6.0 ran the whole-module suite TWICE (ISSUE-172), and 1.7.0 shipped the
+// reuse mechanism that was supposed to remove the second run but compared the two
+// mtimes in the wrong direction, so the reuse never fired on a nanosecond-resolution
+// `-ot` and the second run came back on Linux with nothing red.
+//
+// The bar MOVED from 1.6.0 to 1.7.0 deliberately. The lock already pinned 1.7.0, so a
+// bar at 1.6.0 was ALREADY satisfied and could never red on this defect — a check that
+// cannot distinguish the good state from the bad one.
+//
+// The fix ships as a MINOR bump above it: it changes what a shipped engine executes,
+// which is a behaviour change in a released rule path, not a patch.
+//
+// It stays a BAR, not an equality pin — a later unrelated bump keeps this green; only a
+// revert below the fix reds it.
+const preFixGoToolchainPackVersion = "1.7.0"
 
 // goToolchainSharedProfile is the profile path the two engines must agree on. go-test
 // WRITES it (via -coverprofile) and go-coverage READS it (as its stdout_artifact); if
@@ -54,6 +67,20 @@ const goToolchainSharedProfile = "cover.out"
 // the `-ot` comparison pins the MECHANISM; asserting on a comment string would pin
 // prose, which drifts.
 const goToolchainFreshStampPath = ".backstop/go-coverage-fresh"
+
+// The two freshness comparisons, spelled EXACTLY as the producer spells them —
+// asymmetrically quoted, bare `cover.out` and quoted `"$stamp"`. The quoting is part of
+// the literal being matched, so a cosmetic re-quote in the script breaks these pins;
+// that is the intended sensitivity, since the operand ORDER is the mechanism and there
+// is no way to read it other than literally.
+const (
+	// goToolchainCorrectFreshnessTest is the direction a successful run actually
+	// produces: the profile is written first, so the stamp must be the newer file.
+	goToolchainCorrectFreshnessTest = `"$stamp" -ot cover.out`
+	// goToolchainBackwardsFreshnessTest is the ISSUE-179 defect: it demands the profile
+	// be no-older-than the stamp, which inverts the real write-then-touch order.
+	goToolchainBackwardsFreshnessTest = `cover.out -ot "$stamp"`
+)
 
 // TestInstalledGoToolchainPack_CarriesSingleRunConvention asserts the RELEASED pack
 // carries the single-run convention and that core actually consumes it.
@@ -150,10 +177,33 @@ func TestInstalledGoToolchainPack_CarriesSingleRunConvention(t *testing.T) {
 			"whole-module profile was already produced in this gate invocation and will re-run the suite",
 			installedGoToolchainPackName, goToolchainFreshStampPath)
 	}
-	if !strings.Contains(producer, "-ot") {
-		t.Errorf("installed %s coverage producer carries no `-ot` freshness comparison — without it a "+
-			"STALE profile could be reused, which is worse than re-running: it would report a coverage "+
-			"number that describes different code",
-			installedGoToolchainPackName)
+	// ★ A PRESENCE CHECK ON `-ot` WAS THE ASSERTION THAT LET ISSUE-179 SHIP. The
+	// backwards form and the correct form both contain `-ot`, so the old check was
+	// satisfied equally by a comparison that worked and one that could never fire — the
+	// exact "cannot distinguish the good state from the bad one" defect class this file
+	// exists to prevent. What must be pinned is the DIRECTION, and the direction lives
+	// in the OPERAND ORDER, not in a comment (comments are prose and drift).
+	if !strings.Contains(producer, goToolchainCorrectFreshnessTest) {
+		t.Errorf("installed %s coverage producer does not carry the freshness comparison %q. "+
+			"test-produce.sh writes cover.out and THEN touches the stamp, so on a genuine same-invocation "+
+			"success the STAMP is the newer of the two; the check must therefore ask whether the stamp is at "+
+			"least as new as the profile. Without it a STALE profile could be reused, which is worse than "+
+			"re-running: it would report a coverage number that describes different code (ISSUE-179)",
+			installedGoToolchainPackName, goToolchainCorrectFreshnessTest)
+	}
+	// ★ THIS READS THE WHOLE FILE, COMMENTS INCLUDED, AND THAT IS DELIBERATE. If this
+	// reds on a producer whose LIVE condition is correct, the offender is almost
+	// certainly a COMMENT quoting the old expression while explaining the fix. The
+	// remedy is to reword that comment in PROSE — "the previous check asked whether the
+	// profile was no older than the stamp" — and NEVER to weaken this check.
+	if strings.Contains(producer, goToolchainBackwardsFreshnessTest) {
+		t.Errorf("installed %s coverage producer still carries the BACKWARDS freshness comparison %q. "+
+			"test-produce.sh writes the profile and then touches the stamp, so demanding the profile be "+
+			"no-older-than the stamp asks for a state a successful run NEVER produces: the reuse ties by "+
+			"coincidence where `-ot` truncates to whole seconds and never fires at all where it reads "+
+			"nanoseconds, which is why CI run 32275399064 measured no improvement whatsoever (ISSUE-179). "+
+			"If the live condition here is already correct, this is a COMMENT quoting the old expression — "+
+			"reword the comment in prose rather than weakening this assertion",
+			installedGoToolchainPackName, goToolchainBackwardsFreshnessTest)
 	}
 }

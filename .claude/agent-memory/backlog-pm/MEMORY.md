@@ -44,3 +44,4 @@
 - [Linux-CI residual family](project_linux_ci_residual_family.md) — ★ 158/163/164/165/166/168/177 → DIR-024 on the loud-red test; ISSUE-177 measured it: surviving phase3 reds sit in TestMain-less pkgs; filings cite nonexistent paths
 - [Shared-tree git-status assertions](project_shared_tree_git_status_assertions.md) — purity tests over `git status` can't attribute across concurrent lanes; RUN them (reds are live), home by the mandating SPEC not the named package
 - [AST wiring guards assert spelling](project_ast_wiring_guards_assert_spelling.md) — ★ they false-red on any injectable-parameter hop; the "rename the param" fix is a VACUOUS GREEN (spelling ≠ provenance). Watch the exact callSites!=N tail
+- [Single-run reuse family](project_single_run_reuse_family.md) — ★ darwin `test -ot` ties at whole SECONDS and hides mtime-ordering bugs; the ISSUE-172 guard test AGES the stamp to fake a state production can't make. "Pack-only fix" is always wrong here

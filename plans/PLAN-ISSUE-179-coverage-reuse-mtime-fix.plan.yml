@@ -1,0 +1,1586 @@
+---
+plan_id: PLAN-ISSUE-179
+spec_id: ISSUE-179
+created: "2026-08-19"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./cmd/backstop/ -run TestGoToolchainSingleRun -race -count=1 -v && go test ./pkg/pack/engine/ -run TestInstalledGoToolchainPack -race -count=1 -v"
+coverage_threshold: 90
+
+notes: |
+  ══════════════════════════════════════════════════════════════════════════════
+  WHAT THIS PLAN FIXES, IN ONE PARAGRAPH
+  ══════════════════════════════════════════════════════════════════════════════
+  `backstop-ai/go-toolchain` v1.7.0's `scripts/coverage-produce.sh` asks
+  `[ ! cover.out -ot "$stamp" ]` — "reuse only if cover.out is NOT OLDER than the
+  stamp." `scripts/test-produce.sh` writes `cover.out` first and touches the stamp
+  after, in that order, in the same script. So `cover.out` is ALWAYS strictly
+  older, and the condition is directionally backwards: it can essentially never be
+  true at real timestamp precision. On Ubuntu (`/bin/sh` = dash, nanosecond
+  `-ot`) reuse never fires and PLAN-ISSUE-172's whole mechanism is a no-op on the
+  one platform it was built for. On darwin (`/bin/sh`, whole-second `-ot`) the
+  few-hundred-microsecond gap ties and the backwards check passes by coincidence,
+  which is exactly why it shipped green.
+
+  THIS PLAN SHIPS OPTION (b) — FLIP THE COMPARISON — NOT OPTION (a). The issue
+  offered both. (b) is the correct choice and the reasoning is CLM-006/CLM-007/
+  CLM-008 below; it is not a coin flip and the justification is load-bearing,
+  because (a) is the one the issue's own prose leans toward.
+
+  IT ALSO FIXES THE TEST THAT LET THIS SHIP. `cmd/backstop/gotoolchain_single_run
+  _test.go`'s `TestGoToolchainSingleRun_CoverageProducerReusesAFreshProfile`
+  FABRICATES the inverse of the production chronology — it ages the stamp back one
+  second with `os.Chtimes` so `cover.out` ends up NEWER — and therefore satisfies
+  the backwards check on every platform including Linux. That is why CI is green
+  today with a dead mechanism underneath. Fixing the script without fixing that
+  test would leave the defect's ACCOMPLICE in place (CLM-005).
+
+  ══════════════════════════════════════════════════════════════════════════════
+  EXISTENCE-IN-WORLD CHECK — RUN 2026-08-19, BEFORE ANY AUTHORING
+  ══════════════════════════════════════════════════════════════════════════════
+  Sweep (committed AND working tree), verbatim:
+
+      grep -rl "coverage-produce\|ISSUE-179\|coverage.reuse\|mtime" plans/ specs/ issues/
+      git status --porcelain plans/ specs/ issues/
+
+  15 artifact hits. Every one triaged:
+    · `plans/PLAN-ISSUE-172-...` — `status: completed`, AS-BUILT banner in place.
+      It SHIPPED the mechanism this plan repairs; it owns none of the repair. Its
+      surface is released and closed. NOT contended.
+    · `plans/PLAN-ISSUE-045-...` (created coverage-produce.sh), `-067`, `-112`,
+      `-140`, `-142`, `-144`, `-151`, `-160`, `PLAN-SPEC-017` — all reference the
+      producer as CONTEXT for other mechanisms (executor dispatch, crash_guard,
+      stdout_artifact, path scoping). None edits the freshness comparison. All
+      terminal or unrelated. NOT contended.
+    · `issues/ISSUE-068`, `-077`, `-145` — different mechanisms (double-run
+      origin, stale binary, go-build stderr). ISSUE-145 is delivered-but-open in
+      the SAME pack; it touches `scripts/build-produce.sh`, not this file. NOT
+      contended.
+    · Working tree: the ONLY untracked artifact under those three directories is
+      `?? plans/PLAN-ISSUE-179-coverage-reuse-mtime-fix.plan.yml` — this file, as
+      scaffolded. No same-day sibling draft claims this surface.
+
+  SUBSUMPTION CHECKED, NOT JUST NAME-MATCHING: no phase of any committed plan
+  delivers a corrected freshness comparison. PLAN-ISSUE-172's phase 3 delivered
+  the comparison AS WRITTEN — the defect — and its phase 6 close-out is done.
+  The surface is uncontended and this plan is the right vehicle.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  FOREGROUND EXECUTION IS MANDATORY — READ BEFORE TASK-001
+  ══════════════════════════════════════════════════════════════════════════════
+  Every long-running command in this plan — `docker build`/`docker run`, `go
+  test`, `./bin/backstop gate`, `pack check`, `pack update` — RUNS IN THE
+  FOREGROUND. Do NOT use `run_in_background`. A subagent backgrounding its own
+  long command stalled for 1h40m and again for 2h24m on 2026-08-19 waiting on
+  notifications that never arrived. Raise the tool timeout instead (`timeout`,
+  max 600000ms) and, if a command genuinely needs longer than ten minutes, SPLIT
+  IT rather than backgrounding it.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  WHAT IS AND IS NOT A FOUNDER CALL
+  ══════════════════════════════════════════════════════════════════════════════
+  NOT founder calls — do these without asking: reading the scripts, running the
+  Docker falsification, writing and running tests, editing the fixture, editing
+  the source pack locally, committing LOCALLY in the pack repo, `pack update`,
+  running the gate.
+
+  FOUNDER CALLS — this plan STOPS at exactly two, plus one WAIT:
+
+    ★ GATE 1 (TASK-001, phase 1) — CONFIRM THE FIX SHAPE. ONE DECISION, NOT TWO.
+      (b)-flip vs (a)-drop. This plan RECOMMENDS (b) with the CLM-006..008
+      argument and will implement (b) by default, but the issue's own Direction
+      section leans (a), so the divergence must be surfaced and signed off rather
+      than silently overridden. Report the reasoning and WAIT. An answer to a
+      scoping question is not authorization (CLAUDE.md).
+
+      ✔ ALREADY DECIDED — DO NOT RE-ASK: THE VERSION IS **v1.8.0**. An earlier
+      draft of this plan carried the version as a second open question at this
+      gate. It was raised in plan review and **the founder confirmed v1.8.0**
+      (CLM-013). It is hardcoded in TASK-006. Asking again burns a founder
+      round-trip on an answered question; treating "the founder may direct
+      v1.7.1" as live is reading a deleted sentence.
+
+    ★ GATE 2 (TASK-008, phase 3) — PUBLISHING THE PACK. Tagging and pushing to
+      `backstop-ai/go-toolchain` puts a version on a PUBLIC repo other consumers
+      install from, and a tag is not cheaply retractable. TASK-006 commits
+      LOCALLY and STOPS; TASK-007 reports; TASK-008 must not start without
+      explicit authorization.
+
+    ○ WAIT (TASK-013, phase 5) — the CI acceptance measurement needs the
+      founder's squash-merge to `main` to have happened. That is a WAIT on an
+      event, not a request for authorization: no permission is being asked for,
+      the task simply cannot run before the merge exists.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  CLAIM LEDGER — every claim is evidence re-derived for THIS plan, with citations
+  ══════════════════════════════════════════════════════════════════════════════
+
+  CLM-001 — THE COMPARISON IS BACKWARDS, IN ALL THREE TREES, AT THE SAME SHAPE.
+    Re-read at v1.7.0 on 2026-08-19, byte-identical in every copy:
+
+      SOURCE   /Users/bmanson/src/projects/backstop-go-toolchain-pack/
+               scripts/coverage-produce.sh:38
+      INSTALLED .backstop/packs/backstop-ai/go-toolchain/
+               scripts/coverage-produce.sh:38
+      FIXTURE  cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/
+               go-toolchain/scripts/coverage-produce.sh:38
+
+      if [ -f "$stamp" ] && [ -f cover.out ] && [ ! cover.out -ot "$stamp" ]; then
+
+    Three copies, one edit each, applied INDEPENDENTLY (CLM-012). The source repo
+    is at `main` == `v1.7.0` == `fb2b947`, tree clean (`git status --porcelain`
+    empty), tags `v1.7.0 v1.6.0 v1.5.0 v1.4.0 v1.3.0 v1.2.0`.
+
+  CLM-002 — THE PRODUCTION CHRONOLOGY IS write-cover.out-THEN-touch-stamp, BY
+    CONSTRUCTION AND WITHOUT EXCEPTION. `scripts/test-produce.sh` (source repo,
+    v1.7.0):
+      · line 37  `go "$@" 2>&1`      — the `-coverprofile=cover.out` run; the
+                                       profile's mtime is set here.
+      · line 38  `status=$?`
+      · lines 54-61 `case " $* " in *" ./... "*) if [ -f cover.out ]; then
+                     mkdir -p .backstop; : > .backstop/go-coverage-fresh; fi ;;`
+                                     — the stamp's mtime is set HERE, strictly
+                                       after.
+    There is no code path in which the stamp is written before `cover.out`.
+    Therefore, on a success, `mtime(cover.out) <= mtime(stamp)` ALWAYS, with
+    equality only when the clock is too coarse to separate them. The shipped
+    check asks for `mtime(cover.out) >= mtime(stamp)`, which is true ONLY in the
+    equality case. That is the defect, stated as an inequality.
+
+  CLM-003 — DARWIN MASKS IT, AND THE MASKING WAS MEASURED FOR THIS PLAN, NOT
+    ASSUMED. Ran on darwin 23.6.0 on 2026-08-19, reproducing the production
+    chronology (`: > cover.out; : > stamp`) and evaluating BOTH candidate checks
+    under `/bin/sh`:
+
+      cover.out  1787159303.970045143
+      stamp      1787159303.970261900        (delta = +216.757 microseconds)
+      CURRENT(backwards): REUSE
+      OPTION-B  (flipped): REUSE
+
+    The raw nanosecond fields prove `cover.out` is STRICTLY OLDER — the true
+    ordering CLM-002 predicts — while macOS's `/bin/sh` `-ot` reports REUSE for
+    the backwards check anyway, because it truncates both to the same whole
+    second. This is the coincidence that made PLAN-ISSUE-172's darwin
+    verification structurally incapable of catching the bug. Note the second
+    line: OPTION (b) also reports REUSE here, i.e. the flip does NOT regress the
+    darwin behaviour that already (accidentally) worked.
+
+  CLM-004 — `ubuntu-latest` IS ubuntu-24.04 AND ITS `/bin/sh` IS dash, SO THE
+    DOCKER BASE IMAGE IS `ubuntu:24.04`. Cited from this repo's own captured
+    runner probe, not from memory: `pkg/packval/testdata/ubuntu-runner-probe.txt`
+    line 13 (`runner image label ubuntu-24.04, Image Version 20260720.247.2
+    (ubuntu-latest)`) and line 108 (`Image: ubuntu-24.04`). `.github/workflows/
+    ci.yml:26` and `:248` both declare `runs-on: ubuntu-latest`. TASK-001
+    CONFIRMS `readlink -f /bin/sh` inside the image resolves to dash rather than
+    asserting it.
+
+  CLM-004b — SHELL PRECISION IS A PROPERTY OF THE SHELL BUILD ON THAT PLATFORM,
+    NOT OF THE SHELL'S NAME. MEASURED ON DARWIN 23.6.0, 2026-08-19, production
+    chronology (`: > cover.out; : > stamp`), both candidate conditions:
+
+      /bin/sh    CURRENT=REUSE      FLIPPED=REUSE
+      /bin/dash  CURRENT=REUSE      FLIPPED=REUSE      ★ macOS dash TIES
+      /bin/bash  CURRENT=REUSE      FLIPPED=REUSE
+      /bin/zsh   CURRENT=NO-REUSE   FLIPPED=REUSE      ★ real local falsifier
+      /bin/ksh   CURRENT=NO-REUSE   FLIPPED=REUSE      ★ real local falsifier
+
+    ★ THE OBVIOUS INFERENCE IS WRONG AND WAS CORRECTED BY MEASUREMENT. "dash is
+    the precise one" is FALSE as a general statement: macOS's own `/bin/dash`
+    truncates to whole seconds exactly like `/bin/sh` and `/bin/bash`. What
+    varies is whether a given shell's `test` builtin reads the seconds field or
+    the nanoseconds field of `stat` AS BUILT FOR THAT PLATFORM. Ubuntu's dash
+    reads nanoseconds (that is why CI fails); macOS's dash does not. On darwin
+    it is `zsh` and `ksh` that read nanoseconds.
+    CONSEQUENCE, AND IT IS THE WHOLE REASON THIS CLAIM EXISTS: a shell matrix of
+    {sh, dash, bash} is GREEN ON DARWIN TODAY WITH THE DEFECT FULLY LIVE — it
+    proves nothing locally. Adding `zsh` and `ksh` is what turns the matrix into
+    an actual local falsifier on the authoring machine, which was the stated
+    design goal all along. Do not "simplify" the matrix back to POSIX shells.
+
+  CLM-005 — THE SHIPPED CORE TEST FABRICATES THE INVERSE CHRONOLOGY. THIS IS WHY
+    CI IS GREEN OVER A DEAD MECHANISM.
+    `cmd/backstop/gotoolchain_single_run_test.go`, inside
+    `TestGoToolchainSingleRun_CoverageProducerReusesAFreshProfile`:
+
+      profile := filepath.Join(project, "cover.out")
+      os.WriteFile(profile, ...)                    // cover.out written first
+      stamp := filepath.Join(project, filepath.FromSlash(goCoverageFreshStamp))
+      os.WriteFile(stamp, nil, 0o644)               // stamp written second
+      older := time.Now().Add(-1 * time.Second)
+      os.Chtimes(stamp, older, older)               // ★ stamp AGED BACKWARDS 1s
+
+    Its own comment states the intent: "a deliberate mtime nudge so cover.out is
+    NOT older than the stamp, which is the freshness relation the producer
+    tests." It pins the WRONG relation. Production never produces that state on
+    a success path; the test manufactures it, and a one-SECOND inversion is
+    coarse enough to satisfy the backwards check under dash as well as under
+    macOS sh. The test is therefore green on Linux while the mechanism it
+    "guards" is a no-op on Linux. Rewriting this test body is not optional
+    cleanup — it is half the fix.
+
+    ★ WHY THE NAME IS KEPT — AND THE MECHANICAL JUSTIFICATION THAT DOES *NOT*
+    APPLY. An earlier draft of this plan asserted that the name is "a mandated
+    test of the completed PLAN-ISSUE-172" and that renaming it would red
+    `artifact_status_drift` as a broken promise. THAT IS FALSE, and it was
+    checked rather than assumed. A plan's mandated-test set is derived
+    (`pkg/gate/artifact_status.go:274-464`) from `test_names:` declared on its
+    tasks UNIONED with the tests attached to claims on its SOURCE artifact.
+    Measured 2026-08-19:
+      · `grep -c test_names plans/PLAN-ISSUE-172-...plan.yml` -> 0
+      · `issues/ISSUE-172-...issue.md` declares no `claims:` block at all
+    So PLAN-ISSUE-172's mandated set is EMPTY. Deleting or renaming that test
+    would red NOTHING. Keeping the name is a deliberate CONTINUITY decision — it
+    is the identifier every reader, commit message and prior plan uses for this
+    guard, and churning it would sever that thread for no gain — but it is a
+    judgement call, not a gate constraint, and this plan must not dress it up as
+    one. See CLM-017 for the enforcement gap this exposes and how THIS plan
+    closes it for its own guards.
+
+  CLM-006 — OPTION (a) IS REFUTED BY A REACHABLE STATE. THE "rm -f MAKES A STALE
+    STAMP IMPOSSIBLE" ARGUMENT DOES NOT HOLD, AND I CHECKED THE SCRIPT RATHER
+    THAN TAKING IT ON TRUST.
+    The consumption is real but CONDITIONAL ON THE PRODUCER RUNNING AT ALL:
+    `coverage-produce.sh:41` `rm -f "$stamp"` executes on both branches of the
+    `if` — but only if line 41 is reached. Enumerate the escape:
+
+      1. Gate invocation A runs project-wide. `test-produce.sh` writes a COMPLETE
+         `cover.out` and touches the stamp (CLM-002).
+      2. Invocation A terminates before the coverage step consumes it — Ctrl-C, a
+         CI job timeout, an OOM kill, or any fatal abort between the pack_engines
+         test dispatch and the coverage dispatch. The stamp SURVIVES on disk.
+         (`.gitignore` carries `.backstop/go-coverage-fresh`, so it is invisible
+         to `git status` and nothing prompts anyone to clean it up.)
+      3. Gate invocation B runs FILE-SCOPED — `./bin/backstop gate --file <path>`
+         EXPLICITLY, not the bare diff-scoped default. State it that way and
+         reproduce it that way: ISSUE-179 itself RULES OUT diff-mode as the
+         narrowing path ("code-confirmed `GateScopeModeDiff` never triggers the
+         file-mode narrowing path… CI's actual scope showed `scope.Mode=diff
+         files=46`, never file mode"), so an implementer who reads "file-scoped"
+         as "the default `gate`" will fail to reproduce a claim that is real and
+         correct, and may wrongly conclude the enumeration is wrong.
+         `go-test` declares
+         `package_scoped: true`, so the dispatch narrows the target to the
+         changed packages and the run OVERWRITES `cover.out` with a PARTIAL
+         profile. `test-produce.sh`'s `case " $* " in *" ./... "*` does NOT match,
+         so invocation B deliberately writes NO stamp — the leftover from A is
+         still the only stamp on disk.
+      4. `coverage-produce.sh` now sees a stamp AND a `cover.out`.
+
+    UNDER OPTION (a) — presence-only — step 4 REUSES A PARTIAL PROFILE. Every
+    unmeasured file reads as absent and the coverage dimension returns an
+    incomplete measurement with nothing red. That is precisely the silent-
+    narrowing outcome `test-produce.sh`'s own `./...` guard exists to prevent
+    (its lines 47-53: "Stamping a partial profile as reusable would hand the
+    coverage dimension an incomplete measurement… which is exactly the silent-
+    narrowing class this tool exists to prevent"). Option (a) reintroduces
+    through the back door the exact failure that guard was written to block.
+
+  CLM-007 — OPTION (a) WOULD ALSO FORCE WEAKENING A SHIPPED GUARD, WHICH IS THE
+    ONE THING NEVER PERMITTED. `pkg/pack/engine/gotoolchain_installed_pack_
+    singlerun_test.go` LEG 3 asserts, against the INSTALLED tree:
+
+      if !strings.Contains(producer, "-ot") {
+        t.Errorf("installed %s coverage producer carries no `-ot` freshness
+          comparison — without it a STALE profile could be reused, which is worse
+          than re-running: it would report a coverage number that describes
+          different code", ...)
+
+    Option (a) deletes the `-ot` comparison, so this assertion goes red, and the
+    only way to green it is to delete the assertion. Deleting a shipped guard to
+    make a change pass is hacking the gate green (CLAUDE.md). Option (b) keeps
+    the comparison and therefore keeps the guard — and CLM-010 STRENGTHENS it.
+
+  CLM-008 — OPTION (b) IS CORRECT IN EVERY STATE, TIES INCLUDED. The new check is
+
+      [ -f "$stamp" ] && [ -f cover.out ] && [ ! "$stamp" -ot cover.out ]
+
+    Let C = mtime(cover.out), S = mtime(stamp). `-ot` is STRICTLY older.
+
+      STATE 1 — same-run success, fine clock: C < S (CLM-002).
+                `S -ot C` false -> `!` -> TRUE -> REUSE.   ✓ correct
+      STATE 2 — same-run success, coarse clock: C == S (CLM-003, darwin).
+                `S -ot C` false -> `!` -> TRUE -> REUSE.   ✓ correct, and
+                identical to today's accidental darwin behaviour, so nothing
+                that currently works regresses.
+      STATE 3 — CLM-006's stale stamp + freshly-written PARTIAL profile: S < C.
+                `S -ot C` TRUE -> `!` -> FALSE -> NO REUSE. ✓ correct, and this
+                is the state option (a) CANNOT refuse and today's backwards check
+                ALSO cannot refuse (today: `!(C -ot S)` = `!false` = reuse).
+                Option (b) is strictly safer than BOTH the status quo and (a).
+      STATE 4 — no stamp at all: short-circuited by `[ -f "$stamp" ]`.
+                NO REUSE -> slow-but-correct.               ✓ correct
+
+    The flip is one comparison, no new branches, no new files, and it moves the
+    behaviour from "never reuses on Linux" to "reuses exactly when a whole-module
+    profile was produced in this invocation."
+
+  CLM-009 — THE ONE RESIDUAL OPTION (b) DOES NOT CLOSE, STATED HONESTLY AND
+    BOUNDED. If invocation A leaves both a stamp and a COMPLETE `cover.out`
+    (CLM-006 steps 1-2), and invocation B's `go test` fails to WRITE a profile at
+    all — a compile or vet failure produces no `-coverprofile` output — then
+    `cover.out` is still A's file and C < S holds, so option (b) REUSES A's
+    profile.
+
+    ★ THE BOUND IS WIDER THAN "BUILD-BROKEN", AND THE HONEST STATEMENT INCLUDES A
+    GREEN-VERDICT CASE. The general shape is: A's stamp survives, and invocation
+    B does not OVERWRITE `cover.out`. A compile failure is one way to get there.
+    A SECOND, REACHABLE WAY HAS NO RED ANYWHERE: invocation B is
+    `gate --file <non-Go paths>`. `go-test` is `package_scoped: true`, so a
+    narrowed target set containing no Go packages gives it nothing to dispatch,
+    while `go-coverage` is `scope_kind: project-wide` with `input_mode: none` and
+    dispatches regardless — so the coverage producer runs, finds A's surviving
+    stamp and A's untouched complete profile, and reuses a measurement of a tree
+    that may since have changed, reporting a GREEN verdict. That case is NOT
+    covered by "the gate is already failing" and must not be described as if it
+    were. ★ CONFIRM THE DISPATCH-SKIP CONDITION AT IMPLEMENTATION TIME rather
+    than trusting this paragraph: the claim that a zero-Go-package narrowed set
+    actually skips the `go-test` dispatch is derived from the manifest flags, not
+    measured.
+
+    What still bounds it, in both variants:
+      · The profile reused is COMPLETE (whole-module from A), never PARTIAL. The
+        dangerous case — a partial profile silently reported as a full
+        measurement — is CLM-006's, and option (b) refuses that one.
+      · It requires a prior invocation to have ABORTED between the test dispatch
+        and the coverage dispatch. That is an abnormal termination, not a normal
+        run.
+      · Today's backwards check refuses these cases only because it refuses EVERY
+        case; that is not a safety property, it is the defect. Option (b) remains
+        strictly safer than both the status quo and option (a) — this widened
+        bound does not change the decision, it corrects the record.
+    This is the same family as the "residual stamp-crash window" PLAN-ISSUE-172
+    documented and accepted. Option (b) does not widen that window: 172's window
+    is cover.out-written-then-crash-BEFORE-the-stamp, which yields no stamp, no
+    reuse, and no harm — untouched by this change.
+    ★ SURFACE THIS AT GATE 1, DO NOT SELF-TRIAGE. Closing it would mean an
+    unconditional `rm -f cover.out` at the head of `test-produce.sh`, which
+    changes that script's semantics for every consumer and belongs in its own
+    issue if the founder wants it. This plan does not do it.
+
+  CLM-010 — THE `-ot` PIN IS TOO WEAK TO SURVIVE THIS FIX AND MUST BECOME A
+    DIRECTION PIN. `strings.Contains(producer, "-ot")` (CLM-007) is satisfied by
+    the backwards form and the correct form alike — it is exactly the assertion
+    that let a directionally-wrong comparison ship. It must be replaced by a pin
+    that reads the DIRECTION: require the corrected operand order and FORBID the
+    backwards one. Forbid the OPERAND SHAPE, not a prose fragment: assert the
+    producer does NOT contain `cover.out -ot "$stamp"` and DOES contain
+    `"$stamp" -ot cover.out`. A comment-string assertion would pin prose, which
+    drifts; the operand order is the mechanism.
+
+    ★ THE SAME TRAP SWALLOWS THE SHELL-MATRIX TEST IF ITS CONDITION IS HARDCODED,
+    AND BOTH WAYS OF HARDCODING IT ARE WRONG. If the Go test embeds the FLIPPED
+    condition as a literal, every shell reports REUSE from the moment it is
+    written: permanently green, incapable of distinguishing a fixed producer from
+    a defective one — this claim's own defect class, reproduced inside the test
+    written to prevent it. If it embeds the BACKWARDS condition, it reds at
+    TASK-002 as intended and then stays red forever, because no later task edits
+    a Go literal — TASK-003's file scope is the fixture SCRIPT. The only
+    implementation consistent with this plan's stated red-at-TASK-002 /
+    green-at-TASK-003 trajectory is one that READS the condition OUT OF THE
+    FIXTURE PRODUCER SCRIPT at run time and evaluates what it found. TASK-002
+    specifies the extraction, its anchors, and the mandatory hard-fail when the
+    extraction matches nothing.
+
+  CLM-011 — THE VERSION BAR CONSTANT MUST MOVE 1.6.0 -> 1.7.0 OR THE LOCK LEG IS
+    VACUOUS. `pkg/pack/engine/gotoolchain_installed_pack_singlerun_test.go`
+    declares `preFixGoToolchainPackVersion = "1.6.0"` and asserts
+    `semverGreater(entry.Version, preFix)`. The lock already pins 1.7.0, so that
+    bar is ALREADY satisfied and cannot red on this defect. The constant names
+    "the version that carried the double run"; the version that carries the
+    BACKWARDS COMPARISON is 1.7.0. Move the constant to "1.7.0" and rewrite its
+    comment to name ISSUE-179. It stays a BAR, not a pin — a later unrelated bump
+    keeps it green; only a revert below the fix reds it.
+
+  CLM-012 — THE CORE FIXTURE IS A FROZEN, DELIBERATELY DIVERGED SNAPSHOT. APPLY
+    THE SAME SEMANTIC EDIT INDEPENDENTLY; NEVER COPY OR RSYNC. Inherited verbatim
+    from PLAN-ISSUE-172 CLM-013 and re-verified 2026-08-19:
+      · fixture `name: backstop/go-toolchain`, `version: 1.1.0`
+        (`cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/
+        go-toolchain/pack.yml:2`); source `backstop-ai/go-toolchain`, `"1.7.0"`.
+      · the fixture's `coverage-produce.sh` predates the v1.3.0 consumer-
+        exclusions block, so the two files differ by ~43 lines BELOW the reuse
+        check while lines 36-41 are byte-identical.
+    The fixture is the root of the ENTIRE go-toolchain test corpus
+    (`goToolchainPackRoot`/`goToolchainManifest` in
+    `cmd/backstop/pack_gate_gotoolchain_test.go`), so a copy would silently
+    rename the fixture pack, jump 1.1.0 -> 1.8.0 and import a feature — a large
+    uncontrolled change to the corpus root dressed as tidiness. Edit ONE LINE in
+    each tree, by hand, in separate tasks (TASK-003 fixture, TASK-006 source).
+    The other two fixture copies remain out of scope, unchanged from 172's
+    verification: `cmd/backstop/testdata/classifier-e2e/...` declares
+    `go-coverage` only, `cmd/backstop/testdata/spec045-discovery/...` neither.
+
+  CLM-013 — THE BUMP IS A MINOR (v1.8.0) BY THIS REPO'S OWN RECORDED PRECEDENT,
+    AND THE TAG MUST EQUAL THE MANIFEST VERSION EXACTLY. The precedent is a
+    SHIPPED comment, not an opinion — `pkg/pack/engine/gotoolchain_installed_
+    pack_singlerun_test.go`, on `preFixGoToolchainPackVersion`: "The fix ships as
+    a MINOR bump above it: it changes what a shipped engine executes, which is a
+    behaviour change in a released rule path, not a patch." This fix changes what
+    a shipped engine executes by strictly more than 172's did — after it, the
+    coverage engine STOPS running a whole test suite it currently always runs. By
+    the repo's own stated rule that is a MINOR: **v1.8.0**.
+
+    ★ DECIDED — NOT AN OPEN QUESTION. The dispatching brief presumed v1.7.1; that
+    presumption is contradicted by the shipped comment above. The divergence was
+    surfaced and **the founder confirmed v1.8.0 during plan review**. The target
+    version is therefore FIXED at `1.8.0` and is hardcoded in TASK-006. Nothing
+    in this plan asks about it again, and no task may read v1.7.1 as still live.
+
+    Mechanics, unchanged: pack version resolution is git-tag-based, the pack repo
+    runs a `tag-integrity` workflow asserting tag == `pack.yml` version on tag
+    push, and an untagged bump is uninstallable.
+
+  CLM-014 — THE FALSIFIER SURFACE, AND THE ATTRIBUTION BASELINE. The pack
+    declares NO `fixtures:` block, so `pack test` phase 3 has nothing to execute
+    against these scripts — `pack test` is not the falsifier here and must not be
+    quoted as one. The falsifier surface is three-legged:
+      (1) the Docker/dash run of the real script under the real chronology
+          (TASK-001 RED, TASK-004/TASK-007 GREEN),
+      (2) the core Go tests (TASK-002, TASK-005),
+      (3) `./bin/backstop pack check <source repo>` for the manifest edit.
+    BASELINE, carried from PLAN-ISSUE-172 CLM-014 and to be RE-MEASURED in
+    TASK-007 rather than assumed: `pack check` on the source repo -> `status:
+    pass`, exit 0, and EXACTLY TWO pre-existing `WARN [phase2-coherence/
+    exempt-scope-decision]` lines (one `go-coverage`, one `golangci`). Those two
+    WARNs are INHERITED; their persistence is not a regression and their
+    disappearance is not this plan's win.
+
+  CLM-015 — THE ACCEPTANCE MEASUREMENT IS A RATIO ON CI, AGAINST A NAMED
+    COUNTERFACTUAL. Pre-fix, from ISSUE-179's own evidence: CI run
+    `32275399064` (commit `2f8fa89` on `main`) measured `coverage_threshold` at
+    602500ms, against a pre-172 baseline of ~612000ms — i.e. 172 bought nothing.
+    PLAN-ISSUE-172's local darwin reading was `coverage_threshold` 294530ms ->
+    2211ms (~133x). Acceptance for THIS plan is a comparable collapse in the CI
+    number.
+    ★ TWO MEASUREMENT TRAPS, BOTH PREVIOUSLY PAID FOR:
+      · SCOPE MISMATCH. Quote only readings of the SAME scope. CI's invocation is
+        `./bin/backstop gate --base "$BASE" --json-out gate-report.json`
+        (`.github/workflows/ci.yml`), so before and after are both diff-scoped
+        and directly comparable. Do NOT compare a CI `--base` number to a local
+        `--all` number, and do NOT quote the ratio without naming the scope.
+      · BRANCH-vs-MAIN. A "post-merge run" is very often a PR-BRANCH run. Check
+        `headSha` against the actual merge commit on `main` before calling a run
+        post-merge, and cite `32275399064` explicitly as the pre-fix
+        counterfactual.
+
+  CLM-017 — THIS PLAN MUST DECLARE `test_names:`, OR IT REPRODUCES THE EXACT
+    WEAK-PIN FAILURE IT EXISTS TO FIX, ONE LEVEL UP.
+    CLM-005 establishes that PLAN-ISSUE-172 declared no `test_names:` and its
+    source issue no `claims:`, so its mandated set is EMPTY and its guards are
+    pinned by nothing — which is precisely how a directionally-wrong comparison
+    and a fabricated-chronology test both survived a `completed` plan. A plan
+    that ships new guards and declares no `test_names:` is in the same position:
+    once it flips to `completed`, `status_drift` and `test_verification` have no
+    promise to adjudicate, and its guards can be deleted with nothing red. That
+    is the same defect class as CLM-010's `-ot`-presence pin — a check that
+    cannot distinguish the good state from the bad one.
+    THEREFORE this plan declares `test_names:` on every task that delivers a
+    guard: TASK-002 (`TestGoToolchainSingleRun_CoverageProducerReusesAFreshProfile`
+    and `TestGoToolchainSingleRun_CoverageProducerReuseIsShellPrecisionIndependent`)
+    and TASK-005 (`TestInstalledGoToolchainPack_CarriesSingleRunConvention`).
+    ★ THIS IS WHAT MAKES THE NAME-PRESERVATION DECISION LOAD-BEARING GOING
+    FORWARD. It was NOT enforced for 172 (CLM-005) and IS enforced from this plan
+    onward: after this plan reaches `completed`, renaming or deleting any of
+    those three tests is a real broken promise with a real red, adjudicated by
+    the gate rather than by a reviewer's memory.
+
+  CLM-016 — THE GATES AND THE CLOSE-OUT ORDER. The two founder gates and the one
+    wait are enumerated in "WHAT IS AND IS NOT A FOUNDER CALL" above; recorded as
+    a claim so they are mapped to tasks and cannot evaporate as prose. The
+    close-out order is fixed and non-negotiable (TASK-014): this plan flips to
+    `completed` FIRST, because `delivered_by: PLAN-ISSUE-179` on the issue
+    requires a COMPLETED backing plan; the ISSUE-179 close follows; artifact
+    re-validation runs AFTER both mutations, never before (TASK-015). The AS-BUILT
+    banner is prepended and the phases/tasks/claims below it are NEVER rewritten.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  WHAT "RED" MEANS HERE — read before TASK-001 and TASK-002
+  ══════════════════════════════════════════════════════════════════════════════
+  This is a shell-script behaviour fix, so the REDs do not look like a Go
+  feature's. There are THREE kinds and they are not interchangeable.
+
+  KIND (i) — THE SHELL-LEVEL FALSIFICATION (TASK-001). Not a Go test. The real
+      `coverage-produce.sh` reuse condition, evaluated under `ubuntu:24.04`'s
+      `/bin/sh` (dash) against the REAL production chronology, must print
+      NO-REUSE, and the same condition under darwin's `/bin/sh` must print REUSE.
+      The RED is the divergence between those two lines plus the nanosecond
+      `stat` fields proving the true ordering. A `docker: ... 500 Internal Server
+      Error` is NOT this RED — that is a dead Docker daemon; fix it and re-run.
+
+  KIND (ii) — A GENUINELY-FAILING NEW GO ASSERTION (TASK-002 legs 1 and 3, the
+      shell-matrix test's `zsh`/`ksh` rows, and TASK-005). Real assertion output,
+      printed by a test that compiled and ran.
+      ★ A COMPILE ERROR, PANIC, OR SKIP IS NOT THIS RED. If the file does not
+      build, or a leg SKIPS because a shell or the pack fleet is absent, that is
+      a defect in the test or the environment — fix it and re-observe an actually
+      -running failure before proceeding. Record the verbatim failure text.
+
+  KIND (iii) — A SHELL-CONDITIONAL RED THAT CANNOT FAIL ON THE AUTHORING MACHINE
+      (TASK-002 leg 2, and the shell-matrix test's `sh`/`dash`/`bash` rows).
+      Leg 2 runs under `/bin/sh`; on darwin that ties at whole seconds and PASSES
+      today with the defect live (CLM-003). It is RED only where `/bin/sh` reads
+      nanoseconds — i.e. on CI's ubuntu-24.04. Likewise the shell-matrix test's
+      POSIX rows: CLM-004b MEASURED macOS `/bin/dash` and `/bin/bash` tying just
+      like `/bin/sh`, so "install dash locally and it will red" is FALSE and must
+      not be attempted as a debugging step.
+      ★ DO NOT WAIT FOR A RED THAT CANNOT HAPPEN, AND DO NOT EDIT A TEST UNTIL IT
+      REDS. That is the worst available outcome — it manufactures a green over a
+      broken mechanism, which is this defect's entire family. What MUST be seen
+      red locally is leg 1, leg 3, the matrix's `zsh`/`ksh` rows, and TASK-005 —
+      all kind (ii). Report which legs went red WHERE; never report "all legs
+      red" from a machine where some of them structurally cannot be.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  THE REGRESSION TEST DESIGN — why it is built this way
+  ══════════════════════════════════════════════════════════════════════════════
+  The issue asks for a test that "exercises FULL sub-second timestamp precision,
+  not something that could tie on a coarse clock." Sub-second precision alone is
+  necessary but NOT sufficient, and aiming only at it would leave the test unable
+  to fail on a darwin workstation — which is how this shipped. The design instead
+  makes the primary falsifier precision-INDEPENDENT and adds precision-SENSITIVE
+  legs on top:
+
+    LEG 1  production_chronology_coarse_visible — PRIMARY, PLATFORM-INDEPENDENT.
+           Sets the mtimes EXPLICITLY with `os.Chtimes`: cover.out at T-2s, stamp
+           at T. That is the TRUE production DIRECTION (CLM-002) at a magnitude
+           two whole seconds wide, so even a whole-second `-ot` resolves it
+           correctly. RED on darwin AND on Linux today; GREEN on both after the
+           flip. This is the leg that makes the defect catchable on the machine
+           it was written on.
+    LEG 2  production_chronology_subsecond — PRECISION-SENSITIVE. Natural
+           write-then-touch with NO chtimes, i.e. the real few-hundred-microsecond
+           gap CLM-003 measured. Kind (iii) red. Pins the real production
+           magnitude, which leg 1 deliberately exaggerates.
+    LEG 3  stale_stamp_older_than_profile_is_refused — THE PROPERTY OPTION (b)
+           BUYS. Stamp at T-2s, cover.out at T: CLM-006's reachable state. Asserts
+           NO reuse and that the suite IS re-run. This leg is the OLD test's
+           fabricated scenario with its expectation INVERTED — the same state,
+           correctly labelled. RED today (today's check reuses it).
+
+  All three live INSIDE the existing name
+  `TestGoToolchainSingleRun_CoverageProducerReusesAFreshProfile` as `t.Run`
+  subtests. DO NOT INVENT A NEW TOP-LEVEL NAME FOR THEM — but understand WHY, and
+  do not repeat the wrong reason. The name is kept for CONTINUITY: it is the
+  identifier every commit message, prior plan and reader uses for this guard.
+  It is NOT currently gate-enforced — PLAN-ISSUE-172 declares no `test_names:`
+  and ISSUE-172 no `claims:`, so 172's mandated set is empty and renaming this
+  test would red nothing today (CLM-005). THIS PLAN CHANGES THAT: TASK-002
+  declares both names in `test_names:`, so from this plan's `completed` onward
+  the promise is real and machine-checked (CLM-017). Its BODY is rewritten; its
+  NAME survives.
+
+  ONE new top-level test is added, for the dimension the old file had none of:
+  `TestGoToolchainSingleRun_CoverageProducerReuseIsShellPrecisionIndependent` —
+  it runs the reuse CONDITION (not the whole producer script) under every shell
+  it can resolve, at the real sub-second magnitude, and asserts every resolved
+  shell agrees on REUSE.
+
+  ★ THE CONDITION IS READ OUT OF THE FIXTURE SCRIPT AT RUN TIME, NEVER HARDCODED
+  IN GO. A hardcoded flipped condition is permanently green and cannot tell a
+  fixed producer from a broken one; a hardcoded backwards condition is
+  permanently red, because no task in this plan edits a Go literal. Extraction is
+  the only shape that goes red at TASK-002 and green at TASK-003. TASK-002 names
+  the anchors (`stamp=` through the first `fi`) and requires a HARD FAIL if the
+  extraction matches nothing — a silent fallback would let a future reshaping of
+  the producer vacuum this test with no signal. See CLM-010.
+
+  ★ THE SHELL LIST IS `sh`, `dash`, `bash`, `zsh`, `ksh`, `busybox sh` — AND
+  `zsh`/`ksh` ARE THE POINT. An earlier draft listed only the POSIX shells on a
+  false premise ("dash is the precise one"). CLM-004b measured it: macOS's
+  `/bin/dash` ties at whole seconds exactly like `/bin/sh` and `/bin/bash`, so
+  that matrix is GREEN ON DARWIN TODAY WITH THE DEFECT LIVE — it could not fail
+  where it was being written. On darwin, `zsh` and `ksh` are the shells that read
+  nanoseconds, and both report NO-REUSE under the buggy check and REUSE after the
+  flip. With them in, the matrix is a genuine local falsifier; without them it is
+  decoration. On CI's ubuntu-24.04, `/bin/sh` IS dash and reads nanoseconds, so
+  the same test also runs for real on the platform that matters, forever.
+
+  It must FAIL — not skip — if it resolves fewer than one shell, and it must LOG
+  the resolved shell list with each shell's verdict, so a green can never be
+  vacuous and so a future reader can see immediately which shells were probed.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  SHARP EDGES
+  ══════════════════════════════════════════════════════════════════════════════
+   1. `go test -run <name>` EXITS 0 WHEN THE PATTERN MATCHES NOTHING. A typo in a
+      test name is a silent pass. Every task that runs a named test runs it with
+      `-v` and CONFIRMS the `--- PASS:`/`--- FAIL:` line for each expected name
+      (subtests included) appears in the output. "The command exited 0" is not
+      evidence a test ran.
+   2. THREE COPIES, THREE INDEPENDENT EDITS (CLM-012). Never `cp`/`rsync` between
+      the source pack, the installed tree, and the fixture. The installed tree is
+      NEVER hand-edited at all — it is refreshed only by `pack update` (TASK-010).
+      Hand-editing `.backstop/packs/**` produces a content-hash mismatch that
+      looks exactly like tampering.
+   3. THE STAMP IS GITIGNORED. `.backstop/go-coverage-fresh` is in `.gitignore`,
+      so a leftover from an aborted run is invisible to `git status`. When
+      hand-testing, `rm -f .backstop/go-coverage-fresh` between runs or the second
+      run reads the first run's stamp and the observation is meaningless.
+   4. DO NOT TOUCH `test-produce.sh`. Its exit-status propagation is the single
+      most dangerous line in this mechanism (PLAN-ISSUE-172 CLM-012: get it wrong
+      and every failing suite reads GREEN) and it is guarded by
+      `TestGoToolchainSingleRun_TestProducerPropagatesFailureExit`. Nothing in
+      this plan requires editing it. If a task's diff shows it modified, STOP.
+   5. THE `-ot` OPERANDS ARE ASYMMETRICALLY QUOTED IN THE REAL SCRIPT — `cover.out`
+      is bare, `"$stamp"` is quoted. The flipped line keeps that exact spelling
+      (`[ ! "$stamp" -ot cover.out ]`) because CLM-010's forbid-assertion matches
+      on the literal operand shape. A cosmetic re-quote breaks the guard.
+   6. TAG MUST EQUAL `pack.yml` VERSION EXACTLY, and `git fetch --tags origin`
+      runs BEFORE any ahead/behind judgement — a stale view can strand a tag
+      unreachable from `main`.
+   7. DOCKER MOUNTS INTO A THROWAWAY DIRECTORY, NEVER THE REPO OR THE PACK REPO.
+      The falsification writes `cover.out` and a stamp; mounting a real tree
+      would dirty it and could collide with a concurrent agent. Use the
+      scratchpad, and keep `git status --porcelain` clean in both repos.
+   8. FOREGROUND ONLY. See the banner. No `run_in_background`, for any command,
+      at any point in this plan.
+   9. ★ THE CORRECTED COMMENT MUST NOT QUOTE THE OLD EXPRESSION VERBATIM. Both
+      TASK-003 and TASK-006 rewrite the block comment to explain that the
+      previous comparison was backwards, and the natural way to write that
+      sentence is to quote the old expression. DESCRIBE IT IN PROSE INSTEAD
+      ("the previous check asked whether the profile was no older than the stamp,
+      which inverts the real write-then-touch order").
+      ★ THE REASON DIFFERS BY FILE, AND ONLY ONE OF THEM IS MECHANICAL — DO NOT
+      STATE THE MECHANICAL ONE WHERE IT IS FALSE:
+        · SOURCE PACK / INSTALLED TREE (TASK-006) — MECHANICAL AND REAL.
+          TASK-005's guard forbids the literal `cover.out -ot "$stamp"` and reads
+          the WHOLE FILE, comments included. After TASK-010's `pack update` that
+          file IS the installed producer, so a quoted old expression would RED a
+          completely correct fix, with the failure pointing at the line just
+          fixed.
+        · CORE FIXTURE (TASK-003) — HYGIENE, NOT ENFORCEMENT. TASK-005 reads only
+          `.backstop/packs/backstop-ai/go-toolchain/...`, never the fixture, and
+          nothing in the repo byte-matches the fixture producer's text. The rule
+          holds anyway — semantic parallelism between the two trees, and
+          pre-empting a future fixture-side pin — but do not dress it up as a
+          check that will fire, because it will not.
+      For the flipped form: the file should contain `"$stamp" -ot cover.out`
+      exactly once, in the live condition. Restating it in a comment is harmless
+      for the require-assertion but makes the file's intent ambiguous, so don't.
+  10. `zsh` AND `ksh` ARE DELIBERATE MEMBERS OF THE SHELL MATRIX (CLM-004b). They
+      are not POSIX-shell probes and they are not there by accident: on darwin
+      they are the ONLY shells that resolve the comparison at nanosecond
+      precision, and removing them makes the matrix vacuously green on the
+      authoring machine. The test runs the CONDITION, not the whole producer
+      script, so a non-POSIX shell is a legitimate probe — and that condition is
+      EXTRACTED FROM THE FIXTURE SCRIPT at run time, never hardcoded in Go
+      (CLM-010, TASK-002 step 2). If you find yourself editing a Go string
+      literal to change what the matrix evaluates, the test is built wrong.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Falsify the defect on real Linux, record it, and STOP for founder authorization"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Docker/dash falsification of the CURRENT bug + darwin counterfactual; write it into ISSUE-179; ★ FOUNDER GATE 1"
+        description: |
+          Prove the defect on the platform it actually bites, before writing a
+          line of fix. Foreground only.
+
+          A. BRING DOCKER UP AND PIN THE IMAGE.
+             `docker info` must exit 0. At the time this plan was written the
+             Docker Desktop UI was running but the engine was NOT responding
+             (`request returned 500 Internal Server Error ... /_ping`), so this
+             is a real precondition, not a formality — start/restart the engine
+             and re-check until `docker info` succeeds. Then pull `ubuntu:24.04`
+             (CLM-004: that is what `ubuntu-latest` resolves to per
+             `pkg/packval/testdata/ubuntu-runner-probe.txt:13,108`) and CONFIRM,
+             do not assume: `docker run --rm ubuntu:24.04 readlink -f /bin/sh`
+             resolves to dash. Record the raw output.
+
+          B. FALSIFY UNDER dash — THE KIND (i) RED.
+             In a THROWAWAY scratchpad directory (sharp edge 7 — never mount the
+             repo or the pack repo), reproduce the PRODUCTION chronology exactly
+             as CLM-002 describes it: write `cover.out` FIRST, then touch
+             `.backstop/go-coverage-fresh`, with no artificial delay and no
+             `touch -d`. Then evaluate, under `ubuntu:24.04`'s `/bin/sh`:
+               · the CURRENT condition   `[ ! cover.out -ot "$stamp" ]`
+               · the candidate condition `[ ! "$stamp" -ot cover.out ]`
+             and print both verdicts alongside `stat -c '%y %n'` for both files
+             so the nanosecond fields are in the record.
+             EXPECTED: CURRENT -> NO-REUSE, candidate -> REUSE. If CURRENT
+             reports REUSE under dash, the issue's diagnosis is wrong — STOP and
+             report; do not proceed to a fix for a defect you could not reproduce.
+
+             Do this against BOTH real scripts, not a hand-typed approximation:
+             the source `/Users/bmanson/src/projects/backstop-go-toolchain-pack/
+             scripts/coverage-produce.sh` and the fixture
+             `cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/
+             go-toolchain/scripts/coverage-produce.sh`. Copy them into the
+             scratchpad to run them (do not modify either file — TASK-003 and
+             TASK-006 own those edits). A `go` shim on PATH that records its
+             invocations is the cleanest way to observe whether the suite was
+             re-run; `cmd/backstop/gotoolchain_single_run_test.go`'s
+             `singleRunHarness` shows the shape.
+
+          C. THE DARWIN COUNTERFACTUAL.
+             Run the identical experiment under this machine's `/bin/sh`.
+             EXPECTED: CURRENT -> REUSE (the coincidental pass), with `stat -f
+             '%Fm'` nanosecond fields showing `cover.out` is nonetheless STRICTLY
+             older. CLM-003 records a measurement taken while authoring this plan
+             (cover.out 1787159303.970045143 vs stamp 1787159303.970261900,
+             +216.757us, CURRENT -> REUSE) — RE-DERIVE it rather than quoting it,
+             and report your own numbers.
+
+             THEN SWEEP THE LOCAL SHELLS, which is what TASK-002's matrix is
+             built on. Evaluate both candidate conditions under each of
+             `/bin/sh`, `/bin/dash`, `/bin/bash`, `/bin/zsh`, `/bin/ksh`.
+             EXPECTED (CLM-004b, measured while authoring): sh/dash/bash all
+             report CURRENT=REUSE (they tie at whole seconds — macOS's dash is
+             NOT precise, contrary to the obvious guess), while zsh/ksh report
+             CURRENT=NO-REUSE and FLIPPED=REUSE. If your numbers disagree with
+             that table, TASK-002's shell list is built on a false premise —
+             STOP and report before writing the test.
+
+          D. WRITE IT DOWN, IN THE ISSUE.
+             Add `## Investigation (2026-08-19)` to
+             `issues/ISSUE-179-coverage-reuse-mtime-comparison-backwards-linux-
+             noop.issue.md` carrying, verbatim: the dash and darwin verdict pairs
+             with their raw `stat` output, the confirmed `/bin/sh` -> dash
+             resolution, the CLM-006 enumeration refuting option (a), the CLM-009
+             residual, and the CLM-013 version reasoning. Do NOT change the
+             issue's `status` and do NOT add a `## Resolution` — TASK-014 owns
+             the close.
+
+          E. ★ FOUNDER GATE 1 — STOP HERE. ONE DECISION.
+             Report and WAIT for explicit authorization on OPTION (b) (flip) over
+             OPTION (a) (drop). Give the CLM-006 reachable-state enumeration —
+             using `gate --file` explicitly, since ISSUE-179 rules out diff-mode
+             as the narrowing path — and the CLM-007 shipped-guard consequence.
+             Name that the issue's own Direction section leans (a) and that this
+             plan recommends against it.
+
+             ✔ THE VERSION IS NOT A QUESTION AT THIS GATE. **v1.8.0** is DECIDED
+             (CLM-013, founder-confirmed in plan review) and hardcoded in
+             TASK-006. Do not raise it, do not offer v1.7.1, do not treat the
+             dispatching brief's presumption as live.
+
+             Also SURFACE, without asking for a decision on either: the CLM-009
+             residual — INCLUDING its widened green-verdict variant (a `gate
+             --file` run over non-Go paths reusing a stale-but-complete profile
+             with nothing red), not only the build-broken variant — and the fact
+             that closing it would require touching `test-produce.sh`, which this
+             plan refuses to do (sharp edge 4).
+             An answer to a scoping question is not authorization. If you are
+             unsure whether authorization was given, it was not.
+        files:
+          - issues/ISSUE-179-coverage-reuse-mtime-comparison-backwards-linux-noop.issue.md
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-004b
+          - CLM-006
+          - CLM-009
+          - CLM-013
+          - CLM-016
+        depends_on: []
+
+  - id: phase-2
+    name: "Phase 2: Core-side RED and the fixture fix — replace the fabricated-chronology test"
+    tasks:
+      - id: TASK-002
+        type: test
+        title: "Rewrite the fabricated-chronology reuse test into three real-chronology legs, and add the shell-matrix guard"
+        description: |
+          ★ DO NOT START BEFORE FOUNDER GATE 1 IS ANSWERED (TASK-001 E).
+
+          In `cmd/backstop/gotoolchain_single_run_test.go` only.
+
+          1. REWRITE THE BODY, KEEP THE NAME —
+             `TestGoToolchainSingleRun_CoverageProducerReusesAFreshProfile`.
+             ★ KEEP IT FOR CONTINUITY, NOT BECAUSE A GATE FORCES YOU TO. That
+             name is the identifier every commit message and prior plan uses for
+             this guard. It is NOT gate-enforced today: PLAN-ISSUE-172 declares
+             no `test_names:` and ISSUE-172 no `claims:`, so 172's mandated set
+             is empty and renaming this test would red nothing (CLM-005 — this
+             was checked, not assumed). This task's own `test_names:` block below
+             is what makes the promise real from here on (CLM-017). Delete the
+             `os.Chtimes(stamp, now-1s)` fabrication (CLM-005) and replace the
+             body with three `t.Run` subtests:
+
+               · `production_chronology_coarse_visible` — cover.out mtime set
+                 EXPLICITLY to T-2s, stamp to T, via `os.Chtimes`. The TRUE
+                 direction (CLM-002) at a magnitude a whole-second `-ot` can
+                 still resolve. Assert REUSE: the `go` shim recorded NO `test`
+                 invocation, the profile still carries `#backstop-module` and
+                 `#backstop-gofile`, and the stamp was CONSUMED. This leg is the
+                 platform-independent falsifier and MUST be observed RED on this
+                 machine (kind (ii)).
+               · `production_chronology_subsecond` — natural write-then-touch,
+                 NO `os.Chtimes` at all: the real few-hundred-microsecond gap.
+                 Same REUSE assertions. KIND (iii) — it runs under `/bin/sh`,
+                 which ties at whole seconds on darwin, so it PASSES here today
+                 with the defect fully live and is red only where `/bin/sh` reads
+                 nanoseconds (CI's ubuntu-24.04). Say exactly that in the leg's
+                 own comment so a future reader neither "fixes" its darwin pass
+                 nor deletes it as redundant.
+               · `stale_stamp_older_than_profile_is_refused` — stamp at T-2s,
+                 cover.out at T: CLM-006's reachable state. Assert NO reuse — the
+                 shim DID record a `test` invocation — and that the stamp was
+                 still consumed. This is the property option (b) buys and option
+                 (a) loses; it is the OLD test's fabricated scenario with its
+                 expectation corrected. Kind (ii) RED today.
+
+             Rewrite the test's doc comment to state what the old one got wrong:
+             the freshness relation the producer must test is "the STAMP is not
+             older than the profile", because the profile is written first.
+
+          2. ADD `TestGoToolchainSingleRun_CoverageProducerReuseIsShellPrecision
+             Independent`. Resolve every shell available — `/bin/sh` always, plus
+             `dash`, `bash`, **`zsh`, `ksh`** and `busybox sh` when
+             `exec.LookPath` finds them — run the natural sub-second production
+             chronology under EACH, and assert every resolved shell reports
+             REUSE. It must `t.Fatal` (never skip) if it resolves fewer than one
+             shell, and must `t.Logf` the resolved shell list and each one's
+             verdict so a green can never be vacuous.
+
+             ★★ THE CONDITION IS EXTRACTED FROM THE FIXTURE SCRIPT AT RUN TIME.
+             IT IS NEVER HARDCODED IN GO. This is the single most important
+             sentence in this task, because both hardcodings are wrong and both
+             look reasonable (CLM-010): the FLIPPED literal makes the test
+             permanently green and unable to tell a fixed producer from a broken
+             one; the BACKWARDS literal makes it permanently red, because
+             TASK-003's file scope is the fixture SCRIPT and no later task edits
+             a Go string. Only extraction gives the red-at-TASK-002 /
+             green-at-TASK-003 trajectory this plan promises.
+
+             THE EXTRACTION, CONCRETELY. Read
+             `filepath.Join(goToolchainPackRoot(t), "scripts",
+             "coverage-produce.sh")` and take the CONTIGUOUS BLOCK from the line
+             beginning `stamp=` through the first line that is exactly `fi`
+             (trimmed) — in the fixture today that is:
+
+               stamp=".backstop/go-coverage-fresh"
+               reuse=0
+               if [ -f "$stamp" ] && [ -f cover.out ] && [ ! ... ]; then
+                 reuse=1
+               fi
+
+             It is self-contained (it defines `$stamp` itself) and it yields
+             `reuse`. Append `printf '%s\n' "$reuse"` and run THAT fragment via
+             `<shell> -c <fragment>` with cwd set to a prepared temp directory
+             holding a `cover.out` and a `.backstop/go-coverage-fresh` written in
+             the production order. `reuse` == 1 means REUSE.
+             Deliberately stop at `fi` — do NOT include the `rm -f "$stamp"` line
+             below it; the fragment must not delete the state under test.
+
+             ★ HARD-FAIL THE EXTRACTION, DO NOT DEGRADE IT. `t.Fatalf` if the
+             `stamp=` anchor is missing, if no closing `fi` follows it, or if the
+             extracted text does not contain `-ot`. A silent fallback — an empty
+             fragment, a skip, a hardcoded default — turns a future reshaping of
+             the producer into a vacuous green with no signal, which is exactly
+             the failure this whole plan exists to correct. Say that in the
+             failure message.
+
+             ★ `zsh` AND `ksh` ARE LOAD-BEARING; DO NOT TRIM THE LIST TO POSIX
+             SHELLS (sharp edge 10, CLM-004b). Measured on this machine: macOS's
+             `/bin/dash` and `/bin/bash` TIE at whole seconds exactly like
+             `/bin/sh`, so a {sh,dash,bash} matrix is GREEN ON DARWIN TODAY with
+             the defect live — it is decoration, and "install dash to see it red"
+             is a false lead. `/bin/zsh` and `/bin/ksh` are the darwin shells
+             that read nanoseconds; both report NO-REUSE under the buggy check
+             and REUSE after the flip, which is what makes this test a real KIND
+             (ii) falsifier on the authoring machine. Write a comment saying the
+             test evaluates the CONDITION, not the producer script, so a
+             non-POSIX shell is a legitimate probe — otherwise a future editor
+             "corrects" the list back to sh-only and silently re-vacuums it.
+             On CI's ubuntu-24.04 `/bin/sh` IS dash and reads nanoseconds
+             (CLM-004), so the same test also runs for real, in CI, permanently.
+
+          3. LEAVE THE OTHER THREE TESTS IN THE FILE ALONE.
+             `..._TestEngineProducesCoverageProfile`,
+             `..._CoverageProducerRerunsWithoutAStamp` and
+             `..._TestProducerPropagatesFailureExit` are all still correct and all
+             still mandated. Reuse `singleRunHarness`, `runProducer`,
+             `shimInvokedTest` and `goCoverageFreshStamp` rather than duplicating
+             them.
+
+          RUN IT AND RECORD THE VERBATIM FAILURE TEXT:
+            go test ./cmd/backstop/ -run TestGoToolchainSingleRun -race -count=1 -v
+
+          ★ EXPECT A MIXED VERDICT ON DARWIN, AND DO NOT TRY TO MAKE IT UNIFORM.
+          What MUST be red here (kind (ii)): leg 1
+          (`production_chronology_coarse_visible`), leg 3
+          (`stale_stamp_older_than_profile_is_refused`), and the shell-matrix
+          test — the latter failing specifically on its `zsh`/`ksh` rows.
+          What WILL PASS here and is SUPPOSED to (kind (iii)): leg 2
+          (`production_chronology_subsecond`), and the matrix's `sh`/`dash`/`bash`
+          rows. That is not a broken test; it is CLM-004b.
+          Confirm BY NAME that each expected test and subtest actually RAN
+          (sharp edge 1 — `-run` exits 0 on a no-match, so "exit 0" proves
+          nothing). A compile error or a skip is not the RED. Report which legs
+          went red and which passed, with the reason for each.
+        files:
+          - cmd/backstop/gotoolchain_single_run_test.go
+        test_names:
+          - TestGoToolchainSingleRun_CoverageProducerReusesAFreshProfile
+          - TestGoToolchainSingleRun_CoverageProducerReuseIsShellPrecisionIndependent
+        claims:
+          - CLM-002
+          - CLM-004b
+          - CLM-005
+          - CLM-006
+          - CLM-008
+          - CLM-017
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: implementation
+        title: "Flip the freshness comparison in the CORE FIXTURE's coverage-produce.sh"
+        description: |
+          In `cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/
+          go-toolchain/scripts/coverage-produce.sh` ONLY. Do not touch the source
+          pack (TASK-006 owns it) and never touch `.backstop/packs/**`
+          (sharp edge 2).
+
+          ONE LINE CHANGES. Line 38, from:
+
+            if [ -f "$stamp" ] && [ -f cover.out ] && [ ! cover.out -ot "$stamp" ]; then
+
+          to:
+
+            if [ -f "$stamp" ] && [ -f cover.out ] && [ ! "$stamp" -ot cover.out ]; then
+
+          Keep the operand quoting EXACTLY as written — bare `cover.out`, quoted
+          `"$stamp"` (sharp edge 5). ★ THE REASON HERE IS PARALLELISM, NOT A
+          CHECK: TASK-005's guard reads ONLY the installed tree and never this
+          file (see the note further down this task), so nothing byte-matches the
+          fixture today. Match the spelling so the fixture and the source tree
+          stay character-identical on this line, keeping CLM-012's divergence set
+          deliberate and small. The MECHANICAL reason to preserve this exact
+          spelling lives in TASK-006, where the guard genuinely does read the
+          file.
+
+          THEN FIX THE COMMENT ABOVE IT, WHICH IS NOW WRONG. The block comment
+          says "a profile older than the stamp … fall[s] through to running the
+          tool" — that describes the SUCCESS case and is the backwards reasoning
+          that produced the defect. Replace that clause with the real chronology
+          and the real relation: `test-produce.sh` writes `cover.out` and THEN
+          touches the stamp, so on a genuine same-invocation success the stamp is
+          the NEWER of the two; the check asks whether the stamp is at least as
+          new as the profile, which is false exactly when a later run has
+          overwritten `cover.out` without stamping it (a file-scoped, PARTIAL
+          profile — CLM-006). Name ISSUE-179 and state that the previous
+          comparison was directionally backwards and therefore never fired under
+          a nanosecond-resolution `-ot` (Ubuntu's dash — NOT dash generally;
+          CLM-004b). Keep the CLM-009 residual honest in one sentence rather than
+          claiming the check is airtight, and state its GREEN-VERDICT variant,
+          not only the build-broken one.
+
+          ★ DESCRIBE THE OLD COMPARISON IN PROSE — NEVER QUOTE IT (sharp edge 9).
+          Write "the previous check asked whether the profile was no older than
+          the stamp, which inverts the real write-then-touch order" or equivalent.
+
+          ★ AND BE PRECISE ABOUT WHY, BECAUSE THE OBVIOUS REASON IS FALSE HERE.
+          TASK-005's forbid-assertion does NOT read this file. It reads ONLY the
+          INSTALLED tree — `packRoot := filepath.Join(root, ".backstop", "packs",
+          installedGoToolchainPackName)` and `producerPath` under it
+          (`pkg/pack/engine/gotoolchain_installed_pack_singlerun_test.go:99,140`)
+          — and nothing in the repo byte-matches the FIXTURE producer's text; the
+          fixture is exercised only BEHAVIOURALLY, by executing it. Quoting the
+          old expression in THIS file would red nothing today.
+          The rule still holds for two real reasons: (1) the two trees must stay
+          semantically parallel so a reader diffing them sees one deliberate
+          divergence set (CLM-012) and not a comment that contradicts the code;
+          (2) it pre-empts a future fixture-side direction pin, which is a
+          natural thing for a later plan to add. Follow the rule — just do not
+          restate a mechanical enforcement claim that is not true of this file.
+          The "TASK-005 reads the whole file" justification is genuine for
+          TASK-006 and belongs only there.
+
+          Then re-run TASK-002's tests. All three new legs and the shell-matrix
+          test must go GREEN, and the other three tests in the file must stay
+          green:
+            go test ./cmd/backstop/ -run TestGoToolchainSingleRun -race -count=1 -v
+        files:
+          - cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/scripts/coverage-produce.sh
+        claims:
+          - CLM-001
+          - CLM-008
+          - CLM-009
+          - CLM-012
+        depends_on:
+          - TASK-002
+
+      - id: TASK-004
+        type: verification
+        title: "Gate the core-side change and re-run the Docker/dash falsification against the FIXED fixture"
+        description: |
+          Evidence, not assertion. Foreground only.
+
+          1. `./bin/backstop gate --file cmd/backstop/gotoolchain_single_run_test.go`
+             and
+             `./bin/backstop gate --file cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/scripts/coverage-produce.sh`
+             Then `./bin/backstop gate` (diff-scoped) for the pair in context.
+             Any RED is this task's to resolve or surface — never waive.
+
+          2. FULL NAMED RUN, WITH NAME CONFIRMATION (sharp edge 1):
+             `go test ./cmd/backstop/ -run TestGoToolchainSingleRun -race -count=1 -v`
+             Read the output and confirm a `--- PASS:` line exists for each of:
+             the three subtests of `..._CoverageProducerReusesAFreshProfile`,
+             `..._CoverageProducerReuseIsShellPrecisionIndependent`,
+             `..._TestEngineProducesCoverageProfile`,
+             `..._CoverageProducerRerunsWithoutAStamp`,
+             `..._TestProducerPropagatesFailureExit`.
+             Confirm the shell-matrix test's `t.Logf` names at least one shell,
+             AND that it names `zsh` and `ksh` specifically if they exist on this
+             machine (they ship with macOS). A matrix that resolved only
+             `sh`/`dash`/`bash` is vacuously green here (CLM-004b) and its pass
+             carries no information — treat that as a defect in the test's shell
+             resolution, not as a successful verification.
+
+          3. THE DASH RE-RUN — the kind (i) GREEN. Repeat TASK-001 step B against
+             the FIXED fixture script under `ubuntu:24.04`'s `/bin/sh`. The same
+             production chronology that printed NO-REUSE must now print REUSE, and
+             the `go` shim must record NO second `test` invocation. Report the
+             before/after verdict pair side by side; a fix verified only on darwin
+             is exactly how this defect shipped.
+
+          4. `git status --porcelain` — confirm ONLY the two intended files are
+             modified, and that `.backstop/go-coverage-fresh` did not leak into
+             the tree (sharp edge 3) and no `cover.out` was left behind.
+        files:
+          - cmd/backstop/gotoolchain_single_run_test.go
+          - cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/scripts/coverage-produce.sh
+        claims:
+          - CLM-003
+          - CLM-004
+          - CLM-004b
+          - CLM-008
+          - CLM-014
+        depends_on:
+          - TASK-003
+
+  - id: phase-3
+    name: "Phase 3: The source pack — strengthen the installed-pack pin, edit, commit locally, ★ GATE 2, publish"
+    tasks:
+      - id: TASK-005
+        type: test
+        title: "Turn the installed-pack `-ot` presence pin into a DIRECTION pin and move the version bar (interim RED until TASK-010)"
+        description: |
+          In `pkg/pack/engine/gotoolchain_installed_pack_singlerun_test.go` only.
+          This is the pin that keeps the fix alive in the pack core ACTUALLY
+          dispatches; the fixture pin (TASK-002) cannot see it.
+
+          1. REPLACE LEG 3's WEAK ASSERTION (CLM-010). Today it is
+             `strings.Contains(producer, "-ot")`, which the backwards form and
+             the correct form satisfy equally — it is the assertion that let a
+             directionally-wrong comparison ship. Replace it with a pair:
+               · REQUIRE the corrected operand order:
+                 `"$stamp" -ot cover.out`
+               · FORBID the backwards operand order:
+                 `cover.out -ot "$stamp"`
+             Match the literal OPERAND SHAPE, not a comment fragment (comments
+             drift; the operand order is the mechanism). Keep the existing
+             stamp-path assertion.
+             ★ THE FORBID-ASSERTION READS THE WHOLE FILE, COMMENTS INCLUDED, AND
+             THAT IS A DELIBERATE COLLISION WITH TASK-003/TASK-006 (sharp edge 9).
+             Say so in the assertion's own failure message: if this reds on a
+             producer whose live condition is correct, the offender is almost
+             certainly a COMMENT quoting the old expression — the remedy is to
+             reword the comment in prose, NOT to weaken this check.
+             Write the failure message so it states the
+             chronology — `test-produce.sh` writes the profile then touches the
+             stamp, so a check demanding the profile be no-older-than the stamp
+             is asking for a state a successful run never produces — and cites
+             ISSUE-179 and the pre-fix CI run `32275399064`.
+
+          2. MOVE THE VERSION BAR (CLM-011). `preFixGoToolchainPackVersion` is
+             `"1.6.0"`; the lock already pins 1.7.0, so the bar is already
+             satisfied and cannot red on this defect. Set it to `"1.7.0"` and
+             rewrite its comment: 1.7.0 is the version that carried the BACKWARDS
+             COMPARISON (ISSUE-179), 1.6.0 was the double-run (ISSUE-172). Keep
+             it a BAR (`semverGreater`), not an equality pin — a later unrelated
+             bump must stay green; only a revert below the fix reds it.
+
+          3. LEAVE LEGS 1 AND 2 STRUCTURALLY ALONE and keep the established
+             skip guard: a manifest that is ABSENT skips with a `pack install`
+             directive; a manifest that EXISTS and will not parse is a Fatal.
+
+          RUN IT AND RECORD THE VERBATIM RED:
+            go test ./pkg/pack/engine/ -run TestInstalledGoToolchainPack -race -count=1 -v
+          EXPECTED RED, on the installed v1.7.0 tree: the lock bar (1.7.0 is not
+          greater than 1.7.0) AND the direction assertion (the installed script
+          carries the backwards form). This RED is INTERIM BY DESIGN and stays red
+          until TASK-010's `pack update` — that is the point of the pin, and it is
+          why this task sits before the publish rather than after. If the test
+          SKIPS instead of failing, the pack fleet is not installed: run
+          `./bin/backstop pack install` and re-observe a real failure (kind (ii)).
+        files:
+          - pkg/pack/engine/gotoolchain_installed_pack_singlerun_test.go
+        test_names:
+          - TestInstalledGoToolchainPack_CarriesSingleRunConvention
+        claims:
+          - CLM-007
+          - CLM-010
+          - CLM-011
+          - CLM-017
+        depends_on:
+          - TASK-004
+
+      - id: TASK-006
+        type: implementation
+        title: "Apply the same one-line fix to the SOURCE pack, bump the manifest version, commit LOCALLY, then STOP"
+        description: |
+          In `/Users/bmanson/src/projects/backstop-go-toolchain-pack` only.
+          External-repo paths are legitimate file scope for this task.
+
+          ★ APPLY THE EDIT BY HAND. DO NOT COPY FROM THE FIXTURE (CLM-012, sharp
+          edge 2). The two files diverge by ~43 lines below the reuse check; a
+          copy would rename the pack, jump its version and import/erase features.
+
+          1. `scripts/coverage-produce.sh` line 38 — the SAME semantic edit
+             TASK-003 made to the fixture, applied independently:
+               `[ ! cover.out -ot "$stamp" ]` -> `[ ! "$stamp" -ot cover.out ]`
+             with the identical operand quoting (sharp edge 5). Update the block
+             comment above it exactly as TASK-003 did — the real chronology, the
+             real relation, ISSUE-179 named, the CLM-009 residual (including its
+             green-verdict variant) in one honest sentence.
+             ★ PROSE ONLY — THE COMMENT MUST NEVER CONTAIN THE LITERAL
+             `cover.out -ot "$stamp"` (sharp edge 9). TASK-005's forbid-assertion
+             reads this file whole, comments included, and this is the tree it
+             reads after TASK-010's `pack update`. Quoting the old expression
+             would red a correct fix.
+          2. `pack.yml` — set `version:` to exactly **`"1.8.0"`**. This is
+             DECIDED, not a recommendation: CLM-013, founder-confirmed in plan
+             review. Do not use 1.7.1 and do not re-open the question. Nothing
+             else in the manifest changes: no engine command, no producer path,
+             no classification, no test_name_patterns.
+          3. DO NOT TOUCH `scripts/test-produce.sh` (sharp edge 4). If it appears
+             in `git diff`, STOP.
+
+          Then, in that repo:
+            · `git status --porcelain` and `git diff` — EXACTLY two files
+              modified. Anything else belongs to another lane; STOP and report
+              rather than sweeping it in.
+            · `./bin/backstop pack check /Users/bmanson/src/projects/backstop-go-toolchain-pack`
+              from backstop-core -> `status: pass`, exit 0. RE-MEASURE the WARN
+              set rather than assuming it (CLM-014): expect exactly the two
+              inherited `phase2-coherence/exempt-scope-decision` WARNs
+              (`go-coverage`, `golangci`). A THIRD WARN or an error is this task's
+              to explain before proceeding.
+            · Note for the record that `pack test` has nothing to run here — the
+              pack declares no `fixtures:` block (CLM-014). Do not quote it as
+              evidence.
+            · Commit LOCALLY on `main`. Message names ISSUE-179, states the
+              mechanism in one line (the freshness comparison was directionally
+              backwards — the profile is written before the stamp, so demanding
+              the profile be no-older-than the stamp asked for a state a
+              successful run never produces, and reuse never fired under dash),
+              and cites CI run `32275399064` as the evidence.
+
+          ★ DO NOT TAG. DO NOT PUSH. STOP HERE. TASK-007 reports and TASK-008
+          publishes only on explicit authorization.
+        files:
+          - /Users/bmanson/src/projects/backstop-go-toolchain-pack/scripts/coverage-produce.sh
+          - /Users/bmanson/src/projects/backstop-go-toolchain-pack/pack.yml
+        claims:
+          - CLM-001
+          - CLM-008
+          - CLM-009
+          - CLM-012
+          - CLM-013
+        depends_on:
+          - TASK-005
+
+      - id: TASK-007
+        type: verification
+        title: "Docker/dash verification of the FIXED SOURCE script, then report for ★ FOUNDER GATE 2"
+        description: |
+          Evidence before publication. Foreground only.
+
+          1. THE DASH GREEN ON THE REAL SOURCE SCRIPT. Repeat TASK-001 step B
+             against `/Users/bmanson/src/projects/backstop-go-toolchain-pack/
+             scripts/coverage-produce.sh` as it now stands, under `ubuntu:24.04`'s
+             `/bin/sh`, copied into a scratchpad (sharp edge 7). The production
+             chronology must print REUSE and the `go` shim must record NO second
+             `test` invocation — where TASK-001 recorded NO-REUSE. Also re-run the
+             CLM-006 stale-stamp state (stamp older than a freshly written
+             `cover.out`) and confirm it correctly prints NO-REUSE: that is the
+             property this fix buys over option (a) and it must be shown, not
+             argued.
+
+          2. `git status --porcelain` in the pack repo — two modified files, the
+             local commit present, no tag, nothing pushed. `git log --oneline -1`.
+
+          3. `git diff HEAD~1` — read it. Confirm `scripts/test-produce.sh` is
+             absent from it (sharp edge 4) and that the `-ot` operand spelling
+             matches what TASK-005's guard forbids/requires, character for
+             character.
+
+          4. ★ FOUNDER GATE 2 REPORT — then STOP.
+             Report: the one-line diff, the before/after dash verdict pair, the
+             `pack check` result with its re-measured WARN set, the stale-stamp
+             refusal demonstration, the version being tagged and why (CLM-013),
+             and that the next task pushes to a PUBLIC repo other consumers
+             install from and that a tag is not cheaply retractable. Ask for
+             explicit authorization. TASK-008 must not start without it.
+        files:
+          - /Users/bmanson/src/projects/backstop-go-toolchain-pack/scripts/coverage-produce.sh
+          - /Users/bmanson/src/projects/backstop-go-toolchain-pack/pack.yml
+        claims:
+          - CLM-004
+          - CLM-006
+          - CLM-014
+          - CLM-016
+        depends_on:
+          - TASK-006
+
+      - id: TASK-008
+        type: implementation
+        title: "★ FOUNDER GATE 2 — tag and push the pack (MUST NOT START WITHOUT EXPLICIT AUTHORIZATION)"
+        description: |
+          ★ THIS TASK MUST NOT START WITHOUT THE FOUNDER'S EXPLICIT AUTHORIZATION
+          FROM TASK-007. An answer to a scoping question is not authorization
+          (CLAUDE.md). If you are unsure whether it was given, it was not — go
+          back and ask.
+
+          In `/Users/bmanson/src/projects/backstop-go-toolchain-pack`:
+
+            1. FETCH FIRST. `git fetch --tags origin` before ANY ahead/behind
+               judgement — a stale view can strand a tag unreachable from `main`
+               (sharp edge 6).
+            2. Push `main`.
+            3. Tag **`v1.8.0`** on the commit TASK-006 made (CLM-013 — decided,
+               founder-confirmed; not v1.7.1). The tag must
+               equal `pack.yml`'s `version:` EXACTLY — the repo runs a
+               `tag-integrity` workflow asserting precisely this on tag push, and
+               pack version resolution is git-tag-based, so an untagged bump is
+               uninstallable.
+            4. Push the tag.
+
+          Then CONFIRM, do not assume: the tag resolves to the same SHA as
+          `origin/main` and as local `HEAD`, and the working tree is clean.
+        files:
+          - /Users/bmanson/src/projects/backstop-go-toolchain-pack/pack.yml
+        claims:
+          - CLM-013
+          - CLM-016
+        depends_on:
+          - TASK-005
+          - TASK-007
+
+      - id: TASK-009
+        type: verification
+        title: "Verify the new pack version is published, reachable, and green on its own CI"
+        description: |
+          Evidence, not assertion:
+
+            · `git ls-remote --tags origin` lists the new tag.
+            · tag SHA == `origin/main` == local `HEAD`; tree clean; in sync.
+            · The pack repo's own `tag-integrity` workflow ran GREEN on the tag
+              push — find the run and READ its conclusion (`gh run list` in that
+              repo), do not infer it from the push succeeding. A red
+              tag-integrity run means the tag and manifest version disagree: fix
+              and re-tag rather than proceeding.
+            · A FRESH RESOLUTION proves installability without mutating core yet:
+              clone the tag into a scratch directory and
+              `./bin/backstop pack check <scratch clone>` -> `status: pass`,
+              exit 0, exactly the two inherited WARNs (CLM-014). This also
+              exercises the identity gate on a real remote-shaped tree.
+            · Read the flipped line out of the FRESH CLONE and confirm it carries
+              `[ ! "$stamp" -ot cover.out ]`.
+
+          Do not proceed to phase 4 on a red or missing CI run.
+        files:
+          - /Users/bmanson/src/projects/backstop-go-toolchain-pack/pack.yml
+          - /Users/bmanson/src/projects/backstop-go-toolchain-pack/scripts/coverage-produce.sh
+        claims:
+          - CLM-013
+          - CLM-014
+        depends_on:
+          - TASK-008
+
+  - id: phase-4
+    name: "Phase 4: Core adopts the fixed pack — the installed-pack direction pin flips green"
+    tasks:
+      - id: TASK-010
+        type: implementation
+        title: "pack update backstop-ai/go-toolchain and verify the recorded state, hand-editing nothing"
+        description: |
+          In backstop-core.
+
+            `./bin/backstop pack update backstop-ai/go-toolchain`
+
+          It must report the version transition `1.7.0 -> 1.8.0`. Then VERIFY the
+          recorded state rather than assuming it:
+            · `backstop.yml` names the new version.
+            · `backstop.lock`'s `backstop-ai/go-toolchain` entry carries
+              `version: 1.8.0`, `git_ref: v1.8.0`, a refreshed `content_hash` and
+              `install_date`, with `source_type: git` and
+              `source_coordinate: backstop-ai/go-toolchain` PRESERVED. A dropped
+              `source_coordinate` is a real regression, not cosmetic.
+            · The installed tree
+              `.backstop/packs/backstop-ai/go-toolchain/scripts/
+              coverage-produce.sh` now carries `[ ! "$stamp" -ot cover.out ]`.
+
+          ★ NOTHING UNDER `.backstop/packs/**` IS HAND-EDITED, EVER (sharp edge
+          2). If the installed tree does not carry the fix after the update, the
+          publish is wrong — go back to phase 3, do not patch the installed copy.
+          A hand-edit produces a content-hash mismatch indistinguishable from
+          tampering.
+        files:
+          - backstop.yml
+          - backstop.lock
+        claims:
+          - CLM-001
+          - CLM-011
+          - CLM-013
+        depends_on:
+          - TASK-005
+          - TASK-009
+
+      - id: TASK-011
+        type: verification
+        title: "The installed-pack direction pin and version bar go green; diff-scoped gate is clean"
+        description: |
+          1. `go test ./pkg/pack/engine/ -run TestInstalledGoToolchainPack -race -count=1 -v`
+             All three legs GREEN, NONE SKIPPED. Confirm by name that the test
+             actually ran (sharp edge 1) and read the `t.Logf` lines: the lock
+             version, git_ref and source_type, and the installed manifest's
+             go-test command. A SKIP here means the pack fleet is not installed
+             and the leg proved nothing — run `./bin/backstop pack install` and
+             re-run.
+
+          2. `./bin/backstop gate` (diff-scoped) over the working tree, which now
+             carries the test file, the fixture script, `backstop.yml`,
+             `backstop.lock` and the issue. Clean, or surface every RED.
+
+          3. `go test ./cmd/backstop/ -run TestGoToolchainSingleRun -race -count=1 -v`
+             — still green after the relock (the fixture corpus is independent of
+             the installed tree by CLM-012, so this is a regression check on that
+             independence, not a formality).
+        files:
+          - pkg/pack/engine/gotoolchain_installed_pack_singlerun_test.go
+          - backstop.lock
+        claims:
+          - CLM-010
+          - CLM-011
+        depends_on:
+          - TASK-010
+
+  - id: phase-5
+    name: "Phase 5: Full kill chain, CI acceptance measurement, and close-out"
+    tasks:
+      - id: TASK-012
+        type: verification
+        title: "Full kill chain: backstop gate --all plus the whole test suite"
+        description: |
+          Foreground only; raise the tool timeout rather than backgrounding.
+
+            · `./bin/backstop gate --all` — the full unscoped kill chain:
+              artifact validation, pack lock verification, findings engines,
+              test verification, substantiveness, coverage, contracts, status
+              drift, traceability, waivers, baseline, ledger integrity. Green, or
+              every RED surfaced to the founder — never waived, never filtered.
+            · `make test` (the race suite) — green.
+            · Read the `coverage_threshold` and `pack_engines` step DURATIONS out
+              of this run and record them, labelled `--all` (unscoped). They are
+              NOT comparable to CI's `--base` numbers (CLM-015 scope trap) and
+              must never be quoted as the acceptance measurement. They are a
+              local sanity check: `coverage_threshold` should now be a small
+              fraction of `pack_engines`, not roughly equal to it.
+            · If `coverage_threshold` is still comparable to `pack_engines`
+              locally, the reuse is not firing even on darwin — STOP and diagnose
+              before reporting success.
+            · ○ EXPECT A `delivered-but-open` / `artifact_status_drift_advisory`
+              HERE, AND DO NOT CHASE IT. TASK-002 and TASK-005 declare
+              `test_names:` (CLM-017) and those tests are present and passing,
+              while this plan is still `draft` — that is exactly the condition
+              the NON-BLOCKING advisory reports ("mandated tests all present on a
+              non-terminal plan"). It is correct, it is expected, and TASK-014's
+              flip to `completed` resolves it. Note it in the report; do not
+              treat it as a finding and do not flip the status early to silence
+              it.
+        files:
+          - backstop.lock
+          - cmd/backstop/gotoolchain_single_run_test.go
+          - pkg/pack/engine/gotoolchain_installed_pack_singlerun_test.go
+        claims:
+          - CLM-014
+          - CLM-015
+        depends_on:
+          - TASK-010
+          - TASK-011
+
+      - id: TASK-013
+        type: verification
+        title: "The CI acceptance measurement on real Linux, against the named pre-fix counterfactual"
+        description: |
+          ○ THIS TASK WAITS ON THE FOUNDER'S SQUASH-MERGE TO `main`. That is a
+          WAIT on an event, not a request for authorization — nothing is being
+          asked for; the run simply does not exist yet.
+
+          Docker proved the shell behaviour; it does NOT prove the CI outcome.
+          This repo's convention is that local/Docker verification is necessary
+          and never sufficient for a claim about CI.
+
+            · Find the post-merge CI run. ★ CHECK `headSha` AGAINST THE ACTUAL
+              MERGE COMMIT ON `main` before calling a run post-merge — a "post-
+              merge run" is very often a PR-BRANCH run (CLM-015).
+            · FETCH THE ARTIFACT THE RUN ACTUALLY PRODUCED — download
+              `gate-report.json` from the run rather than reading a local file
+              and assuming they match. Read `coverage_threshold`'s duration from
+              it.
+            · Compare against the PRE-FIX COUNTERFACTUAL BY NAME: run
+              `32275399064` (commit `2f8fa89`, `main`), `coverage_threshold`
+              602500ms. Both are `./bin/backstop gate --base` invocations, so the
+              scopes match and the ratio is meaningful (CLM-015).
+            · QUOTE THE RATIO, not just the absolute number, and state the scope
+              of BOTH readings. Also sanity-check that the fast number is not
+              vacuously fast: `pack_engines` must still be doing real work and the
+              gate verdict must still be a real pass, not a skipped dimension.
+            · A CI number that has NOT collapsed means the fix is not reaching
+              production. Do not close; report and diagnose.
+
+          THIS TASK MODIFIES NOTHING — TASK-014 owns every write. The files below
+          are its evidence surface, read-only.
+        files:
+          - .github/workflows/ci.yml
+          - issues/ISSUE-179-coverage-reuse-mtime-comparison-backwards-linux-noop.issue.md
+        claims:
+          - CLM-015
+        depends_on:
+          - TASK-010
+          - TASK-012
+
+      - id: TASK-014
+        type: documentation
+        title: "Close out: AS-BUILT banner and status flip on this plan FIRST, then close ISSUE-179"
+        description: |
+          ORDER IS FIXED AND NON-NEGOTIABLE (CLM-016).
+
+          1. THIS PLAN FIRST. Prepend an `★ AS-BUILT — CLOSED <date>` banner to
+             `notes:` and flip `status: draft` -> `completed`. The banner records:
+             what actually shipped and where it diverged from this plan; the pack
+             repo commit SHA, tag and `tag-integrity` run id; the core file set in
+             the close-out commit; whether this plan was ever committed BEFORE
+             implementation (if it was untracked throughout, say so — the AS-BUILT
+             DELTAS section is then the only authority on divergence); the
+             before/after dash verdict pairs; the CI acceptance ratio with BOTH
+             readings' scopes labelled; and the CLM-009 residual carried forward
+             as a known bounded edge case.
+             ★ THE PHASES, TASKS AND CLAIM LEDGER BELOW THE BANNER ARE NEVER
+             REWRITTEN. They are historical record.
+             ★ WRITE PERMISSION: the agent-guard keys on agent NAME — a
+             `closeout-*`-named agent cannot write this `.plan.yml`. Spawn an
+             unnamed `planner` subagent for this edit.
+
+          2. THEN ISSUE-179. Add `## Resolution` naming the shipped shape
+             (option (b), the flipped comparison), the pack version and tag, the
+             rewritten test and why the old one could not catch it (CLM-005), the
+             CI before/after with the counterfactual run id, and the CLM-009
+             residual. Set `status: closed` with `delivered_by: PLAN-ISSUE-179`.
+             This must come SECOND: `delivered_by` requires a COMPLETED backing
+             plan, which is why the plan moves first.
+
+          3. VERIFY THE FIX ACTUALLY LANDED AT HEAD, do not trust the status
+             fields. Check the DISTINGUISHING STRUCTURE, not a line the change
+             merely touches: `git show HEAD:cmd/backstop/testdata/go-toolchain/
+             .backstop/packs/backstop/go-toolchain/scripts/coverage-produce.sh`
+             contains `[ ! "$stamp" -ot cover.out ]`, and `backstop.lock` at HEAD
+             pins the new pack version. A plan can read `completed` at HEAD with
+             its core diff uncommitted.
+
+          4. Route both edits through the purpose-built agents; never hand-edit
+             artifact frontmatter.
+
+          5. ○ SURFACE, DO NOT DECIDE — DIR-024 ITEM 28. This work is slotted in
+             the committed backlog as `directives/DIR-024-gate-engine-quality.
+             directive.md` item 28 ("go-toolchain's coverage-reuse freshness
+             comparison is directionally…", line ~1743), added 2026-08-19 for
+             ISSUE-179. That directive marks delivered items in place — item at
+             line ~245 reads "**DELIVERED — PLAN-ISSUE-099, commit …**". Marking
+             item 28 DELIVERED would follow that precedent, but the directive
+             layer is FOUNDER-OWNED (position = priority; a role may slot a clear
+             fit but never reorders or annotates priority unasked), and this plan
+             never scoped a DIR-024 edit — `directives/` appears in no task's
+             `files:`. So: REPORT to the founder that item 28 is now delivered
+             and that the convention would be to mark it, and let them decide.
+             Do NOT edit DIR-024 as part of this close-out.
+             ★ NOTE FOR WHOEVER READS `git status` HERE: DIR-024 was ALREADY
+             showing as modified in the working tree before this plan was
+             authored, by another lane. Do not sweep that change into this
+             close-out commit and do not assume it is yours.
+        files:
+          - plans/PLAN-ISSUE-179-coverage-reuse-mtime-fix.plan.yml
+          - issues/ISSUE-179-coverage-reuse-mtime-comparison-backwards-linux-noop.issue.md
+        claims:
+          - CLM-005
+          - CLM-009
+          - CLM-015
+          - CLM-016
+        depends_on:
+          - TASK-013
+
+      - id: TASK-015
+        type: verification
+        title: "Re-validate every mutated artifact AFTER the close-out, and re-run the full kill chain"
+        description: |
+          Validation runs AFTER the close-out mutations, never before — a
+          pre-close validation says nothing about the state that ships.
+
+            · `./bin/backstop artifact validate --plan PLAN-ISSUE-179` -> clean.
+            · `./bin/backstop artifact validate --issue ISSUE-179` -> clean.
+            · `./bin/backstop gate --all` once more, on the FINAL tree including
+              the banner, the status flips and the relock. Its
+              `artifact_validation`, `status_drift` and `requirement_traceability`
+              dimensions are what actually adjudicate a `completed` plan against
+              its mandated tests. ★ NOTE WHAT THIS DOES AND DOES NOT COVER, AND
+              DO NOT OVERSTATE IT: the mandated set adjudicated here is THIS
+              plan's, derived from the `test_names:` declared on TASK-002 and
+              TASK-005 (CLM-017) — all three names must be present and passing.
+              It is NOT inherited from PLAN-ISSUE-172, whose mandated set is
+              empty (CLM-005), so the gate would NOT have caught a rename before
+              this plan; that protection begins here.
+            · MANUAL CHECK, NOT A GATE-ENFORCED ONE — grep by hand and confirm
+              `TestGoToolchainSingleRun_CoverageProducerReusesAFreshProfile`,
+              `TestGoToolchainSingleRun_CoverageProducerReuseIsShellPrecision`
+              `Independent` and
+              `TestInstalledGoToolchainPack_CarriesSingleRunConvention` all exist
+              by name in the tree, and that the first one's BODY is the rewritten
+              three-leg version rather than the fabricated-chronology original
+              (CLM-005: the name survives, the body changed — a name check alone
+              cannot tell those apart). CONCRETE PREDICATE, so this is a check
+              and not a vibe — inside
+              `TestGoToolchainSingleRun_CoverageProducerReusesAFreshProfile`,
+              ALL PRESENCE CHECKS, no absence check:
+                · all three subtest names —
+                  `production_chronology_coarse_visible`,
+                  `production_chronology_subsecond`,
+                  `stale_stamp_older_than_profile_is_refused`
+                · a NEGATED shim assertion inside leg 3 — i.e.
+                  `!shimInvokedTest(` — which is the exact INVERSION of the old
+                  body's assertion (`if shimInvokedTest(...) { t.Fatalf }`) for
+                  that same stamp-older-than-profile state. This is the leg's
+                  real distinguisher: same arranged state, opposite expected
+                  outcome.
+              ★ DO NOT ADD AN `os.Chtimes(stamp` ABSENCE CHECK. An earlier draft
+              of this plan did, and it FIRES ON A FULLY CORRECT IMPLEMENTATION:
+              leg 3 is deliberately "the old test's fabricated scenario with its
+              expectation inverted" (TASK-002), so the natural implementation
+              emits `os.Chtimes(stamp, older, older)` byte-identically to the
+              original fabrication. The arrange code is SUPPOSED to look the
+              same; only the assertion and the subtest name differ, and both are
+              already covered above. A presence-only predicate is sufficient and
+              sound — a reverted body has no `t.Run` and none of the three names.
+            · Any RED — including an inherited one — is surfaced to the founder
+              with the owning issue named, never waived and never self-triaged.
+            · `git status --porcelain` clean in BOTH repos.
+        files:
+          - plans/PLAN-ISSUE-179-coverage-reuse-mtime-fix.plan.yml
+          - issues/ISSUE-179-coverage-reuse-mtime-comparison-backwards-linux-noop.issue.md
+          - backstop.lock
+        claims:
+          - CLM-005
+          - CLM-014
+          - CLM-016
+          - CLM-017
+        depends_on:
+          - TASK-010
+          - TASK-014

@@ -113,3 +113,4 @@
 - [CI baseline pull authorized (ISSUE-176)](project_ci_baseline_pull_authorized.md) — step-level GH_TOKEN + job actions:read; run 32194863181 printed "baseline present: 240442 bytes", the 3 ratchet failures are GONE; baseline_comparison can NEVER confirm a pull
 - [Baseline as attribution oracle](project_baseline_as_attribution_oracle.md) — grep .backstop/baseline.json before building a control worktree; CI absolute paths mean it attributes but never suppresses
 - [Implementer can't dispatch artifact agents](project_implementer_cannot_dispatch_artifact_agents.md) — no Task/Agent tool; "route through issue-author/directive-author" tasks are OWED back to the coordinator, never hand-edited
+- [Synthetic zero-gap mtime arrangement ties](project_synthetic_zerogap_arrangement_ties.md) — hand write-then-touch tied 191/200 under dash and hid the defect; arrange through the REAL producer (0/50 deterministic)

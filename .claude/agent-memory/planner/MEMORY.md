@@ -39,3 +39,4 @@
 - [Issues self-retract in place](project_issue_self_retraction.md) — a Problem/Evidence section can be killed by the same file's Root Cause/Resolution with both left in; retraction is often PARTIAL, so split the citation
 - [Mine the implementer's transcript](project_closeout_mine_the_implementer_transcript.md) — verbatim RED text lives in `subagents/agent-<id>.jsonl`, not in the final report; label carried vs re-verified
 - [Duration readings' scope mismatch](project_duration_readings_scope_mismatch.md) — before is usually diff-scoped, after is `--all`; quote the RATIO, check the fast number isn't vacuously fast
+- [Green test over a dead mechanism](project_test_setup_fabricates_impossible_state.md) — the ARRANGE block can fabricate an inverse-of-production ordering; make the primary falsifier precision-INDEPENDENT, pin operand order not presence
