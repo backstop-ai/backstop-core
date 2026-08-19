@@ -6,16 +6,98 @@ issue:
   id: ISSUE-179
   title: "go-toolchain coverage-reuse mtime comparison is backwards — reuse never fires on real Linux CI, silently defeating PLAN-ISSUE-172's fix"
   type: bug
-  status: open
+  status: closed
   created: "2026-08-19"
+  closed: "2026-08-19"
 
 complexity:
   scope: isolated
   uncertainty: known
   risk: moderate
+
+delivered_by: PLAN-ISSUE-179
 ---
 
 # go-toolchain coverage-reuse mtime comparison is backwards — reuse never fires on real Linux CI, silently defeating PLAN-ISSUE-172's fix
+
+## Resolution
+
+Shipped as **option (b)** — the freshness comparison was flipped to match the real
+write-then-touch chronology, not dropped. Delivered in `backstop-ai/go-toolchain`
+**v1.8.0** (pack commit `bf6e0ba`, tag `v1.8.0`, `tag-integrity` run `32299807760`
+green), adopted in backstop-core by `pack update` (1.7.0 -> 1.8.0).
+
+```sh
+# scripts/coverage-produce.sh
+- if [ -f "$stamp" ] && [ -f cover.out ] && [ ! cover.out -ot "$stamp" ]; then
++ if [ -f "$stamp" ] && [ -f cover.out ] && [ ! "$stamp" -ot cover.out ]; then
+```
+
+**Why (b) and not (a).** Option (a) — presence-only — cannot refuse a reachable state:
+an invocation that aborts between the test dispatch and the coverage dispatch leaves a
+gitignored stamp behind, and a later `gate --file` run overwrites `cover.out` with a
+PARTIAL profile without stamping it. Option (a) would reuse that partial profile and
+report an incomplete measurement with nothing red — the exact silent-narrowing class
+`test-produce.sh`'s `./...` guard exists to prevent. Option (b) refuses it correctly
+(stamp older than profile → no reuse), and this was demonstrated under dash, not argued.
+Option (a) would also have required deleting a shipped guard asserting the producer
+carries an `-ot` comparison, which is hacking the gate green.
+
+**The test that let this ship, and what replaced it.**
+`TestGoToolchainSingleRun_CoverageProducerReusesAFreshProfile` arranged its state by
+ageing the stamp backwards one second (`os.Chtimes`), so `cover.out` came out NEWER —
+the inverse of what production produces. That satisfied the backwards comparison on
+every platform, which is why CI stayed green over a dead mechanism. The name is kept
+(continuity); the body is replaced with three legs against the REAL direction:
+`production_chronology_coarse_visible` (explicit 2s gap — platform-independent),
+`production_chronology_subsecond` (natural gap — precision-sensitive), and
+`stale_stamp_older_than_profile_is_refused` (the property (b) buys). A new guard,
+`TestGoToolchainSingleRun_CoverageProducerReuseIsShellPrecisionIndependent`, evaluates
+the reuse condition **extracted from the producer script at run time** — never
+hardcoded in Go — under every resolvable shell.
+
+Two weak pins were also strengthened, since both were satisfied equally by the good and
+bad states: the installed-pack `-ot` PRESENCE check became a DIRECTION pin (require the
+corrected operand order, forbid the backwards one), and the version bar moved 1.6.0 →
+1.7.0 (the lock already pinned 1.7.0, so the old bar could never red on this defect).
+
+**Evidence.** Under `ubuntu:24.04` (`/bin/sh` → dash 0.5.12), end-to-end through the
+real scripts and the real production chronology: **0/50 reuse before, 50/50 after**. On
+darwin the identical experiment reused 50/50 even pre-fix, with `cover.out` strictly
+older by ~4.18ms — the coarse-clock coincidence that masked the bug. On darwin only
+`zsh` and `ksh` read nanoseconds; macOS's own `/bin/dash` does not, so a `{sh,dash,bash}`
+matrix would have been green with the defect fully live.
+
+**CI before/after.** Pre-fix counterfactuals, both diff-scoped, read from each run's own
+`gate-report.json`: run `32275399064` (commit `2f8fa89`, 25 files) `coverage_threshold`
+602470ms, and run `32279613395` (commit `5bbdce3`, 3 files) 602322ms — an 8× difference
+in diff size moved the number by 0.02%, confirming the cost was completely insensitive
+to scope. After, measured for real on Linux CI (`ubuntu-latest`, `--all` scope, post-fix
+commit `876c242` on `main`): `coverage_threshold` 267ms with status `fail` and 25 real
+per-file coverage violations (e.g. `cmd/backstop/checktype_catalog_guard.go` 49/55,
+`cmd/backstop/gate_substantiveness_e2e.go` 112/133) — a shape the zero-scope early-exit
+path cannot produce, so this is positive proof the coverage engine genuinely dispatched
+and the reuse condition was actually evaluated. This is deliberately **not** expressed
+as a ratio against the pre-fix diff-scoped numbers above: no pre-fix `--all`-scope CI
+baseline exists, so dividing 602470 by 267 would be a scope-mismatched multiplier. (A
+diff-scoped post-merge run was tried first and rejected: its `coverage_threshold` of
+302ms turned out to be a zero-in-scope early exit — the diff carried only `_test.go`
+files, so `coveragePathsInScope` was empty and the coverage engine never dispatched at
+all, making that reading a measurement of nothing.) The mechanism is confirmed on real
+Linux CI; the matched-scope before/after ratio remains uncomputed for want of a pre-fix
+`--all`-scope baseline.
+
+**Known residual, not closed.** If an invocation aborts leaving both a stamp and a
+COMPLETE profile, and a later invocation does not overwrite `cover.out`, the stale
+profile is reused. Two ways in: a build-broken run (the gate is already failing), and —
+confirmed in code — a `gate --file` scope over non-Go paths, where `fileModeTestTargets`
+returns state (C) and `runFindingsEngine` returns early before `runner.RunStdout`
+(`cmd/backstop/pack_gate.go:660-676`), so `go-test` never dispatches while the
+project-wide `go-coverage` engine does. The skip advisory is `Severity: "warning"`, i.e.
+non-blocking, so that path can report a GREEN verdict over a stale measurement. The
+profile reused is always COMPLETE, never PARTIAL. Closing this would require an
+unconditional `rm -f cover.out` at the head of `test-produce.sh`, changing that script's
+semantics for every consumer — deliberately out of scope here.
 
 ## Problem
 
