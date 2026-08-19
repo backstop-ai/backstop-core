@@ -2,13 +2,188 @@
 plan_id: PLAN-ISSUE-099
 spec_id: ISSUE-099
 created: "2026-08-18"
-status: draft
+status: completed
 target_repo: backstop-core
 target_module: github.com/backstop-ai/backstop-core
 test_command: "go test ./cmd/backstop/ -run \"TestGateJSONOut\" -race -count=1 && go test . -run \"TestCIWorkflow\" -count=1"
 coverage_threshold: 80
 
 notes: |
+  ══════════════════════════════════════════════════════════════════════════════
+  ★ AS-BUILT — CLOSED 2026-08-19.  status: draft -> completed
+  ══════════════════════════════════════════════════════════════════════════════
+  SHIPPED ON MAIN AT COMMIT `e20e960`
+  (`e20e9609fa27bcfce58bff3e2adbef84ae0ec179`, authored 2026-08-18 22:53:29 -0400),
+  "feat(ISSUE-099): add gate --json-out, collapsing CI's duplicate gate run". Four
+  review rounds, signed off CLEAN before implementation.
+
+  PROVENANCE — AND IT IS BETTER HERE THAN IN THE TWO PLANS THIS BANNER IMITATES.
+  PLAN-ISSUE-157 and PLAN-ISSUE-176 both had to record that they were never committed
+  before implementation, leaving no diff baseline. THIS plan WAS: `e20e960` carries
+  `plans/PLAN-ISSUE-099-gate-json-out-flag.plan.yml` (1142 lines) alongside the code it
+  describes, so a future reader has a real baseline —
+    git show e20e960:plans/PLAN-ISSUE-099-gate-json-out-flag.plan.yml
+  is this plan exactly as reviewed and approved, at `status: draft`, and diffing it
+  against HEAD shows precisely this banner and this status flip and nothing else. The
+  phases, tasks, claim mappings and original prose below this banner are UNCHANGED
+  historical record and were deliberately NOT rewritten.
+
+  ── WHAT LANDED, BY PHASE ────────────────────────────────────────────────────
+  Phase 1 (TASK-001/002) — `cmd/backstop/gate_json_out_test.go` added (413 lines,
+    9 tests); `workflows_test.go` and `cmd/backstop/ci_recipes_github_actions_test.go`
+    reworked for the single-invocation shape. The eight/nine RED split held as written:
+    subtests (a)-(h) failed at RUNTIME on `unknown flag: --json-out`, while
+    `TestGateJSONOut_RunsTheKillChainExactlyOnce` was GREEN AT HEAD BY DESIGN as the
+    regression lock, and is still green after TASK-003 — which is the whole of its
+    value. The two PLAN-ISSUE-176-mandated names
+    (`TestCIWorkflow_GateJobProvesTheBaselineLandedAfterTheGate`,
+    `TestCIWorkflow_TheOnlyBaselinePullFollowsEveryGateInvocation`) kept their names;
+    only their `!= 2` -> `!= 1` bodies and their explanatory prose moved (sharp edge 4).
+  Phase 2 (TASK-003/004) — `cmd/backstop/gate.go` (+96 lines net). Readable at HEAD by
+    NAME, not by number (sharp edge 1): the gate-LOCAL registration in `newGateCommand`
+    (`cmd.Flags().StringVar(&jsonOutFlag, "json-out", ...)`, ~`:74`, with the interaction
+    rule spelled into the help string); the destination PREFLIGHT in `runGate` — empty
+    value and missing/non-directory parent, both `ExitConfigError` — placed before
+    `ComputeGateScopeWithBase` (~`:186-205`); and the emission block at
+    `// Format output based on --json flag, and on --json-out's file destination.`
+    (~`:319-377`), which calls `gate.FormatJSON` ONCE, renders stdout first, then writes
+    `append(data, '\n')`, then returns the unchanged verdict. `pkg/gate/output.go`, the
+    `gate/v1` schema, the human table's bytes and `runGate`'s signature are untouched
+    (sharp edge 10).
+  Phase 3 (TASK-005/006) — `.github/workflows/ci.yml` (-64/+ lines) and `.gitignore`
+    (comment only). The `Capture the gate report as JSON (diagnostic only - does not
+    gate)` step, its `env:` block, its `> gate-report.json || echo` redirect and the
+    "TWO STEPS, ONE GATE" comment are GONE. `Run the gate` now reads
+    `./bin/backstop gate --base "$BASE" --json-out gate-report.json` (`ci.yml:195`) and
+    is the ONLY `backstop gate` invocation in the job. `id: run_gate`, the step-level
+    `GH_TOKEN`, the confirmation step's `if: always() && steps.run_gate.conclusion !=
+    'skipped'` and the `always()` upload of `gate-report.json` + `cover.out` all
+    survived. The step-level token rationale was RELOCATED onto the surviving step
+    rather than deleted with its host — the loss of which nothing would have caught.
+  Phase 4 (TASK-007/008) — full sweep, then artifact reconciliation. TASK-008's three
+    reconciliations were executed by ROUTED ARTIFACT AGENTS, not the implementer (see
+    AS-BUILT DELTA 1), in the order the task requires: mutate first, validate last.
+
+  ── EVIDENCE AT CLOSE ────────────────────────────────────────────────────────
+  RE-VERIFIED BY THE CLOSING AGENT (run at close-out 2026-08-19, not carried):
+    · `go test ./cmd/backstop/ -run "TestGateJSONOut" -race -count=1 -v` -> ALL NINE
+      PASS, ZERO SKIPPED (18.851s). Every mandated name in TASK-001's `test_names`
+      is present in `cmd/backstop/gate_json_out_test.go` and accounted for by a
+      `--- PASS` line, including the regression lock.
+    · `go test . -run "TestCIWorkflow" -count=1` -> ok (0.399s). `workflows_test.go`
+      declares 21 `TestCIWorkflow_*` functions and all pass, so the four names TASK-002
+      is responsible for are green inside a green whole-family run — the non-regression
+      leg TASK-006 asked for, not just this lane's own new pin.
+    · THE FIX ITSELF IS AT HEAD, checked structurally rather than inferred from the
+      commit message: `--json-out` appears at 13 sites in `cmd/backstop/gate.go`
+      (registration, read-back, preflight, emission, write-failure refusal), and
+      `grep -n 'backstop gate' .github/workflows/ci.yml` returns exactly ONE `run:`
+      line in the gate job.
+  CARRIED FROM THE IMPLEMENTATION RUN, LABELLED AS CARRIED AND NOT RE-RUN HERE:
+    · `backstop gate --all` was compared against a CONTROL WORKTREE built at pre-fix
+      HEAD: 120 violations in BOTH, byte-identically inherited, ZERO attributable to
+      this change. No waiver was added, no baseline entry written, no test weakened.
+    · `backstop gate --file` over each touched file: clean.
+    · A production smoke test on a REAL FAILING gate run of this repository confirmed
+      both surfaces from one invocation — the human table on the terminal AND a ~182KB
+      valid `gate/v1` envelope on disk, with the exit code matching the table's verdict.
+      That is CLM-004 observed at production scale, not just in the fixture.
+    Not re-running the unscoped sweep at close-out is deliberate (sharp edge 12): this
+    tree carries other agents' uncommitted work tonight, and a full sweep here would
+    race it. The reading above is the implementer's, and is presented as such.
+
+  ── POST-MERGE CI OBLIGATION — PARTIALLY READ, THE WIN IS NOT YET CLAIMED ────
+  The plan's POST-MERGE OBLIGATION section names three checks and says plainly: record
+  the run id, do not claim the win before reading it. Honoured exactly.
+  RUN `32214168504` — head `e20e9609`, workflow triggered on `main`, created
+  2026-08-19T04:00:30Z. READ LIVE AT CLOSE-OUT, and IN PROGRESS at that moment, with
+  the "Run the gate" step itself still running.
+    ✔ CHECK 1 CONFIRMED — the "Backstop Gate" job's real step list, read out of the run
+      via `gh run view 32214168504 --json jobs`, contains EXACTLY ONE gate invocation:
+      step 9 `Run the gate`. There is no `Capture the gate report as JSON` step. The
+      collapse is observable in the shipped job, not merely in the file.
+    ✖ CHECK 2 NOT READ — the gate step's duration against a pre-fix run. The step had
+      not finished when this banner was written. The nearest pre-fix `main` anchors for
+      that comparison are runs `32201643315` (head `690d46c`) and `32200897995`
+      (head `14d87ad`), both of which ran the kill chain twice.
+    ✖ CHECK 3 NOT READ — that the `gate-report` artifact is still uploaded and
+      non-empty on the completed run. The upload step was `pending`.
+  So the wall-time win remains PREDICTED, not measured. Whoever reads run `32214168504`
+  to completion closes checks 2 and 3; that reading is also the second of the two
+  preconditions ISSUE-099's own 2026-08-19 update names for its close.
+
+  ── AS-BUILT DELTAS ──────────────────────────────────────────────────────────
+   1. TASK-008 WAS NOT EXECUTED BY THE IMPLEMENTER, and this is the same structural
+      finding PLAN-ISSUE-157 recorded as its own delta 4 — it recurs because it is a
+      property of the harness, not of any one agent. The implementer has NO artifact-
+      write channel (agent-guard blocks artifact edits through Write/Edit AND through
+      Bash) and no dispatch tool, so it correctly stopped after TASK-007 and handed off.
+      The three reconciliations then ran as SEPARATE ROUTED DISPATCHES:
+        · `issues/ISSUE-099-...issue.md` — ISSUE-AUTHOR agent (+44 lines): a
+          2026-08-19 update section recording the shipping commit, the verification
+          facts, the fulfilled "Retirement trigger" paragraph, the outstanding
+          post-merge obligation, and — correctly — WHY the issue stays `open`.
+        · `directives/DIR-024-gate-engine-quality.directive.md` — DIRECTIVE-AUTHOR
+          agent (+52/-12): entry 7 marked DELIVERED against this plan and commit, the
+          `gate.go:33,170-176` citation corrected to the ROOT persistent registration in
+          `root.go`, the "no `--json-out` flag exists anywhere" claim marked false as of
+          TASK-003, and — the one that mattered most — the "preserve the split" sentence
+          retired, so it can no longer instruct a future planner to protect a shape this
+          lane deliberately removed. NO reordering, NO reprioritization, NO removal.
+      DIR-024's co-claimant hazard did not fire: PLAN-ISSUE-168's TASK-008 had not
+      touched the file, and the two corrections target different numbered entries.
+   2. THE ISSUE STAYS `open` ON PURPOSE, AND THE ORDERING IS THE REASON. `delivered_by`
+      re-validates the plan it names (`pkg/validate/delivered_by.go`), so a `closed`
+      ISSUE-099 pointing at a `draft` plan would be a broken HEAD. This flip is
+      therefore the FIRST of two moves; a separate issue-author dispatch closes
+      ISSUE-099 with `delivered_by: PLAN-ISSUE-099` after it. Same ordering
+      PLAN-ISSUE-157 recorded and for the same reason.
+   3. TASK-008's `files:` list includes this plan, and the mutation it names for this
+      file is exactly what a close-out is — but the plan could not describe the flip in
+      its own task text without the text and the state disagreeing until the moment it
+      ran. This banner IS that mutation, executed by a routed planner dispatch.
+
+  ── SURFACED FOR THE FOUNDER — REPORTED, NOT FIXED (TASK-008 part 3) ─────────
+   · THREE IN-FLIGHT LANES CARRY PROSE THIS LANE MADE STALE, and nothing here edited
+     them (a drive-by edit of another agent's in-flight artifact is the stray-write
+     hazard this repo has already been bitten by). ENUMERATED, not sampled — every
+     `status: draft` plan mentioning `gate-report` was checked, and the set is exactly:
+       `plans/PLAN-ISSUE-163-...plan.yml`  lines 56 and 575
+       `plans/PLAN-ISSUE-165-...plan.yml`  lines 155 and 692
+       `plans/PLAN-ISSUE-168-...plan.yml`  lines 83 and 1078
+     Two sites each, all phrased "the step BEFORE it writes/captures `gate-report.json`,
+     uploaded as the `gate-report` artifact". After the collapse the SAME step both
+     gates and writes the report. THEIR OPERATIVE INSTRUCTIONS STILL WORK UNCHANGED —
+     download the `gate-report` artifact, read `.scope.files` out of
+     `gate-report.json` — because the artifact, its name, its contents and its
+     `if: always()` upload are all preserved. Only the description of WHICH step
+     produced it is now wrong. (The other four plans matching `gate-report` —
+     PLAN-ISSUE-020/101/166/176 — are `completed` or unaffected.)
+   · ci.yml's diff-scope paragraph on the surviving gate step still says the all-scope
+     ban is "pending a founder decision", while
+     `TestCIWorkflow_BlockingJobNeverUsesAllOrFileScope` records a STANDING FOUNDER
+     RULING of 2026-08-17 (ISSUE-152 / ISSUE-156). They disagreed BEFORE this lane
+     touched anything and they disagree still: the paragraph was deliberately preserved
+     verbatim rather than "while I'm here"-fixed. Reconciling them is a real follow-on.
+   · SPEC-067 CLM-028's `|| echo` denylist exemption (in
+     `cmd/backstop/ci_recipes_github_actions_test.go`) had its cited EXAMPLE repointed
+     by TASK-002, with no assertion touched — the diagnostic capture it named is gone,
+     but `|| echo` itself is NOT gone from ci.yml (the confirmation step's failure
+     branch still carries one, for the same reporting-not-gating reason), so the
+     exemption's REASONING survives intact. Whether `|| echo` should now join the
+     denylist is a spec amendment for the spec-author agent and a founder question. Not
+     decided here, and deliberately not decided unilaterally.
+
+  ── COMMIT NOTE ──────────────────────────────────────────────────────────────
+  This banner and the status flip are UNCOMMITTED as written, as are TASK-008's two
+  artifact reconciliations (`issues/ISSUE-099-...issue.md`,
+  `directives/DIR-024-...directive.md`). All three must land TOGETHER — a committed
+  DIR-024 that says "DELIVERED — PLAN-ISSUE-099" while the plan still reads `draft` is
+  the same broken-HEAD shape delta 2 describes. Stage those three paths EXPLICITLY;
+  everything else dirty in this tree is other agents' work and a broad `git add` would
+  sweep it.
+  ══════════════════════════════════════════════════════════════════════════════
+
   ISSUE-099 — `backstop gate` renders exactly ONE output surface per invocation, so
   CI runs the entire kill chain TWICE per push to get both. This lane adds
   `--json-out FILE`, which writes the gate/v1 JSON envelope to a file while the human

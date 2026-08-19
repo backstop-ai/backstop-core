@@ -238,12 +238,25 @@ a new theme, not a founder roster call.
    falsification (semgrep or `gate --file` against a known-violating
    non-test fixture) and say so in the plan.
 7. **`gate` cannot emit the human table and JSON in one run — a measured
-    2x CI cost (ISSUE-099).** `--json` is a plain boolean on the global
-    `jsonFlag` (`cmd/backstop/gate.go:33,170-176`); when set,
-    `gate.FormatJSON(result)` REPLACES the human-table render path rather
-    than running alongside it. Confirmed by grep: no `--json-out` /
-    `jsonOut` flag exists anywhere in `cmd/backstop/`. There is no flag
-    that separates "what renders where."
+    2x CI cost (ISSUE-099).** **DELIVERED — PLAN-ISSUE-099, commit
+    `e20e960`, 2026-08-18 (4 review rounds, signed off CLEAN).** The three
+    factual claims below are corrected as of 2026-08-19 (directive-author),
+    since PLAN-ISSUE-099 shipped and made them stale the moment it landed;
+    left as originally written they'd misdirect a future reader.
+    `--json` is a plain boolean on the global `jsonFlag`, registered as a
+    ROOT PERSISTENT flag in `cmd/backstop/root.go`
+    (`rootCmd.PersistentFlags().BoolVar(&jsonFlag, "json", ...)`, `:42`) —
+    corrected citation; `cmd/backstop/gate.go:33` is not the registration
+    site, only where the command receives the already-registered flag.
+    When set, `gate.FormatJSON(result)` REPLACES the human-table render
+    path on stdout rather than running alongside it — this part of the
+    original claim still holds, confirmed live at `cmd/backstop/gate.go:
+    319-349`. **Corrected as of PLAN-ISSUE-099:** a `--json-out FILE` flag
+    now exists — gate-local, registered in `cmd/backstop/gate.go`'s
+    `newGateCommand` (`:41,74-78`) — that writes the gate/v1 JSON envelope
+    to FILE independently of what `--json` sends to stdout. The claim that
+    no such flag existed anywhere in `cmd/backstop/` was true when this
+    item was written and is false now.
     Consumer impact is measured, not theoretical: `.github/workflows/
     ci.yml` runs the entire gate TWICE — a diagnostic `--json` capture
     (`:144`) and the blocking human-table run (`:152`). Both execute the
@@ -262,12 +275,27 @@ a new theme, not a founder roster call.
     (`Capture the gate report as JSON (diagnostic only - does not gate)` at
     `:139-144`, then `Run the gate` at `:146-152`) using a `|| echo`
     one-liner instead of `set +e`/`set -e` — and the file already cites
-    ISSUE-099 by ID in its own comment. The deliberate design reason is
-    recorded in that comment and should be preserved by whoever closes
-    this: separate steps make it visible from the step list alone which
-    invocation gates, a lesson from the retired linux-sandbox probe
-    workflow whose every step ended in `exit 0`. So the retirement trigger
-    is "collapse two steps into one," not "remove `set +e` bracketing."
+    ISSUE-099 by ID in its own comment. At the time this item was written,
+    the deliberate design reason recorded in that comment (separate steps
+    make it visible from the step list alone which invocation gates, a
+    lesson from the retired linux-sandbox probe workflow whose every step
+    ended in `exit 0`) was something a future closer needed to preserve
+    rather than collapse blindly. **Corrected as of PLAN-ISSUE-099, commit
+    `e20e960`:** that instruction is now retired, not still owed. The two
+    steps WERE the retirement trigger's target, and PLAN-ISSUE-099 —
+    "whoever closed this" — deliberately collapsed them into the single
+    `Run the gate` step (`.github/workflows/ci.yml:144-195`) using
+    `--json-out gate-report.json`, per its own commit message and the
+    `ci.yml` comment block at `:166` ("ONE INVOCATION, BOTH SURFACES
+    (ISSUE-099)"). This was correct, not a regression to flag: the entire
+    reason the two-step split existed was that no single invocation could
+    produce both the human table on stdout AND a JSON envelope on disk: at
+    that time `--json` could only produce one or the other. Once
+    `--json-out` exists, the two surfaces come from one `FormatJSON` call
+    over one `GateResult` in one gate run, so a single step now serves
+    both purposes and the visibility-from-the-step-list rationale no
+    longer has anything to protect. Do not read this item as still
+    instructing preservation of the split.
     Route the issue-file correction through issue-author; it is NOT this
     directive's scope.
     Second consumer, independent of CI: the client-portal traceability

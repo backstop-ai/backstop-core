@@ -1,13 +1,15 @@
 ---
 title: "gate Cannot Emit the Human Table and --json Together — No File-Emitting Flag"
 schema_version: issue/v1
+delivered_by: PLAN-ISSUE-099
 
 issue:
   id: ISSUE-099
   title: "gate Cannot Emit the Human Table and --json Together — No File-Emitting Flag"
   type: enhancement
-  status: open
+  status: closed
   created: "2026-07-28"
+  closed: "2026-08-19"
 
 complexity:
   scope: contained
@@ -166,3 +168,100 @@ critical path down further, to roughly ~11min — the max of `pack_engines`'s an
 `coverage_threshold`'s individual durations — since the two steps are structurally independent of
 each other and could run concurrently once this issue's duplicate-run waste is also eliminated.
 Neither fix alone reaches that floor; both together do.
+
+## Update (2026-08-19) — fix shipped, closure pending plan completion
+
+**Shipped to main at commit `e20e960` (`e20e9609fa27bcfce58bff3e2adbef84ae0ec179`, 2026-08-18
+22:53:29 -0400), via `PLAN-ISSUE-099` (4 review rounds, signed off CLEAN).** The commit adds a
+gate-local `--json-out FILE` flag to `backstop gate` that writes the gate/v1 JSON envelope to
+`FILE` while the human table still renders to stdout, in one invocation — this is, near-verbatim,
+what the "Desired behavior" section above already specified. `.github/workflows/ci.yml`'s
+"Capture the gate report as JSON (diagnostic only)" step and its "TWO STEPS, ONE GATE" comment
+block are deleted; the gate job now runs
+`./bin/backstop gate --base "$BASE" --json-out gate-report.json` as a single step. The "Retirement
+trigger" paragraph under "Desired behavior" above — which said the diagnostic step "should merge
+into the single blocking `Run the gate` step, and the comment block explaining the two-step split
+should be rewritten accordingly" — is now fulfilled exactly as described.
+
+**Verification performed:**
+- 9 new `TestGateJSONOut_*` tests pass (both-surfaces-from-one-run, flag interaction, refusal
+  classes, verdict independence, the kill-chain-runs-once regression lock).
+- 21 `TestCIWorkflow_*` tests pass, including the ci.yml-shape assertions that pin the single-
+  invocation step count and the retirement of the diagnostic capture's `> gate-report.json ||
+  echo` signature.
+- A production smoke test on a real failing gate run confirmed both surfaces land correctly in one
+  invocation: the human table rendered to the terminal AND a 182KB valid `gate/v1` JSON envelope
+  was written, with the exit code correctly reflecting the verdict.
+- `gate --all` was compared against a control worktree at pre-fix HEAD: 120 violations in both
+  runs, byte-identically inherited, zero attributable to this change.
+
+**Outstanding obligation — NOT yet confirmed, do not read as claimed.** The plan's own
+"POST-MERGE OBLIGATION" section calls for reading the *next real CI run* after this landed and
+confirming, from that run and not from local testing: exactly one "Run the gate" step in the job's
+step list, the gate step's duration roughly halved against a recent pre-fix run, and the
+`gate-report` artifact still uploaded and non-empty. That post-merge CI confirmation has **not**
+been read yet. This is recorded here as an open obligation, not as a win — the plan explicitly
+warns not to claim the win before reading it.
+
+**Closure status: left `open`, not closed.** `PLAN-ISSUE-099`
+(`plans/PLAN-ISSUE-099-gate-json-out-flag.plan.yml`) is still `status: draft` as of this update —
+the implementer who executed the plan had no artifact-write path to flip it to `completed`. Per
+`pkg/validate/delivered_by.go`, a `delivered_by` pointer is only satisfied once the plan it names
+validates clean in its own right — pointing `delivered_by` at a plan still sitting at `status:
+draft` would be getting ahead of the plan's own state. This issue's status is being left as `open`
+rather than flipped to `closed` until (a) the plan's status is formally moved to `completed`
+(planner territory, out of scope for this update) and (b) the post-merge CI confirmation above is
+read. Both are separate, biteable follow-ons for the founder to dispatch.
+
+## Resolution
+
+`PLAN-ISSUE-099` was flipped to `status: completed` (its own AS-BUILT banner, 2026-08-19), so both
+of the preconditions the update above named for closing this issue are now met. Closing here with
+`delivered_by: PLAN-ISSUE-099` rather than re-authoring requirements/claims onto this issue.
+
+**What shipped (summarized from the 2026-08-19 update above — not duplicated verbatim).**
+`backstop gate` gained a gate-local `--json-out FILE` flag: one invocation now writes the human
+table to stdout AND the `gate/v1` JSON envelope to `FILE`. `.github/workflows/ci.yml`'s "Capture
+the gate report as JSON (diagnostic only)" step and its "TWO STEPS, ONE GATE" comment block are
+gone; the job runs `./bin/backstop gate --base "$BASE" --json-out gate-report.json` as its single
+gate step. Verified pre-close via 9 `TestGateJSONOut_*` tests, 21 `TestCIWorkflow_*` tests, a
+production smoke test on a real failing gate run (182KB valid envelope written alongside the
+rendered table, exit code matching the verdict), and a `gate --all` byte-identical comparison
+against a pre-fix control worktree (120 violations both sides, zero attributable to this change).
+Shipped at commit `e20e960` (`e20e9609fa27bcfce58bff3e2adbef84ae0ec179`).
+
+**Post-merge CI confirmation — completed for real, not carried from the plan's partial read.** The
+plan's close-out banner had checked run `32214168504` mid-flight and confirmed only check 1 of 3.
+That run has since finished; re-read directly at this issue's own close-out (2026-08-19, via
+`gh run view 32214168504` and `gh api .../artifacts`):
+
+- **Check 1 (one gate invocation) — CONFIRMED**, and reconfirmed on the completed run: the
+  "Backstop Gate" job's step list contains exactly one gate step, `Run the gate` (step 9), and no
+  diagnostic-capture step.
+- **Check 2 (duration roughly halved) — CONFIRMED.** Post-fix run `32214168504`'s single `Run the
+  gate` step took ~20m55s (04:01:08Z → 04:22:03Z). Two pre-fix anchor runs on `main`
+  (`32201643315`, `32200897995`) each ran the diagnostic-capture step (~20-21min) followed by the
+  blocking `Run the gate` step (~20min), for a combined gate-work total of ~41-42min per run. ~41min
+  → ~21min is roughly a halving, consistent with eliminating exactly one duplicate kill-chain run.
+- **Check 3 (gate-report artifact uploaded and non-empty) — CONFIRMED.** `gh api
+  repos/backstop-ai/backstop-core/actions/runs/32214168504/artifacts` lists one artifact,
+  `gate-report`, 83151 bytes, not expired. The `Upload the gate JSON report` step succeeded
+  (`if: always()`), including on this run whose gate step itself concluded `failure` (a normal
+  violations-found red, not a defect in this fix) — which is itself further live evidence for
+  CLM-004 (the file is written before the process decides its exit).
+
+All three post-merge obligations from the plan are now read and confirmed, not merely predicted.
+This closes the loop the plan's banner left open.
+
+**Not resolved by this close — recorded, not absorbed.** Two items surfaced during implementation
+that this issue's fix did not need to resolve and that this close does not paper over:
+
+1. `.github/workflows/ci.yml`'s diff-scope paragraph on the surviving gate step still frames the
+   all-scope ban as "pending a founder decision," while `TestCIWorkflow_BlockingJobNeverUsesAllOrFileScope`
+   records a standing founder ruling dated 2026-08-17 (ISSUE-152 / ISSUE-156) that it has already
+   been decided. This inconsistency predates this lane and was deliberately left verbatim rather
+   than "while I'm here"-fixed; reconciling the prose with the ruling is a separate follow-on.
+2. Whether the confirmation step's `|| echo` pattern (`./bin/backstop baseline pull || echo
+   "bare baseline pull exited $?"`) should now join SPEC-067 CLM-028's `|| echo` swallow-denylist
+   exemption is a spec-amendment question for the spec-author agent and the founder, not something
+   this issue's fix needed to decide, and it is not decided here.

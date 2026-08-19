@@ -17,6 +17,14 @@ is degraded in ways that look like clean results:
 - **Put `go-arch-lint` on PATH** (`PATH="$HOME/go/bin:$PATH"`). It is an assume-present
   Layer-0 tool backstop never auto-provisions; without it `pack_engines` dies in ~2ms with a
   single tool-not-found violation, which reads like a near-clean gate.
+  ★ THIS BITES IN THE MAIN TREE TOO, not just worktrees: an agent's Bash shell does not
+  inherit the founder's `~/go/bin` on PATH, so even a routine close-out
+  `gate --file <artifact>` comes back `pack_engines fail (1 violation)` / exit 2 with that
+  same tool-not-found message. It is an ENVIRONMENT artifact, never the lane's red — do not
+  report it as one, and never waive it. Re-run with `export PATH="$PATH:$HOME/go/bin"` and
+  the same command goes `Total violations: 0`. Measured on PLAN-ISSUE-099's close-out
+  (2026-08-19), where the first `gate --file` on the plan read FAIL and the identical
+  re-run with PATH extended read PASS.
 
 **Confirm the reading was real before quoting it:** `pack_engines` should show a multi-minute
 duration and a large violation count. A fast `pack_engines` means the engines never ran.

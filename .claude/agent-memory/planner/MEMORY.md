@@ -16,7 +16,7 @@
 - [Shared-tree assertions can't attribute](project_shared_tree_assertions_cannot_attribute.md) — a `git status` purity check blames whoever runs it; invert the scan to "does X reference us" (content, not tree state)
 - [Import boundary is a lookup](project_import_boundary_is_a_lookup.md) — "can this be shared?" = read backstop-core.yml `deps:`, never generalize from a prior plan's wall; prefer an already-exercised zero-edge home
 - [Inherited coverage red at close-out](project_inherited_coverage_red_at_closeout.md) — prove it with a control-worktree clean-HEAD number + the counterfactual, name the owning issue, record — never waive
-- [Real gate reading in a close-out worktree](project_closeout_real_gate_in_worktree.md) — detached worktree beats a carried reading; copy in .backstop/packs + go-arch-lint on PATH or pack_engines silently no-ops
+- [Real gate reading in a close-out worktree](project_closeout_real_gate_in_worktree.md) — worktree beats a carried reading; copy in .backstop/packs — and go-arch-lint off an agent's PATH reds pack_engines in ANY tree
 - [Severity defects have two hops](project_severity_defect_has_two_hops.md) — an issue naming one discarding converter usually hides the consuming step's raw-count status; fix both or the fix is invisible
 - [SARIF suppression measurement layer](project_sarif_suppression_measurement_layer.md) — raw SARIF rows ≠ gate output (`--sarif` emits nosemgrep rows, parseSarif drops them); label every count RAW vs ACTIVE
 - [DIR-032 premises go stale](project_dir032_stale_premises.md) — ISSUE-066 measured non-reproducible 2026-08-17; older cluster members describe a gate since rebuilt — falsify in a worktree before authoring
