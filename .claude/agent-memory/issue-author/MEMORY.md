@@ -6,3 +6,4 @@
 - [Schema properties block unenforced](project_schema_properties_block_unenforced.md) — MetadataRules parsed but never consulted by any validator; schema-vs-validator drift is doc-only, not a live bug (see ISSUE-153)
 - [Baseline-pull follow-ons](project_baseline_pull_followons.md) — ISSUE-178 (workflow-name filter gap) follows ISSUE-176; note-only edits into an issue awaiting a plan's close-out task are fine, don't flip status
 - [ISSUE-154 plan terminal exemption](project_issue154_plan_terminal_exemption.md) — owns plan/phases-empty on canceled plans (plan.go lacks isTerminalStatus gate); check before filing a dup
+- [go-toolchain mtime precision masking](project_gotoolchain_mtime_precision_masking.md) — ISSUE-179: darwin's coarse-second mtime compare masks a backwards Linux-real check; darwin-only pack verification is insufficient evidence
