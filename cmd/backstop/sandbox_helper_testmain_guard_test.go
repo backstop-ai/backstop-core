@@ -126,18 +126,54 @@ func TestIntegrationTestMain_RunsSandboxHelperGateAsItsFirstStatement(t *testing
 // simply never propagated to a second site; this is the test that makes the next
 // omission loud instead of silent.
 //
+// IT PINS BOTH HALVES:
+//
+//	(1) every packval-reaching package that compiles a test binary DECLARES a
+//	    TestMain at all, and
+//	(2) every such TestMain OPENS with the sandbox-helper gate.
+//
+// HALF (1) WAS ADDED BY ISSUE-180, AFTER THE HALF-(2)-ONLY VERSION FAILED TO
+// CATCH EXACTLY THIS DEFECT. The original roster was built by
+// `if pkg.testMain == nil { continue }` followed by the packval predicate, so a
+// packval-reaching package with NO TestMain AT ALL was invisible BY CONSTRUCTION
+// — this test was measurably GREEN while pkg/pack/distribution shipped without
+// one and broke on Linux CI. ISSUE-164 raised the generalization as a question;
+// it is delivered here. Membership is now derived with NO reference to TestMain
+// presence, so a FIFTH packval-reaching package added later is caught with no
+// edit to this file and no exemption list.
+//
 // It asserts THE GUARD SHAPE AND ONLY THE GUARD SHAPE. The exit-code assertion
-// from the test above is deliberately absent here: pkg/packval/main_test.go
-// legitimately writes os.Exit(126) as a bare literal, so a roster carrying that
-// assertion would red the one file this whole fix is modelled on.
+// from the test above is deliberately absent here: pkg/packval/main_test.go and
+// pkg/pack/distribution/main_test.go both legitimately write os.Exit(126) as a
+// bare literal, so a roster carrying that assertion would red the very files this
+// fix is modelled on.
 func TestSandboxHelperGate_PresentInEveryPackvalReachingTestMain(t *testing.T) {
 	root := repoRoot(t)
 	packages := scanGoPackages(t, root)
 
+	// ── STEP 1: DERIVE THE PACKVAL-REACHING SET, INDEPENDENT OF TestMain ────────
+	//
 	// THE PREDICATE, stated as the deliberate approximation it is: a package can
 	// become the re-exec target when it DIRECTLY imports pkg/packval, or when it IS
 	// pkg/packval (a package cannot import itself). Direct import, not transitive
-	// reach — widen this on measurement, not on a hunch.
+	// reach — widen this on measurement, not on a hunch. Membership is a real
+	// *ast.ImportSpec recorded by scanGoPackages, NEVER a grep for the import path:
+	// a grep reports pkg/pack/engine as a packval importer and is WRONG, because
+	// the hits are forbidden-import STRING LITERALS inside that package's own
+	// leaf-invariant tests (TestEngineBinding_NoImportCycle, which resolves the real
+	// transitive set via `go list -deps`, and TestEngine_NoForbiddenImports) — tests
+	// that assert the exact opposite of what the grep implies.
+	//
+	// ★ NOTHING HERE MAY CONSULT pkg.testMain. That skip is what made both ISSUE-163
+	// and ISSUE-180 invisible; STEP 3a below is the only assertion allowed to look
+	// at TestMain presence.
+	//
+	// NARROWED BY DERIVATION, NOT BY EXEMPTION: a member must have at least one
+	// *_test.go file, because a package that compiles no test binary can never be
+	// the trampoline's re-exec target under `go test`. This changes nothing today —
+	// all three current members have tests — and exists so a future production-only
+	// importer is excluded by the predicate rather than by the hand-written
+	// exemption this check exists to eliminate.
 	//
 	// tests/smoke has a TestMain and is correctly absent from the roster: its tests
 	// drive the BUILT BINARY as a subprocess, so on Linux the re-exec target is that
@@ -146,7 +182,7 @@ func TestSandboxHelperGate_PresentInEveryPackvalReachingTestMain(t *testing.T) {
 	// an exception.
 	var roster []string
 	for dir, pkg := range packages {
-		if pkg.testMain == nil {
+		if !pkg.hasTestFile {
 			continue
 		}
 		if pkg.importsPackval || dir == "pkg/packval" {
@@ -155,23 +191,59 @@ func TestSandboxHelperGate_PresentInEveryPackvalReachingTestMain(t *testing.T) {
 	}
 	sort.Strings(roster)
 
-	// ANTI-VACUOUS ASSERTIONS FIRST, and they are load-bearing: a predicate that
-	// quietly narrows to nothing would otherwise pass while checking nothing.
+	// ── STEP 2: ANTI-VACUOUS FLOOR, FIRST AND LOAD-BEARING ──────────────────────
+	//
+	// A predicate that quietly narrows to nothing would otherwise pass while
+	// checking nothing — the vacuous-green shape DIR-032 exists to prevent.
+	//
+	// pkg/pack/distribution belongs here because validator.go calls
+	// packval.NewPipeline(packDir, ...).Run(); it is a member BEFORE the fix exists,
+	// which is exactly why STEP 2 is green pre-fix and only STEP 3a reds.
+	// pkg/pack/engine deliberately does NOT belong: it is not a packval importer at
+	// all, and TestEngineBinding_NoImportCycle pins that structurally.
 	if len(roster) == 0 {
-		t.Fatalf("derived roster is EMPTY: no package under %s both declares a TestMain and "+
+		t.Fatalf("derived roster is EMPTY: no package under %s both compiles a test binary and "+
 			"reaches %s. The scan or the predicate is broken — this test would otherwise pass "+
 			"while asserting nothing.", root, packvalImportPath)
 	}
-	for _, want := range []string{"cmd/backstop", "pkg/packval"} {
+	for _, want := range []string{"cmd/backstop", "pkg/pack/distribution", "pkg/packval"} {
 		if !containsString(roster, want) {
 			t.Fatalf("derived roster %v is missing the known member %q; the scan or the predicate "+
-				"is broken (both packages declare a TestMain and reach %s)",
+				"is broken (all three packages compile a test binary and reach %s)",
 				roster, want, packvalImportPath)
 		}
 	}
 
 	for _, dir := range roster {
 		pkg := packages[dir]
+
+		// ── STEP 3a: EVERY MEMBER DECLARES A TestMain (ISSUE-180) ───────────────
+		//
+		// THE LINE THAT REMOVES THE BLIND SPOT. It does not need to know WHICH
+		// packages exist, so a package added to the reaching set later is caught
+		// here with no edit to this file.
+		if pkg.testMain == nil {
+			t.Errorf("%s reaches %s and compiles a test binary but declares NO "+
+				"`func TestMain(m *testing.M)` (ISSUE-180).\n\n"+
+				"On Linux the sandbox trampoline re-execs that package's test binary with "+
+				"BACKSTOP_SANDBOX_HELPER_SPEC set and its working directory pointed at the pack "+
+				"directory. Without a TestMain, Go's DEFAULT generated test main does not "+
+				"recognise helper mode and reruns the package's WHOLE SUITE in the pack's scratch "+
+				"directory instead of installing the sandbox — it dies off any go.mod ancestry, "+
+				"exits 1, and writes all of it to stdout, which foldHelperStderrIntoError never "+
+				"reads.\n\n"+
+				"Add one, modelled on pkg/packval/main_test.go:\n"+
+				"    func TestMain(m *testing.M) {\n"+
+				"        if err := packval.%s(); err != nil {\n"+
+				"            fmt.Fprintf(os.Stderr, \"backstop sandbox helper: %%v\\n\", err)\n"+
+				"            os.Exit(126)\n"+
+				"        }\n"+
+				"        os.Exit(m.Run())\n"+
+				"    }", dir, packvalImportPath, sandboxHelperGateName)
+			continue
+		}
+
+		// ── STEP 3b: AND THAT TestMain OPENS WITH THE GATE ──────────────────────
 		_, _, shapeErr := sandboxHelperGateShape(pkg.testMain)
 		if shapeErr != "" {
 			t.Errorf("%s: TestMain does not open with the sandbox-helper gate: %s\n\n"+
@@ -186,15 +258,25 @@ func TestSandboxHelperGate_PresentInEveryPackvalReachingTestMain(t *testing.T) {
 }
 
 // goPackage is what the scan records per directory: whether the package declares
-// a TestMain (and where), and whether it reaches pkg/packval.
+// a TestMain (and where), whether it reaches pkg/packval, and whether it compiles
+// a test binary at all.
+//
+// hasTestFile exists so the roster's membership predicate can be NARROWED BY
+// DERIVATION rather than by a hand-written exemption: a package that compiles no
+// test binary can never be `go test`'s re-exec target, so it cannot be handed
+// BACKSTOP_SANDBOX_HELPER_SPEC by the trampoline. It changes nothing today — all
+// three current members have tests — and exists so a future production-only
+// packval importer is excluded by the predicate instead of by a name list.
 type goPackage struct {
 	testMain       *ast.FuncDecl
 	testMainFile   string
 	importsPackval bool
+	hasTestFile    bool
 }
 
 // scanGoPackages walks the module from root and records, per directory, the
-// TestMain declaration (if any) and whether any file in it imports pkg/packval.
+// TestMain declaration (if any), whether any file in it imports pkg/packval, and
+// whether it contains at least one *_test.go file.
 //
 // Exclusions are DERIVED rather than hand-listed, so a new fixture cannot silently
 // join the roster: any `testdata` directory (Go's own tooling ignores those, and
@@ -239,6 +321,9 @@ func scanGoPackages(t *testing.T, root string) map[string]*goPackage {
 		if pkg == nil {
 			pkg = &goPackage{}
 			packages[dir] = pkg
+		}
+		if strings.HasSuffix(name, "_test.go") {
+			pkg.hasTestFile = true
 		}
 		if importsPath(file, packvalImportPath) {
 			pkg.importsPackval = true

@@ -1,0 +1,1102 @@
+---
+plan_id: PLAN-ISSUE-180
+spec_id: ISSUE-180
+created: "2026-08-19"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./pkg/pack/distribution/ ./cmd/backstop/ -run \"TestDistributionTestMain_OpensWithSandboxHelperGate|TestSandboxHelperGate_PresentInEveryPackvalReachingTestMain\" -race -count=1 -v"
+coverage_threshold: 80
+
+notes: |
+  ISSUE-180 — `pkg/pack/distribution`'s test binary declares NO `TestMain`, so on Linux the
+  packval sandbox trampoline re-execs it and Go's DEFAULT generated test main reruns the
+  WHOLE 43-file suite in the scratch-copy directory instead of installing the sandbox and
+  exec'ing the pack's convert script. The recursive suite dies off any `go.mod` ancestry,
+  exits 1, and writes every byte of that to STDOUT — which
+  `foldHelperStderrIntoError` never reads — producing the observed
+  "exit status 1 … the sandboxed command wrote no diagnostic", 14 times, once per fixture
+  in `packs/contracts`.
+
+  ★ THE FIX IS ~6 LINES AND FULLY PRECEDENTED. It is the SAME DEFECT CLASS, SAME FIX SHAPE
+  as PLAN-ISSUE-163 (which fixed `cmd/backstop`), one package over. This plan is deliberately
+  small; its weight is in the verification ceiling, the two judgment calls recorded below,
+  and ONE anti-regression hole that this fix itself opens and must therefore close.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  MEASURED AT AUTHORING (2026-08-19, live tree, darwin, clean HEAD 22c7574)
+  ══════════════════════════════════════════════════════════════════════════════
+  Every citation below was RE-DERIVED for this plan, not carried from ISSUE-180.
+
+    * ★ THE PACKVAL-REACHING SET, DERIVED BY AST — **NOT BY GREP**. Re-ran the guard's OWN
+      predicate (`go/parser` over every non-`testdata`, non-hidden `.go` file; membership =
+      an actual `*ast.ImportSpec` for `github.com/backstop-ai/backstop-core/pkg/packval`,
+      exactly what `scanGoPackages` does) → EXACTLY THREE directories:
+          cmd/backstop            (17 files, incl. main.go, pack_gate.go)   TestMain: YES
+          pkg/packval             (self)                                    TestMain: YES
+          pkg/pack/distribution   (validator.go)                            TestMain: NO  ← the defect
+      `pkg/gate` is ABSENT — ISSUE-180's "checked, not exposed" claim reproduced.
+    * ★★ `pkg/pack/engine` IS NOT IN THAT SET, AND A GREP SAYS OTHERWISE — DO NOT USE GREP HERE.
+      `grep -rl "backstop-core/pkg/packval"` reports `pkg/pack/engine`, and that report is
+      WRONG: the hits are STRING LITERALS inside `pkg/pack/engine/import_cycle_test.go:19`
+      and `binding_test.go:216`, which are FORBIDDEN-IMPORT LISTS in leaf-invariant tests
+      asserting packval is ABSENT. The grep matches the test that proves the opposite of
+      what the grep implies. `pkg/pack/engine` has NO packval import declaration anywhere
+      (`binding.go:3` documents the leaf placement).
+      ITS EXPOSURE IS DEAD BY CONSTRUCTION, NOT MERELY UNMEASURED, and doubly pinned:
+        - `TestEngineBinding_NoImportCycle` (`import_cycle_test.go`, CLM-033/REQ-013)
+          resolves the REAL transitive set via `go list -deps` and asserts packval absent —
+          measured green at authoring: `--- PASS (0.11s)`.
+        - `TestEngine_NoForbiddenImports` (`binding_test.go:205`, CLM-033) asserts the same
+          by AST over `binding.go`.
+      A package that cannot transitively link packval can never be handed
+      `BACKSTOP_SANDBOX_HELPER_SPEC` by a trampoline it does not contain. See judgment call 1.
+    * `grep -rn "^func TestMain" --include="*.go" cmd pkg tests packs` → 5 hits:
+        1. `cmd/backstop/integration_test.go:19`  — CORRECT (PLAN-ISSUE-163 landed at 970512b).
+        2. `pkg/packval/main_test.go:36`          — CORRECT. The original precedent.
+        3. `tests/smoke/smoke_test.go:17`         — does NOT import packval; out of scope by
+                                                    derivation, exactly as PLAN-ISSUE-163 argued.
+        4. `packs/substantiveness/testdata/.../positive.go:37`   — FIXTURE, under `testdata/`.
+        5. `pkg/gate/testdata/.../testmain_fixture_test.go:13`   — FIXTURE, under `testdata/`.
+      → `pkg/pack/distribution` has NONE. The defect confirmed, and it is the ONLY such package.
+    * ★ THE GENERALIZED PREDICATE'S ACTUAL VERDICT, RUN AT AUTHORING (not reasoned about):
+      "reaches packval AND declares no `TestMain`" flags **exactly one** directory —
+      `pkg/pack/distribution`, the package this plan already fixes. ZERO other members, so
+      ZERO exemptions, and the check goes green the moment TASK-002 lands. This measurement
+      is what re-decided judgment call 1.
+    * `pkg/pack/distribution` test-package split: 42 files `package distribution_test`,
+      1 file `package distribution` (`islocalpath_export_test.go`). Both compile into ONE
+      test binary; Go permits `TestMain` in exactly one of the two.
+    * `pkg/pack/distribution/validator.go:60` — `packval.NewPipeline(packDir,
+      packval.PipelineOptions{Mode: mode}).Run()`. The package IS packval-reaching in
+      production, not just by import.
+    * `pkg/packval/sandbox_linux.go:60` `const sandboxHelperEnvVar =
+      "BACKSTOP_SANDBOX_HELPER_SPEC"`; `:119` `func MaybeRunSandboxHelper()`; `:120`
+      `os.LookupEnv(sandboxHelperEnvVar)`; `:191` `os.Executable()`; `:196-198`
+      `exec.Command(self)` + `helper.Dir = packDir` + the env var. THE TRAMPOLINE, and the
+      `helper.Dir = packDir` line is precisely why the recursive rerun has no `go.mod`.
+    * `pkg/packval/sandbox_nonlinux.go:47` — `func MaybeRunSandboxHelper() error { return nil }`.
+      Unconditional stub. `sandbox_linux.go` and `sandbox_linux_helper.go` are `//go:build linux`.
+    * `pkg/packval/sandbox_diagnostic.go:48` `foldHelperStderrIntoError(stdout, stderr, runErr)`;
+      `:53` `diagnostic := strings.TrimSpace(string(stderr))`; `:58` the literal
+      `"(the sandboxed command wrote no diagnostic)"`. IT READS `stderr` ONLY — stdout is
+      returned byte-identical by design. That asymmetry is what swallows the recursive
+      suite's output.
+    * `pkg/pack/distribution/contracts_local_install_test.go:1` `package distribution_test`;
+      `:51` `func TestInstallContractsLocalPack_InstallsWithSuppliedCommand`.
+    * MANDATED-TEST OWNERSHIP: that test name is mandated by
+      `specs/SPEC-055-production-remote-dependency-assembly.spec.md:845` (CLM-092).
+      DO NOT RENAME OR WEAKEN IT — it is a shipped mandate this lane merely un-breaks.
+    * DARWIN VERDICT, RUN AT AUTHORING:
+        `go test ./pkg/pack/distribution/ -run "TestInstallContractsLocalPack_InstallsWithSuppliedCommand" -count=1 -v`
+        → `--- PASS: TestInstallContractsLocalPack_InstallsWithSuppliedCommand (1.40s)`
+      It PASSES here and FAILS on Linux CI. That gap IS the ceiling, measured rather than asserted.
+    * `go test ./cmd/backstop/ -run "TestSandboxHelperGate_PresentInEveryPackvalReachingTestMain|TestIntegrationTestMain_RunsSandboxHelperGateAsItsFirstStatement" -count=1`
+      → `ok  github.com/backstop-ai/backstop-core/cmd/backstop  2.367s`. Both guard tests are
+      GREEN today, WITH the defect live. That is the blind spot, quantified.
+    * ARCHITECTURE: `.backstop/packs/backstop-ai/backstop-core-architecture/architecture/backstop-core.yml:56`
+      — `pack_distribution: { mayDependOn: [pack, packval] }`. The import edge this fix uses
+      ALREADY EXISTS and is already exercised by `validator.go`. No arch-lint risk.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  ★★ THE VERIFICATION CEILING — READ BEFORE PLANNING ANY "PROVE IT" STEP ★★
+  ══════════════════════════════════════════════════════════════════════════════
+  THIS DEFECT CANNOT BE REPRODUCED OR CONFIRMED-FIXED ON THIS MACHINE. Not "is hard to",
+  not "was not tried" — CANNOT. `sandbox_linux.go` and `sandbox_linux_helper.go` carry
+  `//go:build linux`; on darwin they are not compiled at all, `newSandboxHelperCommand`
+  does not exist, no re-exec ever happens, and `MaybeRunSandboxHelper` resolves to
+  `sandbox_nonlinux.go:47`'s unconditional `return nil`. Exporting
+  `BACKSTOP_SANDBOX_HELPER_SPEC` by hand on darwin proves NOTHING — the stub never reads it.
+  The measurement above makes this concrete: the failing test PASSES here in 1.40s.
+
+  SO NO TASK IN THIS PLAN MAY MANDATE "run the failing test and watch it go green." Any
+  report claiming a local repro or a local fix-confirmation of the Linux behaviour is FALSE
+  GROUNDING and must be rejected in review.
+
+  What IS genuinely establishable locally, and is therefore what Phase 2 asks for:
+    (a) the module still builds and vets;
+    (b) the darwin side is PROVABLY UNCHANGED — the whole `pkg/pack/distribution` suite
+        still passes, INCLUDING `TestInstallContractsLocalPack_InstallsWithSuppliedCommand`,
+        whose 1.40s darwin PASS is recorded above as the before-reading;
+    (c) the guard is STRUCTURALLY in the right place — asserted by parsed AST, not by eye.
+  (b) is a real proof of the risk this edit carries on the platform we can measure. It is
+  NOT a proof of the Linux fix.
+
+  THE ACTUAL "DID THIS WORK" ANSWER COMES FROM CI AND FROM NOWHERE ELSE.
+  `.github/workflows/ci.yml`, job `gate` (display name "Backstop Gate"),
+  `runs-on: ubuntu-latest`; its blocking step runs the diff-scoped gate and the step around
+  it emits `gate-report.json`, uploaded as the `gate-report` artifact. TASK-005 owns reading
+  it. ISSUE-180 STAYS OPEN until that reading exists.
+  ★ AND READ THE RUN'S `headSha` — a "post-merge" run is usually a PR-BRANCH run. State
+  which you read; cite the pre-fix run as the counterfactual.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  THE EDIT, EXACTLY
+  ══════════════════════════════════════════════════════════════════════════════
+  NEW FILE `pkg/pack/distribution/main_test.go`, `package distribution_test`:
+
+      func TestMain(m *testing.M) {
+          if err := packval.MaybeRunSandboxHelper(); err != nil {
+              fmt.Fprintf(os.Stderr, "backstop sandbox helper: %v\n", err)
+              os.Exit(126)
+          }
+          os.Exit(m.Run())
+      }
+
+  ★ THE EXIT CODE IS THE BARE LITERAL 126, AND THAT IS CORRECT HERE — the opposite of
+  PLAN-ISSUE-163's instruction, for a reason that must not be "harmonized" away.
+  `sandboxHelperExitCode` (`cmd/backstop/main.go:21`) is UNEXPORTED and lives in
+  `package main`; `pkg/pack/distribution` cannot reference it, and `pkg/packval` exports no
+  equivalent (verified: no exported exit-code constant anywhere under `pkg/packval`). This is
+  EXACTLY the situation `pkg/packval/main_test.go:46` is in, and it spells `os.Exit(126)` for
+  exactly this reason. DO NOT declare a new package-level constant, and DO NOT invent a
+  different code. See sharp edge 2.
+
+  ── SCOPE FENCES ────────────────────────────────────────────────────────────────
+  IN:  NEW `pkg/pack/distribution/main_test.go` — the TestMain, nothing else.
+       NEW `pkg/pack/distribution/sandbox_helper_gate_test.go` — the local structural pin.
+       EDIT `cmd/backstop/sandbox_helper_testmain_guard_test.go` — the MISSING-`TestMain`
+       generalization inside `TestSandboxHelperGate_PresentInEveryPackvalReachingTestMain`,
+       its derived-set floor, and the surrounding comments; PLUS the two scan-side changes
+       that generalization REQUIRES: a new has-test-file field on the `goPackage` struct and
+       the line in `scanGoPackages` that sets it. Those two live OUTSIDE the test function and
+       are explicitly IN SCOPE — STEP 1 cannot be written without them.
+       NOTHING ELSE in that file changes: `TestIntegrationTestMain_RunsSandboxHelperGateAsItsFirstStatement`,
+       `sandboxHelperGateShape`, `findTestMainDecl`, and every render/describe helper stay as
+       they are, and NO test in the file is renamed.
+  OUT: `cmd/backstop/integration_test.go`, `cmd/backstop/main.go`, `pkg/packval/**` — all
+       already correct (PLAN-ISSUE-163 / the original precedent). Read, do not edit.
+  OUT: `pkg/pack/engine/**` — NOT TOUCHED, and NOT because it is unmeasured: it is NOT a
+       packval-reaching package, its exposure is dead by construction, and two shipped tests
+       already pin that. The generalized predicate does not flag it. See judgment call 1.
+  OUT: `pkg/pack/distribution/contracts_local_install_test.go` and every other existing test
+       in the package — they are the REGRESSION CHECK, run unchanged.
+  OUT: `issues/ISSUE-164-*.issue.md`, `issues/ISSUE-177-*.issue.md` — dispositions are
+       RECOMMENDED by TASK-005 and executed by a ROUTED `/issue` author, never hand-edited.
+  OUT: `.github/workflows/ci.yml` — CI is already shaped to catch this.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  ★ JUDGMENT CALL 1 — GUARD GENERALIZATION: GENERALIZE, IN THIS LANE
+  ══════════════════════════════════════════════════════════════════════════════
+  QUESTION POSED AT AUTHORING: should this lane also generalize
+  `cmd/backstop/sandbox_helper_testmain_guard_test.go` to auto-discover every
+  packval-reaching package that is MISSING a `TestMain` entirely, rather than only checking
+  packages that already have one?
+
+  FIRST, A CORRECTION TO THE PREMISE AS POSED. The guard is NOT "hand-scoped to a hardcoded
+  list of three files". Read directly (`scanGoPackages`): it WALKS the whole module, derives
+  per-directory `{testMain, importsPackval}`, and builds the roster BY PREDICATE. The
+  hardcoded part is only the two-name ANTI-VACUOUS assertion
+  (`[]string{"cmd/backstop", "pkg/packval"}`). The actual blind spot is ONE LINE —
+  `if pkg.testMain == nil { continue }` — which skips any packval-reaching package that has
+  no `TestMain` at all. That is exactly this defect's shape, and closing it is a small,
+  derived edit rather than a rewrite.
+
+  ★★ A FIRST DRAFT OF THIS PLAN DECIDED (b) — NARROW — ON A FALSE PREMISE, AND WAS CORRECTED
+  IN REVIEW ROUND 1. THE FALSE PREMISE IS RECORDED HERE ON PURPOSE, because it is the exact
+  mistake a future lane will repeat. The draft asserted that a generalized predicate would
+  immediately red `pkg/pack/engine`, forcing either an unmandated fix or a hardcoded
+  exemption. THAT IS WRONG. It came from `grep -rl "backstop-core/pkg/packval"`, which
+  matches FORBIDDEN-IMPORT STRING LITERALS inside `pkg/pack/engine`'s own leaf-invariant
+  tests — the tests that PROVE packval is absent. Re-run through the guard's own AST-based
+  membership test (see MEASURED AT AUTHORING), `pkg/pack/engine` is not a packval-reaching
+  package at all, and its exposure is DEAD BY CONSTRUCTION rather than unmeasured.
+  ★ NEVER DECIDE THIS QUESTION FROM A GREP FOR AN IMPORT PATH. Run the predicate.
+
+  DECISION ON THE CORRECTED FACTS: (a) — GENERALIZE, HERE, IN THIS LANE.
+  Reasons, in order of weight:
+
+    1. ★ THE MEASURED COST IS ~3 LINES AND ZERO EXEMPTIONS. The generalized predicate
+       ("a packval-reaching package that compiles a test binary must DECLARE a `TestMain`")
+       flags EXACTLY ONE directory today — `pkg/pack/distribution`, the package TASK-002
+       already fixes — and goes green the moment that lands. There is no forced unmandated
+       fix and no exemption dilemma. The entire cost side of the original decision was an
+       artifact of the bad grep.
+    2. IT SUBSUMES THE WORKAROUND THE NARROW PATH NEEDED. The narrow fix opens a hole:
+       once `pkg/pack/distribution` has a `TestMain` the derived roster picks it up for free,
+       but if someone later DELETES it the package drops silently back out at the
+       `if pkg.testMain == nil { continue }` skip and the test STILL PASSES. The narrow
+       remedy was to hardcode `pkg/pack/distribution` into the required-member list. The
+       GENERALIZED check covers that case by DERIVATION instead — a hardcoded name replaced
+       by the predicate that should have been there all along. Strictly better, same RED.
+    3. THIS DEFECT CLASS HAS NOW ESCAPED TWICE THROUGH EXACTLY THIS BLIND SPOT (ISSUE-163,
+       then ISSUE-180), and ISSUE-163's own diagnosis was "the pattern was known and
+       documented; it was simply never propagated." A guard that cannot see an ABSENT
+       `TestMain` cannot catch the third one either.
+    4. THE TWO REASONS THAT SURVIVED THE CORRECTION POINT THE SAME WAY NOW.
+       ISSUE-164 "already owns it" — but ISSUE-164's other half (`pkg/pack/engine`) is dead
+       by construction, so delivering the generalization here does not half-drain it; it
+       ANSWERS IT COMPLETELY and lets it close (TASK-005 routes that). And PLAN-ISSUE-163's
+       precedent was DON'T WIDEN THE ROSTER WITHOUT MEASUREMENT — its own words:
+       "do not widen the roster ... until something measures that package reaching in-process
+       sandboxed dispatch." This lane IS that measurement. Honouring the precedent's reasoning
+       now means widening, not deferring; copying its OUTCOME while ignoring its condition
+       would be cargo-culting.
+
+  ── THE ONE REFINEMENT THE GENERALIZED PREDICATE NEEDS (derivation, NOT an exemption) ──
+  Require a `TestMain` only of a packval-reaching package that ACTUALLY COMPILES A TEST
+  BINARY — i.e. one that has at least one `*_test.go` file. A package with a production
+  packval import and no test files produces no test binary for `go test` to re-exec, so it
+  cannot become the trampoline's target. All three current members have tests, so this
+  changes NOTHING today; it exists so a future production-only importer is excluded BY
+  DERIVATION rather than by someone bolting on the hand-written exemption this whole check
+  is meant to eliminate. Fail-safe direction is deliberate: over-inclusion costs five inert
+  lines, under-inclusion costs a silent Linux defect.
+
+  ── WHAT STAYS TRUE FROM THE NARROW ANALYSIS ────────────────────────────────────
+  The generalized roster check STILL is not enough on its own, for a reason independent of
+  all of the above: diff-scope reachability (CLM-004, below). The package-local pin stays.
+
+  ── ★ THE DEBT THIS REVERSAL CREATES, AND WHO PAYS IT ───────────────────────────
+  ISSUE-180's OWN TEXT DISCLAIMS THIS DECISION. Its "## Structural facet" section says the
+  generalization is "ISSUE-164's territory, not this issue's", and its "Relationship to
+  ISSUE-164" section recommends narrowing ISSUE-164 to `pkg/pack/engine`. Both were written
+  on the pre-correction facts. Since this plan closes ISSUE-180 via
+  `delivered_by: PLAN-ISSUE-180`, shipping those unretracted would leave an issue whose body
+  contradicts the claim its own plan delivered. TASK-005 owns the retraction — IN PLACE and
+  PARTIAL (the blind-spot description is accurate and stays; only the out-of-scope
+  disposition is retracted), dated and attributed to this founder-visible review decision
+  rather than presented as if the issue had always said so.
+
+  ★ AND THE ROSTER — GENERALIZED OR NOT — IS NOT ENOUGH ON ITS OWN. MEASURED, NOT ASSUMED
+  (CLM-004). go-toolchain's `go-test` binding declares `package_scoped: true`
+  (`.backstop/packs/backstop-ai/go-toolchain/pack.yml`, the `go-test:` block), so under the
+  diff-scoped gate CI actually runs, `fileModeTestTargets` (`cmd/backstop/pack_gate.go:658`)
+  narrows the run to the CHANGED FILES' PACKAGES. The realistic regression — someone deletes
+  or mangles `pkg/pack/distribution`'s `TestMain` — is BY DEFINITION a diff in
+  `pkg/pack/distribution`, which narrows the run to that package and NEVER EXECUTES
+  `cmd/backstop`'s roster test. So the roster pin, on its own, would not fire on the one diff
+  shape that matters. This lane therefore ALSO puts a local structural pin IN the package.
+  The duplication is accepted deliberately: unexported AST helpers cannot cross a package
+  boundary, and the alternative (a new exported test-helper package) is a worse trade for
+  ~40 lines. Say so in the new file's header so a future reader does not "deduplicate" the
+  pin that actually fires.
+  ── DO NOT CONFUSE THIS WITH THE ADJACENT FLAG ON THE SAME BINDING. `go-test` also declares
+  `exempt_from_scope_filter: true`. That flag governs VIOLATION FILTERING (findings from the
+  engine survive `activeScope.FilterViolations` instead of being dropped for landing outside
+  the diff); it does NOT affect TARGET DERIVATION, which is what `package_scoped: true` and
+  `fileModeTestTargets` control. So the exemption does not rescue the roster: an out-of-scope
+  package's tests are never RUN in the first place, and a finding that is never produced
+  cannot be exempted from filtering. CLM-004 holds — but name the distinction in the file
+  header, because the two flags sit three lines apart and invite exactly this conflation.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  ★ JUDGMENT CALL 2 — ISSUE-177 DISPOSITION: `resolved-by: ISSUE-180`, ROUTED SEPARATELY
+  ══════════════════════════════════════════════════════════════════════════════
+  QUESTION POSED AT AUTHORING: should ISSUE-177 carry `delivered_by: PLAN-ISSUE-180` even
+  though ISSUE-177 is not this plan's `spec_id`?
+
+  ANSWER: NO — IT IS SCHEMA-ILLEGAL. Established by reading `pkg/validate/delivered_by.go`,
+  not by convention or inference. `validateDeliveredBy` step 6 (lines 150-158) back-matches
+  the plan's `spec_id` against the CLOSING ISSUE'S OWN ID:
+
+      if specID := getFrontmatterString(planArt, "spec_id"); specID != issueID { … }
+      → Rule "issue/delivered-by-spec-mismatch", Severity "error"
+
+  This plan's `spec_id` is `ISSUE-180`. ISSUE-177 carrying `delivered_by: PLAN-ISSUE-180`
+  therefore emits a blocking error. A plan can deliver against EXACTLY ONE issue: its own
+  source. The repo's one-plan-one-issue convention is not just habit — it is enforced.
+
+  THE LEGAL PATH IS `resolved-by`, WHICH EXISTS FOR PRECISELY THIS CASE (ISSUE-048,
+  `pkg/validate/resolved_by.go`). It is the LIGHTER close pointer: it requires NEITHER a
+  backing plan NOR a mandated test, only a structured ref plus a `## Resolution` section
+  (`pkg/validate/issue.go:400-416`) and an `issue.closed` date (`issue.go:268-282`).
+
+  ★ AND THE REF MUST BE SPELLED `ISSUE-180`, NOT `PLAN-ISSUE-180`. The accept-grammar is
+  `resolvedByTypedRefRe = ^(BUNDLE|SPEC|ISSUE|PLAN|DIR)-[0-9]{3}$` (`resolved_by.go:38`).
+  Verified by running that regex: `PLAN-ISSUE-180` does NOT match (after `PLAN-` it demands
+  three digits, and finds `ISSUE-180`), and it is not a hex SHA or PR URL either — so it
+  falls through to `issue/resolved-by-malformed`. `ISSUE-180` DOES match, and
+  `typedRefArtifactExists` then globs `issues/ISSUE-180-*.issue.md`, which exists (verified).
+  This is a genuinely non-obvious trap: the intuitive spelling is the illegal one.
+
+  ALSO NOTE: `delivered_by` and `resolved-by` are MUTUALLY EXCLUSIVE (`issue.go:373-381`) —
+  at most one close pointer per issue, no silent precedence.
+
+  SO THE ORDERING IS, AND TASK-005 RECORDS IT AS A RECOMMENDATION ONLY:
+    1. This plan lands the fix. CI on `ubuntu-latest` confirms.
+    2. ISSUE-180 closes with `delivered_by: PLAN-ISSUE-180` — legal, it IS the source — plus
+       a `## Resolution` section. Routed through `/issue`.
+    3. ISSUE-177 closes SEPARATELY and LIGHTER, with `resolved-by: ISSUE-180` plus a
+       `## Resolution` section recording that its own stated mechanism guess was FALSIFIED:
+       ISSUE-177 attributed the failure to ISSUE-166 residue; the real cause is this missing
+       `TestMain`. Routed through `/issue`. THIS LANE DOES NOT DO IT — it is a second issue's
+       ceremony, contingent on the same CI reading.
+    ★ AND ISSUE-177 CARRIES A FACTUAL ERROR TO CORRECT IN THAT SAME ROUTED EDIT: it cites
+       the failing test at `pkg/pack/engine/contracts_local_install_test.go` (its line 22 and
+       its References at line 83). That file DOES NOT EXIST — verified: `ls` fails, and
+       `grep -rln "TestInstallContractsLocalPack_InstallsWithSuppliedCommand" --include="*.go"
+       pkg cmd` returns exactly ONE path, `pkg/pack/distribution/contracts_local_install_test.go`.
+       The engine/distribution mix-up is plausibly how the wrong-package framing propagated.
+       ISSUE-180's own citation is the correct one.
+
+  ── CLAIM LEDGER (ISSUE-180 carries no CLM ids; this lane defines them) ──────────
+    CLM-001  `pkg/pack/distribution`'s test binary declares EXACTLY ONE
+             `func TestMain(m *testing.M)`, and its FIRST STATEMENT is an error-CHECKED call
+             to `packval.MaybeRunSandboxHelper()` — `if err := …; err != nil`, not a bare
+             call. Pinned STRUCTURALLY (parsed AST), so it cannot rot back to a substring.
+    CLM-002  That guard's failure exit is the BARE LITERAL `126`, matching
+             `pkg/packval/main_test.go:46`, because `cmd/backstop`'s `sandboxHelperExitCode`
+             is unexported in `package main` and `pkg/packval` exports no equivalent. No new
+             constant is declared and no other code is invented.
+    CLM-003  GENERALIZATION — THE BLIND SPOT ITSELF IS CLOSED, BY DERIVATION AND WITH ZERO
+             EXEMPTIONS: `cmd/backstop`'s roster test no longer SKIPS a packval-reaching
+             package that declares NO `TestMain` (the
+             `if pkg.testMain == nil { continue }` line is what made both ISSUE-163 and
+             ISSUE-180 invisible). Absence is now a loud failure for any packval-reaching
+             package that compiles a test binary. Measured: the predicate flags exactly
+             `pkg/pack/distribution` today and nothing else, so it goes green when TASK-002
+             lands — no exemption list, no unmandated collateral fix. The test's NAME is
+             preserved byte-identically: it is PLAN-ISSUE-163's mandated name and a shipped
+             promise. This SUBSUMES the hardcoded required-member workaround a narrow fix
+             would have needed.
+    CLM-004  DIFF-SCOPE REACHABILITY: the pin ALSO lives inside `pkg/pack/distribution`,
+             because go-toolchain's `go-test` binding is `package_scoped: true` and
+             `fileModeTestTargets` narrows a distribution-only diff to that package alone —
+             so the `cmd/backstop` roster, generalized or not, would never execute on the
+             regression diff that matters. Established from the pack manifest and
+             `cmd/backstop/pack_gate.go`, not assumed. The binding's adjacent
+             `exempt_from_scope_filter: true` does NOT change this: it governs violation
+             FILTERING, not target DERIVATION, and a test that never runs produces no
+             finding to exempt.
+    CLM-005  DARWIN NON-REGRESSION, BY MEASUREMENT: the guard is inert on non-Linux
+             (`sandbox_nonlinux.go:47` returns nil unconditionally), so the package's
+             existing 43-file suite is unaffected. Established by that whole suite still
+             passing — INCLUDING `TestInstallContractsLocalPack_InstallsWithSuppliedCommand`,
+             measured PASS at 1.40s on darwin BEFORE this lane — plus `go build ./...` and
+             `go vet ./pkg/pack/distribution/...`. Not asserted from the stub's source.
+    CLM-006  THE CEILING IS RECORDED, NOT PAPERED OVER: the Linux behaviour is UNVERIFIABLE
+             in this environment, this plan says so in the artifact rather than in a chat
+             message, and the real confirmation is a read of the GitHub Actions
+             `ubuntu-latest` `gate` job and its `gate-report` artifact (with `headSha`
+             checked). ISSUE-180 is not closed on local evidence.
+    CLM-007  THE ADJACENT DISPOSITIONS ARE RECORDED AS RECOMMENDATIONS, NOT ABSORBED AND NOT
+             SILENTLY EXECUTED — and TWO OF THEM ARE FACTUAL CORRECTIONS THIS LANE OWES:
+             (a) ISSUE-177 closes via `resolved-by: ISSUE-180` — never
+             `delivered_by: PLAN-ISSUE-180` (spec-mismatch error) and never
+             `resolved-by: PLAN-ISSUE-180` (malformed ref) — with its wrong
+             `pkg/pack/engine/contracts_local_install_test.go` citation corrected;
+             (b) ISSUE-164 is fully ANSWERED and recommended for closure via
+             `resolved-by: ISSUE-180`: its `pkg/pack/engine` half is dead by construction
+             (not unmeasured) and its roster-generalization half is delivered by CLM-003;
+             (c) ISSUE-164's and ISSUE-180's own claim that `pkg/pack/engine` imports
+             `pkg/packval` is FALSE — a grep artifact — and is corrected at EVERY site it
+             appears (an explicit line-by-line list is handed to the routed author, because
+             it recurs ~8 times across the two issues and a section name would fix only one);
+             (d) ISSUE-180's own "## Structural facet" section and its ISSUE-164-narrowing
+             recommendation, which DISCLAIM the generalization CLM-003 delivers, are RETRACTED
+             IN PLACE — partially: the blind-spot description stays (it is the defect CLM-003
+             fixes), only the out-of-scope disposition is retracted, dated and attributed to a
+             founder-visible review decision. Without this the issue would close via
+             `delivered_by` carrying a body that contradicts its own plan. All routed through
+             `/issue`.
+
+  ── SHARP EDGES ─────────────────────────────────────────────────────────────────
+   1. ONE `TestMain` PER TEST BINARY, AND THE PACKAGE HAS TWO TEST PACKAGES.
+      `pkg/pack/distribution` compiles `package distribution` (1 file,
+      `islocalpath_export_test.go`) and `package distribution_test` (42 files) into ONE test
+      binary. Declare the `TestMain` in `package distribution_test` — the dominant one — and
+      declare it ONCE. A second declaration in the internal test package breaks the build for
+      every other lane in this shared tree.
+   2. ★ DO NOT REACH FOR `sandboxHelperExitCode`, AND DO NOT DECLARE A NEW CONSTANT.
+      It is unexported and lives in `cmd/backstop`'s `package main`; `pkg/packval` exports no
+      exit-code constant (verified). The literal `126` is CORRECT here and is what
+      `pkg/packval/main_test.go:46` does for the same reason.
+      THIS IS CONGRUENT WITH PLAN-ISSUE-163, NOT A CONTRADICTION OF IT — do not go looking
+      for a conflict to "harmonize". That plan's "use the constant, never a bare 126" rule was
+      SCOPED TO `cmd/backstop`, where the constant is in reach, and its own sharp edge 8b
+      explicitly blesses the bare literal everywhere else: it forbids the roster from
+      asserting the identifier precisely BECAUSE `pkg/packval` legitimately spells `126`.
+      The single underlying rule is "use the constant where one is in reach; spell the literal
+      where none is." `pkg/pack/distribution` is the second kind of site, as is `pkg/packval`.
+   3. NO BUILD TAG, on the guard or on either new file. `MaybeRunSandboxHelper` exists on
+      every platform BY DESIGN: `sandbox_nonlinux.go` is `!linux` and MUST STAY `!linux`
+      (`pkg/packval/sandbox_nonlinux_test.go`'s
+      `TestNonLinuxSandboxHelperTagIsNotNarrowed` pins that structurally). A build-tagged
+      `TestMain` leaves one platform's build without one.
+   4. FIRST STATEMENT MEANS POSITION ZERO. `Body.List[0]`. The helper must run before
+      anything else consumes argv or does work. There is no other setup in this new
+      `TestMain` today — do not add any above the guard later.
+   5. THE ERROR MUST BE CHECKED, NOT CALLED BARE. PLAN-ISSUE-020 records that this exact
+      gate shipped as a BARE STATEMENT in six places before being corrected. A bare
+      `packval.MaybeRunSandboxHelper()` compiles, satisfies any naive "is the call present"
+      scan, and silently runs the suite as a broken helper. The pin asserts the
+      `if err := …; err != nil` SHAPE and the `token.NEQ` operator, never mere presence.
+   6. `os.Exit(m.Run())`, NOT a bare `m.Run()`. A `TestMain` that runs the suite and returns
+      without exiting reports success regardless of the result.
+   7. ★ NEVER CLAIM A LOCAL REPRO OR A LOCAL FIX-CONFIRMATION. See the VERIFICATION CEILING.
+      The Linux mechanism does not compile on this machine, and the failing test measurably
+      PASSES here in 1.40s. "Reproduced the failure and it now passes" is false grounding.
+   8. `sandboxHelperEnvVar` (`BACKSTOP_SANDBOX_HELPER_SPEC`) IS UNEXPORTED AND LINUX-ONLY.
+      A `pkg/pack/distribution` test cannot reference the identifier, and setting the string
+      by hand on darwin proves nothing — the `!linux` stub never reads it (sharp edge 7).
+   9. DO NOT RENAME `TestSandboxHelperGate_PresentInEveryPackvalReachingTestMain`. It is
+      PLAN-ISSUE-163's mandated test name (its CLM-003) and renaming it registers as a broken
+      promise at the gate. EXTEND ITS BODY; keep the name byte-identical. Likewise do not
+      rename or weaken `TestInstallContractsLocalPack_InstallsWithSuppliedCommand`
+      (SPEC-055 CLM-092, `specs/SPEC-055-…spec.md:845`).
+  10. THE ROSTER'S EXIT-CODE ASYMMETRY IS DELIBERATE — DO NOT ADD AN EXIT-CODE ASSERTION TO
+      THE ROSTER. It asserts the guard SHAPE ONLY, on purpose, because `pkg/packval` (and now
+      `pkg/pack/distribution`) legitimately spell `os.Exit(126)` as a literal while
+      `cmd/backstop` uses its constant. A roster carrying that assertion would red two
+      already-correct files. The literal assertion belongs ONLY in the package-local pin.
+  11. LOCATE EDIT SITES BY NAME, NEVER BY THE LINE NUMBERS QUOTED HERE. Line numbers in
+      `cmd/backstop/sandbox_helper_testmain_guard_test.go` and
+      `pkg/packval/sandbox_linux.go` have moved across recent lanes. The anchors in the roster
+      file are the `if pkg.testMain == nil { continue }` skip and the
+      `for _, want := range []string{"cmd/backstop", "pkg/packval"}` loop, both inside
+      `TestSandboxHelperGate_PresentInEveryPackvalReachingTestMain`.
+  15. ★ NEVER ESTABLISH PACKVAL-REACHABILITY WITH `grep` FOR THE IMPORT PATH. Use the AST
+      membership test `scanGoPackages` already implements (a real `*ast.ImportSpec`). A grep
+      reports `pkg/pack/engine` as a packval importer, and it is WRONG: the hits are
+      forbidden-import STRING LITERALS inside that package's own leaf-invariant tests, which
+      assert the exact opposite. This plan's first draft made that error and drew a false
+      conclusion from it. If a future lane needs the packval-reaching set, run the predicate.
+  12. `TestMain` IS EXEMPT FROM THE HOLLOW-TEST RULE BY NAME (`^TestMain$`), so the new
+      `main_test.go` adds no substantiveness finding — but the NEW PIN's function is NOT
+      exempt. Give it real, discriminating assertions with legible failure messages.
+  13. SHARED TREE. Never bare `git stash` — it sweeps another agent's uncommitted edits. Do
+      not run the full suite or `gate --all` concurrently with a mid-flight implementer in
+      this tree; say so and run it when the tree is quiet rather than substituting a narrower
+      run and describing it as the suite.
+  14. GATE-READING CAVEATS THAT HAVE PRODUCED MISLEADING RESULTS IN THIS REPO BEFORE: a
+      `pack_engines` step exiting 2 with `required tool "…" not found on PATH` is an
+      ENVIRONMENT ARTIFACT, not a clean run (`go-arch-lint` and `golangci-lint` v2 must be on
+      PATH); and a reading taken in a worktree lacking `.backstop/baseline.json` is STRICTER,
+      not more permissive. If either applies, say so and do not report the run as
+      authoritative.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Phase 1: RED — two structural pins, both failing before the fix exists
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: RED — package-local pin plus the roster's missing-TestMain generalization"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Pin the sandbox-helper gate for pkg/pack/distribution: a package-local AST pin, and close the roster's missing-TestMain blind spot (RED)"
+        description: |
+          BOTH pins MUST FAIL before TASK-002. Run them first and RECORD THE ACTUAL FAILURE
+          OUTPUT verbatim — "it should fail" is not evidence. Note the measured baseline in
+          this plan's header: both existing guard tests are GREEN today WITH the defect live
+          (`ok … cmd/backstop 2.367s`), which is the blind spot these pins close.
+
+          NEITHER PIN INTRODUCES A NEW PRODUCTION SYMBOL. They read Go SOURCE from disk and
+          assert on the parsed AST, so each RED is a legible assertion failure rather than a
+          compile break. A non-compiling package blocks every other lane in this shared tree.
+
+          WHY STRUCTURAL AND NOT BEHAVIOURAL — state this in the new file's header, because a
+          reviewer will otherwise ask for the behavioural test: the behaviour this guard fixes
+          exists ONLY on Linux. `pkg/packval/sandbox_linux.go` and `sandbox_linux_helper.go`
+          are `//go:build linux` and do not compile on the development machine at all, and
+          `MaybeRunSandboxHelper` there is `sandbox_nonlinux.go:47`'s no-op stub. Setting
+          `BACKSTOP_SANDBOX_HELPER_SPEC` by hand on darwin proves nothing (sharp edges 7, 8),
+          and the failing test measurably PASSES here in 1.40s. The AST pin is what IS
+          falsifiable on every platform: delete the guard and it goes red wherever it runs.
+
+          ── (A) NEW FILE `pkg/pack/distribution/sandbox_helper_gate_test.go` ──────────────
+          `package distribution_test`. ONE test function:
+
+          TestDistributionTestMain_OpensWithSandboxHelperGate (CLM-001, CLM-002, CLM-004).
+
+          Under `go test` the working directory IS the package directory, so the file set is
+          reachable as `filepath.Glob("*_test.go")` — no repo-root resolution, no shelling
+          out. (`cmd/backstop`'s `repoRoot(t)` helper is in a DIFFERENT package and is not
+          reachable from here.) Parse each match with `go/parser` and collect every
+          `*ast.FuncDecl` named `TestMain` with a non-nil body, remembering which FILE each
+          came from.
+
+          Assert, in this order, each with a legible failure message:
+            * EXACTLY ONE `TestMain` is declared in the package. ZERO must fail with a
+              message naming ISSUE-180 and saying what the consequence is — that on Linux the
+              sandbox trampoline re-execs this test binary and Go's DEFAULT test main reruns
+              the whole suite in the pack's scratch directory instead of installing the
+              sandbox. This is the assertion that is RED before TASK-002. More than one is
+              also a failure (Go permits `TestMain` in only one of the package's two test
+              packages — sharp edge 1).
+            * `decl.Body.List[0]` — POSITION ZERO (sharp edge 4) — is an `*ast.IfStmt`.
+            * its `Init` is an `*ast.AssignStmt` binding a single value from a call whose
+              callee name is `MaybeRunSandboxHelper`, accepted in EITHER spelling
+              (`*ast.SelectorExpr` with `Sel.Name == "MaybeRunSandboxHelper"`, or a bare
+              `*ast.Ident` of that name). The qualified spelling is what will actually be
+              written here, but match both so the assertion describes the INVARIANT rather
+              than this one call site.
+            * its `Cond` is an `*ast.BinaryExpr` whose `Op` is `token.NEQ`, with the bound
+              error identifier on one side and `nil` on the other — the error is CHECKED and
+              checked in the right direction. A BARE call statement must FAIL this pin; say
+              so in a comment, because "the call is present" is the weaker assertion someone
+              will otherwise simplify it into (sharp edge 5).
+            * the `if` body contains a call to `os.Exit` whose single argument is the BASIC
+              LITERAL `126` (CLM-002). Comment WHY the literal is correct HERE and is not the
+              drift PLAN-ISSUE-163 forbade in `cmd/backstop`: `sandboxHelperExitCode` is
+              unexported in `package main` and unreachable from this package, `pkg/packval`
+              exports no equivalent, and `pkg/packval/main_test.go:46` spells the same literal
+              for the same reason (sharp edges 2, 10).
+            * the DECLARING FILE imports `github.com/backstop-ai/backstop-core/pkg/packval`
+              when the call uses the qualified spelling. A missing import would not compile,
+              but naming it in the failure message makes a partially-applied edit legible.
+
+          FILE HEADER MUST ALSO CARRY THE DUPLICATION RATIONALE (CLM-004), or a future reader
+          will delete this pin as redundant with `cmd/backstop`'s roster: go-toolchain's
+          `go-test` binding declares `package_scoped: true`, so under the diff-scoped gate CI
+          runs, `fileModeTestTargets` narrows the run to the changed files' PACKAGES. The
+          regression this pin exists for — someone deletes or mangles this package's
+          `TestMain` — is by definition a diff in THIS package, which never executes
+          `cmd/backstop`'s roster. The roster is the propagation pin; this is the one that
+          actually fires. The ~40 lines of duplicated AST helpers are the accepted cost:
+          unexported helpers cannot cross a package boundary and a new exported test-helper
+          package is a worse trade.
+
+          PRE-FIX STATE: fails on the "exactly one TestMain" assertion, with zero found.
+
+          ── (B) EDIT `cmd/backstop/sandbox_helper_testmain_guard_test.go` ────────────────
+          CLOSE THE ROSTER'S BLIND SPOT (CLM-003), inside the EXISTING
+          `TestSandboxHelperGate_PresentInEveryPackvalReachingTestMain`. DO NOT RENAME THAT
+          TEST — it is PLAN-ISSUE-163's mandated name (sharp edge 9) — and DO NOT add a new
+          test function: this is a second leg on an existing mandated test, which keeps the
+          mandated-name set unchanged.
+
+          ★ TWO EDITS OUTSIDE THE TEST FUNCTION ARE IN SCOPE AND REQUIRED — STEP 1 cannot be
+          written without them: add a has-test-file bool to the `goPackage` struct, and set it
+          in `scanGoPackages` where each `.go` file is already being classified. Nothing else
+          in the file changes — leave
+          `TestIntegrationTestMain_RunsSandboxHelperGateAsItsFirstStatement`,
+          `sandboxHelperGateShape`, `findTestMainDecl` and the describe/render helpers alone,
+          and rename nothing.
+
+          THE DEFECT IN THE CURRENT TEST, stated so the edit is not mis-aimed: the roster is
+          built by `if pkg.testMain == nil { continue }` FOLLOWED BY the packval predicate, so
+          a packval-reaching package with NO `TestMain` AT ALL is invisible BY CONSTRUCTION.
+          That is why nothing caught ISSUE-163's sibling here. Locate that skip BY NAME
+          (sharp edge 11) and restructure the test into three ordered steps:
+
+            STEP 1 — DERIVE THE PACKVAL-REACHING SET, INDEPENDENT OF `TestMain`.
+              A directory qualifies when it directly imports
+              `github.com/backstop-ai/backstop-core/pkg/packval` (a real `*ast.ImportSpec`,
+              which `scanGoPackages` already records — NEVER a grep, sharp edge 15) or IS
+              `pkg/packval`. Keep the existing comment framing this as the deliberate
+              DIRECT-import approximation.
+              ★ AND NARROW IT BY DERIVATION, NOT BY EXEMPTION: require a member to have at
+              least one `*_test.go` file, because a package that compiles no test binary can
+              never be the trampoline's re-exec target under `go test`. `scanGoPackages` must
+              record that per directory (a bool set when a scanned file's name ends
+              `_test.go`). Comment that this changes nothing today — all three members have
+              tests — and exists so a future production-only importer is excluded by
+              derivation rather than by the hand-written exemption this check exists to
+              eliminate.
+
+            STEP 2 — ANTI-VACUOUS FLOOR, FIRST AND LOAD-BEARING.
+              Assert the derived set is NON-EMPTY, and assert it contains all three known
+              members: `cmd/backstop`, `pkg/packval`, AND `pkg/pack/distribution`. Without
+              this, a predicate that quietly narrows to nothing passes while checking nothing
+              — the vacuous-green shape DIR-032 exists to prevent. Note in a comment that
+              `pkg/pack/distribution` belongs here because of `validator.go`'s
+              `packval.NewPipeline(...).Run()`, and that `pkg/pack/engine` deliberately does
+              NOT (sharp edge 15 / judgment call 1: it is not a packval importer, and
+              `TestEngineBinding_NoImportCycle` pins that structurally).
+
+            STEP 3a — ★ THE NEW ASSERTION, AND THIS LANE'S RED: every member of the derived
+              set DECLARES a `TestMain`. Absence is a loud failure naming the package, saying
+              that on Linux the sandbox trampoline will re-exec that package's test binary and
+              Go's DEFAULT test main will rerun its whole suite in the pack's scratch
+              directory instead of installing the sandbox, and pointing at ISSUE-180. This is
+              the line that removes the blind spot: it does not need to know WHICH packages
+              exist, so a FIFTH one added later is caught with no edit here.
+
+            STEP 3b — THE EXISTING SHAPE CHECK, unchanged in substance: for every member that
+              declares one, `TestMain`'s `Body.List[0]` is an error-checked `if` around a call
+              to `MaybeRunSandboxHelper` in either spelling. Keep `sandboxHelperGateShape` and
+              keep the exit-code assertion OUT of it (sharp edge 10) — `pkg/packval` and now
+              `pkg/pack/distribution` both legitimately spell `os.Exit(126)` as a literal.
+
+          UPDATE THE TEST'S DOCSTRING to say it now pins BOTH halves — that every
+          packval-reaching package HAS a `TestMain`, and that every such `TestMain` opens with
+          the gate — and record that the second half was added by ISSUE-180 after the
+          first-half-only version failed to catch exactly this defect. Note that ISSUE-164
+          raised this generalization and that it is delivered here.
+
+          ★ DO NOT ADD `pkg/pack/engine` TO ANYTHING, and do not write an exemption list for
+          it or for anyone. The generalized predicate flags exactly `pkg/pack/distribution`
+          today (measured; see this plan's header) and needs no exemptions at all — an
+          exemption list would reintroduce the hand-scoped shape this edit removes.
+
+          ★★ PRE-FIX STATE — MEASURED, AND THE DISTINCTION IS LOAD-BEARING. RUN IT AND
+          COMPARE AGAINST THIS EXACTLY; DO NOT ACCEPT "it failed, good."
+
+            EXPECTED: **STEP 3a REDS. STEP 2 IS GREEN.** Exactly one failure, naming
+            `pkg/pack/distribution` as a packval-reaching package that declares no `TestMain`.
+            STEP 2's floor PASSES pre-fix because STEP 1 derives membership INDEPENDENTLY of
+            `TestMain` presence — `pkg/pack/distribution` imports packval via `validator.go`
+            and has 43 `*_test.go` files, so it is already a member before the fix exists.
+            Measured at authoring against clean HEAD:
+                STEP 1 set = [cmd/backstop (TestMain), pkg/packval (TestMain),
+                              pkg/pack/distribution (NO TestMain)]
+                STEP 2 -> GREEN     STEP 3a -> RED on [pkg/pack/distribution]
+
+            ★ IF STEP 2's FLOOR ALSO REDS PRE-FIX, THE EDIT IS WRONG — STOP AND FIX IT.
+            A pre-fix floor failure is the TELL that the `if pkg.testMain == nil { continue }`
+            skip was left in place and the "generalization" was really just widening the
+            hardcoded floor to three names. That implementation reproduces the blind spot
+            ISSUE-180 exists to close, yet it ALSO goes green on TASK-002 — so it would ship
+            CLM-003 unfulfilled while looking correct. The two-failure signature is the
+            signature of the BUG, not of the fix. STEP 1 must derive the set with no reference
+            to `pkg.testMain` at all; STEP 3a is the only assertion allowed to consult it.
+
+          Both STEP 2 and STEP 3a are green after TASK-002.
+        files:
+          - pkg/pack/distribution/sandbox_helper_gate_test.go
+          - cmd/backstop/sandbox_helper_testmain_guard_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+        depends_on: []
+        test_names:
+          - TestDistributionTestMain_OpensWithSandboxHelperGate
+          - TestSandboxHelperGate_PresentInEveryPackvalReachingTestMain
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Phase 2: GREEN — the TestMain, then everything darwin CAN actually prove
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: GREEN — add the TestMain, then verify what this platform can verify"
+    tasks:
+      - id: TASK-002
+        type: implementation
+        title: "Add the MaybeRunSandboxHelper first-statement TestMain to pkg/pack/distribution"
+        description: |
+          NEW FILE `pkg/pack/distribution/main_test.go`, `package distribution_test`. ONE
+          function, the imports it needs, nothing else. Do not touch any existing file in the
+          package.
+
+              func TestMain(m *testing.M) {
+                  if err := packval.MaybeRunSandboxHelper(); err != nil {
+                      fmt.Fprintf(os.Stderr, "backstop sandbox helper: %v\n", err)
+                      os.Exit(126)
+                  }
+                  os.Exit(m.Run())
+              }
+
+          Imports: `fmt`, `os`, `testing`, and
+          `github.com/backstop-ai/backstop-core/pkg/packval` in its own group after the
+          stdlib block (gofmt grouping, matching the package's other test files).
+
+          ★ THE LITERAL `126` IS CORRECT HERE AND IS NOT DRIFT (sharp edge 2).
+          `sandboxHelperExitCode` is unexported in `cmd/backstop`'s `package main` and cannot
+          be referenced from here; `pkg/packval` exports no equivalent. Do NOT declare a new
+          package-level constant for it, and do NOT invent a different code —
+          `pkg/packval/main_test.go:46` spells this same literal for this same reason, and
+          126 is the fail-closed "refused to run pack code it could not confine" code
+          documented at `pkg/packval/sandbox_diagnostic.go:17-19`.
+
+          `package distribution_test`, NOT `package distribution` (sharp edge 1). The package
+          already has one internal test file (`islocalpath_export_test.go`) and 42 external
+          ones; both compile into a single test binary and Go permits `TestMain` in only one.
+          Declare it once, in the external package.
+
+          NO BUILD TAG on the function or the file (sharp edge 3). `MaybeRunSandboxHelper`
+          resolves on every platform by design: on Linux it is the real gate, on darwin it is
+          `sandbox_nonlinux.go:47`'s `return nil`. That stub is precisely what makes this edit
+          provably inert on the platform we can measure — the call returns nil immediately and
+          control falls straight into `m.Run()`.
+
+          `os.Exit(m.Run())`, never a bare `m.Run()` (sharp edge 6).
+
+          WRITE A HEADER COMMENT carrying the facts a future reader needs and cannot infer:
+            (i) the Linux sandbox is a RE-EXEC TRAMPOLINE — `newSandboxHelperCommand`
+                (`pkg/packval/sandbox_linux.go`) spawns `os.Executable()`, which under
+                `go test` is THIS package's own compiled test binary, with
+                `BACKSTOP_SANDBOX_HELPER_SPEC` set and `helper.Dir` pointed at the pack
+                directory;
+            (ii) without this gate Go's DEFAULT generated test main does not recognise that
+                env var, so the re-exec'd process reruns this package's ENTIRE suite from a
+                directory off any `go.mod` ancestry, dies, and exits 1 — and because Go's
+                testing framework writes to STDOUT while
+                `foldHelperStderrIntoError` (`pkg/packval/sandbox_diagnostic.go`) reads only
+                STDERR, the parent reports "the sandboxed command wrote no diagnostic" and the
+                real output vanishes. That is ISSUE-180, and it is what broke
+                `TestInstallContractsLocalPack_InstallsWithSuppliedCommand` on Linux CI;
+            (iii) a successful call in helper mode NEVER RETURNS, and a non-nil error means
+                this process IS a helper whose sandbox failed to install — running the suite
+                at that point would hand the parent the suite's output as the sandboxed
+                command's output;
+            (iv) this package reaches the real pipeline through
+                `pkg/pack/distribution/validator.go`'s `packval.NewPipeline(packDir, …).Run()`,
+                which is why it is a re-exec target at all.
+          Name the other two members of the wiring family: `pkg/packval/main_test.go`'s
+          `TestMain` and `cmd/backstop/main.go`'s `runWith` (with
+          `cmd/backstop/integration_test.go`'s `TestMain` as the sibling PLAN-ISSUE-163 added).
+
+          DO NOT TOUCH `pkg/pack/engine/**`, `pkg/packval/**`, `cmd/backstop/integration_test.go`,
+          `cmd/backstop/main.go`, or `.github/workflows/ci.yml`. All are already correct or
+          deliberately out of scope.
+
+          Run `backstop gate` after this task, as the implementer contract requires.
+        files:
+          - pkg/pack/distribution/main_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: verification
+        title: "Verify everything darwin CAN verify — compile, vet, both pins green, and the unchanged distribution suite"
+        description: |
+          ★ READ THE VERIFICATION CEILING SECTION IN THIS PLAN'S HEADER BEFORE STARTING.
+          This task deliberately does NOT ask you to reproduce ISSUE-180 or to confirm the
+          Linux fix. Neither is possible here — the plan header records
+          `TestInstallContractsLocalPack_InstallsWithSuppliedCommand` PASSING on darwin in
+          1.40s WITH the defect live — and a report claiming either is rejected in review
+          (sharp edge 7).
+
+          (1) THE MODULE STILL BUILDS AND VETS (CLM-005):
+                go build ./...
+                go vet ./pkg/pack/distribution/... ./cmd/backstop/...
+              Both must be clean. `go vet` is named explicitly because the likeliest
+              mechanical failure of this edit is a mis-grouped or unused import.
+
+          (2) BOTH PINS ARE GREEN (CLM-001..CLM-004):
+                go test ./pkg/pack/distribution/ ./cmd/backstop/ -run "TestDistributionTestMain_OpensWithSandboxHelperGate|TestSandboxHelperGate_PresentInEveryPackvalReachingTestMain" -race -count=1 -v
+              ★ REPORT THE PER-TEST `--- PASS:` LINES, NOT A PACKAGE-LEVEL `ok`. `go test -run`
+              EXITS 0 WHEN THE PATTERN MATCHES NOTHING, so a package-level `ok` is compatible
+              with the pin never having run — for instance if the file landed in the wrong
+              package or the function was misnamed. The `-v` per-test lines are the evidence;
+              a missing `--- PASS:` line for either name is a FAILURE of this step, not a pass.
+
+          (3) THE DARWIN PATH IS PROVABLY UNCHANGED (CLM-005) — the real non-regression
+              measurement, not a formality:
+                go test ./pkg/pack/distribution/ -race -count=1
+              This is the package whose `TestMain` just changed; every one of its 43 test
+              files now runs through it. A suite that still passes is direct evidence that
+              the inserted guard fell through to `m.Run()` exactly as the `!linux` stub
+              promises.
+              ★ AND NAME `TestInstallContractsLocalPack_InstallsWithSuppliedCommand`
+              SPECIFICALLY in the report — it is the test ISSUE-180 exists for, its darwin
+              before-reading is recorded in this plan's header as PASS at 1.40s, and the
+              after-reading must still be PASS. It going RED here would mean the guard broke
+              the darwin path, which is the one failure mode this platform CAN detect.
+              Report the result honestly, INCLUDING pre-existing reds: this repo carries
+              inherited failures from other lanes. For any red, establish whether it predates
+              this lane by measuring a control at clean HEAD (a detached worktree is the
+              reliable way; a carried reading is not) and ATTRIBUTE it by name to its owning
+              lane. Never absorb another lane's red and never waive one.
+              If the full package run is impractical because another agent is mid-flight in
+              this shared tree (sharp edge 13), say so plainly and run it when the tree is
+              quiet — do not substitute a narrower run and describe it as the suite.
+
+          (4) THE DIFF-SCOPED GATE over the three files this lane touches:
+                backstop gate --file pkg/pack/distribution/main_test.go
+                backstop gate --file pkg/pack/distribution/sandbox_helper_gate_test.go
+                backstop gate --file cmd/backstop/sandbox_helper_testmain_guard_test.go
+              Fix anything attributable to this lane AT SOURCE. Expect two classes: a
+              substantiveness finding on the new pin's function (`TestMain` is exempt by name,
+              the pin is NOT — sharp edge 12), and any lint complaint about the added import.
+              Do not waive; do not weaken a test to clear one.
+
+          (5) STATE THE CEILING IN THE REPORT, EXPLICITLY. The report must contain a line to
+              the effect of: "none of the above verifies the Linux behaviour ISSUE-180
+              describes; that is confirmed only by the CI reading TASK-005 owns." A report
+              that lists green checks without that sentence is incomplete.
+        files:
+          - pkg/pack/distribution/main_test.go
+          - pkg/pack/distribution/sandbox_helper_gate_test.go
+          - cmd/backstop/sandbox_helper_testmain_guard_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-002
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Phase 3: full sweep, then the honest handoff to CI and the two dispositions
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: full kill chain, then the CI handoff and the recorded dispositions"
+    tasks:
+      - id: TASK-004
+        type: verification
+        title: "Full kill chain: backstop gate --all plus artifact validation"
+        description: |
+          THE FINAL, UNSCOPED SWEEP. Run all three and read the results:
+
+              backstop gate --all
+              backstop artifact validate --plan PLAN-ISSUE-180
+              backstop artifact validate --issue ISSUE-180
+
+          `gate --all` covers the code half (pack lock verification, artifact validation,
+          pack engines, test verification, substantiveness, coverage, contracts, status
+          drift, requirement traceability, waivers, baseline, ledger integrity);
+          `artifact validate` covers the artifact half, since this lane's plan artifact is
+          itself new and its source issue is in flight.
+
+          ATTRIBUTION IS THE DELIVERABLE, NOT THE RAW COUNT. This repo carries inherited reds
+          from other lanes. For every violation, decide and STATE whether it is this lane's:
+            * grep the full violation set explicitly for each path this lane touched
+              (`pkg/pack/distribution/main_test.go`,
+              `pkg/pack/distribution/sandbox_helper_gate_test.go`,
+              `cmd/backstop/sandbox_helper_testmain_guard_test.go`) and report the hit count,
+              zero or otherwise;
+            * anything attributable to this lane is FIXED AT SOURCE, never waived and never
+              made green by weakening a test.
+
+          ★ TWO MANDATED TEST NAMES MUST SURVIVE THIS SWEEP INTACT — check both explicitly:
+          `TestSandboxHelperGate_PresentInEveryPackvalReachingTestMain` (PLAN-ISSUE-163's
+          mandate, whose body this lane edited but whose NAME must be byte-identical) and
+          `TestInstallContractsLocalPack_InstallsWithSuppliedCommand`
+          (SPEC-055 CLM-092, `specs/SPEC-055-…spec.md:845`, untouched by this lane). A
+          `mandated_test_failed` or a missing-name finding on either is this lane's problem.
+
+          ENVIRONMENT CAVEATS GET RECORDED, NOT SMOOTHED (sharp edge 14). A `pack_engines`
+          step exiting 2 with `required tool "…" not found on PATH` is an environment
+          artifact, NOT a clean run — `go-arch-lint` and `golangci-lint` v2 must be on PATH or
+          the dimension silently contributes nothing; and a reading taken in a worktree
+          lacking `.backstop/baseline.json` is STRICTER, not more permissive. If either
+          applies, say so and do not report the run as authoritative.
+
+          ★ AND STATE THE CEILING AGAIN HERE: a green `gate --all` on darwin does not confirm
+          ISSUE-180's fix. `gate --all` on this machine never compiles `sandbox_linux*.go` and
+          never exercises a re-exec — the very test at issue passes here either way. It
+          confirms this lane broke nothing; TASK-005 owns the confirmation that it FIXED
+          something.
+        files:
+          - pkg/pack/distribution/main_test.go
+          - pkg/pack/distribution/sandbox_helper_gate_test.go
+          - cmd/backstop/sandbox_helper_testmain_guard_test.go
+          - plans/PLAN-ISSUE-180-distribution-testmain-sandbox-guard.plan.yml
+          - issues/ISSUE-180-distribution-testmain-missing-sandbox-guard.issue.md
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-002
+          - TASK-003
+
+      - id: TASK-005
+        type: documentation
+        title: "Hand the real verification to CI, record the ceiling, and route the ISSUE-177 / ISSUE-164 / ISSUE-180 dispositions and factual corrections without executing them here"
+        description: |
+          THIS TASK IS THE POINT OF THE PLAN'S CAREFULNESS. Everything before it proves the
+          edit is safe; only this proves it WORKED — and it cannot be discharged from this
+          machine (see the VERIFICATION CEILING).
+
+          EVERY ARTIFACT TOUCH HERE IS ROUTED THROUGH `/issue` (the issue-author agent). This
+          lane never hand-edits an artifact file — which is why `issues/ISSUE-180-…` appears
+          in this task's `files:`: it is the file a ROUTED author writes, not a file this task
+          opens in an editor.
+
+          (1) RECORD THE CEILING IN THE ARTIFACT, NOT IN A CHAT MESSAGE (CLM-006). Hand the
+          routed author the exact statement: the fix is unverifiable on darwin because
+          `pkg/packval/sandbox_linux.go` and `sandbox_linux_helper.go` are `//go:build linux`
+          and never compile here, so `MaybeRunSandboxHelper` is `sandbox_nonlinux.go:47`'s
+          no-op stub and no re-exec can occur — evidenced by
+          `TestInstallContractsLocalPack_InstallsWithSuppliedCommand` PASSING locally in
+          1.40s while failing on Linux CI. Local evidence establishes only "nothing broke on
+          darwin", never "the Linux path is fixed."
+
+          (2) NAME THE CI RUN TO WATCH, AND WHAT WOULD COUNT AS CONFIRMATION.
+          Workflow `.github/workflows/ci.yml`, job `gate` (display name "Backstop Gate"),
+          `runs-on: ubuntu-latest`. Read `gate-report.json` from the `gate-report` artifact —
+          the same artifact ISSUE-177's own before/after comparison used. Confirmation is a
+          CONJUNCTION, and each half must be READ, not inferred:
+            (a) `pkg/pack/distribution` is actually IN SCOPE for that run. CI's blocking gate
+                is DIFF-SCOPED, and two of this lane's three files live in that package, so
+                its tests are EXPECTED to run — expected, not established. Read the in-scope
+                path list at `.scope.files` in `gate-report.json` (`GateResult.Scope` is
+                `json:"scope"`, `GateScope.Files` is `json:"files"` — `pkg/gate/result.go`,
+                `pkg/gate/scope.go`). If the package is NOT in it, the run proves nothing
+                about this fix and you must say so rather than reading its green as success.
+            (b) the specific failure is GONE. The signature to search for is
+                `TestInstallContractsLocalPack_InstallsWithSuppliedCommand` together with the
+                literal strings `in phase3-fixtures: 14 validation error(s)` and
+                `the sandboxed command wrote no diagnostic`. All three present = not fixed;
+                the test present and passing with none of that text = fixed.
+            ★ CHECK THE RUN'S `headSha` AND SAY WHICH COMMIT IT IS. A run people describe as
+              "post-merge" is usually a PR-BRANCH run. Cite one of ISSUE-177's pre-fix runs
+              (`32172705491` at `9aa278e`, or `32179966270` at `f8b3846`) as the
+              COUNTERFACTUAL — both carry the failure byte-identically, which is what makes a
+              clean run afterwards meaningful.
+            ★ THE TOTAL VIOLATION COUNT IS NOT A CONFIRMATION CRITERION. CI's gate is
+              diff-scoped, so a push carrying only these three files has a far smaller
+              in-scope set NO MATTER WHETHER THE FIX WORKS — "the number went down" is
+              trivially true of a run where nothing was fixed. Confirmation rests on (a) AND
+              (b) alone. Report any remaining blocking set as CONTEXT, clearly labelled as
+              context and not as proof.
+          The change has to reach a branch CI runs on before any of this exists. WHETHER AND
+          WHEN TO PUSH IS THE FOUNDER'S CALL, not this task's — deliver the watch instruction
+          and the criteria, and if no CI run has happened yet, say exactly that instead of
+          implying one did.
+
+          (3) DO NOT CLOSE ISSUE-180 ON LOCAL EVIDENCE (CLM-006). `closed` has real teeth in
+          this repo. Request closure through `/issue` ONLY once (2)(a) and (2)(b) have both
+          been READ from a real run, handing the routed author that reading as the evidence.
+          ISSUE-180 closes with `delivered_by: PLAN-ISSUE-180` plus a `## Resolution` section
+          — legal because ISSUE-180 IS this plan's `spec_id`
+          (`pkg/validate/delivered_by.go` back-matches exactly that). Until then the honest
+          status is "fix landed, awaiting CI confirmation."
+
+          (4) ★ ROUTE THE ISSUE-177 DISPOSITION — DO NOT EXECUTE IT HERE (CLM-007).
+          Hand the routed `/issue` author this, verbatim in substance:
+            * ISSUE-177 MUST NOT carry `delivered_by: PLAN-ISSUE-180`. It is SCHEMA-ILLEGAL:
+              `validateDeliveredBy` back-matches the plan's `spec_id` against the closing
+              issue's own id and emits `issue/delivered-by-spec-mismatch` at severity `error`
+              when they differ. A plan delivers against exactly one issue — its source.
+            * ISSUE-177 MUST NOT carry `resolved-by: PLAN-ISSUE-180` either. The accept
+              grammar is `^(BUNDLE|SPEC|ISSUE|PLAN|DIR)-[0-9]{3}$`
+              (`pkg/validate/resolved_by.go`), which `PLAN-ISSUE-180` does not match — it is
+              neither that shape nor a hex SHA nor a PR URL, so it lands on
+              `issue/resolved-by-malformed`. This is a real trap: the intuitive spelling is
+              the illegal one.
+            * THE CORRECT CLOSE IS `resolved-by: ISSUE-180` — a typed artifact ref that does
+              match, and whose existence check globs `issues/ISSUE-180-*.issue.md` (present).
+              It requires NO backing plan and NO mandated test, but DOES require a
+              `## Resolution` section and an `issue.closed` date. `delivered_by` and
+              `resolved-by` are mutually exclusive — exactly one pointer.
+            * THE RESOLUTION SECTION MUST RECORD THAT ISSUE-177's OWN MECHANISM GUESS WAS
+              FALSIFIED: it attributed the residual failure to ISSUE-166 residue; the real
+              cause is the missing `TestMain` this lane added. ISSUE-177's evidence trail
+              (the two CI run ids, the byte-identical before/after) stays — it is what made
+              the diagnosis findable.
+            * AND CORRECT ISSUE-177's FILE CITATION IN THE SAME EDIT: it names the failing
+              test at `pkg/pack/engine/contracts_local_install_test.go` (its Problem section
+              and its References list). THAT FILE DOES NOT EXIST — verified at authoring:
+              `ls` fails, and a repo-wide grep for the test name returns exactly one path,
+              `pkg/pack/distribution/contracts_local_install_test.go`. The engine/distribution
+              mix-up is plausibly how the wrong-package framing propagated in the first place.
+            * TIMING: this close is CONTINGENT on the same CI reading as ISSUE-180's, and
+              happens AFTER it. Do not request it early.
+
+          (5) ★ ROUTE THE ISSUE-164 DISPOSITION — DO NOT EXECUTE IT HERE (CLM-007).
+          ISSUE-164 asked whether other packval-importing packages lack a `TestMain`. BOTH of
+          its halves are now ANSWERED, so the recommendation is CLOSURE, not narrowing. Hand
+          the routed `/issue` author this, and let the founder take the final call:
+            * HALF ONE — `pkg/pack/distribution`: CONFIRMED live and FIXED by this lane.
+              Point at ISSUE-180.
+            * HALF TWO — the roster generalization: DELIVERED by this lane (CLM-003). The
+              blind spot ISSUE-164 named — `cmd/backstop/sandbox_helper_testmain_guard_test.go`
+              skipping any packval-reaching package with NO `TestMain` — is removed by
+              derivation, with zero exemptions, so a future fifth package is caught with no
+              further edit.
+            * ★ THE CENTRAL FACTUAL ERROR TO CORRECT. ISSUE-164 states that
+              `pkg/pack/engine`'s `import_cycle_test.go` and `binding_test.go` "both import
+              `pkg/packval`". THAT IS FALSE, and it is the seed of the whole error chain:
+              those two files contain the packval import path only as a FORBIDDEN-LIST STRING
+              LITERAL, in tests asserting the exact opposite. `pkg/pack/engine` has no packval
+              import declaration anywhere, and its exposure to this defect class is DEAD BY
+              CONSTRUCTION — not merely unmeasured — pinned by two shipped tests tied to
+              CLM-033/REQ-013:
+                - `TestEngineBinding_NoImportCycle` (`pkg/pack/engine/import_cycle_test.go`),
+                  which resolves the REAL transitive set via `go list -deps` and asserts
+                  packval absent; measured green at authoring, `--- PASS (0.11s)`;
+                - `TestEngine_NoForbiddenImports` (`pkg/pack/engine/binding_test.go`), the
+                  same invariant by AST over `binding.go`.
+              A package that cannot transitively link `pkg/packval` can never be handed
+              `BACKSTOP_SANDBOX_HELPER_SPEC` by a trampoline it does not contain.
+              Recommended close: `resolved-by: ISSUE-180` plus a `## Resolution` section (same
+              grammar constraints as step (4): `PLAN-ISSUE-180` is malformed as a ref;
+              `ISSUE-180` is the legal spelling).
+
+            * ★★ HAND THE ROUTED AUTHOR THIS SITE LIST, NOT A SECTION NAME. The false premise
+              is NOT confined to one paragraph — it recurs across BOTH issues, and a routed
+              author given only a section name will predictably fix the named one and leave
+              the rest standing. Line numbers are AS OF THIS PLAN'S AUTHORING; locate each by
+              its quoted text, not by the number (sharp edge 11).
+
+              ISSUE-164 — `issues/ISSUE-164-packval-importing-packages-missing-testmain-guard.issue.md`:
+                L38     "Two such packages exist today" → ONE. Only `pkg/pack/distribution`.
+                L43-44  "`pkg/pack/engine` — `import_cycle_test.go` and `binding_test.go` both
+                        import `pkg/packval`. This package also has no `TestMain`." → FALSE;
+                        replace with the dead-by-construction finding above.
+                L46-53  "Neither package has a `TestMain` at all, so if any test in either
+                        one..." → the two-package framing collapses to one.
+                L57-60  "**Known:** both packages import `pkg/packval` ... confirmed by direct
+                        inspection (`grep -rl ...`)" → ★ THE METHODOLOGY ITSELF IS THE BUG.
+                        Correct BOTH the claim and the method: an import-path grep matches
+                        forbidden-list literals; membership must be derived by AST.
+                L62-72  "Explicitly not known ... whether any test in `pkg/pack/distribution`
+                        or `pkg/pack/engine` actually drives real sandboxed dispatch" → BOTH
+                        halves now resolved, in OPPOSITE directions: distribution CONFIRMED
+                        live (ISSUE-180, with a real CI signature), engine DEAD BY
+                        CONSTRUCTION. Neither remains an open question.
+                L74-83  "Why this is filed as a question, not a bug" → superseded; the
+                        question is answered. This is what justifies closing rather than
+                        narrowing, and ISSUE-164's own L82-83 ("re-filed or promoted to bug at
+                        that point") is the instruction being honoured.
+                L85-92  "Impact if confirmed live" → now historical; distribution's real
+                        impact is recorded in ISSUE-180.
+                L101-105 References: the roster blind-spot description → NOT false, but STALE:
+                        note it is DELIVERED by PLAN-ISSUE-180 CLM-003.
+                L108-109 References: "the two files confirming `pkg/pack/engine` imports
+                        `pkg/packval`" → FALSE AND INVERTED — they confirm the opposite.
+
+              ISSUE-180 — `issues/ISSUE-180-distribution-testmain-missing-sandbox-guard.issue.md`
+              (fold into its own close, step 3, rather than a separate edit):
+                L110-113 "`pkg/pack/engine` — still unconfirmed. Nothing in tonight's
+                        investigation traced..." → not unconfirmed; DEAD BY CONSTRUCTION.
+                L115-120 "`grep -rl ...` across the whole module returns exactly four
+                        directories: `cmd/backstop`, `pkg/pack/distribution`,
+                        `pkg/pack/engine`, and `pkg/packval`" → ★ WRONG SET AND WRONG METHOD.
+                        The AST-derived set is THREE: `cmd/backstop`, `pkg/packval`,
+                        `pkg/pack/distribution`. (The `pkg/gate` conclusion in the same
+                        paragraph is CORRECT and survives — re-verified.)
+                L122-124 "Recommend narrowing `ISSUE-164` to just `pkg/pack/engine`" → RETRACT.
+                        The engine half is dead, so narrowing-to-engine is exactly backwards;
+                        the recommendation is closure. See the retraction item below.
+                L165-168 References: "`pkg/pack/engine` remains open under `ISSUE-164`,
+                        unconfirmed by this investigation" → same correction.
+                L179-182 References: the guard "hands to `ISSUE-164`" → STALE; delivered here.
+
+            * ★★ AND ROUTE A RETRACTION OF ISSUE-180's "## Structural facet" SECTION
+              (L126-144) — THIS IS A SCOPE-FENCE CONGRUENCE FAILURE, SEPARATE FROM THE GREP
+              ARTIFACT, AND IT MUST NOT SHIP UNRETRACTED. That section states that generalizing
+              the roster is "`ISSUE-164`'s territory, not this issue's" and that folding it in
+              "would scope-creep this issue past its own confirmed evidence." CLM-003 DELIVERS
+              EXACTLY THAT GENERALIZATION. Because ISSUE-180 closes via
+              `delivered_by: PLAN-ISSUE-180`, leaving that text live would ship an issue whose
+              own body disclaims a claim its own plan delivered — the reader could not tell
+              which is authoritative.
+              RETRACT IN PLACE, DO NOT DELETE: keep the section and append a dated retraction
+              recording WHY the scope widened — the packval-reaching set was re-measured by AST
+              (three packages, not four), `pkg/pack/engine` proved dead by construction rather
+              than unconfirmed, and the generalized predicate therefore flags exactly
+              `pkg/pack/distribution` with ZERO exemptions, collapsing the cost that justified
+              deferring it. State plainly that this was a FOUNDER-VISIBLE DECISION taken in
+              plan review round 1, not a silent in-flight widening. The same retraction covers
+              L122-124's narrowing recommendation.
+              ★ THE RETRACTION IS PARTIAL, AND SAY SO: the section's DESCRIPTION of the blind
+              spot (`if pkg.testMain == nil { continue }` makes a `TestMain`-less importer
+              invisible) is ACCURATE and stays — it is the defect CLM-003 fixes. Only the
+              DISPOSITION (out of scope, hand to ISSUE-164) is retracted.
+
+          (6) FILE ANYTHING ELSE SURFACED, and if nothing needed filing, SAY SO EXPLICITLY —
+          silence is not a discharge. One candidate already visible at authoring, offered as
+          an observation and NOT as this lane's work:
+          `plans/PLAN-ISSUE-163-cmd-backstop-testmain-sandbox-helper-guard.plan.yml` still
+          reads `status: draft` even though its fix landed at commit `970512b`; its close-out
+          appears never to have run. Surface it to the founder rather than flipping it.
+
+          Then report the terminal state plainly: what landed, what was measured, what was NOT
+          measurable and why, what was routed, and what is still owed.
+        files:
+          - issues/ISSUE-180-distribution-testmain-missing-sandbox-guard.issue.md
+          - issues/ISSUE-177-contracts-local-install-phase3-anomaly.issue.md
+          - issues/ISSUE-164-packval-importing-packages-missing-testmain-guard.issue.md
+        claims:
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-004
