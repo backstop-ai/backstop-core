@@ -59,12 +59,54 @@ func (l *workflowStringList) UnmarshalYAML(node *yaml.Node) error {
 	}
 }
 
+// workflowPermissions decodes the `permissions:` key, which GitHub Actions
+// accepts in TWO shapes: a mapping of scope→level, and the bare scalars
+// `read-all` / `write-all`.
+//
+// Decoding it as a bare map[string]string would ERROR on the scalar form rather
+// than report it, and decoding it as `any` would silently yield nothing an
+// assertion could read — either way a permissions assertion becomes a mystery.
+// So both shapes are captured, and the assertions below fail loudly NAMING the
+// shape they found. Same spirit as workflowStringList.
+type workflowPermissions struct {
+	// Scopes is populated for the mapping form.
+	Scopes map[string]string
+	// Scalar is populated for the `read-all` / `write-all` form.
+	Scalar string
+}
+
+func (p *workflowPermissions) UnmarshalYAML(node *yaml.Node) error {
+	switch node.Kind {
+	case yaml.ScalarNode:
+		var scalar string
+		if err := node.Decode(&scalar); err != nil {
+			return fmt.Errorf("decode scalar permissions: %w", err)
+		}
+		p.Scalar = scalar
+		return nil
+	case yaml.MappingNode:
+		scopes := map[string]string{}
+		if err := node.Decode(&scopes); err != nil {
+			return fmt.Errorf("decode permissions mapping: %w", err)
+		}
+		p.Scopes = scopes
+		return nil
+	default:
+		return fmt.Errorf("permissions: want a scope mapping or the scalars read-all/write-all, got YAML kind %d", node.Kind)
+	}
+}
+
 type workflowStep struct {
 	Name string            `yaml:"name"`
 	Uses string            `yaml:"uses"`
 	Run  string            `yaml:"run"`
 	With map[string]any    `yaml:"with"`
 	Env  map[string]string `yaml:"env"`
+	// ID is what a later step's `if:` expression addresses a step by
+	// (`steps.<id>.conclusion`). Decoded so the guard on the post-gate
+	// confirmation step can be checked against the step it actually names —
+	// see TestCIWorkflow_GateJobProvesTheBaselineLandedAfterTheGate.
+	ID string `yaml:"id"`
 	// If and ContinueOnError are what a "blocking" job stops blocking through.
 	// They are decoded so their ABSENCE can be asserted rather than assumed —
 	// see TestCIWorkflow_PackInstallFailureFailsTheJob.
@@ -73,14 +115,20 @@ type workflowStep struct {
 }
 
 type workflowJob struct {
-	Name  string             `yaml:"name"`
-	Needs workflowStringList `yaml:"needs"`
-	Steps []workflowStep     `yaml:"steps"`
+	Name        string              `yaml:"name"`
+	Needs       workflowStringList  `yaml:"needs"`
+	Permissions workflowPermissions `yaml:"permissions"`
+	// Env is decoded so a JOB-level binding can be asserted ABSENT. A token
+	// bound here reaches every step in the job, including the ones that pipe
+	// `curl | sh` and run `pipx install` — see
+	// TestCIWorkflow_GateJobAuthenticatesTheSelfHealingBaselinePull.
+	Env   map[string]string `yaml:"env"`
+	Steps []workflowStep    `yaml:"steps"`
 }
 
 type workflowFile struct {
 	Name        string                 `yaml:"name"`
-	Permissions map[string]string      `yaml:"permissions"`
+	Permissions workflowPermissions    `yaml:"permissions"`
 	Jobs        map[string]workflowJob `yaml:"jobs"`
 }
 
@@ -260,8 +308,12 @@ func TestReleaseWorkflow_TriggersOnlyOnSemverTagPush(t *testing.T) {
 		"contents": "write", // create the GitHub Release
 		"actions":  "read",  // query ci.yml's conclusion for the tagged SHA
 	}
+	if workflow.Permissions.Scalar != "" {
+		t.Fatalf("%s: workflow permissions decoded as the scalar %q, want a scope mapping",
+			releaseWorkflowFile, workflow.Permissions.Scalar)
+	}
 	for scope, want := range wantPermissions {
-		if got := workflow.Permissions[scope]; got != want {
+		if got := workflow.Permissions.Scopes[scope]; got != want {
 			t.Errorf("%s: permissions[%q] = %q, want %q", releaseWorkflowFile, scope, got, want)
 		}
 	}
@@ -653,6 +705,35 @@ func stepIndex(job workflowJob, needle string) int {
 		}
 	}
 	return -1
+}
+
+// stepIndexes returns EVERY position whose decommented script contains needle.
+//
+// It exists beside stepIndex rather than replacing it, and the distinction is
+// load-bearing: ci.yml invokes `backstop gate` TWICE — the diagnostic --json
+// capture and the blocking run — so stepIndex's first-match answer is the
+// DIAGNOSTIC step, not the blocking one. An ordering fence anchored on the first
+// match is escapable by inserting a step between the two. Six existing call
+// sites across three tests depend on stepIndex's first-match contract, so it is
+// left alone.
+func stepIndexes(job workflowJob, needle string) []int {
+	found := []int{}
+	for i, step := range job.Steps {
+		if strings.Contains(stepScript(step), needle) {
+			found = append(found, i)
+		}
+	}
+	return found
+}
+
+// lastStepIndex returns the position of the LAST step whose decommented script
+// contains needle, or -1.
+func lastStepIndex(job workflowJob, needle string) int {
+	found := stepIndexes(job, needle)
+	if len(found) == 0 {
+		return -1
+	}
+	return found[len(found)-1]
 }
 
 // TestCIWorkflow_BlockingJobRunsBackstopGate is the flip itself: the job builds the
@@ -1112,5 +1193,340 @@ func TestCIWorkflow_BaselineJobInstallsTheSameToolsAsGate(t *testing.T) {
 				"FULL-SCOPE gate, and provisionEngines exits 2 when a Layer-0 tool is missing from PATH — "+
 				"this is exactly how run 30398137055 died", ciWorkflowFile, tool)
 		}
+	}
+}
+
+// ─── ci.yml: authorizing the self-healing baseline pull (ISSUE-176) ─────────────
+//
+// `backstop gate` already self-heals a missing `.backstop/baseline.json`:
+// resolveBaselineCache → refreshBaselineFromRemote → runBaselinePull runs
+// unconditionally before the gate executes. On CI it has never worked, and it
+// degrades SILENTLY to a nil baseline. The gap is authorization, not code:
+// ci.yml binds no token (so ensureGitHubAuth's `gh auth status` shell-out fails
+// first) and grants no `actions: read` (so the pull's `gh api
+// repos/.../actions/runs` and `.../actions/artifacts` calls would 403 even with
+// one). These four tests pin the wiring that closes it.
+
+// baselinePullInvocation is the command the post-gate confirmation step shells
+// in its failure branch — and the command that must appear EXACTLY ONCE in the
+// gate job, because a second one anywhere would create the file the
+// confirmation step checks for. (CLM-003)
+const baselinePullInvocation = "baseline pull"
+
+// committedBaselinePath is the file the self-healing pull lands, and the only
+// observable this repo has for whether the pull worked: ApplyPolicy overwrites
+// baseline_comparison's reason unconditionally under the dogfood policy, so
+// neither the printed table nor --json can confirm or refute it.
+const committedBaselinePath = ".backstop/baseline.json"
+
+// stepShellsGitHubCLI reports whether a gate-job step can shell `gh`, and so
+// needs the token bound in its OWN env:.
+//
+// The set is DERIVED rather than listed by index, because there are three
+// members and they are easy to half-wire: `backstop gate` is invoked TWICE (the
+// diagnostic --json capture and the blocking run, both of which run
+// resolveBaselineCache), and the confirmation step's failure branch runs a bare
+// `baseline pull`, which is useless unauthenticated.
+func stepShellsGitHubCLI(step workflowStep) bool {
+	script := stepScript(step)
+	return strings.Contains(script, selfGateInvocation) || strings.Contains(script, baselinePullInvocation)
+}
+
+// gitHubTokenBinding returns the value and the name of whichever GitHub-token
+// variable an env block declares, or empty strings when it declares neither.
+func gitHubTokenBinding(env map[string]string) (value string, name string) {
+	for _, candidate := range []string{"GH_TOKEN", "GITHUB_TOKEN"} {
+		if bound, present := env[candidate]; present {
+			return bound, candidate
+		}
+	}
+	return "", ""
+}
+
+// secretsReferencePattern matches a `secrets.NAME` expression anywhere in a
+// workflow's text.
+var secretsReferencePattern = regexp.MustCompile(`secrets\.([A-Za-z_][A-Za-z0-9_-]*)`)
+
+// stepConclusionPattern extracts the step id a `steps.<id>.conclusion`
+// expression addresses.
+var stepConclusionPattern = regexp.MustCompile(`steps\.([A-Za-z0-9_-]+)\.conclusion`)
+
+// stepNames renders a set of step indices as index+name pairs, so a failure
+// names the offending steps rather than making the reader count.
+func stepNames(job workflowJob, indices []int) []string {
+	named := make([]string, 0, len(indices))
+	for _, i := range indices {
+		named = append(named, fmt.Sprintf("%d (%q)", i, job.Steps[i].Name))
+	}
+	return named
+}
+
+// TestCIWorkflow_GateJobAuthenticatesTheSelfHealingBaselinePull asserts the
+// token reaches every gate-job step that can shell `gh`, STEP-LEVEL, and reaches
+// nothing else. (CLM-001)
+//
+// The negative legs are what make "step-level, not job-level" a claim rather
+// than prose. A job-level `env:` is the obvious spelling and passes every
+// positive assertion here — while handing the token to all ten steps, including
+// the two that pipe `curl | sh` and run `pipx install` and the one that clones
+// eight remote pack repositories. None of those needs it.
+func TestCIWorkflow_GateJobAuthenticatesTheSelfHealingBaselinePull(t *testing.T) {
+	job := ciBlockingJob(t)
+
+	needsToken := []int{}
+	for i, step := range job.Steps {
+		if stepShellsGitHubCLI(step) {
+			needsToken = append(needsToken, i)
+		}
+	}
+	if len(needsToken) == 0 {
+		t.Fatalf("%s: no gate-job step shells `gh` — none invokes %q or %q. Every assertion below would be "+
+			"vacuous over an empty set", ciWorkflowFile, selfGateInvocation, baselinePullInvocation)
+	}
+	inDerivedSet := map[int]bool{}
+	for _, i := range needsToken {
+		inDerivedSet[i] = true
+	}
+
+	// POSITIVE LEG: every derived member carries the binding, in its OWN env:.
+	for _, i := range needsToken {
+		step := job.Steps[i]
+		value, name := gitHubTokenBinding(step.Env)
+		if name == "" {
+			t.Errorf("%s: step %d (%q) shells `gh` but declares no GH_TOKEN/GITHUB_TOKEN in its own env:. "+
+				"ensureGitHubAuth runs `gh auth status` BEFORE the pull reaches the GitHub API, so an "+
+				"unauthenticated step fails there and the self-healing baseline pull degrades silently to a nil "+
+				"baseline (ISSUE-176). Steps that need it: %v",
+				ciWorkflowFile, i, step.Name, stepNames(job, needsToken))
+			continue
+		}
+		if !strings.Contains(value, "secrets.GITHUB_TOKEN") && !strings.Contains(value, "github.token") {
+			t.Errorf("%s: step %d (%q) binds %s to %q — want the AUTO-GENERATED ${{ secrets.GITHUB_TOKEN }} "+
+				"(equivalently ${{ github.token }}): repository-scoped, minted per run, expiring with the job. "+
+				"Never a hand-rolled PAT", ciWorkflowFile, i, step.Name, name, value)
+		}
+	}
+
+	// NEGATIVE LEG (a): no step OUTSIDE the derived set carries the token.
+	strays := []int{}
+	for i, step := range job.Steps {
+		if inDerivedSet[i] {
+			continue
+		}
+		if _, name := gitHubTokenBinding(step.Env); name != "" {
+			strays = append(strays, i)
+		}
+	}
+	if len(strays) > 0 {
+		t.Errorf("%s: these gate-job steps bind a GitHub token but never shell `gh`: %v. The exposure is scoped "+
+			"at the STEP deliberately — the steps that execute the most third-party code in this job (the "+
+			"`curl | sh` installer, the `pipx install`, the eight-repo pack clone) must not hold it",
+			ciWorkflowFile, stepNames(job, strays))
+	}
+
+	// NEGATIVE LEG (b): the JOB binds neither name. An absent job env: satisfies
+	// this trivially and correctly.
+	if _, name := gitHubTokenBinding(job.Env); name != "" {
+		t.Errorf("%s: the gate JOB declares %s in its job-level env:, which hands the token to ALL of its steps. "+
+			"Bind it step-level on the %d steps that shell `gh` instead: %v",
+			ciWorkflowFile, name, len(needsToken), stepNames(job, needsToken))
+	}
+
+	// LEAST-PRIVILEGE FENCE: the auto-token and nothing else. The scan surface is
+	// the union of every step's env: and with: values, the job's own env:, and
+	// every step's RAW run script — raw, because a `secrets.` expression
+	// interpolated straight into a script body is the smuggling route that
+	// matters most, and a comment naming one is worth flagging anyway.
+	type scannedText struct {
+		where string
+		text  string
+	}
+	surfaces := []scannedText{}
+	for _, name := range sortedMapKeys(job.Env) {
+		surfaces = append(surfaces, scannedText{fmt.Sprintf("the job's env: %s", name), job.Env[name]})
+	}
+	for i, step := range job.Steps {
+		for _, name := range sortedMapKeys(step.Env) {
+			surfaces = append(surfaces, scannedText{fmt.Sprintf("step %d (%q) env: %s", i, step.Name, name), step.Env[name]})
+		}
+		for _, name := range sortedMapKeys(step.With) {
+			surfaces = append(surfaces, scannedText{
+				fmt.Sprintf("step %d (%q) with: %s", i, step.Name, name),
+				fmt.Sprintf("%v", step.With[name]),
+			})
+		}
+		surfaces = append(surfaces, scannedText{fmt.Sprintf("step %d (%q) run script", i, step.Name), step.Run})
+	}
+	for _, surface := range surfaces {
+		for _, match := range secretsReferencePattern.FindAllStringSubmatch(surface.text, -1) {
+			if match[1] == "GITHUB_TOKEN" {
+				continue
+			}
+			t.Errorf("%s: %s references secrets.%s. The gate job is authorized by the auto-generated "+
+				"GITHUB_TOKEN alone — a hand-rolled PAT is a wider, longer-lived credential and is fenced out here "+
+				"so substituting one later is a conscious act that fails a test", ciWorkflowFile, surface.where, match[1])
+		}
+	}
+}
+
+// TestCIWorkflow_GateJobGrantsActionsReadWithoutWideningTheWorkflow asserts the
+// permission widening is real AND narrow: `actions: read` on the gate job, and
+// the workflow-level block untouched. (CLM-002)
+func TestCIWorkflow_GateJobGrantsActionsReadWithoutWideningTheWorkflow(t *testing.T) {
+	workflow := loadWorkflow(t, ciWorkflowFile)
+	job := ciBlockingJob(t)
+
+	if job.Permissions.Scalar != "" {
+		t.Fatalf("%s: the gate job's permissions decoded as the scalar %q. Want the mapping "+
+			"{contents: read, actions: read} — a scalar grants vastly more than the pull needs",
+			ciWorkflowFile, job.Permissions.Scalar)
+	}
+	scopes := job.Permissions.Scopes
+	if len(scopes) == 0 {
+		t.Fatalf("%s: the gate job declares no job-level permissions: block. Without `actions: read` the "+
+			"self-healing pull's `gh api repos/.../actions/runs` and `.../actions/artifacts` calls 403 and the "+
+			"gate degrades silently to a nil baseline (ISSUE-176)", ciWorkflowFile)
+	}
+
+	if got := scopes["contents"]; got != "read" {
+		t.Errorf("%s: the gate job's permissions[contents] = %q, want %q. THIS LEG IS NOT REDUNDANT with the "+
+			"workflow-level block: a JOB-level permissions block REPLACES the workflow-level one outright and "+
+			"every scope it does not list becomes `none`, so omitting contents:read revokes it and "+
+			"actions/checkout fails as a mystery", ciWorkflowFile, got, "read")
+	}
+	if got := scopes["actions"]; got != "read" {
+		t.Errorf("%s: the gate job's permissions[actions] = %q, want %q — the narrowest scope that lets the "+
+			"pull's `gh api repos/.../actions/runs` and `.../actions/artifacts` calls answer",
+			ciWorkflowFile, got, "read")
+	}
+	for _, scope := range sortedMapKeys(scopes) {
+		level := scopes[scope]
+		if scope != "contents" && scope != "actions" {
+			t.Errorf("%s: the gate job grants an extra scope %q: %q — want exactly {contents: read, actions: read}",
+				ciWorkflowFile, scope, level)
+		}
+		if strings.Contains(level, "write") {
+			t.Errorf("%s: the gate job grants %q: %q — the pull only ENUMERATES and DOWNLOADS this repository's "+
+				"own runs and artifacts; it writes nothing", ciWorkflowFile, scope, level)
+		}
+	}
+
+	// THE BLAST-RADIUS FENCE. `actions: read` at the workflow level would widen
+	// the baseline job and every future job for no reason, and that is exactly
+	// the "simpler" edit this assertion exists to fail.
+	if workflow.Permissions.Scalar != "" {
+		t.Fatalf("%s: the WORKFLOW-level permissions decoded as the scalar %q, want the mapping {contents: read}",
+			ciWorkflowFile, workflow.Permissions.Scalar)
+	}
+	workflowScopes := workflow.Permissions.Scopes
+	if len(workflowScopes) != 1 || workflowScopes["contents"] != "read" {
+		t.Errorf("%s: workflow-level permissions = %v, want exactly {contents: read}. The widening belongs to the "+
+			"gate job and to no other", ciWorkflowFile, workflowScopes)
+	}
+	if level, present := workflowScopes["actions"]; present {
+		t.Errorf("%s: workflow-level permissions grant actions: %q. Scope it at the JOB — a workflow-level grant "+
+			"reaches the baseline job and every future job, none of which pulls a baseline", ciWorkflowFile, level)
+	}
+}
+
+// TestCIWorkflow_GateJobProvesTheBaselineLandedAfterTheGate asserts the wiring
+// carries its own in-band falsifier: a guarded, post-gate step that observes
+// whether the pull landed a file. (CLM-003(ii))
+func TestCIWorkflow_GateJobProvesTheBaselineLandedAfterTheGate(t *testing.T) {
+	job := ciBlockingJob(t)
+
+	gateSteps := stepIndexes(job, selfGateInvocation)
+	if len(gateSteps) != 2 {
+		t.Fatalf("%s: %d gate-job steps invoke %q (%v), want exactly 2 — the diagnostic --json capture and the "+
+			"blocking run. The ordering leg below anchors on the LAST of them, so a third would silently "+
+			"re-anchor it", ciWorkflowFile, len(gateSteps), selfGateInvocation, stepNames(job, gateSteps))
+	}
+	lastGate := lastStepIndex(job, selfGateInvocation)
+
+	confirmations := stepIndexes(job, committedBaselinePath)
+	if len(confirmations) != 1 {
+		t.Fatalf("%s: %d gate-job steps reference %s in their decommented script (%v), want exactly 1 — the "+
+			"post-gate confirmation step. ApplyPolicy overwrites baseline_comparison's Reason unconditionally "+
+			"under this repo's dogfood policy, so that step is the ONLY surface that can say whether the "+
+			"self-healing pull landed a file (ISSUE-176)",
+			ciWorkflowFile, len(confirmations), committedBaselinePath, stepNames(job, confirmations))
+	}
+	confirmIndex := confirmations[0]
+	confirm := job.Steps[confirmIndex]
+	script := stepScript(confirm)
+
+	if strings.Contains(script, "|| true") {
+		t.Errorf("%s: the confirmation step %q swallows its exit code with `|| true`:\n%s",
+			ciWorkflowFile, confirm.Name, script)
+	}
+	if strings.Contains(script, selfGateInvocation) {
+		t.Errorf("%s: the confirmation step %q carries %q in its DECOMMENTED script. It declares an `if:`, and "+
+			"TestCIWorkflow_PackInstallFailureFailsTheJob fails any step whose script contains that literal and "+
+			"is conditional — keep the explanation in a comment, which stepScript strips",
+			ciWorkflowFile, confirm.Name, selfGateInvocation)
+	}
+
+	// THE GUARD, asserted precisely rather than as "declares if: always()".
+	if !strings.Contains(confirm.If, "always()") {
+		t.Errorf("%s: the confirmation step %q has if: %q, which must include always() — the run worth "+
+			"diagnosing is the one whose gate FAILED", ciWorkflowFile, confirm.Name, confirm.If)
+	}
+	if !strings.Contains(confirm.If, "!= 'skipped'") {
+		t.Errorf("%s: the confirmation step %q has if: %q, which must exclude the case where the gate step was "+
+			"SKIPPED. This job can die at tool install, at build or at pack install; under a bare always() the "+
+			"step then finds no baseline (nothing had a chance to fetch one) and blames ISSUE-176 for a failure "+
+			"three steps upstream — the exact misattribution burden ISSUE-176 exists to remove",
+			ciWorkflowFile, confirm.Name, confirm.If)
+	}
+	references := stepConclusionPattern.FindAllStringSubmatch(confirm.If, -1)
+	if len(references) != 1 {
+		t.Fatalf("%s: the confirmation step's if: %q references %d `steps.<id>.conclusion` expressions, want "+
+			"exactly 1 — the blocking gate step's", ciWorkflowFile, confirm.If, len(references))
+	}
+	referencedID := references[0][1]
+	if got := job.Steps[lastGate].ID; got != referencedID {
+		t.Errorf("%s: the confirmation step's guard names steps.%s.conclusion, but the blocking gate step "+
+			"(step %d, %q) declares id %q. A guard naming an id no step declares does NOT fail safe — it goes "+
+			"INERT. GitHub resolves the missing context property to null; `null != 'skipped'` compares mismatched "+
+			"types so both are coerced to number (null → 0, 'skipped' → NaN); every comparison involving NaN is "+
+			"false, so the `!=` is TRUE and the condition collapses to `always() && true`. The step then runs on "+
+			"EVERY run, including the early-death runs this guard exists to suppress",
+			ciWorkflowFile, referencedID, lastGate, job.Steps[lastGate].Name, got)
+	}
+
+	if confirmIndex <= lastGate {
+		t.Errorf("%s: the confirmation step is step %d and the LAST gate invocation is step %d. A check placed "+
+			"before the gate proves nothing — the pull that creates the file runs INSIDE the gate, in "+
+			"resolveBaselineCache", ciWorkflowFile, confirmIndex, lastGate)
+	}
+}
+
+// TestCIWorkflow_TheOnlyBaselinePullFollowsEveryGateInvocation is the
+// load-bearing falsifier, and it is deliberately INDEX-FREE in its primary leg.
+// (CLM-003(i))
+func TestCIWorkflow_TheOnlyBaselinePullFollowsEveryGateInvocation(t *testing.T) {
+	job := ciBlockingJob(t)
+
+	pulls := stepIndexes(job, baselinePullInvocation)
+	if len(pulls) != 1 {
+		t.Fatalf("%s: %d gate-job steps invoke %q (%v), want EXACTLY 1 — the post-gate confirmation step's "+
+			"failure branch. A second `baseline pull` ANYWHERE in this job would create the very file the "+
+			"confirmation step checks for, making the proof self-fulfilling. Uniqueness rather than ordering is "+
+			"the primary fence because an ordering fence is escapable: ci.yml invokes the gate twice, so a forging "+
+			"pull inserted BETWEEN the two invocations still sits after the first anchor",
+			ciWorkflowFile, len(pulls), baselinePullInvocation, stepNames(job, pulls))
+	}
+
+	gateSteps := stepIndexes(job, selfGateInvocation)
+	if len(gateSteps) != 2 {
+		t.Fatalf("%s: %d gate-job steps invoke %q (%v), want exactly 2 — a third would re-anchor the ordering leg "+
+			"below", ciWorkflowFile, len(gateSteps), selfGateInvocation, stepNames(job, gateSteps))
+	}
+	lastGate := lastStepIndex(job, selfGateInvocation)
+
+	if pulls[0] <= lastGate {
+		t.Errorf("%s: the only `%s` is step %d, at or before the LAST gate invocation (step %d). It must follow "+
+			"EVERY gate invocation, or it creates the file the confirmation checks for",
+			ciWorkflowFile, baselinePullInvocation, pulls[0], lastGate)
 	}
 }

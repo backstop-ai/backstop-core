@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,13 +14,37 @@ import (
 
 const neutralSpineRuleFragment = "no-language-literal-on-neutral-spine"
 
+// readGeneratedBaseline reads the baseline artifact at path, wrapping an absent
+// file in a message that names the REMEDY.
+//
+// The path is a PARAMETER rather than baked in, and that is a constraint rather
+// than a style note: TestRatchetBaselineRead_NeverSkipsAndNeverPullsImplicitly
+// forbids any single line that carries both a read call and the baseline path,
+// and TestCommittedBaselineAbsence_FailsWithActionableRemedy needs a seam to
+// point at a nonexistent file.
+//
+// It NAMES `backstop baseline pull`; it must never RUN it. The remedy is
+// deliberately opt-in (ISSUE-176), so no local `go test` run acquires a network
+// dependency — do not add an os/exec or net/http import to this file.
+func readGeneratedBaseline(path string) ([]byte, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read the generated baseline at %s: %w\n"+
+			"\tThat file is a GENERATED, gitignored artifact: CI's `baseline` job publishes it as "+
+			"backstop-baseline-v1, and it is never committed source, so a fresh clone does not have one.\n"+
+			"\tFetch it first, then re-run:  backstop baseline pull   (or, from the repo root:  make baseline)",
+			path, err)
+	}
+	return raw, nil
+}
+
 // committedBaselineNeutralSpineFiles returns the set of file paths that carry a
-// backstop-ai/backstop-self neutral-spine finding in the COMMITTED .backstop/baseline.json.
+// backstop-ai/backstop-self neutral-spine finding in the generated baseline.
 func committedBaselineNeutralSpineFiles(t *testing.T) []string {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join(repoRoot(t), ".backstop", "baseline.json"))
+	raw, err := readGeneratedBaseline(filepath.Join(repoRoot(t), ".backstop", "baseline.json"))
 	if err != nil {
-		t.Fatalf("read committed baseline: %v", err)
+		t.Fatalf("%v", err)
 	}
 	var artifact gate.BaselineArtifact
 	if err := json.Unmarshal(raw, &artifact); err != nil {
