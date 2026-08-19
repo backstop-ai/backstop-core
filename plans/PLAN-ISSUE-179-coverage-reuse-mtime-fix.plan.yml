@@ -2,13 +2,277 @@
 plan_id: PLAN-ISSUE-179
 spec_id: ISSUE-179
 created: "2026-08-19"
-status: draft
+status: completed
 target_repo: backstop-core
 target_module: github.com/backstop-ai/backstop-core
 test_command: "go test ./cmd/backstop/ -run TestGoToolchainSingleRun -race -count=1 -v && go test ./pkg/pack/engine/ -run TestInstalledGoToolchainPack -race -count=1 -v"
 coverage_threshold: 90
 
 notes: |
+  ══════════════════════════════════════════════════════════════════════════════
+  ★ AS-BUILT — CLOSED 2026-08-19.  status: draft -> completed
+  ══════════════════════════════════════════════════════════════════════════════
+  SHIPPED AS PLANNED: option (b), the flipped comparison, in all three trees.
+  `backstop-ai/go-toolchain` v1.8.0, pack repo commit `bf6e0ba`, tag `v1.8.0`,
+  `tag-integrity` run `32299807760` (completed/success). Core adopted it via
+  `pack update` (1.7.0 -> 1.8.0); `backstop.lock` records `version: 1.8.0`,
+  `git_ref: v1.8.0`, refreshed content_hash `7fbbe158…` and install_date, with
+  `source_type: git` and `source_coordinate: backstop-ai/go-toolchain` PRESERVED.
+
+  CORE ADOPTION COMMIT: `876c242`
+  (`876c242a52beaf17af82a0bd0993456055fa1747`, authored 2026-08-19 17:05:34
+  -0400), "fix(ISSUE-179): flip coverage-reuse mtime comparison direction", on
+  `main`.
+
+  THE ONE-LINE MECHANISM CHANGE, identical in the source pack and the core fixture,
+  applied independently by hand (CLM-012 — never copied or rsynced):
+      - if [ -f "$stamp" ] && [ -f cover.out ] && [ ! cover.out -ot "$stamp" ]; then
+      + if [ -f "$stamp" ] && [ -f cover.out ] && [ ! "$stamp" -ot cover.out ]; then
+
+  CORE FILE SET: cmd/backstop/gotoolchain_single_run_test.go (body rewritten, name
+  kept), cmd/backstop/testdata/go-toolchain/.backstop/packs/backstop/go-toolchain/
+  scripts/coverage-produce.sh, pkg/pack/engine/gotoolchain_installed_pack_
+  singlerun_test.go, backstop.yml, backstop.lock, and this plan + ISSUE-179.
+
+  WAS THIS PLAN COMMITTED BEFORE IMPLEMENTATION? NO — it was untracked
+  (`?? plans/PLAN-ISSUE-179-…`) throughout execution, and was first tracked BY the
+  fix commit `876c242` itself, so `git show <plan commit>` yields no pre-
+  implementation baseline. The AS-BUILT DELTAS section below is therefore the ONLY
+  authority on divergence from the plan as written.
+
+  ─────────────────────────────────────────────────────────────────────────────
+  AS-BUILT DELTAS — where execution diverged from the plan as written
+  ─────────────────────────────────────────────────────────────────────────────
+  D1. THE PLAN'S SYNTHETIC FALSIFICATION ARRANGEMENT WAS UNSOUND, AND WAS REPLACED.
+      TASK-001 B specified reproducing the chronology by writing `cover.out` then
+      touching the stamp directly ("no artificial delay"). MEASURED: that zero-gap
+      arrangement TIES 191 times out of 200 under `ubuntu:24.04` dash, so the
+      BACKWARDS check reports REUSE 95.5% of the time and the defect appears NOT to
+      reproduce. The plan's own instruction ("If CURRENT reports REUSE under dash,
+      the issue's diagnosis is wrong — STOP") would have fired on a sound diagnosis.
+      ROOT CAUSE: the container filesystem's timestamp granularity is ~1ms, while a
+      hand-written write-then-touch has a ~0µs gap. Production's gap spans an entire
+      `go` process teardown (~5ms), which straddles a tick.
+      RESOLUTION: the state is arranged by running the REAL `test-produce.sh` with a
+      `go` shim, so the real teardown gap is present. The reproduction is then
+      DETERMINISTIC: 0/50 reuse pre-fix, 50/50 post-fix. Any future probe of this
+      mechanism must arrange through `test-produce.sh`, never by hand.
+  D2. CLM-009's GREEN-VERDICT RESIDUAL WAS CONFIRMED IN CODE, NOT LEFT DERIVED.
+      The plan flagged it as "derived from the manifest flags, not measured" and
+      required confirmation at implementation time. CONFIRMED and STRONGER than
+      derived: `fileModeTestTargets` returns state (C) `fileModeClaimsNothing` and
+      `runFindingsEngine` RETURNS EARLY BEFORE `runner.RunStdout`
+      (cmd/backstop/pack_gate.go:660-676) — the go-test engine is genuinely not
+      dispatched and `cover.out` is untouched. The skip is reported via
+      `dispatchAdvisory` at `Severity: "warning"` (pack_gate.go:977-986), i.e.
+      NON-BLOCKING. `go-coverage` is `scope_kind: project-wide` and NOT
+      `package_scoped`, so it dispatches regardless. The green-verdict variant is
+      real. Carried forward as a known bounded edge case, NOT fixed.
+  D3. TASK-001 D AND TASK-014 WERE NOT PERFORMED BY THE IMPLEMENTER. The agent-guard
+      refuses implementer writes to `issues/**` and `plans/**`, and the implementer
+      has no Task tool to dispatch issue-author/planner. Both were parked as prepared
+      content and routed by the coordinator. No artifact frontmatter was hand-edited.
+  D4. DOCKER REQUIRED AN ENGINE RESTART, as TASK-001 A anticipated. `docker ps`
+      returned `500 Internal Server Error` on `/_ping` while Docker Desktop's UI
+      reported "running"; `docker desktop restart` recovered it. All Docker
+      verification then ran locally as designed — NO fallback to CI round-trips.
+  D5. TASK-013's CI ACCEPTANCE MEASUREMENT LANDED AS CONFIRMATION, NOT AS A RATIO.
+      The plan treated it as a WAIT on the squash-merge; the merge happened
+      (`876c242`) and the resulting diff-scoped CI run still did not measure the
+      mechanism — that first candidate reading was taken, checked, and REJECTED as
+      a scope-empty early exit. A GENUINE reading was then obtained by a different
+      route: an `--all`-scope run on real `ubuntu-latest` CI, where the coverage
+      engine demonstrably dispatched (267ms, status `fail`, 25 real per-file
+      violations — a shape the zero-path early return cannot produce). That
+      CONFIRMS the mechanism on Linux CI. It does NOT yield CLM-015's ratio: no
+      pre-fix `--all`-scope CI baseline exists to divide against, and the pre-fix
+      numbers on file are diff-scoped, a different scope. So this plan closes with
+      the mechanism confirmed in CI and the RATIO uncomputed — stated plainly
+      rather than papered over with a scope-mismatched multiplier. See THE CI
+      ACCEPTANCE MEASUREMENT below for both the genuine reading and the rejected
+      one.
+
+  ─────────────────────────────────────────────────────────────────────────────
+  THE BEFORE/AFTER DASH VERDICT PAIRS (ubuntu:24.04, /bin/sh -> /usr/bin/dash 0.5.12)
+  ─────────────────────────────────────────────────────────────────────────────
+  End-to-end through the real `test-produce.sh` + real `coverage-produce.sh`:
+
+      SOURCE pack scripts  PRE-FIX (v1.7.0) : REUSED=0/50   RE-RAN=50/50
+      SOURCE pack scripts  POST-FIX (1.8.0) : REUSED=50/50  RE-RAN=0/50
+      CORE fixture scripts PRE-FIX          : REUSED=0/50   RE-RAN=50/50
+      CORE fixture scripts POST-FIX         : REUSED=50/50  RE-RAN=0/50
+
+  darwin 23.6.0 /bin/sh counterfactual, identical scripts, identical experiment:
+      PRE-FIX: REUSED=50/50 — with cover.out STRICTLY OLDER by ~4.18ms
+      (1787165006.911838073 vs 1787165006.916016684). Same true ordering as Linux,
+      opposite verdict. That is the coincidence that shipped the defect.
+
+  CLM-006's stale-stamp state (stamp older than a freshly written profile) is
+  correctly REFUSED post-fix under dash — the producer re-runs the suite. That is
+  the property option (b) buys and option (a) loses, demonstrated rather than argued.
+
+  SHELL MATRIX, darwin, production chronology (CLM-004b re-derived):
+      /bin/sh   CURRENT=REUSE     FLIPPED=REUSE
+      /bin/dash CURRENT=REUSE     FLIPPED=REUSE   ← macOS dash is NOT precise
+      /bin/bash CURRENT=REUSE     FLIPPED=REUSE
+      /bin/zsh  CURRENT=NO-REUSE  FLIPPED=REUSE   ← real local falsifier
+      /bin/ksh  CURRENT=NO-REUSE  FLIPPED=REUSE   ← real local falsifier
+
+  ─────────────────────────────────────────────────────────────────────────────
+  THE CI ACCEPTANCE MEASUREMENT
+  ─────────────────────────────────────────────────────────────────────────────
+  PRE-FIX COUNTERFACTUALS, read from each run's own downloaded `gate-report.json`
+  (both `./bin/backstop gate --base`, i.e. diff-scoped — scopes match, CLM-015):
+      run 32275399064  commit 2f8fa89  main  scope=diff files=25
+          coverage_threshold 602470ms   pack_engines 637023ms
+      run 32279613395  commit 5bbdce3  main  scope=diff files=3
+          coverage_threshold 602322ms   pack_engines 633281ms
+
+  ★ AN INDEPENDENT CONFIRMATION THE PLAN DID NOT ANTICIPATE: an 8x difference in
+  diff size (25 files vs 3 files) moved coverage_threshold by 0.02%. The coverage
+  cost is completely INSENSITIVE to scope, which is exactly what "reuse never fires,
+  the whole suite is always re-run" predicts and what a working reuse could not
+  produce. coverage_threshold also sits at ~95% of pack_engines in both runs — the
+  double-run signature.
+
+  POST-FIX, GENUINE — MEASURED ON REAL LINUX CI 2026-08-19, `--all` SCOPE.
+  `ubuntu-latest`, `./bin/backstop gate --all --json-out`, at post-fix commit
+  `876c242` on `main`:
+      coverage_threshold 267ms      status: fail      25 coverage violations
+  The violations are real per-file statement-coverage shortfalls, e.g.
+      cmd/backstop/checktype_catalog_guard.go    coverage  49/55  below 90%
+      cmd/backstop/gate_substantiveness_e2e.go   coverage 112/133
+      cmd/backstop/golden_equivalence.go         coverage  19/24
+
+  ★ WHY THIS READING IS GENUINE AND THE EARLIER ONE WAS NOT — the distinguishing
+  evidence is the STEP'S OWN OUTPUT SHAPE, not its duration. This run's
+  coverage_threshold returned `fail` carrying 25 per-file violations, which the
+  zero-path early return in `pkg/gate/step_coverage.go` structurally CANNOT
+  produce: that path returns a bare `pass` with a `reason` string and ZERO
+  violations, before any coverage engine is dispatched. A `fail` with real
+  per-file statement counts is therefore positive proof that the engine
+  dispatched, the producer ran, and `coverage-produce.sh`'s reuse condition — the
+  entire subject of this plan — WAS evaluated on Linux. 267ms is the cost of a
+  reused profile under production conditions.
+
+  ★ WHAT THIS READING IS NOT: A RATIO. Its scope is `--all`; both pre-fix
+  counterfactuals above are diff-scoped (`--base`). NO PRE-FIX `--all`-SCOPE CI
+  READING EXISTS — the only pre-fix numbers on file are those two diff-scoped
+  ones, 602470ms and 602322ms. Dividing 602470 by 267 would be a scope-mismatched
+  multiplier and is precisely the first trap CLM-015 names; it is NOT computed
+  here and must not be computed later. This reading stands on its own as DIRECT
+  CONFIRMATION that the mechanism works for real on Linux CI — non-vacuous
+  coverage output at high speed — not as a measured collapse ratio. The nearest
+  same-scope comparator is the local post-fix `--all` sanity check below (2331ms,
+  0.55% of pack_engines); CI at 267ms is faster still, consistent with CI
+  hardware — but that too is post-fix-to-post-fix, not a before/after.
+
+  PROVENANCE, STATED SO IT IS NOT OVERSTATED: this reading came from a throwaway
+  standalone debug workflow authored for this measurement, run on `ubuntu-latest`,
+  then cleaned up — its branch deleted, never merged to `main`. So unlike runs
+  32275399064 and 32279613395 it is not re-derivable from `main`'s workflow
+  history. The numbers recorded above are the durable record of it.
+
+  ★★ A CANDIDATE POST-FIX READING WAS TAKEN, CHECKED, AND REJECTED. DO NOT
+  RE-DERIVE IT FROM THE SAME RUN — THIS PARAGRAPH EXISTS SO THE NEXT READER DOES
+  NOT INDEPENDENTLY MAKE THE MISTAKE THAT WAS ALREADY MADE HERE.
+  The first post-merge CI run is `32302084526`, commit `876c242` on `main`. Its
+  headSha was verified as `876c242a52beaf17af82a0bd0993456055fa1747` against the
+  actual merge commit before it was treated as post-merge (CLM-015's branch-vs-main
+  trap — that check passed; this is not where it went wrong). Its own downloaded
+  `gate-report.json` reports, scope=diff, files=17:
+      coverage_threshold 302ms      pack_engines 634433ms
+  Read naively against the counterfactuals above that is 602470ms -> 302ms, a
+  ~2000x collapse. IT IS NOT A MEASUREMENT OF THIS MECHANISM AND MUST NOT BE
+  QUOTED AS THE ACCEPTANCE RATIO.
+
+  WHY IT IS INVALID — from that run's own report, not inferred. The
+  coverage_threshold step carries a `reason` field:
+      "no in-scope files to measure for coverage — this dimension scored nothing
+       for this diff and is not a test-pass verdict; test outcomes are reported by
+       the test_verification dimension"
+  `pkg/gate/step_coverage.go` returns exactly that `StepResult` when
+  `coveragePathsInScope()` yields ZERO paths, and it returns it BEFORE any coverage
+  engine is dispatched. Commit `876c242`'s diff carries two Go files and BOTH are
+  `_test.go` (`cmd/backstop/gotoolchain_single_run_test.go`,
+  `pkg/pack/engine/gotoolchain_installed_pack_singlerun_test.go`); everything else
+  is config, a fixture shell script, artifacts and agent-memory markdown. NO
+  PRODUCTION `.go` SOURCE FILE CHANGED. So the classifier found nothing to score,
+  the coverage producer never ran, and `coverage-produce.sh`'s reuse condition —
+  the entire subject of this plan — was NEVER EVALUATED on that run. 302ms is the
+  cost of deciding there was nothing to measure, not the cost of a reused profile.
+
+  ★ THIS IS A NAMED, PREVIOUSLY-EXPENSIVE CONFUSION CLASS, NOT A ONE-OFF.
+  `step_coverage.go` tags the very line above the zero-path return with ISSUE-118:
+  the same `pass` was once "reported as the cause of a gate blind spot, on the
+  belief that it skipped a TEST RUN… a bare `pass` with no Reason read as
+  VERIFICATION to a human and to an agent, and that misreading is what cost a day."
+  The Reason string was added precisely so this step could never again be read as a
+  verdict about work it did not do. Here it was read as a PERFORMANCE measurement of
+  work it did not do — the same error in a new costume. Read the `reason` field
+  before quoting a coverage_threshold duration, always.
+
+  WHAT A VALID POST-FIX READING REQUIRES: a diff-scoped CI run whose diff contains
+  at least one PRODUCTION (non-`_test.go`) Go source file, so `coveragePathsInScope`
+  is non-empty, the coverage engine actually dispatches, and the producer's reuse
+  condition is actually evaluated. Compare THAT run's coverage_threshold against the
+  two pre-fix counterfactuals above — both diff-scoped, both with the engine really
+  dispatching at ~602000ms, so the scopes match (CLM-015).
+  ★ HOW IT WAS ACTUALLY SATISFIED: no such diff-scoped run was ever taken. The
+  route used instead was `--all`, which forces a non-empty coverage scope BY
+  CONSTRUCTION rather than by waiting for a diff that happens to carry a
+  production `.go` file. That satisfies the requirement this paragraph exists to
+  express — the engine really dispatches, the reuse condition really gets
+  evaluated — but NOT the scope match. So the mechanism is CONFIRMED on Linux CI
+  while the matched-scope acceptance RATIO stays uncomputed, deliberately. See
+  POST-FIX, GENUINE above.
+
+  ONE MORE FACT ABOUT RUN 32302084526, RECORDED SO IT IS NOT MISREAD EITHER: its
+  overall verdict is `failure`, from a SINGLE pack_engines violation —
+  `TestInstallContractsLocalPack_InstallsWithSuppliedCommand` in
+  `contracts_local_install_test.go`, a contracts-pack `phase3-fixtures` failure. The
+  IDENTICAL violation (same rule, same file) is present in BOTH pre-fix
+  counterfactual runs 32275399064 and 32279613395, so it is pre-existing, belongs to
+  a different lane, and is NOT attributable to this change. Verified by reading all
+  three runs' downloaded reports, not assumed.
+
+  LOCAL SANITY CHECK (NOT the acceptance measurement — different scope, do not quote
+  as the ratio): `./bin/backstop gate --all` post-fix measured coverage_threshold
+  2331ms against pack_engines 421412ms — 0.55%, i.e. the collapse the mechanism is
+  supposed to deliver, versus ~95% pre-fix on CI. Together with the deterministic
+  0/50 -> 50/50 dash result above AND the genuine `--all`-scope Linux CI reading
+  (267ms, `fail`, 25 real violations), the MECHANISM is demonstrated on both
+  platforms and in CI itself; what remains uncomputed is only the matched-scope
+  before/after RATIO, for want of a pre-fix `--all`-scope CI baseline.
+
+  ─────────────────────────────────────────────────────────────────────────────
+  VERIFICATION STATE AT CLOSE
+  ─────────────────────────────────────────────────────────────────────────────
+  · All three mandated tests present and passing:
+      TestGoToolchainSingleRun_CoverageProducerReusesAFreshProfile (3 legs)
+      TestGoToolchainSingleRun_CoverageProducerReuseIsShellPrecisionIndependent
+      TestInstalledGoToolchainPack_CarriesSingleRunConvention (3 legs, none skipped)
+  · `make test`: ONE failure — TestPackAuthoringLoop_EndToEnd, the known darwin-only
+    pre-existing defect (ISSUE-147 open; ISSUE-162 replaced-by it). It skips on
+    Linux, so it is not a CI blocker, and it references nothing this plan changed.
+  · `./bin/backstop gate --all`: 120 blocking violations, ZERO attributable to this
+    change. The two findings nearest this work (contract_signature on the fixture's
+    pack.yml and coverage-to-records.sh) are on files this plan never edited AND are
+    already recorded in `.backstop/baseline.json`.
+  · `pack check` on the source repo AND on a fresh clone of tag v1.8.0: `status:
+    pass`, exit 0, exactly the TWO inherited `phase2-coherence/exempt-scope-decision`
+    WARNs (go-coverage, golangci) — re-measured, not assumed (CLM-014). The pack
+    declares no `fixtures:` block, so `pack test` is not a falsifier here.
+  · CLM-009 residual carried forward as a known bounded edge case (see D2).
+  · CLM-015 delivered as CONFIRMATION, not as a ratio. The mechanism IS confirmed
+    on real Linux CI: `--all` scope, `ubuntu-latest`, commit `876c242`,
+    coverage_threshold 267ms with status `fail` and 25 real per-file violations —
+    non-vacuous by the step's own output shape. The matched-scope before/after
+    RATIO remains uncomputed, because no pre-fix `--all`-scope CI baseline exists
+    and the pre-fix numbers on file are diff-scoped. That gap is the one open
+    thread at close, and it is a missing comparator, not a missing mechanism. See
+    D5 and THE CI ACCEPTANCE MEASUREMENT above.
+
   ══════════════════════════════════════════════════════════════════════════════
   WHAT THIS PLAN FIXES, IN ONE PARAGRAPH
   ══════════════════════════════════════════════════════════════════════════════
