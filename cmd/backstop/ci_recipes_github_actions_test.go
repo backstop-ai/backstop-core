@@ -75,11 +75,20 @@ func TestCIRecipes_GitHubActions_PackInstallPrecedesGate(t *testing.T) {
 // TestCIRecipes_GitHubActions_GateVerdictNotSwallowed proves CLM-028 (absence).
 //
 // The denylist is CLM-028's, term for term: the universal three plus
-// `continue-on-error`. `|| echo` is DELIBERATELY not in it — backstop-core's own
-// ci.yml ends a DIAGNOSTIC `gate --json` capture in `|| echo` precisely so the
-// capture cannot gate, and gates for real in the very next step. Widening this
-// list is a spec amendment through the spec-author agent, touching CLM-028..031
-// and the four rule files together, never a unilateral edit here.
+// `continue-on-error`. `|| echo` is DELIBERATELY not in it, because it marks a
+// step that REPORTS rather than gates.
+//
+// The example this comment used to cite — backstop-core's own diagnostic
+// `gate --json` capture, which ended in `|| echo` so it could not gate and left
+// the blocking run to the very next step — retired under ISSUE-099, when ci.yml
+// collapsed to ONE `--json-out` invocation. The EXEMPTION's reasoning is
+// unaffected: `|| echo` is still live in that same ci.yml, on the
+// `Confirm the self-healing baseline pull landed a file` step's failure branch
+// (`./bin/backstop baseline pull || echo "bare baseline pull exited $?"`), for
+// exactly the same reporting-not-gating purpose. Only the cited example moved.
+//
+// Widening this list is a spec amendment through the spec-author agent, touching
+// CLM-028..031 and the four rule files together, never a unilateral edit here.
 func TestCIRecipes_GitHubActions_GateVerdictNotSwallowed(t *testing.T) {
 	_, _, rendered := ciApplyProbe(t, ciRecipeGitHubActions)
 	if problems := ciSwallowFormsFound(rendered, []string{"|| true", "|| exit 0", "continue-on-error"}); len(problems) != 0 {

@@ -709,13 +709,18 @@ func stepIndex(job workflowJob, needle string) int {
 
 // stepIndexes returns EVERY position whose decommented script contains needle.
 //
-// It exists beside stepIndex rather than replacing it, and the distinction is
-// load-bearing: ci.yml invokes `backstop gate` TWICE — the diagnostic --json
-// capture and the blocking run — so stepIndex's first-match answer is the
-// DIAGNOSTIC step, not the blocking one. An ordering fence anchored on the first
-// match is escapable by inserting a step between the two. Six existing call
-// sites across three tests depend on stepIndex's first-match contract, so it is
-// left alone.
+// It exists beside stepIndex rather than replacing it, and what it is FOR changed
+// under ISSUE-099. ci.yml used to invoke `backstop gate` TWICE — a diagnostic
+// --json capture and the blocking run — so stepIndex's first-match answer named
+// the wrong step and an ordering fence anchored on it was escapable by inserting a
+// step between the two. `--json-out` collapsed those into ONE invocation, so the
+// first match IS the blocking step today.
+//
+// stepIndexes stays, and is now MORE load-bearing rather than less: the exact-count
+// assertions it enables (`len(gateSteps) != 1`) are the mechanism that catches a
+// re-introduced second invocation, which is the regression ISSUE-099 exists to
+// prevent. Six existing call sites across three tests depend on stepIndex's
+// first-match contract, so it is left alone.
 func stepIndexes(job workflowJob, needle string) []int {
 	found := []int{}
 	for i, step := range job.Steps {
@@ -774,6 +779,102 @@ func TestCIWorkflow_BlockingJobRunsBackstopGate(t *testing.T) {
 		t.Errorf("%s: the gate is invoked without `--base`. A CI checkout is pristine, so bare diff mode "+
 			"resolves merge-base HEAD origin/main to HEAD on a push and finds nothing to check — the vacuous "+
 			"green this job exists to prevent", ciWorkflowFile)
+	}
+}
+
+// TestCIWorkflow_GateRunsOnceAndEmitsTheJSONReportInTheBlockingStep is ISSUE-099's
+// shipped shape: ONE gate invocation, both surfaces. (CLM-007, CLM-009)
+//
+// ci.yml used to run the entire kill chain TWICE per push — a diagnostic
+// `gate --json > gate-report.json || echo ...` capture followed by the blocking
+// run — because the CLI rendered EITHER the human table OR the JSON document to
+// stdout and nothing wrote JSON to a file. On run 32151610956 that duplicated
+// ~10.5min of pack_engines and ~10.2min of coverage_threshold. `--json-out` writes
+// the envelope to a file while the table still renders to the log, so one step now
+// does both.
+//
+// The exact-count leg is the point: a second invocation is precisely the regression
+// this lane exists to prevent, and it must fail LOUDLY rather than silently
+// re-anchor an ordering fence elsewhere in this file.
+func TestCIWorkflow_GateRunsOnceAndEmitsTheJSONReportInTheBlockingStep(t *testing.T) {
+	job := ciBlockingJob(t)
+
+	gateSteps := stepIndexes(job, selfGateInvocation)
+	if len(gateSteps) != 1 {
+		t.Fatalf("%s: %d gate-job steps invoke %q (%v), want EXACTLY 1. Since ISSUE-099 the blocking step emits "+
+			"the JSON report itself with --json-out; a second invocation re-runs the whole kill chain, which is "+
+			"the ~20-minutes-per-push cost this lane removed",
+			ciWorkflowFile, len(gateSteps), selfGateInvocation, stepNames(job, gateSteps))
+	}
+	gate := job.Steps[gateSteps[0]]
+	script := stepScript(gate)
+
+	if !strings.Contains(script, "--json-out gate-report.json") {
+		t.Errorf("%s: the gate step %q does not carry `--json-out gate-report.json`. Without it the JSON envelope "+
+			"is never written and the `Upload the gate JSON report` step below publishes nothing:\n%s",
+			ciWorkflowFile, gate.Name, script)
+	}
+
+	// THE RETIRED CAPTURE'S TWO SIGNATURES. A `>` redirect of the gate into a file
+	// or an `|| echo` swallow would mean the diagnostic capture came back — either
+	// as a second step or folded into this one, where the `|| echo` would also stop
+	// the job blocking on the verdict.
+	if strings.Contains(script, ">") {
+		t.Errorf("%s: the gate step %q redirects with `>`. The envelope is written by --json-out, not by shell "+
+			"redirection — a redirect captures stdout and would take the human table with it:\n%s",
+			ciWorkflowFile, gate.Name, script)
+	}
+	if strings.Contains(script, "|| echo") {
+		t.Errorf("%s: the gate step %q ends in `|| echo`. THIS is the blocking invocation and its exit is the "+
+			"job's; `|| echo` reports instead of gating:\n%s", ciWorkflowFile, gate.Name, script)
+	}
+
+	// THE BLOCKING CONTRACT, restated at the step this claim owns rather than left
+	// to another test's map iteration.
+	if gate.If != "" {
+		t.Errorf("%s: the gate step %q declares if: %q. A conditional blocking step is a job that can pass "+
+			"without gating", ciWorkflowFile, gate.Name, gate.If)
+	}
+	if strings.Contains(script, "|| true") {
+		t.Errorf("%s: the gate step %q swallows its exit with `|| true`:\n%s", ciWorkflowFile, gate.Name, script)
+	}
+
+	// CLM-009: THE FLAG NAME. `--json-file` contains `--file` as a substring and
+	// would trip TestCIWorkflow_BlockingJobNeverUsesAllOrFileScope, whose ban is a
+	// standing founder ruling — the fix for that failure would be to weaken a
+	// shipped, correct test. `--json-out` does not collide.
+	if strings.Contains(script, "--file") {
+		t.Errorf("%s: the gate step %q carries `--file` in its decommented script. If this is a `--json-file` "+
+			"spelling of the report flag, RENAME THE FLAG to --json-out: "+
+			"TestCIWorkflow_BlockingJobNeverUsesAllOrFileScope substring-matches `--file` over this step and its "+
+			"ban is not negotiable here:\n%s", ciWorkflowFile, gate.Name, script)
+	}
+
+	// The retirement must not quietly drop the artifact it exists to preserve.
+	uploadFound := false
+	for _, step := range job.Steps {
+		if !strings.Contains(step.Uses, "upload-artifact") {
+			continue
+		}
+		path, _ := step.With["path"].(string)
+		if !strings.Contains(path, "gate-report.json") {
+			continue
+		}
+		uploadFound = true
+		if !strings.Contains(path, "cover.out") {
+			t.Errorf("%s: the upload step %q publishes gate-report.json but not cover.out. The gate JSON carries "+
+				"per-FILE coverage totals only; the raw profile is the sole surface that can say WHICH FUNCTIONS "+
+				"carry zero counters:\npath: %s", ciWorkflowFile, step.Name, path)
+		}
+		if !strings.Contains(step.If, "always()") {
+			t.Errorf("%s: the upload step %q has if: %q, which must include always(). The run worth diagnosing is "+
+				"the one that FAILED, and --json-out writes the file BEFORE the process decides its exit "+
+				"precisely so that upload has something to publish", ciWorkflowFile, step.Name, step.If)
+		}
+	}
+	if !uploadFound {
+		t.Errorf("%s: no step uploads gate-report.json as an artifact. Collapsing the two gate invocations must "+
+			"not drop the report the surviving one now writes", ciWorkflowFile)
 	}
 }
 
@@ -1125,7 +1226,7 @@ func TestCIWorkflow_NoProbeWorkflowRemains(t *testing.T) {
 // so anything a step writes into the workspace lands in the set of files the gate
 // then blocks on. This is not hypothetical: run 30386673582 reported 11 in-scope
 // files, of which ast-grep.zip (the engine-tools download) and gate-report.json (the
-// diagnostic capture) were STEP OUTPUT rather than source. cover.out was already
+// gate's own --json-out write) were STEP OUTPUT rather than source. cover.out was already
 // gitignored, which is exactly why it never appeared — and is the precedent this
 // test generalises.
 //
@@ -1153,7 +1254,7 @@ func TestCIWorkflow_LeavesNoUngitignoredDroppings(t *testing.T) {
 	// file CI produces, so the check below matches the real, current pattern string.
 	for artifact, producedBy := range map[string]string{
 		"ast-grep.zip":     "the provisioned-engine-tools download",
-		"gate-report.json": "the diagnostic --json capture step",
+		"gate-report.json": "the blocking gate step's own --json-out write",
 		"/cover.out":       "the go-toolchain pack's coverage producer",
 	} {
 		if !patterns[artifact] {
@@ -1222,11 +1323,15 @@ const committedBaselinePath = ".backstop/baseline.json"
 // stepShellsGitHubCLI reports whether a gate-job step can shell `gh`, and so
 // needs the token bound in its OWN env:.
 //
-// The set is DERIVED rather than listed by index, because there are three
-// members and they are easy to half-wire: `backstop gate` is invoked TWICE (the
-// diagnostic --json capture and the blocking run, both of which run
-// resolveBaselineCache), and the confirmation step's failure branch runs a bare
-// `baseline pull`, which is useless unauthenticated.
+// The set is DERIVED rather than listed by index. It has TWO members since
+// ISSUE-099 collapsed ci.yml to a single gate invocation: the one `backstop gate`
+// step (which runs resolveBaselineCache), and the confirmation step's failure
+// branch, which runs a bare `baseline pull` that is useless unauthenticated.
+//
+// The derived-not-listed choice is MORE load-bearing at two members than it was at
+// three, not less: a two-member set is small enough to look listable by index, and
+// listing it by index is exactly how it silently half-wires the next time a step
+// moves.
 func stepShellsGitHubCLI(step workflowStep) bool {
 	script := stepScript(step)
 	return strings.Contains(script, selfGateInvocation) || strings.Contains(script, baselinePullInvocation)
@@ -1436,10 +1541,11 @@ func TestCIWorkflow_GateJobProvesTheBaselineLandedAfterTheGate(t *testing.T) {
 	job := ciBlockingJob(t)
 
 	gateSteps := stepIndexes(job, selfGateInvocation)
-	if len(gateSteps) != 2 {
-		t.Fatalf("%s: %d gate-job steps invoke %q (%v), want exactly 2 — the diagnostic --json capture and the "+
-			"blocking run. The ordering leg below anchors on the LAST of them, so a third would silently "+
-			"re-anchor it", ciWorkflowFile, len(gateSteps), selfGateInvocation, stepNames(job, gateSteps))
+	if len(gateSteps) != 1 {
+		t.Fatalf("%s: %d gate-job steps invoke %q (%v), want exactly 1 — the blocking run, which now emits the "+
+			"JSON report itself via --json-out (ISSUE-099). The ordering leg below anchors on the LAST of them, "+
+			"so a second would silently re-anchor it",
+			ciWorkflowFile, len(gateSteps), selfGateInvocation, stepNames(job, gateSteps))
 	}
 	lastGate := lastStepIndex(job, selfGateInvocation)
 
@@ -1511,16 +1617,17 @@ func TestCIWorkflow_TheOnlyBaselinePullFollowsEveryGateInvocation(t *testing.T) 
 	if len(pulls) != 1 {
 		t.Fatalf("%s: %d gate-job steps invoke %q (%v), want EXACTLY 1 — the post-gate confirmation step's "+
 			"failure branch. A second `baseline pull` ANYWHERE in this job would create the very file the "+
-			"confirmation step checks for, making the proof self-fulfilling. Uniqueness rather than ordering is "+
-			"the primary fence because an ordering fence is escapable: ci.yml invokes the gate twice, so a forging "+
-			"pull inserted BETWEEN the two invocations still sits after the first anchor",
+			"confirmation step checks for, making the proof self-fulfilling. Uniqueness rather than ordering stays "+
+			"the primary fence because it holds regardless of how many gate steps there are: a forging pull "+
+			"ANYWHERE in this job creates that file, whereas an ordering fence only constrains where it sits",
 			ciWorkflowFile, len(pulls), baselinePullInvocation, stepNames(job, pulls))
 	}
 
 	gateSteps := stepIndexes(job, selfGateInvocation)
-	if len(gateSteps) != 2 {
-		t.Fatalf("%s: %d gate-job steps invoke %q (%v), want exactly 2 — a third would re-anchor the ordering leg "+
-			"below", ciWorkflowFile, len(gateSteps), selfGateInvocation, stepNames(job, gateSteps))
+	if len(gateSteps) != 1 {
+		t.Fatalf("%s: %d gate-job steps invoke %q (%v), want exactly 1 since ISSUE-099 collapsed the diagnostic "+
+			"capture into the blocking run — a second would re-anchor the ordering leg below",
+			ciWorkflowFile, len(gateSteps), selfGateInvocation, stepNames(job, gateSteps))
 	}
 	lastGate := lastStepIndex(job, selfGateInvocation)
 

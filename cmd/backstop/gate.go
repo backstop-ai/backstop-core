@@ -38,6 +38,7 @@ func newGateCommand(jsonFlag *bool) *cobra.Command {
 	var allFlag bool
 	var fileFlags []string
 	var baseFlag string
+	var jsonOutFlag string
 	cmd := &cobra.Command{
 		Use:   "gate [--all | --file FILE [--file FILE]... [FILE...] | --base REV]",
 		Short: "Run full verification gate",
@@ -66,6 +67,15 @@ it's green, it ships.`,
 			"For CI: a fresh checkout has a clean working tree, so the default diff scope "+
 			"resolves to nothing and checks zero files. Pass the pull-request base sha or the "+
 			"push before-sha. An unresolvable REV is a config error, never a silent full sweep.")
+	// GATE-LOCAL, deliberately NOT persistent. `--json` is a ROOT persistent flag
+	// (root.go) because every command can render its result as JSON; a gate/v1
+	// ENVELOPE is emitted by this command alone, so a persistent --json-out would
+	// hand `pack list`, `doctor` and everything else a dead flag.
+	cmd.Flags().StringVar(&jsonOutFlag, "json-out", "",
+		"also write the gate/v1 JSON envelope to FILE. Independent of --json and combinable with it: "+
+			"--json decides what STDOUT receives (the human table by default, the JSON document under --json), "+
+			"while --json-out only ADDS a file destination and never changes stdout. For CI, which needs the "+
+			"table in the log AND the machine-readable report on disk from ONE run.")
 	return cmd
 }
 
@@ -127,7 +137,8 @@ func runGate(cmd *cobra.Command, args []string) error {
 	allFlag, allErr := cmd.Flags().GetBool("all")
 	fileValues, fileErr := cmd.Flags().GetStringArray("file")
 	baseValue, baseErr := cmd.Flags().GetString("base")
-	if flagErr := firstNonNil(allErr, fileErr, baseErr); flagErr != nil {
+	jsonOutValue, jsonOutErr := cmd.Flags().GetString("json-out")
+	if flagErr := firstNonNil(allErr, fileErr, baseErr, jsonOutErr); flagErr != nil {
 		return &ExitCodeError{Code: ExitConfigError, Message: fmt.Sprintf("config: %s", flagErr)}
 	}
 	// READ THE EXACT SLICE, NOT pflag's CSV ROUND TRIP. GetStringArray renders the
@@ -155,6 +166,48 @@ func runGate(cmd *cobra.Command, args []string) error {
 			}
 		}
 	}
+	// --json-out's DESTINATION PREFLIGHT, and it is the flag's ONLY interaction with
+	// anything else here: it is mutually exclusive with NOTHING. --json selects what
+	// STDOUT gets; --json-out adds a file. The two combine, and `--json --json-out F`
+	// deliberately emits the same document to both.
+	//
+	// WHY EARLY, before ComputeGateScopeWithBase and before the kill chain runs: an
+	// operator's typo must cost seconds, not the ~21 minutes the chain costs on this
+	// repo's CI (measured on run 32151610956 — pack_engines 629797ms,
+	// coverage_threshold 612148ms). Both refusals below are CONFIG-class, exit 2,
+	// like every other bad-input refusal in this function; exit 1 means the gate
+	// found violations and a wrong destination is never that.
+	//
+	// WHY ONLY THE PARENT DIRECTORY IS CHECKED, and never the target itself: opening,
+	// creating or truncating the file here would leave a zero-byte artifact behind on
+	// every run that dies three steps later — a worse failure than the one it
+	// prevents — and it would destroy the deterministic late-failure case (a target
+	// path that IS a directory) the emit-time error path is proven with.
+	if cmd.Flags().Changed("json-out") && strings.TrimSpace(jsonOutValue) == "" {
+		return &ExitCodeError{
+			Code:    ExitConfigError,
+			Message: "config: --json-out was given an empty value; pass a file path or omit the flag",
+		}
+	}
+	if jsonOutValue != "" {
+		parent := filepath.Dir(jsonOutValue)
+		info, statErr := os.Stat(parent)
+		if statErr != nil {
+			return &ExitCodeError{
+				Code: ExitConfigError,
+				Message: fmt.Sprintf("config: --json-out %s: the directory %s does not exist; create it or pass a path "+
+					"under an existing directory (the gate never creates one for you)", jsonOutValue, parent),
+			}
+		}
+		if !info.IsDir() {
+			return &ExitCodeError{
+				Code: ExitConfigError,
+				Message: fmt.Sprintf("config: --json-out %s: %s is not a directory, so nothing can be written beneath it",
+					jsonOutValue, parent),
+			}
+		}
+	}
+
 	// The three scope selectors are mutually exclusive. This EXTENDS the existing
 	// check rather than adding a parallel one, so there is a single place that
 	// decides which scope a run uses. Only the two guards that reference --file
@@ -263,16 +316,25 @@ func runGate(cmd *cobra.Command, args []string) error {
 		result.SchemaIdentities = schemaIdentityList(cohort)
 	}
 
-	// Format output based on --json flag.
+	// Format output based on --json flag, and on --json-out's file destination.
 	jsonFlag, jsonErr := cmd.Flags().GetBool("json")
 	if jsonErr != nil {
 		return fmt.Errorf("reading --json flag: %w", jsonErr)
 	}
-	if jsonFlag {
-		data, err := gate.FormatJSON(result)
+	// FORMAT ONCE, DELIVER TO EVERY DESTINATION THAT WANTS IT. Both surfaces are
+	// renderings of the ONE GateResult this run produced, so `--json --json-out F`
+	// makes stdout and F byte-identical BY CONSTRUCTION rather than by two
+	// formatter calls happening to agree. A second FormatJSON call would leave that
+	// identity resting on determinism.
+	var data []byte
+	if jsonFlag || jsonOutValue != "" {
+		formatted, err := gate.FormatJSON(result)
 		if err != nil {
 			return fmt.Errorf("formatting gate JSON output: %w", err)
 		}
+		data = formatted
+	}
+	if jsonFlag {
 		cmd.Println(string(data))
 	} else {
 		noColor := gate.NoColorFromEnv()
@@ -288,6 +350,32 @@ func runGate(cmd *cobra.Command, args []string) error {
 		// line would otherwise vanish silently. Purely informational, never a verdict.
 		if notice := terminalExclusionNotice(artifactRoot.Dir(artifact.KindSpec)); notice != "" {
 			cmd.Println(notice)
+		}
+	}
+
+	// THE FILE DESTINATION, written AFTER the stdout surface above and BEFORE the
+	// verdict return below. Both halves of that sandwich are load-bearing and
+	// invisible:
+	//
+	//   * AFTER stdout, because stdout is the PRIMARY contract. A secondary
+	//     destination that cannot be written must never suppress the run's verdict —
+	//     the table stays readable and the exit-2 diagnostic follows it on stderr.
+	//   * BEFORE the `if exitCode != 0` return, because a FAILING run is the one
+	//     worth diagnosing. The envelope therefore exists on disk regardless of the
+	//     verdict, which is what lets ci.yml's `always()` artifact upload publish a
+	//     report for exactly those runs — and is the whole reason its two gate
+	//     invocations could collapse into one (ISSUE-099). Asserted by
+	//     TestGateJSONOut_WritesTheFileEvenWhenTheGateVerdictFails.
+	//
+	// THE TRAILING NEWLINE IS PART OF THE CONTRACT, not tidiness: cmd.Println adds
+	// one under --json, so the file must add the same one or the two surfaces stop
+	// being byte-identical. Do not "tidy" it away.
+	if jsonOutValue != "" {
+		if writeErr := os.WriteFile(jsonOutValue, append(data, '\n'), 0o644); writeErr != nil {
+			return &ExitCodeError{
+				Code:    ExitConfigError,
+				Message: fmt.Sprintf("config: writing --json-out %s: %v", jsonOutValue, writeErr),
+			}
 		}
 	}
 

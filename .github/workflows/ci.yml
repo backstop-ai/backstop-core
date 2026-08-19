@@ -141,36 +141,6 @@ jobs:
           echo "Diff base: ${BASE}"
           echo "BASE=${BASE}" >> "$GITHUB_ENV"
 
-      # TWO STEPS, ONE GATE — and the split is structural on purpose. The CLI
-      # renders EITHER the human table OR --json to stdout, never both, and no flag
-      # writes JSON to a file (ISSUE-099 tracks closing that gap, which would
-      # collapse these back into one step). Both surfaces are load-bearing: the
-      # table is what a person reads in this log, while the JSON carries what no
-      # other surface reports - per-file coverage detail, and the in-scope path LIST
-      # behind the "in-scope files: N" count.
-      #
-      # Splitting them into separate STEPS rather than one script is the lesson of
-      # the retired linux-sandbox probe workflow, every step of which ended in
-      # `exit 0`: in-script exit handling makes a job's shape misleading to someone
-      # skimming it. As two steps, which one gates is visible from the step list
-      # alone, with no comment required to explain it.
-      - name: Capture the gate report as JSON (diagnostic only - does not gate)
-        # Runs BEFORE the blocking step, deliberately: a failing gate aborts the job,
-        # so a capture placed after it would be skipped on exactly the runs worth
-        # diagnosing. The `|| echo` records the exit instead of acting on it - this
-        # step reports, the next step decides.
-        #
-        # THE TOKEN IS BOUND AT THE STEP, NOT AT THE JOB, and the difference is not
-        # cosmetic: a job-level env: would hand it to every step in this job,
-        # including the two remote installers that pipe `curl | sh` and run
-        # `pipx install` and the one that clones eight pack repositories. None of
-        # those needs it. This step does, because `backstop gate` runs the
-        # self-healing baseline pull, whose ensureGitHubAuth shells `gh auth
-        # status` before anything reaches the GitHub API (ISSUE-176).
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: ./bin/backstop gate --base "$BASE" --json > gate-report.json || echo "diagnostic capture exited $? - the blocking run is the next step"
-
       - name: Run the gate
         # The id is what the confirmation step below addresses this step by
         # (steps.run_gate.conclusion). Adding an `id:` is safe where an `if:`
@@ -190,13 +160,39 @@ jobs:
         # ban either; this flag likewise stays out of the blocking job pending a
         # founder decision).
         #
-        # THIS is the blocking invocation. Its exit is the job's, unchanged.
+        # THIS is the blocking invocation. Its exit is the job's, unchanged. No
+        # `|| echo`, no `if:`.
         #
-        # Same step-level token binding as the diagnostic capture above, and for
-        # the same reason: this invocation also runs resolveBaselineCache.
+        # ONE INVOCATION, BOTH SURFACES (ISSUE-099). `--json-out` writes the gate/v1
+        # JSON envelope to a file while the human table still renders to THIS log,
+        # so one step now does what two used to. Both surfaces stay load-bearing:
+        # the table is what a person reads here, and the JSON carries what no other
+        # surface reports - per-file coverage detail, and the in-scope path LIST
+        # behind the "in-scope files: N" count.
+        #
+        # WHY ONE STEP IS NOW SAFE. This job used to run the ENTIRE kill chain
+        # TWICE per push - a diagnostic `gate --json > gate-report.json` capture
+        # placed BEFORE the blocking run, because a failing gate aborts the job and
+        # a capture placed after it would be skipped on exactly the runs worth
+        # diagnosing. On run 32151610956 that duplication cost ~10.5min of
+        # pack_engines and ~10.2min of coverage_threshold: roughly 20+ minutes per
+        # run, spent computing the same answer twice. The file is now written
+        # BEFORE the process decides its exit, so a FAILING gate still leaves a
+        # complete report for the `always()` upload below - which is the property
+        # that retired the split, and it is asserted by name in
+        # TestGateJSONOut_WritesTheFileEvenWhenTheGateVerdictFails.
+        #
+        # THE TOKEN IS BOUND AT THE STEP, NOT AT THE JOB, and the difference is not
+        # cosmetic: a job-level env: would hand it to every step in this job,
+        # including the two remote installers that pipe `curl | sh` and run
+        # `pipx install` and the one that clones eight pack repositories. None of
+        # those needs it. This step - the job's only gate invocation - does,
+        # because `backstop gate` runs the self-healing baseline pull, whose
+        # ensureGitHubAuth shells `gh auth status` before anything reaches the
+        # GitHub API (ISSUE-176).
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: ./bin/backstop gate --base "$BASE"
+        run: ./bin/backstop gate --base "$BASE" --json-out gate-report.json
 
       - name: Confirm the self-healing baseline pull landed a file
         # WHY THIS IS NOT A `baseline pull` STEP: the pull already runs INSIDE the

@@ -45,10 +45,16 @@ prototype/
 # CI RUN DETRITUS — files the workflow's own steps leave in the workspace.
 #
 # The gate's diff scope INCLUDES UNTRACKED FILES, and several steps run before it:
-# the engine-tools step downloads ast-grep.zip and the diagnostic capture step writes
-# gate-report.json. Measured on run 30386673582, which reported 11 in-scope files of
-# which TWO were these — CI was gating its own build output. cover.out was already
-# ignored, which is why it never appeared and is the precedent this follows.
+# the engine-tools step downloads ast-grep.zip, and the gate step's own --json-out
+# writes gate-report.json (ISSUE-099 collapsed the separate diagnostic capture into
+# the blocking run; the report is still produced, by the gate itself). Measured on
+# run 30386673582, which reported 11 in-scope files of which TWO were these — CI was
+# gating its own build output. cover.out was already ignored, which is why it never
+# appeared and is the precedent this follows.
+#
+# The report is written AFTER this run's scope is already computed, so it cannot
+# contaminate its own run — but an un-ignored one would land in the NEXT run's
+# untracked set, and TestCIWorkflow_LeavesNoUngitignoredDroppings fails either way.
 ast-grep.zip
 gate-report.json
 

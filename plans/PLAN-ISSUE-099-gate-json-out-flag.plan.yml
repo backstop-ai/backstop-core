@@ -1,0 +1,1142 @@
+---
+plan_id: PLAN-ISSUE-099
+spec_id: ISSUE-099
+created: "2026-08-18"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./cmd/backstop/ -run \"TestGateJSONOut\" -race -count=1 && go test . -run \"TestCIWorkflow\" -count=1"
+coverage_threshold: 80
+
+notes: |
+  ISSUE-099 — `backstop gate` renders exactly ONE output surface per invocation, so
+  CI runs the entire kill chain TWICE per push to get both. This lane adds
+  `--json-out FILE`, which writes the gate/v1 JSON envelope to a file while the human
+  table still renders to stdout, and then RETIRES the duplicate CI invocation.
+
+  This is a FEATURE ADDITION, not a subtle defect fix. The RED is direct and blunt
+  (the flag does not exist), and the plan says so rather than dressing it up.
+
+  ── PRE-FIX STATE, RE-DERIVED 2026-08-18 (not transcribed from the issue) ─────
+  Every line number in ISSUE-099's 2026-08-18 update was re-measured against the
+  working tree tonight. Two of its citations are STALE and one is WRONG — locate
+  every edit site BY NAME, never by a number quoted anywhere (sharp edge 1):
+
+    * `--json` is NOT registered in `cmd/backstop/gate.go:33`. It is a ROOT-LEVEL
+      PERSISTENT flag: `rootCmd.PersistentFlags().BoolVar(&jsonFlag, "json", false,
+      "Output results as structured JSON")` in `cmd/backstop/root.go` (inside
+      `NewRootCommand`). `gate.go:33` is the `StepResult` type re-export.
+      `newGateCommand(jsonFlag *bool)` takes the pointer but never reads it; runGate
+      re-reads the flag through `cmd.Flags().GetBool("json")`.
+      THE NEW FLAG IS GATE-LOCAL, registered in `newGateCommand` beside `--all`,
+      `--file` and `--base` — not persistent. Nothing else in the tree emits a gate
+      envelope, and a persistent `--json-out` would appear on `pack list`, `doctor`
+      and every other command as a dead flag.
+    * The verdict/formatter separation the issue asserts IS real, re-read tonight in
+      `runGate`: `result, exitCode := g.Run(context.Background())` runs BEFORE any
+      `--json` branch exists in the function; the `if jsonFlag { gate.FormatJSON } else
+      { gate.FormatHuman + terminalExclusionNotice }` block is two alternate FORMATTERS
+      over one already-decided result and touches `exitCode` in neither arm; the
+      `if exitCode != 0 { return &ExitCodeError{...} }` return is unconditional and
+      sits AFTER both arms. One `g.Run` is therefore sufficient for both surfaces,
+      and a file write placed beside the formatter lands BEFORE the process decides
+      to exit non-zero. This is the whole mechanism (CLM-004).
+    * MEASURED RED, tonight, with the built binary:
+        ./bin/backstop gate --json-out /tmp/x.json  →  "Error: unknown flag: --json-out", exit 2
+      and `./bin/backstop gate --help` lists exactly `--all`, `--base`, `--file`,
+      `-h`, plus the global `--json`. No file-emitting path exists.
+
+  ── EXISTENCE-IN-WORLD CHECK (2026-08-18) ────────────────────────────────────
+  Searched `plans/`, `specs/`, `issues/` (committed AND working tree) for
+  `json-out`, `ISSUE-099`, `cmd/backstop/gate.go`, `.github/workflows/ci.yml` and —
+  RE-RUN after DIR-024 entered TASK-008's scope in review round 3, because the
+  original sweep predated that and would otherwise have gone unchecked against the
+  one file this lane added last —
+  `directives/DIR-024-gate-engine-quality.directive.md`.
+    * NO artifact owns the `--json-out` surface. ISSUE-099 is the only issue on it;
+      ISSUE-171 was scaffolded for the same defect tonight and correctly abandoned
+      in favour of this one (recorded in ISSUE-099's own update section).
+    * Plans naming `.github/workflows/ci.yml` in a task `files:` list: only
+      `PLAN-SPEC-019` (status `draft`, created 2026-05-25, for a spec that is already
+      `status: implemented`) — a stale artifact, not a live lane, and it owns
+      baseline generation, not the gate job's step shape. Every OTHER plan that
+      mentions ci.yml (PLAN-ISSUE-020/091/093/098/101/129/142/157/163/165/168/176,
+      PLAN-SPEC-067) mentions it in PROSE only and is `completed` or, for the three
+      sandbox lanes (163/165/168), explicitly fences ci.yml OUT.
+    * PLAN-ISSUE-176 (`completed`) is the closest neighbour: it built the two
+      workflow tests this lane must UPDATE. It does not own the JSON-emission
+      surface. See CLM-008.
+    * ★ `directives/DIR-024-gate-engine-quality.directive.md` IS SHARED WITH A LIVE
+      LANE, and it is the only file in this plan that is. `PLAN-ISSUE-168`
+      (`status: draft`, in-flight) declares it in the `files:` of its own final task,
+      TASK-008. The two corrections target DIFFERENT numbered entries — 168 corrects
+      the `/dev/null`-vs-network-failure premise, this lane corrects entry 7
+      (ISSUE-099's own) — so they COMPOSE rather than conflict, and neither lane is
+      blocked on the other. The hazard is not the content, it is two agents writing
+      one artifact from stale reads. TASK-008 carries the coordinate-don't-overwrite
+      rule; the coordination point is the shared directive-owning agent both lanes
+      route through, not the file. WORKING-TREE STATE AT THIS PLAN'S AUTHORING:
+      `git status directives/` CLEAN — the backlog-pm edit PLAN-ISSUE-168 recorded as
+      uncommitted has since landed. That is a reading with a timestamp, not a standing
+      fact; TASK-008 re-takes it.
+    * THE OTHER SIX FILES, RE-CHECKED WHEN DIR-024 WAS ADDED — and the raw answer
+      needs a distinction, so it is stated rather than smoothed over. Every file in
+      this plan's scope was matched against the `files:` list of every non-`completed`
+      plan:
+        grep -E "^ *- +<path>$" plans/*.plan.yml   (skipping status: completed)
+      `cmd/backstop/gate.go` comes back claimed by ~20 plans and
+      `.github/workflows/ci.yml` + `.gitignore` by PLAN-SPEC-019. That number looks
+      alarming and is not: `status: draft` in this repo does NOT mean in-flight. Those
+      are HISTORICAL artifacts — created 2026-04-04 through 2026-07-05, last touched
+      2026-04-21 through 2026-07-06, most of them predating the packs-only cutover, and
+      PLAN-SPEC-019 is the one already characterized above (a draft plan for a spec
+      that is `status: implemented`). MEASURED by `git log -1 --format=%as` per file.
+      By contrast the genuinely live lanes — 163, 165, 168, 176 — were all created and
+      last touched 2026-08-17/18.
+      So: DIR-024 is the ONLY file this plan shares with a lane that has moved in the
+      last two days, and it is the only one carrying a coordination rule. The stale-
+      draft cohort is a backlog-hygiene observation worth reporting at close-out, not a
+      collision — but an implementer who runs the grep and sees 20 hits deserves to
+      find that explained here rather than to discover it alone.
+    * ISSUE-172 (gate steps run sequentially, not in parallel) is a SEPARATE,
+      COMPLEMENTARY lane and is explicitly OUT of scope here — ISSUE-099's own
+      update section says the two combine multiplicatively. Do not fold it in.
+
+  ── DESIGN DECISIONS THIS LANE MAKES (the issue leaves them open) ────────────
+  1. FLAG NAME: `--json-out`, taking a FILE path. NEVER `--json-file`
+     (CLM-009 — the substring trap, sharp edge 2).
+  2. FLAG INTERACTION: `--json` and `--json-out` are INDEPENDENT and COMBINABLE,
+     with no precedence rule and no refusal (CLM-003). `--json` decides WHAT GOES TO
+     STDOUT (the JSON document instead of the human table); `--json-out` ADDS a file
+     destination and never changes stdout. `--json --json-out F` therefore emits the
+     document twice, once to each destination, from ONE `FormatJSON` call — so the
+     two are byte-identical by construction, not by coincidence (CLM-002).
+     REJECTED: mutual exclusion (it would make the natural "give me both, and put
+     the machine copy on disk" spelling an error for no reason) and "one wins"
+     (an invisible precedence rule is exactly the undefined behaviour the founder
+     asked to avoid).
+  3. ERROR CLASS: every bad destination is a CONFIG-CLASS error — `&ExitCodeError{Code:
+     ExitConfigError, ...}`, exit 2 — matching the established convention in this same
+     function (`--file ""`, the mutual-exclusion refusals, and the unresolvable
+     `--base`, all exit 2 with a `config: ` prefix). Exit 1 is reserved for "the gate
+     found violations"; a destination the operator got wrong is never that.
+     `ExitConfigError` outranking `ExitViolations` also matches `ExitWithResult`
+     (`cmd/backstop/exitcode.go`), which is the repo's stated precedence.
+  4. WHEN THE DESTINATION IS CHECKED — SPLIT, DELIBERATELY (CLM-006):
+       * EMPTY value and MISSING PARENT DIRECTORY are refused EARLY, beside the
+         existing `--file ""` refusal, BEFORE `ComputeGateScopeWithBase` and before
+         `g.Run`. Rationale is the measured cost in the issue: a typo'd path that is
+         only discovered after the kill chain costs ~21 minutes on this repo's CI
+         (run 32151610956: pack_engines 629797ms, coverage_threshold 612148ms). A
+         two-line preflight turns that into two seconds.
+       * ANY OTHER write failure (target path is a directory, permission denied,
+         a full disk) surfaces at EMIT time, AFTER the stdout surface has fully
+         rendered. The stdout surface is the primary contract and is never suppressed
+         by a secondary destination's failure; the run's verdict stays readable and
+         the exit-2 diagnostic follows it on stderr.
+       * The preflight deliberately checks ONLY that the parent directory exists.
+         It does NOT create, truncate or touch the target — a preflight that opened
+         the file would leave a zero-byte artifact behind on runs that die three
+         steps later, which is a worse failure than the one it prevents. That split
+         is what makes the target-is-a-directory case a real, deterministic vehicle
+         for the late-failure test (sharp edge 6).
+  5. PATH RESOLUTION: the value is resolved by the OS against the PROCESS working
+     directory, like any file argument an operator types — NOT against the discovered
+     project root. `DiscoverConfigPathFrom` walks UP, so a gate invoked from a
+     subdirectory of the project has CWD != projectRoot, and that difference is
+     directly testable (CLM-001, subtest (e)).
+  6. NON-GOALS, stated so they are not re-litigated: `--json-out -` has no special
+     stdout meaning (a file named `-` is a file); `--json-out` does not imply
+     `--json`; no directory is ever created for the operator; the human-table bytes
+     and the JSON document's CONTENT are unchanged — this lane adds a DESTINATION,
+     not a format.
+
+  ── CLAIM LEDGER (ISSUE-099 carries no CLM ids; this lane defines them) ───────
+    CLM-001  `--json-out FILE` exists as a gate-LOCAL string flag registered in
+             `newGateCommand` beside `--all` / `--file` / `--base`, and ONE invocation
+             carrying it renders the HUMAN table to stdout AND writes the gate/v1 JSON
+             envelope to FILE. Neither surface replaces the other: stdout carries the
+             table and NO JSON document, and FILE parses as gate/v1 JSON. A relative
+             value lands relative to the PROCESS working directory.
+             Pre-fix: `unknown flag: --json-out`, exit 2 — MEASURED above.
+    CLM-002  FILE receives EXACTLY the bytes `--json` writes to stdout —
+             `gate.FormatJSON(result)` followed by one trailing newline — and both
+             surfaces are renderings of ONE `GateResult` produced by ONE `g.Run`
+             call. Falsified two ways: a SINGLE invocation carrying
+             `--json --json-out F` in which F's bytes equal stdout's bytes exactly
+             (a second kill-chain run could not produce two identical `generated_at`
+             stamps and identical per-step `duration_ms` values), and an AST pin over
+             `runGate` asserting exactly one `gate.New(` and exactly one `.Run(`.
+    CLM-003  Flag interaction is DECIDED, TESTED and DOCUMENTED, never silent:
+             `--json` and `--json-out` are independent and combinable; neither refuses
+             the other; `--json-out` never alters what stdout receives; `--json` never
+             alters what the file receives. Both flag help strings say so.
+    CLM-004  THE FILE IS WRITTEN BEFORE THE PROCESS DECIDES ITS EXIT. A run whose
+             verdict is `ExitViolations` still leaves a complete, parseable envelope at
+             FILE. This is the property CI's `always()` artifact upload depends on and
+             the sole reason the two-step split can retire at all.
+    CLM-005  The exit code is decided by the gate verdict ALONE. Over one fixture
+             project, `gate`, `gate --json`, `gate --json-out F` and
+             `gate --json --json-out F2` all exit with the SAME code, and that shared
+             code is non-zero (so the equality is not four vacuous passes).
+    CLM-006  Bad destinations refuse LOUDLY as config-class errors (exit 2), never
+             silently and never as a violation:
+               (i)  an EMPTY `--json-out` value is refused BEFORE the kill chain runs,
+               (ii) a MISSING PARENT DIRECTORY is refused BEFORE the kill chain runs,
+               (iii) a write that fails at emit time (target path is a directory) exits
+                     2 AFTER the human table has fully rendered to stdout.
+             (i) and (ii) are proven early by the ABSENCE of the gate's own report from
+             stdout; (iii) is proven late by its PRESENCE.
+    CLM-007  CI's gate job invokes `backstop gate` EXACTLY ONCE. The diagnostic capture
+             step and its `|| echo` are gone; the blocking step carries
+             `--json-out gate-report.json`; the two-step rationale comment is replaced
+             by one explaining the single-step shape and why the file still exists on a
+             failing run; `id: run_gate`, the step-level `GH_TOKEN`, the post-gate
+             baseline confirmation and the `always()` upload of
+             `gate-report.json` + `cover.out` are UNCHANGED.
+    CLM-008  Every shipped assertion and every piece of prose that encodes the
+             two-invocation shape is reconciled in the same pass, with NO mandated test
+             renamed and NO assertion weakened. THE SITES ARE ENUMERATED, NOT SAMPLED —
+             this list is the whole set, established by the single sweep named in
+             TASK-002, and a site outside it is a gap against this claim:
+               (a) `TestCIWorkflow_GateJobProvesTheBaselineLandedAfterTheGate` — body
+                   (`len(gateSteps) != 2` → `!= 1`) and message;
+               (b) `TestCIWorkflow_TheOnlyBaselinePullFollowsEveryGateInvocation` — body
+                   and the prose justifying its index-free uniqueness fence;
+                   (a) and (b) are BOTH PLAN-ISSUE-176-mandated and keep their names;
+               (c) the `stepIndexes` doc comment, which asserts ci.yml invokes the gate
+                   TWICE and that `stepIndex`'s first match is the diagnostic step;
+               (d) the `stepShellsGitHubCLI` doc comment, which derives the token-bearing
+                   set from "there are three members" and names the diagnostic capture as
+                   one of them — after this lane there are TWO, invoked once;
+               (e) `TestCIWorkflow_LeavesNoUngitignoredDroppings` — BOTH its doc comment
+                   (which calls `gate-report.json` "the diagnostic capture") AND the
+                   `producedBy` map value two dozen lines below it. Two sites, one file,
+                   one correction; fixing only the map value leaves the explanation
+                   contradicting the data it explains;
+               (f) `.gitignore`'s CI-RUN-DETRITUS comment, same re-attribution;
+               (g) `cmd/backstop/ci_recipes_github_actions_test.go`'s `|| echo` rationale,
+                   which cites the retired diagnostic gate capture as its example.
+             THE SWEEP, stated ONCE and run verbatim so it cannot drift into variants.
+             ★ THE `-i` IS LOAD-BEARING, NOT HYGIENE:
+               grep -rni "diagnostic\|invoked TWICE\|three members\|two invocations" \
+                 workflows_test.go .gitignore cmd/backstop/ci_recipes_github_actions_test.go
+             Without `-i` this returns 8 hits in TWO files and MISSES site (g)
+             entirely, because that comment writes it as "a DIAGNOSTIC `gate --json`
+             capture" — MEASURED both ways 2026-08-18. SHOUTY-CAPS emphasis is the
+             house style throughout these comments, so a case-sensitive sweep is
+             structurally blind to exactly the pattern it is hunting. With `-i` it
+             returns 10 hits covering all seven enumerated sites and nothing beyond
+             them (the two extra hits are the same sites written in caps).
+             Every hit is either corrected or consciously left with a reason.
+             SCOPE NOTE: this claim covers SHIPPED CODE AND CONFIG prose — the files
+             the sweep names. Artifact-layer prose that encodes the same shape is
+             handled separately in TASK-008, because a directive is not edited by hand
+             (see DIR-024 there).
+    CLM-009  The flag is named `--json-out` and never `--json-file`, BECAUSE
+             `TestCIWorkflow_BlockingJobNeverUsesAllOrFileScope` substring-matches the
+             literal `--file` over the gate step's decommented script: a
+             `--json-file gate-report.json` in ci.yml would trip the diff-scope ban
+             falsely, and the fix would be to weaken that test. Pinned by asserting the
+             ci.yml gate step's script contains no `--file` substring while carrying
+             the new flag.
+
+  ── SHARP EDGES ──────────────────────────────────────────────────────────────
+   1. LOCATE EVERY EDIT SITE BY NAME, NEVER BY A LINE NUMBER. `cmd/backstop/gate.go`
+      is ~2060 lines and has moved under three lanes this week; ISSUE-099's own
+      citations are already stale. The sites are: `func newGateCommand` (the three
+      `cmd.Flags().*Var` calls), the flag-read/refusal block in `runGate` that begins
+      `allFlag, allErr := cmd.Flags().GetBool("all")` and ends with the three
+      mutual-exclusion refusals, and the comment `// Format output based on --json flag.`
+      through the `if exitCode != 0` return.
+   2. ★ NEVER NAME THE FLAG `--json-file`. `TestCIWorkflow_BlockingJobNeverUsesAllOrFileScope`
+      does `strings.Contains(stepScript(step), "--file")` over the gate step. `--json-file`
+      contains `--file` as a substring and would fail a shipped, correct test that this
+      lane has no business touching. `--json-out` does not. (CLM-009.)
+   3. WORKFLOW COMMENTS ARE INVISIBLE TO THE WORKFLOW TESTS, RUN LINES ARE NOT.
+      `stepScript` (workflows_test.go) drops every line whose trimmed prefix is `#`,
+      which is why today's comment can safely contain the literal `--file`. The
+      constraint in edge 2 applies to the `run:` line only — but write the comment as
+      if it did not, so a future inline-ing of the comment cannot flip a test.
+   4. THE TWO PLAN-ISSUE-176 TESTS MUST KEEP THEIR NAMES. Both currently `t.Fatalf`
+      when the gate-step count is not 2, so BOTH go red the instant ci.yml collapses.
+      Rewrite their BODIES (2 → 1) and their explanatory prose; do not rename, do not
+      delete, do not soften any other leg. They are a `completed` plan's mandated
+      set and the status_drift dimension reads them by name.
+   5. THE UNIQUENESS LEG IS THE POINT, NOT THE COUNT. In
+      `TestCIWorkflow_TheOnlyBaselinePullFollowsEveryGateInvocation`, the primary fence
+      is "exactly ONE `baseline pull` in the job" and it is deliberately index-free.
+      Its current prose justifies that choice by "ci.yml invokes the gate twice, so a
+      forging pull inserted BETWEEN the two invocations still sits after the first
+      anchor". With one invocation that specific escape is gone, but the uniqueness leg
+      STAYS PRIMARY — a second pull anywhere still forges the file the confirmation
+      step checks for. Rewrite the reason; keep the fence.
+   6. ★ THE LATE-WRITE-FAILURE TEST MUST NOT USE `chmod`. A read-only directory does
+      not fail for root, and CI containers run as root — the test would pass locally
+      and go vacuously green in CI. Use a target path that IS AN EXISTING DIRECTORY:
+      `os.MkdirAll(filepath.Join(dir, "report.json"))` then `--json-out report.json`.
+      `os.WriteFile` on a directory fails deterministically for every uid, and it
+      passes the parent-directory preflight by construction — which is exactly why
+      decision 4 keeps the preflight limited to the PARENT.
+   7. USE THE SEPARATED-STREAM HARNESS, NOT THE MERGED ONE. `runBinary`
+      (`cmd/backstop/integration_test.go`) returns `CombinedOutput`, against which
+      "the table is on stdout and the diagnostic on stderr" is unfalsifiable. Use
+      `runBackstopStreams(t, bin, dir, args...)`
+      (`cmd/backstop/run_backstop_streams_test.go`) with
+      `buildBackstopBinary(t)` — the shape `exit_surfacing_streams_test.go` already
+      uses, and for the reason recorded in its header comment.
+   8. THE FAILING-VERDICT FIXTURE ALREADY EXISTS AND IS RELIABLE.
+      `gitInitRepoWithBackstop(t)` (`cmd/backstop/gate_provenance_test.go`) + a bare
+      `gate` exits `ExitViolations` today — `TestExitSurfacing_GateViolations_NoDuplicateErrorLine`
+      asserts exactly that. Reuse it for CLM-004/005/007 rather than engineering a new
+      failing project. Set `NO_COLOR=1` via `t.Setenv` where stdout is matched, as that
+      test does, or the table arrives wrapped in ANSI.
+   9. FORMAT THE JSON ONCE, NOT PER DESTINATION. `gate.FormatJSON(result)` must be
+      called at most once per run and its `data` shared by both destinations. Two calls
+      would still agree today, but CLM-002's byte-identity claim would then rest on
+      determinism rather than on construction — and the trailing-newline contract
+      (`cmd.Println` adds one; the file write must add the same one) is far easier to
+      get wrong across two sites.
+  10. DO NOT TOUCH THE HUMAN TABLE OR THE JSON SCHEMA. `schema_version` stays
+      `gate/v1`; `FormatHuman`/`FormatJSON` in `pkg/gate/output.go` are NOT in scope.
+      This lane adds a destination. `TestGateCLI_SchemaVersionUnchangedByTraceFields`
+      and the provenance suite must stay green untouched.
+  11. `terminalExclusionNotice` STAYS ON THE HUMAN ARM ONLY. It is printed after
+      `FormatHuman` and deliberately not under `--json` (it would corrupt the
+      document a consumer parses). `--json-out` must not move it, duplicate it, or
+      let it leak into the file.
+  12. SHARED TREE. Never bare `git stash` — it sweeps another agent's uncommitted
+      work. Do not run a full `gate --all` or the whole suite concurrently with a
+      mid-flight implementer in this tree.
+  13. ISSUE-172 IS OUT OF SCOPE. Making the gate's internal steps run concurrently is
+      a different lane. This one removes a DUPLICATE INVOCATION and nothing else.
+  14. SPEC-010 IS `status: draft`, so the contracts dimension does not enforce its
+      `contracts:` block, and `runGate`'s signature is unchanged regardless. No spec
+      amendment is required by this lane.
+
+  ── SURFACED FOR THE FOUNDER, NOT FIXED HERE ─────────────────────────────────
+  `cmd/backstop/ci_recipes_github_actions_test.go`'s
+  `TestCIRecipes_GitHubActions_GateVerdictNotSwallowed` excludes `|| echo` from its
+  swallow denylist, and its stated reason is "backstop-core's own ci.yml ends a
+  DIAGNOSTIC `gate --json` capture in `|| echo`". After this lane that SPECIFIC
+  example is gone — but `|| echo` itself is NOT gone from ci.yml: the confirmation
+  step's failure branch still runs `./bin/backstop baseline pull || echo "bare
+  baseline pull exited $?"`, for the same reporting-not-gating reason. So the
+  exemption's REASONING survives intact and only its cited example moves; TASK-002
+  repoints the comment and changes no assertion. The denylist is CLM-028 of SPEC-067
+  and the comment says in terms that widening it is a spec amendment through the
+  spec-author agent, never a unilateral edit. Whether `|| echo` should now join the
+  denylist is a real question for the founder and a follow-on for the spec-author;
+  it is NOT this lane's call.
+
+  ── POST-MERGE OBLIGATION (cannot be verified locally) ────────────────────────
+  The wall-time win and the artifact's continued presence on a FAILING run are CI
+  properties. After this lands on main, read the next CI run and confirm: exactly one
+  "Run the gate" step in the job's step list, the gate step's duration roughly halved
+  against a recent pre-fix run, and the `gate-report` artifact still uploaded and
+  non-empty. Record the run id at close-out. Do not claim the win before reading it.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Phase 1: RED — two independent, parallel lanes of failing tests
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: RED — CLI contract and CI-shape pins, in parallel"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Pin the --json-out contract: both surfaces from one run, flag interaction, refusal classes, verdict independence (RED)"
+        description: |
+          Create `cmd/backstop/gate_json_out_test.go` (package main).
+
+          ★ THE RED IS EIGHT OF NINE, NOT NINE OF NINE — DO NOT "FIX" THE NINTH.
+          Subtests (a) through (h) MUST FAIL before TASK-003 lands. The RED is direct
+          and blunt — the flag does not exist — and it is characterized as such rather
+          than force-fitted into a subtler shape: today `gate --json-out <path>` dies in
+          Cobra's flag parser with `Error: unknown flag: --json-out` and exit 2
+          (MEASURED 2026-08-18). Because that refusal happens before `runGate` is
+          entered, those eight fail at RUNTIME, not at compile time — the package still
+          builds, which is what keeps this file safe to land in a shared tree ahead of
+          the fix.
+          Subtest (i), the source pin, is GREEN AT HEAD BY DESIGN and is a REGRESSION
+          LOCK, not a RED. VERIFIED 2026-08-18: `runGate` contains exactly one
+          `gate.New(` and exactly one `.Run(` today, so the predicate already holds.
+          Its job is not to describe missing behaviour but to STOP TASK-003 from
+          implementing the file write by re-running the kill chain — the one structural
+          mistake that would satisfy every behavioural test in this file while
+          reintroducing the exact cost ISSUE-099 exists to remove. A test that locks a
+          property already true is the correct shape for that job, and an implementer
+          who "makes it fail first" has broken the lock rather than honoured the
+          discipline.
+          State this split in the file header, per subtest, so the next reader knows
+          which tests were red for the right reason and which was never meant to be.
+
+          HARNESS (sharp edges 7, 8): drive the BUILT BINARY through
+          `buildBackstopBinary(t)` + `runBackstopStreams(t, bin, dir, args...)`, never
+          `runBinary` — a merged `CombinedOutput` buffer makes "the table went to
+          stdout while the JSON went to the file" unfalsifiable. Use
+          `gitInitRepoWithBackstop(t)` for the project fixture; a bare `gate` there
+          exits `ExitViolations` today, which is exactly the discriminating verdict
+          CLM-004/005 need. `t.Setenv("NO_COLOR", "1")` wherever stdout text is matched.
+
+          (a) `TestGateJSONOut_WritesTheEnvelopeToFileWhileTheHumanTableStillRendersToStdout`
+              — CLM-001. ONE invocation: `gate --json-out report.json`.
+              Assert ALL of: stdout contains the human table's markers (`Gate Results`,
+              `Total violations:`, `Steps:`); stdout contains NO JSON document (no
+              `"schema_version"` substring, and the first non-space byte is not `{`);
+              `report.json` EXISTS and `json.Unmarshal`s into a map whose
+              `schema_version` is `gate/v1`; and that map carries at least one step in
+              `steps`, so the file is a real envelope and not an empty object.
+
+          (b) `TestGateJSONOut_CombinesWithJSONWritingTheSameDocumentToBothSurfaces`
+              — CLM-002, CLM-003. ONE invocation: `gate --json --json-out report.json`.
+              Assert: the file's bytes are BYTE-IDENTICAL to stdout's bytes (compare
+              raw `[]byte`, not parsed maps — the trailing newline is part of the
+              contract); stdout parses as gate/v1 JSON; and stdout carries NO human
+              table (`Gate Results` absent). Say in the body WHY byte-identity is the
+              assertion: two kill-chain runs could not produce identical `generated_at`
+              stamps and identical per-step `duration_ms` values, so equality here is
+              evidence of ONE result rendered twice, not of two runs agreeing.
+
+          (c) `TestGateJSONOut_RefusesAnEmptyValueBeforeRunningTheKillChain`
+              — CLM-006(i). `gate --json-out ""`. Assert exit is `ExitConfigError`;
+              stderr names the flag and says a path is required; and — the load-bearing
+              leg — stdout does NOT contain `Gate Results`. The absence is the proof
+              the refusal was EARLY; an exit-2 that arrives after a 20-minute kill
+              chain satisfies the code assertion and defeats the point.
+
+          (d) `TestGateJSONOut_RefusesAMissingParentDirectoryBeforeRunningTheKillChain`
+              — CLM-006(ii). `gate --json-out no-such-dir/report.json`. Same three
+              legs as (c), with stderr naming the missing DIRECTORY (not merely the
+              file), so the operator is told which half of the path is wrong.
+
+          (e) `TestGateJSONOut_ResolvesARelativePathAgainstTheProcessWorkingDirectory`
+              — CLM-001. Create `sub/` inside the fixture project, run the binary with
+              `cmd.Dir` = that subdirectory (config discovery walks UP from CWD, so the
+              gate still finds `backstop.yml`), pass `--json-out report.json`, and
+              assert the file lands at `<project>/sub/report.json` and NOT at
+              `<project>/report.json`. This is the only shape in which CWD and the
+              discovered project root differ, so it is the only one that can falsify
+              the resolution rule.
+
+          (f) `TestGateJSONOut_WriteFailureIsAConfigErrorAfterTheTableRenders`
+              — CLM-006(iii). `os.MkdirAll(filepath.Join(dir, "report.json"), 0o755)`
+              FIRST, then `gate --json-out report.json`. Assert exit is
+              `ExitConfigError`; stderr names the path; and — the load-bearing leg —
+              stdout DOES contain the full human table, proving the primary surface is
+              never suppressed by a secondary destination's failure. NEVER use `chmod`
+              to manufacture this failure (sharp edge 6): CI runs as root and a
+              read-only directory would go vacuously green there.
+
+          (g) `TestGateJSONOut_ExitCodeIsTheGateVerdictNotTheOutputFlags`
+              — CLM-005. Over ONE fixture project, run four invocations: bare `gate`,
+              `gate --json`, `gate --json-out <out>/a.json`,
+              `gate --json --json-out <out>/b.json`.
+              Assert all four exit codes are EQUAL, AND that the shared value is
+              non-zero — without the second leg, four vacuous zeros would satisfy the
+              first.
+              ★ WRITE THE DESTINATIONS OUTSIDE THE PROJECT — a second `t.TempDir()`,
+              not the fixture dir. The gate's diff scope INCLUDES UNTRACKED FILES, so
+              `a.json` written into the project by run 3 is in scope for run 4, and the
+              two runs would then be gating different file sets. That confound is
+              invisible while the codes happen to agree and would make this test's
+              equality claim mean something other than what it says. The same rule
+              applies to (h); (a), (b) and (f) deliberately write INSIDE the project,
+              because each of those is a single invocation with nothing downstream of
+              it, and (e) must write inside by construction — it is measuring where a
+              relative path lands.
+
+          (h) `TestGateJSONOut_WritesTheFileEvenWhenTheGateVerdictFails`
+              — CLM-004. THE CI-CRITICAL CLAIM, asserted by name rather than left as a
+              side effect of (a). `gate --json-out report.json` over the fixture whose
+              verdict is `ExitViolations`: assert exit is `ExitViolations`, the file
+              exists, and it parses as a complete gate/v1 envelope. This is the
+              property that lets ci.yml's `always()` upload publish a report for
+              exactly the run worth diagnosing, and therefore the property the
+              two-step retirement rests on.
+
+          (i) `TestGateJSONOut_RunsTheKillChainExactlyOnce`
+              — CLM-002. A SOURCE PIN, and labelled as one. Parse
+              `cmd/backstop/gate.go` with `go/parser` + `go/ast`, locate the `runGate`
+              `*ast.FuncDecl` BY NAME (sharp edge 1), and assert its body contains
+              EXACTLY ONE `gate.New(` call and EXACTLY ONE `.Run(` selector call.
+              Say why a source pin rather than a measurement: a doubled kill chain is
+              observable only as wall time or as engine side effects, neither of which
+              a hermetic unit test can assert without flake — while "the file-emitting
+              path was implemented by re-running the gate" is a STRUCTURAL mistake that
+              a structural pin catches exactly. Pair it in the comment with (b), which
+              covers the same claim behaviourally.
+              SAY IN THE TEST BODY THAT IT PASSES AT HEAD AND WHY THAT IS CORRECT: it
+              is a REGRESSION LOCK on a property that already holds, not a description
+              of missing behaviour. Anyone who finds it green before TASK-003 and
+              concludes it is broken should read this comment instead of weakening it.
+        files:
+          - cmd/backstop/gate_json_out_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        depends_on: []
+        test_names:
+          - TestGateJSONOut_WritesTheEnvelopeToFileWhileTheHumanTableStillRendersToStdout
+          - TestGateJSONOut_CombinesWithJSONWritingTheSameDocumentToBothSurfaces
+          - TestGateJSONOut_RefusesAnEmptyValueBeforeRunningTheKillChain
+          - TestGateJSONOut_RefusesAMissingParentDirectoryBeforeRunningTheKillChain
+          - TestGateJSONOut_ResolvesARelativePathAgainstTheProcessWorkingDirectory
+          - TestGateJSONOut_WriteFailureIsAConfigErrorAfterTheTableRenders
+          - TestGateJSONOut_ExitCodeIsTheGateVerdictNotTheOutputFlags
+          - TestGateJSONOut_WritesTheFileEvenWhenTheGateVerdictFails
+          - TestGateJSONOut_RunsTheKillChainExactlyOnce
+
+      - id: TASK-002
+        type: test
+        title: "Pin CI's single-invocation shape and reconcile every stale two-invocation explanation (RED)"
+        description: |
+          Two files, one task — they carry the same correction and splitting them would
+          leave half the tree asserting a shape the other half denies.
+
+          (1) `workflows_test.go` (package `backstopcore_test`).
+
+          ADD `TestCIWorkflow_GateRunsOnceAndEmitsTheJSONReportInTheBlockingStep`
+          (CLM-007, CLM-009), which is RED until TASK-004 edits ci.yml. Over
+          `ciBlockingJob(t)` assert:
+            * `stepIndexes(job, selfGateInvocation)` has length EXACTLY 1, with a
+              message naming the found steps — a second invocation is the regression
+              this lane exists to prevent and must fail loudly, not silently re-anchor
+              an ordering leg;
+            * that one step's `stepScript` contains `--json-out gate-report.json`;
+            * that one step's `stepScript` contains NEITHER `>` redirection of the gate
+              into a file NOR `|| echo` — the retired capture's two signatures;
+            * that one step declares no `if:` and no `|| true` (an independent restating
+              of the blocking contract at the step this claim owns, so the claim does
+              not rest on another test's map iteration);
+            * that one step's `stepScript` contains no `--file` substring (CLM-009 —
+              name the reason in the failure message: a `--json-file` spelling would
+              trip `TestCIWorkflow_BlockingJobNeverUsesAllOrFileScope`);
+            * the upload step still lists BOTH `gate-report.json` and `cover.out` in its
+              `with.path`, and still declares `if: always()` — the retirement must not
+              quietly drop the artifact it exists to preserve.
+
+          REWRITE THE BODIES of the two PLAN-ISSUE-176-mandated tests, KEEPING BOTH
+          NAMES EXACTLY (sharp edge 4 — they are a `completed` plan's mandated set):
+            * `TestCIWorkflow_GateJobProvesTheBaselineLandedAfterTheGate`: its
+              `len(gateSteps) != 2` fatal becomes `!= 1`, and its message stops calling
+              the first step "the diagnostic --json capture". Every other leg — the
+              `|| true` check, the decommented-script check, `always()`,
+              `!= 'skipped'`, the single `steps.<id>.conclusion` reference, the id
+              match against the LAST gate step, and the confirm-after-gate ordering —
+              is UNCHANGED. `lastStepIndex` over a one-element set still names the
+              blocking step, so the ordering leg keeps working verbatim.
+            * `TestCIWorkflow_TheOnlyBaselinePullFollowsEveryGateInvocation`: same
+              2 → 1 change, and rewrite the prose that justifies the index-free
+              uniqueness fence. The uniqueness leg STAYS PRIMARY (sharp edge 5): a
+              second `baseline pull` anywhere still forges the file the confirmation
+              step checks for. What changes is only the escape it cites — "a forging
+              pull inserted BETWEEN the two invocations" no longer names a real shape.
+
+          CORRECT THE STALE PROSE, ASSERTIONS UNTOUCHED. Run the CLM-008 sweep FIRST —
+          `grep -rni`, and the `-i` is load-bearing (see CLM-008: without it the sweep
+          is blind to this codebase's SHOUTY-CAPS emphasis and misses a real site).
+          CORRECT EVERY HIT IT RETURNS **IN THIS TASK'S TWO FILES** — `workflows_test.go`
+          and `cmd/backstop/ci_recipes_github_actions_test.go`. The sweep deliberately
+          spans a third file, `.gitignore`, whose hit is site (f) and belongs to
+          TASK-005; leave it alone here. The sweep's file list is wider than this
+          task's `files:` on purpose — one sweep proves the whole set was considered,
+          and the two tasks divide the corrections between them.
+          The four sites below are what that sweep returns in this task's files today,
+          and finding a fifth means the sweep, not this list, is the authority:
+            * the `stepIndexes` doc comment, which states as fact that "ci.yml invokes
+              `backstop gate` TWICE" and that "stepIndex's first-match answer is the
+              DIAGNOSTIC step, not the blocking one". After the collapse the first
+              match IS the blocking step. Keep `stepIndexes` and `lastStepIndex` — both
+              are still used, and the exact-count assertion they enable is the
+              mechanism that catches a re-introduced second invocation — but say what
+              they are for NOW.
+            * the `stepShellsGitHubCLI` doc comment (immediately below
+              `const committedBaselinePath`). It justifies deriving the token-bearing
+              step set rather than listing it by index "because there are three members
+              and they are easy to half-wire: `backstop gate` is invoked TWICE (the
+              diagnostic --json capture and the blocking run, both of which run
+              resolveBaselineCache), and the confirmation step's failure branch runs a
+              bare `baseline pull`". After this lane the set has TWO members — the one
+              gate invocation and the confirmation step's `baseline pull` — and the
+              gate is invoked once. The FUNCTION BODY and the derivation are unchanged;
+              only the count and the census change. Note that the derived-not-listed
+              choice is now MORE load-bearing, not less: with one gate step the set is
+              small enough to look listable, and listing it by index is exactly how it
+              silently half-wires later.
+            * `TestCIWorkflow_LeavesNoUngitignoredDroppings` — TWO SITES IN ONE TEST,
+              and fixing only one leaves the explanation contradicting the data it
+              explains:
+                (i)  its DOC COMMENT, which reports run 30386673582 and attributes
+                     `gate-report.json` to "the diagnostic capture". Keep the measured
+                     run and its 11-in-scope-files finding — that history is why the
+                     test exists — and re-attribute the file to the gate's own
+                     `--json-out` write, which produces it in the same workspace for
+                     the same reason;
+                (ii) the `producedBy` map value, currently "the diagnostic --json
+                     capture step", two dozen lines below.
+              The PATTERN and the assertion do not change — the file is still produced
+              in the workspace and must still be gitignored.
+
+          (2) `cmd/backstop/ci_recipes_github_actions_test.go` — COMMENT ONLY, NO
+          ASSERTION CHANGE. `TestCIRecipes_GitHubActions_GateVerdictNotSwallowed`
+          justifies excluding `|| echo` from its denylist by citing backstop-core's own
+          `gate --json` diagnostic capture, which this lane deletes.
+          ★ DO NOT WRITE THAT `|| echo` IS GONE FROM ci.yml — IT IS NOT, and a
+          "historical" framing would be a fresh falsehood replacing a stale one. After
+          this lane ci.yml STILL carries a live `|| echo`, on the confirmation step's
+          failure branch: `./bin/backstop baseline pull || echo "bare baseline pull
+          exited $?"` (the `Confirm the self-healing baseline pull landed a file` step,
+          from PLAN-ISSUE-176). VERIFIED present tonight and untouched by this lane.
+          The correct rewrite: the specific example the comment names — a `gate --json`
+          capture that reports rather than gates — retired under ISSUE-099 when ci.yml
+          collapsed to one `--json-out` invocation; the EXEMPTION's reasoning is
+          unaffected, because `|| echo` still appears in ci.yml for exactly the same
+          reporting-not-gating purpose, now on the baseline-pull diagnostic. Cite the
+          surviving example so the comment points at something a reader can open.
+          Do NOT add `|| echo` to the denylist — that is a spec amendment through the
+          spec-author agent (SPEC-067 CLM-028), flagged for the founder in this plan's
+          notes, not decided here.
+
+          RED CHARACTERIZATION: the new test fails on the count leg (2 gate steps today);
+          the two rewritten tests fail on their new `!= 1` fatal (2 today). The prose
+          edits are not independently falsifiable and are not claimed to be — they ride
+          the same commit so the tree never asserts two shapes at once.
+        files:
+          - workflows_test.go
+          - cmd/backstop/ci_recipes_github_actions_test.go
+        claims:
+          - CLM-007
+          - CLM-008
+          - CLM-009
+        depends_on: []
+        test_names:
+          - TestCIWorkflow_GateRunsOnceAndEmitsTheJSONReportInTheBlockingStep
+          - TestCIWorkflow_GateJobProvesTheBaselineLandedAfterTheGate
+          - TestCIWorkflow_TheOnlyBaselinePullFollowsEveryGateInvocation
+          - TestCIWorkflow_LeavesNoUngitignoredDroppings
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Phase 2: GREEN — the flag
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: GREEN — --json-out on the gate command"
+    tasks:
+      - id: TASK-003
+        type: implementation
+        title: "Register --json-out, validate its destination early, and emit the envelope beside the stdout render"
+        description: |
+          Edit `cmd/backstop/gate.go` only. Locate all three sites BY NAME (sharp edge 1).
+
+          (1) REGISTRATION, in `func newGateCommand`, beside the existing
+          `cmd.Flags().StringVar(&baseFlag, "base", ...)`:
+            var jsonOutFlag string
+            cmd.Flags().StringVar(&jsonOutFlag, "json-out", "", "<help>")
+          GATE-LOCAL, not persistent (see the notes' pre-fix section: `--json` is a
+          ROOT persistent flag in `root.go`, and no other command emits a gate
+          envelope). Follow the file's existing shape: the closure variable exists for
+          symmetry with `allFlag`/`fileFlags`/`baseFlag`, and `runGate` reads the value
+          back through `cmd.Flags().GetString("json-out")`.
+          THE HELP STRING CARRIES THE INTERACTION RULE (CLM-003), in the same
+          spell-out-the-consequence register the `--base` help already uses: it writes
+          the gate/v1 JSON envelope to FILE while stdout keeps whatever `--json` selects
+          for it — the human table by default, the same JSON document under `--json`.
+          Name the CI use it exists for. Do not name the flag `--json-file`
+          (sharp edge 2).
+
+          (2) EARLY VALIDATION, in `runGate`, inside the flag-read block that begins
+          `allFlag, allErr := cmd.Flags().GetBool("all")` — read `json-out` alongside
+          the other three, fold its read error into the same `firstNonNil` config
+          refusal, and place its destination checks AFTER the `--file` empty-value
+          refusal and BEFORE `gate.ComputeGateScopeWithBase`. Two refusals, both
+          `&ExitCodeError{Code: ExitConfigError, Message: "config: ..."}`:
+            a. the flag was PRESENT with an empty or whitespace-only value —
+               `cmd.Flags().Changed("json-out")` distinguishes "not passed" (the
+               default "", which must remain a silent no-op) from `--json-out ""`.
+               Mirror the `--file ""` refusal's register: say what to do, not just
+               what is wrong.
+            b. the parent directory of the value does not exist, or exists and is not
+               a directory — `os.Stat(filepath.Dir(path))`. Name the DIRECTORY in the
+               message, not just the file.
+          WHY EARLY: an operator's typo must cost seconds, not the ~21 minutes the
+          kill chain costs on this repo's CI (issue's measured run 32151610956).
+          WHY ONLY THE PARENT: opening or creating the target here would leave a
+          zero-byte artifact behind on every run that dies later, and it would remove
+          the deterministic late-failure vehicle TASK-001(f) uses. Write both reasons
+          into the code comment — the split is deliberate and looks arbitrary without
+          them.
+          These checks are `--json-out`'s ONLY interaction with the scope selectors:
+          it is mutually exclusive with NOTHING (CLM-003). Do not extend the three
+          existing mutual-exclusion guards.
+
+          (3) EMISSION, replacing the block that opens `// Format output based on
+          --json flag.` and ends just before `if exitCode != 0`:
+            * read `jsonFlag` as today, and `jsonOutPath` as validated above;
+            * if EITHER destination wants the document, call `gate.FormatJSON(result)`
+              EXACTLY ONCE and keep `data` (sharp edge 9). A `FormatJSON` error keeps
+              its current wrapped-error behaviour.
+            * STDOUT FIRST, byte-for-byte as today: under `--json`,
+              `cmd.Println(string(data))`; otherwise `FormatHuman` + the
+              `terminalExclusionNotice` line. `terminalExclusionNotice` stays on the
+              human arm alone (sharp edge 11) and never reaches the file.
+            * THEN, if `jsonOutPath != ""`, write `append(data, '\n')` with
+              `os.WriteFile(jsonOutPath, ..., 0o644)`. The trailing newline is what
+              makes the file byte-identical to what `cmd.Println` puts on stdout, and
+              that identity is CLM-002 — state it in the comment so a later "tidy-up"
+              cannot drop the byte.
+            * on a write error return `&ExitCodeError{Code: ExitConfigError, Message:
+              fmt.Sprintf("config: writing --json-out %s: %v", ...)}` — AFTER the
+              stdout surface has rendered, which is the CLM-006(iii) ordering, and
+              BEFORE the verdict return, so exit 2 outranks exit 1 the way
+              `ExitWithResult` says it should.
+            * the `if exitCode != 0 { return &ExitCodeError{... Explained: exitCode ==
+              ExitViolations} }` return is UNCHANGED and stays last. Because the write
+              sits above it, the file exists on a failing run — CLM-004, and the whole
+              reason ci.yml can collapse. Note that in the comment beside the write,
+              since the ordering is load-bearing and invisible.
+
+          NOTHING ELSE CHANGES: not `pkg/gate/output.go`, not the JSON schema
+          (`gate/v1`), not the human table's bytes, not `runGate`'s signature, not the
+          root `--json` flag (sharp edge 10).
+
+          Run `backstop gate` after this task, as the implementer contract requires.
+        files:
+          - cmd/backstop/gate.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-009
+        depends_on:
+          - TASK-001
+
+      - id: TASK-004
+        type: verification
+        title: "Verify the flag: all nine TASK-001 tests green, provenance suite unmoved, gate clean over the changed files"
+        description: |
+          Run, and read the output rather than assuming it:
+
+            go test ./cmd/backstop/ -run "TestGateJSONOut" -race -count=1
+          All NINE names must PASS. Any `--- SKIP` is a failure of this task: a skipped
+          E2E is silent vacuous green, and the eight behavioural tests here drive the
+          real binary.
+          NOTE THE ASYMMETRY WITH TASK-001's RED, so this task is not misread as
+          proving more than it does: eight of the nine went red→green across TASK-003,
+          while `TestGateJSONOut_RunsTheKillChainExactlyOnce` was GREEN BEFORE AND
+          AFTER — it is a regression lock, and its value is entirely in having stayed
+          green while `gate.go` was edited. If it is now RED, TASK-003 implemented the
+          file write by re-running the kill chain; the fix is the implementation, never
+          the test.
+
+            go test ./cmd/backstop/ -run "TestGateCLI|TestGate_|TestExitSurfacing_Gate" -race -count=1
+          The NON-REGRESSION leg (sharp edges 10, 11). The provenance, identity and
+          exit-surfacing suites read the gate's stdout surfaces closely — `gate --json`
+          must still print a parseable document with nothing appended, the human table's
+          `"  Total violations: "` prefix must be untouched, and the explained-opt-out
+          behaviour must be unchanged. If any of these moved, the emission block was
+          rewritten further than TASK-003 authorized.
+
+            backstop gate --file cmd/backstop/gate.go
+            backstop gate --file cmd/backstop/gate_json_out_test.go
+          Diff-scoped gate over the two files this phase touched. Not `--all` — that is
+          the final phase's job.
+
+          Also confirm by hand, once, that the shipped help is right:
+            ./bin/backstop gate --help
+          `--json-out` must appear in `Flags:` (gate-local), NOT in `Global Flags:`
+          beside `--json`. A persistent registration would put it in the wrong section
+          and hand a dead flag to every other command.
+        files:
+          - cmd/backstop/gate.go
+          - cmd/backstop/gate_json_out_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-003
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Phase 3: GREEN — retire CI's duplicate invocation
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: phase-3
+    name: "Phase 3: GREEN — collapse ci.yml's two gate steps into one"
+    tasks:
+      - id: TASK-005
+        type: implementation
+        title: "Merge the diagnostic capture into the blocking gate step via --json-out, and rewrite the rationale it leaves behind"
+        description: |
+          THIS TASK MUST LAND AFTER THE FLAG IS PROVEN, NOT MERELY WRITTEN.
+          `--json-out` has to exist AND work in the binary ci.yml invokes, or the very
+          next push to main fails on an unknown flag — with the gate job, which is the
+          thing that would have caught it, being the job that breaks. The dependency
+          edge on TASK-004 (phase 2's verification) rather than on TASK-003 alone is
+          deliberate: it makes "the flag is green" a graph-enforced precondition of
+          editing CI, not merely a consequence of phase ordering.
+
+          (1) `.github/workflows/ci.yml`, job `gate` (display name "Backstop Gate").
+          DELETE the step named `Capture the gate report as JSON (diagnostic only -
+          does not gate)` in its entirety — the step, its `env:` block, its `run:` line
+          with the `> gate-report.json || echo ...` redirect, and the comment block
+          above it that opens "TWO STEPS, ONE GATE — and the split is structural on
+          purpose." That comment exists ONLY to explain a split that no longer exists;
+          leaving it would tell the next reader the opposite of the truth.
+
+          EDIT the step named `Run the gate` so its script becomes exactly:
+            ./bin/backstop gate --base "$BASE" --json-out gate-report.json
+          UNCHANGED on that step: `id: run_gate` (the confirmation step's guard
+          resolves `steps.run_gate.conclusion`, and a guard naming an id no step
+          declares goes INERT rather than failing safe), the step-level
+          `env: GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}`, and the absence of any `if:`
+          or `||`.
+
+          ★ RELOCATE THE STEP-LEVEL TOKEN RATIONALE ONTO THE SURVIVING STEP — it lives
+          ENTIRELY on the step being deleted, and deleting it silently strips the only
+          explanation in the file for a property a test enforces. The paragraph opens
+          "THE TOKEN IS BOUND AT THE STEP, NOT AT THE JOB, and the difference is not
+          cosmetic" and continues through "including the two remote installers that
+          pipe `curl | sh` and run `pipx install` and the one that clones eight pack
+          repositories. None of those needs it." MOVE it (substantively verbatim — it
+          is correct and hard-won) onto `Run the gate`, adjusting only the sentence
+          that says which step needs the token, since there is now one gate invocation
+          rather than two.
+          AND DELETE THE DANGLING BACK-REFERENCE the surviving step currently carries:
+          "Same step-level token binding as the diagnostic capture above, and for the
+          same reason: this invocation also runs resolveBaselineCache." After the
+          collapse that sentence points at nothing. The relocated paragraph replaces
+          it and must keep the actual reason it was pointing at — `backstop gate` runs
+          the self-healing baseline pull, whose `ensureGitHubAuth` shells
+          `gh auth status` before anything reaches the GitHub API (ISSUE-176).
+          WHY THIS MATTERS ENOUGH TO BE ITS OWN INSTRUCTION:
+          `TestCIWorkflow_GateJobAuthenticatesTheSelfHealingBaselinePull` stays GREEN
+          through this whole edit — its negative legs derive the token-bearing set
+          dynamically, so a job that keeps binding correctly passes with no rationale
+          in the file at all. Nothing would catch the loss; the next reader would just
+          find an unexplained per-step `env:` and "simplify" it to a job-level one,
+          handing the token to the `curl | sh` installers and the eight-repo clone.
+
+          REPLACE the deleted rationale with a comment on the surviving step that
+          states the NEW shape and why it is sufficient. It must carry, in the author's
+          own words:
+            * ONE INVOCATION, BOTH SURFACES — `--json-out` writes the gate/v1 envelope
+              to a file while the human table still renders to this log (ISSUE-099);
+            * both surfaces remain load-bearing: the table is what a person reads here,
+              and the JSON carries what no other surface reports — per-file coverage
+              detail and the in-scope path LIST behind the "in-scope files: N" count;
+            * WHY ONE STEP IS NOW SAFE: the file is written BEFORE the process decides
+              its exit, so a FAILING gate still leaves a report for the `always()`
+              upload below. This is the property that retired the split, and it is
+              asserted by `TestGateJSONOut_WritesTheFileEvenWhenTheGateVerdictFails` —
+              cite it, so the claim is checkable rather than asserted;
+            * what it COST before: the entire kill chain ran twice per push. On run
+              32151610956 that duplicated ~10.5min of `pack_engines` and ~10.2min of
+              `coverage_threshold` — roughly 20+ minutes per run;
+            * THIS IS THE BLOCKING INVOCATION and its exit is the job's — no `|| echo`,
+              no `if:`.
+          PRESERVE, DO NOT REWRITE, the diff-scope paragraph already on this step — the
+          one opening "Diff-scoped with an explicit base. NEVER the all-scope flag
+          (ISSUE-091's under-report is FIXED..." and running through
+          "...this flag likewise stays out of the blocking job pending a founder
+          decision)." Name it by those words, because it is easy to confuse with the
+          DIFFERENT and NEWER account of the same policy in
+          `TestCIWorkflow_BlockingJobNeverUsesAllOrFileScope`.
+          ⚠ KNOWN STALENESS, SURFACED AND DELIBERATELY NOT FIXED HERE: that ci.yml
+          paragraph says the ban is "pending a founder decision", while the test
+          records a STANDING FOUNDER RULING of 2026-08-17 (ISSUE-152 / ISSUE-156:
+          the ban stays, on the durable basis that CI's blocking job is latency- and
+          scope-sensitive, and it is explicitly not open for re-litigation). The two
+          disagree TODAY, before this lane touches anything. Reconciling them is a
+          real follow-on and belongs to the founder, not to a lane whose subject is
+          JSON emission — so keep the paragraph as it stands, resist the urge to
+          "while I'm here" it, and report the discrepancy at close-out.
+          `stepScript` strips comment lines, so literals in the comment cannot trip a
+          test — but the RUN line must not contain the substring `--file`, which is
+          precisely why the flag is `--json-out` (sharp edges 2, 3).
+
+          UNCHANGED elsewhere in the job: the checkout, the two tool-install steps,
+          the build, `pack install`, `Resolve the diff base`, the
+          `Confirm the self-healing baseline pull landed a file` step (its
+          `if: always() && steps.run_gate.conclusion != 'skipped'` still resolves,
+          because `run_gate` survives), and the `Upload the gate JSON report` step with
+          its `if: always()` and its `gate-report.json` + `cover.out` paths. The
+          `baseline` job is untouched.
+
+          (2) `.gitignore` — comment only, patterns untouched. The `CI RUN DETRITUS`
+          block states that "the diagnostic capture step writes gate-report.json".
+          Re-attribute it to the gate's own `--json-out` write. `gate-report.json` and
+          `ast-grep.zip` MUST STAY IGNORED: the gate's diff scope includes untracked
+          files, so an un-ignored report would put CI's own output into the set the
+          next run blocks on. (The report is written after this run's scope is already
+          computed, so it cannot contaminate its own run — but it would contaminate the
+          next one, and `TestCIWorkflow_LeavesNoUngitignoredDroppings` fails either way.)
+
+          Run `backstop gate` after this task, as the implementer contract requires.
+        files:
+          - .github/workflows/ci.yml
+          - .gitignore
+        claims:
+          - CLM-007
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-002
+          - TASK-003
+          - TASK-004
+
+      - id: TASK-006
+        type: verification
+        title: "Verify the collapsed CI shape: the new pin plus every workflow test that reads the gate job"
+        description: |
+          Run, and read the output:
+
+            go test . -run "TestCIWorkflow" -count=1
+          The WHOLE `TestCIWorkflow` family, not just this lane's new test. Eleven of
+          these read the gate job, and four are load-bearing here:
+            * `TestCIWorkflow_GateRunsOnceAndEmitsTheJSONReportInTheBlockingStep` (new);
+            * `TestCIWorkflow_GateJobProvesTheBaselineLandedAfterTheGate` and
+              `TestCIWorkflow_TheOnlyBaselinePullFollowsEveryGateInvocation` — both
+              rewritten to expect ONE invocation, both still under their original
+              names. Confirm both PASS and that neither name changed (sharp edge 4);
+            * `TestCIWorkflow_BlockingJobNeverUsesAllOrFileScope` — the CLM-009 check.
+              It must pass WITHOUT modification. If it fails, the flag was named
+              `--json-file` and the fix is the flag name, never this test.
+          Also confirm green (they must not have moved):
+          `TestCIWorkflow_BlockingJobRunsBackstopGate`,
+          `TestCIWorkflow_BlockingJobHasNoRawToolInvocations`,
+          `TestCIWorkflow_PackInstallFailureFailsTheJob`,
+          `TestCIWorkflow_GateJobAuthenticatesTheSelfHealingBaselinePull`,
+          `TestCIWorkflow_GateJobGrantsActionsReadWithoutWideningTheWorkflow`,
+          `TestCIWorkflow_LeavesNoUngitignoredDroppings`.
+
+            go test ./cmd/backstop/ -run "TestCIRecipes_GitHubActions" -count=1
+          The comment-only edit must leave the recipe suite exactly as green as it was;
+          a red here means an assertion was touched when only prose was authorized.
+
+            backstop gate --file .github/workflows/ci.yml
+
+          Then confirm BY HAND, because no test can: re-read the edited job top to
+          bottom and check that exactly one step invokes `backstop gate`, that its
+          `run:` line is the single `--json-out` invocation, that `id: run_gate` and
+          the step-level `GH_TOKEN` survived, and that no orphaned fragment of the
+          deleted step's comment remains. A stale half-sentence about "the next step"
+          is exactly the misleading prose this lane exists to remove.
+        files:
+          - .github/workflows/ci.yml
+          - workflows_test.go
+          - cmd/backstop/ci_recipes_github_actions_test.go
+        claims:
+          - CLM-007
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-005
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Phase 4: comprehensive verification
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: phase-4
+    name: "Phase 4: Full-sweep verification — code and artifacts"
+    tasks:
+      - id: TASK-007
+        type: verification
+        title: "Full kill chain over the whole project, plus the mandated set re-run end to end"
+        description: |
+          THE UNSCOPED SWEEP. Run and read:
+
+            backstop gate --all
+
+          Every dimension, whole project. A red attributable to this lane must be
+          FIXED, never waived and never grandfathered — the two Go files and the two
+          workflow/config files this lane touches carry ALL of their findings, not just
+          the new lines. A red that is NOT attributable to this lane must be
+          established as inherited by a real control reading (clean HEAD in a separate
+          worktree) and reported to the founder with the owning issue named — never
+          waived on assertion.
+
+          Then re-run the plan's own mandated set, unscoped, as the final proof:
+
+            go test ./cmd/backstop/ -run "TestGateJSONOut" -race -count=1
+            go test . -run "TestCIWorkflow" -count=1
+
+          All nine `TestGateJSONOut_*` names and all four `TestCIWorkflow` names named
+          in TASK-002 must be PRESENT and PASSING. A missing mandated test name is a
+          broken promise the moment this plan flips to `completed`.
+
+          FINALLY, one end-to-end smoke over THIS repository, which is the only place
+          the flag's real payload can be seen at production scale — run it from the
+          repo root and read the result rather than assuming it:
+
+            ./bin/backstop gate --base HEAD~1 --json-out /tmp/plan-099-smoke.json
+
+          Confirm the human table appeared on the terminal, `/tmp/plan-099-smoke.json`
+          parses as gate/v1 JSON, and the process exit matched the table's verdict.
+          Delete the smoke file afterwards; it must never enter the workspace.
+        files:
+          - cmd/backstop/gate.go
+          - cmd/backstop/gate_json_out_test.go
+          - workflows_test.go
+          - .github/workflows/ci.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-003
+          - TASK-004
+          - TASK-005
+          - TASK-006
+
+      - id: TASK-008
+        type: verification
+        title: "Validate this lane's artifacts and reconcile ISSUE-099 and DIR-024 to what shipped"
+        description: |
+          ★ ORDER IS PART OF THIS TASK: MUTATE FIRST, VALIDATE LAST. This task both
+          CHANGES artifacts and VALIDATES them, and it is the plan's LAST task — nothing
+          downstream re-checks it. A validate run before the reconciliation would assert
+          the pre-mutation state and say nothing about what this task actually ships,
+          which is the vacuous-green shape this repo exists to prevent. Do the three
+          reconciliations, THEN run the validation block, THEN the diff-scoped gate.
+
+          ── (1) RECONCILE THE SOURCE ISSUE ──────────────────────────────────────
+          `issues/ISSUE-099-gate-cannot-emit-json-and-human-together.issue.md` is made
+          stale by this lane in two places — DO NOT rewrite its history, ADD to it, the
+          way its own 2026-08-18 section was added:
+            * the `## Desired behavior` section's "Retirement trigger" paragraph
+              describes work that is now DONE;
+            * `## Impact` quotes ci.yml's two-step block verbatim; that block no longer
+              exists.
+          Whether ISSUE-099 flips to `closed` depends on the close-out rules in force
+          (a formal close needs the lineage and the evidence to support it) and is a
+          founder-facing decision, not this task's to force. What this task OWES is the
+          reconciliation being visible and the status question being ASKED rather than
+          silently answered.
+
+          Route any issue edit through the issue-authoring agent; never hand-edit an
+          artifact's frontmatter.
+
+          ── (2) RECONCILE DIR-024 ───────────────────────────────────────────────
+          `directives/DIR-024-gate-engine-quality.directive.md` — THE EIGHTH
+          SITE, and the one the CLM-008 sweep structurally cannot see because it is not
+          a code file. DIR-024 is `status: active` and lists ISSUE-099 in its
+          `source:`. Its numbered entry 7 ("`gate` cannot emit the human table and JSON
+          in one run — a measured 2x CI cost") is delivered outright by this lane, and
+          three of its statements become actively misleading rather than merely stale:
+            * it cites `--json` at `cmd/backstop/gate.go:33,170-176` — the SAME wrong
+              citation this plan corrects in its notes (the flag is a ROOT persistent
+              flag in `root.go`);
+            * it asserts "no `--json-out` / `jsonOut` flag exists anywhere in
+              `cmd/backstop/`", verified by grep at the time and false the moment
+              TASK-003 lands;
+            * ★ most importantly, its "Accuracy correction... a planner must not trip
+              on" paragraph describes ci.yml's two separately-named steps and says the
+              design reason for the split "should be preserved by whoever closes this".
+              THIS LANE IS WHOEVER CLOSES IT, and it does NOT preserve the split —
+              because the reason the split existed (getting both surfaces cost two
+              invocations) is exactly what `--json-out` removes. Left as written, that
+              sentence instructs the next planner to protect a shape this lane
+              deliberately retired.
+          Route the edit through the DIRECTIVE-authoring agent — a directive is never
+          hand-edited, and `directives/` + `BACKLOG.yml` are the founder's priority
+          layer, so mark the entry delivered and correct the three statements; do NOT
+          reorder, reprioritize, or remove anything. If the authoring agent judges that
+          closing the entry is a founder call, report it rather than forcing it.
+          (DIR-032 also names ISSUE-099, but only as a title reference in a
+          cross-directive line — CHECKED, not a site, no action.)
+
+          ⚠ DIR-024 IS CO-CLAIMED BY A LIVE SIBLING LANE — COORDINATE, DO NOT
+          OVERWRITE. `plans/PLAN-ISSUE-168-sandbox-devnull-write-allowance.plan.yml`
+          (status `draft`, in-flight) declares this same file in the `files:` of its
+          own final task, TASK-008 ("Hand the Linux half to CI..."), which corrects a
+          DIFFERENT numbered entry — the `/dev/null`-vs-network-failure premise, not
+          the ISSUE-099 JSON-emission entry 7. VERIFIED 2026-08-18: different entries,
+          no content collision, so the two corrections COMPOSE. What does not compose
+          is two agents writing the same file from stale reads.
+          Therefore, and this is PLAN-ISSUE-168's own stated rule for this exact file,
+          adopted here verbatim rather than reinvented:
+            * check `git status directives/` BEFORE routing anything. At THIS plan's
+              authoring the file was CLEAN (the backlog-pm edit PLAN-ISSUE-168 recorded
+              as uncommitted has since landed) — but that is a reading with a timestamp,
+              not a standing fact, and it must be re-taken when this task runs;
+            * if the file is modified in the working tree, or PLAN-ISSUE-168's TASK-008
+              is mid-flight, COORDINATE FIRST and hand the correction over with its
+              evidence attached rather than forcing it in. A silent overwrite of another
+              agent's uncommitted work is a defect in this repo, not a shortcut — and
+              this repo has been bitten by exactly that;
+            * if the correction cannot land in this task's window, report it as OWED,
+              by name, rather than as done.
+          Both lanes route through the directive-owning agent, so the coordination
+          point is that agent, not the file.
+
+          ── (3) REPORT WHAT THIS LANE MAKES STALE ELSEWHERE ─────────────────────
+          HEADS-UP FOR THREE IN-FLIGHT SIBLING LANES — REPORT, DO NOT EDIT.
+          `PLAN-ISSUE-163`, `PLAN-ISSUE-165` and `PLAN-ISSUE-168` are all `status:
+          draft` and all carry post-merge CI-reading instructions phrased as "the step
+          BEFORE it writes `gate-report.json`, uploaded as the `gate-report` artifact"
+          (VERIFIED: two sites each, in their notes and in a late task). That step
+          shape is what this lane removes — after the collapse the SAME step both gates
+          and writes the report.
+          THIS IS NOT A SCOPE COLLISION on those PLAN files and none of them is touched
+          here: their operative instructions — download the `gate-report` artifact, read
+          `.scope.files` out of `gate-report.json` — work UNCHANGED, because the
+          artifact, its name, its contents and its `if: always()` upload are all
+          preserved. Only their description of WHICH step produced it goes stale.
+          (PLAN-ISSUE-168 is a separate matter for DIR-024, handled in (2) above — it
+          is a REPORT-ONLY neighbour here and a CO-CLAIMANT there.)
+          Report this to the founder at close-out so three live lanes are not left
+          hunting a step that no longer exists. Do NOT edit another lane's plan to fix
+          its prose: those are in-flight artifacts owned by their own agents, and a
+          drive-by edit is exactly the stray-write hazard that has bitten this repo
+          before.
+
+          ── (4) VALIDATE, AFTER THE MUTATIONS ───────────────────────────────────
+          Run and read — LAST, against the reconciled state, so the reading describes
+          what this task shipped rather than what it inherited:
+
+            backstop artifact validate --plan PLAN-ISSUE-099
+            backstop artifact validate --issue ISSUE-099
+            backstop artifact validate --directive DIR-024
+
+          All three must pass clean. The `--directive` leg is not optional garnish:
+          DIR-024 is in this task's `files:`, this task edits it, and an artifact this
+          lane MUTATES but never VALIDATES is the gap the third leg closes. If the
+          DIR-024 correction was handed off rather than landed (see the coordination
+          rule above), say so and validate the file as it stands — do not skip the run.
+          The artifact-validation dimension also runs inside TASK-007's `gate --all`,
+          but TASK-007 may complete BEFORE these mutations exist; this block is what
+          covers them, and it is why it runs here rather than being delegated upward.
+
+          Then close the task the way TASK-003 and TASK-005 close theirs:
+
+            backstop gate --file issues/ISSUE-099-gate-cannot-emit-json-and-human-together.issue.md
+            backstop gate --file directives/DIR-024-gate-engine-quality.directive.md
+            backstop gate --file plans/PLAN-ISSUE-099-gate-json-out-flag.plan.yml
+
+          Diff-scoped over exactly the three artifacts this task touched. Nothing
+          downstream re-checks this task, so this is the last real reading anyone takes
+          of it — read the output rather than assuming it.
+        files:
+          - plans/PLAN-ISSUE-099-gate-json-out-flag.plan.yml
+          - issues/ISSUE-099-gate-cannot-emit-json-and-human-together.issue.md
+          - directives/DIR-024-gate-engine-quality.directive.md
+        claims:
+          - CLM-007
+          - CLM-008
+        depends_on:
+          - TASK-003
+          - TASK-005
