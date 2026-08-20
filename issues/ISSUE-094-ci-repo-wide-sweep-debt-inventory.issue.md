@@ -141,3 +141,24 @@ No code change accompanies this filing. Verification criteria for the eventual f
   off / removed from the inventory with an explanatory note, without manual bookkeeping.
 - The known baseline (23 errcheck/unparam findings in `pkg/config`, `pkg/check`) appears in the
   first live run of this job as the inventory's seed content.
+
+## Note (2026-08-19)
+
+Reviewed by the founder as part of a full backlog-pm investigation sweep and **parked** — real
+and unbuilt, but nothing is currently blocked by its absence, CI is green, and no existing
+directive charter fits it cleanly. DIR-003, DIR-019, DIR-024, and DIR-025 were all checked and
+ruled out as a home — two of them (DIR-019, DIR-025) are already disclaimed by this issue's own
+text above. Status stays `open`; this is not a scope or priority change, just a record that the
+park decision was made deliberately rather than by neglect.
+
+A concrete precedent worth citing for whoever eventually plans this: `slotly`
+(`/Users/bmanson/src/projects/slotly/.github/workflows/enforce-architecture.yml`, a sibling
+project on this machine — backstop's own origin lineage) runs a working, proven version of this
+idea, but via a **different mechanism** than the "one rolling issue with a per-file checklist"
+shape proposed above. It auto-creates **one GitHub issue per violation**, tagged with an
+idempotent HTML-comment signature (`<!-- arch-violation: $filepath -->`) so re-runs don't
+duplicate, and auto-closes that issue when a later PR fixes the file. Supporting scripts:
+`.github/scripts/check-file-size.sh`, `.github/scripts/check-function-complexity.sh`,
+`.github/scripts/post-complexity-comment.js`. Worth weighing per-violation issues with
+auto-close against the single-rolling-checklist shape when this is eventually planned — it may
+be a better fit for backstop's own gate findings.

@@ -101,3 +101,17 @@ the eventual fix (recorded here so `ready`-promotion inherits a target, not a bl
 - A subsequent gate run against the refreshed baseline does not silently ratchet-clean any
   pack-engine dimension that was previously unevaluated — any newly-surfaced findings from
   now-present engines are visible, not swallowed by the baseline swap.
+
+## Note (2026-08-19)
+
+Status check, no change: criterion 1 above (the `baseline` job installs packs before `baseline
+generate`) has landed, via ISSUE-020's commits — confirmed by direct read of `ci.yml`: `./backstop
+pack install` runs at `ci.yml:312`, ahead of `./backstop baseline generate` at `ci.yml:321`.
+
+Criterion 2 is **not yet demonstrated**: no baseline has ever been committed in this repo
+(`.backstop/baseline.json` is untracked, zero git history for it), which is exactly what DIR-003's
+founder-ratified HOLD (reaffirmed 2026-08-10) protects against. Criterion 1 landing does not prove
+criterion 2 safe — a baseline refresh that silently ratchet-cleans a previously-unevaluated
+pack-engine dimension remains unverified until a baseline is actually generated and pulled.
+
+`status: open` remains accurate. No re-homing — DIR-003 already sources this issue.
