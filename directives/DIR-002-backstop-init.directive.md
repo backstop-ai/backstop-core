@@ -5,8 +5,7 @@ created: "2026-04-19"
 schema_version: directive/v1
 
 directive:
-  status: done
-  completed: "2026-08-20"
+  status: active
   source:
     - "BUNDLE-003"
     - "ISSUE-122"
@@ -223,18 +222,15 @@ alone.
   above): this directive's charter is no longer just BUNDLE-003 delivery
   plus residual cleanup — it now explicitly includes doctor's
   findings-engine tool-detection diagnostic coverage as an ongoing concern.
-- **Closed 2026-08-20 — all sources terminal.** BUNDLE-003 reached
-  `maturity: delivered` 2026-08-20 (v0.11.0); ISSUE-122, ISSUE-124,
-  ISSUE-134, and ISSUE-139 are all `status: closed`. Three BUNDLE-003
-  requirements carry explicit accounting of their own — none of it open
-  work under this directive, all of it the bundle's own bookkeeping: REQ-022
-  (version-skew capability-gap naming) is CARVED OUT / UNOWNED, deferred to
-  BUNDLE-020 once its OQ-2/OQ-3 resolve; REQ-024 (doctor's stack-policy
-  deviation check) is CARVED OUT / UNOWNED, deferred to ISSUE-121 under
-  BUNDLE-004 pending a pack-manifest stack-policy surface that does not yet
-  exist; REQ-033 (pack-only coverage floor) is OWNED-BUT-UNSATISFIED —
-  SPEC-069 shipped a truthful report of the gap rather than the wiring
-  mechanism, with absence claims proving no schema surface was invented to
-  fake it. See BUNDLE-003's own "OWNERSHIP CORRECTION 2026-08-20 (v0.11.0)"
-  and "DELIVERY NOTE 2026-08-20 (v0.11.0)" passages for the full accounting.
-  With every source terminal, this directive is closed.
+- **Correction, 2026-08-20.** This directive was briefly, incorrectly marked
+  `status: done` earlier today on the premise that BUNDLE-003 had reached
+  `maturity: delivered`. That premise was wrong: a real CI failure
+  (`requirement_traceability` going red) caught that BUNDLE-003's
+  `delivered` promotion was itself premature — REQ-022 and REQ-024 are both
+  honestly documented as carved-out/deferred but have zero implemented-spec
+  coverage, which `delivered` does not permit. BUNDLE-003 has been reverted
+  to `status: ready`. ISSUE-122, ISSUE-124, ISSUE-134, and ISSUE-139 remain
+  genuinely `status: closed` — that part of the earlier close-out was
+  correct and is not being touched. This directive stays `active` until
+  REQ-022 and REQ-024 get real implemented-spec coverage or are formally
+  retracted from BUNDLE-003's requirements.

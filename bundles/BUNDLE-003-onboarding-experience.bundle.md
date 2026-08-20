@@ -6,13 +6,13 @@ schema_version: bundle/v2
 
 bundle:
   name: onboarding-experience
-  version: "0.11.0"
+  version: "0.11.1"
   created: "2026-04-09"
   updated: "2026-08-20"
   category: feature
 
 status:
-  maturity: delivered
+  maturity: defined
 
 problem:
   summary: >
@@ -2194,6 +2194,70 @@ consumes and must not pre-empt.
   **Net requirement change: 33 → 33.** Nothing added, retired, or amended. Requirement IDs, seed
   partition, and implementation order unchanged. What changed is maturity, `bundle.updated`, and
   the honesty of three stale prose locations.
+- 0.11.1 (2026-08-20): **The 0.11.0 promotion to `delivered` was premature and is REVERTED to
+  `defined`. CI caught it.** GitHub Actions run 32369061908 failed with
+  `requirement_traceability fail (2 violations)` naming exactly
+  `bundle onboarding-experience requirement REQ-022 has no implemented-spec coverage` and the
+  same for REQ-024, on this file. The immediately-prior run — a docs-only commit, before the
+  promotion — shows that same gate dimension at `pass`, which isolates the promotion as the sole
+  cause. Nothing about the underlying work regressed.
+
+  **WHY `delivered` WAS WRONG — the mechanism, so a future reader does not re-make this move.**
+  The gate holds a strict, mechanical, prose-blind definition of a delivered bundle: EVERY
+  requirement in `requirements[]` must be cited by the `supports:` field of a spec whose own
+  status is `implemented`, full stop. Two pieces of core code compose to enforce it.
+  `pkg/gate/artifact_status.go` (`ClassifyArtifactStatus`) maps artifact status to a class, and
+  for `KindBundle` ONLY the literal string `delivered` resolves to `ClassSuccessTerminal` — idea,
+  exploring, defined and ready all resolve to `ClassNonTerminal`.
+  `pkg/gate/requirement_traceability.go` then walks every bundle requirement lacking
+  implemented-spec coverage and picks its severity from exactly that class: `ClassNonTerminal`
+  yields `severity: "warning"` under rule `StepRequirementTraceabilityAdvisory` (a non-blocking
+  advisory), while `ClassSuccessTerminal` yields `severity: "error"` under rule
+  `StepRequirementTraceability` (BLOCKING). So flipping the maturity string to `delivered` did not
+  merely relabel this bundle — it promoted two pre-existing, already-visible advisories into hard
+  CI failures. The gate does not read the carve-out prose 0.11.0 so carefully wrote; it reads
+  `supports:` edges. REQ-022 (unowned, deferred to BUNDLE-020) and REQ-024 (carved out, blocked on
+  the unowned pack-manifest stack-policy surface — see ISSUE-121, homing under BUNDLE-004) have no
+  such edge by design, and honestly documented absence is still absence to a mechanical check.
+
+  **CORRECTED POSTURE: 31 of 33 requirements carry implemented-spec coverage.** That is the
+  gate's own count and it differs from 0.11.0's prose count of 30-of-33 for a precise reason worth
+  keeping straight: REQ-033 IS pinned by SPEC-069's `supports:`, so it COUNTS as covered
+  traceability-wise even though 0.11.0 correctly describes it as OWNED-BUT-SHIPPED-UNSATISFIED.
+  Coverage and satisfaction are different questions; only the first is what
+  `requirement_traceability` asks. The two genuinely uncovered are REQ-022 and REQ-024.
+  **The 0.11.0 requirement-level accounting prose remains ACCURATE and is deliberately left
+  untouched** — the three postures it names (CONSUMED, CARVED OUT / UNOWNED, OWNED-BUT-
+  UNSATISFIED) all still hold. Only the maturity field was wrong, plus this history's silence
+  about it.
+
+  **THE REVERT TARGET IS `defined`, NOT `ready`, AND THAT IS A DELIBERATE CORRECTION TO THE
+  INSTRUCTION THIS PASS WAS GIVEN.** `ready` was proposed on the premise that it carries the same
+  structural bar as `defined`. Reading `pkg/validate/bundle.go` (`validateMaturityGates`) shows
+  that premise is false: `ready` additionally requires the frontmatter paths
+  `problem.success_criteria` and `solution.assumptions`, and this bundle has NEITHER. Setting
+  `ready` would have traded two blocking traceability violations for two blocking
+  `bundle/maturity-gate` violations — a lateral move, not a fix — unless those two blocks were
+  authored in the same breath, which is new substantive content and a founder-driven promotion,
+  not a revert. `defined` is the exact state this bundle held at commit 8cb40e3, it validates as
+  written, and it is `ClassNonTerminal` — so it restores the REQ-022 / REQ-024 findings to the
+  non-blocking advisories they were before. `defined` and `ready` are mechanically IDENTICAL to
+  the traceability gate; the CI unblock costs nothing by choosing the lower one.
+
+  **WHAT `delivered` WILL REQUIRE, WHENEVER IT IS NEXT ATTEMPTED.** Exactly one of two things,
+  and no third: (a) REQ-022 and REQ-024 each gain real coverage from a spec that reaches
+  `status: implemented` — for REQ-022 the delta spec against SPEC-068 that 0.10.3 anticipated,
+  once BUNDLE-020's OQ-2 and OQ-3 resolve; for REQ-024 an owner for the pack-manifest stack-policy
+  surface via ISSUE-121 / BUNDLE-004. Or (b) a deliberate, version-bumped decision that ownership
+  of one or both has genuinely moved elsewhere, retracting them from this bundle's
+  `requirements[]` and taking the count from 33 to 31. **Neither decision is being made now.**
+  Option (b) in particular is a founder call about scope, not a paperwork convenience for getting
+  a gate green, and choosing it to silence this check rather than because ownership actually moved
+  would be exactly the vacuous green this bundle's own guards seed exists to prevent.
+
+  **Net requirement change: 33 → 33.** No requirement added, retired, amended or re-versioned; no
+  seed re-partitioned; no OQ reopened. What changed is `status.maturity` (`delivered` → `defined`),
+  `bundle.version` (0.11.0 → 0.11.1), and this entry.
 
 ## References
 
