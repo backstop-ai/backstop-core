@@ -100,9 +100,14 @@
 # provenance). Founder's ruling: a direct successor carrying forward the same priority is
 # not new or lower-urgency work, so it inherits the position rather than queuing behind
 # everything else. Everything else keeps its prior relative order.
+#
+# REMOVED 2026-08-20: DIR-002 (backstop init Command) reached `status: done` — all five of
+# its source artifacts are now terminal (BUNDLE-003 promoted to `maturity: delivered`;
+# ISSUE-122, ISSUE-124, ISSUE-134, ISSUE-139 all `status: closed`). Per the 2026-08-02
+# convention above, a `done` directive is removed from this list entirely, not sunk to the
+# bottom — delivery history lives in directives/DIR-002-backstop-init.directive.md and the
+# artifacts that delivered it, not here.
 directives:
-  - id: DIR-002
-    title: backstop init Command
   - id: DIR-033
     title: Gate Verdict Honesty Residual Tail
   - id: DIR-019

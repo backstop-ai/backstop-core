@@ -6,13 +6,13 @@ schema_version: bundle/v2
 
 bundle:
   name: onboarding-experience
-  version: "0.10.3"
+  version: "0.11.0"
   created: "2026-04-09"
-  updated: "2026-08-14"
+  updated: "2026-08-20"
   category: feature
 
 status:
-  maturity: defined
+  maturity: delivered
 
 problem:
   summary: >
@@ -940,6 +940,39 @@ answering another bundle's open questions — which this bundle's own consumptio
 and OQ-3.** This is the same treatment REQ-033 carries as DANGLING and REQ-012 / REQ-013 / REQ-018
 carry as CONSUMED: the requirement stays in the seed, but no spec owns it yet.
 
+**OWNERSHIP CORRECTION 2026-08-20 (v0.11.0) — the doctor seed's 4 are owned 3-by-SPEC-070,
+1-CARVED-OUT.** The table row above reads "`backstop doctor` | REQ-020, REQ-023, REQ-024,
+REQ-025 | 4", which is the correct SEED partition and stays as written — but, exactly as with the
+guards row, it must not be read as "SPEC-070 covers these." SPEC-070 (Backstop Doctor) implements
+THREE: **REQ-020, REQ-023, REQ-025**. **REQ-024 is CARVED OUT — blocked on an unowned
+pack-manifest surface.** The requirement asks doctor to check the installed runtime/toolchain
+version against the stack policy the installed packs declare; verified at HEAD, no pack-declared
+stack-policy surface exists and no artifact owns creating one. SPEC-070 escalated this during
+authoring and it was ruled 2026-08-13 to carve it out rather than invent the field — the SAME
+rule this bundle already applied to REQ-005 v1.1.0, that pack-manifest surface design is
+BUNDLE-004's, not this bundle's. Closing it needs (a) BUNDLE-004 adopting a stack-policy manifest
+surface and probably (b) BUNDLE-021 settling the posture toward probing software already
+installed on the machine. Until then a doctor check would either read nothing (a vacuous check)
+or invent another bundle's surface. **REQ-024 carries NO requirement and NO mandated claim in
+SPEC-070**, which instead holds a TRIPWIRE — an absence claim asserting the check registry holds
+exactly the declared ids and reads no stack-policy surface — so REQ-024 cannot be closed from the
+wrong artifact without a test going red. **`issues/ISSUE-121-pack-manifest-missing-stack-policy-
+surface.issue.md` was filed for the gap (open, created 2026-08-13) and is being homed under
+BUNDLE-004**, so it does not live only as a note. Same posture as REQ-022: the requirement stays
+in the seed, but no spec owns it yet.
+
+**DELIVERY NOTE 2026-08-20 (v0.11.0) — REQ-033 is OWNED but SHIPPED UNSATISFIED.** Unlike
+REQ-022 and REQ-024, REQ-033 (spec-independent coverage floor for the pack-only profile) IS
+pinned by SPEC-069 — but what shipped is an honest REPORT of the gap, not the wired knob. The
+DANGLING flag recorded at 0.10.0 was never cleared: no artifact ever adopted the coverage-floor
+knob REQ-033 depends on, and `backstop.yml`'s `additionalProperties: false` rejects writing it,
+so init reports the gap rather than wiring it. SPEC-069 carries absence claims proving no schema
+surface was invented to fake it. Recorded here so the three postures this bundle now holds are
+distinguishable at a glance: **CONSUMED** (REQ-012 / REQ-013 / REQ-018's local-provenance half —
+another artifact builds it), **CARVED OUT / UNOWNED** (REQ-022, REQ-024 — no spec owns it yet),
+and **OWNED-BUT-UNSATISFIED** (REQ-033 — a spec owns it and shipped a truthful report instead of
+the mechanism).
+
 **Consumed-not-built requirements.** REQ-012, REQ-013 and REQ-018's local-provenance half are
 marked CONSUMED (0.10.0): the mechanisms belong to ISSUE-056 and ISSUE-055 respectively, both
 open on the issue→plan track and both already citing this bundle's own resolved OQ-3/OQ-4 as
@@ -1042,6 +1075,11 @@ Out of Scope separately excluded baseline machinery.
   outside init (DD-6), check runtime version against pack-declared stack policy (the
   unenforced Node-LTS observation), and validate the artifact layout against the canonical
   `.backstop/` root (OQ-1).
+  **CORRECTION (2026-08-20, v0.11.0):** REQ-024 — the runtime-version-vs-stack-policy check — is
+  CARVED OUT and did NOT ship with SPEC-070. The pack-declared stack-policy surface this bullet
+  presumes does not exist at HEAD, and creating it is BUNDLE-004's call, not this bundle's
+  (ruled 2026-08-13; ISSUE-121 filed and open). REQ-023 and REQ-025 shipped as described. See the
+  ownership correction under the seed table above.
 - **MOVED OUT 2026-08-12 (v0.10.0):** the version-skew pair REQ-021 / REQ-022 previously lived
   here. Neither is a check doctor runs — REQ-021 changes what `cmd/backstop/version.go` stamps,
   REQ-022 changes what the `pack add` / `gate` failure path says — so both now sit in the guards
@@ -1516,6 +1554,16 @@ acquisition are deliberately NOT seeds here — they belong to BUNDLE-007 and DI
   resolution lands via REQ-029 (REQ-025). Each check is the diagnosis of a ranked sharp edge
   from the write-ups (DD-8 corollary). Doctor SURFACES the version-skew signals but no longer
   owns them.
+  **CORRECTION (2026-08-20, v0.11.0) — this seed is DELIVERED 3-of-4, not 4-of-4.** SPEC-070
+  (`implemented`) covers REQ-020, REQ-023 and REQ-025. **REQ-024 is CARVED OUT** and carries no
+  requirement and no mandated claim in that spec: the "stack policy the installed packs declare"
+  named above is a pack-manifest surface that does not exist at HEAD, and inventing it would be
+  this bundle designing BUNDLE-004's surface — the same rule that produced REQ-005 v1.1.0's
+  accepted residue. Ruled 2026-08-13 during spec authoring; `issues/ISSUE-121-pack-manifest-
+  missing-stack-policy-surface.issue.md` owns the gap (open) and is being homed under BUNDLE-004.
+  SPEC-070 guards the carve-out with an absence claim asserting its check registry reads no
+  stack-policy surface, so no implementer can close REQ-024 from the wrong artifact silently. The
+  seed PARTITION is correct and unchanged — REQ-024 belongs here; it simply has no owner yet.
   ~~Covers: binary version stamp present (commit+date, not bare `dev`) and binary-vs-pack
   capability skew (DD-9).~~ **CORRECTION (2026-08-12, v0.10.0), two defects in one clause:**
   (1) the phrase "not bare `dev`" is the withdrawn wording — REQ-021 was corrected on 2026-08-11
@@ -2084,6 +2132,68 @@ consumes and must not pre-empt.
   **Net requirement change: 33 → 33.** No requirements added or retired. Amended to new versions
   with dated corrections: REQ-016, REQ-017 (both → v1.2.0). Seed partition, requirement IDs,
   and implementation order are unchanged.
+
+- 0.11.0 (2026-08-20): **Promoted to `delivered` — founder-ruled.** All three spec seeds are
+  built and their specs are `status: implemented`: **SPEC-068** (Trustworthy Green Guards),
+  **SPEC-069** (Backstop Init), **SPEC-070** (Backstop Doctor) — implemented in that order, which
+  is the sequencing this bundle's Spec Seeds section prescribed (guards first, because REQ-004 is
+  unimplementable without REQ-029 and every acceptance claim the other two seeds make is only as
+  trustworthy as the validator asserting it). No requirement was added, retired, or amended in
+  this pass; no seed was re-partitioned; no OQ was reopened. All seven OQs have been resolved
+  since 2026-07-13 (0.6.0). This entry records the maturity change, the `bundle.updated` bump, and
+  the two staleness corrections below. `delivered` is the schema's success-terminal maturity
+  (`artifacts/bundle/v2/schema.json` enum); note it is NOT treated as terminal by the validator's
+  exemption path, so the `requirements[]` array remains required and remains populated at 33.
+
+  **PROMOTION IS FOUNDER-RULED, NOT SELF-ASSESSED.** The founder ordered this promotion after the
+  underlying work was jointly verified as done. Facts were re-verified independently before
+  writing rather than taken on the brief's word — each spec's `status` read from its own
+  frontmatter, and every `onboarding-experience:REQ-NNN` in the three specs' `supports:` fields
+  diffed against this bundle's 33 requirement ids. That diff is what surfaced the second carve-out
+  below, which the brief had not named; it was escalated to the founder and the promotion was
+  re-authorized on the corrected three-item picture rather than proceeding on the original
+  one-item one.
+
+  **READ `delivered` PRECISELY: 30 of 33 requirements have a shipping mechanism, and the
+  remaining three are accounted for in three DIFFERENT postures.** This bundle is delivered in the
+  sense that its seeds are specced and implemented and no further spec work is queued against it —
+  NOT in the sense that every requirement has running code behind it. The three:
+
+  1. **REQ-022 — UNOWNED, deferred to BUNDLE-020.** Recorded at 0.10.3. SPEC-068 pins seven of
+     the guards seed's eight and deliberately declined this one: its v1.1.0 text defers the
+     mechanism wholly to BUNDLE-020 (Pack Core Version Compatibility), whose DD-4 is
+     founder-resolved (capability-SET comparison, not version ordering) but whose OQ-2
+     (enforcement point) and OQ-3 (failure posture) are both still OPEN, with BUNDLE-020 itself
+     still `exploring`. Future owner: a delta spec against SPEC-068 once those resolve.
+  2. **REQ-024 — CARVED OUT, blocked on an unowned pack-manifest surface. NEW IN THIS PASS.**
+     SPEC-070 implements REQ-020, REQ-023 and REQ-025, and carries no requirement and no mandated
+     claim for REQ-024. The pack-declared stack-policy surface it would read does not exist at
+     HEAD and no artifact owns creating it; ruled 2026-08-13 to carve it out rather than invent
+     the field, on the same rule that produced REQ-005 v1.1.0's accepted residue — pack-manifest
+     surface design is BUNDLE-004's. `issues/ISSUE-121-pack-manifest-missing-stack-policy-
+     surface.issue.md` is filed (open, 2026-08-13) and is being homed under BUNDLE-004. SPEC-070
+     holds a tripwire absence claim asserting its check registry reads no stack-policy surface, so
+     the carve-out cannot be closed from the wrong artifact without a test going red.
+  3. **REQ-033 — OWNED but SHIPPED UNSATISFIED.** Distinct from the other two: SPEC-069 DOES pin
+     it, but what shipped is an honest report of the gap rather than the wired coverage floor. The
+     DANGLING flag raised at 0.10.0 was never cleared — no artifact adopted the knob, and
+     `backstop.yml`'s `additionalProperties: false` rejects writing it — so init reports and
+     SPEC-069 carries absence claims proving no schema surface was invented to fake it.
+
+  **STALENESS — the doctor seed read as 4-of-4 covered.** The same defect 0.10.3 fixed for the
+  guards seed was still live for the doctor seed: the Draft Requirements table row, the Standalone
+  diagnostics bullet, and the `backstop doctor` spec-seed bullet all described REQ-024 as in scope
+  and delivered, with nothing recording the 2026-08-13 carve-out. Three dated corrections added
+  (one ownership block under the seed table, one on the diagnostics bullet, one on the seed
+  bullet). The seed PARTITION is correct in every case and is unchanged — REQ-024 belongs to the
+  doctor seed; it simply has no spec owner. A fourth note was added under the seed table
+  distinguishing the three postures this bundle now holds — CONSUMED (REQ-012 / REQ-013 /
+  REQ-018's local-provenance half), CARVED OUT / UNOWNED (REQ-022, REQ-024), and
+  OWNED-BUT-UNSATISFIED (REQ-033) — so a future reader is not left to infer them.
+
+  **Net requirement change: 33 → 33.** Nothing added, retired, or amended. Requirement IDs, seed
+  partition, and implementation order unchanged. What changed is maturity, `bundle.updated`, and
+  the honesty of three stale prose locations.
 
 ## References
 

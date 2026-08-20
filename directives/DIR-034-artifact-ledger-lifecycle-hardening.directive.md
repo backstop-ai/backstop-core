@@ -13,13 +13,15 @@ directive:
     - "ISSUE-072"
     - "ISSUE-089"
     - "ISSUE-074"
+    - "ISSUE-181"
 ---
 
 ## Description
 
 Backstop dogfoods its own "no ledger-numbered artifact ever collides, no
 closed artifact is ever vacuous" invariants — this directive is where the
-gaps in that dogfooding live. Six issues, two themes:
+gaps in that dogfooding live. Seven issues, two themes plus one later
+addition (see below):
 
 **Theme A — the ID ledger itself doesn't reconcile (ISSUE-167 +
 ISSUE-090).** `pkg/scaffold/idresolver.go` runs two independent ID
@@ -86,6 +88,25 @@ directive:**
   existing writeup and the reason relock's read-modify-write shape makes
   it structurally different from its siblings.
 
+**A seventh issue, homed here 2026-08-20 (ISSUE-181), joins as the same
+class of gap as Theme A/B above but at the bundle layer.** No mechanism
+detects when a bundle's cited spec seeds all reach `implemented`/terminal
+status and flags the bundle itself for a maturity-promotion review — the
+same shape as ISSUE-167/090's ID ledger and ISSUE-071/072's closed-issue
+vacuity: a status/lifecycle field (here, bundle `maturity`) that nothing
+mechanically reconciles against the reality it's supposed to reflect, so it
+silently drifts stale instead of loudly asking for a decision. Discovered
+concretely, not theoretically: BUNDLE-003 sat at `maturity: defined` for
+five days after its last spec seed (SPEC-070) shipped `implemented` on
+2026-08-15, surfacing only because the founder asked directly during an
+unrelated backlog review "how is init still open." ISSUE-181 confirmed by
+direct search of `pkg/gate/` and `pkg/validate/` that no existing check
+joins bundle maturity to its cited specs' completion state — this is a gap
+in kind, not a failing check. Per this repo's CLAUDE.md convention that
+maturity promotion stays founder-gated, the fix is a loud, non-blocking
+advisory naming the bundle promotion-ready, not auto-promotion — the same
+"loud ≠ blocking" posture this directive's other members already follow.
+
 ## Acceptance Criteria
 
 - `pkg/gate/step_deferred.go`'s `ledger_integrity` step performs a real
@@ -107,10 +128,14 @@ directive:**
   `<path>`, not the whole corpus (ISSUE-089).
 - `pack relock` accepts a pack name, consistent with `remove`/`update`/
   `upgrade` (ISSUE-074 residual).
+- A bundle not in a terminal maturity state whose cited spec seeds are all
+  `implemented`/terminal produces a loud, non-blocking promotion-ready
+  advisory (ISSUE-181), without auto-promoting maturity.
 
 ## Notes
 
-Six issues, two themes, grouped under one directive per this repo's own
+Seven issues, two themes plus one later addition, grouped under one
+directive per this repo's own
 directive-authoring convention (granular work rolls up under a directive;
 it doesn't each get its own one-issue directive). ISSUE-090 and ISSUE-167
 are cited together deliberately — same root-cause code
