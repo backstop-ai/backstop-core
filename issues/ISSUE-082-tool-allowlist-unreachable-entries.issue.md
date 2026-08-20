@@ -1,13 +1,15 @@
 ---
 title: "Tool Allowlist Unreachable Entries"
 schema_version: issue/v1
+delivered_by: PLAN-ISSUE-082
 
 issue:
   id: ISSUE-082
   title: "Tool Allowlist Unreachable Entries"
   type: technical-debt
-  status: open
+  status: closed
   created: "2026-07-26"
+  closed: "2026-08-19"
 
 complexity:
   scope: isolated
@@ -139,6 +141,26 @@ security-adjacent comment, worth draining, but backstop is not unusable without 
 The three launch blockers remain recipes (SPEC-054), remote pack consumption (DIR-026 /
 SPEC-055), and Linux/CI viability (ISSUE-020). This issue should not be triaged ahead of
 those three.
+
+## Resolution
+
+Fixed at commit `d534e2a`, delivered by `PLAN-ISSUE-082` (`status: completed`). `TrustedToolAllowlist()`
+(`pkg/pack/engine/allowlist.go`) now declares only `semgrep`, `ast-grep`, and `grep` — the five
+unreachable entries (`rg`, `oxlint`, `bun`, `tsc`, `prettier`) and their accompanying `//
+nosemgrep: no-baked-language-token` suppression are deleted outright, not reworded or relocated.
+The doc comment now states the actual guarantee (trust floor for tools backstop itself
+provisions/pins via the Provision/lock path) rather than the false "no matter what a pack
+declares" blanket claim.
+
+A new falsifying test, `pkg/pack/engine/allowlist_reachability_test.go`, asserts both directions
+(the five removed names are absent, the three kept names are present) and that no suppression
+marker (`nosem`/`@waiver:`) rides anywhere in the file. Two dependent specs whose mandated tests
+had asserted membership of the removed entries were corrected in the same effort (SPEC-047
+v1.2.1, SPEC-038 v1.2.2) — those assertions were vacuous from inception (the covered tools never
+carried a Provision block, so they never reached the allowlist check at runtime), not drift.
+
+Verified via an isolated-worktree HEAD control diff: zero net-new blocking violations; `gate
+--all`'s pre-existing reds are byte-identical to HEAD's pre-existing debt.
 
 ## References
 

@@ -6,13 +6,15 @@ issue:
   id: ISSUE-149
   title: "Plan Issue 010 Allscope Claim Superseded"
   type: technical-debt
-  status: open
+  status: closed
   created: "2026-08-16"
+  closed: "2026-08-19"
 
 complexity:
   scope: isolated
   uncertainty: known
   risk: safe
+resolved-by: b113d1286a3e7376d0cd40e85e4d5b61f405c76
 ---
 
 # Plan Issue 010 Allscope Claim Superseded
@@ -80,6 +82,17 @@ breaks.**
 As context (not this issue's own work): PLAN-ISSUE-091 TASK-003 declares
 `TestPackEngines_AllScope_RestoresWholeRepoScan` in its **own** `test_names:` block, so the name
 becomes gate-enforced for the first time by PLAN-ISSUE-091's doing, not PLAN-ISSUE-010's.
+
+## Resolution
+
+This issue's own filed text is the complete deliverable — per `PLAN-ISSUE-091` TASK-006 item 1 /
+CLM-009 ("consequences are filed, not absorbed"), the correction to `PLAN-ISSUE-010`'s superseded
+CLM-004 claim prose is retracting-by-filing, not a fix that lands in source. Nothing further to
+build: the "What survives and what is retracted" section above is the resolution itself.
+
+Filed and committed at `b113d1286a3e7376d0cd40e85e4d5b61f405c76`, alongside its sibling
+`ISSUE-150`. No backing plan implements this issue — none is needed, since the record itself is
+the artifact — so it closes via `resolved-by` rather than `delivered_by`.
 
 ## References
 

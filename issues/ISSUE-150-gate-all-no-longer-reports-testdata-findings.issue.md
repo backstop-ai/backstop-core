@@ -6,13 +6,15 @@ issue:
   id: ISSUE-150
   title: "Gate All No Longer Reports Testdata Findings"
   type: technical-debt
-  status: open
+  status: closed
   created: "2026-08-16"
+  closed: "2026-08-19"
 
 complexity:
   scope: isolated
   uncertainty: known
   risk: safe
+resolved-by: b113d1286a3e7376d0cd40e85e4d5b61f405c76
 ---
 
 # Gate All No Longer Reports Testdata Findings
@@ -116,6 +118,21 @@ gate-enforced mandated tests. There is therefore **no asymmetry** between this f
 `ISSUE-149` (which retracts PLAN-ISSUE-010's CLM-004 prose under the identical no-`test_names:`
 condition) — both completed plans are pure prose-only mandates on this point, and neither
 retraction reds any gate dimension.
+
+## Resolution
+
+Like `ISSUE-149`, this issue's filed text is itself the complete deliverable — per
+`PLAN-ISSUE-091` TASK-006 item 2 / CLM-009. The "measured cost" and "completed-plan claim
+retraction" sections above ARE the resolution: a founder-visible record of the subtractive
+behavior change (`gate --all` no longer reports testdata findings) and the corresponding
+retraction of `PLAN-ISSUE-040` CLM-005's all-scope claim. The open question for the founder
+(whether the lost testdata-content-audit view is worth a separate flag) remains genuinely open
+and is NOT resolved by this closure — closing this issue records the consequence, it does not
+answer that question.
+
+Filed and committed at `b113d1286a3e7376d0cd40e85e4d5b61f405c76`, alongside its sibling
+`ISSUE-149`. No backing plan implements this issue, so it closes via `resolved-by` rather than
+`delivered_by`.
 
 ## References
 
