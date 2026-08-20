@@ -45,10 +45,20 @@ cmd/backstop/    CLI entrypoint
 pkg/             Go packages (gate orchestration, pack lifecycle, validation, schema loading)
 artifacts/       Primitive schemas, templates, and docs (versioned)
 recipes/         Recipe capability primitives
-docs/            Internal codebase map (not end-user documentation yet)
+docs/            Documentation — end-user guides plus the internal codebase map
 ```
 
 Packs — the actual checks backstop runs — live in their own repos and install into gitignored `.backstop/packs/`, the same way `node_modules` works for a JS project. See [backstop-ai](https://github.com/backstop-ai) for the published packs.
+
+## Documentation
+
+- [Getting Started](docs/getting-started.md) — install, initialize a project, add your first pack, run the gate.
+- [Concepts](docs/concepts.md) — what backstop is, what a pack is, and why the gate works the way it does.
+- [CLI Reference](docs/cli-reference.md) — every command and flag.
+- [Pack Authoring](docs/pack-authoring.md) — write, validate, and publish your own checks.
+- [Artifact Workflow](docs/artifact-workflow.md) — bundles, specs, plans, issues, and how lineage is traced.
+
+`docs/CODEBASE-MAP.md` is internal-facing — a navigational map of this repo for contributors, not end-user documentation.
 
 ## License
 

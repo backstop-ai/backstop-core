@@ -1,0 +1,6 @@
+theme: jekyll-theme-cayman
+title: Backstop
+description: An AI agent discipline framework
+markdown: kramdown
+exclude:
+  - CODEBASE-MAP.md
