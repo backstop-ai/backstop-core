@@ -2,13 +2,146 @@
 plan_id: PLAN-ISSUE-165
 spec_id: ISSUE-165
 created: "2026-08-18"
-status: draft
+status: completed
 target_repo: backstop-core
 target_module: github.com/backstop-ai/backstop-core
 test_command: "go test ./pkg/packval/ -run \"TestSandboxLinux_ProductionPathUsesTheRealABIProbe|TestSandboxLinux_ABIProbeWiringGuardFalsifiesEachDefectShape\" -v -count=1"
 coverage_threshold: 90
 
 notes: |
+  ══════════════════════════════════════════════════════════════════════════════
+  ★ AS-BUILT — CLOSED 2026-08-19.  status: draft -> completed
+  ══════════════════════════════════════════════════════════════════════════════
+  DELIVERED IN FULL, AND CONFIRMED ON REAL LINUX CI. All 5 tasks executed; two
+  adversarial review rounds signed off CLEAN before implementation, and a THIRD
+  adversarial pass DURING implementation found three more evasions (below).
+
+  PROVENANCE: this plan WAS committed BEFORE implementation, as `5ba2fcf`
+  ("plan(ISSUE-165): sandbox ABI-probe wiring guard rewrite -- 2 review rounds,
+  ready to implement"), so an as-reviewed baseline exists — `git show 5ba2fcf:` on
+  this file's path. The phases, tasks, claim mappings and original prose below
+  this banner are UNCHANGED historical record and were deliberately NOT rewritten.
+
+  SHIPPED IN TWO COMMITS:
+    · `8d357064` (`8d357064bbb004c94acddf7328d451d1f63936c7`, authored
+      2026-08-18 09:32:52 -0400) — "fix(ISSUE-165): move the ABI-probe wiring guard
+      to an untagged file, rewrite it seam-aware". 3 files, +971/-70:
+        NEW   pkg/packval/sandbox_wiring_guard_test.go              (+961 L)
+        EDIT  pkg/packval/sandbox_linux_errors_test.go            (+4/-69 L)
+                — the OLD linux-tagged guard REMOVED from here; that deletion
+                  IS the fix, not collateral cleanup.
+        EDIT  .claude/agent-memory/implementer/
+                feedback_gostandards_rule_mechanics.md              (+6/-1 L)
+    · `fc2b8ce` (`fc2b8ce29c9c7f336c4797f927191d31174ff714`, authored
+      2026-08-18 10:44:00 -0400) — "fix(ISSUE-165): close 2 more adversarially-found
+      evasions in the wiring guard". 3 files:
+        EDIT  pkg/packval/sandbox_wiring_guard_test.go           (+209/-15 L)
+        EDIT  .claude/agent-memory/implementer/MEMORY.md         (+109/-108 L)
+        NEW   .claude/agent-memory/implementer/
+                project_rebind_scan_incomplete_two_dimensions.md     (+43 L)
+
+  ── WHAT LANDED, BY PHASE ─────────────────────────────────────────────────────
+  Phase 1 (TASK-001/002/003) — the defect was a Linux-only AST wiring guard
+    asserting a property its own production code could not satisfy. The fix is
+    STRUCTURAL, and its distinguishing structure was verified at close rather than
+    inferred: `pkg/packval/sandbox_wiring_guard_test.go` carries NO `//go:build`
+    line. The guard was MOVED OUT of the `//go:build linux` file
+    (`sandbox_linux_errors_test.go`, -69 L) into an untagged one, which is why it
+    now runs — and is genuinely falsifiable — on darwin, where its subject compiles.
+    TASK-001 wrote the falsification table; TASK-002 wrote the seam-aware checker
+    and moved the guard onto it KEEPING ITS NAME
+    (`TestSandboxLinux_ProductionPathUsesTheRealABIProbe` — a mandated name that
+    survived the rewrite as a body change and a file move, never as a rename);
+    TASK-003 measured the guard running for real on darwin plus the linux-tagged
+    half cross-compiled.
+  Phase 2 (TASK-004/005) — full kill chain, then the CI handoff. `b1a62f8` recorded
+    ISSUE-165's verification ceiling and filed the deferred follow-on (see below).
+
+  ── THE THIRD ADVERSARIAL ROUND, RECORDED HONESTLY ────────────────────────────
+  Impl-review prototyped the rewritten guard against the REAL shipped code and
+  found THREE silent-green evasions BEYOND the two plan-review rounds. `fc2b8ce`
+  closed two of them plus a cosmetic gap, each pinned by a dedicated fixture and
+  each confirmed BY MUTATION (the fixture fails when its own rule is removed):
+    · L1 — the DISPATCH seam had no re-bind protection at all, despite the guard's
+      own documentation calling it the more critical of the two seams.
+    · L2 — the re-bind scan matched only `AssignStmt`, missing var-form
+      declarations.
+    · cosmetic — a blank-identifier prober parameter produced nonsense advice
+      instead of being flagged as its own defect shape.
+  THE THIRD EVASION WAS DEFERRED, NOT CLOSED: a closure parameter shadowing the
+  outer injected prober needs FuncLit-parameter-shadow detection, judged a larger
+  change than warranted for a test-only regression guard. It was filed as ISSUE-170
+  (`issues/ISSUE-170-wiring-guard-funclit-parameter-shadow-gap.issue.md`, +131 L,
+  committed in `b1a62f8`) and REMAINS OPEN. This plan does not absorb it.
+
+  ── EVIDENCE AT CLOSE ─────────────────────────────────────────────────────────
+  RE-VERIFIED BY THE CLOSING AGENT (run at close-out against a CLEAN tree, NOT
+  carried forward from the implementation run):
+    · This plan's own `test_command`, verbatim:
+      -> BOTH mandated tests PASS, neither SKIPPED, ON DARWIN — which is itself the
+         proof that the move off `//go:build linux` worked. Package `ok` at 0.637s.
+    · The falsification table ran all FOURTEEN legs. Enumerated here so a future
+      reader can see the sweep is not vacuous and can spot a silently-trimmed one:
+        positive control: the correct four-site shape · fake prober at a dispatch
+        seam · literal probeLandlockABI at an inner seam · the full option-(a) shape
+        (parameter renamed to probeLandlockABI AND forwarded correctly) · trailing
+        decoy LandlockABIProbe parameter, separate fields · trailing decoy
+        LandlockABIProbe parameter, grouped field · foreign identifier at an inner
+        seam · re-bound prober identifier inside the seam body · re-bound prober
+        identifier inside a DISPATCH seam body (L1) · declaration-form shadow of the
+        prober parameter (L2) · blank-identifier prober parameter (cosmetic) · a
+        tracked call in an unclassified enclosing function · a deleted dispatch seam
+        shows up in the counts · a zero-argument tracked call is a violation, not a
+        panic.
+      The three legs marked L1 / L2 / cosmetic are `fc2b8ce`'s additions; the rest
+      are `8d357064`'s.
+
+  ★ REAL LINUX CI CONFIRMATION. Partial confirmation already existed when the issue
+  was annotated, and the issue says exactly that rather than claiming more: CI run
+  `32143000202` covered `8d357064`, while run `32150146086` (the `fc2b8ce`
+  follow-up) was still `in_progress` at that writing. FULL confirmation is the two
+  consecutive successful `CI` runs on `main` after every fix in this family landed:
+    · run `32314302525` — workflow `CI`, branch `main`, headSha
+      `9f4763b23a528123a064d10d682a8959a611da72`, conclusion `success`,
+      created 2026-08-19T23:41:23Z.
+    · run `32315586649` — workflow `CI`, branch `main`, headSha
+      `7546cc96036c7ea45d30f52f1cfa121628209ae6`, conclusion `success`,
+      created 2026-08-20T00:00:20Z.
+    NOT VACUOUS, AND CHECKED RATHER THAN ASSUMED: run `32314302525`'s "Backstop
+    Gate" job lists "Run the gate" at conclusion `success`. Both are genuine `main`
+    runs (headSha == the `main` commit itself), NOT PR-branch runs.
+
+  ── AS-BUILT DELTAS ───────────────────────────────────────────────────────────
+   1. The guard was strengthened THREE times, not once: two plan-review rounds
+      before `8d357064`, then a third adversarial round after it that produced
+      `fc2b8ce`. The plan as written below anticipated a single implementation
+      commit, so the falsification table described below this banner lists FEWER
+      defect shapes than the shipped test carries. The shipped table is a SUPERSET;
+      the three extra legs are named above. Nothing was removed.
+   2. `TestSandboxLinux_ProductionPathUsesTheRealABIProbe` kept its mandated name
+      through a total rewrite of its body AND a move to a different file. That is
+      deliberate and matches the convention: a mutation-found gap is closed as a new
+      leg under an existing mandated name, never by minting a new one.
+
+  ── WHAT THIS LANE DID NOT DO (recorded, not absorbed) ────────────────────────
+   · ISSUE-170 (FuncLit-parameter-shadow detection) REMAINS OPEN. It is the third,
+     deliberately deferred evasion — evidence FOR that issue, not a fix for it.
+   · ISSUE-169 (`sandbox-helper doc comment stale probe claim`, also filed in
+     `b1a62f8`) REMAINS OPEN and was never this lane's.
+   · The Linux runtime behaviour of the sandbox was NOT verified locally, and this
+     plan never claimed it was — TASK-005 recorded that ceiling. `sandbox_linux.go`
+     and `sandbox_linux_helper.go` are `//go:build linux` and never compile on
+     darwin. The CI runs above are the confirmation.
+
+  ── CLOSE-OUT NOTE ────────────────────────────────────────────────────────────
+  This flip is the FIRST of two ordered edits. `ISSUE-165` is deliberately left at
+  `status: open` by this dispatch: `delivered_by: PLAN-ISSUE-165` re-validates the
+  backing plan, so a committed closed issue pointing at a `draft` plan is a broken
+  HEAD — which is why this file moves first. The issue close is a separate routed
+  dispatch, ordered AFTER this flip. No issue file was touched here.
+  Re-validated AFTER the mutations with `backstop artifact validate --plan`.
+  ══════════════════════════════════════════════════════════════════════════════
+
   ISSUE-165 — `TestSandboxLinux_ProductionPathUsesTheRealABIProbe`
   (`pkg/packval/sandbox_linux_errors_test.go`) is an AST wiring guard that walks
   `sandbox_linux.go` for every call to `linuxSandboxedRunWith`,

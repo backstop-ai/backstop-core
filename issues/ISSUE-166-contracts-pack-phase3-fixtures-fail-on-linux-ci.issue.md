@@ -1,13 +1,15 @@
 ---
 title: "Contracts Pack Phase3 Fixtures Fail On Linux Ci"
 schema_version: issue/v1
+delivered_by: PLAN-ISSUE-166
 
 issue:
   id: ISSUE-166
   title: "Contracts Pack Phase3 Fixtures Fail On Linux Ci"
   type: bug
-  status: open
+  status: closed
   created: "2026-08-18"
+  closed: "2026-08-19"
 
 complexity:
   scope: cross-cutting
@@ -349,6 +351,33 @@ core is now relocked to `1.4.0`; `TestInstalledGoContractsPack_CarriesFilenameHe
 confirmed green. What remains is to flip `PLAN-ISSUE-166` to `completed` and close this issue via
 `delivered_by: PLAN-ISSUE-166`. Until then this issue accurately reflects reality by staying `open`
 with this note, rather than a `closed` status its own close-out has not yet performed.
+
+## Resolution
+
+Fixed at commit `f8b3846`, delivered by `PLAN-ISSUE-166` (`status: completed`). Root cause: GNU
+grep (Linux CI's `ubuntu-latest`) silently omits the filename prefix when scanning exactly one
+explicit file, unlike BSD grep (darwin), which always includes it — breaking the
+`file:line:text` assumption in every repo-owned grep→SARIF convert script and producing a silent
+false negative on the `contract-absence` rule. Fixed with both halves: force the input shape
+(`-H -I` at every grep dispatch site) and make the drop loud (every convert script now refuses,
+rather than silently drops, a stdin line it cannot parse).
+
+**Lineage correction, stated plainly.** This issue's own plan originally expected the relock
+that satisfies its `TASK-008`/`TASK-009` to land core at `backstop-ai/go-contracts` v1.3.0. That
+version turned out to still carry a separate, unrelated, pre-existing inverted-fixture-polarity
+defect (`ISSUE-157`) that blocked `pack update` from ever landing it. The actual relock that
+satisfied this plan's tasks came from `PLAN-ISSUE-157` (commit `0943ec4`), landing core at
+`backstop-ai/go-contracts` v1.4.0, not v1.3.0.
+
+Confirmed genuinely proven, not just locally verified: real Linux CI runs `32314302525` and
+`32315586649`, both `conclusion: success` on `main`.
+
+4 follow-on issues were filed from this investigation and remain their own separate,
+already-existing closures, cited here rather than absorbed: `ISSUE-174` (pack-source/external-
+mirror sync gap), `ISSUE-175` (orphaned `convert:` reference), `ISSUE-176` (CI `gate` job's
+missing `.backstop/baseline.json`), `ISSUE-177` (`TestInstallContractsLocalPack_
+InstallsWithSuppliedCommand` anomaly). `SPEC-069`'s stale prose was also corrected as part of
+this same lineage, separately.
 
 ## References
 

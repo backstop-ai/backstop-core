@@ -2,13 +2,174 @@
 plan_id: PLAN-ISSUE-168
 spec_id: ISSUE-168
 created: "2026-08-18"
-status: draft
+status: completed
 target_repo: backstop-core
 target_module: github.com/backstop-ai/backstop-core
 test_command: "go test ./pkg/packval/ -run \"TestSandboxCapability_DevNull|TestSandboxCapability_HandlesWriteRightsAndGrantsNone|TestSandboxCapability_SystemPathsKeepInterpreterReadable|TestSandboxProfileGrantsDevNullWriteAndNothingElse|TestSandboxDarwin_DevNullIdiomRunsUnderTheRealProfile|TestSandboxSecurityDenialsHold|TestLinuxSandbox_DevNullWriteIsPermittedAndOtherWritesAreNot\" -race -count=1"
 coverage_threshold: 90
 
 notes: |
+  ══════════════════════════════════════════════════════════════════════════════
+  ★ AS-BUILT — CLOSED 2026-08-19.  status: draft -> completed
+  ══════════════════════════════════════════════════════════════════════════════
+  DELIVERED IN FULL, AND CONFIRMED ON REAL LINUX CI. All 8 tasks executed; two
+  adversarial review rounds signed off CLEAN before implementation.
+
+  PROVENANCE: this plan WAS committed BEFORE implementation, as `73c9d5d`
+  ("plan(ISSUE-168): /dev/null write allowance on both sandbox platforms -- 2
+  review rounds, ready to implement"), so an as-reviewed baseline exists — `git
+  show 73c9d5d:` on this file's path. The phases, tasks, claim mappings and
+  original prose below this banner are UNCHANGED historical record and were
+  deliberately NOT rewritten.
+
+  SHIPPED IN TWO COMMITS:
+    · `4f3a810` (`4f3a810213db4c6a5c141485c6e289ae0ae34017`, authored
+      2026-08-18 09:25:57 -0400) — "fix(ISSUE-168): grant a narrow /dev/null write
+      exception on both sandbox platforms". 9 files, +678/-3:
+        EDIT  pkg/packval/sandbox_capability.go               (+92/-1 L)  TASK-004
+        EDIT  pkg/packval/sandbox_nonlinux.go                 (+27/-1 L)  TASK-005
+        NEW   pkg/packval/sandbox_devnull_test.go               (+249 L)  TASK-001
+        NEW   pkg/packval/sandbox_darwin_test.go                (+122 L)  TASK-002
+        EDIT  pkg/packval/sandbox_linux_exec_test.go            (+104 L)  TASK-003
+        EDIT  pkg/packval/sandbox_capability_test.go          (+28/-1 L)  TASK-001
+        EDIT/NEW  3 .claude/agent-memory/implementer/ files
+    · `23b08ac` (`23b08acb6e92eab0ecfef31c921bd1119ddd0f85`, authored
+      2026-08-18 10:32:46 -0400) — "fix(ISSUE-168): exclude sandbox_nonlinux.go from
+      coverage on CI". 1 file, +1 L: `.backstop/coverage-exclusions`.
+
+  ── THE DEFECT, IN ONE LINE ───────────────────────────────────────────────────
+  Neither sandbox platform granted write access to `/dev/null`, so the universal
+  shell idiom `command -v foo >/dev/null 2>&1` died with "cannot create /dev/null:
+  Permission denied" and exit 127 inside ANY pack's convert script — which reads as
+  a missing tool rather than a sandbox denial.
+
+  ── THE TWO PLATFORM HALVES ───────────────────────────────────────────────────
+  BOTH halves verified present at HEAD at close-out, read directly rather than
+  inferred from a line number a later commit could have moved:
+    · LINUX (Landlock, `pkg/packval/sandbox_capability.go`) — a `sandboxDevNullPath`
+      constant and a `landlockDevNullRights()` derivation contributing ONE
+      unconditional rule appended after both loops, with an exact mask. The
+      surrounding commentary justifies each right individually: WRITE_FILE (the
+      point), IOCTL_DEV (/dev/null is a CHARACTER DEVICE), READ_FILE (`</dev/null`
+      as empty stdin). It also records WHY the obvious alternative —
+      `WritablePaths: []string{"/dev/null"}` — was rejected: that spelling would
+      assert "you may create directories under /dev/null", which is a lie.
+    · DARWIN (sandbox-exec, `pkg/packval/sandbox_nonlinux.go`) — the profile string
+      now ends `(deny file-write*)(allow file-write* (literal "/dev/null"))`, a
+      one-for-one match for the Linux grant, under a section header naming it "THE
+      ONE SCOPED WRITE EXCEPTION".
+
+  ── WHAT LANDED, BY PHASE ─────────────────────────────────────────────────────
+  Phase 1 (TASK-001/002/003) — the RED pins, in three registers: the PURE
+    derivation (untagged, runs everywhere), the darwin profile literal plus the
+    idiom measured through REAL sandbox-exec on this host, and the Linux
+    behavioural leg added to the trampoline suite — CI-only, type-checked locally,
+    and the plan said so rather than pretending it ran. TASK-001 also AMENDED the
+    two shipped tests the new grant necessarily reds
+    (`TestSandboxCapability_HandlesWriteRightsAndGrantsNone`,
+    `TestSandboxCapability_SystemPathsKeepInterpreterReadable`) rather than
+    weakening them.
+  Phase 2 (TASK-004/005/006) — the grant on both platforms, then verification to
+    the real ceiling: real darwin sandbox behaviour, the pure derivation, the full
+    package suite, and the Linux cross-target compiled.
+  Phase 3 (TASK-007/008) — full kill chain, then the CI handoff and the premise
+    correction. `b1a62f8` recorded ISSUE-168's verification ceiling, adjudicated
+    the network control leg, corrected the issue's own premise, and filed two
+    follow-ons — deliberately closing nothing early.
+
+  ── THE COVERAGE EXCLUSION, AND WHY IT IS NOT A WAIVER ────────────────────────
+  `23b08ac` is the second half of this lane and deserves to be read as substance,
+  not bookkeeping. `pkg/packval/sandbox_nonlinux.go` is `//go:build !linux`, so on
+  CI's Linux-only runners it never compiles into the binary under test and can
+  STRUCTURALLY never produce a coverage record — no matter how well covered it is
+  locally on darwin. TASK-005's edit to that file was the first change it had ever
+  received that reached a real CI run, which is how the gap surfaced (ci run
+  `32142326172`).
+  THE DECLARATION IS TRACKED, NOT GITIGNORED, AND CARRIES ITS JUSTIFICATION INLINE
+  — the file's own header states the reason: a gitignored declaration would shape
+  the gate's verdict without appearing in review. NO waiver token was added, NO
+  baseline entry written, NO test weakened. The exclusion names a structural
+  impossibility, not an inconvenient red.
+
+  ── EVIDENCE AT CLOSE ─────────────────────────────────────────────────────────
+  RE-VERIFIED BY THE CLOSING AGENT (run at close-out against a CLEAN tree, NOT
+  carried forward from the implementation run). This plan's own `test_command`,
+  verbatim — package `ok` at 2.054s, ALL PASS, NONE SKIPPED:
+      · TestSandboxCapability_DevNullCarriesANarrowWriteGrant             PASS
+      · TestSandboxCapability_DevNullGrantIsCharDeviceSafe                PASS
+      · TestSandboxCapability_DevNullGrantNarrowsWithTheRunningABI        PASS
+      · TestSandboxCapability_DevNullGrantIsIndependentOfTheCapabilityFields PASS
+      · TestSandboxCapability_HandlesWriteRightsAndGrantsNone             PASS
+      · TestSandboxCapability_SystemPathsKeepInterpreterReadable          PASS
+      · TestSandboxProfileGrantsDevNullWriteAndNothingElse                PASS
+      · TestSandboxDarwin_DevNullIdiomRunsUnderTheRealProfile             PASS
+      · TestSandboxSecurityDenialsHold                                    PASS
+
+  ★ THE PLATFORM CEILING, STATED PLAINLY RATHER THAN PAPERED OVER. One mandated
+  test in the `test_command` above DID NOT RUN at close-out and CANNOT run on this
+  host: `TestLinuxSandbox_DevNullWriteIsPermittedAndOtherWritesAreNot` lives in
+  `pkg/packval/sandbox_linux_exec_test.go`, which is `//go:build linux`. It is
+  neither a failure nor a skip — it is not compiled. The four
+  `TestSandboxCapability_DevNull*` pins are the darwin-runnable substitute: they
+  assert the DERIVATION that the Linux mechanism consumes. Only real Linux CI
+  exercises the mechanism itself.
+
+  ★ REAL LINUX CI CONFIRMATION. An in-lane run (`32142326172`) was downloaded and
+  read directly, confirming the denial signature gone from a genuine CI run with
+  the package in scope — but the issue explicitly recorded that this predated the
+  coverage-exclusion follow-up and did NOT close the loop. FULL confirmation is the
+  two consecutive successful `CI` runs on `main` after every fix in this family
+  had landed:
+    · run `32314302525` — workflow `CI`, branch `main`, headSha
+      `9f4763b23a528123a064d10d682a8959a611da72`, conclusion `success`,
+      created 2026-08-19T23:41:23Z.
+    · run `32315586649` — workflow `CI`, branch `main`, headSha
+      `7546cc96036c7ea45d30f52f1cfa121628209ae6`, conclusion `success`,
+      created 2026-08-20T00:00:20Z.
+    NOT VACUOUS, AND CHECKED RATHER THAN ASSUMED: run `32314302525`'s "Backstop
+    Gate" job lists "Run the gate" at conclusion `success`, so the gate genuinely
+    executed on ubuntu-latest — and the coverage step it now measures did not red.
+    Both are genuine `main` runs (headSha == the `main` commit itself), NOT
+    PR-branch runs.
+
+  ── AS-BUILT DELTAS ───────────────────────────────────────────────────────────
+   1. THE PLAN DID NOT ANTICIPATE THE COVERAGE FALLOUT. The plan below prescribes
+      the two-platform grant; it says nothing about coverage. TASK-005's edit to a
+      `//go:build !linux` file made that file newly measurable-in-principle and
+      structurally unmeasurable-in-fact on CI, which took a SECOND commit
+      (`23b08ac`) to resolve. A future reader should expect this defect shape
+      whenever a `!linux` file is touched in a Linux-only-CI repo.
+   2. The darwin half was measured against REAL `sandbox-exec` on this host, not
+      against a rendered profile string alone — `TestSandboxDarwin_DevNullIdiom
+      RunsUnderTheRealProfile` runs the idiom for real. That is stronger than the
+      plan required.
+   3. The commit body for `4f3a810` records that writes to `/dev/null` ALREADY
+      succeeded under the darwin profile before the explicit allow was added
+      (seatbelt permits device nodes). The explicit literal was kept anyway, as a
+      one-for-one match to the Linux grant and as documentation of intent — it is
+      belt-and-braces on darwin and load-bearing on Linux.
+
+  ── WHAT THIS LANE DID NOT DO (recorded, not absorbed) ────────────────────────
+   · ISSUE-169 (`sandbox-helper doc comment stale probe claim`) and ISSUE-170
+     (`wiring-guard FuncLit parameter shadow gap`), both filed in `b1a62f8`,
+     REMAIN OPEN. Neither was this lane's.
+   · This lane granted exactly ONE write path and widened nothing else. The
+     `TestSandboxSecurityDenialsHold` and
+     `TestSandboxCapability_HandlesWriteRightsAndGrantsNone` pins are what keep
+     that true, and both are green at close.
+   · The Linux runtime behaviour was NOT verified locally, and this plan never
+     claimed it was — TASK-008 recorded that ceiling and explicitly said "do not
+     close this issue". The CI runs above are what finally discharge it.
+
+  ── CLOSE-OUT NOTE ────────────────────────────────────────────────────────────
+  This flip is the FIRST of two ordered edits. `ISSUE-168` is deliberately left at
+  `status: open` by this dispatch: `delivered_by: PLAN-ISSUE-168` re-validates the
+  backing plan, so a committed closed issue pointing at a `draft` plan is a broken
+  HEAD — which is why this file moves first. The issue close is a separate routed
+  dispatch, ordered AFTER this flip. No issue file was touched here.
+  Re-validated AFTER the mutations with `backstop artifact validate --plan`.
+  ══════════════════════════════════════════════════════════════════════════════
+
   ISSUE-168 — neither sandbox profile grants write access to `/dev/null`, so the
   universal POSIX idiom `command -v foo >/dev/null 2>&1` (and every `2>/dev/null`
   noise-suppression) fails inside a sandboxed convert/validator script. On Linux it

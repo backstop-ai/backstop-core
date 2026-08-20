@@ -2,13 +2,181 @@
 plan_id: PLAN-ISSUE-166
 spec_id: ISSUE-166
 created: "2026-08-18"
-status: draft
+status: completed
 target_repo: backstop-core
 target_module: github.com/backstop-ai/backstop-core
 test_command: "go test ./pkg/pack/engine/ ./pkg/gate/ ./pkg/packval/ -run \"TestGrepConvert|TestGrepEngineDeclarations|TestGrepTestHelpers|TestThinExecutor_NoGrepInvocation|TestRealGrep|TestInstalledGoContractsPack|TestContract_Absence|TestEngine_Grep|TestTSPack_ContractAbsenceGrep|TestEquivalence_GoAbsence|TestPackVerdict_|TestPackContractResult_|TestContractsPack_PatternArg\" -race -count=1"
 coverage_threshold: 90
 
 notes: |
+  ══════════════════════════════════════════════════════════════════════════════
+  ★ AS-BUILT — CLOSED 2026-08-19.  status: draft -> completed
+  ══════════════════════════════════════════════════════════════════════════════
+  DELIVERED IN FULL, AND CONFIRMED ON REAL LINUX CI. All 13 tasks are accounted
+  for; two adversarial review rounds signed off CLEAN before implementation.
+  THE ONE THING A READER MUST KNOW UP FRONT: this plan's Phase 3 CORE half
+  (TASK-008 step 5 — the `pack update` + relock) was NOT executed by this lane. It
+  was delivered by the sibling PLAN-ISSUE-157 lane, and the relock landed at
+  version 1.4.0 rather than the 1.3.0 this plan predicted. That is VERIFIED below
+  by reading the files at close-out, not assumed from the correction note.
+
+  PROVENANCE: this plan WAS committed BEFORE implementation, as `9aa278e`
+  ("plan(ISSUE-166): contracts grep convert single-file filename fix -- 2 review
+  rounds, ready to implement"), so an as-reviewed baseline exists — `git show
+  9aa278e:` on this file's path. ONE IN-PLACE CORRECTION was made to the plan body
+  AFTER that commit, and by ANOTHER LANE: `0943ec4` (PLAN-ISSUE-157 TASK-010)
+  rewrote TASK-008 step 5 (+23/-6 L) to record that the step was already done and
+  at a different version. Everything else below this banner — phases, tasks, claim
+  mappings, prose — is UNCHANGED historical record and was deliberately NOT
+  rewritten.
+
+  SHIPPED IN ONE CORE COMMIT — `f8b3846`
+  (`f8b3846fe5d4c2bc6465efc6eb5e4594e1b591da`, authored 2026-08-18 16:01:53 -0400),
+  "fix(ISSUE-166): force grep -H -I at every dispatch site, refuse unparseable
+  output loudly". 18 files, +1643/-39. The shape of it:
+    NEW   pkg/pack/engine/grep_convert_shape_test.go             (+626 L) TASK-001
+    NEW   pkg/pack/engine/grep_dispatch_convention_test.go       (+544 L) TASK-002
+    NEW   pkg/pack/engine/grep_installed_pack_test.go            (+164 L) TASK-007
+    EDIT  5 repo-owned grep converts (`grep/to-sarif.sh`)                 TASK-003
+    EDIT  6 `pack.yml` / engine-yml grep declarations                     TASK-004
+    EDIT  4 real-grep test helpers                                        TASK-005
+
+  ── THE DEFECT, IN ONE LINE ───────────────────────────────────────────────────
+  GNU grep OMITS the filename when the scan target is exactly one explicit file,
+  where BSD grep always includes it. Every repo-owned convert parses
+  `<file>:<line>:<text>`, so on Linux CI the 2-field shape arrived and was SILENTLY
+  DROPPED by an `NF>=3` guard — contracts-pack absence checks passed while checking
+  nothing. The fix is BOTH halves: force the filename header at the dispatch, AND
+  make the convert REFUSE an unparseable line loudly instead of dropping it.
+
+  ── WHAT LANDED, BY PHASE ─────────────────────────────────────────────────────
+  Phase 1 (TASK-001/002) — the RED pins on grep's real output shape and on the
+    convention sweep.
+  Phase 2 (TASK-003/004/005/006) — the fix, in THREE places, because a
+    manifest-only fix would have left the real-grep test helpers still producing
+    the broken 2-field shape:
+      · the silent `NF>=3` drop replaced by a loud refusal in all five repo-owned
+        converts. Verified at close: `packs/contracts/grep/to-sarif.sh:52` emits
+        "grep to-sarif: REFUSING unparseable grep output line: $bad" to stderr.
+      · `-H -I` forced at every CONVERT-BEARING grep declaration. Verified at close
+        — `packs/contracts/pack.yml`, `pkg/gate/testdata/traceability-pack/pack.yml`,
+        `pkg/gate/testdata/ts-proof-pack/pack.yml`,
+        `pkg/pack/engine/testdata/contracts-grep-engine.yml`, and the two
+        hermetic-remote fixture packs all read `command: grep -rn -H -I`.
+      · `-H -I` forced in the four real-grep test helpers, which bypass `pack.yml`
+        ENTIRELY — the decisive fact against a manifest-only fix.
+  Phase 3 (TASK-007/008/009) — carry the fix into the released
+    `backstop-ai/go-contracts` pack and relock. SPLIT ACROSS TWO LANES; see below.
+  Phase 4 (TASK-010/011/012/013) — sweep, follow-ons, CI confirmation and the spec
+    alignment. Landed as `3fdebfd` ("issue: ISSUE-166 CI-verified, file 4 residual
+    follow-ons, fix SPEC-069 prose"): ISSUE-166 gained +159 L of CI evidence, FOUR
+    residual follow-ons were filed (ISSUE-174 pack-source/mirror sync has no guard,
+    ISSUE-175 convert path existence unvalidated, ISSUE-176 CI gate missing baseline
+    JSON, ISSUE-177 go-contracts local-install phase3 anomaly), and SPEC-069's stale
+    prose was corrected (+2/-2 L) via a routed `/spec` dispatch.
+
+  ── PHASE 3 WAS SPLIT ACROSS TWO LANES — THE LOAD-BEARING AS-BUILT FACT ───────
+  TASK-008's EXTERNAL half executed here: the fix was carried into the mirror,
+  bumped and tagged as `backstop-ai/go-contracts` v1.3.0.
+  TASK-008's CORE half (`pack update` + relock) did NOT, and COULD NOT: v1.3.0
+  carried the `-H -I` fix this plan owns but ALSO carried ISSUE-157's inverted
+  fixture polarity, which made it fail its own phase3 validation and therefore
+  UN-INSTALLABLE. Core never adopted 1.3.0.
+  PLAN-ISSUE-157 fixed the polarity, republished v1.4.0 (`e21e41c`) and ran the
+  `pack update` — which jumped 1.2.0 -> 1.4.0 directly, skipping the defective
+  1.3.0 — in commit `0943ec4`. That same commit corrected TASK-008 step 5 in place.
+  THE BLOCKER IS RESOLVED AND THE RELOCK IS REAL. Verified at close-out by reading
+  the files themselves, NOT by trusting the correction note:
+    · `backstop.yml` line 7    -> `backstop-ai/go-contracts: 1.4.0`
+    · `backstop.lock` entry    -> `version: 1.4.0`, `git_ref: v1.4.0`,
+      `content_hash: 13f4424168725ab065cf182dbc1ba8a3bce091c17eca418437c9df02758ff851`,
+      `install_date: 2026-08-18T22:43:06Z`, with `source_type: git` and
+      `source_coordinate: backstop-ai/go-contracts` PRESERVED.
+    · the INSTALLED tree at `.backstop/packs/backstop-ai/go-contracts/pack.yml`
+      reads `command: grep -rn -H -I` — i.e. the shipped pack genuinely carries THIS
+      plan's fix, at a version past the original 1.2.0/1.3.0 blocker.
+  TASK-009's verification is therefore satisfied, and its pin proves it green (see
+  EVIDENCE). Nothing under `.backstop/packs/**` was hand-edited by either lane.
+
+  ── EVIDENCE AT CLOSE ─────────────────────────────────────────────────────────
+  RE-VERIFIED BY THE CLOSING AGENT (run at close-out against a CLEAN tree, NOT
+  carried forward from the implementation run). This plan's own `test_command`,
+  verbatim, across all three packages — ALL PASS, NONE SKIPPED:
+    pkg/pack/engine (ok 8.616s)
+      · TestGrepConvert_RefusesUnparseableGrepLineLoudly           PASS
+      · TestGrepConvert_ThreeFieldMatchesAndEmptyInputUnchanged    PASS
+      · TestRealGrep_FilenameHeaderWithDashHIsPlatformInvariant    PASS
+      · TestGrepEngineDeclarations_ForceFilenameHeader             PASS
+      · TestGrepTestHelpers_ForceFilenameHeader                    PASS
+      · TestThinExecutor_NoGrepInvocationInNonTestCode             PASS
+      · TestInstalledGoContractsPack_CarriesFilenameHeaderFix      PASS — TASK-007's
+        deliberate-RED pin, green ONLY because the relock landed. It reports the
+        installed grep command as `grep -rn -H -I`.
+      · TestInstalledGoContractsPack_FixturePolarityIsCorrect      PASS — the
+        SIBLING lane's pin, not this one's; recorded only because it shares the file.
+      · contracts family unregressed: TestContract_Absence*, TestEngine_Grep*,
+        TestTSPack_ContractAbsenceGrep                             PASS
+    pkg/gate (ok 3.513s) — TestEquivalence_GoAbsence*, TestPackVerdict_*,
+      TestPackContractResult_*, TestContract_Absence*              PASS
+    pkg/packval (ok 4.519s) —
+      TestContractsPack_PatternArgFixturesDispatchAndDiscriminate  PASS
+
+  THE SWEEP IS NOT VACUOUS, AND ITS EXEMPTIONS ARE ASSERTED RATHER THAN ASSUMED.
+  `TestGrepEngineDeclarations_ForceFilenameHeader` walks every parseable pack
+  manifest in the repo, FATALS if it finds zero convert-bearing grep bindings, and
+  pins the count at exactly SIX. Two grep declarations remain at a bare `grep -rn`,
+  and that is CORRECT rather than a miss: `cmd/backstop/testdata/hermetic-remote/
+  scaffold-templating-pack/pack.yml` and `.../scaffold-recipe-pack/pack.yml` declare
+  NO `convert:`, so nothing ever parses a filename out of their stdout. The
+  exemption is STRUCTURAL (keyed on the absent `convert:`, not on a path allowlist),
+  the two paths are enumerated so the predicate cannot quietly widen, and either one
+  GAINING a `convert:` moves it into the enforced set automatically.
+
+  ★ REAL LINUX CI CONFIRMATION — the only run that can prove this fix, since the
+  defect is GNU-grep-specific and does not reproduce on darwin's BSD grep. Two
+  in-lane runs were read directly from `gate-report.json` at the time
+  (`32172705491` at commit `9aa278e`, and `32179966270` at commit `f8b3846`, both
+  cited in ISSUE-166's evidence section). FULL confirmation is the two consecutive
+  successful `CI` runs on `main` after every fix in this family had landed:
+    · run `32314302525` — workflow `CI`, branch `main`, headSha
+      `9f4763b23a528123a064d10d682a8959a611da72`, conclusion `success`,
+      created 2026-08-19T23:41:23Z.
+    · run `32315586649` — workflow `CI`, branch `main`, headSha
+      `7546cc96036c7ea45d30f52f1cfa121628209ae6`, conclusion `success`,
+      created 2026-08-20T00:00:20Z.
+    NOT VACUOUS, AND CHECKED RATHER THAN ASSUMED: run `32314302525`'s "Backstop
+    Gate" job lists "Run the gate" at conclusion `success`. Both are genuine `main`
+    runs (headSha == the `main` commit itself), NOT PR-branch runs.
+
+  ── AS-BUILT DELTAS ───────────────────────────────────────────────────────────
+   1. TASK-008 step 5 predicted a relock to 1.3.0. THE RELOCK WENT TO 1.4.0, and it
+      was performed by PLAN-ISSUE-157, not by this lane. The step text was corrected
+      in place at `0943ec4` rather than left false. Re-running `pack update` is a
+      no-op at best; TASK-008 has nothing left to execute.
+   2. TASK-013 (SPEC-069 prose alignment) was routed to a `/spec` dispatch as the
+      plan prescribed, but landed INSIDE `3fdebfd` rather than as its own commit.
+   3. TASK-010 filed FOUR follow-ons, not the single mirror-sync one the plan named.
+      The other three (ISSUE-175/176/177) surfaced during the same sweep and were
+      filed rather than absorbed.
+
+  ── WHAT THIS LANE DID NOT DO (recorded, not absorbed) ────────────────────────
+   · ISSUE-174 (no guard keeps an in-repo pack source and its published mirror in
+     sync) REMAINS OPEN. This fix is a concrete INSTANCE of the gap it names —
+     evidence FOR that issue, not a fix for it. Nothing here builds a sync guard.
+   · ISSUE-175 and ISSUE-177 REMAIN OPEN and were never this lane's.
+   · This plan did NOT fix the inverted fixture polarity in `backstop-ai/go-contracts`
+     — that was ISSUE-157's defect and PLAN-ISSUE-157's fix. This lane merely
+     DEPENDED on it, and says so rather than claiming the version bump as its own.
+
+  ── CLOSE-OUT NOTE ────────────────────────────────────────────────────────────
+  This flip is the FIRST of two ordered edits. `ISSUE-166` is deliberately left at
+  `status: open` by this dispatch: `delivered_by: PLAN-ISSUE-166` re-validates the
+  backing plan, so a committed closed issue pointing at a `draft` plan is a broken
+  HEAD — which is why this file moves first. The issue close is a separate routed
+  dispatch, ordered AFTER this flip. No issue file was touched here.
+  Re-validated AFTER the mutations with `backstop artifact validate --plan`.
+  ══════════════════════════════════════════════════════════════════════════════
+
   ISSUE-166 — `packs/contracts` fails its own phase3-fixtures self-validation on Linux
   CI, and ~30 contracts tests fail with "got 0 matches". The issue's
   "## Root cause confirmed (2026-08-18)" section carries the real, CI-verified

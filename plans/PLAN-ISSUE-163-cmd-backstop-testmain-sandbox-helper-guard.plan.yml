@@ -2,13 +2,125 @@
 plan_id: PLAN-ISSUE-163
 spec_id: ISSUE-163
 created: "2026-08-17"
-status: draft
+status: completed
 target_repo: backstop-core
 target_module: github.com/backstop-ai/backstop-core
 test_command: "go test ./cmd/backstop/ -run \"TestIntegrationTestMain_RunsSandboxHelperGateAsItsFirstStatement|TestSandboxHelperGate_PresentInEveryPackvalReachingTestMain\" -race -count=1"
 coverage_threshold: 80
 
 notes: |
+  ══════════════════════════════════════════════════════════════════════════════
+  ★ AS-BUILT — CLOSED 2026-08-19.  status: draft -> completed
+  ══════════════════════════════════════════════════════════════════════════════
+  DELIVERED IN FULL, AND CONFIRMED ON REAL LINUX CI. All 5 tasks executed; two
+  adversarial review rounds signed off CLEAN before implementation.
+
+  PROVENANCE — BETTER THAN PLAN-ISSUE-157/172, SO SAY SO: this plan WAS committed
+  BEFORE implementation, as `0891c6d` ("plan(ISSUE-163): cmd/backstop TestMain
+  sandbox-helper guard -- 2 review rounds, ready to implement"). A future reader
+  therefore HAS an as-reviewed baseline to diff against — `git show 0891c6d:` on
+  this file's path. The phases, tasks, claim mappings and original prose below
+  this banner are UNCHANGED historical record and were deliberately NOT rewritten.
+
+  SHIPPED IN ONE COMMIT — `970512b`
+  (`970512bdfbe44f85434f17eca9322328148a2723`, authored 2026-08-18 02:41:21 -0400),
+  "fix(ISSUE-163): cmd/backstop TestMain checks MaybeRunSandboxHelper first".
+  4 files, +537/-0:
+    NEW   cmd/backstop/sandbox_helper_testmain_guard_test.go      (+480 L) TASK-001
+    EDIT  cmd/backstop/integration_test.go                         (+25 L) TASK-002
+    EDIT  .claude/agent-memory/implementer/MEMORY.md                (+1 L)
+    NEW   .claude/agent-memory/implementer/
+            project_prove_a_carveout_by_mutating_into_it.md        (+31 L)
+
+  ── WHAT LANDED, BY PHASE ─────────────────────────────────────────────────────
+  Phase 1 (TASK-001) — both mandated AST pins, in one new UNTAGGED file. Verified
+    at close rather than assumed: `cmd/backstop/sandbox_helper_testmain_guard_test.go`
+    carries no `//go:build` line, so the guard runs on darwin as well as Linux.
+      · `TestIntegrationTestMain_RunsSandboxHelperGateAsItsFirstStatement`
+      · `TestSandboxHelperGate_PresentInEveryPackvalReachingTestMain`
+  Phase 2 (TASK-002/003) — the guard itself. `cmd/backstop/integration_test.go`'s
+    `TestMain` now opens with an error-checked `packval.MaybeRunSandboxHelper()`,
+    ahead of the temp dir and therefore ahead of the `go build -o <tmp> .` this
+    issue is about, exiting `sandboxHelperExitCode` on a non-nil error. TASK-003
+    measured what darwin CAN measure and recorded the rest as a ceiling rather
+    than claiming it.
+  Phase 3 (TASK-004/005) — full kill chain, then the CI handoff, which is where
+    this lane paid for itself. `8b3b3d8` recorded ISSUE-163's verification ceiling
+    and filed ISSUE-164. `cd755c6` then filed the FOUR defects this fix surfaced by
+    letting CI reach the packval sandbox path on real Linux for the first time —
+    ISSUE-165, ISSUE-166, ISSUE-167 and ISSUE-168 (+531 L across 4 new issues).
+    Three of those four are themselves fixed and closing alongside this plan.
+
+  ── EVIDENCE AT CLOSE ─────────────────────────────────────────────────────────
+  RE-VERIFIED BY THE CLOSING AGENT (run at close-out against a CLEAN tree, NOT
+  carried forward from the implementation run):
+    · This plan's own `test_command`, verbatim, with `-v`:
+      -> BOTH mandated tests PASS, neither SKIPPED (0.01s and 2.85s; package `ok`
+         at 8.081s).
+    · The fix's DISTINGUISHING STRUCTURE is present at HEAD, read directly rather
+      than inferred from a line number a later commit could have moved:
+      `packval.MaybeRunSandboxHelper()` is the FIRST statement of `TestMain`,
+      wrapped as `if err := ...; err != nil { ...; os.Exit(sandboxHelperExitCode) }`.
+
+  ★ REAL LINUX CI CONFIRMATION — the only run that can prove this fix, because on
+  darwin `MaybeRunSandboxHelper` is `sandbox_nonlinux.go`'s unconditional no-op
+  stub and no re-exec can occur. TWO CONSECUTIVE SUCCESSFUL `CI` runs on `main`
+  after every fix in this family had landed:
+    · run `32314302525` — workflow `CI`, branch `main`, headSha
+      `9f4763b23a528123a064d10d682a8959a611da72`, conclusion `success`,
+      created 2026-08-19T23:41:23Z.
+    · run `32315586649` — workflow `CI`, branch `main`, headSha
+      `7546cc96036c7ea45d30f52f1cfa121628209ae6`, conclusion `success`,
+      created 2026-08-20T00:00:20Z.
+    NOT VACUOUS, AND CHECKED RATHER THAN ASSUMED: run `32314302525`'s "Backstop
+    Gate" job lists "Run the gate" at conclusion `success`, so the gate genuinely
+    executed on ubuntu-latest and was not skipped. Both are genuine `main` runs
+    (headSha == the `main` commit itself), NOT PR-branch runs.
+
+  ── AS-BUILT DELTAS ───────────────────────────────────────────────────────────
+   1. ★ TASK-001'S ROSTER PIN AS SHIPPED HERE HAD A BLIND SPOT, AND IT WAS FOUND
+      LATER THE SAME NIGHT. At `970512b`,
+      `TestSandboxHelperGate_PresentInEveryPackvalReachingTestMain` opened its
+      per-package loop with `if pkg.testMain == nil { continue }` — line 149 of the
+      file as committed, read back at close-out with
+      `git show 970512b:cmd/backstop/sandbox_helper_testmain_guard_test.go`.
+      A package declaring NO TestMain at all was therefore SKIPPED rather than
+      flagged, which is exactly how `pkg/pack/distribution` stayed invisible until
+      ISSUE-180.
+      THAT SKIP IS GONE AT HEAD. `9f4763b` (PLAN-ISSUE-180 — "add the sandbox-helper
+      TestMain to pkg/pack/distribution, and close the roster's missing-TestMain
+      blind spot") rewrote 109 lines of THIS file: the roster is now derived with NO
+      reference to TestMain presence, and a new STEP 3a asserts that every
+      packval-reaching package compiling a test binary DECLARES one.
+      BOTH MANDATED TEST NAMES SURVIVED THE REWRITE UNCHANGED — the strengthening
+      landed as new legs inside the existing names, never as a rename — which is why
+      this plan's `test_command` still resolves and still passes at close.
+      A reader diffing this file at HEAD against `970512b` will find it STRONGER
+      than what this plan shipped. That is the ISSUE-180 lane's work, not this
+      lane's, and it is recorded here so the difference is not misread as drift.
+   2. ISSUE-163 and ISSUE-180 are the SAME DEFECT CLASS, one package over. This plan
+      fixed `cmd/backstop`; PLAN-ISSUE-180 fixed `pkg/pack/distribution` AND closed
+      the roster hole that let the second instance hide. Neither supersedes the
+      other, and this plan's claims are NOT retroactively widened to cover ISSUE-180.
+
+  ── WHAT THIS LANE DID NOT DO (recorded, not absorbed) ────────────────────────
+   · ISSUE-164 (filed by TASK-005 at `8b3b3d8`) was NOT fixed here. Its
+     generalization question was answered later, by PLAN-ISSUE-180's CLM-003.
+   · ISSUE-165, ISSUE-166, ISSUE-167 and ISSUE-168 were FILED by this lane, not
+     fixed by it. Each kept its own issue, plan, claims and close-out.
+   · The Linux behaviour itself was never verified locally, and this plan never
+     claimed it was — TASK-005 recorded that ceiling explicitly. The CI runs above
+     are the confirmation; nothing measured on darwin substitutes for them.
+
+  ── CLOSE-OUT NOTE ────────────────────────────────────────────────────────────
+  This flip is the FIRST of two ordered edits. `ISSUE-163` is deliberately left at
+  `status: open` by this dispatch: `delivered_by: PLAN-ISSUE-163` re-validates the
+  backing plan, so a committed closed issue pointing at a `draft` plan is a broken
+  HEAD — which is why this file moves first. The issue close is a separate routed
+  dispatch, ordered AFTER this flip. No issue file was touched here.
+  Re-validated AFTER the mutations with `backstop artifact validate --plan`.
+  ══════════════════════════════════════════════════════════════════════════════
+
   ISSUE-163 — `cmd/backstop/integration_test.go`'s `TestMain` runs `go build -o <tmp> .`
   as its very first action with no sandbox-helper check. On Linux, any test in package
   `cmd/backstop` that triggers real sandboxed dispatch causes the sandbox trampoline to

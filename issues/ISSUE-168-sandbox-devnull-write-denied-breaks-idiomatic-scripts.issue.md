@@ -1,13 +1,15 @@
 ---
 title: "Sandbox Devnull Write Denied Breaks Idiomatic Scripts"
 schema_version: issue/v1
+delivered_by: PLAN-ISSUE-168
 
 issue:
   id: ISSUE-168
   title: "Sandbox Devnull Write Denied Breaks Idiomatic Scripts"
   type: bug
-  status: open
+  status: closed
   created: "2026-08-18"
+  closed: "2026-08-19"
 
 complexity:
   scope: cross-cutting
@@ -107,6 +109,27 @@ is universally considered safe and harmless — unlike writing to an arbitrary f
 would not weaken the sandbox's actual security properties (no data escapes, no state persists,
 no side effect is observable). This is a genuine capability gap worth closing, not a
 security-relevant restriction working as intended.
+
+## Resolution
+
+Fixed across two commits, delivered by `PLAN-ISSUE-168` (`status: completed`). Both sandbox
+platforms (Linux Landlock, macOS `sandbox-exec`) denied all writes with no `/dev/null` exception,
+breaking the extremely common `command -v foo >/dev/null 2>&1` shell existence-check idiom in any
+pack's convert script.
+
+- `4f3a810` — the primary fix: a narrow, explicit `/dev/null` write exception on both platforms.
+  Landlock via `landlockDevNullRights()` on Linux; `sandbox-exec` via an explicit `(allow
+  file-write* (literal "/dev/null"))` rule on darwin.
+- `23b08ac` — a tracked, inline-justified coverage-measurement exclusion for
+  `pkg/packval/sandbox_nonlinux.go`, which is `//go:build !linux` and structurally unmeasurable
+  on CI's Linux-only runners. Explicitly a legitimate declared exclusion, not a waiver.
+
+**Honest verification ceiling.** The Linux-specific mandated test
+(`TestLinuxSandbox_DevNullWriteIsPermittedAndOtherWritesAreNot`) is `//go:build linux` and cannot
+run on darwin at all — real Linux CI is the only confirmation, and that confirmation exists.
+
+Confirmed genuinely proven, not just locally verified: real Linux CI runs `32314302525` and
+`32315586649`, both `conclusion: success` on `main`.
 
 ## References
 

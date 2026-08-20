@@ -1,13 +1,15 @@
 ---
 title: "Sandbox Abi Probe Wiring Test Naming Mismatch"
 schema_version: issue/v1
+delivered_by: PLAN-ISSUE-165
 
 issue:
   id: ISSUE-165
   title: "Sandbox Abi Probe Wiring Test Naming Mismatch"
   type: bug
-  status: open
+  status: closed
   created: "2026-08-18"
+  closed: "2026-08-19"
 
 complexity:
   scope: isolated
@@ -99,6 +101,30 @@ test. The impact is entirely to CI signal: this test currently fails loudly on e
 run once it's reached, misreporting a correctly-wired delegation as broken, which will train
 whoever triages Linux CI failures to either distrust or waive this test rather than treat its
 output as meaningful.
+
+## Resolution
+
+Fixed across two commits, delivered by `PLAN-ISSUE-165` (`status: completed`).
+`TestSandboxLinux_ProductionPathUsesTheRealABIProbe` was a structural wiring-guard test that
+flat-matched call-site argument identifiers against the literal name `probeLandlockABI`, which
+cannot distinguish "a parameter that legitimately holds the real prober, forwarded correctly"
+from "a hardcoded wrong prober" — a test-authoring defect, not a production wiring bug.
+
+- `8d357064` — moved the guard out of the `//go:build linux`-gated
+  `sandbox_linux_errors_test.go` into an untagged file (`sandbox_wiring_guard_test.go`) so it's
+  darwin-visible, and rewrote it to classify each tracked call site by its enclosing function
+  (provenance-aware) rather than doing a flat identifier-name match.
+- `fc2b8ce` — closed 2 more evasions an adversarial review found against the rewritten guard: a
+  dispatch-seam re-bind gap (the `platformSandboxedRun` → `linuxSandboxedRunWith` seam had no
+  re-bind protection) and a declaration-form re-bind gap (the re-bind scanner missed a `var x T =
+  fake` `*ast.ValueSpec` form).
+
+Confirmed genuinely proven, not just locally verified: real Linux CI runs `32314302525` and
+`32315586649`, both `conclusion: success` on `main`.
+
+**Not absorbed by this closure.** A third evasion found in the same adversarial review pass — a
+`FuncLit` whose own parameter shadows the outer injected prober — was deliberately deferred, not
+fixed here. It was filed separately as `ISSUE-170`, which remains open.
 
 ## References
 

@@ -1,13 +1,15 @@
 ---
 title: "Cmd Backstop Testmain Missing Sandbox Helper Check"
 schema_version: issue/v1
+delivered_by: PLAN-ISSUE-163
 
 issue:
   id: ISSUE-163
   title: "Cmd Backstop Testmain Missing Sandbox Helper Check"
   type: bug
-  status: open
+  status: closed
   created: "2026-08-17"
+  closed: "2026-08-19"
 
 complexity:
   scope: contained
@@ -192,6 +194,28 @@ not made here.
 
 State plainly: **fix landed, awaiting CI confirmation** — the fix is not claimed or implied to
 be confirmed working.
+
+## Resolution
+
+Fixed at commit `970512b`, delivered by `PLAN-ISSUE-163` (`status: completed`). `cmd/backstop`'s
+`TestMain` (`cmd/backstop/integration_test.go`) was missing the sandbox-helper guard: it ran `go
+build -o <tmp> .` unconditionally as its first action, with no check for whether the process had
+been re-exec'd as a Linux sandbox helper. The fix calls `packval.MaybeRunSandboxHelper()` as
+`TestMain`'s first statement, ahead of the build step — mirroring the existing correct pattern in
+`pkg/packval/main_test.go` and the production `main()`'s own `runWith(stdout, stderr,
+packval.MaybeRunSandboxHelper, NewRootCommand)`.
+
+Confirmed genuinely proven, not just locally verified: real Linux CI runs `32314302525` and
+`32315586649`, both `conclusion: success` on `main`.
+
+**Honest caveat — this fix alone was not airtight.** The roster guard as originally shipped in
+this fix (`cmd/backstop/sandbox_helper_testmain_guard_test.go`) still had a blind spot: `if
+pkg.testMain == nil { continue }` silently skipped any package with NO `TestMain` at all, rather
+than flagging it. That blind spot is exactly why `pkg/pack/distribution` hid undetected until
+`ISSUE-180` found it later the same night. This issue's own fix did not close that gap —
+`PLAN-ISSUE-180` (commit `9f4763b`) did, separately. This closure covers only the defect this
+issue was filed for (the missing `MaybeRunSandboxHelper()` call in `cmd/backstop`'s `TestMain`),
+not the roster-guard blind spot `ISSUE-180` later addressed.
 
 ## References
 
