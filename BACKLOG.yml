@@ -86,11 +86,25 @@
 # that its remaining scope (ISSUE-122, ISSUE-124) is residual cleanup, not
 # a reason to hold anything else back, but there is no basis here to demote
 # it further. Relative order of everything from DIR-003 down is unchanged.
+#
+# REORDERED 2026-08-19 (founder-approved): DIR-032 (Gate Verdict Honesty) is removed from
+# position 2 — it reached `status: done` on 2026-08-17
+# (directives/DIR-032-gate-verdict-honesty.directive.md) and per the 2026-08-02 convention
+# above, a `done` directive is removed from this list entirely, not sunk to the bottom.
+# DIR-033 (Gate Verdict Honesty Residual Tail, `status: queued`,
+# directives/DIR-033-gate-verdict-honesty-residual-tail.directive.md) takes DIR-032's
+# vacated position 2 rather than being appended lower — it is DIR-032's direct successor,
+# created specifically to home the nine follow-on issues DIR-032's own member plans filed as
+# mandated during delivery (ISSUE-149, 150, 152, 154, 155, 156, 157, 159, 161), without
+# diluting DIR-024's catch-all scope (see DIR-033's own Description for the full
+# provenance). Founder's ruling: a direct successor carrying forward the same priority is
+# not new or lower-urgency work, so it inherits the position rather than queuing behind
+# everything else. Everything else keeps its prior relative order.
 directives:
   - id: DIR-002
     title: backstop init Command
-  - id: DIR-032
-    title: Gate Verdict Honesty
+  - id: DIR-033
+    title: Gate Verdict Honesty Residual Tail
   - id: DIR-019
     title: Pack Recipe Capability
   - id: DIR-027
@@ -123,6 +137,17 @@ bundles:
     title: Pack Command Execution Governance
   - id: BUNDLE-020
     title: Pack Core Version Compatibility
+  # Moved 2026-08-19 (founder-approved) from position 8 (last in this tier, where it landed on
+  # creation 2026-07-29) to immediately after BUNDLE-020, honoring the standing proposal open
+  # since 2026-07-29 recommending this exact adjacency. The two are both versioning-machinery
+  # bundles and share a one-directional relationship recorded in BUNDLE-031's own DD-5
+  # ("BUNDLE-020 stays SEPARATE... BUNDLE-020 may later be an INPUT" to this bundle's semver
+  # derivation, should BUNDLE-020 land capability contracts) — placing BUNDLE-031 immediately
+  # AFTER rather than before reads more sensibly given that one-directional shape (BUNDLE-020
+  # would need to land first to be consumable). Position here is still not a priority claim
+  # beyond this adjacency; reorder to reprioritize.
+  - id: BUNDLE-031
+    title: Release Currency Versioning Machinery
   - id: BUNDLE-019
     title: Runbooks
   - id: BUNDLE-017
@@ -133,12 +158,6 @@ bundles:
     title: Pack Publishing Proxy (ambitious — post-launch, held deliberately)
   - id: BUNDLE-018
     title: Stash — Secure Local Resource Store (external repo)
-  # Appended on creation 2026-07-29 per the standing bundle-append grant.
-  # Position is APPEND ORDER, not a priority claim — the INBOX carries a
-  # PROPOSAL (2026-07-29) recommending it sit adjacent to BUNDLE-020, whose
-  # OQ-5 (shared spine or separate) it directly shares. Reorder to reprioritize.
-  - id: BUNDLE-031
-    title: Release Currency Versioning Machinery
   # Re-listed 2026-08-14 per founder ruling (relayed via team-lead): citation by a
   # directive that has since reached `done` does NOT count as homed. BUNDLE-004 is
   # cited by DIR-004, DIR-005 and DIR-009 — all three `done` — so its delivered

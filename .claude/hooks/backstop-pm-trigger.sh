@@ -11,6 +11,7 @@ FILE_PATH="$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/de
 [[ -z "$FILE_PATH" ]] && exit 0
 
 case "$FILE_PATH" in
+  */testdata/*) exit 0 ;;   # fixture artifacts are never real backlog items
   *issues/*.issue.md|*bundles/*.bundle.md) ;;
   *) exit 0 ;;
 esac
