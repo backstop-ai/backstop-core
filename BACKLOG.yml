@@ -125,6 +125,11 @@ directives:
     title: Pack Distribution Hardening
   - id: DIR-020
     title: Backstop Trace Command
+  # Appended 2026-08-19 by directive-author (new directive, must appear per
+  # backlog schema for status: queued) — position is append-order, not a
+  # priority call; founder should reorder freely.
+  - id: DIR-034
+    title: Artifact Ledger Lifecycle Hardening
 
 # Unhomed bundles — expressions of intent awaiting directive homes.
 # Position = priority within this tier. Ordering founder-ratified 2026-07-26

@@ -20,6 +20,8 @@
 - [Directory-prefixed paths.include = dead rule](project_pack_rule_path_scoping_dispatch.md) — ISSUE-151 shipped only the DETECTOR (`pack check` WARNs); 37 inert patterns unremediated + unfiled. "Widen to full-package glob" is NOT a fix
 - [packval phase3 family](project_packval_phase3_family.md) — PLAN-ISSUE-092's F7 named 3 blockers (142/141/**one still unfiled**); executor.go is a contended file — check which lane owns it
 - [Never read subagent .output](feedback_never_read_subagent_output_files.md) — it's the raw ~100k-token JSONL transcript; grep the target file or re-run validate instead
+- [Subagents misroute to team-lead](feedback_subagents_misroute_to_team_lead.md) — ★ forks send findings to "team-lead" + stub their final text, bypassing me; brief against it, recover via `jq` tail on the transcript
+- [Burnt-ID ledger exposure](project_burnt_id_ledger_exposure.md) — ★ ISSUE-167 is 37 silently-burnt IDs across 4 namespaces, not 3; `ledger_integrity` is a permanent stub (step_deferred.go:30)
 - [Linux-CI-green cluster](project_linux_ci_green_cluster.md) — ★ one CI run (32108003542) is feeding DIR-024 items 18/20/21/22/23; all ISSUE-020 delivery residuals = clear fits; sandbox fixes are darwin-invisible
 - [Concurrent PM triage races](project_concurrent_pm_triage_races.md) — sibling-issue bursts fire parallel PMs into ONE directive; re-read it after the agent returns, fix stale cross-refs in place
 - [Record-only consequence filings](project_record_only_consequence_filings.md) — "file, don't absorb" plan tasks emit issues with NO defect; not clear fits, and they arrive as batches the hook under-delivers

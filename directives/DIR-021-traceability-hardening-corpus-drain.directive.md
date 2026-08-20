@@ -12,6 +12,7 @@ directive:
     - "ISSUE-012"
     - "ISSUE-061"
     - "ISSUE-138"
+    - "ISSUE-133"
 ---
 
 ## Description
@@ -94,6 +95,16 @@ struct" and "any later `Error()` method anywhere in the file" as related
 evidence. On expiry, `backstop gate` goes red on a false positive with no
 fix in flight today unless this lands first. This is why this directive
 sits first among the four newly-added ones.
+6. **Stale `deriveCapabilityState` contract signature (ISSUE-133).**
+   `SPEC-046` (implemented) and `SPEC-038` (draft) both still declare a
+   stale contract signature for `deriveCapabilityState` — an old
+   `cfg *config.Config` first parameter, with SPEC-038 also missing the
+   `stack` parameter entirely. The real shipped signature is
+   `func deriveCapabilityState(packs []*pack.Manifest, dim
+   gate.TraceabilityDimension, stack string) gate.CapabilityState`
+   (`cmd/backstop/gate.go:573`). Direct fit: this directive's own
+   description already names "stale contracts" as one of its five
+   corpus-debt threads.
 
 ## Notes
 
@@ -110,3 +121,8 @@ Placed first among the four directives added in this pass (ahead of
 Contracts Engine Hardening, Pack Distribution Hardening, and Gate/Engine
 Quality) specifically because of the ISSUE-061 deadline — position is
 priority, and the founder should reprioritize freely if that changes.
+
+ISSUE-133 added 2026-08-19 by directive-author, per a team-lead-relayed,
+founder-approved ruling from a completed backlog-pm investigation sweep —
+direct charter fit against this directive's own "stale contracts" thread,
+not a reprioritization.

@@ -36,6 +36,11 @@ directive:
     - "ISSUE-177"
     - "ISSUE-179"
     - "ISSUE-180"
+    - "ISSUE-174"
+    - "ISSUE-024"
+    - "ISSUE-065"
+    - "ISSUE-076"
+    - "ISSUE-117"
 ---
 
 ## Description
@@ -91,7 +96,13 @@ grew again to TWENTY-NINE the same day with item 29 (ISSUE-180), slotted by
 backlog-pm under the standing clear-fit grant as a further Linux-CI-
 viability residual of item 1 (ISSUE-020), in the same v0.2.0-release-
 investigation family as items 18/20/21/22/23/27 — not a new theme, not a
-founder roster call.
+founder roster call. It grew again to THIRTY-FOUR on 2026-08-19 with items
+30-34 (ISSUE-174, ISSUE-024, ISSUE-065, ISSUE-076, ISSUE-117), added by
+directive-author in one batch — unlike every prior addition above, NOT a
+self-initiated clear-fit slotting under the standing grant, but a
+founder-ratified batch of decisions from a completed backlog-pm
+investigation sweep, relayed via team-lead. See the Notes section for each
+item's individual provenance.
 
 1. **Cross-platform sandbox — Linux is a hard no-op (ISSUE-020).**
    `pkg/packval/sandbox.go`'s `SandboxedRun` / `SandboxedRunStdout` dispatch
@@ -1935,6 +1946,53 @@ founder roster call.
     v0.2.0-release-investigation family as items 18/20/21/22/23/27. Not a
     new theme, not a founder roster call.
 
+30. **In-repo pack vs external-mirror sync guard (ISSUE-174).** `packs/
+    contracts` and `packs/substantiveness` (in-repo) can drift silently
+    from their published external mirrors (`backstop-ai/go-contracts`
+    v1.4.0, `backstop-ai/go-substantiveness`) with nothing to catch it.
+    Same defect class as item 13's (ISSUE-137) fixture/released-pack sync
+    guard — this directive's own text already names ISSUE-137 as
+    precedent for homing exactly this kind of guard here. DIR-027 tier 2
+    (de-vendor/delete, not yet done) would moot this specific pair if it
+    lands first, but none of DIR-027's five acceptance criteria require an
+    ongoing sync guard, and the defect class recurs for any future
+    vendor-then-publish pack regardless.
+31. **Thin-executor absence-rule dogfood, real residual (ISSUE-024).** The
+    issue's originally-stated blocker (SPEC-035 + BUNDLE-009 OQ-7) is
+    moot/already landed — the shipped pack uses ordinary presence-matching,
+    no absence primitive — so the blocker language is stale. Real remaining
+    work, confirmed via a live `pack check` run: add two missing rule
+    families (bare language-name literals, which need real false-positive
+    design care; Go-analysis imports `go/parser`/`go/ast`/`go/types`,
+    straightforward), and fix that four of the seven currently-active rule
+    families are silently dark on ordinary gate runs — slash-bearing
+    `paths.include` fails open under semgrep's explicit-file dispatch, the
+    same ISSUE-151 mechanism this directive already sources.
+32. **Contracts engine selection hardcodes a pack-key preference
+    (ISSUE-065).** `cmd/backstop/gate.go:1814-1819` prefers pack key
+    `ast-grep-contracts`, else literal `ast-grep`, instead of using declared
+    capability. A residual of ISSUE-063 that ISSUE-063's own
+    pack-granularity mechanism structurally can't reach: `packsDeclaring
+    GateType` breaks after the first matching engine per manifest, so it
+    can't distinguish two same-`gate_type` engines within one pack.
+33. **Agent-toolchain trust, needs re-scoping down (ISSUE-076).** Most of
+    this issue's originally-cited instances are now stale or already
+    fixed (`.claude/agents/implementer.md:32` already corrected,
+    `PLAN-SPEC-054` is completed/inert prose, and the one other
+    non-terminal reference is backed by an obsoleted issue). The only
+    genuinely open piece is Solution part 2: a validator that resolves
+    every command string named in a plan's verification tasks against the
+    real discoverable command surface (`backstop commands`) — confirmed
+    unbuilt, no structured verification-command field exists in the plan
+    schema today. Whoever plans this should re-scope the issue down to
+    that piece first.
+34. **Substantiveness `noTarget` violations carry no waivable line
+    (ISSUE-117).** `pkg/gate/substantiveness_join.go`'s `NoTargetViolation`
+    has no `Line` field, so `pkg/waiver/adjudicate.go`'s `windowLines` has
+    nothing to anchor to — these findings are structurally unwaivable. The
+    issue deliberately proposes no fix direction; real line vs. synthetic
+    anchor is a design call for whoever plans it.
+
 ## Notes
 
 Grouped together as the catch-all for gate/engine-quality gaps that aren't
@@ -2518,3 +2576,27 @@ requires the same kind of real Linux-CI evidence item 22 used. Priority
 note, stated as observation and explicitly NOT a reorder (backlog-pm has
 no reorder authority): DIR-024 sits at BACKLOG.yml position 5 and this
 slot does not change its rank.
+
+Items 30-34 (ISSUE-174, ISSUE-024, ISSUE-065, ISSUE-076, ISSUE-117) added
+2026-08-19 by directive-author, all five per one team-lead-relayed,
+founder-approved batch of rulings from a completed backlog-pm investigation
+sweep — not self-initiated clear-fit slotting under the standing grant,
+the provenance every other addition above carries. Priority note, stated
+as observation and explicitly not a reorder (directive-author has no
+reorder authority): DIR-024 sits at BACKLOG.yml position 5 and this batch
+does not change its rank. Individual notes:
+
+- ISSUE-024: real remaining work confirmed via a live `pack check` run
+  (see item 31); its original blocker (SPEC-035 + BUNDLE-009 OQ-7) is
+  stale, not load-bearing.
+- ISSUE-065: residual of ISSUE-063 (also DIR-024) that ISSUE-063's own
+  fix structurally cannot reach — same directive, adjacent mechanism.
+- ISSUE-076: needs re-scoping down before planning — most originally-cited
+  instances are stale; only Solution part 2 (the plan-verification-command
+  validator) is confirmed still open. Flagged, not resolved, here.
+- ISSUE-117: no fix direction proposed by the issue itself; real-line vs.
+  synthetic-anchor is a design call for whoever plans it.
+- ISSUE-174: same defect class as item 13 (ISSUE-137), this directive's
+  own precedent for homing fixture/released-pack sync guards. DIR-027
+  tier 2, if it lands first, would moot this specific in-repo/mirror pair
+  but not the defect class itself.
