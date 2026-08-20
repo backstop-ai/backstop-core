@@ -35,6 +35,7 @@ directive:
     - "ISSUE-175"
     - "ISSUE-177"
     - "ISSUE-179"
+    - "ISSUE-180"
 ---
 
 ## Description
@@ -85,7 +86,12 @@ its cleared siblings is exactly what the issue exists to investigate — not
 a new theme, not a founder roster call. It grew again to TWENTY-EIGHT on
 2026-08-19 with item 28 (ISSUE-179), slotted by backlog-pm under the
 standing clear-fit grant as a measured no-op in the coverage-reuse speedup
-`PLAN-ISSUE-172` shipped — not a new theme, not a founder roster call.
+`PLAN-ISSUE-172` shipped — not a new theme, not a founder roster call. It
+grew again to TWENTY-NINE the same day with item 29 (ISSUE-180), slotted by
+backlog-pm under the standing clear-fit grant as a further Linux-CI-
+viability residual of item 1 (ISSUE-020), in the same v0.2.0-release-
+investigation family as items 18/20/21/22/23/27 — not a new theme, not a
+founder roster call.
 
 1. **Cross-platform sandbox — Linux is a hard no-op (ISSUE-020).**
    `pkg/packval/sandbox.go`'s `SandboxedRun` / `SandboxedRunStdout` dispatch
@@ -1853,6 +1859,81 @@ standing clear-fit grant as a measured no-op in the coverage-reuse speedup
     Priority note, stated as observation and explicitly NOT a reorder
     (backlog-pm has no reorder authority): DIR-024 sits at BACKLOG.yml
     position 5 and this slot does not change its rank.
+29. **`pkg/pack/distribution` declares no `TestMain` at all, so the Linux
+    sandbox re-exec silently re-runs its whole suite instead of
+    intercepting the sandbox-helper spec — the confirmed root cause of
+    item 27's (ISSUE-177) unexplained asymmetry (ISSUE-180).**
+    `pkg/pack/distribution` declares no `func TestMain` anywhere in the
+    package — confirmed: `grep -rn "^func TestMain"` across the module
+    returns only `pkg/packval/main_test.go:36` and
+    `cmd/backstop/integration_test.go:19`, plus one gate testdata fixture.
+    Because `pkg/packval`'s Linux sandbox is a re-exec trampoline that
+    spawns `os.Executable()` — under `go test`, the calling package's own
+    test binary — with `BACKSTOP_SANDBOX_HELPER_SPEC` set, and the child is
+    expected to intercept that env var via `packval.MaybeRunSandboxHelper()`
+    as its `TestMain`'s first statement, a package with no `TestMain` gets
+    Go's default generated main instead: the child silently RE-RUNS THE
+    ENTIRE `pkg/pack/distribution` SUITE FROM SCRATCH in the sandbox's
+    scratch-copy cwd, fails fast off any `go.mod` ancestry, and exits 1. Go
+    writes that to stdout, so `foldHelperStderrIntoError`
+    (`pkg/packval/sandbox_diagnostic.go`) sees empty stderr and reports
+    "wrote no diagnostic" while the real output vanishes.
+    This is the confirmed root cause of item 27's (ISSUE-177) open anomaly:
+    `TestInstallContractsLocalPack_InstallsWithSuppliedCommand`
+    (`pkg/pack/distribution/contracts_local_install_test.go`, CLM-092)
+    failing `phase3-fixtures: 14 validation error(s)` byte-identically
+    before AND after `PLAN-ISSUE-166`'s `-H -I` fix landed. Fourteen errors
+    = every fixture in `packs/contracts` (12 ast-grep-dispatched + 2
+    grep-dispatched), confirming the mechanism is fixture-shape-agnostic.
+    Same collision shape as item 20 (ISSUE-163), different package; the fix
+    mirrors ISSUE-163's exactly (add the `MaybeRunSandboxHelper()`-gated
+    `TestMain`). Darwin-invisible: `sandbox_nonlinux.go`'s
+    `MaybeRunSandboxHelper()` is a bare no-op and the Linux sandbox files
+    are `//go:build linux`-gated, so Linux CI is the only falsifier.
+    Four boundary facts follow, load-bearing and not to be re-litigated.
+    IT CONFIRMS ISSUE-164, DOES NOT DUPLICATE IT, AND ONLY HALF OF IT.
+    ISSUE-164 (`type: question`, still open, DIR-024 roster) named
+    `pkg/pack/distribution` AND `pkg/pack/engine` as packval-importing
+    packages with no `TestMain` and said the right move on confirmation was
+    to re-file/promote. ISSUE-180 is that promotion for
+    `pkg/pack/distribution` only. `pkg/pack/engine` REMAINS UNCONFIRMED AND
+    OPEN under ISSUE-164 — nothing traced a specific test there to real
+    sandboxed dispatch.
+    `pkg/gate` IS RULED OUT, and this corrects a prior directive/memory
+    lead. Earlier notes in this family listed `pkg/gate` as a third
+    TestMain-less at-risk package. Verified today: `grep -rl
+    "backstop-core/pkg/packval" --include="*.go"` over the whole module
+    hits exactly four directories — `cmd/backstop`, `pkg/pack/distribution`,
+    `pkg/pack/engine`, `pkg/packval`. `pkg/gate` does not import packval by
+    any file, so it cannot become a re-exec target through this mechanism.
+    Confirmed absent from the import graph, not merely unobserved.
+    THE STRUCTURAL GUARD'S BLIND SPOT IS NOT FIXED BY THIS ISSUE.
+    `cmd/backstop/sandbox_helper_testmain_guard_test.go`'s
+    `TestSandboxHelperGate_PresentInEveryPackvalReachingTestMain` builds its
+    roster from packages that import packval and ALREADY HAVE a `TestMain`
+    (`scanGoPackages`, then `if pkg.testMain == nil { continue }`). A
+    packval-importing package with no `TestMain` is invisible to it by
+    construction — which is exactly this defect. ISSUE-180 adds the missing
+    `TestMain`; it does not generalize the roster. That generalization
+    stays ISSUE-164's territory. ISSUE-164 must NOT be closed when
+    ISSUE-180 lands.
+    LIFETIME CAVEAT, same shape as item 27's. DIR-027 thread-1 tier 2
+    (undelivered) sits at backlog position 4, AHEAD of DIR-024 at position
+    5. It deletes `packs/contracts` and de-vendors
+    `pkg/pack/distribution/contracts_local_install.go` — verified still
+    present in tree today — which would delete the failing test outright.
+    Home here anyway (live loud red on the gate/engine path), but flag:
+    revisit as mooted-by-deletion if DIR-027 tier 2 lands first. The
+    residual is only partly mooted even then: the missing `TestMain`
+    remains a latent trap for any future `pkg/pack/distribution` test
+    reaching sandboxed dispatch, even after that specific test is gone.
+    HOME REASONING: loud red with a missing legible diagnostic name is
+    DIR-024, per the test this directive has now drawn nine times; only
+    "computes a result internally but reports the wrong verdict about it"
+    is DIR-032 (which is `done` regardless). ISSUE-180 is a further
+    Linux-CI-viability residual of item 1 (ISSUE-020), in the same
+    v0.2.0-release-investigation family as items 18/20/21/22/23/27. Not a
+    new theme, not a founder roster call.
 
 ## Notes
 

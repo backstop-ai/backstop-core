@@ -2,13 +2,265 @@
 plan_id: PLAN-ISSUE-180
 spec_id: ISSUE-180
 created: "2026-08-19"
-status: draft
+status: completed
 target_repo: backstop-core
 target_module: github.com/backstop-ai/backstop-core
 test_command: "go test ./pkg/pack/distribution/ ./cmd/backstop/ -run \"TestDistributionTestMain_OpensWithSandboxHelperGate|TestSandboxHelperGate_PresentInEveryPackvalReachingTestMain\" -race -count=1 -v"
 coverage_threshold: 80
 
 notes: |
+  ══════════════════════════════════════════════════════════════════════════════
+  ★ AS-BUILT — CLOSED 2026-08-19. DELIVERED at `9f4763b`, CONFIRMED ON LINUX CI by
+    run `32314302525` (`headSha 9f4763b`): pass=true, ZERO violations, whole gate green.
+  ══════════════════════════════════════════════════════════════════════════════
+  Everything below this banner is the plan AS AUTHORED and is left byte-identical — the
+  phases, tasks, claim mappings and original prose are the historical record. Where the
+  as-built diverged from it, the AS-BUILT DELTAS section below says so explicitly.
+
+  ── WHAT SHIPPED ────────────────────────────────────────────────────────────────
+  Commit `9f4763b`, pushed `22c7574..9f4763b` on `main`. FOUR files, all of them this lane's
+  — not a batch commit, no other lane's work swept in (`git show --stat 9f4763b` reconciled
+  against the scope fences at close-out; the fences were honoured exactly):
+
+    * NEW `pkg/pack/distribution/main_test.go` (66 lines) — CLM-001, CLM-002. One
+      `func TestMain(m *testing.M)` in `package distribution_test`. Its FIRST statement is
+      the error-CHECKED `if err := packval.MaybeRunSandboxHelper(); err != nil`, exiting on
+      the BARE LITERAL `126`. No build tag, deliberately — `MaybeRunSandboxHelper` resolves
+      on every platform, and a tagged `TestMain` would leave one platform's build without one.
+      The exit-code literal is as mandated and is NOT a shortcut: `sandboxHelperExitCode` is
+      unexported in `cmd/backstop`'s `package main` and `pkg/packval` exports no equivalent,
+      which is the same reason `pkg/packval/main_test.go:46` spells it.
+    * NEW `pkg/pack/distribution/sandbox_helper_gate_test.go` (338 lines) — CLM-001, CLM-002,
+      CLM-004. `TestDistributionTestMain_OpensWithSandboxHelperGate`: the PACKAGE-LOCAL AST
+      pin. It exists because go-toolchain's `go-test` binding is `package_scoped: true`, so
+      `fileModeTestTargets` narrows a distribution-only diff to this package alone and
+      `cmd/backstop`'s roster — generalized or not — would never execute on the regression
+      diff that matters. The roster is the PROPAGATION pin; this is the one that FIRES.
+    * EDIT `cmd/backstop/sandbox_helper_testmain_guard_test.go` (+109/-12) — CLM-003. The
+      generalization. `TestSandboxHelperGate_PresentInEveryPackvalReachingTestMain` keeps its
+      name BYTE-IDENTICALLY (it is PLAN-ISSUE-163's mandated name and a shipped promise), and
+      the roster is now derived with NO reference to `TestMain` presence: the membership line
+      moved from `if pkg.testMain == nil { continue }` to `if !pkg.hasTestFile { continue }`,
+      with the `TestMain` check relocated INTO the loop as STEP 3a. The two scan-side changes
+      the generalization required — the `hasTestFile` field on `goPackage` and the line in
+      `scanGoPackages` that sets it — landed as planned. The anti-vacuous floor widened from
+      two names to three (`cmd/backstop`, `pkg/pack/distribution`, `pkg/packval`).
+      VERIFIED AT HEAD BY DISTINGUISHING STRUCTURE, not by a line the fix merely touches:
+      `git show HEAD:cmd/backstop/sandbox_helper_testmain_guard_test.go` → `!pkg.hasTestFile`
+      at :185 (membership), `pkg.testMain == nil` at :225 (inside the loop, STEP 3a),
+      `hasTestFile` on the struct at :274 and set at :326.
+    * The plan artifact itself, committed as-is at `status: draft` (flipped by this close-out).
+
+  ── ★ THE PRE-FIX RED, AND IT IS A ONE-FAILURE SIGNATURE ────────────────────────
+  EXACTLY ONE failure, on STEP 3a. STEP 2's anti-vacuous floor — written to require all
+  three names INCLUDING `pkg/pack/distribution` — was GREEN PRE-FIX, because STEP 1 derives
+  membership from `pkg.hasTestFile && (pkg.importsPackval || dir == "pkg/packval")` with zero
+  reference to `pkg.testMain`. That is the plan's stated correct signature; a TWO-failure
+  signature (floor + 3a) would have meant the membership predicate was still consulting
+  `TestMain` — i.e. the blind spot re-introduced inside the very fix for it. Verbatim,
+  recovered from the implementer's transcript:
+
+      sandbox_helper_testmain_guard_test.go:226: pkg/pack/distribution reaches
+      github.com/backstop-ai/backstop-core/pkg/packval and compiles a test binary but
+      declares NO `func TestMain(m *testing.M)` (ISSUE-180).
+
+  ── ★★ THE CORROBORATION THAT FELL OUT OF THE FIX (unplanned, worth keeping) ────
+  `pkg/pack/engine` HAS NO `TestMain` EITHER (verified) — and STEP 3a did NOT flag it. Had
+  engine been in the derived set, the pre-fix run would have red on TWO packages, not one.
+  It red on one. THAT RE-DERIVES "engine is not packval-reaching" FROM THE PREDICATE ITSELF
+  rather than from this plan's assertion of it — an independent confirmation of the judgment
+  call 1 correction, produced by the machinery instead of by argument. The original false
+  premise (`grep -rl` matching forbidden-import STRING LITERALS inside engine's own
+  leaf-invariant tests) is now falsified twice over: once by AST at authoring, once by the
+  generalized check's own behaviour at implementation. ★ NEVER DECIDE THIS FROM A GREP.
+
+  ── ★★★ THE CI CONFIRMATION — THE ONLY THING THAT PROVES THE LINUX FIX ─────────
+  RUN `32314302525`, `headSha 9f4763b23a528123a064d10d682a8959a611da72`, `headBranch main`,
+  `event push`, `conclusion success`, `createdAt 2026-08-19T23:41:23Z`. Workflow
+  `.github/workflows/ci.yml`, job `gate` ("Backstop Gate"), `runs-on: ubuntu-latest`.
+  IT IS A MAIN RUN ON THE FIX COMMIT ITSELF — not a PR-branch run. `gate-report.json` was
+  DOWNLOADED AND READ at close-out, not inferred from the run's conclusion.
+
+  THE PLAN'S CONFIRMATION CONJUNCTION, BOTH HALVES DISCHARGED BY READING:
+    (a) SCOPE — `pkg/pack/distribution` IS genuinely in scope. `.scope.mode = "diff"`,
+        `.scope.files` has exactly 4 entries, read verbatim:
+            cmd/backstop/sandbox_helper_testmain_guard_test.go
+            pkg/pack/distribution/main_test.go
+            pkg/pack/distribution/sandbox_helper_gate_test.go
+            plans/PLAN-ISSUE-180-distribution-testmain-sandbox-guard.plan.yml
+        So the run genuinely exercised this package; its green is about THIS fix.
+    (b) VERDICT — and this is STRONGER than the plan asked for. The plan's bar was "the
+        failure signature is absent". What actually landed is `pass: true` with
+        `violations: []` — TOTAL ZERO, the WHOLE gate green. Every blocking dimension
+        passed: pack_lock_verification, artifact_validation, pack_engines (105,458ms —
+        the real engine dispatch, not a skip), test_verification, test_substantiveness,
+        coverage_threshold, contract_signature, artifact_status_drift,
+        requirement_traceability, waiver_resolution. baseline_comparison and
+        ledger_integrity skipped. `test_verification` passing on a diff that INCLUDES both
+        distribution files is the direct receipt that the mandated tests ran and passed
+        ON LINUX.
+    CONTEXT, LABELLED AS CONTEXT (the plan's own instruction): two NON-BLOCKING advisory
+    steps carry findings — `artifact_status_drift_advisory` (22) and
+    `requirement_traceability_advisory` (173). Both are pre-existing repo-wide advisories,
+    exit 0, unrelated to this lane. See the PLAN-ISSUE-163 note at the foot of this banner:
+    that advisory set is where it surfaces.
+
+  THE COUNTERFACTUAL THAT MAKES THE GREEN MEAN SOMETHING: run `32307615655`, `headSha
+  22c75748881d26196ca9d1094459879f1187b67d` (`22c7574`), `headBranch main`, `event push`,
+  `conclusion failure`, `createdAt 2026-08-19T22:11:14Z` — the run on the commit IMMEDIATELY
+  BEFORE this fix on main. Both runs' metadata were independently re-resolved with
+  `gh run view --json headSha,headBranch,createdAt,conclusion` at close-out. The pre-fix run
+  carries the failure verbatim:
+
+      TestInstallContractsLocalPack_InstallsWithSuppliedCommand: installing the contracts
+      pack through a supplied command: installing contracts local pack: pack add
+      /home/runner/work/backstop-core/backstop-core/packs/contracts: pack test for
+      /home/runner/work/backstop-core/backstop-core/packs/contracts failed: pack validation
+      (test) of the validation copy failed in phase3-fixtures: 14 validation error(s)
+      (contracts_local_install_test.go)
+
+  `32307615655 → 32314302525` IS A ONE-COMMIT DELTA, AND THAT COMMIT IS THIS LANE'S. That
+  is what turns "the failure is gone" from a correlation into a measurement.
+
+  ── ★ THE VERIFICATION CEILING — HOW IT WAS ACTUALLY DISCHARGED (CLM-006) ──────
+  The ceiling stated below in the plan HELD EXACTLY AS WRITTEN and was never violated: no
+  task claimed a local repro, and none could have. `pkg/packval/sandbox_linux.go` and
+  `sandbox_linux_helper.go` are `//go:build linux`; on darwin they never compile,
+  `newSandboxHelperCommand` does not exist, no re-exec can occur, and `MaybeRunSandboxHelper`
+  resolves to `sandbox_nonlinux.go:47`'s unconditional `return nil`. The failing test PASSES
+  on darwin EITHER WAY, measured at 1.42s post-fix against the plan's 1.40s before-reading —
+  which is precisely why the local suite is a NON-REGRESSION proof and nothing more. The
+  Linux claim was carried to CI and answered there, by the reading above. THE PLAN'S CENTRAL
+  DISCIPLINE — refusing to close on local evidence — is what made that answer meaningful.
+
+  LOCAL EVIDENCE (darwin), SPLIT INTO RE-VERIFIED vs CARRIED:
+  RE-VERIFIED by this close-out (cheap, non-racing; no full-suite or `--all` re-run, per the
+  shared-tree rule):
+    * The three lane files are present at HEAD and carry the distinguishing structure above.
+    * `git show --stat 9f4763b` = exactly four files; no production file omitted, no other
+      lane's file swept in (the PLAN-ISSUE-091 split-lane check — it passes).
+    * `pkg/pack/engine/contracts_local_install_test.go` DOES NOT EXIST (`ls` fails), so the
+      ISSUE-177 citation correction CLM-007(a) owes is still owed and still correct.
+    * The only path DECLARING `TestInstallContractsLocalPack_InstallsWithSuppliedCommand`
+      is `pkg/pack/distribution/contracts_local_install_test.go`.
+    * `PLAN-ISSUE-163` reads `status: draft` at HEAD despite landing at `970512b`.
+  CARRIED from the implementer (labelled carried because re-running `gate --all` in a shared
+  tree with live lanes is exactly what the convention forbids):
+    * `go build ./...` + `go vet` on both packages — clean.
+    * Both mandated tests, `-race -count=1 -v`, REAL `--- PASS:` lines per NAME (not a bare
+      package `ok`): `TestDistributionTestMain_OpensWithSandboxHelperGate (0.13s)`,
+      `TestSandboxHelperGate_PresentInEveryPackvalReachingTestMain (1.55s)`.
+    * Full `pkg/pack/distribution` suite `-race` → `ok … 13.981s`, INCLUDING
+      `TestInstallContractsLocalPack_InstallsWithSuppliedCommand --- PASS (1.42s)`. That is
+      CLM-005 and it establishes ONLY that the darwin side is unchanged.
+    * `gate --file` on both new distribution files → PASS, 0 violations (including
+      `test_substantiveness` — the AST pin is not hollow).
+    * `gate --file cmd/backstop/sandbox_helper_testmain_guard_test.go` → FAIL, ONE violation,
+      NOT THIS LANE'S: `TestPackAuthoringLoop_EndToEnd: pack test failed (exit 1): status:
+      fail`. That is ISSUE-162 (`status: replaced`, replaced-by ISSUE-147), darwin-only
+      (`runtime.GOOS != "darwin"` → skip), already red at `722d5f1` on 2026-08-17 with a
+      byte-identical message. CI's green confirms it is darwin-local and not a CI blocker.
+    * `gate --all` → FAIL, 120 violations, ZERO on any of the three lane paths (grepped
+      explicitly, hits=0 each); `test_verification` PASSED. Every `pkg/pack/distribution`
+      violation in that set sits on untouched production files (`config_merge.go`, `list.go`,
+      `relock.go`, `remove.go`, `provenance.go`), with `.backstop/baseline.json` confirming
+      provenance/remove as pre-existing. NOTE the scope difference against CI's `pass: true`:
+      that local reading is `--all` (whole corpus), CI's is diff-scoped to these four files.
+      Both are true; they are not the same measurement.
+
+  ── AS-BUILT DELTAS ─────────────────────────────────────────────────────────────
+   1. ★★ THE PLAN'S CI CONFIRMATION SIGNATURE WAS WRONG — 3 STRINGS, ONLY 2 USABLE.
+      TASK-005 named a THREE-string signature. The third, the literal
+      `the sandboxed command wrote no diagnostic`, APPEARS ZERO TIMES IN REAL CI LOG OUTPUT
+      AT ANY VERBOSITY. Measured against the PRE-FIX run's FULL log (158,712 bytes, not just
+      the failed steps), the three counts were:
+
+          TestInstallContractsLocalPack_InstallsWithSuppliedCommand: 1
+          in phase3-fixtures: 14 validation error(s): 1
+          the sandboxed command wrote no diagnostic: 0
+
+      CI's verbosity never surfaces that inner sandbox detail — it is a `pkg/packval`
+      diagnostic folded away before the gate reports. The plan derived the string from
+      `sandbox_diagnostic.go`, which is where it LIVES, not from a log that CONTAINS it.
+      THE USABLE SIGNATURE IS THE TWO STRINGS THAT ARE ACTUALLY THERE. Recorded rather than
+      quietly dropped, because "all three present = not fixed" is UNSATISFIABLE as written —
+      a later reader applying it literally would conclude the defect was fixed on a run
+      where nothing had changed. GENERALIZED LESSON: a confirmation criterion must be
+      measured against the ARTIFACT IT WILL BE READ FROM, never against the source that
+      emits it. (Moot for this close, which cleared a far higher bar — total zero — but it
+      would have mattered on a partial result.)
+   2. A BETTER COUNTERFACTUAL THAN THE PLAN CITED. TASK-005 named ISSUE-177's runs
+      `32172705491` (`9aa278e`) and `32179966270` (`f8b3846`). Both are real, both on `main`,
+      both `failure` — but they sit THIRTEEN and TWELVE commits behind `22c7574`
+      respectively (measured: `git log --oneline 9aa278e..22c7574 | wc -l` → 13;
+      `f8b3846..22c7574` → 12). Against those, a clean post-fix run is a delta across a dozen
+      intervening commits and attributing it to THIS fix is inference. `32307615655` at
+      `22c7574` is the immediately-prior main commit, making the delta exactly one commit.
+      The implementer found this; it is a genuine improvement on the plan.
+   3. A GREP COUNT IN THE PLAN IS NOW STALE, BY THIS LANE'S OWN HAND. TASK-005 states that
+      `grep -rln "TestInstallContractsLocalPack_InstallsWithSuppliedCommand" --include="*.go"
+      pkg cmd` "returns exactly ONE path". It now returns THREE, because both new files quote
+      the test name in their explanatory comments. THE UNDERLYING FACT IS UNCHANGED and the
+      ISSUE-177 correction still stands — only ONE path DECLARES it
+      (`grep -rln "func TestInstallContractsLocalPack_…"` →
+      `pkg/pack/distribution/contracts_local_install_test.go`), and
+      `pkg/pack/engine/contracts_local_install_test.go` still does not exist. Hand the routed
+      `/issue` author the DECLARING-form grep, not the mentioning-form one.
+   4. ENVIRONMENT, NOT SMOOTHED: `go-arch-lint` was missing from the implementer's shell PATH
+      (it lives in `/Users/bmanson/go/bin`) and was prepended for every gate invocation, so
+      `pack_engines` dispatched for real rather than exiting 2 on a missing tool. A gitignored
+      local `.backstop/baseline.json` (240,442 bytes) was present and `baseline_comparison`
+      reported `skipped (superseded by per-dimension enforcement policy)` in all local runs —
+      it is `skipped` in the CI report too. Local gate cost ~6 min per distribution file and
+      >11 min for the `cmd/backstop` file; the 3-file combined run exceeded the tool ceiling
+      and was split. CI's whole `pack_engines` step took 105.5s on the 4-file diff.
+   5. NO SCOPE-FENCE BREACHES, NO RENAMES. `pkg/pack/engine/**`, `cmd/backstop/main.go`,
+      `cmd/backstop/integration_test.go`, `pkg/packval/**`, `.github/workflows/ci.yml` and
+      every pre-existing distribution test were left untouched, as fenced. No test renamed;
+      `TestSandboxHelperGate_PresentInEveryPackvalReachingTestMain` survives byte-identically.
+   6. TASK-005's ARTIFACT MUTATIONS WERE NOT EXECUTED BY THE IMPLEMENTER — correctly. The
+      agent-guard blocks it on artifact paths in both channels and it had no dispatch tool,
+      so it parked them and reported them. They are routed separately (see below).
+
+  ── ROUTED SEPARATELY, NOT DISCHARGED BY THIS BANNER (CLM-007) ─────────────────
+  All CONTINGENT on the CI reading above, which now exists, and all routed through `/issue` —
+  never hand-edited:
+    (1) ISSUE-180 closes with `delivered_by: PLAN-ISSUE-180` + a `## Resolution` section —
+        legal because ISSUE-180 IS this plan's `spec_id`. ORDERING SATISFIED: this plan reads
+        `completed` as of this edit, which `delivered_by` requires (it re-runs the full
+        `validate.Plan`).
+    (2) ISSUE-180's `## Structural facet` (L126–144) and its L122–124 ISSUE-164-narrowing
+        recommendation are RETRACTED IN PLACE, PARTIALLY — the blind-spot description STAYS
+        (it is the defect CLM-003 fixes); only the out-of-scope disposition is retracted,
+        dated and attributed. Plus the factual corrections at L110–113, L115–120, L165–168,
+        L179–182 (the four-directory grep set → three, AST-derived).
+    (3) ISSUE-177 closes SEPARATELY with `resolved-by: ISSUE-180` — NEVER
+        `delivered_by: PLAN-ISSUE-180` (spec-mismatch) and NEVER `resolved-by:
+        PLAN-ISSUE-180` (malformed under `^(BUNDLE|SPEC|ISSUE|PLAN|DIR)-[0-9]{3}$`) — with a
+        `## Resolution` recording that its own ISSUE-166-residue mechanism guess was
+        FALSIFIED, and with its `pkg/pack/engine/contracts_local_install_test.go` citation
+        corrected.
+    (4) ISSUE-164 recommended for closure via `resolved-by: ISSUE-180`, with the line-by-line
+        corrections at L38, L43–44, L46–53, L57–60, L62–72, L74–83, L85–92, L101–105,
+        L108–109. Both halves are answered: distribution CONFIRMED-AND-FIXED, the roster
+        generalization DELIVERED (CLM-003).
+
+  ★ CARRIED FORWARD, NOT THIS LANE'S TO FIX: `PLAN-ISSUE-163` still reads `status: draft`
+  despite having landed at `970512b` ("fix(ISSUE-163): cmd/backstop TestMain checks
+  MaybeRunSandboxHelper first"). Re-verified at HEAD by this close, AND present verbatim in
+  this very run's `artifact_status_drift_advisory`:
+      plans/PLAN-ISSUE-163-cmd-backstop-testmain-sandbox-helper-guard.plan.yml: artifact
+      PLAN-ISSUE-163 is draft (non-terminal) but all its mandated tests are PRESENT — it
+      looks delivered.
+  Recorded here because PLAN-ISSUE-163 is the DIRECT PRECEDENT plan for this one — same
+  defect class, one package over — and a future reader tracing the family will land on it.
+  An un-flipped status makes a delivered plan look undelivered. (This run's advisory named
+  PLAN-ISSUE-180 for the same reason; that half is cleared by this close-out.)
+
+  ══════════════════════════════════════════════════════════════════════════════
+  THE PLAN AS AUTHORED FOLLOWS — UNMODIFIED
+  ══════════════════════════════════════════════════════════════════════════════
+
   ISSUE-180 — `pkg/pack/distribution`'s test binary declares NO `TestMain`, so on Linux the
   packval sandbox trampoline re-execs it and Go's DEFAULT generated test main reruns the
   WHOLE 43-file suite in the scratch-copy directory instead of installing the sandbox and

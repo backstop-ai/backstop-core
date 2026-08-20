@@ -1,6 +1,6 @@
 ---
 name: linux-ci-residual-family
-description: The v0.2.0 Linux-CI investigation family (158/163/164/165/166/168/177) all homes DIR-024 on the loud-red test; ISSUE-166's home is CONDITIONAL, and ISSUE-177's green/red split is measured evidence for ISSUE-164's unmeasured question
+description: The v0.2.0 Linux-CI investigation family (158/163/164/165/166/168/177/180) all homes DIR-024 on the loud-red test; ISSUE-180 CONFIRMED the missing-TestMain re-exec mechanism and ruled pkg/gate OUT; ISSUE-166's home stays CONDITIONAL
 metadata:
   type: project
 ---
@@ -26,17 +26,38 @@ be argued into the verdict-honesty cluster.
   dispatch path — a real Linux consumer's forbidden-symbol check reporting no
   violation for a symbol that IS present — that is a silent false-clean and
   belongs to DIR-032's charter. Awaiting Brandon's ack (INBOX 2026-08-18T12:22Z).
-- **The lead, verified in tree 2026-08-18 and worth reusing:** ISSUE-166's
-  grep-cluster tests live in `pkg/pack/engine`, `pkg/pack/distribution` and
-  `pkg/gate`, and **none of those three declares a `func TestMain`**. The first
-  two are exactly the packages `ISSUE-164` names as invisible to ISSUE-163's
-  guard and its pin `TestSandboxHelperGate_PresentInEveryPackvalReachingTestMain`;
-  ISSUE-164 is filed as a `question` because nobody measured whether tests there
-  actually drive sandboxed dispatch on Linux. ISSUE-166 may be that measurement.
-  Two limits: `cmd/backstop` also fails yet DOES carry the guard
-  (`integration_test.go:38`), and `pkg/gate`'s contract tests touch neither
-  packval nor the sandbox — so `pkg/gate` is a THIRD TestMain-less package
-  ISSUE-164's inventory does not name.
+- **★ RESOLVED 2026-08-19 by ISSUE-180 (DIR-024 item 29) — the TestMain lead
+  was RIGHT, and `pkg/gate` was WRONG. Stop repeating the `pkg/gate` half.**
+  Verified in tree: `grep -rl "backstop-core/pkg/packval" --include="*.go"`
+  over the whole module hits EXACTLY FOUR directories — `cmd/backstop`,
+  `pkg/pack/distribution`, `pkg/pack/engine`, `pkg/packval`. **`pkg/gate` does
+  not import packval by any file**, so it can never be a re-exec target; the
+  earlier note here calling it "a THIRD TestMain-less package ISSUE-164's
+  inventory does not name" was a false lead I wrote and have now retired.
+  Module-wide `grep -rn "^func TestMain"` returns only
+  `pkg/packval/main_test.go:36` and `cmd/backstop/integration_test.go:19`
+  (plus one `pkg/gate/testdata` fixture) — so of the four packval importers,
+  `pkg/pack/distribution` and `pkg/pack/engine` are the only exposed ones,
+  exactly ISSUE-164's original pair.
+- **The mechanism, now confirmed and reusable:** the Linux sandbox is a
+  re-exec trampoline spawning `os.Executable()` — under `go test`, the CALLING
+  PACKAGE'S OWN test binary — with `BACKSTOP_SANDBOX_HELPER_SPEC` set. No
+  `TestMain` to intercept it ⇒ Go's default main ⇒ the child **re-runs that
+  package's entire suite** in the scratch-copy cwd, dies off any `go.mod`
+  ancestry, exits 1. Go writes it to **stdout**, so
+  `foldHelperStderrIntoError` sees empty stderr and says "wrote no
+  diagnostic." That signature — exit 1 + empty diagnostic + N errors where N =
+  every fixture in the pack — IS this defect. First diagnostic move on any
+  such red: does the package declare `TestMain`?
+- **ISSUE-164 CLOSURE HAZARD — flag it every time.** ISSUE-180 promotes only
+  the `pkg/pack/distribution` half of ISSUE-164's question. `pkg/pack/engine`
+  stays unconfirmed, AND the guard's structural blind spot is untouched:
+  `TestSandboxHelperGate_PresentInEveryPackvalReachingTestMain` builds its
+  roster via `scanGoPackages` then `if pkg.testMain == nil { continue }` — so
+  a packval-importing package with NO `TestMain` is invisible to it BY
+  CONSTRUCTION, which is exactly how this shipped. ISSUE-164 must not be
+  closed when PLAN-ISSUE-180 lands; 180 will look like it answers 164 and
+  does not.
 - **★ ISSUE-177 (2026-08-18, DIR-024 item 27) turned that lead into a
   measured correlation — reuse it before spending a `debug/*` branch.**
   ISSUE-166's `-H -I` fix left exactly ONE test still failing

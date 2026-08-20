@@ -6,16 +6,61 @@ issue:
   id: ISSUE-180
   title: "Distribution Testmain Missing Sandbox Guard"
   type: bug
-  status: open
+  status: closed
   created: "2026-08-19"
+  closed: "2026-08-19"
 
 complexity:
   scope: isolated
   uncertainty: known
   risk: moderate
+
+delivered_by: PLAN-ISSUE-180
 ---
 
 # Distribution Testmain Missing Sandbox Guard
+
+## Resolution
+
+Delivered by `PLAN-ISSUE-180` (commit `9f4763b`). Added `pkg/pack/distribution/main_test.go`, a
+`TestMain(m *testing.M)` in `package distribution_test` identical in shape to
+`pkg/packval/main_test.go`'s existing pattern: its first statement is the error-checked
+`if err := packval.MaybeRunSandboxHelper(); err != nil { ...; os.Exit(126) }`, followed by
+`os.Exit(m.Run())`. This closes the gap directly — `pkg/pack/distribution`'s test binary now
+recognizes `BACKSTOP_SANDBOX_HELPER_SPEC` on Linux instead of falling through to Go's default
+generated test main and recursively rerunning the whole suite in the pack's scratch directory.
+
+The same lane also generalized `cmd/backstop/sandbox_helper_testmain_guard_test.go`'s
+`TestSandboxHelperGate_PresentInEveryPackvalReachingTestMain` (name kept byte-identical — it is
+`PLAN-ISSUE-163`'s mandated name). The roster's membership predicate no longer skips a
+packval-reaching package that declares no `TestMain` at all: the `if pkg.testMain == nil {
+continue }` skip moved out of membership derivation and became a new STEP 3a inside the loop
+(membership itself now gates on `if !pkg.hasTestFile { continue }`), so absence of a `TestMain` is
+now a loud, named failure instead of silent exclusion. This is the disposition reversal recorded
+in the retraction note under "## Structural facet" below.
+
+Pre-fix, the pins produced exactly ONE failure — STEP 3a only; the anti-vacuous floor at STEP 2
+was green, because membership there is derived independent of `TestMain` presence:
+
+    sandbox_helper_testmain_guard_test.go:226: pkg/pack/distribution reaches
+    github.com/backstop-ai/backstop-core/pkg/packval and compiles a test binary but
+    declares NO `func TestMain(m *testing.M)` (ISSUE-180)
+
+A corroborating finding fell out of the generalized check's own run, unplanned: `pkg/pack/engine`
+also has no `TestMain`, and STEP 3a did NOT flag it — because real AST-based membership (an actual
+`*ast.ImportSpec` for `pkg/packval`, not a grep) shows `pkg/pack/engine` does not import
+`pkg/packval` at all. Had it been a member, the pre-fix run would have red on TWO packages, not
+one; it red on one. This re-derives "engine is not packval-reaching" from the predicate itself,
+independent of any prior assertion — see the roster-claim corrections below.
+
+Verified on real Linux CI, not locally — the Linux sandbox trampoline (`//go:build linux`) does
+not compile on darwin, so this defect is structurally unreproducible here (see the plan's
+verification ceiling). Run `32314302525`, commit `9f4763b`, `pass: true`, `total_violations: 0` —
+the whole gate green. Scope was independently confirmed to include the fix files:
+`pkg/pack/distribution/main_test.go`, `pkg/pack/distribution/sandbox_helper_gate_test.go`,
+`cmd/backstop/sandbox_helper_testmain_guard_test.go`. The immediately-prior main commit (`22c7574`,
+run `32307615655`) carries the pre-fix failure verbatim, making the green a one-commit-delta
+measurement rather than an inference.
 
 ## Problem
 
@@ -107,21 +152,34 @@ evidence rather than inference:
   (`TestInstallContractsLocalPack_InstallsWithSuppliedCommand`) does reach real sandboxed dispatch
   on Linux through this package's missing `TestMain`, with the exact recursive-rerun mechanism
   `ISSUE-164` predicted and a real CI signature traced to it.
-- **`pkg/pack/engine` — still unconfirmed.** Nothing in tonight's investigation traced a specific
-  test in that package through to real sandboxed dispatch on Linux. `ISSUE-164`'s open question
-  stands for this package; this issue does not extend to it and should not be read as closing that
-  half.
+- **`pkg/pack/engine` — CORRECTED 2026-08-19 (`PLAN-ISSUE-180` review): confirmed NOT
+  packval-reaching, not merely unconfirmed.** This issue originally left it as an open question
+  inherited from `ISSUE-164`. Real AST parsing (an actual `*ast.ImportSpec` for `pkg/packval`, not
+  a grep) shows `pkg/pack/engine` imports no such thing — its exposure is dead by construction,
+  doubly pinned by `TestEngineBinding_NoImportCycle` and `TestEngine_NoForbiddenImports`. The
+  original framing here, and the four-directory grep count below, both trace to `grep -rl
+  "backstop-core/pkg/packval"` matching FORBIDDEN-IMPORT STRING LITERALS inside
+  `import_cycle_test.go` and `binding_test.go` — tests that assert packval's ABSENCE from engine's
+  transitive dependencies, not its presence.
 - **`pkg/gate` — checked tonight, found NOT exposed.** The task that produced this issue asked
-  whether `pkg/gate` (also `TestMain`-less) carries the same risk. `grep -rl
-  "backstop-core/pkg/packval" --include="*.go"` across the whole module returns exactly four
-  directories: `cmd/backstop`, `pkg/pack/distribution`, `pkg/pack/engine`, and `pkg/packval` itself.
-  `pkg/gate` does not import `pkg/packval` at all, by any file, so it cannot become a re-exec
-  target through this mechanism — not "no evidence found," but confirmed absent from the import
-  graph this defect requires.
+  whether `pkg/gate` (also `TestMain`-less) carries the same risk. **CORRECTED 2026-08-19: the
+  grep-derived count below was wrong.** The real, AST-derived packval-reaching set is exactly
+  THREE directories — `cmd/backstop`, `pkg/packval`, and `pkg/pack/distribution` — not the four
+  originally reported (a `grep -rl "backstop-core/pkg/packval" --include="*.go"` also matched
+  `pkg/pack/engine`, which is not actually a member; see above). `pkg/gate`'s absence stands
+  either way: it does not import `pkg/packval` at all, by any file, so it cannot become a re-exec
+  target through this mechanism — confirmed absent from the import graph this defect requires.
 
-Recommend narrowing `ISSUE-164` to just `pkg/pack/engine` (or closing it with a note pointing here
-for the `pkg/pack/distribution` half) — left as a recommendation, not done here, since this session
-is scoped to authoring this issue, not hand-editing another one.
+> **RETRACTED — 2026-08-19, `PLAN-ISSUE-180` review round 1.** The recommendation above (narrow
+> `ISSUE-164` to just `pkg/pack/engine`, or close it with a note pointing here for the
+> `pkg/pack/distribution` half) is superseded. `pkg/pack/engine` is not open at all — see the
+> corrected bullet above — and the roster generalization `ISSUE-164` was tracking landed in
+> `PLAN-ISSUE-180` itself (see the retraction note under "## Structural facet" below). `ISSUE-164`
+> is recommended for closure via `resolved-by: ISSUE-180`, not narrowing.
+>
+> ~~Recommend narrowing `ISSUE-164` to just `pkg/pack/engine` (or closing it with a note pointing
+> here for the `pkg/pack/distribution` half) — left as a recommendation, not done here, since this
+> session is scoped to authoring this issue, not hand-editing another one.~~
 
 ## Structural facet — the guard's blind spot, deliberately left out of this issue's fix
 
@@ -142,6 +200,21 @@ gap, named it before this defect was confirmed, and covers `pkg/pack/engine` too
 does not touch. Folding the generalization in here would scope-creep this issue past its own
 confirmed evidence. Left as a recommendation for `ISSUE-164`'s eventual plan, alongside verifying
 `pkg/pack/engine`.
+
+> **RETRACTED (partial) — 2026-08-19, `PLAN-ISSUE-180` review round 1.** The blind-spot
+> DESCRIPTION above (the `if pkg.testMain == nil { continue }` skip, and its consequence for a
+> `TestMain`-less packval-importing package) stays accurate — it is the exact defect this issue's
+> fix closes. Only the DISPOSITION — scoping the generalization out to `ISSUE-164`, on the grounds
+> that fixing it here would "scope-creep" — is retracted. `PLAN-ISSUE-180`'s first draft reasoned
+> the same way and was corrected in review: re-measuring the packval-reaching set with real AST
+> parsing (an actual `*ast.ImportSpec`, not `grep -rl` for the import path string) showed the
+> generalization costs ~3 lines and flags exactly zero packages beyond `pkg/pack/distribution`
+> itself — no forced unmandated fix, no exemption list; the cost/exemption concern this section
+> raised turned out not to exist. The generalization landed in this lane
+> (`cmd/backstop/sandbox_helper_testmain_guard_test.go`'s STEP 3a) rather than being deferred. This
+> was a founder-visible decision made during the plan's review, not a silent reversal — see
+> `PLAN-ISSUE-180`'s "JUDGMENT CALL 1" for the full record, including the false premise (the bad
+> grep) that produced this section's original recommendation.
 
 ## Impact
 
@@ -164,8 +237,11 @@ exercises it — has done so since the test was introduced, independent of and u
   pattern this issue's fix mirrors exactly (same collision shape, different package).
 - `ISSUE-164` (`packval-importing-packages-missing-testmain-guard`) — named this exact gap in
   `pkg/pack/distribution` in advance, as an unconfirmed question. This issue is that question's
-  confirmation for `pkg/pack/distribution` specifically; `pkg/pack/engine` remains open under
-  `ISSUE-164`, unconfirmed by this investigation.
+  confirmation for `pkg/pack/distribution` specifically. **Updated 2026-08-19:** `pkg/pack/engine`,
+  `ISSUE-164`'s other named package, is no longer an open question — real AST parsing during
+  `PLAN-ISSUE-180` confirmed it is not packval-reaching at all (dead by construction), and
+  `ISSUE-164`'s roster-generalization half is delivered by this issue's fix (see "## Structural
+  facet" above). `ISSUE-164` is recommended for closure via `resolved-by: ISSUE-180`.
 - `ISSUE-166` (`contracts-pack-phase3-fixtures-fail-on-linux-ci`) — the `-H -I` fix whose landing
   is what `ISSUE-177` measured this test against; ruled out as this test's mechanism tonight.
 - `ISSUE-168` (`sandbox-devnull-write-denied-breaks-idiomatic-scripts`) — same darwin-invisible,
@@ -176,10 +252,11 @@ exercises it — has done so since the test was introduced, independent of and u
 - `pkg/pack/distribution/contracts_local_install_test.go` — the failing test
   (`TestInstallContractsLocalPack_InstallsWithSuppliedCommand`, CLM-092) and its package
   declaration (`package distribution_test`, no `TestMain`).
-- `cmd/backstop/sandbox_helper_testmain_guard_test.go` — the existing structural guard;
-  `scanGoPackages` + `TestSandboxHelperGate_PresentInEveryPackvalReachingTestMain`'s
-  `if pkg.testMain == nil { continue }` is the blind spot this issue's "Structural facet" section
-  describes and hands to `ISSUE-164`.
+- `cmd/backstop/sandbox_helper_testmain_guard_test.go` — the structural guard; `scanGoPackages` +
+  `TestSandboxHelperGate_PresentInEveryPackvalReachingTestMain`'s former `if pkg.testMain == nil {
+  continue }` was the blind spot this issue's "Structural facet" section describes. **Updated
+  2026-08-19:** that gap is now closed inside this same guard (STEP 3a, `PLAN-ISSUE-180`) rather
+  than handed to `ISSUE-164` — see the retraction note on "## Structural facet" above.
 - `pkg/packval/sandbox_linux.go` (`newSandboxHelperCommand`), `pkg/packval/
   sandbox_linux_helper.go` (`runSandboxHelper`), `pkg/packval/sandbox_diagnostic.go`
   (`foldHelperStderrIntoError`) — the mechanism: re-exec trampoline, helper takeover, and the

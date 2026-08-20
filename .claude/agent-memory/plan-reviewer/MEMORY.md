@@ -78,3 +78,7 @@
 - [Cited issue's self-retracted evidence](project_cited_issue_self_retracted_evidence.md) — a plan quoting `ISSUE-NNN lines X-Y` often lands on Evidence bullets the SAME issue's Root cause section retracts
 - [Matrix-test subject provenance](project_matrix_test_subject_provenance.md) — "runs the CONDITION under N shells" without naming WHERE the condition comes from: both hardcodings break the red→green trajectory
 - [Rewritten body, absence predicate](project_rewritten_body_absence_predicate.md) — a "prove the BODY changed" close-out check must be PRESENCE-only; arrange code is legitimately identical, so an absence grep reds a correct fix
+- [Import premise from grep](project_import_premise_grep_matches_forbidden_lists.md) — "X imports pkg/Y" from `grep -rl` is often FALSE: the hit is a forbidden-import string literal in a leaf pkg's own test; run the AST predicate
+- [Source issue fences out delivered claim](project_source_issue_fences_out_delivered_claim.md) — a scope-widening plan leaves the issue's own "that's ISSUE-NNN's territory" section un-retracted; enumerate fence sites
+- [RED signature matches buggy impl](project_red_signature_matches_buggy_impl.md) — a restructured guard's stated "A and B both fail" pre-fix set is often satisfied only by the un-refactored version; derive the set yourself
+- [Narrow grep, false missing citation](project_narrow_grep_false_missing_citation.md) — a cited symbol returning zero hits is usually MY grep (`func ` prefix, assumed json tag spelling), not a bad citation; re-grep bare before flagging
