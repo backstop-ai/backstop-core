@@ -22,6 +22,12 @@ import (
 
 const baselineArtifactName = "backstop-baseline-v1"
 
+// ciWorkflowName is pinned to the `name:` this repository's own CI workflow file
+// declares — TestResolveLatestSuccessfulMainRun_AcceptsExactlyTheNameCIWorkflowDeclares
+// reads that file and is what keeps the two in sync, so this is not a free-floating
+// literal to be "simplified" back inline.
+const ciWorkflowName = "CI"
+
 func newBaselineCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "baseline",
@@ -200,7 +206,7 @@ func ensureGitHubAuth(projectRoot string) error {
 }
 
 func resolveLatestSuccessfulMainRun(projectRoot, repo string) (int64, error) {
-	out, err := ghAPI(projectRoot, "repos/"+repo+"/actions/runs?branch=main&status=success&per_page=20")
+	out, err := ghAPI(projectRoot, "repos/"+repo+"/actions/runs?branch=main&status=success&per_page=100")
 	if err != nil {
 		return 0, fmt.Errorf("workflow/run selection miss: unable to query successful main runs: %w", err)
 	}
@@ -215,12 +221,24 @@ func resolveLatestSuccessfulMainRun(projectRoot, repo string) (int64, error) {
 	if err := json.Unmarshal(out, &payload); err != nil {
 		return 0, fmt.Errorf("workflow/run selection miss: invalid run listing payload: %w", err)
 	}
+	rejected := []string{}
+	seen := map[string]bool{}
 	for _, run := range payload.WorkflowRuns {
-		if run.HeadBranch == "main" && run.Conclusion == "success" {
+		if run.HeadBranch == "main" && run.Conclusion == "success" && run.Name == ciWorkflowName {
 			return run.ID, nil
 		}
+		if !seen[run.Name] && len(rejected) < 5 {
+			seen[run.Name] = true
+			rejected = append(rejected, run.Name)
+		}
 	}
-	return 0, fmt.Errorf("workflow/run selection miss: no latest successful main run found")
+	// The substring "no latest successful main run" is load-bearing: baseline_test.go
+	// asserts on it for the empty-payload case, which reaches this same return.
+	msg := fmt.Sprintf("workflow/run selection miss: no latest successful main run found for workflow %q among %d successful runs", ciWorkflowName, len(payload.WorkflowRuns))
+	if len(rejected) > 0 {
+		msg += fmt.Sprintf(" (rejected workflows: %s)", strings.Join(rejected, ", "))
+	}
+	return 0, fmt.Errorf("%s", msg)
 }
 
 func resolveBaselineArtifactID(projectRoot, repo string, runID int64) (int64, error) {

@@ -45,3 +45,4 @@
 - [Reversal debts: RED signature + scope congruence](project_reversal_debts_red_signature_and_scope_congruence.md) — a SUPERSET red signature is what the buggy impl produces; and the source issue's own text may disclaim the work you just added
 - [CI confirmation strings must exist in the LOG](project_ci_confirmation_string_must_exist_in_the_log.md) — a string derived from the source that emits it may never reach CI output; grep a real full log and count each one, or the conjunction is unsatisfiable
 - [Idle hook re-send loop](feedback_idle_hook_resend_loop.md) — a successful SendMessage can still trip the idle hook; report once, re-send once flagging it, then STOP — repeat firings are a hook gap, not a lost report
+- [Fixture scope exceeds the named test file](project_fixture_scope_exceeds_the_named_test_file.md) — grep the fixture STRING, not the function; a shared setup helper hides in a sibling test file, and one hit may need no edit at all

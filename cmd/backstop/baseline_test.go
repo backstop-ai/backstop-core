@@ -244,8 +244,8 @@ if [ "$1" != "api" ]; then
   exit 1
 fi
 case "$2" in
-  repos/owner/repo/actions/runs\?branch=main\&status=success\&per_page=20)
-    printf '{"workflow_runs":[{"id":42,"name":"ci","conclusion":"success","head_branch":"main"}]}'
+  repos/owner/repo/actions/runs\?branch=main\&status=success\&per_page=100)
+    printf '{"workflow_runs":[{"id":42,"name":"CI","conclusion":"success","head_branch":"main"}]}'
     ;;
   repos/owner/repo/actions/runs/42/artifacts)
     printf '{"artifacts":[{"id":99,"name":"backstop-baseline-v1"}]}'
@@ -399,8 +399,8 @@ if [ "$1" != "api" ]; then
   exit 1
 fi
 case "$2" in
-  repos/owner/repo/actions/runs\?branch=main\&status=success\&per_page=20)
-    printf '{"workflow_runs":[{"id":42,"name":"ci","conclusion":"success","head_branch":"main"}]}'
+  repos/owner/repo/actions/runs\?branch=main\&status=success\&per_page=100)
+    printf '{"workflow_runs":[{"id":42,"name":"CI","conclusion":"success","head_branch":"main"}]}'
     ;;
   repos/owner/repo/actions/runs/42/artifacts)
     printf '{"artifacts":[{"id":99,"name":"backstop-baseline-v1"}]}'
@@ -475,8 +475,8 @@ if [ "$1 $2" = "auth status" ]; then
   exit 0
 fi
 case "$2" in
-  repos/owner/repo/actions/runs\?branch=main\&status=success\&per_page=20)
-    printf '{"workflow_runs":[{"id":42,"name":"ci","conclusion":"success","head_branch":"main"}]}'
+  repos/owner/repo/actions/runs\?branch=main\&status=success\&per_page=100)
+    printf '{"workflow_runs":[{"id":42,"name":"CI","conclusion":"success","head_branch":"main"}]}'
     ;;
   repos/owner/repo/actions/runs/42/artifacts)
     printf '{"artifacts":[{"id":99,"name":"backstop-baseline-v1"}]}'

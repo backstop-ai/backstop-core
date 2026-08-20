@@ -43,6 +43,17 @@ that was never committed. Every artifact agreed the work was done; the code disa
   hunks. Do not unilaterally commit a shared file
   ([[feedback_git_stash_shared_tree_hazard]] is the same hazard by a different verb).
 
+- **A close-out can be asked on a lane that is ENTIRELY uncommitted, plan file included.**
+  PLAN-ISSUE-178 (2026-08-20): all four code files plus the plan artifact itself were
+  working-tree-only at close; HEAD was an unrelated commit. That is legitimate — the fix and
+  its verification were real — but it changes what the banner may claim. Two things must be
+  said out loud instead of implied: there is NO Linux CI confirmation and cannot be one until
+  the diff is pushed (so do not borrow the CI-run-citation shape of a committed close-out),
+  and there is no `git show <sha>:` as-reviewed baseline to diff the banner against, so
+  "left byte-identical below this banner" rests on the close-out's word, not on a commit.
+  Verify the fix by READING THE WORKING TREE for its distinguishing structure, exactly as
+  you would read HEAD.
+
 Related: [[project_plan_closeout_convention]] (uncommitted-shared-tree over-attribution, and
 verifying the hand-off's promised follow-ups actually landed — the same "trust the report vs
 read the tree" failure in two other shapes, all three hit on the same plan).

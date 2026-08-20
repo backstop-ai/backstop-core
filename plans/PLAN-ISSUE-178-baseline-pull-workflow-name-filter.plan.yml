@@ -1,0 +1,783 @@
+---
+plan_id: PLAN-ISSUE-178
+spec_id: ISSUE-178
+created: "2026-08-20"
+status: completed
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./cmd/backstop/ -run \"TestResolveLatestSuccessfulMainRun|TestBaselineGitHubHelpers|TestRunBaselinePull|TestResolveBaselineCache\" -race -count=1"
+coverage_threshold: 80
+
+notes: |
+  ══════════════════════════════════════════════════════════════════════════════
+  ★ AS-BUILT — CLOSED 2026-08-20.  status: draft -> completed
+  ══════════════════════════════════════════════════════════════════════════════
+  DELIVERED IN FULL. All four tasks are accounted for, all five claims satisfied,
+  and the fix was proven END TO END IN BOTH DIRECTIONS against the real GitHub API
+  tonight — not merely unit-tested. Two review passes (plan-reviewer, then
+  impl-reviewer) signed off before this close-out.
+
+  Everything below this banner is the plan AS AUTHORED and is left byte-identical —
+  phases, tasks, claim mappings, sharp edges and original prose are the historical
+  record. Where the as-built diverged, the AS-BUILT DELTAS section below says so.
+
+  ── ⚠ PROVENANCE CAVEAT — READ THIS FIRST ───────────────────────────────────────
+  THIS LANE IS UNCOMMITTED AT CLOSE-OUT. Verified at close: HEAD is `e2b1239`
+  ("fix: revert BUNDLE-003/DIR-002 premature-delivered claim, caught by CI") and
+  `git status` reports all five of this lane's files as working-tree changes:
+
+      M  cmd/backstop/baseline.go
+      M  cmd/backstop/baseline_test.go
+      M  cmd/backstop/gate_test.go
+      ?? cmd/backstop/baseline_workflow_selection_test.go
+      ?? plans/PLAN-ISSUE-178-baseline-pull-workflow-name-filter.plan.yml
+
+  Two consequences a future reader must not be surprised by:
+    1. The FIX IS REAL BUT NOT YET ON `main`. Every verification recorded below was
+       run against the working tree. There is NO Linux CI confirmation for this lane
+       (contrast PLAN-ISSUE-180, which cites run `32314302525`), and there cannot be
+       one until the diff is pushed. When it lands, the CI run that carries it is the
+       remaining confirmation — this banner does not claim it.
+    2. THIS PLAN FILE WAS NEVER COMMITTED AT `status: draft`, so unlike
+       PLAN-ISSUE-166 there is no `git show <sha>:` as-reviewed baseline to diff this
+       banner against. The body below is as-authored only in the sense that this
+       close-out did not touch it; take that on the record, not on a commit.
+
+  ── WHAT SHIPPED ────────────────────────────────────────────────────────────────
+  FOUR code files, `git diff --numstat` at close-out (+21/-3, +6/-6, +2/-2 tracked;
+  the fourth is new/untracked at 119 lines):
+
+    * EDIT `cmd/backstop/baseline.go` (+21/-3) — CLM-001..004. All four changes
+      landed inside or immediately around `resolveLatestSuccessfulMainRun`, exactly
+      as TASK-002 specified, and VERIFIED AT CLOSE BY READING THE FILE:
+        · `const ciWorkflowName = "CI"` at :29, sited beside
+          `const baselineArtifactName` (:23) as planned, and carrying the mandated
+          WHY comment (:25-28) that names the pinning test by name so a future
+          reader cannot "simplify" it back into a free-floating literal.
+        · the filter at :227 —
+          `if run.HeadBranch == "main" && run.Conclusion == "success" && run.Name == ciWorkflowName`.
+          EXACT comparison, not `EqualFold`/`ToLower` (sharp edge 2 honoured). The
+          two pre-existing redundant conditions were LEFT in place as instructed.
+        · `per_page=100` in the endpoint at :209 (CLM-004).
+        · the self-diagnosing miss message at :237, built AROUND the load-bearing
+          substring rather than replacing it — `workflow/run selection miss: no
+          latest successful main run found for workflow %q among %d successful runs`,
+          with ` (rejected workflows: %s)` appended ONLY when the rejected list is
+          non-empty, so the `runs-empty` payload still yields the clean sentence
+          `baseline_test.go:331` asserts on. The list is de-duplicated via a `seen`
+          map and capped at 5, satisfying TASK-002(d)'s bounding requirement.
+    * NEW `cmd/backstop/baseline_workflow_selection_test.go` (119 lines) — the four
+      mandated tests, all present under their mandated names (verified at close):
+        :37  TestResolveLatestSuccessfulMainRun_RejectsNewerForeignWorkflowRun
+        :52  TestResolveLatestSuccessfulMainRun_AcceptsExactlyTheNameCIWorkflowDeclares
+        :82  TestResolveLatestSuccessfulMainRun_SelectionMissNamesWorkflowAndRejectedCandidates
+        :99  TestResolveLatestSuccessfulMainRun_QueriesAHundredRunWindow
+      Sharp edge 4 was honoured — the file references NO new production symbol, so
+      TASK-001 was runtime-red, never compile-red, and the shared `cmd/backstop`
+      package stayed buildable for every other lane working in this tree.
+      Sharp edge 7's dedicated channel is real, not incidental: :116 reads the
+      endpoint the fake `gh` RECORDED and asserts it contains `per_page=100`.
+    * EDIT `cmd/backstop/baseline_test.go` (+6/-6) and `cmd/backstop/gate_test.go`
+      (+2/-2) — CLM-005, FIXTURE CORRECTION ONLY. All FOUR sites sharp edge 1
+      enumerated got BOTH edits, confirmed by grep at close:
+        baseline_test.go:247+248, :402+403, :478+479, gate_test.go:620+621
+      each now reading `per_page=100` in the case arm (with the `\?` / `\&` escaping
+      preserved) and `"name":"CI"` in the payload. The 6/6 and 2/2 line counts are
+      themselves the evidence that this was value churn — no assertion removed, no
+      test deleted, no skip added. `baseline_test.go:303` was CORRECTLY LEFT ALONE:
+      verified at close to still read `{"workflow_runs":[]}` under the `*runs-empty*`
+      glob arm with no `name` field, exactly as the plan instructed.
+
+  ── ★ THE FIXTURES WERE FABRICATED, AND THE REAL API SETTLED IT ────────────────
+  Worth keeping because it is the reusable lesson, not a detail of this lane: all
+  four pre-existing fixtures spelled the workflow `"ci"` lowercase. They had never
+  been captured from real output — live GitHub reality is `CI`, which is also what
+  `.github/workflows/ci.yml` declares (verified at close: line 1 is `name: CI`).
+  The tempting fix was `strings.EqualFold`, which would have kept every fabricated
+  fixture green while permanently hiding the divergence. It was refused; the
+  fixtures were corrected and the comparison kept exact. Sharp edge 2 called this
+  shot in advance and the implementation honoured it.
+
+  ── ★★ WHAT MAKES THE COUPLING SAFE, PROVEN BY LIVE MUTATION ──────────────────
+  CLM-002's whole thesis is that a hardcoded `"CI"` is acceptable ONLY because it
+  cannot drift unnoticed. That was not left as an argument — it was TESTED. Renaming
+  the `name:` field in the real `.github/workflows/ci.yml` turns EXACTLY ONE test
+  red — `TestResolveLatestSuccessfulMainRun_AcceptsExactlyTheNameCIWorkflowDeclares`
+  — and nothing else. That is the correct one-failure signature: the self-test reads
+  the real workflow file, so it is the only thing sensitive to the rename, and its
+  redness is precisely the drift alarm CLM-002 promised. A mutation that reddened
+  several tests, or none, would have meant the pin was either entangled or vacuous.
+
+  `.github/workflows/ci.yml` IS BYTE-UNCHANGED at close-out (`git status` on that
+  path is empty) — sharp edge 9 honoured; the mutation was performed and reverted,
+  and `TestCIRecipes_CoreAdoptsThePackWithoutApplyingAnyRecipe` is unaffected.
+
+  impl-reviewer separately proved substantiveness with SEVEN targeted mutations in a
+  SCRATCH COPY (not the shared tree), each going red exactly where predicted — the
+  ci.yml rename above being the critical one.
+
+  ── ★★★ THE END-TO-END PROOF, RUN LIVE TONIGHT, IN BOTH DIRECTIONS ────────────
+  This is the confirmation the unit tests structurally cannot give, and TASK-004
+  asked for it by name. Both legs were executed against the real repository:
+
+    FIXED binary    → selects real CI run `32320833720`, pulls a valid
+                      `.backstop/baseline.json`, EXIT 0. Verified independently at
+                      close-out: the file exists at 332,535 bytes (mtime 2026-08-20
+                      18:11). The ratchet has a baseline again.
+    PRE-FIX binary  → selects run `32398480027` (`pages build and deployment`) and
+                      fails with `missing artifact: "backstop-baseline-v1" not found
+                      in selected run`, EXIT 2.
+
+  THE COUNTERFACTUAL IS THE POINT. The pre-fix leg reproduces, verbatim, the live CI
+  failure this plan was written to fix — including the misleading `missing artifact`
+  wording that CLM-003 exists to replace. A green fixed-leg alone would have proven
+  only that the pull works today; the paired legs prove THIS CHANGE is what made it
+  work, on the same repository, minutes apart.
+
+  ── VERIFICATION, RE-RUN AT CLOSE-OUT (not carried from a report) ──────────────
+  This plan's own `test_command` was executed directly by the close-out, in the
+  foreground, in this tree:
+
+      go test ./cmd/backstop/ -run "TestResolveLatestSuccessfulMainRun|TestBaselineGitHubHelpers|TestRunBaselinePull|TestResolveBaselineCache" -race -count=1 -v
+
+  THIRTEEN tests, read test-by-test off the `--- PASS` lines rather than off the
+  package `ok`, all PASS in 8.476s. The full roster, which is exactly the set
+  TASK-003 named:
+    the 4 new mandated tests · TestBaselineGitHubHelpersUseGhCLI ·
+    TestBaselineGitHubHelpersReportPayloadMisses ·
+    TestRunBaselinePull_UpdatesCacheFromArtifact ·
+    TestRunBaselinePull_InvalidBaselinePayloadPreservesExistingCache ·
+    and all five TestResolveBaselineCache_* tests.
+
+  THE TWO SHARP-EDGE-1 CANARIES PASSED — `TestResolveBaselineCache_MissingCacheRefreshesFromRemote`
+  and `TestResolveBaselineCache_UnreadableCacheRefreshesFromRemote`, the only two
+  consumers of the `gate_test.go` fixture site. Their green is the positive evidence
+  that the fourth (easily-missed, cross-file) fixture site was actually handled; had
+  it been missed they would have failed with `unexpected endpoint: ...`.
+  `TestResolveBaselineCache_StaleCacheFallsBackToLocalOnRefreshFailure` also passed
+  but, per the plan's own warning, is NOT read as evidence either way — it installs
+  no fake `gh`. `TestBaselineGitHubHelpersReportPayloadMisses` passing is the CLM-003
+  canary: the load-bearing `no latest successful main run` substring survived the
+  message rewrite, and it survived by the message being BUILT AROUND it rather than
+  the assertion being edited.
+
+  GATE: `backstop gate` was run both diff-scoped and `--all`. ZERO blocking
+  violations attributable to any of this lane's four touched files. ONE pre-existing
+  failure was found and ATTRIBUTED, not waived and not papered over:
+  `TestPackAuthoringLoop_EndToEnd` (ISSUE-162, darwin-only) — confirmed inherited by
+  REPRODUCING IT AGAINST A HEAD-RESTORED COPY, which is the counterfactual that
+  distinguishes "inherited" from "caused here". Nothing was waived; no check was
+  weakened to clear it.
+
+  ── ROOT CAUSE, FOR THE RECORD: THE LANDMINE DETONATED MID-LANE ───────────────
+  ISSUE-178 was filed 2026-08-18 as a DORMANT defect. It went LIVE on 2026-08-20 —
+  the day this plan was written and implemented — when GitHub Pages was enabled on
+  this repository. Pages adds a second workflow (`pages build and deployment`) that
+  reports success on `main` in well under a minute, beating CI's multi-minute run
+  every time, which the unfiltered selection then always preferred. The plan header
+  below already records this with the measured `gh api` output; it is repeated here
+  because the timing is the story: a defect triaged as latent became a live outage
+  of the ratchet within two days, and the fix shipped the same day.
+
+  ── AS-BUILT DELTAS ────────────────────────────────────────────────────────────
+   1. NOT COMMITTED. The single material divergence from a normal close — see the
+      provenance caveat above. Status is flipped on delivered-and-verified work that
+      still needs a commit and a push; the Linux CI leg remains outstanding by
+      construction.
+   2. OPTION (c) REMAINS DEFERRED, NOT ADOPTED AND NOT REJECTED. The
+      workflow-FILE-scoped endpoint (`actions/workflows/ci.yml/runs`, already used at
+      `.github/workflows/release.yml:77`) is still plausibly the better long-term
+      shape, for the reasons the header sets out at length. Nothing in this lane
+      forecloses it. No follow-on issue was filed by this close-out; if someone wants
+      that shape, the header's option-(c) note is the starting point and a new issue
+      is the route — NOT an edit to this completed plan.
+   3. ISSUE-178's OWN CLOSURE IS NOT THIS PLAN'S. It was handled in parallel by
+      issue-author; this close-out deliberately did not touch the issue file. TASK-004
+      nominally scoped `backstop artifact validate --issue ISSUE-178`; ownership of
+      that artifact moved to the parallel lane, so only the plan was validated here.
+   4. NO SCOPE FENCE WAS CROSSED. `pkg/gate/**` untouched (sharp edge 8),
+      `.github/workflows/ci.yml` byte-unchanged (sharp edge 9), `PLAN-ISSUE-176`,
+      `PLAN-SPEC-019` and `ISSUE-176` all unedited (sharp edges 11, 12).
+
+  ── THE ISSUE'S "DORMANT" FRAMING IS NOW FALSE. THIS IS LIVE. ────────────────
+  ISSUE-178 was filed 2026-08-18 as a latent landmine: "this repository currently
+  runs exactly one workflow against `main`". That premise expired. GitHub Pages
+  was enabled on this repository at approximately 2026-08-20T02:39Z, which
+  introduced a SECOND workflow reporting success on every push to `main` —
+  `pages build and deployment` — and it has no workflow FILE in this repo
+  (GitHub generates it). It finishes in well under a minute and therefore beats
+  CI's multi-minute run every time.
+
+  MEASURED 2026-08-20, the exact query `resolveLatestSuccessfulMainRun` issues:
+
+      gh api "repos/backstop-ai/backstop-core/actions/runs?branch=main&status=success&per_page=20" \
+        --jq '.workflow_runs[] | "\(.id) [\(.name)] \(.run_started_at)"'
+
+      32398480027 [pages build and deployment] 2026-08-20T17:35:46Z   ← SELECTED TODAY
+      32369060592 [pages build and deployment] 2026-08-20T12:28:52Z
+      32325905484 [pages build and deployment] 2026-08-20T02:47:40Z
+      32320833720 [CI]                         2026-08-20T01:23:28Z   ← WANTED
+      32320084059 [CI]                         2026-08-20T01:10:58Z
+      ... (16 more, all [CI])
+
+  The fix is not speculative: run 32320833720 really carries the artifact.
+
+      gh api "repos/backstop-ai/backstop-core/actions/runs/32320833720/artifacts"
+        → 9389798266  backstop-baseline-v1  expired=false
+        → 9389746016  gate-report           expired=false
+
+      gh api "repos/backstop-ai/backstop-core/actions/runs/32398480027/artifacts"
+        → total_count = 1  (github-pages — NOT the baseline)
+
+  So today the pull selects a Pages run, `resolveBaselineArtifactID` reports
+  `missing artifact: "backstop-baseline-v1" not found in selected run`, and the
+  error names an artifact rather than the workflow-selection bug that caused it.
+  This is self-perpetuating: no `baseline.json` → the ratchet-dependent gate
+  steps go red → CI never produces a NEW successful run of its own to recover
+  with, while Pages keeps succeeding on every push and keeps winning the race.
+
+  ── DESIGN DECISION: LITERAL NAME MATCH (option a), PINNED TO ci.yml ─────────
+  ISSUE-178 names a trade-off and declines to prescribe. This lane resolves it.
+
+  REJECTED — option (b), "scan candidate runs' artifacts in ID order until one
+  carries `backstop-baseline-v1`". It has no workflow-name coupling, which is
+  its whole appeal, but:
+    * It puts up to 100 sequential `gh api` SUBPROCESS round-trips on the gate
+      HOT PATH. `resolveBaselineCache` (`cmd/backstop/gate.go:419`) runs the
+      pull on every `backstop gate` invocation whose cache is missing, stale or
+      unreadable. The measurement above shows the rejected runs are real and
+      accumulating, so this is a per-gate latency tax, not a theoretical one.
+    * It dissolves the seam between `resolveLatestSuccessfulMainRun` and
+      `resolveBaselineArtifactID`, which is a larger diff across more existing
+      tests, under live production pressure.
+    * It buys nothing the constant does not: the discriminator is measured and
+      unambiguous — `pages build and deployment` vs `CI`.
+
+  DEFERRED, NOT REJECTED — option (c), surfaced by plan review and recorded so
+  it is not rediscovered later as a surprise. This repository ALREADY solves
+  the same problem a third way, at `.github/workflows/release.yml:77`:
+
+      gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${GITHUB_SHA}&status=completed&per_page=100"
+
+  That is the workflow-FILE-scoped endpoint. GitHub filters server-side, so it
+  is ONE call that cannot return a foreign workflow at all — the bug becomes
+  unrepresentable rather than filtered out. It couples to the FILENAME
+  (`ci.yml`) instead of the DISPLAY NAME (`CI`), which is arguably the more
+  stable of the two, since editing a workflow's `name:` is far more common than
+  renaming its file. Note also that this existing call already uses
+  `per_page=100` — independent in-repo corroboration of CLM-004.
+
+  Being straight about it: option (c) is plausibly the better long-term shape,
+  and this plan is not claiming otherwise. It is deferred for scheduling
+  reasons only — it changes the ENDPOINT rather than the loop, so all four
+  fixture case arms would need re-derivation against a differently-shaped URL,
+  and the CLM-002 pin would have to become "the file exists" instead of the
+  stronger "the selector accepts exactly what the file declares". Review's
+  explicit guidance was not to delay tonight's live fix for it. If someone
+  later wants the endpoint shape, this note is the starting point and a
+  follow-on issue is the route — not an in-flight rescope of this lane.
+
+  CHOSEN — option (a): a named constant `ciWorkflowName = "CI"` and an exact
+  `run.Name == ciWorkflowName` comparison.
+
+  ON THE ZERO-BAKED-KNOWLEDGE RULE: it does not bite here, and saying why
+  matters so this is not re-litigated. CLAUDE.md's law targets baked LANGUAGE
+  and TOOL knowledge in the CHECK path — everything a pack is supposed to own.
+  `resolveLatestSuccessfulMainRun` is backstop-core's own CI wiring reading its
+  OWN repository's own workflow list. There is no pack seam to defer to and no
+  other project's answer being presumed. This is self-reference, not a baked
+  assumption about somebody else's toolchain.
+
+  WHAT MAKES THE COUPLING SAFE — and this is the part that upgrades option (a)
+  past what the issue sketched: the constant does not float free. CLM-002
+  mandates a test that READS `.github/workflows/ci.yml`'s own declared `name:`
+  and proves the production selector accepts exactly that value. Rename the
+  workflow and a test goes red immediately, instead of `baseline pull` breaking
+  silently weeks later. Option (b) has no coupling but also no such feedback;
+  option (a)-plus-the-pin has a coupling that CANNOT drift unnoticed. That is
+  strictly the better property.
+
+  ── SCOPE FENCES ────────────────────────────────────────────────────────────
+  IN:  cmd/backstop/baseline.go — the selector, the constant, the miss message,
+       the window width. Nothing else in the file.
+  IN:  cmd/backstop/baseline_workflow_selection_test.go (NEW) — the four
+       mandated tests.
+  IN:  cmd/backstop/baseline_test.go, cmd/backstop/gate_test.go — fixture
+       CORRECTION only (see sharp edges 1-3). No assertion weakened, no
+       `t.Skip` added, no test deleted.
+  OUT: `.github/workflows/ci.yml`. READ, never written — sharp edge 9.
+  OUT: `pkg/gate/**`. The degradation contract on a failed pull is correct as
+       shipped (sharp edge 8); this lane changes which run is selected, not
+       what happens when selection fails.
+  OUT: `ISSUE-176` / `PLAN-ISSUE-176` (both terminal — `closed`/`completed`).
+       PLAN-ISSUE-176 explicitly deferred this defect as CLM-007(a); it is not
+       reopened, re-scoped or edited. Its now-stale workflow-count prose is
+       sharp edge 11.
+  OUT: `PLAN-SPEC-019` — sharp edge 12.
+
+  ── EXISTENCE-IN-WORLD CHECK (performed 2026-08-20, before authoring) ────────
+  `grep -rln "resolveLatestSuccessfulMainRun|ISSUE-178"` over `plans/ issues/
+  specs/ bundles/ directives/ BACKLOG.yml` → SIX hits, each adjudicated:
+    * `issues/ISSUE-178-...` — this lane's own source.
+    * `plans/PLAN-ISSUE-178-...` — this file (scaffolded, empty).
+    * `issues/ISSUE-176-...` (`status: closed`) — names the gap, fixes nothing.
+    * `plans/PLAN-ISSUE-176-...` (`status: completed`) — line 141-145 names
+      this exact defect and routes it OUT as a follow-on. Its diff touched
+      `.github/workflows/ci.yml`, not the selection loop.
+    * `plans/PLAN-ISSUE-172-...` — cites ISSUE-178 five times, every one of
+      them as a "KNOWN INHERITED RED" to TOLERATE, never to fix.
+    * `directives/DIR-003-baseline-implementation.directive.md` — the backlog
+      theme this rolls up under, not an owner of the fix.
+  Separately, `grep -rln "cmd/backstop/baseline.go|cmd/backstop/baseline_test.go"
+  plans/` → eight plans, seven of them terminal (`completed`/`replaced`) and
+  one draft (`PLAN-SPEC-019`, sharp edge 12). NO LIVE PLAN OWNS THIS SURFACE.
+
+  ── CLAIM LEDGER (ISSUE-178 carries no CLM ids; this lane defines them) ──────
+    CLM-001  `resolveLatestSuccessfulMainRun` selects ONLY a run whose `Name`
+             is the CI workflow's. A newer successful run belonging to any
+             other workflow is skipped, not returned — the decoded `Name` field
+             is finally read instead of discarded.
+    CLM-002  The accepted name is PINNED to `.github/workflows/ci.yml`'s own
+             declared `name:`, proven by a test that reads that file. The
+             hardcoded-literal coupling ISSUE-178 warns about cannot drift
+             unnoticed: renaming the workflow reddens a test rather than
+             silently breaking `baseline pull`.
+    CLM-003  A selection miss NAMES what it looked for and what it rejected, so
+             the failure reads as a workflow-selection miss. Today the same
+             situation surfaces downstream as `missing artifact`, which the
+             issue identifies as the reason nobody would suspect this function.
+    CLM-004  The candidate window is wide enough that foreign successful runs
+             cannot crowd the newest successful CI run out of the query result
+             (`per_page` 20 → 100, GitHub's maximum).
+    CLM-005  Non-regression. Every pre-existing fixture that models this
+             endpoint carries the REAL workflow name and the REAL endpoint, and
+             every pre-existing test over `resolveLatestSuccessfulMainRun`,
+             `runBaselinePull` and `resolveBaselineCache` still passes. No
+             assertion softened, no skip added, no test deleted.
+
+  ── SHARP EDGES ─────────────────────────────────────────────────────────────
+   1. THE FIXTURES LIVE IN TWO FILES, NOT ONE. `cmd/backstop/gate_test.go:620-621`
+      carries the same fake-`gh` case arm inside the shared helper
+      `setupBaselineRefreshSuccessFixture` (declared `gate_test.go:594`), which
+      feeds exactly TWO tests — its only two call sites, measured
+      (`grep -rn "setupBaselineRefreshSuccessFixture" cmd/backstop/` → 3 hits,
+      one being the declaration):
+        · `TestResolveBaselineCache_MissingCacheRefreshesFromRemote`   (calls at :545)
+        · `TestResolveBaselineCache_UnreadableCacheRefreshesFromRemote` (calls at :567)
+      Edit only `baseline_test.go` and those two go red for a reason that has
+      nothing to do with this lane.
+
+      `TestResolveBaselineCache_StaleCacheFallsBackToLocalOnRefreshFailure`
+      (:511) is NOT a third caller — do not go looking for one. It installs no
+      fake `gh` DELIBERATELY: its whole point is that the refresh FAILS and the
+      stale local cache is used anyway. It must stay green, but it is not
+      sensitive to this lane's fixture edits and is not a canary for them.
+
+      EXHAUSTIVE SITE LIST, measured 2026-08-20 —
+        `grep -rn "workflow_runs" --include="*.go" .` → 5 hits
+        `grep -rn "per_page=20"  --include="*.go" .` → 5 hits
+      Adjudicated:
+        · `cmd/backstop/baseline.go:203` + `:213` — PRODUCTION (the endpoint
+          string and the struct tag). TASK-002 edits :203; :213 is untouched.
+        · `cmd/backstop/baseline_test.go:247` (case) + `:248` (payload) —
+          `TestBaselineGitHubHelpersUseGhCLI`. BOTH edits.
+        · `cmd/backstop/baseline_test.go:303` — `{"workflow_runs":[]}` inside
+          `TestBaselineGitHubHelpersReportPayloadMisses`. It is reached by the
+          GLOB arm `*runs-empty*`, not by the exact endpoint, and carries no
+          `name` field. IT NEEDS NEITHER EDIT. Changing it is the wrong move.
+        · `cmd/backstop/baseline_test.go:402` (case) + `:403` (payload) —
+          `TestRunBaselinePull_UpdatesCacheFromArtifact`. BOTH edits.
+        · `cmd/backstop/baseline_test.go:478` (case) + `:479` (payload) —
+          `TestRunBaselinePull_InvalidBaselinePayloadPreservesExistingCache`.
+          BOTH edits.
+        · `cmd/backstop/gate_test.go:620` (case) + `:621` (payload) —
+          `setupBaselineRefreshSuccessFixture`. BOTH edits.
+      That is FOUR fixture sites needing both edits, and one needing neither.
+
+   2. THE FIXTURES SAY `"ci"`; THE REAL API SAYS `CI`. All four payloads spell
+      the workflow lowercase — they were fabricated, not captured. The live
+      measurement at the top of this file is the authority: the value is `CI`.
+      DO NOT reach for `strings.EqualFold` or a `ToLower` comparison to keep
+      the lowercase fixtures passing. That preserves fabricated fixtures that
+      diverge from real tool output, against this repo's fixtures-from-real-
+      output rule, and it hides the divergence rather than fixing it. Correct
+      the fixtures; keep the comparison exact.
+
+   3. THE FAKE-`gh` CASE PATTERNS ARE EXACT-MATCH, and shell-escaped:
+      `repos/owner/repo/actions/runs\?branch=main\&status=success\&per_page=20)`.
+      Change `per_page` in production without changing all four patterns and
+      those tests fall through to the `*)` arm, failing with `unexpected
+      endpoint: ...` — a message that points at the harness, not at the change
+      that caused it. Preserve the `\?` and `\&` escaping when editing.
+
+   4. TASK-001's TESTS MUST BE RUNTIME-RED, NEVER COMPILE-RED. They must NOT
+      reference `ciWorkflowName` — TASK-002 introduces it, and `cmd/backstop`
+      is ONE package, so a test naming a not-yet-written symbol fails to
+      COMPILE and a non-compiling `cmd/backstop` blocks every other lane
+      working in this shared tree. Drive the ALREADY-EXISTING
+      `resolveLatestSuccessfulMainRun` and assert on what it returns. Spell any
+      needed literal (`"CI"`) as a plain string in the test file; do not
+      declare a second package-level const for it either — that is a name
+      collision on one axis and two-spellings drift on the other.
+
+   5. VACUOUS-GREEN TRAP ON THE ci.yml PIN. A fixture holding ONE run named
+      `CI` passes BOTH before and after the fix — the unfiltered loop returns
+      it because it is first, and the filtered loop returns it because it
+      matches. CLM-002's test is only a real falsifier if its fixture puts a
+      FOREIGN run FIRST (newest) and the ci.yml-named run SECOND. Same trap
+      applies to CLM-001's fixture. Run both before TASK-002 and RECORD THE
+      ACTUAL FAILURE OUTPUT; a test that was never observed red is not
+      evidence.
+
+   6. REUSE THE EXISTING REPO-ROOT HELPER. `repoRoot(t)` already exists at
+      `cmd/backstop/pack_gate_test.go:572` in this same package. Do not declare
+      another one (compile collision) and do not hand-roll a `../..` walk.
+      Parse the workflow with `gopkg.in/yaml.v3` — a DIRECT dependency already
+      (`go.mod:11`) — into a struct with a `Name` string field carrying the
+      struct tag yaml:"name". Do not regex line 1: a `name:` that moves or acquires quotes would then
+      silently stop being checked, which is exactly the drift CLM-002 exists to
+      prevent. Precedent for a test reading this file lives at
+      `cmd/backstop/ci_recipes_pack_identity_test.go:224`.
+
+   7. THE WINDOW ASSERTION NEEDS ITS OWN CHANNEL. Existing fixtures assert the
+      endpoint only INCIDENTALLY, through the case pattern — a test that merely
+      still passes proves nothing about `per_page`. CLM-004's test must have
+      its fake `gh` RECORD the endpoint it was handed (append `$2` to a file in
+      a `t.TempDir()`), then read that file and assert it contains
+      `per_page=100`. Asserting the happy path alone would stay green at 20.
+
+   8. `resolveBaselineCache` DEGRADES; IT DOES NOT HARD-FAIL. Read
+      `cmd/backstop/gate.go:419-444` before writing any gate-level assertion: a
+      failed pull returns a nil baseline plus a warning STRING (`"baseline
+      unavailable: ... remote baseline fetch failed"`), and the gate proceeds
+      without a baseline. Do NOT write a test asserting `backstop gate` exits
+      non-zero on a selection miss — that is not the shipped contract, and such
+      a test would be asserting a behavior this lane is not delivering.
+
+   9. DO NOT TOUCH `.github/workflows/ci.yml`.
+      `TestCIRecipes_CoreAdoptsThePackWithoutApplyingAnyRecipe`
+      (`cmd/backstop/ci_recipes_pack_identity_test.go:222`) asserts via
+      `ciGitDiffIsDirty` that the file is BYTE-UNCHANGED from HEAD. This lane
+      READS that file from a test and writes it never. Any edit reddens an
+      unrelated test.
+
+  10. `per_page=100` IS GITHUB'S MAXIMUM. Do not set 200 expecting more — the
+      API caps silently and the number would become a lie. If the window still
+      misses, the honest reading is that CI genuinely has no recent successful
+      run on `main`, which is precisely what CLM-003's message now says out
+      loud instead of mispresenting as a missing artifact.
+
+  11. `PLAN-ISSUE-176`'s WORKFLOW COUNT IS STALE, AND IT IS NOT OURS TO FIX.
+      That plan records (line 145) "three workflows, not one — `release` and
+      `tag-integrity` are tag-triggered", which was true when written and is
+      why the defect looked dormant. There are still exactly THREE workflow
+      FILES (`ci.yml`, `release.yml`, `tag-integrity.yml` — measured). The
+      Pages workflow has NO file; GitHub generates it. Do not hunt for a fourth
+      file, and do not edit `PLAN-ISSUE-176` — it is `completed` and terminal.
+
+  12. `PLAN-SPEC-019` LISTS THESE FILES BUT DOES NOT OWN THIS FIX. That plan
+      (`status: draft`, created 2026-05-25) scopes `cmd/backstop/baseline.go`
+      in task-010 and both files in task-007. It is a stale draft whose
+      substance ALREADY SHIPPED — the pull command its task-010 describes is
+      the code in the tree today — and its only adjacent language is a generic
+      "actionable errors for ... workflow/run selection failures", which owns
+      no filter. Recorded here so the overlap is not rediscovered mid-
+      implementation and mistaken for a live collision. Do not edit it.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Phase 1: RED — pin the selection contract, and correct the fabricated
+  #                fixtures that currently model the wrong workflow name
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: RED — executable pins on workflow-name selection"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Pin workflow-name selection, the ci.yml-derived accepted name, the miss message, and the window width (RED)"
+        description: |
+          Create `cmd/backstop/baseline_workflow_selection_test.go` (package
+          main) carrying the four mandated tests below, and CORRECT the four
+          pre-existing fixture sites enumerated in sharp edge 1.
+
+          ALL FOUR NEW TESTS MUST FAIL BEFORE TASK-002. Run them first and
+          RECORD THE ACTUAL FAILURE OUTPUT — sharp edge 5.
+
+          THESE TESTS INTRODUCE AND REFERENCE NO NEW PRODUCTION SYMBOL. They
+          drive the EXISTING `resolveLatestSuccessfulMainRun` and assert on its
+          two return values. Naming `ciWorkflowName` here would fail the
+          COMPILE and take the whole `cmd/backstop` package — and every other
+          lane in this shared tree — down with it (sharp edge 4).
+
+          Build the fake `gh` with the package's existing `writeFakeGh` helper
+          and the `t.Setenv("PATH", binDir+...)` pattern the neighbouring tests
+          already use; do not invent a second harness.
+
+          TestResolveLatestSuccessfulMainRun_RejectsNewerForeignWorkflowRun (CLM-001).
+            Fake `gh` answers the runs endpoint with a MULTI-WORKFLOW payload
+            modelled on the real measurement in this plan's header — a foreign
+            run FIRST (newest), a `CI` run SECOND:
+              {"workflow_runs":[
+                {"id":7,"name":"pages build and deployment","conclusion":"success","head_branch":"main"},
+                {"id":42,"name":"CI","conclusion":"success","head_branch":"main"}]}
+            Assert the returned id is 42 and the error is nil. TODAY THIS
+            RETURNS 7 — that is the RED, and it is the defect itself. On failure
+            print the returned id so the red state is legible in one run.
+
+          TestResolveLatestSuccessfulMainRun_AcceptsExactlyTheNameCIWorkflowDeclares (CLM-002).
+            Resolve the repository root with the EXISTING `repoRoot(t)`
+            (`cmd/backstop/pack_gate_test.go:572` — do not declare another),
+            read `.github/workflows/ci.yml`, and unmarshal it with
+            `gopkg.in/yaml.v3` into a struct exposing `Name string`
+            (sharp edge 6). Fail loudly if that name is empty — an unparseable
+            workflow must not silently make this test vacuous.
+
+            Build the fixture payload with that FILE-DERIVED name, and put a
+            foreign run ahead of it so the test is red before TASK-002
+            (sharp edge 5):
+              id 7  name "pages build and deployment"  (first/newest)
+              id 42 name <the name read from ci.yml>   (second)
+            Assert 42 is selected. This is the whole anti-coupling mechanism:
+            it proves the production selector accepts EXACTLY what the workflow
+            file declares, so a rename reddens here instead of silently
+            breaking `baseline pull`.
+
+          TestResolveLatestSuccessfulMainRun_SelectionMissNamesWorkflowAndRejectedCandidates (CLM-003).
+            Fake `gh` answers with successful main runs from FOREIGN workflows
+            ONLY (no `CI` row at all) — e.g. two `pages build and deployment`
+            rows. Assert the call returns a non-nil error, and that the message
+            carries BOTH distinguishing substrings: the workflow it was looking
+            for (`"CI"`) AND the foreign name it rejected (`pages build and
+            deployment`). Assert on those substrings, not on the full sentence —
+            over-specifying the wording makes this test a rewording tax.
+            TODAY THIS RETURNS AN ID AND A NIL ERROR — that is the RED.
+
+          TestResolveLatestSuccessfulMainRun_QueriesAHundredRunWindow (CLM-004).
+            Give the fake `gh` a recording line that appends its `$2` argument
+            to a file inside a `t.TempDir()` (path interpolated into the script
+            the way the existing fixtures interpolate `zipPath`), then answer
+            the request. After calling `resolveLatestSuccessfulMainRun`, READ
+            that file and assert it contains `per_page=100`. Asserting only
+            that the happy path still works would stay green at `per_page=20` —
+            sharp edge 7 is the whole reason this test needs its own channel.
+
+          FIXTURE CORRECTION (CLM-005) — the four sites in sharp edge 1, each
+          needing BOTH edits, `"name":"ci"` → `"name":"CI"` and `per_page=20` →
+          `per_page=100` (preserving the `\?` / `\&` escaping in the case arms):
+            · cmd/backstop/baseline_test.go:247-248
+            · cmd/backstop/baseline_test.go:402-403
+            · cmd/backstop/baseline_test.go:478-479
+            · cmd/backstop/gate_test.go:620-621
+          LEAVE `cmd/backstop/baseline_test.go:303` ALONE — it is reached by the
+          `*runs-empty*` glob and carries no `name` field.
+
+          These four corrections put those tests RED TOO until TASK-002 lands
+          (the production endpoint still says 20, so the corrected exact-match
+          arms miss and the `*)` branch fires). That is expected and correct:
+          the fixture correction IS part of this lane's red. Do not soften it by
+          leaving the endpoint at 20 in the fixtures.
+        files:
+          - cmd/backstop/baseline_workflow_selection_test.go
+          - cmd/backstop/baseline_test.go
+          - cmd/backstop/gate_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+        depends_on: []
+        test_names:
+          - TestResolveLatestSuccessfulMainRun_RejectsNewerForeignWorkflowRun
+          - TestResolveLatestSuccessfulMainRun_AcceptsExactlyTheNameCIWorkflowDeclares
+          - TestResolveLatestSuccessfulMainRun_SelectionMissNamesWorkflowAndRejectedCandidates
+          - TestResolveLatestSuccessfulMainRun_QueriesAHundredRunWindow
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Phase 2: GREEN — read the field that was already being decoded, then verify
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: GREEN — filter the selection loop on the workflow name, and verify"
+    tasks:
+      - id: TASK-002
+        type: implementation
+        title: "Filter resolveLatestSuccessfulMainRun on the CI workflow name, widen the window, and name the miss"
+        description: |
+          Edit `cmd/backstop/baseline.go` ONLY. Four changes, all inside or
+          immediately around `resolveLatestSuccessfulMainRun` (:202-224).
+
+          (a) CLM-002 — declare the constant at package scope, beside the
+              existing `const baselineArtifactName = "backstop-baseline-v1"`
+              (:23), so the two identity constants this function pair depends on
+              sit together:
+                const ciWorkflowName = "CI"
+              ONE literal, used by the comparison and nowhere else. Give it a
+              one-line comment stating the non-obvious WHY — that it is pinned
+              to `.github/workflows/ci.yml`'s declared `name:` and that
+              TestResolveLatestSuccessfulMainRun_AcceptsExactlyTheNameCIWorkflowDeclares
+              is what holds the two in sync. A future reader who does not know
+              that will "simplify" it back into a free-floating literal.
+
+          (b) CLM-001 — read the `Name` field the struct has been decoding and
+              discarding since it was written (:210). Exact match, never
+              case-insensitive (sharp edge 2):
+                if run.HeadBranch == "main" && run.Conclusion == "success" && run.Name == ciWorkflowName {
+              The two pre-existing conditions are redundant against the query's
+              own `branch=main&status=success` parameters; LEAVE THEM. They cost
+              nothing, they are defence against a server-side contract change,
+              and removing them is a second unrelated change in a live fix.
+
+          (c) CLM-004 — widen the candidate window in the endpoint at :203,
+              `per_page=20` → `per_page=100` (GitHub's maximum, sharp edge 10).
+              Foreign successful runs now consume slots that CI runs used to
+              hold, so the window has to be deeper than it was when every row
+              was a CI row.
+
+          (d) CLM-003 — make the miss self-diagnosing, WITHOUT breaking the
+              pre-existing assertion on this message. THE SUBSTRING `no latest
+              successful main run` IS LOAD-BEARING AND MUST SURVIVE VERBATIM:
+              `cmd/backstop/baseline_test.go:331` asserts on it, and the
+              `runs-empty` fixture (`{"workflow_runs":[]}`) reaches this exact
+              return. TASK-002's file scope is `baseline.go` ALONE and does not
+              authorize editing that test, so a message that drops the
+              substring would surface as an unowned break at TASK-003. This is
+              not a judgment call and there is nothing to improvise — build the
+              message around the existing substring:
+
+                workflow/run selection miss: no latest successful main run
+                found for workflow %q among %d successful runs
+                (rejected workflows: %s)
+
+              filled as: the wanted name (`ciWorkflowName`), the number of
+              candidate runs the payload carried, and the DISTINCT workflow
+              names seen and rejected while scanning. That satisfies CLM-003's
+              two required tokens (the wanted workflow name and the rejected
+              list) while keeping :331 green.
+
+              OMIT THE PARENTHETICAL ENTIRELY when nothing was rejected. The
+              `runs-empty` payload has zero candidates, and `(rejected
+              workflows: )` is a worse message than no clause at all. CLM-003's
+              own test feeds foreign-only runs, so the clause is present and
+              asserted there.
+
+              Bound the list: de-duplicate the names and cap it (a handful is
+              plenty) so a 100-run window cannot produce an unreadable error.
+
+              Keep the `workflow/run selection miss:` prefix — the three sibling
+              returns in this function (:205, :216, :223) share it as a family.
+              Exactly ONE test assertion depends on the `no latest successful
+              main run` substring; that is :331, and (d) preserves it.
+
+          DO NOT touch `resolveBaselineArtifactID`, `runBaselinePull`,
+          `resolveBaselineCache`, or `.github/workflows/ci.yml` (sharp edges 8
+          and 9). The four TASK-001 tests plus every pre-existing test named in
+          this plan's `test_command` must be green when this task ends.
+        files:
+          - cmd/backstop/baseline.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: verification
+        title: "Gate the touched files and confirm the pre-existing baseline tests survived"
+        description: |
+          Scoped inner-loop verification.
+
+            backstop gate --file cmd/backstop/baseline.go
+            backstop gate --file cmd/backstop/baseline_test.go
+            backstop gate --file cmd/backstop/gate_test.go
+            backstop gate --file cmd/backstop/baseline_workflow_selection_test.go
+
+          Then run this plan's `test_command` and read it TEST BY TEST, not off
+          the package-level `ok` line:
+
+            go test ./cmd/backstop/ -run "TestResolveLatestSuccessfulMainRun|TestBaselineGitHubHelpers|TestRunBaselinePull|TestResolveBaselineCache" -race -count=1
+
+          The four mandated tests must PASS, and so must the pre-existing set
+          they share fixtures with — `TestBaselineGitHubHelpersUseGhCLI`,
+          `TestBaselineGitHubHelpersReportPayloadMisses`,
+          `TestRunBaselinePull_UpdatesCacheFromArtifact`,
+          `TestRunBaselinePull_InvalidBaselinePayloadPreservesExistingCache`,
+          and all three `TestResolveBaselineCache_*` tests.
+
+          THE SHARP-EDGE-1 CANARY IS SPECIFICALLY the two that consume the
+          `gate_test.go` fixture — `TestResolveBaselineCache_MissingCacheRefreshesFromRemote`
+          and `TestResolveBaselineCache_UnreadableCacheRefreshesFromRemote`. If
+          the fourth fixture site was missed, that is where it shows, and it
+          shows as `unexpected endpoint: ...`.
+          `TestResolveBaselineCache_StaleCacheFallsBackToLocalOnRefreshFailure`
+          must also pass, but it installs no fake `gh` and so proves nothing
+          about the fixture edits either way — do not read its green as
+          evidence that the `gate_test.go` site was handled.
+
+          `TestBaselineGitHubHelpersReportPayloadMisses` is the CLM-003 canary:
+          its `runs-empty` leg asserts the `no latest successful main run`
+          substring that TASK-002(d) is required to preserve. If it fails, the
+          new miss message dropped the substring — fix the MESSAGE in
+          `baseline.go`, never the assertion.
+
+          CLM-005 evidence: assert ZERO `t.Skip` calls in the touched test
+          files, and confirm the `baseline_test.go` / `gate_test.go` diff is
+          fixture-value churn only — no assertion removed, no test deleted.
+        files:
+          - cmd/backstop/baseline.go
+          - cmd/backstop/baseline_test.go
+          - cmd/backstop/gate_test.go
+          - cmd/backstop/baseline_workflow_selection_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+        depends_on:
+          - TASK-002
+
+      - id: TASK-004
+        type: verification
+        title: "Full gate sweep and artifact validation"
+        description: |
+          Comprehensive, unscoped verification of everything this lane touched —
+          both code and artifacts.
+
+            backstop gate --all
+            backstop artifact validate --plan PLAN-ISSUE-178
+            backstop artifact validate --issue ISSUE-178
+
+          Read the `--all` result against this lane's own scope. This tree
+          carries KNOWN INHERITED REDS that predate this plan — `PLAN-ISSUE-172`
+          enumerates them (ISSUE-176 residual / ISSUE-178, ISSUE-162, and the
+          baseline absence itself). Attribute every violation before reporting:
+          a red that reproduces at clean HEAD is inherited, not caused here.
+          Do NOT waive anything and do NOT weaken a check to clear an inherited
+          red — record it, name its owning issue, and move on.
+
+          ONE EXPECTED IMPROVEMENT WORTH MEASURING, because it is the point of
+          the whole lane: with the fix in place, `backstop baseline pull` should
+          now select CI run 32320833720 (or a newer `CI` run) and land a real
+          `.backstop/baseline.json` instead of failing with `missing artifact`.
+          Run it against the real repository and report which run id it
+          selected. That is the end-to-end confirmation that the unit tests
+          cannot give — and if it still fails, the message now says why
+          (CLM-003), which is itself the fix working.
+        files:
+          - cmd/backstop/baseline.go
+          - cmd/backstop/baseline_test.go
+          - cmd/backstop/gate_test.go
+          - cmd/backstop/baseline_workflow_selection_test.go
+          - plans/PLAN-ISSUE-178-baseline-pull-workflow-name-filter.plan.yml
+          - issues/ISSUE-178-baseline-pull-workflow-name-unfiltered.issue.md
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+        depends_on:
+          - TASK-002
+          - TASK-003

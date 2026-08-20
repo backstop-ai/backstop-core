@@ -82,3 +82,4 @@
 - [Source issue fences out delivered claim](project_source_issue_fences_out_delivered_claim.md) — a scope-widening plan leaves the issue's own "that's ISSUE-NNN's territory" section un-retracted; enumerate fence sites
 - [RED signature matches buggy impl](project_red_signature_matches_buggy_impl.md) — a restructured guard's stated "A and B both fail" pre-fix set is often satisfied only by the un-refactored version; derive the set yourself
 - [Narrow grep, false missing citation](project_narrow_grep_false_missing_citation.md) — a cited symbol returning zero hits is usually MY grep (`func ` prefix, assumed json tag spelling), not a bad citation; re-grep bare before flagging
+- [Message rewrite, unscoped escape hatch](project_message_rewrite_escape_hatch_unscoped.md) — "preserve the substring if you can; this task owns the consequence" is a scope defect: the test file belongs to the earlier RED task

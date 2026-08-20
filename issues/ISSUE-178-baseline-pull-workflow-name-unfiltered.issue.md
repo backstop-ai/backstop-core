@@ -1,13 +1,15 @@
 ---
 title: "Baseline Pull Workflow Name Unfiltered"
 schema_version: issue/v1
+delivered_by: PLAN-ISSUE-178
 
 issue:
   id: ISSUE-178
   title: "Baseline Pull Workflow Name Unfiltered"
   type: bug
-  status: open
+  status: closed
   created: "2026-08-18"
+  closed: "2026-08-20"
 
 complexity:
   scope: isolated
@@ -99,6 +101,42 @@ Add a regression test asserting the selection loop rejects a synthetic run whose
 expected workflow even when it is the newest successful run on `main` in the fixture payload — the
 current test suite (if any covers this function) should be checked for whether it already
 constructs multi-workflow fixtures; if not, this is the first one to.
+
+## Resolution
+
+Fixed by `PLAN-ISSUE-178` (`status: completed`), landing in `cmd/backstop/baseline.go`:
+`resolveLatestSuccessfulMainRun`'s selection loop now reads the `Name` field it was already
+decoding and discarding, filtering on a package-level `const ciWorkflowName = "CI"`, pinned by a
+test that reads `.github/workflows/ci.yml`'s own declared `name:` so a future rename reddens that
+test rather than silently breaking `baseline pull`. The candidate window widened `per_page=20` →
+`per_page=100`, and a selection miss now names the workflow it looked for and the foreign
+workflows it rejected instead of surfacing downstream as a misleading `missing artifact` error.
+Four pre-existing test fixtures across `cmd/backstop/baseline_test.go` and `cmd/backstop/
+gate_test.go` were corrected from a fabricated lowercase `"ci"` to the real API's `"CI"` — they
+had never been captured from real output.
+
+**This issue's own "dormant" framing turned out to be exactly right, and briefly false.** Filed
+2026-08-18 describing a landmine with no visible effect because this repo ran only one workflow
+against `main`. It went live on 2026-08-20, the same day this plan was written and implemented,
+when GitHub Pages was enabled on this repository — Pages runs a second, unfiled, always-fast
+workflow (`pages build and deployment`) that started winning the "newest successful run on main"
+race against `CI` within two days of filing.
+
+Proven end-to-end, live, in both directions against the real repository the same night: the fixed
+binary selected real `CI` run `32320833720` and pulled a valid 332KB `.backstop/baseline.json`
+(exit 0); a pre-fix binary reproduced the live failure verbatim, selecting the Pages run
+`32398480027` and failing with `missing artifact: "backstop-baseline-v1" not found in selected
+run` (exit 2). Test substantiveness independently confirmed via 7 targeted mutations in a scratch
+copy, each red exactly where predicted. A real `backstop gate` run found zero blocking violations
+attributable to this fix; the one pre-existing failure encountered (`TestPackAuthoringLoop_
+EndToEnd`) is `ISSUE-162`, confirmed unrelated and darwin-only.
+
+The issue's own text raised a trade-off — a literal workflow-name match vs. a more general
+artifact-scanning selection strategy — without prescribing a shape. The plan resolved it in favor
+of the literal match (option a), rejecting the artifact-scan alternative (option b, an unbounded
+per-gate `gh api` latency tax) and deliberately deferring a third, workflow-file-scoped endpoint
+already used elsewhere in this repo's own `release.yml` (option c) as a plausible future
+improvement, not a defect in what shipped.
 
 ## References
 
