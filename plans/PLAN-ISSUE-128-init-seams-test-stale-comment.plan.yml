@@ -1,0 +1,220 @@
+---
+plan_id: PLAN-ISSUE-128
+spec_id: ISSUE-128
+created: "2026-08-19"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./cmd/backstop/ -run \"TestInit_GitRefPackInstallLandsAsAPortableLockEntry|TestInit_ProducesNoLockEntryCarryingALocalPath|TestInit_AppliesRecipesOnlyThroughTheShippedResolveApplyPath|TestInit_RecipePayloadLandsByteIdentical|TestInit_ScaffoldRecipeTargetsLandAtTheRecipeDeclaredPaths|TestInitSeams_\" -count=1"
+coverage_threshold: 90
+
+notes: |
+  ══════════════════════════════════════════════════════════════════════════════
+  ONE COMMENT. NO BEHAVIOR CHANGE. THAT IS THE WHOLE PLAN.
+  ══════════════════════════════════════════════════════════════════════════════
+
+  ── THE DEFECT, VERBATIM AND VERIFIED AT HEAD ─────────────────────────────────
+  `cmd/backstop/init_seams_test.go` lines 24-27, unchanged since the SPEC-069 /
+  SPEC-070 commits (`48e6b85`, `fd93cdc`), read EXACTLY:
+
+      24: //
+      25: // Referencing `initialize` here is also what satisfies the substantiveness subject join
+      26: // for the five claims whose declared subject stays pkg/initialize while their mandated
+      27: // tests live in cmd/backstop, where the production adapters are forced to live.
+
+  Both halves of that sentence are false at HEAD:
+
+    1. THE MECHANISM DOES NOT EXIST. The substantiveness subject join evaluates
+       colocation/symbol-reference PER TEST FUNCTION — `NoTargetViolation`
+       (`pkg/gate/substantiveness_join.go`) and `testFileColocatedWithTarget`
+       (`cmd/backstop/gate.go`). There is no code path by which one import, or one
+       reference to `initialize` anywhere in a file, extends subject coverage to
+       the other test functions in that file. The comment describes a check the
+       join implementation does not implement.
+
+    2. THE PREMISE IS ALSO DEAD. The five claims it names — CLM-046, CLM-047,
+       CLM-086, CLM-088, CLM-130 — no longer have a "declared subject [that]
+       stays pkg/initialize". SPEC-069 v1.3.3 gave each of them an explicit
+       `subject: cmd/backstop` (verified at HEAD: `specs/SPEC-069-backstop-init.spec.md`
+       lines 953 and 1015 among them, against the spec-level default
+       `subject: pkg/initialize` at line 51). So even the situation the sentence
+       claims to resolve is gone.
+
+  WHY IT IS WORTH A PLAN AT ALL. This is the load-bearing false belief behind a
+  real gate defect, sitting in a comment inside the very file whose claims it
+  mis-describes. The next author who adds a claim + test here reads it and
+  reasonably concludes an explicit `subject:` is optional — reproducing the
+  defect SPEC-069's close-out already paid to find and fix.
+
+  ── WHAT SURVIVES ─────────────────────────────────────────────────────────────
+  Lines 14-23 are TRUE and USEFUL and are NOT in scope. They document why the
+  file exists (real production adapters, no fakes, the wiring proof against this
+  project's recurring integration-gap failure). Only the 24-27 block is wrong.
+
+  ── LOCAL CLAIMS (this plan's own; ISSUE-128 carries none) ────────────────────
+  CLM-001  THE FALSE ASSERTION IS GONE. No comment anywhere in
+           `cmd/backstop/init_seams_test.go` asserts that referencing
+           `initialize` in the file satisfies the substantiveness subject join
+           for any claim, nor that a file-level reference propagates subject
+           coverage across test functions. Falsifier: the string
+           "satisfies the substantiveness subject join" — the only occurrence of
+           which in the entire non-`plans/` tree is this line — no longer appears
+           in the file, and no reworded equivalent replaces it.
+
+  CLM-002  THE TRUE HALF SURVIVES. The header still carries the "★ WHY THIS FILE
+           EXISTS AT ALL" rationale (lines 14-23 at HEAD): real production
+           adapters, no fake from `pkg/initialize`, THESE TESTS ARE THE WIRING
+           PROOF. The fix does not amputate the useful documentation along with
+           the false sentence.
+
+  CLM-003  IF ANYTHING REPLACES IT, IT STATES THE OPPOSITE. Should a replacement
+           sentence be written rather than a plain deletion, it says that each
+           claim whose mandated tests live in this file must declare an explicit
+           `subject: cmd/backstop` ITSELF, because file-level references do not
+           propagate to other test functions in the join. A silent deletion also
+           satisfies this claim vacuously; a reworded restatement of the old
+           belief does not.
+
+  CLM-004  ZERO BEHAVIOR CHANGE. The diff touches comment lines ONLY. The
+           `initialize` import and every use of it stay exactly as they are — the
+           reference was never load-bearing FOR THE JOIN, but it is entirely
+           load-bearing for the tests, which drive `initialize.NewRunner` /
+           `initialize.Options` directly. The package still compiles and all nine
+           test functions in the file still pass.
+
+  ── SHARP EDGES ───────────────────────────────────────────────────────────────
+  SE-1  DO NOT EDIT `plans/PLAN-SPEC-069-backstop-init.plan.yml`. Its TASK-052
+        description (around line 2705) carries the SAME false belief — "Referencing
+        `initialize` is also what satisfies the subject join for the five moved
+        claims" — and is where the comment came from. PLAN-SPEC-069 is a shipped
+        plan; its task prose is unchanged historical record by close-out
+        convention and is explicitly OUT OF SCOPE here. The fix is to the source
+        comment only.
+
+  SE-2  DO NOT TOUCH `cmd/backstop/init_seams_test.go` LINES ~112-113. ISSUE-132
+        (open, no plan yet) owns a separate defect at that location (git-ref
+        pointer format). This plan's diff must not overlap it. Line numbers below
+        line 27 WILL shift by however many lines this edit adds or removes — that
+        shift is expected and harmless; editing the region is not.
+
+  SE-3  DELETING THE COMMENT IS NOT DELETING THE IMPORT. `initialize` is imported
+        and used throughout the file. A "remove the reference" reading of the
+        issue would break the build. Comment bytes only.
+
+  SE-4  NO NEW TEST. This is a comment correction with no behavior surface; there
+        is nothing to drive red-then-green. The existing nine tests in the file
+        are the regression net for CLM-004, and the gate is the check for
+        everything else. Do not invent a test that greps its own source file.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Correct the false subject-join comment (CLM-001, CLM-002, CLM-003, CLM-004)"
+    tasks:
+      - id: TASK-001
+        type: refactor
+        title: "Remove or correct the false per-file substantiveness subject-join claim in the init_seams_test.go header"
+        description: |
+          Read `cmd/backstop/init_seams_test.go` FIRST and locate the block by its
+          text, not by line number — at HEAD it is lines 24-27, beginning with the
+          bare `//` separator on 24 and the sentence "Referencing `initialize` here
+          is also what satisfies the substantiveness subject join" on 25.
+
+          Delete that block, or replace it with a sentence that states the ACTUAL
+          rule. Either is acceptable. If you replace it, the replacement must say
+          that the substantiveness subject join is evaluated PER TEST FUNCTION, so
+          each claim whose mandated tests live in this file must declare an
+          explicit `subject: cmd/backstop` of its own — a reference to `initialize`
+          somewhere in the file does not propagate subject coverage to the other
+          test functions (CLM-003). Do not soften the old sentence into a hedge;
+          either it goes, or it is replaced by its opposite.
+
+          PRESERVE lines 14-23 (the "★ WHY THIS FILE EXISTS AT ALL" rationale) —
+          they are true and they are the reason the header is worth having
+          (CLM-002). If you delete lines 24-27 outright, leave the surviving block
+          well-formed: no orphaned trailing `//` separator.
+
+          COMMENT BYTES ONLY (CLM-004). Do not touch the `initialize` import, any
+          function, or any statement. Do not touch the region around lines 112-113
+          (SE-2). Do not edit `plans/PLAN-SPEC-069-backstop-init.plan.yml`, which
+          carries the same false sentence in its TASK-052 prose and is shipped
+          historical record (SE-1).
+
+          When done, `grep -n "satisfies the substantiveness subject join"
+          cmd/backstop/init_seams_test.go` must return nothing.
+        files:
+          - cmd/backstop/init_seams_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+        depends_on: []
+
+      - id: TASK-002
+        type: verification
+        title: "Scoped gate over the edited file plus the nine existing tests in it"
+        description: |
+          Run the diff-scoped gate:
+
+              backstop gate --file cmd/backstop/init_seams_test.go
+
+          and the file's own tests, which are the regression net proving the edit
+          was comment-only (CLM-004):
+
+              go test ./cmd/backstop/ -run "TestInit_GitRefPackInstallLandsAsAPortableLockEntry|TestInit_ProducesNoLockEntryCarryingALocalPath|TestInit_AppliesRecipesOnlyThroughTheShippedResolveApplyPath|TestInit_RecipePayloadLandsByteIdentical|TestInit_ScaffoldRecipeTargetsLandAtTheRecipeDeclaredPaths|TestInitSeams_" -count=1
+
+          All nine test functions must run and pass — confirm the run reports nine,
+          not zero: `go test -run` exits 0 on a no-match, so a silently empty
+          selector is indistinguishable from success without reading the count.
+
+          Then confirm the false claim is actually gone:
+
+              grep -n "satisfies the substantiveness subject join" cmd/backstop/init_seams_test.go
+
+          must print nothing (CLM-001), and:
+
+              grep -n "THESE TESTS ARE THE WIRING PROOF" cmd/backstop/init_seams_test.go
+
+          must still print a line (CLM-002).
+        files:
+          - cmd/backstop/init_seams_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-004
+        depends_on:
+          - TASK-001
+
+  - id: phase-2
+    name: "Phase 2: Full gate and artifact validation (CLM-001, CLM-002, CLM-003, CLM-004)"
+    tasks:
+      - id: TASK-003
+        type: verification
+        title: "Full unscoped kill chain plus artifact validation for the plan and issue"
+        description: |
+          Run the full sweep — the edit is comment-only, so nothing here should
+          move, and that is exactly what is being asserted:
+
+              backstop gate --all
+
+          The plan touches artifact files (this plan, and ISSUE-128 gains its
+          close-out), so also run:
+
+              backstop artifact validate --plan PLAN-ISSUE-128
+              backstop artifact validate --issue ISSUE-128
+
+          Both must pass. Report any gate dimension that changes verdict relative
+          to a clean HEAD — for a comment-only diff there should be none, and a
+          change means something outside this plan's scope moved.
+        files:
+          - cmd/backstop/init_seams_test.go
+          - plans/PLAN-ISSUE-128-init-seams-test-stale-comment.plan.yml
+          - issues/ISSUE-128-init-seams-test-stale-join-comment.issue.md
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+        depends_on:
+          - TASK-001
+          - TASK-002

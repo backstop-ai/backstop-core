@@ -1,0 +1,281 @@
+---
+plan_id: PLAN-ISSUE-132
+spec_id: ISSUE-132
+created: "2026-08-19"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./cmd/backstop/ -run 'TestE2E_PackAdd_RemoteTaggedRepositoryInstallsAndLocks|TestInit_GitRefPackInstallLandsAsAPortableLockEntry' -race -count=1 && go test ./pkg/pack/distribution/ -run 'TestPackAdd_LockfileEntryFields|TestPackAdd_LocalLockfileSourceType|TestReadLockfile_RoundTrip' -race -count=1"
+coverage_threshold: 80
+
+notes: |
+  ISSUE-132 — a `*string` lock-entry `GitRef` formatted with a bare `%v`, so the branch
+  that fires on a REAL regression prints a pointer address (`0xc00047e8b0`) instead of the
+  wrong ref string a developer needs. Test-diagnostic quality only: the assertions already
+  DETECT the failure correctly; they report it uninformatively when they do.
+
+  ── SCOPE IS SIX SITES, NOT THE THREE THE ISSUE ENUMERATES ────────────────────
+  ISSUE-132's prose names three sites and cites `pkg/pack/distribution/lockfile_test.go`
+  as the already-correct model. Both halves were re-verified before authoring. The three
+  named sites are present, unchanged, and exactly as quoted. The enumeration is
+  nonetheless INCOMPLETE — the exhaustive sweep is:
+
+      grep -rn 'GitRef' --include='*.go' . | grep '%v'
+      → 6 hits
+
+    cmd/backstop/pack_remote_e2e_test.go:76        ← named by the issue   (class A)
+    cmd/backstop/init_seams_test.go:113            ← named by the issue   (class A)
+    pkg/pack/distribution/add_test.go:1057         ← named by the issue   (class A)
+    pkg/pack/distribution/lockfile_test.go:201     ← NOT named            (class A)
+    pkg/pack/distribution/add_test.go:1095         ← NOT named            (class B)
+    pkg/pack/distribution/lockfile_test.go:484     ← NOT named            (class B)
+
+  The three unnamed sites are the same defect. Two of them live in files the three named
+  sites already force this plan to open (`add_test.go`, `lockfile_test.go`), so fixing 3
+  of 6 would be precisely the grandfathering-on-a-touched-file the founder forbids:
+  touch a file, fix ALL of its instances. All six are in scope. ISSUE-132's prose
+  enumeration is therefore STALE and wants an issue-author follow-on to widen it — the
+  plan does not hand-edit the issue.
+
+  Sharpest correction to the issue's framing: `lockfile_test.go` is BOTH the model AND a
+  carrier. Line 157-161 of that file is correct and is the target shape; line 200-202 of
+  the SAME file is an unfixed class-A instance forty lines below it.
+
+  ── TWO CLASSES, TWO DIFFERENT TRANSFORMS — DO NOT APPLY ONE RECIPE TO BOTH ───
+  CLASS A — mismatch branch, guard is `== nil || *X != want`:
+
+      if entry.GitRef == nil || *entry.GitRef != "v1.0.0" {
+          t.Errorf("lock entry git_ref = %v, want v1.0.0", entry.GitRef)   // pointer
+      }
+
+  The guard collapses two distinguishable failures into one message, and on the
+  wrong-ref branch `entry.GitRef` is still a pointer. Fix = SPLIT the guard, exactly as
+  `lockfile_test.go:157-161` already does:
+
+      if entry.GitRef == nil {
+          t.Fatal("expected non-nil GitRef for git pack")
+      }
+      if *entry.GitRef != "v1.0.0" {
+          t.Errorf("GitRef = %q, want %q", *entry.GitRef, "v1.0.0")
+      }
+
+  CLASS B — nil-expectation branch, guard is `!= nil`:
+
+      if entry.GitRef != nil {
+          t.Errorf("expected nil GitRef for local pack, got %v", entry.GitRef)
+      }
+
+  There is NOTHING to split here — the guard itself already proves non-nil, which is why
+  this branch prints a pointer address 100% of the time it fires, making it the more
+  reliably useless of the two. Fix = dereference in place, keep the guard:
+
+      if entry.GitRef != nil {
+          t.Errorf("expected nil GitRef for local pack, got %q", *entry.GitRef)
+      }
+
+  Mechanically applying the class-A split to a class-B site produces either dead code or
+  an inverted assertion. The classes are listed per-site in TASK-001.
+
+  ── CLAIMS ───────────────────────────────────────────────────────────────────
+  CLM-001  Each of the four class-A sites splits its nil check from its value check, and
+           its mismatch branch formats the DEREFERENCED ref with `%q`. No class-A site
+           still passes `entry.GitRef` (the pointer) to a format verb.
+  CLM-002  Each of the two class-B sites formats the DEREFERENCED ref with `%q` inside
+           its existing `!= nil` guard, and the guard's shape is unchanged.
+  CLM-003  Assertion LOGIC is unchanged at all six sites: the set of conditions under
+           which each test fails is identical before and after. Only emitted text moves.
+           A class-A split may convert one `t.Errorf` into a `t.Fatal` + `t.Errorf` pair;
+           that is the model's shape and is the only control-flow change permitted.
+  CLM-004  The six enclosing tests all still pass, unmodified in name:
+           TestE2E_PackAdd_RemoteTaggedRepositoryInstallsAndLocks,
+           TestInit_GitRefPackInstallLandsAsAPortableLockEntry,
+           TestPackAdd_LockfileEntryFields, TestPackAdd_LocalLockfileSourceType,
+           TestReadLockfile_RoundTrip, TestReadLockfile_RoundTrip_LocalPack.
+  CLM-005  The pattern is eradicated repo-wide: after the fix,
+           `grep -rn 'GitRef' --include='*.go' . | grep '%v'` returns ZERO hits.
+
+  ── SHARP EDGES ──────────────────────────────────────────────────────────────
+  1. ★ `pkg/pack/distribution/lockfile_test.go:157-161` IS THE MODEL AND MUST NOT BE
+     TOUCHED. It is already correct. The file is in scope for its OTHER two sites
+     (:201 class A, :484 class B) only. Changing the model to match a "cleanup" instinct
+     destroys the reference shape the issue names.
+  2. `cmd/backstop/gate_substantiveness_provisioning_test.go:251` is ALREADY FIXED
+     (commit `4906704`, the fix that filed this issue) and is OUT OF SCOPE. It is not in
+     TASK-001's file list; do not open it. Its presence in a `git log` search is history,
+     not remaining work.
+  3. ★ FILE COLLISION, LIVE: `cmd/backstop/init_seams_test.go` is ALSO the subject of
+     ISSUE-128 (a false header comment at lines 25-27), which was being planned
+     concurrently as of 2026-08-19 and has no committed plan yet. The two edits are
+     line-disjoint — ISSUE-128 owns the header comment, this plan owns lines 112-114 —
+     but they are the same file. The implementer must re-read the file immediately
+     before editing rather than trusting the line numbers in this plan, and must not
+     revert an ISSUE-128 header change that has landed in the meantime.
+  4. `TestInit_GitRefPackInstallLandsAsAPortableLockEntry` is a SPEC-069 mandated test
+     name. Its body is being edited; its NAME must survive byte-identical or the
+     artifact_status_drift dimension reds SPEC-069 as a broken promise.
+  5. The four class-A guards each pick their own nil-branch failure verb from the
+     surrounding code, NOT from a single template: `pack_remote_e2e_test.go` and
+     `add_test.go` are in `t.Errorf`-style blocks, `init_seams_test.go` is in a
+     `t.Fatalf`-style block (every sibling assertion there is fatal). Match the file's
+     local convention — a `t.Error` where the file uses `t.Fatal` lets a nil GitRef fall
+     through into a nil dereference on the very next line.
+  6. Do not "improve" the want-values into shared constants or a table-driven helper.
+     Four of these sites want `v1.0.0`, one wants a local `ref` variable, and the
+     class-B pair want no value at all; a helper would couple six independent tests to
+     one abstraction for a one-line diagnostic fix.
+  7. NO NEW MANDATED TEST. A test asserting the TEXT of a `t.Errorf` would have to
+     capture testing output, coupling the suite to failure-message strings — a worse
+     defect than the one being fixed. The issue states this explicitly; CLM-005's grep
+     is the mechanical check, run in TASK-002.
+
+  ── APPROACHES CONSIDERED AND REJECTED ───────────────────────────────────────
+    * Fix only the three sites the issue enumerates. Leaves the identical defect live in
+      two files this plan already opens, and leaves an unfixed instance forty lines below
+      the very block the issue holds up as the model. Rejected.
+    * Split into two parallel refactor tasks (cmd/backstop vs pkg/pack/distribution) for
+      D-081 parallelism. Six one-line bodies across four files; the coordination cost
+      exceeds any wall-clock gain, and one task keeps the class-A/class-B distinction
+      under a single reader. Rejected.
+    * A `gitRefOrNil(*string) string` test helper shared across both packages. Requires a
+      new exported test-support symbol in a production package to cross the
+      cmd/backstop ↔ pkg/pack/distribution boundary, to save six dereferences.
+      Rejected — see sharp edge 6.
+    * Add an ast-grep rule to the self pack forbidding `%v` on a pointer-typed argument.
+      Genuinely attractive as durable enforcement, but it needs type information
+      ast-grep does not have (it is a syntactic matcher; `%v` on a pointer is only
+      knowable from the declared type of the argument). A pack rule that cannot see
+      types would either miss these or flag every `%v` in the repo. Rejected here; worth
+      a separate issue if the pattern recurs a third time.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Dereference every GitRef pointer diagnostic"
+    tasks:
+      - id: TASK-001
+        type: refactor
+        title: "Dereference the *string GitRef at all six bare-%v diagnostic sites"
+        description: |
+          Replace the bare `%v`-on-pointer formatting at every site where a lock entry's
+          `*string` GitRef reaches a `t.Errorf`/`t.Fatalf` format verb, so the branch that
+          fires on a real regression prints the actual recorded ref instead of a memory
+          address. Satisfies CLM-001, CLM-002, CLM-003.
+
+          Re-read each file before editing — line numbers below were verified 2026-08-19
+          but `init_seams_test.go` has concurrent work against it (sharp edge 3).
+
+          CLASS A — split the guard, `%q` the dereference (model:
+          `pkg/pack/distribution/lockfile_test.go:157-161`, which is NOT to be edited):
+
+            (a) cmd/backstop/pack_remote_e2e_test.go:75-77
+                in TestE2E_PackAdd_RemoteTaggedRepositoryInstallsAndLocks
+                want "v1.0.0"; file convention is t.Errorf, nil branch takes t.Fatal
+                (a nil GitRef would nil-deref the following line otherwise).
+            (b) cmd/backstop/init_seams_test.go:112-114
+                in TestInit_GitRefPackInstallLandsAsAPortableLockEntry
+                want "v1.0.0"; file convention is t.Fatalf throughout — BOTH branches
+                stay fatal here (sharp edge 5).
+            (c) pkg/pack/distribution/add_test.go:1056-1058
+                in TestPackAdd_LockfileEntryFields
+                want "v1.0.0"; t.Errorf style, nil branch takes t.Fatal.
+            (d) pkg/pack/distribution/lockfile_test.go:200-202
+                in TestReadLockfile_RoundTrip
+                want the local `ref` variable, NOT a literal — keep `%q` against `ref`.
+
+          CLASS B — keep the `!= nil` guard, dereference in place (sharp edge: there is
+          no nil branch to split out; the guard already proves non-nil):
+
+            (e) pkg/pack/distribution/add_test.go:1094-1096
+                in TestPackAdd_LocalLockfileSourceType
+                `t.Errorf("expected nil GitRef for local pack, got %q", *entry.GitRef)`
+            (f) pkg/pack/distribution/lockfile_test.go:483-485
+                in TestReadLockfile_RoundTrip_LocalPack
+                `t.Errorf("expected nil GitRef, got %q", *entry.GitRef)`
+
+          Change NOTHING else in these files. No production code is touched, no test is
+          renamed, no assertion condition is added, removed, or inverted. The only
+          permitted control-flow change is the class-A nil/value split.
+        files:
+          - cmd/backstop/pack_remote_e2e_test.go
+          - cmd/backstop/init_seams_test.go
+          - pkg/pack/distribution/add_test.go
+          - pkg/pack/distribution/lockfile_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on: []
+
+      - id: TASK-002
+        type: verification
+        title: "Verify the six tests still pass and the pattern is eradicated repo-wide"
+        description: |
+          Confirm the diagnostic fix changed only what is printed, and that no instance of
+          the pattern survives anywhere in the repository. Satisfies CLM-004, CLM-005.
+
+          (1) Run the six enclosing tests and confirm all pass, under their unchanged
+              names (CLM-004, and sharp edge 4 — SPEC-069's mandated name must survive):
+
+                go test ./cmd/backstop/ -run 'TestE2E_PackAdd_RemoteTaggedRepositoryInstallsAndLocks|TestInit_GitRefPackInstallLandsAsAPortableLockEntry' -race -count=1
+                go test ./pkg/pack/distribution/ -run 'TestPackAdd_LockfileEntryFields|TestPackAdd_LocalLockfileSourceType|TestReadLockfile_RoundTrip' -race -count=1
+
+              `-run` with no match EXITS 0, so a pass is only meaningful alongside the
+              reported test count — read the `--- PASS` lines and confirm six distinct
+              test functions ran, do not accept a bare `ok`.
+
+          (2) Run the eradication grep and confirm ZERO hits (CLM-005). This exact line,
+              byte-for-byte:
+
+                grep -rn 'GitRef' --include='*.go' . | grep '%v'
+
+              It returned 6 hits before the fix. Any surviving hit is an unfixed site.
+
+          (3) Confirm the model block is untouched (sharp edge 1) — `git diff` on
+              `pkg/pack/distribution/lockfile_test.go` must show no change at lines
+              157-161.
+
+          (4) Run `backstop gate` (diff-scoped) and confirm green.
+        files:
+          - cmd/backstop/pack_remote_e2e_test.go
+          - cmd/backstop/init_seams_test.go
+          - pkg/pack/distribution/add_test.go
+          - pkg/pack/distribution/lockfile_test.go
+        claims:
+          - CLM-004
+          - CLM-005
+        depends_on:
+          - TASK-001
+
+  - id: phase-2
+    name: "Phase 2: Full gate"
+    tasks:
+      - id: TASK-003
+        type: verification
+        title: "Full unscoped gate and artifact validation"
+        description: |
+          Final comprehensive verification across every dimension, unscoped.
+
+            backstop gate --all
+            backstop artifact validate --plan PLAN-ISSUE-132
+            backstop artifact validate --issue ISSUE-132
+
+          `--all` is required rather than the diff-scoped form: this plan edits four test
+          files across two packages, and test_verification / substantiveness /
+          artifact_status_drift must all be answered against the whole corpus — in
+          particular that SPEC-069's mandated
+          `TestInit_GitRefPackInstallLandsAsAPortableLockEntry` is still present and
+          still passing (sharp edge 4), which a diff-scoped run does not establish.
+
+          Artifact validation is included because this plan file itself is a new artifact
+          in the commit. Confirms CLM-004 at corpus scope.
+        files:
+          - cmd/backstop/pack_remote_e2e_test.go
+          - cmd/backstop/init_seams_test.go
+          - pkg/pack/distribution/add_test.go
+          - pkg/pack/distribution/lockfile_test.go
+          - plans/PLAN-ISSUE-132-gitref-pointer-format-fix.plan.yml
+        claims:
+          - CLM-004
+          - CLM-005
+        depends_on:
+          - TASK-001
+          - TASK-002

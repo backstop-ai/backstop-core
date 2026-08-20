@@ -1,0 +1,332 @@
+---
+plan_id: PLAN-ISSUE-153
+spec_id: ISSUE-153
+created: "2026-08-19"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./pkg/validate/ -run TestSchema_RetirementFields -race -count=1"
+coverage_threshold: 90
+
+notes: |
+  ── WHAT THIS LANE IS ────────────────────────────────────────────────────────
+  ISSUE-153 is DOCUMENTATION DRIFT, not a live defect, and the issue proves that
+  itself: `pkg/validate/terminal.go` requires a `replaced-by` field whenever an
+  artifact reaches `status: replaced`, but no artifact `schema.json` DECLARES the
+  key. The drift is inert today because nothing treats `metadata.properties` as an
+  allowlist. This lane makes the schemas say what the validator already enforces,
+  and — the part that outlives the edit — pins the agreement with a test that reds
+  if EITHER side drifts again.
+
+  Everything below was re-verified against the working tree on 2026-08-19, not
+  transcribed from the issue.
+
+  ── ★ SIX FILES, NOT FIVE — A GAP IN THE ISSUE'S OWN SURVEY ─────────────────
+  ISSUE-153's survey table names five schemas and cites the bundle row as
+  `artifacts/bundle/v1/schema.json`. THE BUNDLE TYPE HAS TWO LIVE SCHEMA VERSIONS,
+  and the drift is present in both:
+
+      artifacts/bundle/v1/schema.json   metadata.properties: ["schema_version"]
+      artifacts/bundle/v2/schema.json   metadata.properties: ["schema_version"]
+
+  Neither declares `replaced-by`, and both document a `replaced` retirement
+  maturity — `pkg/schema/terminal_states_test.go:91` (`TestSchema_BundleV1V2_
+  HasDeliveredAndRetirementStates`) already asserts `replaced` in BOTH enums. The
+  live corpus is majority-v2: `grep -h schema_version bundles/*.bundle.md` returns
+  22 × `bundle/v2` and 4 × `bundle/v1`. Fixing only v1 would leave the drift in the
+  version 22 of 26 live bundles actually declare.
+
+  This is COMPLETING the issue's stated fix ("Add `replaced-by` to the
+  metadata.properties block of all five schemas"), not widening it: same defect,
+  same artifact type, same field. It is called out here because the file count
+  diverges from the issue text and a reviewer will otherwise read it as scope creep.
+
+  ── VERIFIED PRE-STATE (2026-08-19) ─────────────────────────────────────────
+  Top-level `metadata.properties` keys, read out of each file:
+
+      issue/v1      schema_version, delivered_by, obsoleted-by, resolved-by
+      spec/v1       number, status, obsoleted-by, schema_version, spec_version
+      plan/v1       plan_id, spec_id, status, obsoleted-by, created,
+                    coverage_threshold
+      bundle/v1     schema_version
+      bundle/v2     schema_version
+      directive/v1  title, number, schema_version, created
+
+  `replaced-by`: absent from all six. `obsoleted-by`: present in exactly the three
+  types whose status enum carries an `obsoleted` state.
+
+  The pattern to mirror, `pkg/validate/terminal.go:12`:
+
+      const replacedByRefPattern = `^(BUNDLE|SPEC|ISSUE|PLAN|DIR)-[0-9]{3}$`
+
+  Baseline health, measured: `go test ./pkg/validate/ ./pkg/schema/ -count=1` → both
+  `ok`; `pkg/validate` coverage 96.5% of statements. The RED in TASK-001 is therefore
+  unambiguous — there are no pre-existing failures in these packages for it to hide in.
+
+  ── SCOPE FENCES ────────────────────────────────────────────────────────────
+  IN:  the six `schema.json` files above (JSON only), plus ONE new test file.
+  OUT: every Go production file. This lane changes NO behavior. If an implementer
+       finds themselves editing `pkg/validate/` or `pkg/schema/` source, they have
+       left the lane.
+  OUT: `adr`. `artifacts/adr/v1|v2/schema.json` declare NEITHER retirement field,
+       and `pkg/validate/adr.go` has NO retirement enforcement at all (verified:
+       grep for Terminal|replaced|obsoleted|Retirement returns nothing). There is no
+       enforcement to document, so adr is a DIFFERENT and larger gap. The issue
+       carves it out; so does this plan.
+  OUT: the dead `metadata.optional` array at `artifacts/plan/v1/schema.json:11`.
+       ISSUE-153 defers it BY NAME ("Out of scope for this issue ... the dead
+       `plan/v1/schema.json` `metadata.optional` array"). It lists `obsoleted-by`
+       and not `replaced-by`, so leaving it alone leaves a visible asymmetry inside a
+       file this lane edits — that is DELIBERATE and sourced, not an oversight. Do
+       not "finish the job" here.
+  OUT: whether `MetadataRules` should ever become real enforcement. Also deferred
+       by the issue by name.
+
+  ── CLAIM LEDGER (ISSUE-153 carries no CLM ids; this lane defines them) ──────
+    CLM-001  All SIX enforcing schemas declare `replaced-by` in their TOP-LEVEL
+             `metadata.properties` block, and the declared `pattern` is EQUAL to
+             `pkg/validate/terminal.go`'s `replacedByRefPattern`. The equality is
+             pinned by a test that reads the const itself, so a future change to
+             either the schemas or the validator's pattern reds instead of silently
+             re-opening the drift.
+    CLM-002  `obsoleted-by` is declared in exactly the three types whose status enum
+             carries an `obsoleted` state (issue/v1, spec/v1, plan/v1) and in NO
+             other — bundle v1, bundle v2 and directive/v1 gain `replaced-by` ONLY.
+             The three existing declarations survive byte-unchanged.
+    CLM-003  The change is documentation-only: no Go production file is modified,
+             and `backstop artifact validate` over the corpus returns the SAME
+             verdicts as before the edit. A verdict DELTA would falsify the issue's
+             inertness premise and must be SURFACED, never absorbed by adjusting the
+             schemas until the corpus goes quiet.
+
+  ── SHARP EDGES ─────────────────────────────────────────────────────────────
+  1. ★ THE TEST FILE MUST BE `package validate`, NOT `package validate_test`.
+     `replacedByRefPattern` is an UNEXPORTED const. Reading it directly is the entire
+     point of the design: the assertion is "schema pattern EQUALS validator pattern",
+     which reds on drift from EITHER side. Hardcoding the regex as a string literal in
+     the test would pin only the schema half and would leave the two free to diverge
+     again — the exact failure ISSUE-153 documents. Do NOT "simplify" it that way.
+
+  2. ★ DO NOT DECLARE A REPO-ROOT HELPER. One already exists in the SAME package:
+     `func reconcileRepoRoot() string { return filepath.Join("..", "..") }` at
+     `pkg/validate/reconciliation_backfill_test.go:20`, `package validate`. Reuse it.
+     A second declaration of that name is a COMPILE ERROR, and a differently-named
+     duplicate is the two-spellings drift this plan exists to prevent.
+     TRAP: `pkg/validate/adr_acceptance_test.go:14` also defines a `repoRoot(t)`
+     helper — but that file is `package validate_test`, so it is NOT reachable from an
+     internal test file. Reaching for it fails the compile, and a non-compiling
+     `pkg/validate` blocks every other lane working in this shared tree.
+
+  3. ★ `replaced-by` GOES IN THE TOP-LEVEL `metadata.properties`, NOT INSIDE THE
+     NESTED STATUS BLOCK. Verified: `issue/v1`'s `obsoleted-by` sits at
+     `metadata.properties` while `issue.status` lives at
+     `nested_blocks.issue.properties.status` — because `pkg/validate/terminal.go`
+     reads the field as a TOP-LEVEL frontmatter key (`extractRefField(fm,
+     "replaced-by")`). This is the easy thing to get wrong on bundle and directive,
+     which have no existing retirement field to copy from and whose status/maturity
+     enums live under `nested_blocks`.
+
+  4. ★ MIRROR THE `obsoleted-by` BLOCK SHAPE EXACTLY: `pattern` + `description`, and
+     NO `type` key. Verified at `artifacts/issue/v1/schema.json:23-26`. Adding
+     `"type": "string"` would not merely be inconsistent — it would MISDOCUMENT the
+     validator, because `replaced-by` legitimately accepts an ARRAY as well as a
+     string (`TestValidate_ReplacedByAcceptsArray`,
+     `pkg/validate/terminal_rules_test.go:84`). A wrong `type` would replace one
+     drift with a worse one.
+
+  5. THE SECOND TEST IS GREEN BEFORE AND AFTER, BY DESIGN. `TestSchema_
+     RetirementFields_ObsoletedByOnlyWhereObsoletedIsAStatus` passes against the
+     PRE-fix tree (issue/spec/plan already declare `obsoleted-by`; bundle and
+     directive already do not). It is a REGRESSION FENCE, not a falsifier: it catches
+     an implementer who "helpfully" adds `obsoleted-by` to bundle or directive —
+     documenting a status those types do not have — or who disturbs the three that
+     exist. The falsifier for this lane is the FIRST test, which must red on all six
+     schemas. Do not read the second test's green as a defect and do not strengthen it
+     into something that reds artificially.
+
+  6. EDITING THESE FILES MOVES THE SCHEMA COHORT DIGEST, and that is fine — nothing
+     pins a literal. Verified: `schema.ComputeCohort` runs over the embedded
+     `SchemaFS` at runtime (`cmd/backstop/artifact_validate.go:426`), and
+     `pkg/schema/cohort_test.go` asserts digest CHANGE-DETECTION behavior over
+     self-contained fixtures under `pkg/schema/testdata/cohort/`, never over the real
+     schemas. There is no golden file to refresh.
+
+  7. THE EXPECTED VERIFICATION OUTCOME IS "NO DELTA", NOT "IMPROVED". Verified:
+     `MetadataRules` is written in `pkg/schema/load.go` and read only by that file's
+     own inheritance merge (`load.go:139-141`) — no validator consults it — and
+     `pkg/validate/base.go` checks only `RequiredMetadata`/`RequiredSections`
+     presence, with no `additionalProperties`-style rejection anywhere. So no
+     artifact's verdict can move. If one does, the issue's premise is wrong: STOP and
+     surface it.
+
+  8. `go test -run` EXITS 0 WHEN THE FILTER MATCHES NOTHING. Both mandated names
+     share the `TestSchema_RetirementFields` prefix so the plan's `test_command`
+     matches, but a typo would produce a silent, vacuous pass. Confirm BOTH test
+     functions actually report (run with `-v` once and count them) rather than
+     trusting the exit code.
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Phase 1: RED — pin schema/validator agreement as an executable assertion
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: phase-1
+    name: "Phase 1: RED — executable pin on schema/validator retirement-field agreement"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Pin that every enforcing schema declares replaced-by with the validator's own pattern (RED)"
+        description: |
+          Create `pkg/validate/schema_retirement_field_test.go` in `package validate`
+          (INTERNAL — see sharp edge 1; the file must reference the unexported
+          `replacedByRefPattern`).
+
+          Resolve schema paths through the EXISTING `reconcileRepoRoot()` helper —
+          `filepath.Join(reconcileRepoRoot(), "artifacts", <type>, <ver>,
+          "schema.json")`. Do not declare a new root helper (sharp edge 2).
+
+          Drive both tests from ONE explicit table of the six schema paths:
+
+              artifacts/issue/v1/schema.json       obsoleted-by: yes
+              artifacts/spec/v1/schema.json        obsoleted-by: yes
+              artifacts/plan/v1/schema.json        obsoleted-by: yes
+              artifacts/bundle/v1/schema.json      obsoleted-by: no
+              artifacts/bundle/v2/schema.json      obsoleted-by: no
+              artifacts/directive/v1/schema.json   obsoleted-by: no
+
+          ★ THE TABLE IS EXPLICIT ON PURPOSE — DO NOT REPLACE IT WITH A DIRECTORY
+          WALK over `artifacts/*/v1/`. Such a loop would wrongly pull in `adr` (out of
+          scope, sharp edge in the header: no retirement enforcement exists to
+          document) and `capability`/`backstop-yml`, and it would MISS
+          `artifacts/bundle/v2/schema.json`, which is the version 22 of 26 live
+          bundles declare. The set of schemas that must declare `replaced-by` is
+          exactly the set whose validator calls `validateRetirementFields`, and that
+          is a curated list, not a glob.
+
+          Parse each file with `encoding/json` into `map[string]any` and navigate
+          `metadata` → `properties`. Use a subtest per schema path (`t.Run`) so a
+          failure names WHICH schema is short rather than reporting one opaque red.
+
+          (a) TestSchema_RetirementFields_DeclareReplacedByMatchingValidatorPattern
+              (CLM-001) — THE FALSIFIER. For each of the six paths: assert
+              `metadata.properties` contains the key `replaced-by`; assert its
+              `pattern` value is a string; assert that string EQUALS
+              `replacedByRefPattern` — the const itself, not a copy of its text.
+              MUST FAIL FOR ALL SIX SUBTESTS before TASK-002. Run it first and RECORD
+              THE ACTUAL FAILURE OUTPUT; asserting that it is red is not evidence.
+
+          (b) TestSchema_RetirementFields_ObsoletedByOnlyWhereObsoletedIsAStatus
+              (CLM-002) — THE REGRESSION FENCE. For the three rows flagged
+              `obsoleted-by: yes`, assert the key IS present and its `pattern` also
+              equals `replacedByRefPattern`. For the three flagged `no`, assert the
+              key is ABSENT. Comment the WHY on the absence assertions: bundle and
+              directive have no `obsoleted` state in their maturity/status enums, so
+              declaring the field would document a state that does not exist — the
+              enums themselves are already pinned in
+              `pkg/schema/terminal_states_test.go`.
+              ★ THIS TEST PASSES BEFORE THE FIX. That is intended and is sharp edge 5
+              — do not adjust it to force a red.
+        files:
+          - pkg/validate/schema_retirement_field_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+        depends_on: []
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Phase 2: GREEN — declare the field, then prove nothing else moved
+  # ═══════════════════════════════════════════════════════════════════════════
+  - id: phase-2
+    name: "Phase 2: GREEN — declare replaced-by in the six enforcing schemas, verify no verdict delta"
+    tasks:
+      - id: TASK-002
+        type: implementation
+        title: "Declare replaced-by in the six schemas that enforce it"
+        description: |
+          Add a `"replaced-by"` property to the TOP-LEVEL `metadata.properties` block
+          (sharp edge 3) of each of the six schemas. JSON ONLY — no Go file is touched
+          in this task.
+
+          Mirror the `obsoleted-by` block shape at
+          `artifacts/issue/v1/schema.json:23-26` EXACTLY: `pattern` and `description`,
+          and NO `type` key (sharp edge 4 — `replaced-by` accepts an array as well as
+          a string, so a `"type": "string"` declaration would misdocument the
+          validator).
+
+          The pattern value is the literal text of
+          `pkg/validate/terminal.go:12`'s `replacedByRefPattern`:
+
+              "^(BUNDLE|SPEC|ISSUE|PLAN|DIR)-[0-9]{3}$"
+
+          Write the description in the voice the neighbouring retirement field already
+          uses — state (i) that it is REQUIRED when this artifact type reaches its
+          `replaced` terminal (`status: replaced` for issue/spec/plan/directive,
+          `maturity: replaced` for bundle), (ii) that the value is a typed artifact id
+          naming the successor, and (iii) that the declaration is DOCUMENTARY ONLY,
+          enforced in `pkg/validate/terminal.go`. That last clause is what stops a
+          future reader from assuming the schema is what does the enforcing.
+
+          For bundle v1, v2 and directive/v1 — which have no existing retirement field
+          to sit beside — `replaced-by` is the ONLY key added. Do not also add
+          `obsoleted-by` (TASK-001(b) reds if you do, which is exactly its job).
+
+          Leave `artifacts/plan/v1/schema.json`'s dead `metadata.optional` array at
+          line 11 UNTOUCHED — see the SCOPE FENCES; ISSUE-153 defers it by name.
+
+          Then re-run TASK-001's tests: all subtests of (a) must go green and (b) must
+          STAY green. Confirm both test functions actually reported (sharp edge 8).
+        files:
+          - artifacts/issue/v1/schema.json
+          - artifacts/spec/v1/schema.json
+          - artifacts/plan/v1/schema.json
+          - artifacts/bundle/v1/schema.json
+          - artifacts/bundle/v2/schema.json
+          - artifacts/directive/v1/schema.json
+        claims:
+          - CLM-001
+          - CLM-002
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: verification
+        title: "Full gate and artifact-corpus validation — prove the change is documentation-only"
+        description: |
+          Run, in this order, and read the output rather than the exit code alone:
+
+            1. `backstop artifact validate`
+               Over the whole corpus. THE EXPECTED RESULT IS THE SAME VERDICT SET AS
+               BEFORE THE EDIT — not a better one (sharp edge 7: nothing consumes
+               `metadata.properties` as an allowlist, so no artifact's verdict can
+               move). Capture the output and compare it against a pre-edit run
+               (`git stash` is NOT safe in this shared tree — take the before-reading
+               from a clean control worktree, or from the run recorded at TASK-001
+               time). A DELTA IN EITHER DIRECTION falsifies the issue's inertness
+               premise: STOP and surface it. Do not adjust the schemas until the
+               corpus goes quiet.
+               Spot-check at least one real `status: replaced` artifact of a type this
+               lane touched — the corpus carries `ISSUE-162` (`status: replaced`,
+               `replaced-by: ISSUE-147`) and `PLAN-SPEC-032` (`status: replaced`) —
+               and confirm each still validates exactly as it did before.
+
+            2. `backstop gate --all`
+               The full kill chain. Must be green, including the `artifact_validation`
+               dimension, with NO new waivers and no weakened tests.
+
+          Confirm the diff is what the plan admits and nothing more: exactly six
+          `schema.json` files plus one new `_test.go` file, and ZERO Go production
+          files (`git diff --stat` — any `pkg/**/*.go` entry that is not the new test
+          file means the lane was breached).
+        files:
+          - artifacts/issue/v1/schema.json
+          - artifacts/spec/v1/schema.json
+          - artifacts/plan/v1/schema.json
+          - artifacts/bundle/v1/schema.json
+          - artifacts/bundle/v2/schema.json
+          - artifacts/directive/v1/schema.json
+          - pkg/validate/schema_retirement_field_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on:
+          - TASK-002
