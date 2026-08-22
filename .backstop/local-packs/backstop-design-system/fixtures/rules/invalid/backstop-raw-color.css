@@ -1,0 +1,6 @@
+/* backstop-design-system */
+.button { color: #ffffff; }
+a:focus-visible { outline: var(--focus-ring); }
+@media (prefers-reduced-motion: reduce) {
+  * { transition-duration: var(--motion-reduced-duration); }
+}

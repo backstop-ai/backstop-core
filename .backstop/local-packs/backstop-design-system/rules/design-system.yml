@@ -1,0 +1,59 @@
+rules:
+  - id: no-raw-colors
+    pattern-regex: '(?i)(#[0-9a-f]{3,8}\b|(?:rgb|rgba|hsl|hsla)\s*\()'
+    message: >-
+      Raw color literal outside the canonical token source. Add or reuse a named
+      token in backstop-tokens.css, then consume it with var(--color-*).
+    severity: ERROR
+    languages: [generic]
+    paths:
+      include: ["backstop*.css"]
+      exclude: ["backstop-tokens.css"]
+
+  - id: no-inline-styles
+    pattern-regex: '(?i)\sstyle\s*='
+    message: >-
+      Inline styling bypasses the design system. Use a component class backed by
+      the canonical stylesheet and named tokens.
+    severity: ERROR
+    languages: [generic]
+    paths:
+      include: ["index*.html"]
+
+  - id: focus-visible-required
+    patterns:
+      - pattern-regex: '(?s)\A.*backstop-design-system.*\z'
+      - pattern-not-regex: '(?s)\A.*:focus-visible.*\z'
+    message: >-
+      Canonical Backstop styles must define a keyboard-visible :focus-visible
+      state for interactive elements.
+    severity: ERROR
+    languages: [generic]
+    paths:
+      include: ["backstop*.css"]
+      exclude: ["backstop-tokens.css"]
+
+  - id: reduced-motion-required
+    patterns:
+      - pattern-regex: '(?s)\A.*backstop-design-system.*\z'
+      - pattern-not-regex: '(?s)\A.*prefers-reduced-motion.*\z'
+    message: >-
+      Canonical Backstop styles must override motion when the user requests
+      reduced motion.
+    severity: ERROR
+    languages: [generic]
+    paths:
+      include: ["backstop*.css"]
+      exclude: ["backstop-tokens.css"]
+
+  - id: canonical-wordmark
+    patterns:
+      - pattern-regex: '(?s)\A.*data-backstop-wordmark.*\z'
+      - pattern-not-regex: '(?s)\A(?=.*>\./b<)(?=.*>\.sh<).*\z'
+    message: >-
+      The canonical wordmark must render the ./b mark and the .sh domain as
+      separate visible elements.
+    severity: ERROR
+    languages: [generic]
+    paths:
+      include: ["index*.html"]

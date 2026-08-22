@@ -1,0 +1,11 @@
+kind: scaffolding
+version: "1.0.0"
+ops:
+  - id: landing-page
+    kind: create
+    target: docs/index.html
+    payload: payload/index.html
+enforcement:
+  rules:
+    - no-inline-styles
+    - canonical-wordmark
