@@ -94,6 +94,13 @@ jobs:
       - name: Build the backstop CLI
         run: go build -o ./bin/backstop ./cmd/backstop
 
+      # Temporary bootstrap for the design-system dogfood loop. Removed before merge.
+      - name: Upload Backstop CLI
+        uses: actions/upload-artifact@v4
+        with:
+          name: backstop-cli-linux-amd64
+          path: ./bin/backstop
+
       - name: Install the pack fleet
         # MUST precede the gate. Against an empty .backstop/packs/ every dimension
         # reports capability_absent and the job passes having checked nothing —
