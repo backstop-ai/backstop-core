@@ -1,5 +1,0 @@
-/* backstop-design-system */
-a { color: var(--color-ink); }
-@media (prefers-reduced-motion: reduce) {
-  * { transition-duration: var(--motion-reduced-duration); }
-}
