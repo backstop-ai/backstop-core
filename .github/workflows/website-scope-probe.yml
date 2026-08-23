@@ -1,0 +1,41 @@
+name: Website Scope Probe
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    if: github.head_ref == 'codex/website-expansion-scope'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build current Backstop CLI
+        run: go build -o /tmp/backstop ./cmd/backstop
+      - name: Probe artifact allocation and templates in isolated copy
+        run: |
+          set -euo pipefail
+          work="$(mktemp -d)"
+          cp -a . "$work/repo"
+          cd "$work/repo"
+          /tmp/backstop artifact new bundle --slug website-expansion
+          bundle_file="$(git status --short | awk '/bundles\// {print $2}')"
+          echo "BUNDLE_FILE=$bundle_file"
+          cat "$bundle_file"
+          /tmp/backstop artifact new spec --slug website-expansion
+          spec_file="$(git status --short | awk '/specs\// {print $2}' | tail -1)"
+          echo "SPEC_FILE=$spec_file"
+          cat "$spec_file"
+          spec_id="$(basename "$spec_file" | sed -E 's/^(SPEC-[0-9]+).*/\1/')"
+          /tmp/backstop artifact new plan --slug website-expansion --source "$spec_id"
+          plan_file="$(git status --short | awk '/plans\// {print $2}' | tail -1)"
+          echo "PLAN_FILE=$plan_file"
+          cat "$plan_file"
