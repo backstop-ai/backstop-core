@@ -6,7 +6,7 @@ schema_version: bundle/v2
 
 bundle:
   name: website-expansion
-  version: "0.3.0"
+  version: "0.4.0"
   created: "2026-08-23"
   updated: "2026-08-23"
   category: feature
@@ -321,6 +321,23 @@ requirements:
           become a hard enabler, but it must be governed as separate work rather than being absorbed into
           BUNDLE-032 solely because the website is its first consumer. Out of scope means "not owned by
           this bundle," not "this bundle can never depend on it."
+
+  - id: REQ-013
+    version: "1.0.0"
+    text: >
+      The public site must satisfy the executable visual and interaction policy owned by
+      backstop-ai/backstop-design-system. Design-system compliance must be enforced through the
+      installed, released pack rather than copied as website-local conventions, including the
+      applicable token, styling, focus, reduced-motion, accessibility, wordmark, and reusable
+      presentation rules that the design-system pack exposes for this site.
+    versions:
+      - version: "1.0.0"
+        text: >
+          The public site must satisfy the executable visual and interaction policy owned by
+          backstop-ai/backstop-design-system. Design-system compliance must be enforced through the
+          installed, released pack rather than copied as website-local conventions, including the
+          applicable token, styling, focus, reduced-motion, accessibility, wordmark, and reusable
+          presentation rules that the design-system pack exposes for this site.
 ---
 
 # BUNDLE-032: Website Expansion
@@ -397,6 +414,8 @@ remember to update prose manually.
   and CI rejects drift; a substantial generation engine may be separately governed if required.
 - **REQ-012 — Preserve scope ownership when new enablers emerge.** Separately scoped work may become a
   hard dependency; that does not make it part of this bundle.
+- **REQ-013 — Enforce the design system.** The site must satisfy the executable visual and interaction
+  policy from the released design-system pack rather than re-encoding those rules locally.
 
 ## Content Neighborhoods
 
@@ -492,13 +511,14 @@ Out of scope means **not owned by this bundle**, not **forbidden** and not **inc
 - **DD-9 — Complexity must be earned.** Use the least operationally complex stack that satisfies concrete requirements.
 - **DD-10 — Generated docs stay inspectable.** Authoritative source -> Markdown -> site is the preferred derivation path.
 - **DD-11 — New enablers get their own governance.** First-consumer pressure does not erase ownership boundaries.
+- **DD-12 — Presentation policy is executable.** The site consumes and satisfies the released design-system pack; it does not reproduce those rules as local convention.
 
 ## Promotion Readiness
 
 The bundle-level problem, boundaries, neighborhoods, capability outcomes, evidence posture, ownership seams,
 and dependency rules are now sufficiently defined to generate promoted requirements and decompose the work into
 one or more specs. Promotion should not copy the old premature SPEC-071 shape forward; the requirements generated
-from this bundle need to reflect the full-site, capability-driven, evidence-first scope captured in v0.3.0.
+from this bundle need to reflect the full-site, capability-driven, evidence-first scope captured here.
 
 ## Version History
 
@@ -510,6 +530,8 @@ from this bundle need to reflect the full-site, capability-driven, evidence-firs
   neighborhoods, stable user-capability seeds, evidence diversity, referred-evaluation entry model,
   source-of-truth -> Markdown -> site generation with CI drift detection, and explicit separate-governance rules
   for discovered enabling work and dependencies.
+- 0.4.0 (2026-08-23): Restored explicit design-system enforcement as REQ-013 after requirement generation had
+  overwritten the earlier presentation-policy requirement. Site presentation remains pack-owned and executable.
 
 ## References
 
