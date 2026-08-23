@@ -175,7 +175,7 @@ claims:
       - verify_site_positioning_metadata
 ---
 
-# Website Expansion
+# SPEC-071: Website Expansion
 
 ## Overview
 
