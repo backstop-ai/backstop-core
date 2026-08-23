@@ -6,7 +6,7 @@ schema_version: bundle/v2
 
 bundle:
   name: website-expansion
-  version: "0.2.0"
+  version: "0.3.0"
   created: "2026-08-23"
   updated: "2026-08-23"
   category: feature
@@ -37,15 +37,17 @@ solution:
     Treat the current landing page, existing Markdown documentation, implementation history,
     and first-party dogfooding findings as source material rather than constraints. Establish
     clear content neighborhoods for discovery, evaluation, conceptual understanding, adoption,
-    and reference; pair those with a canonical comprehensive model of Backstop's concepts and
-    architecture; and make consequential product claims inspectable down to mechanisms,
-    guarantee boundaries, limitations, adoption implications, and future direction. Keep
-    product truth in backstop-core, presentation in the design-system pack, and reusable
-    documentation semantics in a separate pack. Define the site's user-facing outcomes as
-    Backstop capabilities and user journeys so acceptance can be proven end to end. Use the
-    least operationally complex hosting/rendering model that satisfies the functional
-    requirements; for the current static-content scope, Jekyll and GitHub Pages remain the
-    expected implementation unless later requirements earn additional runtime complexity.
+    ecosystem exploration, and reference; pair those with a canonical comprehensive model of
+    Backstop's concepts and architecture; and make consequential product claims inspectable
+    down to mechanisms, guarantee boundaries, limitations, adoption implications, and future
+    direction. Keep product truth in backstop-core, presentation in the design-system pack,
+    and reusable documentation semantics in a separate pack. Define the site's user-facing
+    outcomes as Backstop capabilities and user journeys so acceptance can be proven end to end.
+    Derived product documentation must flow from authoritative project truth into generated
+    Markdown and then into the rendered site, with CI detecting drift. Use the least
+    operationally complex hosting/rendering model that satisfies the functional requirements;
+    for the current static-content scope, Jekyll and GitHub Pages remain the expected
+    implementation unless later requirements earn additional runtime complexity.
 
 requirements:
   - id: REQ-001
@@ -75,9 +77,10 @@ requirements:
     version: "2.0.0"
     text: >
       The public site must organize its primary experience around the visitor journey. It must
-      provide authoritative neighborhoods for discovery, product evaluation, conceptual and
-      architectural understanding, adoption and use-case guidance, and technical reference.
-      Exact page names, route structure, and navigation labels are downstream design decisions.
+      provide authoritative neighborhoods for discovery, product evaluation, "what Backstop is
+      and is not," conceptual and architectural understanding, adoption and use-case guidance,
+      pack-ecosystem discovery, extension guidance, and technical reference. Exact page names,
+      route structure, and navigation labels are downstream design decisions.
     versions:
       - version: "1.0.0"
         text: >
@@ -88,9 +91,10 @@ requirements:
       - version: "2.0.0"
         text: >
           The public site must organize its primary experience around the visitor journey. It must
-          provide authoritative neighborhoods for discovery, product evaluation, conceptual and
-          architectural understanding, adoption and use-case guidance, and technical reference.
-          Exact page names, route structure, and navigation labels are downstream design decisions.
+          provide authoritative neighborhoods for discovery, product evaluation, "what Backstop is
+          and is not," conceptual and architectural understanding, adoption and use-case guidance,
+          pack-ecosystem discovery, extension guidance, and technical reference. Exact page names,
+          route structure, and navigation labels are downstream design decisions.
 
   - id: REQ-003
     version: "2.0.0"
@@ -193,9 +197,11 @@ requirements:
     version: "2.0.0"
     text: >
       The website's user-facing outcomes must be defined as Backstop capabilities with concrete
-      user journeys and executable acceptance evidence. Bundle requirements identify the outcomes
-      and neighborhoods that matter; downstream artifacts define the exact capability set,
-      @UJ-NNN scenarios, and stack-appropriate acceptance mechanisms needed to prove them end to end.
+      user journeys and executable acceptance evidence. At minimum, the site must enable a visitor
+      to understand what Backstop is, evaluate fit, evaluate guarantees, evaluate compatibility,
+      understand the system, adopt Backstop, apply it to concrete use cases, browse and extend the
+      pack ecosystem, inspect supporting evidence, and continue beyond Backstop's intentional
+      boundaries with useful guidance.
     versions:
       - version: "1.0.0"
         text: >
@@ -205,18 +211,22 @@ requirements:
       - version: "2.0.0"
         text: >
           The website's user-facing outcomes must be defined as Backstop capabilities with concrete
-          user journeys and executable acceptance evidence. Bundle requirements identify the outcomes
-          and neighborhoods that matter; downstream artifacts define the exact capability set,
-          @UJ-NNN scenarios, and stack-appropriate acceptance mechanisms needed to prove them end to end.
+          user journeys and executable acceptance evidence. At minimum, the site must enable a visitor
+          to understand what Backstop is, evaluate fit, evaluate guarantees, evaluate compatibility,
+          understand the system, adopt Backstop, apply it to concrete use cases, browse and extend the
+          pack ecosystem, inspect supporting evidence, and continue beyond Backstop's intentional
+          boundaries with useful guidance.
 
   - id: REQ-008
     version: "2.0.0"
     text: >
       The current site, existing technical documentation, repository implementation and commit
-      history, prior design-system and website dogfooding findings, and known real-world agent
-      failure modes must be treated as evidence and bootstrap material during redesign. The site
-      should prefer claims that can be traced to actual behavior or implementation over aspirational
-      positioning, while preserving room for explicitly labeled future direction.
+      history, prior design-system and website dogfooding findings, known real-world agent failure
+      modes, and measured delivery outcomes must be treated as evidence and bootstrap material during
+      redesign. The site should not rely on a single proof mode: recognizable failure stories,
+      before/after examples, real gate output, source and commit provenance, measurable outcomes,
+      architecture diagrams, and concrete demonstrations should all be available somewhere in the
+      public surface where they strengthen a consequential claim.
     versions:
       - version: "1.0.0"
         text: >
@@ -227,10 +237,12 @@ requirements:
       - version: "2.0.0"
         text: >
           The current site, existing technical documentation, repository implementation and commit
-          history, prior design-system and website dogfooding findings, and known real-world agent
-          failure modes must be treated as evidence and bootstrap material during redesign. The site
-          should prefer claims that can be traced to actual behavior or implementation over aspirational
-          positioning, while preserving room for explicitly labeled future direction.
+          history, prior design-system and website dogfooding findings, known real-world agent failure
+          modes, and measured delivery outcomes must be treated as evidence and bootstrap material during
+          redesign. The site should not rely on a single proof mode: recognizable failure stories,
+          before/after examples, real gate output, source and commit provenance, measurable outcomes,
+          architecture diagrams, and concrete demonstrations should all be available somewhere in the
+          public surface where they strengthen a consequential claim.
 
   - id: REQ-009
     version: "2.0.0"
@@ -271,6 +283,44 @@ requirements:
           and product-boundary requirements; it does not own final page copy. Actual copywriting and
           page-level wording are deferred to downstream specs and plans. A generalized prose-quality,
           writing-style, or prose-LSP pack remains separate work and is not a prerequisite for this bundle.
+
+  - id: REQ-011
+    version: "1.0.0"
+    text: >
+      Derived product documentation must follow a deterministic source-of-truth pipeline:
+      authoritative project data and release history -> generated Markdown -> rendered site.
+      CI must regenerate or verify derived Markdown and fail when checked-in or published output
+      drifts from its authoritative source. The bundle owns this outcome, but if the generation
+      engine or generic transformation substrate requires substantial independent design, that
+      implementation may be separately scoped and may become a blocking dependency for this bundle.
+    versions:
+      - version: "1.0.0"
+        text: >
+          Derived product documentation must follow a deterministic source-of-truth pipeline:
+          authoritative project data and release history -> generated Markdown -> rendered site.
+          CI must regenerate or verify derived Markdown and fail when checked-in or published output
+          drifts from its authoritative source. The bundle owns this outcome, but if the generation
+          engine or generic transformation substrate requires substantial independent design, that
+          implementation may be separately scoped and may become a blocking dependency for this bundle.
+
+  - id: REQ-012
+    version: "1.0.0"
+    text: >
+      Work discovered while implementing this bundle must preserve ownership boundaries. A new
+      prose-quality system, documentation-semantics pack, deterministic docs-generation engine,
+      harness/runtime capability, or generic Backstop Core primitive may be discovered and may even
+      become a hard enabler, but it must be governed as separate work rather than being absorbed into
+      BUNDLE-032 solely because the website is its first consumer. Out of scope means "not owned by
+      this bundle," not "this bundle can never depend on it."
+    versions:
+      - version: "1.0.0"
+        text: >
+          Work discovered while implementing this bundle must preserve ownership boundaries. A new
+          prose-quality system, documentation-semantics pack, deterministic docs-generation engine,
+          harness/runtime capability, or generic Backstop Core primitive may be discovered and may even
+          become a hard enabler, but it must be governed as separate work rather than being absorbed into
+          BUNDLE-032 solely because the website is its first consumer. Out of scope means "not owned by
+          this bundle," not "this bundle can never depend on it."
 ---
 
 # BUNDLE-032: Website Expansion
@@ -278,9 +328,8 @@ requirements:
 ## Current Thinking
 
 This is no longer a "make the docs look like the homepage" increment. The website should be
-reconsidered as the public product surface for Backstop, with the current landing page and five
-existing Markdown docs treated as useful evidence rather than the final shape of the information
-architecture.
+reconsidered as the public product surface for Backstop, with the current landing page and existing
+Markdown docs treated as useful evidence rather than the final shape of the information architecture.
 
 The primary navigation model should follow the questions a visitor is trying to answer. A newcomer
 needs to understand the problem and decide whether Backstop is relevant. An evaluator needs to test
@@ -300,126 +349,172 @@ non-goal, and where Backstop has adjacent guidance even though it does not inten
 The answer to "Can I use Backstop with X?" must be allowed to differ from the answer to "Does X preserve
 Backstop's intended guarantees?" Compatibility and guarantees are separate claims.
 
-This also creates a new pack-design test. The reusable semantic contract for product documentation does
-not belong in Core and does not belong in the visual design system. It should be expressible as a separate
-pack. How that pack is authored and which deterministic engines it invents or composes is intentionally a
-downstream design problem. The absence of an off-the-shelf deterministic tool is not a reason to move the
-concern into probabilistic review or bake it into Core.
+The site also needs an explicit category-definition surface. Backstop is not a model, agent, harness,
+linter, CI system, or prompt framework. It is a framework for making intent legible and constraining
+probabilistic agents with deterministic checks and verifiable evidence. The exact wording belongs
+downstream, but the category boundary itself is a required communicative job.
 
-Finally, website correctness should be expressed through Backstop's existing capability model rather than
-through a hand-written list of ad hoc site checks at bundle level. The bundle defines the outcomes the site
-must enable; downstream artifacts define the capabilities, @UJ-NNN scenarios, and executable acceptance
-proof that establish those outcomes.
+This creates a new pack-design test. The reusable semantic contract for product documentation does
+not belong in Core and does not belong in the visual design system. It should be expressible as a
+separate pack. How that pack is authored and which deterministic engines it invents or composes is
+intentionally a downstream design problem. The absence of an off-the-shelf deterministic tool is not
+a reason to move the concern into probabilistic review or bake it into Core.
+
+Website correctness should be expressed through Backstop's existing capability model rather than
+through a hand-written list of ad hoc site checks at bundle level. The bundle defines the outcomes the
+site must enable; downstream artifacts define the capabilities, @UJ-NNN scenarios, and executable
+acceptance proof that establish those outcomes.
+
+Derived documentation follows the same discipline. Authoritative product data should produce Markdown,
+and Markdown should produce the site. If a page can be regenerated from changelog, release, capability,
+or other project truth, CI should make drift impossible rather than asking an agent or maintainer to
+remember to update prose manually.
 
 ## Draft Requirements
 
 - **REQ-001 — Rethink the whole public site.** Existing pages are source material, not constraints;
   a narrower product-site expansion is a fallback if the broader rethink does not earn its churn.
-- **REQ-002 — Navigate by visitor journey.** Discovery, evaluation, understanding, adoption/use cases,
-  and reference each need an authoritative home; exact route and page choices come later.
-- **REQ-003 — Maintain one canonical conceptual model.** Dense architecture/concepts content should be
-  directly consumable and referenced by use-case content rather than duplicated across it.
-- **REQ-004 — Make Backstop auditable as a product choice.** Consequential claims must expose mechanism,
-  guarantee boundary, limitations, adoption implications, and direction; compatibility is not a guarantee.
-- **REQ-005 — Make product boundaries explicit.** Supported, limitation, planned, non-goal, and adjacent
-  guidance are distinct kinds of truth, and where Backstop stops the site should explain the seam.
-- **REQ-006 — Keep ownership composable.** Core owns product truth; the design-system pack owns visual and
-  interaction policy; a separate pack owns documentation semantics and their deterministic enforcement.
-- **REQ-007 — Prove the user journeys.** Website outcomes are delivered as capabilities with executable
-  acceptance evidence, not as visual-review assertions.
-- **REQ-008 — Bootstrap from evidence.** Current docs, implementation, commit history, dogfooding findings,
-  and observed agent failures are source material; claims should not outrun what the system actually does.
-- **REQ-009 — Complexity must be earned.** Use the least complex deployment/runtime that satisfies the
-  functional requirements. Today that means Jekyll/GitHub Pages; it is not a permanent architectural vow.
-- **REQ-010 — Bundle owns topology, not prose.** Page-level copywriting and wording are downstream work;
-  a generalized prose-quality/style/LSP pack is separate scope.
+- **REQ-002 — Navigate by visitor journey.** Discovery, evaluation, "what it is/isn't," understanding,
+  adoption/use cases, pack ecosystem, extension, and reference each need an authoritative home.
+- **REQ-003 — Maintain one canonical model.** Concepts and architecture have one comprehensive source;
+  use-case content references it rather than creating competing explanations.
+- **REQ-004 — Make the product auditable.** Consequential claims connect to mechanisms, guarantee
+  boundaries, limitations, adoption implications, and direction; compatibility is not guarantee.
+- **REQ-005 — State the boundary honestly.** Supported, limitation, planned, non-goal, and adjacent
+  guidance are distinct states with distinct implications.
+- **REQ-006 — Keep semantics, truth, and presentation separate.** Core owns product truth; the design
+  system owns presentation; a separate pack owns reusable documentation semantics and enforcement.
+- **REQ-007 — Define success as user capabilities.** The site must support understanding, evaluation,
+  adoption, application, ecosystem discovery/extension, evidence inspection, and continuation beyond
+  intentional Backstop boundaries, with concrete journeys and executable acceptance proof downstream.
+- **REQ-008 — Prove it in more than one way.** Real failures, before/after examples, gate output,
+  commit/source provenance, measured outcomes, diagrams, and demonstrations are all valid proof modes.
+- **REQ-009 — Stay boring until requirements say otherwise.** Jekyll/GitHub Pages fits the current
+  static problem; added runtime complexity must be purchased by actual functional requirements.
+- **REQ-010 — Bundle owns topology, not prose.** Actual page copy and any generalized prose-style
+  enforcement belong downstream or in separately governed enabling work.
+- **REQ-011 — Source of truth -> Markdown -> site.** Derived documentation is generated deterministically
+  and CI rejects drift; a substantial generation engine may be separately governed if required.
+- **REQ-012 — Preserve scope ownership when new enablers emerge.** Separately scoped work may become a
+  hard dependency; that does not make it part of this bundle.
 
-## Resolved Design Principles
+## Content Neighborhoods
 
-- **DP-1 — Human journey first, agent journey included.** Agent-mediated product discovery and evaluation
-  should succeed because the same canonical content is useful to humans and agents, not because the site
-  maintains a second shadow documentation system.
-- **DP-2 — Decision support, not brochureware.** The site should help a reader decide whether Backstop is
-  appropriate, not merely teach installation after the decision has already been made.
-- **DP-3 — Claims are bounded.** The site should make it possible to descend from a consequential claim to
-  its mechanism, evidence, guarantee boundary, limitations, and practical adoption implications.
-- **DP-4 — Where Backstop stops, document the seam.** Intentional product boundaries should include enough
-  reasoning and adjacent guidance that the user can continue solving the larger problem.
-- **DP-5 — No is the architectural default.** Product and platform complexity must be earned by concrete
-  requirements. Existing simple infrastructure remains until the functional requirements make it inadequate.
+These are required territories, not final routes or page names:
 
-## Source Material To Bootstrap From
+- **Discovery / Why Backstop Exists** — recognize the failure class quickly and explain why this system exists.
+- **What Backstop Is / Is Not** — establish the product category and prevent category mistakes.
+- **Evaluation / Is This Right for Me?** — claims, mechanisms, guarantees, limitations, adoption cost, and fit.
+- **Capabilities, Guarantees, Limits, and Direction** — supported behavior, limitations, planned work,
+  intentional non-goals, and adjacent guidance.
+- **How Backstop Works** — a progressive explanation of the operating model.
+- **Canonical Concepts & Architecture** — the dense authoritative system model for deep human or agent ingestion.
+- **Use Cases / Adoption Paths** — problem-oriented ways to adopt and apply Backstop without learning every noun first.
+- **Pack Ecosystem** — browse existing packs, understand what problems they solve, how they compose, and which are maintained.
+- **Extend Backstop** — determine whether a concern belongs in a pack and how to author one.
+- **Reference** — CLI, artifact model, schemas, and exact behavioral lookup.
+- **Project Status / Direction** — what exists now, what is planned, and where Backstop explicitly does not intend to own the problem.
+- **Contributing / Ecosystem** — repository and contribution paths where appropriate.
 
-- `docs/index.html` — current branded landing page and visual/product-story source material.
-- `docs/getting-started.md` — current adoption bootstrap.
-- `docs/concepts.md` — current conceptual-model bootstrap.
-- `docs/artifact-workflow.md` — current artifact and SDLC workflow explanation.
-- `docs/pack-authoring.md` — current extensibility/pack-authoring material.
-- `docs/cli-reference.md` — current command/reference material.
-- `backstop-ai/backstop-design-system` — executable visual policy and recipes.
-- Backstop Core implementation and commit history — evidence for what the product actually does and why
-  particular compensating mechanisms exist.
-- Prior website/design-system dogfooding — especially the messaging changes that emerged when an agent used
-  Backstop for real and the resulting design-system/recipe defects such as ISSUE-182.
-- Real user/agent failure modes — source material for problem-oriented evaluation and use-case neighborhoods.
+## User Capability Seeds
 
-## Out of Scope At Bundle Level
+The exact CAP IDs and @UJ-NNN scenarios belong downstream, but the required outcomes are now stable enough to seed promotion:
 
-- Final page copy, headlines, CTA wording, or prose polish.
-- A generalized prose-quality, writing-style, or prose-LSP pack.
-- Building an MCP server in this increment; future documentation/guidance MCP consumption should reuse the
-  canonical documentation model rather than create a second source of truth.
-- Stateful SaaS surfaces such as hosted artifact visualization, quality dashboards, team coordination,
-  authenticated workflows, or a graphical pack-authoring product.
-- Treating a coding harness as Backstop's deterministic execution guarantee; harness compatibility and
-  Backstop guarantees remain separate concerns.
-- A permanent commitment to Jekyll, GitHub Pages, or any other implementation stack beyond the requirement
-  to remain as operationally simple as current functional needs allow.
+- **Understand Backstop** — determine what Backstop is, what it is not, and why it exists.
+- **Evaluate Fit** — determine whether Backstop addresses a concrete problem the visitor has.
+- **Evaluate Guarantees** — distinguish supported behavior, guarantees, limitations, plans, non-goals, and guidance.
+- **Evaluate Compatibility** — determine whether Backstop works with a chosen harness/model/toolchain and where compatibility stops short of guarantee.
+- **Understand the System** — build an accurate mental model of artifacts, packs, gates, capabilities, enforcement, and architecture.
+- **Adopt Backstop** — get from interest to a working installation/configuration for a real repository.
+- **Apply Backstop** — find the right path for a concrete use case.
+- **Browse the Pack Ecosystem** — discover existing packs and understand which ones address the visitor's problem.
+- **Extend Backstop** — determine when and how to author a new pack.
+- **Inspect the Evidence** — trace consequential claims to implementation, examples, source, commits, or measured results.
+- **Continue Beyond Backstop** — understand the intentional boundary and receive useful adjacent guidance when Backstop does not own the whole problem.
 
-## Remaining Open Questions
+The natural progression is roughly Understand -> Evaluate -> Understand System -> Adopt -> Apply -> Extend,
+but this is a graph rather than a forced funnel. Evidence inspection and continuation beyond Backstop are
+cross-cutting capabilities available wherever a consequential claim or product boundary appears.
 
-- What exact page/neighborhood inventory and navigation model best satisfies the visitor journey?
-- What exact Backstop capabilities and @UJ-NNN scenarios define success for the public site?
-- How should the new documentation-semantics pack represent and deterministically enforce its contract?
-- Which existing content should remain canonical verbatim, which should be decomposed or merged, and which
-  should be retired after its useful material is incorporated elsewhere?
-- What machine-readable publication shape should accompany the human site, if any, before a future docs-only
-  MCP surface exists?
-- How far should the visual redesign depart from the current landing page once the new information
-  architecture is known?
+The primary acquisition case is referred evaluation: someone was given a Backstop link because another
+person or agent believed it would help with a concrete failure and now wants to be convinced quickly.
+The site should recognize that problem, explain the mechanism, show credible evidence, state the boundary,
+and then offer deeper paths rather than requiring a cold visitor to first learn Backstop's internal taxonomy.
 
-## Spec Seeds
+## Source Material
 
-- **Public-site information architecture and content contracts.** Define the page/neighborhood model,
-  canonical-source strategy, and communicative responsibilities without embedding final prose in the bundle.
-- **Documentation-semantics pack.** Define the reusable semantic model, recipes/data shape, deterministic
-  enforcement strategy, and composition seam with Core and the design-system pack.
-- **Website capabilities and user journeys.** Define CAP artifacts, @UJ-NNN scenarios, and executable
-  acceptance proof for the discovery/evaluation/adoption/reference experience.
-- **Design-system follow-on.** Add any reusable presentation primitives required by the approved site model
-  under `backstop-ai/backstop-design-system`'s own artifact governance.
-- **Copy/content execution.** Write or rewrite page content only after the information architecture and
-  semantic contracts are settled.
+The redesign should deliberately mine:
+
+- the current `backstop.sh` landing page and technical docs;
+- the prior design-system and website dogfooding session, especially where real usage changed the product framing;
+- Backstop's actual implementation and commit history;
+- pack manifests across `backstop-ai`, including the mechanism/opinion/recipe separation already encoded by the ecosystem;
+- capability and user-journey schemas already present in Backstop;
+- real agent/harness failure stories encountered while building and using Backstop;
+- measured delivery/quality evidence where it can support a claim without overstating causality;
+- external documentation patterns worth borrowing, especially explicit applicability boundaries, compatibility semantics,
+  non-goals, and maturity/status distinctions.
+
+These inputs are evidence to synthesize, not text to preserve verbatim.
+
+## Scope and Dependency Rules
+
+Out of scope means **not owned by this bundle**, not **forbidden** and not **incapable of becoming a dependency**.
+
+- A generalized prose-quality/style pack or prose LSP is not a BUNDLE-032 deliverable. If copy throughput or quality
+  proves it necessary, scope it separately and consume it as an enabler.
+- The documentation-semantics pack should be built only as far as real website requirements force it to be built.
+  Generalized documentation governance beyond that evidence is separate scope.
+- BUNDLE-032 does not own Backstop Core changes. A genuinely generic missing pack primitive discovered through
+  dogfooding should receive its own bundle rather than teaching Core about documentation.
+- An MCP server is not delivered by this bundle. The site may document the intended documentation/guidance role and
+  the non-goal of agent-selected MCP execution.
+- Deterministic harness/runtime evolution is not delivered by this bundle. The site documents current compatibility
+  and guarantee boundaries; execution-layer improvements remain separate work.
+- Migrating away from Jekyll/GitHub Pages is not a goal of this bundle. It remains allowed if new functional
+  requirements earn the complexity.
+- The site describes actual Backstop product truth. If writing the site exposes a real product gap, that gap may be
+  separately governed and may become a dependency; the website does not invent or silently implement features merely
+  to make the narrative cleaner.
+- Useful scope exhaust should be captured when it prevents future rediscovery, but public artifacts should not become
+  a dumping ground for speculative commercial or product ideas that are irrelevant to this bundle's boundary.
+
+## Draft Design Decisions
+
+- **DD-1 — Journey over taxonomy.** Internal nouns support the journey; they do not dictate the top-level IA.
+- **DD-2 — Human journey is the agent journey.** Do not create a parallel machine-only narrative; make canonical content structured and complete enough for both.
+- **DD-3 — Canonical model plus progressive disclosure.** Dense architecture/reference content coexists with problem/use-case entry paths.
+- **DD-4 — Decision support, not brochureware.** Claims must expose mechanism, evidence, boundary, adoption implications, and direction.
+- **DD-5 — Compatibility is not guarantee.** A tool may operate Backstop without guaranteeing correct lifecycle use.
+- **DD-6 — Pack boundaries remain real.** Product truth, presentation, and documentation semantics live in separate owners.
+- **DD-7 — Capabilities prove the site.** User outcomes and journeys drive acceptance rather than screenshot approval alone.
+- **DD-8 — Evidence should be plural.** Narrative, source, runtime output, metrics, architecture, and demos reinforce each other.
+- **DD-9 — Complexity must be earned.** Use the least operationally complex stack that satisfies concrete requirements.
+- **DD-10 — Generated docs stay inspectable.** Authoritative source -> Markdown -> site is the preferred derivation path.
+- **DD-11 — New enablers get their own governance.** First-consumer pressure does not erase ownership boundaries.
+
+## Promotion Readiness
+
+The bundle-level problem, boundaries, neighborhoods, capability outcomes, evidence posture, ownership seams,
+and dependency rules are now sufficiently defined to generate promoted requirements and decompose the work into
+one or more specs. Promotion should not copy the old premature SPEC-071 shape forward; the requirements generated
+from this bundle need to reflect the full-site, capability-driven, evidence-first scope captured in v0.3.0.
 
 ## Version History
 
-- 0.2.0 (2026-08-23): Reframed the increment from docs-shell expansion to a full public-site rethink;
-  adopted visitor-journey IA, canonical concept/architecture content, auditable product claims, explicit
-  support/limitation/planned/non-goal/adjacent-guidance boundaries, separate documentation-semantic pack
-  ownership, capability/user-journey acceptance, evidence-first source material, and "boring as requirements
-  allow" deployment. Deferred final copy and detailed page design to downstream artifacts.
-- 0.1.0 (2026-08-23): Defined the original post-landing-page website increment around preserving Home,
-  unifying the five canonical Markdown docs under a Backstop docs shell, deterministic route/link checks,
-  static GitHub Pages/Jekyll deployment, and local copy cleanup.
+- 0.1.0 (2026-08-23): Initial docs-shell-oriented scope.
+- 0.2.0 (2026-08-23): Reframed as a full public-site rethink with visitor-journey IA, canonical architecture,
+  evidence-first product evaluation, explicit product-boundary semantics, separate documentation-semantics pack,
+  capability/user-journey acceptance, and boring-until-earned deployment.
+- 0.3.0 (2026-08-23): Locked bundle decisions after OQ/OOS review. Added what-it-is/isn't and pack-ecosystem
+  neighborhoods, stable user-capability seeds, evidence diversity, referred-evaluation entry model,
+  source-of-truth -> Markdown -> site generation with CI drift detection, and explicit separate-governance rules
+  for discovered enabling work and dependencies.
 
 ## References
 
-- `docs/index.html`
-- `docs/getting-started.md`
-- `docs/concepts.md`
-- `docs/artifact-workflow.md`
-- `docs/pack-authoring.md`
-- `docs/cli-reference.md`
-- `backstop-ai/backstop-design-system`
-- `artifacts/capability/v1/schema.json`
-- ISSUE-182 — Recipe Literal Placeholder Escaping.
+- `docs/index.html` and current `docs/*.md` — existing public-site source material.
+- `backstop-ai/backstop-design-system` — reusable visual/interaction policy owner.
+- `backstop-ai/*` pack manifests — evidence for mechanism/opinion/recipe ownership separation.
+- `artifacts/capability/v1/schema.json` — existing capability/user-journey acceptance model.
+- Prior website/design-system dogfooding session — first-party evidence that real usage changed product framing.
