@@ -1,4 +1,4 @@
-name: Website Scope Validate
+name: Website Scope CLI Bootstrap
 
 on:
   pull_request:
@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 jobs:
-  validate:
+  build-cli:
     if: github.head_ref == 'codex/website-expansion-scope'
     runs-on: ubuntu-latest
     steps:
@@ -19,10 +19,11 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Build current Backstop CLI
-        run: go build -o /tmp/backstop ./cmd/backstop
-      - name: Validate website scope artifacts
-        run: |
-          set -euo pipefail
-          /tmp/backstop artifact validate bundles/BUNDLE-032-website-expansion.bundle.md
-          /tmp/backstop artifact validate specs/SPEC-071-website-expansion.spec.md
-          /tmp/backstop artifact validate plans/PLAN-SPEC-071-website-expansion.plan.yml
+        run: go build -o backstop ./cmd/backstop
+      - name: Upload Backstop CLI
+        uses: actions/upload-artifact@v4
+        with:
+          name: backstop-cli-linux-amd64
+          path: backstop
+          if-no-files-found: error
+          retention-days: 1
