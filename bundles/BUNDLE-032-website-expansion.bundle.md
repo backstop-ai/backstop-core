@@ -181,6 +181,25 @@ must come from the design-system pack and be consumed and locked here. The imple
 must also account for ISSUE-182's literal-template collision rather than reintroducing
 fragile Liquid-in-Liquid generation.
 
+## Draft Requirements
+
+- **REQ-001 — Preserve Home.** The branded landing page is the baseline, not a redesign target.
+- **REQ-002 — One docs IA.** Getting Started, Concepts, Artifact Workflow, Pack Authoring,
+  and CLI Reference are one ordered documentation surface.
+- **REQ-003 — Markdown stays canonical.** Presentation wraps technical content; it does not
+  create parallel HTML copies.
+- **REQ-004 — Reuse through the pack.** Shared docs presentation belongs in the design-system
+  pack and Core consumes a released, locked version.
+- **REQ-005 — Existing rules still apply.** Expansion keeps the pack's tokens, focus,
+  reduced-motion, no-inline-style, and wordmark contracts.
+- **REQ-006 — Navigation is responsive and no-JS usable.** The reader keeps orientation at
+  desktop and narrow widths without a client runtime.
+- **REQ-007 — Stay operationally boring.** Static Jekyll/GitHub Pages and `backstop.sh` remain.
+- **REQ-008 — Verify the generated graph.** Missing pages, bad internal links, wrong nav,
+  CNAME drift, and design-system violations fail deterministically.
+- **REQ-009 — Improve copy locally.** Stale positioning can be corrected when touched; a
+  prose LSP or generalized writing-style pack is separate work.
+
 ## Draft Design Decisions
 
 - **DD-1 — Reader progression, not repo taxonomy.** Primary docs order is Getting Started →
