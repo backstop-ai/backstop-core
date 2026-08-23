@@ -26,6 +26,8 @@ jobs:
           work="$(mktemp -d)"
           cp -a . "$work/repo"
           cd "$work/repo"
+          git config user.name "Backstop Scope Probe"
+          git config user.email "backstop-scope-probe@users.noreply.github.com"
           /tmp/backstop artifact new bundle --slug website-expansion
           bundle_file="$(git status --short | awk '/bundles\// {print $2}')"
           echo "BUNDLE_FILE=$bundle_file"
