@@ -1,0 +1,214 @@
+---
+plan_id: PLAN-SPEC-071
+spec_id: SPEC-071
+created: "2026-08-23"
+status: draft
+target_repo: backstop-core
+target_module: docs
+test_command: "./scripts/verify-website.sh"
+
+notes: |
+  Implements SPEC-071 in backstop-core only.
+
+  PRECONDITION: backstop-ai/backstop-design-system must first release a version that
+  exposes the reusable docs-shell capability required by BUNDLE-032/SPEC-071. If that
+  design-system change requires Backstop artifacts, its bundle/spec/plan chain is created
+  and mutated in that repository by its primary orchestrator. This plan never allocates or
+  edits another repository's ledger.
+
+  The existing docs/index.html is the visual reference surface, not a redesign target.
+  The existing five Markdown docs remain canonical content. The implementation should
+  prefer applying/reapplying deterministic design-system recipes over manually maintaining
+  generated presentation files.
+
+  BOUNDED AGENT USAGE: research and review workers may inspect the current site, generated
+  Jekyll output, responsive behavior, accessibility, route graph, and copy consistency.
+  They may return findings and patches for non-ledger site files. They must not create,
+  renumber, rename, promote, or otherwise mutate bundles, specs, plans, issues, directives,
+  ADRs, capabilities, or artifact tags. The primary orchestrator owns those mutations.
+---
+
+phases:
+  - id: PHASE-1
+    name: Pin the deterministic website contract
+    tasks:
+      - id: TASK-001
+        type: test
+        title: Build the generated-site verifier first
+        description: >
+          Create the single website verification entrypoint and explicit canonical-site
+          manifest before changing presentation. The verifier must be able to build or
+          inspect the Jekyll output and independently falsify CLM-001 through CLM-009:
+          expected routes exist; the five docs links are ordered and current-page state is
+          singular; canonical docs remain Markdown-backed; the design-system dependency is
+          pinned; no-JS navigation markup is present; backstop.sh CNAME remains intact;
+          internal links resolve; design-system gate violations propagate; and stale
+          Cayman-era positioning metadata is rejected. Diagnostics must name the failing
+          route, link, metadata field, or rule.
+        files:
+          - scripts/verify-website.sh
+          - docs/site-manifest.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+        test_names:
+          - verify_home_reference_surface
+          - verify_docs_navigation
+          - verify_canonical_markdown_sources
+          - verify_design_system_dependency
+          - verify_design_system_gate
+          - verify_no_js_navigation_contract
+          - verify_static_deployment_contract
+          - verify_website_failure_modes
+          - verify_site_positioning_metadata
+        depends_on: []
+
+  - id: PHASE-2
+    name: Apply the Backstop docs shell
+    tasks:
+      - id: TASK-002
+        type: implementation
+        title: Consume the released design-system docs capability
+        description: >
+          Upgrade the pinned backstop-design-system version through the normal Backstop
+          pack workflow and apply its released docs-shell recipe or equivalent generation
+          surface. Replace the public Cayman presentation with the shared Backstop shell,
+          reconcile shared header/footer primitives with docs/index.html without changing
+          the landing page's major hierarchy, and keep Jekyll/GitHub Pages as the runtime.
+          Do not hand-copy design-system CSS or layout decisions into Core when the pack can
+          own/generate them. Do not proceed against an unreleased local design-system state.
+        files:
+          - backstop.yml
+          - docs/_config.yml
+          - docs/index.html
+          - docs/_layouts/backstop.html
+          - docs/_includes/backstop-header.html
+          - docs/_includes/backstop-docs-nav.html
+          - docs/_includes/backstop-footer.html
+          - docs/assets/css/backstop.scss
+        claims:
+          - CLM-001
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: implementation
+        title: Attach canonical docs to one information architecture
+        description: >
+          Add only the frontmatter, page metadata, concise introductions, or navigation
+          metadata needed to render the five existing Markdown docs through the shared
+          shell in the exact reader order defined by SPEC-071. Preserve substantive
+          technical content as Markdown; do not create parallel HTML copies. Reconcile
+          stale public positioning where encountered, including old Cayman-era site
+          description language, without turning this task into a wholesale docs rewrite or
+          prose-enforcement subsystem.
+        files:
+          - docs/getting-started.md
+          - docs/concepts.md
+          - docs/artifact-workflow.md
+          - docs/pack-authoring.md
+          - docs/cli-reference.md
+        claims:
+          - CLM-002
+          - CLM-003
+          - CLM-006
+          - CLM-009
+        depends_on:
+          - TASK-001
+
+      - id: TASK-004
+        type: verification
+        title: Run the deterministic site contract after migration
+        description: >
+          Execute the website verifier against the generated site after TASK-002 and
+          TASK-003. Fix implementation defects rather than weakening the manifest or
+          verifier. Separately run Backstop gate so a visually acceptable result cannot
+          bypass the installed design-system rules or artifact enforcement. Capture any
+          defect that belongs to the design-system generator as a finding for that repo;
+          do not patch around a reusable-pack defect in Core.
+        files:
+          - scripts/verify-website.sh
+          - docs/site-manifest.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-002
+          - TASK-003
+
+  - id: PHASE-3
+    name: Review the public surface and close the scope
+    tasks:
+      - id: TASK-005
+        type: documentation
+        title: Record only implementation-relevant site decisions
+        description: >
+          Update the site-facing documentation or comments needed to explain the canonical
+          docs order, design-system ownership boundary, and deterministic verification
+          command. Do not duplicate SPEC-071 into user documentation and do not mutate the
+          Backstop artifact ledger from a reviewer or bounded worker. Any genuine new
+          product decision discovered during review is returned to the primary orchestrator
+          for explicit artifact handling.
+        files:
+          - docs/README.md
+        claims:
+          - CLM-002
+          - CLM-004
+          - CLM-008
+        depends_on:
+          - TASK-004
+
+      - id: TASK-006
+        type: verification
+        title: Final generated-site, gate, and bounded-review pass
+        description: >
+          Rebuild the public site from a clean state; run ./scripts/verify-website.sh and
+          backstop gate; then perform bounded visual/accessibility/copy review at desktop
+          and narrow widths. The review may report non-ledger fixes, but acceptance is the
+          deterministic green contract plus no unresolved material regression against the
+          existing home reference surface. Verify that no task introduced a prose linter,
+          SPA/runtime dependency, HTML fork of canonical Markdown, or cross-repo artifact
+          mutation.
+        files:
+          - scripts/verify-website.sh
+          - docs/site-manifest.yml
+          - docs/index.html
+          - docs/_config.yml
+          - docs/getting-started.md
+          - docs/concepts.md
+          - docs/artifact-workflow.md
+          - docs/pack-authoring.md
+          - docs/cli-reference.md
+          - backstop.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-002
+          - TASK-003
+          - TASK-005
