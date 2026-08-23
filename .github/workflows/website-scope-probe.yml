@@ -1,4 +1,4 @@
-name: Website Scope Probe
+name: Website Scope Validate
 
 on:
   pull_request:
@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 jobs:
-  probe:
+  validate:
     if: github.head_ref == 'codex/website-expansion-scope'
     runs-on: ubuntu-latest
     steps:
@@ -20,24 +20,9 @@ jobs:
           go-version-file: go.mod
       - name: Build current Backstop CLI
         run: go build -o /tmp/backstop ./cmd/backstop
-      - name: Probe artifact allocation and templates in isolated copy
+      - name: Validate website scope artifacts
         run: |
           set -euo pipefail
-          work="$(mktemp -d)"
-          cp -a . "$work/repo"
-          cd "$work/repo"
-          git config user.name "Backstop Scope Probe"
-          git config user.email "backstop-scope-probe@users.noreply.github.com"
-          /tmp/backstop artifact new bundle --slug website-expansion
-          bundle_file="$(git status --short | awk '/bundles\// {print $2}')"
-          echo "BUNDLE_FILE=$bundle_file"
-          cat "$bundle_file"
-          /tmp/backstop artifact new spec --slug website-expansion
-          spec_file="$(git status --short | awk '/specs\// {print $2}' | tail -1)"
-          echo "SPEC_FILE=$spec_file"
-          cat "$spec_file"
-          spec_id="$(basename "$spec_file" | sed -E 's/^(SPEC-[0-9]+).*/\1/')"
-          /tmp/backstop artifact new plan --slug website-expansion --source "$spec_id"
-          plan_file="$(git status --short | awk '/plans\// {print $2}' | tail -1)"
-          echo "PLAN_FILE=$plan_file"
-          cat "$plan_file"
+          /tmp/backstop artifact validate bundles/BUNDLE-032-website-expansion.bundle.md
+          /tmp/backstop artifact validate specs/SPEC-071-website-expansion.spec.md
+          /tmp/backstop artifact validate plans/PLAN-SPEC-071-website-expansion.plan.yml
