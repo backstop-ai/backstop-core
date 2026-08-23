@@ -26,7 +26,6 @@ notes: |
   They may return findings and patches for non-ledger site files. They must not create,
   renumber, rename, promote, or otherwise mutate bundles, specs, plans, issues, directives,
   ADRs, capabilities, or artifact tags. The primary orchestrator owns those mutations.
----
 
 phases:
   - id: PHASE-1
@@ -37,14 +36,14 @@ phases:
         title: Build the generated-site verifier first
         description: >
           Create the single website verification entrypoint and explicit canonical-site
-          manifest before changing presentation. The verifier must be able to build or
-          inspect the Jekyll output and independently falsify CLM-001 through CLM-009:
-          expected routes exist; the five docs links are ordered and current-page state is
-          singular; canonical docs remain Markdown-backed; the design-system dependency is
-          pinned; no-JS navigation markup is present; backstop.sh CNAME remains intact;
-          internal links resolve; design-system gate violations propagate; and stale
-          Cayman-era positioning metadata is rejected. Diagnostics must name the failing
-          route, link, metadata field, or rule.
+          manifest before changing presentation. The verifier must build or inspect Jekyll
+          output and independently falsify CLM-001 through CLM-009: expected routes exist;
+          the five docs links are ordered and current-page state is singular; canonical
+          docs remain Markdown-backed; the design-system dependency is pinned; no-JS
+          navigation markup is present; backstop.sh CNAME remains intact; internal links
+          resolve; design-system gate violations propagate; and stale Cayman-era
+          positioning metadata is rejected. Diagnostics must name the failing route, link,
+          metadata field, or rule.
         files:
           - scripts/verify-website.sh
           - docs/site-manifest.yml
@@ -161,12 +160,12 @@ phases:
         type: documentation
         title: Record only implementation-relevant site decisions
         description: >
-          Update the site-facing documentation or comments needed to explain the canonical
-          docs order, design-system ownership boundary, and deterministic verification
-          command. Do not duplicate SPEC-071 into user documentation and do not mutate the
-          Backstop artifact ledger from a reviewer or bounded worker. Any genuine new
-          product decision discovered during review is returned to the primary orchestrator
-          for explicit artifact handling.
+          Update only the site-facing documentation or comments needed to explain the
+          canonical docs order, design-system ownership boundary, and deterministic
+          verification command. Do not duplicate SPEC-071 into user documentation and do
+          not mutate the Backstop artifact ledger from a reviewer or bounded worker. Any
+          genuine new product decision discovered during review returns to the primary
+          orchestrator for explicit artifact handling.
         files:
           - docs/README.md
         claims:
