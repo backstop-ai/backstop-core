@@ -333,23 +333,40 @@ phases:
 
           Update sandbox_split_test.go's exec-erasure inventory for
           applyRestrictionsAndExecWith and its direct-vs-injected unix.Exec detector.
-          The required split is exact: measured sandbox_linux.go owns request decoding,
-          all returning policy/restriction helpers, acknowledgement, and
-          applyRestrictionsAndExecWith's injected orchestration of applyLandlock,
-          applySeccomp, ack, chdir, LookPath, and final exec. Excluded
-          sandbox_linux_helper.go owns only the successful-path non-returning production
-          wrapper: lock the OS thread, apply PR_SET_NO_NEW_PRIVS, then make one delegation
-          passing the real applyLandlock/applySeccomp/ack/unix.Chdir/exec.LookPath/
-          unix.Exec functions.
+          The required split is exact. Measured sandbox_linux.go owns request decoding,
+          parent-side logic, acknowledgement, and applyRestrictionsAndExecWith's injected
+          orchestration of installer, ack, chdir, LookPath, and final exec dependencies.
+          Tests replace those dependencies so every ordering/error return completes in a
+          normal flushable process.
 
-          Strengthen the AST guard so the excluded file declares only that wrapper and
-          may reference unix.Exec only once as the real function argument to the measured
-          seam, never call it directly or contain injected/returning orchestration. The
-          measured file must invoke only the injected exec function and contain no direct
-          unix.Exec selector. Inventory every returning function in the measured file and
-          prove tests drive every failure/order branch there. Preserve the existing exact
-          sandbox_linux_helper.go coverage exclusion and justification; do not broaden it,
-          add another excluded function/file, or weaken the inventory.
+          Excluded sandbox_linux_helper.go retains only the genuinely exec-erased
+          production inventory: applyRestrictionsAndExec, applyLandlock, and non-empty
+          applySeccomp installation.
+          applyRestrictionsAndExec locks the thread, applies PR_SET_NO_NEW_PRIVS, and
+          delegates once to the measured seam with real applyLandlock, non-empty
+          applySeccomp, ack, unix.Chdir, exec.LookPath, and unix.Exec function values.
+
+          Measured sandbox_linux.go also owns pure seccompAuditArch, pure
+          seccompSyscallNumbers, and a pure/filter decision helper that identifies the
+          empty seccomp policy before invoking the real non-empty installer. Add direct
+          tests for supported/unsupported architectures, every known/unknown syscall,
+          empty/non-empty policy decisions, and all error values; no directly invoked
+          returning helper may remain excluded.
+
+          Strengthen the AST guard to assert the exact three-function excluded inventory,
+          non-empty real syscall installer bodies, and no additional decode/parent/injected
+          orchestration in the helper. unix.Exec may be referenced only once as the real
+          argument in applyRestrictionsAndExec, never called directly. The measured seam
+          invokes only its injected exec function and tests drive every returning order/
+          error branch. Pure/mapping helpers stay measured only with direct behavioral
+          tests; production-only syscall installers remain in the exact excluded inventory.
+
+          Add a root dogfood assertion in pack_fleet_test.go for the one existing
+          sandbox_linux_helper.go exclusion: same exact path, no new exclusions, and an
+          updated non-empty justification naming the current three functions. It must cite
+          the historical sandbox-linux-coverage-profile.txt as evidence while stating that
+          seccompAuditArch/seccompSyscallNumbers moved to measured direct-test ownership.
+          Do not edit or fabricate the historical profile fixture.
         files:
           - pkg/packval/sandbox_linux_external_test.go
           - pkg/packval/sandbox_linux_exec_test.go
@@ -357,6 +374,7 @@ phases:
           - pkg/packval/sandbox_wiring_guard_test.go
           - pkg/packval/sandbox_linux_errors_test.go
           - pkg/packval/sandbox_split_test.go
+          - pack_fleet_test.go
         claims:
           - CLM-006
           - CLM-014
@@ -642,27 +660,41 @@ phases:
           conventional 128+signal when available, and one fixed fail-closed nonzero
           fallback otherwise; this is result plumbing, not policy.
 
-          Move applyRestrictionsAndExecWith and every returning/injected orchestration
-          function into measured sandbox_linux.go. That seam receives function parameters
-          for applyLandlock, applySeccomp, acknowledgement, chdir, LookPath, and exec;
-          executes them in the preserved production order; and exposes every failure and
-          counter edge to TASK-006 without a real process replacement. Move request decode,
-          restriction-policy helpers, acknowledgement writing, and any other returning
-          helper out of the excluded file as needed so they remain measured.
+          Put request decoding, parent-side logic, acknowledgement, and
+          applyRestrictionsAndExecWith in measured sandbox_linux.go. The injected seam
+          accepts installers, ack, chdir, LookPath, and exec; preserves production order;
+          and lets TASK-006 drive every returning success/error edge to completion with
+          fakes and independent counters.
 
-          Keep only applyRestrictionsAndExec's successful-path non-returning production
-          wrapper in excluded sandbox_linux_helper.go. It locks the OS thread, applies
-          PR_SET_NO_NEW_PRIVS, and delegates once to applyRestrictionsAndExecWith with the
-          real applyLandlock, applySeccomp, ack, unix.Chdir, exec.LookPath, and unix.Exec
-          function values. It may reference/pass unix.Exec only there; the measured seam
-          calls the injected exec parameter. Update sandbox_split_test.go atomically to
-          enforce the exact one-wrapper inventory, direct-reference-vs-injected-call
-          distinction, and measured ownership of all returning logic.
+          Keep only the genuinely exec-erased functions in excluded
+          sandbox_linux_helper.go: applyRestrictionsAndExec, real syscall applyLandlock,
+          and real non-empty applySeccomp installation. The wrapper locks the OS thread,
+          applies PR_SET_NO_NEW_PRIVS,
+          then delegates once to the measured seam with real applyLandlock/applySeccomp/
+          ack/unix.Chdir/exec.LookPath/unix.Exec. It may reference/pass unix.Exec only in
+          that wrapper; it never calls the selector directly.
 
-          Do not alter `.backstop/coverage-exclusions`, add excluded functions/files, or
-          broaden the sandbox_linux_helper.go row. This relocation changes measurement
-          ownership only, never Landlock rights, seccomp policy, acknowledgement order,
-          thread locking, no-new-privileges, chdir/LookPath, or fail-closed semantics.
+          Move pure seccompAuditArch and seccompSyscallNumbers into measured
+          sandbox_linux.go and call them directly from substantive tests. Add a measured
+          pure/filter decision helper for empty-vs-non-empty seccomp policy; the injected
+          orchestration uses it to skip the installer on empty policy, while excluded
+          applySeccomp contains only real non-empty installation. Keep any other pure/
+          mapping helper measured only when directly test-driven, never by fabricated
+          profile data.
+
+          Update sandbox_split_test.go atomically to enforce the exact three-function
+          helper inventory, non-empty installers, no extra measurable orchestration in
+          the excluded file, real dependency wiring from wrapper to measured seam, and
+          exhaustive flushable injected-branch coverage.
+
+          Narrowly update the existing `.backstop/coverage-exclusions` justification for
+          sandbox_linux_helper.go: retain the exact path/exclusion, cite the unchanged
+          historical coverage profile, name the current three exec-erased functions, and
+          note that seccompAuditArch/seccompSyscallNumbers moved to measured direct tests.
+          Add no exclusion and do not edit the historical profile fixture.
+          This is ownership/measurement correction only, never a change to Landlock
+          rights, seccomp policy, acknowledgement order, locking/no-new-privileges,
+          chdir/LookPath, unix.Exec, or fail-closed semantics.
 
           Add one internal Seatbelt literal encoder in sandbox_nonlinux.go and apply it
           to every dynamic subpath in darwinSandboxProfile. Escape quotes/backslashes and
@@ -671,7 +703,7 @@ phases:
           ISSUE-147.
 
           Add no globals, initialized package variables, init functions, production
-          files, coverage exclusions, waivers, exported result type, or public signature
+          files, new coverage exclusions, waivers, exported result type, or public signature
           changes. The unexported completion error plus local ExitCode interfaces are the
           one completion authority; add no setter or parallel status type. Linux
           confinement code/semantics and MaybeRunSandboxHelper signature remain untouched.
@@ -685,6 +717,7 @@ phases:
           - pkg/packval/sandbox_linux_helper.go
           - pkg/packval/sandbox_nonlinux.go
           - pkg/packval/sandbox_split_test.go
+          - .backstop/coverage-exclusions
         claims:
           - CLM-001
           - CLM-002
