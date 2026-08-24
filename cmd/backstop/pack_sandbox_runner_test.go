@@ -16,6 +16,13 @@ type recordingSandboxRunner struct {
 	err           error
 }
 
+func recordedSandboxResult(output []byte, applied bool) packval.SandboxRunResult {
+	var result packval.SandboxRunResult
+	result.Output = output
+	result.NativeSandboxApplied = applied
+	return result
+}
+
 func (r *recordingSandboxRunner) Mode() packval.SandboxMode { return r.mode }
 
 func (r *recordingSandboxRunner) Run(cmd string, args []string, dir string) (packval.SandboxRunResult, error) {
@@ -50,7 +57,7 @@ func directConvertSandboxRunner(gotStdin *[]byte) *recordingSandboxRunner {
 				*gotStdin = append([]byte(nil), stdin...)
 			}
 			out, err := runConvertScriptDirect(cmd, stdin)
-			return packval.SandboxRunResult{Output: out, NativeSandboxApplied: true}, err
+			return recordedSandboxResult(out, true), err
 		},
 	}
 }

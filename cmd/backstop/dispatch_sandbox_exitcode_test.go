@@ -24,7 +24,7 @@ func TestEngineDispatch_SandboxNoneExitCodeViolationSkipsSarif(t *testing.T) {
 	// would fail; the sandbox branch instead surfaces it as the violation message.
 	validatorOutput := "MARKER file missing under /project (this is NOT sarif)"
 	sandboxRunner := &recordingSandboxRunner{mode: packval.SandboxModeNative, runFn: func(string, []string, string) (packval.SandboxRunResult, error) {
-		return packval.SandboxRunResult{Output: []byte(validatorOutput), NativeSandboxApplied: true}, &fakeExitError{code: 1}
+		return recordedSandboxResult([]byte(validatorOutput), true), &fakeExitError{code: 1}
 	}}
 
 	manifest := &pack.Manifest{

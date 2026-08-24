@@ -189,7 +189,7 @@ func TestGateIntegration_SandboxValidatorExecuted(t *testing.T) {
 		if len(args) != 1 || args[0] != projectRoot {
 			t.Fatalf("expected full-project arg %q, got %#v", projectRoot, args)
 		}
-		return packval.SandboxRunResult{Output: []byte("middleware.go missing"), NativeSandboxApplied: true}, errors.New("exit status 1")
+		return recordedSandboxResult([]byte("middleware.go missing"), true), errors.New("exit status 1")
 	}}
 
 	result, err := dispatchPackEnginesWithEvidence(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, nil, emptySarifRunner{}, sandboxRunner)

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -134,5 +133,3 @@ func TestNoRegress_ContractsStepStillRunsAndPasses(t *testing.T) {
 		t.Fatalf("the contracts dedicated gate step must still run after the cutover (CLM-027). steps=%v", names)
 	}
 }
-
-var _ = context.Background

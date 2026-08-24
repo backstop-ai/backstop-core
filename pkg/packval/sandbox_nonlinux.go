@@ -74,7 +74,7 @@ func MaybeRunSandboxHelper() error {
 		return fmt.Errorf("decode the sandbox helper request: %w", err)
 	}
 	if err := writeDarwinSandboxAcknowledgement(request.AckFD); err != nil {
-		return err
+		return fmt.Errorf("acknowledge darwin sandbox installation: %w", err)
 	}
 	resolved, err := exec.LookPath(request.Command)
 	if err != nil {
@@ -229,7 +229,7 @@ func seatbeltStringLiteral(value string) (string, error) {
 func sandboxExecCommand(cmd string, args []string, packDir string) (*exec.Cmd, error) {
 	profile, err := darwinSandboxProfile(packDir)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("build darwin sandbox profile: %w", err)
 	}
 	fullArgs := []string{"-p", profile, cmd}
 	fullArgs = append(fullArgs, args...)
@@ -252,7 +252,7 @@ func newDarwinSandboxInvocation(command string, args []string, packDir string) (
 	}
 	cmd, err := sandboxExecCommand(self, nil, packDir)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("construct sandbox-exec command: %w", err)
 	}
 	cmd.Env = append(check.WithoutEnvironment(os.Environ(), sandboxHelperEnvVar, PackSandboxEnvVar), sandboxHelperEnvVar+"="+string(encoded))
 	ackRead, ackWrite, err := os.Pipe()
@@ -315,7 +315,7 @@ func platformSandboxedExecute(command string, args []string, packDir string, std
 	_ = ackRead.Close()
 	runErr := c.Wait()
 	applied := ackErr == nil && len(ack) == 1 && ack[0] == sandboxAckByte
-	result := SandboxRunResult{Output: stdout.Bytes(), NativeSandboxApplied: applied}
+	result := sandboxRunResult(stdout.Bytes(), applied)
 	if runErr != nil {
 		if stdoutOnly && stderr.Len() > 0 {
 			return result, fmt.Errorf("sandboxed run (stdout) failed: %w: %s", runErr, strings.TrimSpace(stderr.String()))

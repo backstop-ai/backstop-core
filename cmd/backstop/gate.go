@@ -102,7 +102,11 @@ func packChildEnvironment() []string {
 
 // runGate is the Cobra RunE handler that orchestrates all nine gate steps.
 func runGate(cmd *cobra.Command, args []string) error {
-	return runGateWithSandbox(cmd, args, resolvePackSandboxMode, packval.NewSandboxRunner)
+	return runGateWithSandbox(cmd, args, resolvePackSandboxMode, packval.NewSandboxRunner,
+		func(options ...gate.Option) (gate.GateResult, int) {
+			g := gate.New(options...)
+			return g.Run(context.Background())
+		})
 }
 
 func runGateWithSandbox(
@@ -110,6 +114,7 @@ func runGateWithSandbox(
 	args []string,
 	resolveMode func(bool, string, bool, string) (packval.SandboxMode, error),
 	newRunner func(packval.SandboxMode) (packval.SandboxRunner, error),
+	executeGate func(...gate.Option) (gate.GateResult, int),
 ) error {
 	packSandboxValue, flagErr := cmd.Flags().GetString("pack-sandbox")
 	if flagErr != nil {
@@ -337,8 +342,7 @@ func runGateWithSandbox(
 		opts = append(opts, gate.WithPolicy(policy))
 	}
 
-	g := gate.New(opts...)
-	result, exitCode := g.Run(context.Background())
+	result, exitCode := executeGate(opts...)
 	result.PackSandboxMode = string(packSandboxMode)
 
 	// ISSUE-059 provenance: stamp the HEAD SHA and completion time on the result before
@@ -1173,13 +1177,12 @@ func buildGateStepsWithSandbox(projectRoot string, root artifact.Root, sandboxRu
 			dispatchResult, err = dispatchPackEnginesWithEvidence(dispatchPacks, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, activeScope, runner, sandboxRunner)
 		}
 		if err != nil {
-			return gate.StepResult{
-				StepName:             "pack_engines",
-				Status:               "fail",
-				ConfigErr:            true,
-				Violations:           []gate.Violation{{Rule: "pack_engines", Message: err.Error(), Severity: "error"}},
-				NativeSandboxApplied: dispatchResult.NativeSandboxApplied,
-			}
+			return stepResultWithNativeSandbox(gate.StepResult{
+				StepName:   "pack_engines",
+				Status:     "fail",
+				ConfigErr:  true,
+				Violations: []gate.Violation{{Rule: "pack_engines", Message: err.Error(), Severity: "error"}},
+			}, dispatchResult.NativeSandboxApplied)
 		}
 		// PUBLISH THE UNFILTERED STREAM TO THE VERDICT COLLECTOR — BEFORE THE FILTER
 		// BELOW, WHICH IS THE ENTIRE POINT (ISSUE-118). A failing mandated test's
@@ -1202,12 +1205,11 @@ func buildGateStepsWithSandbox(projectRoot string, root artifact.Root, sandboxRu
 		// filtered out here or they leak past diff-scope. ProjectWide (exempt, e.g.
 		// go-build) violations are structurally retained by the filter.
 		violations = activeScope.FilterViolations(violations)
-		return gate.StepResult{
-			StepName:             "pack_engines",
-			Status:               gate.StepVerdict(violations),
-			Violations:           violations,
-			NativeSandboxApplied: dispatchResult.NativeSandboxApplied,
-		}
+		return stepResultWithNativeSandbox(gate.StepResult{
+			StepName:   "pack_engines",
+			Status:     gate.StepVerdict(violations),
+			Violations: violations,
+		}, dispatchResult.NativeSandboxApplied)
 	}
 
 	// Order: lock, artifact (steps[0]), pack_engines dispatch, then the remaining
@@ -1218,6 +1220,11 @@ func buildGateStepsWithSandbox(projectRoot string, root artifact.Root, sandboxRu
 	packed = append(packed, steps[0], packValidatorStep)
 	packed = append(packed, steps[1:]...)
 	return packed
+}
+
+func stepResultWithNativeSandbox(result gate.StepResult, applied bool) gate.StepResult {
+	result.NativeSandboxApplied = applied
+	return result
 }
 
 // buildStatusDriftSteps wires the ISSUE-042 native status/reality drift dimension into
@@ -1508,13 +1515,12 @@ func buildTestSubstantivenessStepWithSandbox(specDir, codeDir, projectRoot strin
 			nativeSandboxApplied = dispatchResult.NativeSandboxApplied
 		}
 		if err != nil {
-			return gate.StepResult{
-				StepName:             gate.StepTestSubstantiveness,
-				Status:               "fail",
-				ConfigErr:            true,
-				Violations:           []gate.Violation{{Rule: gate.StepTestSubstantiveness, Message: "dispatching substantiveness pack: " + err.Error(), Severity: "error"}},
-				NativeSandboxApplied: nativeSandboxApplied,
-			}
+			return stepResultWithNativeSandbox(gate.StepResult{
+				StepName:   gate.StepTestSubstantiveness,
+				Status:     "fail",
+				ConfigErr:  true,
+				Violations: []gate.Violation{{Rule: gate.StepTestSubstantiveness, Message: "dispatching substantiveness pack: " + err.Error(), Severity: "error"}},
+			}, nativeSandboxApplied)
 		}
 
 		// Route the flat stream by the pack-DECLARED substantiveness_role property (the
@@ -1609,7 +1615,7 @@ func buildTestSubstantivenessStepWithSandbox(specDir, codeDir, projectRoot strin
 		if violations == nil {
 			violations = []gate.Violation{}
 		}
-		return gate.StepResult{
+		return stepResultWithNativeSandbox(gate.StepResult{
 			StepName: gate.StepTestSubstantiveness,
 			// SEVERITY-AWARE, not a raw count (ISSUE-106 hop B, mirroring the shape the
 			// pack_engines step already uses). This is the SAME fix as the join's, not
@@ -1631,10 +1637,9 @@ func buildTestSubstantivenessStepWithSandbox(specDir, codeDir, projectRoot strin
 			// through here — each hardcodes "error" on a violation it constructs about
 			// the tool's own state, and the refusal return is a ConfigErr whose three
 			// mechanical jobs a status change would disturb.
-			Status:               gate.StepVerdict(violations),
-			Violations:           violations,
-			NativeSandboxApplied: nativeSandboxApplied,
-		}
+			Status:     gate.StepVerdict(violations),
+			Violations: violations,
+		}, nativeSandboxApplied)
 	}
 }
 
@@ -1680,6 +1685,24 @@ type coverageRecordsResult struct {
 
 type coverageRecordsFn func(scope *gate.GateScope) (coverageRecordsResult, error)
 
+func newCoverageRecordsResult(records []check.CoverageRecord, nativeSandboxApplied bool) coverageRecordsResult {
+	result := coverageRecordsResult{records: records}
+	result.nativeSandboxApplied = nativeSandboxApplied
+	return result
+}
+
+// coverageRecordsProducer preserves the declared native-mode compatibility
+// contract while production uses the invocation-selected runner below.
+func coverageRecordsProducer(declared []*pack.Manifest, projectRoot string) coverageRecordsFn {
+	sandboxRunner, err := packval.NewSandboxRunner(packval.SandboxModeNative)
+	if err != nil {
+		return func(*gate.GateScope) (coverageRecordsResult, error) {
+			return coverageRecordsResult{}, fmt.Errorf("construct native sandbox runner: %w", err)
+		}
+	}
+	return coverageRecordsProducerWithSandbox(declared, projectRoot, sandboxRunner)
+}
+
 func coverageRecordsProducerWithSandbox(declared []*pack.Manifest, projectRoot string, sandboxRunner packval.SandboxRunner) coverageRecordsFn {
 	return func(scope *gate.GateScope) (coverageRecordsResult, error) {
 		if len(declared) == 0 {
@@ -1688,7 +1711,7 @@ func coverageRecordsProducerWithSandbox(declared []*pack.Manifest, projectRoot s
 		runner := &check.ExecCommandRunner{Dir: projectRoot, Env: packChildEnvironment()}
 		packDir := filepath.Join(projectRoot, ".backstop", "packs")
 		result, err := dispatchPackCoverageWithEvidence(declared, packDir, projectRoot, scope, runner, sandboxRunner)
-		return coverageRecordsResult{records: result.Records, nativeSandboxApplied: result.NativeSandboxApplied}, err
+		return newCoverageRecordsResult(result.Records, result.NativeSandboxApplied), err
 	}
 }
 
@@ -1738,13 +1761,12 @@ func buildCoverageStep(specDir, projectRoot string, scope *gate.GateScope, class
 			coverage, err = produced.records, produceErr
 			nativeSandboxApplied = produced.nativeSandboxApplied
 			if err != nil {
-				return gate.StepResult{
-					StepName:             gate.StepCoverageThreshold,
-					Status:               "fail",
-					ConfigErr:            true,
-					Violations:           []gate.Violation{{Rule: "coverage_threshold", Message: "failed to produce coverage records: " + err.Error(), Severity: "error"}},
-					NativeSandboxApplied: nativeSandboxApplied,
-				}
+				return stepResultWithNativeSandbox(gate.StepResult{
+					StepName:   gate.StepCoverageThreshold,
+					Status:     "fail",
+					ConfigErr:  true,
+					Violations: []gate.Violation{{Rule: "coverage_threshold", Message: "failed to produce coverage records: " + err.Error(), Severity: "error"}},
+				}, nativeSandboxApplied)
 			}
 		}
 		step := gate.StepCoverageThresholdScopedFunc(coverage, specs, scope, classifier)
@@ -1791,7 +1813,7 @@ var contractEngineResultsFn func(projectRoot string, contracts []gate.ContractEn
 func produceContractEngineResults(projectRoot string, contracts []gate.ContractEntry) ([]gate.ContractEngineResult, error) {
 	sandboxRunner, err := packval.NewSandboxRunner(packval.SandboxModeNative)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("construct native sandbox runner: %w", err)
 	}
 	return produceContractEngineResultsWithSandbox(projectRoot, contracts, sandboxRunner)
 }
@@ -1870,7 +1892,7 @@ func resolveContractsPacks(projectRoot string) ([]*pack.Manifest, error) {
 func dispatchContractEntry(projectRoot string, manifest *pack.Manifest, c gate.ContractEntry) (gate.ContractEngineResult, error) {
 	sandboxRunner, err := packval.NewSandboxRunner(packval.SandboxModeNative)
 	if err != nil {
-		return gate.ContractEngineResult{}, err
+		return gate.ContractEngineResult{}, fmt.Errorf("construct native sandbox runner: %w", err)
 	}
 	return dispatchContractEntryWithSandbox(projectRoot, manifest, c, sandboxRunner)
 }
@@ -1988,13 +2010,12 @@ func buildContractStepWithSandbox(specDir, projectRoot string, scope *gate.GateS
 
 		results, err := produceContractEngineResultsWithSandbox(projectRoot, contracts, evidenceRunner)
 		if err != nil {
-			return gate.StepResult{
-				StepName:             gate.StepContractSignature,
-				Status:               "fail",
-				ConfigErr:            true,
-				Violations:           []gate.Violation{{Rule: "contract_signature", Message: "dispatching contract pack: " + err.Error(), Severity: "error"}},
-				NativeSandboxApplied: evidenceRunner.applied,
-			}
+			return stepResultWithNativeSandbox(gate.StepResult{
+				StepName:   gate.StepContractSignature,
+				Status:     "fail",
+				ConfigErr:  true,
+				Violations: []gate.Violation{{Rule: "contract_signature", Message: "dispatching contract pack: " + err.Error(), Severity: "error"}},
+			}, evidenceRunner.applied)
 		}
 
 		step := gate.StepContractSignatureScopedFunc(results, scope)

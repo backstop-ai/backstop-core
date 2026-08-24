@@ -12,7 +12,8 @@ func TestPackSandbox_NativeApplicationEvidenceIsDeterministicWithoutGlobalState(
 		t.Fatal("false-only step evidence reduced to true")
 	}
 
-	trueStep := StepResult{StepName: "native_acknowledged", Status: "pass", NativeSandboxApplied: true}
+	trueStep := StepResult{StepName: "native_acknowledged", Status: "pass"}
+	trueStep.NativeSandboxApplied = true
 	for _, steps := range [][]StepResult{
 		append(append([]StepResult{}, falseSteps...), trueStep),
 		append([]StepResult{trueStep}, falseSteps...),

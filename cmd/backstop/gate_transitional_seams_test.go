@@ -100,5 +100,3 @@ func TestSeam_NonBuildEngineViolationsNotProjectWide(t *testing.T) {
 		}
 	}
 }
-
-var _ = []*pack.Manifest(nil) // pack import is used via onlyRules/dispatchPackEngines

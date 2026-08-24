@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/backstop-ai/backstop-core/pkg/check"
 	"github.com/backstop-ai/backstop-core/pkg/pack"
 	"github.com/backstop-ai/backstop-core/pkg/pack/engine"
 	"github.com/backstop-ai/backstop-core/pkg/packval"
@@ -226,9 +225,3 @@ func TestEngineDispatch_PackFindingsParseSarifOnly(t *testing.T) {
 		t.Error("pack_gate.go should resolve findings via check.ParsePackFindings (the SARIF lookupParser path)")
 	}
 }
-
-// emptySarifRunnerIsCommandRunner is a compile-time assertion that
-// emptySarifRunner satisfies check.CommandRunner (and keeps the check import
-// referenced). Written as a function rather than a package-level `var _ = ...`
-// so it carries no package-level mutable state.
-func emptySarifRunnerIsCommandRunner() check.CommandRunner { return emptySarifRunner{} }

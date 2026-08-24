@@ -58,6 +58,13 @@ type SandboxRunResult struct {
 	NativeSandboxApplied bool
 }
 
+func sandboxRunResult(output []byte, nativeSandboxApplied bool) SandboxRunResult {
+	var result SandboxRunResult
+	result.Output = output
+	result.NativeSandboxApplied = nativeSandboxApplied
+	return result
+}
+
 type SandboxRunner interface {
 	Mode() SandboxMode
 	Run(cmd string, args []string, packDir string) (SandboxRunResult, error)

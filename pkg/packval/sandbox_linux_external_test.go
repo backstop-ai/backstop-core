@@ -168,3 +168,24 @@ func TestApplyRestrictionsAndExecWith_FailureBranchesStopBeforeChild(t *testing.
 		})
 	}
 }
+
+func TestApplyRestrictionsAndExecWith_ReturnsAfterInjectedExecSuccess(t *testing.T) {
+	request := sandboxHelperRequest{Command: "child"}
+	err := applyRestrictionsAndExecWith(
+		request,
+		func(SandboxRestrictionSpec) error { return nil },
+		func(SandboxRestrictionSpec) error { return nil },
+		func(int) error { return nil },
+		func(string) error { return nil },
+		func(string) (string, error) { return "/resolved/child", nil },
+		func(path string, argv, environment []string) error {
+			if path != "/resolved/child" || !slices.Equal(argv, []string{"/resolved/child"}) || environment != nil {
+				t.Fatalf("exec values path=%q argv=%q environment=%q", path, argv, environment)
+			}
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("successful injected exec returned %v", err)
+	}
+}

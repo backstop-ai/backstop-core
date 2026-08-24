@@ -2,14 +2,21 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/backstop-ai/backstop-core/pkg/gate"
 	"github.com/backstop-ai/backstop-core/pkg/packval"
 )
+
+func executeSandboxModeTestGate(options ...gate.Option) (gate.GateResult, int) {
+	g := gate.New(options...)
+	return g.Run(context.Background())
+}
 
 func TestPackSandbox_DefaultsToNative(t *testing.T) {
 	mode, err := resolvePackSandboxMode(false, "", false, "")
@@ -110,7 +117,7 @@ func TestPackSandbox_ResolvesExactlyOnceBeforePackLoad(t *testing.T) {
 		return packval.NewSandboxRunner(mode)
 	}
 	cmd := newGateCommand(new(bool))
-	err = runGateWithSandbox(cmd, nil, resolver, constructor)
+	err = runGateWithSandbox(cmd, nil, resolver, constructor, executeSandboxModeTestGate)
 	var exitErr *ExitCodeError
 	if !errors.As(err, &exitErr) || !strings.Contains(exitErr.Error(), "config") {
 		t.Fatalf("malformed config did not fail after sandbox resolution: %v", err)
@@ -246,7 +253,7 @@ content:
 					t.Fatal(err)
 				}
 			}
-			runErr := runGateWithSandbox(cmd, nil, resolver, constructor)
+			runErr := runGateWithSandbox(cmd, nil, resolver, constructor, executeSandboxModeTestGate)
 			var configErr *ExitCodeError
 			if errors.As(runErr, &configErr) && configErr.Code == ExitConfigError {
 				t.Fatalf("real config/lock/manifest load failed before authority assertion: %v\nstdout=%s\nstderr=%s", runErr, stdout.String(), stderr.String())

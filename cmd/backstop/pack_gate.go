@@ -248,7 +248,7 @@ func resolveDispatchPackEngines() func([]*pack.Manifest, string, string, *gate.G
 func dispatchPackEngines(packs []*pack.Manifest, packDir, projectRoot string, scope *gate.GateScope, runner check.CommandRunner) ([]gate.Violation, error) {
 	sandboxRunner, err := packval.NewSandboxRunner(packval.SandboxModeNative)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("construct native sandbox runner: %w", err)
 	}
 	result, err := dispatchPackEnginesWithEvidence(packs, packDir, projectRoot, scope, runner, sandboxRunner)
 	return result.Violations, err
@@ -257,6 +257,12 @@ func dispatchPackEngines(packs []*pack.Manifest, packDir, projectRoot string, sc
 type packEngineDispatchResult struct {
 	Violations           []gate.Violation
 	NativeSandboxApplied bool
+}
+
+func newPackEngineDispatchResult(violations []gate.Violation, nativeSandboxApplied bool) packEngineDispatchResult {
+	result := packEngineDispatchResult{Violations: violations}
+	result.NativeSandboxApplied = nativeSandboxApplied
+	return result
 }
 
 func dispatchPackEnginesWithEvidence(packs []*pack.Manifest, packDir, projectRoot string, scope *gate.GateScope, runner check.CommandRunner, sandboxRunner packval.SandboxRunner) (packEngineDispatchResult, error) {
@@ -292,7 +298,7 @@ func dispatchPackEnginesWithEvidence(packs []*pack.Manifest, packDir, projectRoo
 			if binding.InputMode == engine.InputModeNone && binding.Command == "" {
 				vs, applied, err := runSandboxEngineWithEvidence(manifest, packRoot, projectRoot, rules, sandboxRunner)
 				if err != nil {
-					return packEngineDispatchResult{NativeSandboxApplied: nativeApplied || applied}, fmt.Errorf("dispatching sandbox engine %q for pack %s: %w", engineName, manifest.NormalizedName, err)
+					return newPackEngineDispatchResult(nil, nativeApplied || applied), fmt.Errorf("dispatching sandbox engine %q for pack %s: %w", engineName, manifest.NormalizedName, err)
 				}
 				nativeApplied = nativeApplied || applied
 				violations = append(violations, vs...)
@@ -302,13 +308,13 @@ func dispatchPackEnginesWithEvidence(packs []*pack.Manifest, packDir, projectRoo
 			// Findings engine: gather inputs, run, convert, parseSarif.
 			vs, applied, err := runFindingsEngineWithEvidence(manifest, packRoot, projectRoot, scope, binding, rules, runner, sandboxRunner)
 			if err != nil {
-				return packEngineDispatchResult{NativeSandboxApplied: nativeApplied || applied}, fmt.Errorf("dispatching findings engine %q for pack %s: %w", engineName, manifest.NormalizedName, err)
+				return newPackEngineDispatchResult(nil, nativeApplied || applied), fmt.Errorf("dispatching findings engine %q for pack %s: %w", engineName, manifest.NormalizedName, err)
 			}
 			nativeApplied = nativeApplied || applied
 			violations = append(violations, vs...)
 		}
 	}
-	return packEngineDispatchResult{Violations: violations, NativeSandboxApplied: nativeApplied}, nil
+	return newPackEngineDispatchResult(violations, nativeApplied), nil
 }
 
 // dispatchPackCoverage is the coverage-records dispatch channel (SPEC-042
@@ -337,7 +343,7 @@ func dispatchPackEnginesWithEvidence(packs []*pack.Manifest, packDir, projectRoo
 func dispatchPackCoverage(packs []*pack.Manifest, packDir, projectRoot string, scope *gate.GateScope, runner check.CommandRunner) ([]check.CoverageRecord, error) {
 	sandboxRunner, err := packval.NewSandboxRunner(packval.SandboxModeNative)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("construct native sandbox runner: %w", err)
 	}
 	result, err := dispatchPackCoverageWithEvidence(packs, packDir, projectRoot, scope, runner, sandboxRunner)
 	return result.Records, err
@@ -346,6 +352,12 @@ func dispatchPackCoverage(packs []*pack.Manifest, packDir, projectRoot string, s
 type packCoverageDispatchResult struct {
 	Records              []check.CoverageRecord
 	NativeSandboxApplied bool
+}
+
+func newPackCoverageDispatchResult(records []check.CoverageRecord, nativeSandboxApplied bool) packCoverageDispatchResult {
+	result := packCoverageDispatchResult{Records: records}
+	result.NativeSandboxApplied = nativeSandboxApplied
+	return result
 }
 
 func dispatchPackCoverageWithEvidence(packs []*pack.Manifest, packDir, projectRoot string, scope *gate.GateScope, runner check.CommandRunner, sandboxRunner packval.SandboxRunner) (packCoverageDispatchResult, error) {
@@ -379,13 +391,13 @@ func dispatchPackCoverageWithEvidence(packs []*pack.Manifest, packDir, projectRo
 			rules := grouped[engineName]
 			recs, applied, err := runCoverageEngineWithEvidence(manifest, packRoot, projectRoot, binding, rules, runner, sandboxRunner)
 			if err != nil {
-				return packCoverageDispatchResult{NativeSandboxApplied: nativeApplied || applied}, fmt.Errorf("dispatching coverage engine %q for pack %s: %w", engineName, manifest.NormalizedName, err)
+				return newPackCoverageDispatchResult(nil, nativeApplied || applied), fmt.Errorf("dispatching coverage engine %q for pack %s: %w", engineName, manifest.NormalizedName, err)
 			}
 			nativeApplied = nativeApplied || applied
 			records = append(records, recs...)
 		}
 	}
-	return packCoverageDispatchResult{Records: records, NativeSandboxApplied: nativeApplied}, nil
+	return newPackCoverageDispatchResult(records, nativeApplied), nil
 }
 
 // configErrorPassthrough returns a dispatch trust-gate error UNCHANGED, preserving
@@ -420,7 +432,7 @@ func neverStartedError(manifest *pack.Manifest, invoked string, runErr error) er
 func runCoverageEngine(manifest *pack.Manifest, packRoot, projectRoot string, binding engine.EngineBinding, rules []pack.Rule, runner check.CommandRunner) ([]check.CoverageRecord, error) {
 	sandboxRunner, err := packval.NewSandboxRunner(packval.SandboxModeNative)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("construct native sandbox runner: %w", err)
 	}
 	return runCoverageEngineUsingSandbox(manifest, packRoot, projectRoot, binding, rules, runner, sandboxRunner, nil)
 }

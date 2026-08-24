@@ -100,6 +100,12 @@ func proberWiringViolations(fset *token.FileSet, file *ast.File) (violations []s
 		}
 
 		if len(forwardCalls) > 0 {
+			if want, tracked := proberWiringExpectedParamCount(enclosing); tracked {
+				if got := proberWiringParamCount(fn); got != want {
+					report("%s: injectable seam %s declares %d parameters, want exact active signature count %d; extra parameters create a BYPASS around the guarded prober/invocation path",
+						at(fn), enclosing, got, want)
+				}
+			}
 			names := proberWiringProberParamNames(fn)
 			resolved := ""
 			switch len(names) {
@@ -196,6 +202,34 @@ func proberWiringProberParamNames(fn *ast.FuncDecl) []string {
 	return names
 }
 
+func proberWiringExpectedParamCount(name string) (int, bool) {
+	switch name {
+	case proberWiringRunWith:
+		return 4, true
+	case proberWiringRunStdoutWith:
+		return 5, true
+	case proberWiringExecuteWith:
+		return 6, true
+	default:
+		return 0, false
+	}
+}
+
+func proberWiringParamCount(fn *ast.FuncDecl) int {
+	if fn.Type == nil || fn.Type.Params == nil {
+		return 0
+	}
+	count := 0
+	for _, field := range fn.Type.Params.List {
+		if len(field.Names) == 0 {
+			count++
+			continue
+		}
+		count += len(field.Names)
+	}
+	return count
+}
+
 func proberWiringLastArg(call *ast.CallExpr) (ast.Expr, bool) {
 	if len(call.Args) == 0 {
 		return nil, true
@@ -282,60 +316,83 @@ func linuxSandboxedExecuteWith(command string, args []string, packDir string, st
 }
 `
 
-func proberWiringMutate(replacements ...string) string {
-	if len(replacements)%2 != 0 {
-		panic("prober wiring mutation requires old/new pairs")
-	}
-	source := proberWiringCorrectShape
-	for i := 0; i < len(replacements); i += 2 {
-		if !strings.Contains(source, replacements[i]) {
-			panic("prober wiring mutation did not match: " + replacements[i])
-		}
-		source = strings.Replace(source, replacements[i], replacements[i+1], 1)
-	}
-	return source
-}
+const proberWiringFakeProberAtDispatch = `package packval
+func platformSandboxedRun(command string, args []string, packDir string) {
+	linuxSandboxedExecuteWith(command, args, packDir, nil, false, someOtherProbe)
+}`
 
-var (
-	proberWiringFakeProberAtDispatch = proberWiringMutate(
-		"nil, false, probeLandlockABI)\n\treturn result.Output", "nil, false, someOtherProbe)\n\treturn result.Output")
-	proberWiringFakeProberAtExportedExecute = proberWiringMutate(
-		"stdin, stdoutOnly, probeLandlockABI)", "stdin, stdoutOnly, someOtherProbe)")
-	proberWiringLiteralAtInnerSeam = proberWiringMutate(
-		"nil, false, probeABI)\n\treturn result.Output", "nil, false, probeLandlockABI)\n\treturn result.Output")
-	proberWiringFullOptionAShape = proberWiringMutate(
-		"probeABI LandlockABIProbe) ([]byte, error) {\n\tresult", "probeLandlockABI LandlockABIProbe) ([]byte, error) {\n\tresult",
-		"nil, false, probeABI)\n\treturn result.Output", "nil, false, probeLandlockABI)\n\treturn result.Output")
-	proberWiringTrailingDecoySeparateFields = proberWiringMutate(
-		"probeABI LandlockABIProbe) ([]byte, error) {\n\tresult", "probeABI LandlockABIProbe, decoy LandlockABIProbe) ([]byte, error) {\n\tresult",
-		"nil, false, probeABI)\n\treturn result.Output", "nil, false, decoy)\n\treturn result.Output")
-	proberWiringTrailingDecoyGroupedField = proberWiringMutate(
-		"probeABI LandlockABIProbe) ([]byte, error) {\n\tresult", "probeABI, decoy LandlockABIProbe) ([]byte, error) {\n\tresult",
-		"nil, false, probeABI)\n\treturn result.Output", "nil, false, decoy)\n\treturn result.Output")
-	proberWiringForeignIdentifierAtInnerSeam = proberWiringMutate(
-		"nil, false, probeABI)\n\treturn result.Output", "nil, false, somethingElse)\n\treturn result.Output")
-	proberWiringReboundProber = proberWiringMutate(
-		"probeABI LandlockABIProbe) ([]byte, error) {\n\tresult", "probeABI LandlockABIProbe) ([]byte, error) {\n\tprobeABI = someFake\n\tresult")
-	proberWiringReboundProberAtDispatch = proberWiringMutate(
-		"func platformSandboxedRun(command string, args []string, packDir string) ([]byte, error) {\n\tresult",
-		"func platformSandboxedRun(command string, args []string, packDir string) ([]byte, error) {\n\tprobeLandlockABI := someFake\n\tresult")
-	proberWiringVarFormShadowedProber = proberWiringMutate(
-		"\tresult, err := linuxSandboxedExecuteWith(command, args, packDir, nil, false, probeABI)\n\treturn result.Output, err",
-		"\tif command != \"\" {\n\t\tvar probeABI LandlockABIProbe = someFake\n\t\tresult, err := linuxSandboxedExecuteWith(command, args, packDir, nil, false, probeABI)\n\t\treturn result.Output, err\n\t}\n\treturn nil, nil")
-	proberWiringBlankProberParameter = proberWiringMutate(
-		"probeABI LandlockABIProbe) ([]byte, error) {\n\tresult", "_ LandlockABIProbe) ([]byte, error) {\n\tresult",
-		"nil, false, probeABI)\n\treturn result.Output", "nil, false, someFake)\n\treturn result.Output")
-	proberWiringUnclassifiedSite = proberWiringCorrectShape + `
+const proberWiringFakeProberAtExportedExecute = `package packval
+func platformSandboxedExecute(command string, args []string, packDir string, stdin []byte, stdoutOnly bool) {
+	linuxSandboxedExecuteWith(command, args, packDir, stdin, stdoutOnly, someOtherProbe)
+}`
+
+const proberWiringLiteralAtInnerSeam = `package packval
+func linuxSandboxedRunWith(command string, args []string, packDir string, probeABI LandlockABIProbe) {
+	linuxSandboxedExecuteWith(command, args, packDir, nil, false, probeLandlockABI)
+}`
+
+const proberWiringFullOptionAShape = `package packval
+func linuxSandboxedRunWith(command string, args []string, packDir string, probeLandlockABI LandlockABIProbe) {
+	linuxSandboxedExecuteWith(command, args, packDir, nil, false, probeLandlockABI)
+}`
+
+const proberWiringTrailingDecoySeparateFields = `package packval
+func linuxSandboxedRunWith(command string, args []string, packDir string, probeABI LandlockABIProbe, decoy LandlockABIProbe) {
+	linuxSandboxedExecuteWith(command, args, packDir, nil, false, decoy)
+}`
+
+const proberWiringTrailingDecoyGroupedField = `package packval
+func linuxSandboxedRunWith(command string, args []string, packDir string, probeABI, decoy LandlockABIProbe) {
+	linuxSandboxedExecuteWith(command, args, packDir, nil, false, decoy)
+}`
+
+const proberWiringForeignIdentifierAtInnerSeam = `package packval
+func linuxSandboxedRunWith(command string, args []string, packDir string, probeABI LandlockABIProbe) {
+	linuxSandboxedExecuteWith(command, args, packDir, nil, false, somethingElse)
+}`
+
+const proberWiringReboundProber = `package packval
+func linuxSandboxedRunWith(command string, args []string, packDir string, probeABI LandlockABIProbe) {
+	probeABI = someFake
+	linuxSandboxedExecuteWith(command, args, packDir, nil, false, probeABI)
+}`
+
+const proberWiringReboundProberAtDispatch = `package packval
+func platformSandboxedRun(command string, args []string, packDir string) {
+	probeLandlockABI := someFake
+	linuxSandboxedExecuteWith(command, args, packDir, nil, false, probeLandlockABI)
+}`
+
+const proberWiringVarFormShadowedProber = `package packval
+func linuxSandboxedRunWith(command string, args []string, packDir string, probeABI LandlockABIProbe) {
+	if command != "" {
+		var probeABI LandlockABIProbe = someFake
+		linuxSandboxedExecuteWith(command, args, packDir, nil, false, probeABI)
+	}
+}`
+
+const proberWiringBlankProberParameter = `package packval
+func linuxSandboxedRunWith(command string, args []string, packDir string, _ LandlockABIProbe) {
+	linuxSandboxedExecuteWith(command, args, packDir, nil, false, someFake)
+}`
+
+const proberWiringUnclassifiedSite = `package packval
 func someOtherHelperPath(command string, args []string, packDir string) {
 	newSandboxHelperInvocation(command, args, packDir, probeLandlockABI)
-}
-`
-	proberWiringDeletedDispatchSeam = proberWiringMutate(
-		"\tresult, err := linuxSandboxedExecuteWith(command, args, packDir, nil, false, probeLandlockABI)\n\treturn result.Output, err",
-		"\treturn nil, nil")
-	proberWiringZeroArgTrackedCall = proberWiringMutate(
-		"newSandboxHelperInvocation(command, args, packDir, probeABI)", "newSandboxHelperInvocation()")
-)
+}`
+
+const proberWiringDeletedDispatchSeam = `package packval
+func platformSandboxedRun(command string, args []string, packDir string) {}`
+
+const proberWiringZeroArgTrackedCall = `package packval
+func linuxSandboxedRunStdoutWith(command string, args []string, packDir string, stdin []byte, probeABI LandlockABIProbe) {
+	newSandboxHelperInvocation()
+}`
+
+const proberWiringBypassParameter = `package packval
+func linuxSandboxedRunStdoutWith(command string, args []string, packDir string, stdin []byte, probeABI LandlockABIProbe, prepared *sandboxHelperInvocation) {
+	newSandboxHelperInvocation(command, args, packDir, probeABI)
+}`
 
 // TestSandboxLinux_ABIProbeWiringGuardFalsifiesEachDefectShape is the load-bearing
 // checker mutation falsifier mandated by PLAN-ISSUE-165. The positive control
@@ -351,20 +408,21 @@ func TestSandboxLinux_ABIProbeWiringGuardFalsifiesEachDefectShape(t *testing.T) 
 		wantForward   int
 	}{
 		{"positive control: current six-site shape", "an always-failing checker must not pass", proberWiringCorrectShape, false, nil, 3, 3},
-		{"fake prober at dispatch", "the real prober enters at exported dispatch", proberWiringFakeProberAtDispatch, true, []string{"platformSandboxedRun", "someOtherProbe", "probeLandlockABI"}, 3, 3},
-		{"fake prober at exported execute", "the direct exported execution path is load-bearing", proberWiringFakeProberAtExportedExecute, true, []string{"platformSandboxedExecute", "someOtherProbe", "probeLandlockABI"}, 3, 3},
-		{"literal real prober at inner seam", "the injected parameter must not be bypassed", proberWiringLiteralAtInnerSeam, true, []string{"linuxSandboxedRunWith", "probeLandlockABI"}, 3, 3},
-		{"full option-a shadow shape", "the literal-name refusal must not be an else branch", proberWiringFullOptionAShape, true, []string{"linuxSandboxedRunWith", "shadow"}, 3, 3},
-		{"trailing decoy separate fields", "typed resolution must reject multiple probers", proberWiringTrailingDecoySeparateFields, true, []string{"linuxSandboxedRunWith", "exactly one"}, 3, 3},
-		{"trailing decoy grouped field", "all names on a typed field must be counted", proberWiringTrailingDecoyGroupedField, true, []string{"linuxSandboxedRunWith", "exactly one"}, 3, 3},
-		{"foreign identifier at inner seam", "the injected prober must be forwarded", proberWiringForeignIdentifierAtInnerSeam, true, []string{"linuxSandboxedRunWith", "somethingElse"}, 3, 3},
-		{"assigned prober", "a correctly spelled identifier can be rebound", proberWiringReboundProber, true, []string{"linuxSandboxedRunWith", "re-bind"}, 3, 3},
-		{"dispatch prober shadow", "the strictest seam must detect local shadowing", proberWiringReboundProberAtDispatch, true, []string{"platformSandboxedRun", "re-bind"}, 3, 3},
-		{"declaration-form shadow", "ValueSpec shadowing is distinct from assignment", proberWiringVarFormShadowedProber, true, []string{"linuxSandboxedRunWith", "shadow"}, 3, 3},
-		{"blank prober parameter", "an injection seam cannot discard its injection", proberWiringBlankProberParameter, true, []string{"linuxSandboxedRunWith", "blank identifier"}, 3, 3},
-		{"unclassified invocation", "new delegation sites cannot be silently trusted", proberWiringUnclassifiedSite, true, []string{"unclassified", "someOtherHelperPath"}, 3, 3},
-		{"deleted exported dispatch", "counts catch a vanished direct platform path", proberWiringDeletedDispatchSeam, false, nil, 2, 3},
-		{"zero-argument invocation", "malformed calls must report rather than panic", proberWiringZeroArgTrackedCall, true, []string{"linuxSandboxedRunStdoutWith", "no arguments"}, 3, 3},
+		{"fake prober at dispatch", "the real prober enters at exported dispatch", proberWiringFakeProberAtDispatch, true, []string{"platformSandboxedRun", "someOtherProbe", "probeLandlockABI"}, 1, 0},
+		{"fake prober at exported execute", "the direct exported execution path is load-bearing", proberWiringFakeProberAtExportedExecute, true, []string{"platformSandboxedExecute", "someOtherProbe", "probeLandlockABI"}, 1, 0},
+		{"literal real prober at inner seam", "the injected parameter must not be bypassed", proberWiringLiteralAtInnerSeam, true, []string{"linuxSandboxedRunWith", "probeLandlockABI"}, 0, 1},
+		{"full option-a shadow shape", "the literal-name refusal must not be an else branch", proberWiringFullOptionAShape, true, []string{"linuxSandboxedRunWith", "shadow"}, 0, 1},
+		{"trailing decoy separate fields", "typed resolution must reject multiple probers", proberWiringTrailingDecoySeparateFields, true, []string{"linuxSandboxedRunWith", "exactly one"}, 0, 1},
+		{"trailing decoy grouped field", "all names on a typed field must be counted", proberWiringTrailingDecoyGroupedField, true, []string{"linuxSandboxedRunWith", "exactly one"}, 0, 1},
+		{"foreign identifier at inner seam", "the injected prober must be forwarded", proberWiringForeignIdentifierAtInnerSeam, true, []string{"linuxSandboxedRunWith", "somethingElse"}, 0, 1},
+		{"assigned prober", "a correctly spelled identifier can be rebound", proberWiringReboundProber, true, []string{"linuxSandboxedRunWith", "re-bind"}, 0, 1},
+		{"dispatch prober shadow", "the strictest seam must detect local shadowing", proberWiringReboundProberAtDispatch, true, []string{"platformSandboxedRun", "re-bind"}, 1, 0},
+		{"declaration-form shadow", "ValueSpec shadowing is distinct from assignment", proberWiringVarFormShadowedProber, true, []string{"linuxSandboxedRunWith", "shadow"}, 0, 1},
+		{"blank prober parameter", "an injection seam cannot discard its injection", proberWiringBlankProberParameter, true, []string{"linuxSandboxedRunWith", "blank identifier"}, 0, 1},
+		{"unclassified invocation", "new delegation sites cannot be silently trusted", proberWiringUnclassifiedSite, true, []string{"unclassified", "someOtherHelperPath"}, 0, 0},
+		{"deleted exported dispatch", "counts catch a vanished direct platform path", proberWiringDeletedDispatchSeam, false, nil, 0, 0},
+		{"zero-argument invocation", "malformed calls must report rather than panic", proberWiringZeroArgTrackedCall, true, []string{"linuxSandboxedRunStdoutWith", "no arguments"}, 0, 1},
+		{"prepared-invocation bypass parameter", "an extra parameter can bypass production invocation construction", proberWiringBypassParameter, true, []string{"linuxSandboxedRunStdoutWith", "bypass", "exact active signature"}, 0, 1},
 	}
 
 	for _, tc := range cases {
@@ -416,7 +474,7 @@ func TestPackSandbox_NativeRunnerPlumbingPreservesConfinementPolicy(t *testing.T
 		if command != "validator" || len(args) != 1 || args[0] != "rule.yml" || stdin != nil || stdoutOnly {
 			t.Fatalf("native invocation changed: command=%q args=%q stdin=%q stdoutOnly=%v", command, args, stdin, stdoutOnly)
 		}
-		return SandboxRunResult{Output: []byte("confined"), NativeSandboxApplied: true}, nil
+		return sandboxRunResult([]byte("confined"), true), nil
 	}
 	external := func(string, []string, string, []byte, bool) (SandboxRunResult, error) {
 		externalCalls++

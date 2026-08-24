@@ -130,17 +130,17 @@ func TestRun_SandboxHelperErrorExitsOneTwentySix(t *testing.T) {
 	}
 }
 
-type testSandboxHelperCompletion struct{ code int }
+type testSandboxHelperCompletionError struct{ code int }
 
-func (e testSandboxHelperCompletion) Error() string { return "helper target completed" }
-func (e testSandboxHelperCompletion) ExitCode() int { return e.code }
+func (e testSandboxHelperCompletionError) Error() string { return "helper target completed" }
+func (e testSandboxHelperCompletionError) ExitCode() int { return e.code }
 
 func TestRun_SandboxHelperCompletionPropagatesWithoutBuildingCobra(t *testing.T) {
 	for _, want := range []int{0, 37, 143} {
 		t.Run(fmt.Sprint(want), func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 			code := runWith(&stdout, &stderr,
-				func() error { return testSandboxHelperCompletion{code: want} },
+				func() error { return testSandboxHelperCompletionError{code: want} },
 				func() *cobra.Command {
 					t.Fatal("the command tree was built after helper target completion")
 					return nil
