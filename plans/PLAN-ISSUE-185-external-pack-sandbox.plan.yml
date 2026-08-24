@@ -246,6 +246,17 @@ phases:
           resolution, immutable parent state, and no repository/pack authority. Add
           absence tests for prompts, generic disable switches, mode globals, and a new
           telemetry exporter. Do not run a valid external gate in this red task.
+
+          TestPackSandbox_RepositoryAndPackInputsHaveNoAuthority must drive actual
+          runGate over a temporary project, not call only resolvePackSandboxMode. Load a
+          hostile backstop.yml, backstop.lock, installed pack manifest/content, engine/
+          convert/validator declarations, and pack-produced output that each attempt to
+          spell or imply external authorization. Instrument the real config discovery,
+          lock verification, installed-manifest loading, and dispatch boundary and prove
+          all hostile data is loaded yet the already-resolved parent runner remains the
+          process-only default/native choice. Pair it with an explicit process flag/env
+          control that selects external before loading. Repository parse failure may fail
+          loud, but no repository value may be interpreted as sandbox authority.
         files:
           - cmd/backstop/pack_sandbox_mode_test.go
         claims:
@@ -304,12 +315,48 @@ phases:
           confinement suite unfiltered and compare policy rights and setup ordering.
           Native environment sanitization is tested here and must go green in TASK-016,
           not through a later sanitizer-integration task.
+
+          The unavailable-host test must wire probe, restriction application,
+          acknowledgement, and child launch as four independently callable seams on BOTH
+          external and native legs. Increment each counter only inside its seam; do not
+          infer a zero from command success, mode, a skipped branch, or shared state. Run
+          both legs against the same controlled unavailable probe result and assert the
+          complete counter vectors plus no fallback.
+
+          CLM-015 evidence must compare actual policy values before and after plumbing:
+          Landlock handled/allowed rights and every path rule, the concrete seccomp denied
+          syscall policy and install ordering, and the complete encoded Darwin Seatbelt
+          profile. Branch/filter/source-shape checks alone are insufficient. Where the
+          host supports it, invoke real confinement and reassert outside-read, pack-write,
+          network, inherited-child, and /dev/null behavior. Platform-unavailable legs are
+          required CI evidence, not locally claimed.
+
+          Update sandbox_split_test.go's exec-erasure inventory for
+          applyRestrictionsAndExecWith and its direct-vs-injected unix.Exec detector.
+          The required split is exact: measured sandbox_linux.go owns request decoding,
+          all returning policy/restriction helpers, acknowledgement, and
+          applyRestrictionsAndExecWith's injected orchestration of applyLandlock,
+          applySeccomp, ack, chdir, LookPath, and final exec. Excluded
+          sandbox_linux_helper.go owns only the successful-path non-returning production
+          wrapper: lock the OS thread, apply PR_SET_NO_NEW_PRIVS, then make one delegation
+          passing the real applyLandlock/applySeccomp/ack/unix.Chdir/exec.LookPath/
+          unix.Exec functions.
+
+          Strengthen the AST guard so the excluded file declares only that wrapper and
+          may reference unix.Exec only once as the real function argument to the measured
+          seam, never call it directly or contain injected/returning orchestration. The
+          measured file must invoke only the injected exec function and contain no direct
+          unix.Exec selector. Inventory every returning function in the measured file and
+          prove tests drive every failure/order branch there. Preserve the existing exact
+          sandbox_linux_helper.go coverage exclusion and justification; do not broaden it,
+          add another excluded function/file, or weaken the inventory.
         files:
           - pkg/packval/sandbox_linux_external_test.go
           - pkg/packval/sandbox_linux_exec_test.go
           - pkg/packval/sandbox_security_test.go
           - pkg/packval/sandbox_wiring_guard_test.go
           - pkg/packval/sandbox_linux_errors_test.go
+          - pkg/packval/sandbox_split_test.go
         claims:
           - CLM-006
           - CLM-014
@@ -595,6 +642,28 @@ phases:
           conventional 128+signal when available, and one fixed fail-closed nonzero
           fallback otherwise; this is result plumbing, not policy.
 
+          Move applyRestrictionsAndExecWith and every returning/injected orchestration
+          function into measured sandbox_linux.go. That seam receives function parameters
+          for applyLandlock, applySeccomp, acknowledgement, chdir, LookPath, and exec;
+          executes them in the preserved production order; and exposes every failure and
+          counter edge to TASK-006 without a real process replacement. Move request decode,
+          restriction-policy helpers, acknowledgement writing, and any other returning
+          helper out of the excluded file as needed so they remain measured.
+
+          Keep only applyRestrictionsAndExec's successful-path non-returning production
+          wrapper in excluded sandbox_linux_helper.go. It locks the OS thread, applies
+          PR_SET_NO_NEW_PRIVS, and delegates once to applyRestrictionsAndExecWith with the
+          real applyLandlock, applySeccomp, ack, unix.Chdir, exec.LookPath, and unix.Exec
+          function values. It may reference/pass unix.Exec only there; the measured seam
+          calls the injected exec parameter. Update sandbox_split_test.go atomically to
+          enforce the exact one-wrapper inventory, direct-reference-vs-injected-call
+          distinction, and measured ownership of all returning logic.
+
+          Do not alter `.backstop/coverage-exclusions`, add excluded functions/files, or
+          broaden the sandbox_linux_helper.go row. This relocation changes measurement
+          ownership only, never Landlock rights, seccomp policy, acknowledgement order,
+          thread locking, no-new-privileges, chdir/LookPath, or fail-closed semantics.
+
           Add one internal Seatbelt literal encoder in sandbox_nonlinux.go and apply it
           to every dynamic subpath in darwinSandboxProfile. Escape quotes/backslashes and
           safely encode or fail-closed on controls based on real sandbox-exec behavior.
@@ -615,6 +684,7 @@ phases:
           - pkg/packval/sandbox_linux.go
           - pkg/packval/sandbox_linux_helper.go
           - pkg/packval/sandbox_nonlinux.go
+          - pkg/packval/sandbox_split_test.go
         claims:
           - CLM-001
           - CLM-002
