@@ -75,6 +75,25 @@ notes: |
   stdout/SARIF/coverage remain byte-clean. Unsupported platforms still refuse. The
   evidence is returned per invocation and OR-reduced; no global state is introduced.
 
+  PRE-EXISTING DARWIN BLOCKER. The full cmd/backstop pack-backed gate executes
+  TestPackAuthoringLoop_EndToEnd, which is RED solely because open ISSUE-147 passes a
+  relative packDir to sandbox-exec. ISSUE-147 is unrelated, has no validated plan, and
+  is not absorbed here. The go-toolchain coverage producer ignores gate file scope and
+  runs `go test ./...`, so EVERY local Darwin gate may execute cmd/backstop and encounter
+  ISSUE-147; no local file scope is called isolated, free of cmd/backstop execution, or
+  gate acceptance.
+  TASK-017 must execute and record both real cmd/backstop gates as RED with the exact
+  test/issue attribution, then separately establish ISSUE-185 claim evidence through
+  exact targeted diagnostics. A RED
+  blocked gate is never called green. No skip, narrowed replacement for the blocked
+  gate, waiver, fallback, or ISSUE-147 code/test change is permitted. TASK-018 onward
+  depends on TASK-016 rather than the unrelated gate outcome, so implementation and
+  independent review may complete. Formal whole-repository gate GREEN remains
+  unavailable while ISSUE-147 is open. TASK-017 is therefore a completed blocked-gate
+  evidence disposition when the required RED exits/attribution and targeted diagnostic
+  results are both recorded; TASK-018/019 may depend on that disposition without representing
+  the blocked gate as green. TASK-027 reruns and reports the same truth.
+
 phases:
   - id: phase-1
     name: "Phase 1: Parallel pkg/check environment foundation"
@@ -139,15 +158,25 @@ phases:
         type: verification
         title: "Verify classified pkg/check ownership and the 90% runner threshold"
         description: |
-          Before the feature binary exists, accurately use the current source-built CLI
-          only for this isolated, pack-classified pkg/check gate:
+          Before the feature binary exists, run the current source-built CLI:
 
               go run ./cmd/backstop gate --file pkg/check/runner.go --file pkg/check/runner_environment_test.go --file pkg/check/runner_stdout_test.go
 
-          This does not claim external mode exists. Confirm both exact tests execute
-          through the declared pack profile, package imports remain cycle-free, and the
-          coverage result for pkg/check/runner.go is at least 90%. A merely compiling
-          helper or an unclassified new package is not sufficient evidence.
+          This file scope is NOT isolated: the coverage producer ignores it and runs
+          `go test ./...`, so on Darwin record the true RED exit and exact ISSUE-147 /
+          TestPackAuthoringLoop_EndToEnd attribution. Do not call this gate green or use
+          a narrower gate as replacement acceptance.
+
+          Establish TASK-001/002 diagnostics separately with exact package commands:
+
+              go test ./pkg/check -count=1
+              go test ./pkg/check -count=1 -coverprofile=/tmp/issue185-check.cover
+              go tool cover -func=/tmp/issue185-check.cover
+
+          Record both mandated tests, cycle-free imports, and at least 90% statement
+          coverage for pkg/check/runner.go. These are diagnostic evidence only, not gate
+          acceptance. This task completes as a blocked-gate evidence disposition when
+          the RED attribution and diagnostic results are recorded.
         files:
           - pkg/check/runner.go
           - pkg/check/runner_environment_test.go
@@ -258,7 +287,7 @@ phases:
           Add Darwin tests showing sandbox-exec launches the Backstop helper under the
           unchanged profile, the helper writes/closes only the inherited control FD
           before starting the child, and converter stdout plus stderr diagnostics remain
-          uncontaminated. A sandbox-exec/profile failure yields false and no pack child.
+          byte-clean. A sandbox-exec/profile failure yields false and no pack child.
           Non-Darwin builds retain a loud unsupported-platform refusal.
         files:
           - pkg/packval/sandbox_darwin_test.go
@@ -462,19 +491,45 @@ phases:
 
       - id: TASK-017
         type: verification
-        title: "Rebuild once and verify the first valid native and external gates"
+        title: "Record the ISSUE-147-blocked gates and isolate ISSUE-185 evidence"
         description: |
-          Phase 1 never claimed external existed. Now rebuild before using the feature:
+          Rebuild before using the feature. First run BOTH real cmd/backstop gates with
+          their full unfiltered package test profile; do not add a test-name filter:
 
               go build -o ./bin/backstop ./cmd/backstop
               ./bin/backstop gate --file cmd/backstop/gate.go --file cmd/backstop/pack_gate.go --file pkg/packval/sandbox.go --file pkg/packval/sandbox_nonlinux.go
               ./bin/backstop gate --pack-sandbox=external --file cmd/backstop/gate.go --file cmd/backstop/pack_gate.go
 
-          Run the complete issue test profile through the pack-backed gate with no
-          name filter. On Linux record probe/application/ack/child counters and all real
-          denial tests. On Darwin prove the control channel does not alter converter
-          stdout/SARIF and the unchanged sandbox-exec profile still denies. Native
-          unavailable must refuse with no external/unsandboxed fallback.
+          On Darwin record each true non-zero exit and the exact sole pre-existing
+          attribution: TestPackAuthoringLoop_EndToEnd fails because ISSUE-147 supplies a
+          relative packDir to sandbox-exec. Report any additional failure separately;
+          never silently classify it as ISSUE-147. Do not skip/filter/weaken that test,
+          waive it, fix ISSUE-147, or call either cmd/backstop gate green.
+
+          Also run these real native and external file-scoped gates, but classify them
+          accurately: the coverage producer ignores file scope and may run cmd/backstop,
+          so on Darwin they are also potentially/actually ISSUE-147-blocked and are not
+          gate acceptance:
+
+              ./bin/backstop gate --file pkg/check/runner.go --file pkg/packval/sandbox.go --file pkg/packval/sandbox_nonlinux.go
+              ./bin/backstop gate --pack-sandbox=external --file pkg/check/runner.go --file pkg/packval/sandbox.go --file pkg/packval/sandbox_nonlinux.go
+
+          Because no honest cmd/backstop gate scope avoids its package-wide unrelated
+          test, run the ISSUE-185 cmd tests as DIAGNOSTIC evidence only, with an anchored
+          explicit list rather than a broad prefix:
+
+              go test ./cmd/backstop -count=1 -run '^(TestPackSandbox_DefaultsToNative|TestPackSandbox_AcceptsExactValues|TestPackSandbox_RejectsInvalidAndEmptyValuesBeforePackLoad|TestPackSandbox_CLIOverridesEnvironment|TestPackSandbox_CLIOverridesInvalidOrEmptyEnvironment|TestPackSandbox_ResolvesExactlyOnceBeforePackLoad|TestPackSandbox_RunningParentUnaffectedByChildEnvironmentOrArgs|TestPackSandbox_RepositoryAndPackInputsHaveNoAuthority|TestPackSandbox_DoesNotAddTelemetryExporter|TestPackSandbox_NoPromptOrGenericDisableSwitch|TestPackSandbox_NativeUnavailableFailsClosedWithoutFallback|TestExternalSandbox_UsesExistingConvertAndValidatorPathsWithoutNativeLayer|TestExternalSandbox_DoesNotRedefineSandboxedSurfaces)$'
+
+          These diagnostics cannot turn any blocked gate green; they provide only this
+          phase's ISSUE-185 claim evidence. On Linux, real gates must record probe/
+          application/ack/child counters and all denial tests. Native unavailable still
+          refuses without fallback.
+
+          TASK-017 is complete when every invoked gate's true exit and ISSUE-147
+          attribution are recorded and the exact ISSUE-185 diagnostics are recorded.
+          This is explicitly a BLOCKED-GATE EVIDENCE DISPOSITION that permits dependent
+          implementation tasks to continue; it is not gate acceptance and claims no
+          local Darwin gate green.
         files:
           - cmd/backstop/gate.go
           - cmd/backstop/pack_gate.go
@@ -586,14 +641,25 @@ phases:
         type: verification
         title: "Verify the converged child-environment inventory"
         description: |
-          Rebuild, then use only the rebuilt CLI:
+          Rebuild and run both real file-scoped gates below. Their file lists do not
+          protect them from ISSUE-147: the coverage producer runs `go test ./...`, so on
+          Darwin record each as potentially/actually RED/BLOCKED with exact attribution,
+          never as gate acceptance:
 
               go build -o ./bin/backstop ./cmd/backstop
-              ./bin/backstop gate --file cmd/backstop/gate.go --file cmd/backstop/recipe_apply.go --file cmd/backstop/init.go --file cmd/backstop/doctor.go --file pkg/packval/executor.go
+              ./bin/backstop gate --file pkg/check/runner.go --file pkg/packval/executor.go --file pkg/packval/sandbox.go
+              ./bin/backstop gate --pack-sandbox=external --file pkg/check/runner.go --file pkg/packval/executor.go --file pkg/packval/sandbox.go
 
           Exercise real native and external pack children across runner and direct-exec
           paths. Confirm unrelated environment survives, authorization never passively
           recurses, and no producer/engine/transform changed sandbox classification.
+          Run these exact tests as diagnostic evidence only, not as a substitute for or
+          recoloring of any blocked gate:
+
+              go test ./cmd/backstop -count=1 -run '^(TestSandboxAuthorization_AllCurrentPackChildConstructionSitesUseSanitizedEnvironment|TestSandboxAuthorization_RecursiveBackstopDoesNotPassivelyInheritExternalMode)$'
+
+          TASK-022 completes on recorded blocked-gate outcomes plus diagnostic results;
+          no local Darwin gate GREEN is asserted.
         files:
           - cmd/backstop/gate.go
           - cmd/backstop/recipe_apply.go
@@ -655,14 +721,27 @@ phases:
         type: verification
         title: "Verify native/external metadata from real pack-backed gates"
         description: |
-          Rebuild and use only ./bin/backstop. Run one real native and one external
-          pack-backed gate with human and JSON destinations, compare fields, and prove
-          false/true behavior from actual acknowledgement rather than mode. Repeat to
-          prove no leakage; native failure remains false and fail-closed.
+          Rebuild and run native and external file-scoped gates over pkg/gate. The
+          coverage producer still runs `go test ./...`; therefore both Darwin gates may
+          reach ISSUE-147 and must be reported potentially/actually RED/BLOCKED, never
+          as gate acceptance. Record human/JSON fields from the produced results where
+          available; native failure remains false and fail-closed.
 
               go build -o ./bin/backstop ./cmd/backstop
-              ./bin/backstop gate --file pkg/gate/result.go --file pkg/gate/output.go --file cmd/backstop/gate.go
-              ./bin/backstop gate --pack-sandbox=external --file pkg/gate/result.go --file pkg/gate/output.go --file cmd/backstop/gate.go
+              ./bin/backstop gate --file pkg/gate/result.go --file pkg/gate/output.go
+              ./bin/backstop gate --pack-sandbox=external --file pkg/gate/result.go --file pkg/gate/output.go
+
+          Run the cmd formatter integration tests exactly as diagnostic evidence; they
+          do not replace or recolor TASK-017's blocked cmd/backstop gate:
+
+              go test ./cmd/backstop -count=1 -run '^(TestPackSandbox_HumanOutputReportsModeAndNativeApplication|TestPackSandbox_JSONReportsModeAndNativeApplication)$'
+
+          Also run the exact pkg/gate deterministic-evidence test diagnostically:
+
+              go test ./pkg/gate -count=1 -run '^TestPackSandbox_NativeApplicationEvidenceIsDeterministicWithoutGlobalState$'
+
+          TASK-025 completes on true gate outcomes plus diagnostic results and claims no
+          local Darwin gate GREEN.
         files:
           - cmd/backstop/gate.go
           - pkg/gate/result.go
@@ -677,7 +756,7 @@ phases:
           - TASK-024
 
   - id: phase-5
-    name: "Phase 5: Documentation and full rebuilt acceptance"
+    name: "Phase 5: Documentation and full rebuilt blocked verification"
     tasks:
       - id: TASK-026
         type: documentation
@@ -709,7 +788,7 @@ phases:
 
       - id: TASK-027
         type: verification
-        title: "Rebuild and run artifact, security, regression, and real-pack acceptance"
+        title: "Rebuild, rerun both full gates, and report the formal completion limit"
         description: |
           Rebuild first; every validation and gate afterward uses that exact binary:
 
@@ -719,11 +798,19 @@ phases:
               ./bin/backstop gate --all
               ./bin/backstop gate --all --pack-sandbox=external
 
-          The declared pack-backed test profile must discover all 33 exact names and run
-          without a -run filter, including every native denial/ABI/inherited-confinement
-          regression. Native and external real installed-pack gates must exercise
-          convert and validator paths, report matching human/JSON metadata, sanitize all
-          children, and show no surface movement or fallback.
+          Both full gates are mandatory and unfiltered. Record true exit codes. While
+          ISSUE-147 remains open, attribute TestPackAuthoringLoop_EndToEnd's Darwin
+          relative-packDir sandbox-exec failure separately and report the whole-repo
+          gate as RED/BLOCKED, never green. Any other failure gets its own attribution.
+          Do not skip/filter/weaken the test, waive it, fall back, or repair ISSUE-147 in
+          this lane.
+
+          Independently report the ISSUE-185 targeted diagnostic evidence from
+          TASK-003/TASK-017/TASK-022/TASK-025, all 33 exact mandated names, real native denial/
+          ABI/inherited-confinement regressions, native/external convert and validator
+          execution, matching metadata, sanitized children, and unchanged surfaces.
+          This permits implementation and independent review completion, but it does not
+          satisfy formal whole-repository gate GREEN while ISSUE-147 remains unresolved.
 
           Linux acceptance must record independent probe/application/ack/child counters.
           Darwin acceptance must run real sandbox-exec denials and prove the out-of-band
@@ -754,5 +841,6 @@ phases:
           - CLM-014
           - CLM-015
         depends_on:
+          - TASK-017
           - TASK-024
           - TASK-026
