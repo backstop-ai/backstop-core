@@ -134,15 +134,16 @@ type Violation struct {
 
 // StepResult holds the result of a single gate step.
 type StepResult struct {
-	StepName         string      `json:"step_name"`
-	Status           string      `json:"status"` // "pass", "fail", "skipped"
-	DurationMS       int64       `json:"duration_ms,omitempty"`
-	Violations       []Violation `json:"violations"`
-	NewViolations    []Violation `json:"new_violations"`
-	FixedViolations  []Violation `json:"fixed_violations"`
-	SeededViolations []Violation `json:"seeded_violations"`
-	Reason           string      `json:"reason,omitempty"`
-	ConfigErr        bool        `json:"-"` // internal flag for config error propagation
+	StepName             string      `json:"step_name"`
+	Status               string      `json:"status"` // "pass", "fail", "skipped"
+	DurationMS           int64       `json:"duration_ms,omitempty"`
+	Violations           []Violation `json:"violations"`
+	NewViolations        []Violation `json:"new_violations"`
+	FixedViolations      []Violation `json:"fixed_violations"`
+	SeededViolations     []Violation `json:"seeded_violations"`
+	Reason               string      `json:"reason,omitempty"`
+	NativeSandboxApplied bool        `json:"native_sandbox_applied,omitempty"`
+	ConfigErr            bool        `json:"-"` // internal flag for config error propagation
 }
 
 // GateResult holds the unified gate output including all step results.
@@ -179,6 +180,8 @@ type GateResult struct {
 	// unreadable in --json for precisely the case it was written for.
 	ArtifactRoot           string     `json:"artifact_root,omitempty"`
 	ArtifactRootConfigured bool       `json:"artifact_root_configured"`
+	PackSandboxMode        string     `json:"pack_sandbox_mode,omitempty"`
+	NativeSandboxApplied   bool       `json:"native_sandbox_applied"`
 	Scope                  *GateScope `json:"scope,omitempty"`
 	Pass                   bool       `json:"pass"`
 	TotalViolations        int        `json:"total_violations"`
@@ -253,6 +256,7 @@ func NewGateResultWithScope(steps []StepResult, scope *GateScope) GateResult {
 	}
 
 	for _, s := range steps {
+		r.NativeSandboxApplied = r.NativeSandboxApplied || s.NativeSandboxApplied
 		if s.Violations == nil {
 			s.Violations = []Violation{}
 		}

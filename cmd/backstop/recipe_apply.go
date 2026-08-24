@@ -398,7 +398,7 @@ func provisionedEngineBinding(manifest *pack.Manifest) (engine.EngineBinding, er
 // and relaxing the profile to fit would be a security regression. The enforcement
 // dispatch does not run engine commands sandboxed either.
 func transformDispatch(binding engine.EngineBinding, projectRoot string) recipe.TransformDispatch {
-	runner := &check.ExecCommandRunner{Dir: projectRoot}
+	runner := &check.ExecCommandRunner{Dir: projectRoot, Env: packChildEnvironment()}
 
 	return func(rule string, target string) error {
 		name, args := splitCommand(binding.Command)

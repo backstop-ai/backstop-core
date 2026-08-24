@@ -159,7 +159,7 @@ echo PROBE_COMPLETED
 // Network: true, and nothing else different, so the only variable between it and
 // the denial test is the capability itself.
 //
-// It reproduces the parent side of newSandboxHelperCommand rather than calling it
+// It reproduces the parent side of newSandboxHelperInvocation rather than calling it
 // because that function hardcodes the capability, and its file belongs to another
 // task. The duplication is four lines and it is confined to the control leg;
 // every DENIAL assertion in this file goes through the production path.

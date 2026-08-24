@@ -10,6 +10,7 @@ import (
 	"github.com/backstop-ai/backstop-core/pkg/check"
 	"github.com/backstop-ai/backstop-core/pkg/pack"
 	"github.com/backstop-ai/backstop-core/pkg/pack/engine"
+	"github.com/backstop-ai/backstop-core/pkg/packval"
 )
 
 // mkDirAll creates dir (and parents) or fails the test.
@@ -93,9 +94,10 @@ func TestGateDispatch_GroupsRulesByEngine(t *testing.T) {
 
 	rec := &capturingRunner{out: []byte(`{"version":"2.1.0","runs":[]}`)}
 	sandboxCalls := 0
-	orig := sandboxedRun
-	sandboxedRun = func(string, []string, string) ([]byte, error) { sandboxCalls++; return nil, nil }
-	t.Cleanup(func() { sandboxedRun = orig })
+	sandboxRunner := &recordingSandboxRunner{mode: packval.SandboxModeNative, runFn: func(string, []string, string) (packval.SandboxRunResult, error) {
+		sandboxCalls++
+		return packval.SandboxRunResult{}, nil
+	}}
 
 	manifests := []*pack.Manifest{{
 		NormalizedName: "org/pack",
@@ -106,7 +108,7 @@ func TestGateDispatch_GroupsRulesByEngine(t *testing.T) {
 		}}},
 	}}
 
-	if _, err := dispatchPackEngines(manifests, packsDir, t.TempDir(), nil, rec); err != nil {
+	if _, err := dispatchPackEnginesWithEvidence(manifests, packsDir, t.TempDir(), nil, rec, sandboxRunner); err != nil {
 		t.Fatalf("dispatchPackEngines: %v", err)
 	}
 	if rec.calls != 1 {

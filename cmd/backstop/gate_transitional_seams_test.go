@@ -24,8 +24,8 @@ func TestSeam_CoverageStepConsumesPerFileRecordsAfterEradication(t *testing.T) {
 	}
 	// Coverage's feed is now the per-FILE CoverageRecord producer over the
 	// dispatchPackCoverage channel.
-	if !strings.Contains(src, "coverageRecordsProducer(packs, projectRoot)") {
-		t.Fatal("buildCoverageStep must receive the per-FILE CoverageRecord producer (dispatchPackCoverage) over the DECLARED packs — the permanent SPEC-041 coverage feed, re-keyed off the deleted bridge by SPEC-046")
+	if !strings.Contains(src, "coverageRecordsProducerWithSandbox(packs, projectRoot, sandboxRunner)") {
+		t.Fatal("buildCoverageStep must receive the per-FILE CoverageRecord producer (dispatchPackCoverage) over the DECLARED packs and the invocation-selected sandbox runner")
 	}
 
 	// Behavioral: the coverage step is still present in the built step list.
@@ -51,12 +51,13 @@ func TestSeam_CoverageStepConsumesPerFileRecordsAfterEradication(t *testing.T) {
 // they must survive scope filtering.
 func TestSeam_BuildBreakInUnchangedFileStillRedsDiffScopedGate(t *testing.T) {
 	m := onlyRules(goToolchainManifest(t), "go-build")
-	stubSandboxedRunStdout(t, nil)
+	sandboxRunner := directConvertSandboxRunner(nil)
 	// The build fixture reports errors in pkg/widget/widget.go and
 	// pkg/gadget/gadget.go — none of which are in the diff scope below.
 	runner := &fixtureRunner{byCmd: map[string][]byte{"go build": readFixture(t, "go-build-errors.txt")}}
 
-	violations, err := dispatchPackEngines([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), nil, runner)
+	result, err := dispatchPackEnginesWithEvidence([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), nil, runner, sandboxRunner)
+	violations := result.Violations
 	if err != nil {
 		t.Fatalf("dispatchPackEngines (build): %v", err)
 	}
@@ -82,10 +83,11 @@ func TestSeam_BuildBreakInUnchangedFileStillRedsDiffScopedGate(t *testing.T) {
 // drives scope — only the declared per-binding property.
 func TestSeam_NonBuildEngineViolationsNotProjectWide(t *testing.T) {
 	m := onlyRules(goToolchainManifest(t), "golangci")
-	stubSandboxedRunStdout(t, nil)
+	sandboxRunner := directConvertSandboxRunner(nil)
 	runner := &fixtureRunner{byCmd: map[string][]byte{"golangci-lint": readFixture(t, "golangci-v2.sarif")}}
 
-	violations, err := dispatchPackEngines([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), nil, runner)
+	result, err := dispatchPackEnginesWithEvidence([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), nil, runner, sandboxRunner)
+	violations := result.Violations
 	if err != nil {
 		t.Fatalf("dispatchPackEngines (lint): %v", err)
 	}

@@ -6,7 +6,24 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/backstop-ai/backstop-core/pkg/packval"
 )
+
+func TestBuildGateSteps_ConsumesInvocationSelectedSandboxRunner(t *testing.T) {
+	source, err := os.ReadFile("gate.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(source)
+	if !strings.Contains(text, "dispatchPackEnginesWithEvidence") || !strings.Contains(text, "sandboxRunner") {
+		t.Fatal("production buildGateSteps does not consume typed evidence with the selected runner")
+	}
+	runner := &recordingSandboxRunner{mode: packval.SandboxModeExternal}
+	if runner.Mode() != packval.SandboxModeExternal {
+		t.Fatal("test runner is not immutable external mode")
+	}
+}
 
 // TestBuildGateSteps_PackLoadingFailureYieldsSingleFailStep verifies that when
 // pack loading fails (a pack is declared in backstop.yml but absent on disk),

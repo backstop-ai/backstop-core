@@ -16,10 +16,11 @@ import (
 // (SPEC-041 CLM-012).
 func TestExemption_EnginePathStampsProjectWideFromExemptProperty(t *testing.T) {
 	m := onlyRules(goToolchainManifest(t), "go-build")
-	stubSandboxedRunStdout(t, nil)
+	sandboxRunner := directConvertSandboxRunner(nil)
 	runner := &fixtureRunner{byCmd: map[string][]byte{"go build": readFixture(t, "go-build-errors.txt")}}
 
-	violations, err := dispatchPackEngines([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), nil, runner)
+	result, err := dispatchPackEnginesWithEvidence([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), nil, runner, sandboxRunner)
+	violations := result.Violations
 	if err != nil {
 		t.Fatalf("dispatchPackEngines (build): %v", err)
 	}
@@ -48,10 +49,11 @@ func TestExemption_EnginePathStampsProjectWideFromExemptProperty(t *testing.T) {
 // regression guard (SPEC-041 CLM-013). The breaking files are NOT in the diff scope.
 func TestExemption_BuildBreakUnchangedFileStillRedsDiffScoped(t *testing.T) {
 	m := onlyRules(goToolchainManifest(t), "go-build")
-	stubSandboxedRunStdout(t, nil)
+	sandboxRunner := directConvertSandboxRunner(nil)
 	runner := &fixtureRunner{byCmd: map[string][]byte{"go build": readFixture(t, "go-build-errors.txt")}}
 
-	violations, err := dispatchPackEngines([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), nil, runner)
+	result, err := dispatchPackEnginesWithEvidence([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), nil, runner, sandboxRunner)
+	violations := result.Violations
 	if err != nil {
 		t.Fatalf("dispatchPackEngines (build): %v", err)
 	}
@@ -73,10 +75,11 @@ func TestExemption_BuildBreakUnchangedFileStillRedsDiffScoped(t *testing.T) {
 // unchanged-file violation is dropped (SPEC-041 CLM-014).
 func TestExemption_LintViolationUnchangedFileIsFiltered(t *testing.T) {
 	m := onlyRules(goToolchainManifest(t), "golangci")
-	stubSandboxedRunStdout(t, nil)
+	sandboxRunner := directConvertSandboxRunner(nil)
 	runner := &fixtureRunner{byCmd: map[string][]byte{"golangci-lint": readFixture(t, "golangci-v2.sarif")}}
 
-	violations, err := dispatchPackEngines([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), nil, runner)
+	result, err := dispatchPackEnginesWithEvidence([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), nil, runner, sandboxRunner)
+	violations := result.Violations
 	if err != nil {
 		t.Fatalf("dispatchPackEngines (lint): %v", err)
 	}
@@ -104,10 +107,11 @@ func TestExemption_LintViolationUnchangedFileIsFiltered(t *testing.T) {
 // TestExemption_BuildBreakUnchangedFileStillRedsDiffScoped.
 func TestExemption_TestFailureUnchangedFileStillRedsDiffScoped(t *testing.T) {
 	m := onlyRules(goToolchainManifest(t), "go-test")
-	stubSandboxedRunStdout(t, nil)
+	sandboxRunner := directConvertSandboxRunner(nil)
 	runner := &fixtureRunner{byCmd: map[string][]byte{"go test": readFixture(t, "go-test-failures.txt")}}
 
-	violations, err := dispatchPackEngines([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), nil, runner)
+	result, err := dispatchPackEnginesWithEvidence([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), nil, runner, sandboxRunner)
+	violations := result.Violations
 	if err != nil {
 		t.Fatalf("dispatchPackEngines (test): %v", err)
 	}

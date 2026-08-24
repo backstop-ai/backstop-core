@@ -3,10 +3,14 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
+	"os/exec"
+	"runtime"
 	"strings"
 	"testing"
 
+	"github.com/backstop-ai/backstop-core/pkg/packval"
 	"github.com/spf13/cobra"
 )
 
@@ -123,6 +127,64 @@ func TestRun_SandboxHelperErrorExitsOneTwentySix(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), gateErr.Error()) {
 		t.Errorf("the gate's diagnostic must reach stderr so a broken sandbox is legible; got %q", stderr.String())
+	}
+}
+
+type testSandboxHelperCompletion struct{ code int }
+
+func (e testSandboxHelperCompletion) Error() string { return "helper target completed" }
+func (e testSandboxHelperCompletion) ExitCode() int { return e.code }
+
+func TestRun_SandboxHelperCompletionPropagatesWithoutBuildingCobra(t *testing.T) {
+	for _, want := range []int{0, 37, 143} {
+		t.Run(fmt.Sprint(want), func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			code := runWith(&stdout, &stderr,
+				func() error { return testSandboxHelperCompletion{code: want} },
+				func() *cobra.Command {
+					t.Fatal("the command tree was built after helper target completion")
+					return nil
+				},
+			)
+			if code != want {
+				t.Fatalf("run returned %d, want helper completion %d", code, want)
+			}
+			if stdout.Len() != 0 || stderr.Len() != 0 {
+				t.Fatalf("helper completion wrote stdout %q or stderr %q", stdout.String(), stderr.String())
+			}
+		})
+	}
+}
+
+func TestIntegrationTestMain_PropagatesDarwinHelperCompletion(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("sandbox-exec helper completion is Darwin-only")
+	}
+	runner, err := packval.NewSandboxRunner(packval.SandboxModeNative)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packDir := t.TempDir()
+	if result, err := runner.Run("/usr/bin/true", nil, packDir); err != nil {
+		t.Fatalf("target exit 0 did not propagate through cmd/backstop TestMain: %v: %s", err, result.Output)
+	}
+	for _, test := range []struct {
+		name    string
+		command string
+		args    []string
+		want    int
+	}{
+		{name: "nonzero", command: "/bin/sh", args: []string{"-c", "exit 37"}, want: 37},
+		{name: "setup-error", command: "/definitely/missing", want: sandboxHelperExitCode},
+		{name: "signal", command: "/bin/sh", args: []string{"-c", "kill -TERM $$"}, want: 143},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, runErr := runner.Run(test.command, test.args, packDir)
+			var exitErr *exec.ExitError
+			if !errors.As(runErr, &exitErr) || exitErr.ExitCode() != test.want {
+				t.Fatalf("completion error=%v, want exit %d", runErr, test.want)
+			}
+		})
 	}
 }
 

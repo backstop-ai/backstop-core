@@ -18,7 +18,7 @@ import (
 // records parser rejects the SARIF object), so coverage cannot be smuggled through
 // SARIF (CLM-007).
 func TestDispatch_CoverageNotTunneledThroughSarifProperties(t *testing.T) {
-	stubSandboxedRunStdout(t, nil)
+	sandboxRunner := directConvertSandboxRunner(nil)
 	// The convert emits a SARIF document with coverage in result.properties — the
 	// cheap-but-wrong tunneling shape the coverage path must REJECT.
 	tunneled, err := os.ReadFile(filepath.Join(repoRoot(t), "pkg", "check", "testdata", "coverage-tunneled-through-sarif-properties.json"))
@@ -29,7 +29,7 @@ func TestDispatch_CoverageNotTunneledThroughSarifProperties(t *testing.T) {
 	manifest := gateTypeRoutingManifest("cov-engine", engine.GateTypeCoverage)
 	runner := &fixtureRunner{byCmd: map[string][]byte{"neutral-tool": []byte("raw")}}
 
-	_, dErr := dispatchPackCoverage([]*pack.Manifest{manifest}, packsDir, t.TempDir(), nil, runner)
+	_, dErr := dispatchPackCoverageWithEvidence([]*pack.Manifest{manifest}, packsDir, t.TempDir(), nil, runner, sandboxRunner)
 	if dErr == nil {
 		t.Fatal("a SARIF document carrying coverage in result.properties must be REJECTED by the coverage path, not tunneled as records")
 	}
@@ -43,24 +43,24 @@ func TestDispatch_CoverageNotTunneledThroughSarifProperties(t *testing.T) {
 // — the census includes passing files, not only shortfalls; an engine emitting only
 // below-threshold records would be a SARIF-findings stream in disguise (CLM-008).
 func TestCoverage_ChannelCarriesMeasuredPassingFiles(t *testing.T) {
-	stubSandboxedRunStdout(t, nil)
+	sandboxRunner := directConvertSandboxRunner(nil)
 	packsDir := coverageRoutingPacksDir(t, coverageRecordsJSON())
 	manifest := gateTypeRoutingManifest("cov-engine", engine.GateTypeCoverage)
 	runner := &fixtureRunner{byCmd: map[string][]byte{"neutral-tool": []byte("raw")}}
 
-	records, err := dispatchPackCoverage([]*pack.Manifest{manifest}, packsDir, t.TempDir(), nil, runner)
+	result, err := dispatchPackCoverageWithEvidence([]*pack.Manifest{manifest}, packsDir, t.TempDir(), nil, runner, sandboxRunner)
 	if err != nil {
 		t.Fatalf("dispatchPackCoverage: %v", err)
 	}
 	var passing *check.CoverageRecord
-	for i := range records {
-		if records[i].Measured && records[i].Covered*100 >= 90*records[i].Total && records[i].Total > 0 {
-			passing = &records[i]
+	for i := range result.Records {
+		if result.Records[i].Measured && result.Records[i].Covered*100 >= 90*result.Records[i].Total && result.Records[i].Total > 0 {
+			passing = &result.Records[i]
 			break
 		}
 	}
 	if passing == nil {
-		t.Fatalf("the census MUST carry a measured-and-passing record, got %#v", records)
+		t.Fatalf("the census MUST carry a measured-and-passing record, got %#v", result.Records)
 	}
 	if !passing.Measured {
 		t.Errorf("the passing record must be Measured=true, got %#v", *passing)
@@ -73,23 +73,23 @@ func TestCoverage_ChannelCarriesMeasuredPassingFiles(t *testing.T) {
 // SARIF (CLM-009). Feeding a record-set that OMITS an expected file, the
 // not-measured signal (no record / Measured false) survives to the consumer boundary.
 func TestCoverage_MeasuredPassedVsNotMeasuredDistinguished(t *testing.T) {
-	stubSandboxedRunStdout(t, nil)
+	sandboxRunner := directConvertSandboxRunner(nil)
 	// Only handler.go is measured; an EXPECTED file (omitted.go) has no record.
 	convert := `[{"path":"pkg/svc/handler.go","covered":92,"total":100,"measured":true,"excluded":false,"metric":"statement"}]`
 	packsDir := coverageRoutingPacksDir(t, convert)
 	manifest := gateTypeRoutingManifest("cov-engine", engine.GateTypeCoverage)
 	runner := &fixtureRunner{byCmd: map[string][]byte{"neutral-tool": []byte("raw")}}
 
-	records, err := dispatchPackCoverage([]*pack.Manifest{manifest}, packsDir, t.TempDir(), nil, runner)
+	result, err := dispatchPackCoverageWithEvidence([]*pack.Manifest{manifest}, packsDir, t.TempDir(), nil, runner, sandboxRunner)
 	if err != nil {
 		t.Fatalf("dispatchPackCoverage: %v", err)
 	}
 	measured := map[string]bool{}
-	for _, r := range records {
+	for _, r := range result.Records {
 		measured[r.Path] = r.Measured
 	}
 	if !measured["pkg/svc/handler.go"] {
-		t.Errorf("the measured-and-passed file must carry Measured=true, got %#v", records)
+		t.Errorf("the measured-and-passed file must carry Measured=true, got %#v", result.Records)
 	}
 	// The omitted file is not-measured: it has NO record, distinguishable from a
 	// measured-and-passed record. SARIF-as-findings cannot carry this distinction.

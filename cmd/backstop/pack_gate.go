@@ -19,7 +19,7 @@ import (
 	"github.com/backstop-ai/backstop-core/pkg/packval"
 )
 
-// sandboxedRun / sandboxedRunStdout / engineRegistry are test seams: nil in
+// engineRegistry is a test seam: nil in
 // production (the resolveXxx helpers below fall back to the concrete
 // packval.SandboxedRun, packval.SandboxedRunStdout, and the embedded base-engines
 // pack via baseengines.Registry), and overridden by tests to substitute a stub
@@ -27,9 +27,7 @@ import (
 // so they hold no package-level mutable default; the real implementation is resolved
 // lazily at the call site.
 var (
-	sandboxedRun       func(cmd string, args []string, packDir string) ([]byte, error)
-	sandboxedRunStdout func(cmd string, args []string, packDir string, stdin []byte) ([]byte, error)
-	engineRegistry     engine.Registry
+	engineRegistry engine.Registry
 	// trustedToolAllowlist is a test seam for the backstop-owned trusted-tool
 	// allowlist (SPEC-035 REQ-002): nil in production (resolveTrustedToolAllowlist
 	// falls back to engine.TrustedToolAllowlist), overridden by tests to drive the
@@ -48,24 +46,6 @@ func resolveTrustedToolAllowlist() map[string]string {
 		return trustedToolAllowlist()
 	}
 	return engine.TrustedToolAllowlist()
-}
-
-// resolveSandboxedRun returns the injected sandbox seam or the concrete
-// packval.SandboxedRun.
-func resolveSandboxedRun() func(cmd string, args []string, packDir string) ([]byte, error) {
-	if sandboxedRun != nil {
-		return sandboxedRun
-	}
-	return packval.SandboxedRun
-}
-
-// resolveSandboxedRunStdout returns the injected clean-stdout sandbox seam or the
-// concrete packval.SandboxedRunStdout (REQ-007/REQ-009/CLM-065).
-func resolveSandboxedRunStdout() func(cmd string, args []string, packDir string, stdin []byte) ([]byte, error) {
-	if sandboxedRunStdout != nil {
-		return sandboxedRunStdout
-	}
-	return packval.SandboxedRunStdout
 }
 
 // resolveEngineRegistry returns the registry a rule's engine resolves through:
@@ -266,7 +246,22 @@ func resolveDispatchPackEngines() func([]*pack.Manifest, string, string, *gate.G
 }
 
 func dispatchPackEngines(packs []*pack.Manifest, packDir, projectRoot string, scope *gate.GateScope, runner check.CommandRunner) ([]gate.Violation, error) {
+	sandboxRunner, err := packval.NewSandboxRunner(packval.SandboxModeNative)
+	if err != nil {
+		return nil, err
+	}
+	result, err := dispatchPackEnginesWithEvidence(packs, packDir, projectRoot, scope, runner, sandboxRunner)
+	return result.Violations, err
+}
+
+type packEngineDispatchResult struct {
+	Violations           []gate.Violation
+	NativeSandboxApplied bool
+}
+
+func dispatchPackEnginesWithEvidence(packs []*pack.Manifest, packDir, projectRoot string, scope *gate.GateScope, runner check.CommandRunner, sandboxRunner packval.SandboxRunner) (packEngineDispatchResult, error) {
 	violations := []gate.Violation{}
+	nativeApplied := false
 	for _, manifest := range packs {
 		packRoot := filepath.Join(packDir, filepath.FromSlash(manifest.NormalizedName))
 
@@ -284,7 +279,7 @@ func dispatchPackEngines(packs []*pack.Manifest, packDir, projectRoot string, sc
 		for _, engineName := range order {
 			binding, lookupErr := registry.Lookup(engineName)
 			if lookupErr != nil {
-				return nil, fmt.Errorf("pack %s: %w", manifest.NormalizedName, lookupErr)
+				return packEngineDispatchResult{}, fmt.Errorf("pack %s: %w", manifest.NormalizedName, lookupErr)
 			}
 			rules := grouped[engineName]
 
@@ -295,23 +290,25 @@ func dispatchPackEngines(packs []*pack.Manifest, packDir, projectRoot string, sc
 			// the findings path below — keyed off Command, not input_mode alone
 			// (SPEC-034 REQ-001/REQ-004).
 			if binding.InputMode == engine.InputModeNone && binding.Command == "" {
-				vs, err := runSandboxEngine(manifest, packRoot, projectRoot, rules)
+				vs, applied, err := runSandboxEngineWithEvidence(manifest, packRoot, projectRoot, rules, sandboxRunner)
 				if err != nil {
-					return nil, fmt.Errorf("dispatching sandbox engine %q for pack %s: %w", engineName, manifest.NormalizedName, err)
+					return packEngineDispatchResult{NativeSandboxApplied: nativeApplied || applied}, fmt.Errorf("dispatching sandbox engine %q for pack %s: %w", engineName, manifest.NormalizedName, err)
 				}
+				nativeApplied = nativeApplied || applied
 				violations = append(violations, vs...)
 				continue
 			}
 
 			// Findings engine: gather inputs, run, convert, parseSarif.
-			vs, err := runFindingsEngine(manifest, packRoot, projectRoot, scope, binding, rules, runner)
+			vs, applied, err := runFindingsEngineWithEvidence(manifest, packRoot, projectRoot, scope, binding, rules, runner, sandboxRunner)
 			if err != nil {
-				return nil, fmt.Errorf("dispatching findings engine %q for pack %s: %w", engineName, manifest.NormalizedName, err)
+				return packEngineDispatchResult{NativeSandboxApplied: nativeApplied || applied}, fmt.Errorf("dispatching findings engine %q for pack %s: %w", engineName, manifest.NormalizedName, err)
 			}
+			nativeApplied = nativeApplied || applied
 			violations = append(violations, vs...)
 		}
 	}
-	return violations, nil
+	return packEngineDispatchResult{Violations: violations, NativeSandboxApplied: nativeApplied}, nil
 }
 
 // dispatchPackCoverage is the coverage-records dispatch channel (SPEC-042
@@ -338,8 +335,23 @@ func dispatchPackEngines(packs []*pack.Manifest, packDir, projectRoot string, sc
 // are project-wide toolchain passes (ScopeKindProjectWide + ProjectTarget), so the
 // engine shapes its OWN target and the project root is never appended.
 func dispatchPackCoverage(packs []*pack.Manifest, packDir, projectRoot string, scope *gate.GateScope, runner check.CommandRunner) ([]check.CoverageRecord, error) {
+	sandboxRunner, err := packval.NewSandboxRunner(packval.SandboxModeNative)
+	if err != nil {
+		return nil, err
+	}
+	result, err := dispatchPackCoverageWithEvidence(packs, packDir, projectRoot, scope, runner, sandboxRunner)
+	return result.Records, err
+}
+
+type packCoverageDispatchResult struct {
+	Records              []check.CoverageRecord
+	NativeSandboxApplied bool
+}
+
+func dispatchPackCoverageWithEvidence(packs []*pack.Manifest, packDir, projectRoot string, scope *gate.GateScope, runner check.CommandRunner, sandboxRunner packval.SandboxRunner) (packCoverageDispatchResult, error) {
 	_ = scope
 	records := []check.CoverageRecord{}
+	nativeApplied := false
 	for _, manifest := range packs {
 		packRoot := filepath.Join(packDir, filepath.FromSlash(manifest.NormalizedName))
 
@@ -356,7 +368,7 @@ func dispatchPackCoverage(packs []*pack.Manifest, packDir, projectRoot string, s
 		for _, engineName := range order {
 			binding, lookupErr := registry.Lookup(engineName)
 			if lookupErr != nil {
-				return nil, fmt.Errorf("pack %s: %w", manifest.NormalizedName, lookupErr)
+				return packCoverageDispatchResult{}, fmt.Errorf("pack %s: %w", manifest.NormalizedName, lookupErr)
 			}
 			// Route SOLELY on the declared GateType. A non-coverage engine is skipped
 			// here — it belongs to the SARIF findings channel (dispatchPackEngines),
@@ -365,14 +377,15 @@ func dispatchPackCoverage(packs []*pack.Manifest, packDir, projectRoot string, s
 				continue
 			}
 			rules := grouped[engineName]
-			recs, err := runCoverageEngine(manifest, packRoot, projectRoot, binding, rules, runner)
+			recs, applied, err := runCoverageEngineWithEvidence(manifest, packRoot, projectRoot, binding, rules, runner, sandboxRunner)
 			if err != nil {
-				return nil, fmt.Errorf("dispatching coverage engine %q for pack %s: %w", engineName, manifest.NormalizedName, err)
+				return packCoverageDispatchResult{NativeSandboxApplied: nativeApplied || applied}, fmt.Errorf("dispatching coverage engine %q for pack %s: %w", engineName, manifest.NormalizedName, err)
 			}
+			nativeApplied = nativeApplied || applied
 			records = append(records, recs...)
 		}
 	}
-	return records, nil
+	return packCoverageDispatchResult{Records: records, NativeSandboxApplied: nativeApplied}, nil
 }
 
 // configErrorPassthrough returns a dispatch trust-gate error UNCHANGED, preserving
@@ -405,6 +418,20 @@ func neverStartedError(manifest *pack.Manifest, invoked string, runErr error) er
 // the engine's native profile is not coverage-records, so a convert is required to
 // normalize it.
 func runCoverageEngine(manifest *pack.Manifest, packRoot, projectRoot string, binding engine.EngineBinding, rules []pack.Rule, runner check.CommandRunner) ([]check.CoverageRecord, error) {
+	sandboxRunner, err := packval.NewSandboxRunner(packval.SandboxModeNative)
+	if err != nil {
+		return nil, err
+	}
+	return runCoverageEngineUsingSandbox(manifest, packRoot, projectRoot, binding, rules, runner, sandboxRunner, nil)
+}
+
+func runCoverageEngineWithEvidence(manifest *pack.Manifest, packRoot, projectRoot string, binding engine.EngineBinding, rules []pack.Rule, runner check.CommandRunner, sandboxRunner packval.SandboxRunner) ([]check.CoverageRecord, bool, error) {
+	applied := false
+	records, err := runCoverageEngineUsingSandbox(manifest, packRoot, projectRoot, binding, rules, runner, sandboxRunner, &applied)
+	return records, applied, err
+}
+
+func runCoverageEngineUsingSandbox(manifest *pack.Manifest, packRoot, projectRoot string, binding engine.EngineBinding, rules []pack.Rule, runner check.CommandRunner, sandboxRunner packval.SandboxRunner, nativeApplied *bool) ([]check.CoverageRecord, error) {
 	inputs, err := gatherEngineInputs(manifest, packRoot, binding, rules)
 	if err != nil {
 		return nil, fmt.Errorf("gathering coverage engine inputs for pack %s: %w", manifest.NormalizedName, err)
@@ -494,12 +521,15 @@ func runCoverageEngine(manifest *pack.Manifest, packRoot, projectRoot string, bi
 	if info, statErr := os.Stat(convertPath); statErr != nil || info.IsDir() {
 		return nil, fmt.Errorf("broken pack %s: missing coverage convert script %s", manifest.NormalizedName, convertPath)
 	}
-	normalized, convErr := resolveSandboxedRunStdout()(convertPath, nil, packRoot, payload)
+	converted, convErr := sandboxRunner.RunStdout(convertPath, nil, packRoot, payload)
+	if nativeApplied != nil {
+		*nativeApplied = *nativeApplied || converted.NativeSandboxApplied
+	}
 	if convErr != nil {
 		return nil, fmt.Errorf("pack %s: coverage convert step (%s) failed: %w", manifest.NormalizedName, binding.Convert, convErr)
 	}
 
-	records, parseErr := check.ParsePackCoverage(normalized)
+	records, parseErr := check.ParsePackCoverage(converted.Output)
 	if parseErr != nil {
 		return nil, fmt.Errorf("pack %s coverage engine %s: convert/parse to coverage-records failed: %w", manifest.NormalizedName, binding.Command, parseErr)
 	}
@@ -602,7 +632,33 @@ func resolveRulePath(manifest *pack.Manifest, packRoot string, rule pack.Rule) (
 // NAME: core shapes cmdArgs identically either way, so every scope contract on
 // this path survives the swap. See the producer block below for why that differs
 // from the coverage producer's bare invocation.
-func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, scope *gate.GateScope, binding engine.EngineBinding, rules []pack.Rule, runner check.CommandRunner) ([]gate.Violation, error) {
+type findingsSandboxExecution struct {
+	runner        packval.SandboxRunner
+	nativeApplied *bool
+}
+
+func runFindingsEngineWithEvidence(manifest *pack.Manifest, packRoot, projectRoot string, scope *gate.GateScope, binding engine.EngineBinding, rules []pack.Rule, runner check.CommandRunner, sandboxRunner packval.SandboxRunner) ([]gate.Violation, bool, error) {
+	applied := false
+	violations, err := runFindingsEngine(manifest, packRoot, projectRoot, scope, binding, rules, runner, findingsSandboxExecution{
+		runner:        sandboxRunner,
+		nativeApplied: &applied,
+	})
+	return violations, applied, err
+}
+
+func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, scope *gate.GateScope, binding engine.EngineBinding, rules []pack.Rule, runner check.CommandRunner, execution ...findingsSandboxExecution) ([]gate.Violation, error) {
+	var sandboxRunner packval.SandboxRunner
+	var nativeApplied *bool
+	if len(execution) > 0 {
+		sandboxRunner = execution[0].runner
+		nativeApplied = execution[0].nativeApplied
+	} else {
+		var err error
+		sandboxRunner, err = packval.NewSandboxRunner(packval.SandboxModeNative)
+		if err != nil {
+			return nil, fmt.Errorf("construct native sandbox runner: %w", err)
+		}
+	}
 	inputs, err := gatherEngineInputs(manifest, packRoot, binding, rules)
 	if err != nil {
 		return nil, fmt.Errorf("gathering engine inputs for pack %s: %w", manifest.NormalizedName, err)
@@ -846,11 +902,14 @@ func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, sc
 		if info, statErr := os.Stat(convertPath); statErr != nil || info.IsDir() {
 			return nil, fmt.Errorf("broken pack %s: missing convert script %s", manifest.NormalizedName, convertPath)
 		}
-		converted, convErr := resolveSandboxedRunStdout()(convertPath, nil, packRoot, payload)
+		converted, convErr := sandboxRunner.RunStdout(convertPath, nil, packRoot, payload)
+		if nativeApplied != nil {
+			*nativeApplied = *nativeApplied || converted.NativeSandboxApplied
+		}
 		if convErr != nil {
 			return nil, fmt.Errorf("pack %s: convert step (%s) failed: %w", manifest.NormalizedName, binding.Convert, convErr)
 		}
-		sarifBytes = converted
+		sarifBytes = converted.Output
 	}
 
 	checkViolations, parseErr := check.ParsePackFindings(sarifBytes)
@@ -1050,18 +1109,19 @@ func checkEngineToolAllowed(manifest *pack.Manifest, binding engine.EngineBindin
 	return nil
 }
 
-// runSandboxEngine is the exit-code terminal branch relocated from
+// runSandboxEngineWithEvidence is the exit-code terminal branch relocated from
 // runPackValidators (REQ-014/CLM-066/CLM-067), re-keyed from rule.Layer==3 to
 // engine==sandbox. It preserves the single-file/multi-file target fan-out and
 // the SandboxedRun (CombinedOutput) capture as the violation message body, and
 // never enters convert or parseSarif.
-func runSandboxEngine(manifest *pack.Manifest, packRoot, projectRoot string, rules []pack.Rule) ([]gate.Violation, error) {
+func runSandboxEngineWithEvidence(manifest *pack.Manifest, packRoot, projectRoot string, rules []pack.Rule, sandboxRunner packval.SandboxRunner) ([]gate.Violation, bool, error) {
 	violations := []gate.Violation{}
+	nativeApplied := false
 	for _, rule := range rules {
 		validatorPath := filepath.Join(packRoot, filepath.FromSlash(rule.Validator))
 		info, statErr := os.Stat(validatorPath)
 		if statErr != nil || info.IsDir() {
-			return nil, fmt.Errorf("broken pack %s: missing validator %s", manifest.NormalizedName, validatorPath)
+			return nil, nativeApplied, fmt.Errorf("broken pack %s: missing validator %s", manifest.NormalizedName, validatorPath)
 		}
 
 		targets := []string{projectRoot}
@@ -1078,12 +1138,13 @@ func runSandboxEngine(manifest *pack.Manifest, packRoot, projectRoot string, rul
 				return nil
 			})
 			if walkErr != nil {
-				return nil, fmt.Errorf("walking project files for %s: %w", manifest.NormalizedName, walkErr)
+				return nil, nativeApplied, fmt.Errorf("walking project files for %s: %w", manifest.NormalizedName, walkErr)
 			}
 		}
 
 		for _, target := range targets {
-			output, err := resolveSandboxedRun()(validatorPath, []string{target}, packRoot)
+			result, err := sandboxRunner.Run(validatorPath, []string{target}, packRoot)
+			nativeApplied = nativeApplied || result.NativeSandboxApplied
 			if err == nil {
 				continue
 			}
@@ -1092,7 +1153,7 @@ func runSandboxEngine(manifest *pack.Manifest, packRoot, projectRoot string, rul
 			if ruleID == "" {
 				ruleID = pack.NamespacedRuleID(manifest.NormalizedName, rule.ID)
 			}
-			message := strings.TrimSpace(string(output))
+			message := strings.TrimSpace(string(result.Output))
 			if message == "" {
 				message = err.Error()
 			}
@@ -1104,7 +1165,7 @@ func runSandboxEngine(manifest *pack.Manifest, packRoot, projectRoot string, rul
 			})
 		}
 	}
-	return violations, nil
+	return violations, nativeApplied, nil
 }
 
 // splitCommand splits a binding's Command string ("semgrep", "ast-grep scan")

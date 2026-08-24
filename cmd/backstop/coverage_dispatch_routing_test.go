@@ -14,22 +14,22 @@ import (
 // gate_type; the convert emits coverage-records JSON and dispatchPackCoverage
 // terminates in the records parser.
 func TestDispatch_CoverageGateTypeRoutesToRecordsParser(t *testing.T) {
-	stubSandboxedRunStdout(t, nil)
+	sandboxRunner := directConvertSandboxRunner(nil)
 	packsDir := coverageRoutingPacksDir(t, coverageRecordsJSON())
 	manifest := gateTypeRoutingManifest("cov-engine", engine.GateTypeCoverage)
 	runner := &fixtureRunner{byCmd: map[string][]byte{"neutral-tool": []byte("raw coverage profile")}}
 
-	records, err := dispatchPackCoverage([]*pack.Manifest{manifest}, packsDir, t.TempDir(), nil, runner)
+	result, err := dispatchPackCoverageWithEvidence([]*pack.Manifest{manifest}, packsDir, t.TempDir(), nil, runner, sandboxRunner)
 	if err != nil {
 		t.Fatalf("dispatchPackCoverage (coverage gate type): %v", err)
 	}
-	if len(records) != 2 {
-		t.Fatalf("a coverage engine must route to the records parser and yield records, got %d: %#v", len(records), records)
+	if len(result.Records) != 2 {
+		t.Fatalf("a coverage engine must route to the records parser and yield records, got %d: %#v", len(result.Records), result.Records)
 	}
 	// The records carry RAW COUNTS and the pack-declared metric — proof the
 	// coverage-records parser (not the SARIF parser) produced them.
-	if records[0].Metric != "statement" || records[0].Total == 0 {
-		t.Errorf("expected real coverage records with metric+counts, got %#v", records[0])
+	if result.Records[0].Metric != "statement" || result.Records[0].Total == 0 {
+		t.Errorf("expected real coverage records with metric+counts, got %#v", result.Records[0])
 	}
 }
 
@@ -40,7 +40,7 @@ func TestDispatch_CoverageGateTypeRoutesToRecordsParser(t *testing.T) {
 // violations for a coverage-only pack: the coverage engine is partitioned out of the
 // findings dispatch.
 func TestDispatch_CoverageEngineOutputNotParsedAsSarif(t *testing.T) {
-	stubSandboxedRunStdout(t, nil)
+	sandboxRunner := directConvertSandboxRunner(nil)
 	packsDir := coverageRoutingPacksDir(t, coverageRecordsJSON())
 	manifest := gateTypeRoutingManifest("cov-engine", engine.GateTypeCoverage)
 	runner := &fixtureRunner{byCmd: map[string][]byte{"neutral-tool": []byte("raw coverage profile")}}
@@ -48,12 +48,12 @@ func TestDispatch_CoverageEngineOutputNotParsedAsSarif(t *testing.T) {
 	// The SARIF channel must NOT absorb the coverage engine: dispatchPackEngines runs
 	// only the generic findings stages over rules whose engine is NOT a dedicated-step
 	// gate-type, so a coverage-only pack yields zero SARIF violations.
-	violations, err := dispatchPackEngines(excludeDedicatedStepRules([]*pack.Manifest{manifest}), packsDir, t.TempDir(), nil, runner)
+	result, err := dispatchPackEnginesWithEvidence(excludeDedicatedStepRules([]*pack.Manifest{manifest}), packsDir, t.TempDir(), nil, runner, sandboxRunner)
 	if err != nil {
 		t.Fatalf("dispatchPackEngines over a coverage-only pack: %v", err)
 	}
-	if len(violations) != 0 {
-		t.Fatalf("a coverage engine's output must NEVER be parsed as SARIF; got %d findings: %#v", len(violations), violations)
+	if len(result.Violations) != 0 {
+		t.Fatalf("a coverage engine's output must NEVER be parsed as SARIF; got %d findings: %#v", len(result.Violations), result.Violations)
 	}
 }
 
@@ -93,16 +93,16 @@ func TestDispatch_FindingsEngineRoutesToSarifNotCoverage(t *testing.T) {
 // coverage dispatch entirely.
 func assertNonCoverageGateTypeYieldsNoRecords(t *testing.T, engineName string, gt engine.GateType) {
 	t.Helper()
-	stubSandboxedRunStdout(t, nil)
+	sandboxRunner := directConvertSandboxRunner(nil)
 	packsDir := coverageRoutingPacksDir(t, sarifFindingsJSON())
 	manifest := gateTypeRoutingManifest(engineName, gt)
 	runner := &fixtureRunner{byCmd: map[string][]byte{"neutral-tool": []byte("raw output")}}
 
-	records, err := dispatchPackCoverage([]*pack.Manifest{manifest}, packsDir, t.TempDir(), nil, runner)
+	result, err := dispatchPackCoverageWithEvidence([]*pack.Manifest{manifest}, packsDir, t.TempDir(), nil, runner, sandboxRunner)
 	if err != nil {
 		t.Fatalf("dispatchPackCoverage over a %s engine: %v", gt, err)
 	}
-	if len(records) != 0 {
-		t.Fatalf("a %s engine must route to SARIF, NOT the coverage-records channel; got %d records: %#v", gt, len(records), records)
+	if len(result.Records) != 0 {
+		t.Fatalf("a %s engine must route to SARIF, NOT the coverage-records channel; got %d records: %#v", gt, len(result.Records), result.Records)
 	}
 }

@@ -3,6 +3,8 @@
 package packval
 
 import (
+	"errors"
+	"io"
 	"os"
 	"strings"
 	"testing"
@@ -102,7 +104,7 @@ func TestKernelRelease_ReportsSomething(t *testing.T) {
 	}
 }
 
-// TestNewSandboxHelperCommand_RefusesWhenTheMechanismIsUnavailable drives the
+// TestNewSandboxHelperInvocation_RefusesWhenTheMechanismIsUnavailable drives the
 // refusal branch through the injected prober.
 //
 // This is the statement that gates two more: platformSandboxedRun and
@@ -113,19 +115,19 @@ func TestKernelRelease_ReportsSomething(t *testing.T) {
 // The behaviour it locks is CLM-015's: an unavailable mechanism REFUSES rather than
 // falling through to an unsandboxed exec. A version that logged and continued would
 // run pack-supplied code with no confinement — the defect ISSUE-020 exists to fix.
-func TestNewSandboxHelperCommand_RefusesWhenTheMechanismIsUnavailable(t *testing.T) {
+func TestNewSandboxHelperInvocation_RefusesWhenTheMechanismIsUnavailable(t *testing.T) {
 	unavailable := func() (int, string, error) {
 		return 0, "6.17.0-test", unix.ENOSYS
 	}
 
-	helper, err := newSandboxHelperCommand("/bin/echo", []string{"hi"}, t.TempDir(), unavailable)
+	invocation, err := newSandboxHelperInvocation("/bin/echo", []string{"hi"}, t.TempDir(), unavailable)
 
 	if err == nil {
-		t.Fatalf("an unavailable Landlock mechanism must REFUSE; got a runnable command (%v) and no error. "+
-			"Falling through here runs pack-supplied code unsandboxed", helper)
+		t.Fatalf("an unavailable Landlock mechanism must REFUSE; got a runnable invocation (%v) and no error. "+
+			"Falling through here runs pack-supplied code unsandboxed", invocation)
 	}
-	if helper != nil {
-		t.Errorf("a refusal must return no command, got %v — a caller that ignored the error would exec it", helper)
+	if invocation != nil {
+		t.Errorf("a refusal must return no invocation, got %v — a caller that ignored the error would exec it", invocation)
 	}
 	if !strings.Contains(err.Error(), "negotiate the Landlock mechanism") {
 		t.Errorf("the refusal must name what failed; got: %v", err)
@@ -135,7 +137,7 @@ func TestNewSandboxHelperCommand_RefusesWhenTheMechanismIsUnavailable(t *testing
 // TestLinuxSandboxedRunWith_WrapsThePrepareFailure drives platformSandboxedRun's
 // refusal wrap, which is unreachable through the production entry point.
 //
-// The wrap only fires when newSandboxHelperCommand fails from INSIDE this function,
+// The wrap only fires when newSandboxHelperInvocation fails from INSIDE this function,
 // and the production call site passes the real prober — as
 // TestSandboxLinux_ProductionPathUsesTheRealABIProbe enforces, from the untagged
 // sandbox_wiring_guard_test.go where it now lives so it runs on every platform — so
@@ -179,5 +181,71 @@ func TestLinuxSandboxedRunStdoutWith_WrapsThePrepareFailure(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "prepare the linux sandbox") {
 		t.Errorf("expected the prepare-failure wrap, got: %v", err)
+	}
+}
+
+func TestWriteSandboxAcknowledgement_WritesOneByteAndCloses(t *testing.T) {
+	readEnd, writeEnd, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer readEnd.Close()
+	if err := writeSandboxAcknowledgement(int(writeEnd.Fd())); err != nil {
+		t.Fatal(err)
+	}
+	got, err := io.ReadAll(readEnd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != sandboxAckByte {
+		t.Fatalf("acknowledgement=%x, want exactly %x", got, sandboxAckByte)
+	}
+	if _, err := writeEnd.Write([]byte("still-open")); err == nil {
+		t.Fatal("acknowledgement writer remained open")
+	}
+	if err := writeSandboxAcknowledgement(-1); err == nil {
+		t.Fatal("invalid acknowledgement descriptor returned success")
+	}
+}
+
+func TestSeccompPolicyHelpers_ResolveConcretePolicyBeforeInstall(t *testing.T) {
+	for _, test := range []struct {
+		goarch  string
+		want    uint32
+		wantErr bool
+	}{
+		{goarch: "amd64", want: uint32(unix.AUDIT_ARCH_X86_64)},
+		{goarch: "arm64", want: uint32(unix.AUDIT_ARCH_AARCH64)},
+		{goarch: "unsupported", wantErr: true},
+	} {
+		got, err := seccompAuditArch(test.goarch)
+		if test.wantErr != (err != nil) || got != test.want {
+			t.Errorf("seccompAuditArch(%q)=%d,%v; want %d,error=%v", test.goarch, got, err, test.want, test.wantErr)
+		}
+	}
+
+	known := []string{"socket", "socketpair", "connect", "bind", "sendto", "sendmsg", "sendmmsg", "recvfrom", "recvmsg", "recvmmsg", "io_uring_setup", "io_uring_enter"}
+	for _, name := range known {
+		numbers, err := seccompSyscallNumbers([]string{name})
+		if err != nil || len(numbers) != 1 || numbers[0] == 0 {
+			t.Errorf("seccompSyscallNumbers(%q)=%v,%v", name, numbers, err)
+		}
+	}
+	if _, err := seccompSyscallNumbers([]string{"not-a-real-syscall"}); err == nil {
+		t.Fatal("unknown denied syscall was silently omitted")
+	}
+
+	installerCalls := 0
+	installerErr := errors.New("installer sentinel")
+	installer := func(got SandboxRestrictionSpec) error {
+		installerCalls++
+		return installerErr
+	}
+	if err := applySeccompPolicy(SandboxRestrictionSpec{}, installer); err != nil || installerCalls != 0 {
+		t.Fatalf("empty policy error/calls=%v/%d, want nil/0", err, installerCalls)
+	}
+	policy := DeriveSandboxRestrictions(ConvertValidatorCapability(t.TempDir(), 6))
+	if err := applySeccompPolicy(policy, installer); !errors.Is(err, installerErr) || installerCalls != 1 {
+		t.Fatalf("non-empty policy error/calls=%v/%d, want sentinel/1", err, installerCalls)
 	}
 }

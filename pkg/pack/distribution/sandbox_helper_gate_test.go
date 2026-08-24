@@ -1,17 +1,22 @@
 package distribution_test
 
 import (
+	"errors"
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
+
+	"github.com/backstop-ai/backstop-core/pkg/packval"
 )
 
 // sandbox_helper_gate_test.go (PLAN-ISSUE-180, CLM-001, CLM-002, CLM-004).
 //
 // WHAT THIS PINS. The Linux sandbox is a RE-EXEC TRAMPOLINE:
-// newSandboxHelperCommand (pkg/packval/sandbox_linux.go) spawns os.Executable()
+// newSandboxHelperInvocation (pkg/packval/sandbox_linux.go) spawns os.Executable()
 // with BACKSTOP_SANDBOX_HELPER_SPEC set and helper.Dir pointed at the pack
 // directory — and under `go test` os.Executable() is THIS PACKAGE'S OWN COMPILED
 // TEST BINARY. Without a TestMain that recognises helper mode, Go's DEFAULT
@@ -214,6 +219,25 @@ func TestDistributionTestMain_OpensWithSandboxHelperGate(t *testing.T) {
 	}
 }
 
+func TestDistributionTestMain_PropagatesDarwinHelperCompletion(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("sandbox-exec helper completion is Darwin-only")
+	}
+	runner, err := packval.NewSandboxRunner(packval.SandboxModeNative)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packDir := t.TempDir()
+	if result, err := runner.Run("/usr/bin/true", nil, packDir); err != nil {
+		t.Fatalf("target exit 0 did not propagate through distribution TestMain: %v: %s", err, result.Output)
+	}
+	_, runErr := runner.Run("/bin/sh", []string{"-c", "exit 37"}, packDir)
+	var exitErr *exec.ExitError
+	if !errors.As(runErr, &exitErr) || exitErr.ExitCode() != 37 {
+		t.Fatalf("completion error=%v, want exit 37", runErr)
+	}
+}
+
 // sandboxGateFindTestMain returns the `func TestMain(m *testing.M)` declaration in
 // file, or nil. It matches BY NAME — never by line number, which moves across lanes.
 func sandboxGateFindTestMain(file *ast.File) *ast.FuncDecl {
@@ -258,15 +282,12 @@ func sandboxGateIdentNamed(expr ast.Expr, name string) bool {
 	return ok && ident.Name == name
 }
 
-// sandboxGateExitArgument returns the single argument of the first os.Exit call in
-// body.
+// sandboxGateExitArgument returns the single argument of the last os.Exit call in
+// body. Typed completion exits first; the last exit is the ordinary setup error.
 func sandboxGateExitArgument(body *ast.BlockStmt) (ast.Expr, bool) {
 	var arg ast.Expr
 	var found bool
 	ast.Inspect(body, func(n ast.Node) bool {
-		if found {
-			return false
-		}
 		call, ok := n.(*ast.CallExpr)
 		if !ok {
 			return true
@@ -280,7 +301,7 @@ func sandboxGateExitArgument(body *ast.BlockStmt) (ast.Expr, bool) {
 		}
 		arg = call.Args[0]
 		found = true
-		return false
+		return true
 	})
 	return arg, found
 }

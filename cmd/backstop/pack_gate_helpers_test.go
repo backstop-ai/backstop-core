@@ -7,6 +7,7 @@ import (
 
 	"github.com/backstop-ai/backstop-core/pkg/config"
 	"github.com/backstop-ai/backstop-core/pkg/pack"
+	"github.com/backstop-ai/backstop-core/pkg/packval"
 )
 
 // TestGateViolationsToCheck / TestPackNamesFromManifests were removed with the
@@ -139,11 +140,11 @@ func TestDispatchSemgrep_GathersRuleFlagsInputs(t *testing.T) {
 			},
 		},
 	}}
-	orig := sandboxedRun
-	sandboxedRun = func(string, []string, string) ([]byte, error) { return nil, nil }
-	t.Cleanup(func() { sandboxedRun = orig })
+	sandboxRunner := &recordingSandboxRunner{mode: packval.SandboxModeNative, runFn: func(string, []string, string) (packval.SandboxRunResult, error) {
+		return packval.SandboxRunResult{}, nil
+	}}
 
-	if _, err := dispatchPackEngines(manifests, packDir, t.TempDir(), nil, rec); err != nil {
+	if _, err := dispatchPackEnginesWithEvidence(manifests, packDir, t.TempDir(), nil, rec, sandboxRunner); err != nil {
 		t.Fatalf("dispatchPackEngines: %v", err)
 	}
 	configs := 0

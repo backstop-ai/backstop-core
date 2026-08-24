@@ -38,7 +38,7 @@ func TestAbsorbSpec034_Step2DeletionCompletedNotGoOnly(t *testing.T) {
 // dispatchPackEngines after the deletion (CLM-024).
 func TestAbsorbSpec034_BridgeStillDispatchesToolchainPasses(t *testing.T) {
 	m := goToolchainManifest(t)
-	stubSandboxedRunStdout(t, nil)
+	sandboxRunner := directConvertSandboxRunner(nil)
 	runner := &fixtureRunner{byCmd: map[string][]byte{
 		"go build":      readFixture(t, "go-build-errors.txt"),
 		"go test":       readFixture(t, "go-test-failures.txt"),
@@ -47,12 +47,12 @@ func TestAbsorbSpec034_BridgeStillDispatchesToolchainPasses(t *testing.T) {
 	// Partition dedicated-step gate-types out of the SARIF findings dispatch as the
 	// production gate does — the SPEC-042 go-coverage engine routes to the
 	// coverage-records channel, not SARIF.
-	violations, err := dispatchPackEngines(excludeDedicatedStepRules([]*pack.Manifest{m}), goToolchainPacksDir(t), t.TempDir(), nil, runner)
+	result, err := dispatchPackEnginesWithEvidence(excludeDedicatedStepRules([]*pack.Manifest{m}), goToolchainPacksDir(t), t.TempDir(), nil, runner, sandboxRunner)
 	if err != nil {
 		t.Fatalf("the bridge must still dispatch toolchain passes after the deletion (CLM-024): %v", err)
 	}
-	if len(violations) != 8 {
-		t.Fatalf("expected the 8 toolchain pass violations through dispatch, got %d (CLM-024)", len(violations))
+	if len(result.Violations) != 8 {
+		t.Fatalf("expected the 8 toolchain pass violations through dispatch, got %d (CLM-024)", len(result.Violations))
 	}
 }
 

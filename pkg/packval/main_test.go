@@ -1,6 +1,7 @@
 package packval
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"testing"
@@ -42,6 +43,10 @@ func TestMain(m *testing.M) {
 	// install. Running the suite at that point would be worse than useless: the
 	// parent would read the suite's output as the sandboxed command's output.
 	if err := MaybeRunSandboxHelper(); err != nil {
+		var completion interface{ ExitCode() int }
+		if errors.As(err, &completion) {
+			os.Exit(completion.ExitCode())
+		}
 		fmt.Fprintf(os.Stderr, "backstop sandbox helper: %v\n", err)
 		os.Exit(126)
 	}

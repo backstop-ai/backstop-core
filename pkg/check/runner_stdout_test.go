@@ -2,8 +2,10 @@ package check
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestRunner_StdoutSeparateFromStderr proves the dispatch runner returns stdout
@@ -23,6 +25,27 @@ func TestRunner_StdoutSeparateFromStderr(t *testing.T) {
 	}
 	if !strings.Contains(got, `{"version":"2.1.0"}`) {
 		t.Fatalf("stdout missing the engine payload: %q", got)
+	}
+}
+
+func TestRunner_ContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	for name, run := range map[string]func(context.Context, string, ...string) ([]byte, error){
+		"Run":       (&ExecCommandRunner{}).Run,
+		"RunStdout": (&ExecCommandRunner{}).RunStdout,
+	} {
+		t.Run(name, func(t *testing.T) {
+			started := time.Now()
+			_, err := run(ctx, "sh", "-c", "sleep 10")
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("error = %v, want context.Canceled", err)
+			}
+			if elapsed := time.Since(started); elapsed > time.Second {
+				t.Fatalf("cancellation took %v", elapsed)
+			}
+		})
 	}
 }
 

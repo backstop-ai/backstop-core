@@ -11,6 +11,7 @@ import (
 	"github.com/backstop-ai/backstop-core/pkg/baseengines"
 	"github.com/backstop-ai/backstop-core/pkg/pack"
 	"github.com/backstop-ai/backstop-core/pkg/pack/engine"
+	"github.com/backstop-ai/backstop-core/pkg/packval"
 )
 
 func TestGateIntegration_LoadsPacksFromConfig(t *testing.T) {
@@ -129,11 +130,11 @@ func TestGateIntegration_SemgrepRulesMerged(t *testing.T) {
 	}
 
 	rec := &capturingRunner{out: []byte(`{"version":"2.1.0","runs":[]}`)}
-	orig := sandboxedRun
-	sandboxedRun = func(string, []string, string) ([]byte, error) { return nil, nil }
-	defer func() { sandboxedRun = orig }()
+	sandboxRunner := &recordingSandboxRunner{mode: packval.SandboxModeNative, runFn: func(string, []string, string) (packval.SandboxRunResult, error) {
+		return packval.SandboxRunResult{}, nil
+	}}
 
-	if _, err := dispatchPackEngines(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, nil, rec); err != nil {
+	if _, err := dispatchPackEnginesWithEvidence(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, nil, rec, sandboxRunner); err != nil {
 		t.Fatalf("dispatchPackEngines: %v", err)
 	}
 	var rulePaths []string
@@ -180,8 +181,7 @@ func TestGateIntegration_SandboxValidatorExecuted(t *testing.T) {
 	}
 
 	var called bool
-	orig := sandboxedRun
-	sandboxedRun = func(cmd string, args []string, packDir string) ([]byte, error) {
+	sandboxRunner := &recordingSandboxRunner{mode: packval.SandboxModeNative, runFn: func(cmd string, args []string, packDir string) (packval.SandboxRunResult, error) {
 		called = true
 		if !strings.Contains(cmd, "check-middleware.sh") {
 			t.Fatalf("unexpected validator command %q", cmd)
@@ -189,19 +189,18 @@ func TestGateIntegration_SandboxValidatorExecuted(t *testing.T) {
 		if len(args) != 1 || args[0] != projectRoot {
 			t.Fatalf("expected full-project arg %q, got %#v", projectRoot, args)
 		}
-		return []byte("middleware.go missing"), errors.New("exit status 1")
-	}
-	defer func() { sandboxedRun = orig }()
+		return packval.SandboxRunResult{Output: []byte("middleware.go missing"), NativeSandboxApplied: true}, errors.New("exit status 1")
+	}}
 
-	violations, err := dispatchPackEngines(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, nil, emptySarifRunner{})
+	result, err := dispatchPackEnginesWithEvidence(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, nil, emptySarifRunner{}, sandboxRunner)
 	if err != nil {
 		t.Fatalf("dispatchPackEngines: %v", err)
 	}
 	if !called {
 		t.Fatal("expected validator execution")
 	}
-	if len(violations) != 1 {
-		t.Fatalf("expected 1 violation, got %d", len(violations))
+	if len(result.Violations) != 1 || !result.NativeSandboxApplied {
+		t.Fatalf("expected 1 acknowledged violation, got %#v", result)
 	}
 }
 
@@ -215,21 +214,19 @@ func TestGateIntegration_SandboxNamespacedIDs(t *testing.T) {
 		t.Fatalf("loadInstalledPacks: %v", err)
 	}
 
-	orig := sandboxedRun
-	sandboxedRun = func(cmd string, args []string, packDir string) ([]byte, error) {
-		return []byte("middleware.go missing"), errors.New("exit status 1")
-	}
-	defer func() { sandboxedRun = orig }()
+	sandboxRunner := &recordingSandboxRunner{mode: packval.SandboxModeNative, runFn: func(string, []string, string) (packval.SandboxRunResult, error) {
+		return packval.SandboxRunResult{Output: []byte("middleware.go missing")}, errors.New("exit status 1")
+	}}
 
-	violations, err := dispatchPackEngines(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, nil, emptySarifRunner{})
+	result, err := dispatchPackEnginesWithEvidence(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, nil, emptySarifRunner{}, sandboxRunner)
 	if err != nil {
 		t.Fatalf("dispatchPackEngines: %v", err)
 	}
-	if len(violations) == 0 {
+	if len(result.Violations) == 0 {
 		t.Fatal("expected validator violation")
 	}
-	if !strings.HasPrefix(violations[0].Rule, "test-org/test-pack/") {
-		t.Fatalf("expected namespaced rule id, got %q", violations[0].Rule)
+	if !strings.HasPrefix(result.Violations[0].Rule, "test-org/test-pack/") {
+		t.Fatalf("expected namespaced rule id, got %q", result.Violations[0].Rule)
 	}
 }
 
@@ -262,10 +259,8 @@ func TestGateIntegration_ToolConfigApplied(t *testing.T) {
 		t.Fatal("fixture pack should include tool_config")
 	}
 	rec := &capturingRunner{out: []byte(`{"version":"2.1.0","runs":[]}`)}
-	orig := sandboxedRun
-	sandboxedRun = func(string, []string, string) ([]byte, error) { return nil, nil }
-	defer func() { sandboxedRun = orig }()
-	if _, err := dispatchPackEngines(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, nil, rec); err != nil {
+	sandboxRunner := &recordingSandboxRunner{mode: packval.SandboxModeNative}
+	if _, err := dispatchPackEnginesWithEvidence(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, nil, rec, sandboxRunner); err != nil {
 		t.Fatalf("dispatchPackEngines should not require runtime tool_config merge: %v", err)
 	}
 	configs := 0
@@ -291,16 +286,14 @@ func TestGateIntegration_MultiplePacksEnforced(t *testing.T) {
 
 	rec := &capturingRunner{out: []byte(`{"version":"2.1.0","runs":[]}`)}
 
-	orig := sandboxedRun
-	sandboxedRun = func(cmd string, args []string, packDir string) ([]byte, error) {
+	sandboxRunner := &recordingSandboxRunner{mode: packval.SandboxModeNative, runFn: func(cmd string, args []string, packDir string) (packval.SandboxRunResult, error) {
 		if strings.Contains(cmd, "check-printf.sh") {
-			return []byte("fmt.Printf usage detected"), errors.New("exit status 1")
+			return packval.SandboxRunResult{Output: []byte("fmt.Printf usage detected")}, errors.New("exit status 1")
 		}
-		return []byte("ok"), nil
-	}
-	defer func() { sandboxedRun = orig }()
+		return packval.SandboxRunResult{Output: []byte("ok")}, nil
+	}}
 
-	violations, err := dispatchPackEngines(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, nil, rec)
+	result, err := dispatchPackEnginesWithEvidence(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, nil, rec, sandboxRunner)
 	if err != nil {
 		t.Fatalf("dispatchPackEngines: %v", err)
 	}
@@ -308,8 +301,8 @@ func TestGateIntegration_MultiplePacksEnforced(t *testing.T) {
 	if len(rec.allConfigs) < 1 {
 		t.Fatalf("expected the first pack's semgrep rule input gathered, got %v", rec.allConfigs)
 	}
-	if len(violations) != 1 {
-		t.Fatalf("expected one engine: sandbox violation from second pack, got %d", len(violations))
+	if len(result.Violations) != 1 {
+		t.Fatalf("expected one engine: sandbox violation from second pack, got %d", len(result.Violations))
 	}
 }
 
@@ -329,23 +322,21 @@ func TestGateIntegration_MultiPackAttribution(t *testing.T) {
 		Validator:    filepath.Join("..", "other-pack", "validators", "check-printf.sh"),
 	})
 
-	orig := sandboxedRun
-	sandboxedRun = func(cmd string, args []string, packDir string) ([]byte, error) {
-		return []byte("violation"), errors.New("exit status 1")
-	}
-	defer func() { sandboxedRun = orig }()
+	sandboxRunner := &recordingSandboxRunner{mode: packval.SandboxModeNative, runFn: func(string, []string, string) (packval.SandboxRunResult, error) {
+		return packval.SandboxRunResult{Output: []byte("violation")}, errors.New("exit status 1")
+	}}
 
-	violations, err := dispatchPackEngines(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, nil, emptySarifRunner{})
+	result, err := dispatchPackEnginesWithEvidence(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, nil, emptySarifRunner{}, sandboxRunner)
 	if err != nil {
 		t.Fatalf("dispatchPackEngines: %v", err)
 	}
-	if len(violations) < 2 {
-		t.Fatalf("expected at least 2 violations for attribution, got %d", len(violations))
+	if len(result.Violations) < 2 {
+		t.Fatalf("expected at least 2 violations for attribution, got %d", len(result.Violations))
 	}
 
 	foundFirst := false
 	foundSecond := false
-	for _, violation := range violations {
+	for _, violation := range result.Violations {
 		if strings.HasPrefix(violation.Rule, "test-org/test-pack/") && violation.SourcePack == "test-org/test-pack" {
 			foundFirst = true
 		}
@@ -354,7 +345,7 @@ func TestGateIntegration_MultiPackAttribution(t *testing.T) {
 		}
 	}
 	if !foundFirst || !foundSecond {
-		t.Fatalf("expected per-pack attribution, got violations: %#v", violations)
+		t.Fatalf("expected per-pack attribution, got violations: %#v", result.Violations)
 	}
 }
 
@@ -398,16 +389,14 @@ func TestGateIntegration_SandboxSingleFileScope(t *testing.T) {
 	}}
 
 	var calls []string
-	orig := sandboxedRun
-	sandboxedRun = func(cmd string, args []string, dir string) ([]byte, error) {
+	sandboxRunner := &recordingSandboxRunner{mode: packval.SandboxModeNative, runFn: func(cmd string, args []string, dir string) (packval.SandboxRunResult, error) {
 		if len(args) > 0 {
 			calls = append(calls, args[0])
 		}
-		return []byte("fail"), errors.New("exit status 1")
-	}
-	defer func() { sandboxedRun = orig }()
+		return packval.SandboxRunResult{Output: []byte("fail")}, errors.New("exit status 1")
+	}}
 
-	violations, err := dispatchPackEngines(manifests, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, nil, emptySarifRunner{})
+	result, err := dispatchPackEnginesWithEvidence(manifests, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, nil, emptySarifRunner{}, sandboxRunner)
 	if err != nil {
 		t.Fatalf("dispatchPackEngines: %v", err)
 	}
@@ -416,10 +405,10 @@ func TestGateIntegration_SandboxSingleFileScope(t *testing.T) {
 		t.Fatalf("expected at least 2 single-file calls, got %d: %v", len(calls), calls)
 	}
 	// Each violation should be per-file
-	if len(violations) < 2 {
-		t.Fatalf("expected at least 2 violations (one per file), got %d", len(violations))
+	if len(result.Violations) < 2 {
+		t.Fatalf("expected at least 2 violations (one per file), got %d", len(result.Violations))
 	}
-	for _, v := range violations {
+	for _, v := range result.Violations {
 		if v.SourcePack != "test-org/sf-pack" {
 			t.Errorf("expected SourcePack 'test-org/sf-pack', got %q", v.SourcePack)
 		}

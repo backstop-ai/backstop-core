@@ -3,11 +3,16 @@
 package packval
 
 import (
+	"encoding/json"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/backstop-ai/backstop-core/pkg/check"
 )
 
 // TestSandboxProfileAllowsDyldLibraries lives here rather than in
@@ -34,7 +39,10 @@ func TestSandboxProfileAllowsDyldLibraries(t *testing.T) {
 		t.Skip("sandbox-exec / darwinSandboxProfile is macOS-only")
 	}
 	packDir := mustEvalSymlinks(t, t.TempDir())
-	profile := darwinSandboxProfile(packDir)
+	profile, err := darwinSandboxProfile(packDir)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// packDir read must be present and symlink-resolved.
 	if !strings.Contains(profile, "(subpath \""+packDir+"\")") {
@@ -86,7 +94,10 @@ func TestSandboxProfileAllowsDyldLibraries(t *testing.T) {
 // deleting the clause as decorative) from silently re-opening ISSUE-168 here.
 func TestSandboxProfileGrantsDevNullWriteAndNothingElse(t *testing.T) {
 	packDir := mustEvalSymlinks(t, t.TempDir())
-	profile := darwinSandboxProfile(packDir)
+	profile, err := darwinSandboxProfile(packDir)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	const (
 		allowDevNull = "(allow file-write* (literal \"/dev/null\"))"
@@ -133,6 +144,60 @@ func TestSandboxProfileGrantsDevNullWriteAndNothingElse(t *testing.T) {
 	if strings.Contains(profile, "(subpath \"/dev\")") {
 		t.Errorf("profile grants a subpath under /dev — that is every device node, not the one "+
 			"write-only sink this carve-out is scoped to:\n%s", profile)
+	}
+}
+
+func TestSandboxDarwin_ProfilePlumbingPreservesCompletePolicy(t *testing.T) {
+	packDir := mustEvalSymlinks(t, t.TempDir())
+	paths := []string{
+		packDir,
+		"/usr/lib",
+		"/System/Library",
+		"/usr/local/lib",
+		"/usr/local/Cellar",
+		"/usr/local/opt",
+		"/opt/homebrew",
+		"/private/var/db/dyld",
+		"/System/Volumes/Preboot/Cryptexes",
+	}
+	var filters strings.Builder
+	for _, path := range paths {
+		literal, err := seatbeltStringLiteral(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		filters.WriteString(" (subpath " + literal + ")")
+	}
+	want := "(version 1)(import \"bsd.sb\")(deny default)(allow process*)(allow file-read*" +
+		filters.String() +
+		")(deny network*)(deny file-write*)(allow file-write* (literal \"/dev/null\"))"
+	profile, err := darwinSandboxProfile(packDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if profile != want {
+		t.Fatalf("complete Seatbelt policy changed:\ngot  %s\nwant %s", profile, want)
+	}
+	command, err := sandboxExecCommand("/usr/bin/true", []string{"--literal-argument"}, packDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(command.Args) != 5 || command.Args[1] != "-p" || command.Args[2] != want || command.Args[3] != "/usr/bin/true" || command.Args[4] != "--literal-argument" {
+		t.Fatalf("sandbox-exec did not receive the exact policy/argv: %q", command.Args)
+	}
+}
+
+func TestSandboxDarwin_ConfinementCarriesIntoSpawnedChild(t *testing.T) {
+	packDir := mustEvalSymlinks(t, t.TempDir())
+	outsideDir := mustEvalSymlinks(t, t.TempDir())
+	secret := filepath.Join(outsideDir, "inherited-child-secret")
+	const payload = "MUST_NOT_ESCAPE"
+	if err := os.WriteFile(secret, []byte(payload), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := SandboxedRun("/bin/sh", []string{"-c", `/bin/cat "$1"`, "child-probe", secret}, packDir)
+	if err == nil || strings.Contains(string(out), payload) {
+		t.Fatalf("spawned child escaped inherited Seatbelt confinement: err=%v output=%q", err, out)
 	}
 }
 
@@ -191,5 +256,180 @@ func TestSandboxDarwin_DevNullIdiomRunsUnderTheRealProfile(t *testing.T) {
 	}
 	if _, statErr := os.Stat(target); statErr == nil {
 		t.Fatalf("%q exists despite the write denial, so the profile is not denying writes at all", target)
+	}
+}
+
+func TestPackSandbox_DarwinAcknowledgementIsOutOfBandAndProfilePreserving(t *testing.T) {
+	packDir := mustEvalSymlinks(t, t.TempDir())
+	runner, err := NewSandboxRunner(SandboxModeNative)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := runner.RunStdout("/bin/sh", []string{"-c", "printf payload; printf diagnostic >&2"}, packDir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(result.Output) != "payload" {
+		t.Fatalf("stdout contaminated by acknowledgement or stderr: %q", result.Output)
+	}
+	if !result.NativeSandboxApplied {
+		t.Fatal("successful sandbox-exec helper did not acknowledge native application")
+	}
+
+	target := filepath.Join(packDir, "denied")
+	denied, err := runner.Run("/usr/bin/touch", []string{target}, packDir)
+	if err == nil {
+		t.Fatalf("unchanged profile allowed write: %q", denied.Output)
+	}
+	if !denied.NativeSandboxApplied {
+		t.Fatal("profile-applied child failure lost native application evidence")
+	}
+}
+
+func TestSandboxDarwin_SeatbeltDynamicPathCannotInjectClauses(t *testing.T) {
+	for _, path := range []string{
+		`/tmp/quote" close) (allow network*) (subpath "`,
+		`/tmp/back\slash) (allow file-write*)`,
+	} {
+		profile, err := darwinSandboxProfile(path)
+		if err != nil {
+			t.Fatalf("safe metacharacter path %q was rejected: %v", path, err)
+		}
+		literal, err := seatbeltStringLiteral(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(profile, "(subpath "+literal+")") {
+			t.Fatalf("profile did not contain one encoded literal for %q:\n%s", path, profile)
+		}
+		if strings.Contains(profile, path) {
+			t.Fatalf("profile contains the raw injectable path %q:\n%s", path, profile)
+		}
+	}
+
+	for _, path := range []string{"/tmp/new\nline", "/tmp/control\x7f"} {
+		if _, err := darwinSandboxProfile(path); err == nil {
+			t.Fatalf("control-bearing path %q was accepted into a Seatbelt profile", path)
+		}
+	}
+}
+
+func TestSandboxDarwin_TargetExitCodePropagatesExactly(t *testing.T) {
+	packDir := mustEvalSymlinks(t, t.TempDir())
+	runner, err := NewSandboxRunner(SandboxModeNative)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := runner.Run("/bin/sh", []string{"-c", "exit 37"}, packDir)
+	if err == nil {
+		t.Fatal("target exit 37 returned success")
+	}
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 37 {
+		t.Fatalf("target exit was not preserved as 37: %v", err)
+	}
+	if !result.NativeSandboxApplied {
+		t.Fatal("target completion lost the preceding native acknowledgement")
+	}
+}
+
+func TestSandboxDarwin_HelperPreservesStreamsCWDArgumentsAndEnvironment(t *testing.T) {
+	packDir := mustEvalSymlinks(t, t.TempDir())
+	t.Setenv(PackSandboxEnvVar, "native")
+	t.Setenv(sandboxHelperEnvVar, "parent-secret")
+	t.Setenv("BACKSTOP_DARWIN_SENTINEL", "space $() ; * value")
+
+	command, ackRead, err := newDarwinSandboxInvocation("/bin/cat", nil, packDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = ackRead.Close()
+		_ = command.ExtraFiles[0].Close()
+	})
+	var encoded string
+	for _, entry := range command.Env {
+		if strings.HasPrefix(entry, sandboxHelperEnvVar+"=") {
+			encoded = strings.TrimPrefix(entry, sandboxHelperEnvVar+"=")
+		}
+	}
+	var request sandboxHelperRequest
+	if err := json.Unmarshal([]byte(encoded), &request); err != nil {
+		t.Fatalf("decode constructed helper request: %v", err)
+	}
+	wantEnvironment := check.WithoutEnvironment(os.Environ(), sandboxHelperEnvVar, PackSandboxEnvVar)
+	if strings.Join(request.Environment, "\x00") != strings.Join(wantEnvironment, "\x00") {
+		t.Fatalf("helper request environment differs before Start:\ngot  %q\nwant %q", request.Environment, wantEnvironment)
+	}
+
+	runner, err := NewSandboxRunner(SandboxModeNative)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdin := []byte("stdin byte fidelity\nsecond line\n")
+	cat, err := runner.RunStdout("/bin/cat", nil, packDir, stdin)
+	if err != nil || string(cat.Output) != string(stdin) {
+		t.Fatalf("stdin/stdout fidelity result=%q err=%v", cat.Output, err)
+	}
+	pwd, err := runner.RunStdout("/bin/pwd", nil, packDir, nil)
+	if err != nil || strings.TrimSpace(string(pwd.Output)) != packDir {
+		t.Fatalf("cwd output=%q err=%v, want %q", pwd.Output, err, packDir)
+	}
+
+	target := filepath.Join(packDir, "target=with spaces")
+	source := filepath.Join(t.TempDir(), "target.go")
+	body := `package main
+import (
+	"fmt"
+	"os"
+	"syscall"
+)
+func main() {
+	if _, err := syscall.Write(3, []byte("ACK_FD_LEAK")); err == nil { fmt.Println("FD3_OPEN") } else { fmt.Println("FD3_CLOSED") }
+	for _, value := range os.Args { fmt.Println(value) }
+	fmt.Println(os.Getenv("BACKSTOP_PACK_SANDBOX"))
+	fmt.Println(os.Getenv("BACKSTOP_SANDBOX_HELPER_SPEC"))
+	fmt.Println(os.Getenv("BACKSTOP_DARWIN_SENTINEL"))
+}
+`
+	if err := os.WriteFile(source, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	goCommand, err := exec.LookPath("go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	build := exec.Command(goCommand, "build", "-o", target, source)
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build target: %v: %s", err, output)
+	}
+	arguments := []string{"space value", "; touch planted", `$(touch planted)`, "*?[abc]", "--leading-dash", `quote"and\\slash`}
+	result, err := runner.RunStdout(target, arguments, packDir, nil)
+	if err != nil {
+		t.Fatalf("adversarial target: %v, output=%q", err, result.Output)
+	}
+	wantLines := append([]string{"FD3_CLOSED", target}, arguments...)
+	wantLines = append(wantLines, "", "", "space $() ; * value")
+	if got, want := strings.TrimSuffix(string(result.Output), "\n"), strings.Join(wantLines, "\n"); got != want {
+		t.Fatalf("target values changed:\ngot  %q\nwant %q", got, want)
+	}
+	if _, err := os.Stat(filepath.Join(packDir, "planted")); !os.IsNotExist(err) {
+		t.Fatalf("argument text was executed; planted side effect stat error=%v", err)
+	}
+}
+
+func TestSandboxDarwin_SignalCompletionUsesConventionalOrFailClosedCode(t *testing.T) {
+	packDir := mustEvalSymlinks(t, t.TempDir())
+	runner, err := NewSandboxRunner(SandboxModeNative)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = runner.Run("/bin/sh", []string{"-c", "kill -TERM $$"}, packDir)
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("signaled target did not return an exit error: %v", err)
+	}
+	if code := exitErr.ExitCode(); code != 143 && code != sandboxCompletionFallbackExitCode {
+		t.Fatalf("signaled target exit=%d, want 143 or fail-closed fallback %d", code, sandboxCompletionFallbackExitCode)
 	}
 }
