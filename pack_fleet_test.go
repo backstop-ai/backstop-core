@@ -514,7 +514,7 @@ func coverageProfileFixture(declareExclusion bool) string {
 	b.WriteString("mode: set\n")
 	b.WriteString("#backstop-module " + module + "\n")
 	if declareExclusion {
-		b.WriteString(coverageExclusionDirective + " pkg/packval/sandbox_linux_helper.go " +
+		b.WriteString(coverageExclusionDirective + "\tpkg/packval/sandbox_linux_helper.go\t" +
 			"the exec boundary erases these counters; see testdata/sandbox-linux-coverage-profile.txt\n")
 	}
 	// Helper: deliberately BELOW any threshold, so a failure to honour the exclusion
