@@ -75,6 +75,54 @@ notes: |
   stdout/SARIF/coverage remain byte-clean. Unsupported platforms still refuse. The
   evidence is returned per invocation and OR-reduced; no global state is introduced.
 
+  DARWIN TYPED HELPER COMPLETION. No shell trampoline, `/usr/bin/env` reconstruction,
+  new helper production file, global/init, waiver, or coverage exclusion is introduced.
+  sandbox_nonlinux.go remains `!linux` and portable. sandbox-exec re-execs the current
+  Backstop/test binary with BACKSTOP_SANDBOX_HELPER_SPEC. On Darwin only, the existing
+  MaybeRunSandboxHelper entry decodes that typed request, writes and closes the inherited
+  acknowledgement FD, then launches the requested target with portable os/exec.Cmd from
+  inside the already-applied Seatbelt profile. Cmd receives request.Command and Args
+  through explicit fields, request.Dir directly, and the sanitized environment through
+  direct Cmd.Env assignment. The pure check.WithoutEnvironment result still preserves
+  duplicate/order exactly and remains tested as such. At process start, Go os/exec may
+  apply its documented last-value behavior for duplicate keys; the plan does not promise
+  impossible duplicate preservation across exec. Effective unrelated values survive and
+  every BACKSTOP_PACK_SANDBOX duplicate is absent.
+  Stdin/Stdout/Stderr are the helper process streams, so target output and status flow
+  through unchanged. Resolve request.Command with exec.LookPath first, then construct
+  exec.Command with the resolved path so bare PATH commands and observed argv[0] match
+  the current Linux unix.Exec behavior; pathful names containing `=` remain direct data.
+  After Wait, the helper returns a non-nil unexported typed completion error whose
+  ExitCode() method carries the target code, including zero.
+
+  MaybeRunSandboxHelper keeps its public `func() error` signature. Nil means “not a
+  helper” (or Linux success never returned). Ordinary decode/ack/lookpath/start/wait
+  setup errors retain diagnostic/exit 126 handling. cmd/backstop main/runWith and all
+  three TestMain guards use errors.As against a small local
+  `interface{ ExitCode() int }` before ordinary-error handling and return/os.Exit that
+  code before Cobra/tests. The concrete completion error remains unexported; no public
+  result type or signature changes. On non-Darwin non-Linux, helper env is a loud error
+  and executes nothing; absent helper env is nil.
+
+  Signal termination is helper/result plumbing under REQ-004, not confinement policy.
+  Map to conventional 128+signal only when a portable signal number is available. When
+  it is not, return one documented fixed fail-closed nonzero fallback and test that exact
+  fallback. Do not promise exact signal propagation or add platform-specific files.
+
+  The parent sandbox-exec command passes the ack writer through ExtraFiles, closes its
+  copy after start, and reads exactly one byte plus EOF out-of-band. The Darwin helper
+  closes the descriptor before target Start, so the target cannot retain it. Seatbelt is
+  already installed around the helper and inherited by its os/exec child. Linux's helper
+  policy/application/non-return behavior remains unchanged.
+
+  SEATBELT LITERALS. Every dynamic path inserted into the Seatbelt profile goes through
+  one internal encoder for Seatbelt string-literal syntax; raw `%s` path interpolation is
+  forbidden. Quotes and backslashes are escaped, and control characters are either
+  encoded with syntax proven against real sandbox-exec or rejected loudly before child
+  execution when no accepted representation exists. An adversarial packDir can never
+  terminate a `(subpath ...)` clause or inject allow network/write/read rights. This is
+  profile encoding only and does not absorb ISSUE-147's separate relative-path defect.
+
   PRE-EXISTING DARWIN BLOCKER. The full cmd/backstop pack-backed gate executes
   TestPackAuthoringLoop_EndToEnd, which is RED solely because open ISSUE-147 passes a
   relative packDir to sandbox-exec. ISSUE-147 is unrelated, has no validated plan, and
@@ -86,9 +134,9 @@ notes: |
   test/issue attribution, then separately establish ISSUE-185 claim evidence through
   exact targeted diagnostics. A RED
   blocked gate is never called green. No skip, narrowed replacement for the blocked
-  gate, waiver, fallback, or ISSUE-147 code/test change is permitted. TASK-018 onward
-  depends on TASK-016 rather than the unrelated gate outcome, so implementation and
-  independent review may complete. Formal whole-repository gate GREEN remains
+  gate, waiver, fallback, or ISSUE-147 code/test change is permitted. TASK-018/019
+  depend on TASK-017's completed blocked-evidence disposition, not a green gate claim,
+  so implementation and independent review may continue. Formal whole-repository gate GREEN remains
   unavailable while ISSUE-147 is open. TASK-017 is therefore a completed blocked-gate
   evidence disposition when the required RED exits/attribution and targeted diagnostic
   results are both recorded; TASK-018/019 may depend on that disposition without representing
@@ -282,17 +330,88 @@ phases:
 
       - id: TASK-007
         type: test
-        title: "RED: prove Darwin acknowledgement is out-of-band and profile-preserving"
+        title: "RED: prove Darwin typed helper execution and portable refusal"
         description: |
-          Add Darwin tests showing sandbox-exec launches the Backstop helper under the
-          unchanged profile, the helper writes/closes only the inherited control FD
-          before starting the child, and converter stdout plus stderr diagnostics remain
-          byte-clean. A sandbox-exec/profile failure yields false and no pack child.
-          Non-Darwin builds retain a loud unsupported-platform refusal.
+          In sandbox_darwin_test.go, drive the real sandbox-exec/helper completion and
+          prove: acknowledgement is observed before target output/execution; FD 3 closes
+          before target exec; target stdin/stdout/stderr remain faithful; the ack byte
+          never enters stdout/SARIF; a target exit 37 propagates exactly; cwd is packDir;
+          and sandbox inheritance still enforces the unchanged denial profile.
+
+          Add adversarial table rows where packDir, executable path, and arguments contain spaces,
+          semicolons, quotes, dollar/command-substitution text, glob characters, and
+          leading dashes, including a real executable filename containing `=`. The target
+          must receive byte-exact values and no planted side-effect file may appear.
+          Assert no /bin/sh, `/usr/bin/env`, command splitting, or shell source exists.
+
+          Add real and structural Seatbelt-profile adversaries for packDir values with
+          quotes, backslashes, newlines/control bytes supported by the filesystem, and
+          clause payloads such as close-paren plus `(allow network*)`, file-write*, or a
+          broader file-read*. Require safe literal encoding or loud pre-exec rejection.
+          Run targets that attempt network, write outside packDir, and read outside the
+          readable set; all denials must hold and the generated profile must contain no
+          injected top-level clause. Use absolute adversarial packDir paths so this does
+          not test or fix ISSUE-147's relative-path behavior.
+
+          Keep the pure check.WithoutEnvironment tests unchanged: they continue asserting
+          exact ordered duplicates before launch. Separately inspect Cmd.Env before Start
+          to prove direct assignment of that result. At the target, assert effective
+          environment semantics permitted by Go os/exec: every authorization duplicate
+          is absent; unrelated unique/empty/space/metacharacter values survive; and for
+          duplicate unrelated keys the documented last value is observed. Do not claim
+          duplicate/order preservation after process creation.
+
+          Test bare PATH commands and pathful commands. The helper must call exec.LookPath
+          before exec.Command; a target records argv[0] and proves it is the resolved path
+          matching current unix.Exec behavior. A direct executable path containing `=`
+          remains unambiguous and receives the same observed argv[0].
+
+          In sandbox_nonlinux_test.go, assert sandbox_nonlinux.go stays exactly `!linux`,
+          imports no x/sys/unix, declares no init function or initialized mutable helper
+          variable, and no new helper production file exists. With helper env absent,
+          MaybeRunSandboxHelper returns nil. On Darwin with valid helper request it
+          returns the unexported completion error after target Wait, including non-nil
+          completion for exit code 0. On non-Darwin with helper env
+          present it returns the existing loud unsupported error and starts nothing;
+          malformed input is a setup error. Perform a substantive Windows pkg/packval
+          cross-compile. Tests must not add a waiver or weaken acknowledgement/refusal.
+
+          Test normal exit 0 and nonzero exact codes. On Darwin, send SIGTERM to a target:
+          assert 143 only when a portable signal number is available; otherwise assert
+          the fixed documented fail-closed nonzero fallback. Preserve setup-error 126 as
+          a distinct ordinary error path and label signal mapping as REQ-004 plumbing.
         files:
           - pkg/packval/sandbox_darwin_test.go
           - pkg/packval/sandbox_nonlinux_test.go
         claims:
+          - CLM-006
+          - CLM-011
+          - CLM-015
+        depends_on: []
+
+      - id: TASK-028
+        type: test
+        title: "RED: specify typed helper completion at every process guard"
+        description: |
+          Before guard implementation, update existing run/guard tests to require the
+          unchanged `func() error` contract with typed completion classification.
+          cmd/backstop runWith must: proceed to Cobra only on nil; use errors.As against
+          `interface{ ExitCode() int }` and return that code (including 0) without
+          building Cobra or printing an error; and print diagnostics/return 126 only for
+          ordinary errors. Assert no exported SandboxHelperResult or signature change.
+
+          Extend structural TestMain roster tests to require every current guard to
+          classify typed completion first, then os.Exit its code before m.Run; ordinary
+          errors retain diagnostic/126. Add
+          subprocess behavior covering cmd/backstop integration TestMain, packval
+          TestMain, and distribution TestMain with target exit 0, 37, setup error 126,
+          and the selected signal mapping. Preserve first-statement ordering.
+        files:
+          - cmd/backstop/run_test.go
+          - cmd/backstop/sandbox_helper_testmain_guard_test.go
+          - pkg/pack/distribution/sandbox_helper_gate_test.go
+        claims:
+          - CLM-004
           - CLM-006
           - CLM-011
           - CLM-015
@@ -452,6 +571,43 @@ phases:
           TestPackSandbox_NativeEnvironmentSanitizationPreservesConfinement goes green
           now. Delete mutable sandbox globals/resolvers. Return typed dispatch evidence
           by deterministic OR without changing existing payload/error contracts.
+
+          Keep all non-Linux implementation in existing sandbox_nonlinux.go (`!linux`)
+          and remove any partial helper production files. Remove x/sys/unix usage and
+          implement the typed Darwin completion/unsupported-platform behavior above.
+
+          Extend sandboxHelperRequest with the sanitized Environment and ack FD
+          metadata. On Darwin, sandbox-exec re-execs the current Backstop/test binary;
+          MaybeRunSandboxHelper decodes the request, writes/closes ack, constructs
+          a target only after exec.LookPath(request.Command), then calls
+          exec.Command(resolved, request.Args...), sets Dir, directly copies the sanitized
+          slice to Cmd.Env, binds os.Stdin/os.Stdout/os.Stderr, starts/waits, and returns
+          an unexported completion error implementing ExitCode() int. Preserve exact
+          Cmd.Env input before Start; explicitly accept os/exec's standard effective
+          last-value behavior for duplicate keys in the child. Executable paths containing
+          `=` remain unparsed and observed argv[0] is the LookPath result. On unsupported
+          non-Linux, helper env errors before decode/child execution; absent env returns
+          nil. Remove all shell/env trampoline code.
+
+          Keep MaybeRunSandboxHelper() error on Linux and non-Linux. Linux non-helper is
+          nil, setup failure is an ordinary error, and successful unix.Exec remains
+          non-returning. Add a portable completion-code mapper for normal exits,
+          conventional 128+signal when available, and one fixed fail-closed nonzero
+          fallback otherwise; this is result plumbing, not policy.
+
+          Add one internal Seatbelt literal encoder in sandbox_nonlinux.go and apply it
+          to every dynamic subpath in darwinSandboxProfile. Escape quotes/backslashes and
+          safely encode or fail-closed on controls based on real sandbox-exec behavior.
+          Never interpolate raw paths. Do not change relative-path normalization or absorb
+          ISSUE-147.
+
+          Add no globals, initialized package variables, init functions, production
+          files, coverage exclusions, waivers, exported result type, or public signature
+          changes. The unexported completion error plus local ExitCode interfaces are the
+          one completion authority; add no setter or parallel status type. Linux
+          confinement code/semantics and MaybeRunSandboxHelper signature remain untouched.
+          TASK-007's Darwin behavior, structural checks, and Windows
+          cross-compile are the correctness evidence.
         files:
           - cmd/backstop/gate.go
           - cmd/backstop/pack_gate.go
@@ -488,6 +644,35 @@ phases:
           - TASK-013
           - TASK-014
           - TASK-015
+          - TASK-028
+
+      - id: TASK-029
+        type: implementation
+        title: "GREEN: propagate helper completion through CLI and TestMain guards"
+        description: |
+          Make TASK-028 green after TASK-016 defines the unexported completion error.
+          Keep runWith's injected gate and production MaybeRunSandboxHelper signatures as
+          func() error. Use errors.As against a local `interface{ ExitCode() int }` first:
+          completion returns its code, including 0, before NewRootCommand and without a
+          diagnostic; nil proceeds; ordinary error prints and returns 126.
+          Update cmd/backstop integration TestMain, pkg/packval TestMain, and
+          pkg/pack/distribution TestMain with the same first-statement disposition and
+          os.Exit the interface's completion code. Preserve Linux non-return and setup
+          diagnostics. Do not add globals, init, wrappers that swallow status, or a
+          second completion authority.
+        files:
+          - cmd/backstop/main.go
+          - cmd/backstop/integration_test.go
+          - pkg/packval/main_test.go
+          - pkg/pack/distribution/main_test.go
+        claims:
+          - CLM-004
+          - CLM-006
+          - CLM-011
+          - CLM-015
+        depends_on:
+          - TASK-016
+          - TASK-028
 
       - id: TASK-017
         type: verification
@@ -525,6 +710,24 @@ phases:
           application/ack/child counters and all denial tests. Native unavailable still
           refuses without fallback.
 
+          Run the compile and platform-accounting diagnostics explicitly:
+
+              GOOS=windows GOARCH=amd64 go test -c -o /tmp/issue185-packval-windows.test ./pkg/packval
+
+          On Darwin, run the TASK-007 package tests and confirm ack-before-target, FD
+          closure, exact cwd/argv/exit status, stdin/stdout/stderr fidelity, byte-clean
+          output, adversarial argv/profile metacharacter safety, exact pre-Start Cmd.Env
+          assignment, effective last-value child environment semantics, complete
+          authorization removal, and separately unchanged pure-helper duplicate/order tests,
+          and inherited network/write/read denials. Structurally
+          confirm no helper production file, x/sys/unix reference, init function,
+          initialized package seam, new coverage exclusion, shell/env trampoline, or
+          pack-value parsing exists. Confirm every dynamic Seatbelt path uses the encoder;
+          Darwin helper env returns typed completion, unsupported-platform helper env
+          fails loud with zero execution, absent helper env returns nil, and all four
+          process guards propagate completion exactly. Windows cross-compilation must
+          use the same shared file successfully.
+
           TASK-017 is complete when every invoked gate's true exit and ISSUE-147
           attribution are recorded and the exact ISSUE-185 diagnostics are recorded.
           This is explicitly a BLOCKED-GATE EVIDENCE DISPOSITION that permits dependent
@@ -551,6 +754,7 @@ phases:
           - CLM-015
         depends_on:
           - TASK-016
+          - TASK-029
 
   - id: phase-3
     name: "Phase 3: Complete pack-child environment coverage"
@@ -818,11 +1022,21 @@ phases:
           cannot establish Linux evidence: report that leg as required Linux CI evidence,
           never as locally passed. Report true exit codes and unrelated worktree findings
           without skips, waivers, weakened tests, or fallback.
+
+          Also repeat the Windows pkg/packval cross-compile and TASK-007 typed-helper/
+          profile/environment/unsupported-platform tests plus TASK-028 guard propagation.
+          Confirm no new helper production file, coverage exclusion, shell/env
+          trampoline, package init, initialized mutable seam, or x/sys/unix reference
+          exists. This proves the portable os/exec completion did not recreate
+          PLAN-ISSUE-020's unsupported-file coverage trap, weaken pure-helper duplicate/
+          order guarantees, lose effective unrelated child values, retain any authorization
+          duplicate, misframe an executable containing `=`, or permit Seatbelt injection.
         files:
           - plans/PLAN-ISSUE-185-external-pack-sandbox.plan.yml
           - cmd/backstop/gate.go
           - pkg/check/runner.go
           - pkg/packval/sandbox.go
+          - pkg/packval/sandbox_nonlinux.go
           - pkg/gate/result.go
         claims:
           - CLM-001
