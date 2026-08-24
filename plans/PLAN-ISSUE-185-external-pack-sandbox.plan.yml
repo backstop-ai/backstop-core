@@ -1,0 +1,734 @@
+---
+plan_id: PLAN-ISSUE-185
+spec_id: ISSUE-185
+created: "2026-08-23"
+status: ready
+test_command: "go test ./cmd/backstop/... ./pkg/check/... ./pkg/packval/... ./pkg/gate/..."
+coverage_threshold: 90
+
+notes: |
+  SECURITY BOUNDARY. Native remains the default and fail-closed implementation.
+  External is exact, explicit invocation authorization and never a fallback. No task
+  changes the native profile, rights, setup order, or ISSUE-020 sandboxed surfaces.
+
+  PARALLELISM. Phase 1's dependency-neutral processenv/check lane and Phase 2's red
+  resolver/runner/test-migration tasks have disjoint files and no dependency. They may
+  proceed in parallel. TASK-016 is the first convergence: it depends on the neutral
+  helper and every runner/dispatch red-test batch. Later tasks are ordered only where
+  they share gate, packval sandbox, or output spine files.
+
+  DISPATCH MIGRATION. Production uses typed packEngineDispatchResult and
+  packCoverageDispatchResult values carrying payload plus NativeSandboxApplied.
+  Existing test-facing dispatchPackEngines/dispatchPackCoverage signatures remain as
+  native-mode compatibility wrappers around the typed WithEvidence implementations;
+  this avoids a needless 50-file return-type rewrite while production and new evidence
+  tests consume the typed results. The mutable sandboxedRun/sandboxedRunStdout globals
+  and resolvers are deleted. Their 34 direct test consumers are explicitly migrated in
+  TASK-009..TASK-015 to injected SandboxRunner doubles.
+
+  SEARCH INVENTORY, direct dispatch/seam test callers (2026-08-23):
+    engine/runner callers: cutover_noregress_test.go, dispatch_configfile_test.go,
+    pack_gate_exempt_resolution_test.go, pack_gate_allowlist_test.go, pack_gate_test.go,
+    coverage_producer_dispatch_test.go, dispatch_engines_test.go,
+    filemode_scoping_test.go, sandbox_posture_test.go, pack_gate_helpers_test.go,
+    pack_severity_contract_test.go, bun_dispatch_e2e_test.go,
+    dispatch_astgrep_multirule_e2e_test.go, dispatch_sandbox_exitcode_test.go,
+    pack_gate_issue091_e2e_test.go, gate_substantiveness_wiring_test.go,
+    golden_equivalence_test.go, dispatch_unstartable_engine_test.go, bridge_test.go,
+    recipe_selfpack_test.go, pack_gate_scope_test.go, gate_transitional_seams_test.go,
+    coverage_real_dispatch_e2e_test.go, gate_discovery_e2e_test.go,
+    pack_gate_filemode_test.go, gate_substantiveness_severity_test.go,
+    pack_gate_producer_findings_test.go, pack_gate_errors_test.go,
+    pack_gate_gotoolchain_test.go, pack_gate_gatetype_stamp_test.go, migration_test.go,
+    dispatch_coverage_e2e_test.go, coverage_dispatch_routing_test.go,
+    gate_test_only_diff_verdict_e2e_test.go, pack_gate_findings_selftarget_test.go,
+    gate_scope_test.go, dispatch_sarif_contract_test.go,
+    pack_gate_findings_artifact_test.go, pack_gate_diffscope_diagnostic_test.go,
+    pack_gate_issue091_regression_test.go,
+    gate_substantiveness_implemented_scope_test.go,
+    baseline_identity_dispatch_e2e_test.go, pack_gate_golint_test.go,
+    pack_gate_issue067_regression_test.go, pack_gate_exempt_test.go,
+    dispatch_convert_pipe_test.go, pack_gate_issue129_regression_test.go,
+    pack_gate_resolvers_test.go, dispatch_astgrep_e2e_test.go.
+    additional coverage callers: coverage_dispatch_verdict_test.go,
+    coverage_producer_stdout_artifact_test.go, coverage_dispatch_channel_test.go,
+    bun_fixture_e2e_test.go (the other six are already listed above).
+    buildGateSteps callers retain the wrapper signature: pack_gate_test.go,
+    init_acceptance_test.go, status_drift_gate_test.go,
+    gate_provision_dedicated_step_test.go, gate_wiring_test.go,
+    gate_cutover_step2_test.go, gate_step_ordering_verdict_test.go,
+    gate_buildsteps_test.go, gate_discovery_e2e_test.go,
+    gate_absent_engine_tool_e2e_test.go, requirement_traceability_gate_test.go,
+    gate_test.go, gate_classifier_wiring_test.go, gate_scope_test.go,
+    gate_language_retirement_test.go, noncorpus_wiring_test.go,
+    gate_specdir_root_test.go, gate_step_order_test.go, standards_removal_test.go,
+    gate_test_only_diff_verdict_e2e_test.go.
+
+  ACKNOWLEDGEMENT CONTRACT. Linux uses a dedicated inherited control pipe, never
+  stdout/stderr: the parent passes the write FD in the helper request/ExtraFiles; after
+  PR_SET_NO_NEW_PRIVS, Landlock, and seccomp all succeed, the helper writes one fixed
+  acknowledgement byte, closes the FD, then unix.Exec's the pack child. The parent
+  reads the control pipe separately and sets true only for that byte. Setup failure,
+  missing/malformed acknowledgement, or no sandboxed invocation yields false. Darwin
+  runs the Backstop helper under sandbox-exec; once that helper is demonstrably inside
+  the profile it writes/closes the same control FD before starting the pack child, so
+  stdout/SARIF/coverage remain byte-clean. Unsupported platforms still refuse. The
+  evidence is returned per invocation and OR-reduced; no global state is introduced.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Parallel neutral environment foundation"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "RED: specify neutral filtering and explicit runner environments"
+        description: |
+          Add tests for processenv.Without: remove every exact named entry including
+          duplicates, preserve unrelated entries and ordering, and retain similarly
+          prefixed names. Test both ExecCommandRunner methods with an explicitly
+          supplied Env. Structurally prove pkg/check does not import pkg/packval.
+        files:
+          - pkg/processenv/environment_test.go
+          - pkg/check/runner_environment_test.go
+        claims:
+          - CLM-009
+        test_names:
+          - TestSandboxAuthorization_SanitizerPreservesUnrelatedEnvironment
+          - TestSandboxAuthorization_NoCheckToPackvalDependencyCycle
+        depends_on: []
+
+      - id: TASK-002
+        type: implementation
+        title: "GREEN: add the neutral filter and Env-aware command runner"
+        description: |
+          Add dependency-neutral processenv.Without. Add Env []string to
+          check.ExecCommandRunner and set it on Run and RunStdout while preserving cwd,
+          cancellation, and output contracts. Do not import packval from check.
+        files:
+          - pkg/processenv/environment.go
+          - pkg/check/runner.go
+        claims:
+          - CLM-009
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: verification
+        title: "Verify the neutral foundation with the current real CLI"
+        description: |
+          Before the feature binary exists, accurately use the current source-built CLI
+          only for this isolated foundation gate:
+
+              go run ./cmd/backstop gate --file pkg/processenv/environment.go --file pkg/check/runner.go
+
+          This does not claim external mode exists. Confirm both exact tests execute
+          through the declared pack profile and package imports remain cycle-free.
+        files:
+          - pkg/processenv/environment.go
+          - pkg/processenv/environment_test.go
+          - pkg/check/runner.go
+          - pkg/check/runner_environment_test.go
+        claims:
+          - CLM-009
+        depends_on:
+          - TASK-002
+
+  - id: phase-2
+    name: "Phase 2: Atomic resolver, runner, acknowledgement, and dispatch cutover"
+    tasks:
+      - id: TASK-004
+        type: test
+        title: "RED: specify exact invocation resolution and exclusive authority"
+        description: |
+          Test absent/default native, exact accepted values, all invalid/empty forms,
+          CLI-over-environment precedence, exit 2 before pack load, exactly-once
+          resolution, immutable parent state, and no repository/pack authority. Add
+          absence tests for prompts, generic disable switches, mode globals, and a new
+          telemetry exporter. Do not run a valid external gate in this red task.
+        files:
+          - cmd/backstop/pack_sandbox_mode_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-012
+          - CLM-013
+        test_names:
+          - TestPackSandbox_DefaultsToNative
+          - TestPackSandbox_AcceptsExactValues
+          - TestPackSandbox_RejectsInvalidAndEmptyValuesBeforePackLoad
+          - TestPackSandbox_CLIOverridesEnvironment
+          - TestPackSandbox_CLIOverridesInvalidOrEmptyEnvironment
+          - TestPackSandbox_ResolvesExactlyOnceBeforePackLoad
+          - TestPackSandbox_RunningParentUnaffectedByChildEnvironmentOrArgs
+          - TestPackSandbox_RepositoryAndPackInputsHaveNoAuthority
+          - TestPackSandbox_DoesNotAddTelemetryExporter
+          - TestPackSandbox_NoPromptOrGenericDisableSwitch
+        depends_on: []
+
+      - id: TASK-005
+        type: test
+        title: "RED: specify native/external execution and unchanged sandbox surfaces"
+        description: |
+          Test immutable runners and typed dispatch results. External executes only the
+          existing convert and validator boundaries, preserving argv/cwd/stdin/stdout/
+          error behavior and reporting false. Producers, engines, transforms, and all
+          other surfaces remain where ISSUE-020 left them. Native unavailable refuses
+          before child execution with no fallback.
+        files:
+          - cmd/backstop/pack_sandbox_runner_test.go
+          - pkg/packval/sandbox_mode_test.go
+        claims:
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-014
+        test_names:
+          - TestPackSandbox_NativeUnavailableFailsClosedWithoutFallback
+          - TestExternalSandbox_UsesExistingConvertAndValidatorPathsWithoutNativeLayer
+          - TestExternalSandbox_DoesNotRedefineSandboxedSurfaces
+        depends_on: []
+
+      - id: TASK-006
+        type: test
+        title: "RED: prove Linux acknowledgement, counters, and native policy preservation"
+        description: |
+          Test the dedicated control-pipe byte independently of stdout and stderr.
+          Assert acknowledgement only after Landlock and seccomp application and before
+          child exec; setup failure/malformed/no byte stays false. Use separate probe,
+          application, acknowledgement, and child counters. External requires 0/0/0/>0;
+          unavailable native requires >0/0/0/0. Keep the full real denial/ABI/inherited
+          confinement suite unfiltered and compare policy rights and setup ordering.
+          Native environment sanitization is tested here and must go green in TASK-016,
+          not through a later sanitizer-integration task.
+        files:
+          - pkg/packval/sandbox_linux_external_test.go
+          - pkg/packval/sandbox_linux_exec_test.go
+          - pkg/packval/sandbox_security_test.go
+          - pkg/packval/sandbox_wiring_guard_test.go
+          - pkg/packval/sandbox_linux_errors_test.go
+        claims:
+          - CLM-006
+          - CLM-014
+          - CLM-015
+        test_names:
+          - TestSandboxSecurityDenialsHold
+          - TestSandboxUnavailableMechanismIsLoudError
+          - TestSandboxLinux_ProductionPathUsesTheRealABIProbe
+          - TestLinuxSandbox_DeniesReadOutsideReadableSet
+          - TestLinuxSandbox_WriteInsidePackDirIsDenied
+          - TestLinuxSandbox_DeniesNetwork
+          - TestLinuxSandbox_ConfinementCarriesIntoTheExecdChild
+          - TestExternalSandbox_UnavailableLandlockSkipsProbeAndApplication
+          - TestPackSandbox_NativeRunnerPlumbingPreservesConfinementPolicy
+          - TestPackSandbox_NativeEnvironmentSanitizationPreservesConfinement
+          - TestPackSandbox_NativeEvidenceInstrumentationPreservesProbeAndApplicationOrder
+        depends_on: []
+
+      - id: TASK-007
+        type: test
+        title: "RED: prove Darwin acknowledgement is out-of-band and profile-preserving"
+        description: |
+          Add Darwin tests showing sandbox-exec launches the Backstop helper under the
+          unchanged profile, the helper writes/closes only the inherited control FD
+          before starting the child, and converter stdout plus stderr diagnostics remain
+          uncontaminated. A sandbox-exec/profile failure yields false and no pack child.
+          Non-Darwin builds retain a loud unsupported-platform refusal.
+        files:
+          - pkg/packval/sandbox_darwin_test.go
+          - pkg/packval/sandbox_nonlinux_test.go
+        claims:
+          - CLM-006
+          - CLM-011
+          - CLM-015
+        depends_on: []
+
+      - id: TASK-008
+        type: test
+        title: "RED: define typed dispatch evidence and preserved wrapper contracts"
+        description: |
+          Add compile/behavior tests for packEngineDispatchResult and
+          packCoverageDispatchResult. Typed WithEvidence paths must OR convert and
+          validator invocation evidence; compatibility wrappers return their existing
+          payload signatures in native mode. Assert production buildGateSteps consumes
+          WithEvidence and the invocation-selected runner, never the wrapper/default.
+        files:
+          - cmd/backstop/pack_sandbox_dispatch_result_test.go
+          - cmd/backstop/gate_buildsteps_test.go
+        claims:
+          - CLM-004
+          - CLM-007
+          - CLM-011
+        depends_on: []
+
+      - id: TASK-009
+        type: test
+        title: "RED migration A: validator and posture sandbox seams"
+        description: |
+          Replace mutable sandbox globals with explicit SandboxRunner doubles and typed
+          evidence assertions in this disjoint caller batch.
+        files:
+          - cmd/backstop/pack_gate_test.go
+          - cmd/backstop/pack_gate_allowlist_test.go
+          - cmd/backstop/pack_gate_helpers_test.go
+          - cmd/backstop/sandbox_posture_test.go
+          - cmd/backstop/dispatch_sandbox_exitcode_test.go
+        claims:
+          - CLM-007
+          - CLM-011
+        depends_on: []
+
+      - id: TASK-010
+        type: test
+        title: "RED migration B: coverage sandbox seams"
+        description: |
+          Inject runner doubles and consume typed coverage evidence in this batch.
+        files:
+          - cmd/backstop/coverage_dispatch_verdict_test.go
+          - cmd/backstop/coverage_producer_dispatch_test.go
+          - cmd/backstop/dispatch_coverage_e2e_test.go
+          - cmd/backstop/coverage_producer_stdout_artifact_test.go
+          - cmd/backstop/coverage_dispatch_channel_test.go
+        claims:
+          - CLM-007
+          - CLM-011
+        depends_on: []
+
+      - id: TASK-011
+        type: test
+        title: "RED migration C: real coverage and fixture seams"
+        description: |
+          Inject explicit runners without weakening real-sandbox assertions.
+        files:
+          - cmd/backstop/coverage_real_dispatch_e2e_test.go
+          - cmd/backstop/bun_fixture_e2e_test.go
+          - cmd/backstop/coverage_dispatch_routing_test.go
+          - cmd/backstop/coverage_dispatch_helpers_test.go
+        claims:
+          - CLM-007
+          - CLM-011
+        depends_on: []
+
+      - id: TASK-012
+        type: test
+        title: "RED migration D: findings convert seams"
+        description: |
+          Replace shared stubSandboxedRunStdout usage with an explicitly passed runner.
+        files:
+          - cmd/backstop/cutover_noregress_test.go
+          - cmd/backstop/dispatch_engines_test.go
+          - cmd/backstop/filemode_scoping_test.go
+          - cmd/backstop/bridge_test.go
+          - cmd/backstop/golden_equivalence_test.go
+        claims:
+          - CLM-007
+          - CLM-011
+        depends_on: []
+
+      - id: TASK-013
+        type: test
+        title: "RED migration E: engine routing seams"
+        description: |
+          Inject runners and preserve all existing routing/scope assertions.
+        files:
+          - cmd/backstop/dispatch_astgrep_multirule_e2e_test.go
+          - cmd/backstop/pack_gate_gotoolchain_test.go
+          - cmd/backstop/pack_gate_golint_test.go
+          - cmd/backstop/pack_gate_exempt_test.go
+          - cmd/backstop/dispatch_sarif_contract_test.go
+        claims:
+          - CLM-007
+          - CLM-008
+        depends_on: []
+
+      - id: TASK-014
+        type: test
+        title: "RED migration F: convert and producer seams"
+        description: |
+          Inject runners while preserving stdin, clean-stdout, producer, and artifact
+          contracts.
+        files:
+          - cmd/backstop/dispatch_convert_pipe_test.go
+          - cmd/backstop/dispatch_astgrep_e2e_test.go
+          - cmd/backstop/pack_gate_issue067_regression_test.go
+          - cmd/backstop/pack_gate_findings_artifact_test.go
+          - cmd/backstop/pack_gate_scope_test.go
+        claims:
+          - CLM-007
+          - CLM-008
+          - CLM-011
+        depends_on: []
+
+      - id: TASK-015
+        type: test
+        title: "RED migration G: error, resolver, and contract E2E seams"
+        description: |
+          Remove resolver-global assumptions, inject runners, and preserve real native
+          E2E/error behavior in the final direct seam batch.
+        files:
+          - cmd/backstop/gate_contract_e2e_test.go
+          - cmd/backstop/pack_gate_errors_test.go
+          - cmd/backstop/gate_transitional_seams_test.go
+          - cmd/backstop/pack_gate_issue129_regression_test.go
+          - cmd/backstop/pack_gate_resolvers_test.go
+        claims:
+          - CLM-006
+          - CLM-007
+          - CLM-011
+        depends_on: []
+
+      - id: TASK-016
+        type: implementation
+        title: "GREEN: deliver a complete selected runner, acknowledgement, and typed dispatch"
+        description: |
+          After every red batch and TASK-003, implement SandboxMode, SandboxRunResult,
+          immutable SandboxRunner, and exact NewSandboxRunner. Resolve flag/environment
+          once in runGate before installed-pack loading and pass the one runner through
+          buildGateSteps into typed WithEvidence dispatch. Compatibility wrappers create
+          explicit native runners only for preserved direct tests/non-gate callers.
+
+          External directly fulfills only existing convert/validator calls and never
+          probes native mechanisms. Native retains policy and fail-closed behavior.
+          Implement the notes' dedicated control-pipe acknowledgement on Linux and the
+          sandbox-exec-hosted helper acknowledgement on Darwin. The control FD never
+          aliases stdin/stdout/stderr, is closed before pack child execution, and missing
+          acknowledgement is false. Apply processenv.Without in native/external command
+          construction and Linux/Darwin helper final child launch in this same slice, so
+          TestPackSandbox_NativeEnvironmentSanitizationPreservesConfinement goes green
+          now. Delete mutable sandbox globals/resolvers. Return typed dispatch evidence
+          by deterministic OR without changing existing payload/error contracts.
+        files:
+          - cmd/backstop/gate.go
+          - cmd/backstop/pack_gate.go
+          - pkg/packval/sandbox.go
+          - pkg/packval/sandbox_linux.go
+          - pkg/packval/sandbox_linux_helper.go
+          - pkg/packval/sandbox_nonlinux.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+        depends_on:
+          - TASK-003
+          - TASK-004
+          - TASK-005
+          - TASK-006
+          - TASK-007
+          - TASK-008
+          - TASK-009
+          - TASK-010
+          - TASK-011
+          - TASK-012
+          - TASK-013
+          - TASK-014
+          - TASK-015
+
+      - id: TASK-017
+        type: verification
+        title: "Rebuild once and verify the first valid native and external gates"
+        description: |
+          Phase 1 never claimed external existed. Now rebuild before using the feature:
+
+              go build -o ./bin/backstop ./cmd/backstop
+              ./bin/backstop gate --file cmd/backstop/gate.go --file cmd/backstop/pack_gate.go --file pkg/packval/sandbox.go --file pkg/packval/sandbox_nonlinux.go
+              ./bin/backstop gate --pack-sandbox=external --file cmd/backstop/gate.go --file cmd/backstop/pack_gate.go
+
+          Run the complete issue test profile through the pack-backed gate with no
+          name filter. On Linux record probe/application/ack/child counters and all real
+          denial tests. On Darwin prove the control channel does not alter converter
+          stdout/SARIF and the unchanged sandbox-exec profile still denies. Native
+          unavailable must refuse with no external/unsandboxed fallback.
+        files:
+          - cmd/backstop/gate.go
+          - cmd/backstop/pack_gate.go
+          - pkg/packval/sandbox.go
+          - pkg/packval/sandbox_linux.go
+          - pkg/packval/sandbox_nonlinux.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-011
+          - CLM-014
+          - CLM-015
+        depends_on:
+          - TASK-016
+
+  - id: phase-3
+    name: "Phase 3: Complete pack-child environment coverage"
+    tasks:
+      - id: TASK-018
+        type: test
+        title: "RED: inventory shared-runner and direct-exec child environments"
+        description: |
+          Test every remaining current pack-child construction: gate engine/producer,
+          coverage, substantiveness, contracts, recipe transform, shared init/doctor
+          entrypoint probe, packval engine/producer/scaffold, and contracts signature
+          compiler. Assert all authorization entries are absent and unrelated entries
+          survive. Sandbox commands/helper launch/final exec are already tested and
+          implemented atomically in TASK-006/TASK-016; this test verifies the complete
+          cross-repository inventory without postponing native internals.
+        files:
+          - cmd/backstop/pack_child_environment_test.go
+          - pkg/packval/sandbox_authorization_test.go
+        claims:
+          - CLM-009
+        test_names:
+          - TestSandboxAuthorization_StrippedFromEveryPackChildEnvironment
+          - TestSandboxAuthorization_AllCurrentPackChildConstructionSitesUseSanitizedEnvironment
+          - TestSandboxAuthorization_DirectExecPathsUseSanitizedEnvironment
+        depends_on:
+          - TASK-017
+
+      - id: TASK-019
+        type: test
+        title: "RED: prove recursive Backstop receives no passive authorization"
+        description: |
+          From an externally authorized pack child, launch a separate Backstop without
+          adding authorization and prove it resolves native. Also prove a fresh exact
+          flag/environment can authorize that separate invocation. This is passive
+          inheritance prevention, not anti-spawn or principal identification.
+        files:
+          - cmd/backstop/pack_sandbox_recursive_test.go
+        claims:
+          - CLM-010
+        test_names:
+          - TestSandboxAuthorization_RecursiveBackstopDoesNotPassivelyInheritExternalMode
+        depends_on:
+          - TASK-017
+
+      - id: TASK-020
+        type: implementation
+        title: "GREEN: sanitize all remaining shared-runner children and recursion"
+        description: |
+          Supply processenv.Without(os.Environ(), PackSandboxEnvVar) to gate findings,
+          producers, coverage, substantiveness, contracts, the contracts signature
+          compiler, recipe transforms, and the shared init/doctor entrypoint probe.
+          Preserve dispatch trust, scope, cwd, and output behavior. Sandbox internals
+          are deliberately absent from this task: they were completed with their native
+          tests in TASK-016.
+
+          This is also the implementation for TASK-019: recursive Backstop launched by
+          any of these pack children receives no passive authorization, while a new
+          invocation may still supply fresh exact authorization.
+        files:
+          - cmd/backstop/gate.go
+          - cmd/backstop/recipe_apply.go
+          - cmd/backstop/init.go
+          - cmd/backstop/doctor.go
+        claims:
+          - CLM-009
+          - CLM-010
+        depends_on:
+          - TASK-018
+          - TASK-019
+
+      - id: TASK-021
+        type: implementation
+        title: "GREEN: sanitize packval direct engine, producer, and scaffold exec"
+        description: |
+          Set the neutral environment on DefaultExecutor engine/producer/scaffold
+          commands. This completes the disjoint packval direct paths not owned by
+          TASK-016 without changing which paths are sandboxed. The contracts compiler
+          is owned by TASK-020 with the other cmd/backstop construction sites.
+        files:
+          - pkg/packval/executor.go
+        claims:
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-018
+
+      - id: TASK-022
+        type: verification
+        title: "Verify the converged child-environment inventory"
+        description: |
+          Rebuild, then use only the rebuilt CLI:
+
+              go build -o ./bin/backstop ./cmd/backstop
+              ./bin/backstop gate --file cmd/backstop/gate.go --file cmd/backstop/recipe_apply.go --file cmd/backstop/init.go --file cmd/backstop/doctor.go --file pkg/packval/executor.go
+
+          Exercise real native and external pack children across runner and direct-exec
+          paths. Confirm unrelated environment survives, authorization never passively
+          recurses, and no producer/engine/transform changed sandbox classification.
+        files:
+          - cmd/backstop/gate.go
+          - cmd/backstop/recipe_apply.go
+          - cmd/backstop/init.go
+          - cmd/backstop/doctor.go
+          - pkg/packval/executor.go
+        claims:
+          - CLM-008
+          - CLM-009
+          - CLM-010
+        depends_on:
+          - TASK-020
+          - TASK-021
+
+  - id: phase-4
+    name: "Phase 4: Gate result reduction and output"
+    tasks:
+      - id: TASK-023
+        type: test
+        title: "RED: specify deterministic OR reduction and matching renderings"
+        description: |
+          Test false for external, no sandboxed path, missing acknowledgement, and
+          native setup failure; true only from at least one acknowledged native result.
+          Reorder steps and run independent gates to prove no global leakage. Test human
+          and gate/v1 JSON read the same additive fields, retaining false in JSON.
+        files:
+          - pkg/gate/pack_sandbox_result_test.go
+          - cmd/backstop/pack_sandbox_output_test.go
+        claims:
+          - CLM-011
+        test_names:
+          - TestPackSandbox_HumanOutputReportsModeAndNativeApplication
+          - TestPackSandbox_JSONReportsModeAndNativeApplication
+          - TestPackSandbox_NativeApplicationEvidenceIsDeterministicWithoutGlobalState
+        depends_on:
+          - TASK-022
+
+      - id: TASK-024
+        type: implementation
+        title: "GREEN: reduce typed dispatch evidence into additive gate/v1 metadata"
+        description: |
+          Carry typed dispatch evidence into StepResult.NativeSandboxApplied, OR it in
+          NewGateResult, and add PackSandboxMode plus NativeSandboxApplied to GateResult.
+          Stamp the already-resolved mode once before formatting. Human and JSON consume
+          those same fields. Keep gate/v1 and verdict behavior unchanged; never infer
+          application from mode.
+        files:
+          - cmd/backstop/gate.go
+          - pkg/gate/result.go
+          - pkg/gate/output.go
+        claims:
+          - CLM-004
+          - CLM-011
+          - CLM-014
+        depends_on:
+          - TASK-023
+
+      - id: TASK-025
+        type: verification
+        title: "Verify native/external metadata from real pack-backed gates"
+        description: |
+          Rebuild and use only ./bin/backstop. Run one real native and one external
+          pack-backed gate with human and JSON destinations, compare fields, and prove
+          false/true behavior from actual acknowledgement rather than mode. Repeat to
+          prove no leakage; native failure remains false and fail-closed.
+
+              go build -o ./bin/backstop ./cmd/backstop
+              ./bin/backstop gate --file pkg/gate/result.go --file pkg/gate/output.go --file cmd/backstop/gate.go
+              ./bin/backstop gate --pack-sandbox=external --file pkg/gate/result.go --file pkg/gate/output.go --file cmd/backstop/gate.go
+        files:
+          - cmd/backstop/gate.go
+          - pkg/gate/result.go
+          - pkg/gate/output.go
+        claims:
+          - CLM-004
+          - CLM-006
+          - CLM-007
+          - CLM-011
+          - CLM-014
+        depends_on:
+          - TASK-024
+
+  - id: phase-5
+    name: "Phase 5: Documentation and full rebuilt acceptance"
+    tasks:
+      - id: TASK-026
+        type: documentation
+        title: "Document hosted delegation and immutable security boundaries"
+        description: |
+          Document exact flag/env values and precedence, native default, invalid exit 2,
+          runtime-only external authorization, no fallback, mode/application output,
+          passive inheritance stripping, and fresh separate-invocation authorization.
+          Correct pack authoring text so only convert/validator are sandboxed and no
+          producer/engine/transform boundary is moved.
+        files:
+          - docs/cli-reference.md
+          - docs/pack-authoring.md
+        claims:
+          - CLM-001
+          - CLM-003
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-013
+          - CLM-014
+          - CLM-015
+        depends_on:
+          - TASK-025
+
+      - id: TASK-027
+        type: verification
+        title: "Rebuild and run artifact, security, regression, and real-pack acceptance"
+        description: |
+          Rebuild first; every validation and gate afterward uses that exact binary:
+
+              go build -o ./bin/backstop ./cmd/backstop
+              ./bin/backstop artifact validate --issue ISSUE-185
+              ./bin/backstop artifact validate --plan PLAN-ISSUE-185
+              ./bin/backstop gate --all
+              ./bin/backstop gate --all --pack-sandbox=external
+
+          The declared pack-backed test profile must discover all 33 exact names and run
+          without a -run filter, including every native denial/ABI/inherited-confinement
+          regression. Native and external real installed-pack gates must exercise
+          convert and validator paths, report matching human/JSON metadata, sanitize all
+          children, and show no surface movement or fallback.
+
+          Linux acceptance must record independent probe/application/ack/child counters.
+          Darwin acceptance must run real sandbox-exec denials and prove the out-of-band
+          acknowledgement leaves stdout/SARIF/coverage unchanged. A Darwin workstation
+          cannot establish Linux evidence: report that leg as required Linux CI evidence,
+          never as locally passed. Report true exit codes and unrelated worktree findings
+          without skips, waivers, weakened tests, or fallback.
+        files:
+          - plans/PLAN-ISSUE-185-external-pack-sandbox.plan.yml
+          - cmd/backstop/gate.go
+          - pkg/processenv/environment.go
+          - pkg/packval/sandbox.go
+          - pkg/gate/result.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+        depends_on:
+          - TASK-024
+          - TASK-026
