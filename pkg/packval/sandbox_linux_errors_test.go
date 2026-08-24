@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -322,7 +323,7 @@ func TestRunLinuxSandboxedStdoutInvocation_ReturningBranches(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		command := exec.Command("/definitely/missing")
+		command := exec.Command(filepath.Join(t.TempDir(), "missing-command"))
 		command.ExtraFiles = []*os.File{ackWrite}
 		_, err = runTestLinuxSandboxedStdoutInvocation(&sandboxHelperInvocation{command: command, ackRead: ackRead}, nil)
 		if err == nil || !strings.Contains(err.Error(), "sandboxed run (stdout) failed") {
@@ -338,7 +339,7 @@ func TestRunLinuxSandboxedStdoutInvocation_ReturningBranches(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		command := exec.Command("/bin/true")
+		command := exec.Command("/bin/sh", "-c", "exit 0")
 		command.ExtraFiles = []*os.File{ackWrite}
 		_, err = runTestLinuxSandboxedStdoutInvocation(&sandboxHelperInvocation{command: command, ackRead: ackRead}, nil)
 		if err == nil || !strings.Contains(err.Error(), "read sandbox acknowledgement") || command.ProcessState == nil {
@@ -381,7 +382,7 @@ func TestRunLinuxSandboxedInvocation_EvidenceAndProcessBranches(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		command := exec.Command("/definitely/missing")
+		command := exec.Command(filepath.Join(t.TempDir(), "missing-command"))
 		command.ExtraFiles = []*os.File{ackWrite}
 		result, err := runLinuxSandboxedInvocation(&sandboxHelperInvocation{command: command, ackRead: ackRead}, nil, false)
 		if err == nil || result.NativeSandboxApplied || !strings.Contains(err.Error(), "sandboxed run failed") {
