@@ -11,7 +11,7 @@ notes: |
   External is exact, explicit invocation authorization and never a fallback. No task
   changes the native profile, rights, setup order, or ISSUE-020 sandboxed surfaces.
 
-  PARALLELISM. Phase 1's dependency-neutral processenv/check lane and Phase 2's red
+  PARALLELISM. Phase 1's dependency-neutral pkg/check lane and Phase 2's red
   resolver/runner/test-migration tasks have disjoint files and no dependency. They may
   proceed in parallel. TASK-016 is the first convergence: it depends on the neutral
   helper and every runner/dispatch red-test batch. Later tasks are ordered only where
@@ -77,19 +77,30 @@ notes: |
 
 phases:
   - id: phase-1
-    name: "Phase 1: Parallel neutral environment foundation"
+    name: "Phase 1: Parallel pkg/check environment foundation"
     tasks:
       - id: TASK-001
         type: test
-        title: "RED: specify neutral filtering and explicit runner environments"
+        title: "RED: specify check.WithoutEnvironment and fully cover the runner"
         description: |
-          Add tests for processenv.Without: remove every exact named entry including
-          duplicates, preserve unrelated entries and ordering, and retain similarly
-          prefixed names. Test both ExecCommandRunner methods with an explicitly
-          supplied Env. Structurally prove pkg/check does not import pkg/packval.
+          Conform the current partial implementation entirely inside existing pkg/check
+          files. Extend runner_environment_test.go with table-driven tests for
+          check.WithoutEnvironment: remove every exact requested key including empty
+          values and duplicate matches; preserve the original order and duplicates of
+          unrelated entries; retain similarly prefixed keys; support multiple requested
+          names; return a fresh result; and mutate neither the input slice nor os.Environ.
+
+          Substantively cover ExecCommandRunner rather than adding only helper tests.
+          Exercise explicit Env on both Run and RunStdout, nil-Env inheritance, Dir on
+          both methods, combined stdout/stderr, clean stdout, non-zero output retention,
+          and context cancellation. Use runner_stdout_test.go for output/error branches
+          and runner_environment_test.go for Env/Dir/helper behavior so runner.go clears
+          the pack's 90% per-file threshold. Structurally prove pkg/check does not import
+          pkg/packval. Keep the two mandated names exact; additional runner test function
+          names are supporting coverage and are not added to test_names.
         files:
-          - pkg/processenv/environment_test.go
           - pkg/check/runner_environment_test.go
+          - pkg/check/runner_stdout_test.go
         claims:
           - CLM-009
         test_names:
@@ -99,14 +110,26 @@ phases:
 
       - id: TASK-002
         type: implementation
-        title: "GREEN: add the neutral filter and Env-aware command runner"
+        title: "GREEN: finish the pkg/check runner and delete the stopped-lane package"
         description: |
-          Add dependency-neutral processenv.Without. Add Env []string to
+          Conform the partial runner.go implementation without creating another package.
+          Add exported check.WithoutEnvironment in pkg/check/runner.go with the pure,
+          exact-key, fresh-result contract tested by TASK-001. Retain Env []string on
           check.ExecCommandRunner and set it on Run and RunStdout while preserving cwd,
-          cancellation, and output contracts. Do not import packval from check.
+          cancellation, combined-output, and clean-stdout contracts. Do not import
+          packval from check and do not create another product package.
+
+          Delete the currently untracked pkg/processenv/environment.go and
+          pkg/processenv/environment_test.go created by the stopped pre-amendment
+          implementation. They are cleanup of this lane's partial work, not shipped
+          package ownership. The old test file contains the superseded copy of
+          TestSandboxAuthorization_SanitizerPreservesUnrelatedEnvironment: delete it
+          outright after TASK-001 establishes the canonical mandated test in pkg/check.
+          Do not retain, rename, or duplicate that mandated test outside pkg/check.
         files:
-          - pkg/processenv/environment.go
           - pkg/check/runner.go
+          - pkg/processenv/environment.go
+          - pkg/processenv/environment_test.go
         claims:
           - CLM-009
         depends_on:
@@ -114,20 +137,21 @@ phases:
 
       - id: TASK-003
         type: verification
-        title: "Verify the neutral foundation with the current real CLI"
+        title: "Verify classified pkg/check ownership and the 90% runner threshold"
         description: |
           Before the feature binary exists, accurately use the current source-built CLI
-          only for this isolated foundation gate:
+          only for this isolated, pack-classified pkg/check gate:
 
-              go run ./cmd/backstop gate --file pkg/processenv/environment.go --file pkg/check/runner.go
+              go run ./cmd/backstop gate --file pkg/check/runner.go --file pkg/check/runner_environment_test.go --file pkg/check/runner_stdout_test.go
 
           This does not claim external mode exists. Confirm both exact tests execute
-          through the declared pack profile and package imports remain cycle-free.
+          through the declared pack profile, package imports remain cycle-free, and the
+          coverage result for pkg/check/runner.go is at least 90%. A merely compiling
+          helper or an unclassified new package is not sufficient evidence.
         files:
-          - pkg/processenv/environment.go
-          - pkg/processenv/environment_test.go
           - pkg/check/runner.go
           - pkg/check/runner_environment_test.go
+          - pkg/check/runner_stdout_test.go
         claims:
           - CLM-009
         depends_on:
@@ -394,7 +418,7 @@ phases:
           Implement the notes' dedicated control-pipe acknowledgement on Linux and the
           sandbox-exec-hosted helper acknowledgement on Darwin. The control FD never
           aliases stdin/stdout/stderr, is closed before pack child execution, and missing
-          acknowledgement is false. Apply processenv.Without in native/external command
+          acknowledgement is false. Apply check.WithoutEnvironment in native/external command
           construction and Linux/Darwin helper final child launch in this same slice, so
           TestPackSandbox_NativeEnvironmentSanitizationPreservesConfinement goes green
           now. Delete mutable sandbox globals/resolvers. Return typed dispatch evidence
@@ -520,7 +544,7 @@ phases:
         type: implementation
         title: "GREEN: sanitize all remaining shared-runner children and recursion"
         description: |
-          Supply processenv.Without(os.Environ(), PackSandboxEnvVar) to gate findings,
+          Supply check.WithoutEnvironment(os.Environ(), PackSandboxEnvVar) to gate findings,
           producers, coverage, substantiveness, contracts, the contracts signature
           compiler, recipe transforms, and the shared init/doctor entrypoint probe.
           Preserve dispatch trust, scope, cwd, and output behavior. Sandbox internals
@@ -710,7 +734,7 @@ phases:
         files:
           - plans/PLAN-ISSUE-185-external-pack-sandbox.plan.yml
           - cmd/backstop/gate.go
-          - pkg/processenv/environment.go
+          - pkg/check/runner.go
           - pkg/packval/sandbox.go
           - pkg/gate/result.go
         claims:
