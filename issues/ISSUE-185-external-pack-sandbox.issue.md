@@ -27,9 +27,10 @@ implementation:
     --pack-sandbox=external or BACKSTOP_PACK_SANDBOX=external; external mode runs only the
     already-sandboxed convert and validator paths without a nested native sandbox, records that
     native confinement was not applied, and strips passive authorization inheritance from every
-    pack-provided child environment through one dependency-neutral environment filter. No
-    repository or pack-controlled input may change the running parent's resolved mode.
-  package: cmd/backstop, pkg/processenv, pkg/check, pkg/packval, pkg/gate
+    pack-provided child environment through one dependency-neutral environment filter in existing
+    pkg/check. No repository or pack-controlled input may change the running parent's resolved
+    mode.
+  package: cmd/backstop, pkg/check, pkg/packval, pkg/gate
 
 requirements:
   - id: REQ-001
@@ -90,18 +91,24 @@ requirements:
       Before every pack-provided child process is started, core MUST remove all
       `BACKSTOP_PACK_SANDBOX` entries from the child environment, whether the child is an existing
       sandboxed convert/validator or an existing unsandboxed producer, engine, or other
-      pack-provided execution surface. A dependency-neutral `pkg/processenv` helper MUST perform
-      the filtering so `pkg/check` does not import `pkg/packval` (which already imports
-      `pkg/check`). `check.ExecCommandRunner` MUST accept an explicitly supplied environment, and
-      every production construction used for pack engine/producer dispatch, coverage,
-      substantiveness, contracts, recipe transforms, and pack entrypoint probes MUST receive the
-      sanitized environment. Direct pack-child `os/exec` construction MUST also set it: the
-      packval engine/producer and scaffold-test paths, native/external sandbox commands and Linux
-      helper's final exec, and the contracts pack signature compiler. The sanitization MUST
-      preserve unrelated entries and apply in external mode. It prevents PASSIVE inheritance: a
-      recursive Backstop launched without adding fresh authorization defaults to native. It does
-      not claim to stop pack code from explicitly supplying a fresh flag/environment to a separate
-      process.
+      pack-provided execution surface. The existing lower-level `pkg/check` package MUST provide a
+      dependency-neutral `WithoutEnvironment(environment, names...)` helper (or an equivalently
+      small idiomatic API); `pkg/packval` already imports `pkg/check`, and `cmd/backstop` may consume
+      it directly, so no new package or import cycle is required. The helper MUST remove every
+      entry whose key exactly matches any requested name, including duplicate matching entries;
+      preserve the original order and duplicates of all unrelated entries; return a fresh result;
+      and mutate neither the caller's input slice nor ambient process environment. Empty values
+      such as `BACKSTOP_PACK_SANDBOX=` are matching entries and MUST be removed.
+
+      `check.ExecCommandRunner` MUST accept an explicitly supplied environment, and every
+      production construction used for pack engine/producer dispatch, coverage, substantiveness,
+      contracts, recipe transforms, and pack entrypoint probes MUST receive the sanitized
+      environment. Direct pack-child `os/exec` construction MUST also set it: the packval
+      engine/producer and scaffold-test paths, native/external sandbox commands and Linux helper's
+      final exec, and the contracts pack signature compiler. The sanitization MUST apply in
+      external mode. It prevents PASSIVE inheritance: a recursive Backstop launched without adding
+      fresh authorization defaults to native. It does not claim to stop pack code from explicitly
+      supplying a fresh flag/environment to a separate process.
   - id: REQ-007
     text: >
       Human gate output and the additive `gate/v1` JSON result MUST both report the selected
@@ -186,7 +193,7 @@ claims:
       - TestExternalSandbox_DoesNotRedefineSandboxedSurfaces
   - id: CLM-009
     requirement: REQ-006
-    text: A neutral helper strips the authorization variable while preserving unrelated entries, and every current runner-based and direct-exec pack-child construction site supplies that sanitized environment without a pkg/check to pkg/packval dependency.
+    text: Existing pkg/check provides a pure neutral helper that removes every matching authorization entry while preserving the order and duplicates of unrelated entries without mutating its input or ambient environment, and every current runner-based and direct-exec pack-child construction site supplies that sanitized environment without a dependency cycle or new package.
     tests:
       - TestSandboxAuthorization_StrippedFromEveryPackChildEnvironment
       - TestSandboxAuthorization_SanitizerPreservesUnrelatedEnvironment
@@ -240,16 +247,14 @@ contracts:
       - source: pkg/packval/sandbox.go
         name: SandboxRunner
         kind: type
-      - source: pkg/processenv/environment.go
-        name: Without
+      - source: pkg/check/runner.go
+        name: WithoutEnvironment
         kind: function
-  - file: pkg/processenv/environment.go
-    provides:
-      - name: Without
-        kind: function
-        signature: "func Without(environment []string, names ...string) []string"
   - file: pkg/check/runner.go
     provides:
+      - name: WithoutEnvironment
+        kind: function
+        signature: "func WithoutEnvironment(environment []string, names ...string) []string"
       - name: ExecCommandRunner
         kind: type
         signature: "type ExecCommandRunner struct { Dir string; Env []string }"
@@ -271,28 +276,28 @@ contracts:
         kind: function
         signature: "func NewSandboxRunner(mode SandboxMode) (SandboxRunner, error)"
     consumes:
-      - source: pkg/processenv/environment.go
-        name: Without
+      - source: pkg/check/runner.go
+        name: WithoutEnvironment
         kind: function
   - file: pkg/packval/executor.go
     consumes:
-      - source: pkg/processenv/environment.go
-        name: Without
+      - source: pkg/check/runner.go
+        name: WithoutEnvironment
         kind: function
   - file: pkg/packval/sandbox_linux.go
     consumes:
-      - source: pkg/processenv/environment.go
-        name: Without
+      - source: pkg/check/runner.go
+        name: WithoutEnvironment
         kind: function
   - file: pkg/packval/sandbox_linux_helper.go
     consumes:
-      - source: pkg/processenv/environment.go
-        name: Without
+      - source: pkg/check/runner.go
+        name: WithoutEnvironment
         kind: function
   - file: pkg/packval/sandbox_nonlinux.go
     consumes:
-      - source: pkg/processenv/environment.go
-        name: Without
+      - source: pkg/check/runner.go
+        name: WithoutEnvironment
         kind: function
   - file: pkg/gate/result.go
     provides:
@@ -355,11 +360,13 @@ of the sandboxed set and does not answer BUNDLE-021's broader questions about pr
 transform, publisher, pack capability, or consumer trust governance.
 
 Sanitize `BACKSTOP_PACK_SANDBOX` from every pack-provided child environment, not only the two
-sandboxed paths. A generic filter lives below both `pkg/check` and `pkg/packval`; runner-based
-callers inject its output into `ExecCommandRunner.Env`, and every direct `os/exec` pack-child path
-sets the same output explicitly. This avoids the forbidden `pkg/check` -> `pkg/packval` dependency
-cycle and covers the paths that bypass the shared runner. The filter prevents passive recursive
-inheritance only; it is not a process-principal or anti-spawn control.
+sandboxed paths. The generic pure filter lives in existing `pkg/check`, which `pkg/packval` already
+imports and `cmd/backstop` can consume directly; no new package is introduced. It removes all
+matching keys while preserving unrelated entry order and duplicates, and does not mutate its input
+or ambient environment. Runner-based callers inject its output into `ExecCommandRunner.Env`, and
+every direct `os/exec` pack-child path sets the same output explicitly. This dependency direction
+avoids a cycle and covers paths that bypass the shared runner. The filter prevents passive
+recursive inheritance only; it is not a process-principal or anti-spawn control.
 
 Each immutable `SandboxRunner` call returns its output plus native-application evidence. External
 calls always return false and never enter the Landlock probe/application or sandbox-exec
@@ -379,7 +386,7 @@ The mandated security tests cover the positive compatibility path and its advers
 - exact accepted values, explicit empty/invalid values, and CLI-over-environment precedence;
 - resolution exactly once before pack load, an immutable runner, and parent state unaffected by child env/args;
 - attempted authorization through config, repository files, installed packs, and manifests;
-- passive authorization stripping across every runner/direct-exec pack-child path and recursive invocation;
+- pure, order-preserving removal of every authorization entry through existing `pkg/check`, across every runner/direct-exec pack-child path and recursive invocation;
 - external mode with independently observed zero Landlock probe/application calls, paired with native refusal and no fallback;
 - the existing real macOS/Linux confinement, denial, ABI-probe, and fail-closed tests, plus targeted tests proving the permitted plumbing leaves those policy semantics intact;
 - matching human and `gate/v1` JSON reporting of selected mode and native-not-applied; and
