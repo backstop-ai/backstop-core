@@ -100,7 +100,7 @@ func runInit(cmd *cobra.Command) error {
 		initPackInstaller{},
 		initRecipeApplier{},
 		initGateRunner{},
-		&packToolchainProber{Runner: &check.ExecCommandRunner{Dir: options.ProjectRoot}},
+		&packToolchainProber{Runner: &check.ExecCommandRunner{Dir: options.ProjectRoot, Env: packChildEnvironment()}},
 		unavailableBaselineSeeder{},
 	)
 	if constructErr != nil {

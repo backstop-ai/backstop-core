@@ -5,11 +5,14 @@ package packval
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
 
+	"github.com/backstop-ai/backstop-core/pkg/check"
 	"golang.org/x/sys/unix"
 )
 
@@ -57,11 +60,9 @@ import (
 // It is an env var rather than a Cobra subcommand deliberately: /proc/self/exe is the
 // backstop binary, so the gate has to run before Cobra parses argv, and a real
 // subcommand would also be a user-facing surface promising something it is not.
-const sandboxHelperEnvVar = "BACKSTOP_SANDBOX_HELPER_SPEC"
-
-// ─── THE FOUR STATEMENTS THAT STAY UNCOVERED, AND WHY THAT IS CORRECT ──────────
+// ─── THE PARENT-SIDE STATEMENTS THAT STAY MEASURED ────────────────────────────
 // Measured on run 30389988184: kernelRelease's Uname failure, probeLandlockABI's
-// errno branch, and newSandboxHelperCommand's json.Marshal and os.Executable
+// errno branch, and newSandboxHelperInvocation's json.Marshal and os.Executable
 // failures. Every one is the error return of a call that CANNOT fail on a healthy
 // host — Uname succeeds, the Landlock probe succeeds, os.Executable succeeds, and
 // marshalling a struct with no channels or funcs cannot fail.
@@ -72,16 +73,11 @@ const sandboxHelperEnvVar = "BACKSTOP_SANDBOX_HELPER_SPEC"
 // avoids — every indirection between this code and the kernel is a place the test
 // and production paths can diverge, which is what produced two of this lane's runner
 // failures. Do NOT delete them to raise the number; the ABI-prober seam above is the
-// one seam judged worth its risk, and it ships with a wiring guard.
+// one seam judged worth its risk, and it ships with a wiring guard. Returning
+// decode, policy, acknowledgement, and injected orchestration logic remains in this
+// measured file; only the successful non-returning wrapper is excluded.
 
 // sandboxHelperRequest is what the parent hands the helper.
-type sandboxHelperRequest struct {
-	Capability SandboxCapability `json:"capability"`
-	Command    string            `json:"command"`
-	Args       []string          `json:"args"`
-	Dir        string            `json:"dir"`
-}
-
 // MaybeRunSandboxHelper runs the sandbox helper. On success it NEVER RETURNS,
 // because the helper's last act is an execve that replaces the process image. When
 // this process was not spawned as a helper it returns nil immediately, having done
@@ -124,43 +120,133 @@ func MaybeRunSandboxHelper() error {
 	return runSandboxHelper(spec)
 }
 
+func runSandboxHelper(spec string) error {
+	return runSandboxHelperWith(spec, func(request sandboxHelperRequest) error {
+		return applyRestrictionsAndExec(request)
+	})
+}
+
+func runSandboxHelperWith(spec string, apply func(sandboxHelperRequest) error) error {
+	var request sandboxHelperRequest
+	if err := json.Unmarshal([]byte(spec), &request); err != nil {
+		return fmt.Errorf("decode the sandbox helper request: %w", err)
+	}
+	if err := apply(request); err != nil {
+		return fmt.Errorf("install the sandbox restrictions: %w", err)
+	}
+	return errors.New("the sandbox helper returned without exec'ing the command")
+}
+
+func applyRestrictionsAndExecWith(
+	request sandboxHelperRequest,
+	applyFilesystem func(SandboxRestrictionSpec) error,
+	applySyscalls func(SandboxRestrictionSpec) error,
+	acknowledge func(int) error,
+	changeDir func(string) error,
+	lookPath func(string) (string, error),
+	execTarget func(string, []string, []string) error,
+) error {
+	restrictions := DeriveSandboxRestrictions(request.Capability)
+	if err := applyFilesystem(restrictions); err != nil {
+		return err
+	}
+	if err := applySeccompPolicy(restrictions, applySyscalls); err != nil {
+		return err
+	}
+	if err := acknowledge(request.AckFD); err != nil {
+		return err
+	}
+	if request.Dir != "" {
+		if err := changeDir(request.Dir); err != nil {
+			return fmt.Errorf("chdir %s: %w", request.Dir, err)
+		}
+	}
+	resolved, err := lookPath(request.Command)
+	if err != nil {
+		return fmt.Errorf("resolve %s: %w", request.Command, err)
+	}
+	argv := append([]string{resolved}, request.Args...)
+	if err := execTarget(resolved, argv, request.Environment); err != nil {
+		return fmt.Errorf("exec %s: %w", resolved, err)
+	}
+	return nil
+}
+
+func applySeccompPolicy(restrictions SandboxRestrictionSpec, install func(SandboxRestrictionSpec) error) error {
+	if len(restrictions.SeccompDenied) == 0 {
+		return nil
+	}
+	return install(restrictions)
+}
+
+func seccompAuditArch(goarch string) (uint32, error) {
+	switch goarch {
+	case "amd64":
+		return uint32(unix.AUDIT_ARCH_X86_64), nil
+	case "arm64":
+		return uint32(unix.AUDIT_ARCH_AARCH64), nil
+	default:
+		return 0, fmt.Errorf("no seccomp audit arch mapping for GOARCH %s", goarch)
+	}
+}
+
+func seccompSyscallNumbers(names []string) ([]uint32, error) {
+	byName := map[string]int{
+		"socket": unix.SYS_SOCKET, "socketpair": unix.SYS_SOCKETPAIR,
+		"connect": unix.SYS_CONNECT, "bind": unix.SYS_BIND,
+		"sendto": unix.SYS_SENDTO, "sendmsg": unix.SYS_SENDMSG, "sendmmsg": unix.SYS_SENDMMSG,
+		"recvfrom": unix.SYS_RECVFROM, "recvmsg": unix.SYS_RECVMSG, "recvmmsg": unix.SYS_RECVMMSG,
+		"io_uring_setup": unix.SYS_IO_URING_SETUP, "io_uring_enter": unix.SYS_IO_URING_ENTER,
+	}
+	numbers := make([]uint32, 0, len(names))
+	for _, name := range names {
+		number, known := byName[name]
+		if !known {
+			return nil, fmt.Errorf("no syscall number for %q", name)
+		}
+		numbers = append(numbers, uint32(number))
+	}
+	return numbers, nil
+}
+
 // filterHelperEnv strips the helper variable so the exec'd command — which may
 // itself be backstop, or may spawn it — does not re-enter helper mode and loop.
 func filterHelperEnv(environment []string) []string {
-	kept := make([]string, 0, len(environment))
-	for _, entry := range environment {
-		if strings.HasPrefix(entry, sandboxHelperEnvVar+"=") {
-			continue
-		}
-		kept = append(kept, entry)
-	}
-	return kept
+	return check.WithoutEnvironment(environment, sandboxHelperEnvVar, PackSandboxEnvVar)
 }
 
 // kernelRelease reports the running kernel release for diagnostics.
 func kernelRelease() string {
-	var uname unix.Utsname
-	if err := unix.Uname(&uname); err != nil {
+	return kernelReleaseWith(unix.Uname)
+}
+
+func kernelReleaseWith(uname func(*unix.Utsname) error) string {
+	var uts unix.Utsname
+	if err := uname(&uts); err != nil {
 		return "unknown"
 	}
-	return strings.TrimRight(string(uname.Release[:]), "\x00")
+	return strings.TrimRight(string(uts.Release[:]), "\x00")
 }
 
 // probeLandlockABI asks the kernel which Landlock ABI it implements.
 func probeLandlockABI() (int, string, error) {
-	release := kernelRelease()
-	abi, _, errno := unix.Syscall(
+	return probeLandlockABIWith(kernelRelease, unix.Syscall)
+}
+
+func probeLandlockABIWith(release func() string, syscall func(uintptr, uintptr, uintptr, uintptr) (uintptr, uintptr, unix.Errno)) (int, string, error) {
+	kernel := release()
+	abi, _, errno := syscall(
 		unix.SYS_LANDLOCK_CREATE_RULESET,
 		0, 0,
 		uintptr(unix.LANDLOCK_CREATE_RULESET_VERSION),
 	)
 	if errno != 0 {
-		return 0, release, errno
+		return 0, kernel, errno
 	}
-	return int(abi), release, nil
+	return int(abi), kernel, nil
 }
 
-// newSandboxHelperCommand builds the parent-side command that re-execs this binary
+// newSandboxHelperInvocation builds the parent-side command that re-execs this binary
 // in helper mode. It negotiates the Landlock ABI first and REFUSES loudly when the
 // mechanism is unavailable, executing nothing.
 // probeABI is a PARAMETER so the refusal path is reachable from a test: on a healthy
@@ -171,24 +257,48 @@ func probeLandlockABI() (int, string, error) {
 // is applied. TestSandboxLinux_ProductionPathUsesTheRealABIProbe asserts both
 // production call sites hand it the real probeLandlockABI, so the seam cannot become a
 // place where test and production diverge.
-func newSandboxHelperCommand(command string, args []string, packDir string, probeABI LandlockABIProbe) (*exec.Cmd, error) {
+type sandboxHelperInvocation struct {
+	command *exec.Cmd
+	ackRead *os.File
+}
+
+type sandboxHelperInvocationDependencies struct {
+	marshal    func(any) ([]byte, error)
+	executable func() (string, error)
+	pipe       func() (*os.File, *os.File, error)
+}
+
+func newSandboxHelperInvocation(command string, args []string, packDir string, probeABI LandlockABIProbe) (*sandboxHelperInvocation, error) {
 	abi, err := resolveLandlockMechanism(probeABI)
 	if err != nil {
 		return nil, fmt.Errorf("negotiate the Landlock mechanism: %w", err)
 	}
+	return newSandboxHelperInvocationForCapability(command, args, packDir, ConvertValidatorCapability(packDir, abi))
+}
 
+func newSandboxHelperInvocationForCapability(command string, args []string, packDir string, capability SandboxCapability) (*sandboxHelperInvocation, error) {
+	return newSandboxHelperInvocationForCapabilityWithDependencies(command, args, packDir, capability, sandboxHelperInvocationDependencies{
+		marshal:    json.Marshal,
+		executable: os.Executable,
+		pipe:       os.Pipe,
+	})
+}
+
+func newSandboxHelperInvocationForCapabilityWithDependencies(command string, args []string, packDir string, capability SandboxCapability, dependencies sandboxHelperInvocationDependencies) (*sandboxHelperInvocation, error) {
 	request := sandboxHelperRequest{
-		Capability: ConvertValidatorCapability(packDir, abi),
-		Command:    command,
-		Args:       args,
-		Dir:        packDir,
+		Capability:  capability,
+		Command:     command,
+		Args:        args,
+		Dir:         packDir,
+		Environment: filterHelperEnv(os.Environ()),
+		AckFD:       sandboxAckFD,
 	}
-	encoded, err := json.Marshal(request)
+	encoded, err := dependencies.marshal(request)
 	if err != nil {
 		return nil, fmt.Errorf("encode sandbox helper request: %w", err)
 	}
 
-	self, err := os.Executable()
+	self, err := dependencies.executable()
 	if err != nil {
 		return nil, fmt.Errorf("resolve this executable for the sandbox trampoline: %w", err)
 	}
@@ -196,7 +306,12 @@ func newSandboxHelperCommand(command string, args []string, packDir string, prob
 	helper := exec.Command(self)
 	helper.Dir = packDir
 	helper.Env = append(filterHelperEnv(os.Environ()), sandboxHelperEnvVar+"="+string(encoded))
-	return helper, nil
+	ackRead, ackWrite, err := dependencies.pipe()
+	if err != nil {
+		return nil, fmt.Errorf("create sandbox acknowledgement pipe: %w", err)
+	}
+	helper.ExtraFiles = []*os.File{ackWrite}
+	return &sandboxHelperInvocation{command: helper, ackRead: ackRead}, nil
 }
 
 // platformSandboxedRun is the linux arm of SandboxedRun. It preserves that function's
@@ -211,22 +326,16 @@ func newSandboxHelperCommand(command string, args []string, packDir string, prob
 // a linux concept into a contract darwin also implements — forcing the darwin arm to
 // accept an argument it can never use.
 func platformSandboxedRun(command string, args []string, packDir string) ([]byte, error) {
-	return linuxSandboxedRunWith(command, args, packDir, probeLandlockABI)
+	result, err := linuxSandboxedExecuteWith(command, args, packDir, nil, false, probeLandlockABI)
+	return result.Output, err
 }
 
 // linuxSandboxedRunWith is platformSandboxedRun's body with the ABI prober injected,
 // which is what makes the refusal wrap below reachable: on a healthy host the real
 // probe always succeeds, so without this seam the wrap could never execute.
 func linuxSandboxedRunWith(command string, args []string, packDir string, probeABI LandlockABIProbe) ([]byte, error) {
-	helper, err := newSandboxHelperCommand(command, args, packDir, probeABI)
-	if err != nil {
-		return nil, fmt.Errorf("prepare the linux sandbox: %w", err)
-	}
-	out, err := helper.CombinedOutput()
-	if err != nil {
-		return out, fmt.Errorf("sandboxed run failed: %w", err)
-	}
-	return out, nil
+	result, err := linuxSandboxedExecuteWith(command, args, packDir, nil, false, probeABI)
+	return result.Output, err
 }
 
 // platformSandboxedRunStdout is the linux arm of SandboxedRunStdout. It preserves that
@@ -237,16 +346,73 @@ func linuxSandboxedRunWith(command string, args []string, packDir string, probeA
 // Same neutral-signature-plus-delegation shape as platformSandboxedRun above, and for
 // the same reason.
 func platformSandboxedRunStdout(command string, args []string, packDir string, stdin []byte) ([]byte, error) {
-	return linuxSandboxedRunStdoutWith(command, args, packDir, stdin, probeLandlockABI)
+	result, err := linuxSandboxedExecuteWith(command, args, packDir, stdin, true, probeLandlockABI)
+	return result.Output, err
 }
 
 // linuxSandboxedRunStdoutWith is platformSandboxedRunStdout's body with the ABI prober
 // injected. See linuxSandboxedRunWith for why the seam exists.
 func linuxSandboxedRunStdoutWith(command string, args []string, packDir string, stdin []byte, probeABI LandlockABIProbe) ([]byte, error) {
-	helper, err := newSandboxHelperCommand(command, args, packDir, probeABI)
+	invocation, err := newSandboxHelperInvocation(command, args, packDir, probeABI)
 	if err != nil {
 		return nil, fmt.Errorf("prepare the linux sandbox: %w", err)
 	}
+	helper := invocation.command
+	if stdin != nil {
+		helper.Stdin = bytes.NewReader(stdin)
+	}
+	var stdout, stderr bytes.Buffer
+	helper.Stdout = &stdout
+	helper.Stderr = &stderr
+	return runLinuxSandboxedStdoutInvocation(invocation, &stdout, &stderr)
+}
+
+func runLinuxSandboxedStdoutInvocation(invocation *sandboxHelperInvocation, stdout, stderr *bytes.Buffer) ([]byte, error) {
+	helper := invocation.command
+	if err := helper.Start(); err != nil {
+		_ = invocation.ackRead.Close()
+		_ = helper.ExtraFiles[0].Close()
+		return nil, fmt.Errorf("sandboxed run (stdout) failed: %w", err)
+	}
+	_ = helper.ExtraFiles[0].Close()
+	_, ackErr := io.ReadAll(invocation.ackRead)
+	_ = invocation.ackRead.Close()
+	waitErr := helper.Wait()
+	if ackErr != nil {
+		return nil, fmt.Errorf("read sandbox acknowledgement: %w", ackErr)
+	}
+	return foldHelperStderrIntoError(stdout.Bytes(), stderr.Bytes(), waitErr)
+}
+
+func writeSandboxAcknowledgement(fd int) error {
+	file := os.NewFile(uintptr(fd), "sandbox-ack")
+	if file == nil {
+		return fmt.Errorf("open sandbox acknowledgement descriptor")
+	}
+	if _, err := file.Write([]byte{sandboxAckByte}); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("write sandbox acknowledgement: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close sandbox acknowledgement: %w", err)
+	}
+	return nil
+}
+
+func platformSandboxedExecute(command string, args []string, packDir string, stdin []byte, stdoutOnly bool) (SandboxRunResult, error) {
+	return linuxSandboxedExecuteWith(command, args, packDir, stdin, stdoutOnly, probeLandlockABI)
+}
+
+func linuxSandboxedExecuteWith(command string, args []string, packDir string, stdin []byte, stdoutOnly bool, probeABI LandlockABIProbe) (SandboxRunResult, error) {
+	invocation, err := newSandboxHelperInvocation(command, args, packDir, probeABI)
+	if err != nil {
+		return SandboxRunResult{}, fmt.Errorf("prepare the linux sandbox: %w", err)
+	}
+	return runLinuxSandboxedInvocation(invocation, stdin, stdoutOnly)
+}
+
+func runLinuxSandboxedInvocation(invocation *sandboxHelperInvocation, stdin []byte, stdoutOnly bool) (SandboxRunResult, error) {
+	helper := invocation.command
 	if stdin != nil {
 		helper.Stdin = bytes.NewReader(stdin)
 	}
@@ -259,9 +425,29 @@ func linuxSandboxedRunStdoutWith(command string, args []string, packDir string, 
 	// actually shipped: os/exec sends a nil Stderr to /dev/null, which is how the
 	// helper's CLM-015 diagnostic was lost in CI run 30381252600.
 	var stdout, stderr bytes.Buffer
-	helper.Stdout = &stdout
-	helper.Stderr = &stderr
-
-	runErr := helper.Run()
-	return foldHelperStderrIntoError(stdout.Bytes(), stderr.Bytes(), runErr)
+	if stdoutOnly {
+		helper.Stdout = &stdout
+		helper.Stderr = &stderr
+	} else {
+		helper.Stdout = &stdout
+		helper.Stderr = &stdout
+	}
+	if err := helper.Start(); err != nil {
+		_ = invocation.ackRead.Close()
+		_ = helper.ExtraFiles[0].Close()
+		return SandboxRunResult{}, fmt.Errorf("sandboxed run failed: %w", err)
+	}
+	_ = helper.ExtraFiles[0].Close()
+	ack, ackErr := io.ReadAll(invocation.ackRead)
+	_ = invocation.ackRead.Close()
+	runErr := helper.Wait()
+	applied := ackErr == nil && len(ack) == 1 && ack[0] == sandboxAckByte
+	if stdoutOnly {
+		out, foldedErr := foldHelperStderrIntoError(stdout.Bytes(), stderr.Bytes(), runErr)
+		return sandboxRunResult(out, applied), foldedErr
+	}
+	if runErr != nil {
+		return sandboxRunResult(stdout.Bytes(), applied), fmt.Errorf("sandboxed run failed: %w", runErr)
+	}
+	return sandboxRunResult(stdout.Bytes(), applied), nil
 }

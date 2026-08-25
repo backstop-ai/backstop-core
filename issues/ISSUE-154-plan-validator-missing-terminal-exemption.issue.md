@@ -1,16 +1,28 @@
 ---
 title: "Plan Validator Missing Terminal Exemption"
 schema_version: issue/v1
+delivered_by: PLAN-ISSUE-154
 
 issue:
   id: ISSUE-154
   title: "Plan Validator Missing Terminal Exemption"
   type: bug
-  status: open
+  status: closed
   created: "2026-08-17"
+  closed: "2026-08-25"
 ---
 
 # Plan Validator Missing Terminal Exemption
+
+## Resolution
+
+Delivered by `PLAN-ISSUE-154` in commit `5ec5143`. Plan validation now applies phase/task
+completeness only to live work while retaining structural and retirement-field validation for
+terminal plans. The commit adds focused coverage for canceled, replaced, and obsoleted plans with
+absent or empty phases, plus guards proving live plans still require phases and terminal plans do
+not bypass structural checks. Closeout reran `go test ./pkg/validate/... -count=1` with Go 1.25.3
+and validated the full 456-artifact corpus with the current source-built CLI; both passed with
+zero violations.
 
 ## Problem
 

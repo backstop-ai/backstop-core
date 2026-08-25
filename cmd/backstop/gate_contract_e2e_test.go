@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os/exec"
 	"strings"
 	"testing"
@@ -147,15 +148,21 @@ func TestE2E_ContractsRealAstGrepAndGrep_AndSandboxedConvert(t *testing.T) {
 	// This is the load-bearing guard — a raw-exec bypass (the prior defect) would NOT
 	// route the convert through this seam, so this test would catch it. We wrap (not
 	// replace) the real sandbox so the pipeline still produces genuine SARIF.
-	origSandbox := sandboxedRunStdout
-	t.Cleanup(func() { sandboxedRunStdout = origSandbox })
 	var sandboxedConverts []string
-	sandboxedRunStdout = func(cmd string, args []string, packDir string, stdin []byte) ([]byte, error) {
-		sandboxedConverts = append(sandboxedConverts, cmd)
-		return packval.SandboxedRunStdout(cmd, args, packDir, stdin)
+	native, err := packval.NewSandboxRunner(packval.SandboxModeNative)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spy := &recordingSandboxRunner{mode: packval.SandboxModeNative,
+		runFn: native.Run,
+		stdoutFn: func(cmd string, args []string, packDir string, stdin []byte) (packval.SandboxRunResult, error) {
+			sandboxedConverts = append(sandboxedConverts, cmd)
+			return native.RunStdout(cmd, args, packDir, stdin)
+		},
 	}
 
-	res := ws.runProductionContractStep()
+	step := buildContractStepWithSandbox(ws.specDir, ws.root, nil, spy)
+	res := step(context.Background())
 
 	// ast-grep signature dispatch ran: the missing-signature violation is present.
 	if !hasContractViolation(res, "RouteFile") {

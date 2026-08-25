@@ -3,8 +3,9 @@
 package packval
 
 import (
-	"encoding/json"
+	"bytes"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -159,32 +160,38 @@ echo PROBE_COMPLETED
 // Network: true, and nothing else different, so the only variable between it and
 // the denial test is the capability itself.
 //
-// It reproduces the parent side of newSandboxHelperCommand rather than calling it
+// It reproduces the parent side of newSandboxHelperInvocation rather than calling it
 // because that function hardcodes the capability, and its file belongs to another
 // task. The duplication is four lines and it is confined to the control leg;
 // every DENIAL assertion in this file goes through the production path.
 func runUnderCapability(t *testing.T, capability SandboxCapability, command string, args []string, packDir string) ([]byte, error) {
 	t.Helper()
 
-	encoded, err := json.Marshal(sandboxHelperRequest{
-		Capability: capability,
-		Command:    command,
-		Args:       args,
-		Dir:        packDir,
-	})
+	invocation, err := newSandboxHelperInvocationForCapability(command, args, packDir, capability)
 	if err != nil {
-		t.Fatalf("encode helper request: %v", err)
-	}
-	self, err := os.Executable()
-	if err != nil {
-		t.Fatalf("resolve the test binary for the trampoline: %v", err)
+		t.Fatalf("prepare helper invocation: %v", err)
 	}
 
-	helper := exec.Command(self)
-	helper.Dir = packDir
-	helper.Env = append(filterHelperEnv(os.Environ()), sandboxHelperEnvVar+"="+string(encoded))
-	out, runErr := helper.CombinedOutput()
-	return out, runErr
+	var output bytes.Buffer
+	helper := invocation.command
+	helper.Stdout = &output
+	helper.Stderr = &output
+	if err := helper.Start(); err != nil {
+		_ = invocation.ackRead.Close()
+		_ = helper.ExtraFiles[0].Close()
+		return nil, err
+	}
+	_ = helper.ExtraFiles[0].Close()
+	ack, ackErr := io.ReadAll(invocation.ackRead)
+	_ = invocation.ackRead.Close()
+	runErr := helper.Wait()
+	if ackErr != nil {
+		return output.Bytes(), fmt.Errorf("read sandbox acknowledgement: %w", ackErr)
+	}
+	if len(ack) != 1 || ack[0] != sandboxAckByte {
+		return output.Bytes(), fmt.Errorf("sandbox helper returned malformed acknowledgement %x", ack)
+	}
+	return output.Bytes(), runErr
 }
 
 // TestLinuxSandbox_DeniesReadOutsideReadableSet asserts a path outside the
@@ -241,6 +248,21 @@ func TestLinuxSandbox_ReadsPackDirContents(t *testing.T) {
 	}
 	if !strings.Contains(string(out), payload) {
 		t.Fatalf("packDir read produced %q, want it to contain %q", string(out), payload)
+	}
+}
+
+func TestLinuxSandbox_InjectedStdoutArmPreservesInputAndAcknowledgement(t *testing.T) {
+	requireLandlock(t)
+	packDir := sandboxPackDir(t)
+	cat := requireExecutable(t, "cat")
+	const input = "STDOUT-ARM-INPUT"
+
+	out, err := linuxSandboxedRunStdoutWith(cat, nil, packDir, []byte(input), probeLandlockABI)
+	if err != nil {
+		t.Fatalf("injected stdout arm failed after native acknowledgement: %v; output=%q", err, out)
+	}
+	if string(out) != input {
+		t.Fatalf("injected stdout arm output=%q, want exact stdin %q", out, input)
 	}
 }
 

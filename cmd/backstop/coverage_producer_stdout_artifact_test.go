@@ -66,7 +66,7 @@ func coverageStdoutArtifactManifest(engineName, artifactName string) *pack.Manif
 // that the convert would mis-read as a bogus record if fed stdout.
 func TestCoverageProducer_FeedsConvertDeclaredArtifactNotCommandStdout(t *testing.T) {
 	var convertStdin []byte
-	stubSandboxedRunStdout(t, &convertStdin)
+	sandboxRunner := directConvertSandboxRunner(&convertStdin)
 
 	// The convert echoes whatever it receives on stdin as the normalized records.
 	// (The artifact body is already valid coverage-records JSON.)
@@ -88,7 +88,7 @@ func TestCoverageProducer_FeedsConvertDeclaredArtifactNotCommandStdout(t *testin
 	}
 	manifest := coverageStdoutArtifactManifest("cov-engine", "cover.out")
 
-	records, err := dispatchPackCoverage([]*pack.Manifest{manifest}, packsDir, projectRoot, nil, runner)
+	result, err := dispatchPackCoverageWithEvidence([]*pack.Manifest{manifest}, packsDir, projectRoot, nil, runner, sandboxRunner)
 	if err != nil {
 		t.Fatalf("dispatchPackCoverage: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestCoverageProducer_FeedsConvertDeclaredArtifactNotCommandStdout(t *testin
 
 	// The real record for the changed source file must survive to the consumer.
 	found := false
-	for _, r := range records {
+	for _, r := range result.Records {
 		if r.Path == "pkg/validate/terminal.go" {
 			found = true
 			if r.Total != 42 || r.Covered != 40 {
@@ -112,7 +112,7 @@ func TestCoverageProducer_FeedsConvertDeclaredArtifactNotCommandStdout(t *testin
 		}
 	}
 	if !found {
-		t.Fatalf("the producer must surface a coverage record for the changed file from the declared artifact; got %#v", records)
+		t.Fatalf("the producer must surface a coverage record for the changed file from the declared artifact; got %#v", result.Records)
 	}
 }
 

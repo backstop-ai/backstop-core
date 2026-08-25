@@ -53,6 +53,10 @@ func FormatHuman(result GateResult, noColor bool) string {
 		}
 		sb.WriteString(strings.Repeat("─", 60) + "\n")
 	}
+	if result.PackSandboxMode != "" {
+		sb.WriteString(fmt.Sprintf("pack sandbox: %s (native applied: %t)\n", result.PackSandboxMode, result.NativeSandboxApplied))
+		sb.WriteString(strings.Repeat("─", 60) + "\n")
+	}
 
 	if result.Scope != nil && result.Scope.Mode != GateScopeModeAll {
 		switch result.Scope.Mode {

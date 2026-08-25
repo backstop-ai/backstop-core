@@ -457,14 +457,13 @@ func isIdentNamed(expr ast.Expr, name string) bool {
 	return ok && ident.Name == name
 }
 
-// exitCallArgument returns the single argument of the first os.Exit call in body.
+// exitCallArgument returns the single argument of the last os.Exit call in body.
+// Typed helper completion exits first; the final exit remains the ordinary
+// setup-error disposition asserted by the legacy guard tests.
 func exitCallArgument(body *ast.BlockStmt) (ast.Expr, bool) {
 	var arg ast.Expr
 	var found bool
 	ast.Inspect(body, func(n ast.Node) bool {
-		if found {
-			return false
-		}
 		call, ok := n.(*ast.CallExpr)
 		if !ok {
 			return true
@@ -478,7 +477,7 @@ func exitCallArgument(body *ast.BlockStmt) (ast.Expr, bool) {
 		}
 		arg = call.Args[0]
 		found = true
-		return false
+		return true
 	})
 	return arg, found
 }

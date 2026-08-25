@@ -9,6 +9,7 @@ import (
 
 	"github.com/backstop-ai/backstop-core/pkg/baseengines"
 	"github.com/backstop-ai/backstop-core/pkg/pack"
+	"github.com/backstop-ai/backstop-core/pkg/packval"
 )
 
 // TestEndState_NoToolNameUsedAsDispatchDiscriminator is the SPEC-035 REQ-006 /
@@ -103,17 +104,17 @@ func TestConvert_ScriptIsSandboxTrustedNotToolAllowlisted(t *testing.T) {
 	// The convert step runs through the sandbox seam (sandbox-trusted), producing
 	// SARIF — it is never subjected to a tool-allowlist check of its own.
 	var gotStdin []byte
-	stubSandboxedRunStdout(t, &gotStdin)
+	sandboxRunner := directConvertSandboxRunner(&gotStdin)
 	runner := &fixtureRunner{byCmd: map[string][]byte{"ast-grep scan": []byte(astGrepJSONStdout())}}
 
-	violations, err := dispatchPackEngines([]*pack.Manifest{convertBindingManifest()}, engineDispatchPacksDir(t), t.TempDir(), nil, runner)
+	result, err := dispatchPackEnginesWithEvidence([]*pack.Manifest{convertBindingManifest()}, engineDispatchPacksDir(t), t.TempDir(), nil, runner, sandboxRunner)
 	if err != nil {
 		t.Fatalf("dispatch with sandbox-trusted convert must succeed: %v", err)
 	}
 	if len(gotStdin) == 0 {
 		t.Error("the convert script must have run through the sandbox seam (received engine stdout on stdin); it is sandbox-trusted, not allowlist-gated")
 	}
-	if len(violations) == 0 {
+	if len(result.Violations) == 0 {
 		t.Error("the sandbox-trusted convert pipe must yield the converted SARIF finding")
 	}
 }
@@ -154,11 +155,12 @@ func TestValidator_IsSandboxTrustedNotToolAllowlisted(t *testing.T) {
 	}
 
 	called := false
-	orig := sandboxedRun
-	sandboxedRun = func(string, []string, string) ([]byte, error) { called = true; return nil, nil }
-	t.Cleanup(func() { sandboxedRun = orig })
+	sandboxRunner := &recordingSandboxRunner{mode: packval.SandboxModeNative, runFn: func(string, []string, string) (packval.SandboxRunResult, error) {
+		called = true
+		return packval.SandboxRunResult{}, nil
+	}}
 
-	if _, err := dispatchPackEngines([]*pack.Manifest{m}, packDir, projectRoot, nil, emptySarifRunner{}); err != nil {
+	if _, err := dispatchPackEnginesWithEvidence([]*pack.Manifest{m}, packDir, projectRoot, nil, emptySarifRunner{}, sandboxRunner); err != nil {
 		t.Fatalf("the sandbox validator carries no tool and must NOT be allowlist-gated, got: %v", err)
 	}
 	if !called {
@@ -175,14 +177,12 @@ func TestValidator_IsSandboxTrustedNotToolAllowlisted(t *testing.T) {
 // returns the platform-unavailable error and asserts the dispatch fails loud,
 // naming the failure, rather than passing.
 func TestSandbox_PlatformUnavailableSurfacedNotSilent(t *testing.T) {
-	orig := sandboxedRunStdout
-	sandboxedRunStdout = func(cmd string, args []string, packDir string, stdin []byte) ([]byte, error) {
-		return nil, errors.New("sandbox unavailable on linux in this build")
-	}
-	t.Cleanup(func() { sandboxedRunStdout = orig })
+	sandboxRunner := &recordingSandboxRunner{mode: packval.SandboxModeNative, stdoutFn: func(string, []string, string, []byte) (packval.SandboxRunResult, error) {
+		return packval.SandboxRunResult{}, errors.New("sandbox unavailable on linux in this build")
+	}}
 
 	runner := &fixtureRunner{byCmd: map[string][]byte{"ast-grep scan": []byte(astGrepJSONStdout())}}
-	_, err := dispatchPackEngines([]*pack.Manifest{convertBindingManifest()}, engineDispatchPacksDir(t), t.TempDir(), nil, runner)
+	_, err := dispatchPackEnginesWithEvidence([]*pack.Manifest{convertBindingManifest()}, engineDispatchPacksDir(t), t.TempDir(), nil, runner, sandboxRunner)
 	if err == nil {
 		t.Fatal("an unavailable sandbox must surface a LOUD dispatch error, not a silent pass (running convert unsandboxed or dropping to green is the bug)")
 	}

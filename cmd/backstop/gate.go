@@ -20,6 +20,7 @@ import (
 	"github.com/backstop-ai/backstop-core/pkg/pack"
 	"github.com/backstop-ai/backstop-core/pkg/pack/distribution"
 	"github.com/backstop-ai/backstop-core/pkg/pack/engine"
+	"github.com/backstop-ai/backstop-core/pkg/packval"
 	"github.com/backstop-ai/backstop-core/pkg/schema"
 	"github.com/backstop-ai/backstop-core/pkg/validate"
 	"github.com/backstop-ai/backstop-core/pkg/waiver"
@@ -76,11 +77,59 @@ it's green, it ships.`,
 			"--json decides what STDOUT receives (the human table by default, the JSON document under --json), "+
 			"while --json-out only ADDS a file destination and never changes stdout. For CI, which needs the "+
 			"table in the log AND the machine-readable report on disk from ONE run.")
+	cmd.Flags().String("pack-sandbox", "", "pack code sandbox mode: native or external (default native)")
 	return cmd
+}
+
+func resolvePackSandboxMode(flagSet bool, flagValue string, envSet bool, envValue string) (packval.SandboxMode, error) {
+	value := "native"
+	if envSet {
+		value = envValue
+	}
+	if flagSet {
+		value = flagValue
+	}
+	mode := packval.SandboxMode(value)
+	if mode != packval.SandboxModeNative && mode != packval.SandboxModeExternal {
+		return "", fmt.Errorf("--pack-sandbox/BACKSTOP_PACK_SANDBOX must be exactly native or external, got %q", value)
+	}
+	return mode, nil
+}
+
+func packChildEnvironment() []string {
+	return check.WithoutEnvironment(os.Environ(), packval.PackSandboxEnvVar)
 }
 
 // runGate is the Cobra RunE handler that orchestrates all nine gate steps.
 func runGate(cmd *cobra.Command, args []string) error {
+	return runGateWithSandbox(cmd, args, resolvePackSandboxMode, packval.NewSandboxRunner,
+		func(options ...gate.Option) (gate.GateResult, int) {
+			g := gate.New(options...)
+			return g.Run(context.Background())
+		})
+}
+
+func runGateWithSandbox(
+	cmd *cobra.Command,
+	args []string,
+	resolveMode func(bool, string, bool, string) (packval.SandboxMode, error),
+	newRunner func(packval.SandboxMode) (packval.SandboxRunner, error),
+	executeGate func(...gate.Option) (gate.GateResult, int),
+) error {
+	packSandboxValue, flagErr := cmd.Flags().GetString("pack-sandbox")
+	if flagErr != nil {
+		return &ExitCodeError{Code: ExitConfigError, Message: fmt.Sprintf("config: %s", flagErr)}
+	}
+	envValue, envSet := os.LookupEnv(packval.PackSandboxEnvVar)
+	packSandboxMode, modeErr := resolveMode(cmd.Flags().Changed("pack-sandbox"), packSandboxValue, envSet, envValue)
+	if modeErr != nil {
+		return &ExitCodeError{Code: ExitConfigError, Message: "config: " + modeErr.Error()}
+	}
+	sandboxRunner, runnerErr := newRunner(packSandboxMode)
+	if runnerErr != nil {
+		return &ExitCodeError{Code: ExitConfigError, Message: "config: " + runnerErr.Error()}
+	}
+
 	// Load config via CLI foundation config loader.
 	cfg, cfgErr := config.LoadConfig()
 
@@ -249,7 +298,7 @@ func runGate(cmd *cobra.Command, args []string) error {
 	// Build gate with step implementations.
 	var opts []gate.Option
 
-	steps := buildGateSteps(projectRoot, artifactRoot, scope)
+	steps := buildGateStepsWithSandbox(projectRoot, artifactRoot, sandboxRunner, scope)
 	opts = append(opts, gate.WithSteps(steps))
 	opts = append(opts, gate.WithScope(scope))
 
@@ -293,8 +342,8 @@ func runGate(cmd *cobra.Command, args []string) error {
 		opts = append(opts, gate.WithPolicy(policy))
 	}
 
-	g := gate.New(opts...)
-	result, exitCode := g.Run(context.Background())
+	result, exitCode := executeGate(opts...)
+	result.PackSandboxMode = string(packSandboxMode)
 
 	// ISSUE-059 provenance: stamp the HEAD SHA and completion time on the result before
 	// formatting, mirroring the baseline artifact (gitSHA returns "" on a non-repo, with no
@@ -870,6 +919,16 @@ func toolchainEnforcementStatus(declared []*pack.Manifest) (gate.StepResult, boo
 // it keep omitting it; the new parameter therefore goes BEFORE it, since Go cannot
 // express a parameter after a variadic.
 func buildGateSteps(projectRoot string, root artifact.Root, scope ...*gate.GateScope) []gate.StepFunc {
+	sandboxRunner, err := packval.NewSandboxRunner(packval.SandboxModeNative)
+	if err != nil {
+		return []gate.StepFunc{func(context.Context) gate.StepResult {
+			return gate.StepResult{StepName: "pack_loading", Status: "fail", ConfigErr: true, Violations: []gate.Violation{{Rule: "pack_loading", Message: err.Error(), Severity: "error"}}}
+		}}
+	}
+	return buildGateStepsWithSandbox(projectRoot, root, sandboxRunner, scope...)
+}
+
+func buildGateStepsWithSandbox(projectRoot string, root artifact.Root, sandboxRunner packval.SandboxRunner, scope ...*gate.GateScope) []gate.StepFunc {
 	var activeScope *gate.GateScope
 	if len(scope) > 0 {
 		activeScope = scope[0]
@@ -960,7 +1019,7 @@ func buildGateSteps(projectRoot string, root artifact.Root, scope ...*gate.GateS
 
 	// Step 4: Test substantiveness needs the resolved mandated tests with file paths.
 	// We extract mandated tests and resolve their file paths, then pass to substantiveness.
-	testSubstantivenessStep := buildTestSubstantivenessStep(specDir, projectRoot, projectRoot, activeScope, classifier, matcher)
+	testSubstantivenessStep := buildTestSubstantivenessStepWithSandbox(specDir, projectRoot, projectRoot, activeScope, classifier, matcher, sandboxRunner)
 
 	// Step 5: Coverage threshold consumes the canonical per-FILE
 	// []check.CoverageRecord PRODUCED by SPEC-042's dispatchPackCoverage over the
@@ -968,10 +1027,10 @@ func buildGateSteps(projectRoot string, root artifact.Root, scope ...*gate.GateS
 	// would re-violate REQ-002). The records are sourced lazily at step-run time so the
 	// producer is exercised inside the gate (CLM-003). The merged classifier (above) is
 	// also threaded into the coverage step (SPEC-043 REQ-005).
-	coverageStep := buildCoverageStep(specDir, projectRoot, activeScope, classifier, coverageRecordsProducer(packs, projectRoot))
+	coverageStep := buildCoverageStep(specDir, projectRoot, activeScope, classifier, coverageRecordsProducerWithSandbox(packs, projectRoot, sandboxRunner))
 
 	// Step 6: Contract signature needs contract entries extracted from specs.
-	contractStep := buildContractStep(specDir, projectRoot, activeScope)
+	contractStep := buildContractStepWithSandbox(specDir, projectRoot, activeScope, sandboxRunner)
 
 	// ISSUE-042: the native status/reality drift dimension (CLM-007/008/009). It runs a
 	// FULL-SWEEP existence check — resolving EVERY artifact under projectRoot and checking
@@ -1069,7 +1128,7 @@ func buildGateSteps(projectRoot string, root artifact.Root, scope ...*gate.GateS
 	}
 
 	packValidatorStep := func(context.Context) gate.StepResult {
-		runner := &check.ExecCommandRunner{Dir: projectRoot}
+		runner := &check.ExecCommandRunner{Dir: projectRoot, Env: packChildEnvironment()}
 		// A <lang>-toolchain pack dispatches its lint/build/test engine bindings
 		// through the SAME substrate as every other declared pack (SPEC-046): a
 		// toolchain is an ordinary declared pack, so it flows through this uniform
@@ -1110,14 +1169,20 @@ func buildGateSteps(projectRoot string, root artifact.Root, scope ...*gate.GateS
 		// activeScope restores the whole-repo sweep; an all-scope now hands over
 		// its own explicit file list rather than a directory target (ISSUE-091);
 		// the project-wide toolchain passes stay project-wide regardless.
-		violations, err := resolveDispatchPackEngines()(dispatchPacks, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, activeScope, runner)
+		var dispatchResult packEngineDispatchResult
+		var err error
+		if dispatchPackEnginesFn != nil {
+			dispatchResult.Violations, err = dispatchPackEnginesFn(dispatchPacks, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, activeScope, runner)
+		} else {
+			dispatchResult, err = dispatchPackEnginesWithEvidence(dispatchPacks, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, activeScope, runner, sandboxRunner)
+		}
 		if err != nil {
-			return gate.StepResult{
+			return stepResultWithNativeSandbox(gate.StepResult{
 				StepName:   "pack_engines",
 				Status:     "fail",
 				ConfigErr:  true,
 				Violations: []gate.Violation{{Rule: "pack_engines", Message: err.Error(), Severity: "error"}},
-			}
+			}, dispatchResult.NativeSandboxApplied)
 		}
 		// PUBLISH THE UNFILTERED STREAM TO THE VERDICT COLLECTOR — BEFORE THE FILTER
 		// BELOW, WHICH IS THE ENTIRE POINT (ISSUE-118). A failing mandated test's
@@ -1130,6 +1195,7 @@ func buildGateSteps(projectRoot string, root artifact.Root, scope ...*gate.GateS
 		// The filtered set below is untouched, deliberately: whether pack_engines
 		// should also keep an out-of-scope test failure is a separate question with
 		// its own issue, and quietly answering it here would make both unreviewable.
+		violations := dispatchResult.Violations
 		collectedVerdicts = gate.RouteTestVerdictFindings(violations)
 		verdictEngineDeclared = declaresTestVerdictEngine(dispatchPacks)
 
@@ -1139,11 +1205,11 @@ func buildGateSteps(projectRoot string, root artifact.Root, scope ...*gate.GateS
 		// filtered out here or they leak past diff-scope. ProjectWide (exempt, e.g.
 		// go-build) violations are structurally retained by the filter.
 		violations = activeScope.FilterViolations(violations)
-		return gate.StepResult{
+		return stepResultWithNativeSandbox(gate.StepResult{
 			StepName:   "pack_engines",
 			Status:     gate.StepVerdict(violations),
 			Violations: violations,
-		}
+		}, dispatchResult.NativeSandboxApplied)
 	}
 
 	// Order: lock, artifact (steps[0]), pack_engines dispatch, then the remaining
@@ -1154,6 +1220,11 @@ func buildGateSteps(projectRoot string, root artifact.Root, scope ...*gate.GateS
 	packed = append(packed, steps[0], packValidatorStep)
 	packed = append(packed, steps[1:]...)
 	return packed
+}
+
+func stepResultWithNativeSandbox(result gate.StepResult, applied bool) gate.StepResult {
+	result.NativeSandboxApplied = applied
+	return result
 }
 
 // buildStatusDriftSteps wires the ISSUE-042 native status/reality drift dimension into
@@ -1373,6 +1444,16 @@ func resolveSubstantivenessPacks(projectRoot string) ([]*pack.Manifest, error) {
 // reached the dispatcher (CLM-015..017). When the substantiveness pack is not installed,
 // the step is a no-op (the capability classifier governs the warn/block polarity).
 func buildTestSubstantivenessStep(specDir, codeDir, projectRoot string, scope *gate.GateScope, classifier gate.SourceClassifier, matcher gate.TestNameMatcher) gate.StepFunc {
+	sandboxRunner, err := packval.NewSandboxRunner(packval.SandboxModeNative)
+	if err != nil {
+		return func(context.Context) gate.StepResult {
+			return gate.StepResult{StepName: gate.StepTestSubstantiveness, Status: "fail", ConfigErr: true, Violations: []gate.Violation{{Rule: gate.StepTestSubstantiveness, Message: err.Error(), Severity: "error"}}}
+		}
+	}
+	return buildTestSubstantivenessStepWithSandbox(specDir, codeDir, projectRoot, scope, classifier, matcher, sandboxRunner)
+}
+
+func buildTestSubstantivenessStepWithSandbox(specDir, codeDir, projectRoot string, scope *gate.GateScope, classifier gate.SourceClassifier, matcher gate.TestNameMatcher, sandboxRunner packval.SandboxRunner) gate.StepFunc {
 	return func(_ context.Context) gate.StepResult {
 		mandated, err := gate.ExtractMandatedTests(specDir)
 		if err != nil {
@@ -1423,15 +1504,23 @@ func buildTestSubstantivenessStep(specDir, codeDir, projectRoot string, scope *g
 		// Reach the substantiveness pack's findings + extraction through the SAME
 		// dispatch seam code check and the pack_engines step use (REQ-005). NOT a
 		// re-implemented dispatcher; NOT the deleted analyzer.
-		runner := &check.ExecCommandRunner{Dir: projectRoot}
-		flat, err := resolveDispatchPackEngines()(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, scope, runner)
+		runner := &check.ExecCommandRunner{Dir: projectRoot, Env: packChildEnvironment()}
+		var flat []gate.Violation
+		nativeSandboxApplied := false
+		if dispatchPackEnginesFn != nil {
+			flat, err = dispatchPackEnginesFn(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, scope, runner)
+		} else {
+			dispatchResult, dispatchErr := dispatchPackEnginesWithEvidence(packs, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, scope, runner, sandboxRunner)
+			flat, err = dispatchResult.Violations, dispatchErr
+			nativeSandboxApplied = dispatchResult.NativeSandboxApplied
+		}
 		if err != nil {
-			return gate.StepResult{
+			return stepResultWithNativeSandbox(gate.StepResult{
 				StepName:   gate.StepTestSubstantiveness,
 				Status:     "fail",
 				ConfigErr:  true,
 				Violations: []gate.Violation{{Rule: gate.StepTestSubstantiveness, Message: "dispatching substantiveness pack: " + err.Error(), Severity: "error"}},
-			}
+			}, nativeSandboxApplied)
 		}
 
 		// Route the flat stream by the pack-DECLARED substantiveness_role property (the
@@ -1526,7 +1615,7 @@ func buildTestSubstantivenessStep(specDir, codeDir, projectRoot string, scope *g
 		if violations == nil {
 			violations = []gate.Violation{}
 		}
-		return gate.StepResult{
+		return stepResultWithNativeSandbox(gate.StepResult{
 			StepName: gate.StepTestSubstantiveness,
 			// SEVERITY-AWARE, not a raw count (ISSUE-106 hop B, mirroring the shape the
 			// pack_engines step already uses). This is the SAME fix as the join's, not
@@ -1550,7 +1639,7 @@ func buildTestSubstantivenessStep(specDir, codeDir, projectRoot string, scope *g
 			// mechanical jobs a status change would disturb.
 			Status:     gate.StepVerdict(violations),
 			Violations: violations,
-		}
+		}, nativeSandboxApplied)
 	}
 }
 
@@ -1589,23 +1678,40 @@ func mergeTestNameMatcher(packSets ...[]*pack.Manifest) (gate.TestNameMatcher, e
 // coverageRecordsFn produces the canonical per-FILE []check.CoverageRecord the
 // coverage step consumes (SPEC-041 CLM-003). It is the typed seam between the gate
 // and SPEC-042's dispatchPackCoverage producer.
-type coverageRecordsFn func(scope *gate.GateScope) ([]check.CoverageRecord, error)
+type coverageRecordsResult struct {
+	records              []check.CoverageRecord
+	nativeSandboxApplied bool
+}
 
-// coverageRecordsProducer returns a coverageRecordsFn that sources the canonical
-// per-FILE []check.CoverageRecord from SPEC-042's dispatchPackCoverage producer
-// over the DECLARED toolchain packs. It NEVER constructs a binary-resident
-// `go test` runner (re-baking one would re-violate REQ-002); the per-file coverage
-// signal originates from the declared toolchain coverage pass. A toolchain is an
-// ordinary declared pack (SPEC-046), so it keys on the declared `packs:` set alone
-// — there is no language-derived bridge set.
+type coverageRecordsFn func(scope *gate.GateScope) (coverageRecordsResult, error)
+
+func newCoverageRecordsResult(records []check.CoverageRecord, nativeSandboxApplied bool) coverageRecordsResult {
+	result := coverageRecordsResult{records: records}
+	result.nativeSandboxApplied = nativeSandboxApplied
+	return result
+}
+
+// coverageRecordsProducer preserves the declared native-mode compatibility
+// contract while production uses the invocation-selected runner below.
 func coverageRecordsProducer(declared []*pack.Manifest, projectRoot string) coverageRecordsFn {
-	return func(scope *gate.GateScope) ([]check.CoverageRecord, error) {
-		if len(declared) == 0 {
-			return nil, nil
+	sandboxRunner, err := packval.NewSandboxRunner(packval.SandboxModeNative)
+	if err != nil {
+		return func(*gate.GateScope) (coverageRecordsResult, error) {
+			return coverageRecordsResult{}, fmt.Errorf("construct native sandbox runner: %w", err)
 		}
-		runner := &check.ExecCommandRunner{Dir: projectRoot}
+	}
+	return coverageRecordsProducerWithSandbox(declared, projectRoot, sandboxRunner)
+}
+
+func coverageRecordsProducerWithSandbox(declared []*pack.Manifest, projectRoot string, sandboxRunner packval.SandboxRunner) coverageRecordsFn {
+	return func(scope *gate.GateScope) (coverageRecordsResult, error) {
+		if len(declared) == 0 {
+			return coverageRecordsResult{}, nil
+		}
+		runner := &check.ExecCommandRunner{Dir: projectRoot, Env: packChildEnvironment()}
 		packDir := filepath.Join(projectRoot, ".backstop", "packs")
-		return dispatchPackCoverage(declared, packDir, projectRoot, scope, runner)
+		result, err := dispatchPackCoverageWithEvidence(declared, packDir, projectRoot, scope, runner, sandboxRunner)
+		return newCoverageRecordsResult(result.Records, result.NativeSandboxApplied), err
 	}
 }
 
@@ -1649,20 +1755,44 @@ func buildCoverageStep(specDir, projectRoot string, scope *gate.GateScope, class
 		}
 
 		var coverage []check.CoverageRecord
+		nativeSandboxApplied := false
 		if records != nil {
-			coverage, err = records(scope)
+			produced, produceErr := records(scope)
+			coverage, err = produced.records, produceErr
+			nativeSandboxApplied = produced.nativeSandboxApplied
 			if err != nil {
-				return gate.StepResult{
+				return stepResultWithNativeSandbox(gate.StepResult{
 					StepName:   gate.StepCoverageThreshold,
 					Status:     "fail",
 					ConfigErr:  true,
 					Violations: []gate.Violation{{Rule: "coverage_threshold", Message: "failed to produce coverage records: " + err.Error(), Severity: "error"}},
-				}
+				}, nativeSandboxApplied)
 			}
 		}
 		step := gate.StepCoverageThresholdScopedFunc(coverage, specs, scope, classifier)
-		return step(ctx)
+		result := step(ctx)
+		result.NativeSandboxApplied = nativeSandboxApplied
+		return result
 	}
+}
+
+type evidenceSandboxRunner struct {
+	delegate packval.SandboxRunner
+	applied  bool
+}
+
+func (r *evidenceSandboxRunner) Mode() packval.SandboxMode { return r.delegate.Mode() }
+
+func (r *evidenceSandboxRunner) Run(command string, args []string, dir string) (packval.SandboxRunResult, error) {
+	result, err := r.delegate.Run(command, args, dir)
+	r.applied = r.applied || result.NativeSandboxApplied
+	return result, err
+}
+
+func (r *evidenceSandboxRunner) RunStdout(command string, args []string, dir string, stdin []byte) (packval.SandboxRunResult, error) {
+	result, err := r.delegate.RunStdout(command, args, dir, stdin)
+	r.applied = r.applied || result.NativeSandboxApplied
+	return result, err
 }
 
 // contractEngineResultsFn is a test seam: nil in production (the producer below
@@ -1681,6 +1811,14 @@ var contractEngineResultsFn func(projectRoot string, contracts []gate.ContractEn
 // (CLM-021). A test seam may override it so the wiring spy can assert the pack path
 // is the one consumed (CLM-020) and an unwired path fails (CLM-022).
 func produceContractEngineResults(projectRoot string, contracts []gate.ContractEntry) ([]gate.ContractEngineResult, error) {
+	sandboxRunner, err := packval.NewSandboxRunner(packval.SandboxModeNative)
+	if err != nil {
+		return nil, fmt.Errorf("construct native sandbox runner: %w", err)
+	}
+	return produceContractEngineResultsWithSandbox(projectRoot, contracts, sandboxRunner)
+}
+
+func produceContractEngineResultsWithSandbox(projectRoot string, contracts []gate.ContractEntry, sandboxRunner packval.SandboxRunner) ([]gate.ContractEngineResult, error) {
 	if contractEngineResultsFn != nil {
 		return contractEngineResultsFn(projectRoot, contracts)
 	}
@@ -1700,7 +1838,7 @@ func produceContractEngineResults(projectRoot string, contracts []gate.ContractE
 
 	results := make([]gate.ContractEngineResult, 0, len(contracts))
 	for _, c := range contracts {
-		r, err := dispatchContractEntry(projectRoot, manifest, c)
+		r, err := dispatchContractEntryWithSandbox(projectRoot, manifest, c, sandboxRunner)
 		if err != nil {
 			return nil, fmt.Errorf("dispatching contract entry for %s: %w", c.Name, err)
 		}
@@ -1752,6 +1890,14 @@ func resolveContractsPacks(projectRoot string) ([]*pack.Manifest, error) {
 // finding for that contract's file; Scanned = the declared file/scope exists on disk (the
 // file-scanned guard signal). NO raw exec, NO sandbox bypass.
 func dispatchContractEntry(projectRoot string, manifest *pack.Manifest, c gate.ContractEntry) (gate.ContractEngineResult, error) {
+	sandboxRunner, err := packval.NewSandboxRunner(packval.SandboxModeNative)
+	if err != nil {
+		return gate.ContractEngineResult{}, fmt.Errorf("construct native sandbox runner: %w", err)
+	}
+	return dispatchContractEntryWithSandbox(projectRoot, manifest, c, sandboxRunner)
+}
+
+func dispatchContractEntryWithSandbox(projectRoot string, manifest *pack.Manifest, c gate.ContractEntry, sandboxRunner packval.SandboxRunner) (gate.ContractEngineResult, error) {
 	// Determine the scan target (file for a present signature; file-OR-path scope for an
 	// absence) and the file-scanned guard signal.
 	target := c.File
@@ -1793,13 +1939,14 @@ func dispatchContractEntry(projectRoot string, manifest *pack.Manifest, c gate.C
 		return gate.ContractEngineResult{}, fmt.Errorf("computing scope for %s: %w", c.Name, scopeErr)
 	}
 
-	runner := &check.ExecCommandRunner{Dir: projectRoot}
+	runner := &check.ExecCommandRunner{Dir: projectRoot, Env: packChildEnvironment()}
 	packDir := filepath.Join(projectRoot, ".backstop", "packs")
-	violations, dispErr := resolveDispatchPackEngines()([]*pack.Manifest{single}, packDir, projectRoot, scope, runner)
+	dispatchResult, dispErr := dispatchPackEnginesWithEvidence([]*pack.Manifest{single}, packDir, projectRoot, scope, runner, sandboxRunner)
 	if dispErr != nil {
 		return gate.ContractEngineResult{}, fmt.Errorf("dispatching contract engine for %s: %w", c.Name, dispErr)
 	}
 
+	violations := dispatchResult.Violations
 	locs := make([]gate.SarifLocation, 0, len(violations))
 	for _, v := range violations {
 		locs = append(locs, gate.SarifLocation{File: v.File})
@@ -1826,7 +1973,9 @@ func contractSignatureEngine(manifest *pack.Manifest) string {
 func compileContractSignature(projectRoot string, manifest *pack.Manifest, signature string) (string, error) {
 	packRoot := filepath.Join(projectRoot, ".backstop", "packs", filepath.FromSlash(manifest.NormalizedName))
 	script := filepath.Join(packRoot, "scripts", "compile-signature.sh")
-	out, err := exec.Command("/bin/sh", script, signature).Output()
+	signatureCommand := exec.Command("/bin/sh", script, signature)
+	signatureCommand.Env = packChildEnvironment()
+	out, err := signatureCommand.Output()
 	if err != nil {
 		return "", fmt.Errorf("running pack signature compiler %s: %w", script, err)
 	}
@@ -1838,7 +1987,18 @@ func compileContractSignature(projectRoot string, manifest *pack.Manifest, signa
 // []ContractEngineResult, then feeds the rewritten gate.StepContractSignatureScopedFunc
 // pack-SARIF consumer (REQ-006). It MUST NOT route to the deleted go/parser analyzer.
 func buildContractStep(specDir, projectRoot string, scope *gate.GateScope) gate.StepFunc {
+	sandboxRunner, err := packval.NewSandboxRunner(packval.SandboxModeNative)
+	if err != nil {
+		return func(context.Context) gate.StepResult {
+			return gate.StepResult{StepName: gate.StepContractSignature, Status: "fail", ConfigErr: true, Violations: []gate.Violation{{Rule: "contract_signature", Message: err.Error(), Severity: "error"}}}
+		}
+	}
+	return buildContractStepWithSandbox(specDir, projectRoot, scope, sandboxRunner)
+}
+
+func buildContractStepWithSandbox(specDir, projectRoot string, scope *gate.GateScope, sandboxRunner packval.SandboxRunner) gate.StepFunc {
 	return func(ctx context.Context) gate.StepResult {
+		evidenceRunner := &evidenceSandboxRunner{delegate: sandboxRunner}
 		contracts, err := gate.ExtractContractEntries(specDir, projectRoot)
 		if err != nil {
 			return gate.StepResult{
@@ -1848,18 +2008,20 @@ func buildContractStep(specDir, projectRoot string, scope *gate.GateScope) gate.
 			}
 		}
 
-		results, err := produceContractEngineResults(projectRoot, contracts)
+		results, err := produceContractEngineResultsWithSandbox(projectRoot, contracts, evidenceRunner)
 		if err != nil {
-			return gate.StepResult{
+			return stepResultWithNativeSandbox(gate.StepResult{
 				StepName:   gate.StepContractSignature,
 				Status:     "fail",
 				ConfigErr:  true,
 				Violations: []gate.Violation{{Rule: "contract_signature", Message: "dispatching contract pack: " + err.Error(), Severity: "error"}},
-			}
+			}, evidenceRunner.applied)
 		}
 
 		step := gate.StepContractSignatureScopedFunc(results, scope)
-		return step(ctx)
+		result := step(ctx)
+		result.NativeSandboxApplied = evidenceRunner.applied
+		return result
 	}
 }
 

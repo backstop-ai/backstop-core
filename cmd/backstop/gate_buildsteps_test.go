@@ -6,7 +6,52 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/backstop-ai/backstop-core/pkg/packval"
 )
+
+// TestCoverageRecordsProducer_PreservesNativeCompatibilityContract exercises the
+// declared two-argument compatibility wrapper without dispatching an installed pack.
+func TestCoverageRecordsProducer_PreservesNativeCompatibilityContract(t *testing.T) {
+	producer := coverageRecordsProducer(nil, t.TempDir())
+	result, err := producer(nil)
+	if err != nil {
+		t.Fatalf("empty compatibility producer: %v", err)
+	}
+	if len(result.records) != 0 || result.nativeSandboxApplied {
+		t.Fatalf("empty compatibility result=%#v, want no records or native evidence", result)
+	}
+}
+
+func TestEvidenceSandboxRunner_ReducesRunEvidence(t *testing.T) {
+	delegate := &recordingSandboxRunner{
+		mode:       packval.SandboxModeNative,
+		runResults: []packval.SandboxRunResult{recordedSandboxResult([]byte("ok"), true)},
+	}
+	runner := &evidenceSandboxRunner{delegate: delegate}
+	if runner.Mode() != packval.SandboxModeNative {
+		t.Fatalf("mode=%q, want native", runner.Mode())
+	}
+	result, err := runner.Run("validator", nil, t.TempDir())
+	if err != nil || string(result.Output) != "ok" || !runner.applied {
+		t.Fatalf("result=%#v err=%v applied=%v", result, err, runner.applied)
+	}
+}
+
+func TestBuildGateSteps_ConsumesInvocationSelectedSandboxRunner(t *testing.T) {
+	source, err := os.ReadFile("gate.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(source)
+	if !strings.Contains(text, "dispatchPackEnginesWithEvidence") || !strings.Contains(text, "sandboxRunner") {
+		t.Fatal("production buildGateSteps does not consume typed evidence with the selected runner")
+	}
+	runner := &recordingSandboxRunner{mode: packval.SandboxModeExternal}
+	if runner.Mode() != packval.SandboxModeExternal {
+		t.Fatal("test runner is not immutable external mode")
+	}
+}
 
 // TestBuildGateSteps_PackLoadingFailureYieldsSingleFailStep verifies that when
 // pack loading fails (a pack is declared in backstop.yml but absent on disk),

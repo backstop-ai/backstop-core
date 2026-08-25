@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"os/exec"
+	"strings"
 )
 
 // CommandRunner abstracts external command execution so executors are
@@ -26,7 +27,27 @@ type CommandRunner interface {
 // project's module, mirroring pkg/gate/step_coverage.go without the gate
 // dependency.
 type ExecCommandRunner struct {
-	Dir string // working directory for commands
+	Dir string   // working directory for commands
+	Env []string // environment for commands; nil inherits the parent environment
+}
+
+// WithoutEnvironment returns a fresh environment with every entry whose key
+// exactly matches one of names removed. Unrelated entries retain their order.
+func WithoutEnvironment(environment []string, names ...string) []string {
+	excluded := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		excluded[name] = struct{}{}
+	}
+
+	kept := make([]string, 0, len(environment))
+	for _, entry := range environment {
+		name, _, _ := strings.Cut(entry, "=")
+		if _, remove := excluded[name]; remove {
+			continue
+		}
+		kept = append(kept, entry)
+	}
+	return kept
 }
 
 // Run executes the named command with args and returns combined output. A
@@ -40,6 +61,7 @@ func (r *ExecCommandRunner) Run(ctx context.Context, name string, args ...string
 	if r.Dir != "" {
 		cmd.Dir = r.Dir
 	}
+	cmd.Env = r.Env
 	return cmd.CombinedOutput()
 }
 
@@ -56,6 +78,7 @@ func (r *ExecCommandRunner) RunStdout(ctx context.Context, name string, args ...
 	if r.Dir != "" {
 		cmd.Dir = r.Dir
 	}
+	cmd.Env = r.Env
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	err := cmd.Run()

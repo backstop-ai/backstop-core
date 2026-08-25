@@ -66,6 +66,10 @@ func runWith(stdout, stderr io.Writer, sandboxGate func() error, newRoot func() 
 	// command's behavior — it makes the SHIPPED BINARY sandbox nothing, silently. Its
 	// test-side twin is packval.MaybeRunSandboxHelper() in pkg/packval's TestMain.
 	if err := sandboxGate(); err != nil {
+		var completion interface{ ExitCode() int }
+		if errors.As(err, &completion) {
+			return completion.ExitCode()
+		}
 		writeDiagnostic(stderr, err.Error())
 		return sandboxHelperExitCode
 	}

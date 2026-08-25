@@ -51,7 +51,7 @@ func TestRunFindingsEngine_StdoutArtifactFileFeedsConvertNotStdout(t *testing.T)
 	convert := writeConvertEcho(t, packRoot)
 
 	var convertStdin []byte
-	stubSandboxedRunStdout(t, &convertStdin)
+	sandboxRunner := stubSandboxedRunStdout(t, &convertStdin)
 
 	artifactBody := artifactSarifWithFinding()
 	runner := &artifactWritingRunner{
@@ -68,7 +68,7 @@ func TestRunFindingsEngine_StdoutArtifactFileFeedsConvertNotStdout(t *testing.T)
 		StdoutArtifact: "findings.sarif",
 	}
 
-	violations, err := runFindingsEngine(&pack.Manifest{NormalizedName: "test-org/artifact"}, packRoot, projectRoot, nil, binding, nil, runner)
+	violations, err := runFindingsEngine(&pack.Manifest{NormalizedName: "test-org/artifact"}, packRoot, projectRoot, nil, binding, nil, runner, findingsSandboxExecution{runner: sandboxRunner})
 	if err != nil {
 		t.Fatalf("runFindingsEngine: %v", err)
 	}

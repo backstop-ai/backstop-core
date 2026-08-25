@@ -20,11 +20,11 @@ import (
 func TestGoToolchain_NoEmbeddedBuildTestParser(t *testing.T) {
 	m := onlyRules(goToolchainManifest(t), "go-build")
 	var gotStdin []byte
-	stubSandboxedRunStdout(t, &gotStdin)
+	sandboxRunner := directConvertSandboxRunner(&gotStdin)
 	raw := readFixture(t, "go-build-errors.txt")
 	runner := &fixtureRunner{byCmd: map[string][]byte{"go build": raw}}
 
-	violations, err := dispatchPackEngines([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), nil, runner)
+	result, err := dispatchPackEnginesWithEvidence([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), nil, runner, sandboxRunner)
 	if err != nil {
 		t.Fatalf("dispatchPackEngines: %v", err)
 	}
@@ -33,7 +33,7 @@ func TestGoToolchain_NoEmbeddedBuildTestParser(t *testing.T) {
 	if string(gotStdin) != string(raw) {
 		t.Fatalf("the pack convert script must receive the raw `go build` stdout; the transform is NOT embedded in core")
 	}
-	if len(violations) == 0 {
+	if len(result.Violations) == 0 {
 		t.Fatal("expected the pack convert to produce findings")
 	}
 }
@@ -58,7 +58,7 @@ func TestGoToolchain_NoEmbeddedBuildTestParserSource(t *testing.T) {
 // that dispatch runs; a fixtureRunner feeds captured tool output.
 func TestBridge_NativePassesRunThroughDispatchPackEngines(t *testing.T) {
 	m := goToolchainManifest(t)
-	stubSandboxedRunStdout(t, nil)
+	sandboxRunner := directConvertSandboxRunner(nil)
 	runner := &fixtureRunner{byCmd: map[string][]byte{
 		"go build":      readFixture(t, "go-build-errors.txt"),
 		"go test":       readFixture(t, "go-test-failures.txt"),
@@ -68,17 +68,17 @@ func TestBridge_NativePassesRunThroughDispatchPackEngines(t *testing.T) {
 	// Partition dedicated-step gate-types (the SPEC-042 coverage producer) out of the
 	// SARIF findings dispatch as the production gate does — coverage routes to the
 	// coverage-records channel, leaving the three native SARIF passes here.
-	violations, err := dispatchPackEngines(excludeDedicatedStepRules([]*pack.Manifest{m}), goToolchainPacksDir(t), t.TempDir(), nil, runner)
+	result, err := dispatchPackEnginesWithEvidence(excludeDedicatedStepRules([]*pack.Manifest{m}), goToolchainPacksDir(t), t.TempDir(), nil, runner, sandboxRunner)
 	if err != nil {
 		t.Fatalf("dispatchPackEngines (all three native passes): %v", err)
 	}
 	// 3 build + 3 test + 2 lint = 8 normalized violations, all namespaced to the
 	// go-toolchain pack — proving all three native passes ran through the SAME
 	// dispatch substrate.
-	if len(violations) != 8 {
-		t.Fatalf("expected 8 violations across lint+build+test via dispatch, got %d: %#v", len(violations), violations)
+	if len(result.Violations) != 8 {
+		t.Fatalf("expected 8 violations across lint+build+test via dispatch, got %d: %#v", len(result.Violations), result.Violations)
 	}
-	for _, v := range violations {
+	for _, v := range result.Violations {
 		if !strings.HasPrefix(v.Rule, "backstop/go-toolchain/") {
 			t.Errorf("native pass violation must be namespaced to the pack engine path, got %q", v.Rule)
 		}

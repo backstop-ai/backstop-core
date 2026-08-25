@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/backstop-ai/backstop-core/pkg/pack"
+	"github.com/backstop-ai/backstop-core/pkg/packval"
 )
 
 // astGrepDispatchManifest builds an in-memory manifest with a single ast-grep
@@ -47,10 +48,11 @@ func astGrepJSONStdout() string {
 func TestGateDispatch_ConvertPipeProducesSarif(t *testing.T) {
 	// The convert step runs the REAL pack script via the direct-shell stub of the
 	// sandbox seam (production routes through SandboxedRunStdout).
-	stubSandboxedRunStdout(t, nil)
+	sandboxRunner := directConvertSandboxRunner(nil)
 	runner := &fixtureRunner{byCmd: map[string][]byte{"ast-grep scan": []byte(astGrepJSONStdout())}}
 
-	violations, err := dispatchPackEngines([]*pack.Manifest{astGrepDispatchManifest()}, engineDispatchPacksDir(t), t.TempDir(), nil, runner)
+	result, err := dispatchPackEnginesWithEvidence([]*pack.Manifest{astGrepDispatchManifest()}, engineDispatchPacksDir(t), t.TempDir(), nil, runner, sandboxRunner)
+	violations := result.Violations
 	if err != nil {
 		t.Fatalf("dispatchPackEngines (ast-grep convert pipe): %v", err)
 	}
@@ -82,18 +84,16 @@ func TestGateDispatch_ConvertRunsSandboxed(t *testing.T) {
 	var gotCmd string
 	var gotPackDir string
 	var gotStdin []byte
-	orig := sandboxedRunStdout
-	sandboxedRunStdout = func(cmd string, _ []string, packDir string, stdin []byte) ([]byte, error) {
+	sandboxRunner := &recordingSandboxRunner{mode: packval.SandboxModeNative, stdoutFn: func(cmd string, _ []string, packDir string, stdin []byte) (packval.SandboxRunResult, error) {
 		gotCmd = cmd
 		gotPackDir = packDir
 		gotStdin = append([]byte(nil), stdin...)
-		return []byte(`{"version":"2.1.0","runs":[]}`), nil
-	}
-	t.Cleanup(func() { sandboxedRunStdout = orig })
+		return packval.SandboxRunResult{Output: []byte(`{"version":"2.1.0","runs":[]}`)}, nil
+	}}
 
 	runner := &fixtureRunner{byCmd: map[string][]byte{"ast-grep scan": []byte(astGrepJSONStdout())}}
 	packsDir := engineDispatchPacksDir(t)
-	if _, err := dispatchPackEngines([]*pack.Manifest{astGrepDispatchManifest()}, packsDir, t.TempDir(), nil, runner); err != nil {
+	if _, err := dispatchPackEnginesWithEvidence([]*pack.Manifest{astGrepDispatchManifest()}, packsDir, t.TempDir(), nil, runner, sandboxRunner); err != nil {
 		t.Fatalf("dispatchPackEngines: %v", err)
 	}
 
@@ -119,7 +119,7 @@ func TestGateDispatch_StderrBannerDoesNotCorruptSarif(t *testing.T) {
 	// SARIF-native engine: no convert. The runner returns clean SARIF on stdout;
 	// RunStdout's contract is that stderr (banner) is separated out, so the
 	// stdout the parser sees is uncorrupted.
-	convertCalls := recordingConvertSeam(t)
+	convertCalls, sandboxRunner := recordingConvertSeam(t)
 
 	packsDir := t.TempDir()
 	packRoot := filepath.Join(packsDir, "org", "pack")
@@ -136,7 +136,8 @@ func TestGateDispatch_StderrBannerDoesNotCorruptSarif(t *testing.T) {
 			{ID: "x", Engine: "semgrep", RulePath: "semgrep/r.yml", Standard: "x"},
 		}}},
 	}}
-	violations, err := dispatchPackEngines(manifests, packsDir, t.TempDir(), nil, rec)
+	result, err := dispatchPackEnginesWithEvidence(manifests, packsDir, t.TempDir(), nil, rec, sandboxRunner)
+	violations := result.Violations
 	if err != nil {
 		t.Fatalf("engine stderr banner must not corrupt SARIF on stdout: %v", err)
 	}
@@ -163,10 +164,11 @@ func TestGateDispatch_ConvertStderrBannerDoesNotCorruptSarif(t *testing.T) {
 		t.Fatalf("test precondition: to-sarif.sh must write a banner to stderr to exercise CLM-064")
 	}
 
-	stubSandboxedRunStdout(t, nil) // shells the real converter, stdout-only capture
+	sandboxRunner := directConvertSandboxRunner(nil)
 	runner := &fixtureRunner{byCmd: map[string][]byte{"ast-grep scan": []byte(astGrepJSONStdout())}}
 
-	violations, err := dispatchPackEngines([]*pack.Manifest{astGrepDispatchManifest()}, engineDispatchPacksDir(t), t.TempDir(), nil, runner)
+	result, err := dispatchPackEnginesWithEvidence([]*pack.Manifest{astGrepDispatchManifest()}, engineDispatchPacksDir(t), t.TempDir(), nil, runner, sandboxRunner)
+	violations := result.Violations
 	if err != nil {
 		t.Fatalf("convert stderr banner must not corrupt SARIF: %v", err)
 	}
@@ -185,22 +187,16 @@ func TestGateDispatch_ConvertUsesCleanStdoutSandbox(t *testing.T) {
 	cleanStdoutCalls := 0
 	combinedOutputCalls := 0
 
-	origStdout := sandboxedRunStdout
-	sandboxedRunStdout = func(_ string, _ []string, _ string, _ []byte) ([]byte, error) {
+	sandboxRunner := &recordingSandboxRunner{mode: packval.SandboxModeNative, stdoutFn: func(_ string, _ []string, _ string, _ []byte) (packval.SandboxRunResult, error) {
 		cleanStdoutCalls++
-		return []byte(`{"version":"2.1.0","runs":[]}`), nil
-	}
-	t.Cleanup(func() { sandboxedRunStdout = origStdout })
-
-	origCombined := sandboxedRun
-	sandboxedRun = func(string, []string, string) ([]byte, error) {
+		return packval.SandboxRunResult{Output: []byte(`{"version":"2.1.0","runs":[]}`)}, nil
+	}, runFn: func(string, []string, string) (packval.SandboxRunResult, error) {
 		combinedOutputCalls++
-		return nil, nil
-	}
-	t.Cleanup(func() { sandboxedRun = origCombined })
+		return packval.SandboxRunResult{}, nil
+	}}
 
 	runner := &fixtureRunner{byCmd: map[string][]byte{"ast-grep scan": []byte(astGrepJSONStdout())}}
-	if _, err := dispatchPackEngines([]*pack.Manifest{astGrepDispatchManifest()}, engineDispatchPacksDir(t), t.TempDir(), nil, runner); err != nil {
+	if _, err := dispatchPackEnginesWithEvidence([]*pack.Manifest{astGrepDispatchManifest()}, engineDispatchPacksDir(t), t.TempDir(), nil, runner, sandboxRunner); err != nil {
 		t.Fatalf("dispatchPackEngines: %v", err)
 	}
 

@@ -1,6 +1,7 @@
 package distribution_test
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"testing"
@@ -11,7 +12,7 @@ import (
 // TestMain exists for ONE reason (ISSUE-180): the Linux sandbox is a RE-EXEC
 // TRAMPOLINE, and under `go test` its target is THIS PACKAGE'S OWN TEST BINARY.
 //
-// FIRST: newSandboxHelperCommand (pkg/packval/sandbox_linux.go) cannot apply
+// FIRST: newSandboxHelperInvocation (pkg/packval/sandbox_linux.go) cannot apply
 // Landlock and seccomp in-process — they are self-applied, per-thread and
 // irrevocable — so it spawns os.Executable() in a hidden helper mode with
 // BACKSTOP_SANDBOX_HELPER_SPEC set and helper.Dir pointed at the pack directory.
@@ -58,6 +59,10 @@ func TestMain(m *testing.M) {
 	// the fail-closed "refused to run pack code it could not confine" code
 	// documented on pkg/packval/sandbox_diagnostic.go.
 	if err := packval.MaybeRunSandboxHelper(); err != nil {
+		var completion interface{ ExitCode() int }
+		if errors.As(err, &completion) {
+			os.Exit(completion.ExitCode())
+		}
 		fmt.Fprintf(os.Stderr, "backstop sandbox helper: %v\n", err)
 		os.Exit(126)
 	}

@@ -9,6 +9,7 @@ import (
 	"github.com/backstop-ai/backstop-core/pkg/check"
 	"github.com/backstop-ai/backstop-core/pkg/pack"
 	"github.com/backstop-ai/backstop-core/pkg/pack/engine"
+	"github.com/backstop-ai/backstop-core/pkg/packval"
 )
 
 // SPEC-035 TASK-021 — dispatch trust-gate matrix + sandbox-exempt tests.
@@ -193,11 +194,12 @@ func TestAllowlist_SandboxEngineNotSubjectToToolAllowlist(t *testing.T) {
 	}
 
 	called := false
-	orig := sandboxedRun
-	sandboxedRun = func(string, []string, string) ([]byte, error) { called = true; return nil, nil }
-	t.Cleanup(func() { sandboxedRun = orig })
+	sandboxRunner := &recordingSandboxRunner{mode: packval.SandboxModeNative, runFn: func(string, []string, string) (packval.SandboxRunResult, error) {
+		called = true
+		return packval.SandboxRunResult{}, nil
+	}}
 
-	if _, err := dispatchPackEngines([]*pack.Manifest{m}, packDir, projectRoot, nil, emptySarifRunner{}); err != nil {
+	if _, err := dispatchPackEnginesWithEvidence([]*pack.Manifest{m}, packDir, projectRoot, nil, emptySarifRunner{}, sandboxRunner); err != nil {
 		t.Fatalf("the sandbox engine carries no tool and must not be allowlist-gated, got: %v", err)
 	}
 	if !called {

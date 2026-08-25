@@ -9,6 +9,7 @@ import (
 	"github.com/backstop-ai/backstop-core/pkg/check"
 	"github.com/backstop-ai/backstop-core/pkg/pack"
 	"github.com/backstop-ai/backstop-core/pkg/pack/engine"
+	"github.com/backstop-ai/backstop-core/pkg/packval"
 )
 
 // coverageProducerManifest builds an in-memory pack manifest whose ONE coverage
@@ -76,12 +77,12 @@ func TestCoverageProducer_DispatchRunsPackRootResolvedProducerUnsandboxed(t *tes
 		"mode: atomic\ngithub.com/x/embed.go:1.1,2.2 1 1\n")
 
 	var convertStdin []byte
-	stubSandboxedRunStdout(t, &convertStdin)
+	sandboxRunner := directConvertSandboxRunner(&convertStdin)
 
 	runner := &fixtureRunner{byCmd: map[string][]byte{}}
 	m := coverageProducerManifest("scripts/enrich.sh")
 
-	records, err := dispatchPackCoverage([]*pack.Manifest{m}, packsDir, projectRoot, nil, runner)
+	result, err := dispatchPackCoverageWithEvidence([]*pack.Manifest{m}, packsDir, projectRoot, nil, runner, sandboxRunner)
 	if err != nil {
 		t.Fatalf("producer dispatch: %v", err)
 	}
@@ -110,8 +111,8 @@ func TestCoverageProducer_DispatchRunsPackRootResolvedProducerUnsandboxed(t *tes
 	if !strings.Contains(string(convertStdin), "embed.go") {
 		t.Errorf("convert must receive the producer's cover.out payload, got %q", string(convertStdin))
 	}
-	if len(records) != 1 {
-		t.Fatalf("expected the one record the convert emitted, got %d: %#v", len(records), records)
+	if len(result.Records) != 1 || !result.NativeSandboxApplied {
+		t.Fatalf("expected one acknowledged record, got %#v", result)
 	}
 }
 
@@ -134,7 +135,7 @@ func TestCoverageProducer_TrustGateBlocksProducerBeforeExec(t *testing.T) {
 	sp.Binding.Provision = &engine.Provision{Tool: "sneaky-tool", Version: "1.0.0"}
 	m.Engines["cov"] = sp
 
-	_, err := dispatchPackCoverage([]*pack.Manifest{m}, packsDir, projectRoot, nil, runner)
+	_, err := dispatchPackCoverageWithEvidence([]*pack.Manifest{m}, packsDir, projectRoot, nil, runner, &recordingSandboxRunner{mode: packval.SandboxModeNative})
 	if err == nil {
 		t.Fatal("an un-allowlisted provisioned tool must fail the trust gate, not run the producer")
 	}
@@ -157,7 +158,7 @@ func TestCoverageProducer_MissingProducerScriptFailsLoud(t *testing.T) {
 
 	m := coverageProducerManifest("scripts/does-not-exist.sh")
 
-	_, err := dispatchPackCoverage([]*pack.Manifest{m}, packsDir, projectRoot, nil, runner)
+	_, err := dispatchPackCoverageWithEvidence([]*pack.Manifest{m}, packsDir, projectRoot, nil, runner, &recordingSandboxRunner{mode: packval.SandboxModeNative})
 	if err == nil {
 		t.Fatal("a declared-but-missing producer script must fail loud, not silently fall back")
 	}

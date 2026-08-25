@@ -11,6 +11,7 @@ import (
 	"github.com/backstop-ai/backstop-core/pkg/check"
 	"github.com/backstop-ai/backstop-core/pkg/gate"
 	"github.com/backstop-ai/backstop-core/pkg/pack"
+	"github.com/backstop-ai/backstop-core/pkg/packval"
 )
 
 // copyCoverageE2EFixture copies the static go-coverage-e2e fixture MODULE to a temp
@@ -63,8 +64,9 @@ func TestCoverageRealDispatch_E2E_FalsePositivesClearGenuineGapsFire(t *testing.
 	if dispatchPackEnginesFn != nil {
 		t.Fatal("dispatchPackEnginesFn must be nil — the real-dispatch e2e must run the un-stubbed dispatch")
 	}
-	if sandboxedRunStdout != nil {
-		t.Fatal("sandboxedRunStdout must be nil — the convert must run under the REAL sandbox, not a stub")
+	sandboxRunner, runnerErr := packval.NewSandboxRunner(packval.SandboxModeNative)
+	if runnerErr != nil {
+		t.Fatalf("construct native sandbox runner: %v", runnerErr)
 	}
 
 	fixtureDir := copyCoverageE2EFixture(t)
@@ -72,20 +74,20 @@ func TestCoverageRealDispatch_E2E_FalsePositivesClearGenuineGapsFire(t *testing.
 	// the project — no fixtureRunner, no canned profile.
 	runner := &check.ExecCommandRunner{Dir: fixtureDir}
 
-	records, err := dispatchPackCoverage(
+	result, err := dispatchPackCoverageWithEvidence(
 		[]*pack.Manifest{goToolchainCoverageManifest(t)},
-		goToolchainPacksDir(t), fixtureDir, nil, runner,
+		goToolchainPacksDir(t), fixtureDir, nil, runner, sandboxRunner,
 	)
 	if err != nil {
 		t.Fatalf("real coverage dispatch over the installed pack: %v", err)
 	}
-	if len(records) == 0 {
+	if len(result.Records) == 0 || !result.NativeSandboxApplied {
 		t.Fatal("the real producer+convert must yield coverage records")
 	}
 
 	// CLM-005/006: records are REPO-RELATIVE — the producer emitted #backstop-module
 	// and the REAL sandboxed convert stripped it. No record carries the module prefix.
-	for _, r := range records {
+	for _, r := range result.Records {
 		if strings.Contains(r.Path, "example.com/covge") {
 			t.Errorf("records must be repo-relative through the real path (module prefix stripped), got %q", r.Path)
 		}
@@ -98,7 +100,7 @@ func TestCoverageRealDispatch_E2E_FalsePositivesClearGenuineGapsFire(t *testing.
 		"embed.go", "cmd/x/embed.go", "types.go", "untested.go", "lonely/lonely.go",
 	}, ProjectRoot: fixtureDir}
 	specs := []gate.SpecVerification{{SpecID: "FIXTURE", CoverageThreshold: 50}}
-	res := gate.StepCoverageThresholdScopedFunc(records, specs, scope, classifier)(context.Background())
+	res := gate.StepCoverageThresholdScopedFunc(result.Records, specs, scope, classifier)(context.Background())
 
 	violationFor := func(file string) *gate.Violation {
 		for i := range res.Violations {

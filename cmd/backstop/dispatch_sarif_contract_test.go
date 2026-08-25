@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/backstop-ai/backstop-core/pkg/pack"
+	"github.com/backstop-ai/backstop-core/pkg/packval"
 )
 
 // recordingConvertSeam installs a sandboxedRunStdout seam that records every
@@ -13,16 +14,14 @@ import (
 // test can assert whether the convert pipe ran at all. It returns the canned
 // SARIF on stdout so any convert that DOES run still yields a parseable result.
 // It is the proof seam for "empty Convert => no second process" (CLM-026/CLM-065).
-func recordingConvertSeam(t *testing.T) *[]string {
+func recordingConvertSeam(t *testing.T) (*[]string, *recordingSandboxRunner) {
 	t.Helper()
 	calls := &[]string{}
-	orig := sandboxedRunStdout
-	sandboxedRunStdout = func(cmd string, _ []string, _ string, _ []byte) ([]byte, error) {
+	runner := &recordingSandboxRunner{mode: packval.SandboxModeNative, stdoutFn: func(cmd string, _ []string, _ string, _ []byte) (packval.SandboxRunResult, error) {
 		*calls = append(*calls, cmd)
-		return []byte(`{"version":"2.1.0","runs":[]}`), nil
-	}
-	t.Cleanup(func() { sandboxedRunStdout = orig })
-	return calls
+		return packval.SandboxRunResult{Output: []byte(`{"version":"2.1.0","runs":[]}`)}, nil
+	}}
+	return calls, runner
 }
 
 // TestGateDispatch_SarifNativeNoConvert proves the findings-engine SARIF contract
@@ -40,7 +39,7 @@ func TestGateDispatch_SarifNativeNoConvert(t *testing.T) {
 	}
 	// Inject a convert seam that records calls; for the empty-Convert path it must
 	// never be touched.
-	convertCalls := recordingConvertSeam(t)
+	convertCalls, sandboxRunner := recordingConvertSeam(t)
 
 	packsDir := t.TempDir()
 	packRoot := filepath.Join(packsDir, "org", "pack")
@@ -56,7 +55,8 @@ func TestGateDispatch_SarifNativeNoConvert(t *testing.T) {
 		}}},
 	}}
 
-	violations, err := dispatchPackEngines(manifests, packsDir, t.TempDir(), nil, rec)
+	result, err := dispatchPackEnginesWithEvidence(manifests, packsDir, t.TempDir(), nil, rec, sandboxRunner)
+	violations := result.Violations
 	if err != nil {
 		t.Fatalf("dispatchPackEngines: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestGateDispatch_NonSarifWithoutConvertFails(t *testing.T) {
 // SARIF-native engine. Substantive: directly asserts the absence of a second
 // process on the empty-Convert path (not merely that a violation appeared).
 func TestGateDispatch_EmptyConvertNoPipe(t *testing.T) {
-	convertCalls := recordingConvertSeam(t)
+	convertCalls, sandboxRunner := recordingConvertSeam(t)
 
 	packsDir := t.TempDir()
 	packRoot := filepath.Join(packsDir, "org", "pack")
@@ -133,7 +133,7 @@ func TestGateDispatch_EmptyConvertNoPipe(t *testing.T) {
 		}}},
 	}}
 
-	if _, err := dispatchPackEngines(manifests, packsDir, t.TempDir(), nil, rec); err != nil {
+	if _, err := dispatchPackEnginesWithEvidence(manifests, packsDir, t.TempDir(), nil, rec, sandboxRunner); err != nil {
 		t.Fatalf("dispatchPackEngines: %v", err)
 	}
 	if len(*convertCalls) != 0 {
