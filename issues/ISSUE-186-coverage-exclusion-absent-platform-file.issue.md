@@ -1,13 +1,15 @@
 ---
 title: "go-toolchain drops justified exclusions for files absent from the Linux coverage inventory"
 schema_version: issue/v1
+delivered_by: PLAN-ISSUE-186
 
 issue:
   id: ISSUE-186
   title: "go-toolchain drops justified exclusions for files absent from the Linux coverage inventory"
   type: bug
-  status: ready
+  status: closed
   created: "2026-08-24"
+  closed: "2026-08-25"
 
 complexity:
   scope: isolated
@@ -179,6 +181,17 @@ contracts:
 ---
 
 # go-toolchain drops justified exclusions for files absent from the Linux coverage inventory
+
+## Resolution
+
+Delivered by `PLAN-ISSUE-186`. Commit `142999e` added executable regression coverage for
+exclusion-only records, collision handling, deterministic ordering, lossless tab framing,
+declaration grammar, and release/adoption identity. Commit `aefde06` adopted the published
+`backstop-ai/go-toolchain` `1.9.0` / `v1.9.0` release in `backstop.yml` and `backstop.lock` and
+retired the stale space-framed core fixture. The tracked lock records the released git source and
+content hash. After installing the locked pack fleet, closeout reran the plan's focused
+`TestGoToolchainCoverageExclusions|TestCoverageExclusion` command with Go 1.25.3; both the
+`cmd/backstop` and root-package suites passed.
 
 ## Problem
 

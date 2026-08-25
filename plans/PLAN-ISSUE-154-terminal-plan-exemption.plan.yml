@@ -2,13 +2,27 @@
 plan_id: PLAN-ISSUE-154
 spec_id: ISSUE-154
 created: "2026-08-24"
-status: draft
+status: completed
 target_repo: backstop-core
 target_module: github.com/backstop-ai/backstop-core
 test_command: "go test ./pkg/validate/... -count=1"
 coverage_threshold: 90
 
 notes: |
+  AS-BUILT — CLOSED 2026-08-25. status: draft -> completed.
+  The authored plan below is preserved as the implementation record. Commit `5ec5143`
+  delivered the narrow terminal-plan completeness exemption, its terminal/live-path
+  regression coverage, and the canceled empty-phases fixture in exactly the three
+  production/test surfaces declared by the plan. No close-out-only production delta is
+  recorded.
+
+  RECEIPTS. `git show --stat 5ec5143` records 238 changed lines across
+  `pkg/validate/plan.go`, `pkg/validate/terminal_rules_test.go`, and
+  `pkg/validate/testdata/terminal/plan-canceled-empty-phases.plan.yml`. Closeout reran
+  `go test ./pkg/validate/... -count=1` with Go 1.25.3 and validated the full
+  456-artifact corpus with the current source-built CLI; both passed with zero
+  violations.
+
   Implements ISSUE-154 (issue→plan reactive track): `pkg/validate/plan.go` runs the
   phase/task completeness block UNCONDITIONALLY, so a plan retired at
   `replaced`/`canceled`/`obsoleted` is still held to a fully-formed, TDD-compliant task

@@ -1,13 +1,15 @@
 ---
 title: "Hosted runtimes cannot delegate pack sandboxing to a client-owned external boundary"
 schema_version: issue/v1
+delivered_by: PLAN-ISSUE-185
 
 issue:
   id: ISSUE-185
   title: "Hosted runtimes cannot delegate pack sandboxing to a client-owned external boundary"
   type: enhancement
-  status: ready
+  status: closed
   created: "2026-08-23"
+  closed: "2026-08-25"
 
 complexity:
   scope: cross-cutting
@@ -310,6 +312,19 @@ contracts:
 ---
 
 # Hosted runtimes cannot delegate pack sandboxing to a client-owned external boundary
+
+## Resolution
+
+Delivered by `PLAN-ISSUE-185`. Commit `e4f9c43` added the exact, explicit
+`native`/`external` gate-local sandbox selection, preserved native fail-closed behavior,
+sanitized passive authorization from pack-child environments, and carried native-application
+evidence into human and JSON gate results. Commits `d12ee5a` and `ab4af50` completed the Linux
+gate regression and sandbox-fixture corrections. The branch contains the mandated resolver,
+runner, confinement, child-environment, recursive-invocation, output, and platform regression
+tests. Closeout reran the focused sandbox-mode, authorization, runner, and evidence suites across
+`cmd/backstop`, `pkg/check`, `pkg/packval`, and `pkg/gate`; all passed. PR #8's Linux CI run
+`32801040842` at head `a21f5f3` supplies the native Landlock acceptance ceiling: its Backstop Gate
+job, blocking gate step, and report upload all succeeded.
 
 ## Problem
 

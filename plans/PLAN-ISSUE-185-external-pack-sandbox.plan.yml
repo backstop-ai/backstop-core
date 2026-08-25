@@ -2,11 +2,26 @@
 plan_id: PLAN-ISSUE-185
 spec_id: ISSUE-185
 created: "2026-08-23"
-status: ready
+status: completed
 test_command: "go test ./cmd/backstop/... ./pkg/check/... ./pkg/packval/... ./pkg/gate/..."
 coverage_threshold: 90
 
 notes: |
+  AS-BUILT — CLOSED 2026-08-25. status: ready -> completed.
+  The authored plan below is preserved as the implementation record. Client-owned
+  external pack sandbox mode shipped in `e4f9c43`; Linux gate regressions were
+  corrected in `d12ee5a`; and the final parametric sandbox-fixture correction landed
+  in `ab4af50`. Together those commits carry the production dispatch, native/external
+  evidence plumbing, platform helpers, documentation, and regression coverage scoped
+  by this plan. No close-out-only production delta is recorded.
+
+  RECEIPTS. `git show --stat` identifies 73 changed files in `e4f9c43`, 20 in the
+  Linux correction `d12ee5a`, and the single focused fixture edit in `ab4af50`.
+  Closeout reran the focused sandbox-mode, authorization, runner, and evidence suites
+  across `cmd/backstop`, `pkg/check`, `pkg/packval`, and `pkg/gate`; all passed. PR #8
+  Linux CI run `32801040842` at head `a21f5f3` supplies the native Landlock acceptance
+  ceiling: its Backstop Gate job, blocking gate step, and report upload all succeeded.
+
   SECURITY BOUNDARY. Native remains the default and fail-closed implementation.
   External is exact, explicit invocation authorization and never a fallback. No task
   changes the native profile, rights, setup order, or ISSUE-020 sandboxed surfaces.
