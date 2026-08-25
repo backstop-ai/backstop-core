@@ -1,13 +1,15 @@
 ---
 title: "Test Name Discovery Drops Later Regex Matches on the Same Line"
 schema_version: issue/v1
+delivered_by: PLAN-ISSUE-188
 
 issue:
   id: ISSUE-188
   title: "Test Name Discovery Drops Later Regex Matches on the Same Line"
   type: bug
-  status: ready
+  status: closed
   created: "2026-08-25"
+  closed: "2026-08-25"
 
 complexity:
   scope: contained
@@ -246,3 +248,16 @@ all-match enumeration, `FindStringSubmatch`, `FindName`, multiple regex matches,
 overlap, and semicolon-separated declarations. No open issue or bundle seed owns this
 generic consumer defect. BUNDLE-012/SPEC-045 delivered the declaration-driven discovery
 surface but do not own this newly observed truncation bug.
+
+## Resolution
+
+Delivered by `PLAN-ISSUE-188`. `TestNameMatcher.FindNames` now enumerates every
+non-overlapping capture-group-1 match from every declared pattern, orders matches by
+source position and pattern order, and deduplicates only identical name/start pairs.
+`FindName` remains the first-result compatibility wrapper, while the test-name collector
+indexes every enumerated name.
+
+The immutable SPEC-072 acceptance proved the original 36-of-44 referenced-name result,
+the corrected 44-of-44 result, all 47 mandated references resolving, and the terminal
+test-verification/status-drift path clearing. CI run 136 passed the complete
+`./bin/backstop gate --all` kill chain on 2026-08-25.
