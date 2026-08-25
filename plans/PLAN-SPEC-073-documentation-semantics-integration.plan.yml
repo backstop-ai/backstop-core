@@ -1,0 +1,248 @@
+---
+plan_id: PLAN-SPEC-073
+spec_id: SPEC-073
+spec_version: "1.0.0"
+created: "2026-08-24"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: ./scripts/verify-documentation-semantics-integration.sh
+coverage_threshold: 80
+notes: |
+  Seed 2 only. Owner release evidence is a hard prerequisite. Import it before
+  adding the pack, preserve the design-system pin, and prove clean restoration,
+  installed-byte identity, actual-corpus semantics, and missing-install refusal.
+  Delivery is confined to SPEC-073's exact five-file allowlist.
+  Phases 1-2 may complete release/import/pin/install readiness independently;
+  phase 3 and everything after it wait for PLAN-SPEC-072 TASK-022's completed
+  page-and-registry structural acceptance, avoiding a cross-plan cycle.
+
+phases:
+  - id: phase-1
+    name: "Owner release evidence and boundary"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Require the governed owner release"
+        description: |
+          Obtain one immutable owner evidence reference binding the documentation
+          pack's owner artifact, imported manifest identity, independent source
+          coordinate, exact stable version and v-tag, full commit, content hash,
+          green pack check/test, and every exported claim's dispatched positive and
+          negative production-path fixtures. Stop on missing, mutable, self-asserted,
+          or mixed-release evidence; never invent identity or edit the owner repo.
+        files: [.backstop/website-pack-releases.yml]
+        claims: [CLM-011, CLM-012, CLM-015, CLM-016, CLM-017, CLM-023]
+        depends_on: []
+      - id: TASK-002
+        type: test
+        title: "Drive ownership, evidence, and scope checks red"
+        description: |
+          Add the mandated isolated shell tests for the five-file allowlist;
+          forbidden pkg/cmd/packs/docs changes; embedded policy, fixtures, direct
+          engine calls, or design-system semantic ownership; complete versus
+          incomplete/mixed owner evidence; fixture dispatch/path fidelity; exclusion
+          of live tag resolution, owner reruns, and generic filter introspection; and
+          generalized prose or unnamed-enabler scope creep.
+        files: [scripts/verify-documentation-semantics-integration.sh]
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-011, CLM-012, CLM-015, CLM-016, CLM-017, CLM-022, CLM-023, CLM-024]
+        test_names: [verify_owner_boundary_accepts_bounded_consumer_surfaces, verify_owner_boundary_rejects_forbidden_core_surface, verify_owner_boundary_rejects_embedded_policy_surface, verify_owner_boundary_rejects_design_system_semantic_ownership, verify_owner_evidence_accepts_complete_single_release_binding, verify_owner_evidence_rejects_incomplete_or_mixed_release, verify_owner_evidence_accepts_fixture_dispatch_proof, verify_owner_evidence_rejects_unproven_fixture_dispatch, verify_owner_evidence_excludes_live_owner_and_generic_fixture_introspection, verify_scope_boundary_excludes_generalized_prose_system, verify_scope_boundary_accepts_separately_governed_enabler, verify_scope_boundary_rejects_absorbed_or_prose_prerequisite]
+        depends_on: [TASK-001]
+      - id: TASK-003
+        type: implementation
+        title: "Import the two website owner releases"
+        description: |
+          Create exactly one documentation-semantics and one design-system record.
+          Copy each immutable owner/evidence reference, identity, coordinate, version,
+          tag, full commit, hash, and green checks without reinterpretation; include
+          exhaustive documentation fixture-dispatch proof. Preserve visual ownership
+          and add no policy, prose prerequisite, or unnamed dependency.
+        files: [.backstop/website-pack-releases.yml]
+        claims: [CLM-001, CLM-004, CLM-011, CLM-012, CLM-015, CLM-016, CLM-022, CLM-023, CLM-024]
+        depends_on: [TASK-002]
+      - id: TASK-004
+        type: verification
+        title: "Gate imported evidence"
+        description: |
+          Run `./bin/backstop gate --file .backstop/website-pack-releases.yml
+          --file scripts/verify-documentation-semantics-integration.sh`. Require all
+          ownership, immutable-release, dispatch, and scope cases to execute with no
+          owner-policy surface or sixth delivery file.
+        files: [.backstop/website-pack-releases.yml, scripts/verify-documentation-semantics-integration.sh]
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-011, CLM-012, CLM-015, CLM-016, CLM-017, CLM-022, CLM-023, CLM-024]
+        depends_on: [TASK-003]
+
+  - id: phase-2
+    name: "Evidence-bound declarations and locks"
+    tasks:
+      - id: TASK-005
+        type: test
+        title: "Drive the two-pack pin matrix red"
+        description: |
+          Add mandated tests for silent identity/coordinate equality; accepted
+          divergence resolving by coordinate, installing by identity, and emitting
+          SPEC-056's add warning; missing evidence/declaration/lock/install; mutable,
+          local, ranged, prerelease, branch, path, or nonexact selectors; every
+          cross-surface mismatch; empty hash, manifest mismatch, and byte drift.
+          Diagnostics name the role and disagreeing surfaces before policy runs.
+        files: [scripts/verify-documentation-semantics-integration.sh]
+        claims: [CLM-005, CLM-006, CLM-007, CLM-008, CLM-009, CLM-010]
+        test_names: [verify_pin_matrix_accepts_equal_identity_and_coordinate, verify_pin_matrix_accepts_divergence_with_spec056_warning, verify_pin_matrix_rejects_missing_surface, verify_pin_matrix_rejects_mutable_or_local_source, verify_pin_matrix_rejects_evidence_binding_mismatch, verify_pin_matrix_rejects_missing_or_drifted_install]
+        depends_on: [TASK-004]
+      - id: TASK-006
+        type: implementation
+        title: "Add and pin the released documentation pack"
+        description: |
+          Use the normal remote add flow with the imported coordinate and exact
+          version using `./bin/backstop pack add
+          <owner-evidence-source-coordinate>@<owner-evidence-version>`, capturing
+          the SPEC-056 warning when applicable. Reconcile both
+          website declarations and git locks exactly to evidence: keys/names equal
+          manifest identity, source_coordinate remains independent, source_type is
+          git, and version, v-ref, and nonempty content hash match. Reject local relock.
+        files: [backstop.yml, backstop.lock]
+        claims: [CLM-005, CLM-006, CLM-007, CLM-008, CLM-009, CLM-010]
+        depends_on: [TASK-005]
+      - id: TASK-007
+        type: verification
+        title: "Gate evidence-bound pins"
+        description: |
+          Run `./bin/backstop gate --file .backstop/website-pack-releases.yml
+          --file backstop.yml --file backstop.lock --file
+          scripts/verify-documentation-semantics-integration.sh`. Require the full
+          equal, divergent, absent, mutable, mismatched, and drifted matrix to pass.
+        files: [.backstop/website-pack-releases.yml, backstop.yml, backstop.lock, scripts/verify-documentation-semantics-integration.sh]
+        claims: [CLM-005, CLM-006, CLM-007, CLM-008, CLM-009, CLM-010]
+        depends_on: [TASK-006]
+
+  - id: phase-3
+    name: "Clean restoration and actual corpus"
+    tasks:
+      - id: TASK-008
+        type: test
+        title: "Drive installed-release and actual-site proofs red"
+        description: |
+          Add mandated isolated tests that delete installed state and reconstruct from
+          locks by remote coordinate with `./bin/backstop pack install`, compare
+          installed identity/version/manifest/hash, and rerun
+          `./bin/backstop pack check .backstop/packs/<documentation-semantics-manifest-identity>`
+          and `./bin/backstop pack test
+          .backstop/packs/<documentation-semantics-manifest-identity>` only on
+          hash-matched bytes. This task has an external readiness dependency on
+          PLAN-SPEC-072's completed page-authoring acceptance through TASK-022: the
+          ten actual pages and four registries must exist and pass their structural
+          and installed-semantics barriers before this task starts. Release evidence,
+          import, pin, and clean-install work in phases 1-2 may proceed before that
+          page readiness; the remote add performed by TASK-006 already establishes
+          install readiness before that barrier. Gate SPEC-072's real pages and registries cleanly with
+          `./bin/backstop gate --file docs/index.md --file docs/evaluate.md --file
+          docs/model.md --file docs/adopt.md --file docs/use-cases.md --file
+          docs/packs.md --file docs/extend.md --file docs/reference.md --file
+          docs/status.md --file docs/contributing.md --file
+          docs/_data/content-topology.yml --file docs/_data/product-model.yml --file
+          docs/_data/evidence-inventory.yml --file docs/_data/content-inventory.yml`;
+          inject a duplicate substantive definition on a real non-owner page and
+          rerun that exact gate, requiring the installed rule plus production-relative
+          path; then delete the pack while retaining evidence/config/lock and require
+          missing dependency before local output counts. Reject fixture-only attribution.
+        files: [scripts/verify-documentation-semantics-integration.sh]
+        claims: [CLM-013, CLM-014, CLM-018, CLM-019, CLM-020, CLM-021]
+        test_names: [verify_owner_evidence_clean_remote_install_matches_hash, verify_owner_evidence_installed_pack_checks_pass, verify_installed_semantics_gate_accepts_clean_actual_site, verify_installed_semantics_gate_blocks_duplicate_substantive_owner, verify_installed_semantics_gate_rejects_deleted_pack, verify_installed_semantics_gate_rejects_unattributed_or_fixture_only_proof]
+        depends_on: [TASK-007]
+      - id: TASK-009
+        type: implementation
+        title: "Complete the bounded integration verifier"
+        description: |
+          Implement one entrypoint dispatching all 24 mandated tests. It may parse
+          evidence/config/locks/manifests/hashes/findings, orchestrate clean pack
+          install using `./bin/backstop pack install`, installed-byte checks using
+          `./bin/backstop pack check .backstop/packs/<documentation-semantics-manifest-identity>`
+          and `./bin/backstop pack test
+          .backstop/packs/<documentation-semantics-manifest-identity>`, and the exact
+          fourteen-file actual-corpus `./bin/backstop gate --file ...` command from
+          TASK-008, and mutate disposable actual
+          site copies. It must not classify semantics, invoke engines directly,
+          resolve live tags, rerun owners, inspect generic filters, or mutate accepted
+          pages. Every negative proof leaves the worktree unchanged.
+        files: [scripts/verify-documentation-semantics-integration.sh]
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-009, CLM-010, CLM-011, CLM-012, CLM-013, CLM-014, CLM-015, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020, CLM-021, CLM-022, CLM-023, CLM-024]
+        depends_on: [TASK-002, TASK-005, TASK-008]
+      - id: TASK-010
+        type: verification
+        title: "Gate restoration and semantic attribution"
+        description: |
+          Run `./bin/backstop gate --file scripts/verify-documentation-semantics-integration.sh
+          --file .backstop/website-pack-releases.yml --file backstop.yml --file
+          backstop.lock`, then `./scripts/verify-documentation-semantics-integration.sh`.
+          Require all 24 tests, reproducible bytes, green installed checks, clean actual
+          corpus, attributed mutation failure, missing-pack refusal, and clean worktree.
+        files: [scripts/verify-documentation-semantics-integration.sh, .backstop/website-pack-releases.yml, backstop.yml, backstop.lock]
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-009, CLM-010, CLM-011, CLM-012, CLM-013, CLM-014, CLM-015, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020, CLM-021, CLM-022, CLM-023, CLM-024]
+        depends_on: [TASK-009]
+
+  - id: phase-4
+    name: "CI composition"
+    tasks:
+      - id: TASK-011
+        type: test
+        title: "Specify non-vacuous CI ordering"
+        description: |
+          Add an isolated workflow assertion that CLI build and clean remote pack
+          install precede one unguarded integration-script invocation, which precedes
+          website-policy compliance. Fail missing, reordered, conditional, swallowed,
+          local-source, owner-checkout, direct-engine, or visual-substitute variants.
+          Preserve the existing blocking gate and baseline/security semantics.
+        files: [scripts/verify-documentation-semantics-integration.sh]
+        claims: [CLM-001, CLM-003, CLM-017, CLM-018, CLM-021, CLM-022]
+        test_names: [verify_ci_runs_documentation_semantics_after_clean_install]
+        depends_on: [TASK-010]
+      - id: TASK-012
+        type: implementation
+        title: "Wire consumer acceptance into CI"
+        description: |
+          Invoke the integration script directly in the existing gate job after the
+          built CLI's clean remote pack installation and before website-policy success.
+          Preserve its exit status and the existing blocking gate. Add no owner checkout,
+          duplicated policy, generation work, or visual acceptance.
+        files: [.github/workflows/ci.yml]
+        claims: [CLM-001, CLM-003, CLM-017, CLM-018, CLM-021, CLM-022]
+        depends_on: [TASK-011]
+      - id: TASK-013
+        type: verification
+        title: "Gate CI composition"
+        description: |
+          Run `./bin/backstop gate --file .github/workflows/ci.yml --file
+          scripts/verify-documentation-semantics-integration.sh`, then the exact
+          integration script. Require CI ordering and the complete release/import/
+          pin/install/actual-site conjunction.
+        files: [.github/workflows/ci.yml, scripts/verify-documentation-semantics-integration.sh]
+        claims: [CLM-001, CLM-003, CLM-013, CLM-017, CLM-018, CLM-019, CLM-020, CLM-021, CLM-022]
+        depends_on: [TASK-012]
+
+  - id: phase-5
+    name: "Comprehensive verification"
+    tasks:
+      - id: TASK-014
+        type: verification
+        title: "Run the full kill chain"
+        description: |
+          Run `./bin/backstop gate --all`, then the exact spec command
+          `./scripts/verify-documentation-semantics-integration.sh`. Require every
+          mandated test, at least 80% coverage, exact two-role release/pin identity,
+          clean restoration, installed checks, clean actual corpus, attributed
+          mutation block, missing-pack refusal, CI ordering, and only five changed
+          delivery files. Confirm no owner policy, generalized prose, Seed 3, or
+          Seed 4 implementation entered the diff.
+        files: [scripts/verify-documentation-semantics-integration.sh, .backstop/website-pack-releases.yml, backstop.yml, backstop.lock, .github/workflows/ci.yml]
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-009, CLM-010, CLM-011, CLM-012, CLM-013, CLM-014, CLM-015, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020, CLM-021, CLM-022, CLM-023, CLM-024]
+        depends_on: [TASK-009, TASK-012, TASK-013]
+      - id: TASK-015
+        type: verification
+        title: "Validate linked artifacts"
+        description: |
+          Run `./bin/backstop artifact validate --plan PLAN-SPEC-073 --spec
+          SPEC-073`. Require preserved scaffold linkage, all 24 claims/tests, direct
+          test dependencies, gate cadence, exact delivery scope, and final coverage.
+        files: [plans/PLAN-SPEC-073-documentation-semantics-integration.plan.yml, specs/SPEC-073-documentation-semantics-integration.spec.md]
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-009, CLM-010, CLM-011, CLM-012, CLM-013, CLM-014, CLM-015, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020, CLM-021, CLM-022, CLM-023, CLM-024]
+        depends_on: [TASK-012, TASK-014]
