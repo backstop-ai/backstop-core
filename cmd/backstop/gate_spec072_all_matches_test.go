@@ -406,8 +406,27 @@ func TestGate_SPEC072DiscoversAll44BashFunctionsAcrossSameLineDeclarations(t *te
 	}
 	control := issue188Discovered(t, root, true)
 	corrected := issue188Discovered(t, root, false)
-	if len(control) != 36 || len(corrected) != 44 {
-		t.Fatalf("discovery control=%d corrected=%d, want 36/44", len(control), len(corrected))
+	controlReferences := 0
+	correctedReferences := 0
+	for name := range distinctReferences {
+		if _, ok := control[name]; ok {
+			controlReferences++
+		}
+		if _, ok := corrected[name]; ok {
+			correctedReferences++
+		}
+	}
+	if controlReferences != 36 || correctedReferences != 44 {
+		t.Fatalf("referenced-name discovery control=%d corrected=%d, want 36/44", controlReferences, correctedReferences)
+	}
+	newlyDiscovered := make(map[string]bool)
+	for name := range corrected {
+		if _, existed := control[name]; !existed {
+			newlyDiscovered[name] = true
+		}
+	}
+	if len(newlyDiscovered) != len(issue188FormerlyHidden) {
+		t.Fatalf("all-name discovery control=%d corrected=%d delta=%d, want delta %d", len(control), len(corrected), len(newlyDiscovered), len(issue188FormerlyHidden))
 	}
 	for _, name := range issue188FormerlyHidden {
 		if _, ok := control[name]; ok {
@@ -415,6 +434,9 @@ func TestGate_SPEC072DiscoversAll44BashFunctionsAcrossSameLineDeclarations(t *te
 		}
 		if _, ok := corrected[name]; !ok {
 			t.Errorf("corrected consumer is missing %s", name)
+		}
+		if !newlyDiscovered[name] {
+			t.Errorf("corrected all-name delta does not contain formerly hidden %s", name)
 		}
 	}
 	manifest, _ := issue188Fixture(t)
@@ -428,6 +450,9 @@ func TestGate_SPEC072DiscoversAll44BashFunctionsAcrossSameLineDeclarations(t *te
 		mandated = append(mandated, gate.MandatedTest{FuncName: name})
 	}
 	resolved := gate.ResolveMandatedTestPaths(mandated, root, classifier, matcher)
+	if len(resolved) != len(references) {
+		t.Fatalf("resolved reference count = %d, want all %d references", len(resolved), len(references))
+	}
 	resolvedByName := make(map[string]string, len(resolved))
 	for _, test := range resolved {
 		if test.FilePath == "" {
