@@ -1,9 +1,12 @@
 package main
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,8 +23,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const issue188Commit = "ed221e896fab2209bbbdcece0e96d28e22e27002"
-const issue188Tree = "0fee4b18605c74090b2271cf312a753ec614c432"
+const issue188Commit = "2855ccd1438c455fc2a6842978c15e5cf582ff5b"
+const issue188Tree = "97a9480b579b8aac1f4fec8d8294c70aee56a232"
+const issue188CorpusFileCount = 16
 
 var issue188FixtureHashes = map[string]string{
 	"pack.yml":                 "1fe143f9413a11a57951b9dee5e57216ca44ff33c5179bfd73fca27abfbd7a20",
@@ -48,11 +52,21 @@ type issue188SpecFrontmatter struct {
 
 func issue188Root(t *testing.T) string {
 	t.Helper()
-	out, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+	dir, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
 	}
-	return strings.TrimSpace(string(out))
+	for {
+		module, readErr := os.ReadFile(filepath.Join(dir, "go.mod"))
+		if readErr == nil && strings.HasPrefix(string(module), "module github.com/backstop-ai/backstop-core\n") {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatal("backstop-core module root not found")
+		}
+		dir = parent
+	}
 }
 
 func issue188Fixture(t *testing.T) (*pack.Manifest, string) {
@@ -77,36 +91,66 @@ func issue188Fixture(t *testing.T) (*pack.Manifest, string) {
 func stageIssue188Corpus(t *testing.T) string {
 	t.Helper()
 	root := issue188Root(t)
-	tree, err := exec.Command("git", "-C", root, "rev-parse", issue188Commit+"^{tree}").Output()
+	treeCommand := exec.Command("git", "-C", root, "rev-parse", issue188Commit+"^{tree}")
+	tree, err := treeCommand.Output()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("resolve pinned commit %s: %v", issue188Commit, err)
 	}
-	if strings.TrimSpace(string(tree)) != issue188Tree {
-		t.Fatal("pinned tree mismatch")
+	if got := strings.TrimSpace(string(tree)); got != issue188Tree {
+		t.Fatalf("pinned commit %s tree = %s, want %s", issue188Commit, got, issue188Tree)
 	}
-	out, err := exec.Command(
-		"git", "-C", root, "ls-tree", "-r", "--name-only", issue188Commit,
+	archiveCommand := exec.Command(
+		"git", "-C", root, "archive", "--format=tar", issue188Commit,
 		"scripts/tests/public-product-model",
 		"scripts/verify-public-product-model.sh",
 		"specs/SPEC-072-public-product-model.spec.md",
 		"plans/PLAN-SPEC-072-public-product-model.plan.yml",
-	).Output()
+	)
+	var archiveStderr bytes.Buffer
+	archiveCommand.Stderr = &archiveStderr
+	archiveBytes, err := archiveCommand.Output()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("archive pinned corpus at %s: %v: %s", issue188Commit, err, strings.TrimSpace(archiveStderr.String()))
 	}
 	destination := t.TempDir()
-	for _, rel := range strings.Fields(string(out)) {
-		data, showErr := exec.Command("git", "-C", root, "show", issue188Commit+":"+rel).Output()
-		if showErr != nil {
-			t.Fatal(showErr)
+	reader := tar.NewReader(bytes.NewReader(archiveBytes))
+	files := 0
+	for {
+		header, nextErr := reader.Next()
+		if nextErr == io.EOF {
+			break
+		}
+		if nextErr != nil {
+			t.Fatal(nextErr)
+		}
+		rel := filepath.Clean(filepath.FromSlash(header.Name))
+		if filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			t.Fatalf("pinned corpus archive contains unsafe path %q", header.Name)
 		}
 		path := filepath.Join(destination, rel)
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatal(err)
+		switch header.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(path, 0o755); err != nil {
+				t.Fatal(err)
+			}
+		case tar.TypeReg, tar.TypeRegA:
+			data, readErr := io.ReadAll(reader)
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, data, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			files++
+		default:
+			t.Fatalf("pinned corpus archive contains unsupported entry %q type %d", header.Name, header.Typeflag)
 		}
-		if err := os.WriteFile(path, data, 0o644); err != nil {
-			t.Fatal(err)
-		}
+	}
+	if files != issue188CorpusFileCount {
+		t.Fatalf("pinned corpus file count = %d, want %d", files, issue188CorpusFileCount)
 	}
 	return destination
 }

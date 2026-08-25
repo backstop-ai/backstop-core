@@ -213,8 +213,10 @@ The authoritative command is `./bin/backstop gate --all`: focused Go tests are
 implementation evidence executed through the declared Go toolchain pack and assembled
 gate, not a competing raw-test acceptance surface.
 
-The end-to-end acceptance uses the same immutable Core/SPEC-072 corpus and released Bash
-pack declarations already pinned by ISSUE-187. It must demonstrate the measured 36/44
+The end-to-end acceptance uses the immutable Core/SPEC-072 corpus at reachable commit
+`2855ccd1438c455fc2a6842978c15e5cf582ff5b` and tree
+`97a9480b579b8aac1f4fec8d8294c70aee56a232`, plus the released Bash pack declarations
+already pinned by ISSUE-187. It must demonstrate the measured 36/44
 pre-fix result and 44/44 post-fix result without changing the corpus or pack, then run the
 existing terminal fixture so all 47 references resolve and the discovery-caused drift
 clears. The test may stage the pinned corpus in a disposable directory; it must not edit

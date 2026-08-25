@@ -93,8 +93,8 @@ phases:
           TestGate_SPEC072DiscoversAll44BashFunctionsAcrossSameLineDeclarations and
           TestGate_SPEC072TerminalDiscoveryAndDriftClearAfterAllMatchEnumeration in the
           assembled cmd/backstop package. Stage Backstop Core commit
-          ed221e896fab2209bbbdcece0e96d28e22e27002 and assert tree
-          0fee4b18605c74090b2271cf312a753ec614c432 before any fixture mutation. Install
+          2855ccd1438c455fc2a6842978c15e5cf582ff5b and assert tree
+          97a9480b579b8aac1f4fec8d8294c70aee56a232 before any fixture mutation. Install
           and use only the checked-in reference fixture at
           cmd/backstop/testdata/issue188-bash-reference-pack. Its manifest contains only
           the exact classification/name-pattern declarations and the minimal deterministic
