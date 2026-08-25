@@ -2,16 +2,16 @@
 plan_id: PLAN-SPEC-071
 spec_id: SPEC-071
 created: "2026-08-23"
-status: replaced
-replaced-by: BUNDLE-032
+status: canceled
 target_repo: backstop-core
 target_module: docs
 test_command: "./scripts/verify-website.sh"
 
 notes: |
-  TOMBSTONE — replaced by BUNDLE-032 v0.5.1 before implementation. No task in this
-  historical plan remains live. The reviewed bundle rejected the narrow docs-shell premise
-  and repartitioned the continuing website work into five future spec seeds.
+  TOMBSTONE — canceled before implementation. No task in this historical plan remains live.
+  Its parent SPEC-071 decomposition was abandoned after BUNDLE-032 evolved and rejected the
+  narrow docs-shell premise. The broader website work continues through new future specs and
+  plans generated from BUNDLE-032; the upstream bundle is not this plan's successor.
 
   Implements SPEC-071 in backstop-core only.
 

@@ -2,17 +2,17 @@
 title: "Website Expansion"
 number: SPEC-071
 created: "2026-08-23"
-status: replaced
-replaced-by: BUNDLE-032
+status: canceled
 schema_version: spec/v1
 spec_version: 1.0.0
 
 implementation:
   summary: >
-    TOMBSTONE — replaced by BUNDLE-032 v0.5.1 before implementation. The reviewed bundle
-    rejected this narrow docs-shell shape, reabsorbed the website work, and repartitioned it
-    into five non-overlapping future spec seeds. Do not plan or implement this contract; the
-    historical scope is preserved below as evidence of the premature decomposition.
+    TOMBSTONE — canceled before implementation. This premature narrow docs-shell decomposition
+    was abandoned after BUNDLE-032 evolved and rejected it as a completion path. The broader
+    website work continues through BUNDLE-032's five non-overlapping future spec seeds, but the
+    bundle is this spec's upstream source, not its successor. Do not plan or implement this
+    contract; the historical scope is preserved below as evidence of the abandoned decomposition.
     Expand backstop-core's public GitHub Pages surface from one custom landing page plus
     stock-theme Markdown into one coherent Backstop site. Preserve the existing landing
     page as the reference surface; render the five canonical Markdown docs through a
