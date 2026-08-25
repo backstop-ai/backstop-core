@@ -197,16 +197,21 @@ phases:
     tasks:
       - id: TASK-015
         type: setup
-        title: "Enforce the SPEC-073 release barrier"
+        title: "Establish SPEC-073 released-pack readiness"
         description: |
-          Run `./scripts/verify-documentation-semantics-integration.sh` and require its clean-
-          install proof. Verify `.backstop/website-pack-releases.yml` binds exact immutable owner
-          artifact/evidence refs to manifest identity, source coordinate, version, v-tag, full
-          commit, content hash, green owner checks, and fixture dispatch/path-fidelity proof.
-          Require matching backstop.yml declaration and git lock, restored installed manifest,
-          recomputed tree hash, installed pack check/test, actual-corpus gate, missing-tree failure,
-          and CI clean-install step. Stop if absent; never substitute local rules or edit surfaces.
-        files: [.backstop/website-pack-releases.yml, backstop.yml, backstop.lock, .backstop/packs/<documentation-semantics-manifest-identity>/pack.yml, scripts/verify-documentation-semantics-integration.sh, .github/workflows/ci.yml]
+          Establish readiness without running the complete actual-corpus integration verifier,
+          because final page sources do not exist yet. Verify `.backstop/website-pack-releases.yml`
+          binds exact immutable owner artifact/evidence refs to manifest identity, independent
+          source coordinate, version, v-tag, full commit, content hash, green owner checks, and
+          fixture dispatch/path-fidelity proof. Require exact matching backstop.yml declaration
+          and git lock. Run `./bin/backstop pack install`, then `./bin/backstop pack check
+          .backstop/packs/<documentation-semantics-manifest-identity>` and `./bin/backstop pack
+          test .backstop/packs/<documentation-semantics-manifest-identity>`; require the restored
+          manifest version and recomputed installed-tree hash to match owner evidence. Stop if any
+          release, pin, install, or owner-fixture readiness proof is absent. Do not run the clean
+          actual-site gate, injected-definition proof, or missing-installed-tree proof here;
+          TASK-023 owns those post-page checks through the full SPEC-073 integration verifier.
+        files: [.backstop/website-pack-releases.yml, backstop.yml, backstop.lock, .backstop/packs/<documentation-semantics-manifest-identity>/pack.yml]
         claims: [CLM-024, CLM-033]
         depends_on: [TASK-014]
       - id: TASK-016
