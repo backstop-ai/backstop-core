@@ -4,7 +4,7 @@ number: SPEC-072
 created: "2026-08-24"
 status: draft
 schema_version: spec/v1
-spec_version: 1.0.1
+spec_version: 1.0.2
 
 implementation:
   summary: >
@@ -173,7 +173,10 @@ requirements:
       Ecosystem -> `/contributing/`. Each neighborhood appears once and names one owner;
       a page may own several neighborhoods. Primary journey navigation is ordered
       Evaluate, Model, Adopt, Use Cases, Packs, Extend, Reference; Home is reached through
-      the wordmark, while Status and Contributing are utility destinations. Route aliases,
+      the wordmark, while Status and Contributing are utility destinations. Each page record must
+      also carry the exact `hero_question` literal in the Authoritative page topology table below;
+      those ten strings are Seed 1 final copy and downstream presentation may consume but not amend
+      them. Route aliases,
       responsive presentation, and generated navigation markup remain Seed 4 concerns.
   - id: REQ-003
     supports:
@@ -462,6 +465,16 @@ claims:
     text: The final ten-page corpus passes the installed released documentation-semantics pack; the semantic assertion is produced by that pack, not reimplemented by the local verifier.
     tests:
       - verify_final_copy_installed_semantics_gate
+  - id: CLM-034
+    requirement: REQ-002
+    text: All ten page records carry exactly their Seed 1-owned hero question literals and no downstream override.
+    tests:
+      - verify_content_topology_hero_question_matrix
+  - id: CLM-035
+    requirement: REQ-002
+    text: A missing, changed, duplicated, or presentation-owned hero question fails with its canonical route.
+    tests:
+      - verify_content_topology_rejects_invalid_hero_question
 ---
 
 # SPEC-072: Public Product Model
@@ -495,18 +508,18 @@ frontmatter.
 
 ### Authoritative page topology
 
-| Source | Canonical path | Authoritative responsibility |
-|---|---|---|
-| `docs/index.md` | `/` | NBR-001: recognize the failure class, explain why Backstop exists, and route the visitor by question. |
-| `docs/evaluate.md` | `/evaluate/` | NBR-002 and NBR-003: define what Backstop is and is not; support fit, mechanism, guarantee, compatibility, limitation, and adoption-cost evaluation. |
-| `docs/model.md` | `/model/` | NBR-005 and NBR-006: progressively explain how Backstop works, then provide the dense canonical concept and architecture model. |
-| `docs/adopt.md` | `/adopt/` | Move from evaluation to a working first adoption, state prerequisites and adoption cost, and link rather than duplicate canonical concepts. |
-| `docs/use-cases.md` | `/use-cases/` | NBR-007: provide problem-oriented adoption paths and direct each path into the canonical model, packs, adoption, and reference material it needs. |
-| `docs/packs.md` | `/packs/` | NBR-008: expose the pack ecosystem, problem coverage, composition, maintenance state, and selection guidance. |
-| `docs/extend.md` | `/extend/` | NBR-009: decide whether a concern belongs in a pack and guide extension without duplicating exact reference material. |
-| `docs/reference.md` | `/reference/` | NBR-010: own exact CLI, artifact, schema, configuration, and behavioral lookup. Seed 3 may generate derived sections into this owner. |
-| `docs/status.md` | `/status/` | NBR-004 and NBR-011: own shipped capabilities, guarantees, limitations, plans, non-goals, adjacent guidance, and project direction. |
-| `docs/contributing.md` | `/contributing/` | NBR-012: own repository, governance, contribution, and ecosystem participation paths. |
+| Source | Canonical path | Seed 1-owned `hero_question` | Authoritative responsibility |
+|---|---|---|---|
+| `docs/index.md` | `/` | What failure does Backstop prevent? | NBR-001: recognize the failure class, explain why Backstop exists, and route the visitor by question. |
+| `docs/evaluate.md` | `/evaluate/` | Is Backstop the right control surface for this problem? | NBR-002 and NBR-003: define what Backstop is and is not; support fit, mechanism, guarantee, compatibility, limitation, and adoption-cost evaluation. |
+| `docs/model.md` | `/model/` | How does Backstop turn intent into a trustworthy verdict? | NBR-005 and NBR-006: progressively explain how Backstop works, then provide the dense canonical concept and architecture model. |
+| `docs/adopt.md` | `/adopt/` | What does a first working adoption require? | Move from evaluation to a working first adoption, state prerequisites and adoption cost, and link rather than duplicate canonical concepts. |
+| `docs/use-cases.md` | `/use-cases/` | Which problem-oriented adoption path applies? | NBR-007: provide problem-oriented adoption paths and direct each path into the canonical model, packs, adoption, and reference material it needs. |
+| `docs/packs.md` | `/packs/` | Which maintained pack already owns this standard? | NBR-008: expose the pack ecosystem, problem coverage, composition, maintenance state, and selection guidance. |
+| `docs/extend.md` | `/extend/` | When should this concern become a pack? | NBR-009: decide whether a concern belongs in a pack and guide extension without duplicating exact reference material. |
+| `docs/reference.md` | `/reference/` | What exact interface or behavior do I need? | NBR-010: own exact CLI, artifact, schema, configuration, and behavioral lookup. Seed 3 may generate derived sections into this owner. |
+| `docs/status.md` | `/status/` | What is supported, limited, planned, or intentionally outside Backstop? | NBR-004 and NBR-011: own shipped capabilities, guarantees, limitations, plans, non-goals, adjacent guidance, and project direction. |
+| `docs/contributing.md` | `/contributing/` | How can I participate in Backstop and its ecosystem? | NBR-012: own repository, governance, contribution, and ecosystem participation paths. |
 
 The wordmark provides Home. Primary navigation is exactly Evaluate, Model, Adopt, Use Cases,
 Packs, Extend, Reference. Status and Contributing are utility destinations. Seed 4 owns how
@@ -575,7 +588,7 @@ with exact source anchors and rationales. Prefixes bind units to sources: `HOME`
 ### Registry record shapes
 
 `content-topology.yml` contains `pages`, `neighborhoods`, and `navigation`. A page record names
-its source, canonical path, role, neighborhood IDs, required content blocks, and source material.
+its source, canonical path, role, exact Seed 1-owned hero question, neighborhood IDs, required content blocks, and source material.
 A neighborhood record names its stable ID, visitor question, authoritative owner, and required
 answer. Navigation stores the exact primary and utility memberships above.
 
