@@ -4,14 +4,16 @@ number: SPEC-072
 created: "2026-08-24"
 status: draft
 schema_version: spec/v1
-spec_version: 1.0.3
+spec_version: 1.0.4
 
 implementation:
   summary: >
     BUNDLE-032 Seed 1 only: replace the repository-shaped public documentation model with
     a visitor-journey content contract, then author the final human-readable product copy
-    against that contract after the separately governed documentation-semantics contract
-    is stable. Core owns four checked-in product-truth registries — content topology,
+    against that contract after the information architecture, product-truth registries, and
+    accepted SPEC-073 documentation-semantic contract are stable. This is a contract-level design
+    prerequisite only: Seed 1 does not wait for any PLAN-SPEC-073 task, released or installed pack,
+    or partial Seed 2 implementation. Core owns four checked-in product-truth registries — content topology,
     canonical product model, public-claim evidence, and legacy-content disposition — plus
     the ten named page sources that consume them. The topology assigns all twelve required
     neighborhoods to exactly one authoritative route; the product model assigns every
@@ -34,15 +36,7 @@ implementation:
 verification:
   level: integration
   coverage_threshold: 80
-  test_command: >-
-    ./scripts/verify-public-product-model.sh &&
-    ./bin/backstop gate
-    --file docs/index.md --file docs/evaluate.md --file docs/model.md
-    --file docs/adopt.md --file docs/use-cases.md --file docs/packs.md
-    --file docs/extend.md --file docs/reference.md --file docs/status.md
-    --file docs/contributing.md --file docs/_data/content-topology.yml
-    --file docs/_data/product-model.yml --file docs/_data/evidence-inventory.yml
-    --file docs/_data/content-inventory.yml
+  test_command: ./scripts/verify-public-product-model.sh
 
 contracts:
   - file: docs/_data/content-topology.yml
@@ -70,13 +64,6 @@ contracts:
       - name: verify_public_product_model
         kind: function
         signature: verify_public_product_model()
-    consumes:
-      - source: backstop.yml
-        name: declared_documentation_semantics_pack
-        kind: variable
-      - source: backstop.lock
-        name: locked_documentation_semantics_identity
-        kind: variable
   - file: docs/index.md
     provides:
       - name: public_home_page
@@ -305,10 +292,11 @@ requirements:
       The inventory must contain exactly the 31 stable unit IDs and source-topic assignments in
       the Completed inventory and topology rationale table; a missing, additional, duplicate, or
       unmapped unit and invalid disposition-target cardinality are PROHIBITED.
-      The Seed 1
-      implementation plan must sequence final-copy authoring, rewriting, merging,
-      decomposition, and retirement after the information architecture and separately
-      governed documentation-semantic contract are stable. Final accepted page sources
+      The Seed 1 implementation plan must sequence final-copy authoring, rewriting, merging,
+      decomposition, and retirement after the information architecture, product-truth registries,
+      and accepted SPEC-073 documentation-semantic contract are stable. That accepted contract is
+      design input; no PLAN-SPEC-073 task, released or installed pack, or partial Seed 2
+      implementation may become a Seed 1 execution prerequisite. Final accepted page sources
       must contain their required page responsibilities and no draft placeholder, stale
       Cayman positioning, or substantive duplicate of another page's owned concept. A
       generalized prose-quality, writing-style, or prose-LSP pack is outside this spec and
@@ -523,11 +511,6 @@ claims:
     text: Duplicate IDs, missing source locators, missing rationale, and every invalid disposition-target cardinality fail with the unit ID.
     tests:
       - verify_legacy_useful_unit_rejects_invalid_record
-  - id: CLM-033
-    requirement: REQ-007
-    text: The final ten-page corpus passes the installed released documentation-semantics pack; the semantic assertion is produced by that pack, not reimplemented by the local verifier.
-    tests:
-      - verify_final_copy_installed_semantics_gate
   - id: CLM-034
     requirement: REQ-002
     text: All ten page records carry exactly their Seed 1-owned hero question literals and no downstream override.
@@ -804,16 +787,15 @@ The planner must preserve this ordering and these ownership seams:
    provenance binding, state classification, claim-type evidence matrices, durable source existence,
    and minimum corpus roles. The verifier checks deterministic Backstop-specific structure only; it
    does not define a reusable documentation-semantic engine.
-5. After Seed 2's documentation-semantic contract is released, content-identity pinned in
-   `backstop.lock`, declared in `backstop.yml`, and installed, author the ten
-   final Markdown sources, rewriting, merging, decomposing, or retiring the prior sources exactly
-   as the content inventory directs. Summaries outside canonical owners link inward and do not
-   become competing definitions.
-6. Run the local verifier and the installed pack through the composed verification command. The
-   local script owns syntax and references; the pack owns semantic judgments such as paraphrased
-   competing definitions. Hand the content contract to Seed 3 for derived sections, Seed 4 for
-   Jekyll/design-system rendering and deployment, and Seed 5 for capability/@UJ traversal without
-   absorbing any of their work here.
+5. Author the ten final Markdown sources after the topology, product-truth registries, and accepted
+   SPEC-073 documentation-semantic contract are stable, rewriting, merging, decomposing, or retiring
+   the prior sources exactly as the content inventory directs. Consume that contract as design input
+   only; do not wait for a PLAN-SPEC-073 task, pack release or installation, or partial Seed 2
+   implementation. Summaries outside canonical owners link inward and do not become competing definitions.
+6. Run the local verifier against the complete Seed 1 contract. Hand the accepted content contract
+   to Seed 2 for reusable documentation-semantic enforcement, Seed 3 for derived sections, Seed 4
+   for Jekyll/design-system rendering and deployment, and Seed 5 for capability/@UJ traversal
+   without absorbing any of their work here.
 
 No implementation pass may introduce a local documentation-semantics rule set, generated-docs
 engine, Jekyll layout/design implementation, capability artifact, MCP publication, or generalized
@@ -822,12 +804,11 @@ and records separately governed dependency work.
 
 ## Verification
 
-The frontmatter test command composes `./scripts/verify-public-product-model.sh` with a scoped
-`./bin/backstop gate`. The script performs static, fixture-backed syntax, cardinality, exact-byte,
-path, and reference verification against the checked-in registries and page sources. The gate must
-consume Seed 2's released, installed, content-identity-pinned documentation-semantics pack; it owns
-semantic assertions and cannot be replaced by local lookalike rules. Claims are defined in
-frontmatter. Negative tests mutate isolated fixture copies, never the accepted site corpus, and print
+The frontmatter test command runs `./scripts/verify-public-product-model.sh`. The script performs
+static, fixture-backed syntax, cardinality, exact-byte, path, and reference verification against the
+checked-in registries and page sources. It does not perform generalized documentation-semantic
+judgments or require a released pack, declaration, lock, or installation from Seed 2. Claims are
+defined in frontmatter. Negative tests mutate isolated fixture copies, never the accepted site corpus, and print
 the relevant page, neighborhood, concept, architecture view, boundary, claim, useful unit, JLINK,
 adoption instruction, corpus role, source path, or commit in the failure.
 
@@ -859,9 +840,10 @@ or contradictory states fail.
 - **Status language decays.** `supported`, `planned`, and `limitation` can become stale as implementation
   changes. Every record needs durable sources, and later derived-doc work must not create a parallel
   status truth.
-- **Final copy has a real ordering dependency.** Writing polished pages before the topology and Seed 2
-  semantic contract stabilize recreates the premature SPEC-071 failure. The plan must keep inventory
-  and model work ahead of final-copy execution.
+- **Final copy has contract-level ordering, not cross-plan orchestration.** Writing polished pages
+  before the topology, product-truth registries, and accepted SPEC-073 semantic contract stabilize
+  recreates the premature SPEC-071 failure. Waiting for PLAN-SPEC-073 tasks, released or installed
+  pack bytes, or partial Seed 2 implementation would instead recreate the invalid execution cycle.
 - **Jekyll filenames are not the deployment proof.** This spec declares canonical paths as the content
   contract, but Seed 4 owns build, permalink, alias, link, and Pages verification. Passing Seed 1 does
   not claim that the routes are deployed.
@@ -871,9 +853,9 @@ or contradictory states fail.
 - **Markdown linkage can drift invisibly.** A marker may survive while prose moves, splits, or changes.
   Paired regions, exact normalized `statement_markdown`, unique IDs, and route/anchor checks must fail
   that drift; a nearby unbounded comment is insufficient.
-- **The verifier seam can duplicate Seed 2.** The local script may check IDs, exact bytes, cardinality,
-  paths, and references only. Semantic judgments come from the released pinned pack through the composed
-  gate; a temporary local copy of a pack rule is still a second policy owner.
+- **The verifier seam can absorb Seed 2.** The local script may check IDs, exact bytes, cardinality,
+  paths, and references only. Generalized semantic judgments remain downstream Seed 2 work; adding a
+  temporary local copy of a pack rule would create a second policy owner and an invalid prerequisite.
 - **A page without a neighborhood can look accidental.** `/adopt/` is deliberate journey infrastructure,
   while `/use-cases/` remains NBR-007's sole owner. Future edits must not assign both pages the same
   neighborhood merely to make the topology symmetrical.
@@ -925,7 +907,8 @@ redefining any of them or treating this spec as the owner of capability scenario
 7. Does adjacent guidance explicitly deny product guarantee and still give a useful continuation path?
 8. Did the implementation preserve useful units from all six legacy sources before deleting or
    replacing any file?
-9. Was final copy authored only after the topology and documentation-semantic contract stabilized?
+9. Was final copy authored against the stable accepted SPEC-073 contract without waiting for any
+   PLAN-SPEC-073 task, released or installed pack, or partial Seed 2 implementation?
 10. Did Seed 1 avoid absorbing semantic-pack enforcement, generated-doc machinery, presentation,
     capability journeys, MCP publication, or generalized prose tooling?
 11. Does every JLINK source marker occur exactly once under its declared source anchor and point to
@@ -940,6 +923,8 @@ redefining any of them or treating this spec as the owner of capability scenario
 
 - `bundles/BUNDLE-032-website-expansion.bundle.md` v0.6.0 — source bundle, Seed 1 partition,
   OQ-1/OQ-4/OQ-5/OQ-7/OQ-9/OQ-10, and DD-1 through DD-5 plus DD-8.
+- `specs/SPEC-073-documentation-semantics-integration.spec.md` v1.0.0 — accepted downstream
+  semantic contract used as final-copy design input, never as a cross-plan execution dependency.
 - `specs/SPEC-071-website-expansion.spec.md` — canceled historical narrow decomposition; evidence only.
 - `docs/index.html`, `docs/getting-started.md`, `docs/concepts.md`,
   `docs/artifact-workflow.md`, `docs/pack-authoring.md`, and `docs/cli-reference.md` — current
@@ -951,5 +936,5 @@ redefining any of them or treating this spec as the owner of capability scenario
   `issues/ISSUE-184-fixture-path-filter-diagnostics.issue.md` — durable first-party failure evidence.
 - `artifacts/capability/v1/schema.json`, `pkg/pack/engine/binding.go`, and
   `pkg/recipe/manifest.go` — product-model and mechanism source material.
-- `specs/SPEC-076-end-to-end-website-capabilities.spec.md` v1.0.1 — downstream consumer contract
-  requiring SPEC-072 v1.0.3's JLINK, structured-boundary, and adoption-instruction amendment.
+- `specs/SPEC-076-end-to-end-website-capabilities.spec.md` v1.0.2 — downstream consumer contract
+  requiring SPEC-072 v1.0.4's JLINK, structured-boundary, and adoption-instruction contract.

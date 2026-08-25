@@ -4,7 +4,7 @@ number: SPEC-074
 created: "2026-08-24"
 status: draft
 schema_version: spec/v1
-spec_version: 1.0.2
+spec_version: 1.0.3
 
 implementation:
   summary: >
@@ -18,11 +18,10 @@ implementation:
     canonicalizes exact raw-HTML table records, uses a recoverable journaled four-file
     transaction without claiming cross-file atomic visibility, and produces byte-identical output. Check mode renders to a
     temporary tree and refuses missing, stale, manually edited, multiply owned, or
-    unregistered output while naming the job, sources, and output. Jekyll owner pages
-    include each generated fragment exactly once and rendered regions reproduce its record digest.
+    unregistered output while naming the job, sources, and output. The three Seed 1 owner
+    sources bind each generated fragment exactly once through checked-in include markers.
     Every job also exports a complete typed authoritative-source descriptor set inside that
-    digest boundary; Seed 4 resolves `site` commit bindings to the full deployment commit and
-    renders only immutable GitHub tree, blob, or commit links.
+    digest boundary as the complete source-level handoff consumed by Seed 4.
     Stable-tag publication is blocked until latest main carries regenerated history. No parallel
     product registry is introduced. The implementation is deliberately domain-specific and
     must not become a generalized transformation engine, absorb the separately governed
@@ -89,18 +88,6 @@ contracts:
       - name: Recover
         kind: function
         signature: "Recover(root string) error"
-  - file: scripts/producttruth/site.go
-    provides:
-      - name: VerifyRenderedSite
-        kind: function
-        signature: "VerifyRenderedSite(root string, manifest Manifest, siteCommit string) error"
-    consumes:
-      - source: docs/_config.yml
-        name: jekyll_configuration
-        kind: variable
-      - source: Gemfile.lock
-        name: locked_jekyll_runtime
-        kind: variable
   - file: scripts/verify-product-truth.sh
     provides:
       - name: verify_product_truth_pipeline
@@ -148,7 +135,7 @@ contracts:
     provides:
       - name: derived_product_truth_drift_gate
         kind: variable
-        signature: "Blocking generator, measured coverage, Jekyll build, and rendered-region verification"
+        signature: "Blocking generator, measured coverage, source-include verification, and exact-byte drift refusal"
   - file: .github/workflows/release.yml
     provides:
       - name: release_history_current
@@ -279,15 +266,12 @@ requirements:
       `installed-pack-catalog`, and `release-history`. Each owner source must contain exactly one
       `## <TITLE> {#<ANCHOR>}`, then `<!-- PRODUCT-TRUTH-INCLUDE:BEGIN job=<ID> -->`, the exact
       Liquid line `{% include generated/<FILE>.md %}`, and the matching include end marker.
-      Seed 4 provides root `Gemfile` and committed `Gemfile.lock`; the acceptance build is exactly
-      `bundle exec jekyll build --source docs --destination _site --trace`. Rendered verification
-      requires exactly one source include region and one source/rendered fragment region, parses the
-      rendered region with Go's HTML parser, requires one table with exact job attribute, headers,
-      rows, cells, and no unknown row elements, HTML-decodes cells and converts `<br>` to LF,
-      reconstructs the explicit REQ-002 structs and REQ-009 source-link descriptors, applies the
-      canonical provenance-envelope digest, and compares it with both source markers. Missing,
-      duplicated, moved, stale, independently reconstructed, or tampered regions fail PT204. No
-      second generated page or site plugin may reread inputs.
+      Source-level verification must require that exact heading, marker pair, include line, job,
+      filename, route, anchor, and cardinality, and must refuse a missing, duplicated, moved,
+      mismatched, or manually reconstructed source include with PT204. No second source include,
+      generated page, template, or plugin may reread authoritative product inputs. Actual Jekyll
+      build, rendered-region reconstruction, rendered digest comparison, and immutable rendered-link
+      verification are Seed 4 acceptance and are not prerequisites for this spec to complete.
   - id: REQ-006
     supports:
       - website-expansion:REQ-011@1.0.0
@@ -310,10 +294,10 @@ requirements:
       `origin/main` with full history/tags separately from the pushed stable-tag checkout, fetching
       that tag, and running check mode there; GoReleaser must depend on this job. A new tag absent
       from latest main therefore cannot publish. Its generated row lands through normal PR/main
-      CI and Pages, then the failed tag workflow is rerun; the tag retains the release commit while
-      later main owns the public-history update. Seed 4's Pages workflow must run the same freshness
-      check before deploy, and tag push itself must not deploy Pages. This two-checkout handshake
-      avoids tag-SHA self-reference while preventing stale public release history.
+      CI, then the failed tag workflow is rerun; the tag retains the release commit while later main
+      owns the public-history update. This two-checkout handshake avoids tag-SHA self-reference while
+      preventing release publication from using stale public release history. Pages triggers,
+      deployment freshness, and deployed acceptance remain Seed 4 ownership.
   - id: REQ-008
     supports:
       - website-expansion:REQ-011@1.0.0
@@ -321,10 +305,10 @@ requirements:
       `scripts/verify-product-truth.sh` must create a temporary atomic coverage profile, run
       `go test ./scripts/producttruth/... -race -covermode=atomic`, extract exactly one numeric
       `total:` from `go tool cover -func`, and fail PT205 when absent, duplicated, nonnumeric, or
-      below 80.00. It then runs check mode, the exact locked Jekyll build, rendered-site verification,
-      and structural workflow tests proving branch CI, Pages, and release publication invoke their
-      gates. Generator, transaction, Git-plumbing, site-verifier, and workflow surfaces are included;
-      temporary coverage/build outputs are removed on success and failure.
+      below 80.00. It then runs check mode, exact source-include verification, and structural workflow
+      tests proving branch CI and release publication invoke their source-level gates. Generator,
+      transaction, Git-plumbing, source-consumption, and CI/release workflow surfaces are included;
+      temporary coverage and generation outputs are removed on success and failure.
   - id: REQ-009
     supports:
       - website-expansion:REQ-011@1.0.0
@@ -374,9 +358,7 @@ requirements:
       token as `&lt;SITE-COMMIT&gt;` so it remains text rather than an HTML element, and HTML
       decoding must recover the exact token in the URL;
       a record-bound release link contains its existing full lowercase 40-hex commit.
-      Seed 4 must resolve `<SITE-COMMIT>` to the full lowercase 40-hex build/deployment
-      commit and render each descriptor exactly once as `a[data-generated-source-link]`
-      inside the one owner section for that job. Final URLs are exactly
+      The generated descriptor text supplies these exact downstream URL templates:
       `https://github.com/backstop-ai/backstop-core/tree/<SITE-COMMIT>/cmd/backstop`,
       `https://github.com/backstop-ai/backstop-core/blob/<SITE-COMMIT>/<schema-source>`,
       the corresponding two blob URLs for `backstop.yml` and `backstop.lock`, and
@@ -385,8 +367,10 @@ requirements:
       release commits, or another realized link inventory that could drift from generated records.
       Branch names, `HEAD`, `latest`, abbreviated SHAs, relative URLs, missing or extra
       descriptors, wrong kinds/paths/commits/order/owner/output, marker-digest mismatch,
-      unresolved placeholders, or removal or mutation of any source link must fail
-      generation or rendered verification with `PT204_CONSUMPTION`. This is generated
+      or removal or mutation of any source descriptor must fail generation or check mode with
+      `PT204_CONSUMPTION`. Resolving `<SITE-COMMIT>`, creating rendered anchors, and accepting
+      built or deployed link targets are Seed 4 obligations and are not exercised by this spec.
+      This is generated
       provenance owned by Seed 3; it neither replaces Seed 1 evidence records nor gives
       Seed 5 ownership of generation, links, routes, anchors, or journey semantics.
 
@@ -477,20 +461,20 @@ claims:
     tests: [TestProductTruth_CheckFailureDiagnosticMatrix]
   - id: CLM-022
     requirement: REQ-005
-    text: The CLI and artifact-schema exact include regions appear once at their subordinate reference-page anchors and reconstructed rendered records match source digests.
-    tests: [TestProductTruth_SiteConsumesReferenceFragments]
+    text: The CLI and artifact-schema exact source include regions appear once at their subordinate reference-page anchors with the required headings, markers, include lines, jobs, and filenames.
+    tests: [TestProductTruth_SourceIncludesReferenceFragments]
   - id: CLM-023
     requirement: REQ-005
-    text: The installed-pack exact include region appears once at its subordinate packs-page anchor and reconstructed rendered records match its source digest.
-    tests: [TestProductTruth_SiteConsumesInstalledPackFragment]
+    text: The installed-pack exact source include region appears once at its subordinate packs-page anchor with the required heading, markers, include line, job, and filename.
+    tests: [TestProductTruth_SourceIncludesInstalledPackFragment]
   - id: CLM-024
     requirement: REQ-005
-    text: The release-history exact include region appears once at its subordinate status-page anchor and reconstructed rendered records match its source digest.
-    tests: [TestProductTruth_SiteConsumesReleaseHistoryFragment]
+    text: The release-history exact source include region appears once at its subordinate status-page anchor with the required heading, markers, include line, job, and filename.
+    tests: [TestProductTruth_SourceIncludesReleaseHistoryFragment]
   - id: CLM-025
     requirement: REQ-005
-    text: A missing, duplicated, moved, stale, separately rendered, or manually reconstructed generated region fails with the fragment and owner.
-    tests: [TestProductTruth_SiteRejectsParallelOrInvalidConsumption]
+    text: A missing, duplicated, moved, wrong-job, wrong-file, wrong-owner, parallel-input-reading, or manually reconstructed source include fails PT204 with the fragment and owner.
+    tests: [TestProductTruth_SourceRejectsParallelOrInvalidConsumption]
   - id: CLM-026
     requirement: REQ-006
     kind: absence
@@ -545,14 +529,6 @@ claims:
     requirement: REQ-003
     text: Recovery is idempotent; recovery failure retains journal and backups and keeps check/write blocked with PT203.
     tests: [TestProductTruth_RecoveryIdempotenceAndFailure]
-  - id: CLM-039
-    requirement: REQ-005
-    text: Exact source include syntax, raw-HTML delimiters, table attributes, headers, rows, and cells reconstruct the canonical records under the four subordinate anchors.
-    tests: [TestProductTruth_ExactSourceAndRenderedRegionContract]
-  - id: CLM-040
-    requirement: REQ-005
-    text: Delimiter, header, row, cell, visible-text, digest, owner, or locked-build-command tampering fails PT204.
-    tests: [TestProductTruth_RenderedRegionTamperMatrix]
   - id: CLM-041
     requirement: REQ-007
     text: A stable tag absent from latest origin/main blocks release-history-current and therefore GoReleaser.
@@ -563,8 +539,8 @@ claims:
     tests: [TestProductTruth_ReleaseHandshakePassesAfterMainRegeneration]
   - id: CLM-043
     requirement: REQ-007
-    text: The tag checkout cannot substitute for latest-main history, and Pages refuses stale generated history.
-    tests: [TestProductTruth_ReleaseAndPagesWorkflowWiring]
+    text: The stable-tag checkout cannot substitute for the separately fetched latest-origin/main history used by the release gate.
+    tests: [TestProductTruth_ReleaseWorkflowRejectsTagCheckoutSubstitution]
   - id: CLM-044
     requirement: REQ-008
     text: Exactly 80.00 percent measured producttruth coverage passes.
@@ -575,15 +551,15 @@ claims:
     tests: [TestProductTruth_VerifierRejectsCoverageFailureMatrix]
   - id: CLM-046
     requirement: REQ-008
-    text: Verification runs check mode, the exact locked Jekyll build, rendered verification, and structural branch, Pages, and release workflow tests.
-    tests: [TestProductTruth_VerifierCoversPipelineAndWorkflowSurfaces]
+    text: Verification runs check mode, exact source-include verification, and structural branch-CI and release-workflow tests without requiring a Jekyll build or Pages workflow.
+    tests: [TestProductTruth_VerifierCoversIndependentSourcePipeline]
   - id: CLM-047
     requirement: REQ-009
-    text: The CLI job exports exactly one site-commit-bound immutable tree link for cmd/backstop, tied to its owner, output, markers, and envelope digest.
+    text: The CLI job exports exactly one site-commit-bound immutable tree descriptor and URL template for cmd/backstop, tied to its owner, output, markers, and envelope digest.
     tests: [TestProductTruth_CLIImmutableSourceLinkPasses]
   - id: CLM-048
     requirement: REQ-009
-    text: Removing the CLI source link fails PT204 for cli-command-catalog.
+    text: Removing the CLI source descriptor fails PT204 for cli-command-catalog.
     tests: [TestProductTruth_CLIImmutableSourceLinkRemovalFails]
   - id: CLM-049
     requirement: REQ-009
@@ -591,11 +567,11 @@ claims:
     tests: [TestProductTruth_CLIImmutableSourceLinkDriftFails]
   - id: CLM-050
     requirement: REQ-009
-    text: The artifact-schema job exports exactly one site-commit-bound immutable blob link for each rendered record source in record order, tied to its owner, output, markers, and envelope digest.
+    text: The artifact-schema job exports exactly one site-commit-bound immutable blob descriptor and URL template for each generated record source in record order, tied to its owner, output, markers, and envelope digest.
     tests: [TestProductTruth_ArtifactSchemaImmutableSourceLinksPass]
   - id: CLM-051
     requirement: REQ-009
-    text: Independently removing any artifact-schema source link fails PT204 for artifact-schema-catalog and names the missing record source.
+    text: Independently removing any artifact-schema source descriptor fails PT204 for artifact-schema-catalog and names the missing record source.
     tests: [TestProductTruth_ArtifactSchemaImmutableSourceLinkRemovalFails]
   - id: CLM-052
     requirement: REQ-009
@@ -603,11 +579,11 @@ claims:
     tests: [TestProductTruth_ArtifactSchemaImmutableSourceLinkDriftFails]
   - id: CLM-053
     requirement: REQ-009
-    text: The installed-pack job exports exactly the site-commit-bound immutable blob links for backstop.yml then backstop.lock, tied to its owner, output, markers, and envelope digest.
+    text: The installed-pack job exports exactly the site-commit-bound immutable blob descriptors and URL templates for backstop.yml then backstop.lock, tied to its owner, output, markers, and envelope digest.
     tests: [TestProductTruth_InstalledPackImmutableSourceLinksPass]
   - id: CLM-054
     requirement: REQ-009
-    text: Independently removing either installed-pack source link fails PT204 for installed-pack-catalog and names the missing path.
+    text: Independently removing either installed-pack source descriptor fails PT204 for installed-pack-catalog and names the missing path.
     tests: [TestProductTruth_InstalledPackImmutableSourceLinkRemovalFails]
   - id: CLM-055
     requirement: REQ-009
@@ -615,11 +591,11 @@ claims:
     tests: [TestProductTruth_InstalledPackImmutableSourceLinkDriftFails]
   - id: CLM-056
     requirement: REQ-009
-    text: The release-history job exports exactly one immutable commit link for each rendered release record in record order, tied to its owner, output, markers, and envelope digest.
+    text: The release-history job exports exactly one immutable commit descriptor and URL for each generated release record in record order, tied to its owner, output, markers, and envelope digest.
     tests: [TestProductTruth_ReleaseHistoryImmutableSourceLinksPass]
   - id: CLM-057
     requirement: REQ-009
-    text: Independently removing any release-record commit link fails PT204 for release-history and names the missing release record.
+    text: Independently removing any release-record commit descriptor fails PT204 for release-history and names the missing release record.
     tests: [TestProductTruth_ReleaseHistoryImmutableSourceLinkRemovalFails]
   - id: CLM-058
     requirement: REQ-009
@@ -709,14 +685,12 @@ The implementation must execute these passes in order:
    directory, back up/install each file while durably recording transitions, and roll back completed
    transitions on error. A kill or rollback failure leaves recoverable state; check/write refuse until
    idempotent `--recover` restores the prior cohort. Do not claim simultaneous cross-file visibility.
-7. Verify the exact include markers and four subordinate anchors in the three Seed 1 route owners. The generator does
-   not edit surrounding page prose and does not synthesize Liquid expressions.
-8. After Seed 4's exact locked Jekyll build, parse each unique rendered HTML region, reconstruct its
-   explicit record structs and source-link descriptors, compare the canonical envelope SHA-256 with
-   both source markers, and require the exact immutable URL set for the supplied site commit.
-9. On stable tags, block GoReleaser until a separate latest-`origin/main` checkout contains the new
-   release row; land that row through normal main/Pages flow, then rerun the tag workflow.
-10. Run the verifier's measured coverage, drift, build, rendered-region, and workflow-wiring checks.
+7. Verify the exact include headings, markers, lines, jobs, filenames, cardinalities, and four
+   subordinate anchors in the three Seed 1 route owners. The generator does not edit surrounding page
+   prose, synthesize Liquid expressions, build Jekyll, or inspect rendered HTML.
+8. On stable tags, block GoReleaser until a separate latest-`origin/main` checkout contains the new
+   release row; land that row through normal main CI, then rerun the tag workflow.
+9. Run the verifier's measured coverage, drift, source-include, branch-CI, and release-workflow checks.
 
 The Go code under `scripts/producttruth` is repository tooling, not a `pkg/` API or `backstop` CLI
 command. The wrapper gives maintainers and CI one stable command. If four explicit render functions
@@ -726,17 +700,16 @@ separately rather than generalizing this package in place.
 ## Verification
 
 Verification uses hermetic fixture repositories for source mutation, tag graphs, symlinks, unsafe
-paths, partial-write failures, locale/timezone variation, and Jekyll consumption. Tests exercise each
+paths, partial-write failures, locale/timezone variation, and source include consumption. Tests exercise each
 job independently and the complete pipeline. They must compare bytes, not only parsed Markdown or
-successful exit codes. Every job independently proves its complete source-link set, immutable target,
-and removal/drift refusal. The real-repository check then proves the checked-in outputs match the current
+successful exit codes. Every job independently proves its complete descriptor set, URL-template
+correctness, and removal/drift refusal. Immutable-target proof applies here only to record-bound commit
+descriptors; site-bound tree/blob targets retain `<SITE-COMMIT>` until SPEC-075 resolves and verifies
+them. The real-repository check then proves the checked-in outputs match the current
 authoritative inputs. `scripts/verify-product-truth.sh` enforces one numeric coverage total at or above
-80.00, runs the exact locked Jekyll command and rendered verifier, and structurally proves CI, Pages,
-and release workflow wiring. Claims and mandated test names are defined in frontmatter.
-
-The rendered-site assertions depend on Seed 4's build contract. Until that implementation is present,
-the Seed 3 plan may land generator and source-level include verification first, but SPEC-074 cannot be
-promoted to `implemented` until the built-region assertions run against the actual `_site` output.
+80.00, verifies exact source include ownership, and structurally proves branch CI and release workflow
+wiring. It does not require Jekyll, `_site`, Pages, or a deployed consumer. Claims and mandated test
+names are defined in frontmatter.
 
 ## Integration Contract
 
@@ -747,9 +720,12 @@ from these inputs.
 
 Seed 2's installed documentation-semantics pack evaluates the resulting page meaning through its
 released interface. `scripts/producttruth` does not decide whether two passages are semantically
-duplicative or whether a product claim has adequate evidence. Seed 4 must render these exact fragments
-and resolve their typed `site` bindings to the full build/deployment commit; it may wrap them for
-presentation, but it must not fetch the inputs again, rebuild their tables, or invent source links.
+duplicative or whether a product claim has adequate evidence. This spec completes when its checked-in
+fragments, descriptors, include markers, source-level CI, and latest-main release gate pass. Seed 4
+consumes that completed handoff and owns Jekyll build, rendered-region/digest verification, typed
+`site` binding resolution, immutable rendered anchors, Pages freshness/no-tag rules, and deployed
+acceptance. It may wrap the fragments for presentation, but it must not fetch the inputs again,
+rebuild their tables, or invent source descriptors.
 Seed 5 may traverse the built regions and consume the owner-exported job/output/owner/marker/digest/link
 tuple without becoming another generator, evidence registry, route owner, or journey source of truth.
 
@@ -770,11 +746,12 @@ tuple without becoming another generator, evidence registry, route owner, or jou
   proof of cross-run byte stability.
 - **Pack locks contain nondeterministic installation time.** Publishing `install_date` would guarantee
   meaningless churn. The output is limited to declared version and locked identity fields.
-- **A built page can look correct while bypassing the fragment.** Digest-backed region verification
-  is required because a hand-copied table can visually match once and then drift independently.
-- **A source path is not immutable provenance.** `cmd/backstop`, schema paths, and pack files become
-  durable public targets only when Seed 4 binds `site` to the full deployment SHA. Branch, HEAD,
-  latest, abbreviated-SHA, and unresolved-placeholder links are failures even if they currently open.
+- **A correct source include does not prove a correct built page.** Seed 3 rejects duplicate or
+  reconstructed source consumption, while Seed 4 separately owns built-region and digest verification.
+  Neither check substitutes for the other.
+- **A source descriptor is not yet a rendered immutable anchor.** `cmd/backstop`, schema paths, and
+  pack files become durable public targets only when Seed 4 binds `site` to the full deployment SHA.
+  Seed 3 verifies the typed descriptor and URL template; Seed 4 verifies the realized anchor.
 - **Liquid delimiters are a known collision surface.** ISSUE-182 concerns recipe substitution of
   downstream `{{ ... }}` bytes. This generator does not use recipes or generate include expressions;
   the include sites are static Seed 1 page bytes. If a plan changes that fact, it must resolve the
@@ -793,24 +770,28 @@ tuple without becoming another generator, evidence registry, route owner, or jou
 4. Do all four physical-storage/tag-form fixtures behave identically with no `.git/refs` dependency?
 5. Does the installed-pack catalog join declaration and lock identity without publishing
    `install_date` or silently accepting a missing/mismatched entry?
-6. Do exact source/rendered delimiters reconstruct the same records and digest through the locked build?
+6. Do exact source include headings, markers, jobs, filenames, owners, and cardinalities bind all four
+   fragments without a second input reader?
 7. Has any general template, plugin, expression, remote-fetch, prose-semantic, or presentation system
    entered `scripts/producttruth` under the name of convenience?
 8. If implementation exposed a genuinely generic missing mechanism, was it separately governed and
    consumed through an explicit dependency rather than absorbed here?
-9. Does stale latest main block GoReleaser and Pages until normal regeneration lands?
+9. Does stale latest main block GoReleaser until normal regeneration lands, independently of Pages?
 10. Does measured generator coverage reach 80.00 with malformed coverage output failing closed?
-11. Does each job export exactly its complete descriptor set, with owner/output/records/links covered
-    by the same digest and every built link resolved to a full immutable commit?
-12. Does independently removing or mutating every source link fail its owning job without Seed 5
+11. Does each job export exactly its complete descriptor set and URL template, with
+    owner/output/records/descriptors covered by the same digest and no rendered-site prerequisite?
+12. Does independently removing or mutating every source descriptor fail its owning job without Seed 5
     reconstructing provenance or Seed 1 evidence?
 
 ## References
 
 - `bundles/BUNDLE-032-website-expansion.bundle.md` v0.6.0 — source bundle, REQ-011@1.0.0,
   resolved OQ-5, DD-10, DD-11, Seed 3 acceptance, and source/generated ownership sharp edge.
-- `specs/SPEC-072-public-product-model.spec.md` v1.0.2 — authoritative page owners, route/anchor
+- `specs/SPEC-072-public-product-model.spec.md` v1.0.4 — authoritative page owners, route/anchor
   boundary, human-readable product truth, and the Seed 2/3/4 seams.
+- `specs/SPEC-075-static-public-site-design-system.spec.md` v1.0.3 — downstream Jekyll build,
+  rendered-region/digest verification, site-commit resolution, immutable rendered anchors, Pages
+  freshness/no-tag behavior, and deployment acceptance.
 - `cmd/backstop/root.go` — current command-tree construction and deterministic `commands` JSON surface.
 - `artifacts/spec/v1/schema.json`, `artifacts/capability/v1/schema.json`, and
   `artifacts/base/schema.json` — representative members of the checked-in schema cohort.
@@ -820,5 +801,5 @@ tuple without becoming another generator, evidence registry, route owner, or jou
 - `.github/workflows/ci.yml` — current blocking gate and build order into which drift refusal must fit.
 - `issues/ISSUE-182-recipe-literal-placeholder-escaping.issue.md` — durable Liquid/recipe delimiter
   collision evidence; this spec avoids recipe-emitted Liquid bytes.
-- `specs/SPEC-076-end-to-end-website-capabilities.spec.md` v1.0.1 — downstream generated-obligation
+- `specs/SPEC-076-end-to-end-website-capabilities.spec.md` v1.0.2 — downstream generated-obligation
   consumer and the v1.0.2 predecessor-amendment matrix; it does not own these provenance links.

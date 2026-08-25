@@ -4,7 +4,7 @@ number: SPEC-075
 created: "2026-08-24"
 status: draft
 schema_version: spec/v1
-spec_version: 1.0.2
+spec_version: 1.0.3
 
 implementation:
   summary: >
@@ -296,7 +296,13 @@ requirements:
       gate; and SPEC-074's four exact generated include regions. Each generated region must remain
       on its declared owner route and anchor, appear exactly once in source and rendered output,
       preserve its digest and semantic table structure, and receive presentation only from the
-      shared shell. Jekyll/Liquid must not reread authoritative product inputs, rebuild generated
+      shared shell. Rendered verification must parse each unique region with Go's HTML parser,
+      require one table with the exact job attribute, headers, rows, cells, and no unknown row
+      elements, HTML-decode cells and convert `<br>` to LF, reconstruct SPEC-074's explicit record
+      structs and source descriptors, recompute its canonical provenance-envelope digest, and compare
+      that digest with both source markers. A missing, duplicated, moved, stale, independently
+      reconstructed, or tampered region must fail with its job and owner route/anchor. Jekyll/Liquid
+      must not reread authoritative product inputs, rebuild generated
       records, duplicate a canonical concept definition, infer evidence or boundary meaning,
       create a machine-only publication, or move a generated fragment to a second page. Seed 4
       may add presentation wrappers and canonical-path aliases only; it may not change ownership.
@@ -307,7 +313,7 @@ requirements:
       `docs/_data/site-presentation.yml` must enumerate exactly ten SPEC-072 routes with `page_kind`,
       one exact hero question, ordered treatments, and one canonical `next_action`, matching every
       literal cell in the Exact presentation matrix below; every hero value must byte-match the
-      SPEC-072 v1.0.3 `hero_question` for that route and is not Seed 4 copy ownership. `page_kind` is one of the ten matrix values;
+      SPEC-072 v1.0.4 `hero_question` for that route and is not Seed 4 copy ownership. `page_kind` is one of the ten matrix values;
       treatments are drawn only from `evidence-cards`, `boundary-callouts`, `generated-regions`, and
       `local-overflow`, without duplicates and in the matrix order. Every page renders
       exactly one `body[data-site-shell=field-guide-v1][data-page-kind]`, header/site nav pair,
@@ -442,7 +448,7 @@ requirements:
       - website-expansion:REQ-009@2.0.0
       - website-expansion:REQ-013@1.0.0
     text: >
-      Seed 4 must consume the accepted SPEC-072 v1.0.3 and SPEC-074 v1.0.2 owner records and,
+      Seed 4 must consume the accepted SPEC-072 v1.0.4 and SPEC-074 v1.0.3 owner records and,
       immediately after every exact REQ-001 Jekyll build, run one deterministic build-time
       annotation pass over the disposable `_site`; that pass may add only the rendered attributes,
       provenance anchors, and resolved immutable URLs defined here and must never edit checked-in
@@ -548,11 +554,11 @@ claims:
     tests: [TestSiteCheck_ActualRootFontRelayoutPasses]
   - id: CLM-016
     requirement: REQ-004
-    text: The build consumes all Seed 1 owners and all four Seed 3 regions exactly once without changing ownership.
+    text: The build consumes all Seed 1 owners and all four Seed 3 regions exactly once without changing ownership; parsed rendered records and descriptors reconstruct each canonical envelope and match both source-marker digests.
     tests: [TestSiteCheck_UpstreamOwnershipAndGeneratedRegionsPass]
   - id: CLM-017
     requirement: REQ-004
-    text: A duplicated concept, inferred boundary/evidence relation, moved/duplicated generated region, digest drift, or second input reader fails with the owner seam.
+    text: A duplicated concept, inferred boundary/evidence relation, missing/moved/duplicated/stale/tampered or independently reconstructed generated region, table-shape or digest drift, or second input reader fails with the job and owner seam.
     tests: [TestSiteCheck_RejectsUpstreamOwnershipViolationMatrix]
   - id: CLM-018
     requirement: REQ-004
@@ -783,7 +789,7 @@ The wordmark is always the Home route and never masquerades as current-page stat
 | `/status/` | `status` | What is supported, limited, planned, or intentionally outside Backstop? | `evidence-cards`, `boundary-callouts`, `generated-regions`, `local-overflow` | `/contributing/` |
 | `/contributing/` | `contributing` | How can I participate in Backstop and its ecosystem? | `boundary-callouts` | `/` |
 
-Hero strings are copied verbatim from SPEC-072 v1.0.3 and cannot be authored or overridden here. Treatments are present only
+Hero strings are copied verbatim from SPEC-072 v1.0.4 and cannot be authored or overridden here. Treatments are present only
 when their upstream registry records exist on that route; the matrix names the allowed ordered set,
 while sitecheck cross-checks every rendered ID/state/job against SPEC-072/074 rather than accepting
 self-consistent invented values.
@@ -1006,7 +1012,7 @@ identity must be visible.
 
 ## Integration Contract
 
-SPEC-072 v1.0.3 remains the owner of content, routes, navigation meaning, JLINK records and labels,
+SPEC-072 v1.0.4 remains the owner of content, routes, navigation meaning, JLINK records and labels,
 structured boundaries, adoption instructions, concepts, claims, evidence, and final copy. SPEC-073 remains the owner of Core's separately released pack-consumption
 contract and documentation-semantic execution. SPEC-074 remains the owner of generated records,
 markers, digests, source descriptors, freshness, and release-history handshake. This spec owns
@@ -1045,14 +1051,15 @@ assertions.
 
 - `bundles/BUNDLE-032-website-expansion.bundle.md` v0.6.0 — source bundle, Seed 4 partition,
   REQ-009@2.0.0, REQ-013@1.0.0, OQ-6, DD-9, DD-12, and cross-repository sharp edges.
-- `specs/SPEC-072-public-product-model.spec.md` v1.0.3 — ten source/path pairs, exact navigation,
+- `specs/SPEC-072-public-product-model.spec.md` v1.0.4 — ten source/path pairs, exact navigation,
   JLINK and adoption-instruction records, structured boundary fields, content ownership,
   claim/evidence/boundary registries, final copy, and Mermaid authority.
 - `specs/SPEC-073-documentation-semantics-integration.spec.md` — released pack identity/pin boundary,
   clean install, and semantics integration; it does not establish design-system applicability.
-- `specs/SPEC-074-derived-product-truth-pipeline.spec.md` v1.0.2 — four generated regions, immutable
-  source descriptors, locked Jekyll command, rendered digest verification, Pages freshness, and
-  tag/main publication handshake.
+- `specs/SPEC-074-derived-product-truth-pipeline.spec.md` v1.0.3 — four checked-in generated regions,
+  source include markers, typed source descriptors and URL templates, source-level freshness,
+  and the tag/latest-main release handshake. This spec owns their Jekyll build, rendered digest and
+  immutable-anchor verification, Pages freshness/no-tag behavior, and deployment acceptance.
 - `specs/SPEC-071-website-expansion.spec.md` — canceled narrow docs-shell decomposition; historical
   source material only.
 - `docs/index.html`, `docs/_config.yml`, `docs/CNAME`, `docs/assets/css/backstop.css`, and
