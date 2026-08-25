@@ -113,6 +113,17 @@ func stageIssue188Corpus(t *testing.T) string {
 		t.Fatalf("archive pinned corpus at %s: %v: %s", issue188Commit, err, strings.TrimSpace(archiveStderr.String()))
 	}
 	destination := t.TempDir()
+	files, err := extractIssue188CorpusArchive(archiveBytes, destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if files != issue188CorpusFileCount {
+		t.Fatalf("pinned corpus file count = %d, want %d", files, issue188CorpusFileCount)
+	}
+	return destination
+}
+
+func extractIssue188CorpusArchive(archiveBytes []byte, destination string) (int, error) {
 	reader := tar.NewReader(bytes.NewReader(archiveBytes))
 	files := 0
 	for {
@@ -121,38 +132,101 @@ func stageIssue188Corpus(t *testing.T) string {
 			break
 		}
 		if nextErr != nil {
-			t.Fatal(nextErr)
+			return 0, nextErr
 		}
 		rel := filepath.Clean(filepath.FromSlash(header.Name))
 		if filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			t.Fatalf("pinned corpus archive contains unsafe path %q", header.Name)
+			return 0, fmt.Errorf("pinned corpus archive contains unsafe path %q", header.Name)
 		}
 		path := filepath.Join(destination, rel)
 		switch header.Typeflag {
+		case tar.TypeXGlobalHeader:
+			// Git may prefix an archive with one global PAX metadata record. It
+			// carries no corpus bytes and therefore is neither written nor counted.
 		case tar.TypeDir:
 			if err := os.MkdirAll(path, 0o755); err != nil {
-				t.Fatal(err)
+				return 0, err
 			}
-		case tar.TypeReg, tar.TypeRegA:
+		case tar.TypeReg:
 			data, readErr := io.ReadAll(reader)
 			if readErr != nil {
-				t.Fatal(readErr)
+				return 0, readErr
 			}
 			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-				t.Fatal(err)
+				return 0, err
 			}
 			if err := os.WriteFile(path, data, 0o644); err != nil {
-				t.Fatal(err)
+				return 0, err
 			}
 			files++
 		default:
-			t.Fatalf("pinned corpus archive contains unsupported entry %q type %d", header.Name, header.Typeflag)
+			return 0, fmt.Errorf("pinned corpus archive contains unsupported entry %q type %d", header.Name, header.Typeflag)
 		}
 	}
-	if files != issue188CorpusFileCount {
-		t.Fatalf("pinned corpus file count = %d, want %d", files, issue188CorpusFileCount)
+	return files, nil
+}
+
+func TestIssue188CorpusArchive_AcceptsOnlyGlobalPAXMetadata(t *testing.T) {
+	var archive bytes.Buffer
+	writer := tar.NewWriter(&archive)
+	if err := writer.WriteHeader(&tar.Header{
+		Name:       "pax_global_header",
+		Typeflag:   tar.TypeXGlobalHeader,
+		PAXRecords: map[string]string{"comment": "git archive metadata"},
+	}); err != nil {
+		t.Fatal(err)
 	}
-	return destination
+	if err := writer.WriteHeader(&tar.Header{Name: "specs/pinned.md", Typeflag: tar.TypeReg, Mode: 0o644, Size: 6}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writer.Write([]byte("pinned")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	destination := t.TempDir()
+	files, err := extractIssue188CorpusArchive(archive.Bytes(), destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if files != 1 {
+		t.Fatalf("regular file count = %d, want 1", files)
+	}
+	data, err := os.ReadFile(filepath.Join(destination, "specs", "pinned.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "pinned" {
+		t.Fatalf("extracted content = %q, want pinned", data)
+	}
+
+	archive.Reset()
+	writer = tar.NewWriter(&archive)
+	if err := writer.WriteHeader(&tar.Header{Name: "link", Typeflag: tar.TypeSymlink, Linkname: "target"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := extractIssue188CorpusArchive(archive.Bytes(), t.TempDir()); err == nil || !strings.Contains(err.Error(), "unsupported entry") {
+		t.Fatalf("symlink archive error = %v, want unsupported-entry refusal", err)
+	}
+
+	archive.Reset()
+	writer = tar.NewWriter(&archive)
+	if err := writer.WriteHeader(&tar.Header{Name: "../escape", Typeflag: tar.TypeReg, Mode: 0o644, Size: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writer.Write([]byte("x")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := extractIssue188CorpusArchive(archive.Bytes(), t.TempDir()); err == nil || !strings.Contains(err.Error(), "unsafe path") {
+		t.Fatalf("traversal archive error = %v, want unsafe-path refusal", err)
+	}
 }
 
 func issue188AllReferences(t *testing.T, root string) []string {
