@@ -9,13 +9,13 @@ target_module: github.com/backstop-ai/backstop-core
 test_command: ./scripts/verify-documentation-semantics-integration.sh
 coverage_threshold: 80
 notes: |
-  Seed 2 only. Owner release evidence is a hard prerequisite. Import it before
-  adding the pack, preserve the design-system pin, and prove clean restoration,
-  installed-byte identity, actual-corpus semantics, and missing-install refusal.
-  Delivery is confined to SPEC-073's exact five-file allowlist.
-  Phases 1-2 may complete release/import/pin/install readiness independently;
-  phase 3 and everything after it wait for PLAN-SPEC-072 TASK-022's completed
-  page-and-registry structural acceptance, avoiding a cross-plan cycle.
+  Seed 2 only. The completed, accepted SPEC-072/PLAN-SPEC-072 artifact and its
+  published ten-page/four-registry output contract are whole-plan prerequisites;
+  no phase starts from partial Seed 1 state or references a predecessor task ID.
+  Owner release evidence is also a hard prerequisite. Import it before adding the
+  pack, preserve the design-system pin, and prove clean restoration, installed-byte
+  identity, actual-corpus semantics, and missing-install refusal. Delivery is
+  confined to SPEC-073's exact five-file allowlist.
 
 phases:
   - id: phase-1
@@ -23,8 +23,13 @@ phases:
     tasks:
       - id: TASK-001
         type: setup
-        title: "Require the governed owner release"
+        title: "Require accepted Seed 1 outputs and the governed owner release"
         description: |
+          Before any Seed 2 work, require completed acceptance of SPEC-072 and
+          PLAN-SPEC-072 as a whole and the published ten-page/four-registry output
+          contract. Run SPEC-072's exact acceptance command against those checked-in
+          outputs and stop if it fails. Consume only the accepted artifact contract;
+          do not inspect or depend on any PLAN-SPEC-072 phase, task, or partial state.
           Obtain one immutable owner evidence reference binding the documentation
           pack's owner artifact, imported manifest identity, independent source
           coordinate, exact stable version and v-tag, full commit, content hash,
@@ -128,13 +133,9 @@ phases:
           `./bin/backstop pack check .backstop/packs/<documentation-semantics-manifest-identity>`
           and `./bin/backstop pack test
           .backstop/packs/<documentation-semantics-manifest-identity>` only on
-          hash-matched bytes. This task has an external readiness dependency on
-          PLAN-SPEC-072's completed page-authoring acceptance through TASK-022: the
-          ten actual pages and four registries must exist and pass their structural
-          and installed-semantics barriers before this task starts. Release evidence,
-          import, pin, and clean-install work in phases 1-2 may proceed before that
-          page readiness; the remote add performed by TASK-006 already establishes
-          install readiness before that barrier. Gate SPEC-072's real pages and registries cleanly with
+          hash-matched bytes. Consume the completed, accepted SPEC-072 ten-page and
+          four-registry output contract established before this plan began; do not
+          inspect predecessor task state. Gate those real pages and registries cleanly with
           `./bin/backstop gate --file docs/index.md --file docs/evaluate.md --file
           docs/model.md --file docs/adopt.md --file docs/use-cases.md --file
           docs/packs.md --file docs/extend.md --file docs/reference.md --file

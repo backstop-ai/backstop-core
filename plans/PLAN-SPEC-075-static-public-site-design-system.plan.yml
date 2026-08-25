@@ -1,7 +1,7 @@
 ---
 plan_id: PLAN-SPEC-075
 spec_id: SPEC-075
-spec_version: "1.0.2"
+spec_version: "1.0.3"
 created: "2026-08-24"
 status: draft
 target_repo: backstop-core
@@ -9,12 +9,11 @@ target_module: github.com/backstop-ai/backstop-core
 test_command: ./scripts/verify-public-site.sh
 coverage_threshold: 80
 notes: |
-  Seed 4 only. Consume accepted PLAN-SPEC-072 and PLAN-SPEC-073 outputs, and consume
-  PLAN-SPEC-074 only through its completed source-handoff barrier TASK-027. This plan
-  supplies the locked build, rendered site, annotation, sitecheck, browser/design-system
-  acceptance, and Pages delivery that PLAN-SPEC-074's post-barrier TASK-025 and later tasks
-  inspect read-only. That split prevents a PLAN-074/075 execution cycle. Seed 5 journeys,
-  MCP, runtime services, client JavaScript, and local copies of owner visual policy remain out.
+  Seed 4 only. Consume accepted PLAN-SPEC-072, PLAN-SPEC-073, and PLAN-SPEC-074
+  outputs and published contracts as completed upstream artifacts. This plan supplies the
+  locked build, rendered record/descriptor reconstruction and digest acceptance, annotation,
+  sitecheck, browser/design-system acceptance, and Pages delivery. Seed 5 journeys, MCP,
+  runtime services, client JavaScript, and local copies of owner visual policy remain out.
 
 phases:
   - id: phase-1
@@ -24,11 +23,11 @@ phases:
         type: setup
         title: "Enforce the accepted Seed 1 through Seed 3 handoff"
         description: |
-          Stop unless PLAN-SPEC-072 and PLAN-SPEC-073 are accepted and PLAN-SPEC-074 has
-          completed source-handoff TASK-027. Run upstream entrypoints and SPEC-074 check mode;
+          Stop unless PLAN-SPEC-072, PLAN-SPEC-073, and PLAN-SPEC-074 v1.0.3 are completed
+          and accepted. Run their published verification entrypoints and SPEC-074 check mode;
           inspect ten owners, 24 JLINKs, boundaries, adoption instructions, four generated
-          regions/descriptors, pack identity, and seven-cell owner export read-only. Do not wait
-          for or edit PLAN-SPEC-074 post-barrier rendered/deployment tasks.
+          regions/descriptors/digests, pack identity, and seven-cell owner export read-only.
+          Consume only completed outputs/contracts; do not inspect upstream task IDs or partial state.
         files: [plans/PLAN-SPEC-072-public-product-model.plan.yml, plans/PLAN-SPEC-073-documentation-semantics-integration.plan.yml, plans/PLAN-SPEC-074-derived-product-truth-pipeline.plan.yml, .backstop/website-pack-releases.yml, .backstop/packs/backstop-ai/backstop-design-system/contracts/public-site-acceptance.yml]
         claims: [CLM-016, CLM-017, CLM-018, CLM-022, CLM-023, CLM-050, CLM-052, CLM-054, CLM-056]
         depends_on: []
@@ -166,8 +165,10 @@ phases:
         description: |
           Test the literal ten-row matrix, exact hero bytes, shell/header/nav/main/hero/next/footer
           cardinalities, ordered navigation/current state, evidence/boundary/generated/overflow
-          mappings, 1180/760 bounds, exact four generated placements/digests, and absence of a
-          second truth reader/publication. Mutate every cell and ownership seam independently.
+          mappings, 1180/760 bounds, and exact four generated placements. Parse each rendered
+          table and descriptor set into SPEC-074's explicit structs, reconstruct each canonical
+          envelope, compare both source-marker digests, and prove absence of a second truth
+          reader/publication. Mutate every cell, digest, descriptor, and ownership seam independently.
         files: [scripts/sitecheck/presentation_test.go, scripts/sitecheck/testdata/presentation-mutations.yml]
         claims: [CLM-006, CLM-007, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020]
         test_names: [TestSiteCheck_NavigationMatrixPasses, TestSiteCheck_NavigationMatrixRejectsInvalidCell, TestSiteCheck_UpstreamOwnershipAndGeneratedRegionsPass, TestSiteCheck_RejectsUpstreamOwnershipViolationMatrix, TestSiteCheck_RejectsParallelTruthOrPublication, TestSiteCheck_FieldGuideDOMAndTreatmentMatrixPasses, TestSiteCheck_FieldGuideDOMAndTreatmentMatrixRejectsInvalidCell]
@@ -278,10 +279,12 @@ phases:
         type: test
         title: "Specify generated provenance and adoption bindings"
         description: |
-          Test exact ordered generated descriptors inside one marked region: site tree/blob links
-          bind full site commit and release records bind their commits. Test three ADOPT records
-          once in owner order with exact visible bytes/digest. Reject missing, extra, reordered,
-          mutable, abbreviated, out-of-region, inferred, or reconstructed output.
+          Test exact ordered generated records and descriptors inside one marked region. Rebuild
+          SPEC-074's explicit record/descriptor structs and canonical envelope, require both source
+          digests, bind site tree/blob links to the full site commit, and retain release record
+          commits. Test three ADOPT records once in owner order with exact visible bytes/digest.
+          Reject missing, extra, reordered, mutable, abbreviated, out-of-region, inferred,
+          independently reconstructed, table-shape-drifted, or digest-mismatched output.
         files: [scripts/sitecheck/provenance_test.go, scripts/sitecheck/testdata/provenance-adoption-mutations.yml]
         claims: [CLM-054, CLM-055, CLM-056, CLM-057]
         test_names: [TestSiteCheck_GeneratedSourceLinkRenderingPasses, TestSiteCheck_GeneratedSourceLinkRenderingRejectsInvalidMatrix, TestSiteCheck_AdoptionInstructionRenderingPasses, TestSiteCheck_AdoptionInstructionRenderingRejectsInvalidMatrix]
@@ -525,8 +528,8 @@ phases:
         description: |
           Run `./scripts/verify-public-site.sh`, `./bin/backstop gate --all`, and
           `./bin/backstop artifact validate`. Require all 58 claims/tests, >=80 coverage, exact
-          inventory/diff, verification-clean tree, and no scope expansion. Publish this accepted
-          output as the read-only barrier for PLAN-SPEC-074 post-barrier TASK-025 and later work.
+          inventory/diff, rendered record/descriptor reconstruction with both source digests,
+          verification-clean tree, and no scope expansion or backward dependency on Seed 3.
         files: [plans/PLAN-SPEC-075-static-public-site-design-system.plan.yml, .backstop/seed4-delivery-inventory.yml, scripts/verify-public-site.sh, scripts/sitecheck/main.go, scripts/render-public-site-contracts/main.go, .github/workflows/pages.yml, scripts/verify-pages-deployment.sh]
         claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-009, CLM-010, CLM-011, CLM-012, CLM-013, CLM-014, CLM-015, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020, CLM-021, CLM-022, CLM-023, CLM-024, CLM-025, CLM-026, CLM-027, CLM-028, CLM-029, CLM-030, CLM-031, CLM-032, CLM-033, CLM-034, CLM-035, CLM-036, CLM-037, CLM-038, CLM-039, CLM-040, CLM-041, CLM-042, CLM-043, CLM-044, CLM-045, CLM-046, CLM-047, CLM-048, CLM-049, CLM-050, CLM-051, CLM-052, CLM-053, CLM-054, CLM-055, CLM-056, CLM-057, CLM-058]
         depends_on: [TASK-033, TASK-034]

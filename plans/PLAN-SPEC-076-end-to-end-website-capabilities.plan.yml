@@ -1,7 +1,7 @@
 ---
 plan_id: PLAN-SPEC-076
 spec_id: SPEC-076
-spec_version: "1.0.1"
+spec_version: "1.0.2"
 created: "2026-08-24"
 status: draft
 target_repo: backstop-core
@@ -23,13 +23,16 @@ phases:
         title: "Enforce the acyclic Seed 1 through Seed 4 barrier"
         description: |
           Stop unless PLAN-SPEC-072, 073, 074, and 075 are accepted and complete and
-          their specs are exactly v1.0.3, v1.0.0, v1.0.2, and v1.0.2. Run the four
+          their sources are exactly SPEC-072 v1.0.4, SPEC-073 v1.0.0, SPEC-074 v1.0.3,
+          and SPEC-075 v1.0.3. Run the four
           public verifiers exactly as `./scripts/verify-public-product-model.sh`,
           `./scripts/verify-documentation-semantics-integration.sh`,
           `./scripts/verify-product-truth.sh`, and `./scripts/verify-public-site.sh`.
-          Inspect JLINK-001..024, structured boundaries, adoption instructions, generated
-          source links, rendered markers, and deployment proof read-only. Never call owner
-          engines or create a dependency back to Seed 5.
+          Inspect JLINK-001..024, structured boundaries, adoption instructions, SPEC-074
+          source descriptors/URL templates/marker pairs/source-level envelope digests, and
+          SPEC-075 site-identity resolution/immutable rendered anchors/reconstruction and
+          rendered-digest verdicts, plus deployment proof, read-only. Never call owner engines,
+          resolve `<SITE-COMMIT>`, reconstruct an envelope, or create a dependency back to Seed 5.
         files: [plans/PLAN-SPEC-072-public-product-model.plan.yml, plans/PLAN-SPEC-073-documentation-semantics-integration.plan.yml, plans/PLAN-SPEC-074-derived-product-truth-pipeline.plan.yml, plans/PLAN-SPEC-075-static-public-site-design-system.plan.yml]
         claims: [CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-023, CLM-024, CLM-025, CLM-026]
         depends_on: []
@@ -128,9 +131,11 @@ phases:
         description: |
           Add failing tests for exactly 22 keys, exact predecessor versions, the closed
           evidence/boundary/generated kinds, accepted Seed 1 IDs and field markers, plus
-          typed generated job/output/owner/marker/digest/source-link tuples, four dependency
-          records, and three adoption references. Reject copied prose, inferred roles,
-          aliases, reconstructed provenance, and wrong record kinds or references.
+          typed generated job/output/owner, SPEC-074 marker/descriptor/template/source-level
+          digest fields, SPEC-075 site identity/immutable rendered-anchor set/reconstruction
+          and rendered-digest verdict, four dependency records, and three adoption references.
+          Reject copied prose, inferred roles, aliases, Seed-5 resolution/reconstruction,
+          and wrong or incomplete owner records or references.
         files: [scripts/websitejourney/map_test.go, scripts/websitejourney/testdata/map-binding-mutations.yml]
         claims: [CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-023, CLM-024, CLM-025, CLM-026]
         test_names: [TestWebsiteJourney_EvidenceAndBoundaryBindingsPass, TestWebsiteJourney_RejectsInvalidSemanticBindingMatrix, TestWebsiteJourney_GeneratedObligationMatrixPasses, TestWebsiteJourney_RejectsInvalidGeneratedObligationMatrix]
@@ -139,10 +144,13 @@ phases:
         type: implementation
         title: "Materialize the owner-referential journey map"
         description: |
-          Select accepted evidence/boundary roles once; import generated provenance refs;
-          record 22 route/JLINK graphs, four prerequisites, and adoption refs. Store IDs,
-          coordinates, expected types/states, digests, and source links only—never claims,
-          explanations, commands, owner rules, or generated records.
+          Select accepted evidence/boundary roles once and import generated owner references:
+          SPEC-074 descriptors, URL templates, markers, and source-level envelope digest plus
+          SPEC-075 site identity, immutable rendered-anchor set, reconstruction verdict, and
+          rendered-digest verdict. Record 22 route/JLINK graphs, four prerequisites, and
+          adoption refs. Store IDs and owner coordinates/contracts only—never resolve
+          `<SITE-COMMIT>`, reconstruct an envelope, or copy claims, explanations, commands,
+          owner rules, or generated records.
         files: [docs/_data/website-capability-map.yml]
         claims: [CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-023, CLM-024, CLM-025, CLM-026]
         depends_on: [TASK-007]
@@ -152,7 +160,9 @@ phases:
         description: |
           Implement production parsing and validation of predecessor versions, 22 graph
           keys, closed obligation kinds, accepted owner records, structured boundary fields,
-          and complete generated tuples. Reject ambiguity, inference, aliases,
+          and complete split generated contracts: SPEC-074 descriptors/templates/markers/
+          source-level digest and SPEC-075 site resolution/immutable anchors/reconstruction/
+          rendered-digest verdict. Reject ambiguity, inference, aliases, Seed-5 resolution or
           reconstruction, wrong bindings, and incomplete provenance before traversal.
         files: [scripts/websitejourney/map.go, scripts/websitejourney/types.go]
         claims: [CLM-003, CLM-004, CLM-005, CLM-006, CLM-023, CLM-024]
@@ -208,7 +218,10 @@ phases:
         title: "Implement built-tree semantic traversal"
         description: |
           Build via Seed 4 into disposable output, follow owner-rendered root-relative
-          JLINKs, and read stable attributes for typed obligations. Duplicate no route/link,
+          JLINKs, and read stable attributes for typed obligations. For generated obligations,
+          consume SPEC-075's accepted reconstruction verdict and compare its realized immutable
+          link set structurally with SPEC-074 descriptors/templates and site identity; never
+          substitute `<SITE-COMMIT>` or reconstruct the envelope. Duplicate no route/link,
           product, semantic, generated, visual, layout, or browser policy and publish no runtime.
         files: [scripts/websitejourney/traversal.go, scripts/websitejourney/html.go]
         claims: [CLM-003, CLM-004, CLM-005, CLM-006, CLM-009, CLM-011, CLM-018, CLM-023, CLM-024]
@@ -250,7 +263,10 @@ phases:
           Over isolated accepted copies remove each of ten routes, every evidence element/
           source, every prerequisite, every boundary element/state/explanation/required
           continuation/denial, and each generated region/job/anchor/marker/digest/source
-          independently. Require clean baseline and class/target/global-journey diagnostics.
+          independently. Generated mutations consume the SPEC-074 descriptor/template/source-
+          digest contract and SPEC-075 realized-anchor/reconstruction verdict without resolving
+          or reconstructing it in Seed 5. Require clean baseline and class/target/global-journey
+          diagnostics.
         files: [scripts/websitejourney/mutation_test.go, scripts/websitejourney/testdata/exhaustive-journey-mutations.yml]
         claims: [CLM-013, CLM-014, CLM-015, CLM-016, CLM-017, CLM-027]
         test_names: [TestWebsiteJourney_EveryCanonicalRouteRemovalBreaksJourney, TestWebsiteJourney_EveryEvidenceEdgeRemovalBreaksJourney, TestWebsiteJourney_EveryBoundaryExplanationRemovalBreaksJourney, TestWebsiteJourney_MutationDiagnosticsAreJourneySpecific, TestWebsiteJourney_EveryGeneratedProvenanceMutationBreaksJourney]

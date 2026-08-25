@@ -1,7 +1,7 @@
 ---
 plan_id: PLAN-SPEC-074
 spec_id: SPEC-074
-spec_version: "1.0.2"
+spec_version: "1.0.3"
 created: "2026-08-24"
 status: draft
 target_repo: backstop-core
@@ -9,11 +9,12 @@ target_module: github.com/backstop-ai/backstop-core
 test_command: ./scripts/verify-product-truth.sh
 coverage_threshold: 80
 notes: |
-  Seed 3 only. PLAN-SPEC-072 must first provide the three owner pages, four exact
-  subordinate anchors, and static include sites. Seed 4 must provide the root locked
-  Jekyll runtime and deployment-commit contract before rendered acceptance closes.
-  This plan owns four Backstop-specific derivations, not prose, presentation, semantic
-  policy, capabilities, MCP, or a generalized transformation engine.
+  Seed 3 only. Consume accepted PLAN-SPEC-072 owner pages, subordinate anchors, and
+  source include sites as a completed upstream contract. Complete the four source
+  derivations, checked-in fragments, typed provenance, source consumption, drift gate,
+  CI, and release handshake without a Jekyll runtime, rendered output, Pages workflow,
+  or any partial Seed 4 state. This plan owns no prose, presentation, semantic policy,
+  capabilities, MCP, or generalized transformation engine.
 
 phases:
   - id: phase-1
@@ -23,10 +24,10 @@ phases:
         type: setup
         title: "Confirm upstream ownership barriers"
         description: |
-          Require PLAN-SPEC-072's /reference/, /packs/, and /status/ owner sources with
-          the four anchors and empty/static include-site ownership. Record Seed 4 only as
-          a later built-site acceptance seam; it is not a prerequisite for any Seed 3
-          source deliverable. Stop rather than invent page ownership.
+          Require accepted PLAN-SPEC-072 outputs for /reference/, /packs/, and /status/
+          with the four anchors and source include-site ownership. Consume that completed
+          artifact contract only; stop rather than invent page ownership or inspect any
+          downstream plan task or implementation state.
         files: [docs/reference.md, docs/packs.md, docs/status.md]
         claims: [CLM-022, CLM-023, CLM-024, CLM-026, CLM-027]
         depends_on: []
@@ -184,10 +185,10 @@ phases:
         description: |
           Test exactly one heading/anchor/static include per job in the three Seed 1 pages.
           Reject missing, duplicated, moved, wrong-owner, wrong-file, stale, hand-rebuilt,
-          or separately rendered regions without requiring Jekyll or built HTML.
+          or parallel input readers without requiring Jekyll or built HTML.
         files: [scripts/producttruth/source_site_test.go, scripts/producttruth/testdata/source-site-mutations.yml]
-        claims: [CLM-022, CLM-023, CLM-024, CLM-025, CLM-039]
-        test_names: [TestProductTruth_SiteConsumesReferenceFragments, TestProductTruth_SiteConsumesInstalledPackFragment, TestProductTruth_SiteConsumesReleaseHistoryFragment, TestProductTruth_SiteRejectsParallelOrInvalidConsumption]
+        claims: [CLM-022, CLM-023, CLM-024, CLM-025]
+        test_names: [TestProductTruth_SourceIncludesReferenceFragments, TestProductTruth_SourceIncludesInstalledPackFragment, TestProductTruth_SourceIncludesReleaseHistoryFragment, TestProductTruth_SourceRejectsParallelOrInvalidConsumption]
         depends_on: [TASK-014]
       - id: TASK-016
         type: implementation
@@ -197,14 +198,14 @@ phases:
           at PLAN-SPEC-072's four anchors. Preserve surrounding prose; add no build runtime,
           layout, dynamic expression, generated page, or input reread.
         files: [docs/reference.md, docs/packs.md, docs/status.md]
-        claims: [CLM-022, CLM-023, CLM-024, CLM-025, CLM-039]
+        claims: [CLM-022, CLM-023, CLM-024, CLM-025]
         depends_on: [TASK-015]
       - id: TASK-017
         type: verification
         title: "Gate source include ownership"
         description: "Run `./bin/backstop gate --file docs/reference.md --file docs/packs.md --file docs/status.md`; require all source include mutations without invoking or editing Seed 4."
         files: [docs/reference.md, docs/packs.md, docs/status.md, scripts/producttruth/source_site_test.go]
-        claims: [CLM-022, CLM-023, CLM-024, CLM-025, CLM-039]
+        claims: [CLM-022, CLM-023, CLM-024, CLM-025]
         depends_on: [TASK-016]
       - id: TASK-022
         type: test
@@ -214,7 +215,7 @@ phases:
           with no byte diff, and runs --check. Require exactly four registered fragments,
           canonical markers/tables/descriptors, localized source ownership, and no journal.
         files: [scripts/tests/product-truth/real-repository.sh]
-        claims: [CLM-010, CLM-012, CLM-013, CLM-015, CLM-022, CLM-023, CLM-024, CLM-029, CLM-039, CLM-047, CLM-050, CLM-053, CLM-056]
+        claims: [CLM-010, CLM-012, CLM-013, CLM-015, CLM-022, CLM-023, CLM-024, CLM-029, CLM-047, CLM-050, CLM-053, CLM-056]
         depends_on: [TASK-017]
       - id: TASK-023
         type: implementation
@@ -228,14 +229,15 @@ phases:
         depends_on: [TASK-022]
       - id: TASK-026
         type: test
-        title: "Specify pre-render CI and release freshness"
+        title: "Specify independent CI and release freshness"
         description: |
           Test blocking branch-CI check mode and the separate full-history latest-main
           release-history-current checkout, stable-tag fetch, stale-main refusal, original
-          tag preservation, rerun success, and GoReleaser dependency. Do not inspect Pages.
+          tag preservation, rerun success, tag-checkout substitution refusal, and
+          GoReleaser dependency. Do not inspect Jekyll, rendered output, or Pages.
         files: [scripts/tests/product-truth/source-workflow-wiring.sh, scripts/tests/product-truth/fixtures/source-workflow-mutations.yml]
-        claims: [CLM-041, CLM-042]
-        test_names: [TestProductTruth_ReleaseBlocksStaleLatestMain, TestProductTruth_ReleaseHandshakePassesAfterMainRegeneration]
+        claims: [CLM-041, CLM-042, CLM-043]
+        test_names: [TestProductTruth_ReleaseBlocksStaleLatestMain, TestProductTruth_ReleaseHandshakePassesAfterMainRegeneration, TestProductTruth_ReleaseWorkflowRejectsTagCheckoutSubstitution]
         depends_on: [TASK-017]
       - id: TASK-020
         type: implementation
@@ -244,114 +246,47 @@ phases:
           Add blocking `./scripts/generate-product-truth.sh --check` to branch CI. Add
           release-history-current using a distinct full-history latest-origin/main checkout,
           fetch the stable tag, run check mode, and make GoReleaser depend on it. Do not
-          create/edit Pages or claim final Jekyll/rendered verification yet.
+          read or create Jekyll, rendered-output, or Pages surfaces.
         files: [.github/workflows/ci.yml, .github/workflows/release.yml]
-        claims: [CLM-041, CLM-042]
+        claims: [CLM-041, CLM-042, CLM-043]
         depends_on: [TASK-026]
-      - id: TASK-027
-        type: verification
-        title: "Gate the complete source handoff"
-        description: |
-          Run `./bin/backstop gate --file docs/_includes/generated/cli-command-catalog.md
-          --file docs/_includes/generated/artifact-schema-catalog.md --file
-          docs/_includes/generated/installed-pack-catalog.md --file
-          docs/_includes/generated/release-history.md --file .github/workflows/ci.yml
-          --file .github/workflows/release.yml`; then run
-          `./scripts/generate-product-truth.sh --check`. Require source workflow mutations.
-        files: [docs/_includes/generated/cli-command-catalog.md, docs/_includes/generated/artifact-schema-catalog.md, docs/_includes/generated/installed-pack-catalog.md, docs/_includes/generated/release-history.md, .github/workflows/ci.yml, .github/workflows/release.yml, scripts/tests/product-truth/source-workflow-wiring.sh]
-        claims: [CLM-010, CLM-015, CLM-022, CLM-023, CLM-024, CLM-041, CLM-042, CLM-043, CLM-046, CLM-047, CLM-050, CLM-053, CLM-056]
-        depends_on: [TASK-023, TASK-020]
-
-  - id: phase-5
-    name: "Accept Seed 4 and prove rendered deployment"
-    tasks:
-      - id: TASK-025
-        type: setup
-        title: "Enforce the accepted Seed 4 consumer barrier"
-        description: |
-          After all Seed 3 source deliverables pass TASK-027, stop unless implemented and
-          accepted PLAN-SPEC-075 supplies root Gemfile/Gemfile.lock, exact `bundle exec
-          jekyll build --source docs --destination _site --trace`, full 40-hex deployment
-          binding, and Pages check-before-deploy/no-tag wiring. Validate PLAN-SPEC-075 and
-          inspect these files read-only; missing or merely planned behavior blocks built proof.
-        files: [plans/PLAN-SPEC-075-static-public-site-design-system.plan.yml, Gemfile, Gemfile.lock, .github/workflows/pages.yml]
-        claims: [CLM-039, CLM-040, CLM-043, CLM-046, CLM-047, CLM-050, CLM-053, CLM-056]
-        depends_on: [TASK-027]
-      - id: TASK-028
-        type: test
-        title: "Specify rendered-region and deployment provenance"
-        description: |
-          Against the accepted exact locked build, parse one table/source-list region per
-          job into exact structs, decode cells/<br>, recompute both digests, and resolve the
-          supplied full deployment SHA. Mutate delimiters, rows, cells, links, visible text,
-          owner, placeholders, unknown elements/attributes, and locked build command.
-        files: [scripts/producttruth/site_test.go, scripts/producttruth/testdata/rendered-site-mutations.yml]
-        claims: [CLM-022, CLM-023, CLM-024, CLM-025, CLM-039, CLM-040, CLM-047, CLM-050, CLM-053, CLM-056, CLM-059]
-        test_names: [TestProductTruth_ExactSourceAndRenderedRegionContract, TestProductTruth_RenderedRegionTamperMatrix]
-        depends_on: [TASK-025]
-      - id: TASK-029
-        type: implementation
-        title: "Implement rendered-site verification"
-        description: |
-          Implement VerifyRenderedSite with Go HTML parsing, canonical envelope/digest
-          reconstruction, and exact immutable GitHub tree/blob/commit anchors. Refuse
-          mutable, relative, abbreviated, unresolved, extra, missing, or reordered links.
-        files: [scripts/producttruth/site.go]
-        claims: [CLM-022, CLM-023, CLM-024, CLM-025, CLM-039, CLM-040, CLM-047, CLM-050, CLM-053, CLM-056, CLM-059]
-        depends_on: [TASK-028]
-      - id: TASK-030
-        type: verification
-        title: "Gate locked built-site verification"
-        description: |
-          Run `./bin/backstop gate --file scripts/producttruth/site.go`, execute the exact
-          accepted locked Jekyll build, and call VerifyRenderedSite with the full lowercase
-          build/deployment SHA. Require every rendered mutation; edit no Seed 4 files.
-        files: [scripts/producttruth/site.go, scripts/producttruth/site_test.go, Gemfile.lock]
-        claims: [CLM-022, CLM-023, CLM-024, CLM-025, CLM-039, CLM-040, CLM-047, CLM-050, CLM-053, CLM-056, CLM-059]
-        depends_on: [TASK-029]
       - id: TASK-018
         type: test
-        title: "Specify measured verifier and Pages consumption"
+        title: "Specify the independent measured verifier"
         description: |
           Test one atomic coverage total at 80.00 and refusal at 79.99/absent/duplicate/
-          nonnumeric. Prove verifier order/cleanup, final branch-CI invocation, and accepted
-          Pages freshness-before-deploy/no-tag consumption without assigning Pages ownership.
-        files: [scripts/tests/product-truth/verify-pipeline.sh, scripts/tests/product-truth/pages-consumer-wiring.sh, scripts/tests/product-truth/fixtures/render-workflow-mutations.yml]
-        claims: [CLM-043, CLM-044, CLM-045, CLM-046]
-        test_names: [TestProductTruth_ReleaseAndPagesWorkflowWiring, TestProductTruth_VerifierAcceptsCoverageAtThreshold, TestProductTruth_VerifierRejectsCoverageFailureMatrix, TestProductTruth_VerifierCoversPipelineAndWorkflowSurfaces]
-        depends_on: [TASK-030]
+          nonnumeric. Prove verifier ordering and cleanup across race coverage, check mode,
+          exact source-include verification, branch-CI wiring, and release-workflow wiring.
+          Assert that no Jekyll build or Pages workflow is required or inspected.
+        files: [scripts/tests/product-truth/verify-pipeline.sh, scripts/tests/product-truth/fixtures/source-pipeline-failures.yml]
+        claims: [CLM-044, CLM-045, CLM-046]
+        test_names: [TestProductTruth_VerifierAcceptsCoverageAtThreshold, TestProductTruth_VerifierRejectsCoverageFailureMatrix, TestProductTruth_VerifierCoversIndependentSourcePipeline]
+        depends_on: [TASK-017]
       - id: TASK-019
         type: implementation
-        title: "Implement measured end-to-end verification"
+        title: "Implement independent source-pipeline verification"
         description: |
           Create `./scripts/verify-product-truth.sh`: run atomic race coverage, parse one
-          total >=80.00, then --check, exact locked Jekyll build, full-SHA rendered verifier,
-          and workflow fixtures. Trap-clean profiles/builds on every exit.
+          total >=80.00, then check mode, exact source-include verification, and structural
+          branch-CI/release-workflow fixtures. Trap-clean profiles and temporary generation
+          state on every exit; never require a site build or Pages.
         files: [scripts/verify-product-truth.sh]
         claims: [CLM-044, CLM-045, CLM-046]
         depends_on: [TASK-018]
-      - id: TASK-031
-        type: implementation
-        title: "Promote branch CI to the complete verifier"
-        description: |
-          Replace the pre-barrier source-only CI check with blocking
-          `./scripts/verify-product-truth.sh` now that accepted Seed 4 satisfies its locked
-          build/render dependencies. Do not edit Pages; verify it only as a consumer.
-        files: [.github/workflows/ci.yml]
-        claims: [CLM-043, CLM-046]
-        depends_on: [TASK-018]
       - id: TASK-021
         type: verification
-        title: "Gate measured verification and consumer wiring"
+        title: "Gate the complete independent Seed 3 handoff"
         description: |
           Run `./bin/backstop gate --file scripts/verify-product-truth.sh --file
-          .github/workflows/ci.yml`; run the verifier and structurally test the accepted
-          read-only Pages workflow for freshness-before-deploy and no tag trigger.
-        files: [scripts/verify-product-truth.sh, scripts/tests/product-truth/verify-pipeline.sh, scripts/tests/product-truth/pages-consumer-wiring.sh, .github/workflows/ci.yml, .github/workflows/pages.yml]
-        claims: [CLM-043, CLM-044, CLM-045, CLM-046]
-        depends_on: [TASK-019, TASK-031]
+          .github/workflows/ci.yml --file .github/workflows/release.yml`; run the verifier
+          and `./scripts/generate-product-truth.sh --check`. Require the complete generated
+          cohort, source-consumption mutations, independent CI/release wiring, and no site
+          runtime or downstream-plan dependency.
+        files: [scripts/verify-product-truth.sh, scripts/tests/product-truth/verify-pipeline.sh, docs/_includes/generated/cli-command-catalog.md, docs/_includes/generated/artifact-schema-catalog.md, docs/_includes/generated/installed-pack-catalog.md, docs/_includes/generated/release-history.md, .github/workflows/ci.yml, .github/workflows/release.yml]
+        claims: [CLM-010, CLM-015, CLM-022, CLM-023, CLM-024, CLM-025, CLM-041, CLM-042, CLM-043, CLM-044, CLM-045, CLM-046, CLM-047, CLM-050, CLM-053, CLM-056]
+        depends_on: [TASK-019, TASK-020, TASK-023]
 
-  - id: phase-6
+  - id: phase-5
     name: "Complete kill chain"
     tasks:
       - id: TASK-024
@@ -359,8 +294,9 @@ phases:
         title: "Run the complete Backstop kill chain"
         description: |
           Run `./bin/backstop gate --all`, then validate SPEC-074 and PLAN-SPEC-074.
-          Require coverage >=80.00, clean generated bytes, exact locked build, immutable
-          rendered links, CI/Pages/release wiring, every mutation suite, and no generic engine.
-        files: [scripts/verify-product-truth.sh, docs/_data/derived-product-truth.yml, scripts/producttruth/main.go, scripts/producttruth/generate.go, scripts/producttruth/transaction.go, scripts/producttruth/site.go, plans/PLAN-SPEC-074-derived-product-truth-pipeline.plan.yml]
-        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-009, CLM-010, CLM-011, CLM-012, CLM-013, CLM-014, CLM-015, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020, CLM-021, CLM-022, CLM-023, CLM-024, CLM-025, CLM-026, CLM-027, CLM-028, CLM-029, CLM-030, CLM-031, CLM-032, CLM-033, CLM-034, CLM-035, CLM-036, CLM-037, CLM-038, CLM-039, CLM-040, CLM-041, CLM-042, CLM-043, CLM-044, CLM-045, CLM-046, CLM-047, CLM-048, CLM-049, CLM-050, CLM-051, CLM-052, CLM-053, CLM-054, CLM-055, CLM-056, CLM-057, CLM-058, CLM-059]
-        depends_on: [TASK-021, TASK-023, TASK-029]
+          Require all 57 source-pipeline claims, coverage >=80.00, clean generated bytes,
+          exact source includes, immutable descriptors/digests, CI/release wiring, every
+          mutation suite, no generic engine, and no Jekyll/rendered/Pages dependency.
+        files: [scripts/verify-product-truth.sh, docs/_data/derived-product-truth.yml, scripts/producttruth/main.go, scripts/producttruth/generate.go, scripts/producttruth/transaction.go, plans/PLAN-SPEC-074-derived-product-truth-pipeline.plan.yml]
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-009, CLM-010, CLM-011, CLM-012, CLM-013, CLM-014, CLM-015, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020, CLM-021, CLM-022, CLM-023, CLM-024, CLM-025, CLM-026, CLM-027, CLM-028, CLM-029, CLM-030, CLM-031, CLM-032, CLM-033, CLM-034, CLM-035, CLM-036, CLM-037, CLM-038, CLM-041, CLM-042, CLM-043, CLM-044, CLM-045, CLM-046, CLM-047, CLM-048, CLM-049, CLM-050, CLM-051, CLM-052, CLM-053, CLM-054, CLM-055, CLM-056, CLM-057, CLM-058, CLM-059]
+        depends_on: [TASK-019, TASK-021]
