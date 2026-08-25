@@ -531,8 +531,8 @@ phases:
           exact candidate through Backstop from TASK-005's clean external tracked-file
           staging export, never from the live repository or its `.backstop` tree,
           alongside the released Go toolchain pack. Check out backstop-core at exact
-          commit ed221e896fab2209bbbdcece0e96d28e22e27002 and first assert its tree is
-          exactly 0fee4b18605c74090b2271cf312a753ec614c432. Reject a branch checkout,
+          commit 2855ccd1438c455fc2a6842978c15e5cf582ff5b and first assert its tree is
+          exactly 97a9480b579b8aac1f4fec8d8294c70aee56a232. Reject a branch checkout,
           commit mismatch, dirty pre-mutation tree, or tree mismatch. Parse the pinned
           SPEC-072 claims and assert 47 references and 44 distinct statically declared
           Bash functions with no absent name. Through the assembled Bash engine execute

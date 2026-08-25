@@ -86,7 +86,8 @@ requirements:
       This terminal-transition proof must use the real assembled gate and the real 47-to-44
       corpus, not hand-built discovery maps or suppressed findings. The consumer corpus
       must be checked out at immutable Backstop Core commit
-      `ed221e896fab2209bbbdcece0e96d28e22e27002`; only the two isolated status edits may
+      `2855ccd1438c455fc2a6842978c15e5cf582ff5b` (tree
+      `97a9480b579b8aac1f4fec8d8294c70aee56a232`); only the two isolated status edits may
       differ, so later moving-branch content cannot silently change acceptance.
   - id: REQ-007
     text: >
@@ -239,7 +240,8 @@ Keep all Bash knowledge in the pack:
    suite files and never reinvokes their 44 functions individually.
 4. Bootstrap the external repository and its fixture harness, validate and immutably
    release the pack, then run that release against a disposable checkout of Backstop
-   Core commit `ed221e896fab2209bbbdcece0e96d28e22e27002` containing only the isolated
+   Core commit `2855ccd1438c455fc2a6842978c15e5cf582ff5b` (tree
+   `97a9480b579b8aac1f4fec8d8294c70aee56a232`) containing only the isolated
    SPEC-072/PLAN-SPEC-072 terminal status transition.
 
 The acceptance is deliberately corpus-level. Merely proving one sample `foo() {}` line
@@ -262,7 +264,8 @@ if it did. The harness covers:
 
 - the unmodified Go discovery corpus, to pin non-regression;
 - a mixed Go+Bash repository, to prove composition without changing Go discovery; and
-- immutable Backstop Core commit `ed221e896fab2209bbbdcece0e96d28e22e27002`, with
+- immutable Backstop Core commit `2855ccd1438c455fc2a6842978c15e5cf582ff5b`, tree
+  `97a9480b579b8aac1f4fec8d8294c70aee56a232`, with
   status changes applied only in the disposable SPEC-072/PLAN-SPEC-072 fixture,
   proving 47 references resolve to 44 functions and both terminal blocker classes clear.
 
