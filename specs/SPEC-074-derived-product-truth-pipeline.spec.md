@@ -4,7 +4,7 @@ number: SPEC-074
 created: "2026-08-24"
 status: draft
 schema_version: spec/v1
-spec_version: 1.0.1
+spec_version: 1.0.2
 
 implementation:
   summary: >
@@ -20,6 +20,9 @@ implementation:
     temporary tree and refuses missing, stale, manually edited, multiply owned, or
     unregistered output while naming the job, sources, and output. Jekyll owner pages
     include each generated fragment exactly once and rendered regions reproduce its record digest.
+    Every job also exports a complete typed authoritative-source descriptor set inside that
+    digest boundary; Seed 4 resolves `site` commit bindings to the full deployment commit and
+    renders only immutable GitHub tree, blob, or commit links.
     Stable-tag publication is blocked until latest main carries regenerated history. No parallel
     product registry is introduced. The implementation is deliberately domain-specific and
     must not become a generalized transformation engine, absorb the separately governed
@@ -36,7 +39,7 @@ contracts:
     provides:
       - name: derived_product_truth_jobs
         kind: variable
-        signature: "jobs[] {id, inputs[], output, owner_route, owner_anchor, marker, command}"
+        signature: "jobs[] {id, inputs[], output, owner_route, owner_anchor, marker, command, source_link_policy}"
   - file: scripts/generate-product-truth.sh
     provides:
       - name: generate_product_truth
@@ -69,6 +72,9 @@ contracts:
         kind: variable
   - file: scripts/producttruth/generate.go
     provides:
+      - name: SourceLinkDescriptor
+        kind: type
+        signature: "SourceLinkDescriptor = TreeBlobSourceLink {kind, commit_binding, path} | CommitSourceLink {kind, commit_binding, commit}; no optional members"
       - name: RenderAll
         kind: function
         signature: "RenderAll(root string, manifest Manifest) ([]RenderedJob, error)"
@@ -87,7 +93,7 @@ contracts:
     provides:
       - name: VerifyRenderedSite
         kind: function
-        signature: "VerifyRenderedSite(root string, manifest Manifest) error"
+        signature: "VerifyRenderedSite(root string, manifest Manifest, siteCommit string) error"
     consumes:
       - source: docs/_config.yml
         name: jekyll_configuration
@@ -104,22 +110,22 @@ contracts:
     provides:
       - name: generated_cli_command_catalog
         kind: variable
-        signature: "Generated Markdown owned by /reference/#cli-command-catalog"
+        signature: "Generated Markdown + one immutable-tree source descriptor owned by /reference/#cli-command-catalog"
   - file: docs/_includes/generated/artifact-schema-catalog.md
     provides:
       - name: generated_artifact_schema_catalog
         kind: variable
-        signature: "Generated Markdown owned by /reference/#artifact-schema-catalog"
+        signature: "Generated Markdown + one immutable-blob source descriptor per schema row owned by /reference/#artifact-schema-catalog"
   - file: docs/_includes/generated/installed-pack-catalog.md
     provides:
       - name: generated_installed_pack_catalog
         kind: variable
-        signature: "Generated Markdown owned by /packs/#installed-pack-catalog"
+        signature: "Generated Markdown + two immutable-blob source descriptors owned by /packs/#installed-pack-catalog"
   - file: docs/_includes/generated/release-history.md
     provides:
       - name: generated_release_history
         kind: variable
-        signature: "Generated Markdown owned by /status/#release-history"
+        signature: "Generated Markdown + one immutable-commit source descriptor per release row owned by /status/#release-history"
   - file: docs/reference.md
     consumes:
       - source: docs/_includes/generated/cli-command-catalog.md
@@ -224,10 +230,13 @@ requirements:
       `GENERATED PRODUCT TRUTH`, the job ID, every authoritative input locator, the
       owner route and anchor, `./scripts/generate-product-truth.sh`, and `DO NOT EDIT`.
       It is followed by `<!-- PRODUCT-TRUTH:BEGIN job=<ID> digest=sha256:<HEX> -->`, exactly
-      one raw-HTML table with the REQ-002 headers and `data-product-truth-job=<ID>`, and the
-      matching `<!-- PRODUCT-TRUTH:END job=<ID> -->`. Digest input is the explicit record-struct
-      array serialized by Go `encoding/json` with HTML escaping disabled, no indentation, and one
-      LF; map-backed records are forbidden. Table scalar escaping is applied once in this order:
+      one raw-HTML table with the REQ-002 headers and `data-product-truth-job=<ID>`, REQ-009's
+      exact source-descriptor block, and the matching
+      `<!-- PRODUCT-TRUTH:END job=<ID> -->`. As amended by REQ-009, digest input is the
+      explicit provenance-envelope struct containing job, output, owner, record structs, and
+      source-link descriptor structs, serialized by Go `encoding/json` with HTML escaping disabled,
+      no indentation, and one LF; map-backed records or descriptors are forbidden. Table scalar
+      escaping is applied once in this order:
       `&` -> `&amp;`, `<` -> `&lt;`, `>` -> `&gt;`, `"` -> `&quot;`, `'` -> `&#39;`,
       backtick -> `&#96;`, and pipe -> `&#124;`; CRLF/CR normalizes to LF and embedded LF becomes
       literal `<br>`. NUL and C0 controls other than tab/newline fail. The marker is part of generated bytes.
@@ -275,9 +284,10 @@ requirements:
       requires exactly one source include region and one source/rendered fragment region, parses the
       rendered region with Go's HTML parser, requires one table with exact job attribute, headers,
       rows, cells, and no unknown row elements, HTML-decodes cells and converts `<br>` to LF,
-      reconstructs the explicit REQ-002 structs, applies the canonical JSON digest, and compares it
-      with the source marker. Missing, duplicated, moved, stale, independently reconstructed, or
-      tampered regions fail PT204. No second generated page or site plugin may reread inputs.
+      reconstructs the explicit REQ-002 structs and REQ-009 source-link descriptors, applies the
+      canonical provenance-envelope digest, and compares it with both source markers. Missing,
+      duplicated, moved, stale, independently reconstructed, or tampered regions fail PT204. No
+      second generated page or site plugin may reread inputs.
   - id: REQ-006
     supports:
       - website-expansion:REQ-011@1.0.0
@@ -315,6 +325,70 @@ requirements:
       and structural workflow tests proving branch CI, Pages, and release publication invoke their
       gates. Generator, transaction, Git-plumbing, site-verifier, and workflow surfaces are included;
       temporary coverage/build outputs are removed on success and failure.
+  - id: REQ-009
+    supports:
+      - website-expansion:REQ-011@1.0.0
+    text: >
+      Each exact job must declare its closed `source_link_policy` in
+      `docs/_data/derived-product-truth.yml`; generation must apply that policy to the
+      authoritative records and export the complete realized `source_links` descriptor set
+      inside its generated region between exact
+      `<!-- PRODUCT-TRUTH:SOURCES-BEGIN job=<ID> owner=<ROUTE>#<ANCHOR> digest=sha256:<HEX> -->`
+      and `<!-- PRODUCT-TRUTH:SOURCES-END job=<ID> -->` markers. Between them is exactly one
+      `<ul data-generated-source-descriptors data-product-truth-job="<ID>">`; every descriptor
+      is one ordered `<li data-generated-source-descriptor data-source-kind="<KIND>"
+      data-commit-binding="<BINDING>" data-source-path="<PATH>">` for `tree`/`blob`, or
+      `data-source-commit="<COMMIT>"` for `commit`, whose text is the exact URL contract below.
+      A path attribute on `commit`, a commit attribute on `tree`/`blob`, an unknown attribute,
+      or any element outside that closed shape is invalid. The one digest in the
+      existing `PRODUCT-TRUTH:BEGIN` marker and the sources-begin marker must match and must
+      be SHA-256 over canonical JSON for the explicit envelope `{job,output,owner_route,
+      owner_anchor,records,source_links}`; owner, output, generated records, and source
+      provenance therefore cannot drift independently. The envelope is an explicit Go struct
+      whose JSON members occur in exactly that written order; each job's `records` uses the
+      exact field order declared in REQ-002, and descriptor order is normative.
+      `SourceLinkDescriptor` is a closed union of two concrete structs, never one struct with
+      optional fields. A tree descriptor serializes exactly three members in this order:
+      `{"kind":"tree","commit_binding":"site","path":"<nonempty-path>"}`. A blob
+      descriptor serializes exactly three members in this order:
+      `{"kind":"blob","commit_binding":"site","path":"<nonempty-path>"}`. A commit
+      descriptor serializes exactly three members in this order:
+      `{"kind":"commit","commit_binding":"record","commit":"<40-lowercase-hex>"}`.
+      For tree/blob, `commit` is absent; for commit, `path` is absent. An inapplicable member
+      encoded as empty string or `null` is not equivalent to absence and is invalid; omitting,
+      emptying, or nulling any applicable member is likewise invalid. Unknown members are invalid.
+      Decoding must select the concrete variant from exact `kind`, reject unknown fields, then
+      reserialize the concrete struct before digest comparison, so omitted-versus-empty-versus-null
+      representations cannot share an accepted semantic digest. Input object member order does not
+      alter this canonical reserialization, but any serializer or generated-envelope mutation that
+      emits members outside the required order fails the exact canonical-byte/digest comparison.
+      `cli-command-catalog` has exactly one `{kind: tree, commit_binding: site,
+      path: cmd/backstop}` descriptor. `artifact-schema-catalog` has exactly one
+      `{kind: blob, commit_binding: site, path: <record.source>}` descriptor for every
+      rendered schema record in record order and no others. `installed-pack-catalog` has
+      exactly two `{kind: blob, commit_binding: site}` descriptors in order for
+      `backstop.yml` and `backstop.lock`. `release-history` has exactly one
+      `{kind: commit, commit_binding: record, commit: <record.commit>}` descriptor per
+      release record in record order and no others. In the descriptor model, a `site`
+      descriptor uses literal token `<SITE-COMMIT>`; generated raw-HTML bytes encode that
+      token as `&lt;SITE-COMMIT&gt;` so it remains text rather than an HTML element, and HTML
+      decoding must recover the exact token in the URL;
+      a record-bound release link contains its existing full lowercase 40-hex commit.
+      Seed 4 must resolve `<SITE-COMMIT>` to the full lowercase 40-hex build/deployment
+      commit and render each descriptor exactly once as `a[data-generated-source-link]`
+      inside the one owner section for that job. Final URLs are exactly
+      `https://github.com/backstop-ai/backstop-core/tree/<SITE-COMMIT>/cmd/backstop`,
+      `https://github.com/backstop-ai/backstop-core/blob/<SITE-COMMIT>/<schema-source>`,
+      the corresponding two blob URLs for `backstop.yml` and `backstop.lock`, and
+      `https://github.com/backstop-ai/backstop-core/commit/<record.commit>`.
+      The manifest declares only these derivation policies; it must not copy schema rows,
+      release commits, or another realized link inventory that could drift from generated records.
+      Branch names, `HEAD`, `latest`, abbreviated SHAs, relative URLs, missing or extra
+      descriptors, wrong kinds/paths/commits/order/owner/output, marker-digest mismatch,
+      unresolved placeholders, or removal or mutation of any source link must fail
+      generation or rendered verification with `PT204_CONSUMPTION`. This is generated
+      provenance owned by Seed 3; it neither replaces Seed 1 evidence records nor gives
+      Seed 5 ownership of generation, links, routes, anchors, or journey semantics.
 
 claims:
   - id: CLM-001
@@ -457,7 +531,7 @@ claims:
     tests: [TestProductTruth_RejectsInvalidSchemaAndPackJoinMatrices]
   - id: CLM-035
     requirement: REQ-003
-    text: Every special character and newline follows the ordered escaping contract and canonical record JSON reproduces the marker digest.
+    text: Every special character and newline follows the ordered escaping contract and canonical provenance-envelope JSON reproduces both marker digests.
     tests: [TestProductTruth_TableEscapingAndDigestContract]
   - id: CLM-036
     requirement: REQ-003
@@ -503,6 +577,58 @@ claims:
     requirement: REQ-008
     text: Verification runs check mode, the exact locked Jekyll build, rendered verification, and structural branch, Pages, and release workflow tests.
     tests: [TestProductTruth_VerifierCoversPipelineAndWorkflowSurfaces]
+  - id: CLM-047
+    requirement: REQ-009
+    text: The CLI job exports exactly one site-commit-bound immutable tree link for cmd/backstop, tied to its owner, output, markers, and envelope digest.
+    tests: [TestProductTruth_CLIImmutableSourceLinkPasses]
+  - id: CLM-048
+    requirement: REQ-009
+    text: Removing the CLI source link fails PT204 for cli-command-catalog.
+    tests: [TestProductTruth_CLIImmutableSourceLinkRemovalFails]
+  - id: CLM-049
+    requirement: REQ-009
+    text: A mutable commit binding, wrong tree path, wrong owner/output, extra link, or marker/envelope digest drift fails the CLI provenance contract.
+    tests: [TestProductTruth_CLIImmutableSourceLinkDriftFails]
+  - id: CLM-050
+    requirement: REQ-009
+    text: The artifact-schema job exports exactly one site-commit-bound immutable blob link for each rendered record source in record order, tied to its owner, output, markers, and envelope digest.
+    tests: [TestProductTruth_ArtifactSchemaImmutableSourceLinksPass]
+  - id: CLM-051
+    requirement: REQ-009
+    text: Independently removing any artifact-schema source link fails PT204 for artifact-schema-catalog and names the missing record source.
+    tests: [TestProductTruth_ArtifactSchemaImmutableSourceLinkRemovalFails]
+  - id: CLM-052
+    requirement: REQ-009
+    text: A mutable commit binding, wrong/missing/extra/reordered schema path, wrong owner/output, or marker/envelope digest drift fails the artifact-schema provenance contract.
+    tests: [TestProductTruth_ArtifactSchemaImmutableSourceLinkDriftFails]
+  - id: CLM-053
+    requirement: REQ-009
+    text: The installed-pack job exports exactly the site-commit-bound immutable blob links for backstop.yml then backstop.lock, tied to its owner, output, markers, and envelope digest.
+    tests: [TestProductTruth_InstalledPackImmutableSourceLinksPass]
+  - id: CLM-054
+    requirement: REQ-009
+    text: Independently removing either installed-pack source link fails PT204 for installed-pack-catalog and names the missing path.
+    tests: [TestProductTruth_InstalledPackImmutableSourceLinkRemovalFails]
+  - id: CLM-055
+    requirement: REQ-009
+    text: A mutable commit binding, wrong/missing/extra/reordered pack source, wrong owner/output, or marker/envelope digest drift fails the installed-pack provenance contract.
+    tests: [TestProductTruth_InstalledPackImmutableSourceLinkDriftFails]
+  - id: CLM-056
+    requirement: REQ-009
+    text: The release-history job exports exactly one immutable commit link for each rendered release record in record order, tied to its owner, output, markers, and envelope digest.
+    tests: [TestProductTruth_ReleaseHistoryImmutableSourceLinksPass]
+  - id: CLM-057
+    requirement: REQ-009
+    text: Independently removing any release-record commit link fails PT204 for release-history and names the missing release record.
+    tests: [TestProductTruth_ReleaseHistoryImmutableSourceLinkRemovalFails]
+  - id: CLM-058
+    requirement: REQ-009
+    text: An abbreviated or wrong commit, mutable binding, missing/extra/reordered release link, wrong owner/output, or marker/envelope digest drift fails the release-history provenance contract.
+    tests: [TestProductTruth_ReleaseHistoryImmutableSourceLinkDriftFails]
+  - id: CLM-059
+    requirement: REQ-009
+    text: Tree/blob descriptors canonically serialize only kind, commit_binding, path in that order and commit descriptors only kind, commit_binding, commit in that order; omitting, emptying, or nulling an applicable member, adding the opposite variant member as empty or null, adding an unknown member, or mutating serializer output order fails validation or exact canonical-byte/digest comparison, while reordered decoder input reserializes to the one canonical order.
+    tests: [TestProductTruth_SourceLinkCanonicalJSONAbsentEmptyNullMutationMatrix]
 ---
 
 # SPEC-074: Derived Product Truth Pipeline
@@ -525,12 +651,12 @@ This seed owns only the accountable arrows between source, generated Markdown, a
 The frontmatter requirements and claims are normative. The four-row matrix below is the complete
 generation inventory; implementations may not infer additional jobs by scanning directories.
 
-| Job | Authoritative input | Checked-in Markdown | Seed 1 owner |
-|---|---|---|---|
-| `cli-command-catalog` | JSON from `go run ./cmd/backstop commands` at the current checkout | `docs/_includes/generated/cli-command-catalog.md` | `/reference/#cli-command-catalog` |
-| `artifact-schema-catalog` | `artifacts/*/v*/schema.json` and `artifacts/base/schema.json` | `docs/_includes/generated/artifact-schema-catalog.md` | `/reference/#artifact-schema-catalog` |
-| `installed-pack-catalog` | `backstop.yml` and `backstop.lock` | `docs/_includes/generated/installed-pack-catalog.md` | `/packs/#installed-pack-catalog` |
-| `release-history` | Reachable exact `vMAJOR.MINOR.PATCH` repository tags | `docs/_includes/generated/release-history.md` | `/status/#release-history` |
+| Job | Authoritative input | Checked-in Markdown | Seed 1 owner | Complete source-link descriptors |
+|---|---|---|---|---|
+| `cli-command-catalog` | JSON from `go run ./cmd/backstop commands` at the current checkout | `docs/_includes/generated/cli-command-catalog.md` | `/reference/#cli-command-catalog` | One `tree`, `site`, `cmd/backstop`. |
+| `artifact-schema-catalog` | `artifacts/*/v*/schema.json` and `artifacts/base/schema.json` | `docs/_includes/generated/artifact-schema-catalog.md` | `/reference/#artifact-schema-catalog` | One `blob`, `site`, `<record.source>` per rendered schema row, in row order. |
+| `installed-pack-catalog` | `backstop.yml` and `backstop.lock` | `docs/_includes/generated/installed-pack-catalog.md` | `/packs/#installed-pack-catalog` | Two `blob`, `site` descriptors: `backstop.yml`, then `backstop.lock`. |
+| `release-history` | Reachable exact `vMAJOR.MINOR.PATCH` repository tags | `docs/_includes/generated/release-history.md` | `/status/#release-history` | One `commit`, `record`, `<record.commit>` per release row, in row order. |
 
 `backstop/spec/*` and other artifact-reservation tags are not releases. Prerelease tags are omitted
 because this first public status surface is explicitly the stable release history; adding prerelease
@@ -547,6 +673,19 @@ Every fragment's first line has this semantic shape, with values serialized cano
 The marker is provenance and an overwrite guard. It is not a waiver and does not make generated
 bytes independently authoritative.
 
+Each region also contains the exact sources-begin/end marker pair from REQ-009 and its closed
+descriptor set. The shared digest covers one canonical envelope containing job, output, owner,
+records, and descriptors. Generated source HTML-encodes the typed `<SITE-COMMIT>` deployment-binding
+token as `&lt;SITE-COMMIT&gt;`; it is not a mutable URL. Seed 4 decodes and resolves that token to the full build/deployment SHA and emits
+the exact immutable GitHub anchors. Release rows already carry their immutable commit and require no
+site binding.
+
+Canonical descriptor JSON has no optional-member ambiguity. Tree and blob values are concrete
+`{kind,commit_binding,path}` structs in that member order; commit values are concrete
+`{kind,commit_binding,commit}` structs in that member order. The opposite variant member is absent,
+never `null` or an empty string. Applicable members cannot be omitted, empty, or null, and unknown
+members are refused before the provenance envelope is hashed.
+
 ## Implementation
 
 The implementation must execute these passes in order:
@@ -560,8 +699,9 @@ The implementation must execute these passes in order:
 3. Normalize records, order them by the rules in REQ-002, and render UTF-8 Markdown with LF endings,
    canonical tables, escaped Markdown cells, and one final newline. No wall-clock timestamp, absolute
    checkout path, install timestamp, environment-specific Go path, or map iteration order enters output.
-4. Prepend the manifest-derived ownership marker and retain the rendered bytes in memory. All four
-   jobs must render successfully before either mode proceeds.
+4. Construct each job's exact ordered source-link descriptors, serialize the complete provenance
+   envelope, compute its digest, and emit the ownership, region, and source markers plus raw-HTML
+   table and descriptors. All four jobs must render successfully before either mode proceeds.
 5. In `--check`, refuse any outstanding transaction, render into a temporary directory, compare bytes to the repository, scan
    `docs/_includes/generated/` for unregistered files, print attributable drift diagnostics, and exit
    without writing. Multiple drifts are all reported in stable job order.
@@ -572,7 +712,8 @@ The implementation must execute these passes in order:
 7. Verify the exact include markers and four subordinate anchors in the three Seed 1 route owners. The generator does
    not edit surrounding page prose and does not synthesize Liquid expressions.
 8. After Seed 4's exact locked Jekyll build, parse each unique rendered HTML region, reconstruct its
-   explicit record structs, and compare the canonical JSON SHA-256 with the source marker.
+   explicit record structs and source-link descriptors, compare the canonical envelope SHA-256 with
+   both source markers, and require the exact immutable URL set for the supplied site commit.
 9. On stable tags, block GoReleaser until a separate latest-`origin/main` checkout contains the new
    release row; land that row through normal main/Pages flow, then rerun the tag workflow.
 10. Run the verifier's measured coverage, drift, build, rendered-region, and workflow-wiring checks.
@@ -587,7 +728,8 @@ separately rather than generalizing this package in place.
 Verification uses hermetic fixture repositories for source mutation, tag graphs, symlinks, unsafe
 paths, partial-write failures, locale/timezone variation, and Jekyll consumption. Tests exercise each
 job independently and the complete pipeline. They must compare bytes, not only parsed Markdown or
-successful exit codes. The real-repository check then proves the checked-in outputs match the current
+successful exit codes. Every job independently proves its complete source-link set, immutable target,
+and removal/drift refusal. The real-repository check then proves the checked-in outputs match the current
 authoritative inputs. `scripts/verify-product-truth.sh` enforces one numeric coverage total at or above
 80.00, runs the exact locked Jekyll command and rendered verifier, and structurally proves CI, Pages,
 and release workflow wiring. Claims and mandated test names are defined in frontmatter.
@@ -606,8 +748,10 @@ from these inputs.
 Seed 2's installed documentation-semantics pack evaluates the resulting page meaning through its
 released interface. `scripts/producttruth` does not decide whether two passages are semantically
 duplicative or whether a product claim has adequate evidence. Seed 4 must render these exact fragments
-and may wrap them for presentation, but it must not fetch the inputs again or rebuild their tables.
-Seed 5 may traverse the built regions as evidence without becoming another generator.
+and resolve their typed `site` bindings to the full build/deployment commit; it may wrap them for
+presentation, but it must not fetch the inputs again, rebuild their tables, or invent source links.
+Seed 5 may traverse the built regions and consume the owner-exported job/output/owner/marker/digest/link
+tuple without becoming another generator, evidence registry, route owner, or journey source of truth.
 
 ## Sharp Edges
 
@@ -628,6 +772,9 @@ Seed 5 may traverse the built regions as evidence without becoming another gener
   meaningless churn. The output is limited to declared version and locked identity fields.
 - **A built page can look correct while bypassing the fragment.** Digest-backed region verification
   is required because a hand-copied table can visually match once and then drift independently.
+- **A source path is not immutable provenance.** `cmd/backstop`, schema paths, and pack files become
+  durable public targets only when Seed 4 binds `site` to the full deployment SHA. Branch, HEAD,
+  latest, abbreviated-SHA, and unresolved-placeholder links are failures even if they currently open.
 - **Liquid delimiters are a known collision surface.** ISSUE-182 concerns recipe substitution of
   downstream `{{ ... }}` bytes. This generator does not use recipes or generate include expressions;
   the include sites are static Seed 1 page bytes. If a plan changes that fact, it must resolve the
@@ -653,12 +800,16 @@ Seed 5 may traverse the built regions as evidence without becoming another gener
    consumed through an explicit dependency rather than absorbed here?
 9. Does stale latest main block GoReleaser and Pages until normal regeneration lands?
 10. Does measured generator coverage reach 80.00 with malformed coverage output failing closed?
+11. Does each job export exactly its complete descriptor set, with owner/output/records/links covered
+    by the same digest and every built link resolved to a full immutable commit?
+12. Does independently removing or mutating every source link fail its owning job without Seed 5
+    reconstructing provenance or Seed 1 evidence?
 
 ## References
 
 - `bundles/BUNDLE-032-website-expansion.bundle.md` v0.6.0 — source bundle, REQ-011@1.0.0,
   resolved OQ-5, DD-10, DD-11, Seed 3 acceptance, and source/generated ownership sharp edge.
-- `specs/SPEC-072-public-product-model.spec.md` v1.0.1 — authoritative page owners, route/anchor
+- `specs/SPEC-072-public-product-model.spec.md` v1.0.2 — authoritative page owners, route/anchor
   boundary, human-readable product truth, and the Seed 2/3/4 seams.
 - `cmd/backstop/root.go` — current command-tree construction and deterministic `commands` JSON surface.
 - `artifacts/spec/v1/schema.json`, `artifacts/capability/v1/schema.json`, and
@@ -669,3 +820,5 @@ Seed 5 may traverse the built regions as evidence without becoming another gener
 - `.github/workflows/ci.yml` — current blocking gate and build order into which drift refusal must fit.
 - `issues/ISSUE-182-recipe-literal-placeholder-escaping.issue.md` — durable Liquid/recipe delimiter
   collision evidence; this spec avoids recipe-emitted Liquid bytes.
+- `specs/SPEC-076-end-to-end-website-capabilities.spec.md` v1.0.1 — downstream generated-obligation
+  consumer and the v1.0.2 predecessor-amendment matrix; it does not own these provenance links.

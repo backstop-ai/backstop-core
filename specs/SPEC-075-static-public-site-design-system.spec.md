@@ -4,7 +4,7 @@ number: SPEC-075
 created: "2026-08-24"
 status: draft
 schema_version: spec/v1
-spec_version: 1.0.1
+spec_version: 1.0.2
 
 implementation:
   summary: >
@@ -13,8 +13,9 @@ implementation:
     generated Markdown regions into one statically rendered public product site. Use a
     locked Jekyll/GitHub Pages build, preserve `backstop.sh`, retain five legacy public
     URLs as serverless redirects, ship no client JavaScript, and verify canonical routes,
-    anchors, links, navigation, current-page state, responsive behavior, custom-domain
-    continuity, generated-region consumption, and deployment wiring. The visual direction
+    anchors, owner-declared journey links, structured boundary fields, adoption instructions,
+    links, navigation, current-page state, responsive behavior, custom-domain continuity,
+    generated-region consumption and provenance links, and deployment wiring. The visual direction
     is a journey-oriented technical field guide: one shared shell, a question-led page
     hero, readable long-form model/reference treatment, evidence and boundary callouts,
     responsive tables and diagrams, and the canonical Backstop wordmark. Reusable visual
@@ -131,6 +132,9 @@ contracts:
       - name: VerifyEightIsolatedCorpora
         kind: function
         signature: "VerifyEightIsolatedCorpora(root, builtRoot string, export OwnerExport) []Finding"
+      - name: VerifyRenderedOwnerContracts
+        kind: function
+        signature: "VerifyRenderedOwnerContracts(root string, builtRoot string, siteCommit string) []Finding"
     consumes:
       - source: docs/_data/content-topology.yml
         name: canonical_routes_and_navigation
@@ -143,6 +147,24 @@ contracts:
         kind: variable
       - source: .backstop/packs/backstop-ai/backstop-design-system/pack.yml
         name: installed_design_system_rules
+        kind: variable
+  - file: scripts/render-public-site-contracts/main.go
+    provides:
+      - name: render_public_site_owner_contracts
+        kind: function
+        signature: "Render(root string, builtRoot string, siteCommit string) []Finding"
+    consumes:
+      - source: docs/_data/content-topology.yml
+        name: journey_links_and_adoption_instructions
+        kind: variable
+      - source: docs/_data/product-model.yml
+        name: structured_boundary_records
+        kind: variable
+      - source: docs/_data/derived-product-truth.yml
+        name: generated_source_link_policies
+        kind: variable
+      - source: docs/_includes/generated
+        name: generated_source_descriptors
         kind: variable
   - file: scripts/verify-public-site.sh
     provides:
@@ -285,7 +307,7 @@ requirements:
       `docs/_data/site-presentation.yml` must enumerate exactly ten SPEC-072 routes with `page_kind`,
       one exact hero question, ordered treatments, and one canonical `next_action`, matching every
       literal cell in the Exact presentation matrix below; every hero value must byte-match the
-      SPEC-072 v1.0.2 `hero_question` for that route and is not Seed 4 copy ownership. `page_kind` is one of the ten matrix values;
+      SPEC-072 v1.0.3 `hero_question` for that route and is not Seed 4 copy ownership. `page_kind` is one of the ten matrix values;
       treatments are drawn only from `evidence-cards`, `boundary-callouts`, `generated-regions`, and
       `local-overflow`, without duplicates and in the matrix order. Every page renders
       exactly one `body[data-site-shell=field-guide-v1][data-page-kind]`, header/site nav pair,
@@ -305,7 +327,7 @@ requirements:
       old/new paths for renames. Every changed/deleted/renamed path appears once. Allowed roles are `build-dependency`, `site-data`,
       `site-config`, `delivery-inventory`, `layout`, `include`, `page-wrapper`,
       `stylesheet-composition`, `browser-verification`, `structural-verifier`,
-      `verification-entrypoint`, `owner-asset-installer`, `workflow`, `action-lock`, `deploy-stamp`, `deploy-verifier`, `test`,
+      `rendered-contract-stamper`, `verification-entrypoint`, `owner-asset-installer`, `workflow`, `action-lock`, `deploy-stamp`, `deploy-verifier`, `test`,
       or deletion-only `retired-bootstrap`;
       unlisted paths, unknown/duplicate roles, and roles `visual-rule`, `engine`, `fixture-corpus`,
       `token-declaration`, or `design-policy-validator` fail. Allowed paths must also be declared by
@@ -314,7 +336,8 @@ requirements:
       `docs/_config.yml` and `docs/CNAME` -> site-config; `_data/site-presentation.yml` -> site-data; `_layouts/**` -> layout;
       `_includes/**` -> include; ten canonical/five alias sources -> page-wrapper; `site.css` ->
       stylesheet-composition; Playwright config/tests -> browser-verification; `scripts/sitecheck/**`
-      -> structural-verifier or test; `scripts/verify-public-site.sh` -> verification-entrypoint;
+      -> structural-verifier or test; `scripts/render-public-site-contracts/**` ->
+      rendered-contract-stamper; `scripts/verify-public-site.sh` -> verification-entrypoint;
       `install-design-assets.sh` -> owner-asset-installer; Pages workflow/action lock/stamp/deploy verifier -> their named
       roles. Deletions of `docs/index.html`, `docs/assets/css/backstop.css`, and
       `docs/assets/css/backstop-tokens.css` are the only
@@ -372,7 +395,8 @@ requirements:
       serialize the `pages` concurrency group without canceling an in-progress production deploy;
       check out full history, install locked Ruby and Node dependencies, clean-install packs from
       remote sources, run SPEC-073 integration, SPEC-074 check mode, the exact production build,
-      this spec's structural/browser/installed-pack verification, then upload exactly `_site` and
+      the REQ-009 owner-contract annotation pass using the workflow head SHA, this spec's
+      structural/browser/installed-pack verification, then upload exactly `_site` and
       deploy it with only `actions/checkout`, `ruby/setup-ruby`, `actions/setup-node`,
       `actions/configure-pages`, `actions/upload-pages-artifact`, and `actions/deploy-pages`, each
       referenced by a full 40-hex SHA matching `.github/pages-actions.lock.yml`.
@@ -406,12 +430,59 @@ requirements:
       `go test ./scripts/sitecheck/... -race -covermode=atomic`, extract exactly one numeric total
       from `go tool cover -func`, and fail below 80.00 or for an absent, duplicate, or nonnumeric
       total. It must then run SPEC-073 integration, SPEC-074 check mode, the exact locked production
-      Jekyll build, deterministic source/rendered route-link-nav-generated-region-CNAME checks,
+      Jekyll build, the REQ-009 owner-contract annotation pass using the tested full commit,
+      deterministic source/rendered route-link-nav-generated-region-CNAME checks,
       Playwright's three JavaScript-disabled viewports and 200% reflow checks, the installed
       design-system positive/negative matrix, and structural Pages workflow tests. It must delete
       temporary build, mutation, coverage, browser, and installed-pack state on success and failure,
       never modify checked-in sources, and emit stable diagnostics naming the phase, responsible
       route/path/anchor/rule, and expected versus observed value.
+  - id: REQ-009
+    supports:
+      - website-expansion:REQ-009@2.0.0
+      - website-expansion:REQ-013@1.0.0
+    text: >
+      Seed 4 must consume the accepted SPEC-072 v1.0.3 and SPEC-074 v1.0.2 owner records and,
+      immediately after every exact REQ-001 Jekyll build, run one deterministic build-time
+      annotation pass over the disposable `_site`; that pass may add only the rendered attributes,
+      provenance anchors, and resolved immutable URLs defined here and must never edit checked-in
+      source, author a record, infer meaning from prose, or change visible owner copy. For each of
+      the exact 24 rows in the Rendered journey-link matrix, the pass must bind the one source
+      `<!-- backstop-journey-link: JLINK-NNN -->` marker and its immediately following owner
+      Markdown link to exactly one rendered
+      `a[data-journey-link-id="JLINK-NNN"]` beneath `main#main` or
+      `nav[data-next-action]`, under the exact source route/anchor, with a root-relative `href`
+      equal to the exact destination route plus `#` plus destination anchor. No `JLINK-*` attribute
+      may exist without its owner record, and a marker, link, attribute, source/destination anchor,
+      route, label, cardinality, order, or containment mismatch must fail closed.
+
+      Every accepted boundary record must render as exactly one
+      `aside[data-boundary-callout][data-boundary-id][data-boundary-state]` on its owner
+      route/anchor, with state equal to the owner record and exactly one nonempty descendant
+      `[data-boundary-explanation]` rendered only from `explanation_markdown`. An
+      `adjacent-guidance` record must additionally render exactly one
+      `a[data-boundary-continuation][data-journey-link-id]` whose ID, label, and root-relative
+      route/anchor equal the structured continuation and exactly one nonempty
+      `[data-boundary-guarantee-denial]` from `guarantee_denial_markdown`; the other four states
+      must render neither field because SPEC-072 requires both owner fields to be null. The pass
+      must not derive an explanation, continuation, denial, or state from statement prose.
+
+      Each SPEC-074 generated job must retain its one
+      `section[data-generated-region][data-product-truth-job]`, product-truth marker pair, owner
+      route/anchor, source-descriptor marker pair, descriptor order, and shared lowercase SHA-256
+      digest. The pass must replace each `site` descriptor's literal `<SITE-COMMIT>` with the exact
+      full lowercase 40-hex build/deployment commit and render every descriptor exactly once as
+      `a[data-generated-source-link]` inside that job section, with final URL, kind, path or record
+      commit, order, and cardinality equal to SPEC-074's closed policy; it must not use a branch,
+      tag, `HEAD`, abbreviated SHA, or a second provenance inventory. Each of SPEC-072's three
+      ordered adoption records must render exactly once on its owner route/anchor as one
+      `pre[data-adoption-instruction-id="ADOPT-*"][data-command-sha256="sha256:<64-lowercase-hex>"]`
+      containing one code block whose decoded text byte-matches `command_text`; the attribute must
+      equal the owner digest. The pass renders no executable, argv, environment, provenance, or
+      postcondition fields because those remain structured consumer data. Missing, extra,
+      duplicated, wrong-owner, stale, unresolved, mutable, digest-mismatched, text-inferred, or
+      independently reconstructed owner-contract output must fail both rendering and sitecheck
+      with the responsible route, anchor, and owner ID or job.
 
 claims:
   - id: CLM-001
@@ -613,6 +684,43 @@ claims:
     requirement: REQ-005
     text: Wrong base, unlisted/duplicate/renamed paths, invalid change kind, role/path mismatch, or non-deletion retired-bootstrap entry fails with the path and role.
     tests: [TestSiteCheck_Seed4DeliveryInventoryRejectsInvalidMatrix]
+  - id: CLM-050
+    requirement: REQ-009
+    text: All 24 exact owner-declared JLINK records render once at their source route/anchor as owner-copy links with the exact data-journey-link-id and root-relative destination route/anchor.
+    tests: [TestSiteCheck_RenderedJourneyLinkMatrixPasses]
+  - id: CLM-051
+    requirement: REQ-009
+    text: A missing, extra, duplicated, reordered, wrong-label, wrong-owner, wrong-anchor, wrong-destination, global-navigation-only, or unregistered rendered JLINK fails with its ID and source route/anchor.
+    tests: [TestSiteCheck_RenderedJourneyLinkMatrixRejectsInvalidCell]
+  - id: CLM-052
+    requirement: REQ-009
+    text: Every boundary callout renders the exact owner ID and state plus one structured explanation marker, and adjacent-guidance alone renders its exact continuation JLINK and guarantee-denial markers.
+    tests: [TestSiteCheck_StructuredBoundaryRenderingPasses]
+  - id: CLM-053
+    requirement: REQ-009
+    text: A missing, extra, duplicate, prose-inferred, wrong-owner, wrong-state, empty explanation, invalid continuation, or invalid guarantee-denial boundary field fails with boundary ID and owner route/anchor.
+    tests: [TestSiteCheck_StructuredBoundaryRenderingRejectsInvalidMatrix]
+  - id: CLM-054
+    requirement: REQ-009
+    text: Every generated job renders its complete ordered source-descriptor set exactly once as immutable data-generated-source-link anchors inside its one region; site-bound tree/blob descriptors use the exact full site commit, while every release-history descriptor uses its generated record's immutable full commit.
+    tests: [TestSiteCheck_GeneratedSourceLinkRenderingPasses]
+  - id: CLM-055
+    requirement: REQ-009
+    text: A missing, extra, reordered, wrong-kind/path/commit/owner, out-of-region, unresolved, branch-, tag-, HEAD-, or abbreviated-SHA generated source link fails with job and owner route/anchor.
+    tests: [TestSiteCheck_GeneratedSourceLinkRenderingRejectsInvalidMatrix]
+  - id: CLM-056
+    requirement: REQ-009
+    text: ADOPT-INSTALL, ADOPT-CONFIGURE, and ADOPT-ENFORCE render once in owner order with exact instruction IDs, command bytes, and owner SHA-256 digests.
+    tests: [TestSiteCheck_AdoptionInstructionRenderingPasses]
+  - id: CLM-057
+    requirement: REQ-009
+    text: A missing, extra, duplicated, reordered, wrong-owner, altered-command, or digest-mismatched adoption instruction fails with instruction ID and owner route/anchor.
+    tests: [TestSiteCheck_AdoptionInstructionRenderingRejectsInvalidMatrix]
+  - id: CLM-058
+    requirement: REQ-009
+    kind: absence
+    text: The deterministic annotation pass cannot edit checked-in sources, invent owner records or copy, infer fields from prose, emit structured execution internals, or create a second provenance inventory.
+    tests: [TestSiteCheck_RenderedOwnerContractsRejectAuthoritySubstitutes]
 ---
 
 # SPEC-075: Static Public Site Design System
@@ -675,7 +783,7 @@ The wordmark is always the Home route and never masquerades as current-page stat
 | `/status/` | `status` | What is supported, limited, planned, or intentionally outside Backstop? | `evidence-cards`, `boundary-callouts`, `generated-regions`, `local-overflow` | `/contributing/` |
 | `/contributing/` | `contributing` | How can I participate in Backstop and its ecosystem? | `boundary-callouts` | `/` |
 
-Hero strings are copied verbatim from SPEC-072 v1.0.2 and cannot be authored or overridden here. Treatments are present only
+Hero strings are copied verbatim from SPEC-072 v1.0.3 and cannot be authored or overridden here. Treatments are present only
 when their upstream registry records exist on that route; the matrix names the allowed ordered set,
 while sitecheck cross-checks every rendered ID/state/job against SPEC-072/074 rather than accepting
 self-consistent invented values.
@@ -719,10 +827,62 @@ failure never satisfies the intended cell.
 ### Field-guide instance contract
 
 Core's structural surface is exact: one marked shell/header/nav/main/hero/next-action/footer per page;
-claim IDs map to evidence cards, boundary IDs and five-state values to boundary callouts, generated
-job IDs to generated regions, and each table/Mermaid diagram to one labeled focusable local scroller.
+claim IDs map to evidence cards, boundary IDs, five-state values, and structured boundary fields to
+boundary callouts, generated job IDs and immutable source links to generated regions, adoption IDs
+and command digests to command blocks, and each table/Mermaid diagram to one labeled focusable local scroller.
 The 1440px shell/prose maxima are 1180px/760px. These are instance structure and composition bounds,
 not a local copy of reusable visual policy.
+
+### Rendered journey-link matrix
+
+SPEC-072 owns every record, label, source marker, and Markdown link. Seed 4 owns only the exact
+rendered binding below. Each source and destination anchor is case-sensitive and exists once.
+
+| Link ID | Source route/anchor | Destination route/anchor |
+|---|---|---|
+| `JLINK-001` | `/#why-backstop` | `/evaluate/#failure-fit` |
+| `JLINK-002` | `/evaluate/#what-backstop-is` | `/model/#operating-model` |
+| `JLINK-003` | `/use-cases/#choose-use-case` | `/evaluate/#fit-decision` |
+| `JLINK-004` | `/evaluate/#fit-decision` | `/adopt/#install` |
+| `JLINK-005` | `/evaluate/#not-a-fit` | `/status/#adjacent-guidance` |
+| `JLINK-006` | `/evaluate/#guarantees` | `/status/#supported-and-limited` |
+| `JLINK-007` | `/status/#boundary-states` | `/model/#ownership-boundaries` |
+| `JLINK-008` | `/evaluate/#compatibility` | `/reference/#compatibility` |
+| `JLINK-009` | `/evaluate/#compatibility-limits` | `/status/#adjacent-guidance` |
+| `JLINK-010` | `/model/#operating-model` | `/reference/#artifact-schema-catalog` |
+| `JLINK-011` | `/model/#ownership-boundaries` | `/status/#project-boundaries` |
+| `JLINK-012` | `/adopt/#install` | `/reference/#configuration` |
+| `JLINK-013` | `/adopt/#verify-enforcement` | `/model/#enforcement-loop` |
+| `JLINK-014` | `/model/#enforcement-loop` | `/reference/#gate` |
+| `JLINK-015` | `/use-cases/#choose-use-case` | `/adopt/#adoption-paths` |
+| `JLINK-016` | `/use-cases/#pack-backed-use-cases` | `/packs/#choose-a-pack` |
+| `JLINK-017` | `/packs/#installed-pack-catalog` | `/reference/#pack-commands` |
+| `JLINK-018` | `/packs/#choose-a-pack` | `/status/#pack-direction` |
+| `JLINK-019` | `/extend/#pack-or-not` | `/reference/#pack-artifact` |
+| `JLINK-020` | `/extend/#author-a-pack` | `/contributing/#contribution-paths` |
+| `JLINK-021` | `/evaluate/#evidence` | `/reference/#source-traceability` |
+| `JLINK-022` | `/packs/#installed-pack-catalog` | `/reference/#cli-command-catalog` |
+| `JLINK-023` | `/reference/#cli-command-catalog` | `/status/#release-history` |
+| `JLINK-024` | `/status/#adjacent-guidance` | `/contributing/#external-ownership` |
+
+### Structured owner-rendering matrix
+
+| Owner record | Required rendered contract |
+|---|---|
+| Any boundary | One owner-route/anchor callout with exact `data-boundary-id`, `data-boundary-state`, and one nonempty `[data-boundary-explanation]`. |
+| `supported`, `limitation`, `planned`, or `non-goal` boundary | No continuation or guarantee-denial element because both owner fields are null. |
+| `adjacent-guidance` boundary | Exactly one `a[data-boundary-continuation][data-journey-link-id]` and one nonempty `[data-boundary-guarantee-denial]`, matching owner fields. |
+| `cli-command-catalog` | One tree source link for `cmd/backstop`, resolved at the exact site commit. |
+| `artifact-schema-catalog` | One blob source link per generated schema record's `source`, in record order, resolved at the exact site commit. |
+| `installed-pack-catalog` | Exactly two blob source links, `backstop.yml` then `backstop.lock`, resolved at the exact site commit. |
+| `release-history` | One commit source link per generated release record's full commit, in record order. |
+| `ADOPT-INSTALL` at `/adopt/#install` | One `pre[data-adoption-instruction-id="ADOPT-INSTALL"][data-command-sha256]` with exact owner command bytes and digest. |
+| `ADOPT-CONFIGURE` at `/adopt/#configure` | One `pre[data-adoption-instruction-id="ADOPT-CONFIGURE"][data-command-sha256]` with exact owner command bytes and digest. |
+| `ADOPT-ENFORCE` at `/adopt/#verify-enforcement` | One `pre[data-adoption-instruction-id="ADOPT-ENFORCE"][data-command-sha256]` with exact owner command bytes and digest. |
+
+The generated links remain inside their one owner job section and source-marker pair. `site` commit
+bindings use the exact full lowercase build or deployment commit; record-bound release commits remain
+their generated full commits. Visible link labels and command text remain upstream-owned copy.
 
 ## Implementation
 
@@ -742,32 +902,39 @@ Implementation proceeds in this order:
    owner-exported token CSS asset into `_site`, linked before `site.css`; never check it into Core.
 5. Integrate Seed 3's four source include regions exactly where declared. Jekyll may wrap and style
    them but must not parse their authoritative inputs or regenerate their records.
-6. Build to a disposable `_site`, parse every document, and validate the exact route, redirect,
-   canonical, link, anchor, navigation, current-state, landmark, generated-region, digest, asset,
-   JavaScript-absence, and CNAME contracts. Diagnostics are stable and path-specific.
-7. Run Playwright against a disposable local static-file server with JavaScript disabled. Exercise all
+6. After the exact Jekyll build, run the deterministic owner-contract annotation pass with the full
+   site commit. Match source markers and owner records structurally; bind all rendered JLINKs and
+   structured boundary fields, resolve generated source descriptors, and mark the three adoption
+   command blocks without changing visible copy or checked-in source. Refuse an unresolved or
+   ambiguous owner edge instead of guessing from prose.
+7. Parse every disposable `_site` document and validate the exact route, redirect, canonical, link,
+   anchor, navigation, current-state, landmark, JLINK, structured-boundary, generated-region,
+   generated-source-link, adoption-instruction, digest, asset, JavaScript-absence, and CNAME
+   contracts. Diagnostics are stable and path-specific.
+8. Run Playwright against a disposable local static-file server with JavaScript disabled. Exercise all
    navigation destinations by keyboard at all three viewport sizes, assert document overflow and
    element overlap, capture focus clipping, then inject the exact 200% root-font rule, verify computed
    2x size, await fonts/two frames, and rerun the complete matrix. This server is test
    infrastructure only and never part of deployment.
-8. Create eight independent complete project roots. In each, clean-install and build, preserve every
+9. Create eight independent complete project roots. In each, clean-install, build, and annotate with
+   the same full commit, preserve every
    candidate as `_site/<original-relative-path>`, and invoke one full sorted gate. Apply only the
    exported mutation in each negative and require its intended installed rule and exact path.
-9. Validate full-SHA official action locks, stamp/upload exactly `_site`, deploy, then run the required
+10. Validate full-SHA official action locks, annotate with the workflow head SHA, stamp/upload exactly `_site`, deploy, then run the required
    post-deploy API/action/marker/HTTPS consensus proof over all canonical routes and aliases.
 
 The local checker owns facts about this Core instance: route membership, exact link resolution,
-upstream include placement, workflow wiring, and installed-result attribution. It does not own token,
+rendered owner-record binding, upstream include placement, workflow wiring, and installed-result attribution. It does not own token,
 style, focus, motion, accessibility, wordmark, or reusable-presentation judgments. Those verdicts
 must originate from the installed pack.
 
 ## Verification
 
 `./scripts/verify-public-site.sh` is the single acceptance entrypoint. It runs measured Go tests,
-the two upstream integration checks, the exact locked production build, rendered-site structural
-checks, the real no-JavaScript browser matrix, the installed design-system positive/negative matrix,
-and Pages workflow tests. It fails closed on missing dependencies and leaves the working tree
-unchanged.
+the two upstream integration checks, the exact locked production build, the deterministic
+owner-contract annotation pass, rendered-site structural checks, the real no-JavaScript browser
+matrix, the installed design-system positive/negative matrix, and Pages workflow tests. It fails
+closed on missing dependencies and leaves the working tree unchanged.
 
 Local/PR verification proves post-deploy workflow wiring and the verifier's failure matrices; the
 deployed workflow itself executes authoritative Pages/Actions API and HTTPS checks after deploy.
@@ -775,7 +942,8 @@ Neither local structural checks nor one external evidence channel may stand in f
 
 The positive path is not sufficient by itself. Verification must independently delete or corrupt
 each canonical route, navigation cell, link class, redirect, generated region, CNAME surface,
-viewport behavior, design-system matrix cell, and Pages prerequisite described in frontmatter. A
+viewport behavior, JLINK binding, boundary subfield, generated source link, adoption instruction,
+design-system matrix cell, and Pages prerequisite described in frontmatter. A
 generic "site failed" message is not acceptable evidence; the responsible phase and public or owner
 identity must be visible.
 
@@ -796,6 +964,18 @@ identity must be visible.
 - **Generated Markdown can be rendered but not consumed.** A page that rebuilds an equivalent table
   from source has the right screenshot and the wrong ownership. Seed 3's marked fragment, digest, and
   one-owner region remain load-bearing.
+- **Annotation can become a shadow content owner.** The pass may bind owner records to rendered
+  elements and resolve commit placeholders, but it may not synthesize a missing link, boundary field,
+  command, or provenance record. Ambiguity is a build failure, not permission to choose plausible copy.
+- **A correct URL can still have mutable provenance.** Generated `site` links must contain the full
+  tested/deployed commit, while release links retain their record commits. `main`, `HEAD`, a tag, or
+  an abbreviated SHA produces an apparently useful but non-reproducible evidence edge.
+- **Structured boundary fields can collapse back into prose.** A visually complete callout without
+  separate explanation, continuation, and denial markers is not machine-verifiable and leaves Seed 5
+  guessing. Each owner field and its forbidden-null case remains load-bearing.
+- **A displayed command can drift from executable owner data.** Exact visible bytes and the owner
+  digest are both required. Seed 4 does not expose argv/environment as page copy or execute commands;
+  Seed 5 separately proves that structured execution reaches a real gate result.
 - **Liquid delimiter collision remains real.** Any owner capability that emits Liquid-bearing files
   must use the released ISSUE-182 fix or avoid nested templating. Fragile escaping is not an accepted
   implementation detail.
@@ -826,11 +1006,12 @@ identity must be visible.
 
 ## Integration Contract
 
-SPEC-072 remains the owner of content, routes, navigation meaning, concepts, claims, evidence,
-boundaries, and final copy. SPEC-073 remains the owner of Core's separately released pack-consumption
+SPEC-072 v1.0.3 remains the owner of content, routes, navigation meaning, JLINK records and labels,
+structured boundaries, adoption instructions, concepts, claims, evidence, and final copy. SPEC-073 remains the owner of Core's separately released pack-consumption
 contract and documentation-semantic execution. SPEC-074 remains the owner of generated records,
-markers, digests, freshness, and release-history handshake. This spec owns layouts, responsive
-rendering, built route/link behavior, actual-site design-system execution, and Pages deployment. Seed
+markers, digests, source descriptors, freshness, and release-history handshake. This spec owns
+layouts, responsive rendering, rendered owner-record attributes and immutable source URLs, built
+route/link behavior, actual-site design-system execution, and Pages deployment. Seed
 5 may traverse and falsify the built result but must not replace any of these checks with journey-only
 assertions.
 
@@ -848,24 +1029,30 @@ assertions.
 6. Did site-specific composition consume owner tokens without copying the owner's policy, selectors,
    token declarations, fixtures, or validator logic?
 7. Do the four generated regions retain exact owner route/anchor, marker, digest, and one-time
-   consumption after layout wrapping?
+   consumption, including every ordered immutable source link, after layout wrapping?
 8. Does 200% reflow or a 360px viewport make any primary destination, focus ring, table, diagram, or
    next action unreachable?
 9. Can a tag, alternate workflow, widened permission, skipped check, or prebuilt directory reach the
    Pages deployment action?
 10. Is every new dependency build-time or verification-only, with no runtime complexity introduced
     without a separately governed functional requirement?
+11. Does each JLINK render exactly once under its source anchor with the owner label and exact
+    destination, without falling back to global navigation or an annotation-authored link?
+12. Can removing any structured boundary field, generated source link, or adoption instruction
+    marker produce an attributed failure before Seed 5 journey acceptance runs?
 
 ## References
 
 - `bundles/BUNDLE-032-website-expansion.bundle.md` v0.6.0 — source bundle, Seed 4 partition,
   REQ-009@2.0.0, REQ-013@1.0.0, OQ-6, DD-9, DD-12, and cross-repository sharp edges.
-- `specs/SPEC-072-public-product-model.spec.md` — ten source/path pairs, exact navigation, content
-  ownership, claim/evidence/boundary registries, final copy, and Mermaid authority.
+- `specs/SPEC-072-public-product-model.spec.md` v1.0.3 — ten source/path pairs, exact navigation,
+  JLINK and adoption-instruction records, structured boundary fields, content ownership,
+  claim/evidence/boundary registries, final copy, and Mermaid authority.
 - `specs/SPEC-073-documentation-semantics-integration.spec.md` — released pack identity/pin boundary,
   clean install, and semantics integration; it does not establish design-system applicability.
-- `specs/SPEC-074-derived-product-truth-pipeline.spec.md` — four generated regions, locked Jekyll
-  command, rendered digest verification, Pages freshness, and tag/main publication handshake.
+- `specs/SPEC-074-derived-product-truth-pipeline.spec.md` v1.0.2 — four generated regions, immutable
+  source descriptors, locked Jekyll command, rendered digest verification, Pages freshness, and
+  tag/main publication handshake.
 - `specs/SPEC-071-website-expansion.spec.md` — canceled narrow docs-shell decomposition; historical
   source material only.
 - `docs/index.html`, `docs/_config.yml`, `docs/CNAME`, `docs/assets/css/backstop.css`, and

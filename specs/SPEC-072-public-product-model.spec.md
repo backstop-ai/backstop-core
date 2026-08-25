@@ -4,7 +4,7 @@ number: SPEC-072
 created: "2026-08-24"
 status: draft
 schema_version: spec/v1
-spec_version: 1.0.2
+spec_version: 1.0.3
 
 implementation:
   summary: >
@@ -24,7 +24,11 @@ implementation:
     generated-product-truth pipeline (Seed 3), Jekyll layouts/design-system integration
     (Seed 4), or capability/@UJ acceptance (Seed 5). It adopts no external documentation
     pattern, creates no MCP or machine-only publication, and adds no generalized prose
-    quality, writing-style, or prose-LSP mechanism.
+    quality, writing-style, or prose-LSP mechanism. As the Seed 1 owner dependency
+    consumed by SPEC-076, Core also owns the exact source-level journey-link records,
+    structured boundary explanation/continuation/denial fields, and provenance-bound
+    adoption instruction records that later seeds render and execute; this spec does not
+    own their browser journeys, HTML markers, or disposable-repository runner.
   subject: docs/public-product-model
 
 verification:
@@ -45,12 +49,12 @@ contracts:
     provides:
       - name: public_content_topology
         kind: variable
-        signature: "pages[] + neighborhoods[] + navigation"
+        signature: "pages[] + neighborhoods[] + navigation + journey_links[24] + adoption_instructions[3]"
   - file: docs/_data/product-model.yml
     provides:
       - name: canonical_product_model
         kind: variable
-        signature: "concepts[] + architecture_views[] + boundaries[]"
+        signature: "concepts[] + architecture_views[] + boundaries[state|explanation_markdown|continuation|guarantee_denial_markdown]"
   - file: docs/_data/evidence-inventory.yml
     provides:
       - name: public_claim_evidence_inventory
@@ -249,7 +253,20 @@ requirements:
       governing work artifact and must not be described as shipped; `non-goal` must state
       the intentionally unowned responsibility; and `adjacent-guidance` must name the seam,
       explain why Backstop stops there, recommend a continuation path, and explicitly deny
-      that the recommendation is a Backstop guarantee. A boundary with zero states,
+      that the recommendation is a Backstop guarantee. Every boundary record must carry the
+      stable structured fields `state`, nonempty `explanation_markdown`, `continuation`, and
+      `guarantee_denial_markdown`. For `adjacent-guidance`, `continuation` must be exactly one
+      object with a `journey_link_id` resolving to one REQ-008 record, nonempty root-relative
+      `route`, explicit `anchor`, and nonempty `label`, and
+      `guarantee_denial_markdown` must be nonempty. For `supported`, `limitation`, `planned`,
+      and `non-goal`, `continuation` and `guarantee_denial_markdown` must both be null; an
+      implementation may not infer any of these fields from prose. The continuation's JLINK
+      source route/anchor must equal the boundary owner, its destination and label must equal the
+      continuation route/anchor/label, and the boundary's one existing `claim_id` governs every
+      non-null structured copy field. Its claim `statement_markdown` must equal the exact
+      composition `explanation_markdown`, then for adjacent guidance a blank line, Markdown link
+      `[<label>](<route>#<anchor>)`, another blank line, and `guarantee_denial_markdown`. A boundary
+      with zero states,
       multiple states, or prose that contradicts its state must fail verification.
   - id: REQ-006
     supports:
@@ -296,6 +313,52 @@ requirements:
       Cayman positioning, or substantive duplicate of another page's owned concept. A
       generalized prose-quality, writing-style, or prose-LSP pack is outside this spec and
       cannot become a prerequisite or be added as an implementation shortcut.
+  - id: REQ-008
+    supports:
+      - website-expansion:REQ-002@2.0.0
+    text: >
+      `docs/_data/content-topology.yml` must declare exactly the 24 stable source-owned
+      journey-link records `JLINK-001` through `JLINK-024` in the Journey-link matrix below,
+      with no additional `JLINK-*` record. Each record must contain its exact `link_id`, source
+      route and explicit source anchor, destination route and explicit destination anchor, and
+      nonempty Seed 1-owned link label. The named source page must contain exactly one
+      `<!-- backstop-journey-link: JLINK-NNN -->` marker immediately followed by exactly one
+      Markdown link whose label equals the record label and whose root-relative destination
+      equals `<destination-route>#<destination-anchor>`; the marker and link must occur under
+      the record's nearest preceding explicit source anchor. JLINK-009 is one physical source
+      link and remains one registry record even though multiple downstream journeys consume it.
+      Every source and destination route must be one of REQ-002's ten canonical routes and every
+      source and destination anchor must exist exactly once in its Seed 1 page source. Missing,
+      additional, duplicate, reordered, wrong-source, wrong-destination, wrong-anchor,
+      unmarked, multiply marked, global-navigation-only, or non-root-relative links are
+      PROHIBITED. Seed 1 owns the source link and copy; Seed 4 owns rendered link attributes and
+      route/link behavior; Seed 5 may consume these IDs but must not author substitute links.
+  - id: REQ-009
+    supports:
+      - website-expansion:REQ-010@1.1.0
+    text: >
+      `docs/_data/content-topology.yml` must declare exactly three adoption instruction records,
+      `ADOPT-INSTALL`, `ADOPT-CONFIGURE`, and `ADOPT-ENFORCE`, in that order and with the exact
+      owners, displayed commands, digests, structured execution, provenance, and postconditions
+      in the Adoption instruction matrix below. Every record must contain `instruction_id`,
+      `owner_route`, `owner_anchor`, `command_text`, `command_sha256`, `executable`, ordered
+      `argv`, `environment`, `working_directory`, `provenance`, `expected_exit_code`, and ordered
+      `expected_outputs`. `command_sha256` must be `sha256:` plus the lowercase SHA-256 of the
+      exact UTF-8 `command_text` bytes with no trailing newline. `<disposable-root>` is a typed
+      runtime placeholder resolved to the newly created disposable Git repository root; it may
+      occur only in structured executable, environment, working-directory, provenance-output,
+      and expected-output path fields, never in displayed command text. `ADOPT-INSTALL`
+      provenance is the exact immutable Go module coordinate
+      `github.com/backstop-ai/backstop-core/cmd/backstop@v0.2.0`; the later records' provenance
+      must point to `ADOPT-INSTALL`'s exact installed output
+      `<disposable-root>/.backstop-bin/backstop`. The source page must display each exact
+      `command_text` once under its owner anchor. These data must be sufficient for a consumer
+      to execute the three records without evaluating displayed text through a shell. Missing,
+      additional, duplicate, reordered, digest-mismatched, mutable/unversioned provenance,
+      wrong-owner, wrong-executable/argv/environment/working-directory, shell-dependent, or
+      postcondition-free records are PROHIBITED. Seed 1 owns instruction structure and copy;
+      Seed 4 owns rendered instruction/digest markers; Seed 5 owns disposable execution and
+      receipts.
 
 claims:
   - id: CLM-001
@@ -475,6 +538,41 @@ claims:
     text: A missing, changed, duplicated, or presentation-owned hero question fails with its canonical route.
     tests:
       - verify_content_topology_rejects_invalid_hero_question
+  - id: CLM-036
+    requirement: REQ-008
+    text: All 24 exact JLINK records resolve one-to-one from their declared source route/anchor markers and Markdown links to their exact destination route/anchor.
+    tests:
+      - verify_journey_link_matrix
+  - id: CLM-037
+    requirement: REQ-008
+    text: A missing, additional, duplicate, reordered, wrong-source, wrong-destination, wrong-anchor, unmarked, multiply marked, global-navigation-only, or non-root-relative JLINK fails with its link ID.
+    tests:
+      - verify_journey_link_matrix_rejects_invalid_edge
+  - id: CLM-038
+    requirement: REQ-005
+    text: Every boundary state carries nonempty structured explanation text; every adjacent-guidance record carries exactly one JLINK-matched continuation object and nonempty guarantee denial whose deterministic composition equals its claim statement; and all four other states carry null continuation and denial fields with claim text equal to their explanation.
+    tests:
+      - verify_product_boundary_structured_field_matrix
+  - id: CLM-039
+    requirement: REQ-005
+    text: A missing or empty explanation, malformed or JLINK-mismatched continuation, missing adjacent-guidance continuation or denial, claim-composition mismatch, or non-null continuation or denial on another state fails with its boundary ID and field.
+    tests:
+      - verify_product_boundary_rejects_invalid_structured_fields
+  - id: CLM-040
+    requirement: REQ-009
+    text: ADOPT-INSTALL, ADOPT-CONFIGURE, and ADOPT-ENFORCE occur in exact order with the exact owner, command, digest, structured execution, immutable provenance, zero exit expectation, and postconditions in the Adoption instruction matrix.
+    tests:
+      - verify_adoption_instruction_matrix
+  - id: CLM-041
+    requirement: REQ-009
+    text: A missing, additional, duplicate, reordered, wrong-owner, changed-command, digest-mismatched, mutable-provenance, wrong-executable/argv/environment/working-directory, shell-dependent, or postcondition-free adoption record fails with its instruction ID and field.
+    tests:
+      - verify_adoption_instruction_matrix_rejects_invalid_record
+  - id: CLM-042
+    requirement: REQ-009
+    text: Each command digest recomputes from the exact no-newline UTF-8 displayed command, and each displayed command occurs exactly once under its declared owner anchor.
+    tests:
+      - verify_adoption_instruction_source_and_digest_binding
 ---
 
 # SPEC-072: Public Product Model
@@ -585,18 +683,97 @@ with exact source anchors and rationales. Prefixes bind units to sources: `HOME`
 | CLI-004 | Artifact commands | merge | `/reference/` |
 | CLI-005 | Recipe, baseline, waiver, version, commands | merge | `/reference/` |
 
+### Journey-link matrix
+
+These are Seed 1 source-content edges, not Seed 5 scenarios. Each row is one exact
+`journey_links[]` record and one marked Markdown link under the source anchor. JLINK-009 is
+intentionally one shared physical edge.
+
+| Link ID | Source route/anchor | Destination route/anchor |
+|---|---|---|
+| JLINK-001 | `/#why-backstop` | `/evaluate/#failure-fit` |
+| JLINK-002 | `/evaluate/#what-backstop-is` | `/model/#operating-model` |
+| JLINK-003 | `/use-cases/#choose-use-case` | `/evaluate/#fit-decision` |
+| JLINK-004 | `/evaluate/#fit-decision` | `/adopt/#install` |
+| JLINK-005 | `/evaluate/#not-a-fit` | `/status/#adjacent-guidance` |
+| JLINK-006 | `/evaluate/#guarantees` | `/status/#supported-and-limited` |
+| JLINK-007 | `/status/#boundary-states` | `/model/#ownership-boundaries` |
+| JLINK-008 | `/evaluate/#compatibility` | `/reference/#compatibility` |
+| JLINK-009 | `/evaluate/#compatibility-limits` | `/status/#adjacent-guidance` |
+| JLINK-010 | `/model/#operating-model` | `/reference/#artifact-schema-catalog` |
+| JLINK-011 | `/model/#ownership-boundaries` | `/status/#project-boundaries` |
+| JLINK-012 | `/adopt/#install` | `/reference/#configuration` |
+| JLINK-013 | `/adopt/#verify-enforcement` | `/model/#enforcement-loop` |
+| JLINK-014 | `/model/#enforcement-loop` | `/reference/#gate` |
+| JLINK-015 | `/use-cases/#choose-use-case` | `/adopt/#adoption-paths` |
+| JLINK-016 | `/use-cases/#pack-backed-use-cases` | `/packs/#choose-a-pack` |
+| JLINK-017 | `/packs/#installed-pack-catalog` | `/reference/#pack-commands` |
+| JLINK-018 | `/packs/#choose-a-pack` | `/status/#pack-direction` |
+| JLINK-019 | `/extend/#pack-or-not` | `/reference/#pack-artifact` |
+| JLINK-020 | `/extend/#author-a-pack` | `/contributing/#contribution-paths` |
+| JLINK-021 | `/evaluate/#evidence` | `/reference/#source-traceability` |
+| JLINK-022 | `/packs/#installed-pack-catalog` | `/reference/#cli-command-catalog` |
+| JLINK-023 | `/reference/#cli-command-catalog` | `/status/#release-history` |
+| JLINK-024 | `/status/#adjacent-guidance` | `/contributing/#external-ownership` |
+
+The record's nonempty `label` is final Seed 1 copy and must equal its marked Markdown link text.
+Seed 4 may translate the record and source marker into a rendered `data-journey-link-id`, but
+neither Seed 4 nor Seed 5 may change the edge or mint a replacement.
+
+### Structured boundary fields
+
+Every boundary record carries the same four stable fields: `state`, nonempty
+`explanation_markdown`, `continuation`, and `guarantee_denial_markdown`. The cardinality is exact:
+
+| Boundary state | `explanation_markdown` | `continuation` | `guarantee_denial_markdown` |
+|---|---|---|---|
+| `supported` | Nonempty | null | null |
+| `limitation` | Nonempty | null | null |
+| `planned` | Nonempty | null | null |
+| `non-goal` | Nonempty | null | null |
+| `adjacent-guidance` | Nonempty | Exactly one `{journey_link_id, route, anchor, label}` object | Nonempty |
+
+The adjacent-guidance continuation route is root-relative, its anchor is explicit, and both
+resolve within the ten-page Seed 1 topology. Its JLINK source equals the boundary owner and its
+JLINK destination and label equal the continuation. The boundary claim's exact
+`statement_markdown` is the explanation, blank line, continuation Markdown link, blank line, and
+guarantee denial; non-adjacent claim text is the explanation alone. These fields are product truth.
+Seed 4 renders stable markers from them; Seed 5 consumes the IDs and cardinality without inferring
+semantic structure from prose.
+
+### Adoption instruction matrix
+
+These are the exact three source-owned records in `content-topology.yml`. `command_sha256` hashes
+the exact displayed UTF-8 command with no trailing newline. `working_directory` is
+`<disposable-root>` for all three records and `expected_exit_code` is `0` for all three.
+
+| Instruction | Owner | Exact `command_text` | Exact `command_sha256` | Structured execution, provenance, and ordered postconditions |
+|---|---|---|---|---|
+| ADOPT-INSTALL | `/adopt/#install` | `GOBIN=./.backstop-bin go install github.com/backstop-ai/backstop-core/cmd/backstop@v0.2.0` | `sha256:54523aa4d4d52abcfa3b58816f5cae70ddb58773f9d90a782ebfe3afd4420ced` | `executable: go`; `argv: [install, github.com/backstop-ai/backstop-core/cmd/backstop@v0.2.0]`; `environment: {GOBIN: <disposable-root>/.backstop-bin}`; provenance `{kind: go-module-version, coordinate: github.com/backstop-ai/backstop-core/cmd/backstop@v0.2.0}`; outputs `[executable-file:<disposable-root>/.backstop-bin/backstop]` |
+| ADOPT-CONFIGURE | `/adopt/#configure` | `backstop init` | `sha256:0ebe03e241fa9eddc23c902c17397044d2bc5d38f980405b8c66c024e9d74198` | `executable: <disposable-root>/.backstop-bin/backstop`; `argv: [init]`; `environment: {}`; provenance `{kind: instruction-output, instruction_id: ADOPT-INSTALL, path: <disposable-root>/.backstop-bin/backstop}`; outputs `[file:<disposable-root>/backstop.yml]` |
+| ADOPT-ENFORCE | `/adopt/#verify-enforcement` | `backstop gate` | `sha256:85ffedc97983c354f036e2c3a5b71e4e0df3c850c7e2f0511ca3cc05ff2976a3` | `executable: <disposable-root>/.backstop-bin/backstop`; `argv: [gate]`; `environment: {}`; provenance `{kind: instruction-output, instruction_id: ADOPT-INSTALL, path: <disposable-root>/.backstop-bin/backstop}`; outputs `[verdict:exit-0]` |
+
+The relative `GOBIN=./.backstop-bin` is copy a visitor can paste from the disposable repository
+root. The structured environment resolves it to the absolute typed placeholder so a downstream
+runner can invoke `go` directly without a shell. The configure and enforce records similarly use
+the installed absolute executable while preserving concise displayed copy.
+
 ### Registry record shapes
 
-`content-topology.yml` contains `pages`, `neighborhoods`, and `navigation`. A page record names
+`content-topology.yml` contains `pages`, `neighborhoods`, `navigation`, `journey_links`, and
+`adoption_instructions`. A page record names
 its source, canonical path, role, exact Seed 1-owned hero question, neighborhood IDs, required content blocks, and source material.
 A neighborhood record names its stable ID, visitor question, authoritative owner, and required
-answer. Navigation stores the exact primary and utility memberships above.
+answer. Navigation stores the exact primary and utility memberships above. Journey links bind
+source-owned content edges by ID and exact route/anchor endpoints. Adoption instructions bind
+displayed copy to structured, provenance-bearing, digest-checked direct execution.
 
 `product-model.yml` contains `concepts`, `architecture_views`, and `boundaries`. Concept and
 architecture records have exactly one route/anchor owner; the three required architecture records
 point to the exact authoritative Mermaid sources in REQ-003, and other pages use summaries and links.
-Boundary records use exactly one state from the five-state vocabulary, carry the state-specific facts
-in REQ-005, and link one-to-one to evidence-bearing claims.
+Boundary records use exactly one state from the five-state vocabulary, carry the four stable
+structured fields and state-specific cardinality in REQ-005, and link one-to-one to evidence-bearing
+claims.
 
 `evidence-inventory.yml` contains `claims` and `corpus_roles`. All claim types require mechanism
 evidence. Runtime and compatibility claims additionally require execution evidence; observed
@@ -617,13 +794,16 @@ The planner must preserve this ordering and these ownership seams:
 1. Materialize the completed six-source useful-unit analysis above, including exact locators and
    rationales, before retiring or rewriting any source.
 2. Materialize the exact content topology and navigation registries, including required page
-   blocks and the twelve single-owner neighborhood assignments.
+   blocks, the twelve single-owner neighborhood assignments, all 24 JLINK source edges, and the
+   three provenance-bound adoption instructions.
 3. Materialize the canonical concept, architecture, boundary, and claim-evidence registries from
    durable repository sources. Do not use conversation recollection as evidence.
 4. Implement the Core-owned static verifier for exact inventory completeness, claim-region byte and
-   reference integrity, single structural ownership, state classification, claim-type evidence
-   matrices, durable source existence, and minimum corpus roles. The verifier checks deterministic
-   Backstop-specific structure only; it does not define a reusable documentation-semantic engine.
+   reference integrity, single structural ownership, the exact JLINK source/destination and marker
+   matrix, structured boundary-field cardinality, adoption instruction command/digest/execution/
+   provenance binding, state classification, claim-type evidence matrices, durable source existence,
+   and minimum corpus roles. The verifier checks deterministic Backstop-specific structure only; it
+   does not define a reusable documentation-semantic engine.
 5. After Seed 2's documentation-semantic contract is released, content-identity pinned in
    `backstop.lock`, declared in `backstop.yml`, and installed, author the ten
    final Markdown sources, rewriting, merging, decomposing, or retiring the prior sources exactly
@@ -648,8 +828,8 @@ path, and reference verification against the checked-in registries and page sour
 consume Seed 2's released, installed, content-identity-pinned documentation-semantics pack; it owns
 semantic assertions and cannot be replaced by local lookalike rules. Claims are defined in
 frontmatter. Negative tests mutate isolated fixture copies, never the accepted site corpus, and print
-the relevant page, neighborhood, concept, architecture view, boundary, claim, useful unit, corpus
-role, source path, or commit in the failure.
+the relevant page, neighborhood, concept, architecture view, boundary, claim, useful unit, JLINK,
+adoption instruction, corpus role, source path, or commit in the failure.
 
 The claim-type evidence matrix is exhaustive:
 
@@ -699,15 +879,34 @@ or contradictory states fail.
   neighborhood merely to make the topology symmetrical.
 - **Diagram rendering can create parallel truth.** Mermaid text is authoritative; rendered SVG or HTML is
   derived Seed 4 presentation and cannot become independently editable product truth.
+- **A journey link can exist without being the declared content edge.** Global navigation or a second
+  link to the same route cannot substitute for the one JLINK marker under the exact source anchor.
+  Source-marker cardinality and exact destination anchors keep downstream traversal from passing by
+  taking an accidental route.
+- **Rendered link identifiers belong downstream.** Seed 1 owns JLINK records, source markers, labels,
+  and destinations; Seed 4 owns HTML attributes and browser-level link correctness. Teaching the Seed 1
+  verifier to inspect built HTML would duplicate the Seed 4 seam.
+- **Displayed commands are not execution plans.** Shell-looking text can conceal environment and path
+  assumptions. The command digest binds visitor copy, while executable/argv/environment/provenance
+  fields give Seed 5 a shell-free execution contract. Neither representation may be reconstructed from
+  the other.
+- **A mutable install coordinate invalidates the adoption proof.** `latest`, a branch, a local checkout,
+  or an already installed binary can make the demonstration pass against bytes the page did not name.
+  The exact `@v0.2.0` coordinate and ADOPT-INSTALL output provenance are load-bearing.
+- **Boundary prose must not become the schema.** Seed 5 cannot infer explanation, continuation, or denial
+  from nearby words. Null-versus-present structured fields are deliberate, and Seed 4 must render them
+  without changing their cardinality.
 
 ## Integration Contract
 
 Seed 2 consumes the four registries and page responsibilities as real fixtures for the separately
 governed documentation-semantics pack; it may not relocate product truth into that pack. Seed 3 may
 generate Markdown only into owners named here and must retain one authoritative source per derived
-surface. Seed 4 consumes the ten page sources, canonical paths, and navigation model without changing
-content ownership. Seed 5 traverses built output and cites the claim, evidence, and boundary records
-without redefining them.
+surface. Seed 4 consumes the ten page sources, canonical paths, navigation model, JLINK records,
+structured boundary fields, and adoption instructions without changing content ownership; it owns
+their rendered markers and behavior. Seed 5 traverses built output, cites the claim/evidence/boundary
+records, follows the JLINK edges, and directly executes the structured adoption records without
+redefining any of them or treating this spec as the owner of capability scenarios.
 
 ## Review Questions
 
@@ -729,6 +928,13 @@ without redefining them.
 9. Was final copy authored only after the topology and documentation-semantic contract stabilized?
 10. Did Seed 1 avoid absorbing semantic-pack enforcement, generated-doc machinery, presentation,
     capability journeys, MCP publication, or generalized prose tooling?
+11. Does every JLINK source marker occur exactly once under its declared source anchor and point to
+    the exact destination anchor rather than merely the right page?
+12. Do boundary consumers read the structured explanation/continuation/denial fields rather than
+    parsing page prose, with non-adjacent states retaining explicit nulls?
+13. Can a consumer execute all three adoption records in order from structured executable, argv,
+    environment, working directory, and provenance without invoking a shell or using a preinstalled
+    Backstop binary?
 
 ## References
 
@@ -745,3 +951,5 @@ without redefining them.
   `issues/ISSUE-184-fixture-path-filter-diagnostics.issue.md` — durable first-party failure evidence.
 - `artifacts/capability/v1/schema.json`, `pkg/pack/engine/binding.go`, and
   `pkg/recipe/manifest.go` — product-model and mechanism source material.
+- `specs/SPEC-076-end-to-end-website-capabilities.spec.md` v1.0.1 — downstream consumer contract
+  requiring SPEC-072 v1.0.3's JLINK, structured-boundary, and adoption-instruction amendment.
