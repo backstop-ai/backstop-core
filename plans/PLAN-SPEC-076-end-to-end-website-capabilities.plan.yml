@@ -1,0 +1,370 @@
+---
+plan_id: PLAN-SPEC-076
+spec_id: SPEC-076
+spec_version: "1.0.1"
+created: "2026-08-24"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: ./scripts/verify-website-capabilities.sh
+coverage_threshold: 80
+notes: |
+  Seed 5 only. Begin after accepted PLAN-SPEC-072 through PLAN-SPEC-075 complete
+  in full. This is a one-way prerequisite barrier: no predecessor task depends on
+  this plan. Consume their artifacts, public verdicts, rendered markers, and
+  deployment identity read-only; do not re-own product truth or policy.
+
+phases:
+  - id: phase-1
+    name: "Accept predecessors and reserve the capability cohort"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Enforce the acyclic Seed 1 through Seed 4 barrier"
+        description: |
+          Stop unless PLAN-SPEC-072, 073, 074, and 075 are accepted and complete and
+          their specs are exactly v1.0.3, v1.0.0, v1.0.2, and v1.0.2. Run the four
+          public verifiers exactly as `./scripts/verify-public-product-model.sh`,
+          `./scripts/verify-documentation-semantics-integration.sh`,
+          `./scripts/verify-product-truth.sh`, and `./scripts/verify-public-site.sh`.
+          Inspect JLINK-001..024, structured boundaries, adoption instructions, generated
+          source links, rendered markers, and deployment proof read-only. Never call owner
+          engines or create a dependency back to Seed 5.
+        files: [plans/PLAN-SPEC-072-public-product-model.plan.yml, plans/PLAN-SPEC-073-documentation-semantics-integration.plan.yml, plans/PLAN-SPEC-074-derived-product-truth-pipeline.plan.yml, plans/PLAN-SPEC-075-static-public-site-design-system.plan.yml]
+        claims: [CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-023, CLM-024, CLM-025, CLM-026]
+        depends_on: []
+      - id: TASK-002
+        type: setup
+        title: "Reserve CAP-004 through CAP-007"
+        description: |
+          Run these exact commands in order and require each resulting ID before continuing:
+          `./bin/backstop artifact new capability --slug understand-backstop`,
+          `./bin/backstop artifact new capability --slug evaluate-fit`,
+          `./bin/backstop artifact new capability --slug evaluate-guarantees`, then
+          `./bin/backstop artifact new capability --slug evaluate-compatibility`.
+          Require CAP-002/CAP-003 tombstones, preserve CAP-001, refuse unexpected
+          reservations, and leave draft scaffolds; never hand-create an ID.
+        files: [capabilities/CAP-004-understand-backstop/capability.yml, capabilities/CAP-005-evaluate-fit/capability.yml, capabilities/CAP-006-evaluate-guarantees/capability.yml, capabilities/CAP-007-evaluate-compatibility/capability.yml]
+        claims: [CLM-001, CLM-002]
+        depends_on: [TASK-001]
+      - id: TASK-030
+        type: setup
+        title: "Reserve CAP-008 through CAP-011"
+        description: |
+          Continue by running exactly
+          `./bin/backstop artifact new capability --slug understand-system`,
+          `./bin/backstop artifact new capability --slug adopt-backstop`,
+          `./bin/backstop artifact new capability --slug apply-backstop`, and
+          `./bin/backstop artifact new capability --slug browse-pack-ecosystem`, in that
+          order. Require CAP-008..011 respectively, refuse collisions/gaps, and leave drafts.
+        files: [capabilities/CAP-008-understand-system/capability.yml, capabilities/CAP-009-adopt-backstop/capability.yml, capabilities/CAP-010-apply-backstop/capability.yml, capabilities/CAP-011-browse-pack-ecosystem/capability.yml]
+        claims: [CLM-001, CLM-002]
+        depends_on: [TASK-002]
+      - id: TASK-031
+        type: setup
+        title: "Reserve CAP-012 through CAP-014"
+        description: |
+          Finish by running exactly
+          `./bin/backstop artifact new capability --slug extend-backstop`,
+          `./bin/backstop artifact new capability --slug inspect-evidence`,
+          and `./bin/backstop artifact new capability --slug continue-beyond-backstop`, in
+          that order. Require CAP-012..014 respectively, refuse collisions/gaps, and leave drafts.
+        files: [capabilities/CAP-012-extend-backstop/capability.yml, capabilities/CAP-013-inspect-evidence/capability.yml, capabilities/CAP-014-continue-beyond-backstop/capability.yml]
+        claims: [CLM-001, CLM-002]
+        depends_on: [TASK-030]
+
+  - id: phase-2
+    name: "Define exact capabilities, scenarios, and integration graph"
+    tasks:
+      - id: TASK-003
+        type: test
+        title: "Specify capability and global scenario matrices"
+        description: |
+          Add failing table tests for exactly eleven strict artifacts, two scenarios each,
+          global CAP/UJ identity, exact titles/slugs/spec spine/gates, and all ordered
+          JLINK route-anchor sequences. Reject tombstone reuse, aliases, extras, wrong
+          gates, local-only IDs, direct loads, global navigation, reordered hops, and
+          missing executable browser coverage. Independently remove and wrong-bind every
+          JLINK-001..024 and require each diagnostic to name the affected global journey key.
+        files: [scripts/websitejourney/artifacts_test.go, scripts/websitejourney/testdata/artifact-scenario-mutations.yml]
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004]
+        test_names: [TestWebsiteJourney_ExactCapabilityArtifactMatrixPasses, TestWebsiteJourney_RejectsInvalidCapabilityArtifactMatrix, TestWebsiteJourney_ExactScenarioAndCoverageMatrixPasses, TestWebsiteJourney_RejectsScenarioAndCoverageDrift]
+        depends_on: [TASK-031]
+      - id: TASK-034
+        type: implementation
+        title: "Implement capability and scenario validation"
+        description: |
+          Implement production parsing and closed-matrix validation for CAP-004..014,
+          their fields/gates, 22 global identities, executable-test coverage, and ordered
+          JLINK bindings. Diagnose every independently missing or wrong-bound JLINK with
+          its global journey key; do not traverse the site yet.
+        files: [scripts/websitejourney/artifacts.go, scripts/websitejourney/main.go]
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004]
+        depends_on: [TASK-003]
+      - id: TASK-004
+        type: implementation
+        title: "Complete CAP-004 through CAP-007"
+        description: "Fill four exact draft strict artifacts and eight visitor-observable Gherkin journeys. Preserve the four-spec spine, two blocking built/deployed gates, exact JLINK order, and owner semantics."
+        files: [capabilities/CAP-004-understand-backstop/capability.yml, capabilities/CAP-004-understand-backstop/user-journeys.feature, capabilities/CAP-005-evaluate-fit/capability.yml, capabilities/CAP-005-evaluate-fit/user-journeys.feature, capabilities/CAP-006-evaluate-guarantees/capability.yml, capabilities/CAP-006-evaluate-guarantees/user-journeys.feature, capabilities/CAP-007-evaluate-compatibility/capability.yml, capabilities/CAP-007-evaluate-compatibility/user-journeys.feature]
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004]
+        depends_on: [TASK-003]
+      - id: TASK-005
+        type: implementation
+        title: "Complete CAP-008 through CAP-011"
+        description: "Fill four exact draft strict artifacts and eight journeys, including CAP-009 traversal and CAP-011 generated-catalog outcomes. Keep execution/provenance in runner/map rather than Gherkin prose."
+        files: [capabilities/CAP-008-understand-system/capability.yml, capabilities/CAP-008-understand-system/user-journeys.feature, capabilities/CAP-009-adopt-backstop/capability.yml, capabilities/CAP-009-adopt-backstop/user-journeys.feature, capabilities/CAP-010-apply-backstop/capability.yml, capabilities/CAP-010-apply-backstop/user-journeys.feature, capabilities/CAP-011-browse-pack-ecosystem/capability.yml, capabilities/CAP-011-browse-pack-ecosystem/user-journeys.feature]
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004]
+        depends_on: [TASK-003]
+      - id: TASK-006
+        type: implementation
+        title: "Complete CAP-012 through CAP-014"
+        description: "Fill three exact draft strict artifacts and six journeys, including four-job tracing and adjacent-boundary continuation, with exact route/JLINK order and owner-defined semantics."
+        files: [capabilities/CAP-012-extend-backstop/capability.yml, capabilities/CAP-012-extend-backstop/user-journeys.feature, capabilities/CAP-013-inspect-evidence/capability.yml, capabilities/CAP-013-inspect-evidence/user-journeys.feature, capabilities/CAP-014-continue-beyond-backstop/capability.yml, capabilities/CAP-014-continue-beyond-backstop/user-journeys.feature]
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004]
+        depends_on: [TASK-003]
+      - id: TASK-007
+        type: test
+        title: "Specify typed journey-map bindings"
+        description: |
+          Add failing tests for exactly 22 keys, exact predecessor versions, the closed
+          evidence/boundary/generated kinds, accepted Seed 1 IDs and field markers, plus
+          typed generated job/output/owner/marker/digest/source-link tuples, four dependency
+          records, and three adoption references. Reject copied prose, inferred roles,
+          aliases, reconstructed provenance, and wrong record kinds or references.
+        files: [scripts/websitejourney/map_test.go, scripts/websitejourney/testdata/map-binding-mutations.yml]
+        claims: [CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-023, CLM-024, CLM-025, CLM-026]
+        test_names: [TestWebsiteJourney_EvidenceAndBoundaryBindingsPass, TestWebsiteJourney_RejectsInvalidSemanticBindingMatrix, TestWebsiteJourney_GeneratedObligationMatrixPasses, TestWebsiteJourney_RejectsInvalidGeneratedObligationMatrix]
+        depends_on: [TASK-001]
+      - id: TASK-008
+        type: implementation
+        title: "Materialize the owner-referential journey map"
+        description: |
+          Select accepted evidence/boundary roles once; import generated provenance refs;
+          record 22 route/JLINK graphs, four prerequisites, and adoption refs. Store IDs,
+          coordinates, expected types/states, digests, and source links only—never claims,
+          explanations, commands, owner rules, or generated records.
+        files: [docs/_data/website-capability-map.yml]
+        claims: [CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-023, CLM-024, CLM-025, CLM-026]
+        depends_on: [TASK-007]
+      - id: TASK-035
+        type: implementation
+        title: "Implement typed journey-map validation"
+        description: |
+          Implement production parsing and validation of predecessor versions, 22 graph
+          keys, closed obligation kinds, accepted owner records, structured boundary fields,
+          and complete generated tuples. Reject ambiguity, inference, aliases,
+          reconstruction, wrong bindings, and incomplete provenance before traversal.
+        files: [scripts/websitejourney/map.go, scripts/websitejourney/types.go]
+        claims: [CLM-003, CLM-004, CLM-005, CLM-006, CLM-023, CLM-024]
+        depends_on: [TASK-007]
+      - id: TASK-009
+        type: verification
+        title: "Gate the declarative graph"
+        description: "Run `./bin/backstop gate --file docs/_data/website-capability-map.yml` and scoped gates for CAP-004..014; execute artifact/scenario/map mutations and require all 22 global keys without owner-content duplication."
+        files: [docs/_data/website-capability-map.yml, scripts/websitejourney/artifacts_test.go, scripts/websitejourney/map_test.go]
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-023, CLM-024]
+        depends_on: [TASK-004, TASK-005, TASK-006, TASK-008, TASK-034, TASK-035]
+
+  - id: phase-3
+    name: "Implement prerequisites and semantic traversal"
+    tasks:
+      - id: TASK-010
+        type: test
+        title: "Specify prerequisite verdict behavior"
+        description: |
+          Test exactly `./scripts/verify-public-product-model.sh`,
+          `./scripts/verify-documentation-semantics-integration.sh`,
+          `./scripts/verify-product-truth.sh`, and `./scripts/verify-public-site.sh`, with
+          attributed fresh zero exits, every-capability dependency, and fail-before-traversal
+          behavior. Mutate missing, skipped, stale, synthetic, nonzero, wrong-command,
+          direct-engine, and ungoverned-generic-primitive cases.
+        files: [scripts/websitejourney/dependencies_test.go, scripts/websitejourney/testdata/dependency-verdict-mutations.yml]
+        claims: [CLM-007, CLM-008, CLM-015, CLM-022]
+        test_names: [TestWebsiteJourney_ExactDependencyVerdictMatrixPasses, TestWebsiteJourney_RejectsInvalidDependencyVerdictMatrix, TestWebsiteJourney_EveryDependencyVerdictRemovalBreaksCapabilities, TestWebsiteJourney_RefusesUngovernedGenericPrimitive]
+        depends_on: [TASK-009]
+      - id: TASK-011
+        type: implementation
+        title: "Implement prerequisite orchestration"
+        description: "Compose already-validated inputs with only four public predecessor entrypoints; retain attributed verdicts, fail before traversal, keep owner engines opaque, and refuse a missing generic primitive by named separately governed dependency."
+        files: [scripts/websitejourney/main.go, scripts/websitejourney/dependencies.go]
+        claims: [CLM-007, CLM-008, CLM-015, CLM-022]
+        depends_on: [TASK-010]
+      - id: TASK-012
+        type: test
+        title: "Specify all 22 built journeys"
+        description: |
+          Add failing Go and Playwright cases titled with each global key. Follow exact
+          rendered JLINKs from first route; demand 200, case-sensitive anchors, visibility,
+          and typed semantic outcomes. Reject direct loads, global nav, prose inference,
+          screenshots, missing markers, runtime, and vacuous click tours. On isolated built
+          copies independently remove and wrong-bind every rendered JLINK-001..024 and
+          require a failure naming the affected global journey key.
+        files: [scripts/websitejourney/traversal_test.go, tests/website-capabilities.spec.ts, scripts/websitejourney/testdata/built-journey-mutations.yml]
+        claims: [CLM-003, CLM-004, CLM-005, CLM-006, CLM-009, CLM-011, CLM-018, CLM-023, CLM-024]
+        test_names: [TestWebsiteJourney_BuiltSiteAllJourneysPass, TestWebsiteJourney_HasNoPublishedRuntime]
+        depends_on: [TASK-009]
+      - id: TASK-013
+        type: implementation
+        title: "Implement built-tree semantic traversal"
+        description: |
+          Build via Seed 4 into disposable output, follow owner-rendered root-relative
+          JLINKs, and read stable attributes for typed obligations. Duplicate no route/link,
+          product, semantic, generated, visual, layout, or browser policy and publish no runtime.
+        files: [scripts/websitejourney/traversal.go, scripts/websitejourney/html.go]
+        claims: [CLM-003, CLM-004, CLM-005, CLM-006, CLM-009, CLM-011, CLM-018, CLM-023, CLM-024]
+        depends_on: [TASK-012]
+      - id: TASK-014
+        type: verification
+        title: "Gate prerequisite and built traversal"
+        description: "Run `./bin/backstop gate --file scripts/websitejourney/main.go --file scripts/websitejourney/traversal.go --file tests/website-capabilities.spec.ts`; execute 22 built journeys after exact prerequisite verdicts and require typed outcomes and runtime absence."
+        files: [scripts/websitejourney/main.go, scripts/websitejourney/traversal.go, tests/website-capabilities.spec.ts]
+        claims: [CLM-001, CLM-003, CLM-005, CLM-007, CLM-009, CLM-011, CLM-018, CLM-023]
+        depends_on: [TASK-011, TASK-013]
+
+  - id: phase-4
+    name: "Execute adoption and exhaustive mutations"
+    tasks:
+      - id: TASK-015
+        type: test
+        title: "Specify disposable adoption execution"
+        description: |
+          Test rendered block/digest agreement with owner executable/argv/env, a disposable
+          Git repo, direct ordered install/configure/enforce, and receipt-bound binary,
+          config, and real zero-exit gate. Reject shell evaluation, copies, mocks,
+          preinstalled binaries, changed fields, missing outputs, and unproven gates.
+        files: [scripts/websitejourney/adoption_test.go, scripts/websitejourney/testdata/adoption-execution-mutations.yml]
+        claims: [CLM-025, CLM-026]
+        test_names: [TestWebsiteJourney_AdoptionCommandsProduceWorkingGate, TestWebsiteJourney_RejectsInvalidAdoptionExecutionMatrix]
+        depends_on: [TASK-014]
+      - id: TASK-016
+        type: implementation
+        title: "Implement CAP-009 adoption proof"
+        description: "Execute structured ADOPT-INSTALL/CONFIGURE/ENFORCE without a shell; verify rendered digests, newly installed v0.2.0 binary/configuration and real gate zero exit; retain an in-memory receipt bound to built/deployed identity."
+        files: [scripts/websitejourney/adoption.go]
+        claims: [CLM-025, CLM-026]
+        depends_on: [TASK-015]
+      - id: TASK-017
+        type: test
+        title: "Specify exhaustive five-class mutation killing"
+        description: |
+          Over isolated accepted copies remove each of ten routes, every evidence element/
+          source, every prerequisite, every boundary element/state/explanation/required
+          continuation/denial, and each generated region/job/anchor/marker/digest/source
+          independently. Require clean baseline and class/target/global-journey diagnostics.
+        files: [scripts/websitejourney/mutation_test.go, scripts/websitejourney/testdata/exhaustive-journey-mutations.yml]
+        claims: [CLM-013, CLM-014, CLM-015, CLM-016, CLM-017, CLM-027]
+        test_names: [TestWebsiteJourney_EveryCanonicalRouteRemovalBreaksJourney, TestWebsiteJourney_EveryEvidenceEdgeRemovalBreaksJourney, TestWebsiteJourney_EveryBoundaryExplanationRemovalBreaksJourney, TestWebsiteJourney_MutationDiagnosticsAreJourneySpecific, TestWebsiteJourney_EveryGeneratedProvenanceMutationBreaksJourney]
+        depends_on: [TASK-014]
+      - id: TASK-018
+        type: implementation
+        title: "Implement journey-specific mutation acceptance"
+        description: "Derive isolated mutants from accepted map/rendered/dependency fixtures; kill each through a named journey even if an upstream generic check fails first; run stable CAP/UJ order and clean every copy on success/failure."
+        files: [scripts/websitejourney/mutation.go]
+        claims: [CLM-013, CLM-014, CLM-015, CLM-016, CLM-017, CLM-027]
+        depends_on: [TASK-017]
+      - id: TASK-019
+        type: test
+        title: "Specify wrapper cleanup and measured coverage"
+        description: |
+          Test strict modes and exact wrapper sequencing of public prerequisites, Seed 4
+          build, all built browser journeys, CAP-009 adoption, mutations, and measured Go
+          coverage without publishing runtime. Require one numeric total, >=80.00 pass,
+          79.99/absent/duplicate/nonnumeric fail, complete integrity before filtering, all
+          temporary-state cleanup on success/failure, and the integration-only boundary.
+        files: [scripts/tests/website-capabilities/verify-wrapper.sh, scripts/tests/website-capabilities/coverage-cleanup-mutations.sh]
+        claims: [CLM-007, CLM-008, CLM-009, CLM-011, CLM-012, CLM-018, CLM-019, CLM-020, CLM-022, CLM-025]
+        test_names: [TestWebsiteJourney_VerificationCleanupPasses, TestWebsiteJourney_RemainsIntegrationConsumer, TestWebsiteJourney_VerifierAcceptsCoverageAtThreshold, TestWebsiteJourney_VerifierRejectsCoverageFailureMatrix, TestWebsiteJourney_WrapperPropagatesGovernedDependencyFailure]
+        depends_on: [TASK-014]
+      - id: TASK-020
+        type: implementation
+        title: "Compose the single Seed 5 entrypoint"
+        description: "Implement strict modes, disposable orchestration, measured Go coverage, prerequisite/build/browser/adoption/mutation order, fail-closed parsing, post-integrity filtering, attribution, and cleanup traps. Call owner entrypoints only."
+        files: [scripts/verify-website-capabilities.sh]
+        claims: [CLM-007, CLM-008, CLM-009, CLM-011, CLM-012, CLM-018, CLM-019, CLM-020, CLM-022, CLM-025]
+        depends_on: [TASK-019]
+      - id: TASK-021
+        type: verification
+        title: "Gate adoption, mutations, cleanup, and coverage"
+        description: "Run `./bin/backstop gate --file scripts/websitejourney/adoption.go --file scripts/websitejourney/mutation.go --file scripts/verify-website-capabilities.sh`; execute real adoption, exhaustive mutations, failure cleanup, and coverage boundary cases."
+        files: [scripts/websitejourney/adoption.go, scripts/websitejourney/mutation.go, scripts/verify-website-capabilities.sh]
+        claims: [CLM-012, CLM-013, CLM-014, CLM-015, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020, CLM-022, CLM-025, CLM-026, CLM-027]
+        depends_on: [TASK-016, TASK-018, TASK-020]
+
+  - id: phase-5
+    name: "Wire identity-matched acceptance"
+    tasks:
+      - id: TASK-022
+        type: test
+        title: "Specify deployed identity and workflow order"
+        description: "Test canonical HTTPS only, redirects disabled, 200/anchors, commit/run marker on every page, same 22 journeys, CI built blocking, and Pages deployed mode strictly after SPEC-075 authoritative proof. Reject stale production and rollback claims."
+        files: [scripts/websitejourney/deployed_test.go, scripts/websitejourney/testdata/deployed-identity-mutations.yml, scripts/tests/website-capabilities/workflow-wiring.sh]
+        claims: [CLM-009, CLM-010, CLM-021]
+        test_names: [TestWebsiteJourney_DeployedSiteAllJourneysPass, TestWebsiteJourney_WorkflowWiringPasses]
+        depends_on: [TASK-021]
+      - id: TASK-023
+        type: implementation
+        title: "Implement identity-matched deployed traversal"
+        description: "Reuse semantic assertions against production, disable redirects, require exact identity everywhere, skip destructive production mutations, and report broken global journeys without claiming rollback."
+        files: [scripts/websitejourney/deployed.go]
+        claims: [CLM-010, CLM-021]
+        depends_on: [TASK-022]
+      - id: TASK-024
+        type: implementation
+        title: "Add built acceptance to CI"
+        description: "Add the exact Seed 5 built entrypoint as a blocking job after required Seed 1-4 outputs; preserve existing workflow permissions, pins, gates, and ownership."
+        files: [.github/workflows/ci.yml]
+        claims: [CLM-009, CLM-021]
+        depends_on: [TASK-022]
+      - id: TASK-025
+        type: implementation
+        title: "Add post-proof acceptance to Pages"
+        description: "Invoke deployed mode with authoritative commit/run only after SPEC-075 proof; preserve full-SHA actions, delivery, permissions, environment, concurrency, and nontransactional semantics."
+        files: [.github/workflows/pages.yml]
+        claims: [CLM-010, CLM-021]
+        depends_on: [TASK-022]
+      - id: TASK-026
+        type: verification
+        title: "Gate deployed traversal and workflows"
+        description: "Run `./bin/backstop gate --file scripts/websitejourney/deployed.go --file .github/workflows/ci.yml --file .github/workflows/pages.yml`; run identity/redirect/marker mutations and workflow-order tests, then same-release deployed mode."
+        files: [scripts/websitejourney/deployed.go, .github/workflows/ci.yml, .github/workflows/pages.yml]
+        claims: [CLM-010, CLM-012, CLM-021, CLM-025]
+        depends_on: [TASK-023, TASK-024, TASK-025]
+
+  - id: phase-6
+    name: "Promote and run the full kill chain"
+    tasks:
+      - id: TASK-027
+        type: test
+        title: "Specify same-release promotion"
+        description: "Keep every capability draft until artifacts, built journeys, exhaustive mutations, CAP-009 proof where applicable, and identity-matched deployed acceptance are green for one release. Reject partial, stale, mixed-identity, or nonblocking evidence."
+        files: [scripts/websitejourney/promotion_test.go, scripts/websitejourney/testdata/promotion-evidence-mutations.yml]
+        claims: [CLM-001, CLM-002, CLM-009, CLM-010, CLM-013, CLM-014, CLM-015, CLM-016, CLM-017, CLM-021, CLM-025, CLM-027]
+        depends_on: [TASK-026]
+      - id: TASK-028
+        type: implementation
+        title: "Promote CAP-004 through CAP-007"
+        description: "Change only these four statuses to verified after complete same-release evidence; preserve every other field, scenario, dependency, and gate."
+        files: [capabilities/CAP-004-understand-backstop/capability.yml, capabilities/CAP-005-evaluate-fit/capability.yml, capabilities/CAP-006-evaluate-guarantees/capability.yml, capabilities/CAP-007-evaluate-compatibility/capability.yml]
+        claims: [CLM-001, CLM-002, CLM-009, CLM-010, CLM-021, CLM-025]
+        depends_on: [TASK-027]
+      - id: TASK-032
+        type: implementation
+        title: "Promote CAP-008 through CAP-011"
+        description: "Change only these four statuses to verified after complete same-release evidence; preserve every other field, scenario, dependency, and gate."
+        files: [capabilities/CAP-008-understand-system/capability.yml, capabilities/CAP-009-adopt-backstop/capability.yml, capabilities/CAP-010-apply-backstop/capability.yml, capabilities/CAP-011-browse-pack-ecosystem/capability.yml]
+        claims: [CLM-001, CLM-002, CLM-009, CLM-010, CLM-021, CLM-025]
+        depends_on: [TASK-027]
+      - id: TASK-033
+        type: implementation
+        title: "Promote CAP-012 through CAP-014"
+        description: "Change only these three statuses to verified after complete same-release evidence; preserve every other field, scenario, dependency, and gate."
+        files: [capabilities/CAP-012-extend-backstop/capability.yml, capabilities/CAP-013-inspect-evidence/capability.yml, capabilities/CAP-014-continue-beyond-backstop/capability.yml]
+        claims: [CLM-001, CLM-002, CLM-009, CLM-010, CLM-021, CLM-025]
+        depends_on: [TASK-027]
+      - id: TASK-029
+        type: verification
+        title: "Run comprehensive Seed 5 verification"
+        description: "Run `./bin/backstop gate --all` and `./bin/backstop artifact validate`; require scoped SPEC/PLAN validation, 22 built/deployed journeys, real adoption, five mutation classes, coverage >=80.00, workflow order, cleanup, exact verified matrix, and unchanged predecessor ownership."
+        files: [plans/PLAN-SPEC-076-end-to-end-website-capabilities.plan.yml, specs/SPEC-076-end-to-end-website-capabilities.spec.md, scripts/verify-website-capabilities.sh, docs/_data/website-capability-map.yml, capabilities/CAP-004-understand-backstop/capability.yml, capabilities/CAP-014-continue-beyond-backstop/capability.yml]
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-009, CLM-010, CLM-011, CLM-012, CLM-013, CLM-014, CLM-015, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020, CLM-021, CLM-022, CLM-023, CLM-024, CLM-025, CLM-026, CLM-027]
+        depends_on: [TASK-028, TASK-032, TASK-033]
