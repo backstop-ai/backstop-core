@@ -1,0 +1,9 @@
+flowchart TD
+  Issue[Reactive issue] --> Plan[Reviewed plan]
+  Bundle[Proactive bundle] --> Spec[Reviewed spec]
+  Spec --> Plan
+  Plan --> Work[Bounded implementation]
+  Work --> Gate[Validation]
+  Gate -->|pass| Accepted[Accepted outcome]
+  Gate -->|fail| Repair[Repair with evidence]
+  Repair --> Work

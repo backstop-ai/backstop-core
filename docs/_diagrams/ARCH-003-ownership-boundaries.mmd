@@ -1,0 +1,6 @@
+flowchart TD
+  Core[Core: execution and lifecycle] --> Packs[Packs: standards and engines]
+  Runtime[Harness/runtime: orchestration] --> Core
+  Packs --> Tools[External toolchains]
+  Core --> Verdict[Inspectable verdict]
+  Runtime --> Verdict

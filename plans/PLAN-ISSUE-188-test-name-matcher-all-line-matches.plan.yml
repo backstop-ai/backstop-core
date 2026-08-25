@@ -1,0 +1,261 @@
+---
+plan_id: PLAN-ISSUE-188
+spec_id: ISSUE-188
+created: "2026-08-25"
+status: completed
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "./bin/backstop gate --all"
+notes: |
+  Contained Core bug plan on the issue-to-plan track. SPEC-045 and its completed
+  implementation plan own the already-shipped pack-declared discovery surface; they do
+  not own this newly observed first-match truncation. No current plan/spec subsumes
+  all-match enumeration, deterministic overlap handling, or the pinned 36-to-44 proof.
+
+  Verification is non-numeric. ISSUE-188 defines an exact eleven-claim/test matrix and
+  immutable corpus cardinalities, not a new coverage domain, so coverage_threshold is
+  intentionally omitted.
+
+  Parallel RED lanes are file-disjoint: matcher/API tests, collector/path tests,
+  pinned assembled acceptance, and the repository change fence may be authored
+  concurrently. The one Core implementation task depends directly on all four RED
+  lanes and changes only pkg/gate/step_testverify.go. Plans are independent: this plan
+  uses the immutable pinned Core/SPEC-072 corpus plus a checked-in, self-contained
+  reference pack under cmd/backstop/testdata. It has no dependency on the bash-toolchain
+  workspace or PLAN-ISSUE-187 and edits none of their artifacts.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Parallel RED matcher, collector, acceptance, and fence contracts"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "RED: specify all-match ordering, overlap dedupe, and compatibility"
+        description: |
+          Add the exact mandated tests
+          TestTestNameMatcher_FindNamesReturnsAllMatchesOnLine,
+          TestTestNameMatcher_FindNamesDeterministicAcrossPatternOverlap,
+          TestTestNameMatcher_FindNamesRejectsEmptyOrMissingCapture,
+          TestTestNameMatcher_FindNameCompatibilityUsesFirstEnumeratedName,
+          TestTestNameMatcher_GoAndTSSingleMatchBehaviorUnchanged, and
+          TestTestNameMatcher_AllMatchEnumerationPreservesLoudValidation.
+
+          Use generic declared regex data. Prove one pattern yields every non-overlapping
+          capture-group-1 match on one physical line. Across multiple patterns, order by
+          match start byte and then declared-pattern order; deduplicate the same name at
+          the same start position when patterns overlap without dropping different names
+          or later positions. Reject absent and empty group 1. Preserve FindName as the
+          first FindNames result and empty/false on no match. Pin existing Go func-Test
+          and TypeScript/Bun test/describe/it single-line outputs unchanged. Preserve
+          invalid-regex construction error and HasPatterns false for an empty matcher.
+        files:
+          - pkg/gate/test_name_matcher_all_matches_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        test_names:
+          - TestTestNameMatcher_FindNamesReturnsAllMatchesOnLine
+          - TestTestNameMatcher_FindNamesDeterministicAcrossPatternOverlap
+          - TestTestNameMatcher_FindNamesRejectsEmptyOrMissingCapture
+          - TestTestNameMatcher_FindNameCompatibilityUsesFirstEnumeratedName
+          - TestTestNameMatcher_GoAndTSSingleMatchBehaviorUnchanged
+          - TestTestNameMatcher_AllMatchEnumerationPreservesLoudValidation
+        depends_on: []
+
+      - id: TASK-002
+        type: test
+        title: "RED: specify collector indexing and later-name path resolution"
+        description: |
+          Add exact mandated TestTestVerify_CollectsAndResolvesLaterSameLineName.
+          Build a temporary classified test file with two generic declarations on one
+          physical line and a spec-mandated later name. Exercise both scoped and
+          unscoped collection plus ResolveMandatedTestPaths. Require every enumerated
+          name to enter the existing name-to-file map, the later name to resolve to the
+          physical file, scope exclusion to remain unchanged, and repeated name/path
+          discovery to retain the existing deterministic map semantics.
+        files:
+          - pkg/gate/test_name_collection_all_matches_test.go
+        claims:
+          - CLM-004
+        test_names:
+          - TestTestVerify_CollectsAndResolvesLaterSameLineName
+        depends_on: []
+
+      - id: TASK-003
+        type: test
+        title: "RED: reproduce immutable SPEC-072 36-to-44 discovery and terminal clearance"
+        description: |
+          Add exact mandated tests
+          TestGate_SPEC072DiscoversAll44BashFunctionsAcrossSameLineDeclarations and
+          TestGate_SPEC072TerminalDiscoveryAndDriftClearAfterAllMatchEnumeration in the
+          assembled cmd/backstop package. Stage Backstop Core commit
+          2855ccd1438c455fc2a6842978c15e5cf582ff5b and assert tree
+          97a9480b579b8aac1f4fec8d8294c70aee56a232 before any fixture mutation. Install
+          and use only the checked-in reference fixture at
+          cmd/backstop/testdata/issue188-bash-reference-pack. Its manifest contains only
+          the exact classification/name-pattern declarations and the minimal deterministic
+          test-engine declaration plus producer/converter needed for assembled acceptance.
+          That engine plumbing emits only fixture-controlled deterministic results, is
+          inert outside testdata, is never production/default registered, and neither
+          duplicates nor consumes the external Bash pack implementation. Embed expected
+          SHA-256 values for every fixture byte file in this test and fail before loading
+          or executing on any mismatch. Never read, clone, resolve, or install anything
+          from the bash-toolchain workspace, ISSUE-187 acceptance state, or PLAN-ISSUE-187.
+
+          Establish the pre-fix control with the pinned Core consumer: exactly 36 of 44
+          distinct Bash declarations discovered, with the exact eight later same-line
+          declarations absent. Run the corrected current consumer against the same
+          unchanged corpus and pack data: 44/44 names and all 47 SPEC-072 references
+          resolve. In a second disposable copy change only SPEC-072 to implemented and
+          PLAN-SPEC-072 to completed, assert those are the only tree differences, then
+          require zero absent SPEC-072 tests and zero consequent SPEC-072 broken-promise
+          drift through the real assembled dimensions. No hand-built discovered-name map,
+          suppression, pack edit, or corpus rewrite is acceptance.
+        files:
+          - cmd/backstop/gate_spec072_all_matches_test.go
+          - cmd/backstop/testdata/issue188-bash-reference-pack/pack.yml
+          - cmd/backstop/testdata/issue188-bash-reference-pack/scripts/test-produce.sh
+          - cmd/backstop/testdata/issue188-bash-reference-pack/scripts/test-to-sarif.sh
+        claims:
+          - CLM-009
+          - CLM-010
+        test_names:
+          - TestGate_SPEC072DiscoversAll44BashFunctionsAcrossSameLineDeclarations
+          - TestGate_SPEC072TerminalDiscoveryAndDriftClearAfterAllMatchEnumeration
+        depends_on: []
+
+      - id: TASK-004
+        type: test
+        title: "RED: require the all-match API and exclude production Bash mechanisms"
+        description: |
+          Add exact mandated tests
+          TestTestNameMatcher_AllMatchEnumerationRemainsLanguageNeutral and
+          TestTestNameMatcher_AllMatchAPIAndNoBashMechanismInCore. The first inspects
+          matcher/collector source to reject baked Bash declarations, separators,
+          Go/TypeScript syntax, extensions, framework nouns, or special-case branches.
+
+          The CLM-011 test is a genuine pre-implementation falsifier: compile against
+          and call the required FindNames API with a generic two-match line, so current
+          Core fails before the method exists. Durably inspect production embedding,
+          registered/default packs, pack manifests outside testdata, and Core source to
+          prove no Bash mechanism is vendored or registered. Assert the reference pack
+          exists only below cmd/backstop/testdata/issue188-bash-reference-pack and its
+          exact fixture digest matches TASK-003's pins. Do not compare a branch diff,
+          assume a git baseline, or classify unrelated working-tree files.
+        files:
+          - cmd/backstop/test_name_matcher_all_matches_fence_test.go
+        claims:
+          - CLM-008
+          - CLM-011
+        test_names:
+          - TestTestNameMatcher_AllMatchEnumerationRemainsLanguageNeutral
+          - TestTestNameMatcher_AllMatchAPIAndNoBashMechanismInCore
+        depends_on: []
+
+  - id: phase-2
+    name: "Phase 2: GREEN generic enumeration and collection migration"
+    tasks:
+      - id: TASK-005
+        type: implementation
+        title: "GREEN: enumerate all declared-pattern matches and collect every name"
+        description: |
+          Implement TestNameMatcher.FindNames(line string) []string in
+          pkg/gate/step_testverify.go using only the compiled declared regexes and Go's
+          regexp match-index APIs. For each pattern enumerate all non-overlapping matches,
+          retain only nonempty capture group 1, record source start and declared-pattern
+          index, sort by start byte then pattern order, and deduplicate equal name/start
+          overlap. Do not infer separators, declaration syntax, languages, extensions,
+          or frameworks.
+
+          Reimplement FindName as a compatibility wrapper returning the first FindNames
+          result or empty/false. Update collectTestFuncNamesScoped to insert every name
+          returned for each scanned line into the existing map. Preserve classifier and
+          scope predicates, path attribution, unscoped delegation, capability polarity,
+          scanner behavior, ResolveMandatedTestPaths semantics, and invalid-regex loudness.
+        files:
+          - pkg/gate/step_testverify.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+        depends_on:
+          - TASK-001
+          - TASK-002
+          - TASK-003
+          - TASK-004
+
+      - id: TASK-006
+        type: verification
+        title: "Verify the matcher and collector through the Backstop gate"
+        description: |
+          Run `./bin/backstop gate --file pkg/gate/step_testverify.go`, then scoped gates for
+          each of the four focused test files. Require every exact mandated test green,
+          no new finding in the changed production/test scope, and the immutable
+          acceptance receipts to report 36/44 control, 44/44 corrected discovery, and
+          47 resolved references. Use Backstop CLI gates only; do not substitute raw Go
+          test, vet, lint, or coverage commands.
+        files:
+          - pkg/gate/step_testverify.go
+          - pkg/gate/test_name_matcher_all_matches_test.go
+          - pkg/gate/test_name_collection_all_matches_test.go
+          - cmd/backstop/gate_spec072_all_matches_test.go
+          - cmd/backstop/test_name_matcher_all_matches_fence_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+        depends_on:
+          - TASK-005
+
+      - id: TASK-007
+        type: verification
+        title: "Run the full kill chain and validate the issue plan"
+        description: |
+          Run the authoritative `./bin/backstop gate --all`, then
+          `./bin/backstop artifact validate --plan PLAN-ISSUE-188`. Require all eleven exact
+          mandated tests green, immutable 36-to-44 and terminal-clearance receipts,
+          unchanged Go/TypeScript compatibility, loud invalid regex behavior, and a clean
+          change fence. Report inherited unrelated findings truthfully; add no waiver,
+          suppression, baseline entry, pack edit, or artifact-scope exception.
+        files:
+          - pkg/gate/step_testverify.go
+          - pkg/gate/test_name_matcher_all_matches_test.go
+          - pkg/gate/test_name_collection_all_matches_test.go
+          - cmd/backstop/gate_spec072_all_matches_test.go
+          - cmd/backstop/test_name_matcher_all_matches_fence_test.go
+          - plans/PLAN-ISSUE-188-test-name-matcher-all-line-matches.plan.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+        depends_on:
+          - TASK-005
+          - TASK-006

@@ -1,0 +1,303 @@
+---
+plan_id: PLAN-SPEC-074
+spec_id: SPEC-074
+spec_version: "1.0.4"
+created: "2026-08-24"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: ./scripts/verify-product-truth.sh
+coverage_threshold: 80
+notes: |
+  Seed 3 only. Consume accepted SPEC-072 v1.0.5 / PLAN-SPEC-072 owner pages,
+  subordinate anchors, and
+  source include sites as a completed upstream contract. Complete the four source
+  derivations, checked-in fragments, typed provenance, source consumption, drift gate,
+  CI, and release handshake without a Jekyll runtime, rendered output, Pages workflow,
+  or any partial Seed 4 state. This plan owns no prose, presentation, semantic policy,
+  capabilities, MCP, or generalized transformation engine.
+
+phases:
+  - id: phase-1
+    name: "Closed manifest and deterministic records"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Confirm upstream ownership barriers"
+        description: |
+          Require accepted SPEC-072 v1.0.5 / PLAN-SPEC-072 outputs for /reference/, /packs/, and /status/
+          with the four anchors and source include-site ownership. Consume that completed
+          artifact contract only; stop rather than invent page ownership or inspect any
+          downstream plan task or implementation state.
+        files: [docs/reference.md, docs/packs.md, docs/status.md]
+        claims: [CLM-022, CLM-023, CLM-024, CLM-026, CLM-027]
+        depends_on: []
+      - id: TASK-002
+        type: test
+        title: "Specify manifest, modes, and logical Git refs"
+        description: |
+          Drive exactly four jobs, their complete inputs/output/owner/marker/command,
+          uniqueness, containment, registered-file closure, default-write equivalence,
+          early argument refusal, and logical loose/packed annotated/lightweight tag
+          parity red. Qualifying unreadable refs fail PT104; excluded refs stay excluded.
+        files: [scripts/producttruth/manifest_test.go, scripts/producttruth/testdata/manifest-invalid.yml, scripts/producttruth/testdata/git-tags.yml]
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-029, CLM-030, CLM-031, CLM-032]
+        test_names: [TestProductTruth_ManifestCLIJobPasses, TestProductTruth_ManifestArtifactSchemaJobPasses, TestProductTruth_ManifestInstalledPackJobPasses, TestProductTruth_ManifestReleaseHistoryJobPasses, TestProductTruth_ManifestRejectsInvalidJobMatrix, TestProductTruth_DefaultModeEqualsWrite, TestProductTruth_RejectsInvalidModeArguments, TestProductTruth_GitLogicalTagStorageAndFormMatrix, TestProductTruth_GitLogicalRefsRejectInvalidMatrix]
+        depends_on: [TASK-001]
+      - id: TASK-003
+        type: implementation
+        title: "Implement the closed manifest and dispatcher"
+        description: |
+          Create the four-row manifest and shell-free Go dispatcher behind
+          `./scripts/generate-product-truth.sh`. Accept only no argument, --write,
+          --check, or --recover. Validate paths before reads; use for-each-ref,
+          rev-parse, merge-base, and show, never physical Git ref storage.
+        files: [docs/_data/derived-product-truth.yml, scripts/generate-product-truth.sh, scripts/producttruth/main.go]
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-029, CLM-030, CLM-031, CLM-032]
+        depends_on: [TASK-002]
+      - id: TASK-004
+        type: test
+        title: "Specify exact deterministic record rendering"
+        description: |
+          Drive all four explicit record structs, columns, sorting, scalar/schema/pack
+          joins, escaping, LF/final-newline rules, byte stability, and localized source
+          deltas red. Vary locale, timezone, CRLF, traversal/map order, lexical SemVer,
+          install_date, controls, nested values, and pack/schema disagreement.
+        files: [scripts/producttruth/generate_test.go, scripts/producttruth/testdata/render-cases.yml, scripts/producttruth/testdata/source-deltas.yml]
+        claims: [CLM-006, CLM-007, CLM-008, CLM-009, CLM-010, CLM-011, CLM-016, CLM-017, CLM-018, CLM-019, CLM-026, CLM-027, CLM-028, CLM-033, CLM-034, CLM-035, CLM-036]
+        test_names: [TestProductTruth_RenderCLICommandCatalogDeterministically, TestProductTruth_RenderArtifactSchemaCatalogDeterministically, TestProductTruth_RenderInstalledPackCatalogDeterministically, TestProductTruth_RenderReleaseHistoryDeterministically, TestProductTruth_WriteIsByteStableForEveryJob, TestProductTruth_RejectsNondeterministicRenderInputs, TestProductTruth_SourceDeltaCLICommandCatalog, TestProductTruth_SourceDeltaArtifactSchemaCatalog, TestProductTruth_SourceDeltaInstalledPackCatalog, TestProductTruth_SourceDeltaReleaseHistory, TestProductTruth_HasNoGeneralizedTransformationSurface, TestProductTruth_DoesNotAbsorbOtherSeedOwnership, TestProductTruth_RefusesUndeclaredGenericTransform, TestProductTruth_ExactRecordAndTableShapeMatrix, TestProductTruth_RejectsInvalidSchemaAndPackJoinMatrices, TestProductTruth_TableEscapingAndDigestContract, TestProductTruth_RejectsUnsafeScalarAndRecordShapes]
+        depends_on: [TASK-001]
+      - id: TASK-005
+        type: implementation
+        title: "Implement typed authoritative rendering"
+        description: |
+          Implement RenderAll with explicit CLI, schema, pack, and release loaders and
+          structs. Invoke `go run ./cmd/backstop commands`; fix C locale/UTC; normalize
+          all ordering, escaping, and bytes; reject invalid joins/shapes with stable PT
+          codes. Expose no template, plugin, expression, fetch, or generic transform API.
+        files: [scripts/producttruth/generate.go]
+        claims: [CLM-006, CLM-007, CLM-008, CLM-009, CLM-010, CLM-011, CLM-016, CLM-017, CLM-018, CLM-019, CLM-026, CLM-027, CLM-028, CLM-033, CLM-034, CLM-035, CLM-036]
+        depends_on: [TASK-004]
+      - id: TASK-006
+        type: verification
+        title: "Gate manifest and record generation"
+        description: "Run `./bin/backstop gate --file docs/_data/derived-product-truth.yml --file scripts/generate-product-truth.sh --file scripts/producttruth/main.go --file scripts/producttruth/generate.go`; require all manifest, Git, exact-byte, localized-delta, and boundary fixtures."
+        files: [docs/_data/derived-product-truth.yml, scripts/generate-product-truth.sh, scripts/producttruth/main.go, scripts/producttruth/generate.go, scripts/producttruth/manifest_test.go, scripts/producttruth/generate_test.go]
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-009, CLM-010, CLM-011, CLM-016, CLM-017, CLM-018, CLM-019, CLM-026, CLM-027, CLM-028, CLM-029, CLM-030, CLM-031, CLM-032, CLM-033, CLM-034, CLM-035, CLM-036]
+        depends_on: [TASK-003, TASK-005]
+
+  - id: phase-2
+    name: "Immutable provenance and recoverable cohort"
+    tasks:
+      - id: TASK-007
+        type: test
+        title: "Specify typed provenance envelopes"
+        description: |
+          Exhaust every job's ordered descriptor set, concrete tree/blob vs commit union,
+          canonical JSON member order, both digest markers, SITE-COMMIT encoding, and
+          owner/output/record linkage. Independently remove/mutate each link and cover
+          omitted, empty, null, opposite-variant, unknown, reordered-input/serializer cases.
+        files: [scripts/producttruth/provenance_test.go, scripts/producttruth/testdata/provenance-mutations.yml]
+        claims: [CLM-035, CLM-047, CLM-048, CLM-049, CLM-050, CLM-051, CLM-052, CLM-053, CLM-054, CLM-055, CLM-056, CLM-057, CLM-058, CLM-059]
+        test_names: [TestProductTruth_CLIImmutableSourceLinkPasses, TestProductTruth_CLIImmutableSourceLinkRemovalFails, TestProductTruth_CLIImmutableSourceLinkDriftFails, TestProductTruth_ArtifactSchemaImmutableSourceLinksPass, TestProductTruth_ArtifactSchemaImmutableSourceLinkRemovalFails, TestProductTruth_ArtifactSchemaImmutableSourceLinkDriftFails, TestProductTruth_InstalledPackImmutableSourceLinksPass, TestProductTruth_InstalledPackImmutableSourceLinkRemovalFails, TestProductTruth_InstalledPackImmutableSourceLinkDriftFails, TestProductTruth_ReleaseHistoryImmutableSourceLinksPass, TestProductTruth_ReleaseHistoryImmutableSourceLinkRemovalFails, TestProductTruth_ReleaseHistoryImmutableSourceLinkDriftFails, TestProductTruth_SourceLinkCanonicalJSONAbsentEmptyNullMutationMatrix]
+        depends_on: [TASK-006]
+      - id: TASK-008
+        type: implementation
+        title: "Emit exact provenance and digest markers"
+        description: |
+          Add the closed SourceLinkDescriptor union and explicit envelope structs. Derive
+          complete descriptors from records, serialize with encoding/json HTML escaping
+          disabled and fixed order, then emit canonical ownership, region, raw-table,
+          sources, and digest markers. Never maintain a parallel realized link inventory.
+        files: [scripts/producttruth/generate.go]
+        claims: [CLM-035, CLM-047, CLM-048, CLM-049, CLM-050, CLM-051, CLM-052, CLM-053, CLM-054, CLM-055, CLM-056, CLM-057, CLM-058, CLM-059]
+        depends_on: [TASK-007]
+      - id: TASK-009
+        type: test
+        title: "Specify safe write, rollback, and recovery"
+        description: |
+          Test missing creation, same-job overwrite guards, unmarked/wrong-job files,
+          symlinks/escapes, all fsync/journal transitions, every rename/interruption/
+          rollback failure, durable blocking, successful cleanup, and idempotent recover.
+          Assert recoverability rather than simultaneous four-file atomic visibility.
+        files: [scripts/producttruth/transaction_test.go, scripts/producttruth/testdata/transaction-failpoints.yml]
+        claims: [CLM-012, CLM-013, CLM-014, CLM-037, CLM-038]
+        test_names: [TestProductTruth_WriteCreatesMarkedRegisteredOutput, TestProductTruth_WriteCommitsRecoverableCohort, TestProductTruth_WriteRollbackAndRecoveryMatrix, TestProductTruth_TransactionInterruptionRecoveryMatrix, TestProductTruth_RecoveryIdempotenceAndFailure]
+        depends_on: [TASK-006]
+      - id: TASK-010
+        type: implementation
+        title: "Implement journaled four-output writes"
+        description: |
+          Implement WriteAll and Recover with contained nonsymlink targets, fully fsynced
+          staging/journal, durable backup/install transitions, complete rollback, retained
+          failure state, directory fsync, and idempotent restoration. Block check/write on
+          any residue with PT203_TRANSACTION.
+        files: [scripts/producttruth/transaction.go]
+        claims: [CLM-012, CLM-013, CLM-014, CLM-037, CLM-038]
+        depends_on: [TASK-009]
+      - id: TASK-011
+        type: verification
+        title: "Gate provenance and transactions"
+        description: "Run `./bin/backstop gate --file scripts/producttruth/generate.go --file scripts/producttruth/transaction.go`; require every link mutation and journal failpoint/recovery fixture."
+        files: [scripts/producttruth/generate.go, scripts/producttruth/provenance_test.go, scripts/producttruth/transaction.go, scripts/producttruth/transaction_test.go]
+        claims: [CLM-012, CLM-013, CLM-014, CLM-035, CLM-037, CLM-038, CLM-047, CLM-048, CLM-049, CLM-050, CLM-051, CLM-052, CLM-053, CLM-054, CLM-055, CLM-056, CLM-057, CLM-058, CLM-059]
+        depends_on: [TASK-008, TASK-010]
+
+  - id: phase-3
+    name: "Read-only drift refusal"
+    tasks:
+      - id: TASK-012
+        type: test
+        title: "Specify check mode and diagnostics"
+        description: |
+          Prove `--check` renders to an isolated tree, accepts a fresh cohort, never
+          rewrites, and reports all drift in stable job order. Cover missing/stale/edited/
+          marker/orphan/source/render/transaction states and independent tamper of all
+          outputs with exact PT grammar, inputs, first difference, and regeneration command.
+        files: [scripts/producttruth/check_test.go, scripts/producttruth/testdata/check-mutations.yml]
+        claims: [CLM-015, CLM-020, CLM-021]
+        test_names: [TestProductTruth_CheckAcceptsFreshOutputsReadOnly, TestProductTruth_CheckRejectsTamperForEveryJob, TestProductTruth_CheckFailureDiagnosticMatrix]
+        depends_on: [TASK-011]
+      - id: TASK-013
+        type: implementation
+        title: "Implement isolated check mode"
+        description: |
+          Implement the declared CheckAll contract in generate.go and dispatcher wiring:
+          render all jobs first, compare exact
+          bytes, enumerate unregistered files, aggregate attributable diagnostics, and
+          clean temporary state on every exit. Never call WriteAll in check mode.
+        files: [scripts/producttruth/generate.go, scripts/producttruth/main.go]
+        claims: [CLM-015, CLM-020, CLM-021]
+        depends_on: [TASK-012]
+      - id: TASK-014
+        type: verification
+        title: "Gate read-only check mode"
+        description: "Run `./bin/backstop gate --file scripts/producttruth/generate.go --file scripts/producttruth/main.go`; require fresh acceptance, aggregate drift, four tampers, orphan refusal, and transaction blocking."
+        files: [scripts/producttruth/generate.go, scripts/producttruth/check_test.go, scripts/producttruth/main.go]
+        claims: [CLM-015, CLM-020, CLM-021]
+        depends_on: [TASK-013]
+
+  - id: phase-4
+    name: "Complete the Seed 3 source handoff"
+    tasks:
+      - id: TASK-015
+        type: test
+        title: "Specify exact owner-source includes"
+        description: |
+          Test exactly one heading/anchor/static include per job in the three Seed 1 pages.
+          Reject missing, duplicated, moved, wrong-owner, wrong-file, stale, hand-rebuilt,
+          or parallel input readers without requiring Jekyll or built HTML.
+        files: [scripts/producttruth/source_site_test.go, scripts/producttruth/testdata/source-site-mutations.yml]
+        claims: [CLM-022, CLM-023, CLM-024, CLM-025]
+        test_names: [TestProductTruth_SourceIncludesReferenceFragments, TestProductTruth_SourceIncludesInstalledPackFragment, TestProductTruth_SourceIncludesReleaseHistoryFragment, TestProductTruth_SourceRejectsParallelOrInvalidConsumption]
+        depends_on: [TASK-014]
+      - id: TASK-016
+        type: implementation
+        title: "Bind fragments to their Seed 1 owners"
+        description: |
+          Add only the exact static PRODUCT-TRUTH-INCLUDE markers and Liquid include lines
+          at accepted SPEC-072 v1.0.5's four anchors. Preserve surrounding prose; add no build runtime,
+          layout, dynamic expression, generated page, or input reread.
+        files: [docs/reference.md, docs/packs.md, docs/status.md]
+        claims: [CLM-022, CLM-023, CLM-024, CLM-025]
+        depends_on: [TASK-015]
+      - id: TASK-017
+        type: verification
+        title: "Gate source include ownership"
+        description: "Run `./bin/backstop gate --file docs/reference.md --file docs/packs.md --file docs/status.md`; require all source include mutations without invoking or editing Seed 4."
+        files: [docs/reference.md, docs/packs.md, docs/status.md, scripts/producttruth/source_site_test.go]
+        claims: [CLM-022, CLM-023, CLM-024, CLM-025]
+        depends_on: [TASK-016]
+      - id: TASK-022
+        type: test
+        title: "Drive checked-in cohort acceptance red"
+        description: |
+          Add source-level acceptance that runs explicit --write, repeats default write
+          with no byte diff, and runs --check. Require exactly four registered fragments,
+          canonical markers/tables/descriptors, localized source ownership, and no journal.
+        files: [scripts/tests/product-truth/real-repository.sh]
+        claims: [CLM-010, CLM-012, CLM-013, CLM-015, CLM-022, CLM-023, CLM-024, CLM-029, CLM-047, CLM-050, CLM-053, CLM-056]
+        depends_on: [TASK-017]
+      - id: TASK-023
+        type: implementation
+        title: "Generate the four checked-in fragments"
+        description: |
+          Run `./scripts/generate-product-truth.sh --write` against repository truth to
+          create only the registered cohort. Repeat no-argument write and `--check`;
+          require byte identity and no journal. Never hand-edit generated bytes.
+        files: [docs/_includes/generated/cli-command-catalog.md, docs/_includes/generated/artifact-schema-catalog.md, docs/_includes/generated/installed-pack-catalog.md, docs/_includes/generated/release-history.md]
+        claims: [CLM-010, CLM-012, CLM-013, CLM-015, CLM-029, CLM-047, CLM-050, CLM-053, CLM-056]
+        depends_on: [TASK-022]
+      - id: TASK-026
+        type: test
+        title: "Specify independent CI and release freshness"
+        description: |
+          Test blocking branch-CI check mode and the separate full-history latest-main
+          release-history-current checkout, stable-tag fetch, stale-main refusal, original
+          tag preservation, rerun success, tag-checkout substitution refusal, and
+          GoReleaser dependency. Do not inspect Jekyll, rendered output, or Pages.
+        files: [scripts/tests/product-truth/source-workflow-wiring.sh, scripts/tests/product-truth/fixtures/source-workflow-mutations.yml]
+        claims: [CLM-041, CLM-042, CLM-043]
+        test_names: [TestProductTruth_ReleaseBlocksStaleLatestMain, TestProductTruth_ReleaseHandshakePassesAfterMainRegeneration, TestProductTruth_ReleaseWorkflowRejectsTagCheckoutSubstitution]
+        depends_on: [TASK-017]
+      - id: TASK-020
+        type: implementation
+        title: "Wire source-level CI and release freshness"
+        description: |
+          Add blocking `./scripts/generate-product-truth.sh --check` to branch CI. Add
+          release-history-current using a distinct full-history latest-origin/main checkout,
+          fetch the stable tag, run check mode, and make GoReleaser depend on it. Do not
+          read or create Jekyll, rendered-output, or Pages surfaces.
+        files: [.github/workflows/ci.yml, .github/workflows/release.yml]
+        claims: [CLM-041, CLM-042, CLM-043]
+        depends_on: [TASK-026]
+      - id: TASK-018
+        type: test
+        title: "Specify the independent measured verifier"
+        description: |
+          Test one atomic coverage total at 80.00 and refusal at 79.99/absent/duplicate/
+          nonnumeric. Prove verifier ordering and cleanup across race coverage, check mode,
+          exact source-include verification, branch-CI wiring, and release-workflow wiring.
+          Assert that no Jekyll build or Pages workflow is required or inspected.
+        files: [scripts/tests/product-truth/verify-pipeline.sh, scripts/tests/product-truth/fixtures/source-pipeline-failures.yml]
+        claims: [CLM-044, CLM-045, CLM-046]
+        test_names: [TestProductTruth_VerifierAcceptsCoverageAtThreshold, TestProductTruth_VerifierRejectsCoverageFailureMatrix, TestProductTruth_VerifierCoversIndependentSourcePipeline]
+        depends_on: [TASK-017]
+      - id: TASK-019
+        type: implementation
+        title: "Implement independent source-pipeline verification"
+        description: |
+          Create `./scripts/verify-product-truth.sh`: run atomic race coverage, parse one
+          total >=80.00, then check mode, exact source-include verification, and structural
+          branch-CI/release-workflow fixtures. Trap-clean profiles and temporary generation
+          state on every exit; never require a site build or Pages.
+        files: [scripts/verify-product-truth.sh]
+        claims: [CLM-044, CLM-045, CLM-046]
+        depends_on: [TASK-018]
+      - id: TASK-021
+        type: verification
+        title: "Gate the complete independent Seed 3 handoff"
+        description: |
+          Run `./bin/backstop gate --file scripts/verify-product-truth.sh --file
+          .github/workflows/ci.yml --file .github/workflows/release.yml`; run the verifier
+          and `./scripts/generate-product-truth.sh --check`. Require the complete generated
+          cohort, source-consumption mutations, independent CI/release wiring, and no site
+          runtime or downstream-plan dependency.
+        files: [scripts/verify-product-truth.sh, scripts/tests/product-truth/verify-pipeline.sh, docs/_includes/generated/cli-command-catalog.md, docs/_includes/generated/artifact-schema-catalog.md, docs/_includes/generated/installed-pack-catalog.md, docs/_includes/generated/release-history.md, .github/workflows/ci.yml, .github/workflows/release.yml]
+        claims: [CLM-010, CLM-015, CLM-022, CLM-023, CLM-024, CLM-025, CLM-041, CLM-042, CLM-043, CLM-044, CLM-045, CLM-046, CLM-047, CLM-050, CLM-053, CLM-056]
+        depends_on: [TASK-019, TASK-020, TASK-023]
+
+  - id: phase-5
+    name: "Complete kill chain"
+    tasks:
+      - id: TASK-024
+        type: verification
+        title: "Run the complete Backstop kill chain"
+        description: |
+          Run `./bin/backstop gate --all`, then validate SPEC-074 and PLAN-SPEC-074.
+          Require all 57 source-pipeline claims, coverage >=80.00, clean generated bytes,
+          exact source includes, immutable descriptors/digests, CI/release wiring, every
+          mutation suite, no generic engine, and no Jekyll/rendered/Pages dependency.
+        files: [scripts/verify-product-truth.sh, docs/_data/derived-product-truth.yml, scripts/producttruth/main.go, scripts/producttruth/generate.go, scripts/producttruth/transaction.go, plans/PLAN-SPEC-074-derived-product-truth-pipeline.plan.yml]
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-009, CLM-010, CLM-011, CLM-012, CLM-013, CLM-014, CLM-015, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020, CLM-021, CLM-022, CLM-023, CLM-024, CLM-025, CLM-026, CLM-027, CLM-028, CLM-029, CLM-030, CLM-031, CLM-032, CLM-033, CLM-034, CLM-035, CLM-036, CLM-037, CLM-038, CLM-041, CLM-042, CLM-043, CLM-044, CLM-045, CLM-046, CLM-047, CLM-048, CLM-049, CLM-050, CLM-051, CLM-052, CLM-053, CLM-054, CLM-055, CLM-056, CLM-057, CLM-058, CLM-059]
+        depends_on: [TASK-019, TASK-021]

@@ -1,0 +1,681 @@
+---
+plan_id: PLAN-ISSUE-187
+spec_id: ISSUE-187
+created: "2026-08-25"
+status: draft
+target_repo: bash-toolchain
+target_module: github.com/backstop-ai/bash-toolchain
+test_command: "backstop pack test && ./scripts/release-acceptance.sh"
+notes: |
+  Implements the contained ISSUE-187 issue track directly. Core already owns the
+  language-neutral classifier, test-name matcher, engine dispatch, verdict join,
+  and artifact-status dimensions; this plan supplies their missing external Bash
+  mechanism pack. There is no Backstop Core source feature and no substantiveness
+  work in scope.
+
+  Verification is deliberately non-numeric. ISSUE-187 defines exact behavioral
+  acceptance (eleven claims, eleven mandated tests, 47 references resolving to 44
+  functions, and zero terminal blockers), but no Bash coverage producer or honest
+  percentage domain. `coverage_threshold` is therefore omitted.
+
+  TDD lanes are sequential where they converge on pack.yml or the dispatcher.
+  RED tasks depend only on repository setup and use disjoint files, so they can be
+  authored independently before any implementation. Implementation-side dependencies
+  carry convergence and phase ordering. Every implementation task directly depends on
+  the test task that specifies it, and every implementation phase ends with a Backstop
+  CLI gate. The final consumer proof uses disposable repositories; it never edits
+  backstop-core, SPEC-072, PLAN-SPEC-072, or their source corpus.
+
+  IMPLEMENTATION CHECKPOINT (2026-08-25). TASK-000 and TASK-001 are complete in
+  `/workspace/scratch/1d6aa3e9c498/bash-toolchain`. Commit `39e010d` contains the
+  committed bootstrap, manifest, tests, verifier, and fixture bytes, completing the
+  manifest implementation portion of TASK-002. TASK-002's candidate declaration/lock
+  substep is NOT committed or complete: generated `backstop.yml` / `.gitignore` changes
+  and untracked `backstop.lock` are preserved working-tree state. `backstop pack test`
+  is green 6/6 and provisional lock/artifact checks observed digest
+  `eb2f134045d5b53bd154956deb1362e757ceca5f19c8053e1ef77daf4202e282`, but that digest
+  is a diagnostic receipt only and MUST be regenerated from TASK-005's clean staging.
+  TASK-003 correctly exposed that the assembled manifest cannot gate until its
+  TASK-005-owned producer/converter exist. It also exposed that adding the working
+  repository by absolute path recursively copies its `.backstop` installation.
+  Those are plan defects, not reasons to redo committed work.
+
+  IMPLEMENTATION CHECKPOINT 2 (2026-08-25). TASK-004 and TASK-005 are complete.
+  Candidate commit `984ce690ec7f9237bdd5ca5f43e9b1c823ceceea`, tree
+  `48bcf21be0c14793d8864a859715fb637f4a55ff`, and clean-staging digest
+  `55ebef5edd595c356a7a827d7ddabdabc34919fdbcad2f894a9e49955280b8ae`
+  are the current receipts. Staging contains no nested `.backstop`; `backstop pack
+  test` is green 6/6; and pack_engines is green when this secure VM's client explicitly
+  opts out of nested native Landlock with `BACKSTOP_PACK_SANDBOX=external`. TASK-003's
+  full gate then failed test_verification because the bare pack repository has no
+  `specs/` artifact corpus. That is a harness defect, not a pack defect, and MUST NOT be
+  "fixed" by inventing a standalone production spec in the pack repository. That
+  checkpoint was resolved by TASK-011/TASK-012's positive harness lane, after which
+  TASK-003 completed green as recorded in checkpoint 3 below.
+
+  STAGING LIFETIME RECONCILIATION. TASK-005's producer, converter, clean-export
+  validation, and staging receipts remain complete and are not redone. TASK-012 reopens
+  only the staging handoff seam: stage-local-candidate must own a fixed-argv callback/
+  exec lifetime so the disposable-consumer harness can use the clean export before the
+  staging trap removes it. No caller may receive a path whose owning process has already
+  cleaned it.
+
+  IMPLEMENTATION CHECKPOINT 3 (2026-08-25). TASK-011/TASK-012's positive harness lane
+  and TASK-003 are complete at harness commit
+  `f4b61c843ca7976a77908675353ea9c2f7b36f9c`, tree
+  `035cd07555e7aa4520f2460fd66e4e25bdf44c39`. The accepted pack candidate remains
+  commit `984ce690ec7f9237bdd5ca5f43e9b1c823ceceea`, tree
+  `48bcf21be0c14793d8864a859715fb637f4a55ff`, digest
+  `55ebef5edd595c356a7a827d7ddabdabc34919fdbcad2f894a9e49955280b8ae`.
+  Manifest mode discovered 3 exact names and passed pack_engines, test_verification,
+  artifact validation, identity, and cleanup. TASK-006 execution mode's positive leg
+  discovered 2 exact names and passed the same assembled path. These receipts remain
+  accepted and are not rerun merely to add fault injection. TASK-011/TASK-012 reopen
+  narrowly for enumerated pre-gate mutation tests/implementation; resume at TASK-011's
+  mutation RED, then TASK-012's seam, then TASK-006's negative matrix.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Repository bootstrap, manifest, and executable engine"
+    tasks:
+      - id: TASK-000
+        type: setup
+        title: "Bootstrap the external bash-toolchain repository"
+        description: |
+          Create the previously absent github.com/backstop-ai/bash-toolchain repository
+          with its default branch, license, minimal pack-author README, ignore policy,
+          and Backstop project configuration. Pin the Backstop CLI used by CI and the
+          harness to the released version that contains ISSUE-187's existing consumer
+          surfaces. The repository is the sole implementation workspace; do not add a
+          local pack directory or source change to backstop-core. Leave the candidate
+          pack declaration/lock installation to TASK-002, after pack.yml exists.
+        files:
+          - README.md
+          - LICENSE
+          - .gitignore
+          - backstop.yml
+        claims:
+          - CLM-001
+          - CLM-010
+        depends_on: []
+
+      - id: TASK-001
+        type: test
+        title: "RED: specify the existing-surface manifest and narrow Bash discovery"
+        description: |
+          Author the pack-owned manifest contract suite with the exact mandated
+          functions TestBashToolchainManifestUsesExistingCoreSurfaces,
+          TestBashToolchainClassificationIsNarrowAndComplete, and
+          TestBashToolchainNamePatternsDeclarationMatrix. Prove the manifest uses
+          only existing classification.test, test_name_patterns, and gate_type:test
+          surfaces; accepts scripts/tests/**/*.sh and only the exact top-level
+          scripts/verify-public-product-model.sh exception; and rejects unrelated
+          .sh paths. Exercise Go-regexp-compatible declarations for spaced name()
+          and `function name` with optional (), with only capture group 1 containing
+          a valid Bash identifier. Negative cases include calls, comments, strings,
+          malformed identifiers, and declaration-like text without an opening brace.
+          Also create the pack repository's own canonical
+          scripts/verify-public-product-model.sh acceptance entrypoint. It executes the
+          pack-owned suites as standalone scripts and gives the candidate's declared
+          project-wide engine a real exactly-once command during self-gating; it does
+          not source those suites. The intentionally shared canonical path means no
+          consumer-specific Core feature or configuration field is required.
+        files:
+          - scripts/tests/bash-toolchain/manifest-contract.sh
+          - scripts/verify-public-product-model.sh
+          - testdata/name-patterns/positive.txt
+          - testdata/name-patterns/negative.txt
+          - testdata/classification/path-matrix.txt
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        test_names:
+          - TestBashToolchainManifestUsesExistingCoreSurfaces
+          - TestBashToolchainClassificationIsNarrowAndComplete
+          - TestBashToolchainNamePatternsDeclarationMatrix
+        depends_on:
+          - TASK-000
+
+      - id: TASK-002
+        type: implementation
+        title: "GREEN: declare the Bash toolchain mechanism pack"
+        description: |
+          Create pack.yml for backstop-ai/bash-toolchain using the existing manifest
+          schema only. Declare the two narrow test globs, the two supported Bash
+          function-declaration regex forms with group 1 as the name, and one
+          project-wide Bash test engine bound to scripts/test-produce.sh and
+          scripts/test-to-sarif.sh. Set crash_guard and project-wide verdict scope so
+          execution/configuration failures remain blocking. Carry no source glob,
+          coverage declaration, substantiveness rule, or Core-specific extension.
+
+          Declare the candidate in backstop.yml and establish the initial lock shape.
+          The completed checkpoint produced the provisional digest recorded in notes,
+          but do not treat a local add sourced from the working repository itself as
+          acceptance: that path recursively includes `.backstop`. TASK-005 owns the
+          clean external staging/export and refreshed content-addressed installation
+          required before TASK-003 may run the assembled engine.
+        files:
+          - pack.yml
+          - backstop.yml
+          - backstop.lock
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: verification
+        title: "Verify the manifest contract in a disposable valid consumer"
+        description: |
+          Run `backstop pack test` in the pack repository. Do NOT run an assembled full
+          gate in that bare repository and do not add a production spec merely to make
+          test_verification applicable.
+
+          Invoke scripts/stage-local-candidate.sh with candidate commit
+          `984ce690ec7f9237bdd5ca5f43e9b1c823ceceea`, tree
+          `48bcf21be0c14793d8864a859715fb637f4a55ff`, and a fixed argv callback to
+          scripts/create-disposable-consumer.sh in
+          manifest-contract mode. Do not stage inline and do not pass a shell command
+          string. The implemented TASK-012 handoff keeps the tracked export live for the
+          callback and owns all creation, authoring, validation,
+          candidate installation, external-sandbox gate execution, and trap cleanup;
+          this verification task must not recreate any of that behavior inline. Supply
+          the clean staged candidate identity and the manifest function-set data. The
+          resulting spec claims—not the bundle or plan—must name the exact
+          TestBashToolchainManifestUsesExistingCoreSurfaces,
+          TestBashToolchainClassificationIsNarrowAndComplete, and
+          TestBashToolchainNamePatternsDeclarationMatrix functions. Require the harness
+          receipt to prove full artifact validation, static discovery of all three,
+          exactly-once canonical execution, green pack_engines/test_verification, exact
+          candidate identity, explicit client opt-out, and cleanup. The earlier
+          bare-repository test_verification failure remains a truthful non-acceptance
+          receipt superseded by this reusable harness.
+        files:
+          - scripts/stage-local-candidate.sh
+          - scripts/create-disposable-consumer.sh
+          - scripts/verify-public-product-model.sh
+          - scripts/tests/bash-toolchain/manifest-contract.sh
+          - testdata/consumer/harness/manifest-functions.txt
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on:
+          - TASK-005
+          - TASK-012
+
+      - id: TASK-004
+        type: test
+        title: "RED: specify canonical-verifier single execution, SARIF polarity, and loud failures"
+        description: |
+          Add TestBashToolchainCanonicalVerifierSingleExecutionAndSARIF and
+          TestBashToolchainExecutionFailureMatrixIsLoud. The positive fixture mixes
+          static declarations with a self-executing canonical top-level verifier that
+          records its own process invocation count and dispatches its suites. Assert
+          static discovery does not drive execution: the engine invokes the canonical
+          verifier exactly once, never sources or rewrites suite files, preserves
+          combined diagnostics and exit status, emits valid empty SARIF only for a
+          passing command, and emits an overall or identifiable-suite SARIF result on
+          failure. The failure matrix covers missing Bash, missing/failing canonical
+          verifier, producer crash, converter crash, and malformed converter output;
+          every case remains non-zero or blocking, never empty green. Also specify the
+          local-candidate staging safety contract: source bytes come from a clean
+          disposable tracked-file clone/export outside the working repository; a
+          working-repository source or any staged `.backstop` subtree is rejected;
+          success and every failure path remove the staging directory; and repeated
+          staging never recursively increases candidate content.
+        files:
+          - scripts/tests/bash-toolchain/execution-contract.sh
+          - testdata/execution/pass/scripts/verify-public-product-model.sh
+          - testdata/execution/pass/scripts/tests/suite.sh
+          - testdata/execution/fail/scripts/verify-public-product-model.sh
+          - testdata/execution/expected-failure.sarif.json
+        claims:
+          - CLM-004
+          - CLM-009
+        test_names:
+          - TestBashToolchainCanonicalVerifierSingleExecutionAndSARIF
+          - TestBashToolchainExecutionFailureMatrixIsLoud
+        depends_on:
+          - TASK-000
+
+      - id: TASK-005
+        type: implementation
+        title: "GREEN: implement the Bash producer and strict SARIF converter"
+        description: |
+          Implement scripts/test-produce.sh as the pack-owned project-wide producer.
+          Static mandated-test discovery remains entirely in Core's classifier and name
+          matcher; the producer performs no declaration enumeration or per-function
+          dispatch. Resolve the explicit pack-configured project test command and invoke
+          the repository's canonical top-level verifier exactly once under Bash,
+          preserving combined diagnostics and its exit status. Never source, rewrite,
+          or individually invoke self-executing suite files, and never use eval on
+          source-derived text.
+
+          Implement scripts/test-to-sarif.sh as a strict converter from the canonical
+          command's combined output to SARIF 2.1.0. Preserve overall or identifiable
+          suite diagnostics and failure polarity. Reject malformed input and internal
+          conversion errors loudly; only an observed passing command may yield valid
+          empty SARIF. Per-function dynamic verdict association is not required.
+
+          Implement scripts/stage-local-candidate.sh. From the exact candidate commit,
+          create a `mktemp -d` directory outside the working repository and populate it
+          only with tracked bytes via a clean clone/export (`git archive` or an exactly
+          equivalent tracked-file export). Assert the staging path is not inside the
+          source repository, contains no `.git` or `.backstop`, and matches the source
+          commit/tree before using that external path with supported `backstop pack add`.
+          Refresh backstop.yml/backstop.lock and install from the resulting content
+          address for self-gating. Install cleanup traps before the first fallible step
+          and remove staging on success, failure, and interruption. Never add the live
+          repository path and never copy an existing installed candidate into itself.
+        files:
+          - scripts/test-produce.sh
+          - scripts/test-to-sarif.sh
+          - scripts/stage-local-candidate.sh
+          - backstop.yml
+          - backstop.lock
+        claims:
+          - CLM-004
+          - CLM-009
+        depends_on:
+          - TASK-004
+          - TASK-002
+
+      - id: TASK-011
+        type: test
+        title: "RED: specify a reusable disposable bundle-spec-plan consumer harness"
+        description: |
+          Add a plan-only auxiliary harness test (do not add its name to test_names or
+          the ISSUE-187 mandated-test set) that invokes the future
+          scripts/create-disposable-consumer.sh in manifest-contract and
+          execution-contract modes. Drive the two modes from data files containing the
+          exact required function sets. Assert both consumers are created outside the
+          pack repository, contain a valid linked bundle/spec/plan artifact chain, place
+          only the selected suites/verifier/fixtures under classified paths, install the
+          exact clean staged candidate, and return machine-readable gate/identity/
+          cleanup receipts. Reject unknown modes, malformed or duplicate function data,
+          source-repository paths, missing candidate identity, invalid artifacts,
+          candidate mismatch, nested `.backstop`, absent cleanup, and any attempt to
+          write a production artifact into the pack repository.
+
+          Exercise the staging-to-harness boundary directly. Prove the clean export path
+          exists and is readable throughout the callback but is absent after return;
+          callback argv is preserved byte-for-byte as separate arguments; shell
+          metacharacters remain inert data; no eval or command-string parsing occurs;
+          live-repository and any `.backstop`-bearing source are rejected before callback;
+          and stage cleanup occurs after callback success, non-zero exit, exec/start
+          failure, TERM, and INT while preserving the callback's status.
+
+          Reopen this completed RED task only for pre-gate mutation behavior. Specify a
+          closed enum accepted by create-disposable-consumer.sh after valid artifact
+          construction and candidate installation but before its one assembled gate:
+          `none`, `missing-bash`, `missing-verifier`, `failing-verifier`,
+          `producer-failure`, `converter-failure`, and `malformed-converter-output`.
+          Reject every other value. For each non-none mode, assert the mutation resolves
+          through canonical containment checks to a path inside the disposable consumer
+          (including only its installed candidate copy when producer/converter bytes are
+          changed), never changes the clean stage, source repository, accepted commit,
+          or baseline fixture, and is observable by the immediately following real gate.
+          Prove no mutation value is treated as argv or shell syntax, metacharacters are
+          inert/rejected, the actual gate exit/status/diagnostics are preserved in the
+          machine receipt, an expected negative is green only when the gate fails for
+          that mutation's named reason, and cleanup occurs after every expected failure,
+          unexpected pass, internal error, TERM, and INT. Do not add an arbitrary
+          callback, path, command, or script-injection option.
+
+          For producer-failure, converter-failure, and malformed-converter-output,
+          specify a reachable negative-pack transition rather than accepting an early
+          lock failure or `AlreadyCurrent` no-op. Create a second fresh disposable
+          negative consumer whose declaration, lock, installed-pack tree, and cache do
+          not yet contain bash-toolchain. Materialize a contained negative copy from the
+          exact accepted stage, apply the one enumerated mutation, then use supported
+          `backstop pack add <disposable-negative-path>` as that pack name's FIRST install
+          in the negative consumer. Assert Backstop—not test code—computes the new digest;
+          it differs from the independently preserved positive-consumer baseline; only
+          the fresh negative consumer receives the negative declaration/lock; accepted
+          commit/tree/digest, positive consumer, stage, source repo, and accepted installed
+          bytes remain unchanged; and lock verification passes before the engine runs.
+          RED cases must explicitly catch the `AlreadyCurrent`/no-op trap, prove absence
+          of any prior bash-toolchain declaration/lock/install before add, reject reuse of
+          the positive consumer, missing or unchanged negative digest, manually invented
+          digest/lock text, negative bytes paired with the accepted lock, mutation outside
+          the negative root, or engine evidence without a preceding lock-PASS receipt.
+          Missing Bash, missing verifier, and failing verifier remain mutations of their
+          ordinary disposable consumer/environment and must not relock the pack unless
+          the implementation proves it necessary.
+        files:
+          - scripts/tests/bash-toolchain/disposable-consumer-harness.sh
+          - testdata/consumer/harness/manifest-functions.txt
+          - testdata/consumer/harness/execution-functions.txt
+          - testdata/consumer/harness/invalid-functions.txt
+        claims:
+          - CLM-001
+          - CLM-004
+          - CLM-009
+        depends_on:
+          - TASK-000
+
+      - id: TASK-012
+        type: implementation
+        title: "GREEN: implement the reusable disposable consumer harness"
+        description: |
+          Extend the completed scripts/stage-local-candidate.sh only at its handoff seam.
+          Accept an exact candidate commit/tree followed by `--` and a fixed argv
+          callback. Create and validate the clean tracked export exactly as TASK-005
+          already specifies, append/pass its live path as one documented callback
+          argument, invoke the callback directly as an argv array, preserve its exit
+          status, and trap-clean after success, failure, start error, TERM, or INT. Never
+          use eval, `sh -c`, a command string, or interpolation that changes argument
+          boundaries. Reject the live repository and `.backstop` content before invoking
+          anything. This is a narrow lifetime extension; do not rewrite or re-prove the
+          completed producer/converter or clean-export implementation.
+
+          Implement scripts/create-disposable-consumer.sh to accept a mode, exact
+          candidate commit/tree/digest, clean staged pack path, and function-set data.
+          Install cleanup traps before the first fallible operation, create a consumer
+          with `mktemp -d` outside the pack repository, and use these exact supported
+          scaffold commands inside it:
+
+              backstop artifact new bundle --slug bash-toolchain-consumer
+              backstop artifact new spec --slug bash-toolchain-consumer
+              backstop artifact new plan --source SPEC-NNN --slug bash-toolchain-consumer
+
+          `artifact new spec` has no supported bundle `--source` flag: deterministically
+          author the scaffolded spec's implementation/source references to the generated
+          BUNDLE-NNN and author the bundle's success criteria/seed ownership to the
+          generated SPEC-NNN. Preserve the CLI-generated IDs and filenames. Author only
+          fixture data needed for valid schemas: one requirement per selected exact
+          mandated function, matching claims/tests, valid draft statuses, and a valid
+          TDD plan phase whose test task maps every claim and whose verification depends
+          on its implementation. The plan command supplies the supported SPEC-NNN link;
+          do not hand-create any artifact.
+
+          Copy only the selected pack-owned suite, required fixtures, and
+          scripts/verify-public-product-model.sh into classified consumer paths. Run
+          `backstop artifact validate --all`; on any violation stop before the gate.
+          Declare/install the clean staged candidate through Backstop, verify the exact
+          commit/tree/content digest and absence of nested `.backstop`, then run
+          `BACKSTOP_PACK_SANDBOX=external backstop gate --all` inside the consumer.
+          External mode is an explicit client opt-out for this secure VM only and must
+          never enter pack defaults. Emit deterministic identity, artifact-validation,
+          discovery, engine, test-verification, and cleanup receipts. Remove the
+          consumer on success, failure, signal, or malformed input.
+
+          Reopen this completed implementation only at the pre-gate seam. Add the closed
+          mutation enum specified by TASK-011 and apply it after artifact validation and
+          exact candidate installation, immediately before the existing assembled gate.
+          Each mode has one hardcoded mutation operation and expected diagnostic class:
+          hide Bash from the gate environment; remove the disposable canonical verifier;
+          replace only the disposable verifier with a deterministic non-zero fixture;
+          replace only the installed candidate producer with a deterministic crash;
+          replace only its converter with a deterministic crash; or replace only its
+          converter with deterministic malformed non-SARIF output. Resolve/canonicalize
+          every target and refuse any path outside the disposable root. Keep the staged
+          candidate and source checkout read-only/unchanged. Run the same real gate once,
+          capture its actual exit status and diagnostics before cleanup, compare them to
+          the mode's hardcoded expected class, and emit both observed and expected fields
+          in the machine receipt. `none` preserves the accepted positive behavior. Never
+          expose eval, sh-c, arbitrary callback, arbitrary path, or caller-supplied
+          mutation commands.
+
+          For the three pack-byte modes—producer-failure, converter-failure, and
+          malformed-converter-output—create and own a separate fresh negative-consumer
+          lifecycle. Before mutation/add, assert it has no bash-toolchain declaration,
+          lock entry, installed directory, or cached resolution. Export exact accepted
+          stage bytes into a second path contained by that negative root, mutate only
+          that copy, and establish it through supported `backstop pack add
+          <negative-copy>` as the first installation of that pack name. Treat
+          `AlreadyCurrent`, unchanged state, or resolution to the positive consumer as a
+          harness error. Let Backstop generate the negative declaration/lock/digest;
+          never calculate or write a digest manually. Preserve the completed positive
+          consumer's accepted commit/tree/digest receipts independently and record the
+          negative consumer identity separately. Require negative digest != baseline,
+          run artifact validation and real pack install/lock verification to PASS in the
+          fresh negative consumer, and only then execute its gate so producer/converter
+          behavior—not lock mismatch—supplies the expected diagnostic. Never remove or
+          replace the positive consumer's accepted pack and never label or publish the
+          negative copy as accepted. Trap-clean the negative copy and consumer on every
+          outcome. The other three failure modes modify only their ordinary disposable
+          consumer/environment and retain the accepted lock unchanged unless an
+          executable necessity is demonstrated and covered by TASK-011.
+        files:
+          - scripts/create-disposable-consumer.sh
+          - scripts/stage-local-candidate.sh
+          - scripts/verify-public-product-model.sh
+        claims:
+          - CLM-001
+          - CLM-004
+          - CLM-009
+        depends_on:
+          - TASK-011
+          - TASK-005
+
+      - id: TASK-006
+        type: verification
+        title: "Verify dispatcher and conversion behavior in disposable consumers"
+        description: |
+          Run `backstop pack test` in the pack repository, then invoke
+          scripts/stage-local-candidate.sh with commit
+          `984ce690ec7f9237bdd5ca5f43e9b1c823ceceea`, tree
+          `48bcf21be0c14793d8864a859715fb637f4a55ff`, and
+          scripts/create-disposable-consumer.sh as a fixed argv callback in
+          execution-contract mode, including the digest and execution function-set data
+          as distinct arguments. Do not stage inline, pass a command string, or
+          reconstruct consumer behavior in this verification task. Require its
+          CLI-scaffolded bundle-to-spec-to-plan chain to declare in the spec claims the exact
+          TestBashToolchainCanonicalVerifierSingleExecutionAndSARIF and
+          TestBashToolchainExecutionFailureMatrixIsLoud functions and place the
+          completed TASK-004 suites/fixtures under classified paths. Require harness
+          receipts proving the linked artifact validation, exact candidate install, and
+          `BACKSTOP_PACK_SANDBOX=external backstop gate --all` execution.
+          Require both mandated functions to be discovered and the real producer and
+          converter to pass through the assembled engine.
+
+          Invoke the same harness separately with each enumerated mutation mode:
+          missing-bash, missing-verifier, failing-verifier, producer-failure,
+          converter-failure, and malformed-converter-output. Read its machine receipts
+          and require the real gate's non-green/config-error or named-verdict status and
+          the mode-specific diagnostic; do not mutate inline, reconstruct the consumer,
+          or replace a loud gate failure with a raw script invocation. Require receipts
+          proving every mutation stayed inside its disposable root, the accepted stage/
+          source identity was unchanged, the gate observed the mutation, actual status
+          was preserved, and cleanup completed for every outcome. For the three pack-byte
+          modes, additionally require correlated but explicitly different consumer IDs:
+          preserved positive-consumer baseline commit/tree/digest and fresh negative-
+          consumer digest, proof the negative consumer had no prior pack/lock before its
+          first add, negative != baseline, Backstop-generated negative declaration/lock,
+          artifact/lock PASS, and only then the expected producer/converter engine failure.
+          Reject any receipt that claims both identities came from one consumer, reports
+          `AlreadyCurrent`/no-op or only lock mismatch, reuses the accepted digest for
+          changed bytes, removes/replaces the accepted pack, or represents the negative
+          pack as accepted.
+          Missing-Bash/verifier modes must retain the accepted pack identity unless their
+          mode-specific receipt justifies otherwise. External sandbox mode
+          remains harness configuration only; pack defaults stay native and fail-closed.
+          No remote release is assumed.
+        files:
+          - scripts/stage-local-candidate.sh
+          - scripts/create-disposable-consumer.sh
+          - scripts/tests/bash-toolchain/execution-contract.sh
+          - scripts/verify-public-product-model.sh
+          - testdata/consumer/harness/execution-functions.txt
+          - testdata/execution/pass/scripts/verify-public-product-model.sh
+          - testdata/execution/pass/scripts/tests/suite.sh
+          - testdata/execution/fail/scripts/verify-public-product-model.sh
+        claims:
+          - CLM-004
+          - CLM-009
+        depends_on:
+          - TASK-005
+          - TASK-003
+          - TASK-012
+
+  - id: phase-2
+    name: "Phase 2: Real consumer, mixed-toolchain, and release acceptance"
+    tasks:
+      - id: TASK-007
+        type: test
+        title: "RED: author real-consumer, mixed-toolchain, and immutable-release acceptance"
+        description: |
+          Add the exact mandated functions
+          TestBashToolchainSPEC072Resolves47ReferencesTo44Functions,
+          TestBashToolchainSPEC072TerminalPromotionClearsDiscoveryAndDrift, and
+          TestBashToolchainMixedGoBashDiscoveryDoesNotRegressGo. Also add exact mandated
+          TestBashToolchainImmutableReleaseInstallAcceptance, which fails until the
+          non-circular local-candidate/tag/remote-install lane exists and proves the
+          accepted candidate commit, tree, and pack digest equal the fresh remote
+          installation identity. In disposable clones, declare, lock, and install the
+          exact candidate through Backstop from TASK-005's clean external tracked-file
+          staging export, never from the live repository or its `.backstop` tree,
+          alongside the released Go toolchain pack. Check out backstop-core at exact
+          commit ed221e896fab2209bbbdcece0e96d28e22e27002 and first assert its tree is
+          exactly 0fee4b18605c74090b2271cf312a753ec614c432. Reject a branch checkout,
+          commit mismatch, dirty pre-mutation tree, or tree mismatch. Parse the pinned
+          SPEC-072 claims and assert 47 references and 44 distinct statically declared
+          Bash functions with no absent name. Through the assembled Bash engine execute
+          the exact top-level verifier once; its own contract dispatches all eight
+          suites. Also prove the verifier and suites pass independently without ever
+          sourcing or rewriting them. Change SPEC-072 to implemented and PLAN-SPEC-072
+          to completed only in the disposable clone, assert those are the only tree
+          differences, and require zero absent tests in test_verification and zero
+          broken promises in artifact_status_drift.
+
+          Build a separate mixed fixture containing one Go Test function and one Bash
+          function. With both released toolchain packs installed, require both files,
+          both names, the Bash canonical verifier exactly once, and the Go test engine
+          through its existing declaration while pinning the pre-addition Go discovery
+          and verdict result unchanged. Use real assembled gates and reports, never
+          hand-built discovery maps.
+        files:
+          - scripts/tests/bash-toolchain/spec072-consumer.sh
+          - scripts/tests/bash-toolchain/mixed-toolchain.sh
+          - scripts/tests/bash-toolchain/release-install.sh
+          - testdata/consumer/mixed/go.mod
+          - testdata/consumer/mixed/example_test.go
+          - testdata/consumer/mixed/scripts/tests/example.sh
+        claims:
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-011
+        test_names:
+          - TestBashToolchainSPEC072Resolves47ReferencesTo44Functions
+          - TestBashToolchainSPEC072TerminalPromotionClearsDiscoveryAndDrift
+          - TestBashToolchainMixedGoBashDiscoveryDoesNotRegressGo
+          - TestBashToolchainImmutableReleaseInstallAcceptance
+        depends_on:
+          - TASK-000
+
+      - id: TASK-008
+        type: test
+        title: "RED: specify absent/incomplete-pack and repository-fence acceptance"
+        description: |
+          Add TestBashToolchainAbsentOrIncompletePackIsLoud and
+          TestBashToolchainChangeFence. Mutate disposable consumers to remove the Bash
+          pack, classification.test, each required path, test_name_patterns, and the
+          test engine declaration in turn. Require unresolved mandated tests,
+          manifest/matcher configuration failure, or another existing blocking result;
+          no mutation may clear the terminal gate. Compare the implementation diff
+          against the issue allowlist and reject changes to Backstop Core source,
+          substantiveness behavior, bundles, SPEC-072, or PLAN-SPEC-072.
+        files:
+          - scripts/tests/bash-toolchain/failure-and-fence.sh
+          - testdata/consumer/mutations/matrix.yml
+        claims:
+          - CLM-008
+          - CLM-010
+        test_names:
+          - TestBashToolchainAbsentOrIncompletePackIsLoud
+          - TestBashToolchainChangeFence
+        depends_on:
+          - TASK-000
+
+      - id: TASK-009
+        type: implementation
+        title: "GREEN: wire reproducible consumer and release acceptance"
+        description: |
+          Implement a non-circular release lane. Before any tag or release exists, use
+          TASK-005 clean external tracked-file staging plus Backstop's supported
+          local-path add/content-addressed lock-install flow to install the exact
+          candidate bytes into fresh disposable consumers and run the
+          complete Phase-2 acceptance through disposable-consumer
+          `BACKSTOP_PACK_SANDBOX=external backstop gate --all` runs in this secure VM.
+          Keep that explicit opt-out in harness/CI configuration only; never encode it
+          into pack defaults. Record the candidate
+          commit, tree, and pack content digest. Only after that exact candidate is green
+          may CI create and push the immutable version tag. Then create a second fresh
+          consumer, install `backstop-ai/bash-toolchain@<version>` from the remote tag,
+          assert its resolved commit/tree/content digest exactly match the accepted
+          candidate, and rerun the complete acceptance. Create any higher-level release
+          record only after post-tag remote acceptance is green. Never validate a tag by
+          first requiring the release record it is meant to authorize, never use a
+          mutable branch, and never silently substitute the local checkout in the remote
+          lane.
+        files:
+          - .github/workflows/ci.yml
+          - .github/workflows/tag-integrity.yml
+          - scripts/release-acceptance.sh
+          - scripts/create-disposable-consumer.sh
+          - scripts/stage-local-candidate.sh
+        claims:
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-010
+          - CLM-011
+        depends_on:
+          - TASK-007
+          - TASK-008
+          - TASK-005
+          - TASK-006
+          - TASK-012
+
+      - id: TASK-010
+        type: verification
+        title: "Verify the complete candidate against real and mixed consumers"
+        description: |
+          Execute the authoritative verification command:
+
+              backstop pack test && ./scripts/release-acceptance.sh
+
+          Require all eleven exact mandated functions to be discovered and green in
+          the candidate lane. The final script is not optional: it constructs the valid
+          disposable consumers and runs their assembled
+          `BACKSTOP_PACK_SANDBOX=external backstop gate --all` commands, then performs
+          the publication boundary, fresh remote install, and identity equality proof
+          required by CLM-011. It must never run the assembled gate in the bare pack
+          repository or encode external sandbox mode into pack defaults. Run the
+          same full gate in both the pre-publication content-addressed local install and
+          post-tag remote identity install lanes and record: identical candidate bytes,
+          pinned Core commit/tree identity, 47 references to 44 distinct functions, the
+          canonical verifier executed exactly once while dispatching eight suites, zero
+          absent SPEC-072 mandated tests, zero SPEC-072 broken promises, unchanged Go
+          discovery/verdicts, and every loud-failure mutation non-green.
+        files:
+          - pack.yml
+          - scripts/test-produce.sh
+          - scripts/test-to-sarif.sh
+          - scripts/release-acceptance.sh
+          - scripts/create-disposable-consumer.sh
+          - scripts/stage-local-candidate.sh
+          - scripts/tests/bash-toolchain/release-install.sh
+          - .github/workflows/ci.yml
+          - .github/workflows/tag-integrity.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+        depends_on:
+          - TASK-009

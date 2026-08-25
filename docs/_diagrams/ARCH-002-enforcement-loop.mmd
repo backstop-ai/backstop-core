@@ -1,0 +1,7 @@
+flowchart TD
+  Intent[Intent artifacts] --> Agent[Bounded agent execution]
+  Agent --> Engines[Pack-declared engines]
+  Engines --> Verdict[Gate verdict]
+  Verdict --> Evidence[Tests and evidence]
+  Evidence --> Provenance[Provenance feedback]
+  Provenance --> Intent

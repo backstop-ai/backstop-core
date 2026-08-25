@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -313,16 +314,60 @@ func NewTestNameMatcher(patterns []string) (TestNameMatcher, error) {
 	return TestNameMatcher{patterns: compiled}, nil
 }
 
-// FindName returns capture group 1 of the FIRST declared pattern that matches the
-// line, or ok=false (SPEC-045 REQ-002/CLM-010..CLM-015). With only bun patterns
-// declared, a Go `func TestFoo(` line returns ok=false — no baked Go literal.
-func (m TestNameMatcher) FindName(line string) (string, bool) {
-	for _, re := range m.patterns {
-		if sub := re.FindStringSubmatch(line); len(sub) > 1 {
-			return sub[1], true
+// FindNames returns every nonempty capture-group-1 match across the declared
+// patterns. Source position is authoritative; declared-pattern order breaks ties.
+func (m TestNameMatcher) FindNames(line string) []string {
+	type match struct {
+		name         string
+		start        int
+		patternIndex int
+	}
+	matches := make([]match, 0)
+	for patternIndex, re := range m.patterns {
+		for _, indices := range re.FindAllStringSubmatchIndex(line, -1) {
+			if len(indices) < 4 || indices[2] < 0 || indices[3] <= indices[2] {
+				continue
+			}
+			matches = append(matches, match{
+				name:         line[indices[2]:indices[3]],
+				start:        indices[0],
+				patternIndex: patternIndex,
+			})
 		}
 	}
-	return "", false
+	sort.SliceStable(matches, func(i, j int) bool {
+		if matches[i].start != matches[j].start {
+			return matches[i].start < matches[j].start
+		}
+		return matches[i].patternIndex < matches[j].patternIndex
+	})
+	names := make([]string, 0, len(matches))
+	seen := make(map[struct {
+		name  string
+		start int
+	}]struct{}, len(matches))
+	for _, candidate := range matches {
+		key := struct {
+			name  string
+			start int
+		}{name: candidate.name, start: candidate.start}
+		if _, duplicate := seen[key]; duplicate {
+			continue
+		}
+		seen[key] = struct{}{}
+		names = append(names, candidate.name)
+	}
+	return names
+}
+
+// FindName preserves the original single-name API by returning the first
+// deterministic result from FindNames, or empty/false when no name was found.
+func (m TestNameMatcher) FindName(line string) (string, bool) {
+	names := m.FindNames(line)
+	if len(names) == 0 {
+		return "", false
+	}
+	return names[0], true
 }
 
 // HasPatterns reports whether any test-name patterns are declared (SPEC-045
@@ -615,7 +660,7 @@ func collectTestFuncNamesScoped(codeDir string, scope *GateScope, classifier Sou
 
 		scanner := bufio.NewScanner(f)
 		for scanner.Scan() {
-			if name, ok := matcher.FindName(scanner.Text()); ok {
+			for _, name := range matcher.FindNames(scanner.Text()) {
 				found[name] = path
 			}
 		}
