@@ -1,0 +1,532 @@
+---
+plan_id: PLAN-SPEC-075
+spec_id: SPEC-075
+spec_version: "1.0.2"
+created: "2026-08-24"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: ./scripts/verify-public-site.sh
+coverage_threshold: 80
+notes: |
+  Seed 4 only. Consume accepted PLAN-SPEC-072 and PLAN-SPEC-073 outputs, and consume
+  PLAN-SPEC-074 only through its completed source-handoff barrier TASK-027. This plan
+  supplies the locked build, rendered site, annotation, sitecheck, browser/design-system
+  acceptance, and Pages delivery that PLAN-SPEC-074's post-barrier TASK-025 and later tasks
+  inspect read-only. That split prevents a PLAN-074/075 execution cycle. Seed 5 journeys,
+  MCP, runtime services, client JavaScript, and local copies of owner visual policy remain out.
+
+phases:
+  - id: phase-1
+    name: "Accept upstream owners and establish delivery inventory"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Enforce the accepted Seed 1 through Seed 3 handoff"
+        description: |
+          Stop unless PLAN-SPEC-072 and PLAN-SPEC-073 are accepted and PLAN-SPEC-074 has
+          completed source-handoff TASK-027. Run upstream entrypoints and SPEC-074 check mode;
+          inspect ten owners, 24 JLINKs, boundaries, adoption instructions, four generated
+          regions/descriptors, pack identity, and seven-cell owner export read-only. Do not wait
+          for or edit PLAN-SPEC-074 post-barrier rendered/deployment tasks.
+        files: [plans/PLAN-SPEC-072-public-product-model.plan.yml, plans/PLAN-SPEC-073-documentation-semantics-integration.plan.yml, plans/PLAN-SPEC-074-derived-product-truth-pipeline.plan.yml, .backstop/website-pack-releases.yml, .backstop/packs/backstop-ai/backstop-design-system/contracts/public-site-acceptance.yml]
+        claims: [CLM-016, CLM-017, CLM-018, CLM-022, CLM-023, CLM-050, CLM-052, CLM-054, CLM-056]
+        depends_on: []
+      - id: TASK-002
+        type: test
+        title: "Specify the closed Seed 4 delivery boundary"
+        description: |
+          Add failing tests for a full-40-hex pre-Seed-4 base and exact A/M/D/R inventory,
+          rename paths, one entry per changed path, closed path-role mappings, and three
+          deletion-only retired bootstrap paths. Reject wrong base, omissions, extras,
+          duplicates, invalid statuses, prohibited roles, and role/path mismatches.
+        files: [scripts/sitecheck/inventory_test.go, scripts/sitecheck/testdata/delivery-inventory-mutations.yml]
+        claims: [CLM-021, CLM-048, CLM-049]
+        test_names: [TestSiteCheck_RejectsMechanicalLocalPolicySurfacesAndProtectedBytes, TestSiteCheck_Seed4DeliveryInventoryPasses, TestSiteCheck_Seed4DeliveryInventoryRejectsInvalidMatrix]
+        depends_on: [TASK-001]
+      - id: TASK-003
+        type: implementation
+        title: "Record the Seed 4 delivery inventory"
+        description: |
+          Pin the exact commit before the first Seed 4 implementation and classify every planned
+          Seed 4 path under the closed matrix. Keep owner rules, engines, fixtures, tokens, and
+          policy validators outside Core; converge actual paths in the final phase.
+        files: [.backstop/seed4-delivery-inventory.yml]
+        claims: [CLM-021, CLM-048, CLM-049]
+        depends_on: [TASK-002]
+      - id: TASK-004
+        type: verification
+        title: "Gate the delivery boundary"
+        description: "Run `./bin/backstop gate --file .backstop/seed4-delivery-inventory.yml` and its isolated mutation suite."
+        files: [.backstop/seed4-delivery-inventory.yml, scripts/sitecheck/inventory_test.go]
+        claims: [CLM-021, CLM-048, CLM-049]
+        depends_on: [TASK-003]
+
+  - id: phase-2
+    name: "Build the exact static publication"
+    tasks:
+      - id: TASK-005
+        type: test
+        title: "Specify locked Jekyll routes, aliases, and runtime absence"
+        description: |
+          Drive the exact production command red. Cover one canonical output per source, root
+          collision, canonical metadata, CNAME bytes, five frontmatter-only one-hop aliases, and
+          the forbidden runtime/verification-runtime matrix. Reject Cayman, scripts/assets/service
+          workers, prohibited services, alias links/chains/cycles, wrong case, and non-LF CNAME.
+        files: [scripts/sitecheck/build_test.go, scripts/sitecheck/testdata/build-route-mutations.yml]
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-010, CLM-011, CLM-033, CLM-034, CLM-041, CLM-045]
+        test_names: [TestSiteCheck_StaticLockedJekyllBuildPasses, TestSiteCheck_RejectsUnearnedRuntimeMatrix, TestSiteCheck_RejectsPublishedVerificationRuntime, TestSiteCheck_CanonicalRouteMatrixPasses, TestSiteCheck_CanonicalRouteMatrixRejectsInvalidCell, TestSiteCheck_LegacyRedirectMatrixPasses, TestSiteCheck_LegacyRedirectMatrixRejectsInvalidCell, TestSiteCheck_CustomDomainBytesPass, TestSiteCheck_CustomDomainRejectsInvalidMatrix, TestSiteCheck_RejectsRootOutputCollision, TestSiteCheck_DistinguishesCanonicalMetadataFromAnchorLinks]
+        depends_on: [TASK-004]
+      - id: TASK-006
+        type: implementation
+        title: "Lock build dependencies and Jekyll configuration"
+        description: |
+          Add immutable Ruby and verification-only Node graphs, replace Cayman configuration,
+          establish the shared no-JavaScript redirect layout, and preserve exact CNAME copying.
+          Every build uses production environment and the exact command; Node emits no runtime.
+        files: [Gemfile, Gemfile.lock, package.json, package-lock.json, docs/_config.yml, docs/_layouts/redirect.html]
+        claims: [CLM-001, CLM-002, CLM-003, CLM-033, CLM-034, CLM-045]
+        depends_on: [TASK-005]
+      - id: TASK-036
+        type: implementation
+        title: "Convert legacy sources to exact serverless aliases"
+        description: |
+          Convert the five legacy sources to frontmatter-only users of the shared redirect layout,
+          with exact canonical replacements and no script, chain, cycle, or editable parallel IA.
+        files: [docs/getting-started.md, docs/concepts.md, docs/artifact-workflow.md, docs/pack-authoring.md, docs/cli-reference.md]
+        claims: [CLM-010, CLM-011]
+        depends_on: [TASK-005]
+      - id: TASK-037
+        type: implementation
+        title: "Establish the first eight canonical route outputs"
+        description: |
+          Assign exact outputs for root through reference from accepted page sources and remove
+          docs/index.html so docs/index.md alone emits root. Refuse wrong case, missing routes,
+          and collisions; status and contributing are delivered separately by TASK-040.
+        files: [docs/index.html, docs/index.md, docs/evaluate.md, docs/model.md, docs/adopt.md, docs/use-cases.md, docs/packs.md, docs/extend.md, docs/reference.md]
+        claims: [CLM-004, CLM-005, CLM-041]
+        depends_on: [TASK-005]
+      - id: TASK-040
+        type: implementation
+        title: "Establish status and contributing route outputs"
+        description: |
+          Assign the exact /status/ and /contributing/ outputs from their accepted canonical page
+          sources. Refuse wrong case, missing output, alias ownership, or a colliding source.
+        files: [docs/status.md, docs/contributing.md]
+        claims: [CLM-004, CLM-005]
+        depends_on: [TASK-005]
+      - id: TASK-007
+        type: verification
+        title: "Gate locked build dependencies and configuration"
+        description: |
+          Run `./bin/backstop gate --file Gemfile --file Gemfile.lock --file package.json --file
+          package-lock.json --file docs/_config.yml --file docs/_layouts/redirect.html --file
+          docs/CNAME`; execute the exact locked production build into disposable _site and run
+          runtime, canonical-metadata, and CNAME mutations.
+        files: [Gemfile, Gemfile.lock, package.json, package-lock.json, docs/_config.yml, docs/_layouts/redirect.html, docs/CNAME]
+        claims: [CLM-001, CLM-002, CLM-003, CLM-033, CLM-034, CLM-045]
+        depends_on: [TASK-006]
+      - id: TASK-045
+        type: verification
+        title: "Gate the five serverless alias sources"
+        description: |
+          Run `./bin/backstop gate --file docs/getting-started.md --file docs/concepts.md --file
+          docs/artifact-workflow.md --file docs/pack-authoring.md --file docs/cli-reference.md`;
+          execute the exact locked production build and run every redirect mutation.
+        files: [docs/getting-started.md, docs/concepts.md, docs/artifact-workflow.md, docs/pack-authoring.md, docs/cli-reference.md]
+        claims: [CLM-010, CLM-011]
+        depends_on: [TASK-036]
+      - id: TASK-041
+        type: verification
+        title: "Gate root through use-cases canonical outputs"
+        description: |
+          Run `./bin/backstop gate --file docs/index.md --file docs/evaluate.md --file
+          docs/model.md --file docs/adopt.md --file docs/use-cases.md`; execute the exact locked
+          build and require the corresponding route cells plus single root ownership.
+        files: [docs/index.html, docs/index.md, docs/evaluate.md, docs/model.md, docs/adopt.md, docs/use-cases.md]
+        claims: [CLM-004, CLM-005, CLM-041]
+        depends_on: [TASK-037]
+      - id: TASK-042
+        type: verification
+        title: "Gate packs through contributing canonical outputs"
+        description: |
+          Run `./bin/backstop gate --file docs/packs.md --file docs/extend.md --file
+          docs/reference.md --file docs/status.md --file docs/contributing.md`; execute the exact
+          locked build and require the corresponding five canonical route cells.
+        files: [docs/packs.md, docs/extend.md, docs/reference.md, docs/status.md, docs/contributing.md]
+        claims: [CLM-004, CLM-005]
+        depends_on: [TASK-037, TASK-040]
+
+  - id: phase-3
+    name: "Render the field-guide instance"
+    tasks:
+      - id: TASK-008
+        type: test
+        title: "Specify shell, navigation, treatments, and ownership-safe composition"
+        description: |
+          Test the literal ten-row matrix, exact hero bytes, shell/header/nav/main/hero/next/footer
+          cardinalities, ordered navigation/current state, evidence/boundary/generated/overflow
+          mappings, 1180/760 bounds, exact four generated placements/digests, and absence of a
+          second truth reader/publication. Mutate every cell and ownership seam independently.
+        files: [scripts/sitecheck/presentation_test.go, scripts/sitecheck/testdata/presentation-mutations.yml]
+        claims: [CLM-006, CLM-007, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020]
+        test_names: [TestSiteCheck_NavigationMatrixPasses, TestSiteCheck_NavigationMatrixRejectsInvalidCell, TestSiteCheck_UpstreamOwnershipAndGeneratedRegionsPass, TestSiteCheck_RejectsUpstreamOwnershipViolationMatrix, TestSiteCheck_RejectsParallelTruthOrPublication, TestSiteCheck_FieldGuideDOMAndTreatmentMatrixPasses, TestSiteCheck_FieldGuideDOMAndTreatmentMatrixRejectsInvalidCell]
+        depends_on: [TASK-007, TASK-041, TASK-042, TASK-045]
+      - id: TASK-009
+        type: implementation
+        title: "Implement presentation data and semantic shell"
+        description: |
+          Materialize the exact presentation matrix and one shared shell with owner-driven
+          navigation, hero, main, next action, and footer. Do not reread product inputs, regenerate
+          records, or change Seed 1 copy/ownership.
+        files: [docs/_data/site-presentation.yml, docs/_layouts/default.html, docs/_includes/site-header.html, docs/_includes/site-footer.html, docs/_includes/page-hero.html]
+        claims: [CLM-006, CLM-007, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020]
+        depends_on: [TASK-008]
+      - id: TASK-038
+        type: implementation
+        title: "Wrap the first canonical page stream"
+        description: |
+          Apply the shared shell and only declared evidence, boundary, generated, table, and
+          Mermaid wrappers to root through use-cases owners. Preserve exact owner copy, markers,
+          anchors, generated fragments, digests, and ownership.
+        files: [docs/index.md, docs/evaluate.md, docs/model.md, docs/adopt.md, docs/use-cases.md]
+        claims: [CLM-006, CLM-007, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020]
+        depends_on: [TASK-008]
+      - id: TASK-039
+        type: implementation
+        title: "Wrap the second canonical page stream"
+        description: |
+          Apply the shared shell and only declared evidence, boundary, generated, table, and
+          Mermaid wrappers to packs through contributing owners. Preserve exact owner copy,
+          markers, anchors, generated fragments, digests, and ownership.
+        files: [docs/packs.md, docs/extend.md, docs/reference.md, docs/status.md, docs/contributing.md]
+        claims: [CLM-006, CLM-007, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020]
+        depends_on: [TASK-008]
+      - id: TASK-010
+        type: test
+        title: "Specify owner-token installation and responsive composition"
+        description: |
+          Test byte-exact single-output owner token installation, linkage before site.css, and
+          consumption without checked-in declarations. Cover missing/altered/duplicate/unlinked/
+          wrong-order assets and 360/768/1440 shell modes with labeled focusable table/Mermaid
+          local overflow and no document overflow.
+        files: [scripts/sitecheck/assets_test.go, scripts/sitecheck/testdata/asset-composition-mutations.yml]
+        claims: [CLM-014, CLM-019, CLM-020, CLM-046, CLM-047]
+        test_names: [TestSiteCheck_LocalOverflowAndNavigationModesPass, TestSiteCheck_OwnerTokenAssetConsumptionPasses, TestSiteCheck_OwnerTokenAssetConsumptionRejectsInvalidMatrix]
+        depends_on: [TASK-007, TASK-041, TASK-042, TASK-045]
+      - id: TASK-011
+        type: implementation
+        title: "Compose the responsive site from owner tokens"
+        description: |
+          Implement stacked 360, wrapped 768, and full 1440 composition with local overflow.
+          Copy/hash-check owner token CSS into disposable _site and link before site.css. Delete
+          legacy bootstrap/token CSS. Do not transcribe tokens, selectors, fixtures, or policy.
+        files: [docs/assets/css/site.css, scripts/install-design-assets.sh, docs/assets/css/backstop.css, docs/assets/css/backstop-tokens.css]
+        claims: [CLM-014, CLM-019, CLM-020, CLM-046, CLM-047]
+        depends_on: [TASK-010]
+      - id: TASK-012
+        type: verification
+        title: "Gate the rendered field-guide streams"
+        description: |
+          Run `./bin/backstop gate --file docs/_data/site-presentation.yml --file
+          docs/_layouts/default.html --file docs/_includes/site-header.html --file
+          docs/_includes/site-footer.html --file docs/_includes/page-hero.html --file
+          docs/assets/css/site.css --file scripts/install-design-assets.sh`; build and install
+          assets in disposable output, then run presentation and asset suites.
+        files: [docs/_data/site-presentation.yml, docs/_layouts/default.html, docs/assets/css/site.css, scripts/install-design-assets.sh, scripts/sitecheck/presentation_test.go, scripts/sitecheck/assets_test.go]
+        claims: [CLM-006, CLM-007, CLM-014, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020, CLM-046, CLM-047]
+        depends_on: [TASK-009, TASK-011]
+      - id: TASK-043
+        type: verification
+        title: "Gate root through use-cases page wrappers"
+        description: |
+          Run `./bin/backstop gate --file docs/index.md --file docs/evaluate.md --file
+          docs/model.md --file docs/adopt.md --file docs/use-cases.md`; rebuild and require exact
+          shell, owner-copy, treatment, generated-region, marker, anchor, and digest preservation
+          for these five wrappers.
+        files: [docs/index.md, docs/evaluate.md, docs/model.md, docs/adopt.md, docs/use-cases.md]
+        claims: [CLM-006, CLM-007, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020]
+        depends_on: [TASK-038]
+      - id: TASK-044
+        type: verification
+        title: "Gate packs through contributing page wrappers"
+        description: |
+          Run `./bin/backstop gate --file docs/packs.md --file docs/extend.md --file
+          docs/reference.md --file docs/status.md --file docs/contributing.md`; rebuild and require
+          exact shell, owner-copy, treatment, generated-region, marker, anchor, and digest
+          preservation for these five wrappers.
+        files: [docs/packs.md, docs/extend.md, docs/reference.md, docs/status.md, docs/contributing.md]
+        claims: [CLM-006, CLM-007, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020]
+        depends_on: [TASK-039]
+
+  - id: phase-4
+    name: "Bind rendered owner contracts"
+    tasks:
+      - id: TASK-013
+        type: test
+        title: "Specify JLINK and structured-boundary bindings"
+        description: |
+          Test all and only JLINK-001..024 at exact source route/anchor with owner label, order,
+          destination and attribute. Test every boundary ID/state/explanation and adjacent-guidance-
+          only continuation plus denial. Mutate markers, containment, labels, anchors, fields,
+          cardinality, order, and prose substitutes with owner-attributed failures.
+        files: [scripts/sitecheck/owner_contracts_test.go, scripts/sitecheck/testdata/jlink-boundary-mutations.yml]
+        claims: [CLM-050, CLM-051, CLM-052, CLM-053]
+        test_names: [TestSiteCheck_RenderedJourneyLinkMatrixPasses, TestSiteCheck_RenderedJourneyLinkMatrixRejectsInvalidCell, TestSiteCheck_StructuredBoundaryRenderingPasses, TestSiteCheck_StructuredBoundaryRenderingRejectsInvalidMatrix]
+        depends_on: [TASK-012, TASK-043, TASK-044]
+      - id: TASK-014
+        type: test
+        title: "Specify generated provenance and adoption bindings"
+        description: |
+          Test exact ordered generated descriptors inside one marked region: site tree/blob links
+          bind full site commit and release records bind their commits. Test three ADOPT records
+          once in owner order with exact visible bytes/digest. Reject missing, extra, reordered,
+          mutable, abbreviated, out-of-region, inferred, or reconstructed output.
+        files: [scripts/sitecheck/provenance_test.go, scripts/sitecheck/testdata/provenance-adoption-mutations.yml]
+        claims: [CLM-054, CLM-055, CLM-056, CLM-057]
+        test_names: [TestSiteCheck_GeneratedSourceLinkRenderingPasses, TestSiteCheck_GeneratedSourceLinkRenderingRejectsInvalidMatrix, TestSiteCheck_AdoptionInstructionRenderingPasses, TestSiteCheck_AdoptionInstructionRenderingRejectsInvalidMatrix]
+        depends_on: [TASK-012, TASK-043, TASK-044]
+      - id: TASK-015
+        type: implementation
+        title: "Implement the authority-bounded annotation pass"
+        description: |
+          Bind owner data and existing source markers/copy to rendered attributes and immutable
+          source URLs using full site commit. Add only REQ-009 attributes/anchors. Fail ambiguity;
+          never edit sources, invent copy/records, infer prose, expose execution internals, or
+          create another provenance inventory.
+        files: [scripts/render-public-site-contracts/main.go]
+        claims: [CLM-050, CLM-051, CLM-052, CLM-053, CLM-054, CLM-055, CLM-056, CLM-057, CLM-058]
+        depends_on: [TASK-013, TASK-014, TASK-016]
+      - id: TASK-016
+        type: test
+        title: "Prove annotation cannot acquire content authority"
+        description: |
+          Test source immutability, visible-copy equality, missing/ambiguous owner refusal,
+          forbidden execution fields, second inventory, prose inference, and reconstruction.
+          Require annotation and sitecheck failures with route, anchor, and owner identity.
+        files: [scripts/render-public-site-contracts/main_test.go, scripts/render-public-site-contracts/testdata/authority-mutations.yml]
+        claims: [CLM-017, CLM-018, CLM-051, CLM-053, CLM-055, CLM-057, CLM-058]
+        test_names: [TestSiteCheck_RenderedOwnerContractsRejectAuthoritySubstitutes]
+        depends_on: [TASK-012, TASK-043, TASK-044]
+      - id: TASK-017
+        type: refactor
+        title: "Close annotation authority and diagnostic gaps"
+        description: |
+          Harden annotation until it only binds accepted owner records to existing rendered copy.
+          Preserve deterministic output and identity-rich failures; make no owner-source edits.
+        files: [scripts/render-public-site-contracts/main.go]
+        claims: [CLM-017, CLM-018, CLM-051, CLM-053, CLM-055, CLM-057, CLM-058]
+        depends_on: [TASK-015]
+      - id: TASK-018
+        type: verification
+        title: "Gate all rendered owner contracts"
+        description: |
+          Run `./bin/backstop gate --file scripts/render-public-site-contracts/main.go`; execute
+          build, asset install, and annotation using a full SHA; run every owner-contract suite
+          and prove checked-in sources byte-unchanged.
+        files: [scripts/render-public-site-contracts/main.go, scripts/render-public-site-contracts/main_test.go, scripts/sitecheck/owner_contracts_test.go, scripts/sitecheck/provenance_test.go]
+        claims: [CLM-017, CLM-018, CLM-050, CLM-051, CLM-052, CLM-053, CLM-054, CLM-055, CLM-056, CLM-057, CLM-058]
+        depends_on: [TASK-017]
+
+  - id: phase-5
+    name: "Implement structural and browser acceptance"
+    tasks:
+      - id: TASK-019
+        type: test
+        title: "Specify sitecheck and ordered link resolution"
+        description: |
+          Add fixture-root tests for routes, metadata, anchors, ordered href precedence,
+          navigation, redirects, CNAME, runtime absence, treatments, generated regions, owner
+          contracts, assets, fingerprints, and inventory. Independently corrupt every public cell;
+          diagnostics name phase plus identity and expected/observed.
+        files: [scripts/sitecheck/main_test.go, scripts/sitecheck/testdata/structural-mutation-manifest.yml]
+        claims: [CLM-002, CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-009, CLM-010, CLM-011, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020, CLM-021, CLM-033, CLM-034, CLM-041, CLM-045, CLM-048, CLM-049, CLM-050, CLM-051, CLM-052, CLM-053, CLM-054, CLM-055, CLM-056, CLM-057]
+        test_names: [TestSiteCheck_LinkPrecedenceAcceptsFragmentQueryRootRelativeCrossOriginHTTPSAndMailto, TestSiteCheck_LinkPrecedenceRejectsRelativeSameOriginAbsoluteAndForbiddenSchemes]
+        depends_on: [TASK-018]
+      - id: TASK-020
+        type: implementation
+        title: "Implement the Core-instance structural verifier"
+        description: |
+          Implement HTML/data/hash/path/workflow parsing and stable findings. Verify exact Core
+          contracts and installed finding attribution without visual matching, direct engine
+          invocation, or local visual-vocabulary scanning. Preserve case/cardinality/containment.
+        files: [scripts/sitecheck/main.go]
+        claims: [CLM-002, CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-009, CLM-010, CLM-011, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020, CLM-021, CLM-033, CLM-034, CLM-041, CLM-045, CLM-048, CLM-049, CLM-050, CLM-051, CLM-052, CLM-053, CLM-054, CLM-055, CLM-056, CLM-057]
+        depends_on: [TASK-019]
+      - id: TASK-021
+        type: test
+        title: "Specify the JavaScript-disabled Chromium matrix"
+        description: |
+          Test ten routes at 360x800, 768x1024, and 1440x1000 in fresh JavaScript-off contexts
+          after fonts/two frames. Assert DOM-order tabs, bounded/topmost/nonintersecting focus,
+          no traps/pointer-only controls, local ArrowRight/End, and <=1px document overflow. Inject
+          exact 200% root font, prove computed 2x within .01px, and rerun; reject substitutes.
+          Also fail if the pinned browser, static server, helper, package, script element,
+          JavaScript asset, or other verification infrastructure is published into `_site`.
+        files: [tests/public-site.spec.ts, playwright.config.ts]
+        claims: [CLM-003, CLM-012, CLM-013, CLM-014, CLM-015]
+        test_names: [TestSiteCheck_RejectsPublishedVerificationRuntime, TestSiteCheck_ChromiumNoJSExactInteractionMatrixPasses, TestSiteCheck_ChromiumNoJSInteractionMatrixRejectsInvalidCell, TestSiteCheck_LocalOverflowAndNavigationModesPass, TestSiteCheck_ActualRootFontRelayoutPasses]
+        depends_on: [TASK-018]
+      - id: TASK-022
+        type: implementation
+        title: "Implement deterministic browser verification infrastructure"
+        description: |
+          Configure package-lock-pinned Chromium and disposable static server. Implement shared
+          helpers for exact no-JavaScript viewport, keyboard, overlap, local-scroll, and true root-
+          font assertions. Emit none of this infrastructure into _site.
+        files: [tests/public-site-helpers.ts]
+        claims: [CLM-003, CLM-012, CLM-013, CLM-014, CLM-015]
+        depends_on: [TASK-021]
+      - id: TASK-023
+        type: verification
+        title: "Gate structural and browser acceptance"
+        description: |
+          Run `./bin/backstop gate --file scripts/sitecheck/main.go --file
+          scripts/sitecheck/main_test.go --file tests/public-site.spec.ts --file
+          tests/public-site-helpers.ts --file playwright.config.ts`; against a fresh built/annotated
+          site run all structural mutations and the complete pinned JavaScript-off/200% matrix.
+          Confirm no verification dependency appears in _site.
+        files: [scripts/sitecheck/main.go, scripts/sitecheck/main_test.go, tests/public-site.spec.ts, tests/public-site-helpers.ts, playwright.config.ts]
+        claims: [CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-009, CLM-010, CLM-011, CLM-012, CLM-013, CLM-014, CLM-015, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020, CLM-021, CLM-033, CLM-034, CLM-041, CLM-045, CLM-048, CLM-049, CLM-050, CLM-051, CLM-052, CLM-053, CLM-054, CLM-055, CLM-056, CLM-057]
+        depends_on: [TASK-020, TASK-022]
+
+  - id: phase-6
+    name: "Prove installed design-system applicability"
+    tasks:
+      - id: TASK-024
+        type: test
+        title: "Specify export binding and eight path-faithful corpora"
+        description: |
+          Test same-release seven-cell export, exact rule/filter/fixture/mutation/fidelity fields,
+          protected fingerprints, and token asset. Require eight fresh roots, clean install/build/
+          annotation, raw-byte-sorted _site paths, and exactly one full `backstop gate --file`
+          invocation per root. Cover clean zero and seven exact attributable mutations.
+        files: [scripts/sitecheck/design_system_test.go, scripts/sitecheck/testdata/design-system-corpus-mutations.yml]
+        claims: [CLM-021, CLM-022, CLM-023, CLM-024, CLM-025, CLM-026, CLM-027, CLM-028, CLM-029, CLM-030, CLM-031, CLM-032, CLM-046, CLM-047]
+        test_names: [TestSiteCheck_RejectsMechanicalLocalPolicySurfacesAndProtectedBytes, TestSiteCheck_OwnerAcceptanceExportBindingPasses, TestSiteCheck_OwnerAcceptanceExportRejectsSchemaAndFidelityMatrix, TestSiteCheck_EightIsolatedProjectRootsAndCleanCorpusPass, TestSiteCheck_InstalledDesignSystemRejectsTokenMutation, TestSiteCheck_InstalledDesignSystemRejectsInlineStyleMutation, TestSiteCheck_InstalledDesignSystemRejectsFocusMutation, TestSiteCheck_InstalledDesignSystemRejectsMotionMutation, TestSiteCheck_InstalledDesignSystemRejectsAccessibilityMutation, TestSiteCheck_InstalledDesignSystemRejectsWordmarkMutation, TestSiteCheck_InstalledDesignSystemRejectsReusablePresentationMutation, TestSiteCheck_RejectsCorpusExecutionAndProofSubstitutes, TestSiteCheck_OwnerTokenAssetConsumptionPasses, TestSiteCheck_OwnerTokenAssetConsumptionRejectsInvalidMatrix]
+        depends_on: [TASK-023]
+      - id: TASK-025
+        type: implementation
+        title: "Implement installed-pack applicability execution"
+        description: |
+          Implement export identity/fingerprint/fidelity validation, protected-byte checks, fresh
+          roots, exact mutation, path-faithful sorted corpus, one full gate, and intended installed-
+          rule/path attribution. Reject flattened/source/subset/reused/multiple-call/--all/diff/
+          direct-engine/cached/wrong-rule/fixture/scan/screenshot substitutes.
+        files: [scripts/sitecheck/design_system.go]
+        claims: [CLM-021, CLM-022, CLM-023, CLM-024, CLM-025, CLM-026, CLM-027, CLM-028, CLM-029, CLM-030, CLM-031, CLM-032, CLM-046, CLM-047]
+        depends_on: [TASK-024]
+      - id: TASK-026
+        type: verification
+        title: "Gate the eight actual-site corpora"
+        description: |
+          Run `./bin/backstop gate --file scripts/sitecheck/design_system.go`; execute all eight
+          fresh roots. Require clean zero and seven attributable installed-rule failures at exact
+          production paths, cleanup, and no local fallback.
+        files: [scripts/sitecheck/design_system.go, scripts/sitecheck/design_system_test.go]
+        claims: [CLM-021, CLM-022, CLM-023, CLM-024, CLM-025, CLM-026, CLM-027, CLM-028, CLM-029, CLM-030, CLM-031, CLM-032, CLM-046, CLM-047]
+        depends_on: [TASK-025]
+
+  - id: phase-7
+    name: "Wire measured acceptance and Pages delivery"
+    tasks:
+      - id: TASK-027
+        type: test
+        title: "Specify measured end-to-end verification"
+        description: |
+          Test one atomic coverage total at 80.00 and refusal at 79.99/absent/duplicate/nonnumeric.
+          Assert ordered upstream, build, annotation, structural, browser, installed-pack, and
+          workflow phases; inject each failure; verify cleanup and no checked-in mutation.
+        files: [scripts/sitecheck/pipeline_test.go, scripts/sitecheck/testdata/pipeline-failures.yml]
+        claims: [CLM-037, CLM-038, CLM-039, CLM-040]
+        test_names: [TestSiteCheck_VerificationPipelinePasses, TestSiteCheck_VerificationRejectsCoverageFailureMatrix, TestSiteCheck_VerificationDiagnosticsPass, TestSiteCheck_VerificationCleanupPasses]
+        depends_on: [TASK-026]
+      - id: TASK-028
+        type: implementation
+        title: "Implement the single verification entrypoint"
+        description: |
+          Create disposable state/traps, run measured race/atomic sitecheck tests and parse one
+          total, then execute every required phase fail-closed. Emit phase/identity diagnostics
+          and leave sources unchanged.
+        files: [scripts/verify-public-site.sh]
+        claims: [CLM-037, CLM-038, CLM-039, CLM-040]
+        depends_on: [TASK-027]
+      - id: TASK-029
+        type: test
+        title: "Specify immutable Pages workflow and stamping"
+        description: |
+          Test main/manual-only triggers, least privilege, serialized pages concurrency, full
+          history, locked prerequisites, exact phase order, six official actions at lock-matched
+          SHAs, workflow build mode, exact hidden-inclusive _site upload, artifact/deploy outputs,
+          no alternate publisher, canonical head metadata, and standalone tree marker.
+        files: [scripts/sitecheck/pages_workflow_test.go, scripts/sitecheck/testdata/pages-workflow-mutations.yml, scripts/stamp-pages-artifact_test.sh]
+        claims: [CLM-035, CLM-036]
+        test_names: [TestSiteCheck_PagesWorkflowPinnedContractPasses, TestSiteCheck_PagesWorkflowRejectsWorkflowAndActionPinMatrix]
+        depends_on: [TASK-026]
+      - id: TASK-030
+        type: implementation
+        title: "Implement the locked Pages transaction"
+        description: |
+          Create action lock, marker stamper, and sole Pages workflow. Build main/manual from source,
+          run prerequisites, annotate with head SHA, stamp heads/marker, upload exactly _site with
+          hidden files, carry artifact ID, and deploy only after success.
+        files: [.github/pages-actions.lock.yml, scripts/stamp-pages-artifact.sh, .github/workflows/pages.yml]
+        claims: [CLM-035, CLM-036]
+        depends_on: [TASK-029]
+      - id: TASK-031
+        type: test
+        title: "Specify authoritative post-deploy consensus"
+        description: |
+          Test API agreement on workflow build, CNAME/HTTPS, run/head SHA, artifact identity/archive
+          digest, and deployment. Recompute tree digest; compare HTTPS marker and ten route markers;
+          prove five one-hop aliases without redirects. Reject partial channels, downgrade, host/
+          certificate drift, stale identity, content error, and archive/tree conflation.
+        files: [scripts/verify-pages-deployment_test.sh, scripts/tests/pages-deployment/fixtures/consensus-mutations.yml]
+        claims: [CLM-042, CLM-043, CLM-044]
+        test_names: [TestPagesDeployment_AuthoritativeAPIIdentityPasses, TestPagesDeployment_HTTPSMarkerAndRouteMatrixPasses, TestPagesDeployment_RejectsPartialOrStaleProofMatrix]
+        depends_on: [TASK-026]
+      - id: TASK-032
+        type: implementation
+        title: "Implement post-deploy identity and HTTPS proof"
+        description: |
+          Implement repository/run/commit/artifact/page-url verification and wire after deploy.
+          Require all authoritative channels and independent artifact/HTTPS evidence; keep archive
+          and tree digests distinct. Report bad publication without claiming atomic deploy.
+        files: [scripts/verify-pages-deployment.sh]
+        claims: [CLM-042, CLM-043, CLM-044]
+        depends_on: [TASK-031]
+      - id: TASK-033
+        type: verification
+        title: "Gate workflow convergence"
+        description: |
+          Run `./bin/backstop gate --file scripts/verify-public-site.sh --file
+          .github/workflows/pages.yml --file .github/pages-actions.lock.yml --file
+          scripts/stamp-pages-artifact.sh --file scripts/verify-pages-deployment.sh`; run pipeline,
+          workflow, stamp, and consensus fixtures and prove upload/deploy block on prerequisites.
+        files: [scripts/verify-public-site.sh, .github/workflows/pages.yml, .github/pages-actions.lock.yml, scripts/stamp-pages-artifact.sh, scripts/verify-pages-deployment.sh, scripts/sitecheck/pipeline_test.go, scripts/sitecheck/pages_workflow_test.go]
+        claims: [CLM-035, CLM-036, CLM-037, CLM-038, CLM-039, CLM-040, CLM-042, CLM-043, CLM-044]
+        depends_on: [TASK-028, TASK-030, TASK-032]
+
+  - id: phase-8
+    name: "Comprehensive Seed 4 acceptance"
+    tasks:
+      - id: TASK-034
+        type: refactor
+        title: "Converge the closed delivery inventory"
+        description: |
+          Recompute exact rename-aware diff from pinned base through HEAD and update only the
+          inventory so every path appears once with exact change kind and allowed role.
+        files: [.backstop/seed4-delivery-inventory.yml]
+        claims: [CLM-021, CLM-048, CLM-049]
+        depends_on: [TASK-028, TASK-030, TASK-032]
+      - id: TASK-035
+        type: verification
+        title: "Run the full Backstop kill chain"
+        description: |
+          Run `./scripts/verify-public-site.sh`, `./bin/backstop gate --all`, and
+          `./bin/backstop artifact validate`. Require all 58 claims/tests, >=80 coverage, exact
+          inventory/diff, verification-clean tree, and no scope expansion. Publish this accepted
+          output as the read-only barrier for PLAN-SPEC-074 post-barrier TASK-025 and later work.
+        files: [plans/PLAN-SPEC-075-static-public-site-design-system.plan.yml, .backstop/seed4-delivery-inventory.yml, scripts/verify-public-site.sh, scripts/sitecheck/main.go, scripts/render-public-site-contracts/main.go, .github/workflows/pages.yml, scripts/verify-pages-deployment.sh]
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-009, CLM-010, CLM-011, CLM-012, CLM-013, CLM-014, CLM-015, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020, CLM-021, CLM-022, CLM-023, CLM-024, CLM-025, CLM-026, CLM-027, CLM-028, CLM-029, CLM-030, CLM-031, CLM-032, CLM-033, CLM-034, CLM-035, CLM-036, CLM-037, CLM-038, CLM-039, CLM-040, CLM-041, CLM-042, CLM-043, CLM-044, CLM-045, CLM-046, CLM-047, CLM-048, CLM-049, CLM-050, CLM-051, CLM-052, CLM-053, CLM-054, CLM-055, CLM-056, CLM-057, CLM-058]
+        depends_on: [TASK-033, TASK-034]
