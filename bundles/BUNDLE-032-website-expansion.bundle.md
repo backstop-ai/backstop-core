@@ -6,13 +6,13 @@ schema_version: bundle/v2
 
 bundle:
   name: website-expansion
-  version: "0.5.1"
+  version: "0.6.0"
   created: "2026-08-23"
   updated: "2026-08-23"
   category: feature
 
 status:
-  maturity: defined
+  maturity: ready
 
 problem:
   summary: >
@@ -30,6 +30,49 @@ problem:
     Backstop solves my actual problem, how it does so, what it does not guarantee, what it
     costs to adopt, and where I should go next, so that I can make a grounded product decision
     and then move from discovery to adoption and reference material without losing context.
+  success_criteria:
+    - >
+      The accepted result is the full public-site rethink: all twelve required content
+      neighborhoods have an authoritative home in a visitor-journey information architecture;
+      every canonical concept has exactly one substantive owner; supported behavior, guarantees,
+      limitations, planned work, intentional non-goals, and adjacent guidance remain
+      distinguishable; and no narrower product-site increment can satisfy completion
+      (REQ-001, REQ-002, REQ-003, REQ-004, REQ-005, REQ-010).
+    - >
+      Every consequential public claim resolves through a checked-in evidence inventory to the
+      claim-appropriate durable sources required by REQ-008. The accepted corpus includes at
+      least one real failure incident, one failure-to-enforcement before/after example, one
+      captured gate result, one source or commit trace, and one architecture view; injected
+      missing sources, duplicate canonical owners, and unclassified product boundaries fail
+      deterministic verification (REQ-004, REQ-005, REQ-008).
+    - >
+      Core consumes a released, pinned, separately governed documentation-semantics pack through
+      its declared interface. Positive and negative semantic fixtures pass in the owner
+      repository, an installed-pipeline violation blocks against the actual site, and local,
+      stale, or unreleased bytes cannot satisfy consumer acceptance. Any additional generic
+      enabler discovered during delivery remains separately governed (REQ-006, REQ-012).
+    - >
+      Every derived documentation surface follows an authoritative-source -> generated-Markdown
+      -> rendered-site chain with named inputs, outputs, ownership markers, and regeneration
+      command. Clean regeneration is byte-stable, an authoritative-source change produces the
+      expected Markdown delta, manual generated-output tampering fails CI while naming the
+      responsible source/output pair, and the rendered site consumes that generated Markdown
+      rather than a parallel truth (REQ-011).
+    - >
+      The redesigned surface builds and deploys through Jekyll and GitHub Pages with the
+      backstop.sh custom domain, required routes, internal links, navigation, responsive
+      behavior, and basic no-JavaScript navigation verified. The installed released
+      design-system pack runs against the actual site, and injected applicable token, styling,
+      focus, reduced-motion, accessibility, wordmark, or reusable-presentation violations fail
+      with the responsible rule and path; website-local duplicate policy does not count as
+      compliance (REQ-009, REQ-013).
+    - >
+      Executable capability and @UJ evidence traverses the built site and proves all eleven
+      required user outcomes: understand Backstop, evaluate fit, evaluate guarantees, evaluate
+      compatibility, understand the system, adopt Backstop, apply Backstop, browse the pack
+      ecosystem, extend Backstop, inspect the evidence, and continue beyond Backstop. Removing
+      a required route, evidence edge, installed dependency result, or product-boundary
+      explanation breaks at least one journey (REQ-007).
 
 solution:
   approach: >
@@ -48,6 +91,32 @@ solution:
     operationally complex hosting/rendering model that satisfies the functional requirements;
     for the current static-content scope, Jekyll and GitHub Pages remain the expected
     implementation unless later requirements earn additional runtime complexity.
+  assumptions:
+    - >
+      The current website increment remains a static public-content problem: it requires no
+      authentication, persisted user state, transactions, or equivalent application-runtime
+      behavior. If such a requirement emerges, REQ-009's complexity decision must be revisited
+      explicitly rather than silently changing the platform.
+    - >
+      The current Jekyll/GitHub Pages deployment and backstop.sh custom-domain path remain
+      operational, and the released backstop-design-system pack remains available through the
+      repository's existing pinned pack-consumption mechanism.
+    - >
+      The separately governed documentation-semantics pack can be authored, tested, released,
+      and pinned before BUNDLE-032's Seed 2 consumer acceptance is completed; its implementation
+      is not assumed to exist inside Core or the visual design-system repository.
+    - >
+      The current repository files, schemas, tests, issues, and exact implementation commits
+      named in Source Material remain available as bootstrap evidence. Conversation-only
+      recollection and unnamed observations remain inadmissible even if they informed discovery.
+    - >
+      Backstop's existing capability and @UJ artifact model is the acceptance substrate for the
+      eleven user outcomes. Any genuinely generic missing capability primitive discovered while
+      authoring Seed 5 receives separate governance under REQ-012.
+    - >
+      No durable measured-delivery dataset currently exists in this repository. Metrics remain
+      optional for this bundle and may be published only after a versioned source records their
+      provenance and methodology.
 
 requirements:
   - id: REQ-001
@@ -770,6 +839,10 @@ capability-driven, evidence-first scope captured here.
   documentation patterns as downstream research requiring exact citations before adoption. Amended
   REQ-010 to v1.1.0 to make final-copy ownership explicit; all other requirement versions, the five-seed
   partition, and defined maturity remain unchanged.
+- 0.6.0 (2026-08-23): Added explicit, executable success criteria and recorded the assumptions
+  underlying the selected static-site, dependency, evidence, and capability approach; advanced the
+  user-authorized bundle from defined to ready. No requirement version, resolved design decision,
+  seed ownership, dependency order, or scope changed.
 
 ## References
 
