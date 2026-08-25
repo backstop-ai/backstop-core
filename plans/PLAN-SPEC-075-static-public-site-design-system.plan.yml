@@ -1,7 +1,7 @@
 ---
 plan_id: PLAN-SPEC-075
 spec_id: SPEC-075
-spec_version: "1.0.3"
+spec_version: "1.0.4"
 created: "2026-08-24"
 status: draft
 target_repo: backstop-core
@@ -9,8 +9,9 @@ target_module: github.com/backstop-ai/backstop-core
 test_command: ./scripts/verify-public-site.sh
 coverage_threshold: 80
 notes: |
-  Seed 4 only. Consume accepted PLAN-SPEC-072, PLAN-SPEC-073, and PLAN-SPEC-074
-  outputs and published contracts as completed upstream artifacts. This plan supplies the
+  Seed 4 only. Consume accepted SPEC-072 v1.0.5 / PLAN-SPEC-072, PLAN-SPEC-073,
+  and SPEC-074 v1.0.4 / PLAN-SPEC-074 outputs and published contracts as completed
+  upstream artifacts. This plan supplies the
   locked build, rendered record/descriptor reconstruction and digest acceptance, annotation,
   sitecheck, browser/design-system acceptance, and Pages delivery. Seed 5 journeys, MCP,
   runtime services, client JavaScript, and local copies of owner visual policy remain out.
@@ -23,8 +24,9 @@ phases:
         type: setup
         title: "Enforce the accepted Seed 1 through Seed 3 handoff"
         description: |
-          Stop unless PLAN-SPEC-072, PLAN-SPEC-073, and PLAN-SPEC-074 v1.0.3 are completed
-          and accepted. Run their published verification entrypoints and SPEC-074 check mode;
+          Stop unless SPEC-072 v1.0.5 / PLAN-SPEC-072, PLAN-SPEC-073, and SPEC-074
+          v1.0.4 / PLAN-SPEC-074 are completed and accepted. Run their published verification
+          entrypoints and SPEC-074 check mode;
           inspect ten owners, 24 JLINKs, boundaries, adoption instructions, four generated
           regions/descriptors/digests, pack identity, and seven-cell owner export read-only.
           Consume only completed outputs/contracts; do not inspect upstream task IDs or partial state.
@@ -269,11 +271,17 @@ phases:
         description: |
           Test all and only JLINK-001..024 at exact source route/anchor with owner label, order,
           destination and attribute. Test every boundary ID/state/explanation and adjacent-guidance-
-          only continuation plus denial. Mutate markers, containment, labels, anchors, fields,
-          cardinality, order, and prose substitutes with owner-attributed failures.
+          only continuation plus denial. For embedded JLINK-024, require its source marker to emit
+          no visible node and its following link to become the single anchor inside BOUNDARY-005
+          carrying both journey-link and boundary-continuation identities between byte-preserved
+          explanation and denial text. Independently remove each identity, split them across
+          anchors, duplicate the anchor, alter each of the three visible payloads, move it outside
+          BOUNDARY-005, and place it before the explanation or after the denial. Mutate all other
+          markers, containment, labels, anchors, fields, cardinality, order, and prose substitutes
+          with owner-attributed failures.
         files: [scripts/sitecheck/owner_contracts_test.go, scripts/sitecheck/testdata/jlink-boundary-mutations.yml]
-        claims: [CLM-050, CLM-051, CLM-052, CLM-053]
-        test_names: [TestSiteCheck_RenderedJourneyLinkMatrixPasses, TestSiteCheck_RenderedJourneyLinkMatrixRejectsInvalidCell, TestSiteCheck_StructuredBoundaryRenderingPasses, TestSiteCheck_StructuredBoundaryRenderingRejectsInvalidMatrix]
+        claims: [CLM-050, CLM-051, CLM-052, CLM-053, CLM-059, CLM-060]
+        test_names: [TestSiteCheck_RenderedJourneyLinkMatrixPasses, TestSiteCheck_RenderedJourneyLinkMatrixRejectsInvalidCell, TestSiteCheck_StructuredBoundaryRenderingPasses, TestSiteCheck_StructuredBoundaryRenderingRejectsInvalidMatrix, TestSiteCheck_EmbeddedJLINK024DualIdentityPasses, TestSiteCheck_EmbeddedJLINK024RejectsIdentityCardinalityMatrix, TestSiteCheck_EmbeddedJLINK024RejectsContainmentOrderAndVisibleBytesMatrix]
         depends_on: [TASK-012, TASK-043, TASK-044]
       - id: TASK-014
         type: test
@@ -294,11 +302,13 @@ phases:
         title: "Implement the authority-bounded annotation pass"
         description: |
           Bind owner data and existing source markers/copy to rendered attributes and immutable
-          source URLs using full site commit. Add only REQ-009 attributes/anchors. Fail ambiguity;
-          never edit sources, invent copy/records, infer prose, expose execution internals, or
-          create another provenance inventory.
+          source URLs using full site commit. For embedded JLINK-024, suppress the source marker,
+          bind its one following continuation link as the one BOUNDARY-005 anchor carrying both
+          required identities, and preserve exact explanation-link-denial visible bytes and DOM
+          order. Add only REQ-009 attributes/anchors. Fail ambiguity; never edit sources, invent
+          copy/records, infer prose, expose execution internals, or create another provenance inventory.
         files: [scripts/render-public-site-contracts/main.go]
-        claims: [CLM-050, CLM-051, CLM-052, CLM-053, CLM-054, CLM-055, CLM-056, CLM-057, CLM-058]
+        claims: [CLM-050, CLM-051, CLM-052, CLM-053, CLM-054, CLM-055, CLM-056, CLM-057, CLM-058, CLM-059, CLM-060]
         depends_on: [TASK-013, TASK-014, TASK-016]
       - id: TASK-016
         type: test
@@ -316,19 +326,21 @@ phases:
         title: "Close annotation authority and diagnostic gaps"
         description: |
           Harden annotation until it only binds accepted owner records to existing rendered copy.
-          Preserve deterministic output and identity-rich failures; make no owner-source edits.
+          Preserve deterministic output, the one JLINK-024/BOUNDARY-005 dual-identity anchor,
+          its three visible payloads and order, and identity-rich failures; make no owner-source edits.
         files: [scripts/render-public-site-contracts/main.go]
-        claims: [CLM-017, CLM-018, CLM-051, CLM-053, CLM-055, CLM-057, CLM-058]
+        claims: [CLM-017, CLM-018, CLM-051, CLM-053, CLM-055, CLM-057, CLM-058, CLM-059, CLM-060]
         depends_on: [TASK-015]
       - id: TASK-018
         type: verification
         title: "Gate all rendered owner contracts"
         description: |
           Run `./bin/backstop gate --file scripts/render-public-site-contracts/main.go`; execute
-          build, asset install, and annotation using a full SHA; run every owner-contract suite
-          and prove checked-in sources byte-unchanged.
+          build, asset install, and annotation using a full SHA; run every owner-contract suite,
+          including the complete JLINK-024/BOUNDARY-005 dual-identity mutation matrix, and prove
+          checked-in sources byte-unchanged and visible bytes/order preserved.
         files: [scripts/render-public-site-contracts/main.go, scripts/render-public-site-contracts/main_test.go, scripts/sitecheck/owner_contracts_test.go, scripts/sitecheck/provenance_test.go]
-        claims: [CLM-017, CLM-018, CLM-050, CLM-051, CLM-052, CLM-053, CLM-054, CLM-055, CLM-056, CLM-057, CLM-058]
+        claims: [CLM-017, CLM-018, CLM-050, CLM-051, CLM-052, CLM-053, CLM-054, CLM-055, CLM-056, CLM-057, CLM-058, CLM-059, CLM-060]
         depends_on: [TASK-017]
 
   - id: phase-5
@@ -527,9 +539,10 @@ phases:
         title: "Run the full Backstop kill chain"
         description: |
           Run `./scripts/verify-public-site.sh`, `./bin/backstop gate --all`, and
-          `./bin/backstop artifact validate`. Require all 58 claims/tests, >=80 coverage, exact
+          `./bin/backstop artifact validate`. Require all 60 claims/tests, >=80 coverage, exact
           inventory/diff, rendered record/descriptor reconstruction with both source digests,
-          verification-clean tree, and no scope expansion or backward dependency on Seed 3.
+          one dual-identity JLINK-024/BOUNDARY-005 anchor with hidden marker and byte/order
+          preservation, verification-clean tree, and no scope expansion or backward dependency on Seed 3.
         files: [plans/PLAN-SPEC-075-static-public-site-design-system.plan.yml, .backstop/seed4-delivery-inventory.yml, scripts/verify-public-site.sh, scripts/sitecheck/main.go, scripts/render-public-site-contracts/main.go, .github/workflows/pages.yml, scripts/verify-pages-deployment.sh]
-        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-009, CLM-010, CLM-011, CLM-012, CLM-013, CLM-014, CLM-015, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020, CLM-021, CLM-022, CLM-023, CLM-024, CLM-025, CLM-026, CLM-027, CLM-028, CLM-029, CLM-030, CLM-031, CLM-032, CLM-033, CLM-034, CLM-035, CLM-036, CLM-037, CLM-038, CLM-039, CLM-040, CLM-041, CLM-042, CLM-043, CLM-044, CLM-045, CLM-046, CLM-047, CLM-048, CLM-049, CLM-050, CLM-051, CLM-052, CLM-053, CLM-054, CLM-055, CLM-056, CLM-057, CLM-058]
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-009, CLM-010, CLM-011, CLM-012, CLM-013, CLM-014, CLM-015, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020, CLM-021, CLM-022, CLM-023, CLM-024, CLM-025, CLM-026, CLM-027, CLM-028, CLM-029, CLM-030, CLM-031, CLM-032, CLM-033, CLM-034, CLM-035, CLM-036, CLM-037, CLM-038, CLM-039, CLM-040, CLM-041, CLM-042, CLM-043, CLM-044, CLM-045, CLM-046, CLM-047, CLM-048, CLM-049, CLM-050, CLM-051, CLM-052, CLM-053, CLM-054, CLM-055, CLM-056, CLM-057, CLM-058, CLM-059, CLM-060]
         depends_on: [TASK-033, TASK-034]

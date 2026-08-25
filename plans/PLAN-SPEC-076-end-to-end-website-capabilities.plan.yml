@@ -1,7 +1,7 @@
 ---
 plan_id: PLAN-SPEC-076
 spec_id: SPEC-076
-spec_version: "1.0.2"
+spec_version: "1.0.3"
 created: "2026-08-24"
 status: draft
 target_repo: backstop-core
@@ -23,18 +23,20 @@ phases:
         title: "Enforce the acyclic Seed 1 through Seed 4 barrier"
         description: |
           Stop unless PLAN-SPEC-072, 073, 074, and 075 are accepted and complete and
-          their sources are exactly SPEC-072 v1.0.4, SPEC-073 v1.0.0, SPEC-074 v1.0.3,
-          and SPEC-075 v1.0.3. Run the four
+          their sources are exactly SPEC-072 v1.0.5, SPEC-073 v1.0.0, SPEC-074 v1.0.4,
+          and SPEC-075 v1.0.4. Run the four
           public verifiers exactly as `./scripts/verify-public-product-model.sh`,
           `./scripts/verify-documentation-semantics-integration.sh`,
           `./scripts/verify-product-truth.sh`, and `./scripts/verify-public-site.sh`.
           Inspect JLINK-001..024, structured boundaries, adoption instructions, SPEC-074
           source descriptors/URL templates/marker pairs/source-level envelope digests, and
           SPEC-075 site-identity resolution/immutable rendered anchors/reconstruction and
-          rendered-digest verdicts, plus deployment proof, read-only. Never call owner engines,
-          resolve `<SITE-COMMIT>`, reconstruct an envelope, or create a dependency back to Seed 5.
+          rendered-digest verdicts, its JLINK-024/BOUNDARY-005 single-anchor dual-identity/
+          order/visible-byte verdict, plus deployment proof, read-only. Never call owner engines,
+          resolve `<SITE-COMMIT>`, reconstruct an envelope, parse or canonicalize CLAIM-005 or
+          boundary/JLINK source metadata, or create a dependency back to Seed 5.
         files: [plans/PLAN-SPEC-072-public-product-model.plan.yml, plans/PLAN-SPEC-073-documentation-semantics-integration.plan.yml, plans/PLAN-SPEC-074-derived-product-truth-pipeline.plan.yml, plans/PLAN-SPEC-075-static-public-site-design-system.plan.yml]
-        claims: [CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-023, CLM-024, CLM-025, CLM-026]
+        claims: [CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-023, CLM-024, CLM-025, CLM-026, CLM-028, CLM-029]
         depends_on: []
       - id: TASK-002
         type: setup
@@ -150,7 +152,9 @@ phases:
           rendered-digest verdict. Record 22 route/JLINK graphs, four prerequisites, and
           adoption refs. Store IDs and owner coordinates/contracts only—never resolve
           `<SITE-COMMIT>`, reconstruct an envelope, or copy claims, explanations, commands,
-          owner rules, or generated records.
+          owner rules, or generated records. Record CAP-014/@UJ-001's accepted JLINK-024 and
+          BOUNDARY-005 continuation as one conjunctive owner relationship, not two links,
+          without parsing or canonicalizing CLAIM-005 or any source metadata.
         files: [docs/_data/website-capability-map.yml]
         claims: [CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-023, CLM-024, CLM-025, CLM-026]
         depends_on: [TASK-007]
@@ -163,7 +167,10 @@ phases:
           and complete split generated contracts: SPEC-074 descriptors/templates/markers/
           source-level digest and SPEC-075 site resolution/immutable anchors/reconstruction/
           rendered-digest verdict. Reject ambiguity, inference, aliases, Seed-5 resolution or
-          reconstruction, wrong bindings, and incomplete provenance before traversal.
+          reconstruction, wrong bindings, and incomplete provenance before traversal. Treat
+          the accepted JLINK-024/BOUNDARY-005 same-anchor relationship as an opaque owner
+          contract; never parse or canonicalize CLAIM-005, source markers, boundary source
+          metadata, or other source bytes to manufacture either identity.
         files: [scripts/websitejourney/map.go, scripts/websitejourney/types.go]
         claims: [CLM-003, CLM-004, CLM-005, CLM-006, CLM-023, CLM-024]
         depends_on: [TASK-007]
@@ -208,10 +215,14 @@ phases:
           and typed semantic outcomes. Reject direct loads, global nav, prose inference,
           screenshots, missing markers, runtime, and vacuous click tours. On isolated built
           copies independently remove and wrong-bind every rendered JLINK-001..024 and
-          require a failure naming the affected global journey key.
+          require a failure naming the affected global journey key. For CAP-014/@UJ-001,
+          require one anchor inside BOUNDARY-005 carrying both JLINK-024 and continuation
+          identities, exact href, and explanation-link-denial DOM order, with visible bytes
+          accepted by SPEC-075. Reject split/duplicate/lookalike anchors and any Seed 5 parse
+          or canonicalization of CLAIM-005, source JLINK markers, or boundary source metadata.
         files: [scripts/websitejourney/traversal_test.go, tests/website-capabilities.spec.ts, scripts/websitejourney/testdata/built-journey-mutations.yml]
-        claims: [CLM-003, CLM-004, CLM-005, CLM-006, CLM-009, CLM-011, CLM-018, CLM-023, CLM-024]
-        test_names: [TestWebsiteJourney_BuiltSiteAllJourneysPass, TestWebsiteJourney_HasNoPublishedRuntime]
+        claims: [CLM-003, CLM-004, CLM-005, CLM-006, CLM-009, CLM-011, CLM-018, CLM-023, CLM-024, CLM-028, CLM-029]
+        test_names: [TestWebsiteJourney_BuiltSiteAllJourneysPass, TestWebsiteJourney_HasNoPublishedRuntime, TestWebsiteJourney_CAP014DualIdentityAnchorPasses, TestWebsiteJourney_RejectsCAP014DualIdentityAnchorMatrix]
         depends_on: [TASK-009]
       - id: TASK-013
         type: implementation
@@ -223,15 +234,19 @@ phases:
           link set structurally with SPEC-074 descriptors/templates and site identity; never
           substitute `<SITE-COMMIT>` or reconstruct the envelope. Duplicate no route/link,
           product, semantic, generated, visual, layout, or browser policy and publish no runtime.
+          For CAP-014/@UJ-001 inspect the accepted rendered DOM and SPEC-075 owner verdict only:
+          traverse the single anchor jointly identified by JLINK-024 and BOUNDARY-005, enforce
+          its exact href/containment/order/cardinality, and never parse or canonicalize
+          CLAIM-005, source markers, boundary source metadata, or visible source bytes.
         files: [scripts/websitejourney/traversal.go, scripts/websitejourney/html.go]
-        claims: [CLM-003, CLM-004, CLM-005, CLM-006, CLM-009, CLM-011, CLM-018, CLM-023, CLM-024]
+        claims: [CLM-003, CLM-004, CLM-005, CLM-006, CLM-009, CLM-011, CLM-018, CLM-023, CLM-024, CLM-028, CLM-029]
         depends_on: [TASK-012]
       - id: TASK-014
         type: verification
         title: "Gate prerequisite and built traversal"
-        description: "Run `./bin/backstop gate --file scripts/websitejourney/main.go --file scripts/websitejourney/traversal.go --file tests/website-capabilities.spec.ts`; execute 22 built journeys after exact prerequisite verdicts and require typed outcomes and runtime absence."
+        description: "Run `./bin/backstop gate --file scripts/websitejourney/main.go --file scripts/websitejourney/traversal.go --file tests/website-capabilities.spec.ts`; execute exactly 22 built journeys after prerequisite verdicts, require typed outcomes/runtime absence, and gate CAP-014/@UJ-001's one JLINK-024/BOUNDARY-005 dual-identity anchor without source parsing or canonicalization."
         files: [scripts/websitejourney/main.go, scripts/websitejourney/traversal.go, tests/website-capabilities.spec.ts]
-        claims: [CLM-001, CLM-003, CLM-005, CLM-007, CLM-009, CLM-011, CLM-018, CLM-023]
+        claims: [CLM-001, CLM-003, CLM-005, CLM-007, CLM-009, CLM-011, CLM-018, CLM-023, CLM-028, CLM-029]
         depends_on: [TASK-011, TASK-013]
 
   - id: phase-4
@@ -265,18 +280,22 @@ phases:
           continuation/denial, and each generated region/job/anchor/marker/digest/source
           independently. Generated mutations consume the SPEC-074 descriptor/template/source-
           digest contract and SPEC-075 realized-anchor/reconstruction verdict without resolving
-          or reconstructing it in Seed 5. Require clean baseline and class/target/global-journey
-          diagnostics.
+          or reconstructing it in Seed 5. For CAP-014/@UJ-001 independently remove its shared
+          anchor, either identity, or href; split or duplicate it; change its target; move it
+          outside BOUNDARY-005, before explanation, or after denial; and alter explanation,
+          link-label, or denial visible bytes. Consume the SPEC-075 owner verdict rather than
+          parsing or canonicalizing source metadata. Require every such failure to name
+          CAP-014/@UJ-001, JLINK-024, and BOUNDARY-005, plus clean baseline and stable diagnostics.
         files: [scripts/websitejourney/mutation_test.go, scripts/websitejourney/testdata/exhaustive-journey-mutations.yml]
-        claims: [CLM-013, CLM-014, CLM-015, CLM-016, CLM-017, CLM-027]
-        test_names: [TestWebsiteJourney_EveryCanonicalRouteRemovalBreaksJourney, TestWebsiteJourney_EveryEvidenceEdgeRemovalBreaksJourney, TestWebsiteJourney_EveryBoundaryExplanationRemovalBreaksJourney, TestWebsiteJourney_MutationDiagnosticsAreJourneySpecific, TestWebsiteJourney_EveryGeneratedProvenanceMutationBreaksJourney]
+        claims: [CLM-013, CLM-014, CLM-015, CLM-016, CLM-017, CLM-027, CLM-030]
+        test_names: [TestWebsiteJourney_EveryCanonicalRouteRemovalBreaksJourney, TestWebsiteJourney_EveryEvidenceEdgeRemovalBreaksJourney, TestWebsiteJourney_EveryBoundaryExplanationRemovalBreaksJourney, TestWebsiteJourney_MutationDiagnosticsAreJourneySpecific, TestWebsiteJourney_EveryGeneratedProvenanceMutationBreaksJourney, TestWebsiteJourney_EveryCAP014DualIdentityMutationBreaksNamedJourney]
         depends_on: [TASK-014]
       - id: TASK-018
         type: implementation
         title: "Implement journey-specific mutation acceptance"
-        description: "Derive isolated mutants from accepted map/rendered/dependency fixtures; kill each through a named journey even if an upstream generic check fails first; run stable CAP/UJ order and clean every copy on success/failure."
+        description: "Derive isolated mutants from accepted map/rendered/dependency fixtures; include every CAP-014/@UJ-001 same-anchor identity/href/cardinality/containment/order/visible-byte variant and consume SPEC-075's owner verdict without source parsing or canonicalization; kill each through a named journey even if a generic check fails first; run stable CAP/UJ order and clean every copy."
         files: [scripts/websitejourney/mutation.go]
-        claims: [CLM-013, CLM-014, CLM-015, CLM-016, CLM-017, CLM-027]
+        claims: [CLM-013, CLM-014, CLM-015, CLM-016, CLM-017, CLM-027, CLM-030]
         depends_on: [TASK-017]
       - id: TASK-019
         type: test
@@ -301,9 +320,9 @@ phases:
       - id: TASK-021
         type: verification
         title: "Gate adoption, mutations, cleanup, and coverage"
-        description: "Run `./bin/backstop gate --file scripts/websitejourney/adoption.go --file scripts/websitejourney/mutation.go --file scripts/verify-website-capabilities.sh`; execute real adoption, exhaustive mutations, failure cleanup, and coverage boundary cases."
+        description: "Run `./bin/backstop gate --file scripts/websitejourney/adoption.go --file scripts/websitejourney/mutation.go --file scripts/verify-website-capabilities.sh`; execute real adoption, exhaustive generated and CAP-014 dual-identity mutations, failure cleanup, and coverage boundary cases."
         files: [scripts/websitejourney/adoption.go, scripts/websitejourney/mutation.go, scripts/verify-website-capabilities.sh]
-        claims: [CLM-012, CLM-013, CLM-014, CLM-015, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020, CLM-022, CLM-025, CLM-026, CLM-027]
+        claims: [CLM-012, CLM-013, CLM-014, CLM-015, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020, CLM-022, CLM-025, CLM-026, CLM-027, CLM-030]
         depends_on: [TASK-016, TASK-018, TASK-020]
 
   - id: phase-5
@@ -382,5 +401,5 @@ phases:
         title: "Run comprehensive Seed 5 verification"
         description: "Run `./bin/backstop gate --all` and `./bin/backstop artifact validate`; require scoped SPEC/PLAN validation, 22 built/deployed journeys, real adoption, five mutation classes, coverage >=80.00, workflow order, cleanup, exact verified matrix, and unchanged predecessor ownership."
         files: [plans/PLAN-SPEC-076-end-to-end-website-capabilities.plan.yml, specs/SPEC-076-end-to-end-website-capabilities.spec.md, scripts/verify-website-capabilities.sh, docs/_data/website-capability-map.yml, capabilities/CAP-004-understand-backstop/capability.yml, capabilities/CAP-014-continue-beyond-backstop/capability.yml]
-        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-009, CLM-010, CLM-011, CLM-012, CLM-013, CLM-014, CLM-015, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020, CLM-021, CLM-022, CLM-023, CLM-024, CLM-025, CLM-026, CLM-027]
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-009, CLM-010, CLM-011, CLM-012, CLM-013, CLM-014, CLM-015, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020, CLM-021, CLM-022, CLM-023, CLM-024, CLM-025, CLM-026, CLM-027, CLM-028, CLM-029, CLM-030]
         depends_on: [TASK-028, TASK-032, TASK-033]

@@ -1,7 +1,7 @@
 ---
 plan_id: PLAN-SPEC-072
 spec_id: SPEC-072
-spec_version: "1.0.4"
+spec_version: "1.0.5"
 created: "2026-08-24"
 status: draft
 target_repo: backstop-core
@@ -14,7 +14,10 @@ notes: |
   SPEC-073 contract is design input only; this plan never waits for or invokes a
   PLAN-SPEC-073 task, pack release, declaration, lock, installation, or partial Seed 2
   implementation. Seed 3 generation, Seed 4 presentation, Seed 5 journeys, MCP, and
-  generalized prose tooling remain out of scope.
+  generalized prose tooling remain out of scope. Implementation performed through
+  TASK-014 against v1.0.4 is only a partial checkpoint: execution must reopen
+  TASK-012 through TASK-014 for v1.0.5's CLAIM-005/JLINK-024 canonicalization before
+  proceeding to final-copy work.
 
 phases:
   - id: phase-1
@@ -156,6 +159,14 @@ phases:
         type: test
         title: "Drive the verifier red with isolated corpus mutations"
         description: |
+          Reopen the previously executed v1.0.4 red-test checkpoint before accepting any
+          existing TASK-013/TASK-014 result. Add the v1.0.5 positive case for the sole
+          CLAIM-005 region whose exact docs/status.md interior embeds the JLINK-024 marker
+          immediately before its continuation link and whose canonical visible payload
+          deletes exactly that marker line plus its terminating LF. Add independent mutations
+          placing the marker before the explanation, outside the claim, after the link, and
+          with an intervening line. Insert an arbitrary HTML comment into a claim region and
+          require it to remain byte-significant rather than being silently stripped.
           Add a dispatcher test for complete files/records, exact nonnested claim-region
           byte/ID/route/anchor bijection, explicit headings, JLINK marker adjacency, boundary
           composition, adoption source/digest binding, references, and stale Cayman/placeholder
@@ -165,15 +176,19 @@ phases:
           paraphrase/style remains pack-owned.
         files: [scripts/tests/public-product-model/verify-structural-verifier.sh, scripts/tests/public-product-model/fixtures/site-mutation-manifest.yml]
         claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-009, CLM-010, CLM-011, CLM-012, CLM-013, CLM-014, CLM-015, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020, CLM-021, CLM-022, CLM-023, CLM-024, CLM-025, CLM-026, CLM-027, CLM-028, CLM-029, CLM-030, CLM-031, CLM-032, CLM-034, CLM-035, CLM-036, CLM-037, CLM-038, CLM-039, CLM-040, CLM-041, CLM-042]
-        test_names: [verify_final_copy_structural_completeness, verify_seed_one_has_no_generalized_prose_system, verify_markdown_claim_region_bijection, verify_markdown_claim_region_rejects_invalid_linkage]
+        test_names: [verify_final_copy_structural_completeness, verify_seed_one_has_no_generalized_prose_system, verify_markdown_claim_region_bijection, verify_markdown_claim_region_rejects_invalid_linkage, verify_adjacent_guidance_embedded_jlink_claim_layout, verify_markdown_claim_region_rejects_invalid_embedded_jlink, verify_journey_link_matrix_rejects_invalid_claim_embedding]
         depends_on: [TASK-011]
       - id: TASK-013
         type: implementation
         title: "Implement the Backstop-specific static verifier"
         description: |
-          Create the single Core structural verifier. Enforce exact registries, normalized
-          claim bytes, owners, markers, fields, evidence kinds, role cardinality, locators,
-          and command digests with stable-ID diagnostics and fixture-root support. Enforce only
+          Amend the partially implemented Core structural verifier so CLAIM-005 is the sole
+          canonicalization exception: require its exact BOUNDARY-005/JLINK-024 physical layout,
+          then delete exactly the embedded marker line and terminating LF before comparing the
+          remaining visible bytes to statement_markdown. Never strip another comment, marker,
+          whitespace line, or byte. Enforce exact registries, normalized claim bytes, owners,
+          markers, fields, evidence kinds, role cardinality, locators, and command digests with
+          stable-ID diagnostics and fixture-root support. Enforce only
           Seed 1's structural contract; do not require Seed 2 state, duplicate semantic policy,
           or inspect built HTML.
         files: [scripts/verify-public-product-model.sh]
@@ -182,9 +197,18 @@ phases:
       - id: TASK-014
         type: verification
         title: "Gate the structural seam"
-        description: "Run `./bin/backstop gate --file scripts/verify-public-product-model.sh` and every fixture suite; confirm no local semantic, generated-doc, Jekyll, capability, MCP, or prose-LSP policy."
+        description: |
+          Run `./bin/backstop gate --file scripts/verify-public-product-model.sh`, then run
+          `./scripts/tests/public-product-model/verify-structural-verifier.sh` explicitly.
+          Require `verify_adjacent_guidance_embedded_jlink_claim_layout`,
+          `verify_markdown_claim_region_rejects_invalid_embedded_jlink`, and
+          `verify_journey_link_matrix_rejects_invalid_claim_embedding` to execute. Require the
+          exact positive CLAIM-005/JLINK-024 layout to pass and five independent mutations to
+          fail: marker before explanation, marker outside claim, marker after link, intervening
+          line, and arbitrary-comment byte significance. Confirm no local semantic,
+          generated-doc, Jekyll, capability, MCP, or prose-LSP policy.
         files: [scripts/verify-public-product-model.sh, scripts/tests/public-product-model/verify-structural-verifier.sh]
-        claims: [CLM-001, CLM-002, CLM-023, CLM-024, CLM-025, CLM-026]
+        claims: [CLM-001, CLM-002, CLM-023, CLM-024, CLM-025, CLM-026, CLM-036, CLM-037, CLM-038, CLM-039]
         depends_on: [TASK-013]
 
   - id: phase-5
@@ -200,7 +224,10 @@ phases:
           adoption commands, inventory dispositions, and absence of placeholders, stale Cayman
           positioning, or a second structurally claimed canonical owner. Consume registry literals
           and the stable accepted SPEC-073 contract as design input; do not require Seed 2 runtime
-          state, redefine registry truth, or implement generalized semantic judgments.
+          state, redefine registry truth, or implement generalized semantic judgments. Assert
+          docs/status.md contains CLAIM-005 exactly once under `#adjacent-guidance` with the exact
+          explanation, blank line, embedded JLINK-024 marker, immediately adjacent continuation
+          link, blank line, guarantee denial, and closing claim marker mandated by v1.0.5.
         files: [scripts/tests/public-product-model/pages/discovery-evaluation-adoption-status.sh, scripts/tests/public-product-model/pages/model-use-cases-packs.sh, scripts/tests/public-product-model/pages/extend-reference-contributing.sh]
         claims: [CLM-001, CLM-002, CLM-006, CLM-007, CLM-008, CLM-009, CLM-011, CLM-012, CLM-013, CLM-015, CLM-023, CLM-024, CLM-025, CLM-026, CLM-027, CLM-028, CLM-031, CLM-034, CLM-036, CLM-038, CLM-040, CLM-042]
         depends_on: [TASK-014]
@@ -211,7 +238,9 @@ phases:
           Replace the HTML landing source with final Markdown for / and author /evaluate/,
           /adopt/, and /status/. Realize assigned useful-unit dispositions, exact claim/JLINK
           structures, structured boundaries, and adoption commands. Separate operability from
-          guarantee preservation. Do not implement layout or deployment.
+          guarantee preservation. In docs/status.md, materialize the sole CLAIM-005/JLINK-024
+          exception with the exact v1.0.5 physical lines and no duplicate continuation link or
+          intervening content. Do not implement layout or deployment.
         files: [docs/index.html, docs/index.md, docs/evaluate.md, docs/adopt.md, docs/status.md]
         claims: [CLM-001, CLM-002, CLM-009, CLM-011, CLM-012, CLM-013, CLM-015, CLM-023, CLM-025, CLM-026, CLM-034, CLM-036, CLM-038, CLM-040, CLM-042]
         depends_on: [TASK-015]
