@@ -1,0 +1,89 @@
+pages:
+  - {source: docs/index.md, canonical_path: "/", role: discovery, hero_question: "What failure does Backstop prevent?", neighborhood_ids: [NBR-001], required_blocks: [why-backstop, choose-your-path], source_material: [HOME-001, HOME-002]}
+  - {source: docs/evaluate.md, canonical_path: "/evaluate/", role: evaluation, hero_question: "Is Backstop the right control surface for this problem?", neighborhood_ids: [NBR-002, NBR-003], required_blocks: [what-backstop-is, failure-fit, fit-decision, not-a-fit, guarantees, compatibility, compatibility-limits, evidence], source_material: [HOME-003, GET-005, CON-001]}
+  - {source: docs/model.md, canonical_path: "/model/", role: canonical-model, hero_question: "How does Backstop turn intent into a trustworthy verdict?", neighborhood_ids: [NBR-005, NBR-006], required_blocks: [operating-model, delivery-lifecycle, enforcement-loop, ownership-boundaries], source_material: [HOME-002, CON-001, CON-002, CON-003, CON-004, CON-005, CON-006, ART-001, ART-003, ART-004, ART-005]}
+  - {source: docs/adopt.md, canonical_path: "/adopt/", role: adoption, hero_question: "What does a first working adoption require?", neighborhood_ids: [], required_blocks: [adoption-paths, install, configure, verify-enforcement], source_material: [HOME-004, GET-001, GET-002, GET-003, ART-002, CLI-002]}
+  - {source: docs/use-cases.md, canonical_path: "/use-cases/", role: use-cases, hero_question: "Which problem-oriented adoption path applies?", neighborhood_ids: [NBR-007], required_blocks: [choose-use-case, pack-backed-use-cases], source_material: [HOME-003, GET-003]}
+  - {source: docs/packs.md, canonical_path: "/packs/", role: ecosystem, hero_question: "Which maintained pack already owns this standard?", neighborhood_ids: [NBR-008], required_blocks: [choose-a-pack, installed-pack-catalog], source_material: [CON-002, PACK-001]}
+  - {source: docs/extend.md, canonical_path: "/extend/", role: extension, hero_question: "When should this concern become a pack?", neighborhood_ids: [NBR-009], required_blocks: [pack-or-not, author-a-pack, path-filter-diagnostics], source_material: [PACK-001, PACK-002, PACK-003, PACK-004, PACK-005, PACK-006]}
+  - {source: docs/reference.md, canonical_path: "/reference/", role: reference, hero_question: "What exact interface or behavior do I need?", neighborhood_ids: [NBR-010], required_blocks: [compatibility, artifact-schema-catalog, configuration, cli-conventions, troubleshooting, gate, pack-commands, source-traceability, cli-command-catalog, pack-artifact, artifact-lifecycle-and-closure], source_material: [GET-004, CON-004, ART-002, ART-003, ART-004, PACK-002, PACK-003, CLI-001, CLI-002, CLI-003, CLI-004, CLI-005]}
+  - {source: docs/status.md, canonical_path: "/status/", role: status, hero_question: "What is supported, limited, planned, or intentionally outside Backstop?", neighborhood_ids: [NBR-004, NBR-011], required_blocks: [supported-and-limited, boundary-states, project-boundaries, adjacent-guidance, pack-direction, path-filter-limitation, release-history], source_material: [GET-005, PACK-004]}
+  - {source: docs/contributing.md, canonical_path: "/contributing/", role: contributing, hero_question: "How can I participate in Backstop and its ecosystem?", neighborhood_ids: [NBR-012], required_blocks: [contribution-paths, external-ownership], source_material: [PACK-006]}
+neighborhoods:
+  - {neighborhood_id: NBR-001, name: Discovery, visitor_question: "Why does Backstop exist?", owner_route: "/", required_answer: "The failure class and next decision."}
+  - {neighborhood_id: NBR-002, name: "What Backstop Is / Is Not", visitor_question: "What is the product boundary?", owner_route: "/evaluate/", required_answer: "Category and non-category."}
+  - {neighborhood_id: NBR-003, name: Evaluation, visitor_question: "Is it a fit?", owner_route: "/evaluate/", required_answer: "Fit, evidence, compatibility, and cost."}
+  - {neighborhood_id: NBR-004, name: "Capabilities, Guarantees, Limits, and Direction", visitor_question: "What is true now?", owner_route: "/status/", required_answer: "Evidence-backed state."}
+  - {neighborhood_id: NBR-005, name: "How Backstop Works", visitor_question: "How does enforcement work?", owner_route: "/model/", required_answer: "Progressive operating model."}
+  - {neighborhood_id: NBR-006, name: "Canonical Concepts & Architecture", visitor_question: "What are the system concepts?", owner_route: "/model/", required_answer: "One canonical model."}
+  - {neighborhood_id: NBR-007, name: "Use Cases / Adoption Paths", visitor_question: "Which path applies?", owner_route: "/use-cases/", required_answer: "Problem-oriented routes."}
+  - {neighborhood_id: NBR-008, name: "Pack Ecosystem", visitor_question: "Which pack applies?", owner_route: "/packs/", required_answer: "Selection and maintenance truth."}
+  - {neighborhood_id: NBR-009, name: "Extend Backstop", visitor_question: "Should this be a pack?", owner_route: "/extend/", required_answer: "Extension decision and workflow."}
+  - {neighborhood_id: NBR-010, name: Reference, visitor_question: "What is the exact interface?", owner_route: "/reference/", required_answer: "Exact commands and schemas."}
+  - {neighborhood_id: NBR-011, name: "Project Status / Direction", visitor_question: "Where is the project going?", owner_route: "/status/", required_answer: "Shipped, planned, and excluded."}
+  - {neighborhood_id: NBR-012, name: "Contributing / Ecosystem", visitor_question: "How can I participate?", owner_route: "/contributing/", required_answer: "Contribution and ownership paths."}
+navigation:
+  primary: ["/evaluate/", "/model/", "/adopt/", "/use-cases/", "/packs/", "/extend/", "/reference/"]
+  utility: ["/status/", "/contributing/"]
+journey_links:
+  - {link_id: JLINK-001, source_route: "/", source_anchor: why-backstop, destination_route: "/evaluate/", destination_anchor: failure-fit, label: "Evaluate the failure fit"}
+  - {link_id: JLINK-002, source_route: "/evaluate/", source_anchor: what-backstop-is, destination_route: "/model/", destination_anchor: operating-model, label: "See the operating model"}
+  - {link_id: JLINK-003, source_route: "/use-cases/", source_anchor: choose-use-case, destination_route: "/evaluate/", destination_anchor: fit-decision, label: "Check the fit decision"}
+  - {link_id: JLINK-004, source_route: "/evaluate/", source_anchor: fit-decision, destination_route: "/adopt/", destination_anchor: install, label: "Start installation"}
+  - {link_id: JLINK-005, source_route: "/evaluate/", source_anchor: not-a-fit, destination_route: "/status/", destination_anchor: adjacent-guidance, label: "Find adjacent guidance"}
+  - {link_id: JLINK-006, source_route: "/evaluate/", source_anchor: guarantees, destination_route: "/status/", destination_anchor: supported-and-limited, label: "Review support and limits"}
+  - {link_id: JLINK-007, source_route: "/status/", source_anchor: boundary-states, destination_route: "/model/", destination_anchor: ownership-boundaries, label: "See ownership boundaries"}
+  - {link_id: JLINK-008, source_route: "/evaluate/", source_anchor: compatibility, destination_route: "/reference/", destination_anchor: compatibility, label: "Check compatibility details"}
+  - {link_id: JLINK-009, source_route: "/evaluate/", source_anchor: compatibility-limits, destination_route: "/status/", destination_anchor: adjacent-guidance, label: "Follow compatibility guidance"}
+  - {link_id: JLINK-010, source_route: "/model/", source_anchor: operating-model, destination_route: "/reference/", destination_anchor: artifact-schema-catalog, label: "Inspect artifact schemas"}
+  - {link_id: JLINK-011, source_route: "/model/", source_anchor: ownership-boundaries, destination_route: "/status/", destination_anchor: project-boundaries, label: "Review project boundaries"}
+  - {link_id: JLINK-012, source_route: "/adopt/", source_anchor: install, destination_route: "/reference/", destination_anchor: configuration, label: "Configure Backstop"}
+  - {link_id: JLINK-013, source_route: "/adopt/", source_anchor: verify-enforcement, destination_route: "/model/", destination_anchor: enforcement-loop, label: "Understand the enforcement loop"}
+  - {link_id: JLINK-014, source_route: "/model/", source_anchor: enforcement-loop, destination_route: "/reference/", destination_anchor: gate, label: "Read the gate reference"}
+  - {link_id: JLINK-015, source_route: "/use-cases/", source_anchor: choose-use-case, destination_route: "/adopt/", destination_anchor: adoption-paths, label: "Choose an adoption path"}
+  - {link_id: JLINK-016, source_route: "/use-cases/", source_anchor: pack-backed-use-cases, destination_route: "/packs/", destination_anchor: choose-a-pack, label: "Choose a maintained pack"}
+  - {link_id: JLINK-017, source_route: "/packs/", source_anchor: installed-pack-catalog, destination_route: "/reference/", destination_anchor: pack-commands, label: "Use pack commands"}
+  - {link_id: JLINK-018, source_route: "/packs/", source_anchor: choose-a-pack, destination_route: "/status/", destination_anchor: pack-direction, label: "Review pack direction"}
+  - {link_id: JLINK-019, source_route: "/extend/", source_anchor: pack-or-not, destination_route: "/reference/", destination_anchor: pack-artifact, label: "Inspect the pack artifact"}
+  - {link_id: JLINK-020, source_route: "/extend/", source_anchor: author-a-pack, destination_route: "/contributing/", destination_anchor: contribution-paths, label: "Contribute the pack"}
+  - {link_id: JLINK-021, source_route: "/evaluate/", source_anchor: evidence, destination_route: "/reference/", destination_anchor: source-traceability, label: "Trace the sources"}
+  - {link_id: JLINK-022, source_route: "/packs/", source_anchor: installed-pack-catalog, destination_route: "/reference/", destination_anchor: cli-command-catalog, label: "Browse the CLI catalog"}
+  - {link_id: JLINK-023, source_route: "/reference/", source_anchor: cli-command-catalog, destination_route: "/status/", destination_anchor: release-history, label: "Check release history"}
+  - {link_id: JLINK-024, source_route: "/status/", source_anchor: adjacent-guidance, destination_route: "/contributing/", destination_anchor: external-ownership, label: "Continue outside Backstop"}
+adoption_instructions:
+  - instruction_id: ADOPT-INSTALL
+    owner_route: "/adopt/"
+    owner_anchor: install
+    command_text: "GOBIN=./.backstop-bin go install github.com/backstop-ai/backstop-core/cmd/backstop@v0.2.0"
+    command_sha256: sha256:54523aa4d4d52abcfa3b58816f5cae70ddb58773f9d90a782ebfe3afd4420ced
+    executable: go
+    argv: [install, "github.com/backstop-ai/backstop-core/cmd/backstop@v0.2.0"]
+    environment: {GOBIN: "<disposable-root>/.backstop-bin"}
+    working_directory: "<disposable-root>"
+    provenance: {kind: go-module-version, coordinate: "github.com/backstop-ai/backstop-core/cmd/backstop@v0.2.0"}
+    expected_exit_code: 0
+    expected_outputs: ["executable-file:<disposable-root>/.backstop-bin/backstop"]
+  - instruction_id: ADOPT-CONFIGURE
+    owner_route: "/adopt/"
+    owner_anchor: configure
+    command_text: "backstop init"
+    command_sha256: sha256:0ebe03e241fa9eddc23c902c17397044d2bc5d38f980405b8c66c024e9d74198
+    executable: "<disposable-root>/.backstop-bin/backstop"
+    argv: [init]
+    environment: {}
+    working_directory: "<disposable-root>"
+    provenance: {kind: instruction-output, instruction_id: ADOPT-INSTALL, path: "<disposable-root>/.backstop-bin/backstop"}
+    expected_exit_code: 0
+    expected_outputs: ["file:<disposable-root>/backstop.yml"]
+  - instruction_id: ADOPT-ENFORCE
+    owner_route: "/adopt/"
+    owner_anchor: verify-enforcement
+    command_text: "backstop gate"
+    command_sha256: sha256:85ffedc97983c354f036e2c3a5b71e4e0df3c850c7e2f0511ca3cc05ff2976a3
+    executable: "<disposable-root>/.backstop-bin/backstop"
+    argv: [gate]
+    environment: {}
+    working_directory: "<disposable-root>"
+    provenance: {kind: instruction-output, instruction_id: ADOPT-INSTALL, path: "<disposable-root>/.backstop-bin/backstop"}
+    expected_exit_code: 0
+    expected_outputs: ["verdict:exit-0"]

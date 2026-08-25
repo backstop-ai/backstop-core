@@ -4,7 +4,7 @@ number: SPEC-072
 created: "2026-08-24"
 status: draft
 schema_version: spec/v1
-spec_version: 1.0.5
+spec_version: 1.0.7
 
 implementation:
   summary: >
@@ -34,8 +34,7 @@ implementation:
   subject: docs/public-product-model
 
 verification:
-  level: integration
-  coverage_threshold: 80
+  level: static
   test_command: ./scripts/verify-public-product-model.sh
 
 contracts:
@@ -854,6 +853,12 @@ defined in frontmatter. Negative tests mutate isolated fixture copies, never the
 the relevant page, neighborhood, concept, architecture view, boundary, claim, useful unit, JLINK,
 adoption instruction, corpus role, source path, or commit in the failure.
 
+Numeric code coverage is not applicable to this static, fixture-backed integration contract: the exact test command
+is a Bash dispatcher and fixture verifier, not an instrumented coverage producer, and the spec defines
+no executable code-coverage domain. Verification completeness is instead demonstrated by exhaustive
+requirement-to-claim and claim-to-mandated-test mapping, isolated positive and negative fixtures, the
+exact acceptance command above, and the repository's spec and artifact validation gates.
+
 Claim-region verification compares the canonical visible payload, not unfiltered source metadata.
 For CLAIM-005 only, the positive fixture must prove the exact physical layout above and delete only
 the embedded JLINK-024 marker line plus its LF before byte comparison. Independent negative fixtures
@@ -978,7 +983,7 @@ any of them or treating this spec as the owner of capability scenarios.
 
 - `bundles/BUNDLE-032-website-expansion.bundle.md` v0.6.0 — source bundle, Seed 1 partition,
   OQ-1/OQ-4/OQ-5/OQ-7/OQ-9/OQ-10, and DD-1 through DD-5 plus DD-8.
-- `specs/SPEC-073-documentation-semantics-integration.spec.md` v1.0.0 — accepted downstream
+- `specs/SPEC-073-documentation-semantics-integration.spec.md` v1.1.0 — accepted downstream
   semantic contract used as final-copy design input, never as a cross-plan execution dependency.
 - `specs/SPEC-071-website-expansion.spec.md` — canceled historical narrow decomposition; evidence only.
 - `docs/index.html`, `docs/getting-started.md`, `docs/concepts.md`,

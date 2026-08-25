@@ -1,0 +1,69 @@
+concepts:
+  - {concept_id: CONCEPT-001, territory: product-category, name: "AI delivery discipline", definition: "A deterministic control surface that turns declared delivery intent into inspectable verdicts.", source_refs: [README.md], related_concept_ids: [CONCEPT-002, CONCEPT-007], owner: {route: "/model/", anchor: product-category}}
+  - {concept_id: CONCEPT-002, territory: intent-artifacts, name: "Intent artifacts", definition: "Versioned bundles, specifications, plans, issues, and decisions that bound delivery work.", source_refs: [artifacts/spec/v1/schema.json], related_concept_ids: [CONCEPT-003, CONCEPT-004], owner: {route: "/model/", anchor: intent-artifacts}}
+  - {concept_id: CONCEPT-003, territory: work-tracks, name: "Work tracks", definition: "Proactive bundle work and reactive issue work converge on reviewed plans.", source_refs: [artifacts/bundle/v1/schema.json, artifacts/issue/v1/schema.json, artifacts/plan/v1/schema.json], related_concept_ids: [CONCEPT-002, CONCEPT-004], owner: {route: "/model/", anchor: work-tracks}}
+  - {concept_id: CONCEPT-004, territory: plans, name: "Bounded execution", definition: "Plans sequence tests, implementation, and verification inside explicit file ownership.", source_refs: [artifacts/plan/v1/schema.json], related_concept_ids: [CONCEPT-002, CONCEPT-007], owner: {route: "/model/", anchor: bounded-execution}}
+  - {concept_id: CONCEPT-005, territory: standards-packs, name: "Standards packs", definition: "Versioned declarations package enforceable standards and their engines.", source_refs: [pkg/pack/engine/binding.go], related_concept_ids: [CONCEPT-007, CONCEPT-006], owner: {route: "/model/", anchor: standards-packs}}
+  - {concept_id: CONCEPT-006, territory: recipes, name: Recipes, definition: "Recipes compose reusable adoption and configuration operations.", source_refs: [pkg/recipe/manifest.go], related_concept_ids: [CONCEPT-005], owner: {route: "/model/", anchor: recipes}}
+  - {concept_id: CONCEPT-007, territory: gates, name: "Gates and policy", definition: "A gate evaluates installed pack engines and returns a policy-governed verdict.", source_refs: [cmd/backstop/gate.go], related_concept_ids: [CONCEPT-005, CONCEPT-008, CONCEPT-009], owner: {route: "/model/", anchor: gates-and-policy}}
+  - {concept_id: CONCEPT-008, territory: baselines-ratchets, name: "Baselines and ratchets", definition: "Baselines make existing debt explicit while ratchets prevent regression.", source_refs: [pkg/gate/baseline.go, pkg/gate/baseline_ratchet_test.go], related_concept_ids: [CONCEPT-007, CONCEPT-009], owner: {route: "/model/", anchor: baselines-and-ratchets}}
+  - {concept_id: CONCEPT-009, territory: waivers, name: Waivers, definition: "Time-bounded, attributable exceptions preserve visible policy intent.", source_refs: [pkg/waiver], related_concept_ids: [CONCEPT-007, CONCEPT-008], owner: {route: "/model/", anchor: waivers}}
+  - {concept_id: CONCEPT-010, territory: capabilities-journeys, name: "Capabilities and journeys", definition: "Capabilities state outcomes and user journeys prove them end to end.", source_refs: [artifacts/capability/v1/schema.json], related_concept_ids: [CONCEPT-011], owner: {route: "/model/", anchor: capabilities-and-journeys}}
+  - {concept_id: CONCEPT-011, territory: provenance-verification, name: "Provenance and verification", definition: "Evidence connects a verdict to its source, execution, and governing intent.", source_refs: [pkg/gate], related_concept_ids: [CONCEPT-010, CONCEPT-007], owner: {route: "/model/", anchor: provenance-and-verification}}
+  - {concept_id: CONCEPT-012, territory: harness-integration, name: "Harness integration", definition: "Any runtime may invoke Backstop, but the runtime remains responsible for honoring blocking verdicts and lifecycle steps.", source_refs: [README.md], related_concept_ids: [CONCEPT-007, CONCEPT-013], owner: {route: "/model/", anchor: harness-integration}}
+  - {concept_id: CONCEPT-013, territory: ownership-trust-boundaries, name: "Ownership and trust boundaries", definition: "Core executes, packs declare standards, harnesses orchestrate, and external tools retain their own guarantees.", source_refs: [backstop.yml], related_concept_ids: [CONCEPT-005, CONCEPT-012], owner: {route: "/model/", anchor: ownership-boundaries}}
+architecture_views:
+  - {architecture_id: ARCH-001, name: "Delivery lifecycle", owner: {route: "/model/", anchor: delivery-lifecycle}, source_refs: [artifacts/bundle/v1/schema.json, artifacts/issue/v1/schema.json, artifacts/spec/v1/schema.json, artifacts/plan/v1/schema.json], diagram_source: docs/_diagrams/ARCH-001-delivery-lifecycle.mmd}
+  - {architecture_id: ARCH-002, name: "Enforcement loop", owner: {route: "/model/", anchor: enforcement-loop}, source_refs: [pkg/gate], diagram_source: docs/_diagrams/ARCH-002-enforcement-loop.mmd}
+  - {architecture_id: ARCH-003, name: "Ownership boundaries", owner: {route: "/model/", anchor: ownership-boundaries}, source_refs: [pkg/pack/engine/binding.go], diagram_source: docs/_diagrams/ARCH-003-ownership-boundaries.mmd}
+boundaries:
+  - boundary_id: BOUNDARY-001
+    statement: "Backstop currently validates intent artifacts and runs installed pack engines as a blocking gate."
+    state: supported
+    owner: {route: "/status/", anchor: supported-and-limited}
+    source_refs: [cmd/backstop/gate.go]
+    visitor_implication: "Teams can make the gate a required local or CI control."
+    claim_id: CLAIM-001
+    explanation_markdown: "Backstop currently validates intent artifacts and runs installed pack engines as a blocking gate."
+    continuation: null
+    guarantee_denial_markdown: null
+  - boundary_id: BOUNDARY-002
+    statement: "Backstop cannot force an external harness to stop after a blocking verdict."
+    state: limitation
+    owner: {route: "/status/", anchor: supported-and-limited}
+    source_refs: [README.md]
+    visitor_implication: "Integrations must propagate the exit status."
+    claim_id: CLAIM-002
+    explanation_markdown: "Backstop cannot force an external harness to stop after a blocking verdict."
+    continuation: null
+    guarantee_denial_markdown: null
+  - boundary_id: BOUNDARY-003
+    statement: "The website expansion is planned under BUNDLE-032 and is not a shipped v0.2.0 capability."
+    state: planned
+    owner: {route: "/status/", anchor: project-boundaries}
+    source_refs: [bundles/BUNDLE-032-website-expansion.bundle.md]
+    visitor_implication: "Readers should distinguish current CLI behavior from planned public surfaces."
+    claim_id: CLAIM-003
+    explanation_markdown: "The website expansion is planned under BUNDLE-032 and is not a shipped v0.2.0 capability."
+    continuation: null
+    guarantee_denial_markdown: null
+  - boundary_id: BOUNDARY-004
+    statement: "Backstop does not own an agent runtime or guarantee the behavior of an external toolchain."
+    state: non-goal
+    owner: {route: "/status/", anchor: project-boundaries}
+    source_refs: [README.md]
+    visitor_implication: "Choose and operate the runtime separately."
+    claim_id: CLAIM-004
+    explanation_markdown: "Backstop does not own an agent runtime or guarantee the behavior of an external toolchain."
+    continuation: null
+    guarantee_denial_markdown: null
+  - boundary_id: BOUNDARY-005
+    statement: "Backstop stops at an inspectable verdict because external orchestration and organizational enforcement have different owners."
+    state: adjacent-guidance
+    owner: {route: "/status/", anchor: adjacent-guidance}
+    source_refs: [README.md]
+    visitor_implication: "Continue with the external owner while preserving the Backstop verdict."
+    claim_id: CLAIM-005
+    explanation_markdown: "Backstop stops at an inspectable verdict because external orchestration and organizational enforcement have different owners."
+    continuation: {journey_link_id: JLINK-024, route: "/contributing/", anchor: external-ownership, label: "Continue outside Backstop"}
+    guarantee_denial_markdown: "That continuation is guidance, not a guarantee provided by Backstop."
