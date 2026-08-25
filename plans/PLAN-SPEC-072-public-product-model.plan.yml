@@ -1,0 +1,335 @@
+---
+plan_id: PLAN-SPEC-072
+spec_id: SPEC-072
+spec_version: "1.0.3"
+created: "2026-08-24"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: >-
+  ./scripts/verify-public-product-model.sh && ./bin/backstop gate
+  --file docs/index.md --file docs/evaluate.md --file docs/model.md
+  --file docs/adopt.md --file docs/use-cases.md --file docs/packs.md
+  --file docs/extend.md --file docs/reference.md --file docs/status.md
+  --file docs/contributing.md --file docs/_data/content-topology.yml
+  --file docs/_data/product-model.yml --file docs/_data/evidence-inventory.yml
+  --file docs/_data/content-inventory.yml
+coverage_threshold: 80
+notes: |
+  Seed 1 only. Preserve useful legacy units, then establish topology, then canonical
+  model/evidence, then the structural verifier. Final copy is blocked until SPEC-073's
+  released documentation-semantics pack is declared, installed, and content-identity
+  pinned. Seed 3 generation, Seed 4 presentation, Seed 5 journeys, MCP, and generalized
+  prose tooling remain out of scope.
+
+phases:
+  - id: phase-1
+    name: "Preserve legacy useful units"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Specify the six-source and 31-unit inventory"
+        description: |
+          Add failing fixture tests for all six exact legacy sources and all 31 stable
+          useful-unit IDs, locators, topics, summaries, rationales, dispositions, and target
+          cardinalities. Mutations for missing, extra, duplicate, unknown, or malformed
+          entries must identify the source or unit. Do this before any legacy rewrite.
+        files: [scripts/tests/public-product-model/verify-content-inventory.sh, scripts/tests/public-product-model/fixtures/content-inventory-invalid.yml]
+        claims: [CLM-021, CLM-022, CLM-031, CLM-032]
+        test_names: [verify_legacy_content_disposition_inventory, verify_legacy_content_disposition_rejects_invalid_entry, verify_legacy_useful_unit_inventory, verify_legacy_useful_unit_rejects_invalid_record]
+        depends_on: []
+      - id: TASK-002
+        type: implementation
+        title: "Materialize legacy content dispositions"
+        description: |
+          Create the authoritative content inventory from SPEC-072's completed analysis.
+          Inventory every source and unit exactly once with valid targets. Preserve mixed
+          useful truth at unit granularity; do not rewrite or delete pages in this task.
+        files: [docs/_data/content-inventory.yml]
+        claims: [CLM-021, CLM-022, CLM-031, CLM-032]
+        depends_on: [TASK-001]
+      - id: TASK-003
+        type: verification
+        title: "Gate the legacy inventory"
+        description: "Run `./bin/backstop gate --file docs/_data/content-inventory.yml` and the isolated inventory fixture suite."
+        files: [docs/_data/content-inventory.yml, scripts/tests/public-product-model/verify-content-inventory.sh]
+        claims: [CLM-021, CLM-022, CLM-031, CLM-032]
+        depends_on: [TASK-002]
+
+  - id: phase-2
+    name: "Establish source-owned topology"
+    tasks:
+      - id: TASK-004
+        type: test
+        title: "Specify pages, neighborhoods, links, and instructions"
+        description: |
+          Add failing fixtures for the exact ten page/path/hero records, twelve single-owner
+          neighborhoods, navigation order, all and only JLINK-001..024, and the ordered three
+          adoption instructions. Cover wrong cardinality/order/anchor/owner/label, global-nav
+          substitution, non-root links, changed command/digest, mutable provenance, incorrect
+          executable/argv/environment/working directory, shell dependence, and missing outputs.
+        files: [scripts/tests/public-product-model/verify-content-topology.sh, scripts/tests/public-product-model/fixtures/content-topology-invalid.yml]
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-034, CLM-035, CLM-036, CLM-037, CLM-040, CLM-041, CLM-042]
+        test_names: [verify_public_product_model_complete, verify_public_product_model_rejects_narrow_completion, verify_content_topology_exact_inventory, verify_content_topology_rejects_invalid_neighborhood_ownership, verify_content_topology_navigation_contract, verify_content_topology_hero_question_matrix, verify_content_topology_rejects_invalid_hero_question, verify_journey_link_matrix, verify_journey_link_matrix_rejects_invalid_edge, verify_adoption_instruction_matrix, verify_adoption_instruction_matrix_rejects_invalid_record, verify_adoption_instruction_source_and_digest_binding]
+        depends_on: [TASK-003]
+      - id: TASK-005
+        type: implementation
+        title: "Materialize content topology and adoption execution truth"
+        description: |
+          Create content-topology.yml with exact records and Seed 1 literals. Bind displayed
+          commands to no-newline SHA-256 and shell-free executable/argv/environment,
+          immutable v0.2.0 provenance, ordered outputs, and zero exit. Do not add rendered
+          attributes, aliases, layouts, deployment checks, or browser journeys.
+        files: [docs/_data/content-topology.yml]
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-034, CLM-035, CLM-036, CLM-037, CLM-040, CLM-041, CLM-042]
+        depends_on: [TASK-004]
+      - id: TASK-006
+        type: verification
+        title: "Gate the topology"
+        description: "Run `./bin/backstop gate --file docs/_data/content-topology.yml` and its complete positive/negative fixture suite."
+        files: [docs/_data/content-topology.yml, scripts/tests/public-product-model/verify-content-topology.sh]
+        claims: [CLM-003, CLM-004, CLM-005, CLM-034, CLM-035, CLM-036, CLM-037, CLM-040, CLM-041, CLM-042]
+        depends_on: [TASK-005]
+
+  - id: phase-3
+    name: "Establish canonical model and evidence"
+    tasks:
+      - id: TASK-007
+        type: test
+        title: "Specify product ownership, architecture, and boundaries"
+        description: |
+          Add failing fixtures for every concept territory, exactly ARCH-001..003 with exact
+          owners and Mermaid paths/content, and one substantive owner each. Exhaust all five
+          boundary states, boundary/claim bijection, explicit explanation, four-state nulls,
+          one JLINK-matched adjacent continuation, denial, and exact statement composition.
+          Assert absence of parallel registries, machine-only narrative, MCP, or agent IA.
+        files: [scripts/tests/public-product-model/verify-product-model.sh, scripts/tests/public-product-model/fixtures/product-model-invalid.yml]
+        claims: [CLM-006, CLM-007, CLM-008, CLM-013, CLM-014, CLM-015, CLM-027, CLM-028, CLM-029, CLM-030, CLM-038, CLM-039]
+        test_names: [verify_canonical_product_model_ownership, verify_canonical_product_model_rejects_duplicate_owner, verify_canonical_product_model_has_no_parallel_truth, verify_product_boundary_state_matrix_positive, verify_product_boundary_state_matrix_negative, verify_adjacent_guidance_contract, verify_required_architecture_view_inventory, verify_required_architecture_view_rejects_missing_or_invalid_view, verify_product_boundary_claim_bijection, verify_product_boundary_rejects_invalid_claim_linkage, verify_product_boundary_structured_field_matrix, verify_product_boundary_rejects_invalid_structured_fields]
+        depends_on: [TASK-006]
+      - id: TASK-008
+        type: implementation
+        title: "Materialize canonical product and boundary truth"
+        description: |
+          Create the sole product-model registry with stable concepts, durable sources,
+          relations, exact anchored owners, architecture records, and explicit boundary
+          fields. Add the three authoritative UTF-8 Mermaid sources; no editable derivative
+          may become product truth and no field may be inferred from prose.
+        files: [docs/_data/product-model.yml, docs/_diagrams/ARCH-001-delivery-lifecycle.mmd, docs/_diagrams/ARCH-002-enforcement-loop.mmd, docs/_diagrams/ARCH-003-ownership-boundaries.mmd]
+        claims: [CLM-006, CLM-007, CLM-008, CLM-013, CLM-014, CLM-015, CLM-027, CLM-028, CLM-029, CLM-030, CLM-038, CLM-039]
+        depends_on: [TASK-007]
+      - id: TASK-009
+        type: test
+        title: "Specify claim evidence and corpus roles"
+        description: |
+          Add failing fixtures for complete claim records and the exhaustive evidence matrix:
+          mechanism for all, execution for runtime/compatibility, incident/example for failure,
+          and provenance-bearing example/measurement for outcome. Reject nonexistent or mutable
+          locators, unnamed observations, methodless metrics, irrelevant evidence, compatibility
+          guarantee inflation, and missing/nonqualifying distinct corpus roles.
+        files: [scripts/tests/public-product-model/verify-evidence-inventory.sh, scripts/tests/public-product-model/fixtures/evidence-inventory-invalid.yml]
+        claims: [CLM-009, CLM-010, CLM-011, CLM-012, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020, CLM-029, CLM-030]
+        test_names: [verify_consequential_claim_contract, verify_consequential_claim_rejects_incomplete_record, verify_compatibility_claim_separates_operability_and_guarantee, verify_compatibility_claim_rejects_guarantee_equivalence, verify_claim_type_evidence_matrix_positive, verify_claim_type_evidence_matrix_negative, verify_evidence_sources_are_durable_and_resolvable, verify_evidence_corpus_minimum_roles, verify_evidence_corpus_rejects_missing_or_invalid_role]
+        depends_on: [TASK-006]
+      - id: TASK-010
+        type: implementation
+        title: "Materialize consequential claim evidence"
+        description: |
+          Create the evidence inventory with exact statement markdown, type, anchored owner,
+          mechanism, boundary, limitations, adoption implications, direction, and relevant
+          durable evidence. Populate five distinct qualifying corpus roles using only existing
+          paths, immutable commits/versions, durable incidents, captures, or qualified metrics.
+        files: [docs/_data/evidence-inventory.yml]
+        claims: [CLM-009, CLM-010, CLM-011, CLM-012, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020, CLM-029, CLM-030]
+        depends_on: [TASK-009]
+      - id: TASK-011
+        type: verification
+        title: "Gate model and evidence streams"
+        description: |
+          Run `./bin/backstop gate --file docs/_data/product-model.yml --file
+          docs/_data/evidence-inventory.yml --file docs/_diagrams/ARCH-001-delivery-lifecycle.mmd
+          --file docs/_diagrams/ARCH-002-enforcement-loop.mmd --file
+          docs/_diagrams/ARCH-003-ownership-boundaries.mmd`, then both isolated fixture suites.
+          Require cross-registry boundary/claim integrity and all three diagram sources.
+        files: [docs/_data/product-model.yml, docs/_data/evidence-inventory.yml, docs/_diagrams/ARCH-001-delivery-lifecycle.mmd, docs/_diagrams/ARCH-002-enforcement-loop.mmd, docs/_diagrams/ARCH-003-ownership-boundaries.mmd, scripts/tests/public-product-model/verify-product-model.sh, scripts/tests/public-product-model/verify-evidence-inventory.sh]
+        claims: [CLM-006, CLM-007, CLM-008, CLM-009, CLM-010, CLM-011, CLM-012, CLM-013, CLM-014, CLM-015, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020, CLM-027, CLM-028, CLM-029, CLM-030, CLM-038, CLM-039]
+        depends_on: [TASK-008, TASK-010]
+
+  - id: phase-4
+    name: "Implement the structural verifier"
+    tasks:
+      - id: TASK-012
+        type: test
+        title: "Drive the verifier red with isolated corpus mutations"
+        description: |
+          Add a dispatcher test for complete files/records, exact nonnested claim-region
+          byte/ID/route/anchor bijection, explicit headings, JLINK marker adjacency, boundary
+          composition, adoption source/digest binding, references, and stale Cayman/placeholder
+          rejection. Dispatch every domain fixture suite so all registry cardinality, ownership,
+          evidence, architecture, useful-unit, boundary, link, and instruction claims exercised
+          by TASK-013 are red before implementation. Mutate temporary copies only. Semantic
+          paraphrase/style remains pack-owned.
+        files: [scripts/tests/public-product-model/verify-structural-verifier.sh, scripts/tests/public-product-model/fixtures/site-mutation-manifest.yml]
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-009, CLM-010, CLM-011, CLM-012, CLM-013, CLM-014, CLM-015, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020, CLM-021, CLM-022, CLM-023, CLM-024, CLM-025, CLM-026, CLM-027, CLM-028, CLM-029, CLM-030, CLM-031, CLM-032, CLM-034, CLM-035, CLM-036, CLM-037, CLM-038, CLM-039, CLM-040, CLM-041, CLM-042]
+        test_names: [verify_final_copy_structural_completeness, verify_seed_one_has_no_generalized_prose_system, verify_markdown_claim_region_bijection, verify_markdown_claim_region_rejects_invalid_linkage, verify_final_copy_installed_semantics_gate]
+        depends_on: [TASK-011]
+      - id: TASK-013
+        type: implementation
+        title: "Implement the Backstop-specific static verifier"
+        description: |
+          Create the single Core structural verifier. Enforce exact registries, normalized
+          claim bytes, owners, markers, fields, evidence kinds, role cardinality, locators,
+          and command digests with stable-ID diagnostics and fixture-root support. Check the
+          semantic pack dependency but do not duplicate semantic policy or inspect built HTML.
+        files: [scripts/verify-public-product-model.sh]
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-009, CLM-010, CLM-011, CLM-012, CLM-013, CLM-014, CLM-015, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020, CLM-021, CLM-022, CLM-023, CLM-024, CLM-025, CLM-026, CLM-027, CLM-028, CLM-029, CLM-030, CLM-031, CLM-032, CLM-034, CLM-035, CLM-036, CLM-037, CLM-038, CLM-039, CLM-040, CLM-041, CLM-042]
+        depends_on: [TASK-012]
+      - id: TASK-014
+        type: verification
+        title: "Gate the structural seam"
+        description: "Run `./bin/backstop gate --file scripts/verify-public-product-model.sh` and every fixture suite; confirm no local semantic, generated-doc, Jekyll, capability, MCP, or prose-LSP policy."
+        files: [scripts/verify-public-product-model.sh, scripts/tests/public-product-model/verify-structural-verifier.sh]
+        claims: [CLM-001, CLM-002, CLM-023, CLM-024, CLM-025, CLM-026, CLM-033]
+        depends_on: [TASK-013]
+
+  - id: phase-5
+    name: "Release-gated final copy"
+    tasks:
+      - id: TASK-015
+        type: setup
+        title: "Enforce the SPEC-073 release barrier"
+        description: |
+          Run `./scripts/verify-documentation-semantics-integration.sh` and require its clean-
+          install proof. Verify `.backstop/website-pack-releases.yml` binds exact immutable owner
+          artifact/evidence refs to manifest identity, source coordinate, version, v-tag, full
+          commit, content hash, green owner checks, and fixture dispatch/path-fidelity proof.
+          Require matching backstop.yml declaration and git lock, restored installed manifest,
+          recomputed tree hash, installed pack check/test, actual-corpus gate, missing-tree failure,
+          and CI clean-install step. Stop if absent; never substitute local rules or edit surfaces.
+        files: [.backstop/website-pack-releases.yml, backstop.yml, backstop.lock, .backstop/packs/<documentation-semantics-manifest-identity>/pack.yml, scripts/verify-documentation-semantics-integration.sh, .github/workflows/ci.yml]
+        claims: [CLM-024, CLM-033]
+        depends_on: [TASK-014]
+      - id: TASK-016
+        type: test
+        title: "Specify ten-page final-copy acceptance"
+        description: |
+          Add failing acceptance tests for the complete ten-page/four-registry Seed 1 contract
+          and rejection of the prior narrow docs shell, split into three page groups for anchors,
+          owner responsibilities, hero literals, claim regions, JLINK markers, boundary fields,
+          adoption commands, inventory dispositions, and absence of placeholders, stale Cayman
+          positioning, or competing definitions. Consume registry literals; do not redefine them.
+        files: [scripts/tests/public-product-model/pages/discovery-evaluation-adoption-status.sh, scripts/tests/public-product-model/pages/model-use-cases-packs.sh, scripts/tests/public-product-model/pages/extend-reference-contributing.sh]
+        claims: [CLM-001, CLM-002, CLM-006, CLM-007, CLM-008, CLM-009, CLM-011, CLM-012, CLM-013, CLM-015, CLM-023, CLM-024, CLM-025, CLM-026, CLM-027, CLM-028, CLM-031, CLM-033, CLM-034, CLM-036, CLM-038, CLM-040, CLM-042]
+        depends_on: [TASK-015]
+      - id: TASK-017
+        type: implementation
+        title: "Author discovery, evaluation, adoption, and status"
+        description: |
+          Replace the HTML landing source with final Markdown for / and author /evaluate/,
+          /adopt/, and /status/. Realize assigned useful-unit dispositions, exact claim/JLINK
+          structures, structured boundaries, and adoption commands. Separate operability from
+          guarantee preservation. Do not implement layout or deployment.
+        files: [docs/index.html, docs/index.md, docs/evaluate.md, docs/adopt.md, docs/status.md]
+        claims: [CLM-001, CLM-002, CLM-009, CLM-011, CLM-012, CLM-013, CLM-015, CLM-023, CLM-025, CLM-026, CLM-034, CLM-036, CLM-038, CLM-040, CLM-042]
+        depends_on: [TASK-016]
+      - id: TASK-018
+        type: implementation
+        title: "Author model, use cases, and packs"
+        description: |
+          Author /model/, /use-cases/, and /packs/, retiring or rewriting assigned legacy
+          sources. Keep /model/ the sole substantive concept/architecture owner and use linked
+          summaries elsewhere. Preserve exact anchors, claims, hero questions, JLINKs, and
+          authoritative Mermaid sources.
+        files: [docs/model.md, docs/use-cases.md, docs/packs.md, docs/concepts.md, docs/artifact-workflow.md]
+        claims: [CLM-001, CLM-006, CLM-007, CLM-023, CLM-025, CLM-026, CLM-027, CLM-028, CLM-031, CLM-033, CLM-034, CLM-036]
+        depends_on: [TASK-016]
+      - id: TASK-019
+        type: implementation
+        title: "Author extension, reference, and contributing"
+        description: |
+          Author /extend/, /reference/, and /contributing/ and realize assigned legacy
+          dispositions. Keep reference exactness separate from concepts; preserve evidence,
+          anchors, claims, hero questions, and JLINKs. Add no generated sections, layouts, or MCP.
+        files: [docs/extend.md, docs/reference.md, docs/contributing.md, docs/getting-started.md, docs/pack-authoring.md, docs/cli-reference.md]
+        claims: [CLM-001, CLM-008, CLM-023, CLM-024, CLM-025, CLM-026, CLM-031, CLM-033, CLM-034, CLM-036]
+        depends_on: [TASK-016]
+      - id: TASK-020
+        type: verification
+        title: "Gate discovery through use-case page sources"
+        description: |
+          Run `./bin/backstop gate --file docs/index.md --file docs/evaluate.md --file
+          docs/model.md --file docs/adopt.md --file docs/use-cases.md`. Require the first five
+          page-owned anchors, claims, JLINKs, instructions, dispositions, and owner seams to pass.
+        files: [docs/index.md, docs/evaluate.md, docs/model.md, docs/adopt.md, docs/use-cases.md]
+        claims: [CLM-001, CLM-002, CLM-006, CLM-007, CLM-008, CLM-009, CLM-011, CLM-012, CLM-013, CLM-015, CLM-021, CLM-023, CLM-024, CLM-025, CLM-026, CLM-027, CLM-029, CLM-031, CLM-033, CLM-034, CLM-036, CLM-038, CLM-040, CLM-042]
+        depends_on: [TASK-017, TASK-018, TASK-019]
+
+      - id: TASK-021
+        type: verification
+        title: "Gate pack through contribution page sources"
+        description: |
+          Run `./bin/backstop gate --file docs/packs.md --file docs/extend.md --file
+          docs/reference.md --file docs/status.md --file docs/contributing.md`. Require the
+          remaining five page-owned anchors, claims, JLINKs, dispositions, and owner seams to pass.
+        files: [docs/packs.md, docs/extend.md, docs/reference.md, docs/status.md, docs/contributing.md]
+        claims: [CLM-001, CLM-002, CLM-008, CLM-009, CLM-013, CLM-015, CLM-021, CLM-023, CLM-024, CLM-025, CLM-026, CLM-029, CLM-031, CLM-033, CLM-034, CLM-036, CLM-038]
+        depends_on: [TASK-017, TASK-018, TASK-019]
+
+      - id: TASK-022
+        type: verification
+        title: "Verify four registries through the local structural entrypoint"
+        description: |
+          Run `./bin/backstop gate --file docs/_data/content-topology.yml --file
+          docs/_data/product-model.yml --file docs/_data/evidence-inventory.yml --file
+          docs/_data/content-inventory.yml --file scripts/verify-public-product-model.sh`, then
+          run `./scripts/verify-public-product-model.sh`. Require complete cross-registry
+          cardinality, references, claim bytes, ownership, links, evidence, and diagnostics.
+        files: [docs/_data/content-topology.yml, docs/_data/product-model.yml, docs/_data/evidence-inventory.yml, docs/_data/content-inventory.yml, scripts/verify-public-product-model.sh]
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-009, CLM-010, CLM-011, CLM-012, CLM-013, CLM-014, CLM-015, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020, CLM-021, CLM-022, CLM-023, CLM-024, CLM-025, CLM-026, CLM-027, CLM-028, CLM-029, CLM-030, CLM-031, CLM-032, CLM-034, CLM-035, CLM-036, CLM-037, CLM-038, CLM-039, CLM-040, CLM-041, CLM-042]
+        depends_on: [TASK-013, TASK-017, TASK-018, TASK-019, TASK-020, TASK-021]
+
+      - id: TASK-023
+        type: verification
+        title: "Verify the released semantic dependency integration"
+        description: |
+          Run `./bin/backstop gate --file .backstop/website-pack-releases.yml --file
+          backstop.yml --file backstop.lock --file
+          scripts/verify-documentation-semantics-integration.sh`, then run
+          `./scripts/verify-documentation-semantics-integration.sh`. Require installed manifest
+          and tree hash equality to owner evidence, released-pack finding attribution, clean
+          restoration, actual-corpus success, and missing-tree failure.
+        files: [.backstop/website-pack-releases.yml, backstop.yml, backstop.lock, .backstop/packs/<documentation-semantics-manifest-identity>/pack.yml, scripts/verify-documentation-semantics-integration.sh]
+        claims: [CLM-024, CLM-033]
+        depends_on: [TASK-013, TASK-017, TASK-018, TASK-019, TASK-022]
+
+  - id: phase-6
+    name: "Comprehensive verification"
+    tasks:
+      - id: TASK-024
+        type: verification
+        title: "Run the full kill chain and exact composed acceptance command"
+        description: |
+          Run `./bin/backstop gate --all`. Then run SPEC-072's exact composed command:
+          `./scripts/verify-public-product-model.sh && ./bin/backstop gate --file docs/index.md
+          --file docs/evaluate.md --file docs/model.md --file docs/adopt.md --file
+          docs/use-cases.md --file docs/packs.md --file docs/extend.md --file
+          docs/reference.md --file docs/status.md --file docs/contributing.md --file
+          docs/_data/content-topology.yml --file docs/_data/product-model.yml --file
+          docs/_data/evidence-inventory.yml --file docs/_data/content-inventory.yml`.
+          Confirm every mandated test, at least 80% coverage, isolated negative fixtures,
+          pinned semantic identity, and absence of later-seed, MCP, or prose implementation.
+        files: [scripts/verify-public-product-model.sh, scripts/verify-documentation-semantics-integration.sh]
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-009, CLM-010, CLM-011, CLM-012, CLM-013, CLM-014, CLM-015, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020, CLM-021, CLM-022, CLM-023, CLM-024, CLM-025, CLM-026, CLM-027, CLM-028, CLM-029, CLM-030, CLM-031, CLM-032, CLM-033, CLM-034, CLM-035, CLM-036, CLM-037, CLM-038, CLM-039, CLM-040, CLM-041, CLM-042]
+        depends_on: [TASK-013, TASK-017, TASK-018, TASK-019, TASK-023]
+
+      - id: TASK-025
+        type: verification
+        title: "Validate the linked plan and source spec artifacts"
+        description: |
+          Run `./bin/backstop artifact validate --plan PLAN-SPEC-072 --spec SPEC-072` after
+          the full kill chain. Require the scaffold linkage and IDs, all 42 claim mappings,
+          direct test dependencies, gate cadence, final verification coverage, and artifact
+          schemas to pass without relying on unrelated corpus artifacts.
+        files: [plans/PLAN-SPEC-072-public-product-model.plan.yml, specs/SPEC-072-public-product-model.spec.md]
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-009, CLM-010, CLM-011, CLM-012, CLM-013, CLM-014, CLM-015, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020, CLM-021, CLM-022, CLM-023, CLM-024, CLM-025, CLM-026, CLM-027, CLM-028, CLM-029, CLM-030, CLM-031, CLM-032, CLM-033, CLM-034, CLM-035, CLM-036, CLM-037, CLM-038, CLM-039, CLM-040, CLM-041, CLM-042]
+        depends_on: [TASK-013, TASK-017, TASK-018, TASK-019, TASK-024]
