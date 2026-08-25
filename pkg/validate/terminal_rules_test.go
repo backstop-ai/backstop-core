@@ -3,6 +3,7 @@ package validate_test
 import (
 	"testing"
 
+	"github.com/backstop-ai/backstop-core/pkg/artifact"
 	"github.com/backstop-ai/backstop-core/pkg/validate"
 )
 
@@ -248,5 +249,227 @@ func TestValidateIssue_TerminalExemptFromTraceability(t *testing.T) {
 		if hasViolationRule(res, rule) {
 			t.Errorf("terminal issue must be exempt from traceability rule %q, got: %v", rule, res.Violations)
 		}
+	}
+}
+
+// TestValidatePlan_TerminalExemptFromPhaseCompleteness pins that terminal plans
+// with absent or empty phases do not raise live-work completeness violations.
+func TestValidatePlan_TerminalExemptFromPhaseCompleteness(t *testing.T) {
+	planSch := loadTerminalSchema(t, "plan", "v1")
+	liveWorkRules := []string{
+		"plan/phases-required",
+		"plan/phases-empty",
+		"plan/final-phase-no-verification",
+		"plan/gate-cadence-missing",
+		"plan/tdd-impl-requires-test",
+		"plan/verification-requires-impl",
+		"plan/file-exclusivity",
+	}
+
+	cases := []struct {
+		name    string
+		prepare func(t *testing.T) *artifact.ParsedArtifact
+	}{
+		{
+			name: "canceled_empty_phases",
+			prepare: func(t *testing.T) *artifact.ParsedArtifact {
+				return parseTerminalFixture(t, "plan-canceled-empty-phases.plan.yml")
+			},
+		},
+		{
+			name: "canceled_absent_phases",
+			prepare: func(t *testing.T) *artifact.ParsedArtifact {
+				art := parseTerminalFixture(t, "plan-canceled-empty-phases.plan.yml")
+				delete(art.Frontmatter, "phases")
+				return art
+			},
+		},
+		{
+			name: "replaced_empty_phases",
+			prepare: func(t *testing.T) *artifact.ParsedArtifact {
+				art := parseTerminalFixture(t, "plan-replaced.plan.yml")
+				art.Frontmatter["phases"] = []interface{}{}
+				return art
+			},
+		},
+		{
+			name: "obsoleted_absent_phases",
+			prepare: func(t *testing.T) *artifact.ParsedArtifact {
+				art := parseTerminalFixture(t, "plan-replaced.plan.yml")
+				art.Frontmatter["status"] = "obsoleted"
+				delete(art.Frontmatter, "replaced-by")
+				art.Frontmatter["obsoleted-by"] = "ISSUE-018"
+				delete(art.Frontmatter, "phases")
+				return art
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			res := validate.Plan(tc.prepare(t), planSch)
+			for _, rule := range liveWorkRules {
+				if hasViolationRule(res, rule) {
+					t.Errorf("terminal plan must be exempt from live-work rule %q, got: %v", rule, res.Violations)
+				}
+			}
+		})
+	}
+}
+
+// TestValidatePlan_LivePlanStillRequiresPhases is a pre-fix-green control that
+// pins the narrow exemption: live, absent, and invalid statuses require phases.
+func TestValidatePlan_LivePlanStillRequiresPhases(t *testing.T) {
+	planSch := loadTerminalSchema(t, "plan", "v1")
+
+	cases := []struct {
+		name   string
+		status string
+		absent bool
+	}{
+		{name: "draft", status: "draft"},
+		{name: "ready", status: "ready"},
+		{name: "implementing", status: "implementing"},
+		{name: "completed", status: "completed"},
+		{name: "status_absent", absent: true},
+		{name: "status_typo_cancelled", status: "cancelled"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			empty := parseTerminalFixture(t, "plan-canceled-empty-phases.plan.yml")
+			if tc.absent {
+				delete(empty.Frontmatter, "status")
+			} else {
+				empty.Frontmatter["status"] = tc.status
+			}
+			res := validate.Plan(empty, planSch)
+			if !hasViolationRule(res, "plan/phases-empty") {
+				t.Errorf("live plan with empty phases: expected plan/phases-empty, got %v", res.Violations)
+			}
+			if hasViolationRule(res, "plan/phases-required") {
+				t.Errorf("live plan with parsed empty phases must not raise plan/phases-required, got %v", res.Violations)
+			}
+
+			missing := parseTerminalFixture(t, "plan-canceled-empty-phases.plan.yml")
+			if tc.absent {
+				delete(missing.Frontmatter, "status")
+			} else {
+				missing.Frontmatter["status"] = tc.status
+			}
+			delete(missing.Frontmatter, "phases")
+			res = validate.Plan(missing, planSch)
+			if !hasViolationRule(res, "plan/phases-required") {
+				t.Errorf("live plan with absent phases: expected plan/phases-required, got %v", res.Violations)
+			}
+		})
+	}
+}
+
+// TestValidatePlan_TerminalStillEnforcesStructuralFields is a pre-fix-green
+// control pinning that terminal phase exemption leaves structural checks intact.
+func TestValidatePlan_TerminalStillEnforcesStructuralFields(t *testing.T) {
+	planSch := loadTerminalSchema(t, "plan", "v1")
+
+	canceledPhaseless := func(t *testing.T) *artifact.ParsedArtifact {
+		art := parseTerminalFixture(t, "plan-canceled-empty-phases.plan.yml")
+		delete(art.Frontmatter, "phases")
+		return art
+	}
+
+	cases := []struct {
+		name    string
+		rule    string
+		prepare func(t *testing.T) *artifact.ParsedArtifact
+	}{
+		{
+			name:    "filename_pattern",
+			rule:    "plan/filename-pattern",
+			prepare: canceledPhaseless,
+		},
+		{
+			name: "spec_id_pattern",
+			rule: "plan/spec-id-pattern",
+			prepare: func(t *testing.T) *artifact.ParsedArtifact {
+				art := canceledPhaseless(t)
+				art.Frontmatter["spec_id"] = "NOTANID"
+				return art
+			},
+		},
+		{
+			name: "created_required",
+			rule: "plan/created-required",
+			prepare: func(t *testing.T) *artifact.ParsedArtifact {
+				art := canceledPhaseless(t)
+				delete(art.Frontmatter, "created")
+				return art
+			},
+		},
+		{
+			name: "coverage_threshold_range",
+			rule: "plan/coverage-threshold-range",
+			prepare: func(t *testing.T) *artifact.ParsedArtifact {
+				art := canceledPhaseless(t)
+				art.Frontmatter["coverage_threshold"] = 150
+				return art
+			},
+		},
+		{
+			name: "field_type",
+			rule: "plan/field-type",
+			prepare: func(t *testing.T) *artifact.ParsedArtifact {
+				art := canceledPhaseless(t)
+				art.Frontmatter["notes"] = 42
+				return art
+			},
+		},
+		{
+			name: "replaced_by_required",
+			rule: "plan/replaced-by-required",
+			prepare: func(t *testing.T) *artifact.ParsedArtifact {
+				art := canceledPhaseless(t)
+				art.Frontmatter["status"] = "replaced"
+				delete(art.Frontmatter, "replaced-by")
+				return art
+			},
+		},
+		{
+			name: "obsoleted_by_required",
+			rule: "plan/obsoleted-by-required",
+			prepare: func(t *testing.T) *artifact.ParsedArtifact {
+				art := canceledPhaseless(t)
+				art.Frontmatter["status"] = "obsoleted"
+				delete(art.Frontmatter, "obsoleted-by")
+				return art
+			},
+		},
+		{
+			name: "replaced_by_malformed",
+			rule: "plan/replaced-by-malformed",
+			prepare: func(t *testing.T) *artifact.ParsedArtifact {
+				art := canceledPhaseless(t)
+				art.Frontmatter["status"] = "replaced"
+				art.Frontmatter["replaced-by"] = "not a ref"
+				return art
+			},
+		},
+		{
+			name: "invalid_status_deprecated",
+			rule: "plan/invalid-status",
+			prepare: func(t *testing.T) *artifact.ParsedArtifact {
+				art := canceledPhaseless(t)
+				art.Frontmatter["status"] = "deprecated"
+				return art
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			res := validate.Plan(tc.prepare(t), planSch)
+			if !hasViolationRule(res, tc.rule) {
+				t.Errorf("terminal phases-less plan must still raise %q, got: %v", tc.rule, res.Violations)
+			}
+		})
 	}
 }
