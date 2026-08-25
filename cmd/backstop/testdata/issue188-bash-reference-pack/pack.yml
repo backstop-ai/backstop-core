@@ -1,0 +1,32 @@
+name: testdata/issue188-bash-reference-pack
+version: "0.0.1"
+language: fixture
+archetype: enforcement
+description: Self-contained ISSUE-188 discovery reference fixture.
+classification:
+  test:
+    - "scripts/tests/**/*.sh"
+    - "scripts/verify-public-product-model.sh"
+test_name_patterns:
+  - "([A-Za-z_][A-Za-z0-9_]*)[[:blank:]]*\\([[:blank:]]*\\)[[:blank:]]*\\{"
+engines:
+  fixture-test:
+    command: sh
+    producer: scripts/test-produce.sh
+    input_mode: none
+    scope_kind: project-wide
+    project_target: ""
+    convert: scripts/test-to-sarif.sh
+    crash_guard: true
+    exempt_from_scope_filter: true
+    category: mechanism
+    gate_type: test
+content:
+  ruleset:
+    version: 1.0.0
+    rules:
+      - id: fixture-test
+        engine: fixture-test
+        risk_class: correctness
+        category: testdata
+        justification: Deterministic empty test verdict for ISSUE-188 acceptance.
