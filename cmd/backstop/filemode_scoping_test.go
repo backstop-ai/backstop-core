@@ -53,13 +53,13 @@ func goTestCall(t *testing.T, runner *fixtureRunner) fixtureCall {
 // package (./pkg/widget), NOT ./... (CLM-034).
 func TestFileMode_TestPassScopedToChangedFilePackage(t *testing.T) {
 	m := onlyRules(goToolchainManifest(t), "go-test")
-	stubSandboxedRunStdout(t, nil)
+	sandboxRunner := directConvertSandboxRunner(nil)
 	runner := &fixtureRunner{byCmd: map[string][]byte{"go test": readFixture(t, "go-test-failures.txt")}}
 
 	// File-mode scope: a single changed file in pkg/widget.
 	scope := &gate.GateScope{Mode: gate.GateScopeModeFile, Files: []string{"pkg/widget/widget_test.go"}}
 
-	if _, err := dispatchPackEngines([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), scope, runner); err != nil {
+	if _, err := dispatchPackEnginesWithEvidence([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), scope, runner, sandboxRunner); err != nil {
 		t.Fatalf("dispatchPackEngines (file-mode test): %v", err)
 	}
 
@@ -80,11 +80,11 @@ func TestFileMode_TestPassScopedToChangedFilePackage(t *testing.T) {
 // explicit and tested; a silent ./... in file mode is a CLM-035 regression.
 func TestFileMode_NoSilentWholeModuleRegression(t *testing.T) {
 	m := onlyRules(goToolchainManifest(t), "go-test")
-	stubSandboxedRunStdout(t, nil)
+	sandboxRunner := directConvertSandboxRunner(nil)
 	runner := &fixtureRunner{byCmd: map[string][]byte{"go test": readFixture(t, "go-test-failures.txt")}}
 
 	scope := &gate.GateScope{Mode: gate.GateScopeModeFile, Files: []string{"pkg/gadget/gadget_test.go"}}
-	if _, err := dispatchPackEngines([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), scope, runner); err != nil {
+	if _, err := dispatchPackEnginesWithEvidence([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), scope, runner, sandboxRunner); err != nil {
 		t.Fatalf("dispatchPackEngines: %v", err)
 	}
 	call := goTestCall(t, runner)
@@ -109,12 +109,12 @@ func TestFileMode_NoSilentWholeModuleRegression(t *testing.T) {
 // file-mode notion must not leak into the whole-module path.
 func TestFileMode_ProjectWideModeStillWholeModule(t *testing.T) {
 	m := onlyRules(goToolchainManifest(t), "go-test")
-	stubSandboxedRunStdout(t, nil)
+	sandboxRunner := directConvertSandboxRunner(nil)
 	runner := &fixtureRunner{byCmd: map[string][]byte{"go test": readFixture(t, "go-test-failures.txt")}}
 
 	// A nil scope is the whole-repo path: it carries no file list, so the engine
 	// is handed the projectRoot directory (ISSUE-091).
-	if _, err := dispatchPackEngines([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), nil, runner); err != nil {
+	if _, err := dispatchPackEnginesWithEvidence([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), nil, runner, sandboxRunner); err != nil {
 		t.Fatalf("dispatchPackEngines: %v", err)
 	}
 	call := goTestCall(t, runner)

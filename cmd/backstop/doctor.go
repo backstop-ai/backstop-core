@@ -289,7 +289,7 @@ func gatherDoctorContext() doctorContext {
 	// check.CommandRunner has no working-directory argument — the directory is a
 	// construction-time property of check.ExecCommandRunner. Every consumer of this
 	// context inherits that rooting rather than introducing a second one.
-	ctx.Runner = &check.ExecCommandRunner{Dir: ctx.ProjectRoot}
+	ctx.Runner = &check.ExecCommandRunner{Dir: ctx.ProjectRoot, Env: packChildEnvironment()}
 
 	return ctx
 }

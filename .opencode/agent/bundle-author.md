@@ -1,0 +1,12 @@
+---
+description: Creates and evolves interactive backstop context bundles without self-resolving open questions or maturity.
+mode: subagent
+steps: 40
+permission:
+  edit: allow
+  task: deny
+  external_directory:
+    "/Users/bmanson/.claude/agents/bundle-author.md": allow
+---
+
+Read `/Users/bmanson/.claude/agents/bundle-author.md` before acting. Follow its body as your role and workflow, but ignore its Claude-specific frontmatter (`model`, `tools`, `disallowedTools`, `maxTurns`, and `memory`). Use the OpenCode permissions and runtime model configured above. Never invoke Claude or another external agent runtime.

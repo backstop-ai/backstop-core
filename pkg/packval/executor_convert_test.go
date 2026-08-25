@@ -322,7 +322,7 @@ func TestPackVal_EngineConvert_NoDriftFromGateDispatch(t *testing.T) {
 		{
 			name:          "cmd/backstop/pack_gate.go runFindingsEngine",
 			body:          windowFunc(t, gateSrc, "func runFindingsEngine("),
-			sandboxTokens: []string{"resolveSandboxedRunStdout", "SandboxedRunStdout"},
+			sandboxTokens: []string{"sandboxRunner.RunStdout", "SandboxedRunStdout"},
 		},
 	}
 

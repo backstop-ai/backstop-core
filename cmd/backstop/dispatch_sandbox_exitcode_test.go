@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/backstop-ai/backstop-core/pkg/pack"
+	"github.com/backstop-ai/backstop-core/pkg/packval"
 )
 
 // TestEngineDispatch_SandboxNoneExitCodeViolationSkipsSarif proves the sandbox
@@ -16,17 +17,15 @@ import (
 // it, so a passing test proves the sandbox branch is exit-code-only.
 func TestEngineDispatch_SandboxNoneExitCodeViolationSkipsSarif(t *testing.T) {
 	// Capture convert invocations; the sandbox branch must touch NONE.
-	convertCalls := recordingConvertSeam(t)
+	convertCalls, _ := recordingConvertSeam(t)
 
 	// Inject the CombinedOutput sandbox seam: a non-zero exit carrying non-SARIF
 	// output (a human message). If dispatch fed this into parseSarif, the parse
 	// would fail; the sandbox branch instead surfaces it as the violation message.
 	validatorOutput := "MARKER file missing under /project (this is NOT sarif)"
-	orig := sandboxedRun
-	sandboxedRun = func(string, []string, string) ([]byte, error) {
-		return []byte(validatorOutput), &fakeExitError{code: 1}
-	}
-	t.Cleanup(func() { sandboxedRun = orig })
+	sandboxRunner := &recordingSandboxRunner{mode: packval.SandboxModeNative, runFn: func(string, []string, string) (packval.SandboxRunResult, error) {
+		return recordedSandboxResult([]byte(validatorOutput), true), &fakeExitError{code: 1}
+	}}
 
 	manifest := &pack.Manifest{
 		NormalizedName: "test-org/engine-pack",
@@ -35,14 +34,14 @@ func TestEngineDispatch_SandboxNoneExitCodeViolationSkipsSarif(t *testing.T) {
 		}}},
 	}
 
-	violations, err := dispatchPackEngines([]*pack.Manifest{manifest}, engineDispatchPacksDir(t), t.TempDir(), nil, emptySarifRunner{})
+	result, err := dispatchPackEnginesWithEvidence([]*pack.Manifest{manifest}, engineDispatchPacksDir(t), t.TempDir(), nil, emptySarifRunner{}, sandboxRunner)
 	if err != nil {
 		t.Fatalf("sandbox engine must surface a non-zero exit as a violation, not an error: %v", err)
 	}
-	if len(violations) != 1 {
-		t.Fatalf("expected exactly 1 sandbox violation from the non-zero exit, got %d: %#v", len(violations), violations)
+	if len(result.Violations) != 1 || !result.NativeSandboxApplied {
+		t.Fatalf("expected exactly 1 acknowledged sandbox violation, got %#v", result)
 	}
-	v := violations[0]
+	v := result.Violations[0]
 	if v.Rule != "test-org/engine-pack/sandbox-presence" {
 		t.Errorf("sandbox violation must be namespaced, got %q", v.Rule)
 	}
@@ -65,11 +64,9 @@ func TestEngineDispatch_SandboxNoneExitCodeViolationSkipsSarif(t *testing.T) {
 // exit-code semantics are real and not a constant-fail stub. (Supports CLM-066's
 // exit-code-driven contract.)
 func TestEngineDispatch_SandboxNoneZeroExitNoViolation(t *testing.T) {
-	orig := sandboxedRun
-	sandboxedRun = func(string, []string, string) ([]byte, error) {
-		return nil, nil // zero exit: validator passed
-	}
-	t.Cleanup(func() { sandboxedRun = orig })
+	sandboxRunner := &recordingSandboxRunner{mode: packval.SandboxModeNative, runFn: func(string, []string, string) (packval.SandboxRunResult, error) {
+		return packval.SandboxRunResult{}, nil
+	}}
 
 	manifest := &pack.Manifest{
 		NormalizedName: "test-org/engine-pack",
@@ -77,11 +74,11 @@ func TestEngineDispatch_SandboxNoneZeroExitNoViolation(t *testing.T) {
 			{ID: "sandbox-presence", Engine: "sandbox", Validator: "scripts/check-presence.sh", InputScope: "multi-file", Category: "presence"},
 		}}},
 	}
-	violations, err := dispatchPackEngines([]*pack.Manifest{manifest}, engineDispatchPacksDir(t), t.TempDir(), nil, emptySarifRunner{})
+	result, err := dispatchPackEnginesWithEvidence([]*pack.Manifest{manifest}, engineDispatchPacksDir(t), t.TempDir(), nil, emptySarifRunner{}, sandboxRunner)
 	if err != nil {
 		t.Fatalf("dispatchPackEngines: %v", err)
 	}
-	if len(violations) != 0 {
-		t.Fatalf("a zero-exit sandbox validator must yield no violations, got %#v", violations)
+	if len(result.Violations) != 0 {
+		t.Fatalf("a zero-exit sandbox validator must yield no violations, got %#v", result.Violations)
 	}
 }

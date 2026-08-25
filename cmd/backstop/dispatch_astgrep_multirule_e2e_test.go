@@ -44,7 +44,7 @@ func TestGateDispatch_AstGrepMultiRuleRealBinaryEndToEnd(t *testing.T) {
 	// (the sandbox wrapper is ISSUE-020-fenced; the convert SCRIPT itself is real
 	// and un-stubbed — this is the same direct-shell real-convert path the other
 	// e2e dispatch tests use).
-	stubSandboxedRunStdout(t, nil)
+	sandboxRunner := directConvertSandboxRunner(nil)
 
 	packsDir := multiRulePacksDir(t)
 	packRoot := filepath.Join(packsDir, "test-org", "multirule-pack")
@@ -64,7 +64,7 @@ func TestGateDispatch_AstGrepMultiRuleRealBinaryEndToEnd(t *testing.T) {
 		}}},
 	}
 
-	violations, err := dispatchPackEngines([]*pack.Manifest{manifest}, packsDir, projectRoot, nil, runner)
+	result, err := dispatchPackEnginesWithEvidence([]*pack.Manifest{manifest}, packsDir, projectRoot, nil, runner, sandboxRunner)
 	if err != nil {
 		t.Fatalf("dispatchPackEngines (real ast-grep multi-rule e2e): %v", err)
 	}
@@ -77,15 +77,15 @@ func TestGateDispatch_AstGrepMultiRuleRealBinaryEndToEnd(t *testing.T) {
 	)
 	gotRules := map[string]bool{}
 	gotMessages := map[string]bool{}
-	for _, v := range violations {
+	for _, v := range result.Violations {
 		gotRules[v.Rule] = true
 		gotMessages[v.Message] = true
 	}
 
-	if len(violations) < 2 {
+	if len(result.Violations) < 2 {
 		t.Fatalf("a two-rule ast-grep pack must report findings from BOTH rules in one "+
 			"invocation (len >= 2); got %d: %#v — the broken --rule dispatch drops every "+
-			"finding (vacuous green)", len(violations), violations)
+			"finding (vacuous green)", len(result.Violations), result.Violations)
 	}
 	if !gotRules[wantRuleOne] {
 		t.Errorf("rule-one's finding is MISSING; got rules %v — a multi-rule pack must not "+

@@ -119,6 +119,7 @@ func (d *DefaultExecutor) RunEngine(packDir string, binding engine.EngineBinding
 	}
 	cmd := exec.Command(invoked, args...)
 	cmd.Dir = packDir
+	cmd.Env = check.WithoutEnvironment(os.Environ(), PackSandboxEnvVar)
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	// A findings engine legitimately exits non-zero WHEN it reports findings, so the
@@ -269,6 +270,7 @@ func (d *DefaultExecutor) RunValidator(packDir, validator string, fixturePaths [
 func (d *DefaultExecutor) RunScaffoldTest(packDir, scaffoldPath, testCommand string) (ExecutionResult, error) {
 	cmd := exec.Command("sh", "-c", testCommand)
 	cmd.Dir = packDir + "/" + scaffoldPath
+	cmd.Env = check.WithoutEnvironment(os.Environ(), PackSandboxEnvVar)
 	out, err := cmd.CombinedOutput()
 	return resultFromCmd(out, err), nil
 }

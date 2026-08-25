@@ -1,0 +1,623 @@
+---
+plan_id: PLAN-ISSUE-154
+spec_id: ISSUE-154
+created: "2026-08-24"
+status: completed
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./pkg/validate/... -count=1"
+coverage_threshold: 90
+
+notes: |
+  AS-BUILT — CLOSED 2026-08-25. status: draft -> completed.
+  The authored plan below is preserved as the implementation record. Commit `5ec5143`
+  delivered the narrow terminal-plan completeness exemption, its terminal/live-path
+  regression coverage, and the canceled empty-phases fixture in exactly the three
+  production/test surfaces declared by the plan. No close-out-only production delta is
+  recorded.
+
+  RECEIPTS. `git show --stat 5ec5143` records 238 changed lines across
+  `pkg/validate/plan.go`, `pkg/validate/terminal_rules_test.go`, and
+  `pkg/validate/testdata/terminal/plan-canceled-empty-phases.plan.yml`. Closeout reran
+  `go test ./pkg/validate/... -count=1` with Go 1.25.3 and validated the full
+  456-artifact corpus with the current source-built CLI; both passed with zero
+  violations.
+
+  Implements ISSUE-154 (issue→plan reactive track): `pkg/validate/plan.go` runs the
+  phase/task completeness block UNCONDITIONALLY, so a plan retired at
+  `replaced`/`canceled`/`obsoleted` is still held to a fully-formed, TDD-compliant task
+  graph. The honest state of a never-authored, canceled plan — zero phases — is
+  unrepresentable in a clean-validating artifact today. This plan adds the ONE missing
+  gate, mirroring the exemption already shipped in `spec.go`/`bundle.go`/`issue.go`.
+
+  ── EXISTENCE-IN-WORLD (checked 2026-08-24, before scaffolding) ───────────────────────
+  Searched `plans/` and `specs/` (committed and working tree) for `isTerminalStatus`,
+  "terminal exemption", `phases-empty`, `phases-required`, and `ISSUE-154`. Hits and
+  their dispositions:
+    · `PLAN-ISSUE-031` (status: completed) — the terminal-states plan. It DID teach
+      `plan.go` the new status enum values (its CLM-008) and DID add
+      `validateRetirementFields` + the shared `isTerminalStatus` predicate in
+      `pkg/validate/terminal.go` (its CLM-012/CLM-014). Its CLM-014 live-work exemption
+      was applied to spec/bundle/issue ONLY. The plan phase/task completeness block was
+      never gated. NOT subsumption — this is the residual PLAN-ISSUE-031 left behind.
+    · `PLAN-ISSUE-048` / `PLAN-SPEC-050` / `PLAN-SPEC-051` — `obsoleted` vocabulary and
+      requirement-version work; they touch `terminal.go`'s pointer rules, not the plan
+      phase block.
+    · `PLAN-ISSUE-066` — the CANCELED, never-authored scaffold whose retirement exposed
+      the gap. It is the VICTIM, not an owner. This plan does not edit it.
+    · `PLAN-ISSUE-172` — records `plan/phases-empty` on PLAN-ISSUE-066 as a
+      "known, already-tracked issue — ISSUE-154 ... Not a duplicate filing." Explicitly
+      declines ownership.
+    · `DIR-033` — routes ISSUE-154 as a Group 2 "real code gap requiring implementation"
+      and names this exact fix. This plan is that routing's discharge.
+  ── FILE-SCOPE OVERLAP: `pkg/validate/plan.go` IS CO-DECLARED (corrected 2026-08-24) ──
+  An earlier draft of this plan asserted "no other in-flight plan declares
+  `pkg/validate/plan.go`". THAT WAS FALSE and is retracted here. The exhaustive sweep,
+  run 2026-08-24 and pasted with its real counts:
+
+      $ grep -rl 'pkg/validate/plan\.go' plans/                      → 10 files
+      $ git status --porcelain plans/                                → 1 entry, this plan
+        (every other hit is COMMITTED; no untracked same-day sibling declares this file)
+
+  Of those 10, six mention `plan.go` only in PROSE — zero `files:`-block declarations
+  (PLAN-ISSUE-021 completed, PLAN-ISSUE-073 replaced, PLAN-ISSUE-114 completed,
+  PLAN-ISSUE-066 canceled, PLAN-SPEC-054 completed) — plus this plan itself (3 decls).
+  The plans that genuinely CO-DECLARE `pkg/validate/plan.go` inside `files:` blocks,
+  enumerated in full with status and declaration count:
+
+      PLAN-ISSUE-048  status=completed   3 decls   obsoleted/resolved-by vocabulary
+      PLAN-ISSUE-031  status=completed   3 decls   artifact terminal states (this fix's parent)
+      PLAN-ISSUE-018  status=draft       4 decls   `fileCategory` `.go`-literal de-baking
+      PLAN-SPEC-002   status=draft       5 decls   task types / TDD / cadence / final phase
+
+  That is FOUR, not zero. The two `completed` ones are shipped history and cannot
+  collide. The two `draft` ones are the real question, and BOTH are stale drafts whose
+  substance already landed — neither is in-flight work over this call site:
+
+    · **PLAN-SPEC-002** — the artifact named by the review finding; dissected below.
+    · **PLAN-ISSUE-018** (`remove-code-check`) — its `plan.go` scope is exclusively
+      `fileCategory`'s `.go`→code literal (its TASK titles: "Confirm validate.Plan has
+      no pack context", "Test: fileCategory keeps `.go`→code behavior", "Apply Option B
+      exemption to fileCategory's `.go` literal"). Its premise — the `code check`
+      command — is already gone and its absence is test-asserted
+      (`cmd/backstop/code_check_removal_test.go`; `grep -n 'code check' cmd/backstop/root.go`
+      → 0 hits). `fileCategory` is a different function from `Plan()`; this plan does not
+      read, move or modify it. Disjoint in content.
+
+  No plan other than this one declares `pkg/validate/terminal_rules_test.go` or
+  `pkg/validate/testdata/terminal/` — that part of the original claim survives.
+
+  ── WHY PLAN-SPEC-002 DOES NOT OWN OR CONFLICT WITH THIS SURFACE ──────────────────────
+  PLAN-SPEC-002 (`status: draft`, created 2026-03-31, sourced from SPEC-002 which is
+  itself `status: deprecated`) declares `pkg/validate/plan.go` in five tasks — TASK-003,
+  TASK-006, TASK-009, TASK-012 and TASK-017 (`grep -c 'pkg/validate/plan\.go'` on that
+  file → 12 total mentions, 5 of them inside `files:` blocks).
+
+  It is a STALE DRAFT whose substance is ALREADY SHIPPED. Its `status: draft` is a
+  bookkeeping lag, not in-flight work. Every mechanism it proposes to add to `plan.go`
+  is present in `plan.go` at HEAD today, carrying that plan's own SPEC-002 REQ tags as
+  comments:
+
+      $ grep -n 'SPEC-002' pkg/validate/plan.go                      → 9 hits
+        plan.go:321  // Task type (SPEC-002: REQ-001)
+        plan.go:463  // SPEC-002: Task type validation (REQ-001)
+        plan.go:489  // SPEC-002: TDD enforcement (REQ-002)
+        plan.go:492  // SPEC-002: Gate cadence (REQ-003)
+        plan.go:495  // SPEC-002: Verification dependency validation (REQ-006)
+        plan.go:498  // SPEC-002: Refactor dependency validation (REQ-005)
+        plan.go:501  // SPEC-002: Test task dependency validation (REQ-010)
+        plan.go:504  // SPEC-002: Final phase verification (REQ-004)
+        plan.go:507  // SPEC-002: Phase-level parallel file exclusivity (REQ-011)
+
+  The implementing functions exist by name — `validateTDD` (REQ-002),
+  `validateGateCadence` (REQ-003), `validateFinalPhase` (REQ-004), `validateRefactorDeps`
+  (REQ-005), `validateVerificationDeps` (REQ-006), `validateTestTaskDeps` (REQ-010),
+  `checkPhaseFileExclusivity` (REQ-011) — and its schema half landed too:
+  `artifacts/plan/v1/schema.json:45` carries `task_type_enum` and `:51` carries the
+  REQ-001 rule text. Its six mandated test files are all on disk
+  (`plan_type_test.go`, `plan_type_helpers_test.go`, `plan_gate_test.go`,
+  `plan_testtask_test.go`, `plan_final_test.go`, `plan_compat_test.go`). Delivery commit:
+  `531bc49` (2026-04-02) "feat: implement plan schema evolution (SPEC-002)" — four months
+  before ISSUE-154 was filed.
+
+  Therefore: NOT subsumption, and NOT a live collision. PLAN-SPEC-002 owns the
+  task-graph COMPLETENESS RULESET — the very block this plan leaves byte-for-byte
+  untouched and merely wraps in a status conditional. It says nothing about terminal
+  status, `isTerminalStatus`, retirement, or the `Plan()` call site at `plan.go:167`
+  (`grep -n 'terminal' plans/PLAN-SPEC-002-plan-schema-evolution.plan.yml` → 0 hits).
+  The two scopes are disjoint IN CONTENT even though they name the same file.
+
+  ── THE FENCE (this plan's binding scope limit) ───────────────────────────────────────
+  PLAN-ISSUE-154 is fenced to ONE change in `pkg/validate/plan.go`: wrapping the single
+  existing `validatePhases(art)` call in `if !isTerminalStatus(status)`. It does not
+  add, remove, reorder, retag or re-derive ANY SPEC-002 rule, and it does not touch
+  `artifacts/plan/v1/schema.json` or any `plan_*_test.go` file PLAN-SPEC-002 declares.
+  Consequently this plan does NOT retire, supersede, edit, re-status or otherwise
+  disposition PLAN-SPEC-002 — nor PLAN-ISSUE-018, the other stale co-declaring draft.
+  Reconciling either against its shipped reality is separate bookkeeping for the
+  artifact owner, filed here as an observation, not folded in. See sharp edge 11, which
+  makes the fence operable at implement time.
+
+  ── PREMISES RE-VERIFIED LIVE (2026-08-24, not read off the issue) ───────────────────
+    · `./bin/backstop artifact validate --plan PLAN-ISSUE-066` → exactly one violation,
+      `[plan/phases-empty] phases array must contain at least one phase`. The defect
+      REPRODUCES; the issue's "verify at pickup time" instruction is discharged.
+    · `grep -n isTerminalStatus pkg/validate/plan.go` → zero hits. `plan.go:167` calls
+      `validatePhases(art)` unconditionally, with `status` already in scope from
+      `plan.go:94`.
+    · `pkg/validate/terminal.go:23` `isTerminalStatus` returns true for
+      `replaced`/`canceled`/`deprecated`/`obsoleted`. `spec.go`, `bundle.go` and
+      `issue.go` each still call it to gate their live-work checks. The comparison
+      points in the issue are ACCURATE.
+
+  ── CLAIM LEDGER (plan-local) ─────────────────────────────────────────────────────────
+  ISSUE-154 declares no `claims:` block, so this plan defines plan-local claims
+  CLM-001..CLM-010 enumerating every promised behavior. Because the source issue's
+  claim-derived mandated-test set is EMPTY, every test task below also declares
+  `test_names:` explicitly — otherwise this plan's guards would be pinned by nothing the
+  moment it flips to `completed` (the weak-pin failure PLAN-ISSUE-179 CLM-017 documents).
+
+    CLM-001  `pkg/validate/plan.go` gates the phase/task completeness block — the
+             `validatePhases(art)` call at `plan.go:167` — behind
+             `!isTerminalStatus(status)`, using the SHARED predicate from
+             `pkg/validate/terminal.go`. No local re-derivation, no second status map.
+    CLM-002  A plan with `status: canceled` and `phases: []` raises NO
+             `plan/phases-empty`.
+    CLM-003  A plan with `status: canceled` and NO `phases` key at all raises NO
+             `plan/phases-required`.
+    CLM-004  `replaced` and `obsoleted` plans receive the identical exemption. The
+             shared predicate's wider vocabulary buys no silent green: a plan carrying
+             `deprecated` (NOT a plan status) still raises `plan/invalid-status`, and
+             `deprecated` is NOT added to `planStatuses`.
+    CLM-005  LIVE plans (`draft`, `ready`, `implementing`, `completed`) still raise
+             `plan/phases-required` and `plan/phases-empty`, and remain subject to the
+             entire task-graph ruleset — TDD ordering, gate cadence, final-phase
+             verification, file exclusivity — exactly as today.
+    CLM-006  FAIL-CLOSED: an ABSENT status and an unrecognized/typo'd status are both
+             treated as LIVE and still enforce the phase block. A malformed status can
+             never buy an exemption.
+    CLM-007  The structural checks AHEAD of the phase block keep applying to terminal
+             plans unchanged: filename pattern, plan_id, plan_id/filename consistency,
+             spec_id, status enum, created, coverage_threshold range, optional-field
+             types.
+    CLM-008  Required retirement pointers still fire for a PHASES-LESS terminal plan:
+             `plan/replaced-by-required` for `replaced`, `plan/obsoleted-by-required`
+             for `obsoleted`, and the corresponding `-malformed` rules for bad refs.
+    CLM-009  `PLAN-ISSUE-066` — `status: canceled`, `phases: []`, never authored —
+             validates CLEAN through `./bin/backstop artifact validate --plan
+             PLAN-ISSUE-066` with ZERO edits to that file and zero fabricated phases.
+    CLM-010  The shipped test set is preserved verbatim. No test is renamed, deleted,
+             skipped or weakened. Specifically these keep passing unchanged:
+             `TestPlan_MissingPhases`, `TestPlan_EmptyPhases`, `TestPlan_PhasesNotArray`,
+             `TestPlan_PhaseNotMap` (`plan_test.go`, all on a `draft` fixture);
+             `TestValidatePlan_AcceptsRetirementStates` (`terminal_acceptance_test.go`);
+             `TestObsoleted_RequiresObsoletedBy`, `TestObsoleted_ValidTerminalValidatesClean`
+             (`obsoleted_test.go`); `TestValidate_ReplacedRequiresReplacedBy`
+             (`terminal_rules_test.go`).
+
+  ── MANDATED TESTS (defined here; ISSUE-154 declares none and is NOT edited) ──────────
+  Names follow the exact shipped sibling convention in
+  `pkg/validate/terminal_rules_test.go` — `TestValidate<Type>_TerminalExemptFrom<Thing>`,
+  package `validate_test`, using the existing `loadTerminalSchema` /
+  `parseTerminalFixture` / `hasViolationRule` helpers from
+  `terminal_acceptance_test.go`. The direct sibling being mirrored is
+  `TestValidateSpec_TerminalExemptFromClaimCompleteness`.
+    1. TestValidatePlan_TerminalExemptFromPhaseCompleteness
+    2. TestValidatePlan_LivePlanStillRequiresPhases
+    3. TestValidatePlan_TerminalStillEnforcesStructuralFields
+
+  ── RED SIGNATURE, STATED HONESTLY ────────────────────────────────────────────────────
+  Exactly ONE of the three goes RED before the fix:
+    · TestValidatePlan_TerminalExemptFromPhaseCompleteness — RED, on all four legs
+      (canceled/empty, canceled/absent, replaced, obsoleted), each reporting a
+      `plan/phases-empty` or `plan/phases-required` that must not be there.
+    · TestValidatePlan_LivePlanStillRequiresPhases — GREEN before AND after. It is a
+      CONTROL that pins the live path against over-broad exemption. Its passing pre-fix
+      is expected and is NOT evidence the fix landed.
+    · TestValidatePlan_TerminalStillEnforcesStructuralFields — GREEN before AND after.
+      Also a CONTROL: it pins that the exemption is NARROW. Same caveat.
+  Any other RED signature — a compile error, a fourth failure, a SUPERSET of the above —
+  means the tests are wrong or the tree is dirty. Stop and report; do not proceed to
+  GREEN on an unexplained red.
+
+  ── SHARP EDGES ───────────────────────────────────────────────────────────────────────
+   1. FIXTURE BASENAMES VIOLATE `plan/filename-pattern`. Every fixture under
+      `pkg/validate/testdata/terminal/` is named `plan-*.plan.yml`, which does not match
+      `planFileRe`. So `validate.Plan` on ANY of them always returns at least one
+      violation. Assert ABSENCE OF SPECIFIC RULES via `hasViolationRule`. NEVER assert
+      `len(res.Violations) == 0` — that assertion cannot pass and would be "fixed" by
+      renaming fixtures, which is not the promise. (This is also turned into a positive:
+      `plan/filename-pattern` firing on a terminal fixture is CLM-007's cheapest proof.)
+   2. `go test -run` EXITS 0 ON A NO-MATCH. A typo'd name, a package that does not
+      compile the new file, or a mis-scoped `./...` all exit 0. Confirm BY NAME that each
+      of the three tests actually RAN: run with `-v` and count `=== RUN` lines for each
+      mandated name (expect 3 top-level runs plus each subtest leg). "exit 0" proves
+      nothing.
+   3. THE PARSER: `.plan.yml` artifacts are parsed by `artifact.Parse`, which treats
+      everything between the FIRST `---` and the NEXT `---` as frontmatter. The shipped
+      fixture `plan-replaced.plan.yml` uses an opening AND closing `---`; the corpus
+      plans use a single leading `---` and run to EOF. The new fixture must place
+      `phases: []` INSIDE the frontmatter fence, or it will exercise
+      `plan/phases-required` when the test intends `plan/phases-empty`. Verify by
+      parsing, not by eye.
+   4. POST-PARSE MUTATION IS THE ESTABLISHED CONVENTION. `terminal_rules_test.go`
+      already does `delete(plan.Frontmatter, "replaced-by")` and
+      `canceled.Frontmatter["status"] = "canceled"` on parsed fixtures. Use that for the
+      absent-phases and status-variant legs rather than proliferating fixture files.
+      Only ONE new fixture file is authorized.
+   5. FAIL-CLOSED, ALWAYS. The gate is `!isTerminalStatus(status)` and nothing else. Do
+      NOT write `planStatuses[status] && isTerminalStatus(status)`, do not add a local
+      terminal map, and do not invert the condition. An absent or typo'd status must
+      fall through to the LIVE path (CLM-006).
+   6. `deprecated` IS NOT A PLAN STATUS AND MUST NOT BECOME ONE. `isTerminalStatus`
+      recognizes it for spec/bundle. A plan carrying it will therefore be exempted from
+      the phase block while STILL raising `plan/invalid-status` — loud, never silent.
+      That is accepted behavior and is pinned by a test leg. Do not "fix" it by adding
+      `deprecated` to `planStatuses` and do not narrow the shared predicate.
+   7. DO NOT EDIT `PLAN-ISSUE-066`, `ISSUE-154`, or `DIR-033`. PLAN-ISSUE-066 is the
+      unedited real-world proof: its clean validation must come entirely from the
+      `plan.go` change. Fabricating phases anywhere — fixture, corpus, or plan — is the
+      exact defect this work exists to make unnecessary.
+   8. `.backstop/baseline.json` CARRIES A GRANDFATHERED `plan/phases-empty` ENTRY for
+      PLAN-ISSUE-066 (`artifact_validation: {"plan/phases-empty": 1}`). After the fix
+      that finding disappears, which is a ratchet IMPROVEMENT, not a drift. The file is
+      gitignored and generated — do NOT hand-edit it, and do not treat a shrunk count as
+      a failure.
+   9. OUT OF SCOPE, DELIBERATELY: the eleven `status: draft` PLAN-ISSUE scaffolds DIR-032
+      censuses. They are LIVE plans; this fix changes nothing for them, and retiring or
+      authoring each is separate work. Do not sweep them in.
+  10. SCOPE DISCIPLINE: the production change is ONE conditional around ONE existing call.
+      If it becomes tempting to also refactor `validatePhases`, reorder `Plan()`, or
+      extend the exemption to another check "while in there" — stop. Any additional
+      completeness check found to implicitly assume an authored body is a REPORT, not a
+      silent inclusion.
+  11. `pkg/validate/plan.go` IS CO-DECLARED BY FOUR OTHER PLANS — RESPECT THE FENCE.
+      PLAN-ISSUE-048 and PLAN-ISSUE-031 are `completed` (shipped history). PLAN-SPEC-002
+      and PLAN-ISSUE-018 read `status: draft` but are stale: SPEC-002's substance shipped
+      in `531bc49` (2026-04-02) as the REQ-tagged block inside `validatePhases`, and
+      ISSUE-018's `plan.go` scope is `fileCategory`'s `.go` literal, a different
+      function this plan never touches. This
+      plan's diff to `plan.go` must be the wrapping conditional and its comment and
+      NOTHING ELSE. Concretely, after TASK-002 the following must hold and is checked in
+      TASK-003: `grep -c 'SPEC-002' pkg/validate/plan.go` still returns 9, and
+      `git diff -- pkg/validate/plan.go` shows no `-` line other than the single
+      relocated `violations = append(violations, validatePhases(art)...)` statement.
+      Do NOT "tidy" a SPEC-002 rule, do NOT retag one, do NOT touch `fileCategory`, and
+      do NOT edit, re-status, retire or supersede
+      `plans/PLAN-SPEC-002-plan-schema-evolution.plan.yml` or
+      `plans/PLAN-ISSUE-018-remove-code-check.plan.yml` — neither is in this plan's file
+      scope and their stale-draft status is someone else's bookkeeping. If reconciling
+      either looks necessary to make this work land, that is a STOP-AND-REPORT, not an
+      in-scope edit.
+
+  Execution is prohibited until this plan passes the real artifact validator and an
+  independent plan-review pass is CLEAN. All long commands run in the FOREGROUND.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: RED — terminal exemption tests and live-path controls"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "RED: add the terminal-plan phase-exemption tests and their live/structural controls"
+        description: |
+          Author one new fixture and three tests. Follow the shipped conventions of
+          `pkg/validate/terminal_rules_test.go` exactly — package `validate_test`, a
+          doc comment above each test stating what it pins, and the existing helpers
+          `loadTerminalSchema(t, "plan", "v1")`, `parseTerminalFixture(t, <name>)` and
+          `hasViolationRule(res, <rule>)` declared in `terminal_acceptance_test.go`.
+          Append the three tests to `terminal_rules_test.go` beside their siblings
+          `TestValidateSpec_TerminalExemptFromClaimCompleteness`,
+          `TestValidateBundle_TerminalExemptFromMaturityGates` and
+          `TestValidateIssue_TerminalExemptFromTraceability`. Do not create a new test
+          file; do not move or reorder the existing tests.
+
+          NEW FIXTURE — `pkg/validate/testdata/terminal/plan-canceled-empty-phases.plan.yml`.
+          It mirrors PLAN-ISSUE-066's real retired shape: a canceled plan whose body was
+          never authored. Contents, where each FENCE line is a literal three-hyphen
+          frontmatter marker (spelled out here because a bare three-hyphen line inside
+          this plan's own YAML would terminate its frontmatter early):
+
+              FENCE
+              plan_id: PLAN-ISSUE-903
+              spec_id: ISSUE-903
+              created: "2026-08-17"
+              status: canceled
+              phases: []
+              FENCE
+
+          `phases: []` MUST sit inside the frontmatter fence (sharp edge 3). Confirm by
+          parsing it and asserting the pre-fix violation is `plan/phases-empty`, NOT
+          `plan/phases-required`. Ids 903/ISSUE-903 stay in the 9xx fixture range the
+          neighbouring fixtures already use (901, 910, 912, 820, 821).
+
+          TEST 1 — `TestValidatePlan_TerminalExemptFromPhaseCompleteness`.
+          Doc comment: a terminal plan with absent or empty phases does NOT raise the
+          live-work phase/task completeness violations a draft plan would. Four `t.Run`
+          legs, each parsing a fresh fixture (never sharing a mutated artifact):
+            · `canceled_empty_phases` — the new fixture as-is.
+            · `canceled_absent_phases` — the new fixture with
+              `delete(art.Frontmatter, "phases")`.
+            · `replaced_empty_phases` — `plan-replaced.plan.yml` with
+              `art.Frontmatter["phases"] = []interface{}{}` (its `replaced-by: SPEC-902`
+              stays, so the structural pointer check is satisfied).
+            · `obsoleted_absent_phases` — `plan-replaced.plan.yml` with status set to
+              `obsoleted`, `replaced-by` deleted, `obsoleted-by` set to `ISSUE-018`, and
+              `phases` deleted.
+          Each leg asserts NONE of these rules is present:
+            `plan/phases-required`, `plan/phases-empty`, `plan/final-phase-no-verification`,
+            `plan/gate-cadence-missing`, `plan/tdd-impl-requires-test`,
+            `plan/verification-requires-impl`, `plan/file-exclusivity`.
+          On failure, print the whole `res.Violations` slice, as the siblings do.
+          Assert by RULE ABSENCE only — never `len(res.Violations) == 0` (sharp edge 1).
+
+          TEST 2 — `TestValidatePlan_LivePlanStillRequiresPhases` (CONTROL, green
+          before and after). For each live status `draft`, `ready`, `implementing`,
+          `completed`, plus the two fail-closed cases — status DELETED entirely, and a
+          typo'd `cancelled` (double-l, not in the enum) — take the new fixture, set the
+          status accordingly, and assert:
+            · with `phases: []` present → `plan/phases-empty` IS raised;
+            · with `phases` deleted → `plan/phases-required` IS raised.
+          This is CLM-005 and CLM-006. State in the doc comment that this test passes
+          before the fix by design and exists to keep the exemption NARROW.
+
+          TEST 3 — `TestValidatePlan_TerminalStillEnforcesStructuralFields` (CONTROL,
+          green before and after). On terminal, phases-less plans, assert every check
+          ahead of the phase block still fires:
+            · `plan/filename-pattern` IS raised on the fixture as parsed (its basename
+              `plan-canceled-empty-phases.plan.yml` does not match `planFileRe`) — the
+              cheapest proof the exemption did not swallow the structural tier;
+            · `plan/spec-id-pattern` on a bad `spec_id`;
+            · `plan/created-required` after `delete(art.Frontmatter, "created")`;
+            · `plan/coverage-threshold-range` on `coverage_threshold: 150`;
+            · `plan/field-type` on a non-string `notes`;
+            · `plan/replaced-by-required` on a `replaced`, phases-less plan with
+              `replaced-by` deleted;
+            · `plan/obsoleted-by-required` on an `obsoleted`, phases-less plan with no
+              `obsoleted-by`;
+            · `plan/replaced-by-malformed` on `replaced-by: "not a ref"`;
+            · `plan/invalid-status` on `status: deprecated` (sharp edge 6) — proving the
+              shared predicate's wider vocabulary never yields a silent green.
+
+          RUN THE RED AND CAPTURE IT VERBATIM, in the foreground:
+              go test ./pkg/validate/ -run 'TestValidatePlan_TerminalExemptFromPhaseCompleteness|TestValidatePlan_LivePlanStillRequiresPhases|TestValidatePlan_TerminalStillEnforcesStructuralFields' -count=1 -v
+          Confirm BY NAME that all three ran — count `=== RUN` lines per name; `-run`
+          exits 0 on a no-match (sharp edge 2). Expect EXACTLY the RED SIGNATURE in the
+          notes: test 1 red on all four legs, tests 2 and 3 green. A compile error, a
+          skip, a fourth failure, or tests 2/3 failing is a STOP-AND-REPORT condition,
+          not something to code around. Report the verbatim failure text for each leg.
+
+          This task changes NO production code.
+        files:
+          - pkg/validate/terminal_rules_test.go
+          - pkg/validate/testdata/terminal/plan-canceled-empty-phases.plan.yml
+        test_names:
+          - TestValidatePlan_TerminalExemptFromPhaseCompleteness
+          - TestValidatePlan_LivePlanStillRequiresPhases
+          - TestValidatePlan_TerminalStillEnforcesStructuralFields
+        claims:
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+        depends_on: []
+
+  - id: phase-2
+    name: "Phase 2: GREEN — gate live phase completeness behind the shared predicate"
+    tasks:
+      - id: TASK-002
+        type: implementation
+        title: "Gate the validatePhases call behind !isTerminalStatus in pkg/validate/plan.go"
+        description: |
+          ONE change, in `pkg/validate/plan.go` only. Locate the phase-validation call
+          site by NAME, not by line number: it is the final statement of `Plan()` before
+          the `return`, currently reading `violations = append(violations,
+          validatePhases(art)...)` under the `// 9. Phases validation (D-080 + D-081)`
+          comment. `status` is already in scope, extracted earlier in the same function
+          for the status-enum check.
+
+          Wrap that single call:
+
+              // 9. Phases validation (D-080 + D-081) — LIVE work only. A terminal plan
+              // (replaced / canceled / obsoleted) is retired work: it is exempt from the
+              // phase/task completeness rules exactly as spec.go, bundle.go and issue.go
+              // exempt their own live-work checks (ISSUE-031 DQ-1, ISSUE-154). The
+              // structural tier ABOVE this point still applies to terminal plans in full.
+              if !isTerminalStatus(status) {
+                  violations = append(violations, validatePhases(art)...)
+              }
+
+          Use the SHARED `isTerminalStatus` from `pkg/validate/terminal.go` — same
+          package, no import needed. Do NOT add a local terminal map, do NOT re-derive
+          terminality from `planStatuses`, and do NOT add `deprecated` to `planStatuses`
+          (CLM-001, CLM-004, sharp edges 5 and 6).
+
+          Nothing else in `Plan()` moves: `validateRetirementFields` stays where it is,
+          ahead of and outside the new conditional, so CLM-008 holds. `validatePhases`
+          itself is not modified.
+
+          FENCE (sharp edge 11). `pkg/validate/plan.go` is co-declared by four other
+          plans — two `completed`, plus two stale drafts: PLAN-SPEC-002 (its substance
+          shipped in `531bc49` as the REQ-tagged completeness rules inside
+          `validatePhases`) and PLAN-ISSUE-018 (scoped to `fileCategory`'s `.go`
+          literal). Both surfaces are OUT OF SCOPE here: this task neither modifies nor
+          retags any SPEC-002 rule, does not touch `fileCategory`, and does not touch
+          `artifacts/plan/v1/schema.json` or any `plan_*_test.go` file. It also does NOT
+          edit, re-status or retire either of those plan artifacts — neither is in this
+          plan's file scope.
+
+          Then, in the foreground:
+              go test ./pkg/validate/ -run 'TestValidatePlan_TerminalExemptFromPhaseCompleteness|TestValidatePlan_LivePlanStillRequiresPhases|TestValidatePlan_TerminalStillEnforcesStructuralFields' -count=1 -v
+          All three must now be GREEN, and each must be confirmed BY NAME to have run.
+          If test 2 or test 3 turned red, the exemption is too broad — revert and
+          report, do not weaken the control.
+        files:
+          - pkg/validate/plan.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-006
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: verification
+        title: "Verify the diff: gate the change and prove the shipped pkg/validate suite is intact"
+        description: |
+          Run, in the foreground, from the repo root:
+
+              ./bin/backstop gate
+
+          (bare = diff-scoped against the merge base plus untracked, so it covers
+          `plan.go`, `terminal_rules_test.go` and the new fixture together). Then run
+          the full package suite to prove nothing shipped was broken:
+
+              go test ./pkg/validate/... -count=1
+
+          CLM-010 acceptance — confirm by name that these still PASS, unchanged and
+          unrenamed: `TestPlan_MissingPhases`, `TestPlan_EmptyPhases`,
+          `TestPlan_PhasesNotArray`, `TestPlan_PhaseNotMap`,
+          `TestValidatePlan_AcceptsRetirementStates`, `TestObsoleted_RequiresObsoletedBy`,
+          `TestObsoleted_ValidTerminalValidatesClean`,
+          `TestValidate_ReplacedRequiresReplacedBy`,
+          `TestValidateSpec_TerminalExemptFromClaimCompleteness`,
+          `TestValidateBundle_TerminalExemptFromMaturityGates`,
+          `TestValidateIssue_TerminalExemptFromTraceability`.
+          Use `-v` and read the per-test PASS lines; a package-level `ok` is not
+          per-test evidence (sharp edge 2).
+
+          FENCE CHECK (sharp edge 11) — prove the diff to `plan.go` stayed inside this
+          plan's lane and did not disturb the co-declared PLAN-SPEC-002 ruleset:
+
+              grep -c 'SPEC-002' pkg/validate/plan.go
+              git diff -- pkg/validate/plan.go
+
+          The grep must still return 9. The diff must show exactly one removed line —
+          the relocated `violations = append(violations, validatePhases(art)...)` — and
+          no other deletion; in particular `fileCategory` must be untouched. `git diff
+          --stat` must additionally show NO change to `artifacts/plan/v1/schema.json`,
+          to any `plan_*_test.go`, or to either co-declaring stale draft
+          (`plans/PLAN-SPEC-002-plan-schema-evolution.plan.yml`,
+          `plans/PLAN-ISSUE-018-remove-code-check.plan.yml`). Report both outputs.
+
+          Any red is a stop-and-report. Do not waive, do not skip, do not weaken a test
+          to pass. Report the gate verdict and the per-test results verbatim.
+        files:
+          - pkg/validate/plan.go
+          - pkg/validate/terminal_rules_test.go
+          - pkg/validate/testdata/terminal/plan-canceled-empty-phases.plan.yml
+        claims:
+          - CLM-005
+          - CLM-010
+        depends_on:
+          - TASK-002
+
+  - id: phase-3
+    name: "Phase 3: Real-world proof — PLAN-ISSUE-066 validates clean, unedited"
+    tasks:
+      - id: TASK-004
+        type: verification
+        title: "Focused validation of PLAN-ISSUE-066 with zero edits to that file"
+        description: |
+          The corpus proof for CLM-009. Run, in the foreground:
+
+              ./bin/backstop artifact validate --plan PLAN-ISSUE-066
+
+          BEFORE the fix this printed exactly one violation:
+              ✗ [plan/phases-empty] phases array must contain at least one phase
+          It must now print ZERO violations and exit clean.
+
+          READ-ONLY TASK. `plans/PLAN-ISSUE-066-gate-run-filter-not-full-package.plan.yml`
+          is declared in scope as the ASSERTION TARGET, not as an edit target. It must
+          not be modified in any way — no phases added, no status changed, no notes
+          touched, and it must not be deleted (PLAN-ISSUE-067 and DIR-032 cite it by
+          name). Confirm with `git diff --stat -- plans/` that the file is untouched,
+          and report that output alongside the validator result. If the file shows any
+          change, the proof is void — restore it and re-run.
+
+          If the validator still reports `plan/phases-empty`, the gate in TASK-002 did
+          not take effect for this artifact — report the verbatim output rather than
+          adjusting the artifact.
+        files:
+          - plans/PLAN-ISSUE-066-gate-run-filter-not-full-package.plan.yml
+        claims:
+          - CLM-009
+        depends_on:
+          - TASK-002
+          - TASK-003
+
+  - id: phase-4
+    name: "Phase 4: Final comprehensive verification"
+    tasks:
+      - id: TASK-005
+        type: verification
+        title: "Run the full kill chain — backstop gate --all"
+        description: |
+          Run, in the foreground, from the repo root:
+
+              ./bin/backstop gate --all
+
+          This is the unscoped full chain: artifact validation, findings engines, test
+          verification, substantiveness, coverage, contracts, status drift, traceability,
+          waivers, baseline comparison, ledger integrity. It must be GREEN.
+
+          Expected, and NOT a failure: the `artifact_validation` step's violation count
+          drops by one relative to `.backstop/baseline.json`, because PLAN-ISSUE-066's
+          `plan/phases-empty` finding no longer exists. That is a ratchet IMPROVEMENT.
+          Do not hand-edit `.backstop/baseline.json` (gitignored, generated) and do not
+          add a waiver for anything (sharp edge 8).
+
+          Confirm `pkg/validate` coverage still meets its floor. If coverage reds,
+          report the number and whether it is inherited or caused by this diff — do not
+          waive it and do not pad the tests to chase a number.
+
+          Report the full verdict, step by step, verbatim. Any red is a stop-and-report.
+        files:
+          - pkg/validate/plan.go
+          - pkg/validate/terminal_rules_test.go
+          - pkg/validate/testdata/terminal/plan-canceled-empty-phases.plan.yml
+        claims:
+          - CLM-001
+          - CLM-005
+          - CLM-010
+        depends_on:
+          - TASK-002
+          - TASK-004
+
+      - id: TASK-006
+        type: verification
+        title: "Corpus-wide artifact validation across every plan"
+        description: |
+          The plan touches artifact files (a new `.plan.yml` fixture, and it changes the
+          validation verdict of a corpus plan), so the artifact channel gets its own
+          unscoped pass. Run, in the foreground:
+
+              ./bin/backstop artifact validate --all
+
+          Acceptance:
+            · `plan/phases-empty` no longer appears anywhere in the corpus output;
+            · NO new violation appears on any other plan, spec, issue, bundle, directive
+              or ADR — in particular, no LIVE (`draft`/`ready`/`implementing`/
+              `completed`) plan silently stopped being checked. Diff the violation set
+              against a pre-fix run and report both counts, not just the after number.
+            · The eleven `status: draft` PLAN-ISSUE scaffolds DIR-032 censuses are still
+              reported as violating — they are LIVE and remain in scope (sharp edge 9).
+              Their silence would mean the exemption leaked into the live path.
+
+          READ-ONLY over the corpus. `plans/PLAN-ISSUE-154-terminal-plan-exemption.plan.yml`
+          is declared in scope as this run's assertion target — this plan must itself
+          validate clean — not as an edit target. Report the verbatim result.
+        files:
+          - plans/PLAN-ISSUE-154-terminal-plan-exemption.plan.yml
+        claims:
+          - CLM-005
+          - CLM-007
+          - CLM-009
+        depends_on:
+          - TASK-002
+          - TASK-004

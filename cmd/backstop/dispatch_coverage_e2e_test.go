@@ -44,7 +44,7 @@ func TestGoToolchain_CoverageEngineRealEndToEndOverInstalledPack(t *testing.T) {
 	// production-equivalent seam the ast-grep e2e uses) — the convert is NOT replaced
 	// by a canned-records stub. Spy the stdin it receives to prove the convert pipe ran.
 	var convertStdin []byte
-	stubSandboxedRunStdout(t, &convertStdin)
+	sandboxRunner := directConvertSandboxRunner(&convertStdin)
 
 	// The engine now sources its payload from the declared stdout_artifact the producer
 	// writes; place the Phase-1 profile fixture at cover.out to stand in for the
@@ -57,7 +57,7 @@ func TestGoToolchain_CoverageEngineRealEndToEndOverInstalledPack(t *testing.T) {
 	}
 	runner := &fixtureRunner{}
 
-	records, err := dispatchPackCoverage([]*pack.Manifest{goToolchainCoverageManifest(t)}, goToolchainPacksDir(t), projectRoot, nil, runner)
+	result, err := dispatchPackCoverageWithEvidence([]*pack.Manifest{goToolchainCoverageManifest(t)}, goToolchainPacksDir(t), projectRoot, nil, runner, sandboxRunner)
 	if err != nil {
 		t.Fatalf("real un-stubbed coverage dispatch over installed pack: %v", err)
 	}
@@ -72,10 +72,10 @@ func TestGoToolchain_CoverageEngineRealEndToEndOverInstalledPack(t *testing.T) {
 
 	// Real per-file records came back, stamped statement (Go's granularity) — proof
 	// the real aggregation ran, not a canned stub. The combined profile has 3 files.
-	if len(records) != 3 {
-		t.Fatalf("expected 3 per-file records from the real convert over the combined profile, got %d: %#v", len(records), records)
+	if len(result.Records) != 3 || !result.NativeSandboxApplied {
+		t.Fatalf("expected 3 acknowledged records from the real convert, got %#v", result)
 	}
-	for _, r := range records {
+	for _, r := range result.Records {
 		if r.Metric != "statement" {
 			t.Errorf("real go-coverage records must carry metric statement, got %q for %q", r.Metric, r.Path)
 		}
@@ -94,7 +94,7 @@ func TestGoToolchain_CoverageEngineRealEndToEndOverInstalledPack(t *testing.T) {
 // established in Phase 3 (the minimal test-local consumer), NOT by re-authoring
 // SPEC-041's step.
 func TestGoToolchain_RealEndToEndRecordsDriveCorrectGateVerdict(t *testing.T) {
-	stubSandboxedRunStdout(t, nil) // shells the real convert script
+	sandboxRunner := directConvertSandboxRunner(nil)
 	// The engine sources its payload from the declared stdout_artifact the producer
 	// writes (ISSUE-045); seed cover.out with the Phase-1 profile fixture as the
 	// producer's stand-in output. The fake runner intercepts the producer exec.
@@ -105,13 +105,13 @@ func TestGoToolchain_RealEndToEndRecordsDriveCorrectGateVerdict(t *testing.T) {
 	}
 	runner := &fixtureRunner{}
 
-	records, err := dispatchPackCoverage([]*pack.Manifest{goToolchainCoverageManifest(t)}, goToolchainPacksDir(t), projectRoot, nil, runner)
+	result, err := dispatchPackCoverageWithEvidence([]*pack.Manifest{goToolchainCoverageManifest(t)}, goToolchainPacksDir(t), projectRoot, nil, runner, sandboxRunner)
 	if err != nil {
 		t.Fatalf("real un-stubbed coverage dispatch: %v", err)
 	}
 
 	consumer := minimalCoverageConsumer{thresholdPct: 80}
-	lines := consumer.verdict(records)
+	lines := consumer.verdict(result.Records)
 
 	verdictBySuffix := func(suffix string) (coverageReportLine, bool) {
 		for _, ln := range lines {
@@ -125,7 +125,7 @@ func TestGoToolchain_RealEndToEndRecordsDriveCorrectGateVerdict(t *testing.T) {
 	// Measured-and-PASSING (9/10 = 90% >= 80%): not a shortfall, not N/A.
 	passing, ok := verdictBySuffix("passing.go")
 	if !ok {
-		t.Fatalf("the real records must include the measured-and-passing file, got %#v", records)
+		t.Fatalf("the real records must include the measured-and-passing file, got %#v", result.Records)
 	}
 	if passing.Shortfall || passing.NA {
 		t.Errorf("the measured-and-passing file must NOT red and is NOT N/A, got %+v", passing)

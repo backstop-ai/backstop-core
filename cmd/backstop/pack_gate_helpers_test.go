@@ -7,6 +7,7 @@ import (
 
 	"github.com/backstop-ai/backstop-core/pkg/config"
 	"github.com/backstop-ai/backstop-core/pkg/pack"
+	"github.com/backstop-ai/backstop-core/pkg/packval"
 )
 
 // TestGateViolationsToCheck / TestPackNamesFromManifests were removed with the
@@ -86,8 +87,8 @@ func TestDispatchPackEngines_NoPacksValidators(t *testing.T) {
 func TestDispatchSandbox_SkipsNonSandboxEngines(t *testing.T) {
 	packDir := t.TempDir()
 	packRoot := filepath.Join(packDir, "test/pack")
-	os.MkdirAll(filepath.Join(packRoot, "rules"), 0o755)
-	os.WriteFile(filepath.Join(packRoot, "rules", "r2.yml"), []byte("rules: []"), 0o644)
+	mkDirAll(t, filepath.Join(packRoot, "rules"))
+	writeFileStr(t, filepath.Join(packRoot, "rules", "r2.yml"), "rules: []")
 
 	// Stub the semgrep engine runner so the engine: semgrep rule produces empty
 	// SARIF (no findings) and the config-file rule injects nothing; neither
@@ -121,10 +122,12 @@ func TestDispatchSandbox_SkipsNonSandboxEngines(t *testing.T) {
 func TestDispatchSemgrep_GathersRuleFlagsInputs(t *testing.T) {
 	packDir := t.TempDir()
 	packRoot := filepath.Join(packDir, "test/pack")
-	os.MkdirAll(filepath.Join(packRoot, "rules"), 0o755)
-	os.WriteFile(filepath.Join(packRoot, "rules", "r1.yml"), []byte("rules: []"), 0o644)
-	os.WriteFile(filepath.Join(packRoot, "rules", "r2.yml"), []byte("rules: []"), 0o644)
-	os.WriteFile(filepath.Join(packRoot, "v.sh"), []byte("#!/bin/sh\nexit 0\n"), 0o755)
+	mkDirAll(t, filepath.Join(packRoot, "rules"))
+	writeFileStr(t, filepath.Join(packRoot, "rules", "r1.yml"), "rules: []")
+	writeFileStr(t, filepath.Join(packRoot, "rules", "r2.yml"), "rules: []")
+	if err := os.WriteFile(filepath.Join(packRoot, "v.sh"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write validator: %v", err)
+	}
 
 	rec := &capturingRunner{out: []byte(`{"version":"2.1.0","runs":[]}`)}
 	manifests := []*pack.Manifest{{
@@ -139,11 +142,11 @@ func TestDispatchSemgrep_GathersRuleFlagsInputs(t *testing.T) {
 			},
 		},
 	}}
-	orig := sandboxedRun
-	sandboxedRun = func(string, []string, string) ([]byte, error) { return nil, nil }
-	t.Cleanup(func() { sandboxedRun = orig })
+	sandboxRunner := &recordingSandboxRunner{mode: packval.SandboxModeNative, runFn: func(string, []string, string) (packval.SandboxRunResult, error) {
+		return packval.SandboxRunResult{}, nil
+	}}
 
-	if _, err := dispatchPackEngines(manifests, packDir, t.TempDir(), nil, rec); err != nil {
+	if _, err := dispatchPackEnginesWithEvidence(manifests, packDir, t.TempDir(), nil, rec, sandboxRunner); err != nil {
 		t.Fatalf("dispatchPackEngines: %v", err)
 	}
 	configs := 0

@@ -63,10 +63,11 @@ func issue129Repo(t *testing.T, changed string, alsoCommit ...string) *gate.Gate
 // reds too — exemption widens what is reported, it never narrows it.
 func TestIssue129_OutOfScopeTestFailureRedsDiffScopedGate(t *testing.T) {
 	m := onlyRules(goToolchainManifest(t), "go-test")
-	stubSandboxedRunStdout(t, nil)
+	sandboxRunner := directConvertSandboxRunner(nil)
 	runner := &fixtureRunner{byCmd: map[string][]byte{"go test": readFixture(t, "go-test-failures.txt")}}
 
-	violations, err := dispatchPackEngines([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), nil, runner)
+	result, err := dispatchPackEnginesWithEvidence([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), nil, runner, sandboxRunner)
+	violations := result.Violations
 	if err != nil {
 		t.Fatalf("dispatchPackEngines (test): %v", err)
 	}

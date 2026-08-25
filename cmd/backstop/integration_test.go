@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -36,6 +37,10 @@ func TestMain(m *testing.M) {
 	// TestMain (packval's own test binary) and cmd/backstop/main.go's runWith (the
 	// shipped binary).
 	if err := packval.MaybeRunSandboxHelper(); err != nil {
+		var completion interface{ ExitCode() int }
+		if errors.As(err, &completion) {
+			os.Exit(completion.ExitCode())
+		}
 		fmt.Fprintf(os.Stderr, "backstop sandbox helper: %v\n", err)
 		os.Exit(sandboxHelperExitCode)
 	}

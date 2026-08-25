@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/backstop-ai/backstop-core/pkg/pack"
+	"github.com/backstop-ai/backstop-core/pkg/packval"
 )
 
 // nilRunner is a CommandRunner returning empty output; used where dispatch
@@ -107,11 +108,9 @@ func TestDispatchSandbox_EmptyOutputFallsBackToErrString(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	orig := sandboxedRun
-	sandboxedRun = func(string, []string, string) ([]byte, error) {
-		return []byte("   "), errors.New("exit status 7") // whitespace-only output
-	}
-	t.Cleanup(func() { sandboxedRun = orig })
+	sandboxRunner := &recordingSandboxRunner{mode: packval.SandboxModeNative, runFn: func(string, []string, string) (packval.SandboxRunResult, error) {
+		return packval.SandboxRunResult{Output: []byte("   ")}, errors.New("exit status 7")
+	}}
 
 	manifests := []*pack.Manifest{{
 		NormalizedName: "org/pack",
@@ -119,7 +118,8 @@ func TestDispatchSandbox_EmptyOutputFallsBackToErrString(t *testing.T) {
 			{ID: "v1", Engine: "sandbox", Validator: "v.sh"},
 		}}},
 	}}
-	violations, err := dispatchPackEngines(manifests, packsDir, projectRoot, nil, nilRunner{})
+	result, err := dispatchPackEnginesWithEvidence(manifests, packsDir, projectRoot, nil, nilRunner{}, sandboxRunner)
+	violations := result.Violations
 	if err != nil {
 		t.Fatalf("dispatchPackEngines: %v", err)
 	}
@@ -148,9 +148,9 @@ func TestDispatchSandbox_PassingValidatorNoViolation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	orig := sandboxedRun
-	sandboxedRun = func(string, []string, string) ([]byte, error) { return nil, nil }
-	t.Cleanup(func() { sandboxedRun = orig })
+	sandboxRunner := &recordingSandboxRunner{mode: packval.SandboxModeNative, runFn: func(string, []string, string) (packval.SandboxRunResult, error) {
+		return packval.SandboxRunResult{}, nil
+	}}
 
 	manifests := []*pack.Manifest{{
 		NormalizedName: "org/pack",
@@ -158,7 +158,8 @@ func TestDispatchSandbox_PassingValidatorNoViolation(t *testing.T) {
 			{ID: "v1", Engine: "sandbox", Validator: "v.sh"},
 		}}},
 	}}
-	violations, err := dispatchPackEngines(manifests, packsDir, projectRoot, nil, nilRunner{})
+	result, err := dispatchPackEnginesWithEvidence(manifests, packsDir, projectRoot, nil, nilRunner{}, sandboxRunner)
+	violations := result.Violations
 	if err != nil {
 		t.Fatalf("dispatchPackEngines: %v", err)
 	}

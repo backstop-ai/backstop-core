@@ -1,0 +1,665 @@
+---
+plan_id: PLAN-ISSUE-186
+spec_id: ISSUE-186
+created: "2026-08-24"
+status: completed
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./cmd/backstop/... . -run 'TestGoToolchainCoverageExclusions|TestCoverageExclusion' -count=1"
+coverage_threshold: 80
+
+notes: |
+  AS-BUILT — CLOSED 2026-08-25. status: draft -> completed.
+  The authored plan below is preserved as the implementation record. The executable
+  absent-platform-file regression guard landed in `142999e`; the published exclusion
+  behavior was then adopted through the tracked pack configuration and lock, with the
+  superseded fixture framing retired, in `aefde06`. Those commits are the branch-local
+  delivery and adoption receipts for ISSUE-186. No close-out-only production delta is
+  recorded.
+
+  RECEIPTS. `git show --stat 142999e` records the focused 306-line regression guard;
+  `git show --stat aefde06` records the six-line adoption delta across `backstop.yml`,
+  `backstop.lock`, and `pack_fleet_test.go`. After installing the locked pack fleet,
+  closeout reran the plan's focused
+  `TestGoToolchainCoverageExclusions|TestCoverageExclusion` command with Go 1.25.3;
+  both the `cmd/backstop` and root-package suites passed.
+
+  This is one cross-repository delivery unit. The durable behavior change lives in
+  /Users/bmanson/src/projects/backstop-go-toolchain-pack; backstop-core supplies the
+  executable regression/adoption guard and adopts only the published release through
+  backstop.yml and backstop.lock. Nothing under .backstop/packs is hand-edited.
+
+  Existence-in-world was checked against plans/, specs/, ISSUE-186, PLAN-ISSUE-045,
+  PLAN-ISSUE-179, and PLAN-ISSUE-185. PLAN-ISSUE-185 owns the sandbox implementation
+  and creates the failing pkg/packval/sandbox_nonlinux.go diff, but does not repair the
+  external pack's exclusion producer/converter. No other artifact owns this residual.
+
+  ONE fenced overlap exists, in pack_fleet_test.go, and the fence is exact.
+  PLAN-ISSUE-185 TASK-006 declares pack_fleet_test.go in its file scope, but its
+  authorized substance there is only the root dogfood INVENTORY ASSERTION for the one
+  existing pkg/packval/sandbox_linux_helper.go exclusion — the exact path, no new
+  exclusions, and an updated non-empty justification naming the current three exec-erased
+  functions while citing the historical sandbox-linux-coverage-profile.txt. That is the
+  body of TestCoverageExclusion_LinuxHelperInventoryIsNarrowAndEvidenced and the
+  `.backstop/coverage-exclusions` justification it reads; PLAN-ISSUE-185 says nothing
+  about directive framing.
+
+  ISSUE-186 owns, in the same file, only the coverageProfileFixture helper's internal
+  DECLARATION FRAMING — the space-joined marker/path/justification line retired to literal
+  TAB framing by TASK-013. It does not touch the inventory assertion, the exclusion path
+  set, or the justification text.
+
+  The two are therefore disjoint by hunk even though they share a file, and neither
+  reintroduces space framing anywhere: PLAN-ISSUE-185 never asserts on directive framing,
+  and TASK-013 forbids any backward-compatible space acceptance in the pack, in the
+  fixture, or in the core tests. If PLAN-ISSUE-185's TASK-006 lands after TASK-013, its
+  edit must preserve TAB framing; if it lands first, TASK-013 reframes only the helper
+  line it names. Any observed pressure to restore space framing from either side is a
+  stop-and-report condition, not a merge to reconcile.
+
+  Version 1.9.0 is the planned release: 1.8.0 is current and the new synthetic record
+  behavior is additive pack behavior, matching the prior minor-bump precedent. Stop
+  rather than substituting a patch version if release review rejects that classification.
+
+  AMENDMENT (2026-08-24, authorized in place; no new artifact). Retiring the space-framed
+  directive in TASK-003 strands one already-shipped core fixture: the root-package helper
+  coverageProfileFixture in pack_fleet_test.go still writes the marker followed by a SPACE,
+  so once the converter recognizes only marker-plus-literal-TAB, exactly two of the four
+  existing TestCoverageExclusion tests go RED. TASK-013 and TASK-014 authorize the minimum
+  reconciliation: reframe that one internal fixture directive to literal TAB, change nothing
+  else. Test names and assertions are preserved verbatim; no backward-compatible space
+  acceptance may be reintroduced into the pack; and the deliberately malformed space-framed
+  NEGATIVE fixture inside
+  cmd/backstop/go_toolchain_coverage_exclusions_test.go's
+  TestGoToolchainCoverageExclusions_DeclarationGrammarAndPortableWhitespaceCases is
+  load-bearing and must not be touched. This amendment adds no new claim and does not alter
+  ISSUE-186's promised behavior; every previously authorized task, claim, and the completed
+  release/adoption sequence stand unchanged.
+
+  Execution is prohibited until this plan passes the real artifact validator and an
+  independent plan-review pass is CLEAN. Publishing the public pack tag and pushing the
+  core PR branch each require explicit authorization at their named tasks. All long
+  commands run in the foreground. Invalid UTF-8, NUL, and unterminated EOF input remain
+  explicitly outside the promised portable sh/awk fixture domain from ISSUE-186.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: RED/GREEN Portable Producer and Converter Protocol"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "RED: add the portable real-script fixture harness for all exclusion behavior"
+        description: |
+          Add one focused cmd/backstop test file containing the seven exact behavioral
+          tests below. A shared harness must execute the real producer and converter via
+          /bin/sh in temporary project directories, not reimplement either script in Go.
+          It resolves the pack root from BACKSTOP_GO_TOOLCHAIN_PACK_ROOT when explicitly
+          set; local RED/GREEN runs set it to
+          /Users/bmanson/src/projects/backstop-go-toolchain-pack, while ordinary core CI
+          resolves the installed locked pack. Missing or malformed scripts fail, never
+          silently skip. Use only POSIX fixtures and valid UTF-8, NUL-free, LF-terminated
+          declaration files within ISSUE-186's supported domain.
+
+          The producer fixture must provide a deterministic go shim/profile/stamp so it
+          exercises declaration parsing without a real suite run, then feed the produced
+          enriched profile to the real converter. Assert literal TAB framing, exactly one
+          directive per accepted declaration, and no echo/default-field reconstruction.
+          The converter corpus covers: an exclusion-only sandbox_nonlinux.go; collisions
+          with profile and GoFiles records; duplicate last-justification-wins with first
+          representation position; profile then GoFiles-only then exclusion-only order;
+          repeated byte-identical output; decoded UTF-8/path/justification equality;
+          quotes, backslashes, SP/HT/CR/FF/VT escaping; CR-before-LF preservation; all
+          enumerated canonical-path, comment, empty/whitespace-only, and forbidden-C0
+          rejections; malformed injected directives dropped defensively; and no generic
+          synthesis without an accepted declaration. Assert exclusion-only records are
+          exactly path, 0/0, measured:false, excluded:true, metric:statement, and exact
+          justification, while existing records retain every other field and position.
+
+          Run the seven named tests with the source override and record the current RED:
+          the shipped space-framed producer loses raw values and the converter emits no
+          record for an exclusion absent from profile and GoFiles order. Do not edit the
+          external scripts in this task.
+        files:
+          - cmd/backstop/go_toolchain_coverage_exclusions_test.go
+        test_names:
+          - TestGoToolchainCoverageExclusions_AbsentBuildTaggedFileEmitsExcludedRecord
+          - TestGoToolchainCoverageExclusions_ExistingRecordsAnnotatedWithoutDuplicates
+          - TestGoToolchainCoverageExclusions_DuplicateDeclarationsLastWinsFirstPosition
+          - TestGoToolchainCoverageExclusions_DeterministicOrderAndJSONEscaping
+          - TestGoToolchainCoverageExclusions_DeclarationGrammarAndPortableWhitespaceCases
+          - TestGoToolchainCoverageExclusions_NoDeclarationDoesNotSynthesize
+          - TestGoToolchainCoverageExclusions_TabFramedProtocolIsLosslessAndPackOwned
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+        depends_on: []
+
+      - id: TASK-002
+        type: test
+        title: "RED: pin installed release identity and tracked core adoption without git or network"
+        description: |
+          Extend the same focused core test file with the final two exact tests. This task
+          depends only on TASK-001, another test task, so both release/adoption guards exist
+          before and independently of every implementation task.
+
+          TestGoToolchainCoverageExclusions_ReleasedTagMatchesManifest must use only local,
+          reproducible installed-pack identity after a real `./bin/backstop pack install` or
+          `pack update`: read backstop.lock's backstop-ai/go-toolchain version, git_ref,
+          source_type, and source_coordinate; parse the installed pack.yml version; recompute
+          the installed tree content hash with the production distribution hash implementation;
+          and require all values agree with version 1.9.0, git_ref v1.9.0, source_type git,
+          source_coordinate backstop-ai/go-toolchain, and the tracked content_hash. It must
+          not inspect `.git`, a candidate checkout, `git ls-remote`, GitHub, or any network.
+          TASK-008 separately supplies remote tag-integrity workflow evidence for CLM-006.
+
+          TestGoToolchainCoverageExclusions_ReleasedPackIsAdopted must read tracked
+          backstop.yml and backstop.lock, require the same exact 1.9.0/v1.9.0 declaration,
+          and require the installed manifest and scripts to be present and carry the released
+          behavior. There are no skip branches: run real `pack install` first, and treat an
+          absent, malformed, hash-mismatched, or stale installed fleet as a test failure.
+
+          PRE-RELEASE RED: after real `./bin/backstop pack install`, run only these two exact
+          tests and record both failing against the current tracked/installed 1.8.0 identity.
+          They remain intentionally red and are not included in pre-release GREEN commands.
+          Do not weaken, skip, or add network conditions to permit release work.
+        files:
+          - cmd/backstop/go_toolchain_coverage_exclusions_test.go
+        test_names:
+          - TestGoToolchainCoverageExclusions_ReleasedTagMatchesManifest
+          - TestGoToolchainCoverageExclusions_ReleasedPackIsAdopted
+        claims:
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: implementation
+        title: "GREEN: make producer framing and converter exclusion synthesis lossless"
+        description: |
+          Edit only the two absolute source-pack scripts. In coverage-produce.sh, replace
+          cut/echo/whitespace reconstruction with shared explicit validation of the first
+          literal TAB split and ISSUE-186's canonical path/control/substantive-justification
+          grammar. Preserve the complete remainder and emit accepted declarations only via
+          printf '#backstop-coverage-exclude\t%s\t%s\n'. Keep invalid UTF-8, NUL, and an
+          unterminated EOF tail outside the claimed detection domain; do not claim they are
+          rejected portably.
+
+          In coverage-to-records.sh, recognize only marker-plus-literal-TAB, split the raw
+          remainder at its first TAB, defensively apply the same in-domain grammar, retain
+          first declaration order and last accepted reason per path, and never use $1/$2,
+          NF, default awk splitting, trimming, or rebuilt fields for this protocol. Annotate
+          an existing profile or GoFiles-derived record in place. After those passes, append
+          one synthetic measured:false 0/0 statement record for each accepted exclusion path
+          still unrepresented, in first exclusion order. Deduplicate all representations.
+          Expand JSON escaping for quote, backslash, HT, CR, FF, and VT so decoding exactly
+          recovers accepted UTF-8 text. Do not add a generic absent-file pass, invoke go from
+          the converter, or add any core language/platform branch.
+
+          PRE-RELEASE GREEN: with BACKSTOP_GO_TOOLCHAIN_PACK_ROOT set to the absolute source
+          repo, run exactly the seven behavioral tests declared by TASK-001 and require all
+          seven to pass by name. Do not run or expect green from TASK-002's two identity tests;
+          they correctly remain red until the published release is adopted in TASK-009.
+        files:
+          - /Users/bmanson/src/projects/backstop-go-toolchain-pack/scripts/coverage-produce.sh
+          - /Users/bmanson/src/projects/backstop-go-toolchain-pack/scripts/coverage-to-records.sh
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+        depends_on:
+          - TASK-001
+          - TASK-002
+
+      - id: TASK-004
+        type: verification
+        title: "Validate the source pack through the real core CLI while adoption guards stay red"
+        description: |
+          Confirm TASK-003's source-override run produced seven named PASS results and did
+          not run the two adoption guards. Then run both
+          `./bin/backstop pack check /Users/bmanson/src/projects/backstop-go-toolchain-pack`
+          and `./bin/backstop pack test /Users/bmanson/src/projects/backstop-go-toolchain-pack`.
+          Record status, every warning, and phase-3's honest fixture count; pack test is
+          required validation but the seven real-script tests, not an empty pack fixture
+          phase, are the behavioral falsifier. Re-run identical converter input twice and
+          compare bytes. Any new error, warning, skipped named test, non-determinism, or
+          direct edit under core's installed pack blocks release work.
+        files:
+          - cmd/backstop/go_toolchain_coverage_exclusions_test.go
+          - /Users/bmanson/src/projects/backstop-go-toolchain-pack/scripts/coverage-produce.sh
+          - /Users/bmanson/src/projects/backstop-go-toolchain-pack/scripts/coverage-to-records.sh
+          - /Users/bmanson/src/projects/backstop-go-toolchain-pack/pack.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+        depends_on:
+          - TASK-003
+
+  - id: phase-2
+    name: "Phase 2: Release Guards, Independent Review, and v1.9.0 Publication"
+    tasks:
+      - id: TASK-005
+        type: implementation
+        title: "Bump the reviewed source-pack candidate from 1.8.0 to 1.9.0"
+        description: |
+          Change only the absolute source pack manifest version from 1.8.0 to 1.9.0.
+          Inspect `git status` and `git diff` in the pack repository and require exactly
+          pack.yml plus the two scripts owned by this plan. Do not commit, tag, or push yet;
+          the complete uncommitted candidate must remain available for independent review.
+        files:
+          - /Users/bmanson/src/projects/backstop-go-toolchain-pack/pack.yml
+        claims:
+          - CLM-006
+        depends_on:
+          - TASK-002
+          - TASK-004
+
+      - id: TASK-006
+        type: verification
+        title: "Obtain CLEAN independent implementation review before any pack commit"
+        description: |
+          Give an independent implementation reviewer ISSUE-186, this validated plan, the
+          complete three-file source-pack diff, the seven behavioral test output, and both
+          real-CLI pack check/test outputs. The reviewer must inspect grammar equivalence,
+          fail-closed controls, ordering/deduplication, JSON validity/escaping, absence of a
+          generic synthesis path, POSIX portability, and the 1.9.0 semver choice. Resolve all
+          should-fix findings and repeat review until CLEAN, re-running TASK-003 evidence
+          after every change. Stop on unresolved findings. Record reviewer identity/verdict
+          and final diff SHA; still do not commit, tag, or push.
+        files:
+          - /Users/bmanson/src/projects/backstop-go-toolchain-pack/pack.yml
+          - /Users/bmanson/src/projects/backstop-go-toolchain-pack/scripts/coverage-produce.sh
+          - /Users/bmanson/src/projects/backstop-go-toolchain-pack/scripts/coverage-to-records.sh
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-005
+
+      - id: TASK-007
+        type: implementation
+        title: "After explicit authorization, commit and publish the v1.9.0 pack tag"
+        description: |
+          This public-repository operation must not start without explicit authorization
+          after TASK-006 reports CLEAN. Fetch origin and tags first; stop on divergence or
+          an existing conflicting v1.9.0. Commit exactly the reviewed three files with an
+          ISSUE-186 message, push the commit to main, create v1.9.0 on that exact commit,
+          and push the tag. Confirm local HEAD, origin/main, and v1.9.0 resolve to one SHA.
+          Never move or overwrite an existing tag and never bypass hooks.
+        files:
+          - /Users/bmanson/src/projects/backstop-go-toolchain-pack/pack.yml
+          - /Users/bmanson/src/projects/backstop-go-toolchain-pack/scripts/coverage-produce.sh
+          - /Users/bmanson/src/projects/backstop-go-toolchain-pack/scripts/coverage-to-records.sh
+        claims:
+          - CLM-006
+        depends_on:
+          - TASK-002
+          - TASK-006
+
+      - id: TASK-008
+        type: verification
+        title: "Prove tag integrity and fresh-clone installability before core adoption"
+        description: |
+          Query the go-toolchain repository's tag-integrity workflow for the v1.9.0 push
+          and require completed/success, recording commit SHA, manifest version, tag, run
+          ID/URL, and conclusion. Verify `git ls-remote` resolves the same SHA. Fresh-clone
+          v1.9.0 into a scratch directory, rerun only the seven TASK-001 source-override
+          behavioral tests against that clone, then run the real core CLI's `pack check` and
+          `pack test` against it. Do not run the two identity/adoption tests here: they inspect
+          core's still-1.8.0 tracked and installed state and must remain red until TASK-009.
+          Read results and warning/fixture counts. A missing/red workflow, tag mismatch,
+          behavioral failure, or validation regression blocks TASK-009; do not patch a tag.
+        files:
+          - /Users/bmanson/src/projects/backstop-go-toolchain-pack/pack.yml
+          - /Users/bmanson/src/projects/backstop-go-toolchain-pack/scripts/coverage-produce.sh
+          - /Users/bmanson/src/projects/backstop-go-toolchain-pack/scripts/coverage-to-records.sh
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-007
+
+  - id: phase-3
+    name: "Phase 3: Core Lock Adoption, Retired-Fixture Reconciliation, and Local Gate"
+    tasks:
+      - id: TASK-009
+        type: implementation
+        title: "Adopt only the verified v1.9.0 release through pack update"
+        description: |
+          From backstop-core run
+          `./bin/backstop pack update backstop-ai/go-toolchain`; do not hand-edit either
+          generated file or anything under .backstop/packs. Require backstop.yml and the
+          tracked lock to move 1.8.0 to 1.9.0/v1.9.0, refresh content_hash/install_date,
+          and preserve source_type git plus source_coordinate backstop-ai/go-toolchain.
+          Confirm the installed manifest and both scripts equal the published tag. The
+          installed tree's recomputed production content hash must equal the lock. Both
+          identity/adoption guards must now turn green without skips or network access.
+        files:
+          - backstop.yml
+          - backstop.lock
+        claims:
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-002
+          - TASK-004
+          - TASK-008
+
+      - id: TASK-010
+        type: verification
+        title: "Run focused and full core gates against the released installed pack"
+        description: |
+          Run `./bin/backstop gate --file cmd/backstop/go_toolchain_coverage_exclusions_test.go`
+          with no source-pack override and confirm all nine exact tests run and pass against
+          the installed release. This is the first all-nine GREEN run: pre-release runs were
+          seven behavioral tests only, while the two identity tests remained deliberately
+          red. Then run `./bin/backstop gate --all`.
+
+          THIS FULL GATE IS EXPECTED TO BE RED, AND ITS RED IS FULLY PREDICTED. Adopting
+          the TAB-only released converter strands the already-shipped space-framed
+          coverageProfileFixture helper in pack_fleet_test.go, so exactly two root-package
+          tests must fail — TestCoverageExclusion_DeclaredPathIsSkippedNotFailed and
+          TestCoverageExclusion_CarriesAJustification — for exactly that one reason: their
+          fixture's space-framed declaration is now correctly dropped, so no excluded record
+          is emitted. TestCoverageExclusion_UndeclaredPathStillFails and
+          TestCoverageExclusion_LinuxHelperInventoryIsNarrowAndEvidenced must be observed
+          passing in the same run. Record the failing test names verbatim from the gate
+          output and attribute each one to that stranded fixture explicitly.
+
+          Do NOT waive, do NOT edit anything to make this gate green here, and do NOT
+          describe this run as green, partially green, or passing. It is a RED run with a
+          named, owned cause, and the ONLY authorized repair is TASK-013's fixture
+          retirement. DEFINITIVE GREEN FOR THIS GATE IS DEFERRED TO TASK-014, which re-runs
+          `./bin/backstop gate --all` after that retirement and is the task that must
+          require it green.
+
+          Any finding beyond those exactly two tests — a third failing test, a different
+          failure reason, a findings-engine violation, an artifact/coverage/contracts
+          violation, or either expected test passing when it should fail — means a converter
+          or adoption regression rather than a stranded fixture. Stop and report; do not
+          proceed to TASK-013.
+
+          Independently of the verdict, read the coverage records/output:
+          pkg/packval/sandbox_nonlinux.go must have one excluded unmeasured 0/0 record with
+          its tracked exact justification, and unrelated absent files must not gain records.
+          The CLEAN independent review of the core diff is NOT obtained here — the diff is
+          incomplete until TASK-013 lands, so TASK-014 owns that review.
+        files:
+          - cmd/backstop/go_toolchain_coverage_exclusions_test.go
+          - backstop.yml
+          - backstop.lock
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-009
+
+      - id: TASK-013
+        type: test
+        title: "RED: retire the space-framed fixture directive in the root pack-fleet coverage tests"
+        description: |
+          TASK-010's `./bin/backstop gate --all` is the first run that exercises the
+          already-shipped root-package dogfood tests against the released TAB-only converter.
+          Before editing anything, run
+          `go test -v . -run 'TestCoverageExclusion' -count=1` from the repository root and
+          record the observed RED verbatim. `-v` (or `-json`) is REQUIRED, not optional: the
+          per-test `=== RUN` / `--- PASS` / `--- FAIL` lines are the only observable evidence
+          of which tests ran and how each one fared, and a bare `go test -run` that selects
+          nothing still exits 0 with an `ok` line. First confirm the run reports exactly four
+          `=== RUN` lines, one per name below — a run with fewer is an empty or partial
+          selection and its verdict means nothing. Exactly two of those four must then be
+          reported `--- FAIL` and two `--- PASS`, for exactly one reason:
+          TestCoverageExclusion_DeclaredPathIsSkippedNotFailed and
+          TestCoverageExclusion_CarriesAJustification both feed
+          coverageProfileFixture(true), whose helper declaration writes the exclusion marker
+          followed by a SPACE. The released converter recognizes only marker-plus-literal-TAB,
+          so that declaration is now correctly dropped and no excluded record is emitted.
+          TestCoverageExclusion_UndeclaredPathStillFails and
+          TestCoverageExclusion_LinuxHelperInventoryIsNarrowAndEvidenced must be observed
+          `--- PASS` in the same run; if the RED is wider or narrower than those exactly two,
+          stop and report rather than proceeding — a different failure means a converter
+          regression, not a stranded fixture.
+
+          Then make the single smallest authorized change: in pack_fleet_test.go's
+          coverageProfileFixture helper, reframe that one internal declaration from
+          coverageExclusionDirective followed by a space-joined path and justification to
+          literal TAB framing, so the emitted line is the marker, a TAB, the path, a TAB, and
+          the justification. Nothing else in this file changes.
+
+          FORBIDDEN in this task and everywhere downstream:
+          - Renaming any of the four TestCoverageExclusion functions, or weakening, deleting,
+            relaxing, or inverting any of their assertions, failure messages, the declared and
+            undeclared paths, the coverageExclusionDirective constant's value, the
+            declareExclusion parameter, or the profile's mode/module/record lines.
+          - Reintroducing space-framed acceptance into the pack's producer or converter for
+            backward compatibility. The space-framed spelling is RETIRED by TASK-003; the
+            fixture moves to the pack, the pack never moves back to the fixture. Do not edit
+            the external pack scripts, the installed pack, or backstop.lock here.
+          - Touching the deliberately malformed space-framed NEGATIVE fixture in
+            cmd/backstop/go_toolchain_coverage_exclusions_test.go — the injected
+            "#backstop-coverage-exclude good.go bypass" line inside
+            TestGoToolchainCoverageExclusions_DeclarationGrammarAndPortableWhitespaceCases.
+            That line is load-bearing proof that the converter defensively DROPS a space-framed
+            directive; correcting it to TAB framing would silently delete the falsifier. That
+            file is not in this task's scope and must show no diff.
+
+          This task owns pack_fleet_test.go only. Leave the tests RED-then-GREEN evidence to
+          TASK-014; do not run the full gate here.
+        files:
+          - pack_fleet_test.go
+        test_names:
+          - TestCoverageExclusion_DeclaredPathIsSkippedNotFailed
+          - TestCoverageExclusion_CarriesAJustification
+          - TestCoverageExclusion_UndeclaredPathStillFails
+          - TestCoverageExclusion_LinuxHelperInventoryIsNarrowAndEvidenced
+        claims:
+          - CLM-004
+          - CLM-005
+        depends_on:
+          - TASK-010
+
+      - id: TASK-014
+        type: verification
+        title: "Verify all four pack-fleet exclusion tests and the full core gate after the fixture retirement"
+        description: |
+          Run `go test -v . -run 'TestCoverageExclusion' -count=1` from the repository root
+          and require all FOUR existing tests to pass by name against the installed released
+          pack, with no source-pack override and no skip. `-v` (or `-json`) is REQUIRED, not
+          optional: a bare `go test -run` whose regex matches nothing still exits 0 and
+          prints `ok`, so a package-level pass is NOT evidence that any test ran. Read the
+          per-test lines and require exactly four `=== RUN` lines and four `--- PASS` lines,
+          one matching each of the four names declared below, with zero `--- SKIP` and zero
+          `--- FAIL`. Fewer than four `=== RUN` lines is an empty or partial selection and
+          blocks this task regardless of exit code. Re-run the exclusions suite named by
+          TASK-010, likewise with `-v`, and require nine `=== RUN`/`--- PASS` pairs for the
+          nine exact TestGoToolchainCoverageExclusions tests, proving the fixture retirement
+          did not disturb the released protocol.
+
+          Diff-audit the working tree before the gate: pack_fleet_test.go must show the single
+          fixture-framing hunk and nothing else, and
+          cmd/backstop/go_toolchain_coverage_exclusions_test.go must show NO diff — in
+          particular the injected "#backstop-coverage-exclude good.go bypass" negative fixture
+          must still be present, still space-framed, and still asserted to be dropped. Confirm
+          the external pack scripts and .backstop/packs are untouched by this phase's edits and
+          that no space-framed backward-compatibility branch was added anywhere.
+
+          Then run `./bin/backstop gate --all` and require it green. THIS IS THE DEFINITIVE
+          GREEN GATE for the core side of this plan: TASK-010's earlier `--all` run was an
+          expected RED with a named stranded-fixture cause, and this run is where that cause
+          must be gone. The two previously failing tests,
+          TestCoverageExclusion_DeclaredPathIsSkippedNotFailed and
+          TestCoverageExclusion_CarriesAJustification, must now pass, and no new finding may
+          appear. Read the coverage output again: pkg/packval/sandbox_nonlinux.go must still
+          carry exactly one excluded unmeasured 0/0 record with its tracked justification, and
+          no unrelated absent file may gain a record. Attribute every finding; do not waive,
+          and do not call a partial pass green. A failure here blocks TASK-011.
+
+          Finally, obtain a CLEAN independent review of the FULL core diff before remote
+          publication. This review lives here, not in TASK-010, because the core diff is not
+          complete until TASK-013's fixture retirement has landed: reviewing after TASK-010
+          would inspect an adoption that knowingly reds the root-package suite. Give the
+          reviewer ISSUE-186, this validated plan, and the complete published core diff —
+          the already-committed cmd/backstop/go_toolchain_coverage_exclusions_test.go, the
+          pack_fleet_test.go fixture retirement, and the backstop.yml/backstop.lock adoption
+          — plus this task's verbose test output and the green `gate --all` output. The
+          reviewer must confirm the fixture retirement is the single authorized hunk, that
+          the space-framed negative fixture in the exclusions test file is untouched, that no
+          backward-compatible space acceptance was added anywhere, and that the lock adoption
+          matches the published v1.9.0 tag. Resolve all should-fix findings and repeat the
+          review until CLEAN, re-running this task's evidence after every change. Record
+          reviewer identity and verdict. An unresolved finding blocks TASK-011.
+        files:
+          - pack_fleet_test.go
+          - cmd/backstop/go_toolchain_coverage_exclusions_test.go
+          - backstop.yml
+          - backstop.lock
+        test_names:
+          - TestCoverageExclusion_DeclaredPathIsSkippedNotFailed
+          - TestCoverageExclusion_CarriesAJustification
+          - TestCoverageExclusion_UndeclaredPathStillFails
+          - TestCoverageExclusion_LinuxHelperInventoryIsNarrowAndEvidenced
+        claims:
+          - CLM-001
+          - CLM-004
+          - CLM-005
+          - CLM-007
+        depends_on:
+          - TASK-009
+          - TASK-013
+
+      - id: TASK-011
+        type: implementation
+        title: "After explicit authorization, publish the reviewed core adoption to PR 8"
+        description: |
+          Confirm the current branch is PR 8's fix/external-pack-sandbox head and fetch
+          before judging divergence.
+
+          STAGING SET — READ THE CURRENT STATE, DO NOT ASSUME FOUR FILES. The focused core
+          test cmd/backstop/go_toolchain_coverage_exclusions_test.go is ALREADY COMMITTED on
+          this branch, in commit 142999e ("test(ISSUE-186): pin absent exclusion records"),
+          which is local-only until this task pushes. It is therefore NOT staged again here
+          and MUST show no working-tree diff. THIS commit stages exactly THREE files: the
+          TASK-013 pack_fleet_test.go fixture retirement, and the backstop.yml and
+          backstop.lock adoption. The plan artifact is separately owned and is not included.
+          Verify the staged set is exactly those three paths before committing; a fourth
+          staged path, or any diff in the exclusions test file, is a stop-and-report
+          condition. If a re-read of the branch shows the exclusions test is somehow NOT yet
+          committed, stop and report rather than silently staging a fourth file — the
+          divergence itself is the finding.
+
+          After explicit authorization, commit those three files with an ISSUE-186 message
+          and push normally to the PR branch. THE PUSH CARRIES THE PRIOR COMMIT TOO: it
+          publishes 142999e together with this new commit, so the branch reaches CI with the
+          focused core test and the adoption present in the same push. The reconciled fixture
+          must ride the same commit as the adoption it reconciles — shipping the lock bump
+          without it would push a knowingly RED root-package suite to CI. Confirm
+          cmd/backstop/go_toolchain_coverage_exclusions_test.go's space-framed negative
+          fixture is unchanged across the whole pushed range, not just this commit. Record
+          both commit SHAs, and record the resulting remote head SHA for TASK-012's headSha
+          comparison. Do not amend, force-push, skip hooks, or include unrelated working-tree
+          files.
+        files:
+          - cmd/backstop/go_toolchain_coverage_exclusions_test.go
+          - pack_fleet_test.go
+          - backstop.yml
+          - backstop.lock
+        claims:
+          - CLM-007
+        depends_on:
+          - TASK-002
+          - TASK-010
+          - TASK-014
+
+  - id: phase-4
+    name: "Phase 4: Real PR 8 Linux CI Acceptance"
+    tasks:
+      - id: TASK-012
+        type: verification
+        title: "Require a new PR 8 gate run proving loud exclusion replaces the false blocker"
+        description: |
+          Wait for the new pull_request CI run triggered by TASK-011's push and verify its
+          headSha is exactly the remote head SHA TASK-011 recorded — the adoption commit that
+          carries the pack_fleet_test.go retirement plus backstop.yml/backstop.lock, which is
+          the branch tip after the push, not the earlier 142999e it publishes alongside, and
+          not run 32773697312's old ab4af501 state. Require the Backstop Gate job to complete successfully. Download
+          the existing workflow artifacts containing `gate-report.json` and the raw enriched
+          `cover.out`; no workflow or artifact-upload change is needed. In a checkout at the
+          exact CI head SHA, first run `go build -o ./bin/backstop ./cmd/backstop` in that
+          checkout and verify the build succeeds. Use only that newly built exact-SHA binary thereafter: run its
+          `./bin/backstop pack install`, verify installed identity against backstop.lock as
+          TASK-002 defines, and replay the downloaded raw cover.out through that exact locked installed
+          `.backstop/packs/backstop-ai/go-toolchain/scripts/coverage-to-records.sh` into a
+          temporary JSON file. Parse that replay output and require exactly one
+          pkg/packval/sandbox_nonlinux.go record with covered:0, total:0, measured:false,
+          excluded:true, metric:statement, and the exact tracked justification; forbid a
+          duplicate. Confirm sandbox_linux_helper.go remains represented and annotated once
+          and no unrelated absent file is synthesized.
+
+          The CI head SHA must also contain TASK-013's retired fixture. SOURCE CHECK, at the
+          exact SHA: confirm pack_fleet_test.go at that exact CI head SHA frames its
+          coverageProfileFixture declaration with literal TABs — read the bytes, not a
+          rendering that collapses whitespace.
+
+          EVIDENCE THAT THE FIXTURE IS GREEN ON LINUX — use only observable CI output. Do NOT
+          require per-test `=== RUN`/`--- PASS` lines for the four TestCoverageExclusion names
+          from the CI log: the Backstop Gate job runs the suite through the pack's go-test
+          engine and does not publish a verbose per-test transcript, so that evidence is not
+          obtainable and demanding it makes this task unexecutable. Require instead all three
+          of the following observable facts:
+          (a) the Backstop Gate job completed successfully — a green job, at that head SHA;
+          (b) gate-report.json contains NO go-test findings-engine violation whose location
+              names pack_fleet_test.go; and
+          (c) gate-report.json contains NO mandated_test_failed violation naming any of
+              TestCoverageExclusion_DeclaredPathIsSkippedNotFailed,
+              TestCoverageExclusion_CarriesAJustification,
+              TestCoverageExclusion_UndeclaredPathStillFails, or
+              TestCoverageExclusion_LinuxHelperInventoryIsNarrowAndEvidenced.
+          Search gate-report.json for each of those four names explicitly and record what was
+          found for each, including "absent". A green job alone is not sufficient; the two
+          negative gate-report checks are what convert it into attribution. If any of (a),
+          (b), or (c) fails, stop and report — a violation naming one of those four names on
+          Linux means the fixture retirement did not hold in CI.
+
+          Separately inspect gate-report.json: require a loud non-blocking coverage_exclusion
+          warning for pkg/packval/sandbox_nonlinux.go carrying the exact justification and
+          forbid coverage_unmeasured for that path. Do not infer record shape from the gate
+          report; the converter replay is the record-shape proof. Record PR URL, run/job IDs
+          and URLs, head SHA, verdict,
+          before/after rule IDs, and pack lock version/git_ref. This is the acceptance
+          rerun; local green or the old failed run is not substitute evidence.
+        files:
+          - cmd/backstop/go_toolchain_coverage_exclusions_test.go
+          - pack_fleet_test.go
+          - backstop.yml
+          - backstop.lock
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-011

@@ -307,8 +307,11 @@ status: pass
 - phase6-risk-class: pass
 ```
 
-Phase 3 runs your engine sandboxed, so it needs the tool available (or provisionable) and your
-fixtures on disk.
+Phase 3 runs the declared engine or producer with its existing unsandboxed toolchain access, then
+runs a declared `convert` script under the pack sandbox before parsing its output. A sandbox
+validator is also sandboxed. The tool must therefore be available (or provisionable), and the
+fixtures must be on disk, but do not write an engine or producer assuming the convert sandbox's
+filesystem and network restrictions apply to it.
 
 > **macOS: pass an absolute path.** On darwin, `backstop pack test ./relative/path` can fail
 > every fixture with `sandboxed run (stdout) failed: exit status 71` — the sandbox profile
@@ -408,6 +411,15 @@ Three capabilities worth knowing exist, none of which a first findings pack need
 doesn't. `backstop-ai/go-toolchain` uses one because `go build` writes its located diagnostics
 to stderr while backstop captures stdout by design — so the pack folds stderr into stdout
 itself rather than backstop growing Go-specific knowledge.
+
+**Sandbox boundaries.** Only pack `convert` scripts and sandbox validators cross Backstop's pack
+sandbox boundary. Engine commands, `producer:` scripts, recipe transforms, and scaffold test
+commands retain their existing unsandboxed classification. A host may run Backstop with
+`--pack-sandbox=external`, which delegates those same convert/validator calls to the host's
+client-owned isolation boundary; it does not reclassify any other surface. Backstop removes
+`BACKSTOP_PACK_SANDBOX` from all pack-child environments, so pack code never passively inherits
+that authorization. A separately launched Backstop invocation needs its own fresh exact
+authorization.
 
 **Non-findings gate types.** `gate_type: coverage` routes to a separate coverage-records
 channel instead of the SARIF findings channel; `substantiveness` and `contracts` feed their own

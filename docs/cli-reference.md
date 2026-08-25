@@ -161,6 +161,7 @@ plus untracked files. That is the fast inner loop.
 | `--file <path>` | Scope to explicit files. Repeatable, and trailing positional paths accumulate on top of the flag values. |
 | `--base <rev>` | Scope to files changed since the merge-base with `REV`, plus untracked files. |
 | `--json-out <file>` | Also write the `gate/v1` JSON envelope to a file. |
+| `--pack-sandbox <mode>` | Select `native` or `external` confinement for pack convert and validator execution. Defaults to `native`. |
 
 **Examples**
 
@@ -176,7 +177,36 @@ backstop gate --file pkg/gate/policy.go --file pkg/gate/result.go
 
 # CI, with the table in the log and the report on disk from one run
 backstop gate --base "$PR_BASE_SHA" --json-out gate-report.json
+
+# hosted runtime whose client-owned boundary already confines Backstop
+backstop gate --all --pack-sandbox=external
 ```
+
+### Pack sandbox delegation
+
+`native` is the default. It uses Backstop's fail-closed Landlock/seccomp confinement on Linux
+and `sandbox-exec` profile on macOS. If native confinement cannot be installed, the pack child
+does not run; Backstop never falls back to `external` or an unsandboxed warning path.
+
+A hosted runtime may explicitly select `external` when the client-owned boundary that launched
+Backstop already provides confinement. The selection may come from `--pack-sandbox=external` or
+`BACKSTOP_PACK_SANDBOX=external`. A present flag wins over the environment. Both surfaces accept
+only the exact, case-sensitive values `native` and `external`; empty, padded, case-variant, and
+unknown values are config errors (exit `2`). Repository files, `backstop.yml`, lock data, and pack
+content cannot select the mode.
+
+External mode changes only how the existing sandbox boundary is fulfilled. Pack convert scripts
+and sandbox validators run without a nested native layer. Engines, producers, recipe transforms,
+and other execution surfaces do not become sandboxed or move across their existing boundary.
+
+Human output reports `pack sandbox: <mode> (native applied: <bool>)`. The `gate/v1` JSON carries
+the same values as `pack_sandbox_mode` and `native_sandbox_applied`. The application field is
+evidence from an actual native invocation, not an inference from the selected mode.
+
+Backstop strips `BACKSTOP_PACK_SANDBOX` from every pack-provided child environment. A child that
+recursively launches Backstop therefore does not passively delegate external mode; that separate
+invocation defaults to native. Pack code can still deliberately provide a fresh exact flag or
+environment value to its new invocation.
 
 **Sharp edges**
 
@@ -188,6 +218,8 @@ backstop gate --base "$PR_BASE_SHA" --json-out gate-report.json
   **stdout** receives, while `--json-out` only *adds* a file destination and never changes
   stdout. That is what lets one CI run produce both the human table and the
   machine-readable report.
+- `--pack-sandbox=external` is explicit hosted-runtime delegation, not a generic
+  `--no-sandbox` switch or an interactive trust prompt.
 
 ---
 

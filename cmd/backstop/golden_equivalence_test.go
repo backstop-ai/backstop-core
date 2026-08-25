@@ -53,13 +53,13 @@ func TestGoldenEquivalence_LegacyViolationSetCaptured(t *testing.T) {
 	// fixture round-trips it (the fixture IS the evidence; it must reflect the
 	// still-present legacy normalization).
 	m := goToolchainManifest(t)
-	stubSandboxedRunStdout(t, nil)
+	sandboxRunner := directConvertSandboxRunner(nil)
 	runner := &fixtureRunner{byCmd: capturedToolBytes(t)}
-	vs, err := dispatchPackEngines(excludeDedicatedStepRules([]*pack.Manifest{m}), goToolchainPacksDir(t), t.TempDir(), nil, runner)
+	result, err := dispatchPackEnginesWithEvidence(excludeDedicatedStepRules([]*pack.Manifest{m}), goToolchainPacksDir(t), t.TempDir(), nil, runner, sandboxRunner)
 	if err != nil {
 		t.Fatalf("re-deriving legacy normalization: %v", err)
 	}
-	reproduced := normalizeViolations(vs)
+	reproduced := normalizeViolations(result.Violations)
 	sortGoldenViolations(golden)
 	if !goldenViolationsEqual(golden, reproduced) {
 		t.Fatalf("golden fixture does not round-trip the legacy normalization for the captured bytes\n golden=%#v\n got=%#v", golden, reproduced)
@@ -78,16 +78,16 @@ func TestGoldenEquivalence_PackEnginePathReproducesGoldenSet(t *testing.T) {
 	sortGoldenViolations(golden)
 
 	m := goToolchainManifest(t)
-	stubSandboxedRunStdout(t, nil)
+	sandboxRunner := directConvertSandboxRunner(nil)
 	runner := &fixtureRunner{byCmd: capturedToolBytes(t)}
 
 	// The REAL, un-stubbed dispatchPackEngines over the INSTALLED go-toolchain
 	// pack on disk.
-	vs, err := dispatchPackEngines(excludeDedicatedStepRules([]*pack.Manifest{m}), goToolchainPacksDir(t), t.TempDir(), nil, runner)
+	result, err := dispatchPackEnginesWithEvidence(excludeDedicatedStepRules([]*pack.Manifest{m}), goToolchainPacksDir(t), t.TempDir(), nil, runner, sandboxRunner)
 	if err != nil {
 		t.Fatalf("pack-engine dispatch: %v", err)
 	}
-	reproduced := normalizeViolations(vs)
+	reproduced := normalizeViolations(result.Violations)
 	if !goldenViolationsEqual(golden, reproduced) {
 		t.Fatalf("pack-engine path did NOT reproduce the golden legacy violation set\n golden=%#v\n got=%#v", golden, reproduced)
 	}
@@ -117,12 +117,12 @@ func TestGoldenEquivalence_RealInstalledPackThroughUnstubbedDispatch(t *testing.
 	// dispatcher. This observes that the production path ran, not a parallel
 	// raw-exec.
 	var convertStdin []byte
-	stubSandboxedRunStdout(t, &convertStdin)
+	sandboxRunner := directConvertSandboxRunner(&convertStdin)
 
 	m := goToolchainManifest(t)
 	runner := &fixtureRunner{byCmd: capturedToolBytes(t)}
 
-	vs, err := dispatchPackEngines(excludeDedicatedStepRules([]*pack.Manifest{m}), goToolchainPacksDir(t), t.TempDir(), nil, runner)
+	result, err := dispatchPackEnginesWithEvidence(excludeDedicatedStepRules([]*pack.Manifest{m}), goToolchainPacksDir(t), t.TempDir(), nil, runner, sandboxRunner)
 	if err != nil {
 		t.Fatalf("un-stubbed dispatch: %v", err)
 	}
@@ -139,7 +139,7 @@ func TestGoldenEquivalence_RealInstalledPackThroughUnstubbedDispatch(t *testing.
 		t.Fatalf("loading golden fixture: %v", err)
 	}
 	sortGoldenViolations(golden)
-	reproduced := normalizeViolations(vs)
+	reproduced := normalizeViolations(result.Violations)
 	if !goldenViolationsEqual(golden, reproduced) {
 		t.Fatalf("the un-stubbed production dispatch did not reproduce the golden set\n golden=%#v\n got=%#v", golden, reproduced)
 	}

@@ -163,8 +163,14 @@ func Plan(art *artifact.ParsedArtifact, _ *schema.Schema) ValidationResult {
 		}
 	}
 
-	// 9. Phases validation (D-080 + D-081)
-	violations = append(violations, validatePhases(art)...)
+	// 9. Phases validation (D-080 + D-081) — LIVE work only. A terminal plan
+	// (replaced / canceled / obsoleted) is retired work: it is exempt from the
+	// phase/task completeness rules exactly as spec.go, bundle.go and issue.go
+	// exempt their own live-work checks (ISSUE-031 DQ-1, ISSUE-154). The
+	// structural tier ABOVE this point still applies to terminal plans in full.
+	if !isTerminalStatus(status) {
+		violations = append(violations, validatePhases(art)...)
+	}
 
 	return ValidationResult{Violations: violations}
 }

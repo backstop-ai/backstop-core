@@ -65,12 +65,12 @@ func TestBunFixture_StaticTestdataExistsWithPackTsFilesAndPrecapturedLcov(t *tes
 // fixtureRunner intercepts the engine command.
 func bunCoverageRecords(t *testing.T, projectRoot string, runner *fixtureRunner, convertStdin *[]byte) []check.CoverageRecord {
 	t.Helper()
-	stubSandboxedRunStdout(t, convertStdin)
-	records, err := dispatchPackCoverage([]*pack.Manifest{bunToolchainManifest(t)}, bunFixturePacksDir(t), projectRoot, nil, runner)
+	sandboxRunner := directConvertSandboxRunner(convertStdin)
+	result, err := dispatchPackCoverageWithEvidence([]*pack.Manifest{bunToolchainManifest(t)}, bunFixturePacksDir(t), projectRoot, nil, runner, sandboxRunner)
 	if err != nil {
 		t.Fatalf("dispatchPackCoverage over the bun fixture: %v", err)
 	}
-	return records
+	return result.Records
 }
 
 // TestBunFixture_GateMeasuresTsCoverageFromPrecapturedLcovRunnerStubbed is the

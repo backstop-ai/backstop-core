@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -513,7 +514,7 @@ func coverageProfileFixture(declareExclusion bool) string {
 	b.WriteString("mode: set\n")
 	b.WriteString("#backstop-module " + module + "\n")
 	if declareExclusion {
-		b.WriteString(coverageExclusionDirective + " pkg/packval/sandbox_linux_helper.go " +
+		b.WriteString(coverageExclusionDirective + "\tpkg/packval/sandbox_linux_helper.go\t" +
 			"the exec boundary erases these counters; see testdata/sandbox-linux-coverage-profile.txt\n")
 	}
 	// Helper: deliberately BELOW any threshold, so a failure to honour the exclusion
@@ -572,6 +573,43 @@ func TestCoverageExclusion_CarriesAJustification(t *testing.T) {
 		t.Errorf("the excluded record carries no justification. The gate falls back to generic wording, so "+
 			"the suppression would appear in the report with no way to tell a deliberate exclusion from a "+
 			"mistake. record: %+v", got)
+	}
+}
+
+func TestCoverageExclusion_LinuxHelperInventoryIsNarrowAndEvidenced(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(".backstop", "coverage-exclusions"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var entries []string
+	var helperJustification string
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		entries = append(entries, strings.Fields(line)[0])
+		parts := strings.SplitN(line, "\t", 2)
+		if parts[0] == "pkg/packval/sandbox_linux_helper.go" && len(parts) == 2 {
+			helperJustification = parts[1]
+		}
+	}
+	wantEntries := []string{"pkg/packval/sandbox_linux_helper.go", "pkg/packval/sandbox_nonlinux.go"}
+	if !slices.Equal(entries, wantEntries) {
+		t.Fatalf("coverage exclusions=%v, want unchanged exact paths %v", entries, wantEntries)
+	}
+	for _, token := range []string{
+		"applyRestrictionsAndExec",
+		"applyLandlock",
+		"applySeccomp",
+		"sandbox-linux-coverage-profile.txt",
+		"seccompAuditArch",
+		"seccompSyscallNumbers",
+		"measured",
+	} {
+		if !strings.Contains(helperJustification, token) {
+			t.Errorf("Linux helper exclusion justification does not name %q: %s", token, helperJustification)
+		}
 	}
 }
 

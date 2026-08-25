@@ -51,15 +51,15 @@ func (c minimalCoverageConsumer) verdict(records []check.CoverageRecord) []cover
 // real on-disk convert emits the supplied coverage-records JSON.
 func dispatchRecordsForConvert(t *testing.T, convert string) []check.CoverageRecord {
 	t.Helper()
-	stubSandboxedRunStdout(t, nil)
+	sandboxRunner := directConvertSandboxRunner(nil)
 	packsDir := coverageRoutingPacksDir(t, convert)
 	manifest := gateTypeRoutingManifest("cov-engine", engine.GateTypeCoverage)
 	runner := &fixtureRunner{byCmd: map[string][]byte{"neutral-tool": []byte("raw")}}
-	records, err := dispatchPackCoverage([]*pack.Manifest{manifest}, packsDir, t.TempDir(), nil, runner)
+	result, err := dispatchPackCoverageWithEvidence([]*pack.Manifest{manifest}, packsDir, t.TempDir(), nil, runner, sandboxRunner)
 	if err != nil {
 		t.Fatalf("dispatchPackCoverage: %v", err)
 	}
-	return records
+	return result.Records
 }
 
 // TestCoverage_MetricLabelCarriedAndSurfacedOnReport proves the pack-declared Metric

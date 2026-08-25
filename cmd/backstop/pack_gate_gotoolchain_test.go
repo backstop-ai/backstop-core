@@ -99,20 +99,13 @@ func (r *fixtureRunner) RunStdout(_ context.Context, name string, args ...string
 	return nil, nil
 }
 
-// stubConvertStdin installs a sandboxedRunStdout stub that, instead of running
+// stubConvertStdin returns a SandboxRunner double that, instead of running
 // the sandbox, executes the convert script's transform on the provided stdin by
 // shelling the real script directly via /bin/sh — proving the convert pipe is
 // exercised without a live sandbox. It records the stdin it received.
-func stubSandboxedRunStdout(t *testing.T, gotStdin *[]byte) {
+func stubSandboxedRunStdout(t *testing.T, gotStdin *[]byte) *recordingSandboxRunner {
 	t.Helper()
-	orig := sandboxedRunStdout
-	sandboxedRunStdout = func(cmd string, args []string, packDir string, stdin []byte) ([]byte, error) {
-		if gotStdin != nil {
-			*gotStdin = append([]byte(nil), stdin...)
-		}
-		return runConvertScriptDirect(cmd, stdin)
-	}
-	t.Cleanup(func() { sandboxedRunStdout = orig })
+	return directConvertSandboxRunner(gotStdin)
 }
 
 // goToolchainManifest loads the real go-toolchain pack manifest, skipping if the
@@ -149,21 +142,21 @@ func onlyRules(m *pack.Manifest, keep ...string) *pack.Manifest {
 // output to SARIF via runFindingsEngine (CLM-011).
 func TestGoToolchain_BuildFindingsEngineWithConvert(t *testing.T) {
 	m := onlyRules(goToolchainManifest(t), "go-build")
-	stubSandboxedRunStdout(t, nil)
+	sandboxRunner := stubSandboxedRunStdout(t, nil)
 	runner := &fixtureRunner{byCmd: map[string][]byte{"go build": readFixture(t, "go-build-errors.txt")}}
 
-	violations, err := dispatchPackEngines([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), nil, runner)
+	result, err := dispatchPackEnginesWithEvidence([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), nil, runner, sandboxRunner)
 	if err != nil {
 		t.Fatalf("dispatchPackEngines (build): %v", err)
 	}
-	if len(violations) != 3 {
-		t.Fatalf("expected 3 build violations from the convert, got %d: %#v", len(violations), violations)
+	if len(result.Violations) != 3 {
+		t.Fatalf("expected 3 build violations from the convert, got %d: %#v", len(result.Violations), result.Violations)
 	}
-	if violations[0].File != "pkg/widget/widget.go" || violations[0].Message != "undefined: Frobnicate" {
-		t.Errorf("build violation not normalized via convert: %#v", violations[0])
+	if result.Violations[0].File != "pkg/widget/widget.go" || result.Violations[0].Message != "undefined: Frobnicate" {
+		t.Errorf("build violation not normalized via convert: %#v", result.Violations[0])
 	}
-	if !strings.HasPrefix(violations[0].Rule, "backstop/go-toolchain/") {
-		t.Errorf("build violation must be namespaced to the pack, got %q", violations[0].Rule)
+	if !strings.HasPrefix(result.Violations[0].Rule, "backstop/go-toolchain/") {
+		t.Errorf("build violation must be namespaced to the pack, got %q", result.Violations[0].Rule)
 	}
 }
 
@@ -171,18 +164,18 @@ func TestGoToolchain_BuildFindingsEngineWithConvert(t *testing.T) {
 // findings engine with a convert script via runFindingsEngine (CLM-012).
 func TestGoToolchain_TestFindingsEngineWithConvert(t *testing.T) {
 	m := onlyRules(goToolchainManifest(t), "go-test")
-	stubSandboxedRunStdout(t, nil)
+	sandboxRunner := stubSandboxedRunStdout(t, nil)
 	runner := &fixtureRunner{byCmd: map[string][]byte{"go test": readFixture(t, "go-test-failures.txt")}}
 
-	violations, err := dispatchPackEngines([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), nil, runner)
+	result, err := dispatchPackEnginesWithEvidence([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), nil, runner, sandboxRunner)
 	if err != nil {
 		t.Fatalf("dispatchPackEngines (test): %v", err)
 	}
-	if len(violations) != 3 {
-		t.Fatalf("expected 3 test violations from the convert, got %d: %#v", len(violations), violations)
+	if len(result.Violations) != 3 {
+		t.Fatalf("expected 3 test violations from the convert, got %d: %#v", len(result.Violations), result.Violations)
 	}
-	if violations[0].Message != "TestWidgetFrobnicate: expected 5, got 7" {
-		t.Errorf("test violation not normalized via convert: %#v", violations[0])
+	if result.Violations[0].Message != "TestWidgetFrobnicate: expected 5, got 7" {
+		t.Errorf("test violation not normalized via convert: %#v", result.Violations[0])
 	}
 }
 
@@ -192,11 +185,11 @@ func TestGoToolchain_TestFindingsEngineWithConvert(t *testing.T) {
 func TestGoToolchain_ConvertUsesSandboxedRunStdout(t *testing.T) {
 	m := onlyRules(goToolchainManifest(t), "go-build")
 	var gotStdin []byte
-	stubSandboxedRunStdout(t, &gotStdin)
+	sandboxRunner := stubSandboxedRunStdout(t, &gotStdin)
 	raw := readFixture(t, "go-build-errors.txt")
 	runner := &fixtureRunner{byCmd: map[string][]byte{"go build": raw}}
 
-	if _, err := dispatchPackEngines([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), nil, runner); err != nil {
+	if _, err := dispatchPackEnginesWithEvidence([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), nil, runner, sandboxRunner); err != nil {
 		t.Fatalf("dispatchPackEngines: %v", err)
 	}
 	if string(gotStdin) != string(raw) {
@@ -210,7 +203,7 @@ func TestGoToolchain_ConvertUsesSandboxedRunStdout(t *testing.T) {
 // runErr — this guard is the new behavior.
 func TestGoToolchain_BuildTestCrashNotSilentGreen(t *testing.T) {
 	m := onlyRules(goToolchainManifest(t), "go-build")
-	stubSandboxedRunStdout(t, nil)
+	sandboxRunner := stubSandboxedRunStdout(t, nil)
 	// A crash: non-zero exit with output that yields no parseable compiler errors.
 	crash := []byte("go: cannot find main module; see 'go help modules'\n")
 	runner := &fixtureRunner{
@@ -218,7 +211,7 @@ func TestGoToolchain_BuildTestCrashNotSilentGreen(t *testing.T) {
 		byCmdErr: map[string]error{"go build": &fakeExitError{code: 1}},
 	}
 
-	_, err := dispatchPackEngines([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), nil, runner)
+	_, err := dispatchPackEnginesWithEvidence([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), nil, runner, sandboxRunner)
 	if err == nil {
 		t.Fatal("expected a fail-loud crash error (non-zero exit, no parseable findings), got nil — that is a silent green")
 	}
@@ -232,17 +225,17 @@ func TestGoToolchain_BuildTestCrashNotSilentGreen(t *testing.T) {
 // compile-error case): those surface as violations, not a crash (CLM-010 boundary).
 func TestGoToolchain_BuildTestNonZeroWithFindingsIsNormal(t *testing.T) {
 	m := onlyRules(goToolchainManifest(t), "go-build")
-	stubSandboxedRunStdout(t, nil)
+	sandboxRunner := stubSandboxedRunStdout(t, nil)
 	runner := &fixtureRunner{
 		byCmd:    map[string][]byte{"go build": readFixture(t, "go-build-errors.txt")},
 		byCmdErr: map[string]error{"go build": &fakeExitError{code: 1}},
 	}
-	violations, err := dispatchPackEngines([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), nil, runner)
+	result, err := dispatchPackEnginesWithEvidence([]*pack.Manifest{m}, goToolchainPacksDir(t), t.TempDir(), nil, runner, sandboxRunner)
 	if err != nil {
 		t.Fatalf("non-zero exit WITH parseable findings must not be a crash, got err: %v", err)
 	}
-	if len(violations) != 3 {
-		t.Fatalf("expected the 3 compiler errors as violations, got %d", len(violations))
+	if len(result.Violations) != 3 {
+		t.Fatalf("expected the 3 compiler errors as violations, got %d", len(result.Violations))
 	}
 }
 
@@ -251,11 +244,11 @@ func TestGoToolchain_BuildTestNonZeroWithFindingsIsNormal(t *testing.T) {
 // semgrep/ast-grep do — `go build ./...` not `go build <root>` (REQ-010).
 func TestGoToolchain_BuildTestArgShapingScopeKindAware(t *testing.T) {
 	m := onlyRules(goToolchainManifest(t), "go-build")
-	stubSandboxedRunStdout(t, nil)
+	sandboxRunner := stubSandboxedRunStdout(t, nil)
 	root := t.TempDir()
 	runner := &fixtureRunner{byCmd: map[string][]byte{"go build": readFixture(t, "go-build-errors.txt")}}
 
-	if _, err := dispatchPackEngines([]*pack.Manifest{m}, goToolchainPacksDir(t), root, nil, runner); err != nil {
+	if _, err := dispatchPackEnginesWithEvidence([]*pack.Manifest{m}, goToolchainPacksDir(t), root, nil, runner, sandboxRunner); err != nil {
 		t.Fatalf("dispatchPackEngines: %v", err)
 	}
 	if len(runner.calls) != 1 {
