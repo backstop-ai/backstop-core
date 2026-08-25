@@ -4,7 +4,7 @@ number: SPEC-075
 created: "2026-08-24"
 status: draft
 schema_version: spec/v1
-spec_version: 1.0.3
+spec_version: 1.0.4
 
 implementation:
   summary: >
@@ -134,7 +134,7 @@ contracts:
         signature: "VerifyEightIsolatedCorpora(root, builtRoot string, export OwnerExport) []Finding"
       - name: VerifyRenderedOwnerContracts
         kind: function
-        signature: "VerifyRenderedOwnerContracts(root string, builtRoot string, siteCommit string) []Finding"
+        signature: "VerifyRenderedOwnerContracts(root string, builtRoot string, siteCommit string) []Finding; enforces JLINK-024 dual identity, one-anchor cardinality, containment, visible-byte preservation, and order"
     consumes:
       - source: docs/_data/content-topology.yml
         name: canonical_routes_and_navigation
@@ -152,7 +152,7 @@ contracts:
     provides:
       - name: render_public_site_owner_contracts
         kind: function
-        signature: "Render(root string, builtRoot string, siteCommit string) []Finding"
+        signature: "Render(root string, builtRoot string, siteCommit string) []Finding; JLINK-024 binds one source link to one dual-identity boundary-continuation anchor"
     consumes:
       - source: docs/_data/content-topology.yml
         name: journey_links_and_adoption_instructions
@@ -313,7 +313,7 @@ requirements:
       `docs/_data/site-presentation.yml` must enumerate exactly ten SPEC-072 routes with `page_kind`,
       one exact hero question, ordered treatments, and one canonical `next_action`, matching every
       literal cell in the Exact presentation matrix below; every hero value must byte-match the
-      SPEC-072 v1.0.4 `hero_question` for that route and is not Seed 4 copy ownership. `page_kind` is one of the ten matrix values;
+      SPEC-072 v1.0.5 `hero_question` for that route and is not Seed 4 copy ownership. `page_kind` is one of the ten matrix values;
       treatments are drawn only from `evidence-cards`, `boundary-callouts`, `generated-regions`, and
       `local-overflow`, without duplicates and in the matrix order. Every page renders
       exactly one `body[data-site-shell=field-guide-v1][data-page-kind]`, header/site nav pair,
@@ -448,7 +448,7 @@ requirements:
       - website-expansion:REQ-009@2.0.0
       - website-expansion:REQ-013@1.0.0
     text: >
-      Seed 4 must consume the accepted SPEC-072 v1.0.4 and SPEC-074 v1.0.3 owner records and,
+      Seed 4 must consume the accepted SPEC-072 v1.0.5 and SPEC-074 v1.0.4 owner records and,
       immediately after every exact REQ-001 Jekyll build, run one deterministic build-time
       annotation pass over the disposable `_site`; that pass may add only the rendered attributes,
       provenance anchors, and resolved immutable URLs defined here and must never edit checked-in
@@ -472,6 +472,16 @@ requirements:
       `[data-boundary-guarantee-denial]` from `guarantee_denial_markdown`; the other four states
       must render neither field because SPEC-072 requires both owner fields to be null. The pass
       must not derive an explanation, continuation, denial, or state from statement prose.
+      For BOUNDARY-005 specifically, the source-only JLINK-024 marker embedded inside CLAIM-005 and
+      its immediately following continuation Markdown link must produce exactly one rendered anchor
+      inside the BOUNDARY-005 adjacent-guidance callout. That one anchor must carry both
+      `data-journey-link-id="JLINK-024"` and `data-boundary-continuation`; it simultaneously satisfies
+      the journey-link and boundary-continuation cardinalities. The annotation pass must preserve the
+      pre-annotation rendered text-node bytes for the explanation, continuation label, and guarantee
+      denial and retain their exact explanation-then-anchor-then-denial DOM order. The source marker
+      renders no visible node. Splitting the two identities across anchors, emitting a second anchor,
+      omitting either identity, moving the anchor outside the callout, or placing it before the
+      explanation or after the denial is prohibited.
 
       Each SPEC-074 generated job must retain its one
       `section[data-generated-region][data-product-truth-job]`, product-truth marker pair, owner
@@ -727,6 +737,14 @@ claims:
     kind: absence
     text: The deterministic annotation pass cannot edit checked-in sources, invent owner records or copy, infer fields from prose, emit structured execution internals, or create a second provenance inventory.
     tests: [TestSiteCheck_RenderedOwnerContractsRejectAuthoritySubstitutes]
+  - id: CLM-059
+    requirement: REQ-009
+    text: The embedded JLINK-024 source marker emits no visible node, and its following continuation link renders as one anchor inside BOUNDARY-005 carrying both data-journey-link-id="JLINK-024" and data-boundary-continuation, between the exact preserved explanation and guarantee-denial text-node bytes.
+    tests: [TestSiteCheck_EmbeddedJLINK024DualIdentityPasses]
+  - id: CLM-060
+    requirement: REQ-009
+    text: Missing either JLINK-024 identity, splitting identities across anchors, duplicating the anchor, changing visible explanation/link/denial bytes, moving it outside BOUNDARY-005, or placing it before the explanation or after the denial fails with JLINK-024 and BOUNDARY-005.
+    tests: [TestSiteCheck_EmbeddedJLINK024RejectsIdentityCardinalityMatrix, TestSiteCheck_EmbeddedJLINK024RejectsContainmentOrderAndVisibleBytesMatrix]
 ---
 
 # SPEC-075: Static Public Site Design System
@@ -789,7 +807,7 @@ The wordmark is always the Home route and never masquerades as current-page stat
 | `/status/` | `status` | What is supported, limited, planned, or intentionally outside Backstop? | `evidence-cards`, `boundary-callouts`, `generated-regions`, `local-overflow` | `/contributing/` |
 | `/contributing/` | `contributing` | How can I participate in Backstop and its ecosystem? | `boundary-callouts` | `/` |
 
-Hero strings are copied verbatim from SPEC-072 v1.0.4 and cannot be authored or overridden here. Treatments are present only
+Hero strings are copied verbatim from SPEC-072 v1.0.5 and cannot be authored or overridden here. Treatments are present only
 when their upstream registry records exist on that route; the matrix names the allowed ordered set,
 while sitecheck cross-checks every rendered ID/state/job against SPEC-072/074 rather than accepting
 self-consistent invented values.
@@ -871,13 +889,18 @@ rendered binding below. Each source and destination anchor is case-sensitive and
 | `JLINK-023` | `/reference/#cli-command-catalog` | `/status/#release-history` |
 | `JLINK-024` | `/status/#adjacent-guidance` | `/contributing/#external-ownership` |
 
+JLINK-024 is the sole embedded claim-region link. Its source-only marker sits inside CLAIM-005 and
+immediately precedes the continuation link. Seed 4 must bind that one physical link to one rendered
+anchor carrying both the JLINK-024 identity and the boundary-continuation identity; two rendered
+anchors are a cardinality failure, not a valid representation of two consumer roles.
+
 ### Structured owner-rendering matrix
 
 | Owner record | Required rendered contract |
 |---|---|
 | Any boundary | One owner-route/anchor callout with exact `data-boundary-id`, `data-boundary-state`, and one nonempty `[data-boundary-explanation]`. |
 | `supported`, `limitation`, `planned`, or `non-goal` boundary | No continuation or guarantee-denial element because both owner fields are null. |
-| `adjacent-guidance` boundary | Exactly one `a[data-boundary-continuation][data-journey-link-id]` and one nonempty `[data-boundary-guarantee-denial]`, matching owner fields. |
+| `adjacent-guidance` boundary | Exactly one `a[data-boundary-continuation][data-journey-link-id]` and one nonempty `[data-boundary-guarantee-denial]`, matching owner fields. For BOUNDARY-005, the one anchor carries `data-journey-link-id="JLINK-024"` and both identities on that same element, appears between explanation and denial inside the callout, and preserves all three visible payloads byte-for-byte through annotation. |
 | `cli-command-catalog` | One tree source link for `cmd/backstop`, resolved at the exact site commit. |
 | `artifact-schema-catalog` | One blob source link per generated schema record's `source`, in record order, resolved at the exact site commit. |
 | `installed-pack-catalog` | Exactly two blob source links, `backstop.yml` then `backstop.lock`, resolved at the exact site commit. |
@@ -911,8 +934,10 @@ Implementation proceeds in this order:
 6. After the exact Jekyll build, run the deterministic owner-contract annotation pass with the full
    site commit. Match source markers and owner records structurally; bind all rendered JLINKs and
    structured boundary fields, resolve generated source descriptors, and mark the three adoption
-   command blocks without changing visible copy or checked-in source. Refuse an unresolved or
-   ambiguous owner edge instead of guessing from prose.
+   command blocks without changing visible copy or checked-in source. Bind embedded JLINK-024's one
+   continuation link to one dual-identity anchor inside BOUNDARY-005, preserve explanation/link/denial
+   text-node bytes and order, and refuse split or duplicate anchors. Refuse an unresolved or ambiguous
+   owner edge instead of guessing from prose.
 7. Parse every disposable `_site` document and validate the exact route, redirect, canonical, link,
    anchor, navigation, current-state, landmark, JLINK, structured-boundary, generated-region,
    generated-source-link, adoption-instruction, digest, asset, JavaScript-absence, and CNAME
@@ -949,7 +974,10 @@ Neither local structural checks nor one external evidence channel may stand in f
 The positive path is not sufficient by itself. Verification must independently delete or corrupt
 each canonical route, navigation cell, link class, redirect, generated region, CNAME surface,
 viewport behavior, JLINK binding, boundary subfield, generated source link, adoption instruction,
-design-system matrix cell, and Pages prerequisite described in frontmatter. A
+design-system matrix cell, and Pages prerequisite described in frontmatter. JLINK-024 mutations must
+independently remove each identity, split the identities, duplicate the anchor, alter each visible
+payload, move the anchor outside BOUNDARY-005, and place it on either wrong side of the
+explanation/denial sequence. A
 generic "site failed" message is not acceptable evidence; the responsible phase and public or owner
 identity must be visible.
 
@@ -979,6 +1007,9 @@ identity must be visible.
 - **Structured boundary fields can collapse back into prose.** A visually complete callout without
   separate explanation, continuation, and denial markers is not machine-verifiable and leaves Seed 5
   guessing. Each owner field and its forbidden-null case remains load-bearing.
+- **One source link can serve two rendered identities.** JLINK-024 is both the journey link and the
+  BOUNDARY-005 continuation. Rendering two anchors duplicates visible copy and violates both owner
+  cardinalities; putting one identity on each anchor is not equivalent to one dual-identity element.
 - **A displayed command can drift from executable owner data.** Exact visible bytes and the owner
   digest are both required. Seed 4 does not expose argv/environment as page copy or execute commands;
   Seed 5 separately proves that structured execution reaches a real gate result.
@@ -1012,7 +1043,7 @@ identity must be visible.
 
 ## Integration Contract
 
-SPEC-072 v1.0.4 remains the owner of content, routes, navigation meaning, JLINK records and labels,
+SPEC-072 v1.0.5 remains the owner of content, routes, navigation meaning, JLINK records and labels,
 structured boundaries, adoption instructions, concepts, claims, evidence, and final copy. SPEC-073 remains the owner of Core's separately released pack-consumption
 contract and documentation-semantic execution. SPEC-074 remains the owner of generated records,
 markers, digests, source descriptors, freshness, and release-history handshake. This spec owns
@@ -1046,17 +1077,19 @@ assertions.
     destination, without falling back to global navigation or an annotation-authored link?
 12. Can removing any structured boundary field, generated source link, or adoption instruction
     marker produce an attributed failure before Seed 5 journey acceptance runs?
+13. Does embedded JLINK-024 remain one dual-identity anchor inside BOUNDARY-005, in exact visible
+    explanation/link/denial order, with either missing identity and every split/duplicate mutation rejected?
 
 ## References
 
 - `bundles/BUNDLE-032-website-expansion.bundle.md` v0.6.0 — source bundle, Seed 4 partition,
   REQ-009@2.0.0, REQ-013@1.0.0, OQ-6, DD-9, DD-12, and cross-repository sharp edges.
-- `specs/SPEC-072-public-product-model.spec.md` v1.0.4 — ten source/path pairs, exact navigation,
+- `specs/SPEC-072-public-product-model.spec.md` v1.0.5 — ten source/path pairs, exact navigation,
   JLINK and adoption-instruction records, structured boundary fields, content ownership,
   claim/evidence/boundary registries, final copy, and Mermaid authority.
 - `specs/SPEC-073-documentation-semantics-integration.spec.md` — released pack identity/pin boundary,
   clean install, and semantics integration; it does not establish design-system applicability.
-- `specs/SPEC-074-derived-product-truth-pipeline.spec.md` v1.0.3 — four checked-in generated regions,
+- `specs/SPEC-074-derived-product-truth-pipeline.spec.md` v1.0.4 — four checked-in generated regions,
   source include markers, typed source descriptors and URL templates, source-level freshness,
   and the tag/latest-main release handshake. This spec owns their Jekyll build, rendered digest and
   immutable-anchor verification, Pages freshness/no-tag behavior, and deployment acceptance.

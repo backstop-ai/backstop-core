@@ -4,7 +4,7 @@ number: SPEC-072
 created: "2026-08-24"
 status: draft
 schema_version: spec/v1
-spec_version: 1.0.4
+spec_version: 1.0.5
 
 implementation:
   summary: >
@@ -43,7 +43,7 @@ contracts:
     provides:
       - name: public_content_topology
         kind: variable
-        signature: "pages[] + neighborhoods[] + navigation + journey_links[24] + adoption_instructions[3]"
+        signature: "pages[] + neighborhoods[] + navigation + journey_links[24; JLINK-024 embedded in CLAIM-005] + adoption_instructions[3]"
   - file: docs/_data/product-model.yml
     provides:
       - name: canonical_product_model
@@ -212,10 +212,16 @@ requirements:
       non-overlapping paired lines `<!-- backstop-claim: CLAIM-ID -->` and
       `<!-- /backstop-claim -->`. A claim ID occurs in exactly one region, every region resolves
       to exactly one inventory record, and every inventory record resolves back to one region.
-      Region bytes, normalized only to LF line endings with one terminal newline removed, must
-      equal `statement_markdown`; the record route and anchor must match the page and nearest
-      preceding explicit heading ID. Markers are source-only metadata, not a second rendered
-      narrative. `claim_type` must be one of `mechanism`,
+      The canonical visible payload of each region, normalized only to LF line endings with one
+      terminal newline removed, must equal `statement_markdown`; the record route and anchor must
+      match the page and nearest preceding explicit heading ID. Normally the canonical visible
+      payload is the complete region interior. The sole exception is the `CLAIM-005` region for
+      adjacent-guidance `BOUNDARY-005`: its interior must contain exactly one
+      `<!-- backstop-journey-link: JLINK-024 -->` line immediately before the continuation link,
+      and canonicalization must delete exactly that marker line plus its terminating LF before
+      comparing the remaining bytes to `statement_markdown`. No other comment, marker, whitespace,
+      or byte may be discarded during canonicalization. Claim and journey-link markers are
+      source-only metadata, not a second rendered narrative. `claim_type` must be one of `mechanism`,
       `runtime-behavior`, `compatibility`, `observed-failure`, or `observed-outcome`.
       Compatibility claims must state separately (a) whether the named tool can operate
       Backstop and (b) which Backstop lifecycle or enforcement guarantees that integration
@@ -252,7 +258,11 @@ requirements:
       continuation route/anchor/label, and the boundary's one existing `claim_id` governs every
       non-null structured copy field. Its claim `statement_markdown` must equal the exact
       composition `explanation_markdown`, then for adjacent guidance a blank line, Markdown link
-      `[<label>](<route>#<anchor>)`, another blank line, and `guarantee_denial_markdown`. A boundary
+      `[<label>](<route>#<anchor>)`, another blank line, and `guarantee_denial_markdown`.
+      `BOUNDARY-005` must use the exact physical claim-region layout defined in the Structured
+      boundary fields section: its JLINK-024 source marker is inside CLAIM-005 between the first
+      blank line and continuation link, while the canonical visible claim payload excludes only
+      that marker line. A boundary
       with zero states,
       multiple states, or prose that contradicts its state must fail verification.
   - id: REQ-006
@@ -319,7 +329,10 @@ requirements:
       source and destination anchor must exist exactly once in its Seed 1 page source. Missing,
       additional, duplicate, reordered, wrong-source, wrong-destination, wrong-anchor,
       unmarked, multiply marked, global-navigation-only, or non-root-relative links are
-      PROHIBITED. Seed 1 owns the source link and copy; Seed 4 owns rendered link attributes and
+      PROHIBITED. JLINK-024 must occur inside the CLAIM-005 region in the exact BOUNDARY-005
+      physical layout defined by REQ-004 and REQ-005; placing that marker outside the claim
+      region, between the claim-start marker and explanation, after the continuation link, or
+      with any intervening line is PROHIBITED. Seed 1 owns the source link and copy; Seed 4 owns rendered link attributes and
       route/link behavior; Seed 5 may consume these IDs but must not author substitute links.
   - id: REQ-009
     supports:
@@ -473,14 +486,16 @@ claims:
       - verify_seed_one_has_no_generalized_prose_system
   - id: CLM-025
     requirement: REQ-004
-    text: Every accepted consequential Markdown block is enclosed by one non-nested claim region whose ID, statement bytes, route, and anchor exactly match one inventory record.
+    text: Every accepted consequential Markdown block is enclosed by one non-nested claim region whose ID, canonical visible statement bytes, route, and anchor exactly match one inventory record; CLAIM-005 passes only with the single embedded JLINK-024 marker line removed by the exact canonicalization rule.
     tests:
       - verify_markdown_claim_region_bijection
+      - verify_adjacent_guidance_embedded_jlink_claim_layout
   - id: CLM-026
     requirement: REQ-004
-    text: Missing, duplicated, nested, overlapping, unknown, orphaned, or byte-mismatched claim regions fail with the page and claim ID.
+    text: Missing, duplicated, nested, overlapping, unknown, orphaned, byte-mismatched, or non-canonically marked claim regions fail with the page and claim ID; no marker other than the exact CLAIM-005/JLINK-024 line may be stripped from a claim payload.
     tests:
       - verify_markdown_claim_region_rejects_invalid_linkage
+      - verify_markdown_claim_region_rejects_invalid_embedded_jlink
   - id: CLM-027
     requirement: REQ-003
     text: ARCH-001, ARCH-002, and ARCH-003 each exist with the exact Mermaid source, owner route/anchor, and required architecture content.
@@ -523,24 +538,28 @@ claims:
       - verify_content_topology_rejects_invalid_hero_question
   - id: CLM-036
     requirement: REQ-008
-    text: All 24 exact JLINK records resolve one-to-one from their declared source route/anchor markers and Markdown links to their exact destination route/anchor.
+    text: All 24 exact JLINK records resolve one-to-one from their declared source route/anchor markers and Markdown links to their exact destination route/anchor, with JLINK-024 embedded in CLAIM-005 at the one required physical position.
     tests:
       - verify_journey_link_matrix
+      - verify_adjacent_guidance_embedded_jlink_claim_layout
   - id: CLM-037
     requirement: REQ-008
-    text: A missing, additional, duplicate, reordered, wrong-source, wrong-destination, wrong-anchor, unmarked, multiply marked, global-navigation-only, or non-root-relative JLINK fails with its link ID.
+    text: A missing, additional, duplicate, reordered, wrong-source, wrong-destination, wrong-anchor, unmarked, multiply marked, global-navigation-only, non-root-relative, or wrongly embedded JLINK fails with its link ID.
     tests:
       - verify_journey_link_matrix_rejects_invalid_edge
+      - verify_journey_link_matrix_rejects_invalid_claim_embedding
   - id: CLM-038
     requirement: REQ-005
-    text: Every boundary state carries nonempty structured explanation text; every adjacent-guidance record carries exactly one JLINK-matched continuation object and nonempty guarantee denial whose deterministic composition equals its claim statement; and all four other states carry null continuation and denial fields with claim text equal to their explanation.
+    text: Every boundary state carries nonempty structured explanation text; adjacent-guidance BOUNDARY-005 carries exactly one JLINK-024-matched continuation object and nonempty guarantee denial whose deterministic visible composition equals CLAIM-005 after removing only the required embedded marker line; and all four other states carry null continuation and denial fields with claim text equal to their explanation.
     tests:
       - verify_product_boundary_structured_field_matrix
+      - verify_adjacent_guidance_embedded_jlink_claim_layout
   - id: CLM-039
     requirement: REQ-005
-    text: A missing or empty explanation, malformed or JLINK-mismatched continuation, missing adjacent-guidance continuation or denial, claim-composition mismatch, or non-null continuation or denial on another state fails with its boundary ID and field.
+    text: A missing or empty explanation, malformed or JLINK-mismatched continuation, missing adjacent-guidance continuation or denial, claim-composition mismatch, invalid CLAIM-005/JLINK-024 physical layout, or non-null continuation or denial on another state fails with its boundary ID and field.
     tests:
       - verify_product_boundary_rejects_invalid_structured_fields
+      - verify_markdown_claim_region_rejects_invalid_embedded_jlink
   - id: CLM-040
     requirement: REQ-009
     text: ADOPT-INSTALL, ADOPT-CONFIGURE, and ADOPT-ENFORCE occur in exact order with the exact owner, command, digest, structured execution, immutable provenance, zero exit expectation, and postconditions in the Adoption instruction matrix.
@@ -724,6 +743,28 @@ guarantee denial; non-adjacent claim text is the explanation alone. These fields
 Seed 4 renders stable markers from them; Seed 5 consumes the IDs and cardinality without inferring
 semantic structure from prose.
 
+BOUNDARY-005, CLAIM-005, and JLINK-024 have exactly this physical source layout under
+`/status/#adjacent-guidance`:
+
+```text
+<!-- backstop-claim: CLAIM-005 -->
+Backstop stops at an inspectable verdict because external orchestration and organizational enforcement have different owners.
+
+<!-- backstop-journey-link: JLINK-024 -->
+[Continue outside Backstop](/contributing/#external-ownership)
+
+That continuation is guidance, not a guarantee provided by Backstop.
+<!-- /backstop-claim -->
+```
+
+The claim verifier takes the bytes between the paired claim markers, normalizes line endings and
+the terminal newline as REQ-004 specifies, then deletes exactly the JLINK-024 marker line and its
+terminating LF. The remaining visible Markdown must byte-equal CLAIM-005 `statement_markdown`.
+Deleting any other comment or whitespace, placing JLINK-024 outside CLAIM-005, or separating its
+marker from the continuation link is invalid. This single source link simultaneously realizes the
+structured boundary continuation and the journey edge; it is not duplicated to satisfy either
+consumer.
+
 ### Adoption instruction matrix
 
 These are the exact three source-owned records in `content-topology.yml`. `command_sha256` hashes
@@ -781,9 +822,10 @@ The planner must preserve this ordering and these ownership seams:
    three provenance-bound adoption instructions.
 3. Materialize the canonical concept, architecture, boundary, and claim-evidence registries from
    durable repository sources. Do not use conversation recollection as evidence.
-4. Implement the Core-owned static verifier for exact inventory completeness, claim-region byte and
-   reference integrity, single structural ownership, the exact JLINK source/destination and marker
-   matrix, structured boundary-field cardinality, adoption instruction command/digest/execution/
+4. Implement the Core-owned static verifier for exact inventory completeness, claim-region canonical
+   visible-byte and reference integrity (including the sole CLAIM-005/JLINK-024 embedded-marker
+   normalization), single structural ownership, the exact JLINK source/destination and marker matrix,
+   structured boundary-field cardinality, adoption instruction command/digest/execution/
    provenance binding, state classification, claim-type evidence matrices, durable source existence,
    and minimum corpus roles. The verifier checks deterministic Backstop-specific structure only; it
    does not define a reusable documentation-semantic engine.
@@ -811,6 +853,13 @@ judgments or require a released pack, declaration, lock, or installation from Se
 defined in frontmatter. Negative tests mutate isolated fixture copies, never the accepted site corpus, and print
 the relevant page, neighborhood, concept, architecture view, boundary, claim, useful unit, JLINK,
 adoption instruction, corpus role, source path, or commit in the failure.
+
+Claim-region verification compares the canonical visible payload, not unfiltered source metadata.
+For CLAIM-005 only, the positive fixture must prove the exact physical layout above and delete only
+the embedded JLINK-024 marker line plus its LF before byte comparison. Independent negative fixtures
+must move the marker before the explanation, outside the claim, after the link, and add an intervening
+line; each must fail with CLAIM-005, JLINK-024, or BOUNDARY-005. A fixture that inserts another HTML
+comment into any claim region must remain byte-significant and fail rather than being silently stripped.
 
 The claim-type evidence matrix is exhaustive:
 
@@ -851,8 +900,9 @@ or contradictory states fail.
   the wrong owner; whole-file retirement can discard grounded claims. Disposition occurs at useful-unit
   level before file-level action.
 - **Markdown linkage can drift invisibly.** A marker may survive while prose moves, splits, or changes.
-  Paired regions, exact normalized `statement_markdown`, unique IDs, and route/anchor checks must fail
-  that drift; a nearby unbounded comment is insufficient.
+  Paired regions, exact canonical visible `statement_markdown`, unique IDs, and route/anchor checks
+  must fail that drift. CLAIM-005's one embedded JLINK-024 marker is an explicit exception to raw
+  source-byte equality, not permission to strip arbitrary comments or normalize other whitespace.
 - **The verifier seam can absorb Seed 2.** The local script may check IDs, exact bytes, cardinality,
   paths, and references only. Generalized semantic judgments remain downstream Seed 2 work; adding a
   temporary local copy of a pack rule would create a second policy owner and an invalid prerequisite.
@@ -886,9 +936,12 @@ governed documentation-semantics pack; it may not relocate product truth into th
 generate Markdown only into owners named here and must retain one authoritative source per derived
 surface. Seed 4 consumes the ten page sources, canonical paths, navigation model, JLINK records,
 structured boundary fields, and adoption instructions without changing content ownership; it owns
-their rendered markers and behavior. Seed 5 traverses built output, cites the claim/evidence/boundary
-records, follows the JLINK edges, and directly executes the structured adoption records without
-redefining any of them or treating this spec as the owner of capability scenarios.
+their rendered markers and behavior. For BOUNDARY-005, Seed 4 must consume the embedded JLINK-024
+source marker as the single continuation link and render one anchor carrying both the boundary-
+continuation and journey-link identities; it must not render duplicate links from the two registries.
+Seed 5 traverses that one rendered JLINK-024 edge, cites the claim/evidence/boundary records, follows
+the remaining JLINK edges, and directly executes the structured adoption records without redefining
+any of them or treating this spec as the owner of capability scenarios.
 
 ## Review Questions
 
@@ -913,9 +966,11 @@ redefining any of them or treating this spec as the owner of capability scenario
     capability journeys, MCP publication, or generalized prose tooling?
 11. Does every JLINK source marker occur exactly once under its declared source anchor and point to
     the exact destination anchor rather than merely the right page?
-12. Do boundary consumers read the structured explanation/continuation/denial fields rather than
+12. Does CLAIM-005 use the exact embedded JLINK-024 physical layout, with canonicalization deleting
+    only that marker line while preserving one physical continuation link for all consumers?
+13. Do boundary consumers read the structured explanation/continuation/denial fields rather than
     parsing page prose, with non-adjacent states retaining explicit nulls?
-13. Can a consumer execute all three adoption records in order from structured executable, argv,
+14. Can a consumer execute all three adoption records in order from structured executable, argv,
     environment, working directory, and provenance without invoking a shell or using a preinstalled
     Backstop binary?
 
@@ -936,5 +991,8 @@ redefining any of them or treating this spec as the owner of capability scenario
   `issues/ISSUE-184-fixture-path-filter-diagnostics.issue.md` — durable first-party failure evidence.
 - `artifacts/capability/v1/schema.json`, `pkg/pack/engine/binding.go`, and
   `pkg/recipe/manifest.go` — product-model and mechanism source material.
-- `specs/SPEC-076-end-to-end-website-capabilities.spec.md` v1.0.2 — downstream consumer contract
-  requiring SPEC-072 v1.0.4's JLINK, structured-boundary, and adoption-instruction contract.
+- `specs/SPEC-075-static-public-site-design-system.spec.md` v1.0.3 — downstream renderer currently
+  pinned to SPEC-072 v1.0.4 and requiring amendment to consume the v1.0.5 embedded-marker layout.
+- `specs/SPEC-076-end-to-end-website-capabilities.spec.md` v1.0.2 — downstream consumer currently
+  pinned to SPEC-072 v1.0.4 and requiring amendment to consume the single rendered JLINK-024 edge
+  produced from the v1.0.5 embedded-marker layout.

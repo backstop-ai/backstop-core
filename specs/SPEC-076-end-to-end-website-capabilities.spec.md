@@ -4,7 +4,7 @@ number: SPEC-076
 created: "2026-08-24"
 status: draft
 schema_version: spec/v1
-spec_version: 1.0.2
+spec_version: 1.0.3
 
 implementation:
   summary: >
@@ -244,7 +244,7 @@ requirements:
       Each scenario must describe a visitor-observable outcome and traverse the exact ordered
       route/anchor and `JLINK-NNN` sequence in the Journey matrix through an owner-declared
       rendered content or next-action link. SPEC-076 depends on predecessor contracts
-      SPEC-072 v1.0.4 and SPEC-075 v1.0.3: SPEC-072 exposes the exact `journey_links[]`
+      SPEC-072 v1.0.5 and SPEC-075 v1.0.4: SPEC-072 exposes the exact `journey_links[]`
       records in `docs/_data/content-topology.yml` and requires each Seed 1 owner page to carry
       its link at the source anchor; SPEC-075 renders and verifies each as exactly one
       `a[data-journey-link-id=<JLINK-NNN>]` under `main#main` or
@@ -266,9 +266,9 @@ requirements:
       `docs/_data/evidence-inventory.yml`, its owner route and anchor, and its expected
       `claim_type`; every `boundary` obligation must name one existing `boundary_id` from
       `docs/_data/product-model.yml`, its owner route and anchor, its exact state, and that
-      boundary's claim ID. SPEC-072 v1.0.4 structures every boundary's explanation and,
+      boundary's claim ID. SPEC-072 v1.0.5 structures every boundary's explanation and,
       where required, continuation and guarantee-denial fields without changing the five-state
-      vocabulary. SPEC-075 v1.0.3 renders exact stable markers
+      vocabulary. SPEC-075 v1.0.4 renders exact stable markers
       `[data-boundary-id][data-boundary-state]`, `[data-boundary-explanation]`,
       `a[data-boundary-continuation]`, and `[data-boundary-guarantee-denial]`; Seed 5 consumes
       those markers and never parses prose to infer a field. Every `generated` obligation must
@@ -277,9 +277,9 @@ requirements:
       descriptor set and exact URL templates, and the canonical source-level
       `sha256:<64-lowercase-hex>` provenance-envelope digest. It must separately name the
       SPEC-075-accepted site identity and complete realized immutable rendered-anchor set.
-      SPEC-074 v1.0.3 owner-defines the typed source descriptors, exact URL
+      SPEC-074 v1.0.4 owner-defines the typed source descriptors, exact URL
       templates containing unresolved `<SITE-COMMIT>` where applicable, and canonical
-      source-level envelope digest. SPEC-075 v1.0.3 resolves `<SITE-COMMIT>` from the exact
+      source-level envelope digest. SPEC-075 v1.0.4 resolves `<SITE-COMMIT>` from the exact
       build/deployment identity, renders each realized immutable URL as
       `a[data-generated-source-link]` inside the one
       `section[data-generated-region][data-product-truth-job]`, reconstructs the canonical
@@ -287,7 +287,18 @@ requirements:
       owner acceptance result and must not resolve or reconstruct it. CAP-011/@UJ-001 binds exactly
       `installed-pack-catalog`; CAP-013/@UJ-002 binds exactly all four jobs
       `cli-command-catalog`, `artifact-schema-catalog`, `installed-pack-catalog`, and
-      `release-history`. IDs and provenance are imported from accepted owner registries and
+      `release-history`. CAP-014/@UJ-001 has one additional conjunctive identity contract:
+      its JLINK-024 hop and BOUNDARY-005 adjacent-guidance continuation obligation must resolve
+      to the SAME single rendered anchor inside the BOUNDARY-005 callout. That one anchor must
+      carry both `data-journey-link-id="JLINK-024"` and `data-boundary-continuation`, retain the
+      exact root-relative `/contributing/#external-ownership` href, and occur after the one
+      `[data-boundary-explanation]` and before the one `[data-boundary-guarantee-denial]`.
+      The explanation, link label, and guarantee-denial visible bytes must be exactly the bytes
+      accepted by SPEC-075's owner rendering contract. A second anchor may not satisfy either
+      cardinality. Seed 5 consumes only this accepted SPEC-075 v1.0.4 rendered DOM and the
+      owner verdict keyed by JLINK-024 and BOUNDARY-005; it must not parse or canonicalize CLAIM-005,
+      the source JLINK marker, boundary source metadata, or other source bytes to manufacture
+      either identity. IDs and provenance are imported from accepted owner registries and
       must not be invented or copied into a second truth registry. A missing, duplicate, stale,
       wrong-owner, wrong-kind/type/state/job, malformed marker/source-level digest, incomplete
       descriptor/template/rendered-anchor set, wrong site identity, text-only, prose-inferred,
@@ -323,9 +334,9 @@ requirements:
       Acceptance must follow root-relative rendered links, require HTTP 200 for canonical
       pages, require real case-sensitive anchors and visible semantic obligations, and prove
       terminal outcomes from rendered structure rather than keyword or screenshot matching.
-      CAP-009 additionally requires an execution proof: SPEC-072 v1.0.4 owns the three
+      CAP-009 additionally requires an execution proof: SPEC-072 v1.0.5 owns the three
       exact provenance records and rendered command text in the Adoption command matrix;
-      SPEC-075 v1.0.3 renders one `pre[data-adoption-instruction-id][data-command-sha256]`
+      SPEC-075 v1.0.4 renders one `pre[data-adoption-instruction-id][data-command-sha256]`
       per record. After browser traversal, the runner must create a disposable Git repository,
       verify rendered text and SHA-256 against the upstream structured executable/argv/env
       record, then execute ADOPT-INSTALL, ADOPT-CONFIGURE, and ADOPT-ENFORCE in order without
@@ -346,7 +357,16 @@ requirements:
       every boundary element, state, explanation, continuation link, or guarantee denial named by a journey-map
       boundary edge; and (e) for every mapped generated obligation independently remove its
       region, job ID, owner anchor, begin marker, end marker, digest, or each source link one at
-      a time, including every member of a variable multi-link set. Every
+      a time, including every member of a variable multi-link set. For CAP-014/@UJ-001 it must
+      additionally and independently remove the dual-identity anchor, remove its JLINK-024
+      identity, remove its boundary-continuation identity, remove or alter its href, split the
+      two identities across two anchors, duplicate the dual-identity anchor, move it outside
+      BOUNDARY-005, place it before the explanation, place it after the guarantee denial, alter
+      the explanation visible bytes, alter the link-label visible bytes, and alter the denial
+      visible bytes. Seed 5 must consume the SPEC-075 owner verdict for those byte-preservation
+      variants rather than comparing against source metadata itself.
+      Each of these variants must fail with a diagnostic naming CAP-014/@UJ-001, JLINK-024, and
+      BOUNDARY-005; an upstream generic failure alone is insufficient. Every
       mutation must make at least one specifically named global journey
       fail, and the diagnostic must name mutation class, mutated route/record/verdict, and
       broken journey. It is prohibited to accept only because a generic route/link checker,
@@ -401,6 +421,14 @@ claims:
     requirement: REQ-003
     text: An unknown or wrong generated job, owner, output, descriptor, template, marker, source-level digest, site identity, realized anchor set, predecessor version, missing SPEC-075 reconstruction verdict, Seed-5-resolved or independently reconstructed region, or evidence/boundary record mislabeled as generated fails with global key and job.
     tests: [TestWebsiteJourney_RejectsInvalidGeneratedObligationMatrix]
+  - id: CLM-028
+    requirement: REQ-003
+    text: CAP-014/@UJ-001 traverses one anchor inside BOUNDARY-005 carrying both data-journey-link-id="JLINK-024" and data-boundary-continuation, with exact href, after explanation and before guarantee denial, while Seed 5 reads no source metadata.
+    tests: [TestWebsiteJourney_CAP014DualIdentityAnchorPasses]
+  - id: CLM-029
+    requirement: REQ-003
+    text: A missing identity, anchor, or href, split identities, duplicate anchor, wrong href, containment, explanation-link-denial order, or visible explanation/link/denial bytes, or Seed 5 source parsing/canonicalization fails with CAP-014/@UJ-001, JLINK-024, and BOUNDARY-005.
+    tests: [TestWebsiteJourney_RejectsCAP014DualIdentityAnchorMatrix]
   - id: CLM-007
     requirement: REQ-004
     text: The exact four successful upstream commands are consumed as prerequisites by every capability.
@@ -458,6 +486,10 @@ claims:
     requirement: REQ-006
     text: For every mapped generated obligation, independently removing its region, job ID, owner anchor, begin marker, end marker, digest, or each source link breaks CAP-011/@UJ-001 or CAP-013/@UJ-002 as mapped.
     tests: [TestWebsiteJourney_EveryGeneratedProvenanceMutationBreaksJourney]
+  - id: CLM-030
+    requirement: REQ-006
+    text: Independently deleting CAP-014/@UJ-001's shared anchor, either identity, or href; splitting or duplicating the anchor; changing its target; moving it outside BOUNDARY-005; moving it before explanation or after denial; or altering explanation, link-label, or denial visible bytes breaks that journey through the SPEC-075 owner verdict with a diagnostic naming CAP-014/@UJ-001, JLINK-024, and BOUNDARY-005.
+    tests: [TestWebsiteJourney_EveryCAP014DualIdentityMutationBreaksNamedJourney]
   - id: CLM-018
     requirement: REQ-007
     kind: absence
@@ -581,7 +613,7 @@ must resolve to exactly one record; ambiguity is a failure requiring Seed 1 trut
 | CAP-012/@UJ-002 | mechanism claim for contribution ownership | adjacent-guidance record where another repository owns the work | none |
 | CAP-013/@UJ-001 | consequential claim with one durable mechanism source and claim-type-appropriate second source | none | none |
 | CAP-013/@UJ-002 | mechanism claim explaining the derivation chain | none | `cli-command-catalog`, `artifact-schema-catalog`, `installed-pack-catalog`, `release-history` |
-| CAP-014/@UJ-001 | mechanism claim supporting why the boundary exists | adjacent-guidance with reason, continuation path, and guarantee denial | none |
+| CAP-014/@UJ-001 | mechanism claim supporting why the boundary exists | exact `BOUNDARY-005` adjacent-guidance with reason, JLINK-024 continuation, and guarantee denial | none |
 | CAP-014/@UJ-002 | compatibility or mechanism claim whose guarantee boundary is explicit | adjacent-guidance explicitly denying a Backstop guarantee | none |
 
 `none` means the journey has no obligation of that kind. Roles permitting multiple boundary states
@@ -594,7 +626,7 @@ registered source output; literal product-truth begin/end markers; literal
 `<!-- PRODUCT-TRUTH:SOURCES-END job=<ID> -->` markers; complete ordered typed descriptors and URL
 templates; and the canonical lowercase 64-hex source-level provenance-envelope digest. It separately
 binds the complete immutable anchor set and reconstruction/digest verdict realized under SPEC-075
-v1.0.3. The product-truth begin marker and sources-begin marker carry the same owner digest. Seed 5 compares those owner outputs and
+v1.0.4. The product-truth begin marker and sources-begin marker carry the same owner digest. Seed 5 compares those owner outputs and
 verdicts; it neither substitutes `<SITE-COMMIT>` nor reconstructs the envelope. The four exact
 job/owner/output tuples remain:
 
@@ -606,7 +638,7 @@ job/owner/output tuples remain:
 | `release-history` | `/status/#release-history` | `docs/_includes/generated/release-history.md` | One ordered `{kind: commit, commit_binding: record, commit: <record.commit>}` descriptor per release record and no others; template `https://github.com/backstop-ai/backstop-core/commit/<record.commit>`. |
 
 `<SITE-COMMIT>` remains an exact literal, HTML-encoded token in SPEC-074 source output; Seed 3 does
-not resolve it and does not own a rendered anchor. SPEC-075 v1.0.3 alone substitutes the full
+not resolve it and does not own a rendered anchor. SPEC-075 v1.0.4 alone substitutes the full
 lowercase 40-hex HEAD for built acceptance or authoritative page-deployment commit for deployed
 acceptance, renders the immutable anchors, reconstructs the canonical descriptor/record envelope,
 and compares the source-level and rendered digests. The Seed 5 runner consumes that accepted
@@ -620,9 +652,9 @@ and acceptance fails before traversal when an owner version, contract, or field 
 
 | Owner version | Required owner contract |
 |---|---|
-| SPEC-072 v1.0.4 | The exact JLINK records above in `content-topology.yml`; stable structured boundary `explanation_markdown`, continuation, and guarantee-denial fields in `product-model.yml`; and the exact adoption instruction records below. Seed 1 source pages own the link and instruction copy. |
-| SPEC-074 v1.0.3 | Every generated job exports its complete ordered typed source-descriptor set, exact URL templates, marker pair, and canonical source-level provenance-envelope digest. Site-bound descriptors retain literal `<SITE-COMMIT>`; Seed 3 does not resolve it or create rendered anchors. |
-| SPEC-075 v1.0.3 | Owner-declared rendered JLINK and boundary-field markers; `<SITE-COMMIT>` resolution; immutable generated anchors; generated descriptor/record reconstruction and rendered-digest acceptance; and adoption instruction ID/digest markers. Sitecheck verifies these upstream rendering contracts. |
+| SPEC-072 v1.0.5 | The exact JLINK records above in `content-topology.yml`; stable structured boundary `explanation_markdown`, continuation, and guarantee-denial fields in `product-model.yml`; the BOUNDARY-005/CLAIM-005/JLINK-024 single-source-link composition; and the exact adoption instruction records below. Seed 1 source pages own the link and instruction copy. |
+| SPEC-074 v1.0.4 | Every generated job exports its complete ordered typed source-descriptor set, exact URL templates, marker pair, and canonical source-level provenance-envelope digest. Site-bound descriptors retain literal `<SITE-COMMIT>`; Seed 3 does not resolve it or create rendered anchors. |
+| SPEC-075 v1.0.4 | Owner-declared rendered JLINK and boundary-field markers; JLINK-024/BOUNDARY-005 single-anchor dual identity and order; `<SITE-COMMIT>` resolution; immutable generated anchors; generated descriptor/record reconstruction and rendered-digest acceptance; and adoption instruction ID/digest markers. Sitecheck verifies these upstream rendering contracts. |
 
 For boundary obligations, `data-boundary-id`, `data-boundary-state`, and
 `data-boundary-explanation` are mandatory. `adjacent-guidance` additionally requires exactly one
@@ -630,9 +662,17 @@ For boundary obligations, `data-boundary-id`, `data-boundary-state`, and
 continuation or denial in the matrix requires that corresponding marker. Seed 5 compares structured
 IDs and presence/cardinality only; it never judges the prose.
 
+CAP-014/@UJ-001 is the deliberate overlap between the journey-link and boundary-continuation
+contracts. JLINK-024 and BOUNDARY-005 do not produce two links. The accepted rendered shape is one
+anchor inside the BOUNDARY-005 callout with both identities, exact destination, and the DOM order
+`[data-boundary-explanation]`, shared anchor, `[data-boundary-guarantee-denial]`. Seed 5 inspects that
+one DOM relationship and consumes SPEC-075's JLINK-024/BOUNDARY-005-keyed verdict for exact visible
+explanation, link-label, and denial byte preservation. It does not read, strip, normalize,
+canonicalize, or otherwise interpret CLAIM-005, the source marker, or boundary source metadata.
+
 ### Adoption command matrix
 
-SPEC-072 v1.0.4 owns these exact three structured records and displayed commands. The executable,
+SPEC-072 v1.0.5 owns these exact three structured records and displayed commands. The executable,
 argv, and environment are owner data; SPEC-076 executes that structure directly and merely proves
 the rendered code block has the same command digest.
 
@@ -648,7 +688,7 @@ The planner must preserve this order:
 
 1. Reserve CAP-004 through CAP-014 through the real CLI in numerical order and fill the exact
    artifact matrix without changing an existing capability reservation or CAP-001.
-2. Require the independently reviewed SPEC-072 v1.0.4, SPEC-074 v1.0.3, and SPEC-075 v1.0.3
+2. Require the independently reviewed SPEC-072 v1.0.5, SPEC-074 v1.0.4, and SPEC-075 v1.0.4
    owner versions. Verify their exact link, structured-boundary, generated-source-link,
    adoption-instruction, and rendered-marker contracts before Seed 5 implementation continues.
 3. After Seed 1 implementation has accepted claim and boundary IDs, select records satisfying each
@@ -662,7 +702,9 @@ The planner must preserve this order:
    global key so repeated local @UJ IDs cannot collide in reports.
 6. Implement built-tree traversal. Begin at the scenario's first route, follow the exact owner-rendered
    JLINK for every subsequent route, resolve exact anchors, and verify typed evidence, boundary,
-   generated-provenance, or continuation obligations through owner markers.
+   generated-provenance, or continuation obligations through owner markers. Treat JLINK-024 and
+   BOUNDARY-005 as one rendered anchor with two identities and verify containment/order from DOM only;
+   do not parse or canonicalize their source representation.
 7. Implement CAP-009's execution proof. Create a disposable Git repository, execute the three
    structured owner commands directly in order, compare their canonical display digests with the
    rendered blocks, and require installed binary, generated configuration, and real zero-exit gate
@@ -670,8 +712,10 @@ The planner must preserve this order:
 8. Compose public upstream verification entrypoints once, then run the complete built-site cohort.
    Seed 5 records only exit verdict and attribution; owner logic remains opaque.
 9. Run all five mutation classes exhaustively over isolated copies, including every field of every
-   generated obligation. Report failures in stable capability/UJ order and prove each mutant is killed
-   by a journey-specific assertion.
+   generated obligation and every same-anchor identity, link, cardinality, containment, and order
+   variant plus each visible explanation/link-label/denial byte variant for CAP-014/@UJ-001. Consume
+   SPEC-075's keyed owner verdict for byte preservation rather than implementing a source comparison.
+   Report failures in stable capability/UJ order and prove each mutant is killed by a journey-specific assertion.
 10. Wire built acceptance into branch CI. After Seed 4 deploys and proves authoritative identity, run
    deployed mode against the same commit/run-marked pages. A post-deploy failure reports a broken
    capability but does not make GitHub Pages deployment transactional.
@@ -702,20 +746,23 @@ execution remains mandatory but is not misrepresented as Go statement coverage. 
 verifier with zero executed Gherkin scenarios is a failure, as is a complete click tour that never
 resolves its declared evidence, boundary, or generated records. CAP-009 remains red if its browser
 journeys pass but any provenance-bound adoption command does not execute to a real gate result.
+CAP-014/@UJ-001 remains red unless the one traversed link is simultaneously the one BOUNDARY-005
+continuation in the required DOM position; source parsing or two lookalike anchors cannot substitute.
 
 ## Integration Contract
 
 - SPEC-072 owns every route, claim, boundary, canonical concept, and final-copy statement. Seed 5
-  imports IDs and inspects Seed 4's rendered data attributes. Its v1.0.4 contract owns JLINK records,
+  imports IDs and inspects Seed 4's rendered data attributes. Its v1.0.5 contract owns JLINK records,
   structured boundary fields, and adoption instruction structure/copy.
 - SPEC-073 owns released documentation-semantics consumption and finding attribution. Seed 5 consumes
   its verification command's verdict and never calls its engine.
 - SPEC-074 owns four generated regions, typed source descriptors, URL templates, and source-level
-  provenance-envelope digests. Its v1.0.3 contract leaves `<SITE-COMMIT>` unresolved and owns no
+  provenance-envelope digests. Its v1.0.4 contract leaves `<SITE-COMMIT>` unresolved and owns no
   rendered anchor. Seed 5 consumes typed generated obligations but never generates, resolves, or
   reconstructs them.
 - SPEC-075 owns Jekyll, links, navigation, browser interaction, visual policy, deployment, and the
-  commit/run marker. Its v1.0.3 contract resolves `<SITE-COMMIT>`, owns immutable generated anchors
+  commit/run marker. Its v1.0.4 contract owns the JLINK-024/BOUNDARY-005 single dual-identity anchor,
+  resolves `<SITE-COMMIT>`, owns immutable generated anchors
   and rendered descriptor/record reconstruction/digest acceptance, and owns rendered JLINK,
   structured boundary, generated-link, and adoption-command markers. Seed 5 consumes those surfaces
   and does not restate their checks.
@@ -731,6 +778,11 @@ journeys pass but any provenance-bound adoption command does not execute to a re
 - **Journey links belong to page owners.** Seed 5 naming an anchor does not authorize it to add copy or
   navigation. Missing or wrong-version SPEC-072/SPEC-075 contracts keep acceptance red rather than inviting a local
   test-only link.
+- **Two registries can describe one physical link.** JLINK-024 is BOUNDARY-005's continuation, not a
+  second CTA. Checking the identities independently would let split or duplicate anchors pass and
+  would tempt Seed 5 to reimplement Seed 1's source canonicalization. Same-element identity,
+  containment, order, and the SPEC-075-owned visible-byte verdict are therefore mandatory rendered
+  checks.
 - **Generated provenance is not ordinary evidence.** A product-truth job has output, owner, marker
   pair, digest, and source links that must stay typed together. Treating it as a claim ID or checking
   only visible table text would let a hand-reconstructed region pass.
@@ -763,33 +815,38 @@ journeys pass but any provenance-bound adoption command does not execute to a re
    markers without copied or parsed prose?
 5. Do CAP-011/@UJ-001 and CAP-013/@UJ-002 bind the exact generated jobs, marker pairs, digests,
    owners, outputs, and complete source links as a third obligation kind?
-6. Does CAP-009 execute the provenance-bound rendered install/configure/enforce sequence against a
+6. Does CAP-014/@UJ-001 traverse one anchor that simultaneously carries JLINK-024 and BOUNDARY-005
+   continuation identities in exact containment/order and preserve exact explanation/link/denial
+   visible bytes through the SPEC-075 owner verdict, without Seed 5 source parsing?
+7. Does CAP-009 execute the provenance-bound rendered install/configure/enforce sequence against a
    disposable repository and produce a real gate receipt after its browser journey?
-7. Can deleting any canonical route, mapped evidence edge, prerequisite verdict, boundary
+8. Can deleting any canonical route, mapped evidence edge, prerequisite verdict, boundary
    explanation, or generated-provenance field be tied to a specifically broken journey?
-8. Does the runner consume public Seed 1-4 contracts without duplicating semantic, generation, visual,
+9. Does the runner consume public Seed 1-4 contracts without duplicating semantic, generation, visual,
    route, browser, or deployment enforcement?
-9. Does deployed acceptance prove every visited page belongs to the expected commit and run?
-10. Can a capability reach `verified` only after both built and identity-matched deployed gates pass?
-11. If implementation needs a generic capability/runtime primitive, does work stop for separate
+10. Does deployed acceptance prove every visited page belongs to the expected commit and run?
+11. Can a capability reach `verified` only after both built and identity-matched deployed gates pass?
+12. If implementation needs a generic capability/runtime primitive, does work stop for separate
     governance rather than expanding this integration runner?
 
 ## References
 
 - `bundles/BUNDLE-032-website-expansion.bundle.md` v0.6.0 — REQ-007@2.0.0, OQ-2, DD-7,
   Seed 5, User Capability Seeds, success criteria, and mutation acceptance.
-- `specs/SPEC-072-public-product-model.spec.md` v1.0.4 — ten route owners, claim/evidence inventory,
+- `specs/SPEC-072-public-product-model.spec.md` v1.0.5 — ten route owners, claim/evidence inventory,
   five-state boundary registry, canonical model, final-copy boundary, exact journey links, structured
-  boundary fields, and adoption instruction contracts.
+  boundary fields, the BOUNDARY-005/CLAIM-005/JLINK-024 single-source-link composition, and adoption
+  instruction contracts.
 - `specs/SPEC-073-documentation-semantics-integration.spec.md` v1.0.0 — released semantic-pack
   consumer verdict and owner boundary.
-- `specs/SPEC-074-derived-product-truth-pipeline.spec.md` v1.0.3 — four generated regions, typed
+- `specs/SPEC-074-derived-product-truth-pipeline.spec.md` v1.0.4 — four generated regions, typed
   source descriptors and URL templates, source-level provenance-envelope digests,
   source-to-Markdown chain, and Seed 5 consumption seam.
-- `specs/SPEC-075-static-public-site-design-system.spec.md` v1.0.3 — built/deployed site contract,
+- `specs/SPEC-075-static-public-site-design-system.spec.md` v1.0.4 — built/deployed site contract,
   exact routes, `<SITE-COMMIT>` resolution, immutable rendered generated anchors and reconstruction,
-  owner-rendered journey/boundary/generated/adoption markers, installed design-system acceptance,
-  and deployment marker.
+  owner-rendered journey/boundary/generated/adoption markers, the JLINK-024/BOUNDARY-005 single
+  dual-identity anchor with visible-byte preservation, installed design-system acceptance, and
+  deployment marker.
 - `artifacts/capability/v1/schema.json` — capability directory, scenario, quality-gate, traceability,
   and lifecycle contract.
 - `capabilities/CAP-001-pack-gate-enforcement/capability.yml` and

@@ -4,7 +4,7 @@ number: SPEC-074
 created: "2026-08-24"
 status: draft
 schema_version: spec/v1
-spec_version: 1.0.3
+spec_version: 1.0.4
 
 implementation:
   summary: >
@@ -787,9 +787,9 @@ tuple without becoming another generator, evidence registry, route owner, or jou
 
 - `bundles/BUNDLE-032-website-expansion.bundle.md` v0.6.0 — source bundle, REQ-011@1.0.0,
   resolved OQ-5, DD-10, DD-11, Seed 3 acceptance, and source/generated ownership sharp edge.
-- `specs/SPEC-072-public-product-model.spec.md` v1.0.4 — authoritative page owners, route/anchor
+- `specs/SPEC-072-public-product-model.spec.md` v1.0.5 — authoritative page owners, route/anchor
   boundary, human-readable product truth, and the Seed 2/3/4 seams.
-- `specs/SPEC-075-static-public-site-design-system.spec.md` v1.0.3 — downstream Jekyll build,
+- `specs/SPEC-075-static-public-site-design-system.spec.md` v1.0.4 — downstream Jekyll build,
   rendered-region/digest verification, site-commit resolution, immutable rendered anchors, Pages
   freshness/no-tag behavior, and deployment acceptance.
 - `cmd/backstop/root.go` — current command-tree construction and deterministic `commands` JSON surface.
@@ -801,5 +801,5 @@ tuple without becoming another generator, evidence registry, route owner, or jou
 - `.github/workflows/ci.yml` — current blocking gate and build order into which drift refusal must fit.
 - `issues/ISSUE-182-recipe-literal-placeholder-escaping.issue.md` — durable Liquid/recipe delimiter
   collision evidence; this spec avoids recipe-emitted Liquid bytes.
-- `specs/SPEC-076-end-to-end-website-capabilities.spec.md` v1.0.2 — downstream generated-obligation
-  consumer and the v1.0.2 predecessor-amendment matrix; it does not own these provenance links.
+- `specs/SPEC-076-end-to-end-website-capabilities.spec.md` v1.0.3 — downstream generated-obligation
+  consumer and predecessor-amendment matrix; it does not own these provenance links.
