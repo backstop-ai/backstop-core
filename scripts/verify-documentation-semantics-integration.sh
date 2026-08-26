@@ -86,11 +86,25 @@ verify_owner_evidence_files() {
 }
 
 actual_change_paths() {
+  terminal=$(seed2_terminal_transition)
   {
-    git -C "$ROOT" -c diff.renames=copies diff --name-status --find-renames=50% --find-copies=50% "$BASELINE" -- \
+    git -C "$ROOT" -c diff.renames=copies diff --name-status --find-renames=50% --find-copies=50% "$BASELINE" "$terminal" -- \
       | awk -F '\t' '{for (i=2;i<=NF;i++) print $i}'
-    git -C "$ROOT" ls-files --others --exclude-standard
   } | grep -v -E '^(specs/SPEC-073-documentation-semantics-integration.spec.md|plans/PLAN-SPEC-073-documentation-semantics-integration.plan.yml)$' | sort -u
+}
+
+seed2_terminal_transition() {
+  candidates=''
+  for commit in $(git -C "$ROOT" rev-list --first-parent HEAD); do
+    current=$(git -C "$ROOT" show "$commit:plans/PLAN-SPEC-073-documentation-semantics-integration.plan.yml" 2>/dev/null || true)
+    printf '%s\n' "$current" | grep -Fq 'status: completed' || continue
+    parent=$(git -C "$ROOT" rev-parse "$commit^" 2>/dev/null || true)
+    previous=$(git -C "$ROOT" show "$parent:plans/PLAN-SPEC-073-documentation-semantics-integration.plan.yml" 2>/dev/null || true)
+    printf '%s\n' "$previous" | grep -Fq 'status: completed' && continue
+    candidates="${candidates}${commit}\n"
+  done
+  [ "$(printf '%b' "$candidates" | grep -c .)" -eq 1 ] || fail 'Seed 2 terminal transition is not unique'
+  printf '%b' "$candidates" | sed -n '1p'
 }
 
 assert_exact_delivery_paths() {

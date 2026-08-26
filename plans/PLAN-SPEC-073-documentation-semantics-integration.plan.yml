@@ -1,7 +1,7 @@
 ---
 plan_id: PLAN-SPEC-073
 spec_id: SPEC-073
-spec_version: "1.1.10"
+spec_version: "1.1.11"
 created: "2026-08-24"
 status: completed
 target_repo: backstop-core
@@ -9,6 +9,11 @@ target_module: github.com/backstop-ai/backstop-core
 test_command: ./scripts/verify-documentation-semantics-integration.sh
 coverage_threshold: 80
 notes: |
+  RECONCILED 2026-08-26. The terminal delivery proof now freezes its upper
+  boundary at the unique PLAN-SPEC-073 completed transition. This preserves
+  the exact five-file Seed 2 proof without classifying later website seeds as
+  Seed 2 scope.
+
   CLOSED 2026-08-26. Core CI accepts the complete Seed 2 consumer integration
   against `backstop-ai/documentation-semantics@v0.1.1`,
   `backstop-ai/backstop-design-system@v0.1.0`, and
