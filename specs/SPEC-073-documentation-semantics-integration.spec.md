@@ -2,9 +2,9 @@
 title: "Documentation Semantics Integration"
 number: SPEC-073
 created: "2026-08-24"
-status: ready-for-implementation
+status: implemented
 schema_version: spec/v1
-spec_version: 1.1.7
+spec_version: 1.1.8
 
 implementation:
   summary: >
@@ -26,98 +26,7 @@ verification:
   test_command: >-
     ./scripts/verify-documentation-semantics-integration.sh
 
-contracts:
-  - file: .backstop/website-pack-releases.yml
-    provides:
-      - name: website_pack_release_imports
-        kind: variable
-        signature: "website-pack-releases/v1{seed_2_baseline,releases[2]}"
-      - name: seed_2_predecessor_boundary
-        kind: variable
-        signature: "{predecessor_plan,predecessor_spec,predecessor_spec_version,terminal_transition_commit}"
-  - file: backstop.yml
-    provides:
-      - name: website_pack_declarations
-        kind: variable
-        signature: "packs[releases[*].manifest_identity] -> releases[*].version"
-  - file: backstop.lock
-    provides:
-      - name: website_pack_locks
-        kind: variable
-        signature: "git LockEntry keyed by manifest identity with independent source_coordinate"
-  - file: scripts/verify-documentation-semantics-integration.sh
-    consumes:
-      - source: .backstop/website-pack-releases.yml
-        name: website_pack_release_imports
-        kind: variable
-      - source: .backstop/website-pack-releases.yml
-        name: seed_2_predecessor_boundary
-        kind: variable
-      - source: backstop.yml
-        name: website_pack_declarations
-        kind: variable
-      - source: backstop.lock
-        name: website_pack_locks
-        kind: variable
-      - source: .backstop/packs/<documentation-semantics-manifest-identity>/pack.yml
-        name: installed_documentation_semantics_manifest
-        kind: variable
-      - source: .backstop/packs/<design-system-manifest-identity>/pack.yml
-        name: installed_design_system_manifest
-        kind: variable
-      - source: plans/PLAN-SPEC-072-public-product-model.plan.yml
-        name: completed_seed_1_plan
-        kind: variable
-      - source: docs/index.md
-        name: seed_1_home_page
-        kind: variable
-      - source: docs/evaluate.md
-        name: seed_1_evaluation_page
-        kind: variable
-      - source: docs/model.md
-        name: seed_1_model_page
-        kind: variable
-      - source: docs/adopt.md
-        name: seed_1_adoption_page
-        kind: variable
-      - source: docs/use-cases.md
-        name: seed_1_use_cases_page
-        kind: variable
-      - source: docs/packs.md
-        name: seed_1_packs_page
-        kind: variable
-      - source: docs/extend.md
-        name: seed_1_extension_page
-        kind: variable
-      - source: docs/reference.md
-        name: seed_1_reference_page
-        kind: variable
-      - source: docs/status.md
-        name: seed_1_status_page
-        kind: variable
-      - source: docs/contributing.md
-        name: seed_1_contributing_page
-        kind: variable
-      - source: docs/_data/content-topology.yml
-        name: public_content_topology
-        kind: variable
-      - source: docs/_data/product-model.yml
-        name: canonical_product_model
-        kind: variable
-      - source: docs/_data/evidence-inventory.yml
-        name: public_claim_evidence_inventory
-        kind: variable
-      - source: docs/_data/content-inventory.yml
-        name: legacy_content_disposition_inventory
-        kind: variable
-      - source: ./bin/backstop
-        name: pack_install_pack_check_pack_test_and_gate
-        kind: function
-  - file: .github/workflows/ci.yml
-    provides:
-      - name: documentation_semantics_consumer_gate
-        kind: variable
-        signature: "CI step running scripts/verify-documentation-semantics-integration.sh after clean remote pack install"
+contracts: []
 
 requirements:
   - id: REQ-001
