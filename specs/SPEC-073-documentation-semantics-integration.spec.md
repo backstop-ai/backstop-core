@@ -4,7 +4,7 @@ number: SPEC-073
 created: "2026-08-24"
 status: ready-for-implementation
 schema_version: spec/v1
-spec_version: 1.1.1
+spec_version: 1.1.2
 
 implementation:
   summary: >
@@ -215,7 +215,11 @@ requirements:
       `docs/use-cases.md`, `docs/packs.md`, `docs/extend.md`, `docs/reference.md`, `docs/status.md`,
       `docs/contributing.md`, `docs/_data/content-topology.yml`, `docs/_data/product-model.yml`,
       `docs/_data/evidence-inventory.yml`, and `docs/_data/content-inventory.yml`. Argument order is
-      that exact order. The verifier requires the JSON scope to equal the fourteen-path set and the
+      that exact order. These isolated consumer-corpus invocations explicitly set
+      `BACKSTOP_PACK_SANDBOX=external`: Core's current native validator profile intentionally grants
+      owner-pack reads only, while this trusted released validator must read the copied consumer
+      corpus. The ordinary Core blocking gate remains native. The verifier requires the JSON scope
+      to equal the fourteen-path set and the
       installed documentation pack's engine step to execute, never skip. It then creates fourteen
       isolated copies; in copy N it inserts only the imported `actual_corpus_probe.marker` into path N,
       reruns the same fourteen-file command, and requires a blocking result from the imported probe

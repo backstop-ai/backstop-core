@@ -110,7 +110,7 @@ gate_corpus() {
 '
   for corpus_path in $CORPUS; do set -- "$@" --file "$corpus_path"; done
   IFS=$oldifs
-  (cd "$root" && "$root/bin/backstop" --json gate "$@") >"$output" 2>&1
+  (cd "$root" && BACKSTOP_PACK_SANDBOX=external "$root/bin/backstop" --json gate "$@") >"$output" 2>&1
 }
 
 make_consumer_copy() {
@@ -176,6 +176,8 @@ with open(sys.argv[1],encoding='utf-8') as handle: payload=json.load(handle)
 scope=payload.get('scope') or {}
 if scope.get('mode')!='file' or len(scope.get('files',[]))!=14 or set(scope.get('files',[]))!=set(expected):
  raise SystemExit('clean gate did not report the exact fourteen-file scope')
+if payload.get('pack_sandbox_mode')!='external' or payload.get('native_sandbox_applied'):
+ raise SystemExit('clean gate did not use the explicit external consumer-corpus mode')
 if not payload.get('pass'):
  raise SystemExit('clean fourteen-file documentation corpus did not pass')
 PY
