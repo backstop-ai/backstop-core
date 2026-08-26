@@ -2,7 +2,7 @@
 title: "Documentation Semantics Integration"
 number: SPEC-073
 created: "2026-08-24"
-status: implemented
+status: ready-for-implementation
 schema_version: spec/v1
 spec_version: 1.1.7
 

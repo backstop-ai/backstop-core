@@ -3,20 +3,12 @@ plan_id: PLAN-SPEC-073
 spec_id: SPEC-073
 spec_version: "1.1.7"
 created: "2026-08-24"
-status: completed
+status: ready
 target_repo: backstop-core
 target_module: github.com/backstop-ai/backstop-core
 test_command: ./scripts/verify-documentation-semantics-integration.sh
 coverage_threshold: 80
 notes: |
-  CLOSED 2026-08-26. The complete Seed 2 consumer integration is accepted by
-  Core CI against `backstop-ai/documentation-semantics@v0.1.1` and
-  `backstop-ai/backstop-design-system@v0.1.0`. Immutable owner evidence, exact
-  pins, clean restoration, fourteen-path dispatch, per-path probe failures,
-  same-document duplicate-owner blocking, missing-pack refusal, and CI ordering
-  are all verified by the shipped integration entrypoint before the normal
-  blocking Core gate.
-
   Seed 2 only. The completed, accepted SPEC-072/PLAN-SPEC-072 artifact and its
   published ten-page/four-registry output contract are whole-plan prerequisites;
   no phase starts from partial Seed 1 state or references a predecessor task ID.
