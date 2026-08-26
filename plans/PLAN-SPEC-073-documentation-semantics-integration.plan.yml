@@ -1,9 +1,9 @@
 ---
 plan_id: PLAN-SPEC-073
 spec_id: SPEC-073
-spec_version: "1.0.0"
+spec_version: "1.1.1"
 created: "2026-08-24"
-status: draft
+status: ready
 target_repo: backstop-core
 target_module: github.com/backstop-ai/backstop-core
 test_command: ./scripts/verify-documentation-semantics-integration.sh
@@ -15,7 +15,12 @@ notes: |
   Owner release evidence is also a hard prerequisite. Import it before adding the
   pack, preserve the design-system pin, and prove clean restoration, installed-byte
   identity, actual-corpus semantics, and missing-install refusal. Delivery is
-  confined to SPEC-073's exact five-file allowlist.
+  confined to SPEC-073's exact five-file implementation allowlist. The linked
+  SPEC-073/PLAN-SPEC-073 version and state transitions remain separately validated
+  artifact-ledger surfaces and do not expand implementation ownership.
+  The shell entrypoint is the executable verification subject, but is not declared
+  as a function contract because the installed Go-contracts pack compiles function
+  signatures as Go; Bash discovery and the verifier's own execution remain authoritative.
 
 phases:
   - id: phase-1
@@ -37,7 +42,7 @@ phases:
           negative production-path fixtures. Stop on missing, mutable, self-asserted,
           or mixed-release evidence; never invent identity or edit the owner repo.
         files: [.backstop/website-pack-releases.yml]
-        claims: [CLM-011, CLM-012, CLM-015, CLM-016, CLM-017, CLM-023]
+        claims: [CLM-005, CLM-006, CLM-007, CLM-014, CLM-015, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020, CLM-030]
         depends_on: []
       - id: TASK-002
         type: test
@@ -50,8 +55,8 @@ phases:
           of live tag resolution, owner reruns, and generic filter introspection; and
           generalized prose or unnamed-enabler scope creep.
         files: [scripts/verify-documentation-semantics-integration.sh]
-        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-011, CLM-012, CLM-015, CLM-016, CLM-017, CLM-022, CLM-023, CLM-024]
-        test_names: [verify_owner_boundary_accepts_bounded_consumer_surfaces, verify_owner_boundary_rejects_forbidden_core_surface, verify_owner_boundary_rejects_embedded_policy_surface, verify_owner_boundary_rejects_design_system_semantic_ownership, verify_owner_evidence_accepts_complete_single_release_binding, verify_owner_evidence_rejects_incomplete_or_mixed_release, verify_owner_evidence_accepts_fixture_dispatch_proof, verify_owner_evidence_rejects_unproven_fixture_dispatch, verify_owner_evidence_excludes_live_owner_and_generic_fixture_introspection, verify_scope_boundary_excludes_generalized_prose_system, verify_scope_boundary_accepts_separately_governed_enabler, verify_scope_boundary_rejects_absorbed_or_prose_prerequisite]
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-014, CLM-015, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020, CLM-027, CLM-028, CLM-029, CLM-030, CLM-031, CLM-032, CLM-033, CLM-034]
+        test_names: [verify_owner_boundary_accepts_bounded_consumer_surfaces, verify_owner_boundary_rejects_forbidden_core_surface, verify_owner_boundary_rejects_embedded_policy_surface, verify_owner_boundary_rejects_design_system_semantic_ownership, verify_release_import_schema_accepts_exact_two_role_document, verify_release_import_schema_rejects_shape_and_cardinality_violation, verify_release_import_schema_rejects_invalid_scalar_or_reference, verify_owner_evidence_accepts_common_checks_for_both_roles, verify_owner_evidence_rejects_self_authored_incomplete_or_mixed_proof, verify_owner_evidence_accepts_documentation_specific_dispatch_proof, verify_owner_evidence_rejects_unproven_documentation_dispatch, verify_owner_evidence_accepts_design_system_common_only_matrix, verify_owner_evidence_rejects_role_specific_matrix_contradiction, verify_owner_evidence_excludes_live_owner_and_generic_fixture_introspection, verify_scope_boundary_excludes_generalized_prose_system, verify_scope_boundary_accepts_separately_governed_enabler, verify_scope_boundary_rejects_absorbed_or_prose_prerequisite, verify_seed2_baseline_accepts_unique_seed1_terminal_transition, verify_seed2_baseline_rejects_ambiguous_or_selected_base, verify_seed2_change_set_accounts_for_predecessor_and_all_worktree_states, verify_seed2_change_set_rejects_nonexact_delivery_surface, verify_seed2_dependency_direction_excludes_plan073_from_seed1]
         depends_on: [TASK-001]
       - id: TASK-003
         type: implementation
@@ -63,7 +68,7 @@ phases:
           exhaustive documentation fixture-dispatch proof. Preserve visual ownership
           and add no policy, prose prerequisite, or unnamed dependency.
         files: [.backstop/website-pack-releases.yml]
-        claims: [CLM-001, CLM-004, CLM-011, CLM-012, CLM-015, CLM-016, CLM-022, CLM-023, CLM-024]
+        claims: [CLM-004, CLM-005, CLM-006, CLM-007, CLM-014, CLM-015, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020, CLM-030]
         depends_on: [TASK-002]
       - id: TASK-004
         type: verification
@@ -74,7 +79,7 @@ phases:
           ownership, immutable-release, dispatch, and scope cases to execute with no
           owner-policy surface or sixth delivery file.
         files: [.backstop/website-pack-releases.yml, scripts/verify-documentation-semantics-integration.sh]
-        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-011, CLM-012, CLM-015, CLM-016, CLM-017, CLM-022, CLM-023, CLM-024]
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-014, CLM-015, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020, CLM-027, CLM-028, CLM-029, CLM-030]
         depends_on: [TASK-003]
 
   - id: phase-2
@@ -91,8 +96,8 @@ phases:
           cross-surface mismatch; empty hash, manifest mismatch, and byte drift.
           Diagnostics name the role and disagreeing surfaces before policy runs.
         files: [scripts/verify-documentation-semantics-integration.sh]
-        claims: [CLM-005, CLM-006, CLM-007, CLM-008, CLM-009, CLM-010]
-        test_names: [verify_pin_matrix_accepts_equal_identity_and_coordinate, verify_pin_matrix_accepts_divergence_with_spec056_warning, verify_pin_matrix_rejects_missing_surface, verify_pin_matrix_rejects_mutable_or_local_source, verify_pin_matrix_rejects_evidence_binding_mismatch, verify_pin_matrix_rejects_missing_or_drifted_install]
+        claims: [CLM-008, CLM-009, CLM-010, CLM-011, CLM-012, CLM-013]
+        test_names: [verify_pin_matrix_accepts_equal_identity_and_coordinate, verify_pin_matrix_accepts_divergence_with_spec056_warning, verify_pin_matrix_rejects_missing_surface, verify_pin_matrix_rejects_mutable_or_local_source, verify_pin_matrix_rejects_binding_mismatch_or_contract_alias, verify_pin_matrix_rejects_missing_or_drifted_install]
         depends_on: [TASK-004]
       - id: TASK-006
         type: implementation
@@ -106,7 +111,7 @@ phases:
           manifest identity, source_coordinate remains independent, source_type is
           git, and version, v-ref, and nonempty content hash match. Reject local relock.
         files: [backstop.yml, backstop.lock]
-        claims: [CLM-005, CLM-006, CLM-007, CLM-008, CLM-009, CLM-010]
+        claims: [CLM-008, CLM-009, CLM-010, CLM-011, CLM-012, CLM-013]
         depends_on: [TASK-005]
       - id: TASK-007
         type: verification
@@ -117,7 +122,7 @@ phases:
           scripts/verify-documentation-semantics-integration.sh`. Require the full
           equal, divergent, absent, mutable, mismatched, and drifted matrix to pass.
         files: [.backstop/website-pack-releases.yml, backstop.yml, backstop.lock, scripts/verify-documentation-semantics-integration.sh]
-        claims: [CLM-005, CLM-006, CLM-007, CLM-008, CLM-009, CLM-010]
+        claims: [CLM-008, CLM-009, CLM-010, CLM-011, CLM-012, CLM-013]
         depends_on: [TASK-006]
 
   - id: phase-3
@@ -147,14 +152,15 @@ phases:
           path; then delete the pack while retaining evidence/config/lock and require
           missing dependency before local output counts. Reject fixture-only attribution.
         files: [scripts/verify-documentation-semantics-integration.sh]
-        claims: [CLM-013, CLM-014, CLM-018, CLM-019, CLM-020, CLM-021]
-        test_names: [verify_owner_evidence_clean_remote_install_matches_hash, verify_owner_evidence_installed_pack_checks_pass, verify_installed_semantics_gate_accepts_clean_actual_site, verify_installed_semantics_gate_blocks_duplicate_substantive_owner, verify_installed_semantics_gate_rejects_deleted_pack, verify_installed_semantics_gate_rejects_unattributed_or_fixture_only_proof]
+        claims: [CLM-013, CLM-021, CLM-022, CLM-023, CLM-024, CLM-025, CLM-026]
+        test_names: [verify_owner_evidence_installed_pack_checks_pass, verify_installed_semantics_gate_accepts_exact_clean_seed1_corpus, verify_installed_semantics_gate_dispatches_every_seed1_path, verify_installed_semantics_gate_rejects_vacuous_or_inexact_corpus_scope, verify_installed_semantics_gate_blocks_duplicate_substantive_owner, verify_installed_semantics_gate_rejects_deleted_pack, verify_installed_semantics_gate_rejects_unattributed_or_fixture_only_proof]
         depends_on: [TASK-007]
       - id: TASK-009
         type: implementation
         title: "Complete the bounded integration verifier"
         description: |
-          Implement one entrypoint dispatching all 24 mandated tests. It may parse
+          Implement one entrypoint dispatching all 34 mandated claim tests plus the
+          installed-pack check. It may parse
           evidence/config/locks/manifests/hashes/findings, orchestrate clean pack
           install using `./bin/backstop pack install`, installed-byte checks using
           `./bin/backstop pack check .backstop/packs/<documentation-semantics-manifest-identity>`
@@ -166,7 +172,7 @@ phases:
           resolve live tags, rerun owners, inspect generic filters, or mutate accepted
           pages. Every negative proof leaves the worktree unchanged.
         files: [scripts/verify-documentation-semantics-integration.sh]
-        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-009, CLM-010, CLM-011, CLM-012, CLM-013, CLM-014, CLM-015, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020, CLM-021, CLM-022, CLM-023, CLM-024]
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-009, CLM-010, CLM-011, CLM-012, CLM-013, CLM-014, CLM-015, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020, CLM-021, CLM-022, CLM-023, CLM-024, CLM-025, CLM-026, CLM-027, CLM-028, CLM-029, CLM-030, CLM-031, CLM-032, CLM-033, CLM-034]
         depends_on: [TASK-002, TASK-005, TASK-008]
       - id: TASK-010
         type: verification
@@ -175,10 +181,10 @@ phases:
           Run `./bin/backstop gate --file scripts/verify-documentation-semantics-integration.sh
           --file .backstop/website-pack-releases.yml --file backstop.yml --file
           backstop.lock`, then `./scripts/verify-documentation-semantics-integration.sh`.
-          Require all 24 tests, reproducible bytes, green installed checks, clean actual
+          Require all 34 claim tests, reproducible bytes, green installed checks, clean actual
           corpus, attributed mutation failure, missing-pack refusal, and clean worktree.
         files: [scripts/verify-documentation-semantics-integration.sh, .backstop/website-pack-releases.yml, backstop.yml, backstop.lock]
-        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-009, CLM-010, CLM-011, CLM-012, CLM-013, CLM-014, CLM-015, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020, CLM-021, CLM-022, CLM-023, CLM-024]
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-009, CLM-010, CLM-011, CLM-012, CLM-013, CLM-014, CLM-015, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020, CLM-021, CLM-022, CLM-023, CLM-024, CLM-025, CLM-026, CLM-027, CLM-028, CLM-029, CLM-030, CLM-031, CLM-032, CLM-033, CLM-034]
         depends_on: [TASK-009]
 
   - id: phase-4
@@ -235,15 +241,15 @@ phases:
           delivery files. Confirm no owner policy, generalized prose, Seed 3, or
           Seed 4 implementation entered the diff.
         files: [scripts/verify-documentation-semantics-integration.sh, .backstop/website-pack-releases.yml, backstop.yml, backstop.lock, .github/workflows/ci.yml]
-        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-009, CLM-010, CLM-011, CLM-012, CLM-013, CLM-014, CLM-015, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020, CLM-021, CLM-022, CLM-023, CLM-024]
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-009, CLM-010, CLM-011, CLM-012, CLM-013, CLM-014, CLM-015, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020, CLM-021, CLM-022, CLM-023, CLM-024, CLM-025, CLM-026, CLM-027, CLM-028, CLM-029, CLM-030, CLM-031, CLM-032, CLM-033, CLM-034]
         depends_on: [TASK-009, TASK-012, TASK-013]
       - id: TASK-015
         type: verification
         title: "Validate linked artifacts"
         description: |
           Run `./bin/backstop artifact validate --plan PLAN-SPEC-073 --spec
-          SPEC-073`. Require preserved scaffold linkage, all 24 claims/tests, direct
+          SPEC-073`. Require preserved scaffold linkage, all 34 claims/tests, direct
           test dependencies, gate cadence, exact delivery scope, and final coverage.
         files: [plans/PLAN-SPEC-073-documentation-semantics-integration.plan.yml, specs/SPEC-073-documentation-semantics-integration.spec.md]
-        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-009, CLM-010, CLM-011, CLM-012, CLM-013, CLM-014, CLM-015, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020, CLM-021, CLM-022, CLM-023, CLM-024]
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-009, CLM-010, CLM-011, CLM-012, CLM-013, CLM-014, CLM-015, CLM-016, CLM-017, CLM-018, CLM-019, CLM-020, CLM-021, CLM-022, CLM-023, CLM-024, CLM-025, CLM-026, CLM-027, CLM-028, CLM-029, CLM-030, CLM-031, CLM-032, CLM-033, CLM-034]
         depends_on: [TASK-012, TASK-014]

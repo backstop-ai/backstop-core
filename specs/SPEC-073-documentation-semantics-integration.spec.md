@@ -4,7 +4,7 @@ number: SPEC-073
 created: "2026-08-24"
 status: ready-for-implementation
 schema_version: spec/v1
-spec_version: 1.1.0
+spec_version: 1.1.1
 
 implementation:
   summary: >
@@ -46,10 +46,6 @@ contracts:
         kind: variable
         signature: "git LockEntry keyed by manifest identity with independent source_coordinate"
   - file: scripts/verify-documentation-semantics-integration.sh
-    provides:
-      - name: verify_documentation_semantics_integration
-        kind: function
-        signature: verify_documentation_semantics_integration()
     consumes:
       - source: .backstop/website-pack-releases.yml
         name: website_pack_release_imports
@@ -130,13 +126,15 @@ requirements:
     text: >
       Preserve the three-owner boundary exactly. Backstop-specific truth and instances remain in
       Core; visual policy remains in the design-system owner; reusable documentation semantics
-      remain in the owner named by imported release evidence. Seed 2 delivery may change only
+      remain in the owner named by imported release evidence. Seed 2 implementation delivery may change only
       `.backstop/website-pack-releases.yml`, `backstop.yml`, `backstop.lock`,
       `scripts/verify-documentation-semantics-integration.sh`, and `.github/workflows/ci.yml`.
       It must not add or modify `pkg/**`, `cmd/**`, `packs/**`, `docs/**`, either owner repository,
       or owner rule, validator, engine, and fixture files. The verifier may validate bindings,
       orchestrate clean install/check/test/gate commands, mutate an isolated actual-site copy, and
       inspect finding attribution; it may not invoke a semantic engine directly or ship policy.
+      The linked SPEC-073 and PLAN-SPEC-073 files are governed ledger surfaces, not implementation
+      delivery: their validated version/state transitions are excluded from the five-file comparison.
   - id: REQ-002
     supports:
       - website-expansion:REQ-006@2.1.0
@@ -146,7 +144,7 @@ requirements:
       document with exactly the top-level keys `schema_version`, `seed_2_baseline`, and `releases`.
       `schema_version` is the literal `website-pack-releases/v1`. `seed_2_baseline` has exactly
       `predecessor_plan: PLAN-SPEC-072`, `predecessor_spec: SPEC-072`,
-      `predecessor_spec_version: 1.0.6`, and a lowercase 40-hex `terminal_transition_commit`.
+      `predecessor_spec_version: 1.0.7`, and a lowercase 40-hex `terminal_transition_commit`.
       `releases` is a two-item sequence containing exactly one `documentation-semantics` and one
       `design-system` role. Each item has exactly `role`, `owner_artifact`, `release_evidence`,
       `manifest_identity`, `source_coordinate`, `version`, `git_ref`, `release_commit`,
@@ -248,15 +246,18 @@ requirements:
       branch, merge base, tag, environment variable, or dirty-diff default. Walking current `HEAD`'s
       first-parent history, the verifier must find exactly one earliest commit whose tree changes
       `plans/PLAN-SPEC-072-public-product-model.plan.yml` from absent or non-`completed` in its first
-      parent to `status: completed`, still names `spec_id: SPEC-072` and `spec_version: 1.0.6`, and
+      parent to `status: completed`, still names `spec_id: SPEC-072` and `spec_version: 1.0.7`, and
       passes that tree's `./scripts/verify-public-product-model.sh`. That commit is the deterministic
       terminal transition and must equal `seed_2_baseline.terminal_transition_commit`; zero or
       multiple candidates fail. The normalized Seed 2 change set is the union of every path reported
       by `git -c diff.renames=copies diff --name-status --find-renames=50% --find-copies=50%
       <terminal-transition-commit> --` (including staged, unstaged, deletions, and both paths of each
       `R`/`C` record) and every root-relative untracked path from
-      `git ls-files --others --exclude-standard`. At final acceptance the set must equal exactly
-      REQ-001's five paths. Consequently all SPEC-072 predecessor page, registry, verifier, plan, and
+      `git ls-files --others --exclude-standard`, less the exact linked artifact paths
+      `specs/SPEC-073-documentation-semantics-integration.spec.md` and
+      `plans/PLAN-SPEC-073-documentation-semantics-integration.plan.yml` only when both artifacts
+      validate and retain their exact IDs/linkage. At final acceptance the remaining set must equal
+      exactly REQ-001's five paths. Consequently all SPEC-072 predecessor page, registry, verifier, plan, and
       spec changes are before the boundary, while any later change outside the five paths fails; an
       alternate base, second completed transition, ignored untracked delivery file, or convenient
       diff-base selection is prohibited. PLAN-SPEC-073 execution remains downstream of completed
@@ -384,7 +385,7 @@ claims:
     tests: [verify_scope_boundary_rejects_absorbed_or_prose_prerequisite]
   - id: CLM-030
     requirement: REQ-007
-    text: The unique first-parent transition that completes PLAN-SPEC-072 at spec version 1.0.6 and passes the predecessor verifier is accepted as the recorded Seed 2 baseline.
+    text: The unique first-parent transition that completes PLAN-SPEC-072 at spec version 1.0.7 and passes the predecessor verifier is accepted as the recorded Seed 2 baseline.
     tests: [verify_seed2_baseline_accepts_unique_seed1_terminal_transition]
   - id: CLM-031
     requirement: REQ-007
@@ -439,7 +440,7 @@ shape is:
 | Path | Type and cardinality | Exact contract |
 |---|---|---|
 | `schema_version` | string, once | `website-pack-releases/v1` |
-| `seed_2_baseline` | map, once | Exactly `predecessor_plan: PLAN-SPEC-072`, `predecessor_spec: SPEC-072`, `predecessor_spec_version: 1.0.6`, and lowercase 40-hex `terminal_transition_commit`. |
+| `seed_2_baseline` | map, once | Exactly `predecessor_plan: PLAN-SPEC-072`, `predecessor_spec: SPEC-072`, `predecessor_spec_version: 1.0.7`, and lowercase 40-hex `terminal_transition_commit`. |
 | `releases` | sequence, exactly two | Exactly one `documentation-semantics` role and one `design-system` role. |
 | `releases[*]` | closed map | Exactly `role`, `owner_artifact`, `release_evidence`, `manifest_identity`, `source_coordinate`, `version`, `git_ref`, `release_commit`, `content_hash`, `common_checks`, and `documentation_semantics`. |
 | `owner_artifact`, `release_evidence`, every `log_ref`, every `dispatch_evidence_ref` | closed map | Exactly `repository`, `commit`, `path`, `sha256`; repository is `https://github.com/<source_coordinate>.git`, commit is lowercase 40-hex, path is root-relative POSIX without `.`/`..`, and sha256 is lowercase 64-hex. |
@@ -520,12 +521,13 @@ absence of findings, proves that every Seed-1 input entered installed-pack dispa
 
 The baseline is not chosen by a caller. Walking current `HEAD`'s first-parent history, the verifier
 finds the unique earliest commit that transitions PLAN-SPEC-072 from absent/non-completed to
-`completed`, still binds SPEC-072 v1.0.6, and passes that tree's exact Seed-1 verifier. That commit
+`completed`, still binds SPEC-072 v1.0.7, and passes that tree's exact Seed-1 verifier. That commit
 must equal the recorded `terminal_transition_commit`. The Seed-2 set is the normalized union of
 `git -c diff.renames=copies diff --name-status --find-renames=50% --find-copies=50% <commit> --`
 (committed, index, worktree, deletions, and both paths of each `R`/`C` record) and
 `git ls-files --others --exclude-standard`. Final acceptance requires exactly the five
-REQ-001 delivery paths. Therefore predecessor docs/registry work is before the boundary and any
+REQ-001 delivery paths after subtracting only the validated linked SPEC-073 and PLAN-SPEC-073
+ledger surfaces. Therefore predecessor docs/registry work is before the boundary and any
 post-boundary scope addition remains visible; no branch, merge-base, tag, environment, or dirty-diff
 selector may replace this computation.
 
@@ -534,8 +536,9 @@ selector may replace this computation.
 The planner must preserve this order:
 
 1. Locate the deterministic first-parent PLAN-SPEC-072 completed-transition commit, prove that tree
-   binds SPEC-072 v1.0.6 and passes the Seed-1 verifier, and record that exact SHA in the closed v1
-   import. Do not accept a caller-supplied branch, merge base, tag, or environment override.
+   binds SPEC-072 v1.0.7 and passes the Seed-1 verifier, and record that exact SHA in the closed v1
+   import. Validate the linked SPEC-073/PLAN-SPEC-073 ledger transition before excluding those two
+   artifact paths. Do not accept a caller-supplied branch, merge base, tag, or environment override.
 2. The independently governed documentation owner completes its artifact chain and publishes
    immutable owner-repository evidence binding one release's identity, coordinate, version/tag,
    full commit, content hash, two green common checks, every exported claim's dispatched
@@ -639,8 +642,9 @@ not an inferred pass from one green command.
   owner release record and coordinated migration; Core cannot ratify an alias on its own.
 - **A convenient diff base can erase forbidden delivery.** Seed 1 legitimately changes `docs/**`, so
   repository dirt relative to an arbitrary branch is neither the Seed-2 set nor a safe exclusion.
-  The unique PLAN-SPEC-072 terminal transition fixes the boundary; later deletions, renames, copies,
-  and untracked files remain visible.
+  The unique PLAN-SPEC-072 terminal transition fixes predecessor acceptance; later deletions,
+  renames, copies, and untracked files remain visible except for the two validated linked artifact
+  ledger surfaces.
 
 ## Integration Contract
 
