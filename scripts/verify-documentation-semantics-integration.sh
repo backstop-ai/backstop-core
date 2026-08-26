@@ -252,7 +252,12 @@ verify_seed2_baseline_accepts_unique_seed1_terminal_transition() {
   git -C "$ROOT" archive "$candidate" | tar -x -C "$scratch/tree"
   BACKSTOP_PUBLIC_MODEL_ROOT="$scratch/tree" BACKSTOP_PUBLIC_MODEL_GIT_ROOT="$ROOT" "$scratch/tree/scripts/verify-public-product-model.sh"
 }
-verify_seed2_baseline_rejects_ambiguous_or_selected_base() { assert_not_contains "$0" 'SEED2_BASE='; assert_not_contains "$0" 'merge-base'; }
+verify_seed2_baseline_rejects_ambiguous_or_selected_base() {
+  selected_base=$(printf '%s%s' 'SEED2_' 'BASE=')
+  inferred_base=$(printf '%s%s' 'merge' '-base')
+  assert_not_contains "$0" "$selected_base"
+  assert_not_contains "$0" "$inferred_base"
+}
 verify_seed2_change_set_accounts_for_predecessor_and_all_worktree_states() { assert_exact_delivery_paths; }
 verify_seed2_change_set_rejects_nonexact_delivery_surface() { assert_exact_delivery_paths; }
 verify_seed2_dependency_direction_excludes_plan073_from_seed1() { ! grep -Fq 'PLAN-SPEC-073' "$ROOT/plans/PLAN-SPEC-072-public-product-model.plan.yml"; }
