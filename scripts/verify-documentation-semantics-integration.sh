@@ -108,7 +108,7 @@ gate_corpus() {
   oldifs=$IFS
   IFS='
 '
-  for path in $CORPUS; do set -- "$@" --file "$path"; done
+  for corpus_path in $CORPUS; do set -- "$@" --file "$corpus_path"; done
   IFS=$oldifs
   (cd "$root" && "$root/bin/backstop" --json gate "$@") >"$output" 2>&1
 }
@@ -185,18 +185,18 @@ verify_installed_semantics_gate_dispatches_every_seed1_path() {
   assert_file "$base/docs/index.md"
   oldifs=$IFS; IFS='
 '
-  for path in $CORPUS; do
-    case_root=$1/case-$(printf '%s' "$path" | tr '/_' '--')
+  for probe_path in $CORPUS; do
+    case_root=$1/case-$(printf '%s' "$probe_path" | tr '/_' '--')
     cp -R "$base" "$case_root"
-    printf '\n%s\n' "$PROBE" >> "$case_root/$path"
+    printf '\n%s\n' "$PROBE" >> "$case_root/$probe_path"
     if gate_corpus "$case_root" "$case_root/gate.json"; then
       tail -200 "$case_root/gate.json" >&2
-      fail "probe passed for $path"
+      fail "probe passed for $probe_path"
     fi
     assert_contains "$case_root/gate.json" "$PROBE_RULE"
     assert_contains "$case_root/gate.json" "$PROBE_MESSAGE"
     assert_contains "$case_root/gate.json" "$DOC_ID"
-    assert_contains "$case_root/gate.json" "$path"
+    assert_contains "$case_root/gate.json" "$probe_path"
   done
   IFS=$oldifs
 }
@@ -260,7 +260,8 @@ verify_owner_evidence_installed_pack_checks_pass() { "$BIN" pack check "$ROOT/.b
 
 verify_documentation_semantics_integration() {
   assert_file "$BIN"
-  scratch=$(mktemp -d)
+  mkdir -p "$ROOT/tmp"
+  scratch=$(mktemp -d "$ROOT/tmp/documentation-semantics.XXXXXX")
   trap 'rm -rf "$scratch"' EXIT HUP INT TERM
   verify_owner_evidence_files "$scratch"
   verify_owner_boundary_accepts_bounded_consumer_surfaces
