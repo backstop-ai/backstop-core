@@ -4,7 +4,7 @@ number: SPEC-073
 created: "2026-08-24"
 status: implemented
 schema_version: spec/v1
-spec_version: 1.1.8
+spec_version: 1.1.9
 
 implementation:
   summary: >
@@ -26,7 +26,75 @@ verification:
   test_command: >-
     ./scripts/verify-documentation-semantics-integration.sh
 
-contracts: []
+contracts:
+  - file: scripts/verify-documentation-semantics-integration.sh
+    consumes:
+      - source: .backstop/website-pack-releases.yml
+        name: website_pack_release_imports
+        kind: variable
+      - source: .backstop/website-pack-releases.yml
+        name: seed_2_predecessor_boundary
+        kind: variable
+      - source: backstop.yml
+        name: website_pack_declarations
+        kind: variable
+      - source: backstop.lock
+        name: website_pack_locks
+        kind: variable
+      - source: .backstop/packs/<documentation-semantics-manifest-identity>/pack.yml
+        name: installed_documentation_semantics_manifest
+        kind: variable
+      - source: .backstop/packs/<design-system-manifest-identity>/pack.yml
+        name: installed_design_system_manifest
+        kind: variable
+      - source: plans/PLAN-SPEC-072-public-product-model.plan.yml
+        name: completed_seed_1_plan
+        kind: variable
+      - source: docs/index.md
+        name: seed_1_home_page
+        kind: variable
+      - source: docs/evaluate.md
+        name: seed_1_evaluation_page
+        kind: variable
+      - source: docs/model.md
+        name: seed_1_model_page
+        kind: variable
+      - source: docs/adopt.md
+        name: seed_1_adoption_page
+        kind: variable
+      - source: docs/use-cases.md
+        name: seed_1_use_cases_page
+        kind: variable
+      - source: docs/packs.md
+        name: seed_1_packs_page
+        kind: variable
+      - source: docs/extend.md
+        name: seed_1_extension_page
+        kind: variable
+      - source: docs/reference.md
+        name: seed_1_reference_page
+        kind: variable
+      - source: docs/status.md
+        name: seed_1_status_page
+        kind: variable
+      - source: docs/contributing.md
+        name: seed_1_contributing_page
+        kind: variable
+      - source: docs/_data/content-topology.yml
+        name: public_content_topology
+        kind: variable
+      - source: docs/_data/product-model.yml
+        name: canonical_product_model
+        kind: variable
+      - source: docs/_data/evidence-inventory.yml
+        name: public_claim_evidence_inventory
+        kind: variable
+      - source: docs/_data/content-inventory.yml
+        name: legacy_content_disposition_inventory
+        kind: variable
+      - source: ./bin/backstop
+        name: pack_install_pack_check_pack_test_and_gate
+        kind: function
 
 requirements:
   - id: REQ-001
