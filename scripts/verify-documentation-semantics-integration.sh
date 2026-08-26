@@ -136,7 +136,7 @@ verify_release_import_schema_rejects_shape_and_cardinality_violation() { t=$1/im
 verify_release_import_schema_rejects_invalid_scalar_or_reference() { t=$1/import-ref; sed 's/git_ref: v0.1.0/git_ref: main/' "$IMPORT" >"$t"; ! validate_release_import "$t"; }
 verify_pin_matrix_accepts_equal_identity_and_coordinate() { assert_pin "$DOC_ID" "$DOC_HASH"; assert_pin "$DESIGN_ID" "$DESIGN_HASH"; }
 verify_pin_matrix_accepts_divergence_with_spec056_warning() { assert_contains "$ROOT/specs/SPEC-056-remote-identity-version-validation.spec.md" 'warning'; }
-verify_pin_matrix_rejects_missing_surface() { t=$1/missing-config; sed "/$DOC_ID/d" "$ROOT/backstop.yml" >"$t"; ! grep -Fq "$DOC_ID" "$t"; }
+verify_pin_matrix_rejects_missing_surface() { t=$1/missing-config; grep -Fv "$DOC_ID" "$ROOT/backstop.yml" >"$t"; ! grep -Fq "$DOC_ID" "$t"; }
 verify_pin_matrix_rejects_mutable_or_local_source() { ! grep -Eq 'git_ref: (main|master|HEAD)|source_type: (path|local)' "$ROOT/backstop.lock"; }
 verify_pin_matrix_rejects_binding_mismatch_or_contract_alias() { assert_contains "$ROOT/backstop.lock" "$DOC_HASH"; assert_contains "$ROOT/backstop.lock" "$DESIGN_HASH"; }
 verify_pin_matrix_rejects_missing_or_drifted_install() { assert_file "$ROOT/.backstop/packs/$DOC_ID/pack.yml"; assert_file "$ROOT/.backstop/packs/$DESIGN_ID/pack.yml"; }
