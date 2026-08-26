@@ -189,7 +189,10 @@ verify_installed_semantics_gate_dispatches_every_seed1_path() {
     case_root=$1/case-$(printf '%s' "$path" | tr '/_' '--')
     cp -R "$base" "$case_root"
     printf '\n%s\n' "$PROBE" >> "$case_root/$path"
-    if gate_corpus "$case_root" "$case_root/gate.json"; then fail "probe passed for $path"; fi
+    if gate_corpus "$case_root" "$case_root/gate.json"; then
+      tail -200 "$case_root/gate.json" >&2
+      fail "probe passed for $path"
+    fi
     assert_contains "$case_root/gate.json" "$PROBE_RULE"
     assert_contains "$case_root/gate.json" "$PROBE_MESSAGE"
     assert_contains "$case_root/gate.json" "$DOC_ID"
