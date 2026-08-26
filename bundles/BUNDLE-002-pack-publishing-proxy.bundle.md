@@ -6,8 +6,9 @@ schema_version: bundle/v2
 
 bundle:
   name: pack-publishing-proxy
-  version: "0.1.0"
+  version: "0.2.0"
   created: "2026-04-09"
+  updated: "2026-08-26"
   category: feature
 
 status:
@@ -59,6 +60,40 @@ the ecosystem-layer features that require operational infrastructure beyond
 git repos: publishing SDK artifacts to native registries, managing publisher
 credentials, producing signed attestations, and propagating revocations
 across registries backstop doesn't control.
+
+### Proven git-native publication substrate (2026-08-26)
+
+`backstop-ai/bash-toolchain@v0.1.0` is the first empirical publication slice
+that should be carried into this bundle rather than redesigned later. Its
+self-hosted GitHub Actions protocol:
+
+1. downloads a released Backstop Core binary, verifies its checksum, and
+   rejects it unless `backstop version` reports the exact expected source
+   commit;
+2. derives the candidate commit, Git tree, and content digest from committed
+   bytes rather than the publisher's working directory;
+3. runs pack validation plus positive, negative, mixed-toolchain, and
+   disposable-consumer acceptance before publication;
+4. creates the immutable tag only after those checks pass;
+5. installs the fresh public coordinate into a new consumer, verifies its
+   remote identity, and reruns the complete acceptance suite before creating
+   the GitHub release record; and
+6. emits a post-publication lockfile reconciliation artifact for governed
+   consumer adoption.
+
+This prototype caught a real provenance defect on its first use: the published
+Core `v0.3.0` binary reported commit `bc532ac`, while the candidate workflow
+expected later source at `24fc1c8`. Publication correctly stopped after
+checksum verification and before tagging. Core `v0.3.1`, built from
+`7dd4ecd`, restored source/binary identity and allowed the protocol to proceed.
+
+The boundary matters. This is a proven **git-native, self-hosted publication
+substrate**, not delivery of the full proxy. It does not store third-party
+registry credentials, fan out SDK artifacts to npm/PyPI/crates, produce signed
+attestations or a transparency-log entry, propagate revocations, or give a
+consumer an independent cryptographic `pack verify` proof. Workflow logs and
+candidate receipts are strong producer evidence, but they are not the signed,
+consumer-verifiable trust anchor required by DD-5.
 
 ### The publishing proxy model
 
@@ -112,10 +147,13 @@ enormous implications for trust, operations, and attack surface.
   *Carried from BUNDLE-001 DD-24.*
 - **DD-4:** Pre-publish is the single point of enforcement. The
   validate + supply-chain + LLM-review + fixture-coverage + claim-
-  coherence gate runs at publish time. After the gate passes, the
-  artifact lives in the native registry's trust model — backstop's job
-  is done. Same gate machinery as BUNDLE-001 DD-3/DD-4/DD-7/DD-11/DD-12,
-  scheduled at publish time. *Carried from BUNDLE-001 DD-25.*
+  coherence gate runs before the immutable coordinate is created. The
+  public coordinate is then reinstalled and verified as a publication
+  receipt, not subjected to a different or weaker policy. After that proof,
+  the artifact lives in the native registry's trust model and consumer-side
+  attestation verification owns later trust decisions. Same gate machinery
+  as BUNDLE-001 DD-3/DD-4/DD-7/DD-11/DD-12, scheduled at publish time.
+  *Carried from BUNDLE-001 DD-25; corrected by the 2026-08-26 prototype.*
 - **DD-5:** Backstop produces signed attestations at publish time.
   Attestations are the mechanism that makes the pre-publish gate
   *verifiable at the consumer side*. Each attestation is a signed
@@ -131,6 +169,28 @@ enormous implications for trust, operations, and attack surface.
   Leaving as an OQ only because the credential/identity model still
   needs thought (see OQ-1). Lean is strong enough to record here.
   *Carried from BUNDLE-001 DD-28.*
+- **DD-7:** Publication identity is a tuple, not a version string: released
+  runtime checksum + embedded source commit, candidate commit + Git tree +
+  content digest, public coordinate + immutable tag, and the installed
+  consumer lock identity. A version label alone cannot prove which behavior
+  ran or which bytes shipped. Proven by the `bash-toolchain@v0.1.0` protocol.
+- **DD-8:** Tag-time validation must occur before tag creation. A workflow
+  triggered by an already-pushed tag can detect a lie but cannot prevent the
+  immutable coordinate from becoming public. The release decision may remain
+  human, but the mechanism creates the tag only after prepublication
+  acceptance is green.
+- **DD-9:** Post-publication verification uses the public coordinate in a
+  clean consumer and reruns acceptance. Reusing the prepublication staging
+  directory proves only the candidate, not registry or git-host publication.
+- **DD-10:** Self-hosted publisher execution is a supported minimum substrate,
+  not merely an OQ-5 fallback. The publisher's own CI can execute the gate and
+  retain credentials locally. Whether Backstop later counter-signs that run
+  remains open; self-hosted workflow logs alone do not satisfy DD-5.
+- **DD-11:** A publish protocol must preserve separate failure boundaries for
+  runtime acquisition/provenance, candidate construction, prepublication
+  acceptance, immutable-coordinate creation, remote-coordinate acceptance,
+  release-record creation, and consumer-lock reconciliation. A failure cannot
+  silently advance later stages or report a half-published release as complete.
 
 ## Spec Seeds
 
@@ -278,6 +338,13 @@ Order is suggested implementation order, not commitment.
 
 ## Version History
 
+- 0.2.0 (2026-08-26): Harvested the proven `bash-toolchain@v0.1.0`
+  self-hosted git-publication protocol. Added exact runtime/candidate/public
+  coordinate identity, pre-tag enforcement, clean-consumer postpublication
+  acceptance, explicit stage boundaries, and the boundary between producer
+  receipts and signed consumer-verifiable attestations. Maturity remains
+  exploring because credential management, native-registry fan-out, signing,
+  transparency, revocation, and consumer verification are still open.
 - 0.1.0 (2026-04-09): Extracted from BUNDLE-001 v0.5.0. Publishing
   proxy, attestations, credential management, and native-registry
   fan-out moved here to let the core pack lifecycle proceed
