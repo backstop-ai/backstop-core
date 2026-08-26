@@ -10,7 +10,7 @@ test_command: ./scripts/verify-public-product-model.sh
 notes: |
   CLOSED 2026-08-26. The complete Seed 1 implementation is merged in Core and
   its terminal state is now verified with the released
-  `backstop-ai/bash-toolchain@v0.1.0`. The installed pack resolves all 47
+  `backstop-ai/bash-toolchain@v0.1.1`. The installed pack resolves all 47
   mandated Bash references to 44 distinct functions with zero absent tests;
   the canonical verifier executes once and dispatches the eight suites.
   `test_verification`, `artifact_status_drift`, and

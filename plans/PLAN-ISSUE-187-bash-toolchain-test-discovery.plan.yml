@@ -7,22 +7,25 @@ target_repo: bash-toolchain
 target_module: github.com/backstop-ai/bash-toolchain
 test_command: "backstop pack test && ./scripts/release-acceptance.sh"
 notes: |
-  PUBLICATION CHECKPOINT 2026-08-26. `backstop-ai/bash-toolchain@v0.1.0` is
+  CURRENT PUBLICATION CHECKPOINT 2026-08-26. `backstop-ai/bash-toolchain@v0.1.1` is
   published and accepted from its immutable remote coordinate. This Core-owned
   issue/plan pair remains nonterminal because its mandated tests are owned by
   the external repository and Core's artifact-status gate does not resolve
   cross-repository test implementations. The released candidate is
-  remote commit `3e0ed53358ffa92757ea377fbb4720f803a44b0e`, tree
-  `1635409090d3f5bfffa8bf1fd2d44b4ca6cfc744`, and Backstop content digest
-  `bf9ba86196cdf949089192c33edd78fd3a4372fb121cf2348df5c4d44b96c362`.
+  remote commit `5835e7495c6d5e3002b04d2458d64e14edba7b60`, tree
+  `97c65a0cab64c578dab7539710c1cbeb461b30a8`, and Backstop content digest
+  `8254d5212fc5efcac35cce524a4932f6bd7415af42e6ef292dd862513a037239`.
   Core `v0.3.1` at `7dd4ecde45abf6edd5149e476b2847feb7bd276c`
-  supplied the exact released runtime. Bash pack CI run `32959505526` and
-  publication run `32960567659` both passed. Publication reran the complete
-  prepublication suite, created `v0.1.0`, installed the fresh remote
+  supplied the exact released runtime. Bash pack CI run `32969366969` and
+  automatic publication run `32969367076` both passed. Publication reran the complete
+  prepublication suite, created `v0.1.1`, installed the fresh remote
   coordinate, re-proved identity and acceptance, created the release record,
   and emitted postpublication lock reconciliation. The first attempt's
-  refusal on Core v0.3.0's source/binary identity mismatch is retained as
-  negative provenance evidence, not treated as a flaky run.
+  refusal on Core v0.3.0's source/binary identity mismatch and Core PR #13's
+  native-sandbox rejection of v0.1.0's temporary-file converter are retained
+  as negative provenance evidence, not treated as flaky runs. The v0.1.1
+  converter is temp-free, and its merge now triggers immutable publication
+  directly from the manifest version.
 
   Implements the contained ISSUE-187 issue track directly. Core already owns the
   language-neutral classifier, test-name matcher, engine dispatch, verdict join,
