@@ -124,7 +124,12 @@ make_consumer_copy() {
 
 verify_owner_boundary_accepts_bounded_consumer_surfaces() { assert_exact_delivery_paths; }
 verify_owner_boundary_rejects_forbidden_core_surface() { ! actual_change_paths | grep -Eq '^(pkg|cmd|packs|docs)/'; }
-verify_owner_boundary_rejects_embedded_policy_surface() { assert_not_contains "$0" 'semgrep '; assert_not_contains "$0" 'ast-grep '; }
+verify_owner_boundary_rejects_embedded_policy_surface() {
+  semgrep_command=$(printf '%s%s ' sem grep)
+  ast_grep_command=$(printf '%s%s ' ast -grep)
+  assert_not_contains "$0" "$semgrep_command"
+  assert_not_contains "$0" "$ast_grep_command"
+}
 verify_owner_boundary_rejects_design_system_semantic_ownership() { grep -A2 '^  - role: design-system$' "$IMPORT" | grep -Fq 'owner_artifact:'; assert_contains "$IMPORT" '    documentation_semantics: null'; }
 verify_release_import_schema_accepts_exact_two_role_document() { validate_release_import "$IMPORT"; }
 verify_release_import_schema_rejects_shape_and_cardinality_violation() { t=$1/import-shape; sed '/^  - role: design-system$/,$d' "$IMPORT" >"$t"; ! validate_release_import "$t"; }
