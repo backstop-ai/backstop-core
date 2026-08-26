@@ -1,7 +1,7 @@
 ---
 plan_id: PLAN-SPEC-073
 spec_id: SPEC-073
-spec_version: "1.1.3"
+spec_version: "1.1.4"
 created: "2026-08-24"
 status: ready
 target_repo: backstop-core

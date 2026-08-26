@@ -8,27 +8,27 @@ releases:
   - role: documentation-semantics
     owner_artifact:
       repository: https://github.com/backstop-ai/documentation-semantics.git
-      commit: f0de90fa9f86de716115bd27733009ea88967c6c
+      commit: bd7157d4b552beb0d0f144af76e89b0143841f85
       path: bundles/BUNDLE-001-documentation-semantics.bundle.md
       sha256: 27d2a16e832446f20200e6888bb9f4dcf69146529af4c243873536098c8b2e0b
     release_evidence:
       repository: https://github.com/backstop-ai/documentation-semantics.git
-      commit: b50484a51a3d32e27a88a2f674595a99e3a194ff
-      path: release-evidence/v0.1.0.yml
-      sha256: 5f0d8473aaeec3683ca78d470e06a30b635d1dea0b4ada15312d0f2b7177363f
+      commit: 36e63ecd3dc77808126dff91336baffaa238f843
+      path: release-evidence/v0.1.1.yml
+      sha256: 40ac93883eebda76fbc10e0a07425a9a0d5289a6f7f18a54e5144582b5922ad2
     manifest_identity: backstop-ai/documentation-semantics
     source_coordinate: backstop-ai/documentation-semantics
-    version: 0.1.0
-    git_ref: v0.1.0
-    release_commit: f0de90fa9f86de716115bd27733009ea88967c6c
-    content_hash: 26f5185b820c75b09ad23296cd2231db8510a5e7d2cfe9106e48eee8719838ff
+    version: 0.1.1
+    git_ref: v0.1.1
+    release_commit: bd7157d4b552beb0d0f144af76e89b0143841f85
+    content_hash: 57c50794c2223ded1d9834c0d53207c2fdd3923415806ffca3a1d6aacb916dcd
     common_checks:
       - check: pack-check
         command: ./bin/backstop pack check .
         exit_code: 0
         result: pass
-        subject_commit: f0de90fa9f86de716115bd27733009ea88967c6c
-        subject_content_hash: 26f5185b820c75b09ad23296cd2231db8510a5e7d2cfe9106e48eee8719838ff
+        subject_commit: bd7157d4b552beb0d0f144af76e89b0143841f85
+        subject_content_hash: 57c50794c2223ded1d9834c0d53207c2fdd3923415806ffca3a1d6aacb916dcd
         log_ref:
           repository: https://github.com/backstop-ai/documentation-semantics.git
           commit: 57f518b0ee870cd0f4bd0db7d75d3caba1730b51
@@ -38,8 +38,8 @@ releases:
         command: ./bin/backstop pack test .
         exit_code: 0
         result: pass
-        subject_commit: f0de90fa9f86de716115bd27733009ea88967c6c
-        subject_content_hash: 26f5185b820c75b09ad23296cd2231db8510a5e7d2cfe9106e48eee8719838ff
+        subject_commit: bd7157d4b552beb0d0f144af76e89b0143841f85
+        subject_content_hash: 57c50794c2223ded1d9834c0d53207c2fdd3923415806ffca3a1d6aacb916dcd
         log_ref:
           repository: https://github.com/backstop-ai/documentation-semantics.git
           commit: 57f518b0ee870cd0f4bd0db7d75d3caba1730b51

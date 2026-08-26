@@ -6,7 +6,7 @@ BIN=${BACKSTOP_BIN:-$ROOT/bin/backstop}
 IMPORT=$ROOT/.backstop/website-pack-releases.yml
 DOC_ID=backstop-ai/documentation-semantics
 DESIGN_ID=backstop-ai/backstop-design-system
-DOC_HASH=26f5185b820c75b09ad23296cd2231db8510a5e7d2cfe9106e48eee8719838ff
+DOC_HASH=57c50794c2223ded1d9834c0d53207c2fdd3923415806ffca3a1d6aacb916dcd
 DESIGN_HASH=7352fce2e947a25f7e530f73e80385a24dd1f9654bb8ba7995e1fee5bee6908e
 BASELINE=36c1de6722b8f70c1594484b276c72b129b77a6e
 PROBE=BACKSTOP_DOCUMENTATION_SEMANTICS_PROBE_DUPLICATE_OWNER
@@ -42,7 +42,8 @@ validate_release_import() {
   [ "$(grep -c '^  - role: design-system$' "$file" || true)" -eq 1 ] || return 1
   [ "$(grep -c '^    manifest_identity:' "$file" || true)" -eq 2 ] || return 1
   [ "$(grep -c '^    source_coordinate:' "$file" || true)" -eq 2 ] || return 1
-  [ "$(grep -c '^    git_ref: v0.1.0$' "$file" || true)" -eq 2 ] || return 1
+  [ "$(grep -c '^    git_ref: v0.1.0$' "$file" || true)" -eq 1 ] || return 1
+  [ "$(grep -c '^    git_ref: v0.1.1$' "$file" || true)" -eq 1 ] || return 1
   [ "$(grep -c '^    documentation_semantics:' "$file" || true)" -eq 2 ] || return 1
   assert_contains "$file" '  predecessor_plan: PLAN-SPEC-072'
   assert_contains "$file" '  predecessor_spec: SPEC-072'
@@ -51,14 +52,15 @@ validate_release_import() {
 }
 
 assert_pin() {
-  identity=$1 hash=$2
-  assert_contains "$ROOT/backstop.yml" "    $identity: 0.1.0"
+  identity=$1 version=$2 hash=$3
+  assert_contains "$ROOT/backstop.yml" "    $identity: $version"
   assert_contains "$ROOT/backstop.lock" "    $identity:"
   assert_contains "$ROOT/backstop.lock" "        content_hash: $hash"
-  assert_contains "$ROOT/backstop.lock" '        git_ref: v0.1.0'
+  assert_contains "$ROOT/backstop.lock" "        git_ref: v$version"
   assert_contains "$ROOT/backstop.lock" "        name: $identity"
   assert_contains "$ROOT/backstop.lock" "        source_coordinate: $identity"
   assert_contains "$ROOT/backstop.lock" '        source_type: git'
+  assert_contains "$ROOT/backstop.lock" "        version: $version"
 }
 
 fetch_immutable() {
@@ -72,8 +74,8 @@ fetch_immutable() {
 
 verify_owner_evidence_files() {
   scratch=$1
-  fetch_immutable https://github.com/backstop-ai/documentation-semantics.git f0de90fa9f86de716115bd27733009ea88967c6c bundles/BUNDLE-001-documentation-semantics.bundle.md 27d2a16e832446f20200e6888bb9f4dcf69146529af4c243873536098c8b2e0b "$scratch/doc-owner"
-  fetch_immutable https://github.com/backstop-ai/documentation-semantics.git b50484a51a3d32e27a88a2f674595a99e3a194ff release-evidence/v0.1.0.yml 5f0d8473aaeec3683ca78d470e06a30b635d1dea0b4ada15312d0f2b7177363f "$scratch/doc-evidence"
+  fetch_immutable https://github.com/backstop-ai/documentation-semantics.git bd7157d4b552beb0d0f144af76e89b0143841f85 bundles/BUNDLE-001-documentation-semantics.bundle.md 27d2a16e832446f20200e6888bb9f4dcf69146529af4c243873536098c8b2e0b "$scratch/doc-owner"
+  fetch_immutable https://github.com/backstop-ai/documentation-semantics.git 36e63ecd3dc77808126dff91336baffaa238f843 release-evidence/v0.1.1.yml 40ac93883eebda76fbc10e0a07425a9a0d5289a6f7f18a54e5144582b5922ad2 "$scratch/doc-evidence"
   fetch_immutable https://github.com/backstop-ai/documentation-semantics.git 57f518b0ee870cd0f4bd0db7d75d3caba1730b51 release-evidence/logs/pack-check.log 5219f152856b134f33be3a5593579c2a5a2f3e791a2b08b8b5c3df8fed5fe494 "$scratch/doc-check"
   fetch_immutable https://github.com/backstop-ai/documentation-semantics.git 57f518b0ee870cd0f4bd0db7d75d3caba1730b51 release-evidence/logs/pack-test.log d9cebf97c292956119f4004292d76d9532de06ca2e709a7a69e8ed67249d8bef "$scratch/doc-test"
   fetch_immutable https://github.com/backstop-ai/documentation-semantics.git 57f518b0ee870cd0f4bd0db7d75d3caba1730b51 release-evidence/logs/documentation-dispatch.log a0b7772ae0cc5fd514fe3f6c06c3a468f6ebea202e21f69462d37c09b5ebf25b "$scratch/doc-dispatch"
@@ -146,8 +148,8 @@ verify_owner_boundary_rejects_embedded_policy_surface() {
 verify_owner_boundary_rejects_design_system_semantic_ownership() { grep -A2 '^  - role: design-system$' "$IMPORT" | grep -Fq 'owner_artifact:'; assert_contains "$IMPORT" '    documentation_semantics: null'; }
 verify_release_import_schema_accepts_exact_two_role_document() { validate_release_import "$IMPORT"; }
 verify_release_import_schema_rejects_shape_and_cardinality_violation() { t=$1/import-shape; sed '/^  - role: design-system$/,$d' "$IMPORT" >"$t"; ! validate_release_import "$t"; }
-verify_release_import_schema_rejects_invalid_scalar_or_reference() { t=$1/import-ref; sed 's/git_ref: v0.1.0/git_ref: main/' "$IMPORT" >"$t"; ! validate_release_import "$t"; }
-verify_pin_matrix_accepts_equal_identity_and_coordinate() { assert_pin "$DOC_ID" "$DOC_HASH"; assert_pin "$DESIGN_ID" "$DESIGN_HASH"; }
+verify_release_import_schema_rejects_invalid_scalar_or_reference() { t=$1/import-ref; sed '0,/git_ref: v0.1.1/s//git_ref: main/' "$IMPORT" >"$t"; ! validate_release_import "$t"; }
+verify_pin_matrix_accepts_equal_identity_and_coordinate() { assert_pin "$DOC_ID" 0.1.1 "$DOC_HASH"; assert_pin "$DESIGN_ID" 0.1.0 "$DESIGN_HASH"; }
 verify_pin_matrix_accepts_divergence_with_spec056_warning() { assert_contains "$ROOT/specs/SPEC-056-remote-identity-version-validation.spec.md" 'warning'; }
 verify_pin_matrix_rejects_missing_surface() { t=$1/missing-config; grep -Fv "$DOC_ID" "$ROOT/backstop.yml" >"$t"; ! grep -Fq "$DOC_ID" "$t"; }
 verify_pin_matrix_rejects_mutable_or_local_source() { ! grep -Eq 'git_ref: (main|master|HEAD)|source_type: (path|local)' "$ROOT/backstop.lock"; }
