@@ -155,7 +155,12 @@ verify_owner_evidence_excludes_live_owner_and_generic_fixture_introspection() {
 
 verify_installed_semantics_gate_accepts_exact_clean_seed1_corpus() {
   output=$1/clean-gate.json
-  gate_corpus "$ROOT" "$output"
+  clean_root=$1/clean-root
+  make_consumer_copy "$clean_root"
+  if ! gate_corpus "$clean_root" "$output"; then
+    tail -200 "$output" >&2
+    fail 'clean fourteen-file documentation corpus did not pass'
+  fi
   python3 - "$output" <<'PY'
 import json,sys
 expected=['docs/index.md','docs/evaluate.md','docs/model.md','docs/adopt.md','docs/use-cases.md','docs/packs.md','docs/extend.md','docs/reference.md','docs/status.md','docs/contributing.md','docs/_data/content-topology.yml','docs/_data/product-model.yml','docs/_data/evidence-inventory.yml','docs/_data/content-inventory.yml']
@@ -168,8 +173,8 @@ if not payload.get('pass'):
 PY
 }
 verify_installed_semantics_gate_dispatches_every_seed1_path() {
-  base=$1/corpus-base
-  make_consumer_copy "$base"
+  base=$1/clean-root
+  assert_file "$base/docs/index.md"
   oldifs=$IFS; IFS='
 '
   for path in $CORPUS; do
