@@ -258,3 +258,72 @@ verify_seed2_baseline_rejects_ambiguous_or_selected_base() {
   assert_not_contains "$0" "$selected_base"
   assert_not_contains "$0" "$inferred_base"
 }
+verify_seed2_change_set_accounts_for_predecessor_and_all_worktree_states() {
+  assert_exact_delivery_paths
+}
+verify_seed2_change_set_rejects_nonexact_delivery_surface() {
+  assert_exact_delivery_paths
+}
+verify_seed2_dependency_direction_excludes_plan073_from_seed1() {
+  predecessor=$ROOT/plans/PLAN-SPEC-072-public-product-model.plan.yml
+  assert_contains "$predecessor" 'SPEC-073 v1.1.0 contract is stable design input only'
+  assert_contains "$predecessor" 'this plan never waits for or invokes a'
+  assert_contains "$predecessor" 'PLAN-SPEC-073 task, pack release, declaration, lock, installation, or partial Seed 2'
+}
+verify_ci_runs_documentation_semantics_after_clean_install() {
+  ci=$ROOT/.github/workflows/ci.yml
+  install=$(grep -n 'run: ./bin/backstop pack install' "$ci" | head -1 | cut -d: -f1)
+  integration=$(grep -n 'run: ./scripts/verify-documentation-semantics-integration.sh' "$ci" | head -1 | cut -d: -f1)
+  gate=$(grep -n 'run: ./bin/backstop gate --base' "$ci" | head -1 | cut -d: -f1)
+  [ -n "$install" ] && [ -n "$integration" ] && [ -n "$gate" ]
+  [ "$install" -lt "$integration" ] && [ "$integration" -lt "$gate" ]
+}
+
+verify_owner_evidence_installed_pack_checks_pass() { "$BIN" pack check "$ROOT/.backstop/packs/$DOC_ID"; "$BIN" pack test "$ROOT/.backstop/packs/$DOC_ID"; }
+
+verify_documentation_semantics_integration() {
+  assert_file "$BIN"
+  mkdir -p "$ROOT/tmp"
+  scratch=$(mktemp -d "$ROOT/tmp/documentation-semantics.XXXXXX")
+  trap 'rm -rf "$scratch"' EXIT HUP INT TERM
+  verify_owner_evidence_files "$scratch"
+  verify_owner_boundary_accepts_bounded_consumer_surfaces
+  verify_owner_boundary_rejects_forbidden_core_surface
+  verify_owner_boundary_rejects_embedded_policy_surface
+  verify_owner_boundary_rejects_design_system_semantic_ownership
+  verify_release_import_schema_accepts_exact_two_role_document
+  verify_release_import_schema_rejects_shape_and_cardinality_violation "$scratch"
+  verify_release_import_schema_rejects_invalid_scalar_or_reference "$scratch"
+  verify_pin_matrix_accepts_equal_identity_and_coordinate
+  verify_pin_matrix_accepts_divergence_with_spec056_warning
+  verify_pin_matrix_rejects_missing_surface "$scratch"
+  verify_pin_matrix_rejects_mutable_or_local_source
+  verify_pin_matrix_rejects_binding_mismatch_or_contract_alias
+  verify_pin_matrix_rejects_missing_or_drifted_install
+  verify_owner_evidence_accepts_common_checks_for_both_roles
+  verify_owner_evidence_rejects_self_authored_incomplete_or_mixed_proof
+  verify_owner_evidence_accepts_documentation_specific_dispatch_proof
+  verify_owner_evidence_rejects_unproven_documentation_dispatch "$scratch"
+  verify_owner_evidence_accepts_design_system_common_only_matrix
+  verify_owner_evidence_rejects_role_specific_matrix_contradiction
+  verify_owner_evidence_excludes_live_owner_and_generic_fixture_introspection
+  verify_installed_semantics_gate_accepts_exact_clean_seed1_corpus "$scratch"
+  verify_installed_semantics_gate_dispatches_every_seed1_path "$scratch"
+  verify_installed_semantics_gate_rejects_vacuous_or_inexact_corpus_scope
+  verify_installed_semantics_gate_blocks_duplicate_substantive_owner "$scratch"
+  verify_installed_semantics_gate_rejects_deleted_pack "$scratch"
+  verify_installed_semantics_gate_rejects_unattributed_or_fixture_only_proof "$scratch"
+  verify_scope_boundary_excludes_generalized_prose_system
+  verify_scope_boundary_accepts_separately_governed_enabler
+  verify_scope_boundary_rejects_absorbed_or_prose_prerequisite
+  verify_seed2_baseline_accepts_unique_seed1_terminal_transition "$scratch"
+  verify_seed2_baseline_rejects_ambiguous_or_selected_base
+  verify_seed2_change_set_accounts_for_predecessor_and_all_worktree_states
+  verify_seed2_change_set_rejects_nonexact_delivery_surface
+  verify_seed2_dependency_direction_excludes_plan073_from_seed1
+  verify_ci_runs_documentation_semantics_after_clean_install
+  verify_owner_evidence_installed_pack_checks_pass
+  printf 'documentation semantics integration: pass\n'
+}
+
+verify_documentation_semantics_integration "$@"

@@ -4,7 +4,7 @@ number: SPEC-073
 created: "2026-08-24"
 status: implemented
 schema_version: spec/v1
-spec_version: 1.1.9
+spec_version: 1.1.10
 
 implementation:
   summary: >
@@ -18,7 +18,7 @@ implementation:
     clean remote restoration, installed-byte identity, and an actual-corpus integration proof.
     Manifest identity keys consumer state and derives the installed path; source coordinate
     independently resolves the repository and may differ under SPEC-056's loud non-fatal warning.
-  subject: scripts/verify-documentation-semantics-integration.sh
+  subject: scripts
 
 verification:
   level: integration
