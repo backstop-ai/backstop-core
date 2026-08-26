@@ -100,6 +100,9 @@ jobs:
         # which is the failure ISSUE-020 was filed about.
         run: ./bin/backstop pack install
 
+      - name: Verify documentation semantics integration
+        run: ./scripts/verify-documentation-semantics-integration.sh
+
       - name: Resolve the diff base
         # WHY THE BASE IS EXPLICIT: a CI checkout is pristine, so bare diff mode
         # resolves `merge-base HEAD origin/main` to HEAD on a push and finds

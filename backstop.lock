@@ -15,6 +15,14 @@ packs:
         source_coordinate: backstop-ai/backstop-design-system
         source_type: git
         version: 0.1.0
+    backstop-ai/documentation-semantics:
+        content_hash: 57c50794c2223ded1d9834c0d53207c2fdd3923415806ffca3a1d6aacb916dcd
+        git_ref: v0.1.1
+        install_date: 2026-08-26T19:08:04Z
+        name: backstop-ai/documentation-semantics
+        source_coordinate: backstop-ai/documentation-semantics
+        source_type: git
+        version: 0.1.1
     backstop-ai/backstop-self:
         content_hash: 014015983bacd2fec7fccb7c08ee51f43bf06daa35a2ea87f7e89e87afa99f3f
         git_ref: v1.1.3

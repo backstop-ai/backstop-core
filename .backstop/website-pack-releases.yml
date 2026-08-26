@@ -1,0 +1,103 @@
+schema_version: website-pack-releases/v1
+seed_2_baseline:
+  predecessor_plan: PLAN-SPEC-072
+  predecessor_spec: SPEC-072
+  predecessor_spec_version: 1.0.7
+  terminal_transition_commit: 36c1de6722b8f70c1594484b276c72b129b77a6e
+releases:
+  - role: documentation-semantics
+    owner_artifact:
+      repository: https://github.com/backstop-ai/documentation-semantics.git
+      commit: bd7157d4b552beb0d0f144af76e89b0143841f85
+      path: bundles/BUNDLE-001-documentation-semantics.bundle.md
+      sha256: 27d2a16e832446f20200e6888bb9f4dcf69146529af4c243873536098c8b2e0b
+    release_evidence:
+      repository: https://github.com/backstop-ai/documentation-semantics.git
+      commit: 36e63ecd3dc77808126dff91336baffaa238f843
+      path: release-evidence/v0.1.1.yml
+      sha256: 40ac93883eebda76fbc10e0a07425a9a0d5289a6f7f18a54e5144582b5922ad2
+    manifest_identity: backstop-ai/documentation-semantics
+    source_coordinate: backstop-ai/documentation-semantics
+    version: 0.1.1
+    git_ref: v0.1.1
+    release_commit: bd7157d4b552beb0d0f144af76e89b0143841f85
+    content_hash: 57c50794c2223ded1d9834c0d53207c2fdd3923415806ffca3a1d6aacb916dcd
+    common_checks:
+      - check: pack-check
+        command: ./bin/backstop pack check .
+        exit_code: 0
+        result: pass
+        subject_commit: bd7157d4b552beb0d0f144af76e89b0143841f85
+        subject_content_hash: 57c50794c2223ded1d9834c0d53207c2fdd3923415806ffca3a1d6aacb916dcd
+        log_ref:
+          repository: https://github.com/backstop-ai/documentation-semantics.git
+          commit: 57f518b0ee870cd0f4bd0db7d75d3caba1730b51
+          path: release-evidence/logs/pack-check.log
+          sha256: 5219f152856b134f33be3a5593579c2a5a2f3e791a2b08b8b5c3df8fed5fe494
+      - check: pack-test
+        command: ./bin/backstop pack test .
+        exit_code: 0
+        result: pass
+        subject_commit: bd7157d4b552beb0d0f144af76e89b0143841f85
+        subject_content_hash: 57c50794c2223ded1d9834c0d53207c2fdd3923415806ffca3a1d6aacb916dcd
+        log_ref:
+          repository: https://github.com/backstop-ai/documentation-semantics.git
+          commit: 57f518b0ee870cd0f4bd0db7d75d3caba1730b51
+          path: release-evidence/logs/pack-test.log
+          sha256: d9cebf97c292956119f4004292d76d9532de06ca2e709a7a69e8ed67249d8bef
+    documentation_semantics:
+      exported_claims:
+        - claim_id: canonical-anchor-unique
+          positive_fixture_path: fixtures/canonical-anchors/valid.md
+          negative_fixture_path: fixtures/canonical-anchors/invalid.md
+          production_relative_path: docs/model.md
+          dispatch_evidence_ref:
+            repository: https://github.com/backstop-ai/documentation-semantics.git
+            commit: 57f518b0ee870cd0f4bd0db7d75d3caba1730b51
+            path: release-evidence/logs/documentation-dispatch.log
+            sha256: a0b7772ae0cc5fd514fe3f6c06c3a468f6ebea202e21f69462d37c09b5ebf25b
+      actual_corpus_probe:
+        rule_id: backstop-ai/documentation-semantics/unique-canonical-definition-anchor
+        marker: BACKSTOP_DOCUMENTATION_SEMANTICS_PROBE_DUPLICATE_OWNER
+        expected_message_fragment: documentation semantics probe marker creates a duplicate canonical owner
+  - role: design-system
+    owner_artifact:
+      repository: https://github.com/backstop-ai/backstop-design-system.git
+      commit: 9cdc38e3165142372aa6e81045ba52819e223e8d
+      path: bundles/BUNDLE-001-design-system-release.bundle.md
+      sha256: da5fb729df70039302afcdecf3ed91fef8cdafb47d39a484e19fa70b8e6cb6f2
+    release_evidence:
+      repository: https://github.com/backstop-ai/backstop-design-system.git
+      commit: a55e4758f59fe8f59cb182b94c089b1c409350ae
+      path: release-evidence/v0.1.0.yml
+      sha256: d10e71d8c3f098b3c3531513753ed9468bf96144b8e5603694d4ed6a301c12cc
+    manifest_identity: backstop-ai/backstop-design-system
+    source_coordinate: backstop-ai/backstop-design-system
+    version: 0.1.0
+    git_ref: v0.1.0
+    release_commit: 045cd6d725cc5d728803b9dcd1b1d101c6efc7fb
+    content_hash: 7352fce2e947a25f7e530f73e80385a24dd1f9654bb8ba7995e1fee5bee6908e
+    common_checks:
+      - check: pack-check
+        command: ./bin/backstop pack check .
+        exit_code: 0
+        result: pass
+        subject_commit: 045cd6d725cc5d728803b9dcd1b1d101c6efc7fb
+        subject_content_hash: 7352fce2e947a25f7e530f73e80385a24dd1f9654bb8ba7995e1fee5bee6908e
+        log_ref:
+          repository: https://github.com/backstop-ai/backstop-design-system.git
+          commit: 1f31e2c8879904006ad8aa26588c508e813e8ee0
+          path: release-evidence/logs/pack-check.log
+          sha256: 5219f152856b134f33be3a5593579c2a5a2f3e791a2b08b8b5c3df8fed5fe494
+      - check: pack-test
+        command: ./bin/backstop pack test .
+        exit_code: 0
+        result: pass
+        subject_commit: 045cd6d725cc5d728803b9dcd1b1d101c6efc7fb
+        subject_content_hash: 7352fce2e947a25f7e530f73e80385a24dd1f9654bb8ba7995e1fee5bee6908e
+        log_ref:
+          repository: https://github.com/backstop-ai/backstop-design-system.git
+          commit: 1f31e2c8879904006ad8aa26588c508e813e8ee0
+          path: release-evidence/logs/pack-test.log
+          sha256: d9cebf97c292956119f4004292d76d9532de06ca2e709a7a69e8ed67249d8bef
+    documentation_semantics: null
