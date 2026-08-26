@@ -4,7 +4,7 @@ number: SPEC-073
 created: "2026-08-24"
 status: ready-for-implementation
 schema_version: spec/v1
-spec_version: 1.1.4
+spec_version: 1.1.5
 
 implementation:
   summary: >
@@ -230,7 +230,7 @@ requirements:
       and registry proves entry
       into installed-pack dispatch independently of Git dirt or a clean semantic verdict. The clean
       corpus has no blocking semantic finding. A separate isolated all-scope mutation adds a second
-      substantive canonical definition to a real non-owner page and must block with the responsible installed
+      substantive canonical definition using an existing anchor in the same real page and must block with the responsible installed
       semantic rule and production-relative path. A final isolated copy deletes the installed tree
       while retaining evidence, declaration, and lock and must fail missing dependency before local
       output counts. Diff-default/all-scope substitution, omitted/additional/reordered corpus paths,
@@ -368,7 +368,7 @@ claims:
     tests: [verify_installed_semantics_gate_rejects_vacuous_or_inexact_corpus_scope]
   - id: CLM-024
     requirement: REQ-005
-    text: An isolated actual-site mutation adding a second substantive canonical definition on a non-owner page blocks with the installed pack rule and production-relative page path.
+    text: An isolated actual-site mutation adding a second substantive canonical definition with an existing same-document anchor blocks with the installed pack rule and production-relative page path.
     tests: [verify_installed_semantics_gate_blocks_duplicate_substantive_owner]
   - id: CLM-025
     requirement: REQ-005
@@ -684,7 +684,7 @@ as journey evidence without rerunning or redefining pack policy.
    Git dirt, and does its reported scope equal that set with the installed engine step executed?
 9. Does each of the fourteen inputs independently block through the owner-declared probe rule when it
    alone receives the marker, naming that production-relative path?
-10. Does the substantive negative proof mutate an isolated copy of a real non-owner page and require the
+10. Does the substantive negative proof duplicate an existing anchor within an isolated copy of a real page and require the
    installed pack's rule and production-relative path in the blocking finding?
 11. Would deleting the installed documentation-semantics pack make acceptance fail even if a local
    script emitted the same diagnostic?

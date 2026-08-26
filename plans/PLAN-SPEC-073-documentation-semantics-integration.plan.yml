@@ -1,7 +1,7 @@
 ---
 plan_id: PLAN-SPEC-073
 spec_id: SPEC-073
-spec_version: "1.1.4"
+spec_version: "1.1.5"
 created: "2026-08-24"
 status: ready
 target_repo: backstop-core
@@ -153,7 +153,7 @@ phases:
           docs/status.md --file docs/contributing.md --file
           docs/_data/content-topology.yml --file docs/_data/product-model.yml --file
           docs/_data/evidence-inventory.yml --file docs/_data/content-inventory.yml`;
-          inject a duplicate substantive definition on a real non-owner page and
+          inject a duplicate substantive definition using an existing anchor in the same real page and
           run an all-scope gate on that isolated exact-corpus copy, requiring the installed rule plus production-relative
           path; then delete the pack while retaining evidence/config/lock and require
           missing dependency before local output counts. Reject fixture-only attribution.
