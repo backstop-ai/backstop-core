@@ -62,9 +62,15 @@ func TestTestNameMatcher_AllMatchAPIAndNoBashMechanismInCore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Core may consume the published Bash mechanism by external coordinate. What this
+	// fence forbids is a second Bash mechanism, an embedded manifest, or baked production
+	// source. Registration therefore proves the intended boundary instead of violating it.
+	if version := cfg.Packs["backstop-ai/bash-toolchain"]; version == "" {
+		t.Error("production config must register the external backstop-ai/bash-toolchain pack")
+	}
 	for registered := range cfg.Packs {
-		if strings.Contains(strings.ToLower(registered), "bash") {
-			t.Errorf("production config registers Bash pack: %s", registered)
+		if strings.Contains(strings.ToLower(registered), "bash") && registered != "backstop-ai/bash-toolchain" {
+			t.Errorf("production config registers an unexpected Bash pack: %s", registered)
 		}
 	}
 	fixtureRoots := 0
@@ -86,7 +92,7 @@ func TestTestNameMatcher_AllMatchAPIAndNoBashMechanismInCore(t *testing.T) {
 			return nil
 		}
 		if strings.Contains(slashPath, "/testdata/") {
-		return nil
+			return nil
 		}
 		if filepath.Base(path) == "pack.yml" {
 			data, readErr := os.ReadFile(path)

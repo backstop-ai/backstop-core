@@ -5,14 +5,15 @@ import (
 	"testing"
 
 	"github.com/backstop-ai/backstop-core/pkg/gate"
+	"github.com/backstop-ai/backstop-core/pkg/pack"
 )
 
 // TestByDeclaration_CurrentInstallUnchanged (CLM-008): behavior-preserving regression for
 // ISSUE-064. Over the current install, (1) substantiveness findings route by the declared
 // substantiveness_role EXACTLY as the deleted rule-id match did (same hollow/subject-join
-// verdicts), and (2) the toolchain stack label renders the same string ("go") the old
+// verdicts), and (2) a Go-only toolchain stack label renders the same string ("go") the old
 // "-toolchain" suffix-strip produced. This is a mechanism swap, not a policy change: no
-// finding flips hollow<->substantive and no label changes for the already-correct install.
+// finding flips hollow<->substantive and no label changes for the historical Go-only corpus.
 func TestByDeclaration_CurrentInstallUnchanged(t *testing.T) {
 	// (1) Substantiveness routing preservation. The installed substantiveness pack now
 	// stamps BOTH the namespaced rule id (as before) AND the declared substantiveness_role
@@ -65,16 +66,26 @@ func TestByDeclaration_CurrentInstallUnchanged(t *testing.T) {
 		t.Errorf("TestH's referenced symbol must still join (verdict preserved); got %+v", set)
 	}
 
-	// (2) Stack label preservation over the REAL installed packs: go-toolchain declares
-	// language: go, so the declared-language label renders "go" — identical to the old
-	// "-toolchain" suffix strip. This loads the shipped manifests, so it fails if the
-	// rehome diverges from the current install.
+	// (2) Stack label preservation over the Go-only corpus that ISSUE-064 changed:
+	// go-toolchain declares language: go, so the declared-language label renders "go" —
+	// identical to the old "-toolchain" suffix strip. Keep this historical regression
+	// independent of later, intentional additions to the installed toolchain fleet.
+	packs := []*pack.Manifest{mechanismManifest("backstop-ai/go-toolchain", "go")}
+	if got := declaredToolchainStackLabel(packs); got != "go" {
+		t.Errorf("the Go-only stack label must render %q (unchanged by the rehome); got %q", "go", got)
+	}
+}
+
+// TestByDeclaration_CurrentInstalledToolchainStack proves that the real installed fleet
+// includes both externally provisioned toolchain mechanisms and derives their stable,
+// sorted label from declarations rather than pack-name special cases.
+func TestByDeclaration_CurrentInstalledToolchainStack(t *testing.T) {
 	root := repoRoot(t)
 	packs, err := loadInstalledPacks(root)
 	if err != nil {
 		t.Fatalf("loadInstalledPacks(%s): %v", root, err)
 	}
-	if got := declaredToolchainStackLabel(packs); got != "go" {
-		t.Errorf("the stack label over the current install must render %q (unchanged by the rehome); got %q", "go", got)
+	if got := declaredToolchainStackLabel(packs); got != "bash, go" {
+		t.Errorf("the current installed toolchain stack must render %q; got %q", "bash, go", got)
 	}
 }
