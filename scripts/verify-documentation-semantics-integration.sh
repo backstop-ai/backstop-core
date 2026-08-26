@@ -260,7 +260,12 @@ verify_seed2_baseline_rejects_ambiguous_or_selected_base() {
 }
 verify_seed2_change_set_accounts_for_predecessor_and_all_worktree_states() { assert_exact_delivery_paths; }
 verify_seed2_change_set_rejects_nonexact_delivery_surface() { assert_exact_delivery_paths; }
-verify_seed2_dependency_direction_excludes_plan073_from_seed1() { ! grep -Fq 'PLAN-SPEC-073' "$ROOT/plans/PLAN-SPEC-072-public-product-model.plan.yml"; }
+verify_seed2_dependency_direction_excludes_plan073_from_seed1() {
+  predecessor=$ROOT/plans/PLAN-SPEC-072-public-product-model.plan.yml
+  assert_contains "$predecessor" 'SPEC-073 v1.1.0 contract is stable design input only'
+  assert_contains "$predecessor" 'this plan never waits for or invokes a'
+  assert_contains "$predecessor" 'PLAN-SPEC-073 task, pack release, declaration, lock, installation, or partial Seed 2'
+}
 verify_ci_runs_documentation_semantics_after_clean_install() {
   ci=$ROOT/.github/workflows/ci.yml
   install=$(grep -n 'run: ./bin/backstop pack install' "$ci" | head -1 | cut -d: -f1)

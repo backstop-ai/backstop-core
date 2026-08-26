@@ -4,7 +4,7 @@ number: SPEC-073
 created: "2026-08-24"
 status: ready-for-implementation
 schema_version: spec/v1
-spec_version: 1.1.6
+spec_version: 1.1.7
 
 implementation:
   summary: >
