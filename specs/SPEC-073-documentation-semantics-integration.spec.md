@@ -4,7 +4,7 @@ number: SPEC-073
 created: "2026-08-24"
 status: ready-for-implementation
 schema_version: spec/v1
-spec_version: 1.1.2
+spec_version: 1.1.3
 
 implementation:
   summary: >
@@ -221,12 +221,16 @@ requirements:
       corpus. The ordinary Core blocking gate remains native. The verifier requires the JSON scope
       to equal the fourteen-path set and the
       installed documentation pack's engine step to execute, never skip. It then creates fourteen
-      isolated copies; in copy N it inserts only the imported `actual_corpus_probe.marker` into path N,
-      reruns the same fourteen-file command, and requires a blocking result from the imported probe
-      rule naming path N and the expected message fragment. Thus every page and registry proves entry
+      isolated copies; in copy N it inserts only the imported `actual_corpus_probe.marker` into path N
+      and runs `./bin/backstop --json gate --all` in external mode, requiring a blocking result from
+      the imported probe rule naming path N and the expected message fragment. The mutation run is
+      deliberately all-scope because Core's current file-scope filter drops corpus-level sandbox
+      findings, which have no structured single-file field; the isolated copy contains the exact
+      accepted documentation corpus, so this does not broaden production ownership. Thus every page
+      and registry proves entry
       into installed-pack dispatch independently of Git dirt or a clean semantic verdict. The clean
-      corpus has no blocking semantic finding. A separate isolated mutation adds a second substantive
-      canonical definition to a real non-owner page and must block with the responsible installed
+      corpus has no blocking semantic finding. A separate isolated all-scope mutation adds a second
+      substantive canonical definition to a real non-owner page and must block with the responsible installed
       semantic rule and production-relative path. A final isolated copy deletes the installed tree
       while retaining evidence, declaration, and lock and must fail missing dependency before local
       output counts. Diff-default/all-scope substitution, omitted/additional/reordered corpus paths,

@@ -1,7 +1,7 @@
 ---
 plan_id: PLAN-SPEC-073
 spec_id: SPEC-073
-spec_version: "1.1.2"
+spec_version: "1.1.3"
 created: "2026-08-24"
 status: ready
 target_repo: backstop-core
@@ -24,6 +24,9 @@ notes: |
   Isolated trusted website-policy consumer gates use Core's supported external
   pack-sandbox mode so the released validator can read the copied fourteen-file
   corpus; Core's ordinary blocking gate retains its native sandbox profile.
+  Clean dispatch uses the exact fourteen-file scope. Mutated isolated copies use
+  all-scope because Core's file-scope filter intentionally removes corpus-level
+  sandbox findings that carry no structured single-file field.
 
 phases:
   - id: phase-1
@@ -151,7 +154,7 @@ phases:
           docs/_data/content-topology.yml --file docs/_data/product-model.yml --file
           docs/_data/evidence-inventory.yml --file docs/_data/content-inventory.yml`;
           inject a duplicate substantive definition on a real non-owner page and
-          rerun that exact gate, requiring the installed rule plus production-relative
+          run an all-scope gate on that isolated exact-corpus copy, requiring the installed rule plus production-relative
           path; then delete the pack while retaining evidence/config/lock and require
           missing dependency before local output counts. Reject fixture-only attribution.
         files: [scripts/verify-documentation-semantics-integration.sh]
@@ -169,8 +172,8 @@ phases:
           `./bin/backstop pack check .backstop/packs/<documentation-semantics-manifest-identity>`
           and `./bin/backstop pack test
           .backstop/packs/<documentation-semantics-manifest-identity>`, and the exact
-          fourteen-file actual-corpus `./bin/backstop gate --file ...` command from
-          TASK-008, and mutate disposable actual
+          fourteen-file clean actual-corpus `./bin/backstop gate --file ...` command from
+          TASK-008, plus all-scope gates over mutated disposable actual
           site copies. It must not classify semantics, invoke engines directly,
           resolve live tags, rerun owners, inspect generic filters, or mutate accepted
           pages. Every negative proof leaves the worktree unchanged.

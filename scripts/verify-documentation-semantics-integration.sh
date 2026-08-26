@@ -113,6 +113,11 @@ gate_corpus() {
   (cd "$root" && BACKSTOP_PACK_SANDBOX=external "$root/bin/backstop" --json gate "$@") >"$output" 2>&1
 }
 
+gate_corpus_mutation() {
+  root=$1 output=$2
+  (cd "$root" && BACKSTOP_PACK_SANDBOX=external "$root/bin/backstop" --json gate --all) >"$output" 2>&1
+}
+
 make_consumer_copy() {
   target=$1
   mkdir -p "$target/.backstop/packs/backstop-ai" "$target/bin" "$target/specs"
@@ -191,7 +196,7 @@ verify_installed_semantics_gate_dispatches_every_seed1_path() {
     case_root=$1/case-$(printf '%s' "$probe_path" | tr '/_' '--')
     cp -R "$base" "$case_root"
     printf '\n%s\n' "$PROBE" >> "$case_root/$probe_path"
-    if gate_corpus "$case_root" "$case_root/gate.json"; then
+    if gate_corpus_mutation "$case_root" "$case_root/gate.json"; then
       tail -200 "$case_root/gate.json" >&2
       fail "probe passed for $probe_path"
     fi
@@ -206,7 +211,7 @@ verify_installed_semantics_gate_rejects_vacuous_or_inexact_corpus_scope() { [ "$
 verify_installed_semantics_gate_blocks_duplicate_substantive_owner() {
   c=$1/duplicate-owner; make_consumer_copy "$c"
   printf '\n## Competing product category {#product-category}\n\nA second canonical definition.\n' >> "$c/docs/evaluate.md"
-  if gate_corpus "$c" "$c/gate.json"; then fail 'duplicate canonical owner passed'; fi
+  if gate_corpus_mutation "$c" "$c/gate.json"; then fail 'duplicate canonical owner passed'; fi
   assert_contains "$c/gate.json" 'duplicate canonical documentation definition anchor #product-category'
   assert_contains "$c/gate.json" "$DOC_ID"
   assert_contains "$c/gate.json" 'docs/evaluate.md'
