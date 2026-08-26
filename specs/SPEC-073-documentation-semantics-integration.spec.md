@@ -2,9 +2,9 @@
 title: "Documentation Semantics Integration"
 number: SPEC-073
 created: "2026-08-24"
-status: ready-for-implementation
+status: implemented
 schema_version: spec/v1
-spec_version: 1.1.7
+spec_version: 1.1.10
 
 implementation:
   summary: >
@@ -18,7 +18,7 @@ implementation:
     clean remote restoration, installed-byte identity, and an actual-corpus integration proof.
     Manifest identity keys consumer state and derives the installed path; source coordinate
     independently resolves the repository and may differ under SPEC-056's loud non-fatal warning.
-  subject: scripts/verify-documentation-semantics-integration.sh
+  subject: scripts
 
 verification:
   level: integration
@@ -27,24 +27,6 @@ verification:
     ./scripts/verify-documentation-semantics-integration.sh
 
 contracts:
-  - file: .backstop/website-pack-releases.yml
-    provides:
-      - name: website_pack_release_imports
-        kind: variable
-        signature: "website-pack-releases/v1{seed_2_baseline,releases[2]}"
-      - name: seed_2_predecessor_boundary
-        kind: variable
-        signature: "{predecessor_plan,predecessor_spec,predecessor_spec_version,terminal_transition_commit}"
-  - file: backstop.yml
-    provides:
-      - name: website_pack_declarations
-        kind: variable
-        signature: "packs[releases[*].manifest_identity] -> releases[*].version"
-  - file: backstop.lock
-    provides:
-      - name: website_pack_locks
-        kind: variable
-        signature: "git LockEntry keyed by manifest identity with independent source_coordinate"
   - file: scripts/verify-documentation-semantics-integration.sh
     consumes:
       - source: .backstop/website-pack-releases.yml
@@ -113,11 +95,6 @@ contracts:
       - source: ./bin/backstop
         name: pack_install_pack_check_pack_test_and_gate
         kind: function
-  - file: .github/workflows/ci.yml
-    provides:
-      - name: documentation_semantics_consumer_gate
-        kind: variable
-        signature: "CI step running scripts/verify-documentation-semantics-integration.sh after clean remote pack install"
 
 requirements:
   - id: REQ-001

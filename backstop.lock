@@ -32,13 +32,13 @@ packs:
         source_type: git
         version: 1.1.3
     backstop-ai/bash-toolchain:
-        content_hash: 8254d5212fc5efcac35cce524a4932f6bd7415af42e6ef292dd862513a037239
-        git_ref: v0.1.1
-        install_date: 2026-08-26T12:49:31Z
+        content_hash: d15877233d6405eed1a08b85734d1902ba7538da8f0dbfeea44d641e856499bf
+        git_ref: v0.1.2
+        install_date: 2026-08-26T21:48:04Z
         name: backstop-ai/bash-toolchain
         source_coordinate: backstop-ai/bash-toolchain
         source_type: git
-        version: 0.1.1
+        version: 0.1.2
     backstop-ai/ci-workflows:
         content_hash: f7c57f3f9f18d89302c1806ccb89d67fb23a1668fe8911bf7890ee5e4541088f
         git_ref: v0.1.2

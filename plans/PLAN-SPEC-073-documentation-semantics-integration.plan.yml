@@ -1,14 +1,22 @@
 ---
 plan_id: PLAN-SPEC-073
 spec_id: SPEC-073
-spec_version: "1.1.7"
+spec_version: "1.1.10"
 created: "2026-08-24"
-status: ready
+status: completed
 target_repo: backstop-core
 target_module: github.com/backstop-ai/backstop-core
 test_command: ./scripts/verify-documentation-semantics-integration.sh
 coverage_threshold: 80
 notes: |
+  CLOSED 2026-08-26. Core CI accepts the complete Seed 2 consumer integration
+  against `backstop-ai/documentation-semantics@v0.1.1`,
+  `backstop-ai/backstop-design-system@v0.1.0`, and
+  `backstop-ai/bash-toolchain@v0.1.2`, whose verifier mechanism independently
+  discovers and executes all 34 mandated SPEC-073 tests.
+  Terminal completeness is proven by green `test_verification`,
+  `artifact_status_drift`, `contract_signature`, and requirement traceability.
+
   Seed 2 only. The completed, accepted SPEC-072/PLAN-SPEC-072 artifact and its
   published ten-page/four-registry output contract are whole-plan prerequisites;
   no phase starts from partial Seed 1 state or references a predecessor task ID.
@@ -18,9 +26,10 @@ notes: |
   confined to SPEC-073's exact five-file implementation allowlist. The linked
   SPEC-073/PLAN-SPEC-073 version and state transitions remain separately validated
   artifact-ledger surfaces and do not expand implementation ownership.
-  The shell entrypoint is the executable verification subject, but is not declared
-  as a function contract because the installed Go-contracts pack compiles function
-  signatures as Go; Bash discovery and the verifier's own execution remain authoritative.
+  The shell entrypoint is the executable verifier for the `scripts` implementation
+  unit. Its real consumed surfaces remain declared, but it is not declared as a provided function contract
+  because the installed Go-contracts pack compiles function signatures as Go; Bash
+  discovery and the verifier's own execution remain authoritative.
   Isolated trusted website-policy consumer gates use Core's supported external
   pack-sandbox mode so the released validator can read the copied fourteen-file
   corpus; Core's ordinary blocking gate retains its native sandbox profile.

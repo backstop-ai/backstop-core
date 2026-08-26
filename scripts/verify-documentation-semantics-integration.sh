@@ -94,7 +94,7 @@ actual_change_paths() {
 }
 
 assert_exact_delivery_paths() {
-  "$BIN" artifact validate --plan PLAN-SPEC-073 --spec SPEC-073 >/dev/null
+  "$BIN" artifact validate --plan PLAN-SPEC-073 --spec SPEC-073
   expected='.backstop/website-pack-releases.yml
 .github/workflows/ci.yml
 backstop.lock
@@ -258,8 +258,12 @@ verify_seed2_baseline_rejects_ambiguous_or_selected_base() {
   assert_not_contains "$0" "$selected_base"
   assert_not_contains "$0" "$inferred_base"
 }
-verify_seed2_change_set_accounts_for_predecessor_and_all_worktree_states() { assert_exact_delivery_paths; }
-verify_seed2_change_set_rejects_nonexact_delivery_surface() { assert_exact_delivery_paths; }
+verify_seed2_change_set_accounts_for_predecessor_and_all_worktree_states() {
+  assert_exact_delivery_paths
+}
+verify_seed2_change_set_rejects_nonexact_delivery_surface() {
+  assert_exact_delivery_paths
+}
 verify_seed2_dependency_direction_excludes_plan073_from_seed1() {
   predecessor=$ROOT/plans/PLAN-SPEC-072-public-product-model.plan.yml
   assert_contains "$predecessor" 'SPEC-073 v1.1.0 contract is stable design input only'
