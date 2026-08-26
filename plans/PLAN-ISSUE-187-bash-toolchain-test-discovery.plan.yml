@@ -7,6 +7,23 @@ target_repo: bash-toolchain
 target_module: github.com/backstop-ai/bash-toolchain
 test_command: "backstop pack test && ./scripts/release-acceptance.sh"
 notes: |
+  PUBLICATION CHECKPOINT 2026-08-26. `backstop-ai/bash-toolchain@v0.1.0` is
+  published and accepted from its immutable remote coordinate. This Core-owned
+  issue/plan pair remains nonterminal because its mandated tests are owned by
+  the external repository and Core's artifact-status gate does not resolve
+  cross-repository test implementations. The released candidate is
+  remote commit `3e0ed53358ffa92757ea377fbb4720f803a44b0e`, tree
+  `1635409090d3f5bfffa8bf1fd2d44b4ca6cfc744`, and Backstop content digest
+  `bf9ba86196cdf949089192c33edd78fd3a4372fb121cf2348df5c4d44b96c362`.
+  Core `v0.3.1` at `7dd4ecde45abf6edd5149e476b2847feb7bd276c`
+  supplied the exact released runtime. Bash pack CI run `32959505526` and
+  publication run `32960567659` both passed. Publication reran the complete
+  prepublication suite, created `v0.1.0`, installed the fresh remote
+  coordinate, re-proved identity and acceptance, created the release record,
+  and emitted postpublication lock reconciliation. The first attempt's
+  refusal on Core v0.3.0's source/binary identity mismatch is retained as
+  negative provenance evidence, not treated as a flaky run.
+
   Implements the contained ISSUE-187 issue track directly. Core already owns the
   language-neutral classifier, test-name matcher, engine dispatch, verdict join,
   and artifact-status dimensions; this plan supplies their missing external Bash

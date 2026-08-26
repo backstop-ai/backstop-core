@@ -2,7 +2,7 @@
 title: "Public Product Model"
 number: SPEC-072
 created: "2026-08-24"
-status: draft
+status: implemented
 schema_version: spec/v1
 spec_version: 1.0.7
 
@@ -58,11 +58,6 @@ contracts:
       - name: legacy_content_disposition_inventory
         kind: variable
         signature: "sources[]"
-  - file: scripts/verify-public-product-model.sh
-    provides:
-      - name: verify_public_product_model
-        kind: function
-        signature: verify_public_product_model()
   - file: docs/index.md
     provides:
       - name: public_home_page
