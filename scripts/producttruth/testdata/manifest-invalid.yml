@@ -1,0 +1,7 @@
+cases:
+  - duplicate-job-id
+  - duplicate-output
+  - duplicate-owner
+  - unknown-job
+  - path-escape
+  - incomplete-declaration

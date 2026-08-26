@@ -2,9 +2,9 @@
 title: "Derived Product Truth Pipeline"
 number: SPEC-074
 created: "2026-08-24"
-status: draft
+status: ready-for-implementation
 schema_version: spec/v1
-spec_version: 1.0.4
+spec_version: 1.0.6
 
 implementation:
   summary: >
@@ -34,16 +34,7 @@ verification:
   test_command: ./scripts/verify-product-truth.sh
 
 contracts:
-  - file: docs/_data/derived-product-truth.yml
-    provides:
-      - name: derived_product_truth_jobs
-        kind: variable
-        signature: "jobs[] {id, inputs[], output, owner_route, owner_anchor, marker, command, source_link_policy}"
   - file: scripts/generate-product-truth.sh
-    provides:
-      - name: generate_product_truth
-        kind: function
-        signature: "generate_product_truth [--write|--check|--recover]"
     consumes:
       - source: docs/_data/derived-product-truth.yml
         name: derived_product_truth_jobs
@@ -52,7 +43,7 @@ contracts:
     provides:
       - name: product_truth_generator
         kind: function
-        signature: "main()"
+        signature: "func main()"
     consumes:
       - source: cmd/backstop
         name: command_tree
@@ -73,46 +64,49 @@ contracts:
     provides:
       - name: SourceLinkDescriptor
         kind: type
-        signature: "SourceLinkDescriptor = TreeBlobSourceLink {kind, commit_binding, path} | CommitSourceLink {kind, commit_binding, commit}; no optional members"
+        signature: "type SourceLinkDescriptor struct"
       - name: RenderAll
         kind: function
-        signature: "RenderAll(root string, manifest Manifest) ([]RenderedJob, error)"
+        signature: "func RenderAll(root string, manifest Manifest) ([]RenderedJob, error)"
       - name: CheckAll
         kind: function
-        signature: "CheckAll(root string, rendered []RenderedJob) ([]Drift, error)"
+        signature: "func CheckAll(root string, rendered []RenderedJob) ([]Drift, error)"
   - file: scripts/producttruth/transaction.go
     provides:
       - name: WriteAll
         kind: function
-        signature: "WriteAll(root string, rendered []RenderedJob) error"
+        signature: "func WriteAll(root string, rendered []RenderedJob) error"
       - name: Recover
         kind: function
-        signature: "Recover(root string) error"
+        signature: "func Recover(root string) error"
   - file: scripts/verify-product-truth.sh
-    provides:
-      - name: verify_product_truth_pipeline
-        kind: function
-        signature: verify_product_truth_pipeline()
+    consumes:
+      - source: scripts/producttruth
+        name: product_truth_generator_tests
+        kind: variable
   - file: docs/_includes/generated/cli-command-catalog.md
-    provides:
-      - name: generated_cli_command_catalog
+    consumes:
+      - source: cmd/backstop
+        name: command_tree
         kind: variable
-        signature: "Generated Markdown + one immutable-tree source descriptor owned by /reference/#cli-command-catalog"
   - file: docs/_includes/generated/artifact-schema-catalog.md
-    provides:
-      - name: generated_artifact_schema_catalog
+    consumes:
+      - source: artifacts
+        name: artifact_schema_corpus
         kind: variable
-        signature: "Generated Markdown + one immutable-blob source descriptor per schema row owned by /reference/#artifact-schema-catalog"
   - file: docs/_includes/generated/installed-pack-catalog.md
-    provides:
-      - name: generated_installed_pack_catalog
+    consumes:
+      - source: backstop.yml
+        name: declared_pack_set
         kind: variable
-        signature: "Generated Markdown + two immutable-blob source descriptors owned by /packs/#installed-pack-catalog"
+      - source: backstop.lock
+        name: locked_pack_identities
+        kind: variable
   - file: docs/_includes/generated/release-history.md
-    provides:
-      - name: generated_release_history
+    consumes:
+      - source: git
+        name: logical_stable_release_refs
         kind: variable
-        signature: "Generated Markdown + one immutable-commit source descriptor per release row owned by /status/#release-history"
   - file: docs/reference.md
     consumes:
       - source: docs/_includes/generated/cli-command-catalog.md
@@ -132,15 +126,15 @@ contracts:
         name: generated_release_history
         kind: variable
   - file: .github/workflows/ci.yml
-    provides:
-      - name: derived_product_truth_drift_gate
-        kind: variable
-        signature: "Blocking generator, measured coverage, source-include verification, and exact-byte drift refusal"
+    consumes:
+      - source: scripts/verify-product-truth.sh
+        name: product_truth_verifier
+        kind: function
   - file: .github/workflows/release.yml
-    provides:
-      - name: release_history_current
-        kind: variable
-        signature: "Latest-origin/main history gate required by goreleaser"
+    consumes:
+      - source: scripts/generate-product-truth.sh
+        name: product_truth_check_mode
+        kind: function
 
 requirements:
   - id: REQ-001
@@ -787,7 +781,7 @@ tuple without becoming another generator, evidence registry, route owner, or jou
 
 - `bundles/BUNDLE-032-website-expansion.bundle.md` v0.6.0 — source bundle, REQ-011@1.0.0,
   resolved OQ-5, DD-10, DD-11, Seed 3 acceptance, and source/generated ownership sharp edge.
-- `specs/SPEC-072-public-product-model.spec.md` v1.0.5 — authoritative page owners, route/anchor
+- `specs/SPEC-072-public-product-model.spec.md` v1.0.7 — authoritative page owners, route/anchor
   boundary, human-readable product truth, and the Seed 2/3/4 seams.
 - `specs/SPEC-075-static-public-site-design-system.spec.md` v1.0.4 — downstream Jekyll build,
   rendered-region/digest verification, site-commit resolution, immutable rendered anchors, Pages

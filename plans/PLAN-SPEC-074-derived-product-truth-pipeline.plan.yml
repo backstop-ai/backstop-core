@@ -1,15 +1,15 @@
 ---
 plan_id: PLAN-SPEC-074
 spec_id: SPEC-074
-spec_version: "1.0.4"
+spec_version: "1.0.6"
 created: "2026-08-24"
-status: draft
+status: ready
 target_repo: backstop-core
 target_module: github.com/backstop-ai/backstop-core
 test_command: ./scripts/verify-product-truth.sh
 coverage_threshold: 80
 notes: |
-  Seed 3 only. Consume accepted SPEC-072 v1.0.5 / PLAN-SPEC-072 owner pages,
+  Seed 3 only. Consume accepted SPEC-072 v1.0.7 / PLAN-SPEC-072 owner pages,
   subordinate anchors, and
   source include sites as a completed upstream contract. Complete the four source
   derivations, checked-in fragments, typed provenance, source consumption, drift gate,
@@ -25,7 +25,7 @@ phases:
         type: setup
         title: "Confirm upstream ownership barriers"
         description: |
-          Require accepted SPEC-072 v1.0.5 / PLAN-SPEC-072 outputs for /reference/, /packs/, and /status/
+          Require accepted SPEC-072 v1.0.7 / PLAN-SPEC-072 outputs for /reference/, /packs/, and /status/
           with the four anchors and source include-site ownership. Consume that completed
           artifact contract only; stop rather than invent page ownership or inspect any
           downstream plan task or implementation state.
@@ -196,7 +196,7 @@ phases:
         title: "Bind fragments to their Seed 1 owners"
         description: |
           Add only the exact static PRODUCT-TRUTH-INCLUDE markers and Liquid include lines
-          at accepted SPEC-072 v1.0.5's four anchors. Preserve surrounding prose; add no build runtime,
+          at accepted SPEC-072 v1.0.7's four anchors. Preserve surrounding prose; add no build runtime,
           layout, dynamic expression, generated page, or input reread.
         files: [docs/reference.md, docs/packs.md, docs/status.md]
         claims: [CLM-022, CLM-023, CLM-024, CLM-025]

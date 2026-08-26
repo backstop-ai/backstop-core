@@ -16,6 +16,10 @@ Backstop exposes a repository-oriented CLI, YAML artifacts, JSON-capable output,
 
 ## Artifact schema catalog {#artifact-schema-catalog}
 
+<!-- PRODUCT-TRUTH-INCLUDE:BEGIN job=artifact-schema-catalog -->
+{% include generated/artifact-schema-catalog.md %}
+<!-- PRODUCT-TRUTH-INCLUDE:END job=artifact-schema-catalog -->
+
 <!-- backstop-claim: CLAIM-014 -->
 Artifact schemas live under `artifacts/<kind>/v1/schema.json`. The CLI reserves IDs, scaffolds valid records, validates references and state, and excludes terminal historical artifacts where policy declares that behavior.
 <!-- /backstop-claim -->
@@ -75,6 +79,10 @@ A gate result is useful evidence only when its command, prerequisites, and captu
 Durable references use repository paths, immutable commits, or published versions. Execution evidence includes the exact command and prerequisites; observation evidence identifies its checked-in artifact and provenance.
 
 ## CLI command catalog {#cli-command-catalog}
+
+<!-- PRODUCT-TRUTH-INCLUDE:BEGIN job=cli-command-catalog -->
+{% include generated/cli-command-catalog.md %}
+<!-- PRODUCT-TRUTH-INCLUDE:END job=cli-command-catalog -->
 
 <!-- backstop-claim: CLAIM-032 -->
 The command families cover initialization, diagnosis, gates, packs, artifacts, recipes, baselines, waivers, version reporting, and command discovery. Use `--help` on the pinned release for exact flags and `--json` where a command exposes structured output.

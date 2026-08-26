@@ -94,6 +94,9 @@ jobs:
       - name: Build the backstop CLI
         run: go build -o ./bin/backstop ./cmd/backstop
 
+      - name: Verify derived product truth
+        run: ./scripts/verify-product-truth.sh
+
       - name: Install the pack fleet
         # MUST precede the gate. Against an empty .backstop/packs/ every dimension
         # reports capability_absent and the job passes having checked nothing —

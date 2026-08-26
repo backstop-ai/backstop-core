@@ -1,0 +1,7 @@
+mutations:
+  - missing-output
+  - edited-output
+  - marker-mismatch
+  - orphan-output
+  - outstanding-transaction
+  - source-read-failure

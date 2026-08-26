@@ -1,0 +1,8 @@
+failures:
+  - coverage-absent
+  - coverage-duplicate
+  - coverage-nonnumeric
+  - coverage-below-threshold
+  - drift-check-missing
+  - source-include-check-missing
+  - workflow-check-missing

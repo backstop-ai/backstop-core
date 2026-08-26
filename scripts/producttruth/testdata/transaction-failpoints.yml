@@ -1,0 +1,9 @@
+failpoints:
+  - stage-write
+  - stage-fsync
+  - journal-fsync
+  - backup-rename
+  - install-rename
+  - directory-fsync
+  - rollback-remove
+  - rollback-restore

@@ -1,0 +1,10 @@
+mutations:
+  - missing-descriptor
+  - reordered-descriptor
+  - wrong-kind
+  - wrong-binding
+  - wrong-path-or-commit
+  - owner-output-drift
+  - digest-drift
+  - opposite-union-member
+  - unknown-member
