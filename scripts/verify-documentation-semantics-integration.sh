@@ -115,7 +115,7 @@ gate_corpus() {
 
 make_consumer_copy() {
   target=$1
-  mkdir -p "$target/.backstop/packs/backstop-ai" "$target/bin"
+  mkdir -p "$target/.backstop/packs/backstop-ai" "$target/bin" "$target/specs"
   python3 - "$ROOT" "$target" "$DOC_ID" "$DESIGN_ID" <<'PY'
 import os,sys,yaml
 root,target,*identities=sys.argv[1:]
