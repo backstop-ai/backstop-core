@@ -3,11 +3,23 @@ plan_id: PLAN-SPEC-072
 spec_id: SPEC-072
 spec_version: "1.0.7"
 created: "2026-08-24"
-status: draft
+status: completed
 target_repo: backstop-core
 target_module: github.com/backstop-ai/backstop-core
 test_command: ./scripts/verify-public-product-model.sh
 notes: |
+  CLOSED 2026-08-26. The complete Seed 1 implementation is merged in Core and
+  its terminal state is now verified with the released
+  `backstop-ai/bash-toolchain@v0.1.1`. The installed pack resolves all 47
+  mandated Bash references to 44 distinct functions with zero absent tests;
+  the canonical verifier executes once and dispatches the eight suites.
+  `test_verification`, `artifact_status_drift`, and
+  `requirement_traceability` are required green receipts for this promotion.
+  The prior Bash-function entry under `contracts` was removed at promotion:
+  the installed `go-contracts` pack compiles signatures as Go syntax and cannot
+  truthfully verify a `.sh` declaration. The structural verifier suite remains
+  the executable owner of the function-presence and exactly-once assertions.
+
   Seed 1 only. Preserve useful legacy units, then establish topology, then canonical
   model/evidence, then the structural verifier and final copy. The independently reviewed
   SPEC-073 v1.1.0 contract is stable design input only; this plan never waits for or invokes a
