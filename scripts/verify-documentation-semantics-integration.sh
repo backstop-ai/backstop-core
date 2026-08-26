@@ -115,11 +115,19 @@ gate_corpus() {
 
 make_consumer_copy() {
   target=$1
-  mkdir -p "$target/.backstop" "$target/bin"
-  cp "$ROOT/backstop.yml" "$ROOT/backstop.lock" "$target/"
+  mkdir -p "$target/.backstop/packs/backstop-ai" "$target/bin"
+  python3 - "$ROOT" "$target" "$DOC_ID" "$DESIGN_ID" <<'PY'
+import os,sys,yaml
+root,target,*identities=sys.argv[1:]
+for name in ('backstop.yml','backstop.lock'):
+ with open(os.path.join(root,name),encoding='utf-8') as handle: document=yaml.safe_load(handle)
+ document['packs']={identity:document['packs'][identity] for identity in identities}
+ with open(os.path.join(target,name),'w',encoding='utf-8') as handle: yaml.safe_dump(document,handle,sort_keys=False)
+PY
   cp "$BIN" "$target/bin/backstop"
   cp -R "$ROOT/docs" "$target/docs"
-  cp -R "$ROOT/.backstop/packs" "$target/.backstop/packs"
+  cp -R "$ROOT/.backstop/packs/$DOC_ID" "$target/.backstop/packs/backstop-ai/documentation-semantics"
+  cp -R "$ROOT/.backstop/packs/$DESIGN_ID" "$target/.backstop/packs/backstop-ai/backstop-design-system"
 }
 
 verify_owner_boundary_accepts_bounded_consumer_surfaces() { assert_exact_delivery_paths; }
