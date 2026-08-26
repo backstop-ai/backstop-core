@@ -146,7 +146,12 @@ verify_owner_evidence_accepts_documentation_specific_dispatch_proof() { assert_c
 verify_owner_evidence_rejects_unproven_documentation_dispatch() { assert_contains "$1/doc-dispatch" 'positive pass:'; assert_contains "$1/doc-dispatch" 'negative block:'; }
 verify_owner_evidence_accepts_design_system_common_only_matrix() { assert_contains "$IMPORT" '    documentation_semantics: null'; }
 verify_owner_evidence_rejects_role_specific_matrix_contradiction() { [ "$(grep -c '^      exported_claims:' "$IMPORT")" -eq 1 ]; }
-verify_owner_evidence_excludes_live_owner_and_generic_fixture_introspection() { assert_not_contains "$0" 'git ls-remote'; assert_not_contains "$0" 'pack test https://'; }
+verify_owner_evidence_excludes_live_owner_and_generic_fixture_introspection() {
+  live_resolution=$(printf '%s %s' git ls-remote)
+  owner_rerun=$(printf '%s %s' 'pack test' 'https://')
+  assert_not_contains "$0" "$live_resolution"
+  assert_not_contains "$0" "$owner_rerun"
+}
 
 verify_installed_semantics_gate_accepts_exact_clean_seed1_corpus() {
   output=$1/clean-gate.json
