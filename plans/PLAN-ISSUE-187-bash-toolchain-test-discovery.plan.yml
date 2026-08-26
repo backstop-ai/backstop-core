@@ -529,19 +529,27 @@ phases:
           accepted candidate commit, tree, and pack digest equal the fresh remote
           installation identity. In disposable clones, declare, lock, and install the
           exact candidate through Backstop from TASK-005's clean external tracked-file
-          staging export, never from the live repository or its `.backstop` tree,
-          alongside the released Go toolchain pack. Check out backstop-core at exact
-          commit 2855ccd1438c455fc2a6842978c15e5cf582ff5b and first assert its tree is
-          exactly 97a9480b579b8aac1f4fec8d8294c70aee56a232. Reject a branch checkout,
-          commit mismatch, dirty pre-mutation tree, or tree mismatch. Parse the pinned
-          SPEC-072 claims and assert 47 references and 44 distinct statically declared
-          Bash functions with no absent name. Through the assembled Bash engine execute
-          the exact top-level verifier once; its own contract dispatches all eight
-          suites. Also prove the verifier and suites pass independently without ever
-          sourcing or rewriting them. Change SPEC-072 to implemented and PLAN-SPEC-072
-          to completed only in the disposable clone, assert those are the only tree
-          differences, and require zero absent tests in test_verification and zero
-          broken promises in artifact_status_drift.
+          staging export, never from the live repository or its `.backstop` tree.
+          Check out backstop-core at exact commit
+          2855ccd1438c455fc2a6842978c15e5cf582ff5b and first assert its tree is exactly
+          97a9480b579b8aac1f4fec8d8294c70aee56a232. Reject a branch checkout, commit
+          mismatch, dirty pre-mutation tree, or tree mismatch. Treat that checkout as an
+          immutable byte source: copy byte-identical SPEC-072, PLAN-SPEC-072, canonical
+          verifier, and eight suite files into a minimal disposable acceptance consumer.
+          Through supported Backstop pack remove/add/install operations establish a
+          Bash-only declared, locked, and installed profile. Record the resulting
+          backstop.yml, backstop.lock, and installed-cache baseline and prove every
+          other tracked acceptance byte still matches the pinned source before status
+          promotion. Parse the pinned SPEC-072 claims and assert 47 references and 44
+          distinct statically declared Bash functions with no absent name. Change only
+          SPEC-072 to implemented and PLAN-SPEC-072 to completed, then run an explicit-
+          file assembled gate over that spec, plan, and verifier. Through the Bash
+          project-wide engine execute the exact top-level verifier once; its own contract
+          dispatches all eight suites. Also prove the verifier and suites pass
+          independently without ever sourcing or rewriting them. Require the profile
+          configuration, lock, and installed cache to remain byte-identical and Bash-only
+          after execution, zero absent tests in test_verification, and zero broken
+          promises in artifact_status_drift.
 
           Build a separate mixed fixture containing one Go Test function and one Bash
           function. With both released toolchain packs installed, require both files,
@@ -554,6 +562,7 @@ phases:
           - scripts/tests/bash-toolchain/mixed-toolchain.sh
           - scripts/tests/bash-toolchain/release-install.sh
           - testdata/consumer/mixed/go.mod
+          - testdata/consumer/mixed/example.go
           - testdata/consumer/mixed/example_test.go
           - testdata/consumer/mixed/scripts/tests/example.sh
         claims:
@@ -600,9 +609,14 @@ phases:
           Implement a non-circular release lane. Before any tag or release exists, use
           TASK-005 clean external tracked-file staging plus Backstop's supported
           local-path add/content-addressed lock-install flow to install the exact
-          candidate bytes into fresh disposable consumers and run the
-          complete Phase-2 acceptance through disposable-consumer
-          `BACKSTOP_PACK_SANDBOX=external backstop gate --all` runs in this secure VM.
+          candidate bytes into fresh disposable consumers and run the complete Phase-2
+          acceptance in this secure VM. For SPEC-072, use the same immutable pinned byte
+          source, minimal Bash-only acceptance profile, configuration/lock/cache
+          baseline, two status promotions, and explicit-file assembled gate in both the
+          local and remote lanes. Reassert after execution that declarations, lock,
+          installed pack names, and installed-cache bytes remain exactly Bash-only.
+          Reserve disposable-consumer `BACKSTOP_PACK_SANDBOX=external backstop gate
+          --all` runs for the purpose-built ordinary, negative, and mixed consumers.
           Keep that explicit opt-out in harness/CI configuration only; never encode it
           into pack defaults. Record the candidate
           commit, tree, and pack content digest. Only after that exact candidate is green
@@ -644,17 +658,21 @@ phases:
 
           Require all eleven exact mandated functions to be discovered and green in
           the candidate lane. The final script is not optional: it constructs the valid
-          disposable consumers and runs their assembled
-          `BACKSTOP_PACK_SANDBOX=external backstop gate --all` commands, then performs
+          disposable consumers and runs their assembled gates, then performs
           the publication boundary, fresh remote install, and identity equality proof
           required by CLM-011. It must never run the assembled gate in the bare pack
           repository or encode external sandbox mode into pack defaults. Run the
-          same full gate in both the pre-publication content-addressed local install and
-          post-tag remote identity install lanes and record: identical candidate bytes,
-          pinned Core commit/tree identity, 47 references to 44 distinct functions, the
-          canonical verifier executed exactly once while dispatching eight suites, zero
-          absent SPEC-072 mandated tests, zero SPEC-072 broken promises, unchanged Go
-          discovery/verdicts, and every loud-failure mutation non-green.
+          same explicit-file scoped SPEC-072 gate in both the pre-publication content-
+          addressed local install and post-tag remote identity install lanes. Require
+          zero violations in pack_lock_verification, artifact_validation, pack_engines,
+          test_verification, and artifact_status_drift, and record: identical candidate
+          bytes; pinned Core commit/tree identity; 47 references to 44 distinct functions
+          with zero absent; the canonical verifier executed exactly once while
+          dispatching eight suites; zero SPEC-072 broken promises; final equality of the
+          Bash-only declaration, lock, installed-name set, and installed-cache baseline;
+          unchanged Go discovery/verdicts in the separate mixed consumer; and every loud-
+          failure mutation non-green. Continue to use `gate --all` only in the purpose-
+          built ordinary, negative, and mixed consumers.
         files:
           - pack.yml
           - scripts/test-produce.sh
