@@ -4,7 +4,7 @@ number: SPEC-073
 created: "2026-08-24"
 status: implemented
 schema_version: spec/v1
-spec_version: 1.1.10
+spec_version: 1.1.11
 
 implementation:
   summary: >
@@ -234,18 +234,22 @@ requirements:
       parent to `status: completed`, still names `spec_id: SPEC-072` and `spec_version: 1.0.7`, and
       passes that tree's `./scripts/verify-public-product-model.sh`. That commit is the deterministic
       terminal transition and must equal `seed_2_baseline.terminal_transition_commit`; zero or
-      multiple candidates fail. The normalized Seed 2 change set is the union of every path reported
-      by `git -c diff.renames=copies diff --name-status --find-renames=50% --find-copies=50%
-      <terminal-transition-commit> --` (including staged, unstaged, deletions, and both paths of each
-      `R`/`C` record) and every root-relative untracked path from
-      `git ls-files --others --exclude-standard`, less the exact linked artifact paths
+      multiple candidates fail. Before terminalization, the normalized Seed 2 change set is the union
+      of every path reported by `git -c diff.renames=copies diff --name-status --find-renames=50%
+      --find-copies=50% <terminal-transition-commit> --` (including staged, unstaged, deletions, and
+      both paths of each `R`/`C` record) and every root-relative untracked path from
+      `git ls-files --others --exclude-standard`. After terminalization, the verifier must discover
+      exactly one first-parent commit that transitions PLAN-SPEC-073 to `completed` and freeze the
+      upper boundary at that commit, so later seeds cannot be misclassified as Seed 2 delivery.
+      In either mode the set excludes the exact linked artifact paths
       `specs/SPEC-073-documentation-semantics-integration.spec.md` and
       `plans/PLAN-SPEC-073-documentation-semantics-integration.plan.yml` only when both artifacts
       validate and retain their exact IDs/linkage. At final acceptance the remaining set must equal
-      exactly REQ-001's five paths. Consequently all SPEC-072 predecessor page, registry, verifier, plan, and
-      spec changes are before the boundary, while any later change outside the five paths fails; an
-      alternate base, second completed transition, ignored untracked delivery file, or convenient
-      diff-base selection is prohibited. PLAN-SPEC-073 execution remains downstream of completed
+      exactly REQ-001's five paths. Consequently all SPEC-072 predecessor page, registry, verifier,
+      plan, and spec changes are before the boundary, all pre-terminal Seed 2 scope additions remain
+      visible, and post-terminal Seed 3 or later work is outside the frozen historical interval. An
+      alternate base, ambiguous terminal transition, ignored pre-terminal untracked delivery file,
+      or convenient diff-base selection is prohibited. PLAN-SPEC-073 execution remains downstream of completed
       SPEC-072 and must never become a SPEC-072 execution prerequisite.
 
 claims:
@@ -378,11 +382,11 @@ claims:
     tests: [verify_seed2_baseline_rejects_ambiguous_or_selected_base]
   - id: CLM-032
     requirement: REQ-007
-    text: The normalized terminal-transition-to-worktree change set excludes predecessor delivery and includes committed, staged, unstaged, deleted, renamed, copied, and untracked Seed 2 paths.
+    text: Before closure the normalized predecessor-to-worktree set includes committed, staged, unstaged, deleted, renamed, copied, and untracked Seed 2 paths; after closure the same proof freezes at the unique PLAN-SPEC-073 completed transition.
     tests: [verify_seed2_change_set_accounts_for_predecessor_and_all_worktree_states]
   - id: CLM-033
     requirement: REQ-007
-    text: Any post-baseline path outside the exact five-file set, or any missing allowed delivery path at final acceptance, fails with the normalized path.
+    text: Any path in the frozen predecessor-to-Seed-2-terminal interval outside the exact five-file set, or any missing allowed delivery path at final acceptance, fails with the normalized path; later terminal seeds do not reopen Seed 2 scope.
     tests: [verify_seed2_change_set_rejects_nonexact_delivery_surface]
   - id: CLM-034
     requirement: REQ-007
@@ -507,14 +511,16 @@ absence of findings, proves that every Seed-1 input entered installed-pack dispa
 The baseline is not chosen by a caller. Walking current `HEAD`'s first-parent history, the verifier
 finds the unique earliest commit that transitions PLAN-SPEC-072 from absent/non-completed to
 `completed`, still binds SPEC-072 v1.0.7, and passes that tree's exact Seed-1 verifier. That commit
-must equal the recorded `terminal_transition_commit`. The Seed-2 set is the normalized union of
+must equal the recorded `terminal_transition_commit`. Before closure, the Seed-2 set is the normalized union of
 `git -c diff.renames=copies diff --name-status --find-renames=50% --find-copies=50% <commit> --`
 (committed, index, worktree, deletions, and both paths of each `R`/`C` record) and
-`git ls-files --others --exclude-standard`. Final acceptance requires exactly the five
+`git ls-files --others --exclude-standard`. Once PLAN-SPEC-073 is terminal, the verifier discovers
+its unique first-parent transition to `completed` and uses that commit as the immutable upper bound.
+Final acceptance requires exactly the five
 REQ-001 delivery paths after subtracting only the validated linked SPEC-073 and PLAN-SPEC-073
 ledger surfaces. Therefore predecessor docs/registry work is before the boundary and any
-post-boundary scope addition remains visible; no branch, merge-base, tag, environment, or dirty-diff
-selector may replace this computation.
+pre-terminal scope addition remains visible without treating later seeds as Seed 2 delivery; no
+branch, merge-base, tag, environment, or dirty-diff selector may replace this computation.
 
 ## Implementation
 
@@ -545,8 +551,9 @@ The planner must preserve this order:
    time and require the imported probe rule, expected message, and production-relative path. Then run
    the separate duplicate-definition and deleted-install negative proofs. No accepted page is mutated.
 7. Compute the final delivery set from the recorded predecessor boundary through the complete Git
-   index/worktree/untracked state and require exactly the five allowed paths. This pass occurs after
-   all other delivery mutations so a later forbidden file cannot escape an earlier scope check.
+   index/worktree/untracked state and require exactly the five allowed paths. At terminalization,
+   freeze its upper bound at the unique PLAN-SPEC-073 completed transition. This pass occurs after
+   all other delivery mutations so a pre-terminal forbidden file cannot escape an earlier scope check.
 8. Add the verifier to CI after clean remote pack installation and before any job reports website
    policy compliance. Seed 4 may compose design-system actual-site proof after this step; it cannot
    replace semantic proof. PLAN-SPEC-073 is downstream execution only and never becomes a SPEC-072
@@ -580,7 +587,7 @@ The positive path is deliberately conjunctive:
 6. fourteen attributed per-path dispatch-probe blocks, clean corpus, and the attributed substantive
    negative mutation;
 7. delete-installed failure attributed to the missing dependency; and
-8. a final normalized change set equal to exactly the five delivery paths.
+8. a final normalized historical change set equal to exactly the five delivery paths.
 
 No self-authored transcript, fixture-only run, local relock, dirty-diff/default-scope result,
 unattributed output, convenient baseline, or clean gate without the per-path and negative proofs can
@@ -627,9 +634,10 @@ not an inferred pass from one green command.
   owner release record and coordinated migration; Core cannot ratify an alias on its own.
 - **A convenient diff base can erase forbidden delivery.** Seed 1 legitimately changes `docs/**`, so
   repository dirt relative to an arbitrary branch is neither the Seed-2 set nor a safe exclusion.
-  The unique PLAN-SPEC-072 terminal transition fixes predecessor acceptance; later deletions,
+  The unique PLAN-SPEC-072 terminal transition fixes predecessor acceptance; pre-terminal deletions,
   renames, copies, and untracked files remain visible except for the two validated linked artifact
-  ledger surfaces.
+  ledger surfaces. After PLAN-SPEC-073 completes, its unique terminal transition freezes the other
+  end of that historical interval so later seed delivery remains independently governable.
 
 ## Integration Contract
 

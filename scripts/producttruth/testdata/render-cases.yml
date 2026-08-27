@@ -1,0 +1,7 @@
+cases:
+  - cli-command-order
+  - numeric-schema-version-order
+  - pack-name-order
+  - descending-semver-order
+  - crlf-and-control-normalization
+  - canonical-table-escaping

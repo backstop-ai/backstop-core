@@ -1,0 +1,5 @@
+jobs:
+  cli-command-catalog: cmd/backstop
+  artifact-schema-catalog: artifacts/base/schema.json
+  installed-pack-catalog: backstop.yml
+  release-history: refs/tags/vMAJOR.MINOR.PATCH

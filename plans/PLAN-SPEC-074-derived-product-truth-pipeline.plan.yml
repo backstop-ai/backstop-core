@@ -1,15 +1,20 @@
 ---
 plan_id: PLAN-SPEC-074
 spec_id: SPEC-074
-spec_version: "1.0.4"
+spec_version: "1.0.8"
 created: "2026-08-24"
-status: draft
+status: completed
 target_repo: backstop-core
 target_module: github.com/backstop-ai/backstop-core
 test_command: ./scripts/verify-product-truth.sh
 coverage_threshold: 80
 notes: |
-  Seed 3 only. Consume accepted SPEC-072 v1.0.5 / PLAN-SPEC-072 owner pages,
+  CLOSED 2026-08-27. The four manifest-governed catalogs are generated from
+  repository truth, checked into their Seed 1 owner pages, and enforced in CI
+  and stable release publication. The canonical verifier executes all 57
+  mandated tests with race detection and at least 80% statement coverage.
+
+  Seed 3 only. Consume accepted SPEC-072 v1.0.8 / PLAN-SPEC-072 owner pages,
   subordinate anchors, and
   source include sites as a completed upstream contract. Complete the four source
   derivations, checked-in fragments, typed provenance, source consumption, drift gate,
@@ -25,7 +30,7 @@ phases:
         type: setup
         title: "Confirm upstream ownership barriers"
         description: |
-          Require accepted SPEC-072 v1.0.5 / PLAN-SPEC-072 outputs for /reference/, /packs/, and /status/
+          Require accepted SPEC-072 v1.0.8 / PLAN-SPEC-072 outputs for /reference/, /packs/, and /status/
           with the four anchors and source include-site ownership. Consume that completed
           artifact contract only; stop rather than invent page ownership or inspect any
           downstream plan task or implementation state.
@@ -196,7 +201,7 @@ phases:
         title: "Bind fragments to their Seed 1 owners"
         description: |
           Add only the exact static PRODUCT-TRUTH-INCLUDE markers and Liquid include lines
-          at accepted SPEC-072 v1.0.5's four anchors. Preserve surrounding prose; add no build runtime,
+          at accepted SPEC-072 v1.0.8's four anchors. Preserve surrounding prose; add no build runtime,
           layout, dynamic expression, generated page, or input reread.
         files: [docs/reference.md, docs/packs.md, docs/status.md]
         claims: [CLM-022, CLM-023, CLM-024, CLM-025]
@@ -236,7 +241,7 @@ phases:
           release-history-current checkout, stable-tag fetch, stale-main refusal, original
           tag preservation, rerun success, tag-checkout substitution refusal, and
           GoReleaser dependency. Do not inspect Jekyll, rendered output, or Pages.
-        files: [scripts/tests/product-truth/source-workflow-wiring.sh, scripts/tests/product-truth/fixtures/source-workflow-mutations.yml]
+        files: [scripts/producttruth/pipeline_contract_test.go, scripts/tests/product-truth/fixtures/source-workflow-mutations.yml]
         claims: [CLM-041, CLM-042, CLM-043]
         test_names: [TestProductTruth_ReleaseBlocksStaleLatestMain, TestProductTruth_ReleaseHandshakePassesAfterMainRegeneration, TestProductTruth_ReleaseWorkflowRejectsTagCheckoutSubstitution]
         depends_on: [TASK-017]
@@ -259,7 +264,7 @@ phases:
           nonnumeric. Prove verifier ordering and cleanup across race coverage, check mode,
           exact source-include verification, branch-CI wiring, and release-workflow wiring.
           Assert that no Jekyll build or Pages workflow is required or inspected.
-        files: [scripts/tests/product-truth/verify-pipeline.sh, scripts/tests/product-truth/fixtures/source-pipeline-failures.yml]
+        files: [scripts/producttruth/pipeline_contract_test.go, scripts/tests/product-truth/fixtures/source-pipeline-failures.yml]
         claims: [CLM-044, CLM-045, CLM-046]
         test_names: [TestProductTruth_VerifierAcceptsCoverageAtThreshold, TestProductTruth_VerifierRejectsCoverageFailureMatrix, TestProductTruth_VerifierCoversIndependentSourcePipeline]
         depends_on: [TASK-017]
@@ -283,7 +288,7 @@ phases:
           and `./scripts/generate-product-truth.sh --check`. Require the complete generated
           cohort, source-consumption mutations, independent CI/release wiring, and no site
           runtime or downstream-plan dependency.
-        files: [scripts/verify-product-truth.sh, scripts/tests/product-truth/verify-pipeline.sh, docs/_includes/generated/cli-command-catalog.md, docs/_includes/generated/artifact-schema-catalog.md, docs/_includes/generated/installed-pack-catalog.md, docs/_includes/generated/release-history.md, .github/workflows/ci.yml, .github/workflows/release.yml]
+        files: [scripts/verify-product-truth.sh, scripts/producttruth/pipeline_contract_test.go, docs/_includes/generated/cli-command-catalog.md, docs/_includes/generated/artifact-schema-catalog.md, docs/_includes/generated/installed-pack-catalog.md, docs/_includes/generated/release-history.md, .github/workflows/ci.yml, .github/workflows/release.yml]
         claims: [CLM-010, CLM-015, CLM-022, CLM-023, CLM-024, CLM-025, CLM-041, CLM-042, CLM-043, CLM-044, CLM-045, CLM-046, CLM-047, CLM-050, CLM-053, CLM-056]
         depends_on: [TASK-019, TASK-020, TASK-023]
 

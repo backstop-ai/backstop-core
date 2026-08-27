@@ -4,7 +4,7 @@ number: SPEC-072
 created: "2026-08-24"
 status: implemented
 schema_version: spec/v1
-spec_version: 1.0.7
+spec_version: 1.0.8
 
 implementation:
   summary: >
@@ -58,56 +58,6 @@ contracts:
       - name: legacy_content_disposition_inventory
         kind: variable
         signature: "sources[]"
-  - file: docs/index.md
-    provides:
-      - name: public_home_page
-        kind: variable
-        signature: "Markdown page for / with deterministic claim regions"
-  - file: docs/evaluate.md
-    provides:
-      - name: public_evaluation_page
-        kind: variable
-        signature: "Markdown page for /evaluate/ with deterministic claim regions"
-  - file: docs/model.md
-    provides:
-      - name: public_model_page
-        kind: variable
-        signature: "Markdown page for /model/ with deterministic claim regions"
-  - file: docs/adopt.md
-    provides:
-      - name: public_adoption_page
-        kind: variable
-        signature: "Markdown page for /adopt/ with deterministic claim regions"
-  - file: docs/use-cases.md
-    provides:
-      - name: public_use_cases_page
-        kind: variable
-        signature: "Markdown page for /use-cases/ with deterministic claim regions"
-  - file: docs/packs.md
-    provides:
-      - name: public_packs_page
-        kind: variable
-        signature: "Markdown page for /packs/ with deterministic claim regions"
-  - file: docs/extend.md
-    provides:
-      - name: public_extension_page
-        kind: variable
-        signature: "Markdown page for /extend/ with deterministic claim regions"
-  - file: docs/reference.md
-    provides:
-      - name: public_reference_page
-        kind: variable
-        signature: "Markdown page for /reference/ with deterministic claim regions"
-  - file: docs/status.md
-    provides:
-      - name: public_status_page
-        kind: variable
-        signature: "Markdown page for /status/ with deterministic claim regions"
-  - file: docs/contributing.md
-    provides:
-      - name: public_contributing_page
-        kind: variable
-        signature: "Markdown page for /contributing/ with deterministic claim regions"
   - file: docs/_diagrams/ARCH-001-delivery-lifecycle.mmd
     provides:
       - name: delivery_lifecycle_architecture

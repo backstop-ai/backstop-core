@@ -1,0 +1,8 @@
+mutations:
+  - missing-heading
+  - duplicate-heading
+  - wrong-anchor
+  - wrong-job
+  - wrong-filename
+  - moved-include
+  - reconstructed-table

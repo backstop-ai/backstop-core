@@ -1,0 +1,34 @@
+version: product-truth/v1
+jobs:
+  - id: cli-command-catalog
+    inputs: [cmd/backstop]
+    output: docs/_includes/generated/cli-command-catalog.md
+    owner_route: /reference/
+    owner_anchor: cli-command-catalog
+    marker: GENERATED PRODUCT TRUTH
+    command: ./scripts/generate-product-truth.sh
+    source_link_policy: tree-site-cmd-backstop
+  - id: artifact-schema-catalog
+    inputs: [artifacts/base/schema.json, artifacts/*/v*/schema.json]
+    output: docs/_includes/generated/artifact-schema-catalog.md
+    owner_route: /reference/
+    owner_anchor: artifact-schema-catalog
+    marker: GENERATED PRODUCT TRUTH
+    command: ./scripts/generate-product-truth.sh
+    source_link_policy: blob-site-record-source
+  - id: installed-pack-catalog
+    inputs: [backstop.yml, backstop.lock]
+    output: docs/_includes/generated/installed-pack-catalog.md
+    owner_route: /packs/
+    owner_anchor: installed-pack-catalog
+    marker: GENERATED PRODUCT TRUTH
+    command: ./scripts/generate-product-truth.sh
+    source_link_policy: blob-site-pack-manifests
+  - id: release-history
+    inputs: [refs/tags/vMAJOR.MINOR.PATCH]
+    output: docs/_includes/generated/release-history.md
+    owner_route: /status/
+    owner_anchor: release-history
+    marker: GENERATED PRODUCT TRUTH
+    command: ./scripts/generate-product-truth.sh
+    source_link_policy: commit-record-release-commit

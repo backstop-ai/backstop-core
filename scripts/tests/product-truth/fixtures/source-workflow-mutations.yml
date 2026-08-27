@@ -1,0 +1,7 @@
+mutations:
+  - missing-latest-main-checkout
+  - shallow-history
+  - missing-stable-tag-fetch
+  - tag-checkout-substitution
+  - stale-history-not-blocking
+  - goreleaser-missing-dependency

@@ -1,0 +1,3 @@
+accepted: [v0.0.0, v1.2.3, v10.20.30]
+rejected: [1.2.3, v01.2.3, v1.2.3-rc.1, v1.2.3+meta, backstop/spec/074]
+storage_forms: [loose-lightweight, loose-annotated, packed-lightweight, packed-annotated]

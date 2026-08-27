@@ -62,6 +62,10 @@ Slash-bearing engine path patterns can fail open when a gate supplies explicit c
 
 ## Release history {#release-history}
 
+<!-- PRODUCT-TRUTH-INCLUDE:BEGIN job=release-history -->
+{% include generated/release-history.md %}
+<!-- PRODUCT-TRUTH-INCLUDE:END job=release-history -->
+
 <!-- backstop-claim: CLAIM-035 -->
 Release-specific behavior is identified by immutable version and source provenance. Current adoption instructions target v0.2.0.
 <!-- /backstop-claim -->
