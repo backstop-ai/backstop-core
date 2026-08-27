@@ -33,17 +33,17 @@ func TestSiteCheck_PagesWorkflowPinnedContractPasses(t *testing.T) {
 func TestSiteCheck_PagesWorkflowRejectsWorkflowAndActionPinMatrix(t *testing.T) {
 	mutations := []struct{ file, old, replacement string }{
 		{".github/pages-actions.lock.yml", "3d3c42e5aac5ba805825da76410c181273ba90b1", "v7"},
-		{".github/workflows/site-verification.yml", "include-hidden-files: true", "include-hidden-files: false"},
+		{".github/workflows/pages.yml", "include-hidden-files: true", "include-hidden-files: false"},
 		{".github/workflows/pages.yml", "branches: [main]", "tags: ['v*']"},
 		{".github/workflows/pages.yml", "cancel-in-progress: false", "cancel-in-progress: true"},
 		{".github/workflows/pages.yml", "actions/deploy-pages@", "third-party/deploy@"},
-		{".github/workflows/site-verification.yml", "ruby-version: \"3.3.4\"", "ruby-version: \"3.3\""},
+		{".github/workflows/pages.yml", "ruby-version: \"3.3.4\"", "ruby-version: \"3.3\""},
 		{".github/workflows/site-verification.yml", "GOFLAGS: -mod=readonly", "GOFLAGS: -mod=vendor"},
 		{".github/workflows/site-verification.yml", "pipx install semgrep==1.156.0", "pipx install semgrep==1.155.0"},
 		{".github/pages-actions.lock.yml", "45bfe0192ca1faeb007ade9deae92b16b8254a0d", "983d7736d9b0ae728b81ab479565c72886d7745b"},
-		{".github/workflows/site-verification.yml", "[ \"$mode\" != \"workflow\" ]", "[ \"$mode\" != \"legacy\" ]"},
-		{".github/workflows/site-verification.yml", "      - uses: actions/configure-pages@", "      - uses: actions/configure-pages@" + "\n        with:\n          static_site_generator: jekyll #"},
-		{".github/workflows/pages.yml", "uses: ./.github/workflows/site-verification.yml", "uses: ./.github/workflows/ci.yml"},
+		{".github/workflows/pages.yml", "[ \"$mode\" != \"workflow\" ]", "[ \"$mode\" != \"legacy\" ]"},
+		{".github/workflows/pages.yml", "      - uses: actions/configure-pages@", "      - uses: actions/configure-pages@" + "\n        with:\n          static_site_generator: jekyll #"},
+		{".github/workflows/site-verification.yml", "pull_request:", "pull_request:\n  workflow_call:"},
 	}
 	for _, mutation := range mutations {
 		root := copyPagesContract(t)
@@ -80,10 +80,26 @@ func TestSiteCheck_SiteVerificationHasNoDeploymentAuthority(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(workflow)
-	for _, forbidden := range []string{"actions/deploy-pages@", "pages: write", "id-token: write"} {
+	for _, forbidden := range []string{"workflow_call:", "actions/upload-pages-artifact@", "actions/deploy-pages@", "pages: write", "id-token: write"} {
 		if strings.Contains(text, forbidden) {
-			t.Fatalf("site verification contains deployment authority %q", forbidden)
+			t.Fatalf("site verification contains publication coupling %q", forbidden)
 		}
+	}
+}
+
+func TestSiteCheck_PagesOwnsArtifactLifecycle(t *testing.T) {
+	workflow, err := os.ReadFile(filepath.Join(repositoryRoot(), ".github/workflows/pages.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(workflow)
+	for _, required := range []string{"./scripts/verify-public-site.sh", "actions/upload-pages-artifact@", "actions/deploy-pages@"} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("Pages workflow missing direct publication step %q", required)
+		}
+	}
+	if strings.Contains(text, "uses: ./.github/workflows/site-verification.yml") {
+		t.Fatal("Pages workflow still delegates artifact creation through reusable verification")
 	}
 }
 
@@ -141,8 +157,10 @@ func TestSiteCheck_StaticLockedJekyllBuildPasses(t *testing.T) {
 	if !strings.Contains(string(lock), "github-pages (232)") || !strings.Contains(string(lock), "jekyll (3.10.0)") {
 		t.Fatal("locked GitHub Pages/Jekyll graph is absent")
 	}
-	workflow, _ := os.ReadFile(filepath.Join(repositoryRoot(), ".github/workflows/site-verification.yml"))
-	if !strings.Contains(string(workflow), "./scripts/verify-public-site.sh") {
-		t.Fatal("site verification does not use the canonical verifier")
+	for _, relative := range []string{".github/workflows/site-verification.yml", ".github/workflows/pages.yml"} {
+		workflow, _ := os.ReadFile(filepath.Join(repositoryRoot(), relative))
+		if !strings.Contains(string(workflow), "./scripts/verify-public-site.sh") {
+			t.Fatalf("%s does not use the canonical verifier", relative)
+		}
 	}
 }
