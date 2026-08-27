@@ -35,9 +35,9 @@ func allowedRoles() map[string]bool {
 		"delivery-inventory": true, "deploy-stamp": true, "deploy-verifier": true,
 		"include": true, "layout": true, "owner-asset-installer": true,
 		"owner-release-import": true, "pack-declaration": true, "pack-lock": true,
-		"page-wrapper": true, "rendered-contract-stamper": true, "retired-bootstrap": true,
-		"release-evidence-verifier": true,
-		"site-config":               true, "site-data": true, "stylesheet-composition": true,
+		"page-wrapper": true, "public-homepage": true, "rendered-contract-stamper": true,
+		"retired-bootstrap": true, "release-evidence-verifier": true,
+		"site-config": true, "site-data": true, "stylesheet-composition": true,
 		"structural-verifier": true, "test": true, "verification-entrypoint": true,
 		"workflow": true,
 	}
@@ -63,7 +63,6 @@ func pageWrappers() map[string]bool {
 
 func retiredBootstrap() map[string]bool {
 	return map[string]bool{
-		"docs/index.html":                     true,
 		"docs/assets/css/backstop.css":        true,
 		"docs/assets/css/backstop-tokens.css": true,
 	}
@@ -167,6 +166,8 @@ func expectedRole(path string) string {
 		return "layout"
 	case strings.HasPrefix(path, "docs/_includes/"):
 		return "include"
+	case path == "docs/index.html":
+		return "public-homepage"
 	case pageWrappers()[path]:
 		return "page-wrapper"
 	case path == "docs/assets/css/site.css":
