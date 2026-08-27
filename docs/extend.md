@@ -1,12 +1,9 @@
 ---
 title: Extend Backstop
+layout: default
 permalink: /extend/
 hero_question: "When should this concern become a pack?"
 ---
-
-# Extend Backstop
-
-When should this concern become a pack?
 
 ## Pack or not {#pack-or-not}
 

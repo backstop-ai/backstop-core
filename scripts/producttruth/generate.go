@@ -463,8 +463,12 @@ func VerifySourceIncludes(root string, manifest Manifest) error {
 		if err != nil {
 			return diagnostic("PT204_CONSUMPTION", job.ID, job.Output, job.Inputs, err.Error())
 		}
-		exact := "## " + owner.Title + " {#" + job.OwnerAnchor + "}\n\n<!-- PRODUCT-TRUTH-INCLUDE:BEGIN job=" + job.ID + " -->\n{% include generated/" + filepath.Base(job.Output) + " %}\n<!-- PRODUCT-TRUTH-INCLUDE:END job=" + job.ID + " -->"
-		if strings.Count(string(data), exact) != 1 {
+		heading := "## " + owner.Title + " {#" + job.OwnerAnchor + "}"
+		include := "<!-- PRODUCT-TRUTH-INCLUDE:BEGIN job=" + job.ID + " -->\n{% include generated/" + filepath.Base(job.Output) + " %}\n<!-- PRODUCT-TRUTH-INCLUDE:END job=" + job.ID + " -->"
+		bare := heading + "\n\n" + include
+		wrapped := heading + "\n\n<section data-generated-region data-product-truth-job=\"" + job.ID + "\">\n" + include + "\n</section>"
+		source := string(data)
+		if strings.Count(source, bare)+strings.Count(source, wrapped) != 1 || strings.Count(source, include) != 1 {
 			return diagnostic("PT204_CONSUMPTION", job.ID, job.Output, job.Inputs, "owner include must occur exactly once in "+owner.File)
 		}
 	}

@@ -1,13 +1,9 @@
 ---
 title: Backstop
+layout: default
 permalink: /
-published: false
 hero_question: "What failure does Backstop prevent?"
 ---
-
-# Backstop
-
-What failure does Backstop prevent?
 
 ## Why Backstop {#why-backstop}
 

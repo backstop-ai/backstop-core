@@ -1,6 +1,15 @@
-theme: jekyll-theme-cayman
 title: Backstop
-description: An AI agent discipline framework
+description: Deterministic discipline for AI-native software delivery
+url: https://backstop.sh
+baseurl: ""
 markdown: kramdown
+permalink: pretty
+strict_front_matter: true
+kramdown:
+  input: GFM
+  auto_ids: true
+  syntax_highlighter: rouge
 exclude:
   - CODEBASE-MAP.md
+  - _diagrams
+  - README.md

@@ -1,12 +1,9 @@
 ---
 title: Status and Boundaries
+layout: default
 permalink: /status/
 hero_question: "What is supported, limited, planned, or intentionally outside Backstop?"
 ---
-
-# Status and Boundaries
-
-What is supported, limited, planned, or intentionally outside Backstop?
 
 ## Supported and limited {#supported-and-limited}
 
@@ -62,9 +59,11 @@ Slash-bearing engine path patterns can fail open when a gate supplies explicit c
 
 ## Release history {#release-history}
 
+<section data-generated-region data-product-truth-job="release-history">
 <!-- PRODUCT-TRUTH-INCLUDE:BEGIN job=release-history -->
 {% include generated/release-history.md %}
 <!-- PRODUCT-TRUTH-INCLUDE:END job=release-history -->
+</section>
 
 <!-- backstop-claim: CLAIM-035 -->
 Release-specific behavior is identified by immutable version and source provenance. Current adoption instructions target v0.2.0.

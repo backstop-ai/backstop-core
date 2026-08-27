@@ -1,12 +1,9 @@
 ---
 title: Contributing
+layout: default
 permalink: /contributing/
 hero_question: "How can I participate in Backstop and its ecosystem?"
 ---
-
-# Contributing
-
-How can I participate in Backstop and its ecosystem?
 
 ## Contribution paths {#contribution-paths}
 

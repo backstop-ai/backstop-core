@@ -1,0 +1,3 @@
+schema_version: backstop-core/site-presentation-mutations/v1
+cells: [route, page_kind, hero_question, treatments, next_action, cardinality, order]
+expected_result: reject-each-independently

@@ -1,12 +1,9 @@
 ---
 title: Use Cases
+layout: default
 permalink: /use-cases/
 hero_question: "Which problem-oriented adoption path applies?"
 ---
-
-# Use Cases
-
-Which problem-oriented adoption path applies?
 
 ## Choose a use case {#choose-use-case}
 

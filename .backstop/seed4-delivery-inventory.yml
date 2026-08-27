@@ -1,0 +1,207 @@
+schema_version: backstop-core/seed4-delivery-inventory/v1
+base_commit: 89f4138aa97e7ba1e8d7c67595cfaee1caefa797
+entries:
+  - change: A
+    path: .backstop/seed4-delivery-inventory.yml
+    role: delivery-inventory
+  - change: M
+    path: .backstop/website-pack-releases.yml
+    role: owner-release-import
+  - change: A
+    path: .github/pages-actions.lock.yml
+    role: action-lock
+  - change: A
+    path: .github/workflows/pages.yml
+    role: workflow
+  - change: A
+    path: Gemfile
+    role: build-dependency
+  - change: A
+    path: Gemfile.lock
+    role: build-dependency
+  - change: M
+    path: backstop.lock
+    role: pack-lock
+  - change: M
+    path: backstop.yml
+    role: pack-declaration
+  - change: M
+    path: docs/CNAME
+    role: site-config
+  - change: M
+    path: docs/_config.yml
+    role: site-config
+  - change: A
+    path: docs/_data/site-presentation.yml
+    role: site-data
+  - change: M
+    path: docs/_includes/generated/installed-pack-catalog.md
+    role: include
+  - change: A
+    path: docs/_includes/page-hero.html
+    role: include
+  - change: A
+    path: docs/_includes/site-footer.html
+    role: include
+  - change: A
+    path: docs/_includes/site-header.html
+    role: include
+  - change: A
+    path: docs/_layouts/default.html
+    role: layout
+  - change: A
+    path: docs/_layouts/redirect.html
+    role: layout
+  - change: M
+    path: docs/adopt.md
+    role: page-wrapper
+  - change: A
+    path: docs/artifact-workflow.md
+    role: page-wrapper
+  - change: D
+    path: docs/assets/css/backstop-tokens.css
+    role: retired-bootstrap
+  - change: D
+    path: docs/assets/css/backstop.css
+    role: retired-bootstrap
+  - change: A
+    path: docs/assets/css/site.css
+    role: stylesheet-composition
+  - change: A
+    path: docs/cli-reference.md
+    role: page-wrapper
+  - change: A
+    path: docs/concepts.md
+    role: page-wrapper
+  - change: M
+    path: docs/contributing.md
+    role: page-wrapper
+  - change: M
+    path: docs/evaluate.md
+    role: page-wrapper
+  - change: M
+    path: docs/extend.md
+    role: page-wrapper
+  - change: A
+    path: docs/getting-started.md
+    role: page-wrapper
+  - change: D
+    path: docs/index.html
+    role: retired-bootstrap
+  - change: M
+    path: docs/index.md
+    role: page-wrapper
+  - change: M
+    path: docs/model.md
+    role: page-wrapper
+  - change: A
+    path: docs/pack-authoring.md
+    role: page-wrapper
+  - change: M
+    path: docs/packs.md
+    role: page-wrapper
+  - change: M
+    path: docs/reference.md
+    role: page-wrapper
+  - change: M
+    path: docs/status.md
+    role: page-wrapper
+  - change: M
+    path: docs/use-cases.md
+    role: page-wrapper
+  - change: A
+    path: package-lock.json
+    role: build-dependency
+  - change: A
+    path: package.json
+    role: build-dependency
+  - change: A
+    path: playwright.config.ts
+    role: browser-verification
+  - change: A
+    path: scripts/install-design-assets.sh
+    role: owner-asset-installer
+  - change: A
+    path: scripts/render-public-site-contracts/main.go
+    role: rendered-contract-stamper
+  - change: A
+    path: scripts/render-public-site-contracts/main_test.go
+    role: test
+  - change: M
+    path: scripts/producttruth/generate.go
+    role: structural-verifier
+  - change: A
+    path: scripts/sitecheck/design_system.go
+    role: structural-verifier
+  - change: A
+    path: scripts/sitecheck/design_system_test.go
+    role: test
+  - change: A
+    path: scripts/sitecheck/inventory.go
+    role: structural-verifier
+  - change: A
+    path: scripts/sitecheck/inventory_test.go
+    role: test
+  - change: A
+    path: scripts/sitecheck/main.go
+    role: structural-verifier
+  - change: A
+    path: scripts/sitecheck/main_test.go
+    role: test
+  - change: A
+    path: scripts/sitecheck/owner_contracts_test.go
+    role: test
+  - change: A
+    path: scripts/sitecheck/pages.go
+    role: structural-verifier
+  - change: A
+    path: scripts/sitecheck/pages_test.go
+    role: test
+  - change: A
+    path: scripts/sitecheck/pipeline_contract_test.go
+    role: test
+  - change: A
+    path: scripts/sitecheck/presentation_test.go
+    role: test
+  - change: A
+    path: scripts/sitecheck/site.go
+    role: structural-verifier
+  - change: A
+    path: scripts/sitecheck/site_contract_test.go
+    role: test
+  - change: A
+    path: scripts/sitecheck/testdata/delivery-inventory-mutations.yml
+    role: test
+  - change: A
+    path: scripts/sitecheck/testdata/presentation-mutations.yml
+    role: test
+  - change: A
+    path: scripts/stamp-pages-artifact.sh
+    role: deploy-stamp
+  - change: M
+    path: scripts/verify-documentation-semantics-integration.sh
+    role: release-evidence-verifier
+  - change: A
+    path: scripts/verify-pages-deployment.sh
+    role: deploy-verifier
+  - change: A
+    path: scripts/verify-public-site.sh
+    role: verification-entrypoint
+  - change: M
+    path: scripts/verify-public-product-model.sh
+    role: verification-entrypoint
+  - change: M
+    path: scripts/tests/public-product-model/pages/discovery-evaluation-adoption-status.sh
+    role: test
+  - change: M
+    path: scripts/tests/public-product-model/pages/extend-reference-contributing.sh
+    role: test
+  - change: M
+    path: scripts/tests/public-product-model/pages/model-use-cases-packs.sh
+    role: test
+  - change: A
+    path: tests/public-site-helpers.ts
+    role: browser-verification
+  - change: A
+    path: tests/public-site.spec.ts
+    role: browser-verification
