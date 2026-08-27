@@ -4,7 +4,7 @@ number: SPEC-075
 created: "2026-08-24"
 status: implemented
 schema_version: spec/v1
-spec_version: 1.0.12
+spec_version: 1.0.13
 
 implementation:
   summary: >
@@ -299,7 +299,8 @@ requirements:
       permissions before a separate deploy job receives `pages: write` and `id-token: write`;
       serialize the `pages` concurrency group without canceling an in-progress production deploy;
       check out full history, provision exact Ruby `3.3.4`, force Go module mode so Ruby's
-      `vendor/bundle` cannot be misclassified as a Go vendor tree, install locked Ruby and Node dependencies, clean-install packs from
+      `vendor/bundle` cannot be misclassified as a Go vendor tree, install locked Ruby and Node dependencies,
+      provision Semgrep `1.156.0` for the design-system pack's allowlist-pinned command engine, clean-install packs from
       remote sources, run SPEC-073 integration, SPEC-074 check mode, the exact production build,
       the REQ-009 owner-contract annotation pass using the workflow head SHA, this spec's
       structural/browser/installed-pack verification, then upload exactly `_site` and
@@ -547,11 +548,11 @@ claims:
     tests: [TestSiteCheck_CustomDomainRejectsInvalidMatrix]
   - id: CLM-035
     requirement: REQ-007
-    text: Pages main/manual workflow provisions exact Ruby 3.3.4, forces Go module mode across the build job so Ruby's vendor/bundle cannot trigger Go vendoring, proves the externally administered workflow build mode through a read-only API preflight, and uses the exact Node-24-compatible, lock-matched full-SHA official action cohort without unsupported generator injection, plus exact stamped root, include-hidden-files true, artifact ID, deploy output, least privilege, and serialized concurrency.
+    text: Pages main/manual workflow provisions exact Ruby 3.3.4 and Semgrep 1.156.0, forces readonly Go module mode across the build job so Ruby's vendor/bundle cannot trigger Go vendoring, proves the externally administered workflow build mode through a read-only API preflight, and uses the exact Node-24-compatible, lock-matched full-SHA official action cohort without unsupported generator injection, plus exact stamped root, include-hidden-files true, artifact ID, deploy output, least privilege, and serialized concurrency.
     tests: [TestSiteCheck_PagesWorkflowPinnedContractPasses]
   - id: CLM-036
     requirement: REQ-007
-    text: Missing or floating Ruby version, missing or changed Go module-mode isolation, deprecated action runtime, mutable/unallowlisted refs, pin mismatch, legacy/missing build mode, unsupported configure-pages generator injection, tag trigger, widened permission, skipped prerequisite, missing stamp, omitted/false hidden-file upload, wrong root/ID, alternate publish, or deploy-on-failure fails structurally.
+    text: Missing or floating Ruby or Semgrep version, missing or changed Go module-mode isolation, deprecated action runtime, mutable/unallowlisted refs, pin mismatch, legacy/missing build mode, unsupported configure-pages generator injection, tag trigger, widened permission, skipped prerequisite, missing stamp, omitted/false hidden-file upload, wrong root/ID, alternate publish, or deploy-on-failure fails structurally.
     tests: [TestSiteCheck_PagesWorkflowRejectsWorkflowAndActionPinMatrix]
   - id: CLM-037
     requirement: REQ-008
