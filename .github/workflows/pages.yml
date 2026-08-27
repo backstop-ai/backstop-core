@@ -15,6 +15,10 @@ jobs:
   build:
     name: Build and verify public site
     runs-on: ubuntu-latest
+    env:
+      # ruby/setup-ruby installs gems beneath ./vendor/bundle. Go otherwise
+      # mistakes that Ruby-owned directory for a Go vendor tree after setup.
+      GOFLAGS: -mod=mod
     permissions:
       contents: read
       pages: read
