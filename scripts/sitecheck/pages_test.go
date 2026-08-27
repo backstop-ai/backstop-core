@@ -32,12 +32,13 @@ func TestSiteCheck_PagesWorkflowPinnedContractPasses(t *testing.T) {
 
 func TestSiteCheck_PagesWorkflowRejectsWorkflowAndActionPinMatrix(t *testing.T) {
 	mutations := []struct{ file, old, replacement string }{
-		{".github/pages-actions.lock.yml", "11d5960a326750d5838078e36cf38b85af677262", "v4"},
+		{".github/pages-actions.lock.yml", "3d3c42e5aac5ba805825da76410c181273ba90b1", "v7"},
 		{".github/workflows/pages.yml", "include-hidden-files: true", "include-hidden-files: false"},
 		{".github/workflows/pages.yml", "branches: [main]", "tags: ['v*']"},
 		{".github/workflows/pages.yml", "cancel-in-progress: false", "cancel-in-progress: true"},
 		{".github/workflows/pages.yml", "actions/deploy-pages@", "third-party/deploy@"},
 		{".github/workflows/pages.yml", "ruby-version: \"3.3.4\"", "ruby-version: \"3.3\""},
+		{".github/pages-actions.lock.yml", "45bfe0192ca1faeb007ade9deae92b16b8254a0d", "983d7736d9b0ae728b81ab479565c72886d7745b"},
 	}
 	for _, mutation := range mutations {
 		root := copyPagesContract(t)

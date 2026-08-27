@@ -17,10 +17,14 @@ type pagesActionsLock struct {
 	Actions       map[string]string `yaml:"actions"`
 }
 
-func requiredPagesActions() []string {
-	return []string{
-		"actions/checkout", "ruby/setup-ruby", "actions/setup-node",
-		"actions/configure-pages", "actions/upload-pages-artifact", "actions/deploy-pages",
+func requiredPagesActionCommits() map[string]string {
+	return map[string]string{
+		"actions/checkout":              "3d3c42e5aac5ba805825da76410c181273ba90b1",
+		"ruby/setup-ruby":               "95ef2b042f9d7a56d8268cba8559e2842e2ad01b",
+		"actions/setup-node":            "820762786026740c76f36085b0efc47a31fe5020",
+		"actions/configure-pages":       "45bfe0192ca1faeb007ade9deae92b16b8254a0d",
+		"actions/upload-pages-artifact": "fc324d3547104276b827a68afc52ff2a11cc49c9",
+		"actions/deploy-pages":          "cd2ce8fcbc39b97be8ca5fce6e763baed58fa128",
 	}
 }
 
@@ -40,13 +44,20 @@ func VerifyPagesWorkflow(root string) []Finding {
 	if lock.SchemaVersion != "backstop-core/pages-actions-lock/v1" {
 		findings = append(findings, Finding{Phase: "pages-workflow", Identity: "action lock schema", Expected: "backstop-core/pages-actions-lock/v1", Observed: lock.SchemaVersion})
 	}
-	expected := requiredPagesActions()
+	requiredActions := requiredPagesActionCommits()
+	expected := make([]string, 0, len(requiredActions))
+	for identity := range requiredActions {
+		expected = append(expected, identity)
+	}
 	sort.Strings(expected)
 	observed := make([]string, 0, len(lock.Actions))
 	for identity, commit := range lock.Actions {
 		observed = append(observed, identity)
 		if !regexp.MustCompile(`^[0-9a-f]{40}$`).MatchString(commit) {
 			findings = append(findings, Finding{Phase: "pages-workflow", Identity: identity, Expected: "full lowercase 40-hex SHA", Observed: commit})
+		}
+		if want, ok := requiredActions[identity]; ok && commit != want {
+			findings = append(findings, Finding{Phase: "pages-workflow", Identity: identity + " runtime-compatible pin", Expected: want, Observed: commit})
 		}
 	}
 	sort.Strings(observed)
@@ -70,7 +81,7 @@ func VerifyPagesWorkflow(root string) []Finding {
 			findings = append(findings, Finding{Phase: "pages-workflow", Identity: identity, Expected: want, Observed: commit})
 		}
 	}
-	for _, identity := range requiredPagesActions() {
+	for _, identity := range expected {
 		want := 1
 		if identity == "actions/checkout" {
 			want = 2
