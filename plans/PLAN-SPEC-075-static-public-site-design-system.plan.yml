@@ -504,7 +504,7 @@ phases:
           certificate drift, stale identity, content error, and archive/tree conflation.
         files: [scripts/verify-pages-deployment_test.sh, scripts/tests/pages-deployment/fixtures/consensus-mutations.yml]
         claims: [CLM-042, CLM-043, CLM-044]
-        test_names: [TestPagesDeployment_AuthoritativeAPIIdentityPasses, TestPagesDeployment_HTTPSMarkerAndRouteMatrixPasses, TestPagesDeployment_RejectsPartialOrStaleProofMatrix]
+        test_names: [TestPagesDeployment_AuthoritativeAPIIdentityPasses, TestPagesDeployment_HTTPSMarkerAndRouteMatrixPasses, TestPagesDeployment_LiveStaticAliasProofPinned, TestPagesDeployment_RejectsPartialOrStaleProofMatrix]
         depends_on: [TASK-026]
       - id: TASK-032
         type: implementation
