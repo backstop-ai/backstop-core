@@ -63,7 +63,7 @@ entries:
     role: page-wrapper
   - change: M
     path: docs/assets/css/backstop.css
-    role: homepage-stylesheet
+    role: stylesheet-composition
   - change: A
     path: docs/assets/css/site.css
     role: stylesheet-composition
