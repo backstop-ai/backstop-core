@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import {
+  assertContentCompleteness,
   assertKeyboardOrderAndBounds,
   assertLocalOverflow,
   assertRequiredSurface,
@@ -17,6 +18,7 @@ for (const viewport of viewports) {
         await page.goto(route);
         await settleLayout(page);
         await assertRequiredSurface(page, route);
+        await assertContentCompleteness(page, route);
         await assertKeyboardOrderAndBounds(page, route);
         await assertLocalOverflow(page, route);
       });
@@ -49,6 +51,7 @@ test.describe("200 percent text relayout", () => {
       const enlarged = await page.evaluate(() => Number.parseFloat(getComputedStyle(document.documentElement).fontSize));
       expect(Math.abs(enlarged - baseline * 2)).toBeLessThanOrEqual(0.01);
       await assertRequiredSurface(page, route);
+      await assertContentCompleteness(page, route);
       await assertKeyboardOrderAndBounds(page, route);
       await assertLocalOverflow(page, route);
     });
