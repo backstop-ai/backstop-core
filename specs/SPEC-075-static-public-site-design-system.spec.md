@@ -4,7 +4,7 @@ number: SPEC-075
 created: "2026-08-24"
 status: implemented
 schema_version: spec/v1
-spec_version: 1.0.7
+spec_version: 1.0.8
 
 implementation:
   summary: >
@@ -298,7 +298,7 @@ requirements:
       pushes to `main` and explicit manual dispatch, never tag push; use least-privilege read
       permissions before a separate deploy job receives `pages: write` and `id-token: write`;
       serialize the `pages` concurrency group without canceling an in-progress production deploy;
-      check out full history, install locked Ruby and Node dependencies, clean-install packs from
+      check out full history, provision exact Ruby `3.3.4`, install locked Ruby and Node dependencies, clean-install packs from
       remote sources, run SPEC-073 integration, SPEC-074 check mode, the exact production build,
       the REQ-009 owner-contract annotation pass using the workflow head SHA, this spec's
       structural/browser/installed-pack verification, then upload exactly `_site` and
@@ -541,11 +541,11 @@ claims:
     tests: [TestSiteCheck_CustomDomainRejectsInvalidMatrix]
   - id: CLM-035
     requirement: REQ-007
-    text: Pages main/manual workflow uses lock-matched full-SHA official actions, workflow build mode, exact stamped root, include-hidden-files true, artifact ID, deploy output, least privilege, and serialized concurrency.
+    text: Pages main/manual workflow provisions exact Ruby 3.3.4 and uses lock-matched full-SHA official actions, workflow build mode, exact stamped root, include-hidden-files true, artifact ID, deploy output, least privilege, and serialized concurrency.
     tests: [TestSiteCheck_PagesWorkflowPinnedContractPasses]
   - id: CLM-036
     requirement: REQ-007
-    text: Mutable/unallowlisted refs, pin mismatch, tag trigger, widened permission, skipped prerequisite, missing stamp, omitted/false hidden-file upload, wrong root/ID, alternate publish, or deploy-on-failure fails structurally.
+    text: Missing or floating Ruby version, mutable/unallowlisted refs, pin mismatch, tag trigger, widened permission, skipped prerequisite, missing stamp, omitted/false hidden-file upload, wrong root/ID, alternate publish, or deploy-on-failure fails structurally.
     tests: [TestSiteCheck_PagesWorkflowRejectsWorkflowAndActionPinMatrix]
   - id: CLM-037
     requirement: REQ-008

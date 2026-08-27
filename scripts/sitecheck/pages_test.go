@@ -37,6 +37,7 @@ func TestSiteCheck_PagesWorkflowRejectsWorkflowAndActionPinMatrix(t *testing.T) 
 		{".github/workflows/pages.yml", "branches: [main]", "tags: ['v*']"},
 		{".github/workflows/pages.yml", "cancel-in-progress: false", "cancel-in-progress: true"},
 		{".github/workflows/pages.yml", "actions/deploy-pages@", "third-party/deploy@"},
+		{".github/workflows/pages.yml", "ruby-version: \"3.3.4\"", "ruby-version: \"3.3\""},
 	}
 	for _, mutation := range mutations {
 		root := copyPagesContract(t)

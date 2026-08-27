@@ -17,9 +17,11 @@ type pagesActionsLock struct {
 	Actions       map[string]string `yaml:"actions"`
 }
 
-var requiredPagesActions = []string{
-	"actions/checkout", "ruby/setup-ruby", "actions/setup-node",
-	"actions/configure-pages", "actions/upload-pages-artifact", "actions/deploy-pages",
+func requiredPagesActions() []string {
+	return []string{
+		"actions/checkout", "ruby/setup-ruby", "actions/setup-node",
+		"actions/configure-pages", "actions/upload-pages-artifact", "actions/deploy-pages",
+	}
 }
 
 func VerifyPagesWorkflow(root string) []Finding {
@@ -38,7 +40,7 @@ func VerifyPagesWorkflow(root string) []Finding {
 	if lock.SchemaVersion != "backstop-core/pages-actions-lock/v1" {
 		findings = append(findings, Finding{Phase: "pages-workflow", Identity: "action lock schema", Expected: "backstop-core/pages-actions-lock/v1", Observed: lock.SchemaVersion})
 	}
-	expected := append([]string(nil), requiredPagesActions...)
+	expected := requiredPagesActions()
 	sort.Strings(expected)
 	observed := make([]string, 0, len(lock.Actions))
 	for identity, commit := range lock.Actions {
@@ -68,7 +70,7 @@ func VerifyPagesWorkflow(root string) []Finding {
 			findings = append(findings, Finding{Phase: "pages-workflow", Identity: identity, Expected: want, Observed: commit})
 		}
 	}
-	for _, identity := range requiredPagesActions {
+	for _, identity := range requiredPagesActions() {
 		want := 1
 		if identity == "actions/checkout" {
 			want = 2
@@ -80,7 +82,7 @@ func VerifyPagesWorkflow(root string) []Finding {
 	requiredText := []string{
 		"branches: [main]", "workflow_dispatch:", "group: pages", "cancel-in-progress: false",
 		"permissions: {}", "contents: read", "pages: read", "pages: write", "id-token: write", "actions: read", "deployments: read",
-		"fetch-depth: 0", "static_site_generator: jekyll", "BACKSTOP_SITE_OUTPUT: _site",
+		"fetch-depth: 0", "ruby-version: \"3.3.4\"", "static_site_generator: jekyll", "BACKSTOP_SITE_OUTPUT: _site",
 		"BACKSTOP_SITE_RETAIN: \"1\"", "BACKSTOP_SITE_COMMIT: ${{ github.sha }}",
 		"path: _site", "include-hidden-files: true", "needs: [build, deploy]",
 		"./scripts/verify-pages-deployment.sh", "--artifact-id \"${{ needs.build.outputs.artifact-id }}\"",
