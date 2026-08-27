@@ -108,12 +108,13 @@ PY
     body=$(curl --fail --silent --show-error --proto '=https' --tlsv1.2 --max-redirs 0 "https://backstop.sh$route")
     [[ $(grep -Foc "$marker" <<<"$body") -eq 1 ]] || { echo "pages-verify: $route deployment marker mismatch" >&2; return 1; }
   done
-  local alias destination headers
+  local alias destination alias_body
   while IFS=' ' read -r alias destination; do
-    headers=$(curl --silent --show-error --proto '=https' --tlsv1.2 --max-redirs 0 --dump-header - --output /dev/null "https://backstop.sh$alias")
-    grep -Eq '^HTTP/[^ ]+ 30[1278]' <<<"$headers" || { echo "pages-verify: $alias did not redirect" >&2; return 1; }
-    grep -Eiq '^location: https://backstop\.sh'"${destination}"'\r?$' <<<"$headers" || { echo "pages-verify: $alias redirect target mismatch" >&2; return 1; }
-    curl --fail --silent --show-error --proto '=https' --tlsv1.2 --location --max-redirs 1 --output /dev/null "https://backstop.sh$alias"
+    alias_body=$(curl --fail --silent --show-error --proto '=https' --tlsv1.2 --max-redirs 0 "https://backstop.sh$alias")
+    grep -Fq 'href="https://backstop.sh'"${destination}"'"' <<<"$alias_body" || { echo "pages-verify: $alias canonical target mismatch" >&2; return 1; }
+    grep -Fq 'content="0; url='"${destination}"'"' <<<"$alias_body" || { echo "pages-verify: $alias immediate refresh mismatch" >&2; return 1; }
+    grep -Fq 'href="'"${destination}"'"' <<<"$alias_body" || { echo "pages-verify: $alias fallback target mismatch" >&2; return 1; }
+    ! grep -Eiq '<script([[:space:]>])' <<<"$alias_body" || { echo "pages-verify: $alias contains a client-scripted redirect" >&2; return 1; }
   done <<'ALIASES'
 /getting-started.html /adopt/
 /concepts.html /model/
