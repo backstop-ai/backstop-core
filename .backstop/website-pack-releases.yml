@@ -63,41 +63,63 @@ releases:
   - role: design-system
     owner_artifact:
       repository: https://github.com/backstop-ai/backstop-design-system.git
-      commit: 9cdc38e3165142372aa6e81045ba52819e223e8d
+      commit: 1a4de6d2acf1f9848debffbbd27ec668dc0fc841
       path: bundles/BUNDLE-001-design-system-release.bundle.md
-      sha256: da5fb729df70039302afcdecf3ed91fef8cdafb47d39a484e19fa70b8e6cb6f2
+      sha256: 739153a4453e9cbfb37202fe7a62e4c8da06b2d8672b09e3165bbfb0ae7ef8c0
     release_evidence:
       repository: https://github.com/backstop-ai/backstop-design-system.git
-      commit: a55e4758f59fe8f59cb182b94c089b1c409350ae
-      path: release-evidence/v0.1.0.yml
-      sha256: d10e71d8c3f098b3c3531513753ed9468bf96144b8e5603694d4ed6a301c12cc
+      commit: fb91a9976d68000165ecb1b2fbcd9a1bc241be2b
+      path: release-evidence/v0.1.1.yml
+      sha256: d9fc26769a291fd601cefec233d22c7a02f4aa10d21fa6de925577b79316f478
     manifest_identity: backstop-ai/backstop-design-system
     source_coordinate: backstop-ai/backstop-design-system
-    version: 0.1.0
-    git_ref: v0.1.0
-    release_commit: 045cd6d725cc5d728803b9dcd1b1d101c6efc7fb
-    content_hash: 7352fce2e947a25f7e530f73e80385a24dd1f9654bb8ba7995e1fee5bee6908e
+    version: 0.1.1
+    git_ref: v0.1.1
+    release_commit: 1a4de6d2acf1f9848debffbbd27ec668dc0fc841
+    content_hash: d8ac9b95f6801f30f84532f9fd05eb2b283916e56169f35233a13178949e3609
     common_checks:
       - check: pack-check
         command: ./bin/backstop pack check .
         exit_code: 0
         result: pass
-        subject_commit: 045cd6d725cc5d728803b9dcd1b1d101c6efc7fb
-        subject_content_hash: 7352fce2e947a25f7e530f73e80385a24dd1f9654bb8ba7995e1fee5bee6908e
+        subject_commit: 1a4de6d2acf1f9848debffbbd27ec668dc0fc841
+        subject_content_hash: d8ac9b95f6801f30f84532f9fd05eb2b283916e56169f35233a13178949e3609
         log_ref:
           repository: https://github.com/backstop-ai/backstop-design-system.git
-          commit: 1f31e2c8879904006ad8aa26588c508e813e8ee0
+          commit: cbc3ef6ca35cbd3164c410125fe2449fa64e9801
           path: release-evidence/logs/pack-check.log
           sha256: 5219f152856b134f33be3a5593579c2a5a2f3e791a2b08b8b5c3df8fed5fe494
       - check: pack-test
         command: ./bin/backstop pack test .
         exit_code: 0
         result: pass
-        subject_commit: 045cd6d725cc5d728803b9dcd1b1d101c6efc7fb
-        subject_content_hash: 7352fce2e947a25f7e530f73e80385a24dd1f9654bb8ba7995e1fee5bee6908e
+        subject_commit: 1a4de6d2acf1f9848debffbbd27ec668dc0fc841
+        subject_content_hash: d8ac9b95f6801f30f84532f9fd05eb2b283916e56169f35233a13178949e3609
         log_ref:
           repository: https://github.com/backstop-ai/backstop-design-system.git
-          commit: 1f31e2c8879904006ad8aa26588c508e813e8ee0
+          commit: cbc3ef6ca35cbd3164c410125fe2449fa64e9801
           path: release-evidence/logs/pack-test.log
           sha256: d9cebf97c292956119f4004292d76d9532de06ca2e709a7a69e8ed67249d8bef
+      - check: public-site-acceptance
+        command: python3 scripts/verify-public-site-acceptance.py
+        exit_code: 0
+        result: pass
+        subject_commit: 1a4de6d2acf1f9848debffbbd27ec668dc0fc841
+        subject_content_hash: d8ac9b95f6801f30f84532f9fd05eb2b283916e56169f35233a13178949e3609
+        log_ref:
+          repository: https://github.com/backstop-ai/backstop-design-system.git
+          commit: cbc3ef6ca35cbd3164c410125fe2449fa64e9801
+          path: release-evidence/logs/public-site-acceptance.log
+          sha256: ff5bde86ada41c531416b0774518f5bf6ff5689950f10c5a29ffc7306a428bb4
+    public_site_acceptance:
+      schema_version: backstop-design-system/public-site-acceptance/v1
+      subject_commit: 1a4de6d2acf1f9848debffbbd27ec668dc0fc841
+      subject_content_hash: d8ac9b95f6801f30f84532f9fd05eb2b283916e56169f35233a13178949e3609
+      export:
+        path: contracts/public-site-acceptance.yml
+        sha256: f6a4327abf9a3033f7bb77ea2de69f2c106744990a3ad19aefe3fc53ef902eb0
+      token_asset:
+        path: assets/design-system-tokens.css
+        media_type: text/css
+        sha256: 7acb7d5381e47f40cce504a47c3877e93f7b079d050573bdb5ad22fa40421cf0
     documentation_semantics: null
