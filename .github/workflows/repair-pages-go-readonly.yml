@@ -9,7 +9,8 @@ permissions:
 
 jobs:
   repair:
-    if: github.event.head_commit.message == 'chore: stage read-only Pages repair'
+    if: >-
+      github.event.head_commit.message == 'chore: stage read-only Pages repair'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
