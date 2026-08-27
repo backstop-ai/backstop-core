@@ -2,9 +2,9 @@
 title: "Derived Product Truth Pipeline"
 number: SPEC-074
 created: "2026-08-24"
-status: ready-for-implementation
+status: implemented
 schema_version: spec/v1
-spec_version: 1.0.6
+spec_version: 1.0.7
 
 implementation:
   summary: >

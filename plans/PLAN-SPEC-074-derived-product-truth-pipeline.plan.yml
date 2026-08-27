@@ -1,14 +1,19 @@
 ---
 plan_id: PLAN-SPEC-074
 spec_id: SPEC-074
-spec_version: "1.0.6"
+spec_version: "1.0.7"
 created: "2026-08-24"
-status: ready
+status: completed
 target_repo: backstop-core
 target_module: github.com/backstop-ai/backstop-core
 test_command: ./scripts/verify-product-truth.sh
 coverage_threshold: 80
 notes: |
+  CLOSED 2026-08-27. The four manifest-governed catalogs are generated from
+  repository truth, checked into their Seed 1 owner pages, and enforced in CI
+  and stable release publication. The canonical verifier executes all 57
+  mandated tests with race detection and at least 80% statement coverage.
+
   Seed 3 only. Consume accepted SPEC-072 v1.0.8 / PLAN-SPEC-072 owner pages,
   subordinate anchors, and
   source include sites as a completed upstream contract. Complete the four source
