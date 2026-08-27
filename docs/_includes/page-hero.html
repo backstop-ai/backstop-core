@@ -1,4 +1,6 @@
-<section data-page-hero>
+{% assign topology_pages = site.data["content-topology"].pages %}
+{% assign topology = topology_pages | where: "canonical_path", page.permalink | first %}
+<section data-page-hero data-required-blocks="{{ topology.required_blocks | join: ',' }}">
   <div class="page-hero shell">
     <p class="page-responsibility">{{ page.title }}</p>
     <h1 data-page-question>{{ include.presentation.hero_question }}</h1>
