@@ -28,7 +28,7 @@ export async function assertRequiredSurface(page: Page, route: string): Promise<
   await expect(page.locator('nav[aria-label="Primary"] a')).toHaveCount(7);
   await expect(page.locator('nav[aria-label="Utility"] a')).toHaveCount(2);
   await expect(page.locator("main#main")).toHaveAttribute("data-page-route", route);
-  await expect(page.locator("[data-page-hero] h1")).toBeVisible();
+  await expect(page.locator("[data-page-hero] [data-page-question]")).toBeVisible();
   await expect(page.locator("footer")).toBeVisible();
   const horizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(horizontalOverflow, `${route} document overflow`).toBeLessThanOrEqual(1);
