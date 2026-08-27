@@ -583,11 +583,11 @@ claims:
   - id: CLM-043
     requirement: REQ-007
     text: Downloaded or retained artifact tree digest, HTTPS standalone marker, route commit/run metadata, ten canonical routes, and the exact canonical-link/meta-refresh/fallback-link content of five live one-hop static aliases agree without conflating archive and tree digests.
-    tests: [TestPagesDeployment_HTTPSMarkerAndRouteMatrixPasses]
+    tests: [TestPagesDeployment_HTTPSMarkerAndRouteMatrixPasses, TestPagesDeployment_LiveStaticAliasProofPinned]
   - id: CLM-044
     requirement: REQ-007
     text: API-only, action-only, smoke-only, an impossible server-side redirect assumption, HTTP downgrade, certificate/host drift, stale marker, or route/alias/content error fails post-deploy proof.
-    tests: [TestPagesDeployment_RejectsPartialOrStaleProofMatrix]
+    tests: [TestPagesDeployment_RejectsPartialOrStaleProofMatrix, TestPagesDeployment_LiveStaticAliasProofPinned]
   - id: CLM-045
     requirement: REQ-002
     text: Exact same-origin absolute HTTPS is required for canonical metadata but rejected in rendered anchors under link precedence.
