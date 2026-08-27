@@ -102,6 +102,7 @@ func VerifyPagesWorkflow(root string) []Finding {
 
 	pagesRequired := []string{
 		"branches: [main]", "workflow_dispatch:", "group: pages", "cancel-in-progress: false", "permissions: {}",
+		"gh api \"repos/${GITHUB_REPOSITORY}/pages\" --jq .build_type", "[ \"$mode\" != \"workflow\" ]",
 		"GOFLAGS: -mod=readonly", "fetch-depth: 0", "ruby-version: \"3.3.4\"", "pipx install semgrep==1.156.0",
 		"BACKSTOP_SITE_OUTPUT: _site", "BACKSTOP_SITE_RETAIN: \"1\"", "./scripts/verify-public-site.sh",
 		"artifact-id: ${{ steps.upload.outputs.artifact_id }}", "path: _site", "include-hidden-files: true",
