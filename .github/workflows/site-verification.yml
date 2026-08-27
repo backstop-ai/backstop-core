@@ -3,13 +3,8 @@ name: Site Verification
 on:
   pull_request:
     branches: [main]
-  workflow_call:
-    outputs:
-      artifact-id:
-        description: Verified Pages artifact ID
-        value: ${{ jobs.verify.outputs.artifact-id }}
 
-# This workflow proves the site artifact only. Deployment authority lives in pages.yml.
+# This workflow proves the site only. Publication authority and artifact upload live in pages.yml.
 permissions: {}
 
 jobs:
@@ -17,14 +12,10 @@ jobs:
     name: Build and verify public site
     runs-on: ubuntu-latest
     env:
-      # ruby/setup-ruby installs gems beneath ./vendor/bundle. Go otherwise
-      # mistakes that Ruby-owned directory for a Go vendor tree after setup.
       GOFLAGS: -mod=readonly
     permissions:
       contents: read
       pages: read
-    outputs:
-      artifact-id: ${{ steps.upload.outputs.artifact_id }}
     steps:
       - name: Verify workflow Pages build mode
         env:
@@ -60,14 +51,6 @@ jobs:
       - name: Build and verify the complete public site
         env:
           BACKSTOP_SITE_OUTPUT: _site
-          BACKSTOP_SITE_RETAIN: "1"
+          BACKSTOP_SITE_RETAIN: "0"
           BACKSTOP_SITE_COMMIT: ${{ github.sha }}
         run: ./scripts/verify-public-site.sh
-      - name: Stamp deployment identity
-        run: ./scripts/stamp-pages-artifact.sh --commit "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" _site
-      - name: Upload verified Pages artifact
-        id: upload
-        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9
-        with:
-          path: _site
-          include-hidden-files: true
