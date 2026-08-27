@@ -93,14 +93,15 @@ func VerifyPagesWorkflow(root string) []Finding {
 	requiredText := []string{
 		"branches: [main]", "workflow_dispatch:", "group: pages", "cancel-in-progress: false",
 		"permissions: {}", "contents: read", "pages: read", "pages: write", "id-token: write", "actions: read", "deployments: read",
-		"fetch-depth: 0", "ruby-version: \"3.3.4\"", "static_site_generator: jekyll", "BACKSTOP_SITE_OUTPUT: _site",
+		"needs: configure", "gh api --method PUT", "\"repos/${GITHUB_REPOSITORY}/pages\"", "-f build_type=workflow",
+		"fetch-depth: 0", "ruby-version: \"3.3.4\"", "BACKSTOP_SITE_OUTPUT: _site",
 		"BACKSTOP_SITE_RETAIN: \"1\"", "BACKSTOP_SITE_COMMIT: ${{ github.sha }}",
 		"path: _site", "include-hidden-files: true", "needs: [build, deploy]",
 		"./scripts/verify-pages-deployment.sh", "--artifact-id \"${{ needs.build.outputs.artifact-id }}\"",
 	}
 	for _, needle := range requiredText {
 		want := 1
-		if needle == "contents: read" || needle == "pages: read" {
+		if needle == "contents: read" || needle == "pages: read" || needle == "pages: write" {
 			want = 2
 		}
 		if strings.Count(workflow, needle) != want {
@@ -109,6 +110,9 @@ func VerifyPagesWorkflow(root string) []Finding {
 	}
 	if regexp.MustCompile(`(?m)^\s*tags:`).MatchString(workflow) {
 		findings = append(findings, Finding{Phase: "pages-workflow", Identity: "tag trigger", Expected: "absent", Observed: "present"})
+	}
+	if strings.Contains(workflow, "static_site_generator:") {
+		findings = append(findings, Finding{Phase: "pages-workflow", Identity: "configure-pages generator injection", Expected: "absent for locked Jekyll build", Observed: "present"})
 	}
 	return findings
 }

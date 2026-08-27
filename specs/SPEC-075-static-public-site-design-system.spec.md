@@ -4,7 +4,7 @@ number: SPEC-075
 created: "2026-08-24"
 status: implemented
 schema_version: spec/v1
-spec_version: 1.0.9
+spec_version: 1.0.10
 
 implementation:
   summary: >
@@ -306,7 +306,10 @@ requirements:
       `actions/configure-pages`, `actions/upload-pages-artifact`, and `actions/deploy-pages`, each
       referenced by a full 40-hex SHA matching `.github/pages-actions.lock.yml`; every JavaScript
       action in that exact cohort must declare the GitHub-hosted runner's Node 24 action runtime.
-      `configure-pages` selects workflow build mode. Before upload, stamp
+      A dedicated `pages: write` configure job must idempotently set `build_type=workflow` through
+      the GitHub Pages API before the build job starts. `configure-pages` may then read site metadata
+      but must not receive a static-site-generator input because Jekyll is not in that action's
+      supported injection set. Before upload, stamp
       every canonical HTML head with exact
       `<meta name="backstop-deployment" content="commit=<SHA>;run=<ID>">`, then compute
       `tree_content_sha256` over sorted artifact paths/bytes excluding the standalone marker and write
@@ -542,11 +545,11 @@ claims:
     tests: [TestSiteCheck_CustomDomainRejectsInvalidMatrix]
   - id: CLM-035
     requirement: REQ-007
-    text: Pages main/manual workflow provisions exact Ruby 3.3.4 and uses the exact Node-24-compatible, lock-matched full-SHA official action cohort, workflow build mode, exact stamped root, include-hidden-files true, artifact ID, deploy output, least privilege, and serialized concurrency.
+    text: Pages main/manual workflow provisions exact Ruby 3.3.4, selects workflow build mode through an isolated Pages-write API job, and uses the exact Node-24-compatible, lock-matched full-SHA official action cohort without unsupported generator injection, plus exact stamped root, include-hidden-files true, artifact ID, deploy output, least privilege, and serialized concurrency.
     tests: [TestSiteCheck_PagesWorkflowPinnedContractPasses]
   - id: CLM-036
     requirement: REQ-007
-    text: Missing or floating Ruby version, deprecated action runtime, mutable/unallowlisted refs, pin mismatch, tag trigger, widened permission, skipped prerequisite, missing stamp, omitted/false hidden-file upload, wrong root/ID, alternate publish, or deploy-on-failure fails structurally.
+    text: Missing or floating Ruby version, deprecated action runtime, mutable/unallowlisted refs, pin mismatch, legacy/missing build mode, unsupported configure-pages generator injection, tag trigger, widened permission, skipped prerequisite, missing stamp, omitted/false hidden-file upload, wrong root/ID, alternate publish, or deploy-on-failure fails structurally.
     tests: [TestSiteCheck_PagesWorkflowRejectsWorkflowAndActionPinMatrix]
   - id: CLM-037
     requirement: REQ-008
