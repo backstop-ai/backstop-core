@@ -9,7 +9,8 @@ permissions:
 
 jobs:
   reconcile:
-    if: github.event.head_commit.message == 'chore: reconcile site completeness artifacts'
+    if: >-
+      github.event.head_commit.message == 'chore: reconcile site completeness artifacts'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
