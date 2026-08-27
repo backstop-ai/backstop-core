@@ -35,34 +35,36 @@
   </div>
 
 <main id="main" data-page-route="/" data-page-kind="home">
-  <section class="hero shell" data-page-hero>
-    <h1 class="eyebrow" data-page-question>What failure does Backstop prevent?</h1>
-    <div class="eyebrow"><span class="status-dot"></span> An agent discipline framework</div>
-    <h1>Define the work.<br><span>Enforce your standards.</span><br>Detect drift.</h1>
-    <p class="hero-copy">Artifacts define what the work must deliver. Packs encode the standards it must follow. Recipes generate known-good starting points. The gate verifies the result.</p>
-    <div class="hero-actions">
-      <a class="button button-primary" href="/adopt/">Get started <span aria-hidden="true">→</span></a>
-      <a class="button button-secondary" href="https://github.com/backstop-ai/backstop-core">View on GitHub <span aria-hidden="true" class="arrow">↗</span></a>
-    </div>
-
-    <div class="terminal" data-home-gate-proof aria-label="Example Backstop gate output">
-      <div class="terminal-bar"><div class="terminal-title"><span class="terminal-icon">›_</span> gate</div><span class="copy-label">backstop gate</span></div>
-      <div class="terminal-body">
-        <div class="command"><span class="prompt">$</span> backstop gate</div>
-        <div class="checks">
-          <div class="check"><span class="check-status"><span class="check-icon">✓</span>Pack integrity</span><span class="check-rule" aria-hidden="true"></span><span class="check-detail">8 packs locked</span><span class="check-result">pass</span></div>
-          <div class="check"><span class="check-status"><span class="check-icon">✓</span>Artifacts</span><span class="check-rule" aria-hidden="true"></span><span class="check-detail">schemas and lineage valid</span><span class="check-result">pass</span></div>
-          <div class="check"><span class="check-status"><span class="check-icon">✓</span>Engineering standards</span><span class="check-rule" aria-hidden="true"></span><span class="check-detail">0 new findings</span><span class="check-result">pass</span></div>
-          <div class="check"><span class="check-status"><span class="check-icon">✓</span>Tests</span><span class="check-rule" aria-hidden="true"></span><span class="check-detail">promised tests exist and pass</span><span class="check-result">pass</span></div>
-          <div class="check"><span class="check-status"><span class="check-icon">✓</span>Coverage</span><span class="check-rule" aria-hidden="true"></span><span class="check-detail">threshold met</span><span class="check-result">pass</span></div>
-          <div class="check"><span class="check-status"><span class="check-icon">✓</span>Contracts</span><span class="check-rule" aria-hidden="true"></span><span class="check-detail">declared signatures present</span><span class="check-result">pass</span></div>
-          <div class="check"><span class="check-status"><span class="check-icon">✓</span>Requirements</span><span class="check-rule" aria-hidden="true"></span><span class="check-detail">implementation coverage complete</span><span class="check-result">pass</span></div>
-          <div class="check"><span class="check-status"><span class="check-icon">✓</span>Baseline</span><span class="check-rule" aria-hidden="true"></span><span class="check-detail">0 net-new violations</span><span class="check-result">pass</span></div>
-        </div>
-        <div class="verdict"><span><span class="verdict-icon">✓</span> PASS</span><span class="verdict-copy">0 unresolved findings</span><span class="exit-code">exit 0</span></div>
+  <section data-page-hero>
+    <div class="hero shell">
+      <h1 class="eyebrow" data-page-question>What failure does Backstop prevent?</h1>
+      <div class="eyebrow"><span class="status-dot"></span> An agent discipline framework</div>
+      <h1>Define the work.<br><span>Enforce your standards.</span><br>Detect drift.</h1>
+      <p class="hero-copy">Artifacts define what the work must deliver. Packs encode the standards it must follow. Recipes generate known-good starting points. The gate verifies the result.</p>
+      <div class="hero-actions">
+        <a class="button button-primary" href="/adopt/">Get started <span aria-hidden="true">→</span></a>
+        <a class="button button-secondary" href="https://github.com/backstop-ai/backstop-core">View on GitHub <span aria-hidden="true" class="arrow">↗</span></a>
       </div>
+
+      <div class="terminal" data-home-gate-proof aria-label="Example Backstop gate output">
+        <div class="terminal-bar"><div class="terminal-title"><span class="terminal-icon">›_</span> gate</div><span class="copy-label">backstop gate</span></div>
+        <div class="terminal-body">
+          <div class="command"><span class="prompt">$</span> backstop gate</div>
+          <div class="checks">
+            <div class="check"><span class="check-status"><span class="check-icon">✓</span>Pack integrity</span><span class="check-rule" aria-hidden="true"></span><span class="check-detail">8 packs locked</span><span class="check-result">pass</span></div>
+            <div class="check"><span class="check-status"><span class="check-icon">✓</span>Artifacts</span><span class="check-rule" aria-hidden="true"></span><span class="check-detail">schemas and lineage valid</span><span class="check-result">pass</span></div>
+            <div class="check"><span class="check-status"><span class="check-icon">✓</span>Engineering standards</span><span class="check-rule" aria-hidden="true"></span><span class="check-detail">0 new findings</span><span class="check-result">pass</span></div>
+            <div class="check"><span class="check-status"><span class="check-icon">✓</span>Tests</span><span class="check-rule" aria-hidden="true"></span><span class="check-detail">promised tests exist and pass</span><span class="check-result">pass</span></div>
+            <div class="check"><span class="check-status"><span class="check-icon">✓</span>Coverage</span><span class="check-rule" aria-hidden="true"></span><span class="check-detail">threshold met</span><span class="check-result">pass</span></div>
+            <div class="check"><span class="check-status"><span class="check-icon">✓</span>Contracts</span><span class="check-rule" aria-hidden="true"></span><span class="check-detail">declared signatures present</span><span class="check-result">pass</span></div>
+            <div class="check"><span class="check-status"><span class="check-icon">✓</span>Requirements</span><span class="check-rule" aria-hidden="true"></span><span class="check-detail">implementation coverage complete</span><span class="check-result">pass</span></div>
+            <div class="check"><span class="check-status"><span class="check-icon">✓</span>Baseline</span><span class="check-rule" aria-hidden="true"></span><span class="check-detail">0 net-new violations</span><span class="check-result">pass</span></div>
+          </div>
+          <div class="verdict"><span><span class="verdict-icon">✓</span> PASS</span><span class="verdict-copy">0 unresolved findings</span><span class="exit-code">exit 0</span></div>
+        </div>
+      </div>
+      <div data-required-blocks="why-backstop,choose-your-path"></div>
     </div>
-    <div data-required-blocks="why-backstop,choose-your-path"></div>
   </section>
 
   <div data-page-content>
@@ -156,7 +158,7 @@
   <nav class="next-action shell" data-next-action aria-label="Next page"><span>Continue the field guide</span><a href="/evaluate/">Next <span aria-hidden="true">→</span></a></nav>
 
   <footer class="footer shell">
-    <a class="wordmark" href="/" aria-label="Backstop home"><span aria-hidden="true" class="wordmark-mark">./b</span><span>backstop</span><span class="wordmark-domain">.sh</span></a>
+    <a class="wordmark" href="/" aria-label="Backstop home"><span aria-hidden="true" class="wordmark-mark">&#46;/b</span><span>backstop</span><span class="wordmark-domain">&#46;sh</span></a>
     <p>Open source under the MIT License.</p>
     <a href="https://github.com/backstop-ai">backstop-ai <span aria-hidden="true" class="arrow">↗</span></a>
   </footer>
