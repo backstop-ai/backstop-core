@@ -4,7 +4,7 @@ number: SPEC-074
 created: "2026-08-24"
 status: implemented
 schema_version: spec/v1
-spec_version: 1.0.7
+spec_version: 1.0.8
 
 implementation:
   summary: >

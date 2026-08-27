@@ -1,7 +1,7 @@
 ---
 plan_id: PLAN-SPEC-074
 spec_id: SPEC-074
-spec_version: "1.0.7"
+spec_version: "1.0.8"
 created: "2026-08-24"
 status: completed
 target_repo: backstop-core
@@ -241,7 +241,7 @@ phases:
           release-history-current checkout, stable-tag fetch, stale-main refusal, original
           tag preservation, rerun success, tag-checkout substitution refusal, and
           GoReleaser dependency. Do not inspect Jekyll, rendered output, or Pages.
-        files: [scripts/tests/product-truth/source-workflow-wiring.sh, scripts/tests/product-truth/fixtures/source-workflow-mutations.yml]
+        files: [scripts/producttruth/pipeline_contract_test.go, scripts/tests/product-truth/fixtures/source-workflow-mutations.yml]
         claims: [CLM-041, CLM-042, CLM-043]
         test_names: [TestProductTruth_ReleaseBlocksStaleLatestMain, TestProductTruth_ReleaseHandshakePassesAfterMainRegeneration, TestProductTruth_ReleaseWorkflowRejectsTagCheckoutSubstitution]
         depends_on: [TASK-017]
@@ -264,7 +264,7 @@ phases:
           nonnumeric. Prove verifier ordering and cleanup across race coverage, check mode,
           exact source-include verification, branch-CI wiring, and release-workflow wiring.
           Assert that no Jekyll build or Pages workflow is required or inspected.
-        files: [scripts/tests/product-truth/verify-pipeline.sh, scripts/tests/product-truth/fixtures/source-pipeline-failures.yml]
+        files: [scripts/producttruth/pipeline_contract_test.go, scripts/tests/product-truth/fixtures/source-pipeline-failures.yml]
         claims: [CLM-044, CLM-045, CLM-046]
         test_names: [TestProductTruth_VerifierAcceptsCoverageAtThreshold, TestProductTruth_VerifierRejectsCoverageFailureMatrix, TestProductTruth_VerifierCoversIndependentSourcePipeline]
         depends_on: [TASK-017]
@@ -288,7 +288,7 @@ phases:
           and `./scripts/generate-product-truth.sh --check`. Require the complete generated
           cohort, source-consumption mutations, independent CI/release wiring, and no site
           runtime or downstream-plan dependency.
-        files: [scripts/verify-product-truth.sh, scripts/tests/product-truth/verify-pipeline.sh, docs/_includes/generated/cli-command-catalog.md, docs/_includes/generated/artifact-schema-catalog.md, docs/_includes/generated/installed-pack-catalog.md, docs/_includes/generated/release-history.md, .github/workflows/ci.yml, .github/workflows/release.yml]
+        files: [scripts/verify-product-truth.sh, scripts/producttruth/pipeline_contract_test.go, docs/_includes/generated/cli-command-catalog.md, docs/_includes/generated/artifact-schema-catalog.md, docs/_includes/generated/installed-pack-catalog.md, docs/_includes/generated/release-history.md, .github/workflows/ci.yml, .github/workflows/release.yml]
         claims: [CLM-010, CLM-015, CLM-022, CLM-023, CLM-024, CLM-025, CLM-041, CLM-042, CLM-043, CLM-044, CLM-045, CLM-046, CLM-047, CLM-050, CLM-053, CLM-056]
         depends_on: [TASK-019, TASK-020, TASK-023]
 

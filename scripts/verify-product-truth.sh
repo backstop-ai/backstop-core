@@ -26,8 +26,6 @@ verify_product_truth_pipeline() {
   ./scripts/generate-product-truth.sh --check
   go test ./scripts/producttruth/... -run 'SourceIncludes|SourceRejectsParallel'
   ./scripts/tests/product-truth/real-repository.sh
-  ./scripts/tests/product-truth/source-workflow-wiring.sh
-  ./scripts/tests/product-truth/verify-pipeline.sh
   printf 'product truth pipeline: pass (%s%% coverage)\n' "$numeric_total"
 }
 
