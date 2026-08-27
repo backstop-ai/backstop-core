@@ -4,7 +4,7 @@ number: SPEC-075
 created: "2026-08-24"
 status: implemented
 schema_version: spec/v1
-spec_version: 1.0.10
+spec_version: 1.0.11
 
 implementation:
   summary: >
@@ -306,8 +306,9 @@ requirements:
       `actions/configure-pages`, `actions/upload-pages-artifact`, and `actions/deploy-pages`, each
       referenced by a full 40-hex SHA matching `.github/pages-actions.lock.yml`; every JavaScript
       action in that exact cohort must declare the GitHub-hosted runner's Node 24 action runtime.
-      A dedicated `pages: write` configure job must idempotently set `build_type=workflow` through
-      the GitHub Pages API before the build job starts. `configure-pages` may then read site metadata
+      The repository administrator must externally select `build_type=workflow`; before checkout or
+      build, a read-only Pages API preflight must fail closed unless that mode is observed.
+      `configure-pages` may then read site metadata
       but must not receive a static-site-generator input because Jekyll is not in that action's
       supported injection set. Before upload, stamp
       every canonical HTML head with exact
@@ -545,7 +546,7 @@ claims:
     tests: [TestSiteCheck_CustomDomainRejectsInvalidMatrix]
   - id: CLM-035
     requirement: REQ-007
-    text: Pages main/manual workflow provisions exact Ruby 3.3.4, selects workflow build mode through an isolated Pages-write API job, and uses the exact Node-24-compatible, lock-matched full-SHA official action cohort without unsupported generator injection, plus exact stamped root, include-hidden-files true, artifact ID, deploy output, least privilege, and serialized concurrency.
+    text: Pages main/manual workflow provisions exact Ruby 3.3.4, proves the externally administered workflow build mode through a read-only API preflight, and uses the exact Node-24-compatible, lock-matched full-SHA official action cohort without unsupported generator injection, plus exact stamped root, include-hidden-files true, artifact ID, deploy output, least privilege, and serialized concurrency.
     tests: [TestSiteCheck_PagesWorkflowPinnedContractPasses]
   - id: CLM-036
     requirement: REQ-007

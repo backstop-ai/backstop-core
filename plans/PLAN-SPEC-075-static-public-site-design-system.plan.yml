@@ -1,7 +1,7 @@
 ---
 plan_id: PLAN-SPEC-075
 spec_id: SPEC-075
-spec_version: "1.0.10"
+spec_version: "1.0.11"
 created: "2026-08-24"
 status: completed
 target_repo: backstop-core
@@ -471,7 +471,7 @@ phases:
         title: "Specify immutable Pages workflow and stamping"
         description: |
           Test main/manual-only triggers, least privilege, serialized pages concurrency, full
-          history, exact Ruby 3.3.4, isolated Pages-write workflow-mode selection, no unsupported
+          history, exact Ruby 3.3.4, read-only proof of the externally administered workflow mode, no unsupported
           generator injection, locked prerequisites, exact phase order, six Node-24-compatible official actions at lock-matched
           SHAs, workflow build mode, exact hidden-inclusive _site upload, artifact/deploy outputs,
           no alternate publisher, canonical head metadata, and standalone tree marker.
@@ -484,8 +484,8 @@ phases:
         title: "Implement the locked Pages transaction"
         description: |
           Create the exact Node-24-compatible action lock, marker stamper, and sole Pages workflow.
-          Select workflow build mode through an isolated Pages-write API job, read Pages metadata
-          without generator injection, provision exact Ruby 3.3.4, and build main/manual from source,
+          Refuse to build unless the read-only Pages API reports the externally administered workflow
+          mode, read Pages metadata without generator injection, provision exact Ruby 3.3.4, and build main/manual from source,
           run prerequisites, annotate with head SHA, stamp heads/marker, upload exactly _site with
           hidden files, carry artifact ID, and deploy only after success.
         files: [.github/pages-actions.lock.yml, scripts/stamp-pages-artifact.sh, .github/workflows/pages.yml]
