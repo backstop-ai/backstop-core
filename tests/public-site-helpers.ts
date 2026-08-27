@@ -35,7 +35,8 @@ export async function assertRequiredSurface(page: Page, route: string): Promise<
 }
 
 export async function assertContentCompleteness(page: Page, route: string): Promise<void> {
-  const contract = page.locator("[data-page-hero]");
+  const contract = page.locator("[data-required-blocks]");
+  await expect(contract, `${route} rendered required-block contract cardinality`).toHaveCount(1);
   const rawRequired = await contract.getAttribute("data-required-blocks");
   expect(rawRequired, `${route} rendered required-block contract`).toBeTruthy();
   const required = rawRequired!.split(",").map((value) => value.trim()).filter(Boolean);
