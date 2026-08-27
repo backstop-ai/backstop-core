@@ -12,8 +12,23 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  configure:
+    name: Lock Pages to workflow delivery
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+    steps:
+      - name: Select workflow Pages build mode
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh api --method PUT
+          "repos/${GITHUB_REPOSITORY}/pages"
+          -f build_type=workflow
+
   build:
     name: Build and verify public site
+    needs: configure
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -33,8 +48,6 @@ jobs:
           node-version: 22
           cache: npm
       - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d
-        with:
-          static_site_generator: jekyll
       - name: Install browser verifier
         run: |
           npm ci
