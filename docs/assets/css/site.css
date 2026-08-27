@@ -75,6 +75,39 @@ th { background: var(--ds-surface); }
   .navigation-groups { justify-content: flex-start; }
   .footer-shell { flex-direction: column; }
   .home-capabilities, .home-paths { grid-template-columns: 1fr; }
+
+  /* The legacy designed homepage predates the shared responsive shell. Keep
+     its visual treatment, but collapse fixed multi-column presentation
+     surfaces so enlarged text can reflow without horizontal scrolling. */
+  [data-page-kind="home"] .nav { height: auto !important; min-height: 76px; flex-wrap: wrap; gap: 1rem; padding-block: 1rem; }
+  [data-page-kind="home"] .nav-links { flex-wrap: wrap; gap: 1rem !important; }
+  [data-page-kind="home"] h1 { overflow-wrap: anywhere; }
+  [data-page-kind="home"] .section-heading,
+  [data-page-kind="home"] .section-body,
+  [data-page-kind="home"] .main-chain,
+  [data-page-kind="home"] .composition,
+  [data-page-kind="home"] .composition-row,
+  [data-page-kind="home"] .rule,
+  [data-page-kind="home"] .check,
+  [data-page-kind="home"] .issue-path,
+  [data-page-kind="home"] .baseline-row { grid-template-columns: minmax(0, 1fr) !important; }
+  [data-page-kind="home"] .section-body { margin-left: 0 !important; gap: 2rem !important; }
+  [data-page-kind="home"] .composition { gap: 2rem !important; }
+  [data-page-kind="home"] .composition-heading { position: static !important; }
+  [data-page-kind="home"] .artifact { border-right: 0 !important; border-bottom: 1px solid var(--color-line); }
+  [data-page-kind="home"] .artifact i { display: none; }
+  [data-page-kind="home"] .check-status { min-width: 0 !important; }
+  [data-page-kind="home"] .check-detail,
+  [data-page-kind="home"] .check-result { text-align: left !important; }
+  [data-page-kind="home"] .cta { padding: 2rem !important; align-items: flex-start !important; flex-direction: column; gap: 1.5rem; }
+  [data-page-kind="home"] .terminal,
+  [data-page-kind="home"] .artifact-chain,
+  [data-page-kind="home"] .rule-panel,
+  [data-page-kind="home"] .baseline-panel { max-width: 100%; }
+  [data-page-kind="home"] code,
+  [data-page-kind="home"] strong,
+  [data-page-kind="home"] p,
+  [data-page-kind="home"] span { overflow-wrap: anywhere; }
 }
 @media (max-width: 30rem) {
   .navigation-groups { display: flex; flex-direction: column; width: 100%; }
