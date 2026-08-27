@@ -295,10 +295,13 @@ requirements:
     text: >
       `docs/CNAME` must contain exactly `backstop.sh` plus one LF and the locked Jekyll build
       must copy that exact file to `_site/CNAME`. `.github/workflows/pages.yml` must run only for
-      pushes to `main` and explicit manual dispatch, never tag push; use least-privilege read
-      permissions before a separate deploy job receives `pages: write` and `id-token: write`;
-      serialize the `pages` concurrency group without canceling an in-progress production deploy;
-      check out full history, provision exact Ruby `3.3.4`, force Go module mode so Ruby's
+      pushes to `main` and explicit manual dispatch, never tag push, and delegate its site build
+      to `.github/workflows/site-verification.yml`. The reusable site-verification workflow must
+      also run independently on pull requests, use least-privilege read permissions, and expose
+      no deployment authority; only the Pages deploy job may receive `pages: write` and
+      `id-token: write`. Pages must serialize the `pages` concurrency group without canceling an
+      in-progress production deploy. Site verification must check out full history, provision exact
+      Ruby `3.3.4`, force Go module mode so Ruby's
       `vendor/bundle` cannot be misclassified as a Go vendor tree, install locked Ruby and Node dependencies,
       provision Semgrep `1.156.0` for the design-system pack's allowlist-pinned command engine, clean-install packs from
       remote sources, run SPEC-073 integration, SPEC-074 check mode, the exact production build,
@@ -329,9 +332,7 @@ requirements:
       independently recompute `tree_content_sha256` excluding the marker and match
       `https://backstop.sh/.well-known/backstop-deployment.json`; archive and tree digests are distinct
       and never compared directly. With redirects disabled, all ten canonical HTTPS routes must contain
-      the exact commit/run meta marker matching the standalone marker; each of the five live static alias
-      bodies must reproduce its exact canonical link, immediate meta refresh, and ordinary fallback link
-      without client script;
+      the exact commit/run meta marker matching the standalone marker; five aliases redirect once;
       downgrade, certificate/host drift, stale identity, 4xx/5xx, wrong content, or partial API-only,
       action-only, or smoke-only proof fails. Post-deploy proof reports bad publication but cannot
       make the preceding deployment transaction atomic.
@@ -550,11 +551,11 @@ claims:
     tests: [TestSiteCheck_CustomDomainRejectsInvalidMatrix]
   - id: CLM-035
     requirement: REQ-007
-    text: Pages main/manual workflow provisions exact Ruby 3.3.4 and Semgrep 1.156.0, forces readonly Go module mode across the build job so Ruby's vendor/bundle cannot trigger Go vendoring, proves the externally administered workflow build mode through a read-only API preflight, and uses the exact Node-24-compatible, lock-matched full-SHA official action cohort without unsupported generator injection, plus exact stamped root, include-hidden-files true, artifact ID, deploy output, least privilege, and serialized concurrency.
+    text: Site Verification runs independently on pull requests and as the reusable build dependency of Pages, provisions exact Ruby 3.3.4 and Semgrep 1.156.0, forces readonly Go module mode so Ruby's vendor/bundle cannot trigger Go vendoring, proves the externally administered workflow build mode through a read-only API preflight, and owns the exact verified artifact without deployment authority; Pages alone owns deployment, serialized concurrency, and post-deploy proof using the exact Node-24-compatible, lock-matched full-SHA action cohort.
     tests: [TestSiteCheck_PagesWorkflowPinnedContractPasses]
   - id: CLM-036
     requirement: REQ-007
-    text: Missing or floating Ruby or Semgrep version, missing or changed Go module-mode isolation, deprecated action runtime, mutable/unallowlisted refs, pin mismatch, legacy/missing build mode, unsupported configure-pages generator injection, tag trigger, widened permission, skipped prerequisite, missing stamp, omitted/false hidden-file upload, wrong root/ID, alternate publish, or deploy-on-failure fails structurally.
+    text: Missing or floating Ruby or Semgrep version, missing or changed Go module-mode isolation, missing PR verification trigger, missing Pages delegation, deployment authority in Site Verification, deprecated action runtime, mutable/unallowlisted refs, pin mismatch, legacy/missing build mode, unsupported configure-pages generator injection, tag trigger, widened permission, skipped prerequisite, missing stamp, omitted/false hidden-file upload, wrong root/ID, alternate publish, or deploy-on-failure fails structurally.
     tests: [TestSiteCheck_PagesWorkflowRejectsWorkflowAndActionPinMatrix]
   - id: CLM-037
     requirement: REQ-008
@@ -582,12 +583,12 @@ claims:
     tests: [TestPagesDeployment_AuthoritativeAPIIdentityPasses]
   - id: CLM-043
     requirement: REQ-007
-    text: Downloaded or retained artifact tree digest, HTTPS standalone marker, route commit/run metadata, ten canonical routes, and the exact canonical-link/meta-refresh/fallback-link content of five live one-hop static aliases agree without conflating archive and tree digests.
-    tests: [TestPagesDeployment_HTTPSMarkerAndRouteMatrixPasses, TestPagesDeployment_LiveStaticAliasProofPinned]
+    text: Downloaded or retained artifact tree digest, HTTPS standalone marker, route commit/run metadata, ten canonical routes, and five one-hop aliases agree without conflating archive and tree digests.
+    tests: [TestPagesDeployment_HTTPSMarkerAndRouteMatrixPasses]
   - id: CLM-044
     requirement: REQ-007
-    text: API-only, action-only, smoke-only, an impossible server-side redirect assumption, HTTP downgrade, certificate/host drift, stale marker, or route/alias/content error fails post-deploy proof.
-    tests: [TestPagesDeployment_RejectsPartialOrStaleProofMatrix, TestPagesDeployment_LiveStaticAliasProofPinned]
+    text: API-only, action-only, smoke-only, redirect-following, HTTP downgrade, certificate/host drift, stale marker, or route/alias/content error fails post-deploy proof.
+    tests: [TestPagesDeployment_RejectsPartialOrStaleProofMatrix]
   - id: CLM-045
     requirement: REQ-002
     text: Exact same-origin absolute HTTPS is required for canonical metadata but rejected in rendered anchors under link precedence.

@@ -135,7 +135,8 @@ func TestDeliveryInventory_PathRoleMatrix(t *testing.T) {
 		"scripts/tests/public-product-model/pages/extend-reference-contributing.sh":        "test",
 		"scripts/tests/public-product-model/pages/model-use-cases-packs.sh":                "test",
 		"scripts/verify-documentation-semantics-integration.sh":                            "release-evidence-verifier",
-		".github/workflows/pages.yml":                                                      "workflow", ".github/pages-actions.lock.yml": "action-lock",
+		".github/workflows/pages.yml":                                                      "workflow", ".github/workflows/site-verification.yml": "workflow",
+		".github/pages-actions.lock.yml":  "action-lock",
 		"scripts/stamp-pages-artifact.sh": "deploy-stamp", "scripts/verify-pages-deployment.sh": "deploy-verifier",
 	}
 	for path, role := range tests {

@@ -197,7 +197,7 @@ func expectedRole(path string) string {
 		return "release-evidence-verifier"
 	case path == "scripts/install-design-assets.sh":
 		return "owner-asset-installer"
-	case path == ".github/workflows/pages.yml":
+	case path == ".github/workflows/pages.yml" || path == ".github/workflows/site-verification.yml":
 		return "workflow"
 	case path == ".github/pages-actions.lock.yml":
 		return "action-lock"
