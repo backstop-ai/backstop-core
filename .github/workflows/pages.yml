@@ -12,23 +12,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  configure:
-    name: Lock Pages to workflow delivery
-    runs-on: ubuntu-latest
-    permissions:
-      pages: write
-    steps:
-      - name: Select workflow Pages build mode
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: >-
-          gh api --method PUT
-          "repos/${GITHUB_REPOSITORY}/pages"
-          -f build_type=workflow
-
   build:
     name: Build and verify public site
-    needs: configure
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -36,6 +21,15 @@ jobs:
     outputs:
       artifact-id: ${{ steps.upload.outputs.artifact_id }}
     steps:
+      - name: Verify workflow Pages build mode
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mode="$(gh api "repos/${GITHUB_REPOSITORY}/pages" --jq .build_type)"
+          if [ "$mode" != "workflow" ]; then
+            echo "Pages build_type must be workflow; observed: $mode" >&2
+            exit 1
+          fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0

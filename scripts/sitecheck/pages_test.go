@@ -39,7 +39,7 @@ func TestSiteCheck_PagesWorkflowRejectsWorkflowAndActionPinMatrix(t *testing.T) 
 		{".github/workflows/pages.yml", "actions/deploy-pages@", "third-party/deploy@"},
 		{".github/workflows/pages.yml", "ruby-version: \"3.3.4\"", "ruby-version: \"3.3\""},
 		{".github/pages-actions.lock.yml", "45bfe0192ca1faeb007ade9deae92b16b8254a0d", "983d7736d9b0ae728b81ab479565c72886d7745b"},
-		{".github/workflows/pages.yml", "-f build_type=workflow", "-f build_type=legacy"},
+		{".github/workflows/pages.yml", "[ \"$mode\" != \"workflow\" ]", "[ \"$mode\" != \"legacy\" ]"},
 		{".github/workflows/pages.yml", "      - uses: actions/configure-pages@", "      - uses: actions/configure-pages@" + "\n        with:\n          static_site_generator: jekyll #"},
 	}
 	for _, mutation := range mutations {
