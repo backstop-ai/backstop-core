@@ -4,7 +4,7 @@ number: SPEC-075
 created: "2026-08-24"
 status: implemented
 schema_version: spec/v1
-spec_version: 1.0.14
+spec_version: 1.0.15
 
 implementation:
   summary: >
@@ -332,7 +332,9 @@ requirements:
       independently recompute `tree_content_sha256` excluding the marker and match
       `https://backstop.sh/.well-known/backstop-deployment.json`; archive and tree digests are distinct
       and never compared directly. With redirects disabled, all ten canonical HTTPS routes must contain
-      the exact commit/run meta marker matching the standalone marker; five aliases redirect once;
+      the exact commit/run meta marker matching the standalone marker; each of the five live static alias
+      bodies must reproduce its exact canonical link, immediate meta refresh, and ordinary fallback link
+      without client script;
       downgrade, certificate/host drift, stale identity, 4xx/5xx, wrong content, or partial API-only,
       action-only, or smoke-only proof fails. Post-deploy proof reports bad publication but cannot
       make the preceding deployment transaction atomic.
@@ -583,12 +585,12 @@ claims:
     tests: [TestPagesDeployment_AuthoritativeAPIIdentityPasses]
   - id: CLM-043
     requirement: REQ-007
-    text: Downloaded or retained artifact tree digest, HTTPS standalone marker, route commit/run metadata, ten canonical routes, and five one-hop aliases agree without conflating archive and tree digests.
-    tests: [TestPagesDeployment_HTTPSMarkerAndRouteMatrixPasses]
+    text: Downloaded or retained artifact tree digest, HTTPS standalone marker, route commit/run metadata, ten canonical routes, and the exact canonical-link/meta-refresh/fallback-link content of five live one-hop static aliases agree without conflating archive and tree digests.
+    tests: [TestPagesDeployment_HTTPSMarkerAndRouteMatrixPasses, TestPagesDeployment_LiveStaticAliasProofPinned]
   - id: CLM-044
     requirement: REQ-007
-    text: API-only, action-only, smoke-only, redirect-following, HTTP downgrade, certificate/host drift, stale marker, or route/alias/content error fails post-deploy proof.
-    tests: [TestPagesDeployment_RejectsPartialOrStaleProofMatrix]
+    text: API-only, action-only, smoke-only, an impossible server-side redirect assumption, HTTP downgrade, certificate/host drift, stale marker, or route/alias/content error fails post-deploy proof.
+    tests: [TestPagesDeployment_RejectsPartialOrStaleProofMatrix, TestPagesDeployment_LiveStaticAliasProofPinned]
   - id: CLM-045
     requirement: REQ-002
     text: Exact same-origin absolute HTTPS is required for canonical metadata but rejected in rendered anchors under link precedence.

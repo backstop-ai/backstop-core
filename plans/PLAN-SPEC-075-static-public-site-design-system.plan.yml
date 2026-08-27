@@ -1,7 +1,7 @@
 ---
 plan_id: PLAN-SPEC-075
 spec_id: SPEC-075
-spec_version: "1.0.14"
+spec_version: "1.0.15"
 created: "2026-08-24"
 status: completed
 target_repo: backstop-core
@@ -501,11 +501,12 @@ phases:
         description: |
           Test API agreement on workflow build, CNAME/HTTPS, run/head SHA, artifact identity/archive
           digest, and deployment. Recompute tree digest; compare HTTPS marker and ten route markers;
-          prove five one-hop aliases without redirects. Reject partial channels, downgrade, host/
+          prove the exact canonical-link, immediate-meta-refresh, fallback-link, and no-script contract
+          in five live one-hop static alias bodies without assuming impossible HTTP redirects. Reject partial channels, downgrade, host/
           certificate drift, stale identity, content error, and archive/tree conflation.
         files: [scripts/verify-pages-deployment_test.sh, scripts/tests/pages-deployment/fixtures/consensus-mutations.yml]
         claims: [CLM-042, CLM-043, CLM-044]
-        test_names: [TestPagesDeployment_AuthoritativeAPIIdentityPasses, TestPagesDeployment_HTTPSMarkerAndRouteMatrixPasses, TestPagesDeployment_RejectsPartialOrStaleProofMatrix]
+        test_names: [TestPagesDeployment_AuthoritativeAPIIdentityPasses, TestPagesDeployment_HTTPSMarkerAndRouteMatrixPasses, TestPagesDeployment_LiveStaticAliasProofPinned, TestPagesDeployment_RejectsPartialOrStaleProofMatrix]
         depends_on: [TASK-026]
       - id: TASK-032
         type: implementation
