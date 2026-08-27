@@ -59,6 +59,21 @@ func TestSiteCheck_PagesWorkflowRejectsWorkflowAndActionPinMatrix(t *testing.T) 
 	}
 }
 
+
+func TestPagesDeployment_LiveStaticAliasProofPinned(t *testing.T) {
+	script := readRepositoryFile(t, "scripts/verify-pages-deployment.sh")
+	for _, needle := range []string{`href="https://backstop.sh`, `content="0; url=`, `contains a client-scripted redirect`} {
+		if !strings.Contains(script, needle) {
+			t.Fatalf("live serverless-alias proof %q missing", needle)
+		}
+	}
+	for _, forbidden := range []string{`30[1278]`, `^location:`} {
+		if strings.Contains(script, forbidden) {
+			t.Fatalf("impossible HTTP redirect proof %q remains", forbidden)
+		}
+	}
+}
+
 func TestSiteCheck_RejectsParallelTruthOrPublication(t *testing.T) {
 	workflow, err := os.ReadFile(filepath.Join(repositoryRoot(), ".github/workflows/pages.yml"))
 	if err != nil {
