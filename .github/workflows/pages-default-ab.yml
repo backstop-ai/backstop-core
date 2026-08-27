@@ -1,6 +1,8 @@
 name: Pages Default A/B
 
 on:
+  push:
+    branches: [diagnostic/pages-default-ab]
   workflow_dispatch:
 
 permissions:
