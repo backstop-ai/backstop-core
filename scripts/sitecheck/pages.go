@@ -94,7 +94,7 @@ func VerifyPagesWorkflow(root string) []Finding {
 		"branches: [main]", "workflow_dispatch:", "group: pages", "cancel-in-progress: false",
 		"permissions: {}", "contents: read", "pages: read", "pages: write", "id-token: write", "actions: read", "deployments: read",
 		"gh api \"repos/${GITHUB_REPOSITORY}/pages\" --jq .build_type", "[ \"$mode\" != \"workflow\" ]",
-		"fetch-depth: 0", "ruby-version: \"3.3.4\"", "GOFLAGS: -mod=mod", "BACKSTOP_SITE_OUTPUT: _site",
+		"fetch-depth: 0", "ruby-version: \"3.3.4\"", "GOFLAGS: -mod=readonly", "BACKSTOP_SITE_OUTPUT: _site",
 		"BACKSTOP_SITE_RETAIN: \"1\"", "BACKSTOP_SITE_COMMIT: ${{ github.sha }}",
 		"path: _site", "include-hidden-files: true", "needs: [build, deploy]",
 		"./scripts/verify-pages-deployment.sh", "--artifact-id \"${{ needs.build.outputs.artifact-id }}\"",
