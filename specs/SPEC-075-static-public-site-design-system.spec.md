@@ -4,7 +4,7 @@ number: SPEC-075
 created: "2026-08-24"
 status: implemented
 schema_version: spec/v1
-spec_version: 1.0.15
+spec_version: 1.0.16
 
 implementation:
   summary: >
@@ -152,7 +152,13 @@ requirements:
       compatibility is not a BUNDLE-032 requirement, and this is a deterministic layout/no-JavaScript
       acceptance choice rather than a broader compatibility guarantee. For every canonical route,
       fresh JavaScript-disabled contexts at 360x800, 768x1024, and 1440x1000 await font readiness
-      and two animation frames. At every viewport the wordmark, all seven primary
+      and two animation frames. Before interaction checks, each page must expose the exact SPEC-072
+      `required_blocks` for its canonical route as a rendered completeness contract. Every required ID
+      must appear exactly once as a visible heading, own at least one visible content block with at least
+      80 normalized text characters, and place its first visible content within 160 CSS px of the heading.
+      The discovery route additionally renders three capability summaries, three decision-path cards,
+      a visible `backstop gate` proof, canonical Evaluate/Model/Adopt links, and at least 1200 normalized
+      characters of substantive page content. At every viewport the wordmark, all seven primary
       links, both utility links, current-page state, main landmark, page heading, and footer
       must be visible and keyboard reachable in document order without a pointer-only control,
       hidden menu, focus trap, horizontal page overflow, clipped focus indicator, or overlap. Tab
@@ -206,7 +212,8 @@ requirements:
       treatments are drawn only from `evidence-cards`, `boundary-callouts`, `generated-regions`, and
       `local-overflow`, without duplicates and in the matrix order. Every page renders
       exactly one `body[data-site-shell=field-guide-v1][data-page-kind]`, header/site nav pair,
-      `main#main[data-page-route]`, `section[data-page-hero]` with one h1 and
+      `main#main[data-page-route][data-required-blocks]`, with `data-required-blocks` derived only from
+      the canonical `docs/_data/content-topology.yml` route record, `section[data-page-hero]` with one h1 and
       `[data-page-question]`, `nav[data-next-action]`, and footer. Evidence records render as
       `article[data-evidence-card][data-claim-id]`; boundary records as
       `aside[data-boundary-callout][data-boundary-state]` with one allowed five-state value;
@@ -459,7 +466,7 @@ claims:
     tests: [TestSiteCheck_LegacyRedirectMatrixRejectsInvalidCell]
   - id: CLM-012
     requirement: REQ-003
-    text: Pinned Chromium proves the fonts-ready/two-frame JavaScript-off route-by-viewport tab, focus, bounds, topmost, nonintersection, and document-overflow matrix.
+    text: Pinned Chromium proves the fonts-ready/two-frame JavaScript-off route-by-viewport required-block completeness, substantive-content, discovery-home, tab, focus, bounds, topmost, nonintersection, and document-overflow matrix.
     tests: [TestSiteCheck_ChromiumNoJSExactInteractionMatrixPasses]
   - id: CLM-013
     requirement: REQ-003

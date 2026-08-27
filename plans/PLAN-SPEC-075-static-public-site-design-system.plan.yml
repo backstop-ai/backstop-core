@@ -1,7 +1,7 @@
 ---
 plan_id: PLAN-SPEC-075
 spec_id: SPEC-075
-spec_version: "1.0.15"
+spec_version: "1.0.16"
 created: "2026-08-24"
 status: completed
 target_repo: backstop-core
@@ -373,7 +373,10 @@ phases:
         title: "Specify the JavaScript-disabled Chromium matrix"
         description: |
           Test ten routes at 360x800, 768x1024, and 1440x1000 in fresh JavaScript-off contexts
-          after fonts/two frames. Assert DOM-order tabs, bounded/topmost/nonintersecting focus,
+          after fonts/two frames. Read each route's exact required-block IDs from the rendered topology
+          contract; require one visible heading per ID, >=80 normalized content characters, <=160px to
+          first visible content, and the richer discovery-home capability/path/gate-proof contract.
+          Assert DOM-order tabs, bounded/topmost/nonintersecting focus,
           no traps/pointer-only controls, local ArrowRight/End, and <=1px document overflow. Inject
           exact 200% root font, prove computed 2x within .01px, and rerun; reject substitutes.
           Also fail if the pinned browser, static server, helper, package, script element,
@@ -387,8 +390,9 @@ phases:
         title: "Implement deterministic browser verification infrastructure"
         description: |
           Configure package-lock-pinned Chromium and disposable static server. Implement shared
-          helpers for exact no-JavaScript viewport, keyboard, overlap, local-scroll, and true root-
-          font assertions. Emit none of this infrastructure into _site.
+          helpers for exact no-JavaScript viewport, rendered required-block/substantiveness, discovery-home,
+          keyboard, overlap, local-scroll, and true root-font assertions. Emit none of this infrastructure
+          into _site.
         files: [tests/public-site-helpers.ts]
         claims: [CLM-003, CLM-012, CLM-013, CLM-014, CLM-015]
         depends_on: [TASK-021]
