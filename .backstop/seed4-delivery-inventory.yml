@@ -61,12 +61,6 @@ entries:
   - change: A
     path: docs/artifact-workflow.md
     role: page-wrapper
-  - change: D
-    path: docs/assets/css/backstop-tokens.css
-    role: retired-bootstrap
-  - change: D
-    path: docs/assets/css/backstop.css
-    role: retired-bootstrap
   - change: A
     path: docs/assets/css/site.css
     role: stylesheet-composition
@@ -88,9 +82,9 @@ entries:
   - change: A
     path: docs/getting-started.md
     role: page-wrapper
-  - change: D
+  - change: M
     path: docs/index.html
-    role: retired-bootstrap
+    role: public-homepage
   - change: M
     path: docs/index.md
     role: page-wrapper
