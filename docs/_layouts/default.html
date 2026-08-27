@@ -12,10 +12,12 @@
     <link rel="stylesheet" href="/assets/css/site.css">
   </head>
   {% assign presentation = site.data.site-presentation.pages | where: "route", page.permalink | first %}
+  {% assign topology_pages = site.data["content-topology"].pages %}
+  {% assign topology = topology_pages | where: "canonical_path", page.permalink | first %}
   <body data-site-shell="field-guide-v1">
     <a class="skip-link" href="#main">Skip to content</a>
     {% include site-header.html %}
-    <main id="main" data-page-route="{{ page.permalink }}" data-page-kind="{{ presentation.page_kind }}">
+    <main id="main" data-page-route="{{ page.permalink }}" data-page-kind="{{ presentation.page_kind }}" data-required-blocks="{{ topology.required_blocks | join: ',' }}">
       {% include page-hero.html presentation=presentation %}
       <div class="prose" data-page-content>
         {{ content }}
