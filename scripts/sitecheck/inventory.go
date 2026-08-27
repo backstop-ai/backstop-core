@@ -63,7 +63,6 @@ func pageWrappers() map[string]bool {
 
 func retiredBootstrap() map[string]bool {
 	return map[string]bool{
-		"docs/assets/css/backstop.css":        true,
 		"docs/assets/css/backstop-tokens.css": true,
 	}
 }
@@ -170,7 +169,7 @@ func expectedRole(path string) string {
 		return "public-homepage"
 	case pageWrappers()[path]:
 		return "page-wrapper"
-	case path == "docs/assets/css/site.css":
+	case path == "docs/assets/css/site.css" || path == "docs/assets/css/backstop.css":
 		return "stylesheet-composition"
 	case retiredBootstrap()[path]:
 		return "retired-bootstrap"
