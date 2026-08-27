@@ -242,6 +242,17 @@ func TestPagesDeployment_AuthoritativeAPIIdentityPasses(t *testing.T) {
 }
 
 func TestPagesDeployment_HTTPSMarkerAndRouteMatrixPasses(t *testing.T) {
+	script := readRepositoryFile(t, "scripts/verify-pages-deployment.sh")
+	for _, needle := range []string{`href="https://backstop.sh`, `content="0; url=`, `contains a client-scripted redirect`} {
+		if !strings.Contains(script, needle) {
+			t.Fatalf("live serverless-alias proof %q missing", needle)
+		}
+	}
+	for _, forbidden := range []string{`30[1278]`, `^location:`} {
+		if strings.Contains(script, forbidden) {
+			t.Fatalf("impossible HTTP redirect proof %q remains", forbidden)
+		}
+	}
 	root := makeStampSite(t)
 	if err := runStamp(t, root, ownerTestCommit, "123"); err != nil {
 		t.Fatal(err)
