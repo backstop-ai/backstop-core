@@ -400,6 +400,7 @@ def check_closed_blocks(page,text,hero):
   stop=end.end() if end else s.end()
   masked=masked[:s.start()]+re.sub(r'[^\n]',' ',text[s.start():stop])+masked[stop:]
  masked=re.sub(r'^```[^\n]*\n.*?^```\s*$',lambda m:re.sub(r'[^\n]',' ',m.group(0)),masked,flags=re.M|re.S)
+ masked=re.sub(r'<!-- PRODUCT-TRUTH-INCLUDE:BEGIN job=[a-z0-9-]+ -->\n\{% include generated/[a-z0-9-]+\.md %\}\n<!-- PRODUCT-TRUTH-INCLUDE:END job=[a-z0-9-]+ -->',lambda m:re.sub(r'[^\n]',' ',m.group(0)),masked)
  for block in (x.strip() for x in re.split(r'\n[ \t]*\n',masked)):
   if not block or block==hero or block.startswith('#'): continue
   if re.fullmatch(r'<!-- backstop-journey-link: JLINK-\d{3} -->\n\[[^\n]+\]\(/[^\n]+\)',block): continue

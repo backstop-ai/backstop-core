@@ -131,7 +131,9 @@ func rollback(root, tx string, state journal, cause error) error {
 	if err := restore(root, tx, state); err != nil {
 		return diagnostic("PT203_TRANSACTION", "pipeline", "-", nil, fmt.Sprintf("%v; rollback failed: %v", cause, err))
 	}
-	_ = os.RemoveAll(tx)
+	if err := os.RemoveAll(tx); err != nil {
+		return diagnostic("PT203_TRANSACTION", "pipeline", "-", nil, fmt.Sprintf("%v; rollback cleanup failed: %v", cause, err))
+	}
 	return cause
 }
 func restore(root, tx string, state journal) error {
@@ -170,12 +172,10 @@ func writeSynced(path string, data []byte) error {
 		return err
 	}
 	if _, err = file.Write(data); err != nil {
-		_ = file.Close()
-		return err
+		return errors.Join(err, file.Close())
 	}
 	if err = file.Sync(); err != nil {
-		_ = file.Close()
-		return err
+		return errors.Join(err, file.Close())
 	}
 	return file.Close()
 }
@@ -187,6 +187,8 @@ func syncDir(path string) error {
 		}
 		return err
 	}
-	defer dir.Close()
-	return dir.Sync()
+	if err := dir.Sync(); err != nil {
+		return errors.Join(err, dir.Close())
+	}
+	return dir.Close()
 }

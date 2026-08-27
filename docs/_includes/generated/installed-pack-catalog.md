@@ -1,9 +1,9 @@
 <!-- GENERATED PRODUCT TRUTH | job=installed-pack-catalog | inputs=backstop.yml,backstop.lock | owner=/packs/#installed-pack-catalog | regenerate=./scripts/generate-product-truth.sh | DO NOT EDIT -->
-<!-- PRODUCT-TRUTH:BEGIN job=installed-pack-catalog digest=sha256:c6307f4f521711e3a0107b73fe6fc888845f718410979f56329cbf8c510e9647 -->
+<!-- PRODUCT-TRUTH:BEGIN job=installed-pack-catalog digest=sha256:1d3dadcde4f6227572c4cb3b955e68166604856a161ce42fd62182c21ff95407 -->
 <table data-product-truth-job="installed-pack-catalog">
 <thead><tr><th>Pack</th><th>Declared version</th><th>Locked version</th><th>Git ref</th><th>Content SHA-256</th></tr></thead>
 <tbody>
-<tr><td>backstop-ai/backstop-core-architecture</td><td>0.1.3</td><td>0.1.3</td><td>v0.1.3</td><td>2750a40d3b25dd12910fc7d96305473d350c337359997318dfccb31a7e08a838</td></tr>
+<tr><td>backstop-ai/backstop-core-architecture</td><td>0.1.4</td><td>0.1.4</td><td>v0.1.4</td><td>f959fb8fa928346772d2b1bbd2f699ddbd57ef7dca4701da75ebcd697a75e277</td></tr>
 <tr><td>backstop-ai/backstop-design-system</td><td>0.1.0</td><td>0.1.0</td><td>v0.1.0</td><td>7352fce2e947a25f7e530f73e80385a24dd1f9654bb8ba7995e1fee5bee6908e</td></tr>
 <tr><td>backstop-ai/backstop-self</td><td>1.1.3</td><td>1.1.3</td><td>v1.1.3</td><td>014015983bacd2fec7fccb7c08ee51f43bf06daa35a2ea87f7e89e87afa99f3f</td></tr>
 <tr><td>backstop-ai/bash-toolchain</td><td>0.1.2</td><td>0.1.2</td><td>v0.1.2</td><td>d15877233d6405eed1a08b85734d1902ba7538da8f0dbfeea44d641e856499bf</td></tr>
@@ -16,7 +16,7 @@
 <tr><td>backstop-ai/go-toolchain</td><td>1.9.0</td><td>1.9.0</td><td>v1.9.0</td><td>6ab6c9731a0309181e638ba09da9c6c84dbf1d17870a7f6e4f4df4b4ae80aa03</td></tr>
 </tbody>
 </table>
-<!-- PRODUCT-TRUTH:SOURCES-BEGIN job=installed-pack-catalog owner=/packs/#installed-pack-catalog digest=sha256:c6307f4f521711e3a0107b73fe6fc888845f718410979f56329cbf8c510e9647 -->
+<!-- PRODUCT-TRUTH:SOURCES-BEGIN job=installed-pack-catalog owner=/packs/#installed-pack-catalog digest=sha256:1d3dadcde4f6227572c4cb3b955e68166604856a161ce42fd62182c21ff95407 -->
 <ul data-generated-source-descriptors data-product-truth-job="installed-pack-catalog">
 <li data-generated-source-descriptor data-source-kind="blob" data-commit-binding="site" data-source-path="backstop.yml">https://github.com/backstop-ai/backstop-core/blob/&lt;SITE-COMMIT&gt;/backstop.yml</li>
 <li data-generated-source-descriptor data-source-kind="blob" data-commit-binding="site" data-source-path="backstop.lock">https://github.com/backstop-ai/backstop-core/blob/&lt;SITE-COMMIT&gt;/backstop.lock</li>

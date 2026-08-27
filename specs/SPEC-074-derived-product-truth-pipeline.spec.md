@@ -781,7 +781,7 @@ tuple without becoming another generator, evidence registry, route owner, or jou
 
 - `bundles/BUNDLE-032-website-expansion.bundle.md` v0.6.0 — source bundle, REQ-011@1.0.0,
   resolved OQ-5, DD-10, DD-11, Seed 3 acceptance, and source/generated ownership sharp edge.
-- `specs/SPEC-072-public-product-model.spec.md` v1.0.7 — authoritative page owners, route/anchor
+- `specs/SPEC-072-public-product-model.spec.md` v1.0.8 — authoritative page owners, route/anchor
   boundary, human-readable product truth, and the Seed 2/3/4 seams.
 - `specs/SPEC-075-static-public-site-design-system.spec.md` v1.0.4 — downstream Jekyll build,
   rendered-region/digest verification, site-commit resolution, immutable rendered anchors, Pages

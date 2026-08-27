@@ -107,6 +107,9 @@ func TestProductTruth_DefaultModeEqualsWrite(t *testing.T) {
 	if implicit != explicit || explicit != "write" {
 		t.Fatalf("%q != %q", implicit, explicit)
 	}
+	if err := run(nil); err != nil {
+		t.Fatal(err)
+	}
 	if err := run([]string{"--check"}); err != nil {
 		t.Fatal(err)
 	}
@@ -120,6 +123,22 @@ func TestProductTruth_RejectsInvalidModeArguments(t *testing.T) {
 		if _, err := parseMode(args); err == nil || !strings.Contains(err.Error(), "PT001_MANIFEST") {
 			t.Fatalf("args=%v err=%v", args, err)
 		}
+	}
+	if err := run([]string{"--wat"}); err == nil || !strings.Contains(err.Error(), "PT001_MANIFEST") {
+		t.Fatalf("run err=%v", err)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	if err := run([]string{"--check"}); err == nil || !strings.Contains(err.Error(), "PT001_MANIFEST") {
+		t.Fatalf("outside repository err=%v", err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatal(err)
 	}
 }
 

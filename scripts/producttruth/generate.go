@@ -199,7 +199,10 @@ func RenderAll(root string, manifest Manifest) ([]RenderedJob, error) {
 }
 
 func loadCLI(root string) ([]CLIRecord, error) {
-	tool := "go"
+	tool, err := exec.LookPath("go")
+	if err != nil {
+		return nil, diagnostic("PT101_COMMAND", "cli-command-catalog", "docs/_includes/generated/cli-command-catalog.md", []string{"cmd/backstop"}, "go tool not found")
+	}
 	cmd := exec.Command(tool, "run", "./cmd/backstop", "commands")
 	cmd.Dir = root
 	cmd.Env = append(os.Environ(), "LC_ALL=C", "LANG=C", "TZ=UTC")
@@ -235,7 +238,10 @@ func loadSchemas(root string) ([]SchemaRecord, error) {
 	sort.Strings(paths)
 	records := make([]SchemaRecord, 0, len(paths))
 	for _, absolute := range paths {
-		rel, _ := filepath.Rel(root, absolute)
+		rel, relErr := filepath.Rel(root, absolute)
+		if relErr != nil {
+			return nil, diagnostic("PT102_SCHEMA", "artifact-schema-catalog", "docs/_includes/generated/artifact-schema-catalog.md", []string{absolute}, relErr.Error())
+		}
 		data, readErr := os.ReadFile(absolute)
 		if readErr != nil {
 			return nil, diagnostic("PT102_SCHEMA", "artifact-schema-catalog", "docs/_includes/generated/artifact-schema-catalog.md", []string{filepath.ToSlash(rel)}, readErr.Error())
@@ -284,11 +290,6 @@ func loadPacks(root string) ([]PackRecord, error) {
 	var declared struct {
 		Packs map[string]string `yaml:"packs"`
 	}
-	var locked struct {
-		Packs map[string]struct {
-			Name, Version, GitRef, ContentHash string `yaml:"-"`
-		} `yaml:"packs"`
-	}
 	declaredData, err := os.ReadFile(filepath.Join(root, "backstop.yml"))
 	if err != nil {
 		return nil, err
@@ -306,7 +307,6 @@ func loadPacks(root string) ([]PackRecord, error) {
 	if err := yaml.Unmarshal(lockData, &lockNode); err != nil {
 		return nil, err
 	}
-	_ = locked
 	if len(declared.Packs) != len(lockNode.Packs) {
 		return nil, diagnostic("PT103_PACK_JOIN", "installed-pack-catalog", "docs/_includes/generated/installed-pack-catalog.md", []string{"backstop.yml", "backstop.lock"}, "pack key sets differ")
 	}
@@ -505,8 +505,14 @@ func validScalar(value string) bool {
 	return true
 }
 func scalarString(value any) (string, bool) { s, ok := value.(string); return s, ok && validScalar(s) }
-func versionNumber(value string) int        { n, _ := strconv.Atoi(strings.TrimPrefix(value, "v")); return n }
-func stringTrimSpace(value string) string   { return strings.Trim(value, " \t\r\n") }
+func versionNumber(value string) int {
+	n, err := strconv.Atoi(strings.TrimPrefix(value, "v"))
+	if err != nil {
+		return -1
+	}
+	return n
+}
+func stringTrimSpace(value string) string { return strings.Trim(value, " \t\r\n") }
 func gitOutput(root string, args ...string) ([]byte, error) {
 	cmd := exec.Command("git", append([]string{"-C", root}, args...)...)
 	return cmd.Output()
@@ -515,8 +521,11 @@ func semverGreater(left, right string) bool {
 	l := stableTagPattern.FindStringSubmatch(left)
 	r := stableTagPattern.FindStringSubmatch(right)
 	for i := 1; i <= 3; i++ {
-		li, _ := strconv.Atoi(l[i])
-		ri, _ := strconv.Atoi(r[i])
+		li, leftErr := strconv.Atoi(l[i])
+		ri, rightErr := strconv.Atoi(r[i])
+		if leftErr != nil || rightErr != nil {
+			return false
+		}
 		if li != ri {
 			return li > ri
 		}

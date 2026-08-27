@@ -3,8 +3,10 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -22,6 +24,11 @@ func transactionFixture(t *testing.T) (string, []RenderedJob) {
 
 func TestProductTruth_WriteCreatesMarkedRegisteredOutput(t *testing.T) {
 	root, jobs := transactionFixture(t)
+	if err := WriteAll(root, jobs); err != nil {
+		t.Fatal(err)
+	}
+	// A second write exercises the replacement path: every prior generated
+	// file is backed up before the new cohort is installed.
 	if err := WriteAll(root, jobs); err != nil {
 		t.Fatal(err)
 	}
@@ -63,6 +70,15 @@ func TestProductTruth_WriteRollbackAndRecoveryMatrix(t *testing.T) {
 	if transactionExists(root) {
 		t.Fatal("validation failure created transaction")
 	}
+	if err := os.Remove(filepath.Join(root, jobs[0].Job.Output)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("elsewhere", filepath.Join(root, jobs[0].Job.Output)); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteAll(root, jobs); err == nil || !strings.Contains(err.Error(), "PT201_UNSAFE_TARGET") {
+		t.Fatalf("symlink err=%v", err)
+	}
 }
 
 func TestProductTruth_TransactionInterruptionRecoveryMatrix(t *testing.T) {
@@ -95,6 +111,34 @@ func TestProductTruth_TransactionInterruptionRecoveryMatrix(t *testing.T) {
 	if !bytes.Equal(actual, prior) {
 		t.Fatal("prior cohort not restored")
 	}
+
+	installedRoot, installedJobs := transactionFixture(t)
+	installed := installedJobs[0]
+	installedTx := filepath.Join(installedRoot, transactionDir)
+	installedTarget := filepath.Join(installedRoot, installed.Job.Output)
+	if err := os.MkdirAll(filepath.Dir(installedTarget), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(installedTx, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(installedTarget, installed.Bytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	installedState := journal{Entries: []journalEntry{{Output: installed.Job.Output, Installed: true}}}
+	installedData, err := json.Marshal(installedState)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(installedTx, "journal.json"), append(installedData, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Recover(installedRoot); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(installedTarget); !os.IsNotExist(err) {
+		t.Fatalf("installed target survived recovery: %v", err)
+	}
 }
 
 func TestProductTruth_RecoveryIdempotenceAndFailure(t *testing.T) {
@@ -107,5 +151,68 @@ func TestProductTruth_RecoveryIdempotenceAndFailure(t *testing.T) {
 	}
 	if transactionExists(root) {
 		t.Fatal("idempotent recovery left residue")
+	}
+
+	rollbackRoot, jobs := transactionFixture(t)
+	rollbackTx := filepath.Join(rollbackRoot, transactionDir)
+	if err := os.MkdirAll(rollbackTx, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cause := os.ErrInvalid
+	if err := rollback(rollbackRoot, rollbackTx, journal{Entries: []journalEntry{{Output: jobs[0].Job.Output}}}, cause); !errors.Is(err, cause) {
+		t.Fatalf("rollback err=%v", err)
+	}
+	if transactionExists(rollbackRoot) {
+		t.Fatal("rollback left transaction residue")
+	}
+
+	existingRoot, existingJobs := transactionFixture(t)
+	if err := os.MkdirAll(filepath.Join(existingRoot, transactionDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteAll(existingRoot, existingJobs); err == nil || !strings.Contains(err.Error(), "PT203_TRANSACTION") {
+		t.Fatalf("existing transaction err=%v", err)
+	}
+	if err := os.WriteFile(filepath.Join(existingRoot, transactionDir, "journal.json"), []byte("not-json\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Recover(existingRoot); err == nil || !strings.Contains(err.Error(), "unreadable journal") {
+		t.Fatalf("malformed journal err=%v", err)
+	}
+	unreadableRoot, _ := transactionFixture(t)
+	journalPath := filepath.Join(unreadableRoot, transactionDir, "journal.json")
+	if err := os.MkdirAll(journalPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := Recover(unreadableRoot); err == nil {
+		t.Fatal("journal directory accepted as a journal file")
+	}
+
+	invalidTargetRoot, invalidTargetJobs := transactionFixture(t)
+	invalidTarget := filepath.Join(invalidTargetRoot, invalidTargetJobs[0].Job.Output)
+	if err := os.MkdirAll(invalidTarget, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteAll(invalidTargetRoot, invalidTargetJobs); err == nil {
+		t.Fatal("directory accepted as a generated output file")
+	}
+
+	failedRoot, failedJobs := transactionFixture(t)
+	failedTx := filepath.Join(failedRoot, transactionDir)
+	if err := os.MkdirAll(failedTx, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	missingBackup := journal{Entries: []journalEntry{{Output: failedJobs[0].Job.Output, BackedUp: true}}}
+	if err := rollback(failedRoot, failedTx, missingBackup, os.ErrInvalid); err == nil || !strings.Contains(err.Error(), "rollback failed") {
+		t.Fatalf("failed rollback err=%v", err)
+	}
+
+	if err := writeSynced(t.TempDir(), []byte("data")); err == nil {
+		t.Fatal("directory accepted as synchronized file")
+	}
+	if _, err := os.Stat("/dev/full"); err == nil {
+		if err := writeSynced("/dev/full", []byte("data")); err == nil {
+			t.Fatal("full device accepted write")
+		}
 	}
 }
