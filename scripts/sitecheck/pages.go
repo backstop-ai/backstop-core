@@ -29,8 +29,7 @@ func requiredPagesActionCommits() map[string]string {
 }
 
 func VerifyPagesWorkflow(root string) []Finding {
-	lockPath := filepath.Join(root, ".github/pages-actions.lock.yml")
-	lockData, err := os.ReadFile(lockPath)
+	lockData, err := os.ReadFile(filepath.Join(root, ".github/pages-actions.lock.yml"))
 	if err != nil {
 		return []Finding{{Phase: "pages-workflow", Identity: "action lock", Expected: "readable", Observed: err.Error()}}
 	}
@@ -78,9 +77,8 @@ func VerifyPagesWorkflow(root string) []Finding {
 	workflow := pagesWorkflow + "\n" + siteWorkflow
 
 	usesPattern := regexp.MustCompile(`(?m)^\s*-?\s*uses:\s*([^@\s]+)@([^\s#]+)`)
-	uses := usesPattern.FindAllStringSubmatch(workflow, -1)
 	counts := map[string]int{}
-	for _, match := range uses {
+	for _, match := range usesPattern.FindAllStringSubmatch(workflow, -1) {
 		identity, commit := match[1], match[2]
 		counts[identity]++
 		want, ok := lock.Actions[identity]
@@ -88,37 +86,49 @@ func VerifyPagesWorkflow(root string) []Finding {
 			findings = append(findings, Finding{Phase: "pages-workflow", Identity: identity, Expected: want, Observed: commit})
 		}
 	}
-	for _, identity := range expected {
-		want := 1
-		if identity == "actions/checkout" {
-			want = 2
-		}
+	cardinality := map[string]int{
+		"actions/checkout":              3,
+		"ruby/setup-ruby":               2,
+		"actions/setup-node":            2,
+		"actions/configure-pages":       2,
+		"actions/upload-pages-artifact": 1,
+		"actions/deploy-pages":          1,
+	}
+	for identity, want := range cardinality {
 		if counts[identity] != want {
 			findings = append(findings, Finding{Phase: "pages-workflow", Identity: identity + " cardinality", Expected: fmt.Sprintf("%d", want), Observed: fmt.Sprintf("%d", counts[identity])})
 		}
 	}
 
 	pagesRequired := []string{
-		"branches: [main]", "workflow_dispatch:", "group: pages", "cancel-in-progress: false",
-		"permissions: {}", "uses: ./.github/workflows/site-verification.yml", "pages: write", "id-token: write", "actions: read", "deployments: read",
-		"needs: [build, deploy]", "./scripts/verify-pages-deployment.sh", "--artifact-id \"${{ needs.build.outputs.artifact-id }}\"",
+		"branches: [main]", "workflow_dispatch:", "group: pages", "cancel-in-progress: false", "permissions: {}",
+		"GOFLAGS: -mod=readonly", "fetch-depth: 0", "ruby-version: \"3.3.4\"", "pipx install semgrep==1.156.0",
+		"BACKSTOP_SITE_OUTPUT: _site", "BACKSTOP_SITE_RETAIN: \"1\"", "./scripts/verify-public-site.sh",
+		"artifact-id: ${{ steps.upload.outputs.artifact_id }}", "path: _site", "include-hidden-files: true",
+		"pages: write", "id-token: write", "actions: read", "deployments: read", "needs: [build, deploy]",
+		"./scripts/verify-pages-deployment.sh", "--artifact-id \"${{ needs.build.outputs.artifact-id }}\"",
 	}
 	for _, needle := range pagesRequired {
 		if strings.Count(pagesWorkflow, needle) != 1 {
 			findings = append(findings, Finding{Phase: "pages-workflow", Identity: needle, Expected: "exactly 1 in deployment workflow", Observed: fmt.Sprintf("%d", strings.Count(pagesWorkflow, needle))})
 		}
 	}
+	if strings.Contains(pagesWorkflow, "uses: ./.github/workflows/site-verification.yml") {
+		findings = append(findings, Finding{Phase: "pages-workflow", Identity: "reusable verification boundary", Expected: "absent from deployment workflow", Observed: "present"})
+	}
 
 	siteRequired := []string{
-		"pull_request:", "workflow_call:", "contents: read", "pages: read",
-		"gh api \"repos/${GITHUB_REPOSITORY}/pages\" --jq .build_type", "[ \"$mode\" != \"workflow\" ]",
-		"fetch-depth: 0", "ruby-version: \"3.3.4\"", "GOFLAGS: -mod=readonly", "pipx install semgrep==1.156.0", "BACKSTOP_SITE_OUTPUT: _site",
-		"BACKSTOP_SITE_RETAIN: \"1\"", "BACKSTOP_SITE_COMMIT: ${{ github.sha }}", "path: _site", "include-hidden-files: true",
-		"./scripts/verify-public-site.sh", "artifact-id: ${{ steps.upload.outputs.artifact_id }}",
+		"pull_request:", "contents: read", "pages: read", "GOFLAGS: -mod=readonly", "fetch-depth: 0", "ruby-version: \"3.3.4\"",
+		"pipx install semgrep==1.156.0", "BACKSTOP_SITE_OUTPUT: _site", "BACKSTOP_SITE_RETAIN: \"0\"", "./scripts/verify-public-site.sh",
 	}
 	for _, needle := range siteRequired {
 		if strings.Count(siteWorkflow, needle) != 1 {
 			findings = append(findings, Finding{Phase: "pages-workflow", Identity: needle, Expected: "exactly 1 in site verification workflow", Observed: fmt.Sprintf("%d", strings.Count(siteWorkflow, needle))})
+		}
+	}
+	for _, forbidden := range []string{"workflow_call:", "actions/upload-pages-artifact@", "actions/deploy-pages@", "pages: write", "id-token: write"} {
+		if strings.Contains(siteWorkflow, forbidden) {
+			findings = append(findings, Finding{Phase: "pages-workflow", Identity: "site verification isolation: " + forbidden, Expected: "absent", Observed: "present"})
 		}
 	}
 	if regexp.MustCompile(`(?m)^\s*tags:`).MatchString(workflow) {
@@ -126,9 +136,6 @@ func VerifyPagesWorkflow(root string) []Finding {
 	}
 	if strings.Contains(workflow, "static_site_generator:") {
 		findings = append(findings, Finding{Phase: "pages-workflow", Identity: "configure-pages generator injection", Expected: "absent for locked Jekyll build", Observed: "present"})
-	}
-	if strings.Contains(siteWorkflow, "actions/deploy-pages@") || strings.Contains(siteWorkflow, "pages: write") || strings.Contains(siteWorkflow, "id-token: write") {
-		findings = append(findings, Finding{Phase: "pages-workflow", Identity: "site verification deployment authority", Expected: "absent", Observed: "present"})
 	}
 	return findings
 }
