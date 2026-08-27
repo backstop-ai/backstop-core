@@ -1,0 +1,100 @@
+name: Reconcile site completeness artifacts
+
+on:
+  push:
+    branches: [codex/split-site-verification-pages]
+
+permissions:
+  contents: write
+
+jobs:
+  reconcile:
+    if: github.event.head_commit.message == 'chore: reconcile site completeness artifacts'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/split-site-verification-pages
+          fetch-depth: 0
+
+      - name: Reconcile SPEC-075 and PLAN-075
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          spec = Path('specs/SPEC-075-static-public-site-design-system.spec.md')
+          text = spec.read_text()
+          edits = [
+            ('spec_version: 1.0.15', 'spec_version: 1.0.16'),
+            (
+              '      and two animation frames. At every viewport the wordmark, all seven primary\n',
+              '      and two animation frames. Before interaction checks, each page must expose the exact SPEC-072\n'
+              '      `required_blocks` for its canonical route as a rendered completeness contract. Every required ID\n'
+              '      must appear exactly once as a visible heading, own at least one visible content block with at least\n'
+              '      80 normalized text characters, and place its first visible content within 160 CSS px of the heading.\n'
+              '      The discovery route additionally renders three capability summaries, three decision-path cards,\n'
+              '      a visible `backstop gate` proof, canonical Evaluate/Model/Adopt links, and at least 1200 normalized\n'
+              '      characters of substantive page content. At every viewport the wordmark, all seven primary\n'
+            ),
+            (
+              '      `main#main[data-page-route]`, `section[data-page-hero]` with one h1 and\n',
+              '      `main#main[data-page-route][data-required-blocks]`, with `data-required-blocks` derived only from\n'
+              '      the canonical `docs/_data/content-topology.yml` route record, `section[data-page-hero]` with one h1 and\n'
+            ),
+            (
+              '    text: Pinned Chromium proves the fonts-ready/two-frame JavaScript-off route-by-viewport tab, focus, bounds, topmost, nonintersection, and document-overflow matrix.\n',
+              '    text: Pinned Chromium proves the fonts-ready/two-frame JavaScript-off route-by-viewport required-block completeness, substantive-content, discovery-home, tab, focus, bounds, topmost, nonintersection, and document-overflow matrix.\n'
+            ),
+          ]
+          for old, new in edits:
+            count = text.count(old)
+            if count != 1:
+              raise SystemExit(f'spec replacement expected once, got {count}: {old!r}')
+            text = text.replace(old, new, 1)
+          spec.write_text(text)
+
+          plan = Path('plans/PLAN-SPEC-075-static-public-site-design-system.plan.yml')
+          text = plan.read_text()
+          edits = [
+            ('spec_version: "1.0.15"', 'spec_version: "1.0.16"'),
+            (
+              '          Test ten routes at 360x800, 768x1024, and 1440x1000 in fresh JavaScript-off contexts\n'
+              '          after fonts/two frames. Assert DOM-order tabs, bounded/topmost/nonintersecting focus,\n',
+              '          Test ten routes at 360x800, 768x1024, and 1440x1000 in fresh JavaScript-off contexts\n'
+              '          after fonts/two frames. Read each route\'s exact required-block IDs from the rendered topology\n'
+              '          contract; require one visible heading per ID, >=80 normalized content characters, <=160px to\n'
+              '          first visible content, and the richer discovery-home capability/path/gate-proof contract.\n'
+              '          Assert DOM-order tabs, bounded/topmost/nonintersecting focus,\n'
+            ),
+            (
+              '          helpers for exact no-JavaScript viewport, keyboard, overlap, local-scroll, and true root-\n'
+              '          font assertions. Emit none of this infrastructure into _site.\n',
+              '          helpers for exact no-JavaScript viewport, rendered required-block/substantiveness, discovery-home,\n'
+              '          keyboard, overlap, local-scroll, and true root-font assertions. Emit none of this infrastructure\n'
+              '          into _site.\n'
+            ),
+          ]
+          for old, new in edits:
+            count = text.count(old)
+            if count != 1:
+              raise SystemExit(f'plan replacement expected once, got {count}: {old!r}')
+            text = text.replace(old, new, 1)
+          plan.write_text(text)
+          PY
+          rm .github/workflows/reconcile-site-completeness.yml
+
+      - name: Validate artifacts
+        run: |
+          go build -o ./bin/backstop ./cmd/backstop
+          ./bin/backstop artifact validate --all
+          git diff --check
+
+      - name: Commit reconciled artifacts
+        run: |
+          git config user.name "backstop-artifact-reconciler"
+          git config user.email "actions@users.noreply.github.com"
+          git add specs/SPEC-075-static-public-site-design-system.spec.md \
+            plans/PLAN-SPEC-075-static-public-site-design-system.plan.yml \
+            .github/workflows/reconcile-site-completeness.yml
+          git commit -m "spec(SPEC-075): require substantive rendered completeness"
+          git push origin HEAD:codex/split-site-verification-pages
