@@ -1,0 +1,52 @@
+schema_version: backstop-core/site-presentation/v1
+pages:
+  - route: /
+    page_kind: home
+    hero_question: What failure does Backstop prevent?
+    treatments: [evidence-cards]
+    next_action: /evaluate/
+  - route: /evaluate/
+    page_kind: evaluation
+    hero_question: Is Backstop the right control surface for this problem?
+    treatments: [evidence-cards, boundary-callouts]
+    next_action: /model/
+  - route: /model/
+    page_kind: model
+    hero_question: How does Backstop turn intent into a trustworthy verdict?
+    treatments: [evidence-cards, local-overflow]
+    next_action: /adopt/
+  - route: /adopt/
+    page_kind: adoption
+    hero_question: What does a first working adoption require?
+    treatments: [evidence-cards]
+    next_action: /use-cases/
+  - route: /use-cases/
+    page_kind: use-cases
+    hero_question: Which problem-oriented adoption path applies?
+    treatments: [evidence-cards, boundary-callouts]
+    next_action: /packs/
+  - route: /packs/
+    page_kind: ecosystem
+    hero_question: Which maintained pack already owns this standard?
+    treatments: [evidence-cards, generated-regions, local-overflow]
+    next_action: /extend/
+  - route: /extend/
+    page_kind: extension
+    hero_question: When should this concern become a pack?
+    treatments: [evidence-cards, boundary-callouts]
+    next_action: /reference/
+  - route: /reference/
+    page_kind: reference
+    hero_question: What exact interface or behavior do I need?
+    treatments: [generated-regions, local-overflow]
+    next_action: /status/
+  - route: /status/
+    page_kind: status
+    hero_question: What is supported, limited, planned, or intentionally outside Backstop?
+    treatments: [evidence-cards, boundary-callouts, generated-regions, local-overflow]
+    next_action: /contributing/
+  - route: /contributing/
+    page_kind: contributing
+    hero_question: How can I participate in Backstop and its ecosystem?
+    treatments: [boundary-callouts]
+    next_action: /

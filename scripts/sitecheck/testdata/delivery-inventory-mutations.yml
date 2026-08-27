@@ -1,0 +1,23 @@
+schema_version: backstop-core/seed4-delivery-inventory-mutations/v1
+cases:
+  - id: short-base
+    mutation: base_commit is not full 40-hex
+    expected_error: base_commit
+  - id: duplicate-path
+    mutation: repeat one path
+    expected_error: duplicate path
+  - id: invalid-change
+    mutation: use change C
+    expected_error: invalid change
+  - id: prohibited-role
+    mutation: use visual-rule
+    expected_error: prohibited or unknown role
+  - id: role-path-mismatch
+    mutation: classify inventory as layout
+    expected_error: role/path mismatch
+  - id: extra-path
+    mutation: add undeclared Core policy file
+    expected_error: outside the closed Seed 4 matrix
+  - id: retired-bootstrap-not-deleted
+    mutation: modify docs/index.html
+    expected_error: deletion-only

@@ -1,0 +1,30 @@
+schema_version: backstop-core/seed4-delivery-inventory/v1
+base_commit: 89f4138aa97e7ba1e8d7c67595cfaee1caefa797
+entries:
+  - change: A
+    path: .backstop/seed4-delivery-inventory.yml
+    role: delivery-inventory
+  - change: A
+    path: scripts/sitecheck/inventory.go
+    role: structural-verifier
+  - change: A
+    path: scripts/sitecheck/main.go
+    role: structural-verifier
+  - change: A
+    path: scripts/sitecheck/main_test.go
+    role: test
+  - change: A
+    path: scripts/sitecheck/inventory_test.go
+    role: test
+  - change: A
+    path: scripts/sitecheck/testdata/delivery-inventory-mutations.yml
+    role: test
+  - change: A
+    path: docs/_data/site-presentation.yml
+    role: site-data
+  - change: A
+    path: scripts/sitecheck/presentation_test.go
+    role: test
+  - change: A
+    path: scripts/sitecheck/testdata/presentation-mutations.yml
+    role: test
