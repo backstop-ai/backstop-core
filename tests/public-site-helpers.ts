@@ -34,6 +34,61 @@ export async function assertRequiredSurface(page: Page, route: string): Promise<
   expect(horizontalOverflow, `${route} document overflow`).toBeLessThanOrEqual(1);
 }
 
+export async function assertContentCompleteness(page: Page, route: string): Promise<void> {
+  const contract = page.locator("[data-required-blocks]");
+  await expect(contract, `${route} rendered required-block contract cardinality`).toHaveCount(1);
+  const rawRequired = await contract.getAttribute("data-required-blocks");
+  expect(rawRequired, `${route} rendered required-block contract`).toBeTruthy();
+  const required = rawRequired!.split(",").map((value) => value.trim()).filter(Boolean);
+  expect(required.length, `${route} required-block count`).toBeGreaterThan(0);
+
+  for (const id of required) {
+    const heading = page.locator(`#${id}`);
+    await expect(heading, `${route} #${id} cardinality`).toHaveCount(1);
+    await expect(heading, `${route} #${id} visibility`).toBeVisible();
+
+    const state = await heading.evaluate((element) => {
+      let sibling = element.nextElementSibling as HTMLElement | null;
+      let text = "";
+      let visibleBlocks = 0;
+      let firstContentTop: number | null = null;
+      const headingRect = element.getBoundingClientRect();
+      while (sibling && sibling.tagName !== "H2") {
+        const style = getComputedStyle(sibling);
+        const rect = sibling.getBoundingClientRect();
+        const visible = style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
+        if (visible) {
+          visibleBlocks += 1;
+          text += ` ${sibling.textContent ?? ""}`;
+          if (firstContentTop === null) firstContentTop = rect.top;
+        }
+        sibling = sibling.nextElementSibling as HTMLElement | null;
+      }
+      return {
+        textLength: text.replace(/\s+/g, " ").trim().length,
+        visibleBlocks,
+        firstContentGap: firstContentTop === null ? null : firstContentTop - headingRect.bottom,
+      };
+    });
+
+    expect(state.visibleBlocks, `${route} #${id} visible content blocks`).toBeGreaterThan(0);
+    expect(state.textLength, `${route} #${id} substantive text`).toBeGreaterThanOrEqual(80);
+    expect(state.firstContentGap, `${route} #${id} first content`).not.toBeNull();
+    expect(state.firstContentGap!, `${route} #${id} unexplained vertical gap`).toBeLessThanOrEqual(160);
+  }
+
+  if (route === "/") {
+    await expect(page.locator("[data-home-capabilities] > article"), "home capability summaries").toHaveCount(3);
+    await expect(page.locator("[data-home-paths] > article"), "home decision paths").toHaveCount(3);
+    await expect(page.locator("[data-home-gate-proof]"), "home gate proof").toContainText("backstop gate");
+    for (const href of ["/evaluate/", "/model/", "/adopt/"]) {
+      await expect(page.locator(`[data-page-content] a[href="${href}"]`).first(), `home path ${href}`).toBeVisible();
+    }
+    const homeTextLength = await page.locator("[data-page-content]").evaluate((element) => (element.textContent ?? "").replace(/\s+/g, " ").trim().length);
+    expect(homeTextLength, "home substantive content length").toBeGreaterThanOrEqual(1200);
+  }
+}
+
 export async function assertKeyboardOrderAndBounds(page: Page, route: string): Promise<void> {
   const expected = await page.locator(focusableSelector).evaluateAll((elements) => elements.filter((element) => {
     const style = getComputedStyle(element);

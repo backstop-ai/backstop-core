@@ -14,6 +14,9 @@ entries:
     path: .github/workflows/pages.yml
     role: workflow
   - change: A
+    path: .github/workflows/site-verification.yml
+    role: workflow
+  - change: A
     path: Gemfile
     role: build-dependency
   - change: A

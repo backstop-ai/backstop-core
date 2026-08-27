@@ -65,11 +65,18 @@ func VerifyPagesWorkflow(root string) []Finding {
 		findings = append(findings, Finding{Phase: "pages-workflow", Identity: "action allowlist", Expected: strings.Join(expected, ","), Observed: strings.Join(observed, ",")})
 	}
 
-	workflowData, err := os.ReadFile(filepath.Join(root, ".github/workflows/pages.yml"))
+	pagesData, err := os.ReadFile(filepath.Join(root, ".github/workflows/pages.yml"))
 	if err != nil {
-		return append(findings, Finding{Phase: "pages-workflow", Identity: "workflow", Expected: "readable", Observed: err.Error()})
+		return append(findings, Finding{Phase: "pages-workflow", Identity: "deployment workflow", Expected: "readable", Observed: err.Error()})
 	}
-	workflow := string(workflowData)
+	siteData, err := os.ReadFile(filepath.Join(root, ".github/workflows/site-verification.yml"))
+	if err != nil {
+		return append(findings, Finding{Phase: "pages-workflow", Identity: "site verification workflow", Expected: "readable", Observed: err.Error()})
+	}
+	pagesWorkflow := string(pagesData)
+	siteWorkflow := string(siteData)
+	workflow := pagesWorkflow + "\n" + siteWorkflow
+
 	usesPattern := regexp.MustCompile(`(?m)^\s*-?\s*uses:\s*([^@\s]+)@([^\s#]+)`)
 	uses := usesPattern.FindAllStringSubmatch(workflow, -1)
 	counts := map[string]int{}
@@ -90,22 +97,28 @@ func VerifyPagesWorkflow(root string) []Finding {
 			findings = append(findings, Finding{Phase: "pages-workflow", Identity: identity + " cardinality", Expected: fmt.Sprintf("%d", want), Observed: fmt.Sprintf("%d", counts[identity])})
 		}
 	}
-	requiredText := []string{
+
+	pagesRequired := []string{
 		"branches: [main]", "workflow_dispatch:", "group: pages", "cancel-in-progress: false",
-		"permissions: {}", "contents: read", "pages: read", "pages: write", "id-token: write", "actions: read", "deployments: read",
+		"permissions: {}", "uses: ./.github/workflows/site-verification.yml", "pages: write", "id-token: write", "actions: read", "deployments: read",
+		"needs: [build, deploy]", "./scripts/verify-pages-deployment.sh", "--artifact-id \"${{ needs.build.outputs.artifact-id }}\"",
+	}
+	for _, needle := range pagesRequired {
+		if strings.Count(pagesWorkflow, needle) != 1 {
+			findings = append(findings, Finding{Phase: "pages-workflow", Identity: needle, Expected: "exactly 1 in deployment workflow", Observed: fmt.Sprintf("%d", strings.Count(pagesWorkflow, needle))})
+		}
+	}
+
+	siteRequired := []string{
+		"pull_request:", "workflow_call:", "contents: read", "pages: read",
 		"gh api \"repos/${GITHUB_REPOSITORY}/pages\" --jq .build_type", "[ \"$mode\" != \"workflow\" ]",
 		"fetch-depth: 0", "ruby-version: \"3.3.4\"", "GOFLAGS: -mod=readonly", "pipx install semgrep==1.156.0", "BACKSTOP_SITE_OUTPUT: _site",
-		"BACKSTOP_SITE_RETAIN: \"1\"", "BACKSTOP_SITE_COMMIT: ${{ github.sha }}",
-		"path: _site", "include-hidden-files: true", "needs: [build, deploy]",
-		"./scripts/verify-pages-deployment.sh", "--artifact-id \"${{ needs.build.outputs.artifact-id }}\"",
+		"BACKSTOP_SITE_RETAIN: \"1\"", "BACKSTOP_SITE_COMMIT: ${{ github.sha }}", "path: _site", "include-hidden-files: true",
+		"./scripts/verify-public-site.sh", "artifact-id: ${{ steps.upload.outputs.artifact_id }}",
 	}
-	for _, needle := range requiredText {
-		want := 1
-		if needle == "contents: read" || needle == "pages: read" {
-			want = 2
-		}
-		if strings.Count(workflow, needle) != want {
-			findings = append(findings, Finding{Phase: "pages-workflow", Identity: needle, Expected: fmt.Sprintf("exactly %d", want), Observed: fmt.Sprintf("%d", strings.Count(workflow, needle))})
+	for _, needle := range siteRequired {
+		if strings.Count(siteWorkflow, needle) != 1 {
+			findings = append(findings, Finding{Phase: "pages-workflow", Identity: needle, Expected: "exactly 1 in site verification workflow", Observed: fmt.Sprintf("%d", strings.Count(siteWorkflow, needle))})
 		}
 	}
 	if regexp.MustCompile(`(?m)^\s*tags:`).MatchString(workflow) {
@@ -113,6 +126,9 @@ func VerifyPagesWorkflow(root string) []Finding {
 	}
 	if strings.Contains(workflow, "static_site_generator:") {
 		findings = append(findings, Finding{Phase: "pages-workflow", Identity: "configure-pages generator injection", Expected: "absent for locked Jekyll build", Observed: "present"})
+	}
+	if strings.Contains(siteWorkflow, "actions/deploy-pages@") || strings.Contains(siteWorkflow, "pages: write") || strings.Contains(siteWorkflow, "id-token: write") {
+		findings = append(findings, Finding{Phase: "pages-workflow", Identity: "site verification deployment authority", Expected: "absent", Observed: "present"})
 	}
 	return findings
 }

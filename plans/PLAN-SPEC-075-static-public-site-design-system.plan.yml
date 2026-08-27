@@ -1,7 +1,7 @@
 ---
 plan_id: PLAN-SPEC-075
 spec_id: SPEC-075
-spec_version: "1.0.14"
+spec_version: "1.0.16"
 created: "2026-08-24"
 status: completed
 target_repo: backstop-core
@@ -373,7 +373,10 @@ phases:
         title: "Specify the JavaScript-disabled Chromium matrix"
         description: |
           Test ten routes at 360x800, 768x1024, and 1440x1000 in fresh JavaScript-off contexts
-          after fonts/two frames. Assert DOM-order tabs, bounded/topmost/nonintersecting focus,
+          after fonts/two frames. Read each route's exact required-block IDs from the rendered topology
+          contract; require one visible heading per ID, >=80 normalized content characters, <=160px to
+          first visible content, and the richer discovery-home capability/path/gate-proof contract.
+          Assert DOM-order tabs, bounded/topmost/nonintersecting focus,
           no traps/pointer-only controls, local ArrowRight/End, and <=1px document overflow. Inject
           exact 200% root font, prove computed 2x within .01px, and rerun; reject substitutes.
           Also fail if the pinned browser, static server, helper, package, script element,
@@ -387,8 +390,9 @@ phases:
         title: "Implement deterministic browser verification infrastructure"
         description: |
           Configure package-lock-pinned Chromium and disposable static server. Implement shared
-          helpers for exact no-JavaScript viewport, keyboard, overlap, local-scroll, and true root-
-          font assertions. Emit none of this infrastructure into _site.
+          helpers for exact no-JavaScript viewport, rendered required-block/substantiveness, discovery-home,
+          keyboard, overlap, local-scroll, and true root-font assertions. Emit none of this infrastructure
+          into _site.
         files: [tests/public-site-helpers.ts]
         claims: [CLM-003, CLM-012, CLM-013, CLM-014, CLM-015]
         depends_on: [TASK-021]
@@ -470,8 +474,9 @@ phases:
         type: test
         title: "Specify immutable Pages workflow and stamping"
         description: |
-          Test main/manual-only triggers, least privilege, serialized pages concurrency, full
-          history, exact Ruby 3.3.4, exact Semgrep 1.156.0 for the design-system engine, explicit readonly Go module mode isolating Ruby's vendor/bundle, read-only proof of the externally administered workflow mode, no unsupported
+          Test independent pull-request Site Verification plus main/manual-only Pages triggers, reusable
+          delegation, deployment-authority separation, least privilege, serialized pages concurrency, full history,
+          exact Ruby 3.3.4, exact Semgrep 1.156.0 for the design-system engine, explicit readonly Go module mode isolating Ruby's vendor/bundle, read-only proof of the externally administered workflow mode, no unsupported
           generator injection, locked prerequisites, exact phase order, six Node-24-compatible official actions at lock-matched
           SHAs, workflow build mode, exact hidden-inclusive _site upload, artifact/deploy outputs,
           no alternate publisher, canonical head metadata, and standalone tree marker.
@@ -483,14 +488,15 @@ phases:
         type: implementation
         title: "Implement the locked Pages transaction"
         description: |
-          Create the exact Node-24-compatible action lock, marker stamper, and sole Pages workflow.
-          Refuse to build unless the read-only Pages API reports the externally administered workflow
-          mode, read Pages metadata without generator injection, provision exact Ruby 3.3.4,
-          isolate Go commands from Ruby's vendor/bundle with explicit readonly module mode, provision the
-          design-system pack's allowlist-pinned Semgrep engine, and build main/manual from source,
+          Create the exact Node-24-compatible action lock, marker stamper, reusable Site Verification
+          workflow, and sole Pages deployment workflow. Refuse to build unless the read-only Pages API
+          reports the externally administered workflow mode, read Pages metadata without generator injection,
+          provision exact Ruby 3.3.4, isolate Go commands from Ruby's vendor/bundle with explicit readonly
+          module mode, provision the design-system pack's allowlist-pinned Semgrep engine, and build both PR
+          verification and main/manual deployment inputs from the same reusable source,
           run prerequisites, annotate with head SHA, stamp heads/marker, upload exactly _site with
           hidden files, carry artifact ID, and deploy only after success.
-        files: [.github/pages-actions.lock.yml, scripts/stamp-pages-artifact.sh, .github/workflows/pages.yml]
+        files: [.github/pages-actions.lock.yml, scripts/stamp-pages-artifact.sh, .github/workflows/site-verification.yml, .github/workflows/pages.yml]
         claims: [CLM-035, CLM-036]
         depends_on: [TASK-029]
       - id: TASK-031
