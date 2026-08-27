@@ -2,9 +2,9 @@
 title: "Static Public Site Design System"
 number: SPEC-075
 created: "2026-08-24"
-status: draft
+status: ready-for-implementation
 schema_version: spec/v1
-spec_version: 1.0.4
+spec_version: 1.0.5
 
 implementation:
   summary: >
@@ -313,7 +313,7 @@ requirements:
       `docs/_data/site-presentation.yml` must enumerate exactly ten SPEC-072 routes with `page_kind`,
       one exact hero question, ordered treatments, and one canonical `next_action`, matching every
       literal cell in the Exact presentation matrix below; every hero value must byte-match the
-      SPEC-072 v1.0.5 `hero_question` for that route and is not Seed 4 copy ownership. `page_kind` is one of the ten matrix values;
+      SPEC-072 v1.0.8 `hero_question` for that route and is not Seed 4 copy ownership. `page_kind` is one of the ten matrix values;
       treatments are drawn only from `evidence-cards`, `boundary-callouts`, `generated-regions`, and
       `local-overflow`, without duplicates and in the matrix order. Every page renders
       exactly one `body[data-site-shell=field-guide-v1][data-page-kind]`, header/site nav pair,
@@ -448,7 +448,7 @@ requirements:
       - website-expansion:REQ-009@2.0.0
       - website-expansion:REQ-013@1.0.0
     text: >
-      Seed 4 must consume the accepted SPEC-072 v1.0.5 and SPEC-074 v1.0.4 owner records and,
+      Seed 4 must consume the accepted SPEC-072 v1.0.8 and SPEC-074 v1.0.8 owner records and,
       immediately after every exact REQ-001 Jekyll build, run one deterministic build-time
       annotation pass over the disposable `_site`; that pass may add only the rendered attributes,
       provenance anchors, and resolved immutable URLs defined here and must never edit checked-in
@@ -807,7 +807,7 @@ The wordmark is always the Home route and never masquerades as current-page stat
 | `/status/` | `status` | What is supported, limited, planned, or intentionally outside Backstop? | `evidence-cards`, `boundary-callouts`, `generated-regions`, `local-overflow` | `/contributing/` |
 | `/contributing/` | `contributing` | How can I participate in Backstop and its ecosystem? | `boundary-callouts` | `/` |
 
-Hero strings are copied verbatim from SPEC-072 v1.0.5 and cannot be authored or overridden here. Treatments are present only
+Hero strings are copied verbatim from SPEC-072 v1.0.8 and cannot be authored or overridden here. Treatments are present only
 when their upstream registry records exist on that route; the matrix names the allowed ordered set,
 while sitecheck cross-checks every rendered ID/state/job against SPEC-072/074 rather than accepting
 self-consistent invented values.
@@ -1043,7 +1043,7 @@ identity must be visible.
 
 ## Integration Contract
 
-SPEC-072 v1.0.5 remains the owner of content, routes, navigation meaning, JLINK records and labels,
+SPEC-072 v1.0.8 remains the owner of content, routes, navigation meaning, JLINK records and labels,
 structured boundaries, adoption instructions, concepts, claims, evidence, and final copy. SPEC-073 remains the owner of Core's separately released pack-consumption
 contract and documentation-semantic execution. SPEC-074 remains the owner of generated records,
 markers, digests, source descriptors, freshness, and release-history handshake. This spec owns
@@ -1084,12 +1084,12 @@ assertions.
 
 - `bundles/BUNDLE-032-website-expansion.bundle.md` v0.6.0 — source bundle, Seed 4 partition,
   REQ-009@2.0.0, REQ-013@1.0.0, OQ-6, DD-9, DD-12, and cross-repository sharp edges.
-- `specs/SPEC-072-public-product-model.spec.md` v1.0.5 — ten source/path pairs, exact navigation,
+- `specs/SPEC-072-public-product-model.spec.md` v1.0.8 — ten source/path pairs, exact navigation,
   JLINK and adoption-instruction records, structured boundary fields, content ownership,
   claim/evidence/boundary registries, final copy, and Mermaid authority.
-- `specs/SPEC-073-documentation-semantics-integration.spec.md` — released pack identity/pin boundary,
+- `specs/SPEC-073-documentation-semantics-integration.spec.md` v1.1.11 — released pack identity/pin boundary,
   clean install, and semantics integration; it does not establish design-system applicability.
-- `specs/SPEC-074-derived-product-truth-pipeline.spec.md` v1.0.4 — four checked-in generated regions,
+- `specs/SPEC-074-derived-product-truth-pipeline.spec.md` v1.0.8 — four checked-in generated regions,
   source include markers, typed source descriptors and URL templates, source-level freshness,
   and the tag/latest-main release handshake. This spec owns their Jekyll build, rendered digest and
   immutable-anchor verification, Pages freshness/no-tag behavior, and deployment acceptance.

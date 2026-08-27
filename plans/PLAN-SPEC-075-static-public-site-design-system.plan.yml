@@ -1,16 +1,16 @@
 ---
 plan_id: PLAN-SPEC-075
 spec_id: SPEC-075
-spec_version: "1.0.4"
+spec_version: "1.0.5"
 created: "2026-08-24"
-status: draft
+status: ready
 target_repo: backstop-core
 target_module: github.com/backstop-ai/backstop-core
 test_command: ./scripts/verify-public-site.sh
 coverage_threshold: 80
 notes: |
-  Seed 4 only. Consume accepted SPEC-072 v1.0.5 / PLAN-SPEC-072, PLAN-SPEC-073,
-  and SPEC-074 v1.0.4 / PLAN-SPEC-074 outputs and published contracts as completed
+  Seed 4 only. Consume accepted SPEC-072 v1.0.8 / PLAN-SPEC-072, SPEC-073
+  v1.1.11 / PLAN-SPEC-073, and SPEC-074 v1.0.8 / PLAN-SPEC-074 outputs and published contracts as completed
   upstream artifacts. This plan supplies the
   locked build, rendered record/descriptor reconstruction and digest acceptance, annotation,
   sitecheck, browser/design-system acceptance, and Pages delivery. Seed 5 journeys, MCP,
@@ -24,8 +24,8 @@ phases:
         type: setup
         title: "Enforce the accepted Seed 1 through Seed 3 handoff"
         description: |
-          Stop unless SPEC-072 v1.0.5 / PLAN-SPEC-072, PLAN-SPEC-073, and SPEC-074
-          v1.0.4 / PLAN-SPEC-074 are completed and accepted. Run their published verification
+          Stop unless SPEC-072 v1.0.8 / PLAN-SPEC-072, SPEC-073 v1.1.11 /
+          PLAN-SPEC-073, and SPEC-074 v1.0.8 / PLAN-SPEC-074 are completed and accepted. Run their published verification
           entrypoints and SPEC-074 check mode;
           inspect ten owners, 24 JLINKs, boundaries, adoption instructions, four generated
           regions/descriptors/digests, pack identity, and seven-cell owner export read-only.
