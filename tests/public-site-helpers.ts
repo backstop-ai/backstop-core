@@ -24,7 +24,7 @@ export async function settleLayout(page: Page): Promise<void> {
 }
 
 export async function assertRequiredSurface(page: Page, route: string): Promise<void> {
-  await expect(page.locator(".wordmark")).toBeVisible();
+  await expect(page.locator("[data-backstop-wordmark]")).toBeVisible();
   await expect(page.locator('nav[aria-label="Primary"] a')).toHaveCount(7);
   await expect(page.locator('nav[aria-label="Utility"] a')).toHaveCount(2);
   await expect(page.locator("main#main")).toHaveAttribute("data-page-route", route);
