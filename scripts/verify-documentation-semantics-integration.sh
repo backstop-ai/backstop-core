@@ -7,7 +7,7 @@ IMPORT=$ROOT/.backstop/website-pack-releases.yml
 DOC_ID=backstop-ai/documentation-semantics
 DESIGN_ID=backstop-ai/backstop-design-system
 DOC_HASH=57c50794c2223ded1d9834c0d53207c2fdd3923415806ffca3a1d6aacb916dcd
-DESIGN_HASH=d8ac9b95f6801f30f84532f9fd05eb2b283916e56169f35233a13178949e3609
+DESIGN_HASH=afe81249fdd3180555ca5d94a278c7463eac6f877dbf8ade5740e6e77cf51f5f
 BASELINE=36c1de6722b8f70c1594484b276c72b129b77a6e
 PROBE=BACKSTOP_DOCUMENTATION_SEMANTICS_PROBE_DUPLICATE_OWNER
 PROBE_RULE=backstop-ai/documentation-semantics/unique-canonical-definition-anchor
@@ -43,7 +43,8 @@ validate_release_import() {
   [ "$(grep -c '^    manifest_identity:' "$file" || true)" -eq 2 ] || return 1
   [ "$(grep -c '^    source_coordinate:' "$file" || true)" -eq 2 ] || return 1
   [ "$(grep -c '^    git_ref: v0.1.0$' "$file" || true)" -eq 0 ] || return 1
-  [ "$(grep -c '^    git_ref: v0.1.1$' "$file" || true)" -eq 2 ] || return 1
+  [ "$(grep -c '^    git_ref: v0.1.1$' "$file" || true)" -eq 1 ] || return 1
+  [ "$(grep -c '^    git_ref: v0.1.2$' "$file" || true)" -eq 1 ] || return 1
   [ "$(grep -c '^    documentation_semantics:' "$file" || true)" -eq 2 ] || return 1
   assert_contains "$file" '  predecessor_plan: PLAN-SPEC-072'
   assert_contains "$file" '  predecessor_spec: SPEC-072'
@@ -79,8 +80,8 @@ verify_owner_evidence_files() {
   fetch_immutable https://github.com/backstop-ai/documentation-semantics.git 57f518b0ee870cd0f4bd0db7d75d3caba1730b51 release-evidence/logs/pack-check.log 5219f152856b134f33be3a5593579c2a5a2f3e791a2b08b8b5c3df8fed5fe494 "$scratch/doc-check"
   fetch_immutable https://github.com/backstop-ai/documentation-semantics.git 57f518b0ee870cd0f4bd0db7d75d3caba1730b51 release-evidence/logs/pack-test.log d9cebf97c292956119f4004292d76d9532de06ca2e709a7a69e8ed67249d8bef "$scratch/doc-test"
   fetch_immutable https://github.com/backstop-ai/documentation-semantics.git 57f518b0ee870cd0f4bd0db7d75d3caba1730b51 release-evidence/logs/documentation-dispatch.log a0b7772ae0cc5fd514fe3f6c06c3a468f6ebea202e21f69462d37c09b5ebf25b "$scratch/doc-dispatch"
-  fetch_immutable https://github.com/backstop-ai/backstop-design-system.git 1a4de6d2acf1f9848debffbbd27ec668dc0fc841 bundles/BUNDLE-001-design-system-release.bundle.md 739153a4453e9cbfb37202fe7a62e4c8da06b2d8672b09e3165bbfb0ae7ef8c0 "$scratch/design-owner"
-  fetch_immutable https://github.com/backstop-ai/backstop-design-system.git fb91a9976d68000165ecb1b2fbcd9a1bc241be2b release-evidence/v0.1.1.yml d9fc26769a291fd601cefec233d22c7a02f4aa10d21fa6de925577b79316f478 "$scratch/design-evidence"
+  fetch_immutable https://github.com/backstop-ai/backstop-design-system.git 45906f9deb598f64e1dff2c245553df1830ec8f1 bundles/BUNDLE-001-design-system-release.bundle.md c72670345e2a3d011fcc0a235939870fc192ad0bde45c3d573ce24853c827cfa "$scratch/design-owner"
+  fetch_immutable https://github.com/backstop-ai/backstop-design-system.git 33ffbb2742806d657d5e4e188175a30d853074c0 release-evidence/v0.1.2.yml 568d4052de019a8b4f337b2499a12d365739275aeb6d0358a79c3a968cc8b686 "$scratch/design-evidence"
   fetch_immutable https://github.com/backstop-ai/backstop-design-system.git cbc3ef6ca35cbd3164c410125fe2449fa64e9801 release-evidence/logs/pack-check.log 5219f152856b134f33be3a5593579c2a5a2f3e791a2b08b8b5c3df8fed5fe494 "$scratch/design-check"
   fetch_immutable https://github.com/backstop-ai/backstop-design-system.git cbc3ef6ca35cbd3164c410125fe2449fa64e9801 release-evidence/logs/pack-test.log d9cebf97c292956119f4004292d76d9532de06ca2e709a7a69e8ed67249d8bef "$scratch/design-test"
 }
@@ -162,8 +163,8 @@ verify_owner_boundary_rejects_embedded_policy_surface() {
 verify_owner_boundary_rejects_design_system_semantic_ownership() { grep -A2 '^  - role: design-system$' "$IMPORT" | grep -Fq 'owner_artifact:'; assert_contains "$IMPORT" '    documentation_semantics: null'; }
 verify_release_import_schema_accepts_exact_two_role_document() { validate_release_import "$IMPORT"; }
 verify_release_import_schema_rejects_shape_and_cardinality_violation() { t=$1/import-shape; sed '/^  - role: design-system$/,$d' "$IMPORT" >"$t"; ! validate_release_import "$t"; }
-verify_release_import_schema_rejects_invalid_scalar_or_reference() { t=$1/import-ref; sed '0,/git_ref: v0.1.1/s//git_ref: main/' "$IMPORT" >"$t"; ! validate_release_import "$t"; }
-verify_pin_matrix_accepts_equal_identity_and_coordinate() { assert_pin "$DOC_ID" 0.1.1 "$DOC_HASH"; assert_pin "$DESIGN_ID" 0.1.1 "$DESIGN_HASH"; }
+verify_release_import_schema_rejects_invalid_scalar_or_reference() { t=$1/import-ref; sed '0,/git_ref: v0.1.2/s//git_ref: main/' "$IMPORT" >"$t"; ! validate_release_import "$t"; }
+verify_pin_matrix_accepts_equal_identity_and_coordinate() { assert_pin "$DOC_ID" 0.1.1 "$DOC_HASH"; assert_pin "$DESIGN_ID" 0.1.2 "$DESIGN_HASH"; }
 verify_pin_matrix_accepts_divergence_with_spec056_warning() { assert_contains "$ROOT/specs/SPEC-056-remote-identity-version-validation.spec.md" 'warning'; }
 verify_pin_matrix_rejects_missing_surface() { t=$1/missing-config; grep -Fv "$DOC_ID" "$ROOT/backstop.yml" >"$t"; ! grep -Fq "$DOC_ID" "$t"; }
 verify_pin_matrix_rejects_mutable_or_local_source() { ! grep -Eq 'git_ref: (main|master|HEAD)|source_type: (path|local)' "$ROOT/backstop.lock"; }

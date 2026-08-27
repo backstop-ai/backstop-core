@@ -1,12 +1,9 @@
 ---
 title: Evaluate Backstop
+layout: default
 permalink: /evaluate/
 hero_question: "Is Backstop the right control surface for this problem?"
 ---
-
-# Evaluate Backstop
-
-Is Backstop the right control surface for this problem?
 
 ## What Backstop is {#what-backstop-is}
 
@@ -71,7 +68,7 @@ Runtime-neutral does not mean runtime-guaranteed. Backstop cannot make a harness
 ## Evidence {#evidence}
 
 <!-- backstop-claim: CLAIM-007 -->
-A literal Liquid-shaped `{{ ... }}` expression is currently interpreted as an undeclared recipe parameter and rejected before any write; ISSUE-182 tracks the missing literal-escape capability.
+A literal Liquid-shaped `{% raw %}{{ ... }}{% endraw %}` expression is currently interpreted as an undeclared recipe parameter and rejected before any write; ISSUE-182 tracks the missing literal-escape capability.
 <!-- /backstop-claim -->
 
 <!-- backstop-claim: CLAIM-008 -->

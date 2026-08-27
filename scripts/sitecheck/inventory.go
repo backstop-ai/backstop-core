@@ -34,8 +34,10 @@ func allowedRoles() map[string]bool {
 		"action-lock": true, "browser-verification": true, "build-dependency": true,
 		"delivery-inventory": true, "deploy-stamp": true, "deploy-verifier": true,
 		"include": true, "layout": true, "owner-asset-installer": true,
+		"owner-release-import": true, "pack-declaration": true, "pack-lock": true,
 		"page-wrapper": true, "rendered-contract-stamper": true, "retired-bootstrap": true,
-		"site-config": true, "site-data": true, "stylesheet-composition": true,
+		"release-evidence-verifier": true,
+		"site-config":               true, "site-data": true, "stylesheet-composition": true,
 		"structural-verifier": true, "test": true, "verification-entrypoint": true,
 		"workflow": true,
 	}
@@ -64,6 +66,15 @@ func retiredBootstrap() map[string]bool {
 		"docs/index.html":                     true,
 		"docs/assets/css/backstop.css":        true,
 		"docs/assets/css/backstop-tokens.css": true,
+	}
+}
+
+func seed4LedgerPaths() map[string]bool {
+	return map[string]bool{
+		"specs/SPEC-074-derived-product-truth-pipeline.spec.md":         true,
+		"plans/PLAN-SPEC-074-derived-product-truth-pipeline.plan.yml":   true,
+		"specs/SPEC-075-static-public-site-design-system.spec.md":       true,
+		"plans/PLAN-SPEC-075-static-public-site-design-system.plan.yml": true,
 	}
 }
 
@@ -140,6 +151,12 @@ func expectedRole(path string) string {
 	switch {
 	case path == ".backstop/seed4-delivery-inventory.yml":
 		return "delivery-inventory"
+	case path == ".backstop/website-pack-releases.yml":
+		return "owner-release-import"
+	case path == "backstop.yml":
+		return "pack-declaration"
+	case path == "backstop.lock":
+		return "pack-lock"
 	case path == "Gemfile" || path == "Gemfile.lock" || path == "package"+".json" || path == "package-lock"+".json":
 		return "build-dependency"
 	case path == "docs/_data/site-presentation.yml":
@@ -156,23 +173,35 @@ func expectedRole(path string) string {
 		return "stylesheet-composition"
 	case retiredBootstrap()[path]:
 		return "retired-bootstrap"
-	case path == "playwright.config.js" || strings.HasPrefix(path, "tests/public-site/"):
+	case path == "playwright.config.ts" || path == "tests/public-site.spec.ts" || path == "tests/public-site-helpers.ts" || strings.HasPrefix(path, "tests/public-site/"):
 		return "browser-verification"
 	case strings.HasPrefix(path, "scripts/sitecheck/testdata/") || (strings.HasPrefix(path, "scripts/sitecheck/") && strings.HasSuffix(path, "_test.go")):
 		return "test"
 	case strings.HasPrefix(path, "scripts/sitecheck/"):
 		return "structural-verifier"
+	case path == "scripts/producttruth/generate.go":
+		return "structural-verifier"
+	case strings.HasPrefix(path, "scripts/render-public-site-contracts/") && strings.HasSuffix(path, "_test.go"):
+		return "test"
 	case strings.HasPrefix(path, "scripts/render-public-site-contracts/"):
 		return "rendered-contract-stamper"
 	case path == "scripts/verify-public-site.sh":
 		return "verification-entrypoint"
+	case path == "scripts/verify-public-product-model.sh":
+		return "verification-entrypoint"
+	case path == "scripts/tests/public-product-model/pages/discovery-evaluation-adoption-status.sh" ||
+		path == "scripts/tests/public-product-model/pages/model-use-cases-packs.sh" ||
+		path == "scripts/tests/public-product-model/pages/extend-reference-contributing.sh":
+		return "test"
+	case path == "scripts/verify-documentation-semantics-integration.sh":
+		return "release-evidence-verifier"
 	case path == "scripts/install-design-assets.sh":
 		return "owner-asset-installer"
 	case path == ".github/workflows/pages.yml":
 		return "workflow"
 	case path == ".github/pages-actions.lock.yml":
 		return "action-lock"
-	case path == "scripts/stamp-pages-deployment.sh":
+	case path == "scripts/stamp-pages-artifact.sh":
 		return "deploy-stamp"
 	case path == "scripts/verify-pages-deployment.sh":
 		return "deploy-verifier"
@@ -195,11 +224,17 @@ func inventoryDiff(root, base string) ([]DeliveryEntry, error) {
 		fields := strings.Split(line, "\t")
 		change := fields[0]
 		if strings.HasPrefix(change, "R") && len(fields) == 3 {
+			if seed4LedgerPaths()[fields[1]] || seed4LedgerPaths()[fields[2]] {
+				return nil, fmt.Errorf("governed ledger path may not be renamed: %q", line)
+			}
 			entries = append(entries, DeliveryEntry{Change: "R", OldPath: fields[1], Path: fields[2]})
 			continue
 		}
 		if len(fields) != 2 || (change != "A" && change != "M" && change != "D") {
 			return nil, fmt.Errorf("unrecognized git diff row %q", line)
+		}
+		if seed4LedgerPaths()[fields[1]] {
+			continue
 		}
 		entries = append(entries, DeliveryEntry{Change: change, Path: fields[1]})
 	}

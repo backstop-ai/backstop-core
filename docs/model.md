@@ -1,12 +1,9 @@
 ---
 title: Product Model
+layout: default
 permalink: /model/
 hero_question: "How does Backstop turn intent into a trustworthy verdict?"
 ---
-
-# Product Model
-
-How does Backstop turn intent into a trustworthy verdict?
 
 ## Operating model {#operating-model}
 

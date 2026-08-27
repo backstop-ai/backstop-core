@@ -119,16 +119,24 @@ func TestDeliveryInventory_RejectsRemainingShapeMutations(t *testing.T) {
 func TestDeliveryInventory_PathRoleMatrix(t *testing.T) {
 	tests := map[string]string{
 		"Gemfile": "build-dependency", "package.json": "build-dependency",
+		".backstop/website-pack-releases.yml": "owner-release-import", "backstop.yml": "pack-declaration", "backstop.lock": "pack-lock",
 		"docs/_data/site-presentation.yml": "site-data", "docs/_config.yml": "site-config",
 		"docs/_layouts/default.html": "layout", "docs/_includes/site-header.html": "include",
 		"docs/index.md": "page-wrapper", "docs/assets/css/site.css": "stylesheet-composition",
-		"docs/index.html": "retired-bootstrap", "playwright.config.js": "browser-verification",
+		"docs/index.html": "retired-bootstrap", "playwright.config.ts": "browser-verification",
 		"tests/public-site/site.spec.js": "browser-verification", "scripts/sitecheck/check.go": "structural-verifier",
-		"scripts/sitecheck/check_test.go": "test", "scripts/sitecheck/testdata/case.yml": "test",
-		"scripts/render-public-site-contracts/main.go": "rendered-contract-stamper",
-		"scripts/verify-public-site.sh":                "verification-entrypoint", "scripts/install-design-assets.sh": "owner-asset-installer",
-		".github/workflows/pages.yml": "workflow", ".github/pages-actions.lock.yml": "action-lock",
-		"scripts/stamp-pages-deployment.sh": "deploy-stamp", "scripts/verify-pages-deployment.sh": "deploy-verifier",
+		"scripts/producttruth/generate.go": "structural-verifier",
+		"scripts/sitecheck/check_test.go":  "test", "scripts/sitecheck/testdata/case.yml": "test",
+		"scripts/render-public-site-contracts/main.go":      "rendered-contract-stamper",
+		"scripts/render-public-site-contracts/main_test.go": "test",
+		"scripts/verify-public-site.sh":                     "verification-entrypoint", "scripts/install-design-assets.sh": "owner-asset-installer",
+		"scripts/verify-public-product-model.sh":                                           "verification-entrypoint",
+		"scripts/tests/public-product-model/pages/discovery-evaluation-adoption-status.sh": "test",
+		"scripts/tests/public-product-model/pages/extend-reference-contributing.sh":        "test",
+		"scripts/tests/public-product-model/pages/model-use-cases-packs.sh":                "test",
+		"scripts/verify-documentation-semantics-integration.sh":                            "release-evidence-verifier",
+		".github/workflows/pages.yml":                                                      "workflow", ".github/pages-actions.lock.yml": "action-lock",
+		"scripts/stamp-pages-artifact.sh": "deploy-stamp", "scripts/verify-pages-deployment.sh": "deploy-verifier",
 	}
 	for path, role := range tests {
 		if got := expectedRole(path); got != role {
@@ -154,6 +162,12 @@ func TestDeliveryInventory_GitDiffAndMatch(t *testing.T) {
 	runGit("init", "-q")
 	runGit("config", "user.name", "Sitecheck Test")
 	runGit("config", "user.email", "sitecheck@example.invalid")
+	if err := os.MkdirAll(filepath.Join(root, "specs"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "specs/SPEC-075-static-public-site-design-system.spec.md"), []byte("status: ready-for-implementation\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(root, "old"), []byte("same\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -164,6 +178,9 @@ func TestDeliveryInventory_GitDiffAndMatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root, "added"), []byte("new\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "specs/SPEC-075-static-public-site-design-system.spec.md"), []byte("status: implemented\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	runGit("add", "-A")

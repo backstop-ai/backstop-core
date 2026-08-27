@@ -3,11 +3,12 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 python3 - "$root" <<'PY'
 import os,re,sys,yaml
-r=sys.argv[1]; top=yaml.safe_load(open(os.path.join(r,'docs/_data/content-topology.yml'))); model=yaml.safe_load(open(os.path.join(r,'docs/_data/product-model.yml'))); ev=yaml.safe_load(open(os.path.join(r,'docs/_data/evidence-inventory.yml')))
+r=sys.argv[1]; top=yaml.safe_load(open(os.path.join(r,'docs/_data/content-topology.yml'))); model=yaml.safe_load(open(os.path.join(r,'docs/_data/product-model.yml'))); ev=yaml.safe_load(open(os.path.join(r,'docs/_data/evidence-inventory.yml'))); presentation=yaml.safe_load(open(os.path.join(r,'docs/_data/site-presentation.yml')))
 sources={'docs/model.md','docs/use-cases.md','docs/packs.md'}; pages=[p for p in top['pages'] if p['source'] in sources]; assert {p['source'] for p in pages}==sources
 texts={p['canonical_path']:open(os.path.join(r,p['source']),encoding='utf-8').read() for p in pages}
+presented={p['route']:p['hero_question'] for p in presentation['pages']}
 for p in pages:
- t=texts[p['canonical_path']]; assert t.count(p['hero_question'])==2,p['source']+' hero'
+ t=texts[p['canonical_path']]; assert t.count(p['hero_question'])==1,p['source']+' owning hero'; assert presented[p['canonical_path']]==p['hero_question'],p['source']+' presented hero'
  for anchor in p['required_blocks']: assert re.search(r'^#{1,6} .+ \{#'+re.escape(anchor)+r'\}$',t,re.M),p['source']+' '+anchor
 for concept in model['concepts']: assert concept['owner']['route']=='/model/' and '{#'+concept['owner']['anchor']+'}' in texts['/model/'],concept['concept_id']
 for view in model['architecture_views']: assert view['diagram_source'] in texts['/model/'] and os.path.getsize(os.path.join(r,view['diagram_source']))>0,view['architecture_id']

@@ -1,0 +1,20 @@
+<header class="site-header">
+  <div class="shell header-shell">
+    <a class="wordmark" data-backstop-wordmark href="/" aria-label="Backstop home"><span>./b</span><span>.sh</span></a>
+    <div class="navigation-groups">
+      <nav aria-label="Primary">
+        <a href="/evaluate/"{% if page.permalink == '/evaluate/' %} aria-current="page"{% endif %}>Evaluate</a>
+        <a href="/model/"{% if page.permalink == '/model/' %} aria-current="page"{% endif %}>Model</a>
+        <a href="/adopt/"{% if page.permalink == '/adopt/' %} aria-current="page"{% endif %}>Adopt</a>
+        <a href="/use-cases/"{% if page.permalink == '/use-cases/' %} aria-current="page"{% endif %}>Use Cases</a>
+        <a href="/packs/"{% if page.permalink == '/packs/' %} aria-current="page"{% endif %}>Packs</a>
+        <a href="/extend/"{% if page.permalink == '/extend/' %} aria-current="page"{% endif %}>Extend</a>
+        <a href="/reference/"{% if page.permalink == '/reference/' %} aria-current="page"{% endif %}>Reference</a>
+      </nav>
+      <nav aria-label="Utility">
+        <a href="/status/"{% if page.permalink == '/status/' %} aria-current="page"{% endif %}>Status</a>
+        <a href="/contributing/"{% if page.permalink == '/contributing/' %} aria-current="page"{% endif %}>Contributing</a>
+      </nav>
+    </div>
+  </div>
+</header>

@@ -25,4 +25,9 @@ func TestSiteCheckRun(t *testing.T) {
 	if code := run([]string{"--unknown"}, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "flag provided") {
 		t.Fatalf("flag code=%d stderr=%q", code, stderr.String())
 	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{"--root", root, "--built-root", t.TempDir(), "--site-commit", ownerTestCommit, "--design-system-matrix"}, &stdout, &stderr); code != 1 || !strings.Contains(stderr.String(), "canonical-route") {
+		t.Fatalf("invalid rendered site code=%d stderr=%q", code, stderr.String())
+	}
 }

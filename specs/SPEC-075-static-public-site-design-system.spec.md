@@ -2,9 +2,9 @@
 title: "Static Public Site Design System"
 number: SPEC-075
 created: "2026-08-24"
-status: ready-for-implementation
+status: implemented
 schema_version: spec/v1
-spec_version: 1.0.5
+spec_version: 1.0.7
 
 implementation:
   summary: >
@@ -32,109 +32,23 @@ verification:
   test_command: ./scripts/verify-public-site.sh
 
 contracts:
-  - file: Gemfile
-    provides:
-      - name: public_site_ruby_dependencies
-        kind: variable
-        signature: "Pinned-source Jekyll and GitHub Pages build dependency declarations"
-  - file: Gemfile.lock
-    provides:
-      - name: locked_public_site_ruby_runtime
-        kind: variable
-        signature: "Resolved immutable Ruby dependency graph used by every site build"
-  - file: package.json
-    provides:
-      - name: public_site_browser_verification_dependencies
-        kind: variable
-        signature: "Private verification-only Playwright dependency and scripts; no site runtime bundle"
-  - file: package-lock.json
-    provides:
-      - name: locked_public_site_browser_runtime
-        kind: variable
-        signature: "Resolved verification-only browser dependency graph"
-  - file: docs/_config.yml
-    provides:
-      - name: public_site_jekyll_configuration
-        kind: variable
-        signature: "url, domain, permalink, Markdown, excludes, and serverless redirect configuration"
-  - file: docs/_data/site-presentation.yml
-    provides:
-      - name: field_guide_instance_contract
-        kind: variable
-        signature: "routes[10] {page_kind, hero_question, treatments[], next_action}; dimensions {shell_max_px:1180, prose_max_px:760}"
-  - file: .backstop/seed4-delivery-inventory.yml
-    provides:
-      - name: seed4_delivery_role_inventory
-        kind: variable
-        signature: "base_commit + changes[] {status, old_path?, path, role}; exact path-role matrix"
-  - file: docs/_layouts/default.html
-    provides:
-      - name: public_site_shell
-        kind: variable
-        signature: "Semantic document shell consuming shared header, main content, and footer"
-  - file: docs/_layouts/redirect.html
-    provides:
-      - name: serverless_legacy_redirect
-        kind: variable
-        signature: "No-JavaScript canonical link, immediate meta refresh, and human fallback link"
-  - file: docs/_includes/site-header.html
-    provides:
-      - name: public_site_navigation
-        kind: variable
-        signature: "Wordmark Home plus exact primary and utility navigation with current-page state"
-    consumes:
-      - source: docs/_data/content-topology.yml
-        name: canonical_navigation_model
-        kind: variable
-  - file: docs/_includes/site-footer.html
-    provides:
-      - name: public_site_footer
-        kind: variable
-        signature: "Project, repository, status, contributing, and license continuation links"
-  - file: docs/_includes/page-hero.html
-    provides:
-      - name: question_led_page_hero
-        kind: variable
-        signature: "Page responsibility, boundary state, and next-action presentation primitive"
-  - file: docs/assets/css/site.css
-    provides:
-      - name: public_site_composition
-        kind: variable
-        signature: "Site-specific shell and page composition consuming owner-governed tokens"
-    consumes:
-      - source: .backstop/packs/backstop-ai/backstop-design-system/pack.yml
-        name: released_visual_policy_and_token_contract
-        kind: variable
-  - file: playwright.config.ts
-    provides:
-      - name: public_site_browser_matrix
-        kind: variable
-        signature: "Pinned Chromium; JavaScript-disabled 360x800, 768x1024, 1440x1000; root-font 200% relayout"
-  - file: tests/public-site.spec.ts
-    provides:
-      - name: public_site_rendered_behavior_acceptance
-        kind: function
-        signature: "Playwright acceptance for responsive layout, navigation, focus, overflow, and no-JavaScript use"
-  - file: scripts/sitecheck/main.go
+  - file: scripts/sitecheck/site.go
     provides:
       - name: verify_public_site
         kind: function
-        signature: "Verify(root string, builtRoot string) []Finding"
+        signature: "func Verify(root string, builtRoot string) []Finding"
       - name: verify_installed_design_system
         kind: function
-        signature: "VerifyInstalledDesignSystem(root string, builtRoot string) []Finding"
+        signature: "func VerifyInstalledDesignSystem(root string, builtRoot string) []Finding"
       - name: LoadOwnerAcceptanceExport
         kind: function
-        signature: "LoadOwnerAcceptanceExport(root string) (OwnerExport, error)"
+        signature: "func LoadOwnerAcceptanceExport(root string) (OwnerAcceptanceExport, error)"
       - name: BuildGateCorpus
         kind: function
-        signature: "BuildGateCorpus(root, builtRoot string) ([]string, error)"
-      - name: VerifyEightIsolatedCorpora
-        kind: function
-        signature: "VerifyEightIsolatedCorpora(root, builtRoot string, export OwnerExport) []Finding"
+        signature: "func BuildGateCorpus(root string, builtRoot string) ([]string, error)"
       - name: VerifyRenderedOwnerContracts
         kind: function
-        signature: "VerifyRenderedOwnerContracts(root string, builtRoot string, siteCommit string) []Finding; enforces JLINK-024 dual identity, one-anchor cardinality, containment, visible-byte preservation, and order"
+        signature: "func VerifyRenderedOwnerContracts(root string, builtRoot string, siteCommit string) []Finding"
     consumes:
       - source: docs/_data/content-topology.yml
         name: canonical_routes_and_navigation
@@ -148,11 +62,16 @@ contracts:
       - source: .backstop/packs/backstop-ai/backstop-design-system/pack.yml
         name: installed_design_system_rules
         kind: variable
+  - file: scripts/sitecheck/design_system.go
+    provides:
+      - name: VerifyEightIsolatedCorpora
+        kind: function
+        signature: "func VerifyEightIsolatedCorpora(root string, builtRoot string, export OwnerAcceptanceExport) []Finding"
   - file: scripts/render-public-site-contracts/main.go
     provides:
       - name: render_public_site_owner_contracts
         kind: function
-        signature: "Render(root string, builtRoot string, siteCommit string) []Finding; JLINK-024 binds one source link to one dual-identity boundary-continuation anchor"
+        signature: "func Render(root string, builtRoot string, siteCommit string) []Finding"
     consumes:
       - source: docs/_data/content-topology.yml
         name: journey_links_and_adoption_instructions
@@ -166,11 +85,12 @@ contracts:
       - source: docs/_includes/generated
         name: generated_source_descriptors
         kind: variable
-  - file: scripts/verify-public-site.sh
+  - file: scripts/sitecheck/pages.go
     provides:
-      - name: verify_public_site_delivery
+      - name: VerifyPagesWorkflow
         kind: function
-        signature: verify_public_site_delivery()
+        signature: "func VerifyPagesWorkflow(root string) []Finding"
+  - file: scripts/verify-public-site.sh
     consumes:
       - source: scripts/verify-documentation-semantics-integration.sh
         name: verify_documentation_semantics_integration
@@ -178,37 +98,6 @@ contracts:
       - source: scripts/generate-product-truth.sh
         name: check_derived_product_truth
         kind: function
-  - file: .github/workflows/pages.yml
-    provides:
-      - name: public_site_pages_delivery
-        kind: variable
-        signature: "Main/manual locked build, SHA-pinned official actions, deploy, and authoritative post-deploy proof"
-  - file: .github/pages-actions.lock.yml
-    provides:
-      - name: pages_action_pins
-        kind: variable
-        signature: "allowlisted official action identity -> full 40-hex commit SHA"
-  - file: scripts/stamp-pages-artifact.sh
-    provides:
-      - name: stamp_pages_artifact
-        kind: function
-        signature: "stamp_pages_artifact --commit <40-hex> --run-id <integer> _site"
-  - file: scripts/install-design-assets.sh
-    provides:
-      - name: install_design_system_assets
-        kind: function
-        signature: "install_design_system_assets <installed-pack-root> _site"
-  - file: scripts/verify-pages-deployment.sh
-    provides:
-      - name: verify_pages_deployment
-        kind: function
-        signature: "verify_pages_deployment --repository <owner/name> --run-id <id> --commit <sha> --artifact-id <id> --page-url https://backstop.sh/"
-  - file: docs/CNAME
-    provides:
-      - name: public_site_custom_domain
-        kind: constant
-        signature: "backstop.sh"
-
 requirements:
   - id: REQ-001
     supports:
@@ -334,11 +223,16 @@ requirements:
       `site-config`, `delivery-inventory`, `layout`, `include`, `page-wrapper`,
       `stylesheet-composition`, `browser-verification`, `structural-verifier`,
       `rendered-contract-stamper`, `verification-entrypoint`, `owner-asset-installer`, `workflow`, `action-lock`, `deploy-stamp`, `deploy-verifier`, `test`,
+      `owner-release-import`, `pack-declaration`, `pack-lock`,
+      `release-evidence-verifier`,
       or deletion-only `retired-bootstrap`;
       unlisted paths, unknown/duplicate roles, and roles `visual-rule`, `engine`, `fixture-corpus`,
       `token-declaration`, or `design-policy-validator` fail. Allowed paths must also be declared by
       this spec or be the governed pages/wrappers they name. Exact mappings are: Gem/package files ->
       build-dependency; `.backstop/seed4-delivery-inventory.yml` -> delivery-inventory;
+      `.backstop/website-pack-releases.yml` -> owner-release-import; `backstop.yml` ->
+      pack-declaration; `backstop.lock` -> pack-lock;
+      `scripts/verify-documentation-semantics-integration.sh` -> release-evidence-verifier;
       `docs/_config.yml` and `docs/CNAME` -> site-config; `_data/site-presentation.yml` -> site-data; `_layouts/**` -> layout;
       `_includes/**` -> include; ten canonical/five alias sources -> page-wrapper; `site.css` ->
       stylesheet-composition; Playwright config/tests -> browser-verification; `scripts/sitecheck/**`
@@ -350,6 +244,11 @@ requirements:
       `retired-bootstrap` entries and that role is invalid for A/M/R. `sitecheck` may parse data, hashes, paths, DOM, workflow,
       owner-export fingerprints, and finding attribution; it may not implement a visual matcher or
       invoke an engine directly. Cayman/current landing sources cannot satisfy delivery by retention.
+      The linked SPEC-075 and PLAN-SPEC-075 files are governed ledger surfaces rather than
+      implementation delivery, so their validated version and terminal-state transitions are
+      excluded from this exact implementation diff. The terminal SPEC-074/PLAN-SPEC-074 predecessor
+      ledger correction that orders two tests sharing one file is excluded on the same basis.
+      Renaming any of these four ledger surfaces is prohibited.
   - id: REQ-006
     supports:
       - website-expansion:REQ-013@1.0.0
@@ -448,7 +347,7 @@ requirements:
       - website-expansion:REQ-009@2.0.0
       - website-expansion:REQ-013@1.0.0
     text: >
-      Seed 4 must consume the accepted SPEC-072 v1.0.8 and SPEC-074 v1.0.8 owner records and,
+      Seed 4 must consume the accepted SPEC-072 v1.0.8 and SPEC-074 v1.0.9 owner records and,
       immediately after every exact REQ-001 Jekyll build, run one deterministic build-time
       annotation pass over the disposable `_site`; that pass may add only the rendered attributes,
       provenance anchors, and resolved immutable URLs defined here and must never edit checked-in
@@ -1089,7 +988,7 @@ assertions.
   claim/evidence/boundary registries, final copy, and Mermaid authority.
 - `specs/SPEC-073-documentation-semantics-integration.spec.md` v1.1.11 — released pack identity/pin boundary,
   clean install, and semantics integration; it does not establish design-system applicability.
-- `specs/SPEC-074-derived-product-truth-pipeline.spec.md` v1.0.8 — four checked-in generated regions,
+- `specs/SPEC-074-derived-product-truth-pipeline.spec.md` v1.0.9 — four checked-in generated regions,
   source include markers, typed source descriptors and URL templates, source-level freshness,
   and the tag/latest-main release handshake. This spec owns their Jekyll build, rendered digest and
   immutable-anchor verification, Pages freshness/no-tag behavior, and deployment acceptance.

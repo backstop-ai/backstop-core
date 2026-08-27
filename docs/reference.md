@@ -1,12 +1,9 @@
 ---
 title: Reference
+layout: default
 permalink: /reference/
 hero_question: "What exact interface or behavior do I need?"
 ---
-
-# Reference
-
-What exact interface or behavior do I need?
 
 ## Compatibility {#compatibility}
 
@@ -16,9 +13,11 @@ Backstop exposes a repository-oriented CLI, YAML artifacts, JSON-capable output,
 
 ## Artifact schema catalog {#artifact-schema-catalog}
 
+<section data-generated-region data-product-truth-job="artifact-schema-catalog">
 <!-- PRODUCT-TRUTH-INCLUDE:BEGIN job=artifact-schema-catalog -->
 {% include generated/artifact-schema-catalog.md %}
 <!-- PRODUCT-TRUTH-INCLUDE:END job=artifact-schema-catalog -->
+</section>
 
 <!-- backstop-claim: CLAIM-014 -->
 Artifact schemas live under `artifacts/<kind>/v1/schema.json`. The CLI reserves IDs, scaffolds valid records, validates references and state, and excludes terminal historical artifacts where policy declares that behavior.
@@ -80,9 +79,11 @@ Durable references use repository paths, immutable commits, or published version
 
 ## CLI command catalog {#cli-command-catalog}
 
+<section data-generated-region data-product-truth-job="cli-command-catalog">
 <!-- PRODUCT-TRUTH-INCLUDE:BEGIN job=cli-command-catalog -->
 {% include generated/cli-command-catalog.md %}
 <!-- PRODUCT-TRUTH-INCLUDE:END job=cli-command-catalog -->
+</section>
 
 <!-- backstop-claim: CLAIM-032 -->
 The command families cover initialization, diagnosis, gates, packs, artifacts, recipes, baselines, waivers, version reporting, and command discovery. Use `--help` on the pinned release for exact flags and `--json` where a command exposes structured output.

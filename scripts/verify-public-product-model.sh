@@ -29,7 +29,7 @@ def exact_ids(records,key,expected,label):
   if got!=want: fail(str(got)+': '+label+' order field '+key+' expected '+str(want)+' at index '+str(index))
  fail(label+': '+key+' cardinality')
 
-top=load('docs/_data/content-topology.yml'); model=load('docs/_data/product-model.yml'); evidence=load('docs/_data/evidence-inventory.yml'); inventory=load('docs/_data/content-inventory.yml')
+top=load('docs/_data/content-topology.yml'); model=load('docs/_data/product-model.yml'); evidence=load('docs/_data/evidence-inventory.yml'); inventory=load('docs/_data/content-inventory.yml'); presentation=load('docs/_data/site-presentation.yml')
 parallel=[]
 for base,_,files in os.walk(os.path.join(root,'docs')):
  for name in files:
@@ -44,6 +44,8 @@ if [(x.get('source'),x.get('canonical_path')) for x in pages]!=list(zip(sources,
 heroes=['What failure does Backstop prevent?','Is Backstop the right control surface for this problem?','How does Backstop turn intent into a trustworthy verdict?','What does a first working adoption require?','Which problem-oriented adoption path applies?','Which maintained pack already owns this standard?','When should this concern become a pack?','What exact interface or behavior do I need?','What is supported, limited, planned, or intentionally outside Backstop?','How can I participate in Backstop and its ecosystem?']
 for page,hero in zip(pages,heroes):
  if page.get('hero_question')!=hero: fail(page.get('source','page')+': hero_question')
+presentation_pages=presentation.get('pages',[])
+if [(x.get('route'),x.get('hero_question')) for x in presentation_pages]!=list(zip(paths,heroes)): fail('site presentation must consume the exact Seed 1 hero matrix')
 ns=top.get('neighborhoods',[])
 exact_ids(ns,'neighborhood_id',[f'NBR-{i:03}' for i in range(1,13)],'neighborhood')
 neighborhood_owners=['/','/evaluate/','/evaluate/','/status/','/model/','/model/','/use-cases/','/packs/','/extend/','/reference/','/status/','/contributing/']
@@ -287,6 +289,7 @@ def claim_regions(page,text):
   result.append((s,s.group(1),body))
  return result
 def canonical_payload(page,cid,body):
+ body=body.replace('{% raw %}','').replace('{% endraw %}','')
  if cid!='CLAIM-005': return body
  if body.count(jlink024.rstrip('\n'))!=1: fail(page+': CLAIM-005 requires exactly one JLINK-024 marker')
  if jlink024+jlink024_link not in body: fail(page+': CLAIM-005 JLINK-024 marker must immediately precede continuation link')
@@ -317,7 +320,7 @@ for p,route in zip(sources,paths):
  for a in required:
   if a not in anchors: fail(p+': missing anchor '+a)
  hero=next(x for x in pages if x['source']==p)['hero_question']
- if text.count(hero)!=2: fail(p+': hero question must be owned by frontmatter and visible copy')
+ if text.count(hero)!=1: fail(p+': hero question must occur once in owning frontmatter; presentation consumes it separately')
  texts[route]=(p,text,anchors)
 
 legacy_responsibilities={
@@ -400,7 +403,10 @@ def check_closed_blocks(page,text,hero):
   stop=end.end() if end else s.end()
   masked=masked[:s.start()]+re.sub(r'[^\n]',' ',text[s.start():stop])+masked[stop:]
  masked=re.sub(r'^```[^\n]*\n.*?^```\s*$',lambda m:re.sub(r'[^\n]',' ',m.group(0)),masked,flags=re.M|re.S)
- masked=re.sub(r'<!-- PRODUCT-TRUTH-INCLUDE:BEGIN job=[a-z0-9-]+ -->\n\{% include generated/[a-z0-9-]+\.md %\}\n<!-- PRODUCT-TRUTH-INCLUDE:END job=[a-z0-9-]+ -->',lambda m:re.sub(r'[^\n]',' ',m.group(0)),masked)
+ for instruction in instructions:
+  rendered='<pre><code>'+instruction['command_text']+'</code></pre>'
+  if rendered in masked: masked=masked.replace(rendered,re.sub(r'[^\n]',' ',rendered),1)
+ masked=re.sub(r'(?:<section data-generated-region data-product-truth-job="[a-z0-9-]+">\n)?<!-- PRODUCT-TRUTH-INCLUDE:BEGIN job=[a-z0-9-]+ -->\n\{% include generated/[a-z0-9-]+\.md %\}\n<!-- PRODUCT-TRUTH-INCLUDE:END job=[a-z0-9-]+ -->(?:\n</section>)?',lambda m:re.sub(r'[^\n]',' ',m.group(0)),masked)
  for block in (x.strip() for x in re.split(r'\n[ \t]*\n',masked)):
   if not block or block==hero or block.startswith('#'): continue
   if re.fullmatch(r'<!-- backstop-journey-link: JLINK-\d{3} -->\n\[[^\n]+\]\(/[^\n]+\)',block): continue
