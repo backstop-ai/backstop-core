@@ -19,46 +19,149 @@
     <a class="wordmark" data-backstop-wordmark href="/" aria-label="Backstop home"><span>./b</span><span>.sh</span></a>
     <div class="nav-links navigation-groups">
       <nav aria-label="Primary">
-        <a href="/evaluate/">Evaluate</a><a href="/model/">Model</a><a href="/adopt/">Adopt</a><a href="/use-cases/">Use Cases</a><a href="/packs/">Packs</a><a href="/extend/">Extend</a><a href="/reference/">Reference</a>
+        <a href="/evaluate/">Evaluate</a>
+        <a href="/model/">Model</a>
+        <a href="/adopt/">Adopt</a>
+        <a href="/use-cases/">Use Cases</a>
+        <a href="/packs/">Packs</a>
+        <a href="/extend/">Extend</a>
+        <a href="/reference/">Reference</a>
       </nav>
-      <nav aria-label="Utility"><a href="/status/">Status</a><a href="/contributing/">Contributing</a></nav>
+      <nav aria-label="Utility">
+        <a href="/status/">Status</a>
+        <a href="/contributing/">Contributing</a>
+      </nav>
     </div>
   </div>
+
 <main id="main" data-page-route="/" data-page-kind="home">
-  <section data-page-hero><div class="hero shell">
-    <h1 class="eyebrow" data-page-question>What failure does Backstop prevent?</h1>
-    <div class="eyebrow"><span class="status-dot"></span> An agent discipline framework</div>
-    <h1>Define the work.<br><span>Enforce your standards.</span><br>Detect drift.</h1>
-    <p class="hero-copy">Artifacts define what the work must deliver. Packs encode the standards it must follow. Recipes generate known-good starting points. The gate verifies the result.</p>
-    <div class="hero-actions"><a class="button button-primary" href="/adopt/">Get started <span aria-hidden="true">→</span></a><a class="button button-secondary" href="https://github.com/backstop-ai/backstop-core">View on GitHub <span aria-hidden="true" class="arrow">↗</span></a></div>
-    <div class="terminal" data-home-gate-proof aria-label="Example Backstop gate output"><div class="terminal-bar"><div class="terminal-title"><span class="terminal-icon">›_</span> gate</div><span class="copy-label">backstop gate</span></div><div class="terminal-body"><div class="command"><span class="prompt">$</span> backstop gate</div><div class="checks">
-      <div class="check"><span class="check-status"><span class="check-icon">✓</span>Pack integrity</span><span class="check-rule" aria-hidden="true"></span><span class="check-detail">8 packs locked</span><span class="check-result">pass</span></div>
-      <div class="check"><span class="check-status"><span class="check-icon">✓</span>Artifacts</span><span class="check-rule" aria-hidden="true"></span><span class="check-detail">schemas and lineage valid</span><span class="check-result">pass</span></div>
-      <div class="check"><span class="check-status"><span class="check-icon">✓</span>Engineering standards</span><span class="check-rule" aria-hidden="true"></span><span class="check-detail">0 new findings</span><span class="check-result">pass</span></div>
-      <div class="check"><span class="check-status"><span class="check-icon">✓</span>Tests</span><span class="check-rule" aria-hidden="true"></span><span class="check-detail">promised tests exist and pass</span><span class="check-result">pass</span></div>
-      <div class="check"><span class="check-status"><span class="check-icon">✓</span>Coverage</span><span class="check-rule" aria-hidden="true"></span><span class="check-detail">threshold met</span><span class="check-result">pass</span></div>
-      <div class="check"><span class="check-status"><span class="check-icon">✓</span>Contracts</span><span class="check-rule" aria-hidden="true"></span><span class="check-detail">declared signatures present</span><span class="check-result">pass</span></div>
-      <div class="check"><span class="check-status"><span class="check-icon">✓</span>Requirements</span><span class="check-rule" aria-hidden="true"></span><span class="check-detail">implementation coverage complete</span><span class="check-result">pass</span></div>
-      <div class="check"><span class="check-status"><span class="check-icon">✓</span>Baseline</span><span class="check-rule" aria-hidden="true"></span><span class="check-detail">0 net-new violations</span><span class="check-result">pass</span></div>
-    </div><div class="verdict"><span><span class="verdict-icon">✓</span> PASS</span><span class="verdict-copy">0 unresolved findings</span><span class="exit-code">exit 0</span></div></div></div>
-    <div data-required-blocks="why-backstop,choose-your-path"></div>
-  </div></section>
+  <section data-page-hero>
+    <div class="hero shell">
+      <h1 class="eyebrow" data-page-question>What failure does Backstop prevent?</h1>
+      <div class="eyebrow"><span class="status-dot"></span> An agent discipline framework</div>
+      <h1>Define the work.<br><span>Enforce your standards.</span><br>Detect drift.</h1>
+      <p class="hero-copy">Artifacts define what the work must deliver. Packs encode the standards it must follow. Recipes generate known-good starting points. The gate verifies the result.</p>
+      <div class="hero-actions">
+        <a class="button button-primary" href="/adopt/">Get started <span aria-hidden="true">→</span></a>
+        <a class="button button-secondary" href="https://github.com/backstop-ai/backstop-core">View on GitHub <span aria-hidden="true" class="arrow">↗</span></a>
+      </div>
+
+      <div class="terminal" data-home-gate-proof aria-label="Example Backstop gate output">
+        <div class="terminal-bar"><div class="terminal-title"><span class="terminal-icon">›_</span> gate</div><span class="copy-label">backstop gate</span></div>
+        <div class="terminal-body">
+          <div class="command"><span class="prompt">$</span> backstop gate</div>
+          <div class="checks">
+            <div class="check"><span class="check-status"><span class="check-icon">✓</span>Pack integrity</span><span class="check-rule" aria-hidden="true"></span><span class="check-detail">8 packs locked</span><span class="check-result">pass</span></div>
+            <div class="check"><span class="check-status"><span class="check-icon">✓</span>Artifacts</span><span class="check-rule" aria-hidden="true"></span><span class="check-detail">schemas and lineage valid</span><span class="check-result">pass</span></div>
+            <div class="check"><span class="check-status"><span class="check-icon">✓</span>Engineering standards</span><span class="check-rule" aria-hidden="true"></span><span class="check-detail">0 new findings</span><span class="check-result">pass</span></div>
+            <div class="check"><span class="check-status"><span class="check-icon">✓</span>Tests</span><span class="check-rule" aria-hidden="true"></span><span class="check-detail">promised tests exist and pass</span><span class="check-result">pass</span></div>
+            <div class="check"><span class="check-status"><span class="check-icon">✓</span>Coverage</span><span class="check-rule" aria-hidden="true"></span><span class="check-detail">threshold met</span><span class="check-result">pass</span></div>
+            <div class="check"><span class="check-status"><span class="check-icon">✓</span>Contracts</span><span class="check-rule" aria-hidden="true"></span><span class="check-detail">declared signatures present</span><span class="check-result">pass</span></div>
+            <div class="check"><span class="check-status"><span class="check-icon">✓</span>Requirements</span><span class="check-rule" aria-hidden="true"></span><span class="check-detail">implementation coverage complete</span><span class="check-result">pass</span></div>
+            <div class="check"><span class="check-status"><span class="check-icon">✓</span>Baseline</span><span class="check-rule" aria-hidden="true"></span><span class="check-detail">0 net-new violations</span><span class="check-result">pass</span></div>
+          </div>
+          <div class="verdict"><span><span class="verdict-icon">✓</span> PASS</span><span class="verdict-copy">0 unresolved findings</span><span class="exit-code">exit 0</span></div>
+        </div>
+      </div>
+      <div data-required-blocks="why-backstop,choose-your-path"></div>
+    </div>
+  </section>
+
   <div data-page-content>
     <h2 class="section-kicker shell" id="why-backstop">Why Backstop</h2>
     <div data-home-capabilities>
-      <article class="system-section shell"><div class="section-heading"><span class="section-number">01</span><div><p class="section-kicker">Define the work</p><h2>Find problems before implementation.</h2></div></div><div class="section-body"><div class="prose">
-        <!-- backstop-claim: CLAIM-017 --><p>AI can produce code faster than a team can establish whether it satisfies the team's intent. Backstop makes that mismatch inspectable: define the work, bind execution, and run deterministic standards before drift becomes review debt.</p><!-- /backstop-claim -->
-        <p>Proactive work moves from bundle to spec to plan. Reactive work moves from issue to plan. Both paths converge on a validated plan before source code changes.</p><p>Backstop checks that the chain is complete and that implementation evidence traces to the requirements it claims to satisfy.</p><!-- backstop-journey-link: JLINK-001 --><p><a href="/evaluate/#failure-fit">Evaluate the failure fit</a></p>
-      </div><div class="artifact-chain" aria-label="Backstop artifact chain"><div class="main-chain"><div class="artifact"><span>01</span><strong>Bundle</strong><i aria-hidden="true">→</i></div><div class="artifact"><span>02</span><strong>Spec</strong><i aria-hidden="true">→</i></div><div class="artifact"><span>03</span><strong>Plan</strong><i aria-hidden="true">→</i></div><div class="artifact"><span>04</span><strong>Implementation</strong></div></div><div class="issue-path"><span>Smaller scope</span><strong>Issue</strong><i aria-hidden="true">→</i><strong>Plan</strong></div><div class="trace"><span></span> Requirements trace to implementation evidence</div></div></div></article>
-      <article class="system-section shell"><div class="section-heading"><span class="section-number">02</span><div><p class="section-kicker">Enforce your standards</p><h2>Turn team decisions into rules.</h2></div></div><div class="section-body standards-layout"><div class="prose"><p>A rule is an engineering decision that can be checked mechanically. Architecture boundaries, test expectations, dependency policy, and approved implementation patterns all qualify.</p><p>Encode the decision once in a versioned pack. Agents run it while they work. CI runs the same gate before integration.</p><p>Rules carry claims plus positive and negative fixtures. The pack must prove that each rule accepts compliant code and rejects violations before the rule is trusted.</p><p class="aside-ism">If it has to be right, it must be deterministic.</p></div><div class="rule-panel"><div class="rule-panel-title"><span>backstop-core / installed policy</span><span>8 packs locked</span></div><div class="rule"><span>backstop-core-architecture/package-boundaries</span><p>Backstop Core packages import only declared architectural dependencies.</p></div><div class="rule"><span>backstop-self/no-baked-tool-exec</span><p>Tool names come from pack data, not string literals baked into the binary.</p></div><div class="rule"><span>go-substantiveness/hollow-test-go</span><p>A Go test with no assertion-shaped call is hollow.</p></div><div class="enforcement-surfaces"><div><span>Author time</span><strong>Immediate correction</strong></div><div><span>CI</span><strong>Binding verification</strong></div></div></div></div></article>
-      <article class="system-section shell"><div class="section-heading"><span class="section-number">03</span><div><p class="section-kicker">Detect drift</p><h2>Make “done” verifiable.</h2></div></div><div class="section-body standards-layout"><div class="prose"><p>Standards drift is measured against a baseline. Existing debt remains visible without blocking adoption, but touched code loses its grandfathering and new violations fail the gate.</p><p>Requirements drift is checked independently. Delivered requirements need implemented-spec coverage. Completed artifacts must still be backed by their mandated tests. A status is a claim about reality, and the gate can contradict it.</p><p class="aside-ism">Agents make mistakes. Don’t let them slide.</p></div><div class="drift-panels" style="min-width:0;max-width:100%;"><div class="baseline-panel" style="min-width:0;max-width:100%;"><div class="drift-panel-title"><span>Standards</span><strong>Baseline ratchet</strong></div><div class="baseline-row baseline-head"><span>Finding</span><span>Baseline</span><span>Scope</span><span>Result</span></div><div class="baseline-row"><span>package-boundaries</span><span>present</span><span>untouched</span><strong class="allowed">grandfathered</strong></div><div class="baseline-row"><span>go-core-no-init-functions</span><span>present</span><span>touched</span><strong class="blocked">blocked</strong></div><div class="baseline-row"><span>no-baked-tool-exec</span><span>absent</span><span>new</span><strong class="blocked">blocked</strong></div></div><div class="baseline-panel"><div class="drift-panel-title"><span>Requirements</span><strong>Traceability and status</strong></div><div class="claim-row"><span class="claim-icon ok">✓</span><div><strong>Delivered requirement</strong><small>covered by an implemented spec</small></div><b class="improved">verified</b></div><div class="claim-row"><span class="claim-icon no">×</span><div><strong>Updated requirement</strong><small>spec pins an older major/minor</small></div><b class="blocked">blocked</b></div><div class="claim-row"><span class="claim-icon no">×</span><div><strong>Completed artifact</strong><small>mandated test is absent</small></div><b class="blocked">blocked</b></div></div><div class="baseline-verdict"><span>✕</span><div><strong>Drift detected</strong><small>gate failed · exit 1</small></div></div></div></div></article>
+      <article class="system-section shell">
+        <div class="section-heading"><span class="section-number">01</span><div><p class="section-kicker">Define the work</p><h2>Find problems before implementation.</h2></div></div>
+        <div class="section-body">
+          <div class="prose">
+            <!-- backstop-claim: CLAIM-017 -->
+            <p>AI can produce code faster than a team can establish whether it satisfies the team's intent. Backstop makes that mismatch inspectable: define the work, bind execution, and run deterministic standards before drift becomes review debt.</p>
+            <!-- /backstop-claim -->
+            <p>Proactive work moves from bundle to spec to plan. Reactive work moves from issue to plan. Both paths converge on a validated plan before source code changes.</p>
+            <p>Backstop checks that the chain is complete and that implementation evidence traces to the requirements it claims to satisfy.</p>
+            <!-- backstop-journey-link: JLINK-001 -->
+            <p><a href="/evaluate/#failure-fit">Evaluate the failure fit</a></p>
+          </div>
+          <div class="artifact-chain" aria-label="Backstop artifact chain">
+            <div class="main-chain">
+              <div class="artifact"><span>01</span><strong>Bundle</strong><i aria-hidden="true">→</i></div>
+              <div class="artifact"><span>02</span><strong>Spec</strong><i aria-hidden="true">→</i></div>
+              <div class="artifact"><span>03</span><strong>Plan</strong><i aria-hidden="true">→</i></div>
+              <div class="artifact"><span>04</span><strong>Implementation</strong></div>
+            </div>
+            <div class="issue-path"><span>Smaller scope</span><strong>Issue</strong><i aria-hidden="true">→</i><strong>Plan</strong></div>
+            <div class="trace"><span></span> Requirements trace to implementation evidence</div>
+          </div>
+        </div>
+      </article>
+
+      <article class="system-section shell">
+        <div class="section-heading"><span class="section-number">02</span><div><p class="section-kicker">Enforce your standards</p><h2>Turn team decisions into rules.</h2></div></div>
+        <div class="section-body standards-layout">
+          <div class="prose">
+            <p>A rule is an engineering decision that can be checked mechanically. Architecture boundaries, test expectations, dependency policy, and approved implementation patterns all qualify.</p>
+            <p>Encode the decision once in a versioned pack. Agents run it while they work. CI runs the same gate before integration.</p>
+            <p>Rules carry claims plus positive and negative fixtures. The pack must prove that each rule accepts compliant code and rejects violations before the rule is trusted.</p>
+            <p class="aside-ism">If it has to be right, it must be deterministic.</p>
+          </div>
+          <div class="rule-panel">
+            <div class="rule-panel-title"><span>backstop-core / installed policy</span><span>8 packs locked</span></div>
+            <div class="rule"><span>backstop-core-architecture/package-boundaries</span><p>Backstop Core packages import only declared architectural dependencies.</p></div>
+            <div class="rule"><span>backstop-self/no-baked-tool-exec</span><p>Tool names come from pack data, not string literals baked into the binary.</p></div>
+            <div class="rule"><span>go-substantiveness/hollow-test-go</span><p>A Go test with no assertion-shaped call is hollow.</p></div>
+            <div class="enforcement-surfaces"><div><span>Author time</span><strong>Immediate correction</strong></div><div><span>CI</span><strong>Binding verification</strong></div></div>
+          </div>
+        </div>
+      </article>
+
+      <article class="system-section shell">
+        <div class="section-heading"><span class="section-number">03</span><div><p class="section-kicker">Detect drift</p><h2>Make “done” verifiable.</h2></div></div>
+        <div class="section-body standards-layout">
+          <div class="prose">
+            <p>Standards drift is measured against a baseline. Existing debt remains visible without blocking adoption, but touched code loses its grandfathering and new violations fail the gate.</p>
+            <p>Requirements drift is checked independently. Delivered requirements need implemented-spec coverage. Completed artifacts must still be backed by their mandated tests. A status is a claim about reality, and the gate can contradict it.</p>
+            <p class="aside-ism">Agents make mistakes. Don’t let them slide.</p>
+          </div>
+          <div class="drift-panels">
+            <div class="baseline-panel">
+              <div class="drift-panel-title"><span>Standards</span><strong>Baseline ratchet</strong></div>
+              <div class="baseline-row baseline-head"><span>Finding</span><span>Baseline</span><span>Scope</span><span>Result</span></div>
+              <div class="baseline-row"><span>package-boundaries</span><span>present</span><span>untouched</span><strong class="allowed">grandfathered</strong></div>
+              <div class="baseline-row"><span>go-core-no-init-functions</span><span>present</span><span>touched</span><strong class="blocked">blocked</strong></div>
+              <div class="baseline-row"><span>no-baked-tool-exec</span><span>absent</span><span>new</span><strong class="blocked">blocked</strong></div>
+            </div>
+            <div class="baseline-panel">
+              <div class="drift-panel-title"><span>Requirements</span><strong>Traceability and status</strong></div>
+              <div class="claim-row"><span class="claim-icon ok">✓</span><div><strong>Delivered requirement</strong><small>covered by an implemented spec</small></div><b class="improved">verified</b></div>
+              <div class="claim-row"><span class="claim-icon no">×</span><div><strong>Updated requirement</strong><small>spec pins an older major/minor</small></div><b class="blocked">blocked</b></div>
+              <div class="claim-row"><span class="claim-icon no">×</span><div><strong>Completed artifact</strong><small>mandated test is absent</small></div><b class="blocked">blocked</b></div>
+            </div>
+            <div class="baseline-verdict"><span>✕</span><div><strong>Drift detected</strong><small>gate failed · exit 1</small></div></div>
+          </div>
+        </div>
+      </article>
     </div>
+
     <h2 class="section-kicker shell" id="choose-your-path">Choose your path</h2>
-    <section class="composition shell"><div class="composition-heading"><p class="section-kicker">Composable by design</p><h2>Use the framework.<br>Or use the parts.</h2><p>Start with the failure you need to control. The pieces reinforce one another, but each can be adopted independently.</p></div><div class="composition-list" data-home-paths><article class="composition-row"><span>01</span><div><h3>Evaluate</h3><code>Failure fit + guarantees + limits</code></div><p>Decide whether Backstop is the right control surface before changing a repository. <a href="/evaluate/">Evaluate the control surface →</a></p></article><article class="composition-row"><span>02</span><div><h3>Understand</h3><code>Artifacts + packs + recipes + gates</code></div><p>See how the pieces reinforce one another and where deterministic checks replace agent judgment. <a href="/model/">Read the operating model →</a></p></article><article class="composition-row"><span>03</span><div><h3>Adopt</h3><code>One real standard behind the gate</code></div><p>Install Backstop, initialize a repository, choose a maintained pack, and prove a violation blocks. <a href="/adopt/">Start a working adoption →</a></p></article></div></section>
+    <section class="composition shell">
+      <div class="composition-heading"><p class="section-kicker">Composable by design</p><h2>Use the framework.<br>Or use the parts.</h2><p>Start with the failure you need to control. The pieces reinforce one another, but each can be adopted independently.</p></div>
+      <div class="composition-list" data-home-paths>
+        <article class="composition-row"><span>01</span><div><h3>Evaluate</h3><code>Failure fit + guarantees + limits</code></div><p>Decide whether Backstop is the right control surface before changing a repository. <a href="/evaluate/">Evaluate the control surface →</a></p></article>
+        <article class="composition-row"><span>02</span><div><h3>Understand</h3><code>Artifacts + packs + recipes + gates</code></div><p>See how the pieces reinforce one another and where deterministic checks replace agent judgment. <a href="/model/">Read the operating model →</a></p></article>
+        <article class="composition-row"><span>03</span><div><h3>Adopt</h3><code>One real standard behind the gate</code></div><p>Install Backstop, initialize a repository, choose a maintained pack, and prove a violation blocks. <a href="/adopt/">Start a working adoption →</a></p></article>
+      </div>
+    </section>
+
     <section class="cta shell"><div><p class="section-kicker">If it’s green, it ships.</p><h2>Make green mean something.</h2></div><a class="button button-inverse" href="/adopt/">Read the docs <span>→</span></a></section>
   </div>
+
   <nav class="next-action shell" data-next-action aria-label="Next page"><span>Continue the field guide</span><a href="/evaluate/">Next <span aria-hidden="true">→</span></a></nav>
-  <footer class="footer shell"><a class="wordmark" href="/" aria-label="Backstop home"><span aria-hidden="true" class="wordmark-mark">&#46;/b</span><span>backstop</span><span class="wordmark-domain">&#46;sh</span></a><p>Open source under the MIT License.</p><a href="https://github.com/backstop-ai">backstop-ai <span aria-hidden="true" class="arrow">↗</span></a></footer>
+
+  <footer class="footer shell">
+    <a class="wordmark" href="/" aria-label="Backstop home"><span aria-hidden="true" class="wordmark-mark">&#46;/b</span><span>backstop</span><span class="wordmark-domain">&#46;sh</span></a>
+    <p>Open source under the MIT License.</p>
+    <a href="https://github.com/backstop-ai">backstop-ai <span aria-hidden="true" class="arrow">↗</span></a>
+  </footer>
 </main>
 </body>
 </html>
