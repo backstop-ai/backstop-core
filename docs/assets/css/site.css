@@ -90,7 +90,7 @@ th { background: var(--ds-surface); }
   [data-page-kind="home"] .rule,
   [data-page-kind="home"] .check,
   [data-page-kind="home"] .issue-path,
-  [data-page-kind="home"] .baseline-row { grid-template-columns: minmax(0, 1fr) !important; }
+  [data-page-kind="home"] .baseline-row { min-width: 0 !important; grid-template-columns: minmax(0, 1fr) !important; }
   [data-page-kind="home"] .section-body { margin-left: 0 !important; gap: 2rem !important; }
   [data-page-kind="home"] .composition { gap: 2rem !important; }
   [data-page-kind="home"] .composition-heading { position: static !important; }
