@@ -45,7 +45,7 @@ func TestSiteCheck_Seed4DeliveryInventoryRejectsInvalidMatrix(t *testing.T) {
 		{"role mismatch", func(i *DeliveryInventory) { i.Entries[0].Role = "layout" }, "role/path mismatch"},
 		{"unlisted path", func(i *DeliveryInventory) { i.Entries[0].Path = "docs/secret-policy.yml" }, "outside the closed"},
 		{"retired file modified", func(i *DeliveryInventory) {
-			i.Entries[0] = DeliveryEntry{Change: "M", Path: "docs/index.html", Role: "retired-bootstrap"}
+			i.Entries[0] = DeliveryEntry{Change: "M", Path: "docs/assets/css/backstop-tokens.css", Role: "retired-bootstrap"}
 		}, "deletion-only"},
 		{"rename missing old path", func(i *DeliveryInventory) { i.Entries[0].Change = "R" }, "rename requires"},
 	}
@@ -123,7 +123,8 @@ func TestDeliveryInventory_PathRoleMatrix(t *testing.T) {
 		"docs/_data/site-presentation.yml": "site-data", "docs/_config.yml": "site-config",
 		"docs/_layouts/default.html": "layout", "docs/_includes/site-header.html": "include",
 		"docs/index.md": "page-wrapper", "docs/assets/css/site.css": "stylesheet-composition",
-		"docs/index.html": "retired-bootstrap", "playwright.config.ts": "browser-verification",
+		"docs/assets/css/backstop.css": "stylesheet-composition", "docs/assets/css/backstop-tokens.css": "retired-bootstrap",
+		"docs/index.html": "public-homepage", "playwright.config.ts": "browser-verification",
 		"tests/public-site/site.spec.js": "browser-verification", "scripts/sitecheck/check.go": "structural-verifier",
 		"scripts/producttruth/generate.go": "structural-verifier",
 		"scripts/sitecheck/check_test.go":  "test", "scripts/sitecheck/testdata/case.yml": "test",

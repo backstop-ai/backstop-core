@@ -24,14 +24,39 @@ export async function settleLayout(page: Page): Promise<void> {
 }
 
 export async function assertRequiredSurface(page: Page, route: string): Promise<void> {
-  await expect(page.locator(".wordmark")).toBeVisible();
+  await expect(page.locator("[data-backstop-wordmark]")).toBeVisible();
   await expect(page.locator('nav[aria-label="Primary"] a')).toHaveCount(7);
   await expect(page.locator('nav[aria-label="Utility"] a')).toHaveCount(2);
   await expect(page.locator("main#main")).toHaveAttribute("data-page-route", route);
-  await expect(page.locator("[data-page-hero] h1")).toBeVisible();
+  await expect(page.locator("[data-page-hero] [data-page-question]")).toBeVisible();
   await expect(page.locator("footer")).toBeVisible();
-  const horizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-  expect(horizontalOverflow, `${route} document overflow`).toBeLessThanOrEqual(1);
+  const overflowState = await page.evaluate(() => {
+    const viewportWidth = document.documentElement.clientWidth;
+    const horizontalOverflow = document.documentElement.scrollWidth - viewportWidth;
+    const offenders = [...document.querySelectorAll<HTMLElement>("body *")]
+      .map((element) => {
+        const rect = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        return {
+          tag: element.tagName.toLowerCase(),
+          id: element.id,
+          classes: element.className,
+          left: rect.left,
+          right: rect.right,
+          width: rect.width,
+          overflowX: style.overflowX,
+          text: (element.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 120),
+        };
+      })
+      .filter((item) => item.right > viewportWidth + 1 || item.left < -1)
+      .sort((a, b) => Math.max(b.right - viewportWidth, -b.left) - Math.max(a.right - viewportWidth, -a.left))
+      .slice(0, 12);
+    return { horizontalOverflow, viewportWidth, offenders };
+  });
+  expect(
+    overflowState.horizontalOverflow,
+    `${route} document overflow; viewport=${overflowState.viewportWidth}; offenders=${JSON.stringify(overflowState.offenders)}`,
+  ).toBeLessThanOrEqual(1);
 }
 
 export async function assertContentCompleteness(page: Page, route: string): Promise<void> {
