@@ -32,7 +32,7 @@ type DeliveryEntry struct {
 func allowedRoles() map[string]bool {
 	return map[string]bool{
 		"action-lock": true, "browser-verification": true, "build-dependency": true,
-		"delivery-inventory": true, "deploy-stamp": true, "deploy-verifier": true,
+		"agent-environment": true, "delivery-inventory": true, "deploy-stamp": true, "deploy-verifier": true,
 		"include": true, "layout": true, "owner-asset-installer": true,
 		"governance-artifact":  true,
 		"owner-release-import": true, "pack-declaration": true, "pack-lock": true,
@@ -148,8 +148,10 @@ func validatePathRole(entry DeliveryEntry) error {
 
 func expectedRole(path string) string {
 	switch {
-	case path == "issues/ISSUE-190-restore-canonical-homepage-direction.issue.md" || path == "plans/PLAN-ISSUE-190-restore-canonical-homepage-direction.plan.yml":
+	case path == "issues/ISSUE-190-restore-canonical-homepage-direction.issue.md" || path == "plans/PLAN-ISSUE-190-restore-canonical-homepage-direction.plan.yml" || path == "issues/ISSUE-191-cursor-env-files-outside-seed4-matrix.issue.md" || path == "plans/PLAN-ISSUE-191-cursor-env-files-outside-seed4-matrix.plan.yml":
 		return "governance-artifact"
+	case strings.HasPrefix(path, ".cursor/"):
+		return "agent-environment"
 	case path == ".backstop/seed4-delivery-inventory.yml":
 		return "delivery-inventory"
 	case path == ".backstop/website-pack-releases.yml":
