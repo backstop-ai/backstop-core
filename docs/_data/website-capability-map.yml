@@ -1,0 +1,257 @@
+# Seed 5 owner-referential journey map. IDs and owner coordinates only.
+# Does not copy claim prose, resolve <SITE-COMMIT>, or reconstruct envelopes.
+schema_version: backstop-core/website-capability-map/v1
+predecessor_versions:
+  SPEC-072: "1.0.5"
+  SPEC-073: "1.0.0"
+  SPEC-074: "1.0.4"
+  SPEC-075: "1.0.4"
+prerequisites:
+  - {id: seed1-product-model, spec: SPEC-072, command: ./scripts/verify-public-product-model.sh}
+  - {id: seed2-documentation-semantics, spec: SPEC-073, command: ./scripts/verify-documentation-semantics-integration.sh}
+  - {id: seed3-product-truth, spec: SPEC-074, command: ./scripts/verify-product-truth.sh}
+  - {id: seed4-public-site, spec: SPEC-075, command: ./scripts/verify-public-site.sh}
+adoption_instructions:
+  - ADOPT-INSTALL
+  - ADOPT-CONFIGURE
+  - ADOPT-ENFORCE
+journeys:
+  - global_key: CAP-004/@UJ-001
+    hops: ["/#why-backstop", "/evaluate/#failure-fit"]
+    jlinks: [JLINK-001]
+    obligations:
+      - {kind: evidence, claim_id: CLAIM-017, owner_route: "/", owner_anchor: why-backstop, claim_type: mechanism}
+      - {kind: boundary, boundary_id: BOUNDARY-004, owner_route: "/status/", owner_anchor: project-boundaries, state: non-goal, claim_id: CLAIM-004}
+  - global_key: CAP-004/@UJ-002
+    hops: ["/evaluate/#what-backstop-is", "/model/#operating-model"]
+    jlinks: [JLINK-002]
+    obligations:
+      - {kind: evidence, claim_id: CLAIM-020, owner_route: "/evaluate/", owner_anchor: what-backstop-is, claim_type: mechanism}
+      - {kind: boundary, boundary_id: BOUNDARY-002, owner_route: "/status/", owner_anchor: supported-and-limited, state: limitation, claim_id: CLAIM-002}
+  - global_key: CAP-005/@UJ-001
+    hops: ["/use-cases/#choose-use-case", "/evaluate/#fit-decision", "/adopt/#install"]
+    jlinks: [JLINK-003, JLINK-004]
+    obligations:
+      - {kind: evidence, claim_id: CLAIM-001, owner_route: "/status/", owner_anchor: supported-and-limited, claim_type: runtime-behavior}
+      - {kind: boundary, boundary_id: BOUNDARY-001, owner_route: "/status/", owner_anchor: supported-and-limited, state: supported, claim_id: CLAIM-001}
+  - global_key: CAP-005/@UJ-002
+    hops: ["/evaluate/#not-a-fit", "/status/#adjacent-guidance"]
+    jlinks: [JLINK-005]
+    obligations:
+      - {kind: evidence, claim_id: CLAIM-018, owner_route: "/evaluate/", owner_anchor: not-a-fit, claim_type: mechanism}
+      - {kind: boundary, boundary_id: BOUNDARY-005, owner_route: "/status/", owner_anchor: adjacent-guidance, state: adjacent-guidance, claim_id: CLAIM-005}
+  - global_key: CAP-006/@UJ-001
+    hops: ["/evaluate/#guarantees", "/status/#supported-and-limited"]
+    jlinks: [JLINK-006]
+    obligations:
+      - {kind: evidence, claim_id: CLAIM-011, owner_route: "/evaluate/", owner_anchor: guarantees, claim_type: runtime-behavior}
+      - {kind: boundary, boundary_id: BOUNDARY-001, owner_route: "/status/", owner_anchor: supported-and-limited, state: supported, claim_id: CLAIM-001}
+  - global_key: CAP-006/@UJ-002
+    hops: ["/status/#boundary-states", "/model/#ownership-boundaries"]
+    jlinks: [JLINK-007]
+    obligations:
+      - {kind: evidence, claim_id: CLAIM-002, owner_route: "/status/", owner_anchor: supported-and-limited, claim_type: mechanism}
+      - {kind: boundary, boundary_id: BOUNDARY-001, owner_route: "/status/", owner_anchor: supported-and-limited, state: supported, claim_id: CLAIM-001}
+      - {kind: boundary, boundary_id: BOUNDARY-002, owner_route: "/status/", owner_anchor: supported-and-limited, state: limitation, claim_id: CLAIM-002}
+      - {kind: boundary, boundary_id: BOUNDARY-003, owner_route: "/status/", owner_anchor: project-boundaries, state: planned, claim_id: CLAIM-003}
+      - {kind: boundary, boundary_id: BOUNDARY-004, owner_route: "/status/", owner_anchor: project-boundaries, state: non-goal, claim_id: CLAIM-004}
+      - {kind: boundary, boundary_id: BOUNDARY-005, owner_route: "/status/", owner_anchor: adjacent-guidance, state: adjacent-guidance, claim_id: CLAIM-005}
+  - global_key: CAP-007/@UJ-001
+    hops: ["/evaluate/#compatibility", "/reference/#compatibility"]
+    jlinks: [JLINK-008]
+    obligations:
+      - {kind: evidence, claim_id: CLAIM-006, owner_route: "/evaluate/", owner_anchor: compatibility, claim_type: compatibility}
+      - {kind: boundary, boundary_id: BOUNDARY-002, owner_route: "/status/", owner_anchor: supported-and-limited, state: limitation, claim_id: CLAIM-002}
+  - global_key: CAP-007/@UJ-002
+    hops: ["/evaluate/#compatibility-limits", "/status/#adjacent-guidance"]
+    jlinks: [JLINK-009]
+    obligations:
+      - {kind: evidence, claim_id: CLAIM-012, owner_route: "/evaluate/", owner_anchor: compatibility-limits, claim_type: compatibility}
+      - {kind: boundary, boundary_id: BOUNDARY-005, owner_route: "/status/", owner_anchor: adjacent-guidance, state: adjacent-guidance, claim_id: CLAIM-005}
+  - global_key: CAP-008/@UJ-001
+    hops: ["/model/#operating-model", "/reference/#artifact-schema-catalog"]
+    jlinks: [JLINK-010]
+    obligations:
+      - {kind: evidence, claim_id: CLAIM-022, owner_route: "/model/", owner_anchor: operating-model, claim_type: mechanism}
+      - {kind: boundary, boundary_id: BOUNDARY-004, owner_route: "/status/", owner_anchor: project-boundaries, state: non-goal, claim_id: CLAIM-004}
+  - global_key: CAP-008/@UJ-002
+    hops: ["/model/#ownership-boundaries", "/status/#project-boundaries"]
+    jlinks: [JLINK-011]
+    obligations:
+      - {kind: evidence, claim_id: CLAIM-010, owner_route: "/model/", owner_anchor: ownership-boundaries, claim_type: mechanism}
+      - {kind: boundary, boundary_id: BOUNDARY-004, owner_route: "/status/", owner_anchor: project-boundaries, state: non-goal, claim_id: CLAIM-004}
+  - global_key: CAP-009/@UJ-001
+    hops: ["/adopt/#install", "/reference/#configuration"]
+    jlinks: [JLINK-012]
+    obligations:
+      - {kind: evidence, claim_id: CLAIM-001, owner_route: "/status/", owner_anchor: supported-and-limited, claim_type: runtime-behavior}
+      - {kind: boundary, boundary_id: BOUNDARY-002, owner_route: "/status/", owner_anchor: supported-and-limited, state: limitation, claim_id: CLAIM-002}
+  - global_key: CAP-009/@UJ-002
+    hops: ["/adopt/#verify-enforcement", "/model/#enforcement-loop", "/reference/#gate"]
+    jlinks: [JLINK-013, JLINK-014]
+    obligations:
+      - {kind: evidence, claim_id: CLAIM-024, owner_route: "/adopt/", owner_anchor: verify-enforcement, claim_type: runtime-behavior}
+      - {kind: boundary, boundary_id: BOUNDARY-001, owner_route: "/status/", owner_anchor: supported-and-limited, state: supported, claim_id: CLAIM-001}
+  - global_key: CAP-010/@UJ-001
+    hops: ["/use-cases/#choose-use-case", "/adopt/#adoption-paths"]
+    jlinks: [JLINK-015]
+    obligations:
+      - {kind: evidence, claim_id: CLAIM-017, owner_route: "/", owner_anchor: why-backstop, claim_type: mechanism}
+      - {kind: boundary, boundary_id: BOUNDARY-002, owner_route: "/status/", owner_anchor: supported-and-limited, state: limitation, claim_id: CLAIM-002}
+  - global_key: CAP-010/@UJ-002
+    hops: ["/use-cases/#pack-backed-use-cases", "/packs/#choose-a-pack"]
+    jlinks: [JLINK-016]
+    obligations:
+      - {kind: evidence, claim_id: CLAIM-025, owner_route: "/packs/", owner_anchor: installed-pack-catalog, claim_type: mechanism}
+      - {kind: boundary, boundary_id: BOUNDARY-003, owner_route: "/status/", owner_anchor: project-boundaries, state: planned, claim_id: CLAIM-003}
+  - global_key: CAP-011/@UJ-001
+    hops: ["/packs/#installed-pack-catalog", "/reference/#pack-commands"]
+    jlinks: [JLINK-017]
+    obligations:
+      - {kind: evidence, claim_id: CLAIM-025, owner_route: "/packs/", owner_anchor: installed-pack-catalog, claim_type: mechanism}
+      - {kind: boundary, boundary_id: BOUNDARY-002, owner_route: "/status/", owner_anchor: supported-and-limited, state: limitation, claim_id: CLAIM-002}
+      - kind: generated
+        job_id: installed-pack-catalog
+        output: docs/_includes/generated/installed-pack-catalog.md
+        owner_route: /packs/
+        owner_anchor: installed-pack-catalog
+        truth_begin_marker: "<!-- PRODUCT-TRUTH:BEGIN job=installed-pack-catalog digest=sha256:7be7d9acbcc1b90c7c8a03d8113b846e52f69e6934ff131701929b063b7f1bfa -->"
+        truth_end_marker: "<!-- PRODUCT-TRUTH:END job=installed-pack-catalog -->"
+        sources_begin_marker: "<!-- PRODUCT-TRUTH:SOURCES-BEGIN job=installed-pack-catalog owner=/packs/#installed-pack-catalog digest=sha256:7be7d9acbcc1b90c7c8a03d8113b846e52f69e6934ff131701929b063b7f1bfa -->"
+        sources_end_marker: "<!-- PRODUCT-TRUTH:SOURCES-END job=installed-pack-catalog -->"
+        source_digest: sha256:7be7d9acbcc1b90c7c8a03d8113b846e52f69e6934ff131701929b063b7f1bfa
+        descriptors:
+          - {kind: blob, commit_binding: site, path: backstop.yml}
+          - {kind: blob, commit_binding: site, path: backstop.lock}
+        url_templates:
+          - "https://github.com/backstop-ai/backstop-core/blob/<SITE-COMMIT>/backstop.yml"
+          - "https://github.com/backstop-ai/backstop-core/blob/<SITE-COMMIT>/backstop.lock"
+        site_identity: owner:SPEC-075:site-commit
+        rendered_anchors:
+          - section[data-generated-region][data-product-truth-job=installed-pack-catalog] a[data-generated-source-link]
+        reconstruction_verdict: owner:SPEC-075:reconstruction
+        rendered_digest: owner:SPEC-075:rendered-digest
+  - global_key: CAP-011/@UJ-002
+    hops: ["/packs/#choose-a-pack", "/status/#pack-direction"]
+    jlinks: [JLINK-018]
+    obligations:
+      - {kind: evidence, claim_id: CLAIM-033, owner_route: "/status/", owner_anchor: pack-direction, claim_type: mechanism}
+      - {kind: boundary, boundary_id: BOUNDARY-001, owner_route: "/status/", owner_anchor: supported-and-limited, state: supported, claim_id: CLAIM-001}
+  - global_key: CAP-012/@UJ-001
+    hops: ["/extend/#pack-or-not", "/reference/#pack-artifact"]
+    jlinks: [JLINK-019]
+    obligations:
+      - {kind: evidence, claim_id: CLAIM-029, owner_route: "/reference/", owner_anchor: pack-artifact, claim_type: mechanism}
+      - {kind: boundary, boundary_id: BOUNDARY-004, owner_route: "/status/", owner_anchor: project-boundaries, state: non-goal, claim_id: CLAIM-004}
+  - global_key: CAP-012/@UJ-002
+    hops: ["/extend/#author-a-pack", "/contributing/#contribution-paths"]
+    jlinks: [JLINK-020]
+    obligations:
+      - {kind: evidence, claim_id: CLAIM-036, owner_route: "/contributing/", owner_anchor: contribution-paths, claim_type: mechanism}
+      - {kind: boundary, boundary_id: BOUNDARY-005, owner_route: "/status/", owner_anchor: adjacent-guidance, state: adjacent-guidance, claim_id: CLAIM-005}
+  - global_key: CAP-013/@UJ-001
+    hops: ["/evaluate/#evidence", "/reference/#source-traceability"]
+    jlinks: [JLINK-021]
+    obligations:
+      - {kind: evidence, claim_id: CLAIM-007, owner_route: "/evaluate/", owner_anchor: evidence, claim_type: observed-failure}
+  - global_key: CAP-013/@UJ-002
+    hops: ["/packs/#installed-pack-catalog", "/reference/#cli-command-catalog", "/status/#release-history"]
+    jlinks: [JLINK-022, JLINK-023]
+    obligations:
+      - {kind: evidence, claim_id: CLAIM-032, owner_route: "/reference/", owner_anchor: cli-command-catalog, claim_type: mechanism}
+      - kind: generated
+        job_id: cli-command-catalog
+        output: docs/_includes/generated/cli-command-catalog.md
+        owner_route: /reference/
+        owner_anchor: cli-command-catalog
+        truth_begin_marker: "<!-- PRODUCT-TRUTH:BEGIN job=cli-command-catalog digest=sha256:9a0727cd1a743279847069b07d7b1eed78c034ba5bfe35dc4b238201ed6324d6 -->"
+        truth_end_marker: "<!-- PRODUCT-TRUTH:END job=cli-command-catalog -->"
+        sources_begin_marker: "<!-- PRODUCT-TRUTH:SOURCES-BEGIN job=cli-command-catalog owner=/reference/#cli-command-catalog digest=sha256:9a0727cd1a743279847069b07d7b1eed78c034ba5bfe35dc4b238201ed6324d6 -->"
+        sources_end_marker: "<!-- PRODUCT-TRUTH:SOURCES-END job=cli-command-catalog -->"
+        source_digest: sha256:9a0727cd1a743279847069b07d7b1eed78c034ba5bfe35dc4b238201ed6324d6
+        descriptors:
+          - {kind: tree, commit_binding: site, path: cmd/backstop}
+        url_templates:
+          - "https://github.com/backstop-ai/backstop-core/tree/<SITE-COMMIT>/cmd/backstop"
+        site_identity: owner:SPEC-075:site-commit
+        rendered_anchors:
+          - section[data-generated-region][data-product-truth-job=cli-command-catalog] a[data-generated-source-link]
+        reconstruction_verdict: owner:SPEC-075:reconstruction
+        rendered_digest: owner:SPEC-075:rendered-digest
+      - kind: generated
+        job_id: artifact-schema-catalog
+        output: docs/_includes/generated/artifact-schema-catalog.md
+        owner_route: /reference/
+        owner_anchor: artifact-schema-catalog
+        truth_begin_marker: "<!-- PRODUCT-TRUTH:BEGIN job=artifact-schema-catalog digest=sha256:ee7aa023961c5e63426b6d0fcc3631c600181eb55aecca8dc764dad509bce969 -->"
+        truth_end_marker: "<!-- PRODUCT-TRUTH:END job=artifact-schema-catalog -->"
+        sources_begin_marker: "<!-- PRODUCT-TRUTH:SOURCES-BEGIN job=artifact-schema-catalog owner=/reference/#artifact-schema-catalog digest=sha256:ee7aa023961c5e63426b6d0fcc3631c600181eb55aecca8dc764dad509bce969 -->"
+        sources_end_marker: "<!-- PRODUCT-TRUTH:SOURCES-END job=artifact-schema-catalog -->"
+        source_digest: sha256:ee7aa023961c5e63426b6d0fcc3631c600181eb55aecca8dc764dad509bce969
+        descriptors:
+          - {kind: blob, commit_binding: site, path: artifacts/base/schema.json}
+          - {kind: blob, commit_binding: site, path: artifacts/capability/v1/schema.json}
+        url_templates:
+          - "https://github.com/backstop-ai/backstop-core/blob/<SITE-COMMIT>/artifacts/base/schema.json"
+          - "https://github.com/backstop-ai/backstop-core/blob/<SITE-COMMIT>/artifacts/capability/v1/schema.json"
+        site_identity: owner:SPEC-075:site-commit
+        rendered_anchors:
+          - section[data-generated-region][data-product-truth-job=artifact-schema-catalog] a[data-generated-source-link]
+        reconstruction_verdict: owner:SPEC-075:reconstruction
+        rendered_digest: owner:SPEC-075:rendered-digest
+      - kind: generated
+        job_id: installed-pack-catalog
+        output: docs/_includes/generated/installed-pack-catalog.md
+        owner_route: /packs/
+        owner_anchor: installed-pack-catalog
+        truth_begin_marker: "<!-- PRODUCT-TRUTH:BEGIN job=installed-pack-catalog digest=sha256:7be7d9acbcc1b90c7c8a03d8113b846e52f69e6934ff131701929b063b7f1bfa -->"
+        truth_end_marker: "<!-- PRODUCT-TRUTH:END job=installed-pack-catalog -->"
+        sources_begin_marker: "<!-- PRODUCT-TRUTH:SOURCES-BEGIN job=installed-pack-catalog owner=/packs/#installed-pack-catalog digest=sha256:7be7d9acbcc1b90c7c8a03d8113b846e52f69e6934ff131701929b063b7f1bfa -->"
+        sources_end_marker: "<!-- PRODUCT-TRUTH:SOURCES-END job=installed-pack-catalog -->"
+        source_digest: sha256:7be7d9acbcc1b90c7c8a03d8113b846e52f69e6934ff131701929b063b7f1bfa
+        descriptors:
+          - {kind: blob, commit_binding: site, path: backstop.yml}
+          - {kind: blob, commit_binding: site, path: backstop.lock}
+        url_templates:
+          - "https://github.com/backstop-ai/backstop-core/blob/<SITE-COMMIT>/backstop.yml"
+          - "https://github.com/backstop-ai/backstop-core/blob/<SITE-COMMIT>/backstop.lock"
+        site_identity: owner:SPEC-075:site-commit
+        rendered_anchors:
+          - section[data-generated-region][data-product-truth-job=installed-pack-catalog] a[data-generated-source-link]
+        reconstruction_verdict: owner:SPEC-075:reconstruction
+        rendered_digest: owner:SPEC-075:rendered-digest
+      - kind: generated
+        job_id: release-history
+        output: docs/_includes/generated/release-history.md
+        owner_route: /status/
+        owner_anchor: release-history
+        truth_begin_marker: "<!-- PRODUCT-TRUTH:BEGIN job=release-history digest=sha256:5709eb97a133c96899b74a8728b1fe3813f02bb0e2f8de21c164a3cd4a203c16 -->"
+        truth_end_marker: "<!-- PRODUCT-TRUTH:END job=release-history -->"
+        sources_begin_marker: "<!-- PRODUCT-TRUTH:SOURCES-BEGIN job=release-history owner=/status/#release-history digest=sha256:5709eb97a133c96899b74a8728b1fe3813f02bb0e2f8de21c164a3cd4a203c16 -->"
+        sources_end_marker: "<!-- PRODUCT-TRUTH:SOURCES-END job=release-history -->"
+        source_digest: sha256:5709eb97a133c96899b74a8728b1fe3813f02bb0e2f8de21c164a3cd4a203c16
+        descriptors:
+          - {kind: commit, commit_binding: record, commit: 7dd4ecde45abf6edd5149e476b2847feb7bd276c}
+        url_templates:
+          - "https://github.com/backstop-ai/backstop-core/commit/7dd4ecde45abf6edd5149e476b2847feb7bd276c"
+        site_identity: owner:SPEC-075:site-commit
+        rendered_anchors:
+          - section[data-generated-region][data-product-truth-job=release-history] a[data-generated-source-link]
+        reconstruction_verdict: owner:SPEC-075:reconstruction
+        rendered_digest: owner:SPEC-075:rendered-digest
+  - global_key: CAP-014/@UJ-001
+    hops: ["/status/#adjacent-guidance", "/contributing/#external-ownership"]
+    jlinks: [JLINK-024]
+    dual_identity:
+      journey_link_id: JLINK-024
+      boundary_id: BOUNDARY-005
+      href: "/contributing/#external-ownership"
+    obligations:
+      - {kind: evidence, claim_id: CLAIM-005, owner_route: "/status/", owner_anchor: adjacent-guidance, claim_type: mechanism}
+      - {kind: boundary, boundary_id: BOUNDARY-005, owner_route: "/status/", owner_anchor: adjacent-guidance, state: adjacent-guidance, claim_id: CLAIM-005}
+  - global_key: CAP-014/@UJ-002
+    hops: ["/evaluate/#compatibility-limits", "/status/#adjacent-guidance"]
+    jlinks: [JLINK-009]
+    obligations:
+      - {kind: evidence, claim_id: CLAIM-012, owner_route: "/evaluate/", owner_anchor: compatibility-limits, claim_type: compatibility}
+      - {kind: boundary, boundary_id: BOUNDARY-005, owner_route: "/status/", owner_anchor: adjacent-guidance, state: adjacent-guidance, claim_id: CLAIM-005}
