@@ -121,4 +121,38 @@ npm ci
 log "playwright install --with-deps chromium"
 npx --yes playwright install --with-deps chromium
 
+# --- 9. Ruby + Jekyll (public-site build) ------------------------------------
+# scripts/verify-public-site.sh runs `bundle exec jekyll build --source docs`.
+# CI pins Ruby 3.3.4 (whose default Bundler 2.5.11 matches Gemfile.lock's
+# BUNDLED WITH). No Ruby ships on the base image and there is no version
+# manager, so build 3.3.4 with ruby-build into a fixed prefix and expose it
+# (plus the bundle-provided `jekyll` executable) on PATH via /usr/local/bin.
+RUBY_VERSION_PIN="3.3.4"
+RUBY_PREFIX="/opt/ruby-${RUBY_VERSION_PIN}"
+log "ruby ${RUBY_VERSION_PIN}"
+if [ -x "$RUBY_PREFIX/bin/ruby" ] && "$RUBY_PREFIX/bin/ruby" --version 2>/dev/null | grep -q "$RUBY_VERSION_PIN"; then
+  echo "already built: $("$RUBY_PREFIX/bin/ruby" --version)"
+else
+  sudo apt-get update -y
+  sudo apt-get install -y autoconf patch build-essential libssl-dev libyaml-dev \
+    zlib1g-dev libreadline-dev libffi-dev libgdbm-dev libncurses-dev
+  tmp="$(mktemp -d)"
+  git clone --depth 1 https://github.com/rbenv/ruby-build.git "$tmp/ruby-build"
+  sudo mkdir -p "$RUBY_PREFIX"
+  sudo chown "$(id -u):$(id -g)" "$RUBY_PREFIX"
+  "$tmp/ruby-build/bin/ruby-build" "$RUBY_VERSION_PIN" "$RUBY_PREFIX"
+  rm -rf "$tmp"
+  echo "built: $("$RUBY_PREFIX/bin/ruby" --version)"
+fi
+for b in ruby gem bundle bundler erb rake irb; do
+  [ -x "$RUBY_PREFIX/bin/$b" ] && sudo ln -sf "$RUBY_PREFIX/bin/$b" "$BIN_DIR/$b"
+done
+
+log "bundle install (jekyll / github-pages)"
+bundle install
+# The `jekyll` executable is a bundle-provided gem wrapper in the ruby prefix's
+# bin; `bundle exec jekyll` resolves it via PATH, so expose it in /usr/local/bin.
+[ -x "$RUBY_PREFIX/bin/jekyll" ] && sudo ln -sf "$RUBY_PREFIX/bin/jekyll" "$BIN_DIR/jekyll"
+echo "installed: $(bundle exec jekyll --version 2>/dev/null | tail -1)"
+
 log "install complete"
