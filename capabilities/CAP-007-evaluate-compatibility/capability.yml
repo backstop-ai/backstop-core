@@ -1,0 +1,16 @@
+---
+# Capability: Evaluate Compatibility
+# See artifacts/capability/v1/schema.json for format
+
+capability:
+  id: CAP-007
+  title: "Evaluate Compatibility"
+  status: draft
+  strictness: relaxed
+
+infrastructure_specs: []
+
+quality_gates:
+  - type: acceptance
+    command: ""
+    must_pass: true

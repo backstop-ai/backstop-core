@@ -1,0 +1,16 @@
+---
+# Capability: Browse Pack Ecosystem
+# See artifacts/capability/v1/schema.json for format
+
+capability:
+  id: CAP-011
+  title: "Browse Pack Ecosystem"
+  status: draft
+  strictness: relaxed
+
+infrastructure_specs: []
+
+quality_gates:
+  - type: acceptance
+    command: ""
+    must_pass: true

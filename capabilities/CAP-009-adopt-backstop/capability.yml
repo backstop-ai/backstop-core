@@ -1,0 +1,16 @@
+---
+# Capability: Adopt Backstop
+# See artifacts/capability/v1/schema.json for format
+
+capability:
+  id: CAP-009
+  title: "Adopt Backstop"
+  status: draft
+  strictness: relaxed
+
+infrastructure_specs: []
+
+quality_gates:
+  - type: acceptance
+    command: ""
+    must_pass: true
