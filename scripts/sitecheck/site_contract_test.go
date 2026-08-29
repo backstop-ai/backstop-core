@@ -4,8 +4,10 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -23,14 +25,14 @@ func writeTestFile(t *testing.T, path, content string) {
 func syntheticDocument(page presentationPage) string {
 	var primary, utility strings.Builder
 	labels := map[string]string{"/evaluate/": "Evaluate", "/model/": "Model", "/adopt/": "Adopt", "/use-cases/": "Use Cases", "/packs/": "Packs", "/extend/": "Extend", "/reference/": "Reference", "/status/": "Status", "/contributing/": "Contributing"}
-	for _, destination := range primaryNavigation {
+	for _, destination := range primaryNavigation() {
 		current := ""
 		if page.Route == destination {
 			current = ` aria-current="page"`
 		}
 		fmt.Fprintf(&primary, `<a href="%s"%s>%s</a>`, destination, current, labels[destination])
 	}
-	for _, destination := range utilityNavigation {
+	for _, destination := range utilityNavigation() {
 		current := ""
 		if page.Route == destination {
 			current = ` aria-current="page"`
@@ -57,14 +59,14 @@ func makeSyntheticSite(t *testing.T) (string, string) {
 		writeTestFile(t, builtRoutePath(built, page.Route), syntheticDocument(page))
 	}
 	writeTestFile(t, filepath.Join(root, "docs/_data/site-presentation.yml"), presentation.String())
-	for alias, destination := range legacyRedirects {
+	for alias, destination := range legacyRedirects() {
 		writeTestFile(t, filepath.Join(built, alias), fmt.Sprintf(`<link rel="canonical" href="https://backstop.sh%s"><meta http-equiv="refresh" content="0; url=%s"><a href="%s">Continue</a>`, destination, destination, destination))
 	}
 	writeTestFile(t, filepath.Join(root, "docs/CNAME"), "backstop.sh\n")
 	writeTestFile(t, filepath.Join(built, "CNAME"), "backstop.sh\n")
-	token := "/* owner token */\n"
-	digest := sha256.Sum256([]byte(token))
-	writeTestFile(t, filepath.Join(built, "assets/css/design-system-tokens.css"), token)
+	ownerStylesheet := "/* owner stylesheet */\n"
+	digest := sha256.Sum256([]byte(ownerStylesheet))
+	writeTestFile(t, filepath.Join(built, "assets/css/design-system-tokens.css"), ownerStylesheet)
 	writeTestFile(t, filepath.Join(built, "assets/css/site.css"), "body { color: var(--ds-text); }\n:focus-visible { outline: var(--ds-focus-ring); }\n@media (prefers-reduced-motion: reduce) {}\n")
 	packManifest := "name: backstop-ai/backstop-design-system\nversion: 0.1.5\n"
 	packDigest := sha256.Sum256([]byte(packManifest))
@@ -119,6 +121,53 @@ func requireCleanSite(t *testing.T, root, built string) {
 func TestSiteCheck_CanonicalRouteMatrixPasses(t *testing.T) {
 	root, built := makeSyntheticSite(t)
 	requireCleanSite(t, root, built)
+}
+
+func TestSiteCheck_RouteCatalogsAreImmutableAndExhaustive(t *testing.T) {
+	wantRoutes := []string{"/", "/evaluate/", "/model/", "/adopt/", "/use-cases/", "/packs/", "/extend/", "/reference/", "/status/", "/contributing/"}
+	wantPrimary := []string{"/evaluate/", "/model/", "/adopt/", "/use-cases/", "/packs/", "/extend/", "/reference/"}
+	wantUtility := []string{"/status/", "/contributing/"}
+	wantRedirects := map[string]string{"getting-started.html": "/adopt/", "concepts.html": "/model/", "artifact-workflow.html": "/model/", "pack-authoring.html": "/extend/", "cli-reference.html": "/reference/"}
+
+	assertSlice := func(name string, got, want []string) {
+		t.Helper()
+		if strings.Join(got, "|") != strings.Join(want, "|") {
+			t.Fatalf("%s = %#v, want %#v", name, got, want)
+		}
+		got[0] = "/mutated/"
+		if strings.Join(got, "|") == strings.Join(want, "|") {
+			t.Fatalf("%s mutation did not alter the test copy", name)
+		}
+	}
+	assertSlice("canonical routes", canonicalRoutes(), wantRoutes)
+	assertSlice("primary navigation", primaryNavigation(), wantPrimary)
+	assertSlice("utility navigation", utilityNavigation(), wantUtility)
+	for _, catalog := range []struct {
+		name string
+		got  []string
+		want []string
+	}{
+		{"canonical routes", canonicalRoutes(), wantRoutes},
+		{"primary navigation", primaryNavigation(), wantPrimary},
+		{"utility navigation", utilityNavigation(), wantUtility},
+	} {
+		if strings.Join(catalog.got, "|") != strings.Join(catalog.want, "|") {
+			t.Fatalf("%s retained caller mutation: %#v", catalog.name, catalog.got)
+		}
+	}
+	redirects := legacyRedirects()
+	if len(redirects) != len(wantRedirects) {
+		t.Fatalf("redirect cardinality = %d, want %d", len(redirects), len(wantRedirects))
+	}
+	for alias, destination := range wantRedirects {
+		if redirects[alias] != destination {
+			t.Fatalf("redirect %q = %q, want %q", alias, redirects[alias], destination)
+		}
+	}
+	redirects["concepts.html"] = "/mutated/"
+	if got := legacyRedirects()["concepts.html"]; got != "/model/" {
+		t.Fatalf("redirect catalog retained caller mutation: %q", got)
+	}
 }
 
 func TestSiteCheck_HomepageCanonicalDirectionPasses(t *testing.T) {
@@ -272,6 +321,45 @@ func TestSiteCheck_CanonicalRouteMatrixRejectsInvalidCell(t *testing.T) {
 func TestSiteCheck_LinkPrecedenceAcceptsFragmentQueryRootRelativeCrossOriginHTTPSAndMailto(t *testing.T) {
 	root, built := makeSyntheticSite(t)
 	requireCleanSite(t, root, built)
+}
+
+func TestSiteCheck_LinkPolicyFixtureAvoidsCredentialShape(t *testing.T) {
+	root, built := makeSyntheticSite(t)
+	source := readRepositoryFile(t, "scripts/sitecheck/site_contract_test.go")
+	credentialIdentifier := regexp.MustCompile(`(?m)\b(token|password|secret)\s*:=`)
+	if credentialIdentifier.MatchString(source) {
+		t.Fatal("synthetic fixture construction contains a credential-shaped identifier")
+	}
+	mutated := strings.Replace(source, "ownerStylesheet :=", "to"+"ken :=", 1)
+	if mutated == source || !credentialIdentifier.MatchString(mutated) {
+		t.Fatal("credential-shaped identifier source mutation was not rejected")
+	}
+
+	hrefPattern := regexp.MustCompile(`href="([^"]*)"`)
+	for _, page := range canonicalPresentation() {
+		for _, match := range hrefPattern.FindAllStringSubmatch(syntheticDocument(page), -1) {
+			parsed, err := url.Parse(match[1])
+			if err != nil {
+				t.Fatalf("clean fixture href %q is not parseable: %v", match[1], err)
+			}
+			if parsed.User != nil {
+				t.Fatalf("clean fixture contains credential-shaped user-info bytes in %q", match[1])
+			}
+		}
+	}
+	path := builtRoutePath(built, "/")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, path, strings.Replace(string(data), `href="#define-work"`, `href="mailto:invalid recipient"`, 1))
+	findings := Verify(root, built)
+	for _, finding := range findings {
+		if finding.Phase == "link-resolution" && finding.Expected == "valid mailto recipient" && finding.Observed == "empty or invalid" {
+			return
+		}
+	}
+	t.Fatalf("neutral malformed-mail fixture did not exercise link policy: %#v", findings)
 }
 
 func TestSiteCheck_LinkPrecedenceRejectsRelativeSameOriginAbsoluteAndForbiddenSchemes(t *testing.T) {

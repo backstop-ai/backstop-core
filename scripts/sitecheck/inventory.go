@@ -34,6 +34,7 @@ func allowedRoles() map[string]bool {
 		"action-lock": true, "browser-verification": true, "build-dependency": true,
 		"delivery-inventory": true, "deploy-stamp": true, "deploy-verifier": true,
 		"include": true, "layout": true, "owner-asset-installer": true,
+		"governance-artifact":  true,
 		"owner-release-import": true, "pack-declaration": true, "pack-lock": true,
 		"page-wrapper": true, "public-homepage": true, "rendered-contract-stamper": true,
 		"retired-bootstrap": true, "release-evidence-verifier": true,
@@ -147,6 +148,8 @@ func validatePathRole(entry DeliveryEntry) error {
 
 func expectedRole(path string) string {
 	switch {
+	case path == "issues/ISSUE-190-restore-canonical-homepage-direction.issue.md" || path == "plans/PLAN-ISSUE-190-restore-canonical-homepage-direction.plan.yml":
+		return "governance-artifact"
 	case path == ".backstop/seed4-delivery-inventory.yml":
 		return "delivery-inventory"
 	case path == ".backstop/website-pack-releases.yml":

@@ -150,6 +150,53 @@ func TestDeliveryInventory_PathRoleMatrix(t *testing.T) {
 	}
 }
 
+func TestDeliveryInventory_ISSUE190GovernanceArtifactsAreClosedRows(t *testing.T) {
+	const issuePath = "issues/ISSUE-190-restore-canonical-homepage-direction.issue.md"
+	const planPath = "plans/PLAN-ISSUE-190-restore-canonical-homepage-direction.plan.yml"
+	for _, path := range []string{issuePath, planPath} {
+		if got := expectedRole(path); got != "governance-artifact" {
+			t.Fatalf("expectedRole(%q) = %q, want governance-artifact", path, got)
+		}
+	}
+	for _, path := range []string{
+		"issues/ISSUE-191-unrelated.issue.md",
+		"plans/PLAN-ISSUE-191-unrelated.plan.yml",
+		"issues/nested/ISSUE-190-restore-canonical-homepage-direction.issue.md",
+	} {
+		if got := expectedRole(path); got != "" {
+			t.Fatalf("unrelated governance path %q admitted as %q", path, got)
+		}
+	}
+
+	root := filepath.Clean(filepath.Join("..", ".."))
+	inventory, err := loadDeliveryInventory(filepath.Join(root, ".backstop", "seed4-delivery-inventory.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, requiredPath := range []string{issuePath, planPath} {
+		matched := 0
+		for _, entry := range inventory.Entries {
+			if entry.Path == requiredPath && entry.Change == "A" && entry.Role == "governance-artifact" {
+				matched++
+			}
+		}
+		if matched != 1 {
+			t.Fatalf("required inventory row %q cardinality = %d, want 1", requiredPath, matched)
+		}
+		omitted := inventory
+		omitted.Entries = append([]DeliveryEntry(nil), inventory.Entries...)
+		for index, entry := range omitted.Entries {
+			if entry.Path == requiredPath {
+				omitted.Entries = append(omitted.Entries[:index], omitted.Entries[index+1:]...)
+				break
+			}
+		}
+		if err := validateInventoryMatchesDiff(root, omitted); err == nil || !strings.Contains(err.Error(), "inventory differs") {
+			t.Fatalf("omitting %q did not fail exact diff matching: %v", requiredPath, err)
+		}
+	}
+}
+
 func TestDeliveryInventory_GitDiffAndMatch(t *testing.T) {
 	root := t.TempDir()
 	runGit := func(args ...string) string {

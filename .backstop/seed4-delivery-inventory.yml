@@ -110,6 +110,9 @@ entries:
     path: docs/use-cases.md
     role: page-wrapper
   - change: A
+    path: issues/ISSUE-190-restore-canonical-homepage-direction.issue.md
+    role: governance-artifact
+  - change: A
     path: package-lock.json
     role: build-dependency
   - change: A
@@ -118,6 +121,9 @@ entries:
   - change: A
     path: playwright.config.ts
     role: browser-verification
+  - change: A
+    path: plans/PLAN-ISSUE-190-restore-canonical-homepage-direction.plan.yml
+    role: governance-artifact
   - change: A
     path: scripts/install-design-assets.sh
     role: owner-asset-installer

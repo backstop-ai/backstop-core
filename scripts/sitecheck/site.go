@@ -82,15 +82,26 @@ type OwnerAcceptanceExport struct {
 	} `yaml:"protected_file_fingerprints"`
 }
 
-var canonicalRoutes = []string{"/", "/evaluate/", "/model/", "/adopt/", "/use-cases/", "/packs/", "/extend/", "/reference/", "/status/", "/contributing/"}
-var primaryNavigation = []string{"/evaluate/", "/model/", "/adopt/", "/use-cases/", "/packs/", "/extend/", "/reference/"}
-var utilityNavigation = []string{"/status/", "/contributing/"}
-var legacyRedirects = map[string]string{
-	"getting-started.html":   "/adopt/",
-	"concepts.html":          "/model/",
-	"artifact-workflow.html": "/model/",
-	"pack-authoring.html":    "/extend/",
-	"cli-reference.html":     "/reference/",
+func canonicalRoutes() []string {
+	return []string{"/", "/evaluate/", "/model/", "/adopt/", "/use-cases/", "/packs/", "/extend/", "/reference/", "/status/", "/contributing/"}
+}
+
+func primaryNavigation() []string {
+	return []string{"/evaluate/", "/model/", "/adopt/", "/use-cases/", "/packs/", "/extend/", "/reference/"}
+}
+
+func utilityNavigation() []string {
+	return []string{"/status/", "/contributing/"}
+}
+
+func legacyRedirects() map[string]string {
+	return map[string]string{
+		"getting-started.html":   "/adopt/",
+		"concepts.html":          "/model/",
+		"artifact-workflow.html": "/model/",
+		"pack-authoring.html":    "/extend/",
+		"cli-reference.html":     "/reference/",
+	}
 }
 
 func navigationLabel(route string) string {
@@ -195,7 +206,7 @@ func verifyRouteDocument(route string, page PresentationPage, doc string) []Find
 		}
 	}
 	currentExpected := 0
-	for _, destination := range append(append([]string{}, primaryNavigation...), utilityNavigation...) {
+	for _, destination := range append(primaryNavigation(), utilityNavigation()...) {
 		count := strings.Count(doc, `href="`+destination+`"`)
 		if count < 1 {
 			findings = append(findings, Finding{Phase: "navigation", Identity: route + " -> " + destination, Expected: "present", Observed: "missing"})
@@ -226,8 +237,8 @@ func verifyRouteDocument(route string, page PresentationPage, doc string) []Find
 			position = location[0]
 		}
 	}
-	verifyNavigationOrder("Primary", primaryNavigation)
-	verifyNavigationOrder("Utility", utilityNavigation)
+	verifyNavigationOrder("Primary", primaryNavigation())
+	verifyNavigationOrder("Utility", utilityNavigation())
 	addCardinality(&findings, "navigation", route+" current-page", fmt.Sprintf("%d", currentExpected), strings.Count(doc, `aria-current="page"`))
 	return findings
 }
@@ -313,7 +324,7 @@ func collectBuiltDocuments(builtRoot string) (map[string]string, map[string]map[
 	documents := map[string]string{}
 	ids := map[string]map[string]int{}
 	var findings []Finding
-	for _, route := range canonicalRoutes {
+	for _, route := range canonicalRoutes() {
 		path := builtRoutePath(builtRoot, route)
 		data, err := os.ReadFile(path)
 		if err != nil {
@@ -380,7 +391,7 @@ func verifyLinks(documents map[string]string, ids map[string]map[string]int) []F
 func VerifyRenderedOwnerContracts(_ string, builtRoot string, siteCommit string) []Finding {
 	documents, _, findings := collectBuiltDocuments(builtRoot)
 	joined := ""
-	for _, route := range canonicalRoutes {
+	for _, route := range canonicalRoutes() {
 		joined += documents[route]
 	}
 	for index := 1; index <= 24; index++ {
@@ -543,11 +554,12 @@ func Verify(root, builtRoot string) []Finding {
 	if err != nil {
 		return []Finding{{Phase: "presentation", Identity: "site-presentation", Expected: "valid exact matrix", Observed: err.Error()}}
 	}
-	if len(presentation.Pages) != len(canonicalRoutes) {
-		return []Finding{{Phase: "presentation", Identity: "route cardinality", Expected: fmt.Sprintf("%d", len(canonicalRoutes)), Observed: fmt.Sprintf("%d", len(presentation.Pages))}}
+	routes := canonicalRoutes()
+	if len(presentation.Pages) != len(routes) {
+		return []Finding{{Phase: "presentation", Identity: "route cardinality", Expected: fmt.Sprintf("%d", len(routes)), Observed: fmt.Sprintf("%d", len(presentation.Pages))}}
 	}
 	documents, ids, findings := collectBuiltDocuments(builtRoot)
-	for index, route := range canonicalRoutes {
+	for index, route := range routes {
 		page := presentation.Pages[index]
 		if page.Route != route {
 			findings = append(findings, Finding{Phase: "presentation", Identity: fmt.Sprintf("row %d", index), Expected: route, Observed: page.Route})
@@ -558,7 +570,7 @@ func Verify(root, builtRoot string) []Finding {
 		}
 	}
 	findings = append(findings, verifyLinks(documents, ids)...)
-	for alias, destination := range legacyRedirects {
+	for alias, destination := range legacyRedirects() {
 		data, err := os.ReadFile(filepath.Join(builtRoot, alias))
 		if err != nil {
 			findings = append(findings, Finding{Phase: "legacy-redirect", Identity: alias, Expected: destination, Observed: err.Error()})
