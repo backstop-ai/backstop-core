@@ -1,6 +1,9 @@
 {
   "name": "backstop-core",
   "user": "ubuntu",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
   "install": "bash .cursor/install.sh",
   "repositoryDependencies": [
     "github.com/backstop-ai/backstop-core-architecture",
