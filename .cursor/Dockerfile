@@ -38,9 +38,14 @@ RUN usermod -aG sudo ubuntu \
     && chmod 0440 /etc/sudoers.d/ubuntu
 
 # --- Go (go.mod pins 1.25.3; GOTOOLCHAIN=auto fetches newer when a tool asks) -
+# Symlink into /usr/local/bin because the install phase runs with a standard
+# PATH that does NOT inherit this image's ENV PATH — /usr/local/bin is always on
+# it, /usr/local/go/bin is not.
 RUN curl -fsSL https://go.dev/dl/go1.25.3.linux-amd64.tar.gz -o /tmp/go.tgz \
     && tar -C /usr/local -xzf /tmp/go.tgz \
-    && rm /tmp/go.tgz
+    && rm /tmp/go.tgz \
+    && ln -sf /usr/local/go/bin/go /usr/local/bin/go \
+    && ln -sf /usr/local/go/bin/gofmt /usr/local/bin/gofmt
 
 # --- Node.js 22 (Playwright harness + npm) -----------------------------------
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
