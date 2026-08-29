@@ -1,0 +1,630 @@
+---
+plan_id: PLAN-ISSUE-190
+spec_id: ISSUE-190
+created: "2026-08-28"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: ./scripts/verify-public-site.sh
+coverage_threshold: 80
+notes: |
+  Focused reactive correction sourced from ISSUE-190. The approved mockup supplies
+  intent, while commit 083ae5d955ca4216c8abcd778ef8c5c1fd6987bb supplies the
+  canonical homepage markup and presentation baseline. Implementation must reconcile
+  that baseline with the delivered Seed 4 shell; it must not revert the repository or
+  copy mockup-only metadata, path-relative links, href="#" placeholders, or obsolete
+  three-link navigation.
+
+  The smallest coherent Core production scope includes the homepage, its presentation
+  and sitecheck consumer, plus the declared/locked design-system release and immutable
+  release-evidence consumers enumerated below. The already-canonical
+  docs/assets/css/backstop-tokens.css remains read-only. The shared Pages/static
+  pipeline, source-owned claim and journey markers, root-relative destinations,
+  seven-primary/two-utility IA, skip link, required-block IDs, owner boundaries,
+  footer, next action, and installed design-system contracts are retained. Nonvisual
+  shared-shell attributes may remain where enforcement consumes them, but the
+  homepage-only field-guide question/content wrappers and visible scaffold headings
+  do not remain: their required contract attributes/IDs move onto the canonical
+  homepage elements instead of preserving accidental visual wrappers.
+
+  ISSUE-189 and PLAN-ISSUE-189 are separate and untouched. They own the isolated
+  actual-200%-text responsive integration in docs/assets/css/site.css. ISSUE-190 does
+  not edit that file: it removes the legacy navigation suppression at its source in
+  docs/assets/css/backstop.css and consumes the current site.css reflow behavior.
+  If ISSUE-189 has uncommitted site.css work when implementation starts, land or
+  isolate that work first, then execute this plan without absorbing or rewriting it.
+  The browser RED lane strengthens the same existing assertions but does not change
+  ISSUE-189's one-file implementation scope.
+
+  Existing exact tests named by ISSUE-190 remain binding. This plan adds the three
+  absent homepage-specific names and strengthens the existing navigation and
+  actual-200%-text contracts rather than adding one-off browser helpers or weakening
+  any gate. The homepage change fence is route-contract based: it proves the canonical
+  exception applies only to `/` while non-home pages retain their existing shared
+  shell, avoiding a branch-relative Git-diff test that would become stale.
+
+  PUBLISHED EXTERNAL DEPENDENCY: Core currently declares and locks
+  backstop-ai/backstop-design-system v0.1.2, whose public-site acceptance contract
+  exports the obsolete two-span mutation source. The user has decided to adopt the
+  already-published v0.1.5 at immutable tag commit
+  41f9867265d66f51d30e7a632b780986556d2ed0. Its ruleset 1.3.1, canonical-wordmark
+  rule/fixtures, and owner acceptance export require the exact source-visible ordered
+  three-part `./b`, `backstop`, `.sh` mark needed by ISSUE-190. Published evidence pins
+  content hash f3df3dd08932b7788f3728d2c6bf495d9f36b125c5812eb13d516c92eccdfa33,
+  export digest 5c78650b2282cfa0cfe834fcda849e5c6538a4e32b11df623969b0aa54da1624,
+  token digest 7acb7d5381e47f40cce504a47c3877e93f7b079d050573bdb5ad22fa40421cf0,
+  release-evidence commit f60a5b01110ecf0d1cda338aad6e71c018a35acc and file digest
+  f48d339543ec91919c3a1c7c26ebe7fd81ff4505174e41e5ea20c0f00482a9f4,
+  owner artifact digest 805a25ae728a0951e198a2cd000f6b7d4af3fdfa22875f54ede17c09bc1774de,
+  and log commit d7cd2894c793e7163daf704a39a26d1e62b96924.
+
+  Independent external review found broader release-proof and adversarial-coverage
+  gaps, now tracked in backstop-design-system ISSUE-004. The user explicitly accepts
+  and defers that debt; it is neither a hidden clean-review claim nor a Core ISSUE-190
+  implementation requirement. Do not require or plan v0.1.6 or any other pack release.
+  Core still must confirm the published v0.1.5 tag/evidence and adopt it through normal
+  pack update. Installed pack bytes remain external and gitignored: never edit them
+  locally, duplicate or hide a truncated mark, synthesize semantic brand text in CSS,
+  or relax the installed-pack matrix.
+
+  DELIVERY HARDENING: PR #29 at head
+  151f38b56088abaf89765042c73e0035f517bada exposed substantive failures after the
+  homepage implementation: the Seed 4 delivery inventory omitted ISSUE-190 and this
+  plan; a test invoked a literal external executable; four route/navigation catalogs
+  were package-level mutable state; the synthetic link-policy fixture-construction
+  identifier `token := ...` triggered no-hardcoded-credentials (the link-policy href
+  bytes did not); and scripts/sitecheck/design_system.go measured 106/133 statements, below its 80%
+  per-file floor. Phase 3 is a strict RED/GREEN remediation of those findings. It must
+  not hide governed paths, add an inventory wildcard, broaden a closed role, waive a
+  rule, exclude a file from coverage, or change homepage behavior.
+
+phases:
+  - id: phase-0
+    name: "Phase 0: Confirm the published v0.1.5 full-wordmark contract"
+    tasks:
+      - id: TASK-000
+        type: setup
+        title: "Confirm immutable backstop-design-system v0.1.5 before Core work"
+        description: |
+          Confirm `git ls-remote --tags
+          https://github.com/backstop-ai/backstop-design-system.git refs/tags/v0.1.5`
+          resolves exactly to 41f9867265d66f51d30e7a632b780986556d2ed0. Inspect that
+          tag and release-evidence/v0.1.5.yml, not mutable main: require pack version 0.1.5,
+          ruleset 1.3.1, the exact full-wordmark rule/fixture/export bytes, same-release
+          dispatch references, protected fingerprints, and published content hash
+          f3df3dd08932b7788f3728d2c6bf495d9f36b125c5812eb13d516c92eccdfa33.
+          Require export digest 5c78650b2282cfa0cfe834fcda849e5c6538a4e32b11df623969b0aa54da1624
+          and token digest 7acb7d5381e47f40cce504a47c3877e93f7b079d050573bdb5ad22fa40421cf0,
+          with release-evidence commit f60a5b01110ecf0d1cda338aad6e71c018a35acc,
+          evidence-file digest f48d339543ec91919c3a1c7c26ebe7fd81ff4505174e41e5ea20c0f00482a9f4,
+          owner digest 805a25ae728a0951e198a2cd000f6b7d4af3fdfa22875f54ede17c09bc1774de,
+          and log commit d7cd2894c793e7163daf704a39a26d1e62b96924. Require the published
+          pack-check, pack-test, public-site-acceptance, canonical
+          dispatch, CI/tag-integrity, tag, and release-existence receipts described by the
+          user decision. Once these immutable identities agree, Core implementation may
+          begin; do not require another pack release.
+
+          Record backstop-design-system ISSUE-004 as accepted deferred external debt for
+          broader release-proof/adversarial gaps. Do not claim those gaps were reviewed
+          clean, import them into Core scope, weaken Core verification, or patch the
+          currently installed v0.1.2 directory.
+        files:
+          - backstop.yml
+          - backstop.lock
+          - .backstop/website-pack-releases.yml
+          - .backstop/packs/backstop-ai/backstop-design-system/contracts/public-site-acceptance.yml
+        claims:
+          - CLM-001
+          - CLM-006
+        depends_on: []
+
+  - id: phase-1
+    name: "Phase 1: RED browser and structural reconciliation contracts"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "RED: make the no-JavaScript and 200-percent browser matrix non-vacuous"
+        description: |
+          Before adding the structural RED tests, strengthen the existing Playwright
+          path so the current homepage fails in the browser stage rather than passing
+          because hidden navigation is excluded from the focusable count. Reuse
+          assertRequiredSurface, assertContentCompleteness,
+          assertKeyboardOrderAndBounds, and assertLocalOverflow; do not introduce a
+          homepage helper unless the same assertion is genuinely shared by normal and
+          actual-200%-root-text cases.
+
+          Require the header Home wordmark to expose normalized visible text
+          `./b backstop.sh`; require the seven primary and two utility anchors in exact
+          owner order with exact real root-relative hrefs; and require every one of the
+          nine anchors to be visible before keyboard traversal. On `/`, assert the
+          canonical hero/gate proof, ordered 01/02/03 system sections, and exactly four
+          ordered modes Full framework, Artifact workflow, Standards enforcement, and
+          Deterministic scaffolding. Explicitly reject the visible field-guide question,
+          Why Backstop/Choose your path scaffold headings, and Evaluate/Understand/Adopt
+          as the composability replacement. Adapt required-block completeness only as
+          needed to support IDs on canonical section containers as well as ordinary page
+          headings; retain the >=80-character, visibility, and <=160px gap checks.
+
+          Keep the existing actual-200%-text loop intact and substantive: prove the
+          computed root size is baseline*2 within 0.01px, then rerun required-surface,
+          content-completeness, keyboard-order/focus-bounds, local-overflow, and <=1px
+          document-overflow assertions. Strengthen the exact Go meta-contract tests so
+          they fail if any of those calls, the exact 360/768/1440 matrix, JavaScript-off
+          posture, nine-link visibility checks, or non-suppression contract disappears.
+
+          Also add TestSiteCheck_ExternalCommandHarnessUsesParametricExecutable to the
+          existing pipeline contract suite. It must fail while any executed external
+          command supplies a literal executable directly to exec.Command, require the
+          executable to arrive through a parameterized helper/data row, and include a
+          negative source mutation proving a literal executable is rejected. This RED
+          is repaired only in TASK-004; do not move the literal into another command call.
+
+          Retain two separate executable RED receipts before TASK-002. First run
+          `go test ./scripts/sitecheck -run
+          '^TestSiteCheck_ExternalCommandHarnessUsesParametricExecutable$' -count=1 -v`
+          and require that named test to execute and fail on the literal executable call;
+          a compile/package/tool failure is not its RED evidence.
+
+          Independently prepare a temporary rendered site with the existing locked
+          `JEKYLL_ENV=production bundle exec jekyll build --source docs --destination
+          "$browser_root" --trace`, `./scripts/install-design-assets.sh
+          .backstop/packs/backstop-ai/backstop-design-system "$browser_root"`, and
+          `go run ./scripts/render-public-site-contracts --root "$PWD" --built-root
+          "$browser_root" --site-commit "$(git rev-parse HEAD)"` commands. Then run the
+          browser directly with `PUBLIC_SITE_ROOT="$browser_root"
+          PLAYWRIGHT_OUTPUT_DIR="$browser_state" npx playwright test`. Require a nonzero
+          Playwright result naming `/` at 360x800 in the normal and/or actual-200% cell,
+          with the hidden/truncated navigation or wrong three-mode content while the
+          root-font doubling assertion still executes. Do not use
+          `./scripts/verify-public-site.sh` as this browser RED receipt: an earlier Go RED
+          must not mask whether Playwright itself ran. A build/render/browser setup
+          failure is not RED evidence; clean up both temporary directories and do not
+          skip, focus, loosen, or replace an assertion.
+        files:
+          - tests/public-site.spec.ts
+          - tests/public-site-helpers.ts
+          - scripts/sitecheck/pipeline_contract_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+        test_names:
+          - TestSiteCheck_ChromiumNoJSExactInteractionMatrixPasses
+          - TestSiteCheck_LocalOverflowAndNavigationModesPass
+          - TestSiteCheck_ActualRootFontRelayoutPasses
+          - TestSiteCheck_ExternalCommandHarnessUsesParametricExecutable
+        depends_on:
+          - TASK-000
+
+      - id: TASK-002
+        type: test
+        title: "RED: specify canonical homepage structure and the route-local change fence"
+        description: |
+          After retaining TASK-001's browser RED receipt, add exact
+          TestSiteCheck_HomepageCanonicalDirectionPasses,
+          TestSiteCheck_HomepageCanonicalDirectionRejectsDriftMatrix, and
+          TestSiteCheck_HomepageCanonicalChangeFence to the existing site contract
+          suite, and strengthen TestSiteCheck_NavigationMatrixPasses in its existing
+          presentation suite. Also strengthen the existing owner-export and eight-corpus
+          tests to require the declared/locked release identity and its wordmark mutation
+          source to decode to the exact full three-part markup once in the clean homepage.
+          Extend only the existing synthetic rendered-site fixture; do not create a
+          parallel parser, mutation manifest, or helper file.
+
+          The positive fixture must carry the complete marked wordmark, skip link,
+          canonical hero and gate proof, ordered Define/Enforce/Detect sections, exact
+          four ordered modes with their distinguishing code/copy, source-owned claim
+          and JLINK-001 markers, all nine exact navigation destinations, required-block
+          IDs, canonical/root-relative links, footer, and next action. The drift matrix
+          independently rejects truncating the wordmark; inserting the field-guide
+          question or scaffold headings; reordering/removing a system section; replacing,
+          reordering, duplicating, or adding a composability mode; substituting the
+          Evaluate/Understand/Adopt rows; removing owner markers; and introducing empty,
+          fragment-only, path-relative, alias, or wrong canonical destinations.
+
+          The change-fence test must prove this is a route-local reconciliation: apply
+          the canonical-home exception to `/` and independently mutate a non-home route
+          toward homepage composition or away from its existing question/page-kind/
+          shared-shell contract, requiring the real Verify path to reject it. It must
+          not inspect a transient branch diff or encode new local visual policy.
+          Navigation coverage must assert exact primary/utility order and labels, not
+          merely presentation-file validity or anchor cardinality.
+
+          Add focused delivery-hardening RED tests as part of the same pre-implementation
+          lane. TestSiteCheck_RouteCatalogsAreImmutableAndExhaustive must reject mutable
+          package-level route/navigation state, mutate one returned slice without changing
+          the next result, and prove the redirect lookup remains closed and exhaustive.
+          TestSiteCheck_LinkPolicyFixtureAvoidsCredentialShape must require credential-neutral
+          fixture-construction identifiers and include a negative source mutation restoring
+          `token :=` that the credential rule rejects. It must also retain the existing neutral
+          malformed-mail link case and prove the same link-policy rejection without changing
+          its href bytes or attributing the original credential finding to those bytes.
+          TestDesignSystem_ErrorAndCorpusBranchesReachThreshold adds exact error/finding
+          assertions across currently uncovered substantive branches; it is coverage
+          input, not a test-level RED claim. TestDeliveryInventory_ISSUE190GovernanceArtifactsAreClosedRows must
+          require exact closed role mappings and inventory rows for ISSUE-190 and
+          PLAN-ISSUE-190, reject unrelated issue/plan paths, and fail when either row is
+          omitted. The route, credential, and inventory tests remain RED until TASK-004;
+          compile/setup failures and vacuous line execution are not evidence. CI's
+          measured 106/133 statements for scripts/sitecheck/design_system.go is the
+          authoritative coverage RED receipt; do not manufacture a failing coverage test.
+
+          RED command (the required receipt, before any implementation): run
+          `go test ./scripts/sitecheck -run
+          '^(TestSiteCheck_HomepageCanonicalDirectionPasses|TestSiteCheck_HomepageCanonicalDirectionRejectsDriftMatrix|TestSiteCheck_HomepageCanonicalChangeFence|TestSiteCheck_NavigationMatrixPasses|TestSiteCheck_OwnerAcceptanceExportBindingPasses|TestSiteCheck_EightIsolatedProjectRootsAndCleanCorpusPass)$'
+          -count=1 -v`. Require the verbose output to show the focused canonical positive/
+          drift assertions failing individually against the current homepage and the owner
+          export binding/eight-corpus assertions failing because Core still declares v0.1.2
+          with the two-span mutation source. Record each expected assertion diagnostic.
+          A compile, package, tool, setup, gate, or malformed-fixture failure is not RED.
+          The route fence's clean control may pass. After retaining those direct-test RED
+          receipts, separately run `go test ./scripts/sitecheck -run
+          '^(TestSiteCheck_RouteCatalogsAreImmutableAndExhaustive|TestSiteCheck_LinkPolicyFixtureAvoidsCredentialShape|TestDeliveryInventory_ISSUE190GovernanceArtifactsAreClosedRows)$'
+          -count=1 -v` and require all three named tests to execute and fail for their
+          intended current defects. Do not include the design-system branch test in that
+          RED command. Then run `./bin/backstop gate --file scripts/sitecheck/site_contract_test.go
+          --file scripts/sitecheck/presentation_test.go --file
+          scripts/sitecheck/design_system_test.go` as cadence; its failure does not replace
+          the named `-count=1 -v` evidence.
+        files:
+          - scripts/sitecheck/site_contract_test.go
+          - scripts/sitecheck/presentation_test.go
+          - scripts/sitecheck/design_system_test.go
+          - scripts/sitecheck/inventory_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        test_names:
+          - TestSiteCheck_HomepageCanonicalDirectionPasses
+          - TestSiteCheck_HomepageCanonicalDirectionRejectsDriftMatrix
+          - TestSiteCheck_NavigationMatrixPasses
+          - TestSiteCheck_HomepageCanonicalChangeFence
+          - TestSiteCheck_OwnerAcceptanceExportBindingPasses
+          - TestSiteCheck_EightIsolatedProjectRootsAndCleanCorpusPass
+          - TestSiteCheck_RouteCatalogsAreImmutableAndExhaustive
+          - TestSiteCheck_LinkPolicyFixtureAvoidsCredentialShape
+          - TestDesignSystem_ErrorAndCorpusBranchesReachThreshold
+          - TestDeliveryInventory_ISSUE190GovernanceArtifactsAreClosedRows
+        depends_on:
+          - TASK-001
+
+  - id: phase-2
+    name: "Phase 2: GREEN canonical homepage reconciliation"
+    tasks:
+      - id: TASK-003
+        type: implementation
+        title: "GREEN: adopt the owner release and restore canonical composition"
+        description: |
+          First consume only the published v0.1.5 owner release. Run
+          `./bin/backstop pack update backstop-ai/backstop-design-system`, require it to
+          resolve v0.1.5 at tag commit 41f9867265d66f51d30e7a632b780986556d2ed0,
+          validate the pack, update backstop.yml and backstop.lock to exact tag v0.1.5 and
+          content hash f3df3dd08932b7788f3728d2c6bf495d9f36b125c5812eb13d516c92eccdfa33,
+          and reinstall verified external bytes. Do not edit
+          `.backstop/packs/` directly. Update the design-system row in
+          .backstop/website-pack-releases.yml from the immutable v0.1.5 evidence, including
+          owner/release/log commits, digests, checks, subject identity, export/token hashes,
+          and content hash. Update verify-documentation-semantics-integration.sh to fetch
+          and verify those exact immutable v0.1.5 owner/evidence/log records. Regenerate the
+          installed-pack catalog through the existing product-truth generator so it records
+          the new declaration, lock tag, version, and content hash; do not hand-author a
+          competing catalog.
+
+          Update the shared docs/_includes/site-header.html wordmark from the obsolete
+          two-span `./b` + `.sh` markup to the same canonical source-visible ordered
+          three-part `./b`, `backstop`, `.sh` markup required by v0.1.5. Preserve its
+          existing Home destination, data-backstop-wordmark ownership marker, accessible
+          name, Primary/Utility navigation, current-page state, and every real destination.
+          This is only the REQ-007 shared-shell contract correction needed for the nine
+          non-home routes to pass the clean installed-design-system matrix; make no other
+          non-home layout, wrapper, style, content, navigation, footer, or journey change.
+
+          Reconcile scripts/sitecheck/design_system.go and scripts/sitecheck/site.go with
+          the released identity. Isolated manifests must use the declared/locked v0.1.5
+          release rather than the old hardcoded 0.1.2. Owner-export loading must bind the
+          exact new manifest/ruleset/evidence identity and verify that the wordmark mutation
+          source bytes are the approved three-part markup exactly once. Preserve all seven
+          cells, clean-plus-seven execution, one real gate per corpus, path fidelity,
+          protected fingerprints, and exact rule/file/source-pack attribution. Do not add
+          a local exception for the homepage or weaken the external rule.
+
+          Reconcile docs/index.html from the approved mockup and 083ae5d source baseline;
+          do not copy either wholesale. Preserve current canonical metadata and stylesheet
+          order, static/no-script delivery, skip link, data-site contract hooks, source-owned
+          CLAIM-017 and JLINK-001 markers, real journey/action destinations, seven primary
+          plus two utility links, root-relative internal URLs, Pages-compatible assets,
+          footer, and /evaluate/ next action. Restore the full marked
+          `./b backstop.sh` header wordmark, canonical hero/gate rhythm, ordered 01/02/03
+          system sections, and exactly the four approved composability modes and copy.
+          Remove the visual field-guide question, Why Backstop/Choose your path headings,
+          redundant outer homepage wrappers, and three Evaluate/Understand/Adopt rows.
+          Move required-block and structural attributes onto canonical elements so no
+          contract is satisfied by hidden or empty replacement markup.
+
+          In docs/assets/css/backstop.css, remove the legacy small-screen rule that hides
+          all but the last navigation link and make the existing nav layout wrap/reflow at
+          360, 768, and 1440 without document overflow. Prefer wrapping all nine visible
+          links. Only if measured evidence shows wrapping cannot satisfy the contract,
+          create one explicit, labeled, tabindex=0 local horizontal overflow region around
+          the navigation groups and preserve ArrowRight/End, focus-bounds, and no-document-
+          overflow behavior. Do not edit docs/assets/css/site.css or the canonical token
+          file, and do not alter non-home layout selectors beyond what the shared nav needs.
+
+          In the same scripts/sitecheck/site.go edit, integrate exact homepage verification
+          into the existing Verify flow and reconcile the homepage-specific wordmark/wrapper
+          expectation while leaving non-home field-guide contracts binding. Verify
+          sequence, cardinality, exact mode order/distinctions, forbidden drift markers,
+          real links, owner markers, footer/next action, and ordered 7+2 navigation through
+          the existing document/link architecture. Do not add a second verifier or broaden
+          Core sitecheck into generic visual policy.
+
+          GREEN commands/evidence: first run `./bin/backstop gate --file backstop.yml
+          --file backstop.lock --file .backstop/website-pack-releases.yml --file
+          scripts/sitecheck/design_system.go --file scripts/sitecheck/site.go --file
+          docs/_includes/site-header.html --file docs/index.html --file
+          docs/assets/css/backstop.css`, requiring the v0.1.5 lock,
+          full-wordmark export, all exact homepage/navigation tests, and clean-plus-seven
+          corpora green. Run `./scripts/verify-documentation-semantics-integration.sh` and
+          `./scripts/generate-product-truth.sh --check`, requiring immutable evidence and
+          generated catalog convergence. Then run
+          `./scripts/verify-public-site.sh`, requiring every normal viewport and all ten
+          actual-200%-text routes green, exact 2x root text, all nine nav links visible and
+          keyboard reachable, <=1px document overflow, and unchanged owner/inventory/
+          design-system/Pages stages. No waiver, skip, baseline change, placeholder link,
+          or assertion relaxation is acceptance.
+        files:
+          - backstop.yml
+          - backstop.lock
+          - .backstop/website-pack-releases.yml
+          - scripts/verify-documentation-semantics-integration.sh
+          - docs/_includes/generated/installed-pack-catalog.md
+          - docs/_includes/site-header.html
+          - docs/index.html
+          - docs/assets/css/backstop.css
+          - scripts/sitecheck/design_system.go
+          - scripts/sitecheck/site.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-001
+          - TASK-002
+
+      - id: TASK-004
+        type: refactor
+        title: "GREEN: harden delivery mechanics without changing homepage behavior"
+        description: |
+          Make the delivery-hardening tests from TASK-001/TASK-002 green. Route the
+          stamp-script invocation in pipeline_contract_test.go through one parameterized
+          executable helper/data value so no tool literal appears as an exec.Command
+          argument; do not special-case bash or move the literal into another call.
+          Replace canonicalRoutes, primaryNavigation, and utilityNavigation package
+          variables with functions returning independent slices, and replace the mutable
+          legacyRedirects map with a closed lookup or fresh immutable-returning catalog.
+          Update every sitecheck consumer, including owner_contracts_test.go, while
+          preserving exact route order, cardinality, labels, destinations, and redirects.
+          Rename only the credential-shaped fixture-construction identifier to a neutral
+          identifier, preserving the fixture bytes and link policy exactly, including the
+          existing neutral malformed-mail link case that proves the same rejection.
+
+          Extend design_system_test.go over real uncovered error and malformed-corpus
+          branches and assert exact outcomes. Run `go test ./scripts/sitecheck/... -count=1
+          -covermode=atomic -coverprofile=/tmp/issue190-sitecheck.cover`, which also
+          compiles and executes owner_contracts_test.go against the new route API. Then
+          run `go tool cover -func=/tmp/issue190-sitecheck.cover` and explicitly measure
+          the file from the profile with `awk '$1 ~
+          /scripts\/sitecheck\/design_system.go:/ { total += $2; if ($3 > 0) covered +=
+          $2 } END { if (!total) exit 2; printf "design_system.go %d/%d %.2f%%\n",
+          covered, total, 100*covered/total; exit !(100*covered/total >= 80) }'
+          /tmp/issue190-sitecheck.cover`. Require >=80% for that file; package-total
+          coverage is not a substitute. Do not edit, annotate, waive, or exclude the
+          production file to obtain coverage. Add a single exact `governance-artifact`
+          role to the closed inventory role/path matrix for only
+          issues/ISSUE-190-restore-canonical-homepage-direction.issue.md and
+          plans/PLAN-ISSUE-190-restore-canonical-homepage-direction.plan.yml. Add both as
+          `A` rows to .backstop/seed4-delivery-inventory.yml, preserving every existing
+          row and exact change/path/role matching. Do not admit a wildcard, generic
+          markdown role, unknown issue/plan, or any path outside the committed
+          fb0bfa9e700aecc2816d2a0dd00be9fa55a22e7a...HEAD diff.
+        files:
+          - scripts/sitecheck/pipeline_contract_test.go
+          - scripts/sitecheck/site_contract_test.go
+          - scripts/sitecheck/design_system_test.go
+          - scripts/sitecheck/owner_contracts_test.go
+          - scripts/sitecheck/site.go
+          - scripts/sitecheck/inventory.go
+          - scripts/sitecheck/inventory_test.go
+          - .backstop/seed4-delivery-inventory.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-001
+          - TASK-002
+          - TASK-003
+
+      - id: TASK-005
+        type: verification
+        title: "Verify the external release adoption and installed contract"
+        description: |
+          Run `./bin/backstop gate --file backstop.yml --file backstop.lock --file
+          .backstop/website-pack-releases.yml --file scripts/sitecheck/design_system.go
+          --file scripts/sitecheck/site.go --file docs/_includes/site-header.html`, then
+          `./scripts/verify-documentation-semantics-integration.sh`,
+          `./scripts/generate-product-truth.sh --check`, and
+          `./scripts/verify-public-site.sh`. Require v0.1.5 declaration/tag/commit/hash agreement,
+          immutable owner and release evidence, exact full-wordmark mutation bytes,
+          protected fingerprints, seven ordered cells, clean-plus-seven real installed
+          gates, and updated generated catalog. A local installed-pack edit, stale v0.1.2
+          literal, missing evidence receipt, two-span mark, duplicate/hidden fallback mark,
+          CSS semantic content, or relaxed corpus is a failure.
+        files:
+          - backstop.yml
+          - backstop.lock
+          - .backstop/website-pack-releases.yml
+          - scripts/verify-documentation-semantics-integration.sh
+          - docs/_includes/generated/installed-pack-catalog.md
+          - docs/_includes/site-header.html
+          - scripts/sitecheck/design_system.go
+          - scripts/sitecheck/site.go
+          - scripts/sitecheck/design_system_test.go
+          - scripts/sitecheck/site_contract_test.go
+        claims:
+          - CLM-001
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-003
+          - TASK-004
+
+      - id: TASK-006
+        type: verification
+        title: "Verify the focused homepage correction through the authoritative paths"
+        description: |
+          After TASK-005 proves the owner release adoption, first run `./bin/backstop gate
+          --file scripts/sitecheck/site.go --file scripts/sitecheck/site_contract_test.go
+          --file scripts/sitecheck/owner_contracts_test.go --file
+          scripts/sitecheck/pipeline_contract_test.go --file
+          scripts/sitecheck/design_system_test.go --file scripts/sitecheck/inventory.go
+          --file scripts/sitecheck/inventory_test.go --file
+          .backstop/seed4-delivery-inventory.yml`, then run `./bin/backstop gate` as the
+          periodic diff-scoped gate and `./scripts/verify-public-site.sh`.
+          Require all exact ISSUE-190 mandated names:
+          TestSiteCheck_HomepageCanonicalDirectionPasses,
+          TestSiteCheck_HomepageCanonicalDirectionRejectsDriftMatrix,
+          TestSiteCheck_ChromiumNoJSExactInteractionMatrixPasses,
+          TestSiteCheck_NavigationMatrixPasses,
+          TestSiteCheck_LocalOverflowAndNavigationModesPass,
+          TestSiteCheck_ActualRootFontRelayoutPasses,
+          TestSiteCheck_RenderedJourneyLinkMatrixPasses,
+          TestSiteCheck_PagesWorkflowPinnedContractPasses,
+          TestSiteCheck_CanonicalRouteMatrixPasses,
+          TestSiteCheck_VerificationPipelinePasses,
+          TestSiteCheck_Seed4DeliveryInventoryPasses,
+          TestSiteCheck_UpstreamOwnershipAndGeneratedRegionsPass, and
+          TestSiteCheck_HomepageCanonicalChangeFence to exist and pass.
+
+          Inspect the implementation diff and require modifications to be confined to
+          the Core production/consumer files in TASK-003/TASK-004 and the eight existing
+          test files in TASK-001/TASK-002/TASK-004, including owner_contracts_test.go.
+          Require the exact ISSUE-190 and
+          PLAN-ISSUE-190 governance rows in the inventory. Confirm docs/assets/css/site.css,
+          docs/assets/css/backstop-tokens.css, ISSUE-189, PLAN-ISSUE-189, non-home content
+          and all shared-header bytes outside the exact wordmark markup, workflows,
+          and installed external pack bytes are unchanged by
+          hand relative to the implementation baseline. The backstop.yml/
+          lock and immutable release-consumer changes are the only gate-configuration
+          expansion. Surface any unexpected inventory reconciliation need rather than
+          broadening the fence silently.
+        files:
+          - backstop.yml
+          - backstop.lock
+          - .backstop/website-pack-releases.yml
+          - scripts/verify-documentation-semantics-integration.sh
+          - docs/_includes/generated/installed-pack-catalog.md
+          - docs/_includes/site-header.html
+          - docs/index.html
+          - docs/assets/css/backstop.css
+          - scripts/sitecheck/design_system.go
+          - scripts/sitecheck/site.go
+          - tests/public-site.spec.ts
+          - tests/public-site-helpers.ts
+          - scripts/sitecheck/pipeline_contract_test.go
+          - scripts/sitecheck/site_contract_test.go
+          - scripts/sitecheck/presentation_test.go
+          - scripts/sitecheck/design_system_test.go
+          - scripts/sitecheck/owner_contracts_test.go
+          - scripts/sitecheck/inventory.go
+          - scripts/sitecheck/inventory_test.go
+          - .backstop/seed4-delivery-inventory.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-003
+          - TASK-004
+          - TASK-005
+
+  - id: phase-3
+    name: "Phase 3: Linux CI reproduction, full kill chain, and artifact validation"
+    tasks:
+      - id: TASK-007
+        type: verification
+        title: "Run full repository acceptance and validate PLAN-ISSUE-190"
+        description: |
+          First reproduce the PR gate in a clean Linux checkout/worktree. Use go.mod's
+          Go version and install the same CI binaries on PATH: golangci-lint v2.6.0,
+          go-arch-lint v1.16.0, semgrep 1.156.0, and ast-grep 0.43.0. Build with
+          `go build -o ./bin/backstop ./cmd/backstop`, then preserve workflow order:
+          run `./scripts/verify-product-truth.sh`, run `./bin/backstop pack install`, and
+          run `./scripts/verify-documentation-semantics-integration.sh`. Only after all
+          three succeed, run exactly
+          `./bin/backstop gate --base fb0bfa9e700aecc2816d2a0dd00be9fa55a22e7a
+          --json-out gate-report.json`. Inspect the report and require no
+          no-baked-tool-exec, no-global-mutable-state, no-hardcoded-credentials,
+          inventory mismatch, per-file coverage, capability-absent, or vacuous-green
+          result. Confirm the exact committed base...HEAD diff has a one-to-one inventory
+          row and ISSUE-189/PLAN-ISSUE-189 remain absent and untouched.
+
+          Then run `./scripts/verify-public-site.sh`, followed by the comprehensive
+          `./bin/backstop gate --all`, then
+          `./bin/backstop artifact validate --plan PLAN-ISSUE-190`. Require the complete
+          public-site pipeline and repository kill chain green with >=80% sitecheck
+          coverage, substantive positive/negative homepage structure, all no-JavaScript
+          and actual-200%-text browser cells, exact navigation/link contracts, ownership,
+          delivery inventory, installed design-system, static Pages, and the route-local
+          change fence intact. Report inherited or unrelated failures truthfully; do not
+          edit ISSUE-189/PLAN-ISSUE-189, weaken a test, add a waiver/suppression/baseline,
+          or expand into non-home redesign to obtain green.
+        files:
+          - plans/PLAN-ISSUE-190-restore-canonical-homepage-direction.plan.yml
+          - .backstop/seed4-delivery-inventory.yml
+          - backstop.yml
+          - backstop.lock
+          - .backstop/website-pack-releases.yml
+          - scripts/verify-product-truth.sh
+          - scripts/verify-documentation-semantics-integration.sh
+          - docs/_includes/generated/installed-pack-catalog.md
+          - docs/_includes/site-header.html
+          - docs/index.html
+          - docs/assets/css/backstop.css
+          - scripts/sitecheck/design_system.go
+          - scripts/sitecheck/site.go
+          - scripts/sitecheck/inventory.go
+          - scripts/sitecheck/inventory_test.go
+          - scripts/sitecheck/pipeline_contract_test.go
+          - scripts/sitecheck/site_contract_test.go
+          - scripts/sitecheck/design_system_test.go
+          - scripts/sitecheck/owner_contracts_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-004
+          - TASK-005
+          - TASK-006

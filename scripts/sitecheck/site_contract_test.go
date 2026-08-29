@@ -2,9 +2,12 @@ package main
 
 import (
 	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -21,21 +24,27 @@ func writeTestFile(t *testing.T, path, content string) {
 
 func syntheticDocument(page presentationPage) string {
 	var primary, utility strings.Builder
-	for _, destination := range primaryNavigation {
+	labels := map[string]string{"/evaluate/": "Evaluate", "/model/": "Model", "/adopt/": "Adopt", "/use-cases/": "Use Cases", "/packs/": "Packs", "/extend/": "Extend", "/reference/": "Reference", "/status/": "Status", "/contributing/": "Contributing"}
+	for _, destination := range primaryNavigation() {
 		current := ""
 		if page.Route == destination {
 			current = ` aria-current="page"`
 		}
-		fmt.Fprintf(&primary, `<a href="%s"%s>%s</a>`, destination, current, destination)
+		fmt.Fprintf(&primary, `<a href="%s"%s>%s</a>`, destination, current, labels[destination])
 	}
-	for _, destination := range utilityNavigation {
+	for _, destination := range utilityNavigation() {
 		current := ""
 		if page.Route == destination {
 			current = ` aria-current="page"`
 		}
-		fmt.Fprintf(&utility, `<a href="%s"%s>%s</a>`, destination, current, destination)
+		fmt.Fprintf(&utility, `<a href="%s"%s>%s</a>`, destination, current, labels[destination])
 	}
-	return fmt.Sprintf(`<!doctype html><html><head><link rel="canonical" href="https://backstop.sh%s"><link rel="stylesheet" href="/assets/css/design-system-tokens.css"><link rel="stylesheet" href="/assets/css/site.css"></head><body data-site-shell="field-guide-v1"><header><a data-backstop-wordmark href="/"><span>./b</span><span>.sh</span></a><nav aria-label="Primary">%s</nav><nav aria-label="Utility">%s</nav></header><main id="main" data-page-route="%s"><section data-page-hero><h1 data-page-question>%s</h1></section><article class="prose" data-page-kind="%s"><h2 id="target">Target</h2><a href="#target">fragment</a><a href="?mode=read">query</a><a href="https://example.org/reference">external</a><a href="mailto:maintainer@example.org">mail</a></article></main><nav data-next-action><a href="%s">Next</a></nav></body></html>`, page.Route, primary.String(), utility.String(), page.Route, page.HeroQuestion, page.PageKind, page.NextAction)
+	wordmark := `<a data-backstop-wordmark href="/"><span>./b</span><span>backstop</span><span>.sh</span></a>`
+	if page.Route == "/" {
+		return fmt.Sprintf(`<!doctype html><html><head><link rel="canonical" href="https://backstop.sh/"><link rel="stylesheet" href="/assets/css/design-system-tokens.css"><link rel="stylesheet" href="/assets/css/site.css"></head><body data-site-shell="field-guide-v1"><a class="skip-link" href="#main">Skip to content</a><header>%s<nav aria-label="Primary">%s</nav><nav aria-label="Utility">%s</nav></header><main id="main" data-page-route="/" data-page-kind="home"><section data-page-hero><h1>Define the work. <span>Enforce your standards.</span> Detect drift.</h1><div data-home-gate-proof>backstop gate PASS</div></section><div data-page-content data-required-blocks="define-work,enforce-standards,detect-drift,composable-modes"><section id="define-work" data-home-system-section><span>01</span><h2>Define the work</h2><p>Find problems before implementation. <!-- backstop-claim: CLAIM-017 --> Requirements trace through a validated plan to implementation evidence before source changes begin. <!-- /backstop-claim --> <!-- backstop-journey-link: JLINK-001 --><a href="/evaluate/#target">Evaluate the failure fit</a></p></section><section id="enforce-standards" data-home-system-section><span>02</span><h2>Enforce your standards</h2><p>Encode engineering decisions once in versioned packs. Agents and CI run the same deterministic gate, with positive and negative fixtures proving each rule.</p></section><section id="detect-drift" data-home-system-section><span>03</span><h2>Detect drift</h2><p>Measure standards and requirements drift independently. Existing debt remains visible, while touched code and broken completion claims fail loudly.</p></section><section id="composable-modes"><h2>Use the framework. Or use the parts.</h2><div data-home-modes><article><span>01</span><h3>Full framework</h3><code>Artifacts + packs + recipes + gates</code><p>Define, scaffold, enforce, and verify the complete promise.</p></article><article><span>02</span><h3>Artifact workflow</h3><code>Use the whole chain or only what you need</code><p>Keep requirements, plans, decisions, and completion claims traceable.</p></article><article><span>03</span><h3>Standards enforcement</h3><code>Packs + gate</code><p>Install versioned rules and run the same result in development and CI.</p></article><article><span>04</span><h3>Deterministic scaffolding</h3><code>Recipe packs</code><p>Apply a pinned recipe without requiring enforcement rules.</p></article></div></section><a href="#define-work">fragment</a><a href="?mode=read">query</a><a href="https://example.org/reference">external</a><a href="mailto:maintainer@example.org">mail</a></div><nav data-next-action><a href="/evaluate/">Next</a></nav><footer>Open source under the MIT License.</footer></main></body></html>`, wordmark, primary.String(), utility.String())
+	}
+	targetID := "target"
+	return fmt.Sprintf(`<!doctype html><html><head><link rel="canonical" href="https://backstop.sh%s"><link rel="stylesheet" href="/assets/css/design-system-tokens.css"><link rel="stylesheet" href="/assets/css/site.css"></head><body data-site-shell="field-guide-v1"><header>%s<nav aria-label="Primary">%s</nav><nav aria-label="Utility">%s</nav></header><main id="main" data-page-route="%s"><section data-page-hero><h1 data-page-question>%s</h1></section><article class="prose" data-page-kind="%s"><h2 id="%s">Target</h2><a href="#%s">fragment</a><a href="?mode=read">query</a><a href="https://example.org/reference">external</a><a href="mailto:maintainer@example.org">mail</a></article></main><nav data-next-action><a href="%s">Next</a></nav><footer>Open source under the MIT License.</footer></body></html>`, page.Route, wordmark, primary.String(), utility.String(), page.Route, page.HeroQuestion, page.PageKind, targetID, targetID, page.NextAction)
 }
 
 func makeSyntheticSite(t *testing.T) (string, string) {
@@ -50,16 +59,16 @@ func makeSyntheticSite(t *testing.T) (string, string) {
 		writeTestFile(t, builtRoutePath(built, page.Route), syntheticDocument(page))
 	}
 	writeTestFile(t, filepath.Join(root, "docs/_data/site-presentation.yml"), presentation.String())
-	for alias, destination := range legacyRedirects {
+	for alias, destination := range legacyRedirects() {
 		writeTestFile(t, filepath.Join(built, alias), fmt.Sprintf(`<link rel="canonical" href="https://backstop.sh%s"><meta http-equiv="refresh" content="0; url=%s"><a href="%s">Continue</a>`, destination, destination, destination))
 	}
 	writeTestFile(t, filepath.Join(root, "docs/CNAME"), "backstop.sh\n")
 	writeTestFile(t, filepath.Join(built, "CNAME"), "backstop.sh\n")
-	token := "/* owner token */\n"
-	digest := sha256.Sum256([]byte(token))
-	writeTestFile(t, filepath.Join(built, "assets/css/design-system-tokens.css"), token)
+	ownerStylesheet := "/* owner stylesheet */\n"
+	digest := sha256.Sum256([]byte(ownerStylesheet))
+	writeTestFile(t, filepath.Join(built, "assets/css/design-system-tokens.css"), ownerStylesheet)
 	writeTestFile(t, filepath.Join(built, "assets/css/site.css"), "body { color: var(--ds-text); }\n:focus-visible { outline: var(--ds-focus-ring); }\n@media (prefers-reduced-motion: reduce) {}\n")
-	packManifest := "name: backstop-ai/backstop-design-system\nversion: 0.1.2\n"
+	packManifest := "name: backstop-ai/backstop-design-system\nversion: 0.1.5\n"
 	packDigest := sha256.Sum256([]byte(packManifest))
 	writeTestFile(t, filepath.Join(root, ".backstop/packs/backstop-ai/backstop-design-system/pack.yml"), packManifest)
 	var cells strings.Builder
@@ -77,7 +86,7 @@ func makeSyntheticSite(t *testing.T) (string, string) {
 		case "accessibility":
 			before, replacement = "PG5hdiBhcmlhLWxhYmVsPSJQcmltYXJ5Ij4=", "PG5hdj4="
 		case "wordmark":
-			before, replacement = "PHNwYW4+Li9iPC9zcGFuPjxzcGFuPi5zaDwvc3Bhbj4=", "PHNwYW4+Li94PC9zcGFuPjxzcGFuPi5zaDwvc3Bhbj4="
+			before, replacement = "PHNwYW4+Li9iPC9zcGFuPjxzcGFuPmJhY2tzdG9wPC9zcGFuPjxzcGFuPi5zaDwvc3Bhbj4=", "PHNwYW4+Li94PC9zcGFuPjxzcGFuPmJhY2tzdG9wPC9zcGFuPjxzcGFuPi5zaDwvc3Bhbj4="
 		case "reusable-presentation":
 			before, replacement = "PHNlY3Rpb24gZGF0YS1wYWdlLWhlcm8+", "PHNlY3Rpb24gZGF0YS1wYWdlLWhlcm8+PGgyPkR1cGxpY2F0ZTwvaDI+PC9zZWN0aW9uPjxzZWN0aW9uIGRhdGEtcGFnZS1oZXJvPg=="
 		}
@@ -87,12 +96,12 @@ func makeSyntheticSite(t *testing.T) (string, string) {
     clean_fixture: fixtures/%s-clean.html
     negative_fixture: fixtures/%s-bad.html
     mutation: {target_relative_path: %s, unique_before_base64: %s, replacement_base64: %s}
-    path_fidelity: {fixture_relative_path: fixtures/%s-bad.html, target_relative_path: %s, dispatch_evidence_ref: release-evidence/v0.1.2.yml#%s}
+    path_fidelity: {fixture_relative_path: fixtures/%s-bad.html, target_relative_path: %s, dispatch_evidence_ref: release-evidence/v0.1.5.yml#%s}
 `, id, rule, target, id, id, target, before, replacement, id, target, id)
 	}
 	export := fmt.Sprintf(`schema_version: backstop-design-system/public-site-acceptance/v1
-subject: {manifest_identity: backstop-ai/backstop-design-system, version: 0.1.2, ruleset_version: 1.2.0}
-export_fingerprint_binding: release-evidence/v0.1.2.yml#public_site_acceptance
+subject: {manifest_identity: backstop-ai/backstop-design-system, version: 0.1.5, ruleset_version: 1.3.1}
+export_fingerprint_binding: release-evidence/v0.1.5.yml#public_site_acceptance
 cells:
 %stoken_asset: {installed_relative_path: assets/design-system-tokens.css, media_type: text/css, sha256: %x, public_output: assets/css/design-system-tokens.css}
 protected_file_fingerprints:
@@ -112,6 +121,185 @@ func requireCleanSite(t *testing.T, root, built string) {
 func TestSiteCheck_CanonicalRouteMatrixPasses(t *testing.T) {
 	root, built := makeSyntheticSite(t)
 	requireCleanSite(t, root, built)
+}
+
+func TestSiteCheck_RouteCatalogsAreImmutableAndExhaustive(t *testing.T) {
+	wantRoutes := []string{"/", "/evaluate/", "/model/", "/adopt/", "/use-cases/", "/packs/", "/extend/", "/reference/", "/status/", "/contributing/"}
+	wantPrimary := []string{"/evaluate/", "/model/", "/adopt/", "/use-cases/", "/packs/", "/extend/", "/reference/"}
+	wantUtility := []string{"/status/", "/contributing/"}
+	wantRedirects := map[string]string{"getting-started.html": "/adopt/", "concepts.html": "/model/", "artifact-workflow.html": "/model/", "pack-authoring.html": "/extend/", "cli-reference.html": "/reference/"}
+
+	assertSlice := func(name string, got, want []string) {
+		t.Helper()
+		if strings.Join(got, "|") != strings.Join(want, "|") {
+			t.Fatalf("%s = %#v, want %#v", name, got, want)
+		}
+		got[0] = "/mutated/"
+		if strings.Join(got, "|") == strings.Join(want, "|") {
+			t.Fatalf("%s mutation did not alter the test copy", name)
+		}
+	}
+	assertSlice("canonical routes", canonicalRoutes(), wantRoutes)
+	assertSlice("primary navigation", primaryNavigation(), wantPrimary)
+	assertSlice("utility navigation", utilityNavigation(), wantUtility)
+	for _, catalog := range []struct {
+		name string
+		got  []string
+		want []string
+	}{
+		{"canonical routes", canonicalRoutes(), wantRoutes},
+		{"primary navigation", primaryNavigation(), wantPrimary},
+		{"utility navigation", utilityNavigation(), wantUtility},
+	} {
+		if strings.Join(catalog.got, "|") != strings.Join(catalog.want, "|") {
+			t.Fatalf("%s retained caller mutation: %#v", catalog.name, catalog.got)
+		}
+	}
+	redirects := legacyRedirects()
+	if len(redirects) != len(wantRedirects) {
+		t.Fatalf("redirect cardinality = %d, want %d", len(redirects), len(wantRedirects))
+	}
+	for alias, destination := range wantRedirects {
+		if redirects[alias] != destination {
+			t.Fatalf("redirect %q = %q, want %q", alias, redirects[alias], destination)
+		}
+	}
+	redirects["concepts.html"] = "/mutated/"
+	if got := legacyRedirects()["concepts.html"]; got != "/model/" {
+		t.Fatalf("redirect catalog retained caller mutation: %q", got)
+	}
+}
+
+func TestSiteCheck_HomepageCanonicalDirectionPasses(t *testing.T) {
+	root, built := makeSyntheticSite(t)
+	if findings := Verify(root, built); len(findings) != 0 {
+		t.Fatalf("canonical homepage rejected: %#v", findings)
+	}
+	doc, err := os.ReadFile(filepath.Join(repositoryRoot(), "docs/index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{`<span>./b</span><span>backstop</span><span`, "data-home-gate-proof", "data-home-system-section", "Full framework", "Artifact workflow", "Standards enforcement", "Deterministic scaffolding", "CLAIM-017", "JLINK-001", "data-next-action", "<footer"} {
+		if !strings.Contains(string(doc), expected) {
+			t.Fatalf("current homepage missing canonical marker %q", expected)
+		}
+	}
+}
+
+func TestSiteCheck_HomepageCanonicalDirectionRejectsDriftMatrix(t *testing.T) {
+	replaceOnce := func(old, replacement string) func(string) (string, bool) {
+		return func(document string) (string, bool) {
+			if strings.Count(document, old) != 1 {
+				return document, false
+			}
+			return strings.Replace(document, old, replacement, 1), true
+		}
+	}
+	modeArticle := func(document, title string) (string, bool) {
+		titleAt := strings.Index(document, "<h3>"+title+"</h3>")
+		if titleAt < 0 {
+			return "", false
+		}
+		start := strings.LastIndex(document[:titleAt], "<article>")
+		endOffset := strings.Index(document[titleAt:], "</article>")
+		if start < 0 || endOffset < 0 {
+			return "", false
+		}
+		return document[start : titleAt+endOffset+len("</article>")], true
+	}
+	removeMode := func(title string) func(string) (string, bool) {
+		return func(document string) (string, bool) {
+			article, ok := modeArticle(document, title)
+			if !ok {
+				return document, false
+			}
+			return strings.Replace(document, article, "", 1), true
+		}
+	}
+	reorderModes := func(firstTitle, secondTitle string) func(string) (string, bool) {
+		return func(document string) (string, bool) {
+			first, firstOK := modeArticle(document, firstTitle)
+			second, secondOK := modeArticle(document, secondTitle)
+			if !firstOK || !secondOK || !strings.Contains(document, first+second) {
+				return document, false
+			}
+			return strings.Replace(document, first+second, second+first, 1), true
+		}
+	}
+	duplicateMode := func(title string) func(string) (string, bool) {
+		return func(document string) (string, bool) {
+			article, ok := modeArticle(document, title)
+			if !ok {
+				return document, false
+			}
+			return strings.Replace(document, article, article+article, 1), true
+		}
+	}
+
+	const canonicalModes = "Full framework | Artifact workflow | Standards enforcement | Deterministic scaffolding"
+	mutations := []struct {
+		name, phase, identity, expected, observed string
+		mutate                                    func(string) (string, bool)
+	}{
+		{"truncated-wordmark", "homepage-canonical", "wordmark", "one ordered source-visible ./b backstop .sh owner", "0", replaceOnce(`<span>backstop</span>`, "")},
+		{"field-guide-question", "homepage-canonical", "forbidden scaffold", "no field-guide question or scaffold headings", "legacy scaffold present", replaceOnce(`<section data-page-hero>`, `<section data-page-hero><h1 data-page-question>What failure does Backstop prevent?</h1>`)},
+		{"missing-section", "homepage-canonical", "system sections", "exactly three ordered canonical sections", "2", replaceOnce(`data-home-system-section><span>02`, `><span>02`)},
+		{"reordered-section", "homepage-canonical", "system sections", "ordered 01/02/03 Define/Enforce/Detect sections", "define-work missing or reordered", replaceOnce(`<span>01</span><h2>Define the work`, `<span>03</span><h2>Define the work`)},
+		{"replacement-mode", "homepage-canonical", "composability modes", canonicalModes, "Full framework | Understand | Standards enforcement | Deterministic scaffolding", replaceOnce("Artifact workflow", "Understand")},
+		{"extra-mode", "homepage-canonical", "composability modes", canonicalModes, "Full framework | Artifact workflow | Standards enforcement | Deterministic scaffolding | Extra mode", replaceOnce(`</div></section><a href="#define-work">`, `<article><h3>Extra mode</h3></article></div></section><a href="#define-work">`)},
+		{"removed-canonical-mode", "homepage-canonical", "composability modes", canonicalModes, "Full framework | Standards enforcement | Deterministic scaffolding", removeMode("Artifact workflow")},
+		{"truly-reordered-canonical-modes", "homepage-canonical", "composability modes", canonicalModes, "Artifact workflow | Full framework | Standards enforcement | Deterministic scaffolding", reorderModes("Full framework", "Artifact workflow")},
+		{"duplicated-canonical-mode", "homepage-canonical", "composability modes", canonicalModes, "Full framework | Full framework | Artifact workflow | Standards enforcement | Deterministic scaffolding", duplicateMode("Full framework")},
+		{"owner-marker", "homepage-canonical", "owner markers", "one CLAIM-017 and one JLINK-001", "claim=0 journey=1", replaceOnce("CLAIM-017", "CLAIM-REMOVED")},
+		{"fragment-only-action", "homepage-canonical", "next action", "one /evaluate/ next action", "missing or drifted", replaceOnce(`href="/evaluate/">Next`, `href="#define-work">Next`)},
+		{"empty-next-action", "homepage-canonical", "next action", "one /evaluate/ next action", "missing or drifted", replaceOnce(`href="/evaluate/">Next`, `href="">Next`)},
+		{"path-relative-link", "homepage-canonical", "journey destination", "canonical root-relative evaluate anchor", "missing", replaceOnce(`href="/evaluate/#target"`, `href="evaluate/#target"`)},
+		{"alias-link", "homepage-canonical", "journey destination", "canonical root-relative evaluate anchor", "missing", replaceOnce(`href="/evaluate/#target"`, `href="/getting-started.html"`)},
+		{"empty-journey-destination", "homepage-canonical", "journey destination", "canonical root-relative evaluate anchor", "missing", replaceOnce(`href="/evaluate/#target"`, `href=""`)},
+		{"wrong-primary-navigation-destination", "navigation", "/ Primary order", "Evaluate -> /evaluate/", "missing, mislabeled, or reordered", replaceOnce(`<a href="/evaluate/">Evaluate</a>`, `<a href="/wrong-evaluate/">Evaluate</a>`)},
+		{"wrong-utility-navigation-destination", "navigation", "/ Utility order", "Status -> /status/", "missing, mislabeled, or reordered", replaceOnce(`<a href="/status/">Status</a>`, `<a href="/wrong-status/">Status</a>`)},
+	}
+	for _, mutation := range mutations {
+		t.Run(mutation.name, func(t *testing.T) {
+			root, built := makeSyntheticSite(t)
+			path := builtRoutePath(built, "/")
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			mutated, ok := mutation.mutate(string(data))
+			if !ok || mutated == string(data) {
+				t.Fatalf("mutation setup %s did not alter the homepage", mutation.name)
+			}
+			writeTestFile(t, path, mutated)
+			findings := Verify(root, built)
+			matched := false
+			for _, finding := range findings {
+				if finding.Phase == mutation.phase && finding.Identity == mutation.identity && finding.Expected == mutation.expected && finding.Observed == mutation.observed {
+					matched = true
+				}
+			}
+			if !matched {
+				t.Fatalf("homepage drift %s missing diagnostic phase=%q identity=%q expected=%q observed=%q: %#v", mutation.name, mutation.phase, mutation.identity, mutation.expected, mutation.observed, findings)
+			}
+		})
+	}
+}
+
+func TestSiteCheck_HomepageCanonicalChangeFence(t *testing.T) {
+	for _, mutation := range []struct{ old, replacement string }{
+		{`data-page-kind="evaluation"`, `data-page-kind="home"`},
+		{`data-page-question>Is Backstop the right control surface for this problem?`, `>Define the work.`},
+		{`<section data-page-hero>`, `<section data-page-hero data-home-system-section>`},
+	} {
+		root, built := makeSyntheticSite(t)
+		path := builtRoutePath(built, "/evaluate/")
+		data, _ := os.ReadFile(path)
+		writeTestFile(t, path, strings.Replace(string(data), mutation.old, mutation.replacement, 1))
+		if findings := Verify(root, built); len(findings) == 0 {
+			t.Fatalf("non-home route accepted homepage drift %q", mutation.old)
+		}
+	}
 }
 
 func TestSiteCheck_CanonicalRouteMatrixRejectsInvalidCell(t *testing.T) {
@@ -135,12 +323,51 @@ func TestSiteCheck_LinkPrecedenceAcceptsFragmentQueryRootRelativeCrossOriginHTTP
 	requireCleanSite(t, root, built)
 }
 
+func TestSiteCheck_LinkPolicyFixtureAvoidsCredentialShape(t *testing.T) {
+	root, built := makeSyntheticSite(t)
+	source := readRepositoryFile(t, "scripts/sitecheck/site_contract_test.go")
+	credentialIdentifier := regexp.MustCompile(`(?m)\b(token|password|secret)\s*:=`)
+	if credentialIdentifier.MatchString(source) {
+		t.Fatal("synthetic fixture construction contains a credential-shaped identifier")
+	}
+	mutated := strings.Replace(source, "ownerStylesheet :=", "to"+"ken :=", 1)
+	if mutated == source || !credentialIdentifier.MatchString(mutated) {
+		t.Fatal("credential-shaped identifier source mutation was not rejected")
+	}
+
+	hrefPattern := regexp.MustCompile(`href="([^"]*)"`)
+	for _, page := range canonicalPresentation() {
+		for _, match := range hrefPattern.FindAllStringSubmatch(syntheticDocument(page), -1) {
+			parsed, err := url.Parse(match[1])
+			if err != nil {
+				t.Fatalf("clean fixture href %q is not parseable: %v", match[1], err)
+			}
+			if parsed.User != nil {
+				t.Fatalf("clean fixture contains credential-shaped user-info bytes in %q", match[1])
+			}
+		}
+	}
+	path := builtRoutePath(built, "/")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, path, strings.Replace(string(data), `href="#define-work"`, `href="mailto:invalid recipient"`, 1))
+	findings := Verify(root, built)
+	for _, finding := range findings {
+		if finding.Phase == "link-resolution" && finding.Expected == "valid mailto recipient" && finding.Observed == "empty or invalid" {
+			return
+		}
+	}
+	t.Fatalf("neutral malformed-mail fixture did not exercise link policy: %#v", findings)
+}
+
 func TestSiteCheck_LinkPrecedenceRejectsRelativeSameOriginAbsoluteAndForbiddenSchemes(t *testing.T) {
 	for _, href := range []string{"relative.html", "https://backstop.sh/model/", "http://example.org/", "//example.org/", "file:///tmp/a", "http://127.0.0.1/"} {
 		root, built := makeSyntheticSite(t)
 		path := builtRoutePath(built, "/")
 		data, _ := os.ReadFile(path)
-		writeTestFile(t, path, strings.Replace(string(data), `href="#target"`, `href="`+href+`"`, 1))
+		writeTestFile(t, path, strings.Replace(string(data), `href="#define-work"`, `href="`+href+`"`, 1))
 		if findings := Verify(root, built); len(findings) == 0 {
 			t.Fatalf("forbidden href %q passed", href)
 		}
@@ -213,13 +440,19 @@ func TestSiteCheck_OwnerTokenAssetConsumptionRejectsInvalidMatrix(t *testing.T) 
 
 func TestSiteCheck_OwnerAcceptanceExportBindingPasses(t *testing.T) {
 	root, _ := makeSyntheticSite(t)
-	if export, err := LoadOwnerAcceptanceExport(root); err != nil || len(export.Cells) != 7 {
+	export, err := LoadOwnerAcceptanceExport(root)
+	if err != nil || len(export.Cells) != 7 {
 		t.Fatalf("export cells=%d err=%v", len(export.Cells), err)
+	}
+	wordmark := export.Cells[5]
+	before, decodeErr := base64.StdEncoding.DecodeString(wordmark.Mutation.UniqueBeforeBase64)
+	if decodeErr != nil || string(before) != `<span>./b</span><span>backstop</span><span>.sh</span>` {
+		t.Fatalf("wordmark mutation source=%q err=%v", before, decodeErr)
 	}
 }
 
 func TestSiteCheck_OwnerAcceptanceExportRejectsSchemaAndFidelityMatrix(t *testing.T) {
-	for _, oldNew := range [][2]string{{"public-site-acceptance/v1", "wrong/v1"}, {"version: 0.1.2", "version: 9.9.9"}, {"target_relative_path: index.html", "target_relative_path: other.html"}} {
+	for _, oldNew := range [][2]string{{"public-site-acceptance/v1", "wrong/v1"}, {"version: 0.1.5", "version: 9.9.9"}, {"target_relative_path: index.html", "target_relative_path: other.html"}} {
 		root, _ := makeSyntheticSite(t)
 		path := filepath.Join(root, ".backstop/packs/backstop-ai/backstop-design-system/contracts/public-site-acceptance.yml")
 		data, _ := os.ReadFile(path)
@@ -235,11 +468,11 @@ func TestSiteCheck_EightIsolatedProjectRootsAndCleanCorpusPass(t *testing.T) {
 	writeTestFile(t, filepath.Join(root, "backstop.lock"), `packs:
   backstop-ai/backstop-design-system:
     content_hash: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-    git_ref: v0.1.2
+    git_ref: v0.1.5
     name: backstop-ai/backstop-design-system
     source_coordinate: backstop-ai/backstop-design-system
     source_type: git
-    version: 0.1.2
+    version: 0.1.5
 `)
 	fake := `#!/usr/bin/env bash
 set -euo pipefail

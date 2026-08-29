@@ -1,7 +1,7 @@
 project: backstop-core
 packs:
     backstop-ai/backstop-core-architecture: 0.1.6
-    backstop-ai/backstop-design-system: 0.1.2
+    backstop-ai/backstop-design-system: 0.1.5
     backstop-ai/backstop-self: 1.1.3
     backstop-ai/bash-toolchain: 0.1.2
     backstop-ai/ci-workflows: 0.1.2

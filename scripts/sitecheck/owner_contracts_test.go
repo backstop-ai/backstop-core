@@ -14,7 +14,7 @@ func makeOwnerContractSite(t *testing.T) (string, string) {
 	t.Helper()
 	root := t.TempDir()
 	built := filepath.Join(root, "_site")
-	for _, route := range canonicalRoutes {
+	for _, route := range canonicalRoutes() {
 		writeTestFile(t, builtRoutePath(built, route), "<html><main id=\"main\"></main></html>")
 	}
 	var content strings.Builder

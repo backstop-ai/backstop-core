@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -58,6 +59,19 @@ func validatePresentation(document presentationDocument) bool {
 func TestSiteCheck_NavigationMatrixPasses(t *testing.T) {
 	if document := loadPresentation(t); !validatePresentation(document) {
 		t.Fatal("site presentation does not byte-match the accepted ten-row matrix")
+	}
+	home, err := os.ReadFile(filepath.Join("..", "..", "docs", "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ordered := []string{`href="/evaluate/">Evaluate`, `href="/model/">Model`, `href="/adopt/">Adopt`, `href="/use-cases/">Use Cases`, `href="/packs/">Packs`, `href="/extend/">Extend`, `href="/reference/">Reference`, `href="/status/">Status`, `href="/contributing/">Contributing`}
+	position := -1
+	for _, expected := range ordered {
+		next := strings.Index(string(home), expected)
+		if next <= position {
+			t.Fatalf("navigation label/destination absent or reordered: %s", expected)
+		}
+		position = next
 	}
 }
 

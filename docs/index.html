@@ -16,7 +16,7 @@
 <body data-site-shell="field-guide-v1">
   <a class="skip-link" href="#main">Skip to content</a>
   <div class="nav shell">
-    <a class="wordmark" data-backstop-wordmark href="/" aria-label="Backstop home"><span>./b</span><span>.sh</span></a>
+    <a class="wordmark" data-backstop-wordmark href="/" aria-label="Backstop home"><span>./b</span><span>backstop</span><span>.sh</span></a>
     <div class="nav-links navigation-groups">
       <nav aria-label="Primary">
         <a href="/evaluate/">Evaluate</a>
@@ -37,7 +37,6 @@
 <main id="main" data-page-route="/" data-page-kind="home">
   <section data-page-hero>
     <div class="hero shell">
-      <h1 class="eyebrow" data-page-question>What failure does Backstop prevent?</h1>
       <div class="eyebrow"><span class="status-dot"></span> An agent discipline framework</div>
       <h1>Define the work.<br><span>Enforce your standards.</span><br>Detect drift.</h1>
       <p class="hero-copy">Artifacts define what the work must deliver. Packs encode the standards it must follow. Recipes generate known-good starting points. The gate verifies the result.</p>
@@ -63,14 +62,11 @@
           <div class="verdict"><span><span class="verdict-icon">✓</span> PASS</span><span class="verdict-copy">0 unresolved findings</span><span class="exit-code">exit 0</span></div>
         </div>
       </div>
-      <div data-required-blocks="why-backstop,choose-your-path"></div>
     </div>
   </section>
 
-  <div data-page-content>
-    <h2 class="section-kicker shell" id="why-backstop">Why Backstop</h2>
-    <div data-home-capabilities>
-      <article class="system-section shell">
+  <div data-page-content data-required-blocks="define-work,enforce-standards,detect-drift,composable-modes">
+      <article class="system-section shell" id="define-work" data-home-system-section>
         <div class="section-heading"><span class="section-number">01</span><div><p class="section-kicker">Define the work</p><h2>Find problems before implementation.</h2></div></div>
         <div class="section-body">
           <div class="prose">
@@ -95,7 +91,7 @@
         </div>
       </article>
 
-      <article class="system-section shell">
+      <article class="system-section shell" id="enforce-standards" data-home-system-section>
         <div class="section-heading"><span class="section-number">02</span><div><p class="section-kicker">Enforce your standards</p><h2>Turn team decisions into rules.</h2></div></div>
         <div class="section-body standards-layout">
           <div class="prose">
@@ -114,7 +110,7 @@
         </div>
       </article>
 
-      <article class="system-section shell">
+      <article class="system-section shell" id="detect-drift" data-home-system-section>
         <div class="section-heading"><span class="section-number">03</span><div><p class="section-kicker">Detect drift</p><h2>Make “done” verifiable.</h2></div></div>
         <div class="section-body standards-layout">
           <div class="prose">
@@ -140,15 +136,14 @@
           </div>
         </div>
       </article>
-    </div>
 
-    <h2 class="section-kicker shell" id="choose-your-path">Choose your path</h2>
-    <section class="composition shell">
-      <div class="composition-heading"><p class="section-kicker">Composable by design</p><h2>Use the framework.<br>Or use the parts.</h2><p>Start with the failure you need to control. The pieces reinforce one another, but each can be adopted independently.</p></div>
-      <div class="composition-list" data-home-paths>
-        <article class="composition-row"><span>01</span><div><h3>Evaluate</h3><code>Failure fit + guarantees + limits</code></div><p>Decide whether Backstop is the right control surface before changing a repository. <a href="/evaluate/">Evaluate the control surface →</a></p></article>
-        <article class="composition-row"><span>02</span><div><h3>Understand</h3><code>Artifacts + packs + recipes + gates</code></div><p>See how the pieces reinforce one another and where deterministic checks replace agent judgment. <a href="/model/">Read the operating model →</a></p></article>
-        <article class="composition-row"><span>03</span><div><h3>Adopt</h3><code>One real standard behind the gate</code></div><p>Install Backstop, initialize a repository, choose a maintained pack, and prove a violation blocks. <a href="/adopt/">Start a working adoption →</a></p></article>
+    <section class="composition shell" id="composable-modes">
+      <div class="composition-heading"><p class="section-kicker">Composable by design</p><h2>Use the framework.<br>Or use the parts.</h2><p>The pieces reinforce one another, but they can be adopted separately. Use the control surface that matches the problem you need to solve.</p></div>
+      <div class="composition-list" data-home-modes>
+        <article class="composition-row"><span>01</span><div><h3>Full framework</h3><code>Artifacts + packs + recipes + gates</code></div><p>Define the work, scaffold the implementation, enforce the standards, and verify that the result still matches the promise.</p></article>
+        <article class="composition-row"><span>02</span><div><h3>Artifact workflow</h3><code>Use the whole chain or only what you need</code></div><p>Make requirements, plans, decisions, and completion claims schema-valid and traceable without adopting code-policy packs.</p></article>
+        <article class="composition-row"><span>03</span><div><h3>Standards enforcement</h3><code>Packs + gate</code></div><p>Install versioned rules, run them during development, and make the same result binding in CI.</p></article>
+        <article class="composition-row"><span>04</span><div><h3>Deterministic scaffolding</h3><code>Recipe packs</code></div><p>Apply a pinned recipe to create a project, pipeline, component, or configuration without adopting enforcement rules.</p></article>
       </div>
     </section>
 
