@@ -1,0 +1,32 @@
+{
+  "name": "backstop-core",
+  "user": "ubuntu",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "install": "bash .cursor/install.sh",
+  "repositoryDependencies": [
+    "github.com/backstop-ai/backstop-core-architecture",
+    "github.com/backstop-ai/backstop-design-system",
+    "github.com/backstop-ai/backstop-self",
+    "github.com/backstop-ai/bash-toolchain",
+    "github.com/backstop-ai/ci-workflows",
+    "github.com/backstop-ai/cobra-cli-standards",
+    "github.com/backstop-ai/documentation-semantics",
+    "github.com/backstop-ai/go-contracts",
+    "github.com/backstop-ai/go-standards",
+    "github.com/backstop-ai/go-substantiveness",
+    "github.com/backstop-ai/go-toolchain",
+    "github.com/backstop-ai/go-distribution",
+    "github.com/backstop-ai/typescript-toolchain",
+    "github.com/backstop-ai/typescript-standards",
+    "github.com/backstop-ai/typescript-contracts",
+    "github.com/backstop-ai/typescript-substantiveness",
+    "github.com/backstop-ai/bun-toolchain",
+    "github.com/backstop-ai/backstop-harness",
+    "github.com/backstop-ai/backstop-harness-toolchain-pack",
+    "github.com/backstop-ai/homebrew-tap",
+    "github.com/backstop-ai/vercel-supabase-standup",
+    "github.com/backstop-ai/secrets"
+  ]
+}

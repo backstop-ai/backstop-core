@@ -139,6 +139,9 @@ func TestDeliveryInventory_PathRoleMatrix(t *testing.T) {
 		".github/workflows/pages.yml":                                                      "workflow", ".github/workflows/site-verification.yml": "workflow",
 		".github/pages-actions.lock.yml":  "action-lock",
 		"scripts/stamp-pages-artifact.sh": "deploy-stamp", "scripts/verify-pages-deployment.sh": "deploy-verifier",
+		".cursor/Dockerfile":       "agent-environment",
+		".cursor/environment.json": "agent-environment",
+		".cursor/install.sh":       "agent-environment",
 	}
 	for path, role := range tests {
 		if got := expectedRole(path); got != role {
@@ -162,6 +165,92 @@ func TestDeliveryInventory_ISSUE190GovernanceArtifactsAreClosedRows(t *testing.T
 		"issues/ISSUE-191-unrelated.issue.md",
 		"plans/PLAN-ISSUE-191-unrelated.plan.yml",
 		"issues/nested/ISSUE-190-restore-canonical-homepage-direction.issue.md",
+	} {
+		if got := expectedRole(path); got != "" {
+			t.Fatalf("unrelated governance path %q admitted as %q", path, got)
+		}
+	}
+
+	root := filepath.Clean(filepath.Join("..", ".."))
+	inventory, err := loadDeliveryInventory(filepath.Join(root, ".backstop", "seed4-delivery-inventory.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, requiredPath := range []string{issuePath, planPath} {
+		matched := 0
+		for _, entry := range inventory.Entries {
+			if entry.Path == requiredPath && entry.Change == "A" && entry.Role == "governance-artifact" {
+				matched++
+			}
+		}
+		if matched != 1 {
+			t.Fatalf("required inventory row %q cardinality = %d, want 1", requiredPath, matched)
+		}
+		omitted := inventory
+		omitted.Entries = append([]DeliveryEntry(nil), inventory.Entries...)
+		for index, entry := range omitted.Entries {
+			if entry.Path == requiredPath {
+				omitted.Entries = append(omitted.Entries[:index], omitted.Entries[index+1:]...)
+				break
+			}
+		}
+		if err := validateInventoryMatchesDiff(root, omitted); err == nil || !strings.Contains(err.Error(), "inventory differs") {
+			t.Fatalf("omitting %q did not fail exact diff matching: %v", requiredPath, err)
+		}
+	}
+}
+
+func TestDeliveryInventory_ISSUE191CursorAgentEnvironmentPathsAreClosedRows(t *testing.T) {
+	cursorPaths := []string{".cursor/Dockerfile", ".cursor/environment.json", ".cursor/install.sh"}
+	for _, path := range cursorPaths {
+		if got := expectedRole(path); got != "agent-environment" {
+			t.Fatalf("expectedRole(%q) = %q, want agent-environment", path, got)
+		}
+	}
+	if !allowedRoles()["agent-environment"] {
+		t.Fatal("allowedRoles() missing agent-environment")
+	}
+	if prohibitedRoles()["agent-environment"] {
+		t.Fatal("prohibitedRoles() unexpectedly contains agent-environment")
+	}
+	for _, path := range []string{".cursorrules", "docs/.cursor/Dockerfile", "docs/secret-policy.yml"} {
+		if got := expectedRole(path); got != "" {
+			t.Fatalf("closed-matrix near-miss %q admitted as %q", path, got)
+		}
+	}
+
+	root := filepath.Clean(filepath.Join("..", ".."))
+	inventory, err := loadDeliveryInventory(filepath.Join(root, ".backstop", "seed4-delivery-inventory.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateDeliveryInventory(inventory); err != nil {
+		t.Fatalf("validateDeliveryInventory: %v", err)
+	}
+	for _, requiredPath := range cursorPaths {
+		matched := 0
+		for _, entry := range inventory.Entries {
+			if entry.Path == requiredPath && entry.Change == "A" && entry.Role == "agent-environment" {
+				matched++
+			}
+		}
+		if matched != 1 {
+			t.Fatalf("required inventory row %q cardinality = %d, want 1", requiredPath, matched)
+		}
+	}
+}
+
+func TestDeliveryInventory_ISSUE191GovernanceArtifactsAreClosedRows(t *testing.T) {
+	const issuePath = "issues/ISSUE-191-cursor-env-files-outside-seed4-matrix.issue.md"
+	const planPath = "plans/PLAN-ISSUE-191-cursor-env-files-outside-seed4-matrix.plan.yml"
+	for _, path := range []string{issuePath, planPath} {
+		if got := expectedRole(path); got != "governance-artifact" {
+			t.Fatalf("expectedRole(%q) = %q, want governance-artifact", path, got)
+		}
+	}
+	for _, path := range []string{
+		"issues/ISSUE-191-unrelated.issue.md",
+		"plans/PLAN-ISSUE-191-unrelated.plan.yml",
 	} {
 		if got := expectedRole(path); got != "" {
 			t.Fatalf("unrelated governance path %q admitted as %q", path, got)

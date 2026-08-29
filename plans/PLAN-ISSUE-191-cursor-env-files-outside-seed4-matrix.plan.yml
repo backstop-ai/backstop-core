@@ -1,0 +1,343 @@
+---
+plan_id: PLAN-ISSUE-191
+spec_id: ISSUE-191
+created: "2026-08-29"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./scripts/sitecheck/... -count=1"
+coverage_threshold: 80
+
+notes: |
+  Contained reactive correction on the issue-to-plan track, sourced from ISSUE-191.
+  It teaches the CLOSED Seed 4 delivery role/path matrix to recognize the Cloud Agent
+  environment files under `.cursor/` and this issue's own governance artifacts. It
+  does NOT relax, broaden, or re-litigate the closed-matrix philosophy.
+
+  EXISTENCE-IN-WORLD: `plans/` and `issues/` were searched (committed and working
+  tree) for `agent-environment`, `.cursor/`, `seed4-delivery-inventory`,
+  `expectedRole`, `allowedRoles`, and `ISSUE-19[01]`. Only two plans touch this
+  surface. PLAN-SPEC-075 owns the original delivery inventory and its closed matrix;
+  it is completed/committed and does not contemplate any `.cursor/**` path.
+  PLAN-ISSUE-190 (draft) owns exactly the ISSUE-190/PLAN-ISSUE-190 governance rows
+  and the `governance-artifact` role that this plan REUSES; it does not own agent
+  environment recognition or the ISSUE-191/PLAN-ISSUE-191 rows. No artifact
+  subsumes this surface, so no residual-delta narrowing was required.
+
+  PRECEDENT: commit cd453e8 (PR #29) is the exact template. It made governance files
+  first-class in the same matrix with four coordinated edits: a new role key in
+  `allowedRoles()`, exact-path cases in `expectedRole()`, `A` rows in
+  `.backstop/seed4-delivery-inventory.yml`, and one focused test
+  (`TestDeliveryInventory_ISSUE190GovernanceArtifactsAreClosedRows`). This plan
+  mirrors that shape and nothing more.
+
+  BRANCH REALITY: the check under repair is `validateInventoryMatchesDiff`, which
+  diffs the COMMITTED `89f4138aa97e7ba1e8d7c67595cfaee1caefa797...HEAD` range. The
+  fix therefore only converges on the branch that actually carries the `.cursor/`
+  files (`cursor/cloud-agent-env-setup-daae`, PR #30). Declaring rows for paths that
+  are not in the committed diff of the working branch inverts the failure from
+  "observed (extra)" to "expected but not observed" — the same red, mirrored. This
+  plan's own artifact file is one of those rows: it must be committed before
+  `--check-diff` can be green.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  CLAIM LEDGER — ISSUE-191 carries prose only, no claims[] array, so this plan
+  declares its own claims. Each is evidence read out of the tree at HEAD b5ca03e.
+  ══════════════════════════════════════════════════════════════════════════════
+
+  CLM-001 — `.cursor/**` HAS NO LEGAL ROLE, AND IT FAILS AT TWO INDEPENDENT GATES.
+    `expectedRole()` in scripts/sitecheck/inventory.go has no `.cursor` case, so its
+    `default:` returns "" for all three files; `validatePathRole()` converts "" into
+    `"path is outside the closed Seed 4 matrix"`. Independently, `allowedRoles()`
+    contains no `agent-environment` key, so `validateDeliveryInventory()` would
+    reject such a row with `"prohibited or unknown role"` even if `expectedRole()`
+    returned it. Both gates must be satisfied; fixing one alone leaves the check red.
+
+  CLM-002 — A DEDICATED `agent-environment` ROLE IS THE CORRECT WIDENING, AND IT IS
+    A PREFIX CASE, NOT A CATCH-ALL. `strings.HasPrefix(path, ".cursor/")` admits
+    exactly `.cursor/Dockerfile`, `.cursor/environment.json`, `.cursor/install.sh`
+    and future files in that one directory. It keeps agent-environment
+    infrastructure semantically distinct from `governance-artifact`, and it adds no
+    wildcard, no generic fallback, and no change to `validatePathRole()`'s
+    empty-means-reject behavior.
+
+  CLM-003 — THIS ISSUE'S OWN GOVERNANCE ARTIFACTS ARE ALSO IN THE SAME DIFF.
+    `issues/ISSUE-191-cursor-env-files-outside-seed4-matrix.issue.md` is already
+    committed at b5ca03e and `plans/PLAN-ISSUE-191-cursor-env-files-outside-seed4-matrix.plan.yml`
+    is added by this very work. Both appear in `base...HEAD` and are undeclared, so
+    the closed matrix rejects them exactly as it rejects the `.cursor/` files. They
+    map to the EXISTING `governance-artifact` role by exact path, mirroring how
+    ISSUE-190 and PLAN-ISSUE-190 are mapped.
+
+  CLM-004 — THE MAPPING MUST STAY EXACT-PATH, OR IT BREAKS A SHIPPED TEST.
+    `TestDeliveryInventory_ISSUE190GovernanceArtifactsAreClosedRows`
+    (scripts/sitecheck/inventory_test.go) asserts that
+    `issues/ISSUE-191-unrelated.issue.md` and `plans/PLAN-ISSUE-191-unrelated.plan.yml`
+    return "". Any `ISSUE-191`-substring, `issues/` prefix, or glob-shaped rule
+    admits those fixtures and reds a passing test. The two real ISSUE-191 paths must
+    be added as exact string comparisons alongside the existing ISSUE-190 pair.
+
+  CLM-005 — FIVE `A` ROWS MAKE THE INVENTORY EXACTLY EQUAL THE DIFF.
+    `validateInventoryMatchesDiff` compares sorted `change\tpath` identities for set
+    EQUALITY, so all five paths (three `.cursor/*` plus the two ISSUE-191 governance
+    artifacts) need `change: A` rows, and no sixth row may be invented. `A` is the
+    correct letter because none of the five exists at base 89f4138.
+    `go run ./scripts/sitecheck --root . --check-diff` exiting 0 is the receipt.
+
+  CLM-006 — REGRESSION PROTECTION IS A FOCUSED TEST THAT ALSO PROVES THE MATRIX IS
+    STILL CLOSED. A test that only asserts the three positive `.cursor/` mappings
+    would pass against a catch-all `default: return "agent-environment"` regression.
+    The negative half — a non-`.cursor` path and a nested/near-miss path still
+    returning "" — is what distinguishes recognition from weakening.
+
+  CLM-007 — THE FENCE. Only scripts/sitecheck/inventory.go,
+  scripts/sitecheck/inventory_test.go, and .backstop/seed4-delivery-inventory.yml
+    change. The `.cursor/` files themselves, `validatePathRole`, `prohibitedRoles`,
+    `seed4LedgerPaths`, `inventoryDiff`, the other sitecheck verifiers, the
+    workflows, and the public-site content are untouched, and no waiver, skip, or
+    baseline entry is acceptance.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  SHARP EDGES
+  ══════════════════════════════════════════════════════════════════════════════
+  1. Two gates, not one (CLM-001): `allowedRoles()` AND `expectedRole()`.
+  2. Exact-path governance mapping only (CLM-004) — a prefix rule reds ISSUE-190's
+     shipped test, whose negative fixtures deliberately use the string ISSUE-191.
+  3. `.cursor/` with the trailing slash. A bare `.cursor` prefix would admit
+     `.cursorrules` or `.cursorignore`; a nested `docs/.cursor/Dockerfile` must keep
+     returning "".
+  4. `--check-diff` reads committed history. The plan artifact must be committed on
+     the branch before the check converges; an uncommitted plan file turns the
+     declared row into an "expected but not observed" mismatch.
+  5. Entry ordering in the inventory YAML is cosmetic — `validateInventoryMatchesDiff`
+     sorts before comparing. Place the rows in path order (`.cursor/*` between
+     `.backstop/website-pack-releases.yml` and `.github/pages-actions.lock.yml`; the
+     ISSUE-191/PLAN-ISSUE-191 rows immediately after their ISSUE-190 siblings) for
+     readability, and do not claim ordering as enforcement.
+  6. Per-file coverage: scripts/sitecheck files carry an 80% per-file floor. The new
+     switch cases must be EXECUTED by the new test, not merely declared.
+  7. If the branch is rebased and a change letter stops being `A`, reconcile the
+     letter against the real diff. Never reconcile by deleting a row or by widening
+     the matrix.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: RED — specify agent-environment and ISSUE-191 governance recognition"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "RED: assert .cursor/ and ISSUE-191 governance paths are closed matrix rows"
+        description: |
+          Add two focused tests to the existing scripts/sitecheck/inventory_test.go,
+          following the exact shape of the shipped
+          TestDeliveryInventory_ISSUE190GovernanceArtifactsAreClosedRows: direct
+          expectedRole() assertions, explicit negative paths, then real inventory
+          rows loaded through loadDeliveryInventory() with an omission mutation
+          proved against validateInventoryMatchesDiff().
+
+          TestDeliveryInventory_ISSUE191CursorAgentEnvironmentPathsAreClosedRows must
+          require expectedRole(".cursor/Dockerfile"),
+          expectedRole(".cursor/environment.json"), and
+          expectedRole(".cursor/install.sh") to each equal "agent-environment"; must
+          require "agent-environment" to be present in allowedRoles() and absent from
+          prohibitedRoles(); and must require each of the three paths to appear
+          exactly once in .backstop/seed4-delivery-inventory.yml with change "A" and
+          role "agent-environment". Its negative half proves the matrix stayed
+          CLOSED: a bare near-miss (".cursorrules"), a nested mismatch
+          ("docs/.cursor/Dockerfile"), and an unrelated undeclared path must each
+          still return "". Also assert one full-document pass —
+          validateDeliveryInventory(loadDeliveryInventory(...)) returning nil — so the
+          role-key gate and the path-role gate are both exercised.
+
+          TestDeliveryInventory_ISSUE191GovernanceArtifactsAreClosedRows must require
+          expectedRole("issues/ISSUE-191-cursor-env-files-outside-seed4-matrix.issue.md")
+          and expectedRole("plans/PLAN-ISSUE-191-cursor-env-files-outside-seed4-matrix.plan.yml")
+          to equal "governance-artifact", require both as exactly-once change "A"
+          rows in the inventory, and prove that removing either row makes
+          validateInventoryMatchesDiff return an error containing "inventory
+          differs". It must ALSO re-assert that
+          "issues/ISSUE-191-unrelated.issue.md" and
+          "plans/PLAN-ISSUE-191-unrelated.plan.yml" still return "" — the mapping is
+          exact-path, never an ISSUE-191 substring or an issues/plans prefix rule.
+          Do not edit, rename, or weaken
+          TestDeliveryInventory_ISSUE190GovernanceArtifactsAreClosedRows.
+
+          Extend the existing TestDeliveryInventory_PathRoleMatrix table with the
+          three `.cursor/*` rows so the shared matrix table also carries them; leave
+          every existing row and its trailing unlisted-path assertion untouched.
+
+          RED receipt, required before any production edit: run
+          `go test ./scripts/sitecheck -run
+          '^(TestDeliveryInventory_ISSUE191CursorAgentEnvironmentPathsAreClosedRows|TestDeliveryInventory_ISSUE191GovernanceArtifactsAreClosedRows|TestDeliveryInventory_PathRoleMatrix)$'
+          -count=1 -v`. All three named tests must EXECUTE and FAIL on their intended
+          assertions — expectedRole returning "" for the `.cursor/` and ISSUE-191
+          paths, the missing allowedRoles key, and the missing inventory rows. These
+          tests call only existing package functions, so a compile, package, tool, or
+          fixture-load failure is NOT this task's RED evidence; if the package does
+          not build, fix the test file rather than accepting the failure. Additionally
+          run `go run ./scripts/sitecheck --root . --check-diff` and record the
+          current `inventory differs from git diff` output listing the extra
+          `.cursor/` and ISSUE-191 paths as the independent defect receipt.
+        files:
+          - scripts/sitecheck/inventory_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-006
+        test_names:
+          - TestDeliveryInventory_ISSUE191CursorAgentEnvironmentPathsAreClosedRows
+          - TestDeliveryInventory_ISSUE191GovernanceArtifactsAreClosedRows
+        depends_on: []
+
+  - id: phase-2
+    name: "Phase 2: GREEN — widen the closed matrix and declare the five rows"
+    tasks:
+      - id: TASK-002
+        type: implementation
+        title: "GREEN: add the agent-environment role, the .cursor/ case, and the five A rows"
+        description: |
+          Make TASK-001's tests green with the four coordinated edits precedent
+          cd453e8 established, and nothing else.
+
+          In scripts/sitecheck/inventory.go, add exactly one new key
+          `"agent-environment": true` to allowedRoles(), preserving every existing
+          key and leaving prohibitedRoles() unchanged. In expectedRole(), add one
+          `case strings.HasPrefix(path, ".cursor/"): return "agent-environment"`.
+          Keep the trailing slash so `.cursorrules`-shaped siblings are not admitted,
+          and place the case among the existing prefix cases without reordering any
+          case whose match set could overlap. Separately, extend the FIRST case — the
+          existing exact-path governance comparison — so that
+          "issues/ISSUE-191-cursor-env-files-outside-seed4-matrix.issue.md" and
+          "plans/PLAN-ISSUE-191-cursor-env-files-outside-seed4-matrix.plan.yml" also
+          return "governance-artifact" alongside the ISSUE-190 pair. Use exact string
+          equality only. Do not introduce a wildcard, a glob, a generic
+          markdown/YAML role, a substring or regex match, a catch-all `default`, or
+          any change to validatePathRole(), inventoryDiff(), seed4LedgerPaths(), or
+          the empty-means-reject contract.
+
+          In .backstop/seed4-delivery-inventory.yml, add exactly five entries, each
+          `change: A`, preserving schema_version, base_commit, and every existing
+          row byte-for-byte: `.cursor/Dockerfile`, `.cursor/environment.json`, and
+          `.cursor/install.sh` with `role: agent-environment`; and
+          `issues/ISSUE-191-cursor-env-files-outside-seed4-matrix.issue.md` plus
+          `plans/PLAN-ISSUE-191-cursor-env-files-outside-seed4-matrix.plan.yml` with
+          `role: governance-artifact`. Lay them out in path order for readability —
+          the `.cursor/*` rows between `.backstop/website-pack-releases.yml` and
+          `.github/pages-actions.lock.yml`, and each ISSUE-191 row immediately after
+          its ISSUE-190 sibling — while remembering that comparison is
+          order-insensitive, so ordering is presentation, not enforcement.
+
+          Confirm the plan artifact
+          plans/PLAN-ISSUE-191-cursor-env-files-outside-seed4-matrix.plan.yml and the
+          issue artifact are COMMITTED on the working branch before treating
+          `--check-diff` as authoritative: it reads
+          `git 89f4138aa97e7ba1e8d7c67595cfaee1caefa797...HEAD`, so an uncommitted
+          plan file makes the declared plan row an "expected but not observed"
+          mismatch. If the observed diff disagrees with these five rows — extra or
+          missing paths, or a change letter other than `A` after a rebase —
+          reconcile the ROWS against the real committed diff and report the
+          discrepancy. Never reconcile by deleting a governed row, by widening the
+          matrix, or by editing the `.cursor/` files.
+
+          GREEN evidence: rerun the TASK-001 RED command and require all three named
+          tests to pass, then run `go run ./scripts/sitecheck --root . --check-diff`
+          and require exit 0 with no `inventory differs from git diff` output.
+        files:
+          - scripts/sitecheck/inventory.go
+          - .backstop/seed4-delivery-inventory.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: verification
+        title: "Verify the widened matrix through the sitecheck package and the diff gate"
+        description: |
+          Run `./bin/backstop gate --file scripts/sitecheck/inventory.go --file
+          scripts/sitecheck/inventory_test.go --file
+          .backstop/seed4-delivery-inventory.yml` as the diff-scoped cadence gate for
+          the three touched files, then `go test ./scripts/sitecheck/... -count=1`
+          and `go run ./scripts/sitecheck --root . --check-diff`.
+
+          Require: both new ISSUE-191 tests present and passing;
+          TestDeliveryInventory_PathRoleMatrix,
+          TestDeliveryInventory_ISSUE190GovernanceArtifactsAreClosedRows,
+          TestSiteCheck_Seed4DeliveryInventoryPasses,
+          TestSiteCheck_Seed4DeliveryInventoryRejectsInvalidMatrix,
+          TestDeliveryInventory_RejectsRemainingShapeMutations, and
+          TestDeliveryInventory_GitDiffAndMatch all still passing unmodified; and
+          `--check-diff` exiting 0. Read the gate report for any lint, unused-symbol,
+          or per-file coverage finding on scripts/sitecheck/inventory.go and confirm
+          the new switch cases are executed by the new test rather than merely
+          declared — an unexecuted case that still measures above the 80% per-file
+          floor is not acceptance. A waiver, a skipped test, a baseline entry, or a
+          loosened assertion is a failure, not a pass.
+        files:
+          - scripts/sitecheck/inventory.go
+          - scripts/sitecheck/inventory_test.go
+          - .backstop/seed4-delivery-inventory.yml
+        claims:
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-002
+
+  - id: phase-3
+    name: "Phase 3: Full kill chain, public-site pipeline, and artifact validation"
+    tasks:
+      - id: TASK-004
+        type: verification
+        title: "Run the full gate, the public-site verifier, and validate PLAN-ISSUE-191"
+        description: |
+          Comprehensive final verification of every category this plan touches.
+
+          Run `./scripts/verify-public-site.sh` and require the
+          `public-site[structure]` stage — the stage ISSUE-191 reports red — to pass
+          with no `inventory differs from git diff` diagnostic, and every other stage
+          of that pipeline to remain green and substantive. Run `make test`, then
+          `./bin/backstop gate --all` as the unscoped kill chain, then
+          `./bin/backstop artifact validate --plan PLAN-ISSUE-191` for the artifact
+          category, requiring this plan and the ISSUE-191 issue to validate clean
+          against their schemas.
+
+          Then read the delivered diff as a fence check (CLM-007). Require
+          modifications confined to scripts/sitecheck/inventory.go,
+          scripts/sitecheck/inventory_test.go, and
+          .backstop/seed4-delivery-inventory.yml, plus the committed ISSUE-191/
+          PLAN-ISSUE-191 artifacts themselves. Confirm `.cursor/Dockerfile`,
+          `.cursor/environment.json`, `.cursor/install.sh`, the other sitecheck
+          verifiers, `.github/workflows/pages.yml`,
+          `.github/workflows/site-verification.yml`, `scripts/verify-public-site.sh`,
+          and the public-site content are unchanged; confirm `allowedRoles()` gained
+          exactly one key, `expectedRole()` gained exactly one prefix case plus two
+          exact paths on the existing governance case, and the inventory gained
+          exactly five rows with no existing row altered.
+
+          Report inherited or unrelated failures truthfully rather than absorbing
+          them into this lane, and do not obtain green with a waiver, suppression,
+          baseline change, skipped test, or any widening of the closed-matrix
+          philosophy.
+        files:
+          - scripts/sitecheck/inventory.go
+          - scripts/sitecheck/inventory_test.go
+          - .backstop/seed4-delivery-inventory.yml
+          - plans/PLAN-ISSUE-191-cursor-env-files-outside-seed4-matrix.plan.yml
+          - issues/ISSUE-191-cursor-env-files-outside-seed4-matrix.issue.md
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-002
+          - TASK-003
