@@ -109,4 +109,16 @@ echo "installed: $(backstop --version 2>&1 | head -1 || echo 'backstop (version 
 log "backstop pack install"
 ./bin/backstop pack install
 
+# --- 8. Playwright + Chromium (public-site verification) ---------------------
+# tests/public-site.spec.ts drives a headless Chromium via @playwright/test
+# (pinned in package-lock.json). Mirrors .github/workflows/site-verification.yml:
+# `npm ci` then `playwright install --with-deps chromium`. The browser downloads
+# into ~/.cache/ms-playwright (captured by the environment snapshot); the OS libs
+# go in via apt (--with-deps auto-uses sudo for the apt step). Idempotent: npm ci
+# is deterministic and playwright skips an already-downloaded browser.
+log "npm ci (playwright test harness)"
+npm ci
+log "playwright install --with-deps chromium"
+npx --yes playwright install --with-deps chromium
+
 log "install complete"
