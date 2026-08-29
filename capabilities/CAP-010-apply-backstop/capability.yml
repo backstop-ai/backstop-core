@@ -6,11 +6,35 @@ capability:
   id: CAP-010
   title: "Apply Backstop"
   status: draft
-  strictness: relaxed
+  strictness: strict
+  description: >
+    Select a concrete use-case path and its next action.
 
-infrastructure_specs: []
+infrastructure_specs:
+  - SPEC-072
+  - SPEC-073
+  - SPEC-074
+  - SPEC-075
+
+integration_spec: SPEC-076
+
+scenarios:
+  feature_file: user-journeys.feature
+  id_pattern: "^@UJ-[0-9]{3}$"
+
+test_configuration:
+  app_origins:
+    - https://backstop.sh
+  auth_strategy: none
+  setup_command: ""
+  teardown_command: ""
 
 quality_gates:
   - type: acceptance
-    command: ""
+    command: './scripts/verify-website-capabilities.sh --capability CAP-010'
     must_pass: true
+    description: Built-site CAP-010 acceptance
+  - type: acceptance
+    command: './scripts/verify-website-capabilities.sh --capability CAP-010 --deployed-origin https://backstop.sh --commit "$BACKSTOP_DEPLOY_COMMIT" --run-id "$BACKSTOP_DEPLOY_RUN_ID"'
+    must_pass: true
+    description: Identity-matched https://backstop.sh CAP-010 acceptance
