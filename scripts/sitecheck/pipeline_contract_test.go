@@ -37,6 +37,11 @@ func TestSiteCheck_ChromiumNoJSExactInteractionMatrixPasses(t *testing.T) {
 	if strings.Count(helpers, `"/`) < len(canonicalRoutes) || !strings.Contains(tests, "for (const route of canonicalRoutes)") {
 		t.Fatal("canonical route iteration is absent")
 	}
+	for _, expected := range []string{"primaryNavigation", "utilityNavigation", "toBeVisible()", `toBe("./b backstop.sh")`, "assertRequiredSurface", "assertContentCompleteness", "assertKeyboardOrderAndBounds", "assertLocalOverflow"} {
+		if !strings.Contains(helpers+tests, expected) {
+			t.Fatalf("browser interaction matrix missing %q", expected)
+		}
+	}
 }
 
 func TestSiteCheck_ChromiumNoJSInteractionMatrixRejectsInvalidCell(t *testing.T) {
@@ -61,10 +66,13 @@ func TestSiteCheck_LocalOverflowAndNavigationModesPass(t *testing.T) {
 
 func TestSiteCheck_ActualRootFontRelayoutPasses(t *testing.T) {
 	tests := readRepositoryFile(t, "tests/public-site.spec.ts")
-	for _, expected := range []string{"font-size: 200% !important", "Math.abs(enlarged - baseline * 2)", "assertKeyboardOrderAndBounds", "assertLocalOverflow"} {
+	for _, expected := range []string{"font-size: 200% !important", "Math.abs(enlarged - baseline * 2)", "assertRequiredSurface(page, route)", "assertContentCompleteness(page, route)", "assertKeyboardOrderAndBounds(page, route)", "assertLocalOverflow(page, route)"} {
 		if !strings.Contains(tests, expected) {
 			t.Fatalf("200 percent relayout proof missing %q", expected)
 		}
+	}
+	if strings.Count(tests, "expect(Math.abs(enlarged - baseline * 2))") != 1 || strings.Count(tests, "for (const route of canonicalRoutes)") != 2 {
+		t.Fatal("200 percent relayout loop or root-font proof drifted")
 	}
 }
 

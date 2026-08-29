@@ -15,6 +15,16 @@ const focusableSelector = [
   "a[href]", "summary", "[data-overflow-region][tabindex=\"0\"]",
 ].join(",");
 
+const primaryNavigation = [
+  ["Evaluate", "/evaluate/"], ["Model", "/model/"], ["Adopt", "/adopt/"],
+  ["Use Cases", "/use-cases/"], ["Packs", "/packs/"], ["Extend", "/extend/"],
+  ["Reference", "/reference/"],
+] as const;
+
+const utilityNavigation = [
+  ["Status", "/status/"], ["Contributing", "/contributing/"],
+] as const;
+
 export async function settleLayout(page: Page): Promise<void> {
   await page.waitForLoadState("load");
   await expect.poll(() => page.evaluate(() => document.fonts.status)).toBe("loaded");
@@ -24,11 +34,32 @@ export async function settleLayout(page: Page): Promise<void> {
 }
 
 export async function assertRequiredSurface(page: Page, route: string): Promise<void> {
-  await expect(page.locator("[data-backstop-wordmark]")).toBeVisible();
-  await expect(page.locator('nav[aria-label="Primary"] a')).toHaveCount(7);
-  await expect(page.locator('nav[aria-label="Utility"] a')).toHaveCount(2);
+  const wordmark = page.locator("[data-backstop-wordmark]");
+  await expect(wordmark).toBeVisible();
+  const wordmarkParts = await wordmark.locator(":scope > span").allTextContents();
+  expect(wordmarkParts.map((part) => part.trim()), `${route} complete visible wordmark parts`).toEqual(["./b", "backstop", ".sh"]);
+  expect(`${wordmarkParts[0].trim()} ${wordmarkParts.slice(1).join("").trim()}`, `${route} normalized visible wordmark`).toBe("./b backstop.sh");
+  const primary = page.locator('nav[aria-label="Primary"] a');
+  const utility = page.locator('nav[aria-label="Utility"] a');
+  await expect(primary).toHaveCount(primaryNavigation.length);
+  await expect(utility).toHaveCount(utilityNavigation.length);
+  for (const [index, [label, href]] of primaryNavigation.entries()) {
+    await expect(primary.nth(index), `${route} primary ${label}`).toHaveText(label);
+    await expect(primary.nth(index), `${route} primary ${label}`).toHaveAttribute("href", href);
+    await expect(primary.nth(index), `${route} primary ${label} visible`).toBeVisible();
+  }
+  for (const [index, [label, href]] of utilityNavigation.entries()) {
+    await expect(utility.nth(index), `${route} utility ${label}`).toHaveText(label);
+    await expect(utility.nth(index), `${route} utility ${label}`).toHaveAttribute("href", href);
+    await expect(utility.nth(index), `${route} utility ${label} visible`).toBeVisible();
+  }
   await expect(page.locator("main#main")).toHaveAttribute("data-page-route", route);
-  await expect(page.locator("[data-page-hero] [data-page-question]")).toBeVisible();
+  if (route === "/") {
+    await expect(page.locator("[data-page-hero] h1")).toContainText("Define the work.");
+    await expect(page.locator("[data-home-gate-proof]"), "home gate proof").toContainText("backstop gate");
+  } else {
+    await expect(page.locator("[data-page-hero] [data-page-question]")).toBeVisible();
+  }
   await expect(page.locator("footer")).toBeVisible();
   const overflowState = await page.evaluate(() => {
     const viewportWidth = document.documentElement.clientWidth;
@@ -68,11 +99,21 @@ export async function assertContentCompleteness(page: Page, route: string): Prom
   expect(required.length, `${route} required-block count`).toBeGreaterThan(0);
 
   for (const id of required) {
-    const heading = page.locator(`#${id}`);
-    await expect(heading, `${route} #${id} cardinality`).toHaveCount(1);
-    await expect(heading, `${route} #${id} visibility`).toBeVisible();
+    const block = page.locator(`#${id}`);
+    await expect(block, `${route} #${id} cardinality`).toHaveCount(1);
+    await expect(block, `${route} #${id} visibility`).toBeVisible();
 
-    const state = await heading.evaluate((element) => {
+    const state = await block.evaluate((element) => {
+      if (!/^H[1-6]$/.test(element.tagName)) {
+        const rect = element.getBoundingClientRect();
+        const text = (element.textContent ?? "").replace(/\s+/g, " ").trim();
+        const visibleBlocks = [...element.children].filter((child) => {
+          const style = getComputedStyle(child);
+          const childRect = child.getBoundingClientRect();
+          return style.display !== "none" && style.visibility !== "hidden" && childRect.width > 0 && childRect.height > 0;
+        }).length;
+        return { textLength: text.length, visibleBlocks, firstContentGap: rect.height > 0 ? 0 : null };
+      }
       let sibling = element.nextElementSibling as HTMLElement | null;
       let text = "";
       let visibleBlocks = 0;
@@ -103,11 +144,19 @@ export async function assertContentCompleteness(page: Page, route: string): Prom
   }
 
   if (route === "/") {
-    await expect(page.locator("[data-home-capabilities] > article"), "home capability summaries").toHaveCount(3);
-    await expect(page.locator("[data-home-paths] > article"), "home decision paths").toHaveCount(3);
-    await expect(page.locator("[data-home-gate-proof]"), "home gate proof").toContainText("backstop gate");
-    for (const href of ["/evaluate/", "/model/", "/adopt/"]) {
-      await expect(page.locator(`[data-page-content] a[href="${href}"]`).first(), `home path ${href}`).toBeVisible();
+    const sections = page.locator("[data-home-system-section]");
+    await expect(sections, "home canonical system sections").toHaveCount(3);
+    for (const [index, [number, title]] of [["01", "Define the work"], ["02", "Enforce your standards"], ["03", "Detect drift"]].entries()) {
+      await expect(sections.nth(index).locator(".section-number"), `home system section ${index + 1} number`).toHaveText(number);
+      await expect(sections.nth(index).locator(".section-kicker"), `home system section ${index + 1} title`).toHaveText(title);
+    }
+    const modes = page.locator("[data-home-modes] > article");
+    const expectedModes = ["Full framework", "Artifact workflow", "Standards enforcement", "Deterministic scaffolding"];
+    await expect(modes, "home canonical modes").toHaveCount(expectedModes.length);
+    for (const [index, expected] of expectedModes.entries()) await expect(modes.nth(index)).toContainText(expected);
+    const homeText = await page.locator("[data-page-content]").innerText();
+    for (const forbidden of ["What failure does Backstop prevent?", "Why Backstop", "Choose your path", "EvaluateFailure fit", "UnderstandArtifacts", "AdoptOne real standard"]) {
+      expect(homeText.replace(/\s+/g, ""), `home forbidden scaffold ${forbidden}`).not.toContain(forbidden.replace(/\s+/g, ""));
     }
     const homeTextLength = await page.locator("[data-page-content]").evaluate((element) => (element.textContent ?? "").replace(/\s+/g, " ").trim().length);
     expect(homeTextLength, "home substantive content length").toBeGreaterThanOrEqual(1200);
@@ -115,6 +164,11 @@ export async function assertContentCompleteness(page: Page, route: string): Prom
 }
 
 export async function assertKeyboardOrderAndBounds(page: Page, route: string): Promise<void> {
+  const expectedCanonicalFocusOrder = [
+    "Home:/",
+    ...primaryNavigation.map(([label, href]) => `Primary:${label}:${href}`),
+    ...utilityNavigation.map(([label, href]) => `Utility:${label}:${href}`),
+  ];
   const expected = await page.locator(focusableSelector).evaluateAll((elements) => elements.filter((element) => {
     const style = getComputedStyle(element);
     const rect = element.getBoundingClientRect();
@@ -125,6 +179,7 @@ export async function assertKeyboardOrderAndBounds(page: Page, route: string): P
   await page.locator("body").press("Tab");
   await page.waitForTimeout(34);
   const seen: string[] = [];
+  const seenCanonical: string[] = [];
   for (let index = 0; index < expected; index += 1) {
     await page.locator(":focus").scrollIntoViewIfNeeded();
     const state = await page.evaluate(() => {
@@ -141,8 +196,17 @@ export async function assertKeyboardOrderAndBounds(page: Page, route: string): P
       const centerX = Math.max(0, Math.min(innerWidth - 1, fragment.left + fragment.width / 2));
       const centerY = Math.max(0, Math.min(innerHeight - 1, fragmentVisibleTop + (fragmentVisibleBottom - fragmentVisibleTop) / 2));
       const top = document.elementFromPoint(centerX, centerY);
+      const href = active.getAttribute("href") ?? "";
+      const navigation = active.closest<HTMLElement>('nav[aria-label="Primary"], nav[aria-label="Utility"]');
+      const navigationLabel = navigation?.getAttribute("aria-label");
+      const canonicalIdentity = active.matches("[data-backstop-wordmark]")
+        ? `Home:${href}`
+        : navigation && navigationLabel
+          ? `${navigationLabel}:${(active.textContent ?? "").replace(/\s+/g, " ").trim()}:${href}`
+          : null;
       return {
-        identity: active.getAttribute("href") ?? active.id ?? active.tagName,
+        identity: href || active.id || active.tagName,
+        canonicalIdentity,
         left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom,
         visibleHeight: Math.max(0, visibleBottom - visibleTop),
         topmost: top === active || active.contains(top),
@@ -155,10 +219,15 @@ export async function assertKeyboardOrderAndBounds(page: Page, route: string): P
     expect(state!.visibleHeight, `${route} ${state!.identity} visible focus area`).toBeGreaterThan(1);
     expect(state!.topmost, `${route} ${state!.identity} occluded by ${state!.topIdentity}`).toBeTruthy();
     seen.push(state!.identity);
+    if (state!.canonicalIdentity) seenCanonical.push(state!.canonicalIdentity);
     await page.keyboard.press("Tab");
     await page.waitForTimeout(34);
   }
   expect(seen.length, `${route} traversed focusables`).toBe(expected);
+  for (const identity of expectedCanonicalFocusOrder) {
+    expect(seenCanonical.filter((candidate) => candidate === identity), `${route} keyboard encounter ${identity}`).toHaveLength(1);
+  }
+  expect(seenCanonical, `${route} ordered Home + 7 primary + 2 utility keyboard traversal`).toEqual(expectedCanonicalFocusOrder);
 }
 
 export async function assertLocalOverflow(page: Page, route: string): Promise<void> {

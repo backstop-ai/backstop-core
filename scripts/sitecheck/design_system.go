@@ -71,7 +71,7 @@ func copyTree(source, destination string) error {
 func writeIsolatedManifest(root, sourceRoot, identity string) error {
 	manifest := fmt.Sprintf(`project: seed4-design-system-%s
 packs:
-  backstop-ai/backstop-design-system: 0.1.2
+  backstop-ai/backstop-design-system: 0.1.5
 enforcement:
   policy:
     pack_engines:
@@ -156,8 +156,14 @@ func runIsolatedCorpus(sourceRoot, builtRoot, matrixRoot, identity string, cell 
 		if err != nil {
 			return err
 		}
-		before, _ := base64.StdEncoding.DecodeString(cell.Mutation.UniqueBeforeBase64)
-		replacement, _ := base64.StdEncoding.DecodeString(cell.Mutation.ReplacementBase64)
+		before, err := base64.StdEncoding.DecodeString(cell.Mutation.UniqueBeforeBase64)
+		if err != nil {
+			return fmt.Errorf("%s mutation before bytes: decode base64: %w", cell.ID, err)
+		}
+		replacement, err := base64.StdEncoding.DecodeString(cell.Mutation.ReplacementBase64)
+		if err != nil {
+			return fmt.Errorf("%s mutation replacement bytes: decode base64: %w", cell.ID, err)
+		}
 		if bytes.Count(data, before) != 1 {
 			return fmt.Errorf("%s mutation before bytes: expected one at _site/%s, observed %d", cell.ID, cell.Mutation.TargetRelativePath, bytes.Count(data, before))
 		}

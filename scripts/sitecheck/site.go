@@ -93,6 +93,31 @@ var legacyRedirects = map[string]string{
 	"cli-reference.html":     "/reference/",
 }
 
+func navigationLabel(route string) string {
+	switch route {
+	case "/evaluate/":
+		return "Evaluate"
+	case "/model/":
+		return "Model"
+	case "/adopt/":
+		return "Adopt"
+	case "/use-cases/":
+		return "Use Cases"
+	case "/packs/":
+		return "Packs"
+	case "/extend/":
+		return "Extend"
+	case "/reference/":
+		return "Reference"
+	case "/status/":
+		return "Status"
+	case "/contributing/":
+		return "Contributing"
+	default:
+		return ""
+	}
+}
+
 func builtRoutePath(root, route string) string {
 	if route == "/" {
 		return filepath.Join(root, "index.html")
@@ -146,11 +171,19 @@ func verifyRouteDocument(route string, page PresentationPage, doc string) []Find
 	addCardinality(&findings, "rendered-route", route+" page-kind", "1", attributeCount(doc, "data-page-kind", page.PageKind))
 	addCardinality(&findings, "rendered-route", route+" main", "1", strings.Count(doc, `<main id="main" data-page-route="`+route+`"`))
 	addCardinality(&findings, "rendered-route", route+" hero", "1", attributeCount(doc, "data-page-hero", ""))
-	addCardinality(&findings, "rendered-route", route+" question", "1", strings.Count(doc, `data-page-question>`+html.EscapeString(page.HeroQuestion)+`</h1>`))
+	if route == "/" {
+		findings = append(findings, verifyHomepageDirection(doc)...)
+	} else {
+		addCardinality(&findings, "rendered-route", route+" question", "1", strings.Count(doc, `data-page-question>`+html.EscapeString(page.HeroQuestion)+`</h1>`))
+		if strings.Contains(doc, "data-home-") {
+			findings = append(findings, Finding{Phase: "rendered-route", Identity: route + " homepage fence", Expected: "non-home shared shell without homepage composition markers", Observed: "data-home-* marker present"})
+		}
+	}
 	addCardinality(&findings, "rendered-route", route+" next-action", "1", strings.Count(doc, `href="`+page.NextAction+`">Next`))
 	addCardinality(&findings, "rendered-route", route+" primary-navigation", "1", strings.Count(doc, `<nav aria-label="Primary">`))
 	addCardinality(&findings, "rendered-route", route+" utility-navigation", "1", strings.Count(doc, `<nav aria-label="Utility">`))
-	addCardinality(&findings, "rendered-route", route+" wordmark", "1", strings.Count(doc, `<span>./b</span><span>.sh</span>`))
+	wordmark := `<span>./b</span><span>backstop</span><span>.sh</span>`
+	addCardinality(&findings, "rendered-route", route+" wordmark", "1", strings.Count(doc, wordmark))
 	addCardinality(&findings, "rendered-route", route+" wordmark owner marker", "1", strings.Count(doc, `data-backstop-wordmark`))
 	addCardinality(&findings, "rendered-route", route+" canonical", "1", strings.Count(doc, `<link rel="canonical" href="https://backstop.sh`+route+`">`))
 	if strings.Contains(strings.ToLower(doc), "<script") || regexp.MustCompile(`(?i)(src|href)="[^"]+\.js(?:[?#][^"]*)?"`).MatchString(doc) {
@@ -171,7 +204,108 @@ func verifyRouteDocument(route string, page PresentationPage, doc string) []Find
 			currentExpected = 1
 		}
 	}
+	verifyNavigationOrder := func(label string, destinations []string) {
+		start := strings.Index(doc, `<nav aria-label="`+label+`">`)
+		if start < 0 {
+			return
+		}
+		end := strings.Index(doc[start:], `</nav>`)
+		if end < 0 {
+			return
+		}
+		nav := doc[start : start+end]
+		position := -1
+		for _, destination := range destinations {
+			destinationLabel := navigationLabel(destination)
+			pattern := regexp.MustCompile(`<a\s+[^>]*href="` + regexp.QuoteMeta(destination) + `"[^>]*>` + regexp.QuoteMeta(destinationLabel) + `</a>`)
+			location := pattern.FindStringIndex(nav)
+			if location == nil || location[0] <= position {
+				findings = append(findings, Finding{Phase: "navigation", Identity: route + " " + label + " order", Expected: destinationLabel + " -> " + destination, Observed: "missing, mislabeled, or reordered"})
+				return
+			}
+			position = location[0]
+		}
+	}
+	verifyNavigationOrder("Primary", primaryNavigation)
+	verifyNavigationOrder("Utility", utilityNavigation)
 	addCardinality(&findings, "navigation", route+" current-page", fmt.Sprintf("%d", currentExpected), strings.Count(doc, `aria-current="page"`))
+	return findings
+}
+
+func verifyHomepageDirection(doc string) []Finding {
+	var findings []Finding
+	add := func(identity, expected, observed string) {
+		findings = append(findings, Finding{Phase: "homepage-canonical", Identity: identity, Expected: expected, Observed: observed})
+	}
+	wordmark := `<span>./b</span><span>backstop</span><span>.sh</span>`
+	if strings.Count(doc, wordmark) != 1 {
+		add("wordmark", "one ordered source-visible ./b backstop .sh owner", fmt.Sprintf("%d", strings.Count(doc, wordmark)))
+	}
+	for _, expected := range []string{"Define the work.", "Enforce your standards.", "Detect drift."} {
+		if !strings.Contains(doc, expected) {
+			add("hero", "canonical Define/Enforce/Detect hero", "missing "+expected)
+		}
+	}
+	if attributeCount(doc, "data-home-gate-proof", "") != 1 || !strings.Contains(doc, "backstop gate") {
+		add("gate proof", "one substantive backstop gate proof", "missing or duplicated")
+	}
+	if strings.Contains(doc, "data-page-question") || strings.Contains(doc, ">Why Backstop<") || strings.Contains(doc, ">Choose your path<") {
+		add("forbidden scaffold", "no field-guide question or scaffold headings", "legacy scaffold present")
+	}
+	sections := []struct{ id, number, title string }{{"define-work", "01", "Define the work"}, {"enforce-standards", "02", "Enforce your standards"}, {"detect-drift", "03", "Detect drift"}}
+	position := -1
+	if attributeCount(doc, "data-home-system-section", "") != len(sections) {
+		add("system sections", "exactly three ordered canonical sections", fmt.Sprintf("%d", attributeCount(doc, "data-home-system-section", "")))
+	} else {
+		for _, section := range sections {
+			index := strings.Index(doc, `id="`+section.id+`" data-home-system-section`)
+			pattern := regexp.MustCompile(`(?s)id="` + regexp.QuoteMeta(section.id) + `" data-home-system-section[^>]*>.*?<span[^>]*>` + regexp.QuoteMeta(section.number) + `</span>.*?>` + regexp.QuoteMeta(section.title) + `<`)
+			if index <= position || !pattern.MatchString(doc[index:]) {
+				add("system sections", "ordered 01/02/03 Define/Enforce/Detect sections", section.id+" missing or reordered")
+				break
+			}
+			position = index
+		}
+	}
+	modeStart := strings.Index(doc, "data-home-modes")
+	modeEnd := -1
+	if modeStart >= 0 {
+		modeEnd = strings.Index(doc[modeStart:], `</section>`)
+	}
+	expectedModes := []string{"Full framework", "Artifact workflow", "Standards enforcement", "Deterministic scaffolding"}
+	if modeStart < 0 || modeEnd < 0 {
+		add("composability modes", "exactly four canonical modes", "mode region missing")
+	} else {
+		region := doc[modeStart : modeStart+modeEnd]
+		matches := regexp.MustCompile(`<h3>([^<]+)</h3>`).FindAllStringSubmatch(region, -1)
+		observed := make([]string, 0, len(matches))
+		for _, match := range matches {
+			observed = append(observed, html.UnescapeString(match[1]))
+		}
+		if strings.Join(observed, "|") != strings.Join(expectedModes, "|") {
+			add("composability modes", strings.Join(expectedModes, " | "), strings.Join(observed, " | "))
+		}
+		for _, distinction := range []string{"Artifacts + packs + recipes + gates", "Use the whole chain or only what you need", "Packs + gate", "Recipe packs"} {
+			if !strings.Contains(region, distinction) {
+				add("composability modes", "four distinguishing mode contracts", "missing "+distinction)
+			}
+		}
+	}
+	if strings.Count(doc, "CLAIM-017") != 1 || strings.Count(doc, "JLINK-001") != 1 {
+		add("owner markers", "one CLAIM-017 and one JLINK-001", fmt.Sprintf("claim=%d journey=%d", strings.Count(doc, "CLAIM-017"), strings.Count(doc, "JLINK-001")))
+	}
+	if !strings.Contains(doc, `href="/evaluate/#failure-fit"`) && !strings.Contains(doc, `href="/evaluate/#target"`) {
+		add("journey destination", "canonical root-relative evaluate anchor", "missing")
+	}
+	if strings.Count(doc, `data-next-action`) != 1 || !strings.Contains(doc, `href="/evaluate/">Next`) {
+		add("next action", "one /evaluate/ next action", "missing or drifted")
+	}
+	if strings.Count(doc, "<footer") != 1 || !strings.Contains(doc, "Open source under the MIT License.") {
+		add("footer", "one established footer", "missing or drifted")
+	}
+	if !strings.Contains(doc, `data-required-blocks="define-work,enforce-standards,detect-drift,composable-modes"`) {
+		add("required blocks", "canonical required-block IDs on substantive containers", "missing or drifted")
+	}
 	return findings
 }
 
@@ -307,7 +441,7 @@ func LoadOwnerAcceptanceExport(root string) (OwnerAcceptanceExport, error) {
 		return OwnerAcceptanceExport{}, err
 	}
 	expectedCells := []string{"token", "inline-style", "focus", "reduced-motion", "accessibility", "wordmark", "reusable-presentation"}
-	if export.SchemaVersion != "backstop-design-system/public-site-acceptance/v1" || export.Subject.ManifestIdentity != "backstop-ai/backstop-design-system" || export.Subject.Version != "0.1.2" || export.Subject.RulesetVersion != "1.2.0" || export.ExportFingerprintBinding != "release-evidence/v0.1.2.yml#public_site_acceptance" || len(export.Cells) != len(expectedCells) {
+	if export.SchemaVersion != "backstop-design-system/public-site-acceptance/v1" || export.Subject.ManifestIdentity != "backstop-ai/backstop-design-system" || export.Subject.Version != "0.1.5" || export.Subject.RulesetVersion != "1.3.1" || export.ExportFingerprintBinding != "release-evidence/v0.1.5.yml#public_site_acceptance" || len(export.Cells) != len(expectedCells) {
 		return OwnerAcceptanceExport{}, errors.New("owner export identity, release, or seven-cell cardinality mismatch")
 	}
 	seenRules := map[string]bool{}
@@ -321,8 +455,11 @@ func LoadOwnerAcceptanceExport(root string) (OwnerAcceptanceExport, error) {
 				included = true
 			}
 		}
-		if cell.ID != id || cell.RuleID == "" || seenRules[cell.RuleID] || !included || cell.CleanFixture == "" || cell.NegativeFixture == "" || cell.Mutation.TargetRelativePath == "" || len(before) == 0 || len(replacement) == 0 || beforeErr != nil || replacementErr != nil || string(before) == string(replacement) || cell.PathFidelity.TargetRelativePath != cell.Mutation.TargetRelativePath || cell.PathFidelity.FixtureRelativePath != cell.NegativeFixture || !strings.HasPrefix(cell.PathFidelity.DispatchEvidenceRef, "release-evidence/v0.1.2.yml#") {
+		if cell.ID != id || cell.RuleID == "" || seenRules[cell.RuleID] || !included || cell.CleanFixture == "" || cell.NegativeFixture == "" || cell.Mutation.TargetRelativePath == "" || len(before) == 0 || len(replacement) == 0 || beforeErr != nil || replacementErr != nil || string(before) == string(replacement) || cell.PathFidelity.TargetRelativePath != cell.Mutation.TargetRelativePath || cell.PathFidelity.FixtureRelativePath != cell.NegativeFixture || !strings.HasPrefix(cell.PathFidelity.DispatchEvidenceRef, "release-evidence/v0.1.5.yml#") {
 			return OwnerAcceptanceExport{}, fmt.Errorf("owner export cell %q is incomplete or reordered", id)
+		}
+		if id == "wordmark" && string(before) != `<span>./b</span><span>backstop</span><span>.sh</span>` {
+			return OwnerAcceptanceExport{}, errors.New("owner wordmark mutation source is not the exact three-part markup")
 		}
 		seenRules[cell.RuleID] = true
 	}

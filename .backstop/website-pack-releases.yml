@@ -63,61 +63,83 @@ releases:
   - role: design-system
     owner_artifact:
       repository: https://github.com/backstop-ai/backstop-design-system.git
-      commit: 45906f9deb598f64e1dff2c245553df1830ec8f1
+      commit: 41f9867265d66f51d30e7a632b780986556d2ed0
       path: bundles/BUNDLE-001-design-system-release.bundle.md
-      sha256: c72670345e2a3d011fcc0a235939870fc192ad0bde45c3d573ce24853c827cfa
+      sha256: 805a25ae728a0951e198a2cd000f6b7d4af3fdfa22875f54ede17c09bc1774de
     release_evidence:
       repository: https://github.com/backstop-ai/backstop-design-system.git
-      commit: 33ffbb2742806d657d5e4e188175a30d853074c0
-      path: release-evidence/v0.1.2.yml
-      sha256: 568d4052de019a8b4f337b2499a12d365739275aeb6d0358a79c3a968cc8b686
+      commit: f60a5b01110ecf0d1cda338aad6e71c018a35acc
+      path: release-evidence/v0.1.5.yml
+      sha256: f48d339543ec91919c3a1c7c26ebe7fd81ff4505174e41e5ea20c0f00482a9f4
     manifest_identity: backstop-ai/backstop-design-system
     source_coordinate: backstop-ai/backstop-design-system
-    version: 0.1.2
-    git_ref: v0.1.2
-    release_commit: 45906f9deb598f64e1dff2c245553df1830ec8f1
-    content_hash: afe81249fdd3180555ca5d94a278c7463eac6f877dbf8ade5740e6e77cf51f5f
+    version: 0.1.5
+    git_ref: v0.1.5
+    release_commit: 41f9867265d66f51d30e7a632b780986556d2ed0
+    content_hash: f3df3dd08932b7788f3728d2c6bf495d9f36b125c5812eb13d516c92eccdfa33
     common_checks:
       - check: pack-check
-        command: ./bin/backstop pack check .
+        command: backstop pack check .
         exit_code: 0
         result: pass
-        subject_commit: 45906f9deb598f64e1dff2c245553df1830ec8f1
-        subject_content_hash: afe81249fdd3180555ca5d94a278c7463eac6f877dbf8ade5740e6e77cf51f5f
+        subject_commit: 41f9867265d66f51d30e7a632b780986556d2ed0
+        subject_content_hash: f3df3dd08932b7788f3728d2c6bf495d9f36b125c5812eb13d516c92eccdfa33
         log_ref:
           repository: https://github.com/backstop-ai/backstop-design-system.git
-          commit: cbc3ef6ca35cbd3164c410125fe2449fa64e9801
+          commit: d7cd2894c793e7163daf704a39a26d1e62b96924
           path: release-evidence/logs/pack-check.log
           sha256: 5219f152856b134f33be3a5593579c2a5a2f3e791a2b08b8b5c3df8fed5fe494
       - check: pack-test
-        command: ./bin/backstop pack test .
+        command: backstop pack test .
         exit_code: 0
         result: pass
-        subject_commit: 45906f9deb598f64e1dff2c245553df1830ec8f1
-        subject_content_hash: afe81249fdd3180555ca5d94a278c7463eac6f877dbf8ade5740e6e77cf51f5f
+        subject_commit: 41f9867265d66f51d30e7a632b780986556d2ed0
+        subject_content_hash: f3df3dd08932b7788f3728d2c6bf495d9f36b125c5812eb13d516c92eccdfa33
         log_ref:
           repository: https://github.com/backstop-ai/backstop-design-system.git
-          commit: cbc3ef6ca35cbd3164c410125fe2449fa64e9801
+          commit: d7cd2894c793e7163daf704a39a26d1e62b96924
           path: release-evidence/logs/pack-test.log
           sha256: d9cebf97c292956119f4004292d76d9532de06ca2e709a7a69e8ed67249d8bef
       - check: public-site-acceptance
         command: python3 scripts/verify-public-site-acceptance.py
         exit_code: 0
         result: pass
-        subject_commit: 45906f9deb598f64e1dff2c245553df1830ec8f1
-        subject_content_hash: afe81249fdd3180555ca5d94a278c7463eac6f877dbf8ade5740e6e77cf51f5f
+        subject_commit: 41f9867265d66f51d30e7a632b780986556d2ed0
+        subject_content_hash: f3df3dd08932b7788f3728d2c6bf495d9f36b125c5812eb13d516c92eccdfa33
         log_ref:
           repository: https://github.com/backstop-ai/backstop-design-system.git
-          commit: cbc3ef6ca35cbd3164c410125fe2449fa64e9801
+          commit: d7cd2894c793e7163daf704a39a26d1e62b96924
           path: release-evidence/logs/public-site-acceptance.log
           sha256: ff5bde86ada41c531416b0774518f5bf6ff5689950f10c5a29ffc7306a428bb4
+      - check: canonical-wordmark-v015-candidate
+        command: python3 scripts/verify-canonical-wordmark-v015.py --candidate --base v0.1.4
+        exit_code: 0
+        result: pass
+        subject_commit: 41f9867265d66f51d30e7a632b780986556d2ed0
+        subject_content_hash: f3df3dd08932b7788f3728d2c6bf495d9f36b125c5812eb13d516c92eccdfa33
+        log_ref:
+          repository: https://github.com/backstop-ai/backstop-design-system.git
+          commit: d7cd2894c793e7163daf704a39a26d1e62b96924
+          path: release-evidence/logs/canonical-wordmark-v015-candidate.log
+          sha256: 7ac797fbc46f0dbc415be85d7b2973636b85abda2a0b30f2e4ef64f6ae4f42d6
+      - check: release-workflow-safety
+        command: python3 scripts/verify-release-workflow-safety.py
+        exit_code: 0
+        result: pass
+        subject_commit: 41f9867265d66f51d30e7a632b780986556d2ed0
+        subject_content_hash: f3df3dd08932b7788f3728d2c6bf495d9f36b125c5812eb13d516c92eccdfa33
+        log_ref:
+          repository: https://github.com/backstop-ai/backstop-design-system.git
+          commit: d7cd2894c793e7163daf704a39a26d1e62b96924
+          path: release-evidence/logs/release-workflow-safety.log
+          sha256: 2278782f8b29552b6826af810c3e1e7d4aad85c16272f0638f0ebc38817b5f90
     public_site_acceptance:
       schema_version: backstop-design-system/public-site-acceptance/v1
-      subject_commit: 45906f9deb598f64e1dff2c245553df1830ec8f1
-      subject_content_hash: afe81249fdd3180555ca5d94a278c7463eac6f877dbf8ade5740e6e77cf51f5f
+      subject_commit: 41f9867265d66f51d30e7a632b780986556d2ed0
+      subject_content_hash: f3df3dd08932b7788f3728d2c6bf495d9f36b125c5812eb13d516c92eccdfa33
       export:
         path: contracts/public-site-acceptance.yml
-        sha256: 13d149b2d75ad0f1ff07afbbcc5a646e4d527b42bb04c7d97ea6f7d52570173b
+        sha256: 5c78650b2282cfa0cfe834fcda849e5c6538a4e32b11df623969b0aa54da1624
       token_asset:
         path: assets/design-system-tokens.css
         media_type: text/css
