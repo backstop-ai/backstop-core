@@ -28,7 +28,7 @@ RUN apt-get update \
         ca-certificates curl git unzip xz-utils sudo gnupg \
         build-essential autoconf patch pkg-config \
         libssl-dev libyaml-dev zlib1g-dev libreadline-dev libffi-dev libgdbm-dev libncurses-dev \
-        python3 python3-venv python3-pip \
+        python3 python3-venv python3-pip python3-yaml \
     && rm -rf /var/lib/apt/lists/*
 
 # The base image ships a `ubuntu` user (uid 1000); grant it passwordless sudo so
