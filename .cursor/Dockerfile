@@ -73,6 +73,10 @@ RUN git clone --depth 1 https://github.com/rbenv/ruby-build.git /tmp/ruby-build 
     && for b in ruby gem bundle bundler erb rake irb; do \
          ln -sf "/opt/ruby-3.3.4/bin/$b" "/usr/local/bin/$b"; \
        done
+# `bundle install` runs as the ubuntu user during the install phase and writes
+# gems into this prefix's gem dir, so it must be user-owned (ruby-build installs
+# it as root). Kept as its own layer so the Ruby compile stays cached.
+RUN chown -R ubuntu:ubuntu /opt/ruby-3.3.4
 
 # --- Playwright Chromium + OS libraries --------------------------------------
 # OS deps as root (apt); the browser as the ubuntu user so it lands in that
