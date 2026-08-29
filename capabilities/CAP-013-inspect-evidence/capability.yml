@@ -1,16 +1,40 @@
 ---
-# Capability: Inspect Evidence
+# Capability: Inspect the Evidence
 # See artifacts/capability/v1/schema.json for format
 
 capability:
   id: CAP-013
-  title: "Inspect Evidence"
+  title: "Inspect the Evidence"
   status: draft
-  strictness: relaxed
+  strictness: strict
+  description: >
+    Trace public claims through durable evidence.
 
-infrastructure_specs: []
+infrastructure_specs:
+  - SPEC-072
+  - SPEC-073
+  - SPEC-074
+  - SPEC-075
+
+integration_spec: SPEC-076
+
+scenarios:
+  feature_file: user-journeys.feature
+  id_pattern: "^@UJ-[0-9]{3}$"
+
+test_configuration:
+  app_origins:
+    - https://backstop.sh
+  auth_strategy: none
+  setup_command: ""
+  teardown_command: ""
 
 quality_gates:
   - type: acceptance
-    command: ""
+    command: './scripts/verify-website-capabilities.sh --capability CAP-013'
     must_pass: true
+    description: Built-site CAP-013 acceptance
+  - type: acceptance
+    command: './scripts/verify-website-capabilities.sh --capability CAP-013 --deployed-origin https://backstop.sh --commit "$BACKSTOP_DEPLOY_COMMIT" --run-id "$BACKSTOP_DEPLOY_RUN_ID"'
+    must_pass: true
+    description: Identity-matched https://backstop.sh CAP-013 acceptance
