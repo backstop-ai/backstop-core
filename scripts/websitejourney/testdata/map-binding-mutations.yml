@@ -1,0 +1,73 @@
+# TASK-007 mutation table for typed journey-map bindings.
+
+semantic_mutations:
+  - name: omit-cap-014-uj-001
+    omit_key: CAP-014/@UJ-001
+    expected_error: CAP-014/@UJ-001
+  - name: extra-journey-key
+    extra_key: CAP-004/@UJ-099
+    expected_error: CAP-004/@UJ-099
+  - name: alias-kind
+    key: CAP-004/@UJ-001
+    override_kind: claim
+    expected_error: CAP-004/@UJ-001
+  - name: copied-prose
+    key: CAP-004/@UJ-002
+    copy_claim_statement: true
+    expected_error: CAP-004/@UJ-002
+  - name: inferred-boundary
+    key: CAP-005/@UJ-002
+    infer_boundary_from_prose: true
+    expected_error: CAP-005/@UJ-002
+  - name: wrong-claim-type
+    key: CAP-006/@UJ-001
+    override_claim_type: observed-failure
+    expected_error: CAP-006/@UJ-001
+  - name: wrong-boundary-state
+    key: CAP-014/@UJ-001
+    override_boundary_state: supported
+    expected_error: CAP-014/@UJ-001
+  - name: stale-predecessor-version
+    override_spec: SPEC-072
+    override_version: "1.0.0"
+    expected_error: SPEC-072
+  - name: seed5-resolves-site-commit
+    resolve_site_commit: true
+    expected_error: SITE-COMMIT
+  - name: missing-adoption-ref
+    omit_adoption: ADOPT-ENFORCE
+    expected_error: ADOPT-ENFORCE
+
+generated_mutations:
+  - name: wrong-job-on-cap-011
+    key: CAP-011/@UJ-001
+    override_jobs: [cli-command-catalog]
+    expected_error: CAP-011/@UJ-001
+  - name: missing-job-on-cap-013
+    key: CAP-013/@UJ-002
+    omit_job: release-history
+    expected_error: CAP-013/@UJ-002
+  - name: extra-generated-job
+    key: CAP-004/@UJ-001
+    extra_job: installed-pack-catalog
+    expected_error: CAP-004/@UJ-001
+  - name: seed5-reconstructs-envelope
+    key: CAP-011/@UJ-001
+    reconstruct_envelope: true
+    expected_error: CAP-011/@UJ-001
+  - name: malformed-source-digest
+    key: CAP-011/@UJ-001
+    override_digest: sha256:not-a-digest
+    expected_error: CAP-011/@UJ-001
+  - name: missing-marker-pair
+    key: CAP-013/@UJ-002
+    drop_markers: true
+    expected_error: CAP-013/@UJ-002
+  - name: resolved-url-template
+    key: CAP-011/@UJ-001
+    resolve_url_template: true
+    expected_error: SITE-COMMIT
+  - name: split-cap014-dual-identity
+    key: CAP-014/@UJ-001
+    split_dual_identity: true
+    expected_error: CAP-014/@UJ-001
