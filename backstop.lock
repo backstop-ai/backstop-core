@@ -8,13 +8,13 @@ packs:
         source_type: git
         version: 0.1.6
     backstop-ai/backstop-design-system:
-        content_hash: afe81249fdd3180555ca5d94a278c7463eac6f877dbf8ade5740e6e77cf51f5f
-        git_ref: v0.1.2
-        install_date: 2026-08-27T10:47:54Z
+        content_hash: f3df3dd08932b7788f3728d2c6bf495d9f36b125c5812eb13d516c92eccdfa33
+        git_ref: v0.1.5
+        install_date: 2026-08-28T20:29:01Z
         name: backstop-ai/backstop-design-system
         source_coordinate: backstop-ai/backstop-design-system
         source_type: git
-        version: 0.1.2
+        version: 0.1.5
     backstop-ai/backstop-self:
         content_hash: 014015983bacd2fec7fccb7c08ee51f43bf06daa35a2ea87f7e89e87afa99f3f
         git_ref: v1.1.3

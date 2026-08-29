@@ -1,11 +1,46 @@
 package main
 
 import (
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestDesignSystem_ErrorAndCorpusBranchesReachThreshold(t *testing.T) {
+	sourceRoot := filepath.Clean(filepath.Join("..", ".."))
+	fixtureRoot, builtRoot := makeSyntheticSite(t)
+	export, err := LoadOwnerAcceptanceExport(fixtureRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(builtRoot, "index.html"), "unique marker")
+
+	tests := []struct {
+		name        string
+		before      string
+		replacement string
+		want        string
+	}{
+		{"invalid before encoding", "%%%", base64.StdEncoding.EncodeToString([]byte("replacement")), "branch-cell mutation before bytes: decode base64: illegal base64 data at input byte 0"},
+		{"invalid replacement encoding", base64.StdEncoding.EncodeToString([]byte("unique marker")), "%%%", "branch-cell mutation replacement bytes: decode base64: illegal base64 data at input byte 0"},
+		{"missing unique bytes", base64.StdEncoding.EncodeToString([]byte("absent marker")), base64.StdEncoding.EncodeToString([]byte("replacement")), "branch-cell mutation before bytes: expected one at _site/index.html, observed 0"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cell := &export.Cells[0]
+			cell.ID = "branch-cell"
+			cell.Mutation.TargetRelativePath = "index.html"
+			cell.Mutation.UniqueBeforeBase64 = test.before
+			cell.Mutation.ReplacementBase64 = test.replacement
+			err := runIsolatedCorpus(sourceRoot, builtRoot, t.TempDir(), "branch-cell", cell)
+			if err == nil || err.Error() != test.want {
+				t.Fatalf("error = %q, want %q", err, test.want)
+			}
+		})
+	}
+}
 
 func TestDesignSystem_CopyTreeAndManifestHelpers(t *testing.T) {
 	source := t.TempDir()

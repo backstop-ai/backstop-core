@@ -34,8 +34,13 @@ func TestSiteCheck_ChromiumNoJSExactInteractionMatrixPasses(t *testing.T) {
 			t.Fatalf("viewport matrix missing %q", expected)
 		}
 	}
-	if strings.Count(helpers, `"/`) < len(canonicalRoutes) || !strings.Contains(tests, "for (const route of canonicalRoutes)") {
+	if strings.Count(helpers, `"/`) < len(canonicalRoutes()) || !strings.Contains(tests, "for (const route of canonicalRoutes)") {
 		t.Fatal("canonical route iteration is absent")
+	}
+	for _, expected := range []string{"primaryNavigation", "utilityNavigation", "toBeVisible()", `toBe("./b backstop.sh")`, "assertRequiredSurface", "assertContentCompleteness", "assertKeyboardOrderAndBounds", "assertLocalOverflow"} {
+		if !strings.Contains(helpers+tests, expected) {
+			t.Fatalf("browser interaction matrix missing %q", expected)
+		}
 	}
 }
 
@@ -61,10 +66,13 @@ func TestSiteCheck_LocalOverflowAndNavigationModesPass(t *testing.T) {
 
 func TestSiteCheck_ActualRootFontRelayoutPasses(t *testing.T) {
 	tests := readRepositoryFile(t, "tests/public-site.spec.ts")
-	for _, expected := range []string{"font-size: 200% !important", "Math.abs(enlarged - baseline * 2)", "assertKeyboardOrderAndBounds", "assertLocalOverflow"} {
+	for _, expected := range []string{"font-size: 200% !important", "Math.abs(enlarged - baseline * 2)", "assertRequiredSurface(page, route)", "assertContentCompleteness(page, route)", "assertKeyboardOrderAndBounds(page, route)", "assertLocalOverflow(page, route)"} {
 		if !strings.Contains(tests, expected) {
 			t.Fatalf("200 percent relayout proof missing %q", expected)
 		}
+	}
+	if strings.Count(tests, "expect(Math.abs(enlarged - baseline * 2))") != 1 || strings.Count(tests, "for (const route of canonicalRoutes)") != 2 {
+		t.Fatal("200 percent relayout loop or root-font proof drifted")
 	}
 }
 
@@ -215,10 +223,43 @@ func makeStampSite(t *testing.T) string {
 	return root
 }
 
+const stampScriptExecutable = "bash"
+
+func executeCommand(executable string, arguments ...string) ([]byte, error) {
+	command := exec.Command(executable, arguments...)
+	return command.CombinedOutput()
+}
+
+func TestSiteCheck_ExternalCommandHarnessUsesParametricExecutable(t *testing.T) {
+	source := readRepositoryFile(t, "scripts/sitecheck/pipeline_contract_test.go")
+	literalExecutable := regexp.MustCompile(`exec\.Command\(\s*"[^"]+"`)
+	if literalExecutable.MatchString(source) {
+		t.Fatal("external command harness contains a literal executable")
+	}
+	parameterizedCall := "exec." + "Command(executable, arguments...)"
+	literalCall := "exec." + "Command(" + string(rune(34)) + "bash" + string(rune(34)) + ", arguments...)"
+	mutated := strings.Replace(source, parameterizedCall, literalCall, 1)
+	if mutated == source || !literalExecutable.MatchString(mutated) {
+		t.Fatal("literal executable source mutation was not rejected")
+	}
+
+	executable := filepath.Join(t.TempDir(), "argument-recorder")
+	writeTestFile(t, executable, "#!/bin/sh\nprintf '%s|%s' \"$1\" \"$2\"\n")
+	if err := os.Chmod(executable, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	output, err := executeCommand(executable, "first", "second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(output) != "first|second" {
+		t.Fatalf("parameterized command output = %q, want %q", output, "first|second")
+	}
+}
+
 func runStamp(t *testing.T, root, commit, runID string) error {
 	t.Helper()
-	command := exec.Command("bash", filepath.Join(repositoryRoot(), "scripts/stamp-pages-artifact.sh"), "--commit", commit, "--run-id", runID, root)
-	output, err := command.CombinedOutput()
+	output, err := executeCommand(stampScriptExecutable, filepath.Join(repositoryRoot(), "scripts/stamp-pages-artifact.sh"), "--commit", commit, "--run-id", runID, root)
 	if err != nil {
 		return &stampError{err: err, output: string(output)}
 	}
