@@ -76,6 +76,7 @@ th { background: var(--ds-surface); }
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
+[data-page-kind="evaluation"] .prose > h2#working-state,
 [data-page-kind="evaluation"] .prose > h2#failure-fit,
 [data-page-kind="evaluation"] .prose > h2#fit-decision {
   margin: 3rem 0 1rem;
@@ -169,11 +170,15 @@ th { background: var(--ds-surface); }
 [data-page-kind="evaluation"] .ci-workflows .has-loop li:nth-child(-n+2)::after { content: "↔"; }
 [data-page-kind="evaluation"] .prose > p:has(+ .ci-workflows) { max-width: 46rem; }
 [data-page-kind="evaluation"] #fit-decision + p { max-width: 46rem; color: var(--ds-muted); font-size: 1.05rem; }
-[data-page-kind="evaluation"] .ci-workflows + p {
+[data-page-kind="evaluation"] .ci-workflows + p,
+[data-page-kind="evaluation"] .sdd-matrix + p {
   color: var(--ds-accent);
   font-size: 1.15rem;
   font-weight: 650;
 }
+[data-page-kind="evaluation"] #working-state + .tactics-intro + p,
+[data-page-kind="evaluation"] #working-state + .tactics-intro + p + p,
+[data-page-kind="evaluation"] #working-state + .tactics-intro + p + p + p { max-width: 46rem; }
 
 .next-action { width: min(calc(100% - 2rem), 73.75rem); margin-inline: auto; padding-block: 2rem 4rem; border-top: 1px solid var(--ds-border); display: flex; justify-content: space-between; gap: 1rem; }
 .next-action span { color: var(--ds-muted); }

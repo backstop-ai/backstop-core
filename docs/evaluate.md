@@ -26,6 +26,34 @@ hero_lede: "Backstop does not care which one. It cares whether the result may sh
 </table>
 </div>
 
+## A spec is context. The artifact chain is working state. {#working-state}
+
+<div class="tactics-intro">
+<p class="tactics-kicker">SDD gives the agent better instructions. The artifact chain gives it less to guess.</p>
+<p>A spec tells the agent what you want. The artifact chain tells it what to do next, what it may assume, what it must prove, and when it is done.</p>
+</div>
+
+Most spec-driven workflows hand the agent one or more Markdown documents and leave it to infer the rest. Backstop turns intent into bounded, linked work: requirements become a plan, the plan produces implementation claims, and those claims require evidence.
+
+At every stage, the agent knows what is authoritative, what remains unresolved, and what must be true before the work can proceed.
+
+<div class="tactics-matrix sdd-matrix">
+<table>
+<thead>
+<tr><th>Common SDD</th><th>What the agent still has to infer</th><th>What the artifact chain makes explicit</th><th>Result</th></tr>
+</thead>
+<tbody>
+<tr><td data-label="Common SDD">A single spec.md</td><td data-label="What the agent still has to infer">Decomposition, dependencies, and boundaries</td><td data-label="What the artifact chain makes explicit">Atomic requirements and explicit relationships</td><td data-label="Result">A smaller problem to solve</td></tr>
+<tr><td data-label="Common SDD">Generated plan and tasks</td><td data-label="What the agent still has to infer">Whether every requirement survived planning</td><td data-label="What the artifact chain makes explicit">Validated coverage between artifacts</td><td data-label="Result">Nothing quietly falls out</td></tr>
+<tr><td data-label="Common SDD">Checked task boxes</td><td data-label="What the agent still has to infer">What was actually implemented and proven</td><td data-label="What the artifact chain makes explicit">Claims tied to evidence and terminal states</td><td data-label="Result">“Done” can be contradicted</td></tr>
+<tr><td data-label="Common SDD">A revised specification</td><td data-label="What the agent still has to infer">Which existing work is now stale</td><td data-label="What the artifact chain makes explicit">Required downstream reconciliation</td><td data-label="Result">Change does not become drift</td></tr>
+<tr><td data-label="Common SDD">A new agent session</td><td data-label="What the agent still has to infer">Decisions, progress, and unresolved work</td><td data-label="What the artifact chain makes explicit">Durable artifact and workflow state</td><td data-label="Result">Resume without reconstruction</td></tr>
+</tbody>
+</table>
+</div>
+
+The same structure that makes the agent easier to trust also makes the agent better at the job.
+
 ## When work is not allowed to ship {#failure-fit}
 
 <div class="failed-verdict" aria-label="Example failing Backstop gate">
