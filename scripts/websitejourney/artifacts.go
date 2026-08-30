@@ -336,6 +336,9 @@ func ValidateCapabilityArtifactMatrix(tree CapabilityTree) error {
 		}
 		return fmt.Errorf("capability cardinality: got %d, want %d", len(tree.Artifacts), len(expected))
 	}
+	if _, err := websiteCapabilityCohortStatus(tree); err != nil {
+		return err
+	}
 	for index, want := range expected {
 		got := tree.Artifacts[index]
 		if err := validateOneCapability(got, want); err != nil {
@@ -364,7 +367,7 @@ func validateOneCapability(got, want CapabilityArtifact) error {
 	if got.Title != want.Title {
 		return fmt.Errorf("%s: title %q, want %q", got.ID, got.Title, want.Title)
 	}
-	if got.Status != "draft" {
+	if got.Status != "draft" && got.Status != "verified" {
 		return fmt.Errorf("%s: status %q, want draft until blocking gates pass", got.ID, got.Status)
 	}
 	if got.Strictness != "strict" {
@@ -722,6 +725,13 @@ func VerifyCapabilityArtifacts(root, capability string) error {
 		return err
 	}
 	if err := ValidateScenarioAndCoverageMatrix(tree); err != nil {
+		return err
+	}
+	evidence, err := CollectPromotionEvidence(root)
+	if err != nil {
+		return err
+	}
+	if err := ValidatePromotion(tree, evidence); err != nil {
 		return err
 	}
 	if capability != "" {
