@@ -233,7 +233,7 @@ func TestWebsiteJourney_BuiltTraversalRejectsObligationCheats(t *testing.T) {
 	})
 	t.Run("missing-start-anchor", func(t *testing.T) {
 		journey := m.Journey("CAP-004/@UJ-001")
-		journey.Hops = []string{"/#Why-Backstop", "/evaluate/#failure-fit"}
+		journey.Hops = []string{"/#Define-work", "/evaluate/#failure-fit"}
 		if err := traverseJourney(documents, journey, TraverseOptions{}); err == nil || !strings.Contains(err.Error(), "CAP-004/@UJ-001") {
 			t.Fatalf("case-sensitive start: %v", err)
 		}
@@ -294,7 +294,7 @@ func TestWebsiteJourney_BuiltTraversalRejectsObligationCheats(t *testing.T) {
 	})
 	t.Run("link-off-first-route", func(t *testing.T) {
 		journey := m.Journey("CAP-004/@UJ-001")
-		journey.Hops = []string{"/evaluate/#failure-fit", "/#why-backstop"}
+		journey.Hops = []string{"/evaluate/#failure-fit", "/#define-work"}
 		if err := traverseJourney(documents, journey, TraverseOptions{}); err == nil || !strings.Contains(err.Error(), "first-route") {
 			t.Fatalf("off-route link: %v", err)
 		}
@@ -331,7 +331,7 @@ func TestWebsiteJourney_BuiltTraversalRejectsObligationCheats(t *testing.T) {
 		if _, _, err := ParseHop("http://[::1]:namedport"); err == nil {
 			t.Fatal("ParseHop accepted an invalid hop")
 		}
-		if DocumentHasID(documents["/"], "Why-Backstop") {
+		if DocumentHasID(documents["/"], "Define-work") {
 			t.Fatal("DocumentHasID must be case-sensitive")
 		}
 		if !DocumentHasID(documents["/"], "") {

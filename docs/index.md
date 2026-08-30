@@ -6,7 +6,7 @@ published: false
 hero_question: "What failure does Backstop prevent?"
 ---
 
-## Why Backstop {#why-backstop}
+## Define the work {#define-work}
 
 <!-- backstop-claim: CLAIM-017 -->
 AI can produce code faster than a team can establish whether it satisfies the team's intent. Backstop makes that mismatch inspectable: define the work, bind execution, and run deterministic standards before drift becomes review debt.

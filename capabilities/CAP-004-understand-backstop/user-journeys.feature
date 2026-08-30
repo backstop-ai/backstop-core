@@ -2,7 +2,7 @@ Feature: Understand Backstop
 
   @UJ-001
   Scenario: CAP-004/@UJ-001 Recognize the failure class and why Backstop exists
-    Given a visitor is at /#why-backstop
+    Given a visitor is at /#define-work
     When they follow the rendered JLINK-001 next-action link
     Then they arrive at /evaluate/#failure-fit and can recognize the failure class Backstop exists to prevent
 

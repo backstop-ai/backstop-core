@@ -17,10 +17,10 @@ adoption_instructions:
   - ADOPT-ENFORCE
 journeys:
   - global_key: CAP-004/@UJ-001
-    hops: ["/#why-backstop", "/evaluate/#failure-fit"]
+    hops: ["/#define-work", "/evaluate/#failure-fit"]
     jlinks: [JLINK-001]
     obligations:
-      - {kind: evidence, claim_id: CLAIM-017, owner_route: "/", owner_anchor: why-backstop, claim_type: mechanism}
+      - {kind: evidence, claim_id: CLAIM-017, owner_route: "/", owner_anchor: define-work, claim_type: mechanism}
       - {kind: boundary, boundary_id: BOUNDARY-004, owner_route: "/status/", owner_anchor: project-boundaries, state: non-goal, claim_id: CLAIM-004}
   - global_key: CAP-004/@UJ-002
     hops: ["/evaluate/#what-backstop-is", "/model/#operating-model"]
@@ -96,7 +96,7 @@ journeys:
     hops: ["/use-cases/#choose-use-case", "/adopt/#adoption-paths"]
     jlinks: [JLINK-015]
     obligations:
-      - {kind: evidence, claim_id: CLAIM-017, owner_route: "/", owner_anchor: why-backstop, claim_type: mechanism}
+      - {kind: evidence, claim_id: CLAIM-017, owner_route: "/", owner_anchor: define-work, claim_type: mechanism}
       - {kind: boundary, boundary_id: BOUNDARY-002, owner_route: "/status/", owner_anchor: supported-and-limited, state: limitation, claim_id: CLAIM-002}
   - global_key: CAP-010/@UJ-002
     hops: ["/use-cases/#pack-backed-use-cases", "/packs/#choose-a-pack"]
