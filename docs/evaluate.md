@@ -7,8 +7,8 @@ hero_lede: "Backstop makes it trustworthy."
 ---
 
 <div class="tactics-intro">
-<p class="tactics-kicker">Better models plus markdown are not determinism.</p>
-<p>Claude Code and Fable already write the code. A stronger model and a spec.md still guess. The agent can still freelance, the diff can still be unreviewable, and that work can still reach production.</p>
+<p class="tactics-kicker">A better model writes more average code.</p>
+<p>Newer models are trained on more of the public majority, so they are better at resembling what most code looks like. By design, no model out of the box knows how your team writes code. Backstop makes the result trustworthy: the work does what the artifact chain required, and it holds to your team's standards.</p>
 <p class="tactics-bridge">Keep the tools. Add a verdict.</p>
 </div>
 
