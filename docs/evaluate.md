@@ -6,20 +6,41 @@ hero_question: "Your agent already writes the code."
 hero_lede: "Backstop does not care which one. It cares whether the result may ship."
 ---
 
+<div class="tactics-intro">
+<p class="tactics-kicker">Keep the tools. Add a verdict.</p>
+<p>Backstop is the enforcement layer for agent-generated work.</p>
+</div>
+
 <div class="tactics-matrix">
 <table>
 <thead>
-<tr><th>What you already tried</th><th>What that gets you</th><th>What it does not</th><th>What Backstop does instead</th><th>Result</th></tr>
+<tr><th>What you already use</th><th>What that gets you</th><th>What it cannot guarantee</th><th>What Backstop adds</th><th>Result</th></tr>
 </thead>
 <tbody>
-<tr><td>Markdown specs</td><td>Named intent</td><td>The agent can skip them</td><td>Plan-before-code, claims, mandated tests</td><td>“Done” can be contradicted</td></tr>
-<tr><td>Skills / AGENTS.md</td><td>Better default behavior</td><td>A prompt, not a verdict</td><td>Packs and fixtures for the non-negotiable subset</td><td>Green means the standard held</td></tr>
-<tr><td>MCP</td><td>Tool access</td><td>No merge policy</td><td>The same CLI; the caller must honor the exit</td><td>Running the binary is not stopping</td></tr>
-<tr><td>LLM review</td><td>Another opinion on the diff</td><td>Still a guess</td><td>Deterministic engines for what must not be a guess</td><td>Same input, same verdict</td></tr>
-<tr><td>Standards as docs</td><td>Shared language</td><td>Unenforced</td><td>Encode only what you would fail a merge over</td><td>The rest stays a doc on purpose</td></tr>
+<tr><td data-label="What you already use">Markdown specs</td><td data-label="What that gets you">Named intent</td><td data-label="What it cannot guarantee">The agent can skip them</td><td data-label="What Backstop adds">Plan-before-code, verifiable claims, mandated tests</td><td data-label="Result">“Done” can be contradicted</td></tr>
+<tr><td data-label="What you already use">Skills / AGENTS.md</td><td data-label="What that gets you">Better default behavior</td><td data-label="What it cannot guarantee">A prompt, not a verdict</td><td data-label="What Backstop adds">Packs and fixtures for the non-negotiable subset</td><td data-label="Result">Green means the standard held</td></tr>
+<tr><td data-label="What you already use">MCP</td><td data-label="What that gets you">Tool access</td><td data-label="What it cannot guarantee">A protocol, not a policy</td><td data-label="What Backstop adds">A required gate whose exit status controls the workflow</td><td data-label="Result">The exit code controls what happens next</td></tr>
+<tr><td data-label="What you already use">LLM review</td><td data-label="What that gets you">Another opinion on the diff</td><td data-label="What it cannot guarantee">Still a guess</td><td data-label="What Backstop adds">Deterministic engines for what must not be a guess</td><td data-label="Result">Same input, same verdict</td></tr>
+<tr><td data-label="What you already use">Standards as docs</td><td data-label="What that gets you">Shared language</td><td data-label="What it cannot guarantee">Unenforced</td><td data-label="What Backstop adds">Encode only what you would fail a merge over</td><td data-label="Result">The rest stays a doc on purpose</td></tr>
 </tbody>
 </table>
 </div>
+
+## When work is not allowed to ship {#failure-fit}
+
+<div class="failed-verdict" aria-label="Example failing Backstop gate">
+<div class="failed-verdict-bar"><span>backstop gate</span><span>exit 1</span></div>
+<div class="failed-verdict-row"><span>Tests</span><span>promised test is absent</span><strong>fail</strong></div>
+<div class="failed-verdict-row"><span>Requirements</span><span>completion claim without coverage</span><strong>fail</strong></div>
+<div class="failed-verdict-foot"><strong>FAIL</strong><span>The work is not allowed to ship.</span></div>
+</div>
+
+## Isn’t this just CI? {#fit-decision}
+
+CI is a caller. It can run the gate or ignore the exit. Backstop is the verdict that pipeline must honor. Without that, green is still just green.
+
+<!-- backstop-journey-link: JLINK-004 -->
+[Start installation](/adopt/#install)
 
 ## What it is {#what-backstop-is}
 
@@ -29,17 +50,6 @@ Backstop is not a coding agent. It sits around whichever agent you already use a
 
 <!-- backstop-journey-link: JLINK-002 -->
 [See the operating model](/model/#operating-model)
-
-## The actual problem {#failure-fit}
-
-The problem is agents freelancing, generating more code than anyone can reliably review, and shipping it anyway.
-
-## When to use it {#fit-decision}
-
-Use it when you have a standard you would actually fail a merge over. Start with one.
-
-<!-- backstop-journey-link: JLINK-004 -->
-[Start installation](/adopt/#install)
 
 ## When not to {#not-a-fit}
 

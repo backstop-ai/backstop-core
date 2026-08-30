@@ -76,6 +76,19 @@ th { background: var(--ds-surface); }
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
+[data-page-kind="evaluation"] .prose > h2#failure-fit,
+[data-page-kind="evaluation"] .prose > h2#fit-decision {
+  margin: 3rem 0 1rem;
+  color: inherit;
+  font-family: var(--ds-font-sans);
+  font-size: clamp(1.45rem, 3vw, 2.1rem);
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  text-transform: none;
+}
+[data-page-kind="evaluation"] .tactics-intro { max-width: 42rem; margin: 0 0 1.75rem; }
+[data-page-kind="evaluation"] .tactics-kicker { margin: 0 0 0.45rem; font-size: clamp(1.45rem, 3vw, 2.1rem); font-weight: 650; letter-spacing: -0.03em; }
+[data-page-kind="evaluation"] .tactics-intro p:last-child { margin: 0; color: var(--ds-muted); }
 [data-page-kind="evaluation"] .tactics-matrix { margin: 0 0 2.5rem; }
 [data-page-kind="evaluation"] .tactics-matrix table { width: 100%; font-size: 0.88rem; }
 [data-page-kind="evaluation"] .tactics-matrix th {
@@ -89,6 +102,30 @@ th { background: var(--ds-surface); }
 [data-page-kind="evaluation"] .tactics-matrix td:first-child { font-weight: 650; white-space: nowrap; }
 [data-page-kind="evaluation"] .tactics-matrix td:nth-child(3) { color: var(--ds-muted); }
 [data-page-kind="evaluation"] .tactics-matrix td:last-child { color: var(--ds-accent); font-weight: 650; }
+[data-page-kind="evaluation"] .failed-verdict {
+  margin: 0 0 0.5rem;
+  overflow: hidden;
+  border: 1px solid var(--ds-border);
+  border-radius: 0.55rem;
+  background: var(--ds-surface);
+  font-family: var(--ds-font-mono);
+  font-size: 0.86rem;
+}
+[data-page-kind="evaluation"] .failed-verdict-bar,
+[data-page-kind="evaluation"] .failed-verdict-row,
+[data-page-kind="evaluation"] .failed-verdict-foot {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--ds-border);
+}
+[data-page-kind="evaluation"] .failed-verdict-bar { color: var(--ds-muted); }
+[data-page-kind="evaluation"] .failed-verdict-row { grid-template-columns: 8rem 1fr auto; }
+[data-page-kind="evaluation"] .failed-verdict-row strong { color: var(--color-danger, #ef5b50); }
+[data-page-kind="evaluation"] .failed-verdict-foot { border-bottom: 0; align-items: center; }
+[data-page-kind="evaluation"] .failed-verdict-foot strong { color: var(--color-danger, #ef5b50); letter-spacing: 0.08em; }
+[data-page-kind="evaluation"] .failed-verdict-foot span { color: var(--ds-muted); }
 
 .next-action { width: min(calc(100% - 2rem), 73.75rem); margin-inline: auto; padding-block: 2rem 4rem; border-top: 1px solid var(--ds-border); display: flex; justify-content: space-between; gap: 1rem; }
 .next-action span { color: var(--ds-muted); }
@@ -105,6 +142,43 @@ th { background: var(--ds-surface); }
   /* The legacy designed homepage predates the shared responsive shell. Keep
      its visual treatment, but collapse fixed multi-column presentation
      surfaces so enlarged text can reflow without horizontal scrolling. */
+  [data-page-kind="evaluation"] .tactics-matrix table,
+  [data-page-kind="evaluation"] .tactics-matrix tbody,
+  [data-page-kind="evaluation"] .tactics-matrix tr,
+  [data-page-kind="evaluation"] .tactics-matrix td { display: block; width: 100%; }
+  [data-page-kind="evaluation"] .tactics-matrix thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+  }
+  [data-page-kind="evaluation"] .tactics-matrix tr {
+    margin: 0 0 1rem;
+    padding: 0.9rem 1rem;
+    border: 1px solid var(--ds-border);
+    border-radius: 0.55rem;
+    background: var(--ds-surface);
+  }
+  [data-page-kind="evaluation"] .tactics-matrix td {
+    border: 0;
+    padding: 0.4rem 0;
+    white-space: normal;
+  }
+  [data-page-kind="evaluation"] .tactics-matrix td:first-child { font-size: 1.05rem; padding-top: 0; }
+  [data-page-kind="evaluation"] .tactics-matrix td::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 0.15rem;
+    color: var(--ds-muted);
+    font-family: var(--ds-font-mono);
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  [data-page-kind="evaluation"] .tactics-matrix td:first-child::before { content: none; }
+  [data-page-kind="evaluation"] .failed-verdict-row { grid-template-columns: 1fr auto; }
   [data-page-kind="home"] .nav { height: auto !important; min-height: 76px; flex-wrap: wrap; gap: 1rem; padding-block: 1rem; }
   [data-page-kind="home"] .nav-links { flex-wrap: wrap; gap: 1rem !important; }
   [data-page-kind="home"] h1 { overflow-wrap: anywhere; }
