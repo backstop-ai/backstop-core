@@ -1,6 +1,9 @@
 package main
 
 import (
+	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +12,12 @@ import (
 
 	"gopkg.in/yaml.v3"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return fn(req)
+}
 
 const (
 	testDeployCommit = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -97,6 +106,74 @@ func TestWebsiteJourney_DeployedSiteRejectsMalformedIdentity(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "commit/run identity") {
 		t.Fatalf("malformed identity: %v", err)
+	}
+}
+
+func TestWebsiteJourney_StampRejectsMalformedAndDuplicateMarkers(t *testing.T) {
+	built, _ := mustAcceptedBuiltTree(t)
+	if err := StampDeployedIdentity(built, "not-a-sha", testDeployRunID); err == nil {
+		t.Fatal("accepted malformed commit")
+	}
+	if err := StampDeployedIdentity(built, testDeployCommit, testDeployRunID); err != nil {
+		t.Fatal(err)
+	}
+	if err := StampDeployedIdentity(built, testDeployCommit, testDeployRunID); err == nil || !strings.Contains(err.Error(), "already present") {
+		t.Fatalf("duplicate stamp: %v", err)
+	}
+}
+
+func TestWebsiteJourney_FixtureFetcherCoversRouteNormalization(t *testing.T) {
+	built, _ := mustAcceptedBuiltTree(t)
+	fetch := FixtureDeployedFetcher(built, CanonicalDeployedOrigin, "")
+	if _, _, err := fetch("https://example.invalid/"); err == nil {
+		t.Fatal("accepted non-canonical fixture URL")
+	}
+	status, body, err := fetch(CanonicalDeployedOrigin)
+	if err != nil || status != 200 || body == "" {
+		t.Fatalf("origin root: status=%d err=%v", status, err)
+	}
+	status, _, err = fetch(CanonicalDeployedOrigin + "/status")
+	if err != nil || status != 200 {
+		t.Fatalf("slash normalization: status=%d err=%v", status, err)
+	}
+	if err := os.Remove(BuiltRoutePath(built, "/reference/")); err != nil {
+		t.Fatal(err)
+	}
+	status, _, err = fetch(CanonicalDeployedOrigin + "/reference/")
+	if err != nil || status != 404 {
+		t.Fatalf("missing file: status=%d err=%v", status, err)
+	}
+}
+
+func TestWebsiteJourney_DeployedHTTPFetcherHonorsStatusAndRedirectBan(t *testing.T) {
+	client := &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			if req.URL.Path == "/status/" {
+				return &http.Response{
+					StatusCode: http.StatusFound,
+					Header:     http.Header{"Location": []string{CanonicalDeployedOrigin + "/"}},
+					Body:       io.NopCloser(strings.NewReader("")),
+					Request:    req,
+				}, nil
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader("ok")),
+				Request:    req,
+			}, nil
+		}),
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return fmt.Errorf("deployed: redirect following is prohibited")
+		},
+	}
+	fetch := DeployedFetcherWithClient(client)
+	status, body, err := fetch(CanonicalDeployedOrigin + "/")
+	if err != nil || status != http.StatusOK || body != "ok" {
+		t.Fatalf("canonical GET: status=%d body=%q err=%v", status, body, err)
+	}
+	_, _, err = fetch(CanonicalDeployedOrigin + "/status/")
+	if err == nil || !strings.Contains(err.Error(), "redirect") {
+		t.Fatalf("redirect: %v", err)
 	}
 }
 

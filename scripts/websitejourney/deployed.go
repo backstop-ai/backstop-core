@@ -148,11 +148,14 @@ func FixtureDeployedFetcher(builtRoot, origin string, missingRoute string) Deplo
 }
 
 func DefaultDeployedFetcher() DeployedFetcher {
-	client := &http.Client{
+	return DeployedFetcherWithClient(&http.Client{
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return fmt.Errorf("deployed: redirect following is prohibited")
 		},
-	}
+	})
+}
+
+func DeployedFetcherWithClient(client *http.Client) DeployedFetcher {
 	return func(rawURL string) (int, string, error) {
 		if !strings.HasPrefix(rawURL, CanonicalDeployedOrigin) {
 			return 0, "", fmt.Errorf("deployed: origin %q is not %s", rawURL, CanonicalDeployedOrigin)
