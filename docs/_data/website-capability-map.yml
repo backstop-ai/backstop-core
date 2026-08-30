@@ -115,11 +115,11 @@ journeys:
         output: docs/_includes/generated/installed-pack-catalog.md
         owner_route: /packs/
         owner_anchor: installed-pack-catalog
-        truth_begin_marker: "<!-- PRODUCT-TRUTH:BEGIN job=installed-pack-catalog digest=sha256:7be7d9acbcc1b90c7c8a03d8113b846e52f69e6934ff131701929b063b7f1bfa -->"
+        truth_begin_marker: "<!-- PRODUCT-TRUTH:BEGIN job=installed-pack-catalog digest=sha256:6878c343b34e7d4f4014856e5d236bf45b72b4e3e1832083a25485c4f74926a0 -->"
         truth_end_marker: "<!-- PRODUCT-TRUTH:END job=installed-pack-catalog -->"
-        sources_begin_marker: "<!-- PRODUCT-TRUTH:SOURCES-BEGIN job=installed-pack-catalog owner=/packs/#installed-pack-catalog digest=sha256:7be7d9acbcc1b90c7c8a03d8113b846e52f69e6934ff131701929b063b7f1bfa -->"
+        sources_begin_marker: "<!-- PRODUCT-TRUTH:SOURCES-BEGIN job=installed-pack-catalog owner=/packs/#installed-pack-catalog digest=sha256:6878c343b34e7d4f4014856e5d236bf45b72b4e3e1832083a25485c4f74926a0 -->"
         sources_end_marker: "<!-- PRODUCT-TRUTH:SOURCES-END job=installed-pack-catalog -->"
-        source_digest: sha256:7be7d9acbcc1b90c7c8a03d8113b846e52f69e6934ff131701929b063b7f1bfa
+        source_digest: sha256:6878c343b34e7d4f4014856e5d236bf45b72b4e3e1832083a25485c4f74926a0
         descriptors:
           - {kind: blob, commit_binding: site, path: backstop.yml}
           - {kind: blob, commit_binding: site, path: backstop.lock}
@@ -204,11 +204,11 @@ journeys:
         output: docs/_includes/generated/installed-pack-catalog.md
         owner_route: /packs/
         owner_anchor: installed-pack-catalog
-        truth_begin_marker: "<!-- PRODUCT-TRUTH:BEGIN job=installed-pack-catalog digest=sha256:7be7d9acbcc1b90c7c8a03d8113b846e52f69e6934ff131701929b063b7f1bfa -->"
+        truth_begin_marker: "<!-- PRODUCT-TRUTH:BEGIN job=installed-pack-catalog digest=sha256:6878c343b34e7d4f4014856e5d236bf45b72b4e3e1832083a25485c4f74926a0 -->"
         truth_end_marker: "<!-- PRODUCT-TRUTH:END job=installed-pack-catalog -->"
-        sources_begin_marker: "<!-- PRODUCT-TRUTH:SOURCES-BEGIN job=installed-pack-catalog owner=/packs/#installed-pack-catalog digest=sha256:7be7d9acbcc1b90c7c8a03d8113b846e52f69e6934ff131701929b063b7f1bfa -->"
+        sources_begin_marker: "<!-- PRODUCT-TRUTH:SOURCES-BEGIN job=installed-pack-catalog owner=/packs/#installed-pack-catalog digest=sha256:6878c343b34e7d4f4014856e5d236bf45b72b4e3e1832083a25485c4f74926a0 -->"
         sources_end_marker: "<!-- PRODUCT-TRUTH:SOURCES-END job=installed-pack-catalog -->"
-        source_digest: sha256:7be7d9acbcc1b90c7c8a03d8113b846e52f69e6934ff131701929b063b7f1bfa
+        source_digest: sha256:6878c343b34e7d4f4014856e5d236bf45b72b4e3e1832083a25485c4f74926a0
         descriptors:
           - {kind: blob, commit_binding: site, path: backstop.yml}
           - {kind: blob, commit_binding: site, path: backstop.lock}
