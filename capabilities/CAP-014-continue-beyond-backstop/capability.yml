@@ -5,7 +5,7 @@
 capability:
   id: CAP-014
   title: "Continue Beyond Backstop"
-  status: draft
+  status: verified
   strictness: strict
   description: >
     Recognize an intentional boundary and continue with honest guidance.

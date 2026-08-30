@@ -5,7 +5,7 @@
 capability:
   id: CAP-013
   title: "Inspect the Evidence"
-  status: draft
+  status: verified
   strictness: strict
   description: >
     Trace public claims through durable evidence.

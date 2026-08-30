@@ -5,7 +5,7 @@
 capability:
   id: CAP-012
   title: "Extend Backstop"
-  status: draft
+  status: verified
   strictness: strict
   description: >
     Decide when a concern belongs in a pack and how to author one.
