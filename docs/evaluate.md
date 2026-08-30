@@ -7,8 +7,9 @@ hero_lede: "Backstop does not care which one. It cares whether the result may sh
 ---
 
 <div class="tactics-intro">
-<p class="tactics-kicker">Keep the tools. Add a verdict.</p>
-<p>Backstop is the enforcement layer for agent-generated work.</p>
+<p class="tactics-kicker">Better models plus markdown are not determinism.</p>
+<p>Claude Code and Fable already write the code. A stronger model and a spec.md still guess. The agent can still freelance, the diff can still be unreviewable, and that work can still reach production.</p>
+<p class="tactics-bridge">Keep the tools. Add a verdict.</p>
 </div>
 
 <div class="tactics-matrix">

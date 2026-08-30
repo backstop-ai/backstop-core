@@ -87,9 +87,15 @@ th { background: var(--ds-surface); }
   letter-spacing: -0.03em;
   text-transform: none;
 }
-[data-page-kind="evaluation"] .tactics-intro { max-width: 42rem; margin: 0 0 1.75rem; }
+[data-page-kind="evaluation"] .tactics-intro { max-width: 46rem; margin: 0 0 1.75rem; }
 [data-page-kind="evaluation"] .tactics-kicker { margin: 0 0 0.45rem; font-size: clamp(1.45rem, 3vw, 2.1rem); font-weight: 650; letter-spacing: -0.03em; }
-[data-page-kind="evaluation"] .tactics-intro p:last-child { margin: 0; color: var(--ds-muted); }
+[data-page-kind="evaluation"] .tactics-intro p:not(.tactics-kicker):not(.tactics-bridge) { margin: 0 0 1rem; color: var(--ds-muted); }
+[data-page-kind="evaluation"] .tactics-bridge {
+  margin: 0;
+  color: inherit;
+  font-size: 1.15rem;
+  font-weight: 650;
+}
 [data-page-kind="evaluation"] .tactics-matrix { margin: 0 0 2.5rem; }
 [data-page-kind="evaluation"] .tactics-matrix table { width: 100%; font-size: 0.88rem; }
 [data-page-kind="evaluation"] .tactics-matrix th {
