@@ -1,0 +1,29 @@
+# TASK-017 mutation table. Isolated copies of accepted map/rendered/dependency
+# fixtures. Seed 5 consumes SPEC-075 owner verdicts and does not parse source.
+
+generated_mutations:
+  - {name: remove-region, job_id: installed-pack-catalog, remove_region: true, expected_error: CAP-011/@UJ-001}
+  - {name: remove-job-id, job_id: installed-pack-catalog, remove_job_id: true, expected_error: CAP-011/@UJ-001}
+  - {name: remove-owner-anchor, job_id: installed-pack-catalog, remove_owner_anchor: true, expected_error: CAP-011/@UJ-001}
+  - {name: remove-begin-marker, job_id: installed-pack-catalog, drop_begin_marker: true, expected_error: CAP-011/@UJ-001}
+  - {name: remove-end-marker, job_id: installed-pack-catalog, drop_end_marker: true, expected_error: CAP-011/@UJ-001}
+  - {name: remove-digest, job_id: installed-pack-catalog, drop_digest: true, expected_error: CAP-011/@UJ-001}
+  - {name: remove-source-link, job_id: installed-pack-catalog, remove_source_link: true, expected_error: CAP-011/@UJ-001}
+  - {name: remove-cli-region, job_id: cli-command-catalog, remove_region: true, expected_error: CAP-013/@UJ-002}
+  - {name: remove-artifact-source, job_id: artifact-schema-catalog, remove_source_link: true, expected_error: CAP-013/@UJ-002}
+  - {name: remove-release-digest, job_id: release-history, drop_digest: true, expected_error: CAP-013/@UJ-002}
+
+cap014_mutations:
+  - {name: remove-shared-anchor, remove_shared_anchor: true}
+  - {name: remove-jlink-identity, remove_jlink_identity: true}
+  - {name: remove-continuation-identity, remove_continuation_identity: true}
+  - {name: drop-href, drop_href: true}
+  - {name: change-href, href: "/evaluate/#wrong-bind"}
+  - {name: split-identities, split_identities: true}
+  - {name: duplicate-anchor, duplicate_anchor: true}
+  - {name: outside-boundary, move_outside_boundary: true}
+  - {name: before-explanation, before_explanation: true}
+  - {name: after-denial, after_denial: true}
+  - {name: alter-explanation, empty_explanation: true}
+  - {name: alter-link-label, empty_link_label: true}
+  - {name: alter-denial, empty_denial: true}
