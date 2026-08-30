@@ -22,11 +22,36 @@ func runWith(args []string, stdout, stderr io.Writer, runnerFor func(string) Com
 	root := flags.String("root", ".", "repository root")
 	capability := flags.String("capability", "", "optional CAP-NNN to require in the closed matrix")
 	prerequisites := flags.Bool("prerequisites", false, "run the four public predecessor entrypoints")
+	deployedOrigin := flags.String("deployed-origin", "", "identity-matched HTTPS origin")
+	commit := flags.String("commit", "", "authoritative deployment commit")
+	runID := flags.String("run-id", "", "authoritative deployment run ID")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
 	if err := VerifyCapabilityArtifacts(*root, *capability); err != nil {
 		return writeCLIError(stderr, err)
+	}
+	if *deployedOrigin != "" {
+		if *commit == "" || *runID == "" {
+			return writeCLIError(stderr, fmt.Errorf("deployed: --deployed-origin requires --commit and --run-id"))
+		}
+		journeyMap, err := LoadWebsiteCapabilityMap(*root)
+		if err != nil {
+			return writeCLIError(stderr, err)
+		}
+		if err := TraverseDeployedSite(journeyMap, DeployedRequest{
+			Origin:     *deployedOrigin,
+			Commit:     *commit,
+			RunID:      *runID,
+			Capability: *capability,
+			Fetch:      DefaultDeployedFetcher(),
+		}); err != nil {
+			return writeCLIError(stderr, err)
+		}
+		if err := writeCLI(stdout, "websitejourney: deployed journeys valid (%s run %s)\n", *commit, *runID); err != nil {
+			return 1
+		}
+		return 0
 	}
 	if *prerequisites {
 		journeyMap, err := LoadWebsiteCapabilityMap(*root)
