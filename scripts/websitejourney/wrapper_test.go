@@ -9,7 +9,10 @@ import (
 )
 
 func TestWebsiteJourney_VerificationCleanupPasses(t *testing.T) {
-	runWebsiteCapabilitiesScript(t, "scripts/tests/website-capabilities/verify-wrapper.sh")
+	out := runWebsiteCapabilitiesScript(t, "scripts/tests/website-capabilities/verify-wrapper.sh")
+	if !strings.Contains(out, "verify-wrapper: ok") {
+		t.Fatalf("cleanup wrapper missing success evidence: %s", out)
+	}
 }
 
 func TestWebsiteJourney_RemainsIntegrationConsumer(t *testing.T) {
@@ -123,7 +126,7 @@ func TestWebsiteJourney_WrapperPropagatesGovernedDependencyFailure(t *testing.T)
 	}
 }
 
-func runWebsiteCapabilitiesScript(t *testing.T, relative string) {
+func runWebsiteCapabilitiesScript(t *testing.T, relative string) string {
 	t.Helper()
 	root := websiteJourneyRepoRoot(t)
 	path := filepath.Join(root, relative)
@@ -140,4 +143,5 @@ func runWebsiteCapabilitiesScript(t *testing.T, relative string) {
 	if err != nil {
 		t.Fatalf("%s: %v\n%s", relative, err, out)
 	}
+	return string(out)
 }

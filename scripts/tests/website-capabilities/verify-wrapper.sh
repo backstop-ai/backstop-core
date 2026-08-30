@@ -5,12 +5,21 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 wrapper="$root/scripts/verify-website-capabilities.sh"
 
 TestWebsiteJourney_VerificationCleanupPasses() {
-  local before after
+  local before after before_dirs after_dirs
   before="$(cd "$root" && git status --porcelain=v1 --untracked-files=all)"
+  before_dirs="$(find "$root" -maxdepth 1 -type d -name '.backstop-website-capabilities.*' | sort || true)"
   BACKSTOP_WEBSITE_SELF_TEST=1 "$wrapper"
   after="$(cd "$root" && git status --porcelain=v1 --untracked-files=all)"
-  [[ $before == "$after" ]]
-  ! find "$root" -maxdepth 1 -type d -name '.backstop-website-capabilities.*' | grep -q .
+  if [[ $before != "$after" ]]; then
+    echo "cleanup left git status dirty" >&2
+    return 1
+  fi
+  after_dirs="$(find "$root" -maxdepth 1 -type d -name '.backstop-website-capabilities.*' | sort || true)"
+  if [[ $before_dirs != "$after_dirs" ]]; then
+    echo "cleanup left .backstop-website-capabilities.* dirs" >&2
+    printf 'before:\n%s\nafter:\n%s\n' "$before_dirs" "$after_dirs" >&2
+    return 1
+  fi
 }
 
 TestWebsiteJourney_VerificationCleanupOnFailure() {
