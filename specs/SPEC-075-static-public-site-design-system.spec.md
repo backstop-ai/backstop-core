@@ -4,7 +4,7 @@ number: SPEC-075
 created: "2026-08-24"
 status: implemented
 schema_version: spec/v1
-spec_version: 1.0.16
+spec_version: 1.0.17
 
 implementation:
   summary: >
@@ -224,9 +224,10 @@ requirements:
       pack alone owns colors, tokens, typography policy, focus/motion/accessibility/wordmark rules,
       and reusable-presentation validity. The Backstop wordmark is the only mark and links `/`.
       `.backstop/seed4-delivery-inventory.yml` must pin `base_commit` to the full 40-hex commit
-      immediately before the first Seed 4 implementation commit and classify the exact output of
+      immediately before the first Seed 4 implementation commit and classify Seed 4-owned paths from
       `git diff --name-status --find-renames=100% <base_commit>...HEAD`: `A`, `M`, `D`, or `R` with
-      old/new paths for renames. Every changed/deleted/renamed path appears once. Allowed roles are `build-dependency`, `site-data`,
+      old/new paths for renames. Paths outside the closed Seed 4 matrix are ignored; they are not
+      sitecheck delivery. Every Seed 4-owned changed/deleted/renamed path appears once. Allowed roles are `build-dependency`, `site-data`,
       `site-config`, `delivery-inventory`, `layout`, `include`, `page-wrapper`,
       `stylesheet-composition`, `browser-verification`, `structural-verifier`,
       `rendered-contract-stamper`, `verification-entrypoint`, `owner-asset-installer`, `workflow`, `action-lock`, `deploy-stamp`, `deploy-verifier`, `test`,
@@ -612,8 +613,8 @@ claims:
     tests: [TestSiteCheck_OwnerTokenAssetConsumptionRejectsInvalidMatrix]
   - id: CLM-048
     requirement: REQ-005
-    text: The pinned base commit and exact A/M/D/R diff classify every Seed 4 path once under the closed path-role matrix, including the three required bootstrap deletions.
-    tests: [TestSiteCheck_Seed4DeliveryInventoryPasses]
+    text: The pinned base commit and A/M/D/R diff classify every Seed 4-owned path once under the closed path-role matrix, including the three required bootstrap deletions. Paths outside that matrix are ignored.
+    tests: [TestSiteCheck_Seed4DeliveryInventoryPasses, TestSiteCheck_DeliveryInventoryIgnoresPathsOutsideSeed4Matrix]
   - id: CLM-049
     requirement: REQ-005
     text: Wrong base, unlisted/duplicate/renamed paths, invalid change kind, role/path mismatch, or non-deletion retired-bootstrap entry fails with the path and role.
@@ -1027,3 +1028,11 @@ assertions.
   `issues/ISSUE-183-local-pack-relock-refreshes-stale-install.issue.md`, and
   `issues/ISSUE-184-fixture-path-filter-diagnostics.issue.md` — literal-template, stale-install, and
   production-path-fidelity incidents.
+
+## Version History
+
+- **1.0.17** (2026-08-30): Delivery inventory classifies Seed 4-owned paths from
+  `git diff <base_commit>...HEAD`. Paths outside the closed matrix are ignored
+  rather than failing sitecheck. Bolt-on `agent-environment` and
+  `governance-artifact` roles and rows are removed. PLAN-SPEC-075 stays
+  `completed`; its `spec_version` pin stays at `1.0.16`.

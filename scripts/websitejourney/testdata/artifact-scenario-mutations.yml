@@ -1,0 +1,136 @@
+# TASK-003 mutation table. Tests apply these in memory against a loaded
+# capability tree. They are not extra capability directories.
+
+capability_mutations:
+  - name: omit-cap-014
+    omit_id: CAP-014
+    expected_error: CAP-014
+  - name: extra-cap-099
+    extra_id: CAP-099
+    extra_slug: extra-neighborhood
+    extra_title: Extra Neighborhood
+    expected_error: CAP-099
+  - name: alias-cap-004
+    extra_id: CAP-015
+    extra_slug: understand-backstop-alias
+    extra_title: Understand Backstop
+    expected_error: CAP-015
+  - name: reuse-retired-cap-002
+    extra_id: CAP-002
+    extra_slug: reused-retired
+    extra_title: Reused Retired Capability
+    expected_error: CAP-002
+  - name: reuse-retired-cap-003
+    extra_id: CAP-003
+    extra_slug: reused-retired-three
+    extra_title: Reused Retired Capability Three
+    expected_error: CAP-003
+  - name: wrong-title-cap-004
+    override_id: CAP-004
+    override_title: Understand Backstop Wrongly
+    expected_error: CAP-004
+  - name: relaxed-strictness
+    override_id: CAP-005
+    override_strictness: relaxed
+    expected_error: CAP-005
+  - name: verified-before-proof
+    override_id: CAP-006
+    override_status: draft
+    expected_error: CAP-006
+  - name: missing-infra-spec
+    override_id: CAP-007
+    drop_last_infra: true
+    expected_error: CAP-007
+  - name: extra-blocking-gate
+    override_id: CAP-008
+    extra_gate: ./scripts/verify-public-site.sh
+    expected_error: CAP-008
+  - name: missing-deployed-gate
+    override_id: CAP-009
+    drop_deployed_gate: true
+    expected_error: CAP-009
+  - name: wrong-origin
+    override_id: CAP-010
+    override_origin: https://example.invalid
+    expected_error: CAP-010
+  - name: auth-not-none
+    override_id: CAP-011
+    override_auth: session
+    expected_error: CAP-011
+  - name: wrong-id-pattern
+    override_id: CAP-012
+    override_id_pattern: "^@CAP-"
+    expected_error: CAP-012
+  - name: wrong-feature-filename
+    override_id: CAP-013
+    override_feature_file: journeys.feature
+    expected_error: CAP-013
+  - name: missing-integration-spec
+    override_id: CAP-014
+    clear_integration_spec: true
+    expected_error: CAP-014
+  - name: wrong-built-gate
+    override_id: CAP-004
+    override_built_gate: ./scripts/verify-public-site.sh
+    expected_error: CAP-004
+
+scenario_mutations:
+  - name: missing-uj-on-cap-004
+    capability: CAP-004
+    omit_tag: "@UJ-001"
+    expected_error: CAP-004/@UJ-001
+  - name: extra-uj-on-cap-004
+    capability: CAP-004
+    extra_tag: "@UJ-099"
+    extra_title: Invented extra journey
+    expected_error: CAP-004/@UJ-099
+  - name: wrong-feature-title
+    capability: CAP-005
+    override_feature_title: Evaluate Fit Badly
+    expected_error: CAP-005
+  - name: missing-then
+    capability: CAP-006
+    strip_then_from: "@UJ-001"
+    expected_error: CAP-006/@UJ-001
+  - name: local-only-id
+    capability: CAP-004
+    local_only_id: true
+    expected_error: CAP-004/@UJ-001
+  - name: direct-load
+    capability: CAP-004
+    tag: "@UJ-001"
+    inject: "navigate directly to /evaluate/#failure-fit"
+    expected_error: CAP-004/@UJ-001
+  - name: global-navigation
+    capability: CAP-004
+    tag: "@UJ-002"
+    inject: "follow the site header navigation"
+    expected_error: CAP-004/@UJ-002
+  - name: reordered-hops
+    capability: CAP-005
+    tag: "@UJ-001"
+    reverse_jlinks: true
+    expected_error: CAP-005/@UJ-001
+  - name: missing-executable-coverage
+    capability: CAP-006
+    tag: "@UJ-002"
+    drop_executable_coverage: true
+    expected_error: CAP-006/@UJ-002
+  - name: wrong-journey-id-text
+    capability: CAP-007
+    replace_in: "@UJ-001"
+    find: JLINK-008
+    replace: JLINK-099
+    expected_error: CAP-007/@UJ-001
+  - name: cap-014-drops-jlink-009-reuse
+    capability: CAP-014
+    replace_in: "@UJ-002"
+    find: JLINK-009
+    replace: JLINK-001
+    expected_error: CAP-014/@UJ-002
+  - name: cap-014-uj-001-drops-boundary
+    capability: CAP-014
+    replace_in: "@UJ-001"
+    find: BOUNDARY-005
+    replace: BOUNDARY-001
+    expected_error: CAP-014/@UJ-001

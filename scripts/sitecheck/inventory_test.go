@@ -30,6 +30,9 @@ func TestSiteCheck_Seed4DeliveryInventoryPasses(t *testing.T) {
 	if err := validateDeliveryInventory(inventory); err != nil {
 		t.Fatal(err)
 	}
+	if err := validateInventoryMatchesDiff(root, inventory); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestSiteCheck_Seed4DeliveryInventoryRejectsInvalidMatrix(t *testing.T) {
@@ -139,9 +142,6 @@ func TestDeliveryInventory_PathRoleMatrix(t *testing.T) {
 		".github/workflows/pages.yml":                                                      "workflow", ".github/workflows/site-verification.yml": "workflow",
 		".github/pages-actions.lock.yml":  "action-lock",
 		"scripts/stamp-pages-artifact.sh": "deploy-stamp", "scripts/verify-pages-deployment.sh": "deploy-verifier",
-		".cursor/Dockerfile":       "agent-environment",
-		".cursor/environment.json": "agent-environment",
-		".cursor/install.sh":       "agent-environment",
 	}
 	for path, role := range tests {
 		if got := expectedRole(path); got != role {
@@ -154,141 +154,188 @@ func TestDeliveryInventory_PathRoleMatrix(t *testing.T) {
 }
 
 func TestDeliveryInventory_ISSUE190GovernanceArtifactsAreClosedRows(t *testing.T) {
-	const issuePath = "issues/ISSUE-190-restore-canonical-homepage-direction.issue.md"
-	const planPath = "plans/PLAN-ISSUE-190-restore-canonical-homepage-direction.plan.yml"
-	for _, path := range []string{issuePath, planPath} {
-		if got := expectedRole(path); got != "governance-artifact" {
-			t.Fatalf("expectedRole(%q) = %q, want governance-artifact", path, got)
-		}
-	}
-	for _, path := range []string{
+	outside := []string{
+		"issues/ISSUE-190-restore-canonical-homepage-direction.issue.md",
+		"plans/PLAN-ISSUE-190-restore-canonical-homepage-direction.plan.yml",
 		"issues/ISSUE-191-unrelated.issue.md",
 		"plans/PLAN-ISSUE-191-unrelated.plan.yml",
 		"issues/nested/ISSUE-190-restore-canonical-homepage-direction.issue.md",
-	} {
-		if got := expectedRole(path); got != "" {
-			t.Fatalf("unrelated governance path %q admitted as %q", path, got)
-		}
 	}
-
-	root := filepath.Clean(filepath.Join("..", ".."))
-	inventory, err := loadDeliveryInventory(filepath.Join(root, ".backstop", "seed4-delivery-inventory.yml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, requiredPath := range []string{issuePath, planPath} {
-		matched := 0
-		for _, entry := range inventory.Entries {
-			if entry.Path == requiredPath && entry.Change == "A" && entry.Role == "governance-artifact" {
-				matched++
-			}
-		}
-		if matched != 1 {
-			t.Fatalf("required inventory row %q cardinality = %d, want 1", requiredPath, matched)
-		}
-		omitted := inventory
-		omitted.Entries = append([]DeliveryEntry(nil), inventory.Entries...)
-		for index, entry := range omitted.Entries {
-			if entry.Path == requiredPath {
-				omitted.Entries = append(omitted.Entries[:index], omitted.Entries[index+1:]...)
-				break
-			}
-		}
-		if err := validateInventoryMatchesDiff(root, omitted); err == nil || !strings.Contains(err.Error(), "inventory differs") {
-			t.Fatalf("omitting %q did not fail exact diff matching: %v", requiredPath, err)
-		}
-	}
+	assertOutsideSeed4Matrix(t, outside)
+	assertInventoryOmitsPaths(t, outside[:2])
 }
 
 func TestDeliveryInventory_ISSUE191CursorAgentEnvironmentPathsAreClosedRows(t *testing.T) {
 	cursorPaths := []string{".cursor/Dockerfile", ".cursor/environment.json", ".cursor/install.sh"}
-	for _, path := range cursorPaths {
-		if got := expectedRole(path); got != "agent-environment" {
-			t.Fatalf("expectedRole(%q) = %q, want agent-environment", path, got)
-		}
+	assertOutsideSeed4Matrix(t, cursorPaths)
+	if allowedRoles()["agent-environment"] {
+		t.Fatal("allowedRoles() must not include agent-environment")
 	}
-	if !allowedRoles()["agent-environment"] {
-		t.Fatal("allowedRoles() missing agent-environment")
-	}
-	if prohibitedRoles()["agent-environment"] {
-		t.Fatal("prohibitedRoles() unexpectedly contains agent-environment")
+	if allowedRoles()["governance-artifact"] {
+		t.Fatal("allowedRoles() must not include governance-artifact")
 	}
 	for _, path := range []string{".cursorrules", "docs/.cursor/Dockerfile", "docs/secret-policy.yml"} {
 		if got := expectedRole(path); got != "" {
 			t.Fatalf("closed-matrix near-miss %q admitted as %q", path, got)
 		}
 	}
+	assertInventoryOmitsPaths(t, cursorPaths)
+}
 
-	root := filepath.Clean(filepath.Join("..", ".."))
-	inventory, err := loadDeliveryInventory(filepath.Join(root, ".backstop", "seed4-delivery-inventory.yml"))
+func TestDeliveryInventory_ISSUE191GovernanceArtifactsAreClosedRows(t *testing.T) {
+	outside := []string{
+		"issues/ISSUE-191-cursor-env-files-outside-seed4-matrix.issue.md",
+		"plans/PLAN-ISSUE-191-cursor-env-files-outside-seed4-matrix.plan.yml",
+		"issues/ISSUE-191-unrelated.issue.md",
+		"plans/PLAN-ISSUE-191-unrelated.plan.yml",
+	}
+	assertOutsideSeed4Matrix(t, outside)
+	assertInventoryOmitsPaths(t, outside[:2])
+}
+
+func TestSiteCheck_DeliveryInventoryIgnoresPathsOutsideSeed4Matrix(t *testing.T) {
+	assertOutsideSeed4Matrix(t, []string{
+		".cursor/Dockerfile",
+		".github/workflows/ci.yml",
+		"scripts/websitejourney/main.go",
+		"issues/ISSUE-190-restore-canonical-homepage-direction.issue.md",
+		"plans/PLAN-ISSUE-191-cursor-env-files-outside-seed4-matrix.plan.yml",
+	})
+	root, base := seed4InventoryGitFixture(t, func(root string) {
+		mustWrite(t, filepath.Join(root, "scripts", "sitecheck", "inventory.go"), "package main\n")
+		mustWrite(t, filepath.Join(root, "scripts", "websitejourney", "extra.go"), "package main\n")
+		mustWrite(t, filepath.Join(root, ".cursor", "Dockerfile"), "FROM scratch\n")
+		mustWrite(t, filepath.Join(root, "specs", "SPEC-075-static-public-site-design-system.spec.md"), "status: implemented\n")
+	})
+	entries, err := inventoryDiff(root, base)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := validateDeliveryInventory(inventory); err != nil {
-		t.Fatalf("validateDeliveryInventory: %v", err)
+	if len(entries) != 1 || entries[0].Change != "A" || entries[0].Path != "scripts/sitecheck/inventory.go" {
+		t.Fatalf("filtered diff = %#v, want only scripts/sitecheck/inventory.go", entries)
 	}
-	for _, requiredPath := range cursorPaths {
-		matched := 0
-		for _, entry := range inventory.Entries {
-			if entry.Path == requiredPath && entry.Change == "A" && entry.Role == "agent-environment" {
-				matched++
-			}
-		}
-		if matched != 1 {
-			t.Fatalf("required inventory row %q cardinality = %d, want 1", requiredPath, matched)
+	inventory := DeliveryInventory{
+		SchemaVersion: deliveryInventorySchema,
+		BaseCommit:    base,
+		Entries: []DeliveryEntry{
+			{Change: "A", Path: "scripts/sitecheck/inventory.go", Role: "structural-verifier"},
+		},
+	}
+	if err := validateInventoryMatchesDiff(root, inventory); err != nil {
+		t.Fatal(err)
+	}
+	omitted := inventory
+	omitted.Entries = nil
+	if err := validateInventoryMatchesDiff(root, omitted); err == nil || !strings.Contains(err.Error(), "inventory differs") {
+		t.Fatalf("omitting a Seed 4 path did not fail: %v", err)
+	}
+	extra := inventory
+	extra.Entries = append(append([]DeliveryEntry(nil), inventory.Entries...), DeliveryEntry{
+		Change: "A", Path: "scripts/websitejourney/extra.go", Role: "structural-verifier",
+	})
+	if err := validateDeliveryInventory(extra); err == nil || !strings.Contains(err.Error(), "outside the closed") {
+		t.Fatalf("out-of-matrix inventory row was accepted: %v", err)
+	}
+}
+
+func assertOutsideSeed4Matrix(t *testing.T, paths []string) {
+	t.Helper()
+	for _, path := range paths {
+		if got := expectedRole(path); got != "" {
+			t.Fatalf("expectedRole(%q) = %q, want empty (outside Seed 4 matrix)", path, got)
 		}
 	}
 }
 
-func TestDeliveryInventory_ISSUE191GovernanceArtifactsAreClosedRows(t *testing.T) {
-	const issuePath = "issues/ISSUE-191-cursor-env-files-outside-seed4-matrix.issue.md"
-	const planPath = "plans/PLAN-ISSUE-191-cursor-env-files-outside-seed4-matrix.plan.yml"
-	for _, path := range []string{issuePath, planPath} {
-		if got := expectedRole(path); got != "governance-artifact" {
-			t.Fatalf("expectedRole(%q) = %q, want governance-artifact", path, got)
-		}
-	}
-	for _, path := range []string{
-		"issues/ISSUE-191-unrelated.issue.md",
-		"plans/PLAN-ISSUE-191-unrelated.plan.yml",
-	} {
-		if got := expectedRole(path); got != "" {
-			t.Fatalf("unrelated governance path %q admitted as %q", path, got)
-		}
-	}
-
+func assertInventoryOmitsPaths(t *testing.T, paths []string) {
+	t.Helper()
 	root := filepath.Clean(filepath.Join("..", ".."))
 	inventory, err := loadDeliveryInventory(filepath.Join(root, ".backstop", "seed4-delivery-inventory.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, requiredPath := range []string{issuePath, planPath} {
-		matched := 0
-		for _, entry := range inventory.Entries {
-			if entry.Path == requiredPath && entry.Change == "A" && entry.Role == "governance-artifact" {
-				matched++
-			}
-		}
-		if matched != 1 {
-			t.Fatalf("required inventory row %q cardinality = %d, want 1", requiredPath, matched)
-		}
-		omitted := inventory
-		omitted.Entries = append([]DeliveryEntry(nil), inventory.Entries...)
-		for index, entry := range omitted.Entries {
-			if entry.Path == requiredPath {
-				omitted.Entries = append(omitted.Entries[:index], omitted.Entries[index+1:]...)
-				break
-			}
-		}
-		if err := validateInventoryMatchesDiff(root, omitted); err == nil || !strings.Contains(err.Error(), "inventory differs") {
-			t.Fatalf("omitting %q did not fail exact diff matching: %v", requiredPath, err)
+	listed := map[string]bool{}
+	for _, entry := range inventory.Entries {
+		listed[entry.Path] = true
+	}
+	for _, path := range paths {
+		if listed[path] {
+			t.Fatalf("inventory still classifies out-of-matrix path %q", path)
 		}
 	}
 }
 
 func TestDeliveryInventory_GitDiffAndMatch(t *testing.T) {
-	root := t.TempDir()
-	runGit := func(args ...string) string {
+	root, base := seed4InventoryGitFixture(t, func(root string) {
+		mustWrite(t, filepath.Join(root, "scripts", "sitecheck", "inventory.go"), "package main\n")
+		mustWrite(t, filepath.Join(root, "scripts", "websitejourney", "extra.go"), "package main\n")
+		if err := os.Rename(filepath.Join(root, "old"), filepath.Join(root, "new")); err != nil {
+			t.Fatal(err)
+		}
+		mustWrite(t, filepath.Join(root, "specs", "SPEC-075-static-public-site-design-system.spec.md"), "status: implemented\n")
+	})
+	entries, err := inventoryDiff(root, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || diffIdentity(entries[0]) != "A\tscripts/sitecheck/inventory.go" {
+		t.Fatalf("entries = %#v, want only the Seed 4 sitecheck path", entries)
+	}
+	inventory := DeliveryInventory{SchemaVersion: deliveryInventorySchema, BaseCommit: base, Entries: entries}
+	if err := validateInventoryMatchesDiff(root, inventory); err != nil {
+		t.Fatal(err)
+	}
+	inventory.Entries = nil
+	if err := validateInventoryMatchesDiff(root, inventory); err == nil || !strings.Contains(err.Error(), "inventory differs") {
+		t.Fatalf("mismatch error = %v", err)
+	}
+	if _, err := inventoryDiff(root, strings.Repeat("0", 40)); err == nil {
+		t.Fatal("unknown base unexpectedly passed")
+	}
+
+	ledgerRoot := t.TempDir()
+	runGit := gitRunner(t, ledgerRoot)
+	runGit("init", "-q")
+	runGit("config", "user.name", "Sitecheck Test")
+	runGit("config", "user.email", "sitecheck@example.invalid")
+	mustWrite(t, filepath.Join(ledgerRoot, "specs", "SPEC-075-static-public-site-design-system.spec.md"), "status: ready-for-implementation\n")
+	runGit("add", "specs/SPEC-075-static-public-site-design-system.spec.md")
+	runGit("commit", "-qm", "base")
+	ledgerBase := runGit("rev-parse", "HEAD")
+	if err := os.Rename(
+		filepath.Join(ledgerRoot, "specs", "SPEC-075-static-public-site-design-system.spec.md"),
+		filepath.Join(ledgerRoot, "specs", "renamed.spec.md"),
+	); err != nil {
+		t.Fatal(err)
+	}
+	runGit("add", "-A")
+	runGit("commit", "-qm", "rename ledger")
+	if _, err := inventoryDiff(ledgerRoot, ledgerBase); err == nil || !strings.Contains(err.Error(), "may not be renamed") {
+		t.Fatalf("ledger rename error = %v", err)
+	}
+}
+
+func seed4InventoryGitFixture(t *testing.T, mutate func(root string)) (root, base string) {
+	t.Helper()
+	root = t.TempDir()
+	runGit := gitRunner(t, root)
+	runGit("init", "-q")
+	runGit("config", "user.name", "Sitecheck Test")
+	runGit("config", "user.email", "sitecheck@example.invalid")
+	mustWrite(t, filepath.Join(root, "specs", "SPEC-075-static-public-site-design-system.spec.md"), "status: ready-for-implementation\n")
+	mustWrite(t, filepath.Join(root, "old"), "same\n")
+	runGit("add", "specs/SPEC-075-static-public-site-design-system.spec.md", "old")
+	runGit("commit", "-qm", "base")
+	base = runGit("rev-parse", "HEAD")
+	mutate(root)
+	runGit("add", "-A")
+	runGit("commit", "-qm", "change")
+	return root, base
+}
+
+func gitRunner(t *testing.T, root string) func(args ...string) string {
+	t.Helper()
+	return func(args ...string) string {
 		t.Helper()
 		command := exec.Command("git", append([]string{"-C", root}, args...)...)
 		output, err := command.CombinedOutput()
@@ -297,48 +344,14 @@ func TestDeliveryInventory_GitDiffAndMatch(t *testing.T) {
 		}
 		return strings.TrimSpace(string(output))
 	}
-	runGit("init", "-q")
-	runGit("config", "user.name", "Sitecheck Test")
-	runGit("config", "user.email", "sitecheck@example.invalid")
-	if err := os.MkdirAll(filepath.Join(root, "specs"), 0o700); err != nil {
+}
+
+func mustWrite(t *testing.T, path, contents string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "specs/SPEC-075-static-public-site-design-system.spec.md"), []byte("status: ready-for-implementation\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "old"), []byte("same\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	runGit("add", "old")
-	runGit("commit", "-qm", "base")
-	base := runGit("rev-parse", "HEAD")
-	if err := os.Rename(filepath.Join(root, "old"), filepath.Join(root, "new")); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "added"), []byte("new\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "specs/SPEC-075-static-public-site-design-system.spec.md"), []byte("status: implemented\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	runGit("add", "-A")
-	runGit("commit", "-qm", "change")
-	entries, err := inventoryDiff(root, base)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 2 || diffIdentity(entries[0]) == "" || diffIdentity(entries[1]) == "" {
-		t.Fatalf("entries = %#v", entries)
-	}
-	inventory := DeliveryInventory{SchemaVersion: deliveryInventorySchema, BaseCommit: base, Entries: entries}
-	if err := validateInventoryMatchesDiff(root, inventory); err != nil {
-		t.Fatal(err)
-	}
-	inventory.Entries = inventory.Entries[:1]
-	if err := validateInventoryMatchesDiff(root, inventory); err == nil || !strings.Contains(err.Error(), "inventory differs") {
-		t.Fatalf("mismatch error = %v", err)
-	}
-	if _, err := inventoryDiff(root, strings.Repeat("0", 40)); err == nil {
-		t.Fatal("unknown base unexpectedly passed")
 	}
 }

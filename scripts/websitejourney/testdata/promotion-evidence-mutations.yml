@@ -1,0 +1,17 @@
+# TASK-027 mutation table. Promotion to verified requires complete
+# same-release evidence. Partial, stale, mixed-identity, and nonblocking
+# receipts keep every capability draft.
+
+invalid_promotions:
+  - {name: partial-artifacts, artifacts_pass: false, expected_error: artifact}
+  - {name: missing-built, built_pass: false, expected_error: built}
+  - {name: missing-mutation-class, omit_mutation_class: generated, expected_error: mutation}
+  - {name: missing-adoption, adoption_pass: false, expected_error: CAP-009}
+  - {name: missing-deployed, deployed_pass: false, expected_error: deployed}
+  - {name: missing-dependency, dependency_pass: false, expected_error: dependency}
+  - {name: missing-workflows, workflows_pass: false, expected_error: workflow}
+  - {name: stale-commit, stale_commit: true, expected_error: identity}
+  - {name: mixed-identity, mixed_run: true, expected_error: identity}
+  - {name: nonblocking, nonblocking: true, expected_error: blocking}
+  - {name: draft-after-proof, keep_draft: true, expected_error: verified}
+  - {name: verified-without-proof, artifacts_pass: false, promote_partial: CAP-006, expected_error: CAP-006}

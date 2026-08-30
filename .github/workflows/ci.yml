@@ -333,3 +333,48 @@ jobs:
           path: .backstop/baseline.json
 
       # Baseline pull selects the latest successful main run artifact.
+
+  website-capabilities:
+    name: website-capabilities
+    needs: gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      GOFLAGS: -mod=readonly
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3.4"
+          bundler-cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install browser verifier
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Install the design-system engine at its allowlist pin
+        run: pipx install semgrep==1.156.0
+
+      - name: Build the Backstop CLI
+        run: go build -o ./bin/backstop ./cmd/backstop
+
+      - name: Install the pack fleet
+        run: ./bin/backstop pack install
+
+      # Built Seed 5 only. Deployed mode belongs to Pages after SPEC-075 proof.
+      - name: Verify website capabilities
+        run: ./scripts/verify-website-capabilities.sh

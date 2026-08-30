@@ -1,0 +1,18 @@
+# TASK-015 mutation table. Applied to isolated owner/rendered
+# adoption fixtures. Seed 5 never evaluates rendered text as a shell.
+
+invalid_adoptions:
+  - {name: missing-instruction-id, omit_id: ADOPT-INSTALL, expected_error: ADOPT-INSTALL}
+  - {name: changed-instruction-id, override_id: ADOPT-CONFIGURE, expected_error: ADOPT-CONFIGURE}
+  - {name: changed-command, change_command: true, expected_error: ADOPT-INSTALL}
+  - {name: changed-digest, change_digest: true, expected_error: ADOPT-INSTALL}
+  - {name: changed-executable, change_executable: true, expected_error: ADOPT-INSTALL}
+  - {name: changed-argv, change_argv: true, expected_error: ADOPT-INSTALL}
+  - {name: changed-environment, change_env: true, expected_error: ADOPT-INSTALL}
+  - {name: missing-binary, skip_install: true, expected_error: ADOPT-INSTALL}
+  - {name: missing-configuration, skip_configure: true, expected_error: ADOPT-CONFIGURE}
+  - {name: nonzero-gate, nonzero_gate: true, expected_error: ADOPT-ENFORCE}
+  - {name: shell-evaluated, use_shell: true, expected_error: CAP-009}
+  - {name: mocked-command, mocked: true, expected_error: CAP-009}
+  - {name: copied-command, copied: true, expected_error: CAP-009}
+  - {name: preinstalled-binary, preinstalled: true, expected_error: CAP-009}

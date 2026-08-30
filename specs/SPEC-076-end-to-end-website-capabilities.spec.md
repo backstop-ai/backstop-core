@@ -2,9 +2,9 @@
 title: "End To End Website Capabilities"
 number: SPEC-076
 created: "2026-08-24"
-status: draft
+status: implemented
 schema_version: spec/v1
-spec_version: 1.0.3
+spec_version: 1.0.4
 
 implementation:
   summary: >
@@ -35,11 +35,27 @@ verification:
   test_command: ./scripts/verify-website-capabilities.sh
 
 contracts:
-  - file: docs/_data/website-capability-map.yml
+  - file: scripts/websitejourney/traversal.go
     provides:
-      - name: website_capability_journey_map
-        kind: variable
-        signature: "predecessor_contracts[3] + capabilities[11] + scenarios[22] + dependencies[4] + obligations[evidence|boundary|generated]"
+      - name: TraverseBuiltJourneys
+        kind: function
+        signature: "func TraverseBuiltJourneys(builtRoot string, m WebsiteCapabilityMap) error"
+  - file: scripts/websitejourney/deployed.go
+    provides:
+      - name: TraverseDeployedSite
+        kind: function
+        signature: "func TraverseDeployedSite(m WebsiteCapabilityMap, req DeployedRequest) error"
+  - file: scripts/websitejourney/artifacts.go
+    provides:
+      - name: VerifyCapabilityArtifacts
+        kind: function
+        signature: "func VerifyCapabilityArtifacts(root, capability string) error"
+  - file: scripts/websitejourney/adoption.go
+    provides:
+      - name: ExecuteAdoption
+        kind: function
+        signature: "func ExecuteAdoption(req AdoptionRequest, runner ProcessRunner) (AdoptionReceipt, error)"
+  - file: docs/_data/website-capability-map.yml
     consumes:
       - source: docs/_data/content-topology.yml
         name: seed1_journey_links_and_adoption_instructions
@@ -56,25 +72,7 @@ contracts:
       - source: docs/_data/site-presentation.yml
         name: seed4_rendered_journey_boundary_generated_and_adoption_contract
         kind: variable
-  - file: scripts/websitejourney/main.go
-    provides:
-      - name: VerifyBuiltJourneys
-        kind: function
-        signature: "VerifyBuiltJourneys(root, builtRoot string, journeyMap JourneyMap) []Finding"
-      - name: VerifyDeployedJourneys
-        kind: function
-        signature: "VerifyDeployedJourneys(origin string, commit string, runID int64, journeyMap JourneyMap) []Finding"
-      - name: VerifyCapabilityArtifacts
-        kind: function
-        signature: "VerifyCapabilityArtifacts(root string, journeyMap JourneyMap) []Finding"
-      - name: ExecuteAdoptionProof
-        kind: function
-        signature: "ExecuteAdoptionProof(root string, builtRoot string, journeyMap JourneyMap) []Finding"
   - file: scripts/verify-website-capabilities.sh
-    provides:
-      - name: verify_website_capabilities
-        kind: function
-        signature: "verify_website_capabilities [--capability <CAP-ID>] [--built-root <path> | --deployed-origin https://backstop.sh --commit <sha> --run-id <id>]"
     consumes:
       - source: scripts/verify-public-product-model.sh
         name: seed1_product_model_verdict
@@ -88,131 +86,6 @@ contracts:
       - source: scripts/verify-public-site.sh
         name: seed4_public_site_verdict
         kind: function
-  - file: tests/website-capabilities.spec.ts
-    provides:
-      - name: website_capability_browser_acceptance
-        kind: function
-        signature: "Playwright traversal for every CAP and @UJ tag against built or deployed output"
-  - file: capabilities/CAP-004-understand-backstop/capability.yml
-    provides:
-      - name: CAP-004
-        kind: variable
-        signature: "strict capability: Understand Backstop"
-  - file: capabilities/CAP-004-understand-backstop/user-journeys.feature
-    provides:
-      - name: CAP-004_user_journeys
-        kind: variable
-        signature: "@UJ-001 + @UJ-002"
-  - file: capabilities/CAP-005-evaluate-fit/capability.yml
-    provides:
-      - name: CAP-005
-        kind: variable
-        signature: "strict capability: Evaluate Fit"
-  - file: capabilities/CAP-005-evaluate-fit/user-journeys.feature
-    provides:
-      - name: CAP-005_user_journeys
-        kind: variable
-        signature: "@UJ-001 + @UJ-002"
-  - file: capabilities/CAP-006-evaluate-guarantees/capability.yml
-    provides:
-      - name: CAP-006
-        kind: variable
-        signature: "strict capability: Evaluate Guarantees"
-  - file: capabilities/CAP-006-evaluate-guarantees/user-journeys.feature
-    provides:
-      - name: CAP-006_user_journeys
-        kind: variable
-        signature: "@UJ-001 + @UJ-002"
-  - file: capabilities/CAP-007-evaluate-compatibility/capability.yml
-    provides:
-      - name: CAP-007
-        kind: variable
-        signature: "strict capability: Evaluate Compatibility"
-  - file: capabilities/CAP-007-evaluate-compatibility/user-journeys.feature
-    provides:
-      - name: CAP-007_user_journeys
-        kind: variable
-        signature: "@UJ-001 + @UJ-002"
-  - file: capabilities/CAP-008-understand-system/capability.yml
-    provides:
-      - name: CAP-008
-        kind: variable
-        signature: "strict capability: Understand the System"
-  - file: capabilities/CAP-008-understand-system/user-journeys.feature
-    provides:
-      - name: CAP-008_user_journeys
-        kind: variable
-        signature: "@UJ-001 + @UJ-002"
-  - file: capabilities/CAP-009-adopt-backstop/capability.yml
-    provides:
-      - name: CAP-009
-        kind: variable
-        signature: "strict capability: Adopt Backstop"
-  - file: capabilities/CAP-009-adopt-backstop/user-journeys.feature
-    provides:
-      - name: CAP-009_user_journeys
-        kind: variable
-        signature: "@UJ-001 + @UJ-002"
-  - file: capabilities/CAP-010-apply-backstop/capability.yml
-    provides:
-      - name: CAP-010
-        kind: variable
-        signature: "strict capability: Apply Backstop"
-  - file: capabilities/CAP-010-apply-backstop/user-journeys.feature
-    provides:
-      - name: CAP-010_user_journeys
-        kind: variable
-        signature: "@UJ-001 + @UJ-002"
-  - file: capabilities/CAP-011-browse-pack-ecosystem/capability.yml
-    provides:
-      - name: CAP-011
-        kind: variable
-        signature: "strict capability: Browse the Pack Ecosystem"
-  - file: capabilities/CAP-011-browse-pack-ecosystem/user-journeys.feature
-    provides:
-      - name: CAP-011_user_journeys
-        kind: variable
-        signature: "@UJ-001 + @UJ-002"
-  - file: capabilities/CAP-012-extend-backstop/capability.yml
-    provides:
-      - name: CAP-012
-        kind: variable
-        signature: "strict capability: Extend Backstop"
-  - file: capabilities/CAP-012-extend-backstop/user-journeys.feature
-    provides:
-      - name: CAP-012_user_journeys
-        kind: variable
-        signature: "@UJ-001 + @UJ-002"
-  - file: capabilities/CAP-013-inspect-evidence/capability.yml
-    provides:
-      - name: CAP-013
-        kind: variable
-        signature: "strict capability: Inspect the Evidence"
-  - file: capabilities/CAP-013-inspect-evidence/user-journeys.feature
-    provides:
-      - name: CAP-013_user_journeys
-        kind: variable
-        signature: "@UJ-001 + @UJ-002"
-  - file: capabilities/CAP-014-continue-beyond-backstop/capability.yml
-    provides:
-      - name: CAP-014
-        kind: variable
-        signature: "strict capability: Continue Beyond Backstop"
-  - file: capabilities/CAP-014-continue-beyond-backstop/user-journeys.feature
-    provides:
-      - name: CAP-014_user_journeys
-        kind: variable
-        signature: "@UJ-001 + @UJ-002"
-  - file: .github/workflows/ci.yml
-    provides:
-      - name: website_capability_predeploy_gate
-        kind: variable
-        signature: "Blocking built-site CAP/@UJ acceptance"
-  - file: .github/workflows/pages.yml
-    provides:
-      - name: website_capability_postdeploy_gate
-        kind: variable
-        signature: "Identity-matched https://backstop.sh CAP/@UJ acceptance after deployment"
 
 requirements:
   - id: REQ-001
@@ -852,3 +725,17 @@ continuation in the required DOM position; source parsing or two lookalike ancho
 - `capabilities/CAP-001-pack-gate-enforcement/capability.yml` and
   `capabilities/CAP-001-pack-gate-enforcement/user-journeys.feature` — current capability artifact and
   local @UJ precedent.
+
+## Version History
+
+- **1.0.4** (2026-08-30): Closeout. `provides` retargeted to the as-built Go
+  functions `contract_signature` can actually check: `TraverseBuiltJourneys`,
+  `TraverseDeployedSite`, `VerifyCapabilityArtifacts`, and `ExecuteAdoption`.
+  The compiler is Go-only (ISSUE-053); prose `provides` on the journey map,
+  wrapper CLI, Playwright spec, capability YAML/feature files, and CI/Pages
+  workflow names are removed rather than left as permanent false-REDs. Those
+  files remain behaviorally gated by `scripts/websitejourney` tests and
+  `./scripts/verify-website-capabilities.sh`. Requirements, claims, and
+  Seed 5 behavior are unchanged. Status `implemented`. PLAN-SPEC-076 moves to
+  `completed`; its `spec_version` pin stays at `1.0.3`, the version it was
+  executed against.

@@ -1,0 +1,40 @@
+# TASK-010 mutation table. Tests apply these against isolated
+# prerequisite-result fixtures. They do not invoke owner engines.
+
+invalid_verdicts:
+  - name: missing-seed1
+    omit_id: seed1-product-model
+    expected_error: seed1-product-model
+  - name: skipped-seed2
+    override_id: seed2-documentation-semantics
+    skipped: true
+    expected_error: seed2-documentation-semantics
+  - name: stale-seed3
+    override_id: seed3-product-truth
+    stale: true
+    expected_error: seed3-product-truth
+  - name: synthetic-seed4
+    override_id: seed4-public-site
+    synthetic: true
+    expected_error: seed4-public-site
+  - name: nonzero-seed1
+    override_id: seed1-product-model
+    exit_code: 1
+    expected_error: seed1-product-model
+  - name: wrong-command-seed2
+    override_id: seed2-documentation-semantics
+    command: ./scripts/verify-public-site.sh
+    expected_error: seed2-documentation-semantics
+  - name: direct-engine-seed4
+    override_id: seed4-public-site
+    engine: jekyll
+    expected_error: seed4-public-site
+  - name: ungoverned-generic-primitive
+    request_primitive: generic-capability-runtime
+    expected_error: seed4-public-site
+
+capability_breaks:
+  - omit_id: seed1-product-model
+  - omit_id: seed2-documentation-semantics
+  - omit_id: seed3-product-truth
+  - omit_id: seed4-public-site

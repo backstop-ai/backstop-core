@@ -8,15 +8,6 @@ entries:
     path: .backstop/website-pack-releases.yml
     role: owner-release-import
   - change: A
-    path: .cursor/Dockerfile
-    role: agent-environment
-  - change: A
-    path: .cursor/environment.json
-    role: agent-environment
-  - change: A
-    path: .cursor/install.sh
-    role: agent-environment
-  - change: A
     path: .github/pages-actions.lock.yml
     role: action-lock
   - change: A
@@ -119,12 +110,6 @@ entries:
     path: docs/use-cases.md
     role: page-wrapper
   - change: A
-    path: issues/ISSUE-190-restore-canonical-homepage-direction.issue.md
-    role: governance-artifact
-  - change: A
-    path: issues/ISSUE-191-cursor-env-files-outside-seed4-matrix.issue.md
-    role: governance-artifact
-  - change: A
     path: package-lock.json
     role: build-dependency
   - change: A
@@ -133,12 +118,6 @@ entries:
   - change: A
     path: playwright.config.ts
     role: browser-verification
-  - change: A
-    path: plans/PLAN-ISSUE-190-restore-canonical-homepage-direction.plan.yml
-    role: governance-artifact
-  - change: A
-    path: plans/PLAN-ISSUE-191-cursor-env-files-outside-seed4-matrix.plan.yml
-    role: governance-artifact
   - change: A
     path: scripts/install-design-assets.sh
     role: owner-asset-installer

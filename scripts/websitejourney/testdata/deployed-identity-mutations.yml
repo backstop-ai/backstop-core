@@ -1,0 +1,14 @@
+# TASK-022 mutation table. Seed 5 never follows redirects, never claims
+# rollback, and never treats a stale commit/run marker as current.
+
+invalid_deployments:
+  - {name: http-origin, origin: "http://backstop.sh", expected_error: https://backstop.sh}
+  - {name: other-host, origin: "https://example.invalid", expected_error: https://backstop.sh}
+  - {name: follow-redirects, follow_redirects: true, expected_error: redirect}
+  - {name: stale-commit, stale_commit: true, expected_error: marker}
+  - {name: stale-run, stale_run: true, expected_error: marker}
+  - {name: missing-marker, missing_marker: true, expected_error: marker}
+  - {name: http-404, missing_route: "/status/", expected_error: "200"}
+  - {name: claim-rollback, claim_rollback: true, expected_error: rollback}
+  - {name: screenshot, screenshot_only: true, expected_error: CAP-004/@UJ-001}
+  - {name: direct-load, direct_load: true, expected_error: CAP-004/@UJ-001}
