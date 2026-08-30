@@ -4,7 +4,7 @@ number: SPEC-076
 created: "2026-08-24"
 status: implemented
 schema_version: spec/v1
-spec_version: 1.0.4
+spec_version: 1.0.5
 
 implementation:
   summary: >
@@ -432,7 +432,7 @@ edge rather than requiring duplicate page copy.
 
 | Global key | Scenario | Exact ordered route/anchor traversal | Link IDs |
 |---|---|---|---|
-| CAP-004/@UJ-001 | Recognize the failure class and why Backstop exists | `/#why-backstop` -> `/evaluate/#failure-fit` | JLINK-001 |
+| CAP-004/@UJ-001 | Recognize the failure class and why Backstop exists | `/#define-work` -> `/evaluate/#failure-fit` | JLINK-001 |
 | CAP-004/@UJ-002 | Distinguish what Backstop is from what it is not | `/evaluate/#what-backstop-is` -> `/model/#operating-model` | JLINK-002 |
 | CAP-005/@UJ-001 | Confirm fit and continue to adoption | `/use-cases/#choose-use-case` -> `/evaluate/#fit-decision` -> `/adopt/#install` | JLINK-003, JLINK-004 |
 | CAP-005/@UJ-002 | Confirm no-fit and continue to boundary guidance | `/evaluate/#not-a-fit` -> `/status/#adjacent-guidance` | JLINK-005 |
@@ -728,6 +728,9 @@ continuation in the required DOM position; source parsing or two lookalike ancho
 
 ## Version History
 
+- **1.0.5** (2026-08-30): CAP-004/@UJ-001 starts at `/#define-work` on the
+  canonical homepage. `why-backstop` is not a public homepage hop.
+  PLAN-SPEC-076 stays `completed`; its pin stays at `1.0.3`.
 - **1.0.4** (2026-08-30): Closeout. `provides` retargeted to the as-built Go
   functions `contract_signature` can actually check: `TraverseBuiltJourneys`,
   `TraverseDeployedSite`, `VerifyCapabilityArtifacts`, and `ExecuteAdoption`.

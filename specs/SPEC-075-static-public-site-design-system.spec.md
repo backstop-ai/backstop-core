@@ -4,7 +4,7 @@ number: SPEC-075
 created: "2026-08-24"
 status: implemented
 schema_version: spec/v1
-spec_version: 1.0.17
+spec_version: 1.0.18
 
 implementation:
   summary: >
@@ -783,7 +783,7 @@ rendered binding below. Each source and destination anchor is case-sensitive and
 
 | Link ID | Source route/anchor | Destination route/anchor |
 |---|---|---|
-| `JLINK-001` | `/#why-backstop` | `/evaluate/#failure-fit` |
+| `JLINK-001` | `/#define-work` | `/evaluate/#failure-fit` |
 | `JLINK-002` | `/evaluate/#what-backstop-is` | `/model/#operating-model` |
 | `JLINK-003` | `/use-cases/#choose-use-case` | `/evaluate/#fit-decision` |
 | `JLINK-004` | `/evaluate/#fit-decision` | `/adopt/#install` |
@@ -1031,6 +1031,9 @@ assertions.
 
 ## Version History
 
+- **1.0.18** (2026-08-30): Rendered JLINK-001 source on `/` is `/#define-work`,
+  matching the canonical homepage section. `why-backstop` is not a public
+  homepage anchor. PLAN-SPEC-075 stays `completed`; its pin stays at `1.0.16`.
 - **1.0.17** (2026-08-30): Delivery inventory classifies Seed 4-owned paths from
   `git diff <base_commit>...HEAD`. Paths outside the closed matrix are ignored
   rather than failing sitecheck. Bolt-on `agent-environment` and

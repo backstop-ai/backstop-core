@@ -4,7 +4,7 @@ number: SPEC-072
 created: "2026-08-24"
 status: implemented
 schema_version: spec/v1
-spec_version: 1.0.8
+spec_version: 1.0.9
 
 implementation:
   summary: >
@@ -637,7 +637,7 @@ intentionally one shared physical edge.
 
 | Link ID | Source route/anchor | Destination route/anchor |
 |---|---|---|
-| JLINK-001 | `/#why-backstop` | `/evaluate/#failure-fit` |
+| JLINK-001 | `/#define-work` | `/evaluate/#failure-fit` |
 | JLINK-002 | `/evaluate/#what-backstop-is` | `/model/#operating-model` |
 | JLINK-003 | `/use-cases/#choose-use-case` | `/evaluate/#fit-decision` |
 | JLINK-004 | `/evaluate/#fit-decision` | `/adopt/#install` |
@@ -946,3 +946,9 @@ any of them or treating this spec as the owner of capability scenarios.
 - `specs/SPEC-076-end-to-end-website-capabilities.spec.md` v1.0.2 — downstream consumer currently
   pinned to SPEC-072 v1.0.4 and requiring amendment to consume the single rendered JLINK-024 edge
   produced from the v1.0.5 embedded-marker layout.
+
+## Version History
+
+- **1.0.9** (2026-08-30): JLINK-001 and CLAIM-017 on `/` use the canonical homepage
+  section `define-work`. `why-backstop` is not a public homepage anchor.
+  PLAN-SPEC-072 stays `completed`; its `spec_version` pin stays at `1.0.8`.

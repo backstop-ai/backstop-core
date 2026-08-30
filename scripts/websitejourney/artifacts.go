@@ -158,7 +158,7 @@ func ExpectedWebsiteCapabilities() []CapabilityArtifact {
 
 func ExpectedWebsiteJourneys() []Journey {
 	return []Journey{
-		{GlobalKey: "CAP-004/@UJ-001", CapabilityID: "CAP-004", Tag: "@UJ-001", Title: "Recognize the failure class and why Backstop exists", JLinks: []string{"JLINK-001"}, Hops: []string{"/#why-backstop", "/evaluate/#failure-fit"}},
+		{GlobalKey: "CAP-004/@UJ-001", CapabilityID: "CAP-004", Tag: "@UJ-001", Title: "Recognize the failure class and why Backstop exists", JLinks: []string{"JLINK-001"}, Hops: []string{"/#define-work", "/evaluate/#failure-fit"}},
 		{GlobalKey: "CAP-004/@UJ-002", CapabilityID: "CAP-004", Tag: "@UJ-002", Title: "Distinguish what Backstop is from what it is not", JLinks: []string{"JLINK-002"}, Hops: []string{"/evaluate/#what-backstop-is", "/model/#operating-model"}},
 		{GlobalKey: "CAP-005/@UJ-001", CapabilityID: "CAP-005", Tag: "@UJ-001", Title: "Confirm fit and continue to adoption", JLinks: []string{"JLINK-003", "JLINK-004"}, Hops: []string{"/use-cases/#choose-use-case", "/evaluate/#fit-decision", "/adopt/#install"}},
 		{GlobalKey: "CAP-005/@UJ-002", CapabilityID: "CAP-005", Tag: "@UJ-002", Title: "Confirm no-fit and continue to boundary guidance", JLinks: []string{"JLINK-005"}, Hops: []string{"/evaluate/#not-a-fit", "/status/#adjacent-guidance"}},
