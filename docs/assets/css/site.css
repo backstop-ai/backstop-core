@@ -66,7 +66,7 @@ th, td { padding: 0.65rem 0.75rem; border: 1px solid var(--ds-border); text-alig
 th { background: var(--ds-surface); }
 
 [data-page-kind="evaluation"] .page-hero h1 { max-width: 14ch; }
-[data-page-kind="evaluation"] .prose { width: min(calc(100% - 2rem), 52rem); padding-block: 2.5rem 4rem; }
+[data-page-kind="evaluation"] .prose { width: min(calc(100% - 2rem), 72rem); padding-block: 2.5rem 4rem; }
 [data-page-kind="evaluation"] .prose > h2 {
   margin: 2rem 0 0.4rem;
   color: var(--ds-muted);
@@ -76,20 +76,19 @@ th { background: var(--ds-surface); }
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
-[data-page-kind="evaluation"] .decision-matrix { margin: 0 0 2.5rem; }
-[data-page-kind="evaluation"] .decision-matrix table { width: 100%; font-size: 0.95rem; }
-[data-page-kind="evaluation"] .decision-matrix th {
+[data-page-kind="evaluation"] .tactics-matrix { margin: 0 0 2.5rem; }
+[data-page-kind="evaluation"] .tactics-matrix table { width: 100%; font-size: 0.88rem; }
+[data-page-kind="evaluation"] .tactics-matrix th {
   color: var(--ds-muted);
   font-family: var(--ds-font-mono);
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   font-weight: 700;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
-[data-page-kind="evaluation"] .decision-matrix td:nth-child(2) { font-weight: 750; white-space: nowrap; width: 5.5rem; }
-[data-page-kind="evaluation"] .decision-matrix tr[data-fit="yes"] td:nth-child(2) { color: var(--ds-accent); }
-[data-page-kind="evaluation"] .decision-matrix tr[data-fit="no"] td:nth-child(2) { color: var(--ds-muted); }
-[data-page-kind="evaluation"] .decision-matrix td:nth-child(3) { color: var(--ds-muted); }
+[data-page-kind="evaluation"] .tactics-matrix td:first-child { font-weight: 650; white-space: nowrap; }
+[data-page-kind="evaluation"] .tactics-matrix td:nth-child(3) { color: var(--ds-muted); }
+[data-page-kind="evaluation"] .tactics-matrix td:last-child { color: var(--ds-accent); font-weight: 650; }
 
 .next-action { width: min(calc(100% - 2rem), 73.75rem); margin-inline: auto; padding-block: 2rem 4rem; border-top: 1px solid var(--ds-border); display: flex; justify-content: space-between; gap: 1rem; }
 .next-action span { color: var(--ds-muted); }

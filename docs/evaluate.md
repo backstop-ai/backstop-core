@@ -6,16 +6,17 @@ hero_question: "Your agent already writes the code."
 hero_lede: "Backstop does not care which one. It cares whether the result may ship."
 ---
 
-<div class="decision-matrix">
+<div class="tactics-matrix">
 <table>
 <thead>
-<tr><th>What is happening</th><th>Use it?</th><th>Why</th></tr>
+<tr><th>What you already tried</th><th>What that gets you</th><th>What it does not</th><th>What Backstop does instead</th><th>Result</th></tr>
 </thead>
 <tbody>
-<tr data-fit="yes"><td>Agents freelance, dump more code than anyone can review, and it can still reach production</td><td>Yes</td><td>Fail closed on off-task, unreviewable, or disallowed work</td></tr>
-<tr data-fit="no"><td>You wanted a better Cursor, Claude Code, or other coding agent</td><td>No</td><td>That is the agent. This is the stop around it</td></tr>
-<tr data-fit="no"><td>You wanted a tracker or a runtime</td><td>No</td><td>Someone else owns that job</td></tr>
-<tr data-fit="no"><td>You have no standard you would actually fail a merge over</td><td>No</td><td>Nothing to encode</td></tr>
+<tr><td>Markdown specs</td><td>Named intent</td><td>The agent can skip them</td><td>Plan-before-code, claims, mandated tests</td><td>“Done” can be contradicted</td></tr>
+<tr><td>Skills / AGENTS.md</td><td>Better default behavior</td><td>A prompt, not a verdict</td><td>Packs and fixtures for the non-negotiable subset</td><td>Green means the standard held</td></tr>
+<tr><td>MCP</td><td>Tool access</td><td>No merge policy</td><td>The same CLI; the caller must honor the exit</td><td>Running the binary is not stopping</td></tr>
+<tr><td>LLM review</td><td>Another opinion on the diff</td><td>Still a guess</td><td>Deterministic engines for what must not be a guess</td><td>Same input, same verdict</td></tr>
+<tr><td>Standards as docs</td><td>Shared language</td><td>Unenforced</td><td>Encode only what you would fail a merge over</td><td>The rest stays a doc on purpose</td></tr>
 </tbody>
 </table>
 </div>
