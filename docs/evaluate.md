@@ -35,9 +35,36 @@ hero_lede: "Backstop does not care which one. It cares whether the result may sh
 <div class="failed-verdict-foot"><strong>FAIL</strong><span>The work is not allowed to ship.</span></div>
 </div>
 
-## Isn’t this just CI? {#fit-decision}
+## CI is too late to find out {#fit-decision}
 
-CI is a caller. It can run the gate or ignore the exit. Backstop is the verdict that pipeline must honor. Without that, green is still just green.
+Fix problems while your agent is still writing the code.
+
+Backstop puts deterministic gates inside the agent's working loop. The agent gets the failure, fixes the issue, and reruns the gate before the work reaches review. CI runs the same checks again—but confirms the verdict instead of delivering the surprise.
+
+<div class="ci-workflows">
+<article>
+<p>Typical workflow</p>
+<ol>
+<li>Agent writes</li>
+<li>PR opens</li>
+<li>CI fails</li>
+<li>Human or agent reconstructs context</li>
+<li>Retry</li>
+</ol>
+</article>
+<article>
+<p>Backstop workflow</p>
+<ol class="has-loop">
+<li>Agent writes</li>
+<li>Gate fails</li>
+<li>Agent fixes</li>
+<li>PR opens</li>
+<li>CI confirms</li>
+</ol>
+</article>
+</div>
+
+CI should confirm, not discover.
 
 <!-- backstop-journey-link: JLINK-004 -->
 [Start installation](/adopt/#install)

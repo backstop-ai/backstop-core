@@ -126,6 +126,54 @@ th { background: var(--ds-surface); }
 [data-page-kind="evaluation"] .failed-verdict-foot { border-bottom: 0; align-items: center; }
 [data-page-kind="evaluation"] .failed-verdict-foot strong { color: var(--color-danger, #ef5b50); letter-spacing: 0.08em; }
 [data-page-kind="evaluation"] .failed-verdict-foot span { color: var(--ds-muted); }
+[data-page-kind="evaluation"] .ci-workflows {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin: 1.5rem 0;
+}
+[data-page-kind="evaluation"] .ci-workflows article {
+  min-width: 0;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--ds-border);
+  border-radius: 0.55rem;
+  background: var(--ds-surface);
+}
+[data-page-kind="evaluation"] .ci-workflows article > p {
+  margin: 0 0 0.85rem;
+  color: var(--ds-muted);
+  font-family: var(--ds-font-mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+[data-page-kind="evaluation"] .ci-workflows ol {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.15rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+[data-page-kind="evaluation"] .ci-workflows li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+[data-page-kind="evaluation"] .ci-workflows li:not(:last-child)::after {
+  content: "→";
+  color: var(--ds-muted);
+}
+[data-page-kind="evaluation"] .ci-workflows .has-loop li:nth-child(-n+2)::after { content: "↔"; }
+[data-page-kind="evaluation"] .prose > p:has(+ .ci-workflows) { max-width: 46rem; }
+[data-page-kind="evaluation"] #fit-decision + p { max-width: 46rem; color: var(--ds-muted); font-size: 1.05rem; }
+[data-page-kind="evaluation"] .ci-workflows + p {
+  color: var(--ds-accent);
+  font-size: 1.15rem;
+  font-weight: 650;
+}
 
 .next-action { width: min(calc(100% - 2rem), 73.75rem); margin-inline: auto; padding-block: 2rem 4rem; border-top: 1px solid var(--ds-border); display: flex; justify-content: space-between; gap: 1rem; }
 .next-action span { color: var(--ds-muted); }
@@ -179,6 +227,7 @@ th { background: var(--ds-surface); }
   }
   [data-page-kind="evaluation"] .tactics-matrix td:first-child::before { content: none; }
   [data-page-kind="evaluation"] .failed-verdict-row { grid-template-columns: 1fr auto; }
+  [data-page-kind="evaluation"] .ci-workflows { grid-template-columns: 1fr; }
   [data-page-kind="home"] .nav { height: auto !important; min-height: 76px; flex-wrap: wrap; gap: 1rem; padding-block: 1rem; }
   [data-page-kind="home"] .nav-links { flex-wrap: wrap; gap: 1rem !important; }
   [data-page-kind="home"] h1 { overflow-wrap: anywhere; }
