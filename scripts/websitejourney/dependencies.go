@@ -128,7 +128,7 @@ func EvaluatePrerequisites(m WebsiteCapabilityMap, _ CapabilityTree, runner Comm
 		if runner == nil {
 			return blocked, failBeforeTraversal(got.ID, dependents, "missing")
 		}
-		result, err := runner(CommandRequest{ID: got.ID, Spec: got.Spec, Command: got.Command})
+		result, err := runner(CommandRequest(got))
 		if err != nil {
 			return blocked, failBeforeTraversal(got.ID, dependents, err.Error())
 		}

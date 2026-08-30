@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -143,6 +145,101 @@ func TestWebsiteJourney_RefusesUngovernedGenericPrimitive(t *testing.T) {
 	if strings.Contains(strings.ToLower(err.Error()), "implemented in seed 5") {
 		t.Fatalf("refusal expanded Seed 5 instead of stopping at a named dependency: %v", err)
 	}
+}
+
+func TestWebsiteJourney_CLIAndExecPrerequisiteRunner(t *testing.T) {
+	root := websiteJourneyRepoRoot(t)
+	if code := run([]string{"-bogus"}, io.Discard, io.Discard); code != 2 {
+		t.Fatalf("unknown flag exit = %d, want 2", code)
+	}
+	if code := run([]string{"-root", root}, io.Discard, io.Discard); code != 0 {
+		t.Fatalf("artifact-only CLI exit = %d", code)
+	}
+	if code := run([]string{"-root", root, "-capability", "CAP-004"}, io.Discard, io.Discard); code != 0 {
+		t.Fatalf("capability CLI exit = %d", code)
+	}
+	if code := run([]string{"-root", root}, failingWriter{}, io.Discard); code != 1 {
+		t.Fatalf("stdout failure exit = %d, want 1", code)
+	}
+	if code := run([]string{"-root", root, "-capability", "CAP-004"}, failingWriter{}, io.Discard); code != 1 {
+		t.Fatalf("capability stdout failure exit = %d, want 1", code)
+	}
+	if code := run([]string{"-root", t.TempDir()}, io.Discard, io.Discard); code != 1 {
+		t.Fatalf("missing root exit = %d, want 1", code)
+	}
+
+	previous := newPrerequisiteRunner
+	t.Cleanup(func() { newPrerequisiteRunner = previous })
+	newPrerequisiteRunner = func(string) CommandRunner { return FreshZeroPrerequisiteRunner() }
+	if code := run([]string{"-root", root, "-prerequisites"}, io.Discard, io.Discard); code != 0 {
+		t.Fatalf("prerequisites CLI exit = %d", code)
+	}
+	newPrerequisiteRunner = func(string) CommandRunner {
+		return func(CommandRequest) (CommandResult, error) {
+			return CommandResult{ExitCode: 1, Fresh: true}, nil
+		}
+	}
+	if code := run([]string{"-root", root, "-prerequisites"}, io.Discard, io.Discard); code != 1 {
+		t.Fatalf("failed prerequisites CLI exit = %d, want 1", code)
+	}
+
+	stubs := t.TempDir()
+	for _, prerequisite := range ExpectedPrerequisites() {
+		path := filepath.Join(stubs, prerequisite.Command)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	zero, err := ExecPrerequisiteRunner(stubs)(CommandRequest(ExpectedPrerequisites()[0]))
+	if err != nil || zero.ExitCode != 0 || !zero.Fresh {
+		t.Fatalf("exec zero = %+v err=%v", zero, err)
+	}
+	failPath := filepath.Join(stubs, ExpectedPrerequisites()[1].Command)
+	if err := os.WriteFile(failPath, []byte("#!/bin/sh\nexit 3\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	nonzero, err := ExecPrerequisiteRunner(stubs)(CommandRequest(ExpectedPrerequisites()[1]))
+	if err != nil || nonzero.ExitCode != 3 {
+		t.Fatalf("exec nonzero = %+v err=%v", nonzero, err)
+	}
+	engine, err := ExecPrerequisiteRunner(stubs)(CommandRequest{Command: "jekyll"})
+	if err != nil || engine.Engine != "owner-engine" {
+		t.Fatalf("disallowed command = %+v err=%v", engine, err)
+	}
+	if _, err := ExecPrerequisiteRunner(t.TempDir())(CommandRequest(ExpectedPrerequisites()[0])); err == nil {
+		t.Fatal("missing public entrypoint must surface an exec error")
+	}
+
+	m := mustLoadWebsiteCapabilityMap(t)
+	tree := mustLoadCapabilityTree(t)
+	if _, err := EvaluatePrerequisites(m, tree, nil); err == nil {
+		t.Fatal("nil runner must fail before traversal")
+	}
+	if _, err := EvaluatePrerequisites(m, tree, func(CommandRequest) (CommandResult, error) {
+		return CommandResult{}, fmt.Errorf("runner exploded")
+	}); err == nil || !strings.Contains(err.Error(), "runner exploded") {
+		t.Fatalf("runner error = %v", err)
+	}
+	reordered := cloneMap(m)
+	reordered.Prerequisites[0], reordered.Prerequisites[1] = reordered.Prerequisites[1], reordered.Prerequisites[0]
+	if _, err := EvaluatePrerequisites(reordered, tree, FreshZeroPrerequisiteRunner()); err == nil {
+		t.Fatal("reordered prerequisites must fail")
+	}
+	if err := writeCLI(&failingWriter{}, "x"); err == nil {
+		t.Fatal("writeCLI must surface writer failure")
+	}
+	if writeCLIError(&failingWriter{}, fmt.Errorf("boom")) != 1 {
+		t.Fatal("writeCLIError must return 1 when stderr write fails")
+	}
+}
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) {
+	return 0, fmt.Errorf("write failed")
 }
 
 func prerequisiteRunnerFor(mutation DependencyVerdictMutation) CommandRunner {
