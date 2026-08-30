@@ -101,7 +101,8 @@ th { background: var(--ds-surface); }
   text-transform: uppercase;
 }
 [data-page-kind="evaluation"] .tactics-matrix td:first-child { font-weight: 650; white-space: nowrap; }
-[data-page-kind="evaluation"] .tactics-matrix td:nth-child(3) { color: var(--ds-muted); }
+[data-page-kind="evaluation"] .tactics-matrix:not(.sdd-matrix) td:nth-child(3) { color: var(--ds-muted); }
+[data-page-kind="evaluation"] .sdd-matrix td:nth-child(2) { color: var(--ds-muted); }
 [data-page-kind="evaluation"] .tactics-matrix td:last-child { color: var(--ds-accent); font-weight: 650; }
 [data-page-kind="evaluation"] .failed-verdict {
   margin: 0 0 0.5rem;
