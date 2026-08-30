@@ -30,11 +30,78 @@ func TestWebsiteJourney_RemainsIntegrationConsumer(t *testing.T) {
 }
 
 func TestWebsiteJourney_VerifierAcceptsCoverageAtThreshold(t *testing.T) {
-	runWebsiteCapabilitiesScript(t, "scripts/tests/website-capabilities/coverage-cleanup-mutations.sh")
+	root, wrapper := websiteJourneyWrapper(t)
+	for _, total := range []string{"80.00", "80.01", "100.00"} {
+		cmd := exec.Command(wrapper, "--accept-coverage", total)
+		cmd.Dir = root
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("coverage %s must pass: %v\n%s", total, err, out)
+		}
+		if !strings.Contains(string(out), "accepted") {
+			t.Fatalf("coverage %s: missing acceptance evidence: %s", total, out)
+		}
+	}
+	cmd := exec.Command(wrapper, "--parse-coverage")
+	cmd.Dir = root
+	cmd.Stdin = strings.NewReader("ok\tpkg\t0.1s\tcoverage: 80.00% of statements")
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("parse coverage: %v\n%s", err, out)
+	}
+	if got := strings.TrimSpace(string(out)); got != "80.00" {
+		t.Fatalf("parse coverage = %q, want 80.00", got)
+	}
 }
 
 func TestWebsiteJourney_VerifierRejectsCoverageFailureMatrix(t *testing.T) {
-	runWebsiteCapabilitiesScript(t, "scripts/tests/website-capabilities/coverage-cleanup-mutations.sh")
+	root, wrapper := websiteJourneyWrapper(t)
+	for _, test := range []struct {
+		total string
+		token string
+	}{
+		{"79.99", "79.99"},
+		{"absent", "absent"},
+		{"duplicate", "duplicate"},
+		{"nonnumeric", "nonnumeric"},
+	} {
+		cmd := exec.Command(wrapper, "--accept-coverage", test.total)
+		cmd.Dir = root
+		out, err := cmd.CombinedOutput()
+		if err == nil {
+			t.Fatalf("accepted coverage %s", test.total)
+		}
+		if !strings.Contains(string(out), test.token) {
+			t.Fatalf("coverage %s: error %q does not name %q", test.total, out, test.token)
+		}
+	}
+	for _, test := range []struct {
+		input string
+		want  string
+	}{
+		{"no coverage here", "absent"},
+		{"coverage: 80.00% of statements\ncoverage: 81.00% of statements", "duplicate"},
+	} {
+		cmd := exec.Command(wrapper, "--parse-coverage")
+		cmd.Dir = root
+		cmd.Stdin = strings.NewReader(test.input)
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("parse %q: %v\n%s", test.input, err, out)
+		}
+		if got := strings.TrimSpace(string(out)); got != test.want {
+			t.Fatalf("parse %q = %q, want %q", test.input, got, test.want)
+		}
+	}
+}
+
+func websiteJourneyWrapper(t *testing.T) (root, wrapper string) {
+	t.Helper()
+	absRoot, err := filepath.Abs(websiteJourneyRepoRoot(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return absRoot, filepath.Join(absRoot, "scripts", "verify-website-capabilities.sh")
 }
 
 func TestWebsiteJourney_WrapperPropagatesGovernedDependencyFailure(t *testing.T) {

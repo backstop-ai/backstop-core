@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -151,6 +152,32 @@ func TestWebsiteJourney_CLIAndExecPrerequisiteRunner(t *testing.T) {
 	root := websiteJourneyRepoRoot(t)
 	if code := run([]string{"-bogus"}, io.Discard, io.Discard); code != 2 {
 		t.Fatalf("unknown flag exit = %d, want 2", code)
+	}
+	var deployedMissing bytes.Buffer
+	if code := run([]string{"-root", root, "-deployed-origin", CanonicalDeployedOrigin}, io.Discard, &deployedMissing); code != 1 {
+		t.Fatalf("deployed origin without identity exit = %d, want 1", code)
+	}
+	if !strings.Contains(deployedMissing.String(), "--commit") || !strings.Contains(deployedMissing.String(), "--run-id") {
+		t.Fatalf("deployed missing identity: %s", deployedMissing.String())
+	}
+	var deployedOrigin bytes.Buffer
+	if code := run([]string{
+		"-root", root,
+		"-deployed-origin", "https://example.invalid",
+		"-commit", testDeployCommit,
+		"-run-id", testDeployRunID,
+	}, io.Discard, &deployedOrigin); code != 1 {
+		t.Fatalf("invalid deployed origin exit = %d, want 1", code)
+	}
+	if !strings.Contains(deployedOrigin.String(), CanonicalDeployedOrigin) {
+		t.Fatalf("invalid deployed origin: %s", deployedOrigin.String())
+	}
+	if code := run([]string{
+		"-root", root,
+		"-deployed-origin", CanonicalDeployedOrigin,
+		"-commit", testDeployCommit,
+	}, io.Discard, io.Discard); code != 1 {
+		t.Fatalf("deployed origin without run-id exit = %d, want 1", code)
 	}
 	if code := run([]string{"-root", root}, io.Discard, io.Discard); code != 0 {
 		t.Fatalf("artifact-only CLI exit = %d", code)
