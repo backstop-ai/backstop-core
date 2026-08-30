@@ -232,8 +232,8 @@ claims:
     evidence_refs:
       - {evidence_id: EVIDENCE-026, kind: source, locator: {path: README.md}, relevance: "Describes the deterministic control surface around AI delivery."}
   - claim_id: CLAIM-018
-    statement: "Backstop is not a runtime, not a tracker, and not a substitute for owning the call. Those systems can sit around it. They remain someone else's job."
-    statement_markdown: "Backstop is not a runtime, not a tracker, and not a substitute for owning the call. Those systems can sit around it. They remain someone else's job."
+    statement: "If you wanted Cursor, a tracker, or a runtime, this is the wrong tool."
+    statement_markdown: "If you wanted Cursor, a tracker, or a runtime, this is the wrong tool."
     claim_type: mechanism
     owner: {route: "/evaluate/", anchor: not-a-fit}
     mechanism_summary: "Core provides repository contracts and a CLI rather than orchestration or project-management services."
@@ -260,8 +260,8 @@ claims:
       - {evidence_id: EVIDENCE-028, kind: source, locator: {path: cmd/backstop/gate.go}, relevance: "Defines the gate process boundary."}
       - {evidence_id: EVIDENCE-029, kind: reproducible-execution, locator: {version: v0.2.0}, command: "./bin/backstop gate --help", prerequisites: "Backstop v0.2.0 binary", relevance: "Demonstrates operability without asserting external lifecycle preservation."}
   - claim_id: CLAIM-020
-    statement: "Backstop is the discipline around the agent, not another agent. Artifacts name the work. Packs name the standards. The gate says whether the result may ship."
-    statement_markdown: "Backstop is the discipline around the agent, not another agent. Artifacts name the work. Packs name the standards. The gate says whether the result may ship."
+    statement: "Backstop is not a coding agent. It sits around whichever agent you already use and stops work that is off-task, unreviewable, or not allowed to ship."
+    statement_markdown: "Backstop is not a coding agent. It sits around whichever agent you already use and stops work that is off-task, unreviewable, or not allowed to ship."
     claim_type: mechanism
     owner: {route: "/evaluate/", anchor: what-backstop-is}
     mechanism_summary: "Repository artifacts and a runtime-neutral CLI separate declared intent, bounded work, review, and gate enforcement."

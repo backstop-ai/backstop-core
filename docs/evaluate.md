@@ -2,40 +2,54 @@
 title: Evaluate Backstop
 layout: default
 permalink: /evaluate/
-hero_question: "Is Backstop the right control surface for this problem?"
-hero_lede: "Use it when an agent has to wait, name the work, and accept a red gate."
+hero_question: "Your agent already writes the code."
+hero_lede: "Backstop does not care which one. It cares whether the result may ship."
 ---
+
+<div class="decision-matrix">
+<table>
+<thead>
+<tr><th>What is happening</th><th>Use it?</th><th>Why</th></tr>
+</thead>
+<tbody>
+<tr data-fit="yes"><td>Agents freelance, dump more code than anyone can review, and it can still reach production</td><td>Yes</td><td>Fail closed on off-task, unreviewable, or disallowed work</td></tr>
+<tr data-fit="no"><td>You wanted a better Cursor, Claude Code, or other coding agent</td><td>No</td><td>That is the agent. This is the stop around it</td></tr>
+<tr data-fit="no"><td>You wanted a tracker or a runtime</td><td>No</td><td>Someone else owns that job</td></tr>
+<tr data-fit="no"><td>You have no standard you would actually fail a merge over</td><td>No</td><td>Nothing to encode</td></tr>
+</tbody>
+</table>
+</div>
 
 ## What it is {#what-backstop-is}
 
 <!-- backstop-claim: CLAIM-020 -->
-Backstop is the discipline around the agent, not another agent. Artifacts name the work. Packs name the standards. The gate says whether the result may ship.
+Backstop is not a coding agent. It sits around whichever agent you already use and stops work that is off-task, unreviewable, or not allowed to ship.
 <!-- /backstop-claim -->
 
 <!-- backstop-journey-link: JLINK-002 -->
 [See the operating model](/model/#operating-model)
 
-## When it fits {#failure-fit}
+## The actual problem {#failure-fit}
 
-Backstop fits when the problem is confidence, repeatability, drift, or evidence — not how fast code appears. It does not fit when there is no standard to encode and no place a verdict has to stick.
+The problem is agents freelancing, generating more code than anyone can reliably review, and shipping it anyway.
 
-## How to decide {#fit-decision}
+## When to use it {#fit-decision}
 
-Adopt it when a repository can hold intent artifacts, keep author and reviewer apart, and fail closed. Start with one standard and one workflow. Understanding the problem is not permission to implement.
+Use it when you have a standard you would actually fail a merge over. Start with one.
 
 <!-- backstop-journey-link: JLINK-004 -->
 [Start installation](/adopt/#install)
 
-## When it doesn't {#not-a-fit}
+## When not to {#not-a-fit}
 
 <!-- backstop-claim: CLAIM-018 -->
-Backstop is not a runtime, not a tracker, and not a substitute for owning the call. Those systems can sit around it. They remain someone else's job.
+If you wanted Cursor, a tracker, or a runtime, this is the wrong tool.
 <!-- /backstop-claim -->
 
 <!-- backstop-journey-link: JLINK-005 -->
 [Find adjacent guidance](/status/#adjacent-guidance)
 
-## What the gate guarantees {#guarantees}
+## What the gate does {#guarantees}
 
 <!-- backstop-claim: CLAIM-011 -->
 The gate checks the installed standards against the named inputs and returns a verdict. That is the whole guarantee. Whether anyone stops is outside the process.
@@ -44,7 +58,7 @@ The gate checks the installed standards against the named inputs and returns a v
 <!-- backstop-journey-link: JLINK-006 -->
 [Review support and limits](/status/#supported-and-limited)
 
-## What a harness gets {#compatibility}
+## What a harness does not get {#compatibility}
 
 <!-- backstop-claim: CLAIM-006 -->
 A harness can run the binary. That only proves the binary runs. Artifact order, review separation, and stopping on red are extra work the harness has to do.
@@ -57,7 +71,7 @@ Invocation proves the process started. A trustworthy integration separately prov
 <!-- backstop-journey-link: JLINK-008 -->
 [Check compatibility details](/reference/#compatibility)
 
-## What runtime-neutral does not mean {#compatibility-limits}
+## Runtime-neutral {#compatibility-limits}
 
 <!-- backstop-claim: CLAIM-012 -->
 Runtime-neutral does not mean runtime-guaranteed. Backstop cannot make a harness respect a result it chooses to discard.
@@ -66,7 +80,7 @@ Runtime-neutral does not mean runtime-guaranteed. Backstop cannot make a harness
 <!-- backstop-journey-link: JLINK-009 -->
 [Follow compatibility guidance](/status/#adjacent-guidance)
 
-## What counts as evidence {#evidence}
+## Receipts {#evidence}
 
 Green is not evidence. Evidence is a named command, a commit, or a checked-in incident.
 

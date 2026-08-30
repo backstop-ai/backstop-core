@@ -41,7 +41,7 @@ paths=['/','/evaluate/','/model/','/adopt/','/use-cases/','/packs/','/extend/','
 sources=['docs/index.md','docs/evaluate.md','docs/model.md','docs/adopt.md','docs/use-cases.md','docs/packs.md','docs/extend.md','docs/reference.md','docs/status.md','docs/contributing.md']
 pages=top.get('pages',[])
 if [(x.get('source'),x.get('canonical_path')) for x in pages]!=list(zip(sources,paths)): fail('page inventory must contain exact ten source/path pairs')
-heroes=['What failure does Backstop prevent?','Is Backstop the right control surface for this problem?','How does Backstop turn intent into a trustworthy verdict?','What does a first working adoption require?','Which problem-oriented adoption path applies?','Which maintained pack already owns this standard?','When should this concern become a pack?','What exact interface or behavior do I need?','What is supported, limited, planned, or intentionally outside Backstop?','How can I participate in Backstop and its ecosystem?']
+heroes=['What failure does Backstop prevent?','Your agent already writes the code.','How does Backstop turn intent into a trustworthy verdict?','What does a first working adoption require?','Which problem-oriented adoption path applies?','Which maintained pack already owns this standard?','When should this concern become a pack?','What exact interface or behavior do I need?','What is supported, limited, planned, or intentionally outside Backstop?','How can I participate in Backstop and its ecosystem?']
 for page,hero in zip(pages,heroes):
  if page.get('hero_question')!=hero: fail(page.get('source','page')+': hero_question')
 presentation_pages=presentation.get('pages',[])
@@ -361,8 +361,9 @@ allowances={
  'The framework is composable: artifacts can make delivery intent traceable without policy packs; packs and the gate can enforce standards without the full artifact chain; recipes can provide deterministic scaffolding without owning enforcement. The pieces are stronger together, but each should earn its place by controlling a real failure.':'HOME-003 composability summary',
  "> If it has to be right, it must be deterministic. If it's green, it ships.":'product principle presentation'},
 'docs/evaluate.md':{
- 'Backstop fits when the problem is confidence, repeatability, drift, or evidence — not how fast code appears. It does not fit when there is no standard to encode and no place a verdict has to stick.':'visitor decision guidance',
- 'Adopt it when a repository can hold intent artifacts, keep author and reviewer apart, and fail closed. Start with one standard and one workflow. Understanding the problem is not permission to implement.':'visitor decision guidance',
+ '<div class="decision-matrix">\n<table>\n<thead>\n<tr><th>What is happening</th><th>Use it?</th><th>Why</th></tr>\n</thead>\n<tbody>\n<tr data-fit="yes"><td>Agents freelance, dump more code than anyone can review, and it can still reach production</td><td>Yes</td><td>Fail closed on off-task, unreviewable, or disallowed work</td></tr>\n<tr data-fit="no"><td>You wanted a better Cursor, Claude Code, or other coding agent</td><td>No</td><td>That is the agent. This is the stop around it</td></tr>\n<tr data-fit="no"><td>You wanted a tracker or a runtime</td><td>No</td><td>Someone else owns that job</td></tr>\n<tr data-fit="no"><td>You have no standard you would actually fail a merge over</td><td>No</td><td>Nothing to encode</td></tr>\n</tbody>\n</table>\n</div>':'visitor decision matrix',
+ 'The problem is agents freelancing, generating more code than anyone can reliably review, and shipping it anyway.':'visitor decision guidance',
+ 'Use it when you have a standard you would actually fail a merge over. Start with one.':'visitor decision guidance',
  'Green is not evidence. Evidence is a named command, a commit, or a checked-in incident.':'evidence-process explanation'},
 'docs/model.md':{
  'Backstop is AI delivery discipline: a deterministic control surface around probabilistic execution. It does not need the agent to be right on the first pass; it needs mistakes to become visible before they escape the repository boundary.':'canonical product-category definition',
