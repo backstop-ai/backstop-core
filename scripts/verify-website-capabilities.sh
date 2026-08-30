@@ -117,6 +117,48 @@ if [[ ${1:-} == --assert-consumer ]]; then
   exit 0
 fi
 
+deployed_origin=""
+deploy_commit=""
+deploy_run_id=""
+capability=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --deployed-origin)
+      deployed_origin="${2:-}"
+      shift 2
+      ;;
+    --commit)
+      deploy_commit="${2:-}"
+      shift 2
+      ;;
+    --run-id)
+      deploy_run_id="${2:-}"
+      shift 2
+      ;;
+    --capability)
+      capability="${2:-}"
+      shift 2
+      ;;
+    *)
+      fail "unknown argument: $1"
+      ;;
+  esac
+done
+
+if [[ -n $deployed_origin ]]; then
+  if [[ -z $deploy_commit || -z $deploy_run_id ]]; then
+    fail "--deployed-origin requires --commit and --run-id"
+  fi
+  assert_integration_consumer
+  deployed_args=(--deployed-origin "$deployed_origin" --commit "$deploy_commit" --run-id "$deploy_run_id")
+  if [[ -n $capability ]]; then
+    deployed_args+=(--capability "$capability")
+  fi
+  go run ./scripts/websitejourney "${deployed_args[@]}"
+  echo "website-capabilities: deployed journeys verified"
+  exit 0
+fi
+
 trap 'cleanup_website_capabilities' EXIT
 
 BEFORE_STATUS="$(source_status)"
