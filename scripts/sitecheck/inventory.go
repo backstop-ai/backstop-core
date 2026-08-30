@@ -32,9 +32,8 @@ type DeliveryEntry struct {
 func allowedRoles() map[string]bool {
 	return map[string]bool{
 		"action-lock": true, "browser-verification": true, "build-dependency": true,
-		"agent-environment": true, "delivery-inventory": true, "deploy-stamp": true, "deploy-verifier": true,
+		"delivery-inventory": true, "deploy-stamp": true, "deploy-verifier": true,
 		"include": true, "layout": true, "owner-asset-installer": true,
-		"governance-artifact":  true,
 		"owner-release-import": true, "pack-declaration": true, "pack-lock": true,
 		"page-wrapper": true, "public-homepage": true, "rendered-contract-stamper": true,
 		"retired-bootstrap": true, "release-evidence-verifier": true,
@@ -146,12 +145,12 @@ func validatePathRole(entry DeliveryEntry) error {
 	return nil
 }
 
+func inSeed4Matrix(path string) bool {
+	return expectedRole(path) != ""
+}
+
 func expectedRole(path string) string {
 	switch {
-	case path == "issues/ISSUE-190-restore-canonical-homepage-direction.issue.md" || path == "plans/PLAN-ISSUE-190-restore-canonical-homepage-direction.plan.yml" || path == "issues/ISSUE-191-cursor-env-files-outside-seed4-matrix.issue.md" || path == "plans/PLAN-ISSUE-191-cursor-env-files-outside-seed4-matrix.plan.yml":
-		return "governance-artifact"
-	case strings.HasPrefix(path, ".cursor/"):
-		return "agent-environment"
 	case path == ".backstop/seed4-delivery-inventory.yml":
 		return "delivery-inventory"
 	case path == ".backstop/website-pack-releases.yml":
@@ -232,13 +231,16 @@ func inventoryDiff(root, base string) ([]DeliveryEntry, error) {
 			if seed4LedgerPaths()[fields[1]] || seed4LedgerPaths()[fields[2]] {
 				return nil, fmt.Errorf("governed ledger path may not be renamed: %q", line)
 			}
+			if !inSeed4Matrix(fields[1]) && !inSeed4Matrix(fields[2]) {
+				continue
+			}
 			entries = append(entries, DeliveryEntry{Change: "R", OldPath: fields[1], Path: fields[2]})
 			continue
 		}
 		if len(fields) != 2 || (change != "A" && change != "M" && change != "D") {
 			return nil, fmt.Errorf("unrecognized git diff row %q", line)
 		}
-		if seed4LedgerPaths()[fields[1]] {
+		if seed4LedgerPaths()[fields[1]] || !inSeed4Matrix(fields[1]) {
 			continue
 		}
 		entries = append(entries, DeliveryEntry{Change: change, Path: fields[1]})
