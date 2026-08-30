@@ -8,13 +8,15 @@ import (
 	"strings"
 )
 
-var newPrerequisiteRunner = ExecPrerequisiteRunner
-
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
+	return runWith(args, stdout, stderr, ExecPrerequisiteRunner)
+}
+
+func runWith(args []string, stdout, stderr io.Writer, runnerFor func(string) CommandRunner) int {
 	flags := flag.NewFlagSet("websitejourney", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	root := flags.String("root", ".", "repository root")
@@ -35,7 +37,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		if err != nil {
 			return writeCLIError(stderr, err)
 		}
-		result, err := EvaluatePrerequisites(journeyMap, tree, newPrerequisiteRunner(*root))
+		result, err := EvaluatePrerequisites(journeyMap, tree, runnerFor(*root))
 		if err != nil {
 			return writeCLIError(stderr, err)
 		}

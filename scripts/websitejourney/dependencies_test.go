@@ -168,18 +168,19 @@ func TestWebsiteJourney_CLIAndExecPrerequisiteRunner(t *testing.T) {
 		t.Fatalf("missing root exit = %d, want 1", code)
 	}
 
-	previous := newPrerequisiteRunner
-	t.Cleanup(func() { newPrerequisiteRunner = previous })
-	newPrerequisiteRunner = func(string) CommandRunner { return FreshZeroPrerequisiteRunner() }
-	if code := run([]string{"-root", root, "-prerequisites"}, io.Discard, io.Discard); code != 0 {
+	fresh := func(string) CommandRunner { return FreshZeroPrerequisiteRunner() }
+	if code := runWith([]string{"-root", root, "-prerequisites"}, io.Discard, io.Discard, fresh); code != 0 {
 		t.Fatalf("prerequisites CLI exit = %d", code)
 	}
-	newPrerequisiteRunner = func(string) CommandRunner {
+	if code := runWith([]string{"-root", root, "-prerequisites"}, failingWriter{}, io.Discard, fresh); code != 1 {
+		t.Fatalf("prerequisites stdout failure exit = %d, want 1", code)
+	}
+	failing := func(string) CommandRunner {
 		return func(CommandRequest) (CommandResult, error) {
 			return CommandResult{ExitCode: 1, Fresh: true}, nil
 		}
 	}
-	if code := run([]string{"-root", root, "-prerequisites"}, io.Discard, io.Discard); code != 1 {
+	if code := runWith([]string{"-root", root, "-prerequisites"}, io.Discard, io.Discard, failing); code != 1 {
 		t.Fatalf("failed prerequisites CLI exit = %d, want 1", code)
 	}
 
