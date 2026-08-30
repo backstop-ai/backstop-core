@@ -86,7 +86,7 @@ func AssertCAP014DualIdentity(documents map[string]string, identity DualIdentity
 	explanationIdx := strings.Index(boundary.InnerHTML, "data-boundary-explanation")
 	linkIdx := strings.Index(boundary.InnerHTML, `data-journey-link-id="JLINK-024"`)
 	denialIdx := strings.Index(boundary.InnerHTML, "data-boundary-guarantee-denial")
-	if explanationIdx < 0 || linkIdx < 0 || denialIdx < 0 || !(explanationIdx < linkIdx && linkIdx < denialIdx) {
+	if explanationIdx < 0 || linkIdx < 0 || denialIdx < 0 || explanationIdx >= linkIdx || linkIdx >= denialIdx {
 		return fmt.Errorf("CAP-014/@UJ-001: JLINK-024 BOUNDARY-005 explanation-link-denial order is wrong")
 	}
 	if boundary.Explanation == "" || link.Text == "" || boundary.Denial == "" {
