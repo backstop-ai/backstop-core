@@ -5,7 +5,7 @@
 capability:
   id: CAP-006
   title: "Evaluate Guarantees"
-  status: draft
+  status: verified
   strictness: strict
   description: >
     Separate shipped behavior, guarantee, limitation, plan, non-goal, and guidance.

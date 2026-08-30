@@ -5,7 +5,7 @@
 capability:
   id: CAP-007
   title: "Evaluate Compatibility"
-  status: draft
+  status: verified
   strictness: strict
   description: >
     Determine operability and where it stops short of lifecycle guarantee.

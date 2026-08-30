@@ -5,7 +5,7 @@
 capability:
   id: CAP-004
   title: "Understand Backstop"
-  status: draft
+  status: verified
   strictness: strict
   description: >
     Determine what Backstop is, is not, and why it exists.

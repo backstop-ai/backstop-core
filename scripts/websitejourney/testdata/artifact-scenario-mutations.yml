@@ -35,7 +35,7 @@ capability_mutations:
     expected_error: CAP-005
   - name: verified-before-proof
     override_id: CAP-006
-    override_status: verified
+    override_status: draft
     expected_error: CAP-006
   - name: missing-infra-spec
     override_id: CAP-007

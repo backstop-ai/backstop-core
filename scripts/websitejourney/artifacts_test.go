@@ -64,8 +64,8 @@ func TestWebsiteJourney_ExactCapabilityArtifactMatrixPasses(t *testing.T) {
 		if got.ID != expected.ID || got.Slug != expected.Slug || got.Title != expected.Title {
 			t.Fatalf("artifacts[%d]: got %s %s %q, want %s %s %q", index, got.ID, got.Slug, got.Title, expected.ID, expected.Slug, expected.Title)
 		}
-		if got.Status != "draft" || got.Strictness != "strict" {
-			t.Fatalf("%s: status/strictness = %s/%s, want draft/strict", got.ID, got.Status, got.Strictness)
+		if got.Status != "verified" || got.Strictness != "strict" {
+			t.Fatalf("%s: status/strictness = %s/%s, want verified/strict", got.ID, got.Status, got.Strictness)
 		}
 		if strings.Join(got.InfrastructureSpecs, ",") != "SPEC-072,SPEC-073,SPEC-074,SPEC-075" {
 			t.Fatalf("%s: infrastructure_specs = %v", got.ID, got.InfrastructureSpecs)

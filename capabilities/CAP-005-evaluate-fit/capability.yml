@@ -5,7 +5,7 @@
 capability:
   id: CAP-005
   title: "Evaluate Fit"
-  status: draft
+  status: verified
   strictness: strict
   description: >
     Decide whether Backstop addresses a concrete problem.
