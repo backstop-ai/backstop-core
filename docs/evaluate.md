@@ -3,7 +3,7 @@ title: Evaluate Backstop
 layout: default
 permalink: /evaluate/
 hero_question: "Your agent already writes the code."
-hero_lede: "Any agent. Any harness. The output is still a guess. Backstop makes that not matter."
+hero_lede: "Backstop makes it trustworthy."
 ---
 
 <div class="tactics-intro">
