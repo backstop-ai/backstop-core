@@ -5,7 +5,7 @@
 capability:
   id: CAP-010
   title: "Apply Backstop"
-  status: draft
+  status: verified
   strictness: strict
   description: >
     Select a concrete use-case path and its next action.

@@ -5,7 +5,7 @@
 capability:
   id: CAP-011
   title: "Browse the Pack Ecosystem"
-  status: draft
+  status: verified
   strictness: strict
   description: >
     Find packs and determine which addresses the problem.

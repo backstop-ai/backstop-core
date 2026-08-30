@@ -5,7 +5,7 @@
 capability:
   id: CAP-009
   title: "Adopt Backstop"
-  status: draft
+  status: verified
   strictness: strict
   description: >
     Reach a working installation and configuration for a repository.

@@ -5,7 +5,7 @@
 capability:
   id: CAP-008
   title: "Understand the System"
-  status: draft
+  status: verified
   strictness: strict
   description: >
     Build an accurate artifacts, packs, gates, capabilities, and architecture model.
