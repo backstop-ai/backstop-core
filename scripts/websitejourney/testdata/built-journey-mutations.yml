@@ -1,0 +1,49 @@
+# TASK-012 mutation table. Applied to isolated copies of an accepted
+# rendered tree. Seed 5 never reads source markers or CLAIM-005 bytes.
+
+jlink_removals:
+  - {jlink: JLINK-001, expected_error: CAP-004/@UJ-001}
+  - {jlink: JLINK-002, expected_error: CAP-004/@UJ-002}
+  - {jlink: JLINK-003, expected_error: CAP-005/@UJ-001}
+  - {jlink: JLINK-004, expected_error: CAP-005/@UJ-001}
+  - {jlink: JLINK-005, expected_error: CAP-005/@UJ-002}
+  - {jlink: JLINK-006, expected_error: CAP-006/@UJ-001}
+  - {jlink: JLINK-007, expected_error: CAP-006/@UJ-002}
+  - {jlink: JLINK-008, expected_error: CAP-007/@UJ-001}
+  - {jlink: JLINK-009, expected_error: CAP-007/@UJ-002}
+  - {jlink: JLINK-010, expected_error: CAP-008/@UJ-001}
+  - {jlink: JLINK-011, expected_error: CAP-008/@UJ-002}
+  - {jlink: JLINK-012, expected_error: CAP-009/@UJ-001}
+  - {jlink: JLINK-013, expected_error: CAP-009/@UJ-002}
+  - {jlink: JLINK-014, expected_error: CAP-009/@UJ-002}
+  - {jlink: JLINK-015, expected_error: CAP-010/@UJ-001}
+  - {jlink: JLINK-016, expected_error: CAP-010/@UJ-002}
+  - {jlink: JLINK-017, expected_error: CAP-011/@UJ-001}
+  - {jlink: JLINK-018, expected_error: CAP-011/@UJ-002}
+  - {jlink: JLINK-019, expected_error: CAP-012/@UJ-001}
+  - {jlink: JLINK-020, expected_error: CAP-012/@UJ-002}
+  - {jlink: JLINK-021, expected_error: CAP-013/@UJ-001}
+  - {jlink: JLINK-022, expected_error: CAP-013/@UJ-002}
+  - {jlink: JLINK-023, expected_error: CAP-013/@UJ-002}
+  - {jlink: JLINK-024, expected_error: CAP-014/@UJ-001}
+
+jlink_wrong_binds:
+  - {jlink: JLINK-001, href: "/evaluate/#wrong-bind", expected_error: CAP-004/@UJ-001}
+  - {jlink: JLINK-024, href: "/evaluate/#wrong-bind", expected_error: CAP-014/@UJ-001}
+
+cap014_mutations:
+  - {name: split-identities, split_identities: true, expected_error: CAP-014/@UJ-001}
+  - {name: duplicate-anchor, duplicate_anchor: true, expected_error: CAP-014/@UJ-001}
+  - {name: missing-href, drop_href: true, expected_error: JLINK-024}
+  - {name: outside-boundary, move_outside_boundary: true, expected_error: BOUNDARY-005}
+  - {name: before-explanation, before_explanation: true, expected_error: CAP-014/@UJ-001}
+  - {name: after-denial, after_denial: true, expected_error: CAP-014/@UJ-001}
+  - {name: empty-explanation, empty_explanation: true, expected_error: BOUNDARY-005}
+  - {name: lookalike-anchor, lookalike_anchor: true, expected_error: CAP-014/@UJ-001}
+  - {name: source-canonicalize, parse_source_metadata: true, expected_error: CAP-014/@UJ-001}
+
+cheat_mutations:
+  - {name: direct-load, direct_load: true, expected_error: CAP-004/@UJ-001}
+  - {name: global-nav, global_nav: true, expected_error: CAP-004/@UJ-001}
+  - {name: screenshot, screenshot_only: true, expected_error: CAP-004/@UJ-001}
+  - {name: published-runtime, inject_runtime: true, expected_error: runtime}
