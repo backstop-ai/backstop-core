@@ -2,9 +2,9 @@
 title: "End To End Website Capabilities"
 number: SPEC-076
 created: "2026-08-24"
-status: implemented
+status: draft
 schema_version: spec/v1
-spec_version: 1.0.4
+spec_version: 1.0.3
 
 implementation:
   summary: >
@@ -852,20 +852,3 @@ continuation in the required DOM position; source parsing or two lookalike ancho
 - `capabilities/CAP-001-pack-gate-enforcement/capability.yml` and
   `capabilities/CAP-001-pack-gate-enforcement/user-journeys.feature` — current capability artifact and
   local @UJ precedent.
-
-## Version History
-
-- **1.0.4** (2026-08-30): Status flip to `implemented`. Documentary only — no
-  requirement, claim, contract, or behavior changed; the delivered contract is the one
-  1.0.3 states. PLAN-SPEC-076 executed in full (35 tasks, all six phases) through the
-  commit series `0e2db93..85861dd`: predecessor barrier and CAP-004..014 reservation
-  (phase 1), capability/scenario matrices and owner-referential journey map (phase 2),
-  built-tree traversal against Seed 4 rendered markers (phase 3), CAP-009 real
-  install/init/gate adoption plus exhaustive named-key mutations (phase 4),
-  identity-matched deployed traversal at `https://backstop.sh` with CI/Pages wiring
-  (phase 5), and same-release promotion of CAP-004 through CAP-014 to `verified`
-  (phase 6). CAP-001 remains `draft`. Scoped `backstop gate --file` on Seed 5
-  surfaces PASSes; `./bin/backstop gate --all` remains red on unrelated corpus
-  debt and is not a Seed 5 acceptance criterion. PLAN-SPEC-076 moves to
-  `completed`; its `spec_version` pin stays at `1.0.3`, the version it was
-  executed against.
