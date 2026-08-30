@@ -39,20 +39,20 @@ verification:
 
 contracts:
   - file: docs/_data/content-topology.yml
-    provides:
-      - name: public_content_topology
+    consumes:
+      - source: scripts/verify-public-product-model.sh
+        name: public_content_topology
         kind: variable
-        signature: "pages[] + neighborhoods[] + navigation + journey_links[24; JLINK-024 embedded in CLAIM-005] + adoption_instructions[3]"
   - file: docs/_data/product-model.yml
     provides:
       - name: canonical_product_model
         kind: variable
         signature: "concepts[] + architecture_views[] + boundaries[state|explanation_markdown|continuation|guarantee_denial_markdown]"
   - file: docs/_data/evidence-inventory.yml
-    provides:
-      - name: public_claim_evidence_inventory
+    consumes:
+      - source: scripts/verify-public-product-model.sh
+        name: public_claim_evidence_inventory
         kind: variable
-        signature: "claims[] + corpus_roles"
   - file: docs/_data/content-inventory.yml
     provides:
       - name: legacy_content_disposition_inventory
@@ -951,4 +951,7 @@ any of them or treating this spec as the owner of capability scenarios.
 
 - **1.0.9** (2026-08-30): JLINK-001 and CLAIM-017 on `/` use the canonical homepage
   section `define-work`. `why-backstop` is not a public homepage anchor.
-  PLAN-SPEC-072 stays `completed`; its `spec_version` pin stays at `1.0.8`.
+  YAML `provides` on `content-topology.yml` and `evidence-inventory.yml` are
+  consumed by `./scripts/verify-public-product-model.sh` rather than left as
+  Go-compiler false-REDs (ISSUE-053). PLAN-SPEC-072 stays `completed`; its
+  `spec_version` pin stays at `1.0.8`.
