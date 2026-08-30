@@ -107,3 +107,13 @@ jobs:
           --commit "$GITHUB_SHA"
           --artifact-id "${{ needs.build.outputs.artifact-id }}"
           --page-url "${{ needs.deploy.outputs.page-url }}"
+      # Post-proof Seed 5 only. Deployment already completed; this reports broken journeys.
+      - name: Verify website capabilities against the deployed origin
+        env:
+          BACKSTOP_DEPLOY_COMMIT: ${{ github.sha }}
+          BACKSTOP_DEPLOY_RUN_ID: ${{ github.run_id }}
+        run: >-
+          ./scripts/verify-website-capabilities.sh
+          --deployed-origin https://backstop.sh
+          --commit "$BACKSTOP_DEPLOY_COMMIT"
+          --run-id "$BACKSTOP_DEPLOY_RUN_ID"
