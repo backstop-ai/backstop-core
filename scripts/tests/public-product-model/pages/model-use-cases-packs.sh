@@ -15,7 +15,7 @@ for view in model['architecture_views']: assert view['diagram_source'] in texts[
 for link in top['journey_links']:
  if link['source_route'] in texts: assert '<!-- backstop-journey-link: '+link['link_id']+' -->\n['+link['label']+']('+link['destination_route']+'#'+link['destination_anchor']+')' in texts[link['source_route']],link['link_id']
 claims={c['claim_id']:c for c in ev['claims']}
-for cid in ('CLAIM-019','CLAIM-022','CLAIM-023','CLAIM-025'):
+for cid in ('CLAIM-011','CLAIM-019','CLAIM-020','CLAIM-022','CLAIM-023','CLAIM-025'):
  claim=claims[cid]; assert '<!-- backstop-claim: '+cid+' -->\n'+claim['statement_markdown'] in texts[claim['owner']['route']],cid
 responsibilities=[('/model/','Terminal state records whether work was delivered'),('/model/','`delivered_by` or a direct typed artifact'),('/packs/','lock binds resolved bytes')]
 def validate_responsibilities(corpus):

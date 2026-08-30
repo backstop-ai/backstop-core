@@ -11,6 +11,21 @@ hero_question: "What exact interface or behavior do I need?"
 Backstop exposes a repository-oriented CLI, YAML artifacts, JSON-capable output, and process exit codes. A runtime integration must invoke the pinned binary from the intended working directory and propagate blocking exits. That proves operability; artifact order and role separation require additional harness behavior.
 <!-- /backstop-claim -->
 
+<!-- backstop-claim: CLAIM-006 -->
+A harness can run the binary. That only proves the binary runs. Artifact order, review separation, and stopping on red are extra work the harness has to do.
+<!-- /backstop-claim -->
+
+<!-- backstop-claim: CLAIM-021 -->
+Invocation proves the process started. A trustworthy integration separately proves the harness kept the order and stopped on failure.
+<!-- /backstop-claim -->
+
+<!-- backstop-claim: CLAIM-012 -->
+Runtime-neutral does not mean runtime-guaranteed. Backstop cannot make a harness respect a result it chooses to discard.
+<!-- /backstop-claim -->
+
+<!-- backstop-journey-link: JLINK-009 -->
+[Follow compatibility guidance](/status/#adjacent-guidance)
+
 ## Artifact schema catalog {#artifact-schema-catalog}
 
 <section data-generated-region data-product-truth-job="artifact-schema-catalog">
@@ -76,6 +91,14 @@ A gate result is useful evidence only when its command, prerequisites, and captu
 <!-- /backstop-claim -->
 
 Durable references use repository paths, immutable commits, or published versions. Execution evidence includes the exact command and prerequisites; observation evidence identifies its checked-in artifact and provenance.
+
+<!-- backstop-claim: CLAIM-007 -->
+A literal Liquid-shaped `{% raw %}{{ ... }}{% endraw %}` expression is currently interpreted as an undeclared recipe parameter and rejected before any write; ISSUE-182 tracks the missing literal-escape capability.
+<!-- /backstop-claim -->
+
+<!-- backstop-claim: CLAIM-008 -->
+Linux CI exposed a contracts-pack fixture false negative, and commit `f8b3846fe5d4c2bc6465efc6eb5e4594e1b591da` repaired it with checked-in before-and-after evidence.
+<!-- /backstop-claim -->
 
 ## CLI command catalog {#cli-command-catalog}
 

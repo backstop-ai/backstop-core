@@ -18,6 +18,13 @@ Backstop converts declared intent into bounded work and an inspectable verdict. 
 
 Backstop is AI delivery discipline: a deterministic control surface around probabilistic execution. It does not need the agent to be right on the first pass; it needs mistakes to become visible before they escape the repository boundary.
 
+<!-- backstop-claim: CLAIM-020 -->
+Backstop is not a coding agent. It sits around whichever agent you already use and stops work that is off-task, unreviewable, or not allowed to ship.
+<!-- /backstop-claim -->
+
+<!-- backstop-journey-link: JLINK-005 -->
+[Find adjacent guidance](/status/#adjacent-guidance)
+
 ## Intent artifacts {#intent-artifacts}
 
 Bundles, specifications, plans, issues, decisions, capabilities, and journeys preserve why work exists, who owns the next transformation, and what evidence closes it.
@@ -42,6 +49,13 @@ Recipes compose repeatable repository operations without transferring standards 
 
 A gate resolves installed packs, runs their declared engines, applies severity and policy, and emits a blocking or passing verdict.
 
+<!-- backstop-claim: CLAIM-011 -->
+The gate checks the installed standards against the named inputs and returns a verdict. That is the whole guarantee. Whether anyone stops is outside the process.
+<!-- /backstop-claim -->
+
+<!-- backstop-journey-link: JLINK-006 -->
+[Review support and limits](/status/#supported-and-limited)
+
 ## Baselines and ratchets {#baselines-and-ratchets}
 
 A baseline records accepted existing debt. A ratchet prevents new debt from expanding it, so adoption can start honestly without making regression permissible.
@@ -58,11 +72,17 @@ Capabilities state outcomes. User journeys demonstrate those outcomes from a vis
 
 Evidence binds a claim or verdict to immutable source, exact execution, and governing intent. Green without provenance is not a durable delivery fact.
 
+<!-- backstop-journey-link: JLINK-021 -->
+[Trace the sources](/reference/#source-traceability)
+
 ## Harness integration {#harness-integration}
 
 <!-- backstop-claim: CLAIM-019 -->
 A harness can schedule work and invoke Backstop. It preserves Backstop guarantees only when it also respects artifact order, role boundaries, and the gate exit status.
 <!-- /backstop-claim -->
+
+<!-- backstop-journey-link: JLINK-008 -->
+[Check compatibility details](/reference/#compatibility)
 
 ## Delivery lifecycle {#delivery-lifecycle}
 

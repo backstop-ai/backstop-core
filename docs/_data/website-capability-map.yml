@@ -23,10 +23,10 @@ journeys:
       - {kind: evidence, claim_id: CLAIM-017, owner_route: "/", owner_anchor: define-work, claim_type: mechanism}
       - {kind: boundary, boundary_id: BOUNDARY-004, owner_route: "/status/", owner_anchor: project-boundaries, state: non-goal, claim_id: CLAIM-004}
   - global_key: CAP-004/@UJ-002
-    hops: ["/evaluate/#what-backstop-is", "/model/#operating-model"]
+    hops: ["/evaluate/#working-state", "/model/#operating-model"]
     jlinks: [JLINK-002]
     obligations:
-      - {kind: evidence, claim_id: CLAIM-020, owner_route: "/evaluate/", owner_anchor: what-backstop-is, claim_type: mechanism}
+      - {kind: evidence, claim_id: CLAIM-020, owner_route: "/model/", owner_anchor: product-category, claim_type: mechanism}
       - {kind: boundary, boundary_id: BOUNDARY-002, owner_route: "/status/", owner_anchor: supported-and-limited, state: limitation, claim_id: CLAIM-002}
   - global_key: CAP-005/@UJ-001
     hops: ["/use-cases/#choose-use-case", "/evaluate/#fit-decision", "/adopt/#install"]
@@ -35,16 +35,16 @@ journeys:
       - {kind: evidence, claim_id: CLAIM-001, owner_route: "/status/", owner_anchor: supported-and-limited, claim_type: runtime-behavior}
       - {kind: boundary, boundary_id: BOUNDARY-001, owner_route: "/status/", owner_anchor: supported-and-limited, state: supported, claim_id: CLAIM-001}
   - global_key: CAP-005/@UJ-002
-    hops: ["/evaluate/#not-a-fit", "/status/#adjacent-guidance"]
+    hops: ["/model/#product-category", "/status/#adjacent-guidance"]
     jlinks: [JLINK-005]
     obligations:
-      - {kind: evidence, claim_id: CLAIM-018, owner_route: "/evaluate/", owner_anchor: not-a-fit, claim_type: mechanism}
+      - {kind: evidence, claim_id: CLAIM-018, owner_route: "/status/", owner_anchor: adjacent-guidance, claim_type: mechanism}
       - {kind: boundary, boundary_id: BOUNDARY-005, owner_route: "/status/", owner_anchor: adjacent-guidance, state: adjacent-guidance, claim_id: CLAIM-005}
   - global_key: CAP-006/@UJ-001
-    hops: ["/evaluate/#guarantees", "/status/#supported-and-limited"]
+    hops: ["/model/#gates-and-policy", "/status/#supported-and-limited"]
     jlinks: [JLINK-006]
     obligations:
-      - {kind: evidence, claim_id: CLAIM-011, owner_route: "/evaluate/", owner_anchor: guarantees, claim_type: runtime-behavior}
+      - {kind: evidence, claim_id: CLAIM-011, owner_route: "/model/", owner_anchor: gates-and-policy, claim_type: runtime-behavior}
       - {kind: boundary, boundary_id: BOUNDARY-001, owner_route: "/status/", owner_anchor: supported-and-limited, state: supported, claim_id: CLAIM-001}
   - global_key: CAP-006/@UJ-002
     hops: ["/status/#boundary-states", "/model/#ownership-boundaries"]
@@ -57,16 +57,16 @@ journeys:
       - {kind: boundary, boundary_id: BOUNDARY-004, owner_route: "/status/", owner_anchor: project-boundaries, state: non-goal, claim_id: CLAIM-004}
       - {kind: boundary, boundary_id: BOUNDARY-005, owner_route: "/status/", owner_anchor: adjacent-guidance, state: adjacent-guidance, claim_id: CLAIM-005}
   - global_key: CAP-007/@UJ-001
-    hops: ["/evaluate/#compatibility", "/reference/#compatibility"]
+    hops: ["/model/#harness-integration", "/reference/#compatibility"]
     jlinks: [JLINK-008]
     obligations:
-      - {kind: evidence, claim_id: CLAIM-006, owner_route: "/evaluate/", owner_anchor: compatibility, claim_type: compatibility}
+      - {kind: evidence, claim_id: CLAIM-006, owner_route: "/reference/", owner_anchor: compatibility, claim_type: compatibility}
       - {kind: boundary, boundary_id: BOUNDARY-002, owner_route: "/status/", owner_anchor: supported-and-limited, state: limitation, claim_id: CLAIM-002}
   - global_key: CAP-007/@UJ-002
-    hops: ["/evaluate/#compatibility-limits", "/status/#adjacent-guidance"]
+    hops: ["/reference/#compatibility", "/status/#adjacent-guidance"]
     jlinks: [JLINK-009]
     obligations:
-      - {kind: evidence, claim_id: CLAIM-012, owner_route: "/evaluate/", owner_anchor: compatibility-limits, claim_type: compatibility}
+      - {kind: evidence, claim_id: CLAIM-012, owner_route: "/reference/", owner_anchor: compatibility, claim_type: compatibility}
       - {kind: boundary, boundary_id: BOUNDARY-005, owner_route: "/status/", owner_anchor: adjacent-guidance, state: adjacent-guidance, claim_id: CLAIM-005}
   - global_key: CAP-008/@UJ-001
     hops: ["/model/#operating-model", "/reference/#artifact-schema-catalog"]
@@ -150,10 +150,10 @@ journeys:
       - {kind: evidence, claim_id: CLAIM-036, owner_route: "/contributing/", owner_anchor: contribution-paths, claim_type: mechanism}
       - {kind: boundary, boundary_id: BOUNDARY-005, owner_route: "/status/", owner_anchor: adjacent-guidance, state: adjacent-guidance, claim_id: CLAIM-005}
   - global_key: CAP-013/@UJ-001
-    hops: ["/evaluate/#evidence", "/reference/#source-traceability"]
+    hops: ["/model/#provenance-and-verification", "/reference/#source-traceability"]
     jlinks: [JLINK-021]
     obligations:
-      - {kind: evidence, claim_id: CLAIM-007, owner_route: "/evaluate/", owner_anchor: evidence, claim_type: observed-failure}
+      - {kind: evidence, claim_id: CLAIM-007, owner_route: "/reference/", owner_anchor: source-traceability, claim_type: observed-failure}
   - global_key: CAP-013/@UJ-002
     hops: ["/packs/#installed-pack-catalog", "/reference/#cli-command-catalog", "/status/#release-history"]
     jlinks: [JLINK-022, JLINK-023]
@@ -250,8 +250,8 @@ journeys:
       - {kind: evidence, claim_id: CLAIM-005, owner_route: "/status/", owner_anchor: adjacent-guidance, claim_type: mechanism}
       - {kind: boundary, boundary_id: BOUNDARY-005, owner_route: "/status/", owner_anchor: adjacent-guidance, state: adjacent-guidance, claim_id: CLAIM-005}
   - global_key: CAP-014/@UJ-002
-    hops: ["/evaluate/#compatibility-limits", "/status/#adjacent-guidance"]
+    hops: ["/reference/#compatibility", "/status/#adjacent-guidance"]
     jlinks: [JLINK-009]
     obligations:
-      - {kind: evidence, claim_id: CLAIM-012, owner_route: "/evaluate/", owner_anchor: compatibility-limits, claim_type: compatibility}
+      - {kind: evidence, claim_id: CLAIM-012, owner_route: "/reference/", owner_anchor: compatibility, claim_type: compatibility}
       - {kind: boundary, boundary_id: BOUNDARY-005, owner_route: "/status/", owner_anchor: adjacent-guidance, state: adjacent-guidance, claim_id: CLAIM-005}

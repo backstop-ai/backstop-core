@@ -45,6 +45,10 @@ Backstop stops at an inspectable verdict because external orchestration and orga
 That continuation is guidance, not a guarantee provided by Backstop.
 <!-- /backstop-claim -->
 
+<!-- backstop-claim: CLAIM-018 -->
+If you wanted Cursor, a tracker, or a runtime, this is the wrong tool.
+<!-- /backstop-claim -->
+
 ## Pack direction {#pack-direction}
 
 <!-- backstop-claim: CLAIM-033 -->
