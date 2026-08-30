@@ -7,16 +7,16 @@ pages="$root/.github/workflows/pages.yml"
 
 fail() { echo "workflow-wiring: $1" >&2; exit 1; }
 
-grep -Fq './scripts/verify-website-capabilities.sh' "$ci" || fail "CI missing built Seed 5 entrypoint"
-grep -Fq 'needs: gate' "$ci" || fail "CI website job must block after the gate"
-if grep -E 'verify-website-capabilities.sh.*--deployed-origin' "$ci" >/dev/null; then
+grep -Fq -- './scripts/verify-website-capabilities.sh' "$ci" || fail "CI missing built Seed 5 entrypoint"
+grep -Fq -- 'needs: gate' "$ci" || fail "CI website job must block after the gate"
+if grep -E -- 'verify-website-capabilities.sh.*--deployed-origin' "$ci" >/dev/null; then
   fail "CI must not run deployed mode"
 fi
-grep -Fq 'website-capabilities' "$ci" || fail "CI missing website-capabilities job"
+grep -Fq -- 'website-capabilities' "$ci" || fail "CI missing website-capabilities job"
 
-grep -Fq './scripts/verify-pages-deployment.sh' "$pages" || fail "Pages missing SPEC-075 proof"
-grep -Fq './scripts/verify-website-capabilities.sh' "$pages" || fail "Pages missing Seed 5 deployed entrypoint"
-grep -Fq '--deployed-origin https://backstop.sh' "$pages" || fail "Pages must use canonical HTTPS origin"
+grep -Fq -- './scripts/verify-pages-deployment.sh' "$pages" || fail "Pages missing SPEC-075 proof"
+grep -Fq -- './scripts/verify-website-capabilities.sh' "$pages" || fail "Pages missing Seed 5 deployed entrypoint"
+grep -Fq -- '--deployed-origin https://backstop.sh' "$pages" || fail "Pages must use canonical HTTPS origin"
 grep -Fq 'BACKSTOP_DEPLOY_COMMIT' "$pages" || fail "Pages missing authoritative commit"
 grep -Fq 'BACKSTOP_DEPLOY_RUN_ID' "$pages" || fail "Pages missing authoritative run id"
 
