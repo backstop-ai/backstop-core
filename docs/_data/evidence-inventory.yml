@@ -71,8 +71,8 @@ claims:
     evidence_refs:
       - {evidence_id: EVIDENCE-006, kind: source, locator: {path: README.md}, relevance: "Describes the deterministic control surface."}
   - claim_id: CLAIM-006
-    statement: "A harness can invoke Backstop, but operability alone does not preserve artifact ordering, review separation, or enforcement of a blocking verdict."
-    statement_markdown: "A harness can invoke Backstop, but operability alone does not preserve artifact ordering, review separation, or enforcement of a blocking verdict."
+    statement: "A harness can run the binary. That only proves the binary runs. Artifact order, review separation, and stopping on red are extra work the harness has to do."
+    statement_markdown: "A harness can run the binary. That only proves the binary runs. Artifact order, review separation, and stopping on red are extra work the harness has to do."
     claim_type: compatibility
     owner: {route: "/evaluate/", anchor: compatibility}
     mechanism_summary: "The CLI is runtime-neutral and communicates through files, output, and exit status."
@@ -138,8 +138,8 @@ claims:
     evidence_refs:
       - {evidence_id: EVIDENCE-015, kind: source, locator: {path: docs/_diagrams/ARCH-003-ownership-boundaries.mmd}, relevance: "Authoritative architecture view."}
   - claim_id: CLAIM-011
-    statement: "The enforceable guarantee is bounded: the declared gate evaluates the installed standards against the named inputs and returns a policy verdict. Organizational follow-through remains outside that process boundary."
-    statement_markdown: "The enforceable guarantee is bounded: the declared gate evaluates the installed standards against the named inputs and returns a policy verdict. Organizational follow-through remains outside that process boundary."
+    statement: "The gate checks the installed standards against the named inputs and returns a verdict. That is the whole guarantee. Whether anyone stops is outside the process."
+    statement_markdown: "The gate checks the installed standards against the named inputs and returns a verdict. That is the whole guarantee. Whether anyone stops is outside the process."
     claim_type: runtime-behavior
     owner: {route: "/evaluate/", anchor: guarantees}
     mechanism_summary: "Gate orchestration evaluates installed pack engines and returns their combined policy verdict."
@@ -232,8 +232,8 @@ claims:
     evidence_refs:
       - {evidence_id: EVIDENCE-026, kind: source, locator: {path: README.md}, relevance: "Describes the deterministic control surface around AI delivery."}
   - claim_id: CLAIM-018
-    statement: "Backstop is not an agent runtime, project-management system, or substitute for owning delivery decisions. Those systems can surround it, but they remain separate responsibilities."
-    statement_markdown: "Backstop is not an agent runtime, project-management system, or substitute for owning delivery decisions. Those systems can surround it, but they remain separate responsibilities."
+    statement: "Backstop is not a runtime, not a tracker, and not a substitute for owning the call. Those systems can sit around it. They remain someone else's job."
+    statement_markdown: "Backstop is not a runtime, not a tracker, and not a substitute for owning the call. Those systems can sit around it. They remain someone else's job."
     claim_type: mechanism
     owner: {route: "/evaluate/", anchor: not-a-fit}
     mechanism_summary: "Core provides repository contracts and a CLI rather than orchestration or project-management services."
@@ -260,8 +260,8 @@ claims:
       - {evidence_id: EVIDENCE-028, kind: source, locator: {path: cmd/backstop/gate.go}, relevance: "Defines the gate process boundary."}
       - {evidence_id: EVIDENCE-029, kind: reproducible-execution, locator: {version: v0.2.0}, command: "./bin/backstop gate --help", prerequisites: "Backstop v0.2.0 binary", relevance: "Demonstrates operability without asserting external lifecycle preservation."}
   - claim_id: CLAIM-020
-    statement: "Backstop is a deterministic control surface for AI-native delivery. It keeps intent, bounded implementation, review, and enforcement legible without requiring one agent vendor or runtime."
-    statement_markdown: "Backstop is a deterministic control surface for AI-native delivery. It keeps intent, bounded implementation, review, and enforcement legible without requiring one agent vendor or runtime."
+    statement: "Backstop is the discipline around the agent, not another agent. Artifacts name the work. Packs name the standards. The gate says whether the result may ship."
+    statement_markdown: "Backstop is the discipline around the agent, not another agent. Artifacts name the work. Packs name the standards. The gate says whether the result may ship."
     claim_type: mechanism
     owner: {route: "/evaluate/", anchor: what-backstop-is}
     mechanism_summary: "Repository artifacts and a runtime-neutral CLI separate declared intent, bounded work, review, and gate enforcement."
@@ -272,8 +272,8 @@ claims:
     evidence_refs:
       - {evidence_id: EVIDENCE-030, kind: source, locator: {path: README.md}, relevance: "Defines the repository control surface and runtime-neutral boundary."}
   - claim_id: CLAIM-021
-    statement: "Invocation proves that the binary runs. A trustworthy integration separately proves that the harness preserves lifecycle order and stops on failure."
-    statement_markdown: "Invocation proves that the binary runs. A trustworthy integration separately proves that the harness preserves lifecycle order and stops on failure."
+    statement: "Invocation proves the process started. A trustworthy integration separately proves the harness kept the order and stopped on failure."
+    statement_markdown: "Invocation proves the process started. A trustworthy integration separately proves the harness kept the order and stopped on failure."
     claim_type: compatibility
     owner: {route: "/evaluate/", anchor: compatibility}
     mechanism_summary: "The process seam exposes operability and exit status, while lifecycle ordering belongs to the harness."

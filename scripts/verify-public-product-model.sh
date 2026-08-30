@@ -361,9 +361,9 @@ allowances={
  'The framework is composable: artifacts can make delivery intent traceable without policy packs; packs and the gate can enforce standards without the full artifact chain; recipes can provide deterministic scaffolding without owning enforcement. The pieces are stronger together, but each should earn its place by controlling a real failure.':'HOME-003 composability summary',
  "> If it has to be right, it must be deterministic. If it's green, it ships.":'product principle presentation'},
 'docs/evaluate.md':{
- 'Backstop fits when fast implementation is no longer the constraint, but confidence, repeatability, policy drift, or evidence is. It is less useful when the work has no stable acceptance boundary to encode.':'visitor decision guidance',
- 'Adopt it when a repository needs explicit intent artifacts, separate author and reviewer roles, and blocking deterministic checks. Start with one important standard and one workflow.':'visitor decision guidance',
- 'Public claims name their mechanism and the execution, incident, example, or measurement appropriate to the claim type.':'evidence-process explanation'},
+ 'Backstop fits when the problem is confidence, repeatability, drift, or evidence — not how fast code appears. It does not fit when there is no standard to encode and no place a verdict has to stick.':'visitor decision guidance',
+ 'Adopt it when a repository can hold intent artifacts, keep author and reviewer apart, and fail closed. Start with one standard and one workflow. Understanding the problem is not permission to implement.':'visitor decision guidance',
+ 'Green is not evidence. Evidence is a named command, a commit, or a checked-in incident.':'evidence-process explanation'},
 'docs/model.md':{
  'Backstop is AI delivery discipline: a deterministic control surface around probabilistic execution. It does not need the agent to be right on the first pass; it needs mistakes to become visible before they escape the repository boundary.':'canonical product-category definition',
  'Bundles, specifications, plans, issues, decisions, capabilities, and journeys preserve why work exists, who owns the next transformation, and what evidence closes it.':'canonical concept definition',
