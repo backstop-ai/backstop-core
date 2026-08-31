@@ -243,14 +243,16 @@ th { background: var(--ds-surface); }
   line-height: 1;
 }
 [data-page-kind="model"] .prose > h2 + p,
-[data-page-kind="model"] .work-topology + p {
+[data-page-kind="model"] .work-topology + p,
+[data-page-kind="model"] .model-figure + p {
   max-width: 46rem;
   margin: 0.45rem 0 1rem;
   color: var(--ds-muted);
   font-size: 1.05rem;
   font-weight: 400;
 }
-[data-page-kind="model"] .work-topology + p + p { margin-top: 0; }
+[data-page-kind="model"] .work-topology + p + p,
+[data-page-kind="model"] .model-figure + p + p { margin-top: 0; }
 [data-page-kind="model"] .model-figure {
   width: fit-content;
   max-width: 100%;
@@ -328,9 +330,21 @@ th { background: var(--ds-surface); }
   border-bottom: 0;
   border-radius: 8px 8px 0 0;
 }
-[data-page-kind="model"] .pack-set {
+[data-page-kind="model"] .pack-row {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.4rem;
+  align-items: start;
+}
+[data-page-kind="model"] .pack-runtime {
+  grid-column: 1 / 3;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+[data-page-kind="model"] .pack-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.4rem;
 }
 [data-page-kind="model"] .pack-collect {
@@ -342,11 +356,14 @@ th { background: var(--ds-surface); }
 [data-page-kind="model"] .pack-collect::before {
   content: "";
   position: absolute;
-  inset: auto 16.67% 0 16.67%;
+  inset: auto 25% 0 25%;
   height: 100%;
   border: 2px solid var(--ds-accent);
   border-top: 0;
   border-radius: 0 0 8px 8px;
+}
+[data-page-kind="model"] .fig-node.pack-proof {
+  border-style: dashed;
 }
 [data-page-kind="model"] .pack-figure .fig-node.gate {
   align-self: stretch;
@@ -696,7 +713,9 @@ html:has([data-page-kind="evaluation"]) .navigation-groups a[aria-current="page"
   }
   [data-page-kind="model"] .work-split { height: 1px; width: 100%; }
   [data-page-kind="model"] .drift-row { grid-template-columns: 1fr; }
-  [data-page-kind="model"] .pack-set { grid-template-columns: 1fr; }
+  [data-page-kind="model"] .pack-row,
+  [data-page-kind="model"] .pack-pair { grid-template-columns: 1fr; }
+  [data-page-kind="model"] .pack-runtime { grid-column: 1; }
   [data-page-kind="model"] .pack-fan,
   [data-page-kind="model"] .pack-collect { display: none; }
   [data-page-kind="model"] .gate-loop,

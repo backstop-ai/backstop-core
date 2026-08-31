@@ -63,15 +63,21 @@ A pack owns the standard, the engine, and the proof.
 <div class="pack-body">
 <div class="topo-bundle">Pack</div>
 <div class="pack-fan" aria-hidden="true"></div>
-<div class="pack-set">
-<div class="fig-node packs"><strong>Rules</strong><span>The standard</span></div>
-<div class="fig-node packs"><strong>Engines</strong><span>Pinned tools</span></div>
-<div class="fig-node packs"><strong>Fixtures</strong><span>Prove the finding</span></div>
+<div class="pack-row">
+<div class="pack-runtime">
+<div class="pack-pair">
+<div class="fig-node packs"><strong>Rules</strong><span>What must be true</span></div>
+<div class="fig-node packs"><strong>Engines</strong><span>How it is checked</span></div>
 </div>
 <div class="pack-collect" aria-hidden="true"></div>
 <div class="fig-node gate"><strong>Gate</strong><span>Executes the pack's rules against code</span></div>
 </div>
+<div class="fig-node packs pack-proof"><strong>Fixtures</strong><span>Prove the check works</span></div>
 </div>
+</div>
+</div>
+
+Recipes scaffold. They do not own the standard.
 
 ## Detect drift {#baselines-and-ratchets}
 
