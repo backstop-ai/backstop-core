@@ -243,16 +243,14 @@ th { background: var(--ds-surface); }
   line-height: 1;
 }
 [data-page-kind="model"] .prose > h2 + p,
-[data-page-kind="model"] .work-topology + p,
-[data-page-kind="model"] .model-figure + p {
+[data-page-kind="model"] .work-topology + p {
   max-width: 46rem;
   margin: 0.45rem 0 1rem;
   color: var(--ds-muted);
   font-size: 1.05rem;
   font-weight: 400;
 }
-[data-page-kind="model"] .work-topology + p + p,
-[data-page-kind="model"] .model-figure + p + p { margin-top: 0; }
+[data-page-kind="model"] .work-topology + p + p { margin-top: 0; }
 [data-page-kind="model"] .model-figure {
   width: fit-content;
   max-width: 100%;

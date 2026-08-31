@@ -73,8 +73,6 @@ A pack owns the standard, the engine, and the proof.
 </div>
 </div>
 
-Recipes scaffold. They do not own the standard.
-
 ## Detect drift {#baselines-and-ratchets}
 
 <div class="model-figure">
