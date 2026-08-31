@@ -94,9 +94,8 @@ th { background: var(--ds-surface); }
 [data-page-kind="model"] .tactics-matrix td:last-child { color: var(--ds-muted); font-weight: 400; }
 [data-page-kind="model"] .work-topology {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 1rem;
-  align-items: start;
   margin: 0 0 1.5rem;
 }
 [data-page-kind="model"] .work-topology article {
@@ -115,114 +114,55 @@ th { background: var(--ds-surface); }
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
-[data-page-kind="model"] .topo-bundle {
-  width: fit-content;
-  margin: 0 auto 0.85rem;
-  padding: 0.38rem 0.9rem;
-  border: 1px solid var(--ds-accent);
-  border-radius: 0.35rem;
-  color: inherit;
-  font-size: 0.88rem;
-  font-weight: 650;
-}
-[data-page-kind="model"] .topo-depends .topo-bundle {
-  position: relative;
-  margin-bottom: 1.45rem;
-}
-[data-page-kind="model"] .topo-depends .topo-bundle::after {
-  content: "↓";
-  position: absolute;
-  left: 50%;
-  top: calc(100% + 0.1rem);
-  transform: translateX(-50%);
-  color: var(--ds-accent);
-  font-size: 1.05rem;
-  font-weight: 650;
-  line-height: 1;
-}
-[data-page-kind="model"] .topo-chain {
+[data-page-kind="model"] .topo-flow {
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 0.1rem;
-}
-[data-page-kind="model"] .topo-step {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  align-items: center;
   gap: 0.4rem;
 }
-[data-page-kind="model"] .topo-depends .topo-arrow {
-  align-self: center;
-  color: var(--ds-accent);
-  font-size: 1.05rem;
-  font-weight: 650;
-  line-height: 1;
-}
-[data-page-kind="model"] .topo-fan {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.45rem;
-  position: relative;
-  padding-top: 0.85rem;
-}
-[data-page-kind="model"] .topo-fan::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 16%;
-  right: 16%;
-  height: 0.85rem;
-  border: 1.5px solid var(--ds-accent);
-  border-bottom: 0;
-  border-radius: 0.25rem 0.25rem 0 0;
-}
-[data-page-kind="model"] .topo-col {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-}
-[data-page-kind="model"] .topo-col span,
-[data-page-kind="model"] .topo-step span {
-  display: block;
-  padding: 0.4rem 0.35rem;
+[data-page-kind="model"] .topo-bundle,
+[data-page-kind="model"] .topo-node {
+  flex: 0 0 auto;
+  padding: 0.38rem 0.7rem;
   border: 1px solid var(--ds-border);
   border-radius: 0.3rem;
-  font-size: 0.78rem;
+  font-size: 0.82rem;
   font-weight: 650;
+  line-height: 1.2;
+  white-space: nowrap;
   text-align: center;
 }
-[data-page-kind="model"] .topo-col span:first-child,
-[data-page-kind="model"] .topo-step span:first-child {
+[data-page-kind="model"] .topo-bundle {
   border-color: var(--ds-accent);
+  margin: 0;
 }
-[data-page-kind="model"] .topo-col span:last-child,
-[data-page-kind="model"] .topo-step span:last-child {
-  color: var(--ds-muted);
-}
-[data-page-kind="model"] .topo-brace {
-  position: relative;
-  margin: 0.2rem 0.15rem 0;
-  padding-top: 0.85rem;
-  border: 2px solid var(--ds-accent);
-  border-top: 0;
-  border-radius: 0 0 10px 10px;
-}
-[data-page-kind="model"] .topo-brace span {
-  display: block;
+[data-page-kind="model"] .topo-node.spec { border-color: var(--ds-accent); }
+[data-page-kind="model"] .topo-node.plan { color: var(--ds-muted); }
+[data-page-kind="model"] .topo-arrow {
+  flex: 0 0 auto;
   color: var(--ds-accent);
-  font-family: var(--ds-font-mono);
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  text-align: center;
+  font-size: 1.05rem;
+  font-weight: 650;
+  line-height: 1;
+}
+[data-page-kind="model"] .topo-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  min-width: 0;
+  padding: 0.15rem 0 0.15rem 0.7rem;
+  border-left: 2px solid var(--ds-accent);
+  border-radius: 8px 0 0 8px;
+}
+[data-page-kind="model"] .topo-track {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
 }
 [data-page-kind="model"] .topo-order {
-  margin: 0.9rem 0 0;
+  margin: 0.85rem 0 0;
   color: var(--ds-accent);
   font-size: 0.82rem;
   font-weight: 650;
-  text-align: center;
 }
 [data-page-kind="model"] .legend-matrix { margin-top: 0.25rem; }
 [data-page-kind="model"] .prose > h2 + p,

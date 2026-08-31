@@ -11,28 +11,37 @@ hero_lede: "Define the work. Enforce your standards. Detect drift."
 One bundle. Many specs. Each spec one plan.
 
 <div class="work-topology">
-<article class="topo-depends">
-<p>When specs depend</p>
-<div class="topo-bundle">Bundle</div>
-<div class="topo-chain">
-<div class="topo-step"><span>Spec A</span><span>Plan A</span></div>
-<div class="topo-arrow" aria-hidden="true">↓</div>
-<div class="topo-step"><span>Spec B</span><span>Plan B</span></div>
-<div class="topo-arrow" aria-hidden="true">↓</div>
-<div class="topo-step"><span>Spec C</span><span>Plan C</span></div>
-</div>
-<p class="topo-order">A first, then B, then C</p>
-</article>
 <article class="topo-parallel">
 <p>When they do not</p>
+<div class="topo-flow">
 <div class="topo-bundle">Bundle</div>
-<div class="topo-fan">
-<div class="topo-col"><span>Spec A</span><span>Plan A</span></div>
-<div class="topo-col"><span>Spec B</span><span>Plan B</span></div>
-<div class="topo-col"><span>Spec C</span><span>Plan C</span></div>
+<div class="topo-arrow" aria-hidden="true">→</div>
+<div class="topo-stack">
+<div class="topo-track"><span class="topo-node spec">Spec A</span><span class="topo-arrow" aria-hidden="true">→</span><span class="topo-node plan">Plan A</span></div>
+<div class="topo-track"><span class="topo-node spec">Spec B</span><span class="topo-arrow" aria-hidden="true">→</span><span class="topo-node plan">Plan B</span></div>
+<div class="topo-track"><span class="topo-node spec">Spec C</span><span class="topo-arrow" aria-hidden="true">→</span><span class="topo-node plan">Plan C</span></div>
 </div>
-<div class="topo-brace" aria-hidden="true"><span>parallel</span></div>
+</div>
 <p class="topo-order">A, B, and C can run together</p>
+</article>
+<article class="topo-depends">
+<p>When specs depend</p>
+<div class="topo-flow" data-overflow-region>
+<div class="topo-bundle">Bundle</div>
+<div class="topo-arrow" aria-hidden="true">→</div>
+<span class="topo-node spec">Spec A</span>
+<div class="topo-arrow" aria-hidden="true">→</div>
+<span class="topo-node plan">Plan A</span>
+<div class="topo-arrow" aria-hidden="true">→</div>
+<span class="topo-node spec">Spec B</span>
+<div class="topo-arrow" aria-hidden="true">→</div>
+<span class="topo-node plan">Plan B</span>
+<div class="topo-arrow" aria-hidden="true">→</div>
+<span class="topo-node spec">Spec C</span>
+<div class="topo-arrow" aria-hidden="true">→</div>
+<span class="topo-node plan">Plan C</span>
+</div>
+<p class="topo-order">A first, then B, then C</p>
 </article>
 </div>
 
