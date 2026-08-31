@@ -94,7 +94,8 @@ th { background: var(--ds-surface); }
 [data-page-kind="model"] .tactics-matrix td:last-child { color: var(--ds-muted); font-weight: 400; }
 [data-page-kind="model"] .work-topology {
   display: grid;
-  grid-template-columns: auto 1px minmax(0, 1fr);
+  grid-template-columns: auto 1px auto;
+  justify-content: center;
   column-gap: 1.15rem;
   align-items: start;
   min-width: 0;
@@ -108,7 +109,12 @@ th { background: var(--ds-surface); }
   align-self: stretch;
   background: var(--ds-border);
 }
-[data-page-kind="model"] .work-view.dag { align-self: center; }
+[data-page-kind="model"] .work-view.dag {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  align-self: center;
+}
 [data-page-kind="model"] .work-view > p:first-child {
   margin: 0 0 0.75rem;
   color: var(--ds-muted);
@@ -208,10 +214,9 @@ th { background: var(--ds-surface); }
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
-  padding: 0.1rem 0.7rem;
-  border-left: 2px solid var(--ds-accent);
+  padding: 0.1rem 0.65rem 0.1rem 0;
   border-right: 2px solid var(--ds-accent);
-  border-radius: 8px;
+  border-radius: 0 8px 8px 0;
 }
 [data-page-kind="model"] .dag-edge {
   flex: 0 0 auto;
