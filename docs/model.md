@@ -12,7 +12,7 @@ One bundle. Many specs. Each spec one plan.
 
 <div class="work-topology">
 <div class="work-view decomp">
-<p>One bundle. Many specs. One plan each.</p>
+<p>How work is structured</p>
 <div class="decomp-body">
 <div class="topo-bundle">Bundle</div>
 <div class="decomp-fan" aria-hidden="true"></div>
@@ -26,7 +26,7 @@ One bundle. Many specs. Each spec one plan.
 </div>
 <div class="work-split" aria-hidden="true"></div>
 <div class="work-view dag">
-<p>What depends on what.</p>
+<p>How work is delivered</p>
 <div class="dag-flow">
 <div class="dag-merge">
 <div class="dag-stack">
