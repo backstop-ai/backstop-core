@@ -177,6 +177,90 @@ th { background: var(--ds-surface); }
   font-weight: 650;
 }
 
+html:has([data-page-kind="evaluation"]) {
+  color-scheme: light;
+  background: var(--color-paper);
+  --ds-canvas: var(--color-paper);
+  --ds-surface: var(--color-surface);
+  --ds-text: var(--color-ink);
+  --ds-muted: var(--color-muted);
+  --ds-accent: var(--color-signal-ink);
+  --ds-border: var(--color-line);
+  --ds-focus-ring: var(--focus-ring);
+  --ds-font-sans: var(--font-sans);
+  --ds-font-mono: var(--font-mono);
+}
+html:has([data-page-kind="evaluation"]) body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+html:has([data-page-kind="evaluation"]) .site-header {
+  background: var(--color-paper);
+  border-bottom-color: var(--color-line);
+}
+html:has([data-page-kind="evaluation"]) .header-shell {
+  min-height: 76px;
+  align-items: center;
+  padding-block: 0;
+}
+html:has([data-page-kind="evaluation"]) .wordmark {
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+html:has([data-page-kind="evaluation"]) .wordmark[data-backstop-wordmark] > span:first-child {
+  display: inline-grid;
+  place-items: center;
+  width: 31px;
+  height: 25px;
+  margin-right: 9px;
+  background: var(--color-ink);
+  color: var(--color-paper);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: -0.08em;
+}
+html:has([data-page-kind="evaluation"]) .wordmark[data-backstop-wordmark] > span:last-child {
+  color: var(--color-muted);
+  font-weight: 500;
+}
+html:has([data-page-kind="evaluation"]) .navigation-groups a {
+  color: var(--color-ink);
+  font-size: 0.84rem;
+  font-weight: 530;
+}
+html:has([data-page-kind="evaluation"]) .navigation-groups a:hover {
+  color: var(--color-muted);
+}
+html:has([data-page-kind="evaluation"]) .navigation-groups a[aria-current="page"] {
+  color: var(--color-ink);
+  text-decoration-color: var(--color-signal);
+}
+[data-page-kind="evaluation"] .page-responsibility {
+  color: var(--color-muted);
+}
+[data-page-kind="evaluation"] .page-hero h1 {
+  font-weight: 620;
+  letter-spacing: -0.067em;
+}
+[data-page-kind="evaluation"] .failed-verdict {
+  background: var(--color-terminal);
+  color: var(--color-terminal-text);
+  border: 0;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-terminal);
+}
+[data-page-kind="evaluation"] .failed-verdict-bar,
+[data-page-kind="evaluation"] .failed-verdict-row,
+[data-page-kind="evaluation"] .failed-verdict-foot {
+  border-bottom-color: var(--color-terminal-line);
+}
+[data-page-kind="evaluation"] .failed-verdict-bar { color: var(--color-terminal-bar); }
+[data-page-kind="evaluation"] .failed-verdict-foot span { color: var(--color-terminal-muted); }
+
 .next-action { width: min(calc(100% - 2rem), 73.75rem); margin-inline: auto; padding-block: 2rem 4rem; border-top: 1px solid var(--ds-border); display: flex; justify-content: space-between; gap: 1rem; }
 .next-action span { color: var(--ds-muted); }
 .site-footer { border-top: 1px solid var(--ds-border); }
