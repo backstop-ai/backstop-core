@@ -94,7 +94,7 @@ th { background: var(--ds-surface); }
   margin: 0;
   color: inherit;
   font-size: 1.15rem;
-  font-weight: 650;
+  font-weight: 500;
 }
 [data-page-kind="evaluation"] .tactics-matrix { margin: 0 0 2.5rem; }
 [data-page-kind="evaluation"] .tactics-matrix table { width: 100%; font-size: 0.88rem; }
