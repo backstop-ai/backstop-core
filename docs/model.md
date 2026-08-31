@@ -77,16 +77,16 @@ Packs own standards, engines, and proof.
 </div>
 </div>
 
-Code, design, and architecture. One local deterministic check.
+Packs compose across domains and toolchains.
 
 <div class="model-figure pack-compose">
 <div class="compose-set">
-<div class="fig-node packs">Go standards</div>
-<div class="fig-node packs">Architecture</div>
-<div class="fig-node packs">Design</div>
+<div class="fig-node packs"><strong>Code</strong><span>Go</span></div>
+<div class="fig-node packs"><strong>Architecture</strong><span>Package bounds</span></div>
+<div class="fig-node packs"><strong>Design</strong><span>CSS and tokens</span></div>
 </div>
 <div class="compose-collect" aria-hidden="true"></div>
-<div class="fig-node gate"><strong>Gate</strong><span>One local run</span></div>
+<div class="fig-node gate"><strong>Gate</strong><span>One local deterministic check</span></div>
 </div>
 
 ## Detect drift {#baselines-and-ratchets}

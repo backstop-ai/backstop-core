@@ -387,9 +387,6 @@ th { background: var(--ds-surface); }
 [data-page-kind="model"] .pack-compose .compose-set .fig-node {
   min-width: 0;
   justify-content: center;
-  font-size: 0.82rem;
-  font-weight: 650;
-  color: var(--ds-accent);
 }
 [data-page-kind="model"] .compose-collect {
   position: relative;
