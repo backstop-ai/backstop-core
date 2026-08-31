@@ -28,11 +28,13 @@ One bundle. Many specs. Each spec one plan.
 <div class="work-view dag">
 <p>What depends on what.</p>
 <div class="dag-flow">
+<div class="dag-merge">
 <div class="dag-stack">
 <div class="work-unit"><span class="topo-node spec">Spec A</span><span class="topo-node plan">Plan A</span></div>
 <div class="work-unit"><span class="topo-node spec">Spec B</span><span class="topo-node plan">Plan B</span></div>
 </div>
-<div class="dag-edge" title="C depends on A and B">→</div>
+<div class="dag-brace" aria-hidden="true">}</div>
+</div>
 <div class="work-unit"><span class="topo-node spec">Spec C</span><span class="topo-node plan">Plan C</span></div>
 <div class="dag-edge" title="D depends on C">→</div>
 <div class="work-unit"><span class="topo-node spec">Spec D</span><span class="topo-node plan">Plan D</span></div>

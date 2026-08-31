@@ -212,23 +212,25 @@ th { background: var(--ds-surface); }
   align-items: center;
   gap: 0.45rem;
 }
+[data-page-kind="model"] .dag-merge {
+  display: flex;
+  align-items: stretch;
+  gap: 0.15rem;
+}
 [data-page-kind="model"] .dag-stack {
-  position: relative;
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
-  padding: 0.1rem 0.85rem 0.1rem 0;
 }
-[data-page-kind="model"] .dag-stack::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 0.72rem;
-  border: 2px solid var(--ds-accent);
-  border-left: 0;
-  border-radius: 0 8px 8px 0;
+[data-page-kind="model"] .dag-brace {
+  display: flex;
+  align-items: center;
+  color: var(--ds-accent);
+  font-family: var(--ds-font-sans);
+  font-size: 4.6rem;
+  font-weight: 300;
+  line-height: 0.9;
+  transform: translateY(-0.06em);
 }
 [data-page-kind="model"] .dag-edge {
   flex: 0 0 auto;
