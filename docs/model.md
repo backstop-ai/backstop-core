@@ -101,13 +101,13 @@ Existing debt is not permission for new debt.
 <p class="fig-caption">A waiver is named and time-bounded. The rule stays.</p>
 </div>
 
-A claim is not a substitute for the work.
+A claim is not a substitute for evidence.
 
 <div class="model-figure claim-figure">
 <div class="claim-pair">
-<div class="fig-node packs"><strong>Claim</strong><span>What it promised</span></div>
-<div class="dag-edge">→</div>
-<div class="fig-node"><strong>Implementation</strong><span>Must still deliver it</span></div>
+<div class="fig-node packs"><strong>Claim</strong><span>What the agent says it did</span></div>
+<div class="claim-cover" aria-hidden="true"><span>coverage</span></div>
+<div class="fig-node"><strong>Evidence</strong><span>What must exist</span></div>
 </div>
 </div>
 
