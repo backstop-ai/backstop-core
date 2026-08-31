@@ -91,13 +91,32 @@ Packs compose across domains and toolchains.
 
 ## Detect drift {#baselines-and-ratchets}
 
-<div class="model-figure">
-<div class="drift-row">
-<article><strong>Baseline</strong><span>Old debt stays visible. New and touched fail.</span></article>
-<article><strong>Waiver</strong><span>Named. Time-bounded. The rule stays.</span></article>
-<article><strong>Provenance</strong><span>Green points at source, command, and tests.</span></article>
+Existing debt is not permission for new debt.
+
+<div class="drift-figure">
+<div class="drift-pane">
+<p>How the standard ratchets</p>
+<div class="ratchet">
+<div class="fig-node"><strong>Unchanged</strong><span>Visible. Does not fail.</span></div>
+<div class="fig-node packs"><strong>New or touched</strong><span>Must pass.</span></div>
 </div>
 </div>
+<div class="work-split" aria-hidden="true"></div>
+<div class="drift-pane">
+<p>How a claim stays honest</p>
+<div class="claim-honest">
+<div class="topo-bundle">Claim</div>
+<div class="claim-fan" aria-hidden="true"></div>
+<div class="claim-evidence">
+<div class="fig-node"><strong>Source</strong></div>
+<div class="fig-node"><strong>Command</strong></div>
+<div class="fig-node"><strong>Tests</strong></div>
+</div>
+</div>
+</div>
+</div>
+
+A waiver is named and time-bounded. The rule stays.
 
 ## While the agent is working {#enforcement-loop}
 
