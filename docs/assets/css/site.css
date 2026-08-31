@@ -433,7 +433,7 @@ th { background: var(--ds-surface); }
 }
 [data-page-kind="model"] .claim-pair .fig-node {
   justify-content: center;
-  max-width: 11rem;
+  max-width: 10rem;
   min-width: 8rem;
 }
 [data-page-kind="model"] .claim-pair .fig-node:not(.packs) {

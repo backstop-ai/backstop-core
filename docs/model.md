@@ -101,13 +101,13 @@ Existing debt is not permission for new debt.
 <p class="fig-caption">A waiver is named and time-bounded. The rule stays.</p>
 </div>
 
-A claim is not a substitute for evidence.
+A claim names what must exist and the tests that prove it.
 
 <div class="model-figure claim-figure">
 <div class="claim-pair">
-<div class="fig-node packs"><strong>Claim</strong><span>What the agent says it did</span></div>
-<div class="claim-cover" aria-hidden="true"><span>coverage</span></div>
-<div class="fig-node"><strong>Evidence</strong><span>What must exist</span></div>
+<div class="fig-node packs"><strong>Claim</strong><span>What must exist</span></div>
+<div class="claim-cover" aria-hidden="true"><span>mandates</span></div>
+<div class="fig-node"><strong>Tests</strong><span>Must exist and be real</span></div>
 </div>
 </div>
 
