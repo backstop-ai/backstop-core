@@ -57,14 +57,24 @@ Backstop converts declared intent into bounded work and an inspectable verdict. 
 
 ## Enforce your standards {#standards-packs}
 
-<div class="model-figure">
-<div class="std-flow">
-<div class="fig-node packs"><strong>Packs</strong><span>Own the rule</span></div>
-<div class="dag-edge" aria-hidden="true">→</div>
-<div class="fig-node gate"><strong>Gate</strong><span>Pass or fail</span></div>
+A pack owns the standard, the engine, and the proof.
+
+<div class="model-figure pack-figure">
+<div class="pack-body">
+<div class="topo-bundle">Pack</div>
+<div class="pack-fan" aria-hidden="true"></div>
+<div class="pack-set">
+<div class="fig-node packs"><strong>Rules</strong><span>The standard</span></div>
+<div class="fig-node packs"><strong>Engines</strong><span>Pinned tools</span></div>
+<div class="fig-node packs"><strong>Fixtures</strong><span>Prove the finding</span></div>
 </div>
-<div class="std-aside"><strong>Recipes</strong><span>Scaffold. They do not own the standard.</span></div>
+<div class="pack-collect" aria-hidden="true"></div>
+<div class="fig-node gate"><strong>Gate</strong><span>Runs what packs declare</span></div>
 </div>
+<p class="fig-note">A new standard is a new pack. The gate does not change.</p>
+</div>
+
+Recipes scaffold. They do not own the standard.
 
 ## Detect drift {#baselines-and-ratchets}
 
@@ -105,7 +115,7 @@ The authoritative enforcement loop is `docs/_diagrams/ARCH-002-enforcement-loop.
 <p>Backstop</p>
 <div class="own-row">
 <div class="fig-node"><strong>Core</strong><span>Runs the process</span></div>
-<div class="fig-node packs"><strong>Packs</strong><span>Own the standards</span></div>
+<div class="fig-node packs"><strong>Packs</strong><span>Standards, engines, fixtures</span></div>
 <div class="fig-node"><strong>Harness</strong><span>Honors the exit</span></div>
 </div>
 </div>
