@@ -116,11 +116,15 @@ A claim names what must exist and the tests that prove it.
 CI confirms. It does not discover.
 
 <div class="model-figure loop-figure">
-<div class="gate-loop">
-<div class="fig-node packs"><strong>Agent writes</strong><span>Can fix before review</span></div>
-<div class="dag-edge loop-back" aria-hidden="true">⇄</div>
-<div class="fig-node"><strong>Gate</strong><span>The check</span></div>
+<div class="topo-bundle">Plan</div>
+<div class="loop-cadence">
+<div class="fig-node"><strong>Implement</strong><span>The work</span></div>
+<div class="dag-edge" aria-hidden="true">→</div>
+<div class="fig-node packs"><strong>Gate</strong><span>The check</span></div>
+<div class="dag-edge" aria-hidden="true">→</div>
+<div class="fig-node"><strong>Continue</strong><span>Only if it passed</span></div>
 </div>
+<p class="fig-caption">A failing gate stops the work until it is fixed.</p>
 </div>
 
 <div class="canonical-note">
