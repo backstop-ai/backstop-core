@@ -12,7 +12,7 @@ pages:
     next_action: /model/
   - route: /model/
     page_kind: model
-    hero_question: How does Backstop turn intent into a trustworthy verdict?
+    hero_question: How does it work?
     treatments: [evidence-cards, local-overflow]
     next_action: /adopt/
   - route: /adopt/

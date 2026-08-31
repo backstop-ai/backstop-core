@@ -65,7 +65,7 @@ table { width: max-content; min-width: 100%; border-collapse: collapse; font-siz
 th, td { padding: 0.65rem 0.75rem; border: 1px solid var(--ds-border); text-align: left; vertical-align: top; }
 th { background: var(--ds-surface); }
 
-[data-page-kind="model"] .page-hero h1 { max-width: 16ch; }
+[data-page-kind="model"] .page-hero h1 { max-width: 20ch; }
 [data-page-kind="model"] .page-boundary,
 [data-page-kind="model"] .tactics-bridge {
   max-width: 46rem;

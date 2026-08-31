@@ -41,7 +41,7 @@ paths=['/','/evaluate/','/model/','/adopt/','/use-cases/','/packs/','/extend/','
 sources=['docs/index.md','docs/evaluate.md','docs/model.md','docs/adopt.md','docs/use-cases.md','docs/packs.md','docs/extend.md','docs/reference.md','docs/status.md','docs/contributing.md']
 pages=top.get('pages',[])
 if [(x.get('source'),x.get('canonical_path')) for x in pages]!=list(zip(sources,paths)): fail('page inventory must contain exact ten source/path pairs')
-heroes=['What failure does Backstop prevent?','Your agent already writes the code.','How does Backstop turn intent into a trustworthy verdict?','What does a first working adoption require?','Which problem-oriented adoption path applies?','Which maintained pack already owns this standard?','When should this concern become a pack?','What exact interface or behavior do I need?','What is supported, limited, planned, or intentionally outside Backstop?','How can I participate in Backstop and its ecosystem?']
+heroes=['What failure does Backstop prevent?','Your agent already writes the code.','How does it work?','What does a first working adoption require?','Which problem-oriented adoption path applies?','Which maintained pack already owns this standard?','When should this concern become a pack?','What exact interface or behavior do I need?','What is supported, limited, planned, or intentionally outside Backstop?','How can I participate in Backstop and its ecosystem?']
 for page,hero in zip(pages,heroes):
  if page.get('hero_question')!=hero: fail(page.get('source','page')+': hero_question')
 presentation_pages=presentation.get('pages',[])

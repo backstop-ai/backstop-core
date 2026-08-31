@@ -2,7 +2,7 @@
 title: Product Model
 layout: default
 permalink: /model/
-hero_question: "How does Backstop turn intent into a trustworthy verdict?"
+hero_question: "How does it work?"
 hero_lede: "Every named piece of the product surface: what it is, what it does, what it is for, and how it fits."
 ---
 
