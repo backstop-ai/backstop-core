@@ -108,6 +108,7 @@ th { background: var(--ds-surface); }
   align-self: stretch;
   background: var(--ds-border);
 }
+[data-page-kind="model"] .work-view.dag { align-self: center; }
 [data-page-kind="model"] .work-view > p:first-child {
   margin: 0 0 0.75rem;
   color: var(--ds-muted);
@@ -119,11 +120,12 @@ th { background: var(--ds-surface); }
 }
 [data-page-kind="model"] .decomp-body {
   display: flex;
-  align-items: center;
-  gap: 0.55rem;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.45rem;
 }
 [data-page-kind="model"] .topo-bundle {
-  flex: 0 0 auto;
+  align-self: center;
   padding: 0.45rem 0.7rem;
   border: 1px solid var(--ds-accent);
   border-radius: 0.3rem;
@@ -136,9 +138,8 @@ th { background: var(--ds-surface); }
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
-  padding: 0.1rem 0 0.1rem 0.65rem;
-  border-left: 2px solid var(--ds-accent);
-  border-radius: 8px 0 0 8px;
+  padding-top: 0.55rem;
+  border-top: 2px solid var(--ds-accent);
 }
 [data-page-kind="model"] .work-unit {
   display: flex;
@@ -162,40 +163,26 @@ th { background: var(--ds-surface); }
   border-top: 1px solid var(--ds-border);
   color: var(--ds-muted);
 }
-[data-page-kind="model"] .dag-grid {
-  display: grid;
-  grid-template-columns: auto auto auto auto auto;
-  grid-template-rows: auto auto;
-  column-gap: 0.35rem;
-  row-gap: 0.55rem;
+[data-page-kind="model"] .dag-flow {
+  display: flex;
   align-items: center;
+  gap: 0.45rem;
 }
-[data-page-kind="model"] .dag-a { grid-column: 1; grid-row: 1; }
-[data-page-kind="model"] .dag-ac { grid-column: 2; grid-row: 1; }
-[data-page-kind="model"] .dag-c { grid-column: 3; grid-row: 1; }
-[data-page-kind="model"] .dag-cd { grid-column: 4; grid-row: 1; }
-[data-page-kind="model"] .dag-d { grid-column: 5; grid-row: 1 / span 2; }
-[data-page-kind="model"] .dag-b { grid-column: 1; grid-row: 2; }
-[data-page-kind="model"] .dag-bd { grid-column: 2 / span 3; grid-row: 2; }
+[data-page-kind="model"] .dag-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.1rem 0.7rem;
+  border-left: 2px solid var(--ds-accent);
+  border-right: 2px solid var(--ds-accent);
+  border-radius: 8px;
+}
 [data-page-kind="model"] .dag-edge {
+  flex: 0 0 auto;
   color: var(--ds-accent);
   font-size: 1.05rem;
   font-weight: 650;
   line-height: 1;
-  text-align: center;
-}
-[data-page-kind="model"] .dag-bd {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  min-width: 0;
-}
-[data-page-kind="model"] .dag-bd::before {
-  content: "";
-  flex: 1 1 auto;
-  height: 2px;
-  margin-right: 0.15rem;
-  background: var(--ds-accent);
 }
 [data-page-kind="model"] .legend-matrix { margin-top: 0.25rem; }
 [data-page-kind="model"] .prose > h2 + p,

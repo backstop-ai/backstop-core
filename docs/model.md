@@ -26,14 +26,15 @@ One bundle. Many specs. Each spec one plan.
 <div class="work-split" aria-hidden="true"></div>
 <div class="work-view dag">
 <p>What depends on what.</p>
-<div class="dag-grid" data-overflow-region>
-<div class="work-unit dag-a"><span class="topo-node spec">Spec A</span><span class="topo-node plan">Plan A</span></div>
-<div class="dag-edge dag-ac" title="C depends on A">→</div>
-<div class="work-unit dag-c"><span class="topo-node spec">Spec C</span><span class="topo-node plan">Plan C</span></div>
-<div class="dag-edge dag-cd" title="D depends on C">→</div>
-<div class="work-unit dag-d"><span class="topo-node spec">Spec D</span><span class="topo-node plan">Plan D</span></div>
-<div class="work-unit dag-b"><span class="topo-node spec">Spec B</span><span class="topo-node plan">Plan B</span></div>
-<div class="dag-edge dag-bd" title="D depends on B">→</div>
+<div class="dag-flow">
+<div class="dag-stack">
+<div class="work-unit"><span class="topo-node spec">Spec A</span><span class="topo-node plan">Plan A</span></div>
+<div class="work-unit"><span class="topo-node spec">Spec B</span><span class="topo-node plan">Plan B</span></div>
+</div>
+<div class="dag-edge" title="C depends on A and B">→</div>
+<div class="work-unit"><span class="topo-node spec">Spec C</span><span class="topo-node plan">Plan C</span></div>
+<div class="dag-edge" title="D depends on C">→</div>
+<div class="work-unit"><span class="topo-node spec">Spec D</span><span class="topo-node plan">Plan D</span></div>
 </div>
 </div>
 </div>
