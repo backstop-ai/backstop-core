@@ -65,7 +65,7 @@ The same structure that makes the agent easier to trust also makes the agent bet
 <div class="failed-verdict-foot"><strong>FAIL</strong><span>The work is not allowed to ship.</span></div>
 </div>
 
-## CI is too late to find out {#fit-decision}
+## CI is too late to find problems {#fit-decision}
 
 Fix problems while your agent is still writing the code.
 
