@@ -8,7 +8,7 @@ hero_lede: "Define the work. Enforce your standards. Detect drift."
 
 ## Define the work {#operating-model}
 
-One bundle. Many specs. Each spec one plan.
+One bundle. Many specs. One plan per spec.
 
 <div class="work-topology">
 <div class="work-view decomp">
