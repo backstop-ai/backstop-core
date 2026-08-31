@@ -11,17 +11,31 @@ hero_lede: "Define the work. Enforce your standards. Detect drift."
 One bundle. Many specs. Each spec one plan.
 
 <div class="work-topology">
-<div class="topo-flow" data-overflow-region>
+<div class="work-view decomp">
+<p>One bundle. Many specs. One plan each.</p>
+<div class="decomp-body">
 <div class="topo-bundle">Bundle</div>
-<div class="topo-arrow" aria-hidden="true">→</div>
-<div class="topo-stack">
-<div class="topo-track"><span class="topo-node spec">Spec A</span><span class="topo-arrow" aria-hidden="true">→</span><span class="topo-node plan">Plan A</span></div>
-<div class="topo-track"><span class="topo-node spec">Spec B</span><span class="topo-arrow" aria-hidden="true">→</span><span class="topo-node plan">Plan B</span></div>
+<div class="decomp-set">
+<div class="work-unit"><span class="topo-node spec">Spec A</span><span class="topo-node plan">Plan A</span></div>
+<div class="work-unit"><span class="topo-node spec">Spec B</span><span class="topo-node plan">Plan B</span></div>
+<div class="work-unit"><span class="topo-node spec">Spec C</span><span class="topo-node plan">Plan C</span></div>
+<div class="work-unit"><span class="topo-node spec">Spec D</span><span class="topo-node plan">Plan D</span></div>
 </div>
-<div class="topo-arrow" aria-hidden="true">→</div>
-<div class="topo-track"><span class="topo-node spec">Spec C</span><span class="topo-arrow" aria-hidden="true">→</span><span class="topo-node plan">Plan C</span></div>
 </div>
-<p class="topo-order">A and B can run together. C waits.</p>
+</div>
+<div class="work-split" aria-hidden="true"></div>
+<div class="work-view dag">
+<p>What depends on what.</p>
+<div class="dag-grid" data-overflow-region>
+<div class="work-unit dag-a"><span class="topo-node spec">Spec A</span><span class="topo-node plan">Plan A</span></div>
+<div class="dag-edge dag-ac" title="C depends on A">→</div>
+<div class="work-unit dag-c"><span class="topo-node spec">Spec C</span><span class="topo-node plan">Plan C</span></div>
+<div class="dag-edge dag-cd" title="D depends on C">→</div>
+<div class="work-unit dag-d"><span class="topo-node spec">Spec D</span><span class="topo-node plan">Plan D</span></div>
+<div class="work-unit dag-b"><span class="topo-node spec">Spec B</span><span class="topo-node plan">Plan B</span></div>
+<div class="dag-edge dag-bd" title="D depends on B">→</div>
+</div>
+</div>
 </div>
 
 <div class="tactics-matrix legend-matrix">
