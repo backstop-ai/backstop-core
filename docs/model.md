@@ -70,14 +70,12 @@ A pack owns the standard, the engine, and the proof.
 <div class="fig-node packs"><strong>Engines</strong><span>How it is checked</span></div>
 </div>
 <div class="pack-collect" aria-hidden="true"></div>
-<div class="fig-node gate"><strong>Gate</strong><span>Executes the pack's rules against code</span></div>
+<div class="fig-node gate"><strong>Gate</strong><span>Runs the pack's required checks</span></div>
 </div>
 <div class="fig-node packs pack-proof"><strong>Fixtures</strong><span>Prove the check works</span></div>
 </div>
 </div>
 </div>
-
-Recipes scaffold. They do not own the standard.
 
 ## Detect drift {#baselines-and-ratchets}
 
