@@ -42,17 +42,6 @@ One bundle. Many specs. One plan per spec.
 </div>
 </div>
 
-<div class="tactics-matrix legend-matrix">
-<table>
-<tbody>
-<tr><td data-label="Piece">Bundle</td><td data-label="What it is">The body of work</td></tr>
-<tr><td data-label="Piece">Spec</td><td data-label="What it is">One bounded implementation contract</td></tr>
-<tr><td data-label="Piece">Plan</td><td data-label="What it is">The ordered steps that realize that spec</td></tr>
-<tr><td data-label="Piece">Dependencies</td><td data-label="What it is">The known-safe execution order</td></tr>
-</tbody>
-</table>
-</div>
-
 Independent branches can execute in parallel. Dependencies establish the order when they cannot.
 
 A bounded fix skips the bundle and spec. The issue becomes a plan.
@@ -68,37 +57,38 @@ Backstop converts declared intent into bounded work and an inspectable verdict. 
 
 ## Enforce your standards {#standards-packs}
 
-<div class="tactics-matrix">
-<table>
-<tbody>
-<tr><td data-label="Piece">Packs</td><td data-label="What it is">Versioned standards with engines and fixtures. Core only runs what a pack declares.</td></tr>
-<tr><td data-label="Piece">Gate</td><td data-label="What it is">Pass or fail on the installed packs. Same input, same verdict.</td></tr>
-<tr><td data-label="Piece">Recipes</td><td data-label="What it is">Pinned scaffolding — a project, a pipeline, a config. They do not own the standard.</td></tr>
-</tbody>
-</table>
+<div class="model-figure">
+<div class="std-flow">
+<div class="fig-node packs"><strong>Packs</strong><span>Own the rule</span></div>
+<div class="dag-edge" aria-hidden="true">→</div>
+<div class="fig-node gate"><strong>Gate</strong><span>Pass or fail</span></div>
+</div>
+<div class="std-aside"><strong>Recipes</strong><span>Scaffold. They do not own the standard.</span></div>
 </div>
 
 ## Detect drift {#baselines-and-ratchets}
 
-<div class="tactics-matrix">
-<table>
-<tbody>
-<tr><td data-label="Piece">Baseline</td><td data-label="What it is">Existing debt stays visible. Touched code and new violations fail.</td></tr>
-<tr><td data-label="Piece">Waiver</td><td data-label="What it is">A named, time-bounded exception. The rule stays.</td></tr>
-<tr><td data-label="Piece">Provenance</td><td data-label="What it is">Green has to point at source, command, and tests.</td></tr>
-</tbody>
-</table>
+<div class="model-figure">
+<div class="drift-row">
+<article><strong>Baseline</strong><span>Old debt stays visible. New and touched fail.</span></article>
+<article><strong>Waiver</strong><span>Named. Time-bounded. The rule stays.</span></article>
+<article><strong>Provenance</strong><span>Green points at source, command, and tests.</span></article>
+</div>
 </div>
 
 ## While the agent is working {#enforcement-loop}
 
-<div class="tactics-matrix">
-<table>
-<tbody>
-<tr><td data-label="Piece">Agent loop</td><td data-label="What it is">The gate fails to the agent. The agent fixes it before review.</td></tr>
-<tr><td data-label="Piece">CI</td><td data-label="What it is">Confirms the same verdict. Does not discover it.</td></tr>
-</tbody>
-</table>
+<div class="model-figure">
+<div class="gate-loop">
+<div class="loop-cycle">
+<div class="fig-node"><strong>Agent writes</strong></div>
+<div class="dag-edge loop-back" aria-hidden="true">⇄</div>
+<div class="fig-node gate"><strong>Gate</strong><span>Fails to the agent</span></div>
+</div>
+<div class="dag-edge" aria-hidden="true">→</div>
+<div class="fig-node ci"><strong>CI</strong><span>Confirms</span></div>
+</div>
+<p class="fig-note">CI confirms. It does not discover.</p>
 </div>
 
 <div class="canonical-note">
@@ -110,15 +100,20 @@ The authoritative enforcement loop is `docs/_diagrams/ARCH-002-enforcement-loop.
 
 ## What Backstop does not own {#ownership-boundaries}
 
-<div class="tactics-matrix">
-<table>
-<tbody>
-<tr><td data-label="Piece">Core</td><td data-label="What it is">Runs the process.</td></tr>
-<tr><td data-label="Piece">Packs</td><td data-label="What it is">Own the standards.</td></tr>
-<tr><td data-label="Piece">Harness</td><td data-label="What it is">Must honor the exit.</td></tr>
-<tr><td data-label="Piece">Agent</td><td data-label="What it is">Backstop sits around it. It is not a coding agent.</td></tr>
-</tbody>
-</table>
+<div class="model-figure own-figure">
+<div class="own-in">
+<p>Backstop</p>
+<div class="own-row">
+<div class="fig-node"><strong>Core</strong><span>Runs the process</span></div>
+<div class="fig-node packs"><strong>Packs</strong><span>Own the standards</span></div>
+<div class="fig-node"><strong>Harness</strong><span>Honors the exit</span></div>
+</div>
+</div>
+<div class="work-split" aria-hidden="true"></div>
+<div class="own-out">
+<p>Not Backstop</p>
+<div class="fig-node agent"><strong>Agent</strong><span>Outside. Backstop sits around it.</span></div>
+</div>
 </div>
 
 <div class="canonical-note">
