@@ -67,17 +67,17 @@ th { background: var(--ds-surface); }
 
 [data-page-kind="model"] .page-hero h1 { max-width: 20ch; }
 [data-page-kind="model"] .page-boundary,
-[data-page-kind="model"] .tactics-bridge {
+[data-page-kind="model"] .prose > h2 + p,
+[data-page-kind="model"] .guide-list p {
   max-width: 46rem;
-  margin: 0.45rem 0 1.25rem;
   color: var(--ds-muted);
   font-size: 1.15rem;
   font-weight: 400;
 }
 [data-page-kind="model"] .page-boundary { margin: 1.5rem 0 0; }
-[data-page-kind="model"] .prose { width: min(calc(100% - 2rem), 72rem); padding-block: 2.5rem 4rem; }
-[data-page-kind="model"] .tactics-kicker {
-  margin: 0;
+[data-page-kind="model"] .prose { width: min(calc(100% - 2rem), 46rem); padding-block: 2.5rem 4rem; }
+[data-page-kind="model"] .prose > h2 {
+  margin: 3rem 0 0;
   color: inherit;
   font-family: var(--ds-font-sans);
   font-size: clamp(1.45rem, 3vw, 2.1rem);
@@ -85,20 +85,27 @@ th { background: var(--ds-surface); }
   letter-spacing: -0.03em;
   line-height: 1.2;
 }
-[data-page-kind="model"] .tactics-intro { max-width: 46rem; margin: 0 0 1.75rem; }
-[data-page-kind="model"] .tactics-matrix { margin: 0; }
-[data-page-kind="model"] .tactics-matrix table { width: 100%; font-size: 0.88rem; }
-[data-page-kind="model"] .tactics-matrix th {
-  color: var(--ds-muted);
-  font-family: var(--ds-font-mono);
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+[data-page-kind="model"] .prose > h2 + p { margin: 0.45rem 0 1.25rem; }
+[data-page-kind="model"] .prose > h3 {
+  margin: 1.75rem 0 0.4rem;
+  font-size: 1.05rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
 }
-[data-page-kind="model"] .tactics-matrix td:first-child { font-weight: 650; white-space: nowrap; }
-[data-page-kind="model"] .tactics-matrix td:last-child { color: var(--ds-accent); font-weight: 650; }
-[data-page-kind="model"] .canonical-anchors {
+[data-page-kind="model"] .guide-list {
+  display: grid;
+  gap: 1.15rem;
+  margin: 1.5rem 0 2rem;
+}
+[data-page-kind="model"] .guide-list article h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+[data-page-kind="model"] .guide-list article p { margin: 0.35rem 0 0; }
+[data-page-kind="model"] .canonical-anchors,
+[data-page-kind="model"] .canonical-note {
   position: absolute;
   width: 1px;
   height: 1px;
