@@ -117,8 +117,7 @@ th { background: var(--ds-surface); }
   align-items: center;
   align-self: center;
 }
-[data-page-kind="model"] .work-view > p:first-child,
-[data-page-kind="model"] .drift-pane > p:first-child {
+[data-page-kind="model"] .work-view > p:first-child {
   margin: 0 0 0.75rem;
   color: var(--ds-muted);
   font-family: var(--ds-font-mono);
@@ -245,7 +244,6 @@ th { background: var(--ds-surface); }
 }
 [data-page-kind="model"] .prose > h2 + p,
 [data-page-kind="model"] .work-topology + p,
-[data-page-kind="model"] .drift-figure + p,
 [data-page-kind="model"] .model-figure + p {
   max-width: 46rem;
   margin: 0.45rem 0 1rem;
@@ -254,7 +252,6 @@ th { background: var(--ds-surface); }
   font-weight: 400;
 }
 [data-page-kind="model"] .work-topology + p + p,
-[data-page-kind="model"] .drift-figure + p + p,
 [data-page-kind="model"] .model-figure + p + p { margin-top: 0; }
 [data-page-kind="model"] .model-figure {
   width: fit-content;
@@ -406,26 +403,6 @@ th { background: var(--ds-surface); }
   border-top: 0;
   border-radius: 0 0 8px 8px;
 }
-[data-page-kind="model"] .drift-figure {
-  display: grid;
-  grid-template-columns: auto 1px auto;
-  justify-content: center;
-  column-gap: 1.15rem;
-  align-items: start;
-  width: fit-content;
-  max-width: 100%;
-  min-width: 0;
-  margin: 0 auto 1.5rem;
-  padding: 1.05rem 1.1rem 1.15rem;
-  border: 1px solid var(--ds-border);
-  border-radius: 0.55rem;
-  background: var(--ds-surface);
-}
-[data-page-kind="model"] .drift-pane {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
 [data-page-kind="model"] .ratchet {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -440,39 +417,26 @@ th { background: var(--ds-surface); }
   background: color-mix(in srgb, var(--ds-muted) 12%, transparent);
 }
 [data-page-kind="model"] .ratchet .fig-node:first-child strong { color: var(--ds-muted); }
-[data-page-kind="model"] .claim-honest {
+[data-page-kind="model"] .fig-caption {
+  margin: 0.75rem 0 0;
+  color: var(--ds-muted);
+  font-size: 0.78rem;
+  font-weight: 400;
+  line-height: 1.35;
+  text-align: center;
+}
+[data-page-kind="model"] .claim-pair {
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  min-width: 0;
-}
-[data-page-kind="model"] .claim-fan {
-  position: relative;
-  height: 1.35rem;
-  margin-top: 0.55rem;
-  background: linear-gradient(var(--ds-accent), var(--ds-accent)) 50% 0 / 2px 100% no-repeat;
-}
-[data-page-kind="model"] .claim-fan::before {
-  content: "";
-  position: absolute;
-  inset: 0 16.67% auto 16.67%;
-  height: 100%;
-  border: 2px solid var(--ds-accent);
-  border-bottom: 0;
-  border-radius: 8px 8px 0 0;
-}
-[data-page-kind="model"] .claim-evidence {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.4rem;
-}
-[data-page-kind="model"] .claim-evidence .fig-node {
-  min-width: 0;
+  align-items: center;
   justify-content: center;
+  gap: 0.45rem;
+}
+[data-page-kind="model"] .claim-pair .fig-node { justify-content: center; }
+[data-page-kind="model"] .claim-pair .fig-node:not(.packs) {
   border-color: color-mix(in srgb, var(--ds-muted) 55%, var(--ds-border));
   background: color-mix(in srgb, var(--ds-muted) 12%, transparent);
 }
-[data-page-kind="model"] .claim-evidence .fig-node strong { color: var(--ds-muted); }
+[data-page-kind="model"] .claim-pair .fig-node:not(.packs) strong { color: var(--ds-muted); }
 [data-page-kind="model"] .loop-back { font-size: 1.25rem; }
 [data-page-kind="model"] .fig-note {
   margin: 0.85rem 0 0;
@@ -777,13 +741,8 @@ html:has([data-page-kind="evaluation"]) .navigation-groups a[aria-current="page"
     row-gap: 1rem;
   }
   [data-page-kind="model"] .work-split { height: 1px; width: 100%; }
-  [data-page-kind="model"] .drift-figure {
-    grid-template-columns: 1fr;
-    row-gap: 1rem;
-  }
-  [data-page-kind="model"] .claim-fan { display: none; }
-  [data-page-kind="model"] .claim-evidence,
   [data-page-kind="model"] .ratchet { grid-template-columns: 1fr; }
+  [data-page-kind="model"] .claim-pair { flex-wrap: wrap; }
   [data-page-kind="model"] .pack-row,
   [data-page-kind="model"] .pack-pair { grid-template-columns: 1fr; }
   [data-page-kind="model"] .pack-runtime { grid-column: 1; }

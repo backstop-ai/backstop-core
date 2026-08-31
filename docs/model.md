@@ -93,30 +93,23 @@ Packs compose across domains and toolchains.
 
 Existing debt is not permission for new debt.
 
-<div class="drift-figure">
-<div class="drift-pane">
-<p>How the standard ratchets</p>
+<div class="model-figure ratchet-figure">
 <div class="ratchet">
 <div class="fig-node"><strong>Unchanged</strong><span>Visible. Does not fail.</span></div>
-<div class="fig-node packs"><strong>New or touched</strong><span>Must pass.</span></div>
+<div class="fig-node packs"><strong>New or touched</strong><span>Must meet the standard.</span></div>
 </div>
-</div>
-<div class="work-split" aria-hidden="true"></div>
-<div class="drift-pane">
-<p>How a claim stays honest</p>
-<div class="claim-honest">
-<div class="topo-bundle">Claim</div>
-<div class="claim-fan" aria-hidden="true"></div>
-<div class="claim-evidence">
-<div class="fig-node"><strong>Source</strong></div>
-<div class="fig-node"><strong>Command</strong></div>
-<div class="fig-node"><strong>Tests</strong></div>
-</div>
-</div>
-</div>
+<p class="fig-caption">A waiver is named and time-bounded. The rule stays.</p>
 </div>
 
-A waiver is named and time-bounded. The rule stays.
+A claim is not a substitute for the work.
+
+<div class="model-figure claim-figure">
+<div class="claim-pair">
+<div class="fig-node packs"><strong>Claim</strong><span>What it promised</span></div>
+<div class="dag-edge">→</div>
+<div class="fig-node"><strong>Implementation</strong><span>Must still deliver it</span></div>
+</div>
+</div>
 
 ## While the agent is working {#enforcement-loop}
 
