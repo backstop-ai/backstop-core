@@ -351,8 +351,8 @@ th { background: var(--ds-surface); }
   border-radius: 0 0 8px 8px;
 }
 [data-page-kind="model"] .pack-figure .fig-node.gate {
-  align-self: center;
-  min-width: 8.5rem;
+  align-self: stretch;
+  min-width: 0;
   border-color: color-mix(in srgb, var(--ds-muted) 55%, var(--ds-border));
   background: color-mix(in srgb, var(--ds-muted) 12%, transparent);
 }
