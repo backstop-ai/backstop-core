@@ -378,36 +378,34 @@ th { background: var(--ds-surface); }
   display: flex;
   flex-direction: column;
   align-items: stretch;
+  gap: 0.7rem;
 }
-[data-page-kind="model"] .compose-set {
+[data-page-kind="model"] .compose-lanes {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: 1fr 1px 1fr;
+  column-gap: 1.15rem;
+  align-items: start;
+}
+[data-page-kind="model"] .compose-lane > p:first-child {
+  margin: 0 0 0.55rem;
+  color: var(--ds-muted);
+  font-family: var(--ds-font-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+[data-page-kind="model"] .compose-packs {
+  display: flex;
+  flex-direction: column;
   gap: 0.4rem;
 }
-[data-page-kind="model"] .pack-compose .compose-set .fig-node {
-  min-width: 4.6rem;
+[data-page-kind="model"] .pack-compose .compose-packs .fig-node {
+  min-width: 0;
   justify-content: center;
   font-size: 0.82rem;
   font-weight: 650;
   color: var(--ds-accent);
-}
-[data-page-kind="model"] .compose-collect {
-  position: relative;
-  height: 1.35rem;
-  width: 100%;
-  background:
-    linear-gradient(var(--ds-accent), var(--ds-accent)) 37.5% 0 / 2px 100% no-repeat,
-    linear-gradient(var(--ds-accent), var(--ds-accent)) 50% 0 / 2px 100% no-repeat,
-    linear-gradient(var(--ds-accent), var(--ds-accent)) 62.5% 0 / 2px 100% no-repeat;
-}
-[data-page-kind="model"] .compose-collect::before {
-  content: "";
-  position: absolute;
-  inset: auto 12.5% 0 12.5%;
-  height: 100%;
-  border: 2px solid var(--ds-accent);
-  border-top: 0;
-  border-radius: 0 0 8px 8px;
 }
 [data-page-kind="model"] .drift-row {
   display: grid;
@@ -754,9 +752,11 @@ html:has([data-page-kind="evaluation"]) .navigation-groups a[aria-current="page"
   [data-page-kind="model"] .pack-pair { grid-template-columns: 1fr; }
   [data-page-kind="model"] .pack-runtime { grid-column: 1; }
   [data-page-kind="model"] .pack-fan,
-  [data-page-kind="model"] .pack-collect,
-  [data-page-kind="model"] .compose-collect { display: none; }
-  [data-page-kind="model"] .compose-set { grid-template-columns: 1fr 1fr; }
+  [data-page-kind="model"] .pack-collect { display: none; }
+  [data-page-kind="model"] .compose-lanes {
+    grid-template-columns: 1fr;
+    row-gap: 1rem;
+  }
   [data-page-kind="model"] .gate-loop,
   [data-page-kind="model"] .own-row { flex-wrap: wrap; }
   [data-page-kind="model"] .own-figure {

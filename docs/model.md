@@ -77,17 +77,27 @@ Packs own standards, engines, and proof.
 </div>
 </div>
 
-Gates execute them together with other packs.
+One gate run. Packs land on the step they declare.
 
 <div class="model-figure pack-compose">
-<div class="compose-set">
-<div class="fig-node packs">Go</div>
-<div class="fig-node packs">Contracts</div>
-<div class="fig-node packs">Docs</div>
-<div class="fig-node packs">CI</div>
+<div class="compose-lanes">
+<div class="compose-lane">
+<p>Policy</p>
+<div class="compose-packs">
+<div class="fig-node packs">Go standards</div>
+<div class="fig-node packs">Architecture</div>
+<div class="fig-node packs">Design</div>
 </div>
-<div class="compose-collect" aria-hidden="true"></div>
-<div class="fig-node gate"><strong>Gate</strong><span>Runs them together</span></div>
+</div>
+<div class="work-split" aria-hidden="true"></div>
+<div class="compose-lane">
+<p>Completeness</p>
+<div class="compose-packs">
+<div class="fig-node packs">Requirements</div>
+</div>
+</div>
+</div>
+<div class="fig-node gate"><strong>Gate</strong><span>One run</span></div>
 </div>
 
 ## Detect drift {#baselines-and-ratchets}
