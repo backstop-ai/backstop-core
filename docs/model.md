@@ -96,7 +96,7 @@ Existing debt is not permission for new debt.
 <div class="model-figure ratchet-figure">
 <div class="ratchet">
 <div class="fig-node"><strong>Unchanged</strong><span>Visible. Does not fail.</span></div>
-<div class="fig-node packs"><strong>New or touched</strong><span>Must meet the standard.</span></div>
+<div class="fig-node packs"><strong>New or modified</strong><span>Must meet the standard.</span></div>
 </div>
 <p class="fig-caption">A waiver is named and time-bounded. The rule stays.</p>
 </div>
