@@ -71,7 +71,7 @@ A pack owns the standard, the engine, and the proof.
 <div class="pack-collect" aria-hidden="true"></div>
 <div class="fig-node gate"><strong>Gate</strong><span>Runs what packs declare</span></div>
 </div>
-<p class="fig-note">A new standard is a new pack. The gate does not change.</p>
+<p class="fig-note">Iteration belongs in the pack. The gate does not change.</p>
 </div>
 
 Recipes scaffold. They do not own the standard.
