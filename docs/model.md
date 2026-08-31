@@ -77,27 +77,16 @@ Packs own standards, engines, and proof.
 </div>
 </div>
 
-One gate run. Packs land on the step they declare.
+Code, design, and architecture. One local deterministic check.
 
 <div class="model-figure pack-compose">
-<div class="compose-lanes">
-<div class="compose-lane">
-<p>Policy</p>
-<div class="compose-packs">
+<div class="compose-set">
 <div class="fig-node packs">Go standards</div>
 <div class="fig-node packs">Architecture</div>
 <div class="fig-node packs">Design</div>
 </div>
-</div>
-<div class="work-split" aria-hidden="true"></div>
-<div class="compose-lane">
-<p>Completeness</p>
-<div class="compose-packs">
-<div class="fig-node packs">Requirements</div>
-</div>
-</div>
-</div>
-<div class="fig-node gate"><strong>Gate</strong><span>One run</span></div>
+<div class="compose-collect" aria-hidden="true"></div>
+<div class="fig-node gate"><strong>Gate</strong><span>One local run</span></div>
 </div>
 
 ## Detect drift {#baselines-and-ratchets}
