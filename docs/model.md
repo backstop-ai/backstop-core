@@ -8,16 +8,45 @@ hero_lede: "Define the work. Enforce your standards. Detect drift."
 
 ## Define the work {#operating-model}
 
-<div class="tactics-matrix">
+One bundle. Many specs. Each spec one plan.
+
+<div class="work-topology">
+<article>
+<p>When specs depend</p>
+<div class="topo-bundle">Bundle</div>
+<div class="topo-fan">
+<div class="topo-col"><span>Spec A</span><span>Plan A</span></div>
+<div class="topo-col"><span>Spec B</span><span>Plan B</span></div>
+<div class="topo-col"><span>Spec C</span><span>Plan C</span></div>
+</div>
+<p class="topo-order depends">A first → B next → C after B</p>
+</article>
+<article>
+<p>When they do not</p>
+<div class="topo-bundle">Bundle</div>
+<div class="topo-fan">
+<div class="topo-col"><span>Spec A</span><span>Plan A</span></div>
+<div class="topo-col"><span>Spec B</span><span>Plan B</span></div>
+<div class="topo-col"><span>Spec C</span><span>Plan C</span></div>
+</div>
+<p class="topo-order parallel">A, B, and C can run together</p>
+</article>
+</div>
+
+<div class="tactics-matrix legend-matrix">
 <table>
 <tbody>
-<tr><td data-label="Piece">Bundle</td><td data-label="What it is">Requirements, open questions, non-goals, and conversation history — so you know how you arrived at the work.</td></tr>
-<tr><td data-label="Piece">Spec</td><td data-label="What it is">Derived from the bundle. The how: contracts, file operations, and claims that map back to bundle requirements.</td></tr>
-<tr><td data-label="Piece">Plan</td><td data-label="What it is">YAML phases and steps the implementer must follow. The agent does not redesign it.</td></tr>
-<tr><td data-label="Piece">Issue</td><td data-label="What it is">A bounded fix. No bundle, no spec. Becomes a plan.</td></tr>
+<tr><td data-label="Piece">Bundle</td><td data-label="What it is">The body of work</td></tr>
+<tr><td data-label="Piece">Spec</td><td data-label="What it is">One bounded implementation contract</td></tr>
+<tr><td data-label="Piece">Plan</td><td data-label="What it is">The ordered steps that realize that spec</td></tr>
+<tr><td data-label="Piece">Dependencies</td><td data-label="What it is">The known-safe execution order</td></tr>
 </tbody>
 </table>
 </div>
+
+Independent branches can execute in parallel. Dependencies establish the order when they cannot.
+
+A bounded fix skips the bundle and spec. The issue becomes a plan.
 
 <div class="canonical-note">
 <!-- backstop-claim: CLAIM-022 -->
