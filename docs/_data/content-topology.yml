@@ -29,7 +29,7 @@ journey_links:
   - {link_id: JLINK-001, source_route: "/", source_anchor: define-work, destination_route: "/evaluate/", destination_anchor: failure-fit, label: "Evaluate the failure fit"}
   - {link_id: JLINK-002, source_route: "/evaluate/", source_anchor: working-state, destination_route: "/model/", destination_anchor: operating-model, label: "See the operating model"}
   - {link_id: JLINK-003, source_route: "/use-cases/", source_anchor: choose-use-case, destination_route: "/evaluate/", destination_anchor: fit-decision, label: "Check the fit decision"}
-  - {link_id: JLINK-004, source_route: "/evaluate/", source_anchor: fit-decision, destination_route: "/adopt/", destination_anchor: install, label: "Start installation"}
+  - {link_id: JLINK-004, source_route: "/evaluate/", source_anchor: fit-decision, destination_route: "/adopt/", destination_anchor: install, label: "Install Backstop"}
   - {link_id: JLINK-005, source_route: "/model/", source_anchor: product-category, destination_route: "/status/", destination_anchor: adjacent-guidance, label: "Find adjacent guidance"}
   - {link_id: JLINK-006, source_route: "/model/", source_anchor: gates-and-policy, destination_route: "/status/", destination_anchor: supported-and-limited, label: "Review support and limits"}
   - {link_id: JLINK-007, source_route: "/status/", source_anchor: boundary-states, destination_route: "/model/", destination_anchor: ownership-boundaries, label: "See ownership boundaries"}

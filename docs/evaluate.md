@@ -97,4 +97,4 @@ Backstop puts deterministic gates inside the agent's working loop. The agent get
 CI should confirm, not discover.
 
 <!-- backstop-journey-link: JLINK-004 -->
-[Start installation](/adopt/#install)
+[Install Backstop](/adopt/#install)
