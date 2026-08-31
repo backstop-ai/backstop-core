@@ -113,17 +113,14 @@ A claim names what must exist and the tests that prove it.
 
 ## While the agent is working {#enforcement-loop}
 
-<div class="model-figure">
+CI confirms. It does not discover.
+
+<div class="model-figure loop-figure">
 <div class="gate-loop">
-<div class="loop-cycle">
-<div class="fig-node"><strong>Agent writes</strong></div>
+<div class="fig-node packs"><strong>Agent writes</strong><span>Can fix before review</span></div>
 <div class="dag-edge loop-back" aria-hidden="true">⇄</div>
-<div class="fig-node gate"><strong>Gate</strong><span>Fails to the agent</span></div>
+<div class="fig-node"><strong>Gate</strong><span>The check</span></div>
 </div>
-<div class="dag-edge" aria-hidden="true">→</div>
-<div class="fig-node ci"><strong>CI</strong><span>Confirms</span></div>
-</div>
-<p class="fig-note">CI confirms. It does not discover.</p>
 </div>
 
 <div class="canonical-note">
