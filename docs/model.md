@@ -33,7 +33,7 @@ One bundle. Many specs. Each spec one plan.
 <div class="work-unit"><span class="topo-node spec">Spec A</span><span class="topo-node plan">Plan A</span></div>
 <div class="work-unit"><span class="topo-node spec">Spec B</span><span class="topo-node plan">Plan B</span></div>
 </div>
-<div class="dag-brace" aria-hidden="true">}</div>
+<div class="dag-brace" aria-hidden="true"><svg viewBox="0 0 24 100" preserveAspectRatio="none"><path d="M5 6 C20 8 15 30 15 44 C15 48 22 49 22 50 C22 51 15 52 15 56 C15 70 20 92 5 94" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
 </div>
 <div class="work-unit"><span class="topo-node spec">Spec C</span><span class="topo-node plan">Plan C</span></div>
 <div class="dag-edge" title="D depends on C">→</div>
