@@ -11,38 +11,17 @@ hero_lede: "Define the work. Enforce your standards. Detect drift."
 One bundle. Many specs. Each spec one plan.
 
 <div class="work-topology">
-<article class="topo-parallel">
-<p>When they do not</p>
-<div class="topo-flow">
+<div class="topo-flow" data-overflow-region>
 <div class="topo-bundle">Bundle</div>
 <div class="topo-arrow" aria-hidden="true">→</div>
 <div class="topo-stack">
 <div class="topo-track"><span class="topo-node spec">Spec A</span><span class="topo-arrow" aria-hidden="true">→</span><span class="topo-node plan">Plan A</span></div>
 <div class="topo-track"><span class="topo-node spec">Spec B</span><span class="topo-arrow" aria-hidden="true">→</span><span class="topo-node plan">Plan B</span></div>
+</div>
+<div class="topo-arrow" aria-hidden="true">→</div>
 <div class="topo-track"><span class="topo-node spec">Spec C</span><span class="topo-arrow" aria-hidden="true">→</span><span class="topo-node plan">Plan C</span></div>
 </div>
-</div>
-<p class="topo-order">A, B, and C can run together</p>
-</article>
-<article class="topo-depends">
-<p>When specs depend</p>
-<div class="topo-flow" data-overflow-region>
-<div class="topo-bundle">Bundle</div>
-<div class="topo-arrow" aria-hidden="true">→</div>
-<span class="topo-node spec">Spec A</span>
-<div class="topo-arrow" aria-hidden="true">→</div>
-<span class="topo-node plan">Plan A</span>
-<div class="topo-arrow" aria-hidden="true">→</div>
-<span class="topo-node spec">Spec B</span>
-<div class="topo-arrow" aria-hidden="true">→</div>
-<span class="topo-node plan">Plan B</span>
-<div class="topo-arrow" aria-hidden="true">→</div>
-<span class="topo-node spec">Spec C</span>
-<div class="topo-arrow" aria-hidden="true">→</div>
-<span class="topo-node plan">Plan C</span>
-</div>
-<p class="topo-order">A first, then B, then C</p>
-</article>
+<p class="topo-order">A and B can run together. C waits.</p>
 </div>
 
 <div class="tactics-matrix legend-matrix">
