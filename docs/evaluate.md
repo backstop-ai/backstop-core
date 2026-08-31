@@ -3,7 +3,7 @@ title: Evaluate Backstop
 layout: default
 permalink: /evaluate/
 hero_question: "Your agent already writes the code."
-hero_lede: "Backstop makes it trustworthy."
+hero_lede: "Backstop helps you ship confidently."
 ---
 
 <div class="tactics-intro">
@@ -28,10 +28,9 @@ hero_lede: "Backstop makes it trustworthy."
 
 ## A spec is context. The artifact chain is working state. {#working-state}
 
-<div class="tactics-intro">
-<p class="tactics-kicker">SDD gives the agent better instructions. The artifact chain gives it less to guess.</p>
-<p>A spec tells the agent what you want. The artifact chain tells it what to do next, what it may assume, what it must prove, and when it is done.</p>
-</div>
+SDD gives the agent better instructions. The artifact chain gives it less to guess.
+
+A spec tells the agent what you want. The artifact chain tells it what to do next, what it may assume, what it must prove, and when it is done.
 
 Most spec-driven workflows hand the agent one or more Markdown documents and leave it to infer the rest. Backstop turns intent into bounded, linked work: requirements become a plan, the plan produces implementation claims, and those claims require evidence.
 

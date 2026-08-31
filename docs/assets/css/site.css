@@ -66,36 +66,31 @@ th, td { padding: 0.65rem 0.75rem; border: 1px solid var(--ds-border); text-alig
 th { background: var(--ds-surface); }
 
 [data-page-kind="evaluation"] .page-hero h1 { max-width: 14ch; }
-[data-page-kind="evaluation"] .prose { width: min(calc(100% - 2rem), 72rem); padding-block: 2.5rem 4rem; }
-[data-page-kind="evaluation"] .prose > h2 {
-  margin: 2rem 0 0.4rem;
+[data-page-kind="evaluation"] .page-boundary,
+[data-page-kind="evaluation"] .tactics-bridge,
+[data-page-kind="evaluation"] .prose > h2 + p {
+  max-width: 46rem;
+  margin: 0.45rem 0 1.25rem;
   color: var(--ds-muted);
-  font-family: var(--ds-font-mono);
-  font-size: 0.78rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-size: 1.15rem;
+  font-weight: 400;
 }
-[data-page-kind="evaluation"] .prose > h2#working-state,
-[data-page-kind="evaluation"] .prose > h2#failure-fit,
-[data-page-kind="evaluation"] .prose > h2#fit-decision {
-  margin: 3rem 0 1rem;
+[data-page-kind="evaluation"] .page-boundary { margin: 1.5rem 0 0; }
+[data-page-kind="evaluation"] .prose { width: min(calc(100% - 2rem), 72rem); padding-block: 2.5rem 4rem; }
+[data-page-kind="evaluation"] .prose > h2,
+[data-page-kind="evaluation"] .tactics-kicker {
+  margin: 3rem 0 0;
   color: inherit;
   font-family: var(--ds-font-sans);
   font-size: clamp(1.45rem, 3vw, 2.1rem);
   font-weight: 650;
   letter-spacing: -0.03em;
+  line-height: 1.2;
   text-transform: none;
 }
+[data-page-kind="evaluation"] .tactics-kicker { margin: 0; }
 [data-page-kind="evaluation"] .tactics-intro { max-width: 46rem; margin: 0 0 1.75rem; }
-[data-page-kind="evaluation"] .tactics-kicker { margin: 0 0 0.45rem; font-size: clamp(1.45rem, 3vw, 2.1rem); font-weight: 650; letter-spacing: -0.03em; }
-[data-page-kind="evaluation"] .tactics-intro p:not(.tactics-kicker):not(.tactics-bridge) { margin: 0 0 1rem; color: var(--ds-muted); }
-[data-page-kind="evaluation"] .tactics-bridge {
-  margin: 0;
-  color: var(--ds-muted);
-  font-size: 1.15rem;
-  font-weight: 400;
-}
+[data-page-kind="evaluation"] .prose > p { max-width: 46rem; }
 [data-page-kind="evaluation"] .tactics-matrix { margin: 0 0 2.5rem; }
 [data-page-kind="evaluation"] .tactics-matrix table { width: 100%; font-size: 0.88rem; }
 [data-page-kind="evaluation"] .tactics-matrix th {
@@ -111,7 +106,7 @@ th { background: var(--ds-surface); }
 [data-page-kind="evaluation"] .sdd-matrix td:nth-child(2) { color: var(--ds-muted); }
 [data-page-kind="evaluation"] .tactics-matrix td:last-child { color: var(--ds-accent); font-weight: 650; }
 [data-page-kind="evaluation"] .failed-verdict {
-  margin: 0 0 0.5rem;
+  margin: 1.25rem 0 0.5rem;
   overflow: hidden;
   border: 1px solid var(--ds-border);
   border-radius: 0.55rem;
@@ -175,17 +170,12 @@ th { background: var(--ds-surface); }
   color: var(--ds-muted);
 }
 [data-page-kind="evaluation"] .ci-workflows .has-loop li:nth-child(-n+2)::after { content: "↔"; }
-[data-page-kind="evaluation"] .prose > p:has(+ .ci-workflows) { max-width: 46rem; }
-[data-page-kind="evaluation"] #fit-decision + p { max-width: 46rem; color: var(--ds-muted); font-size: 1.05rem; }
 [data-page-kind="evaluation"] .ci-workflows + p,
 [data-page-kind="evaluation"] .sdd-matrix + p {
   color: var(--ds-accent);
   font-size: 1.15rem;
   font-weight: 650;
 }
-[data-page-kind="evaluation"] #working-state + .tactics-intro + p,
-[data-page-kind="evaluation"] #working-state + .tactics-intro + p + p,
-[data-page-kind="evaluation"] #working-state + .tactics-intro + p + p + p { max-width: 46rem; }
 
 .next-action { width: min(calc(100% - 2rem), 73.75rem); margin-inline: auto; padding-block: 2rem 4rem; border-top: 1px solid var(--ds-border); display: flex; justify-content: space-between; gap: 1rem; }
 .next-action span { color: var(--ds-muted); }
