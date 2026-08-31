@@ -15,6 +15,7 @@ One bundle. Many specs. Each spec one plan.
 <p>One bundle. Many specs. One plan each.</p>
 <div class="decomp-body">
 <div class="topo-bundle">Bundle</div>
+<div class="decomp-fan" aria-hidden="true"></div>
 <div class="decomp-set">
 <div class="work-unit"><span class="topo-node spec">Spec A</span><span class="topo-node plan">Plan A</span></div>
 <div class="work-unit"><span class="topo-node spec">Spec B</span><span class="topo-node plan">Plan B</span></div>

@@ -122,45 +122,81 @@ th { background: var(--ds-surface); }
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 0.45rem;
+  min-width: 0;
 }
 [data-page-kind="model"] .topo-bundle {
   align-self: center;
-  padding: 0.45rem 0.7rem;
+  position: relative;
+  z-index: 1;
+  padding: 0.42rem 0.85rem;
   border: 1px solid var(--ds-accent);
   border-radius: 0.3rem;
+  background: color-mix(in srgb, var(--ds-accent) 22%, transparent);
+  color: var(--ds-text);
   font-size: 0.82rem;
   font-weight: 650;
   line-height: 1.2;
   white-space: nowrap;
 }
+[data-page-kind="model"] .topo-bundle::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  width: 2px;
+  height: 0.45rem;
+  background: var(--ds-accent);
+  transform: translateX(-50%);
+}
+[data-page-kind="model"] .decomp-fan {
+  position: relative;
+  height: 0.9rem;
+  margin-top: 0.45rem;
+  background:
+    linear-gradient(var(--ds-accent), var(--ds-accent)) 37.5% 0 / 2px 100% no-repeat,
+    linear-gradient(var(--ds-accent), var(--ds-accent)) 62.5% 0 / 2px 100% no-repeat;
+}
+[data-page-kind="model"] .decomp-fan::before {
+  content: "";
+  position: absolute;
+  inset: 0 12.5% auto 12.5%;
+  height: 100%;
+  border: 2px solid var(--ds-accent);
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+}
 [data-page-kind="model"] .decomp-set {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  padding-top: 0.55rem;
-  border-top: 2px solid var(--ds-accent);
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.4rem;
 }
 [data-page-kind="model"] .work-unit {
   display: flex;
   flex-direction: column;
-  min-width: 5.4rem;
+  min-width: 4.6rem;
   overflow: hidden;
-  border: 1px solid var(--ds-border);
   border-radius: 0.3rem;
 }
 [data-page-kind="model"] .topo-node {
   display: block;
-  padding: 0.28rem 0.55rem;
-  font-size: 0.75rem;
+  padding: 0.28rem 0.4rem;
+  font-size: 0.72rem;
   font-weight: 650;
   line-height: 1.2;
   text-align: center;
   white-space: nowrap;
 }
-[data-page-kind="model"] .topo-node.spec { color: inherit; }
+[data-page-kind="model"] .topo-node.spec {
+  border: 1px solid color-mix(in srgb, var(--ds-accent) 70%, var(--ds-border));
+  border-bottom: 0;
+  border-radius: 0.3rem 0.3rem 0 0;
+  background: color-mix(in srgb, var(--ds-accent) 14%, transparent);
+  color: var(--ds-accent);
+}
 [data-page-kind="model"] .topo-node.plan {
-  border-top: 1px solid var(--ds-border);
+  border: 1px solid color-mix(in srgb, var(--ds-muted) 55%, var(--ds-border));
+  border-radius: 0 0 0.3rem 0.3rem;
+  background: color-mix(in srgb, var(--ds-muted) 12%, transparent);
   color: var(--ds-muted);
 }
 [data-page-kind="model"] .dag-flow {
