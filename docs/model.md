@@ -113,18 +113,26 @@ A claim names what must exist and the tests that prove it.
 
 ## While the agent is working {#enforcement-loop}
 
-CI confirms. It does not discover.
+The agent does not hand failed work downstream.
 
 <div class="model-figure loop-figure">
-<div class="topo-bundle">Plan</div>
-<div class="loop-cadence">
-<div class="fig-node"><strong>Implement</strong><span>The work</span></div>
+<div class="loop-flow">
+<div class="fig-node"><strong>Plan</strong></div>
 <div class="dag-edge" aria-hidden="true">→</div>
-<div class="fig-node packs"><strong>Gate</strong><span>The check</span></div>
+<div class="loop-core">
+<div class="loop-forward">
+<div class="fig-node packs"><strong>Implement</strong></div>
 <div class="dag-edge" aria-hidden="true">→</div>
-<div class="fig-node"><strong>Continue</strong><span>Only if it passed</span></div>
+<div class="fig-node packs"><strong>Gate</strong></div>
 </div>
-<p class="fig-caption">A failing gate stops the work until it is fixed.</p>
+<div class="loop-return" aria-hidden="true"><span>fail / fix</span></div>
+</div>
+<div class="loop-pass" aria-hidden="true"><span>pass</span></div>
+<div class="fig-node"><strong>Continue</strong></div>
+<div class="dag-edge" aria-hidden="true">→</div>
+<div class="fig-node ci"><strong>CI</strong></div>
+</div>
+<p class="fig-caption">CI confirms. It does not discover.</p>
 </div>
 
 <div class="canonical-note">
