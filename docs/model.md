@@ -86,7 +86,7 @@ Packs compose across domains and toolchains.
 <div class="fig-node packs"><strong>Design</strong><span>CSS and tokens</span></div>
 </div>
 <div class="compose-collect" aria-hidden="true"></div>
-<div class="fig-node gate"><strong>Gate</strong><span>One local deterministic check</span></div>
+<div class="fig-node gate"><strong>Gate</strong><span>Executes all rules across all packs</span></div>
 </div>
 
 ## Detect drift {#baselines-and-ratchets}
