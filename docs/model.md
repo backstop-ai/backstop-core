@@ -57,7 +57,7 @@ Backstop converts declared intent into bounded work and an inspectable verdict. 
 
 ## Enforce your standards {#standards-packs}
 
-A pack owns the standard, the engine, and the proof.
+Packs own standards, engines, and proof.
 
 <div class="model-figure pack-figure">
 <div class="pack-body">
@@ -75,6 +75,19 @@ A pack owns the standard, the engine, and the proof.
 <div class="fig-node packs pack-proof"><strong>Fixtures</strong><span>Prove the check works</span></div>
 </div>
 </div>
+</div>
+
+Gates execute them together with other packs.
+
+<div class="model-figure pack-compose">
+<div class="compose-set">
+<div class="fig-node packs">Go</div>
+<div class="fig-node packs">Contracts</div>
+<div class="fig-node packs">Docs</div>
+<div class="fig-node packs">CI</div>
+</div>
+<div class="compose-collect" aria-hidden="true"></div>
+<div class="fig-node gate"><strong>Gate</strong><span>Runs them together</span></div>
 </div>
 
 ## Detect drift {#baselines-and-ratchets}
