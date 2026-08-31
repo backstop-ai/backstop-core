@@ -7,9 +7,8 @@ hero_lede: "Backstop makes it trustworthy."
 ---
 
 <div class="tactics-intro">
-<p class="tactics-kicker">A better model writes more average code.</p>
-<p>Newer models are trained on more of the public majority, so they are better at resembling what most code looks like. By design, no model out of the box knows how your team writes code. Backstop makes the result trustworthy: the work does what the artifact chain required, and it holds to your team's standards.</p>
-<p class="tactics-bridge">Keep the tools. Add a verdict.</p>
+<p class="tactics-kicker">Bigger models write great code. None of them write code like you.</p>
+<p class="tactics-bridge">Backstop enforces your standards so the agent's code looks like your code.</p>
 </div>
 
 <div class="tactics-matrix">
