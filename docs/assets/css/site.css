@@ -131,7 +131,7 @@ th { background: var(--ds-surface); }
   padding: 0.42rem 0.85rem;
   border: 1px solid var(--ds-accent);
   border-radius: 0.3rem;
-  background: color-mix(in srgb, var(--ds-accent) 22%, transparent);
+  background: color-mix(in srgb, var(--ds-accent) 28%, transparent);
   color: var(--ds-text);
   font-size: 0.82rem;
   font-weight: 650;
@@ -144,14 +144,14 @@ th { background: var(--ds-surface); }
   left: 50%;
   top: 100%;
   width: 2px;
-  height: 0.45rem;
+  height: 0.55rem;
   background: var(--ds-accent);
   transform: translateX(-50%);
 }
 [data-page-kind="model"] .decomp-fan {
   position: relative;
-  height: 0.9rem;
-  margin-top: 0.45rem;
+  height: 1.35rem;
+  margin-top: 0.55rem;
   background:
     linear-gradient(var(--ds-accent), var(--ds-accent)) 37.5% 0 / 2px 100% no-repeat,
     linear-gradient(var(--ds-accent), var(--ds-accent)) 62.5% 0 / 2px 100% no-repeat;
@@ -190,7 +190,7 @@ th { background: var(--ds-surface); }
   border: 1px solid color-mix(in srgb, var(--ds-accent) 70%, var(--ds-border));
   border-bottom: 0;
   border-radius: 0.3rem 0.3rem 0 0;
-  background: color-mix(in srgb, var(--ds-accent) 14%, transparent);
+  background: color-mix(in srgb, var(--ds-accent) 18%, transparent);
   color: var(--ds-accent);
 }
 [data-page-kind="model"] .topo-node.plan {
