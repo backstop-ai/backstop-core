@@ -65,6 +65,51 @@ table { width: max-content; min-width: 100%; border-collapse: collapse; font-siz
 th, td { padding: 0.65rem 0.75rem; border: 1px solid var(--ds-border); text-align: left; vertical-align: top; }
 th { background: var(--ds-surface); }
 
+[data-page-kind="model"] .page-hero h1 { max-width: 16ch; }
+[data-page-kind="model"] .page-boundary,
+[data-page-kind="model"] .tactics-bridge {
+  max-width: 46rem;
+  margin: 0.45rem 0 1.25rem;
+  color: var(--ds-muted);
+  font-size: 1.15rem;
+  font-weight: 400;
+}
+[data-page-kind="model"] .page-boundary { margin: 1.5rem 0 0; }
+[data-page-kind="model"] .prose { width: min(calc(100% - 2rem), 72rem); padding-block: 2.5rem 4rem; }
+[data-page-kind="model"] .tactics-kicker {
+  margin: 0;
+  color: inherit;
+  font-family: var(--ds-font-sans);
+  font-size: clamp(1.45rem, 3vw, 2.1rem);
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+}
+[data-page-kind="model"] .tactics-intro { max-width: 46rem; margin: 0 0 1.75rem; }
+[data-page-kind="model"] .tactics-matrix { margin: 0; }
+[data-page-kind="model"] .tactics-matrix table { width: 100%; font-size: 0.88rem; }
+[data-page-kind="model"] .tactics-matrix th {
+  color: var(--ds-muted);
+  font-family: var(--ds-font-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+[data-page-kind="model"] .tactics-matrix td:first-child { font-weight: 650; white-space: nowrap; }
+[data-page-kind="model"] .tactics-matrix td:last-child { color: var(--ds-accent); font-weight: 650; }
+[data-page-kind="model"] .canonical-anchors {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 [data-page-kind="evaluation"] .page-hero h1 { max-width: 14ch; }
 [data-page-kind="evaluation"] .page-boundary,
 [data-page-kind="evaluation"] .tactics-bridge,
@@ -279,28 +324,37 @@ html:has([data-page-kind="evaluation"]) .navigation-groups a[aria-current="page"
   [data-page-kind="evaluation"] .tactics-matrix table,
   [data-page-kind="evaluation"] .tactics-matrix tbody,
   [data-page-kind="evaluation"] .tactics-matrix tr,
-  [data-page-kind="evaluation"] .tactics-matrix td { display: block; width: 100%; }
-  [data-page-kind="evaluation"] .tactics-matrix thead {
+  [data-page-kind="evaluation"] .tactics-matrix td,
+  [data-page-kind="model"] .tactics-matrix table,
+  [data-page-kind="model"] .tactics-matrix tbody,
+  [data-page-kind="model"] .tactics-matrix tr,
+  [data-page-kind="model"] .tactics-matrix td { display: block; width: 100%; }
+  [data-page-kind="evaluation"] .tactics-matrix thead,
+  [data-page-kind="model"] .tactics-matrix thead {
     position: absolute;
     width: 1px;
     height: 1px;
     overflow: hidden;
     clip: rect(0, 0, 0, 0);
   }
-  [data-page-kind="evaluation"] .tactics-matrix tr {
+  [data-page-kind="evaluation"] .tactics-matrix tr,
+  [data-page-kind="model"] .tactics-matrix tr {
     margin: 0 0 1rem;
     padding: 0.9rem 1rem;
     border: 1px solid var(--ds-border);
     border-radius: 0.55rem;
     background: var(--ds-surface);
   }
-  [data-page-kind="evaluation"] .tactics-matrix td {
+  [data-page-kind="evaluation"] .tactics-matrix td,
+  [data-page-kind="model"] .tactics-matrix td {
     border: 0;
     padding: 0.4rem 0;
     white-space: normal;
   }
-  [data-page-kind="evaluation"] .tactics-matrix td:first-child { font-size: 1.05rem; padding-top: 0; }
-  [data-page-kind="evaluation"] .tactics-matrix td::before {
+  [data-page-kind="evaluation"] .tactics-matrix td:first-child,
+  [data-page-kind="model"] .tactics-matrix td:first-child { font-size: 1.05rem; padding-top: 0; }
+  [data-page-kind="evaluation"] .tactics-matrix td::before,
+  [data-page-kind="model"] .tactics-matrix td::before {
     content: attr(data-label);
     display: block;
     margin-bottom: 0.15rem;
@@ -311,7 +365,8 @@ html:has([data-page-kind="evaluation"]) .navigation-groups a[aria-current="page"
     letter-spacing: 0.08em;
     text-transform: uppercase;
   }
-  [data-page-kind="evaluation"] .tactics-matrix td:first-child::before { content: none; }
+  [data-page-kind="evaluation"] .tactics-matrix td:first-child::before,
+  [data-page-kind="model"] .tactics-matrix td:first-child::before { content: none; }
   [data-page-kind="evaluation"] .failed-verdict-row { grid-template-columns: 1fr auto; }
   [data-page-kind="evaluation"] .ci-workflows { grid-template-columns: 1fr; }
   [data-page-kind="home"] .nav { height: auto !important; min-height: 76px; flex-wrap: wrap; gap: 1rem; padding-block: 1rem; }
