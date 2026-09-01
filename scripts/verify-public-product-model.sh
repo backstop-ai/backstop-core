@@ -41,7 +41,7 @@ paths=['/','/evaluate/','/model/','/adopt/','/use-cases/','/packs/','/extend/','
 sources=['docs/index.md','docs/evaluate.md','docs/model.md','docs/adopt.md','docs/use-cases.md','docs/packs.md','docs/extend.md','docs/reference.md','docs/status.md','docs/contributing.md']
 pages=top.get('pages',[])
 if [(x.get('source'),x.get('canonical_path')) for x in pages]!=list(zip(sources,paths)): fail('page inventory must contain exact ten source/path pairs')
-heroes=['What failure does Backstop prevent?','Your agent already writes the code.','How it works','You don\'t have to take all of it.','Which problem-oriented adoption path applies?','Which maintained pack already owns this standard?','When should this concern become a pack?','What exact interface or behavior do I need?','What is supported, limited, planned, or intentionally outside Backstop?','How can I participate in Backstop and its ecosystem?']
+heroes=['What failure does Backstop prevent?','Your agent already writes the code.','How it works','Start where it will pay you first.','Which problem-oriented adoption path applies?','Which maintained pack already owns this standard?','When should this concern become a pack?','What exact interface or behavior do I need?','What is supported, limited, planned, or intentionally outside Backstop?','How can I participate in Backstop and its ecosystem?']
 for page,hero in zip(pages,heroes):
  if page.get('hero_question')!=hero: fail(page.get('source','page')+': hero_question')
 presentation_pages=presentation.get('pages',[])
@@ -402,9 +402,8 @@ allowances={
  '</div>':'canonical claim anchors'
 },
 'docs/adopt.md':{
- 'Backstop has a lot of surface. The pieces compose. None of them is a prerequisite for the others.':'visitor adoption guide',
- '<div class="tactics-matrix adopt-chooser">\n<table>\n<thead>\n<tr><th>If this is already true</th><th>Start here</th><th>You can skip</th></tr>\n</thead>\n<tbody>\n<tr><td data-label="If this is already true">A standard you would fail a merge over lives in a doc</td><td data-label="Start here">One pack and the gate</td><td data-label="You can skip">The artifact chain</td></tr>\n<tr><td data-label="If this is already true">The agent can say “done” without matching intent</td><td data-label="Start here">The artifact chain</td><td data-label="You can skip">Packs</td></tr>\n<tr><td data-label="If this is already true">Failures show up after the PR opens</td><td data-label="Start here">The gate in the agent\'s loop</td><td data-label="You can skip">More rules, more artifacts</td></tr>\n</tbody>\n</table>\n</div>':'visitor adoption chooser',
- 'Add the next piece only when this one is actually blocking.':'visitor adoption guide',
+ '<div class="tactics-matrix adopt-chooser">\n<table>\n<thead>\n<tr><th>If this is already true</th><th>Start here</th><th>What you get</th></tr>\n</thead>\n<tbody>\n<tr><td data-label="If this is already true">A standard you would fail a merge over lives in a doc</td><td data-label="Start here">One pack and the gate</td><td data-label="What you get">The next merge cannot quietly ignore it</td></tr>\n<tr><td data-label="If this is already true">The agent can say “done” without matching intent</td><td data-label="Start here">The artifact chain</td><td data-label="What you get">“Done” can be contradicted</td></tr>\n<tr><td data-label="If this is already true">Failures show up after the PR opens</td><td data-label="Start here">The gate in the agent\'s loop</td><td data-label="What you get">The agent sees the failure while it can still fix it</td></tr>\n</tbody>\n</table>\n</div>':'visitor adoption chooser',
+ '<p class="adopt-skip">The rest can wait. None of the pieces is a prerequisite for the others.</p>':'visitor adoption guide',
  'When you know the piece, make it real in the repository.':'visitor adoption guide',
  'Pin the released binary in the repository.':'visitor adoption guide',
  "Don't rely on a machine-global copy.":'visitor adoption guide',
@@ -414,7 +413,7 @@ allowances={
  'A passing gate is only expected when every blocking check passes.':'visitor adoption guide',
  'Keep the failing receipt. That is the first success.':'visitor adoption guide',
  '<div class="canonical-note">':'canonical source note',
- '<!-- backstop-journey-link: JLINK-013 -->\n[Understand the enforcement loop](/model/#enforcement-loop)\n</div>':'visitor adoption guide'
+ '<!-- backstop-journey-link: JLINK-013 -->\n[Understand the enforcement loop](/model/#enforcement-loop)\n</div>':'canonical source note'
 },
 'docs/use-cases.md':{
  'Start from the failure you need to prevent: policy drift, unreviewable agent output, inconsistent artifact execution, or a standard that exists only in prose. Then choose the smallest enforceable seam.':'visitor decision guidance',

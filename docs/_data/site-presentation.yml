@@ -17,7 +17,7 @@ pages:
     next_action: /adopt/
   - route: /adopt/
     page_kind: adoption
-    hero_question: You don't have to take all of it.
+    hero_question: Start where it will pay you first.
     treatments: [evidence-cards]
     next_action: /use-cases/
   - route: /use-cases/

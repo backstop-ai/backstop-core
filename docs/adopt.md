@@ -2,28 +2,26 @@
 title: Adopt Backstop
 layout: default
 permalink: /adopt/
-hero_question: "You don't have to take all of it."
-hero_lede: "Find the first place in your project that should actually block."
+hero_question: "Start where it will pay you first."
+hero_lede: "The pieces compose. Put the first one on the failure that already costs you."
 ---
 
 ## Start from what's already true {#adoption-paths}
 
-Backstop has a lot of surface. The pieces compose. None of them is a prerequisite for the others.
-
 <div class="tactics-matrix adopt-chooser">
 <table>
 <thead>
-<tr><th>If this is already true</th><th>Start here</th><th>You can skip</th></tr>
+<tr><th>If this is already true</th><th>Start here</th><th>What you get</th></tr>
 </thead>
 <tbody>
-<tr><td data-label="If this is already true">A standard you would fail a merge over lives in a doc</td><td data-label="Start here">One pack and the gate</td><td data-label="You can skip">The artifact chain</td></tr>
-<tr><td data-label="If this is already true">The agent can say “done” without matching intent</td><td data-label="Start here">The artifact chain</td><td data-label="You can skip">Packs</td></tr>
-<tr><td data-label="If this is already true">Failures show up after the PR opens</td><td data-label="Start here">The gate in the agent's loop</td><td data-label="You can skip">More rules, more artifacts</td></tr>
+<tr><td data-label="If this is already true">A standard you would fail a merge over lives in a doc</td><td data-label="Start here">One pack and the gate</td><td data-label="What you get">The next merge cannot quietly ignore it</td></tr>
+<tr><td data-label="If this is already true">The agent can say “done” without matching intent</td><td data-label="Start here">The artifact chain</td><td data-label="What you get">“Done” can be contradicted</td></tr>
+<tr><td data-label="If this is already true">Failures show up after the PR opens</td><td data-label="Start here">The gate in the agent's loop</td><td data-label="What you get">The agent sees the failure while it can still fix it</td></tr>
 </tbody>
 </table>
 </div>
 
-Add the next piece only when this one is actually blocking.
+<p class="adopt-skip">The rest can wait. None of the pieces is a prerequisite for the others.</p>
 
 When you know the piece, make it real in the repository.
 

@@ -28,7 +28,7 @@ func canonicalPresentation() []presentationPage {
 		{Route: "/", PageKind: "home", HeroQuestion: "What failure does Backstop prevent?", Treatments: []string{"evidence-cards"}, NextAction: "/evaluate/"},
 		{Route: "/evaluate/", PageKind: "evaluation", HeroQuestion: "Your agent already writes the code.", Treatments: []string{"evidence-cards", "boundary-callouts"}, NextAction: "/model/"},
 		{Route: "/model/", PageKind: "model", HeroQuestion: "How it works", Treatments: []string{"evidence-cards", "local-overflow"}, NextAction: "/adopt/"},
-		{Route: "/adopt/", PageKind: "adoption", HeroQuestion: "You don't have to take all of it.", Treatments: []string{"evidence-cards"}, NextAction: "/use-cases/"},
+		{Route: "/adopt/", PageKind: "adoption", HeroQuestion: "Start where it will pay you first.", Treatments: []string{"evidence-cards"}, NextAction: "/use-cases/"},
 		{Route: "/use-cases/", PageKind: "use-cases", HeroQuestion: "Which problem-oriented adoption path applies?", Treatments: []string{"evidence-cards", "boundary-callouts"}, NextAction: "/packs/"},
 		{Route: "/packs/", PageKind: "ecosystem", HeroQuestion: "Which maintained pack already owns this standard?", Treatments: []string{"evidence-cards", "generated-regions", "local-overflow"}, NextAction: "/extend/"},
 		{Route: "/extend/", PageKind: "extension", HeroQuestion: "When should this concern become a pack?", Treatments: []string{"evidence-cards", "boundary-callouts"}, NextAction: "/reference/"},
