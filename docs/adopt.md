@@ -3,7 +3,7 @@ title: Adopt Backstop
 layout: default
 permalink: /adopt/
 hero_question: "Try it out."
-hero_lede: "Install Backstop and see how it works together."
+hero_lede: "Install Backstop and see how the pieces work together."
 ---
 
 ## 1. Set up Backstop {#setup}
@@ -21,7 +21,7 @@ Pin the released binary in the repository.
 
 ### Initialize the repository {#configure}
 
-The Backstop configuration lives with the code in the repository you are evaluating.
+Backstop configuration lives with the code.
 
 <pre><code>backstop init</code></pre>
 

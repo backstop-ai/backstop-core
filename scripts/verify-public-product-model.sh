@@ -404,7 +404,7 @@ allowances={
 'docs/adopt.md':{
  'Pin the released binary in the repository.':'visitor adoption guide',
  '<div class="canonical-note">\n<!-- backstop-journey-link: JLINK-012 -->\n[Configure Backstop](/reference/#configuration)\n</div>':'canonical source note',
- 'The Backstop configuration lives with the code in the repository you are evaluating.':'visitor adoption guide',
+ 'Backstop configuration lives with the code.':'visitor adoption guide',
  'Install a pack appropriate for the repository\'s stack. [Choose a pack](/packs/#choose-a-pack).':'visitor adoption guide',
  'Run:':'visitor adoption guide',
  '<pre><code>backstop baseline</code></pre>':'visitor adoption guide',
