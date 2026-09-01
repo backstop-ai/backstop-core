@@ -152,20 +152,14 @@ The authoritative enforcement loop is `docs/_diagrams/ARCH-002-enforcement-loop.
 
 ## What Backstop does not own {#ownership-boundaries}
 
+Backstop sits around the agent.
+
 <div class="model-figure own-figure">
-<div class="own-in">
+<div class="own-frame">
 <p>Backstop</p>
-<div class="own-row">
-<div class="fig-node"><strong>Core</strong><span>Runs the process</span></div>
-<div class="fig-node packs"><strong>Packs</strong><span>Standards, engines, fixtures</span></div>
-<div class="fig-node"><strong>Harness</strong><span>Honors the exit</span></div>
+<div class="fig-node agent"><strong>Agent</strong><span>Writes the code</span></div>
 </div>
-</div>
-<div class="work-split" aria-hidden="true"></div>
-<div class="own-out">
-<p>Not Backstop</p>
-<div class="fig-node agent"><strong>Agent</strong><span>Outside. Backstop sits around it.</span></div>
-</div>
+<p class="fig-caption">The toolchain owns its own behavior.</p>
 </div>
 
 <div class="canonical-note">
