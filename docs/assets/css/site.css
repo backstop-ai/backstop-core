@@ -951,8 +951,8 @@ html:has([data-page-kind="evaluation"], [data-page-kind="model"]) .navigation-gr
   [data-page-kind="model"] .decomp-set { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   [data-page-kind="model"] .decomp-fan { display: none; }
   [data-page-kind="model"] .topo-bundle::after { display: none; }
-  [data-page-kind="model"] .pack-row { grid-template-columns: 1fr 1fr; }
-  [data-page-kind="model"] .pack-runtime { grid-column: 1 / -1; }
+  [data-page-kind="model"] .pack-row { grid-template-columns: minmax(0, 1fr) minmax(7.5rem, 0.42fr); }
+  [data-page-kind="model"] .pack-runtime { grid-column: auto; }
   [data-page-kind="model"] .pack-fan,
   [data-page-kind="model"] .pack-collect { display: none; }
   [data-page-kind="model"] .claim-pair { flex-wrap: wrap; }
