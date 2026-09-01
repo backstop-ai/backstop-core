@@ -485,8 +485,8 @@ th { background: var(--ds-surface); }
   align-items: stretch;
   min-width: 0;
   padding: 0 0.55rem 1.5rem;
-  border: 1px solid var(--ds-border);
   border-radius: 0.35rem;
+  box-shadow: 0 0 0 1px var(--ds-border);
 }
 [data-page-kind="model"] .loop-forward {
   display: grid;
