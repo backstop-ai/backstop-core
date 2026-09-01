@@ -762,6 +762,7 @@ th { background: var(--ds-surface); }
 }
 [data-page-kind="adoption"] #install,
 [data-page-kind="adoption"] #configure,
+[data-page-kind="adoption"] #add-the-piece,
 [data-page-kind="adoption"] #verify-enforcement {
   margin-top: 2.5rem;
   font-size: clamp(1.15rem, 2vw, 1.45rem);
@@ -787,6 +788,28 @@ th { background: var(--ds-surface); }
   color: var(--ds-muted);
   font-size: 1.05rem;
   font-weight: 400;
+}
+[data-page-kind="adoption"] .adopt-fork {
+  display: grid;
+  gap: 0.6rem;
+  max-width: 46rem;
+  margin: 1.15rem 0 0.35rem;
+}
+[data-page-kind="adoption"] .adopt-fork-row {
+  display: grid;
+  grid-template-columns: minmax(9rem, 0.85fr) auto minmax(0, 1.25fr);
+  align-items: center;
+  gap: 0.65rem 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--ds-border);
+  border-radius: 0.55rem;
+  background: var(--ds-surface);
+}
+[data-page-kind="adoption"] .adopt-fork-row strong { font-weight: 650; letter-spacing: -0.02em; }
+[data-page-kind="adoption"] .adopt-fork-row span[aria-hidden="true"] { color: var(--ds-muted); }
+[data-page-kind="adoption"] .adopt-fork-row span:last-child {
+  color: var(--ds-accent);
+  font-weight: 650;
 }
 [data-page-kind="adoption"] .prose pre {
   max-width: 46rem;
@@ -982,6 +1005,11 @@ html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kin
   [data-page-kind="evaluation"] .failed-verdict-row { grid-template-columns: 1fr auto; }
   [data-page-kind="evaluation"] .ci-workflows { grid-template-columns: 1fr; }
   [data-page-kind="adoption"] .prose pre code { white-space: pre-wrap; }
+  [data-page-kind="adoption"] .adopt-fork-row {
+    grid-template-columns: 1fr;
+    gap: 0.25rem;
+  }
+  [data-page-kind="adoption"] .adopt-fork-row span[aria-hidden="true"] { display: none; }
   [data-page-kind="home"] .nav { height: auto !important; min-height: 76px; flex-wrap: wrap; gap: 1rem; padding-block: 1rem; }
   [data-page-kind="home"] .nav-links { flex-wrap: wrap; gap: 1rem !important; }
   [data-page-kind="home"] h1 { overflow-wrap: anywhere; }

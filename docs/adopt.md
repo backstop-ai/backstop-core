@@ -21,9 +21,7 @@ hero_lede: "The pieces compose. Put the first one on the failure that already co
 </table>
 </div>
 
-<p class="adopt-skip">The rest can wait. None of the pieces is a prerequisite for the others.</p>
-
-When you know the piece, make it real in the repository.
+<p class="adopt-skip">The rest can wait. Adopt only what solves the problem you chose.</p>
 
 ## Install the binary {#install}
 
@@ -38,13 +36,19 @@ Don't rely on a machine-global copy.
 [Configure Backstop](/reference/#configuration)
 </div>
 
-## Initialize the repository {#configure}
+## Initialize Backstop {#configure}
 
 The declaration lives with the code.
 
 <pre><code>backstop init</code></pre>
 
-Commit only the piece you chose.
+## Add the piece you chose {#add-the-piece}
+
+<div class="adopt-fork">
+<div class="adopt-fork-row"><strong>Standards</strong><span aria-hidden="true">→</span><span>Install a pack</span></div>
+<div class="adopt-fork-row"><strong>Intent / completeness</strong><span aria-hidden="true">→</span><span>Start an artifact chain</span></div>
+<div class="adopt-fork-row"><strong>Late failures</strong><span aria-hidden="true">→</span><span>Put the gate in the agent loop</span></div>
+</div>
 
 ## Prove it blocks {#verify-enforcement}
 
