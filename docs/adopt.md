@@ -3,7 +3,7 @@ title: Adopt Backstop
 layout: default
 permalink: /adopt/
 hero_question: "Try it out."
-hero_lede: "Paste this to your agent. You choose the repository and a known bug."
+hero_lede: "Install Backstop and see how it works together."
 ---
 
 ## Evaluate Backstop in a real project {#adoption-paths}
