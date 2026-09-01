@@ -404,7 +404,7 @@ allowances={
 'docs/adopt.md':{
  'Pin the released binary in the repository.':'visitor adoption guide',
  '<div class="canonical-note">\n<!-- backstop-journey-link: JLINK-012 -->\n[Configure Backstop](/reference/#configuration)\n</div>':'canonical source note',
- 'The Backstop configuration lives with the code.':'visitor adoption guide',
+ 'The Backstop configuration lives with the code in the repository you are evaluating.':'visitor adoption guide',
  'Install a pack appropriate for the repository\'s stack. [Choose a pack](/packs/#choose-a-pack).':'visitor adoption guide',
  'Run:':'visitor adoption guide',
  '<pre><code>backstop baseline</code></pre>':'visitor adoption guide',
@@ -413,12 +413,9 @@ allowances={
  'Use Backstop\'s lightweight artifact workflow for it:':'visitor adoption guide',
  '<ul class="eval-list">\n<li>Create an issue.</li>\n<li>Create the corresponding plan.</li>\n<li>Run the artifact reviewers and deterministic validators.</li>\n<li>Resolve findings until the artifacts pass.</li>\n</ul>':'visitor adoption guide',
  '[Artifact lifecycle](/reference/#artifact-lifecycle-and-closure)':'visitor adoption guide',
- 'Assign the approved plan to an implementer agent.':'visitor adoption guide',
- 'Execute the plan. As implementation progresses, run:':'visitor adoption guide',
- 'Fix gate failures before proceeding. Complete implementation review and resolve review findings.':'visitor adoption guide',
+ 'Assign the approved plan to an implementer agent. The agent executes the plan, runs required gates as it works, and fixes failures before proceeding.':'visitor adoption guide',
  'Stop before merge.':'visitor adoption guide',
- '<p class="adopt-close">You\'ve now used the whole model.</p>':'visitor adoption closer',
- '<p class="adopt-close-next">Use the complete workflow, or only the parts you need.</p>':'visitor adoption closer',
+ 'Use the complete workflow, or only the parts you need.':'visitor adoption closer',
  '<div class="canonical-note">':'canonical source note',
  '<!-- backstop-journey-link: JLINK-013 -->\n[Understand the enforcement loop](/model/#enforcement-loop)\n</div>':'canonical source note'
 },

@@ -763,14 +763,15 @@ th { background: var(--ds-surface); }
 }
 [data-page-kind="adoption"] .prose > h2:first-child { margin-top: 0; }
 [data-page-kind="adoption"] .prose > h3 {
-  margin: 1.75rem 0 0;
+  margin: 1.5rem 0 0;
   color: inherit;
   font-family: var(--ds-font-sans);
-  font-size: clamp(1.15rem, 2vw, 1.45rem);
+  font-size: 1.05rem;
   font-weight: 600;
-  letter-spacing: -0.02em;
-  line-height: 1.25;
+  letter-spacing: -0.015em;
+  line-height: 1.3;
 }
+[data-page-kind="adoption"] .prose > h2 + h3 { margin-top: 1.1rem; }
 [data-page-kind="adoption"] .prose > p { max-width: 46rem; }
 [data-page-kind="adoption"] .eval-list {
   max-width: 46rem;
@@ -781,14 +782,16 @@ th { background: var(--ds-surface); }
   margin: 0.45rem 0;
   padding-left: 0.35rem;
 }
-[data-page-kind="adoption"] .adopt-close {
+[data-page-kind="adoption"] #used-the-model {
   max-width: 46rem;
-  margin: 2rem 0 0.4rem;
-  font-size: 1.15rem;
+  margin-top: 4.5rem;
+  padding-top: 2.25rem;
+  border-top: 1px solid var(--ds-border);
+  font-size: clamp(1.2rem, 2.2vw, 1.55rem);
+  font-weight: 650;
 }
-[data-page-kind="adoption"] .adopt-close-next {
-  max-width: 46rem;
-  margin: 0;
+[data-page-kind="adoption"] #used-the-model + p {
+  margin-top: 0.5rem;
   color: var(--ds-accent);
   font-size: 1.15rem;
   font-weight: 650;

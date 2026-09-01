@@ -6,7 +6,9 @@ hero_question: "Try it out."
 hero_lede: "Install Backstop and see how it works together."
 ---
 
-## 1. Install Backstop {#install}
+## 1. Set up Backstop {#setup}
+
+### Install the binary {#install}
 
 Pin the released binary in the repository.
 
@@ -17,9 +19,9 @@ Pin the released binary in the repository.
 [Configure Backstop](/reference/#configuration)
 </div>
 
-### Initialize Backstop {#configure}
+### Initialize the repository {#configure}
 
-The Backstop configuration lives with the code.
+The Backstop configuration lives with the code in the repository you are evaluating.
 
 <pre><code>backstop init</code></pre>
 
@@ -50,25 +52,21 @@ Use Backstop's lightweight artifact workflow for it:
 
 ## 4. Let the agent implement it {#verify-enforcement}
 
-Assign the approved plan to an implementer agent.
-
-Execute the plan. As implementation progresses, run:
-
-<pre><code>backstop gate</code></pre>
-
-Fix gate failures before proceeding. Complete implementation review and resolve review findings.
+Assign the approved plan to an implementer agent. The agent executes the plan, runs required gates as it works, and fixes failures before proceeding.
 
 Stop before merge.
-
-<p class="adopt-close">You've now used the whole model.</p>
-
-<p class="adopt-close-next">Use the complete workflow, or only the parts you need.</p>
 
 <div class="canonical-note">
 <!-- backstop-claim: CLAIM-024 -->
 A zero exit is the expected postcondition only when every blocking check passes. Keep the failing receipt when it does not.
 <!-- /backstop-claim -->
 
+<pre><code>backstop gate</code></pre>
+
 <!-- backstop-journey-link: JLINK-013 -->
 [Understand the enforcement loop](/model/#enforcement-loop)
 </div>
+
+## You've now used the whole model. {#used-the-model}
+
+Use the complete workflow, or only the parts you need.
