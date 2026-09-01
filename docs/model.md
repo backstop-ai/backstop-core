@@ -2,7 +2,7 @@
 title: Product Model
 layout: default
 permalink: /model/
-hero_question: "How does it work?"
+hero_question: "How it works"
 hero_lede: "Define the work. Enforce your standards. Detect drift."
 ---
 

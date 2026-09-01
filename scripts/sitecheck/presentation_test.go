@@ -27,7 +27,7 @@ func canonicalPresentation() []presentationPage {
 	return []presentationPage{
 		{Route: "/", PageKind: "home", HeroQuestion: "What failure does Backstop prevent?", Treatments: []string{"evidence-cards"}, NextAction: "/evaluate/"},
 		{Route: "/evaluate/", PageKind: "evaluation", HeroQuestion: "Your agent already writes the code.", Treatments: []string{"evidence-cards", "boundary-callouts"}, NextAction: "/model/"},
-		{Route: "/model/", PageKind: "model", HeroQuestion: "How does it work?", Treatments: []string{"evidence-cards", "local-overflow"}, NextAction: "/adopt/"},
+		{Route: "/model/", PageKind: "model", HeroQuestion: "How it works", Treatments: []string{"evidence-cards", "local-overflow"}, NextAction: "/adopt/"},
 		{Route: "/adopt/", PageKind: "adoption", HeroQuestion: "What does a first working adoption require?", Treatments: []string{"evidence-cards"}, NextAction: "/use-cases/"},
 		{Route: "/use-cases/", PageKind: "use-cases", HeroQuestion: "Which problem-oriented adoption path applies?", Treatments: []string{"evidence-cards", "boundary-callouts"}, NextAction: "/packs/"},
 		{Route: "/packs/", PageKind: "ecosystem", HeroQuestion: "Which maintained pack already owns this standard?", Treatments: []string{"evidence-cards", "generated-regions", "local-overflow"}, NextAction: "/extend/"},
