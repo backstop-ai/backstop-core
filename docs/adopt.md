@@ -2,24 +2,30 @@
 title: Adopt Backstop
 layout: default
 permalink: /adopt/
-hero_question: "Adopt Backstop incrementally"
-hero_lede: "You do not need to adopt the entire framework at once. Start with the problem you want Backstop to enforce."
+hero_question: "Hand this to your agent."
+hero_lede: "Choose the repository and a known bug."
 ---
 
-## Choose where to start {#adoption-paths}
+## Evaluate Backstop in this repository {#adoption-paths}
 
-<div class="tactics-matrix adopt-chooser">
-<table>
-<thead>
-<tr><th>If this is happening</th><th>Start with</th><th>What changes</th></tr>
-</thead>
-<tbody>
-<tr><td data-label="If this is happening">Standards you enforce in review only exist in documentation</td><td data-label="Start with">A pack and the gate</td><td data-label="What changes">Violations can block the work</td></tr>
-<tr><td data-label="If this is happening">The agent can finish without satisfying the defined work</td><td data-label="Start with">The artifact chain</td><td data-label="What changes">“Done” can be contradicted</td></tr>
-<tr><td data-label="If this is happening">Failures are first discovered after the PR opens</td><td data-label="Start with">The gate in the agent loop</td><td data-label="What changes">The agent gets the failure before review</td></tr>
-</tbody>
-</table>
-</div>
+<ol class="agent-brief">
+<li>Install a pack that matches the stack.</li>
+<li>Run <code>backstop baseline</code> and summarize what it finds. Do not modify the code yet.</li>
+<li>Pick a known bug supplied by the user.</li>
+<li>Create an issue and plan for that bug.</li>
+<li>Run the artifact reviewers and validators and fix the artifacts until they pass.</li>
+<li>Assign the approved plan to an implementer.</li>
+<li>Implement the plan, running required gates as work progresses and fixing failures before moving on.</li>
+<li>Run implementation review and resolve any findings.</li>
+<li>Stop before merge and summarize:
+<ul>
+<li>what the baseline found</li>
+<li>what the artifact workflow changed about the task</li>
+<li>what gates failed during implementation</li>
+<li>what the agent fixed because of Backstop</li>
+</ul>
+</li>
+</ol>
 
 ## Install Backstop {#install}
 
@@ -38,19 +44,15 @@ The Backstop configuration lives with the code.
 
 <pre><code>backstop init</code></pre>
 
-## Add what you need {#add-the-piece}
-
-<div class="adopt-fork">
-<div class="adopt-fork-row"><strong>Standards</strong><span aria-hidden="true">→</span><span>Install a pack</span></div>
-<div class="adopt-fork-row"><strong>Intent / completeness</strong><span aria-hidden="true">→</span><span>Start an artifact chain</span></div>
-<div class="adopt-fork-row"><strong>Late failures</strong><span aria-hidden="true">→</span><span>Put the gate in the agent loop</span></div>
-</div>
-
 ## Run the gate {#verify-enforcement}
 
 Confirm that a known violation fails before relying on it.
 
 <pre><code>backstop gate</code></pre>
+
+<p class="adopt-close">You've now used the whole model.</p>
+
+<p class="adopt-close-next">Keep the complete workflow, or adopt only the parts you need.</p>
 
 <div class="canonical-note">
 <!-- backstop-claim: CLAIM-024 -->
