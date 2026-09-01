@@ -2,23 +2,30 @@
 title: Adopt Backstop
 layout: default
 permalink: /adopt/
-hero_question: "Put one standard behind the gate."
-hero_lede: "Install. Initialize. Prove a violation blocks."
+hero_question: "You don't have to take all of it."
+hero_lede: "Find the first place in your project that should actually block."
 ---
 
-## Start with one gate {#adoption-paths}
+## Start from what's already true {#adoption-paths}
 
-Don't widen the policy surface until a violation actually blocks.
+Backstop has a lot of surface. The pieces compose. None of them is a prerequisite for the others.
 
-<div class="adopt-steps">
-<div class="adopt-step"><strong>Install</strong><span>Pin the binary</span></div>
-<div class="adopt-edge" aria-hidden="true">→</div>
-<div class="adopt-step"><strong>Initialize</strong><span>Own the declaration</span></div>
-<div class="adopt-edge" aria-hidden="true">→</div>
-<div class="adopt-step packs"><strong>Prove</strong><span>A violation must fail</span></div>
+<div class="tactics-matrix adopt-chooser">
+<table>
+<thead>
+<tr><th>If this is already true</th><th>Start here</th><th>You can skip</th></tr>
+</thead>
+<tbody>
+<tr><td data-label="If this is already true">A standard you would fail a merge over lives in a doc</td><td data-label="Start here">One pack and the gate</td><td data-label="You can skip">The artifact chain</td></tr>
+<tr><td data-label="If this is already true">The agent can say “done” without matching intent</td><td data-label="Start here">The artifact chain</td><td data-label="You can skip">Packs</td></tr>
+<tr><td data-label="If this is already true">Failures show up after the PR opens</td><td data-label="Start here">The gate in the agent's loop</td><td data-label="You can skip">More rules, more artifacts</td></tr>
+</tbody>
+</table>
 </div>
 
-<p class="adopt-need"><span>You need</span>Go, Git, and a standard you would fail a merge over.</p>
+Add the next piece only when this one is actually blocking.
+
+When you know the piece, make it real in the repository.
 
 ## Install the binary {#install}
 
@@ -39,13 +46,7 @@ The declaration lives with the code.
 
 <pre><code>backstop init</code></pre>
 
-<div class="adopt-init">
-<div class="fig-node"><strong>backstop.yml</strong><span>Repository-owned config</span></div>
-<div class="fig-node packs"><strong>Pack</strong><span>One maintained standard</span></div>
-<div class="fig-node"><strong>Commit</strong><span>Pin it in version control</span></div>
-</div>
-
-Choose a maintained pack and commit the pin.
+Commit only the piece you chose.
 
 ## Prove it blocks {#verify-enforcement}
 
@@ -53,13 +54,7 @@ A passing gate is only expected when every blocking check passes.
 
 <pre><code>backstop gate</code></pre>
 
-<div class="adopt-verdict" aria-label="Example failing Backstop gate">
-<div class="adopt-verdict-bar"><span>first run</span><span>exit 1</span></div>
-<div class="adopt-verdict-row"><span>Standard</span><span>the rule you just pinned</span><strong>fail</strong></div>
-<div class="adopt-verdict-foot"><strong>FAIL</strong><span>The violation is blocked. That is the first success.</span></div>
-</div>
-
-Then you can widen.
+Keep the failing receipt. That is the first success.
 
 <div class="canonical-note">
 <!-- backstop-claim: CLAIM-024 -->
