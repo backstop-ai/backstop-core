@@ -44,7 +44,7 @@ One bundle. Many specs. One plan per spec.
 
 Independent branches can execute in parallel. Dependencies establish the order when they cannot.
 
-A bounded fix skips the bundle and spec. The issue becomes a plan.
+<p class="work-exception"><span>For small fixes</span>A bounded fix skips the bundle and spec. The issue becomes a plan.</p>
 
 <div class="canonical-note">
 <!-- backstop-claim: CLAIM-022 -->
@@ -77,7 +77,7 @@ Packs own standards, engines, and proof.
 </div>
 </div>
 
-Packs compose across domains and toolchains.
+<p class="figure-bridge">Packs compose across domains and toolchains.</p>
 
 <div class="model-figure pack-compose">
 <div class="compose-set">
