@@ -6,28 +6,7 @@ hero_question: "Try it out."
 hero_lede: "Install Backstop and see how it works together."
 ---
 
-## Evaluate Backstop in a real project {#adoption-paths}
-
-<ol class="agent-brief">
-<li>Install a pack that matches the stack.</li>
-<li>Run <code>backstop baseline</code> and summarize what it finds. Do not modify the code yet.</li>
-<li>Pick a known bug supplied by the user.</li>
-<li>Create an issue and plan for that bug.</li>
-<li>Run the artifact reviewers and validators and fix the artifacts until they pass.</li>
-<li>Assign the approved plan to an implementer.</li>
-<li>Implement the plan, running required gates as work progresses and fixing failures before moving on.</li>
-<li>Run implementation review and resolve any findings.</li>
-<li>Stop before merge and summarize:
-<ul>
-<li>what the baseline found</li>
-<li>what the artifact workflow changed about the task</li>
-<li>what gates failed during implementation</li>
-<li>what the agent fixed because of Backstop</li>
-</ul>
-</li>
-</ol>
-
-## Install Backstop {#install}
+## 1. Install Backstop {#install}
 
 Pin the released binary in the repository.
 
@@ -38,21 +17,52 @@ Pin the released binary in the repository.
 [Configure Backstop](/reference/#configuration)
 </div>
 
-## Initialize Backstop {#configure}
+### Initialize Backstop {#configure}
 
 The Backstop configuration lives with the code.
 
 <pre><code>backstop init</code></pre>
 
-## Run the gate {#verify-enforcement}
+## 2. Start with your existing code {#adoption-paths}
 
-Confirm that a known violation fails before relying on it.
+Install a pack appropriate for the repository's stack. [Choose a pack](/packs/#choose-a-pack).
+
+Run:
+
+<pre><code>backstop baseline</code></pre>
+
+Review what Backstop finds. Do not fix anything yet.
+
+## 3. Try it on a bug you know {#known-bug}
+
+Pick a known bug in the repository.
+
+Use Backstop's lightweight artifact workflow for it:
+
+<ul class="eval-list">
+<li>Create an issue.</li>
+<li>Create the corresponding plan.</li>
+<li>Run the artifact reviewers and deterministic validators.</li>
+<li>Resolve findings until the artifacts pass.</li>
+</ul>
+
+[Artifact lifecycle](/reference/#artifact-lifecycle-and-closure)
+
+## 4. Let the agent implement it {#verify-enforcement}
+
+Assign the approved plan to an implementer agent.
+
+Execute the plan. As implementation progresses, run:
 
 <pre><code>backstop gate</code></pre>
 
+Fix gate failures before proceeding. Complete implementation review and resolve review findings.
+
+Stop before merge.
+
 <p class="adopt-close">You've now used the whole model.</p>
 
-<p class="adopt-close-next">Keep the complete workflow, or adopt only the parts you need.</p>
+<p class="adopt-close-next">Use the complete workflow, or only the parts you need.</p>
 
 <div class="canonical-note">
 <!-- backstop-claim: CLAIM-024 -->

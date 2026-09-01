@@ -742,7 +742,8 @@ th { background: var(--ds-surface); }
 
 [data-page-kind="adoption"] .page-hero h1 { max-width: 12ch; }
 [data-page-kind="adoption"] .page-boundary,
-[data-page-kind="adoption"] .prose > h2 + p {
+[data-page-kind="adoption"] .prose > h2 + p,
+[data-page-kind="adoption"] .prose > h3 + p {
   max-width: 46rem;
   margin: 0.45rem 0 1.25rem;
   color: var(--ds-muted);
@@ -760,37 +761,25 @@ th { background: var(--ds-surface); }
   letter-spacing: -0.03em;
   line-height: 1.2;
 }
-[data-page-kind="adoption"] #install,
-[data-page-kind="adoption"] #configure,
-[data-page-kind="adoption"] #verify-enforcement {
-  margin-top: 2.5rem;
+[data-page-kind="adoption"] .prose > h2:first-child { margin-top: 0; }
+[data-page-kind="adoption"] .prose > h3 {
+  margin: 1.75rem 0 0;
+  color: inherit;
+  font-family: var(--ds-font-sans);
   font-size: clamp(1.15rem, 2vw, 1.45rem);
   font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
 }
 [data-page-kind="adoption"] .prose > p { max-width: 46rem; }
-[data-page-kind="adoption"] .agent-brief {
+[data-page-kind="adoption"] .eval-list {
   max-width: 46rem;
-  margin: 1.15rem 0 2rem;
+  margin: 0.85rem 0 1.1rem;
   padding: 0 0 0 1.25rem;
 }
-[data-page-kind="adoption"] .agent-brief > li {
-  margin: 0.7rem 0;
+[data-page-kind="adoption"] .eval-list > li {
+  margin: 0.45rem 0;
   padding-left: 0.35rem;
-}
-[data-page-kind="adoption"] .agent-brief ul {
-  margin: 0.45rem 0 0;
-  padding-left: 1.15rem;
-}
-[data-page-kind="adoption"] .agent-brief ul li {
-  margin: 0.25rem 0;
-  color: var(--ds-muted);
-}
-[data-page-kind="adoption"] .agent-brief code {
-  padding: 0.05em 0.3em;
-  border: 1px solid var(--ds-border);
-  border-radius: 0.25rem;
-  background: var(--ds-surface);
-  font-size: 0.92em;
 }
 [data-page-kind="adoption"] .adopt-close {
   max-width: 46rem;
