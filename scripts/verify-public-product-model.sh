@@ -405,7 +405,7 @@ allowances={
  'Pin the released binary in the repository.':'visitor adoption guide',
  '<div class="canonical-note">\n<!-- backstop-journey-link: JLINK-012 -->\n[Configure Backstop](/reference/#configuration)\n</div>':'canonical source note',
  'Backstop configuration lives with the code.':'visitor adoption guide',
- 'Install a pack appropriate for the repository\'s stack. [Choose a pack](/packs/#choose-a-pack).':'visitor adoption guide',
+ 'A pack is a versioned set of standards for a stack. [See which packs exist](/packs/#choose-a-pack) and install one that matches this repository.':'visitor adoption guide',
  'Run:':'visitor adoption guide',
  '<pre><code>backstop baseline</code></pre>':'visitor adoption guide',
  'Review what Backstop finds. Do not fix anything yet.':'visitor adoption guide',
