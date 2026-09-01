@@ -128,11 +128,13 @@ The agent does not hand failed work downstream.
 <div class="loop-return" aria-hidden="true"><span>fail / fix</span></div>
 </div>
 <div class="loop-pass" aria-hidden="true"><span>pass</span></div>
-<div class="fig-node"><strong>Continue</strong></div>
+<div class="fig-node"><strong>Proceed</strong></div>
 <div class="dag-edge" aria-hidden="true">→</div>
+<div class="loop-ci">
 <div class="fig-node ci"><strong>CI</strong></div>
-</div>
 <p class="fig-caption">CI confirms. It does not discover.</p>
+</div>
+</div>
 </div>
 
 <div class="canonical-note">
