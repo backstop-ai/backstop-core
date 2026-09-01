@@ -41,7 +41,7 @@ paths=['/','/evaluate/','/model/','/adopt/','/use-cases/','/packs/','/extend/','
 sources=['docs/index.md','docs/evaluate.md','docs/model.md','docs/adopt.md','docs/use-cases.md','docs/packs.md','docs/extend.md','docs/reference.md','docs/status.md','docs/contributing.md']
 pages=top.get('pages',[])
 if [(x.get('source'),x.get('canonical_path')) for x in pages]!=list(zip(sources,paths)): fail('page inventory must contain exact ten source/path pairs')
-heroes=['What failure does Backstop prevent?','Your agent already writes the code.','How it works','Start where it will pay you first.','Which problem-oriented adoption path applies?','Which maintained pack already owns this standard?','When should this concern become a pack?','What exact interface or behavior do I need?','What is supported, limited, planned, or intentionally outside Backstop?','How can I participate in Backstop and its ecosystem?']
+heroes=['What failure does Backstop prevent?','Your agent already writes the code.','How it works','Adopt Backstop incrementally','Which problem-oriented adoption path applies?','Which maintained pack already owns this standard?','When should this concern become a pack?','What exact interface or behavior do I need?','What is supported, limited, planned, or intentionally outside Backstop?','How can I participate in Backstop and its ecosystem?']
 for page,hero in zip(pages,heroes):
  if page.get('hero_question')!=hero: fail(page.get('source','page')+': hero_question')
 presentation_pages=presentation.get('pages',[])
@@ -402,15 +402,12 @@ allowances={
  '</div>':'canonical claim anchors'
 },
 'docs/adopt.md':{
- '<div class="tactics-matrix adopt-chooser">\n<table>\n<thead>\n<tr><th>If this is already true</th><th>Start here</th><th>What you get</th></tr>\n</thead>\n<tbody>\n<tr><td data-label="If this is already true">A standard you would fail a merge over lives in a doc</td><td data-label="Start here">One pack and the gate</td><td data-label="What you get">The next merge cannot quietly ignore it</td></tr>\n<tr><td data-label="If this is already true">The agent can say “done” without matching intent</td><td data-label="Start here">The artifact chain</td><td data-label="What you get">“Done” can be contradicted</td></tr>\n<tr><td data-label="If this is already true">Failures show up after the PR opens</td><td data-label="Start here">The gate in the agent\'s loop</td><td data-label="What you get">The agent sees the failure while it can still fix it</td></tr>\n</tbody>\n</table>\n</div>':'visitor adoption chooser',
- '<p class="adopt-skip">The rest can wait. Adopt only what solves the problem you chose.</p>':'visitor adoption guide',
+ '<div class="tactics-matrix adopt-chooser">\n<table>\n<thead>\n<tr><th>If this is happening</th><th>Start with</th><th>What changes</th></tr>\n</thead>\n<tbody>\n<tr><td data-label="If this is happening">Standards you enforce in review only exist in documentation</td><td data-label="Start with">A pack and the gate</td><td data-label="What changes">Violations can block the work</td></tr>\n<tr><td data-label="If this is happening">The agent can finish without satisfying the defined work</td><td data-label="Start with">The artifact chain</td><td data-label="What changes">“Done” can be contradicted</td></tr>\n<tr><td data-label="If this is happening">Failures are first discovered after the PR opens</td><td data-label="Start with">The gate in the agent loop</td><td data-label="What changes">The agent gets the failure before review</td></tr>\n</tbody>\n</table>\n</div>':'visitor adoption chooser',
  'Pin the released binary in the repository.':'visitor adoption guide',
- "Don't rely on a machine-global copy.":'visitor adoption guide',
  '<div class="canonical-note">\n<!-- backstop-journey-link: JLINK-012 -->\n[Configure Backstop](/reference/#configuration)\n</div>':'canonical source note',
- 'The declaration lives with the code.':'visitor adoption guide',
+ 'The Backstop configuration lives with the code.':'visitor adoption guide',
  '<div class="adopt-fork">\n<div class="adopt-fork-row"><strong>Standards</strong><span aria-hidden="true">→</span><span>Install a pack</span></div>\n<div class="adopt-fork-row"><strong>Intent / completeness</strong><span aria-hidden="true">→</span><span>Start an artifact chain</span></div>\n<div class="adopt-fork-row"><strong>Late failures</strong><span aria-hidden="true">→</span><span>Put the gate in the agent loop</span></div>\n</div>':'visitor adoption fork',
- 'A passing gate is only expected when every blocking check passes.':'visitor adoption guide',
- 'Keep the failing receipt. That is the first success.':'visitor adoption guide',
+ 'Confirm that a known violation fails before relying on it.':'visitor adoption guide',
  '<div class="canonical-note">':'canonical source note',
  '<!-- backstop-journey-link: JLINK-013 -->\n[Understand the enforcement loop](/model/#enforcement-loop)\n</div>':'canonical source note'
 },

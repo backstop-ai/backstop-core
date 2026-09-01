@@ -2,34 +2,30 @@
 title: Adopt Backstop
 layout: default
 permalink: /adopt/
-hero_question: "Start where it will pay you first."
-hero_lede: "The pieces compose. Put the first one on the failure that already costs you."
+hero_question: "Adopt Backstop incrementally"
+hero_lede: "You do not need to adopt the entire framework at once. Start with the problem you want Backstop to enforce."
 ---
 
-## Start from what's already true {#adoption-paths}
+## Choose where to start {#adoption-paths}
 
 <div class="tactics-matrix adopt-chooser">
 <table>
 <thead>
-<tr><th>If this is already true</th><th>Start here</th><th>What you get</th></tr>
+<tr><th>If this is happening</th><th>Start with</th><th>What changes</th></tr>
 </thead>
 <tbody>
-<tr><td data-label="If this is already true">A standard you would fail a merge over lives in a doc</td><td data-label="Start here">One pack and the gate</td><td data-label="What you get">The next merge cannot quietly ignore it</td></tr>
-<tr><td data-label="If this is already true">The agent can say “done” without matching intent</td><td data-label="Start here">The artifact chain</td><td data-label="What you get">“Done” can be contradicted</td></tr>
-<tr><td data-label="If this is already true">Failures show up after the PR opens</td><td data-label="Start here">The gate in the agent's loop</td><td data-label="What you get">The agent sees the failure while it can still fix it</td></tr>
+<tr><td data-label="If this is happening">Standards you enforce in review only exist in documentation</td><td data-label="Start with">A pack and the gate</td><td data-label="What changes">Violations can block the work</td></tr>
+<tr><td data-label="If this is happening">The agent can finish without satisfying the defined work</td><td data-label="Start with">The artifact chain</td><td data-label="What changes">“Done” can be contradicted</td></tr>
+<tr><td data-label="If this is happening">Failures are first discovered after the PR opens</td><td data-label="Start with">The gate in the agent loop</td><td data-label="What changes">The agent gets the failure before review</td></tr>
 </tbody>
 </table>
 </div>
 
-<p class="adopt-skip">The rest can wait. Adopt only what solves the problem you chose.</p>
-
-## Install the binary {#install}
+## Install Backstop {#install}
 
 Pin the released binary in the repository.
 
 <pre><code>GOBIN=./.backstop-bin go install github.com/backstop-ai/backstop-core/cmd/backstop@v0.2.0</code></pre>
-
-Don't rely on a machine-global copy.
 
 <div class="canonical-note">
 <!-- backstop-journey-link: JLINK-012 -->
@@ -38,11 +34,11 @@ Don't rely on a machine-global copy.
 
 ## Initialize Backstop {#configure}
 
-The declaration lives with the code.
+The Backstop configuration lives with the code.
 
 <pre><code>backstop init</code></pre>
 
-## Add the piece you chose {#add-the-piece}
+## Add what you need {#add-the-piece}
 
 <div class="adopt-fork">
 <div class="adopt-fork-row"><strong>Standards</strong><span aria-hidden="true">→</span><span>Install a pack</span></div>
@@ -50,13 +46,11 @@ The declaration lives with the code.
 <div class="adopt-fork-row"><strong>Late failures</strong><span aria-hidden="true">→</span><span>Put the gate in the agent loop</span></div>
 </div>
 
-## Prove it blocks {#verify-enforcement}
+## Run the gate {#verify-enforcement}
 
-A passing gate is only expected when every blocking check passes.
+Confirm that a known violation fails before relying on it.
 
 <pre><code>backstop gate</code></pre>
-
-Keep the failing receipt. That is the first success.
 
 <div class="canonical-note">
 <!-- backstop-claim: CLAIM-024 -->

@@ -17,7 +17,7 @@ pages:
     next_action: /adopt/
   - route: /adopt/
     page_kind: adoption
-    hero_question: Start where it will pay you first.
+    hero_question: Adopt Backstop incrementally
     treatments: [evidence-cards]
     next_action: /use-cases/
   - route: /use-cases/

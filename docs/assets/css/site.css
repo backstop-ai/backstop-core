@@ -740,7 +740,7 @@ th { background: var(--ds-surface); }
   font-weight: 650;
 }
 
-[data-page-kind="adoption"] .page-hero h1 { max-width: 18ch; }
+[data-page-kind="adoption"] .page-hero h1 { max-width: 16ch; }
 [data-page-kind="adoption"] .page-boundary,
 [data-page-kind="adoption"] .prose > h2 + p {
   max-width: 46rem;
