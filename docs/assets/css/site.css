@@ -243,6 +243,7 @@ th { background: var(--ds-surface); }
   line-height: 1;
 }
 [data-page-kind="model"] .prose > h2 + p,
+[data-page-kind="model"] .prose > h2 + p + p,
 [data-page-kind="model"] .work-topology + p,
 [data-page-kind="model"] .model-figure + p {
   max-width: 46rem;
@@ -251,6 +252,7 @@ th { background: var(--ds-surface); }
   font-size: 1.05rem;
   font-weight: 400;
 }
+[data-page-kind="model"] .prose > h2 + p + p,
 [data-page-kind="model"] .work-topology + p + p,
 [data-page-kind="model"] .model-figure + p + p { margin-top: 0; }
 [data-page-kind="model"] .model-figure {
@@ -296,10 +298,6 @@ th { background: var(--ds-surface); }
 [data-page-kind="model"] .fig-node.ci {
   border-color: color-mix(in srgb, var(--ds-muted) 55%, var(--ds-border));
   background: color-mix(in srgb, var(--ds-muted) 12%, transparent);
-}
-[data-page-kind="model"] .fig-node.agent {
-  border-style: dashed;
-  color: var(--ds-muted);
 }
 [data-page-kind="model"] .gate-loop,
 [data-page-kind="model"] .loop-cycle {
@@ -585,29 +583,6 @@ th { background: var(--ds-surface); }
   font-size: 0.82rem;
   font-weight: 650;
   text-align: center;
-}
-[data-page-kind="model"] .own-figure {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-[data-page-kind="model"] .own-frame {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  min-width: 12.5rem;
-  padding: 0.85rem 1.35rem 1rem;
-  border-radius: 0.35rem;
-  box-shadow: 0 0 0 1px var(--ds-border);
-}
-[data-page-kind="model"] .own-frame > p {
-  margin: 0 0 0.7rem;
-  color: var(--ds-muted);
-  font-family: var(--ds-font-mono);
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 [data-page-kind="model"] .canonical-anchors,
 [data-page-kind="model"] .canonical-note {
@@ -917,7 +892,6 @@ html:has([data-page-kind="evaluation"]) .navigation-groups a[aria-current="page"
   }
   [data-page-kind="model"] .loop-repeat { position: static; transform: none; display: block; text-align: center; margin-bottom: 0.25rem; }
   [data-page-kind="model"] .loop-review .loop-return { position: static; height: auto; margin-top: 0.25rem; text-align: center; }
-  [data-page-kind="model"] .own-frame { min-width: 0; width: 100%; }
   [data-page-kind="evaluation"] .failed-verdict-row { grid-template-columns: 1fr auto; }
   [data-page-kind="evaluation"] .ci-workflows { grid-template-columns: 1fr; }
   [data-page-kind="home"] .nav { height: auto !important; min-height: 76px; flex-wrap: wrap; gap: 1rem; padding-block: 1rem; }

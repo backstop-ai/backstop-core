@@ -152,15 +152,9 @@ The authoritative enforcement loop is `docs/_diagrams/ARCH-002-enforcement-loop.
 
 ## What Backstop does not own {#ownership-boundaries}
 
-Backstop sits around the agent.
+Backstop does not own the harness or the language model. It does not own anyone's standards or opinions, or the engines that check them — Semgrep, native toolchains, custom scripts. It does not own your source or your data.
 
-<div class="model-figure own-figure">
-<div class="own-frame">
-<p>Backstop</p>
-<div class="fig-node agent"><strong>Agent</strong><span>Writes the code</span></div>
-</div>
-<p class="fig-caption">The toolchain owns its own behavior.</p>
-</div>
+It exists to make agents behave in a disciplined way that gives you the confidence you are getting the software you think you are.
 
 <div class="canonical-note">
 <!-- backstop-claim: CLAIM-010 -->
