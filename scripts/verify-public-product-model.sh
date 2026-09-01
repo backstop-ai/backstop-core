@@ -41,7 +41,7 @@ paths=['/','/evaluate/','/model/','/adopt/','/use-cases/','/packs/','/extend/','
 sources=['docs/index.md','docs/evaluate.md','docs/model.md','docs/adopt.md','docs/use-cases.md','docs/packs.md','docs/extend.md','docs/reference.md','docs/status.md','docs/contributing.md']
 pages=top.get('pages',[])
 if [(x.get('source'),x.get('canonical_path')) for x in pages]!=list(zip(sources,paths)): fail('page inventory must contain exact ten source/path pairs')
-heroes=['What failure does Backstop prevent?','Your agent already writes the code.','How it works','What does a first working adoption require?','Which problem-oriented adoption path applies?','Which maintained pack already owns this standard?','When should this concern become a pack?','What exact interface or behavior do I need?','What is supported, limited, planned, or intentionally outside Backstop?','How can I participate in Backstop and its ecosystem?']
+heroes=['What failure does Backstop prevent?','Your agent already writes the code.','How it works','Put one standard behind the gate.','Which problem-oriented adoption path applies?','Which maintained pack already owns this standard?','When should this concern become a pack?','What exact interface or behavior do I need?','What is supported, limited, planned, or intentionally outside Backstop?','How can I participate in Backstop and its ecosystem?']
 for page,hero in zip(pages,heroes):
  if page.get('hero_question')!=hero: fail(page.get('source','page')+': hero_question')
 presentation_pages=presentation.get('pages',[])
@@ -402,11 +402,20 @@ allowances={
  '</div>':'canonical claim anchors'
 },
 'docs/adopt.md':{
- 'Start in a disposable repository, prove one gate, and only then widen the policy surface. A first adoption needs Go, Git, an explicit project root, and a standard worth making non-negotiable.':'adoption instruction',
- 'Install the exact released binary into the disposable repository rather than relying on a machine-global copy.':'adoption instruction',
- 'Initialize the repository-owned declaration.':'adoption instruction',
- 'Inspect the created `backstop.yml`, select a maintained pack, and keep the pinned declaration in version control.':'adoption instruction',
- 'Run the gate from the repository root.':'adoption instruction'},
+ "Don't widen the policy surface until a violation actually blocks.":'visitor adoption guide',
+ '<div class="adopt-steps">\n<div class="adopt-step"><strong>Install</strong><span>Pin the binary</span></div>\n<div class="adopt-edge" aria-hidden="true">→</div>\n<div class="adopt-step"><strong>Initialize</strong><span>Own the declaration</span></div>\n<div class="adopt-edge" aria-hidden="true">→</div>\n<div class="adopt-step packs"><strong>Prove</strong><span>A violation must fail</span></div>\n</div>':'visitor adoption steps',
+ '<p class="adopt-need"><span>You need</span>Go, Git, and a standard you would fail a merge over.</p>':'visitor adoption guide',
+ 'Pin the released binary in the repository.':'visitor adoption guide',
+ "Don't rely on a machine-global copy.":'visitor adoption guide',
+ '<div class="canonical-note">\n<!-- backstop-journey-link: JLINK-012 -->\n[Configure Backstop](/reference/#configuration)\n</div>':'canonical source note',
+ 'The declaration lives with the code.':'visitor adoption guide',
+ '<div class="adopt-init">\n<div class="fig-node"><strong>backstop.yml</strong><span>Repository-owned config</span></div>\n<div class="fig-node packs"><strong>Pack</strong><span>One maintained standard</span></div>\n<div class="fig-node"><strong>Commit</strong><span>Pin it in version control</span></div>\n</div>':'visitor adoption table',
+ 'Choose a maintained pack and commit the pin.':'visitor adoption guide',
+ 'A passing gate is only expected when every blocking check passes.':'visitor adoption guide',
+ '<div class="adopt-verdict" aria-label="Example failing Backstop gate">\n<div class="adopt-verdict-bar"><span>first run</span><span>exit 1</span></div>\n<div class="adopt-verdict-row"><span>Standard</span><span>the rule you just pinned</span><strong>fail</strong></div>\n<div class="adopt-verdict-foot"><strong>FAIL</strong><span>The violation is blocked. That is the first success.</span></div>\n</div>':'visitor adoption verdict',
+ 'Then you can widen.':'visitor adoption guide',
+ '<div class="canonical-note">':'canonical source note',
+ '<!-- backstop-journey-link: JLINK-013 -->\n[Understand the enforcement loop](/model/#enforcement-loop)\n</div>':'visitor adoption guide'},
 'docs/use-cases.md':{
  'Start from the failure you need to prevent: policy drift, unreviewable agent output, inconsistent artifact execution, or a standard that exists only in prose. Then choose the smallest enforceable seam.':'visitor decision guidance',
  'Use a maintained pack when the concern is shared, repeatable, and already has an owner. Compose packs for architecture, language contracts, CI, security, or repository conventions instead of copying their rules into prompts.':'visitor decision guidance'},

@@ -17,7 +17,7 @@ pages:
     next_action: /adopt/
   - route: /adopt/
     page_kind: adoption
-    hero_question: What does a first working adoption require?
+    hero_question: Put one standard behind the gate.
     treatments: [evidence-cards]
     next_action: /use-cases/
   - route: /use-cases/

@@ -4,7 +4,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    {% if presentation.page_kind == "evaluation" or presentation.page_kind == "model" %}
+    {% if presentation.page_kind == "evaluation" or presentation.page_kind == "model" or presentation.page_kind == "adoption" %}
     <meta name="theme-color" content="#0c0d0d">
     {% else %}
     <meta name="color-scheme" content="dark">
@@ -15,7 +15,7 @@
     <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="/assets/css/design-system-tokens.css">
     <link rel="stylesheet" href="/assets/css/site.css">
-    {% if presentation.page_kind == "evaluation" or presentation.page_kind == "model" %}
+    {% if presentation.page_kind == "evaluation" or presentation.page_kind == "model" or presentation.page_kind == "adoption" %}
     <link rel="stylesheet" href="/assets/css/backstop-tokens.css">
     {% endif %}
   </head>
