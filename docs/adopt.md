@@ -6,7 +6,7 @@ hero_question: "Try it out."
 hero_lede: "Paste this to your agent. You choose the repository and a known bug."
 ---
 
-## Evaluate Backstop in this repository {#adoption-paths}
+## Evaluate Backstop in a real project {#adoption-paths}
 
 <ol class="agent-brief">
 <li>Install a pack that matches the stack.</li>
