@@ -73,9 +73,9 @@ th { background: var(--ds-surface); }
   font-size: 1.15rem;
   font-weight: 400;
 }
-[data-page-kind="model"] .prose { width: min(calc(100% - 2rem), 56rem); padding-block: 2.5rem 4rem; }
+[data-page-kind="model"] .prose { width: min(calc(100% - 2rem), 72rem); padding-block: 2.5rem 4rem; }
 [data-page-kind="model"] .prose > h2 {
-  margin: 2.75rem 0 0.85rem;
+  margin: 3rem 0 0;
   color: inherit;
   font-family: var(--ds-font-sans);
   font-size: clamp(1.45rem, 3vw, 2.1rem);
@@ -247,9 +247,9 @@ th { background: var(--ds-surface); }
 [data-page-kind="model"] .work-topology + p,
 [data-page-kind="model"] .model-figure + p {
   max-width: 46rem;
-  margin: 0.45rem 0 1rem;
+  margin: 0.45rem 0 1.25rem;
   color: var(--ds-muted);
-  font-size: 1.05rem;
+  font-size: 1.15rem;
   font-weight: 400;
 }
 [data-page-kind="model"] .prose > h2 + p + p,
@@ -709,7 +709,7 @@ th { background: var(--ds-surface); }
   font-weight: 650;
 }
 
-html:has([data-page-kind="evaluation"]) {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"]) {
   color-scheme: light;
   background: var(--color-paper);
   --ds-canvas: var(--color-paper);
@@ -722,27 +722,27 @@ html:has([data-page-kind="evaluation"]) {
   --ds-font-sans: var(--font-sans);
   --ds-font-mono: var(--font-mono);
 }
-html:has([data-page-kind="evaluation"]) body {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"]) body {
   background: var(--color-paper);
   color: var(--color-ink);
   font-family: var(--font-sans);
 }
-html:has([data-page-kind="evaluation"]) .site-header {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"]) .site-header {
   background: var(--color-paper);
   border-bottom-color: var(--color-line);
 }
-html:has([data-page-kind="evaluation"]) .header-shell {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"]) .header-shell {
   min-height: 76px;
   align-items: center;
   padding-block: 0;
 }
-html:has([data-page-kind="evaluation"]) .wordmark {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"]) .wordmark {
   font-family: var(--font-sans);
   font-size: 1rem;
   font-weight: 700;
   letter-spacing: -0.03em;
 }
-html:has([data-page-kind="evaluation"]) .wordmark[data-backstop-wordmark] > span:first-child {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"]) .wordmark[data-backstop-wordmark] > span:first-child {
   display: inline-grid;
   place-items: center;
   width: 31px;
@@ -755,28 +755,34 @@ html:has([data-page-kind="evaluation"]) .wordmark[data-backstop-wordmark] > span
   font-size: 0.66rem;
   letter-spacing: -0.08em;
 }
-html:has([data-page-kind="evaluation"]) .wordmark[data-backstop-wordmark] > span:last-child {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"]) .wordmark[data-backstop-wordmark] > span:last-child {
   color: var(--color-muted);
   font-weight: 500;
 }
-html:has([data-page-kind="evaluation"]) .navigation-groups a {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"]) .navigation-groups a {
   color: var(--color-ink);
   font-size: 0.84rem;
   font-weight: 530;
 }
-html:has([data-page-kind="evaluation"]) .navigation-groups a:hover {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"]) .navigation-groups a:hover {
   color: var(--color-muted);
 }
-html:has([data-page-kind="evaluation"]) .navigation-groups a[aria-current="page"] {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"]) .navigation-groups a[aria-current="page"] {
   color: var(--color-ink);
   text-decoration-color: var(--color-signal);
 }
-[data-page-kind="evaluation"] .page-responsibility {
+[data-page-kind="evaluation"] .page-responsibility,
+[data-page-kind="model"] .page-responsibility {
   color: var(--color-muted);
 }
-[data-page-kind="evaluation"] .page-hero h1 {
+[data-page-kind="evaluation"] .page-hero h1,
+[data-page-kind="model"] .page-hero h1 {
   font-weight: 620;
   letter-spacing: -0.067em;
+}
+[data-page-kind="model"] #ownership-boundaries + p + p {
+  color: var(--ds-accent);
+  font-weight: 650;
 }
 [data-page-kind="evaluation"] .failed-verdict {
   background: var(--color-terminal);
