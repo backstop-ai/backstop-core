@@ -464,11 +464,19 @@ th { background: var(--ds-surface); }
 [data-page-kind="model"] .loop-figure { display: flex; flex-direction: column; align-items: center; }
 [data-page-kind="model"] .loop-flow {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   gap: 0.4rem;
-  padding-top: 0.9rem;
+  padding-top: 0.7rem;
   padding-bottom: 2.45rem;
+}
+[data-page-kind="model"] .loop-flow > .dag-edge,
+[data-page-kind="model"] .loop-pass {
+  height: 2rem;
+}
+[data-page-kind="model"] .loop-flow > .dag-edge {
+  display: flex;
+  align-items: center;
 }
 [data-page-kind="model"] .loop-core {
   position: relative;
@@ -476,6 +484,9 @@ th { background: var(--ds-surface); }
   flex-direction: column;
   align-items: stretch;
   min-width: 0;
+  padding: 0 0.55rem 1.5rem;
+  border: 1px solid var(--ds-border);
+  border-radius: 0.35rem;
 }
 [data-page-kind="model"] .loop-forward {
   display: grid;
@@ -489,6 +500,10 @@ th { background: var(--ds-surface); }
   right: 0;
   top: 100%;
   height: 1.35rem;
+}
+[data-page-kind="model"] .loop-core > .loop-return {
+  top: auto;
+  bottom: 0.1rem;
 }
 [data-page-kind="model"] .loop-return::before {
   content: "";
@@ -533,8 +548,10 @@ th { background: var(--ds-surface); }
 [data-page-kind="model"] .loop-pass span { padding: 0 0.3rem; }
 [data-page-kind="model"] .loop-repeat {
   position: absolute;
-  top: -0.85rem;
+  top: -0.55rem;
   left: 50%;
+  padding: 0 0.35rem;
+  background: var(--ds-surface);
   color: var(--ds-accent);
   font-family: var(--ds-font-mono);
   font-size: 0.58rem;
@@ -546,7 +563,8 @@ th { background: var(--ds-surface); }
 }
 [data-page-kind="model"] .loop-review { position: relative; }
 [data-page-kind="model"] .loop-review .loop-return::before { inset: auto 12% 0 12%; }
-[data-page-kind="model"] .loop-figure .fig-node { justify-content: center; min-width: 4.8rem; }
+[data-page-kind="model"] .loop-figure .fig-node { justify-content: center; min-width: 4.8rem; white-space: nowrap; }
+[data-page-kind="model"] .loop-review .fig-node { min-width: 8.75rem; }
 [data-page-kind="model"] .loop-figure .fig-node:not(.packs) {
   border-color: color-mix(in srgb, var(--ds-muted) 55%, var(--ds-border));
   background: color-mix(in srgb, var(--ds-muted) 12%, transparent);

@@ -130,11 +130,11 @@ The agent does not hand failed work downstream.
 </div>
 <div class="loop-pass" aria-hidden="true"><span>pass</span></div>
 <div class="loop-review">
-<div class="fig-node"><strong>Review</strong></div>
+<div class="fig-node"><strong>Implementation review</strong></div>
 <div class="loop-return" aria-hidden="true"><span>fix</span></div>
 </div>
 <div class="dag-edge" aria-hidden="true">→</div>
-<div class="fig-node"><strong>Push</strong></div>
+<div class="fig-node"><strong>Commit / Push</strong></div>
 <div class="dag-edge" aria-hidden="true">→</div>
 <div class="loop-ci">
 <div class="fig-node ci"><strong>CI</strong></div>
