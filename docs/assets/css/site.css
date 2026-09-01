@@ -467,6 +467,7 @@ th { background: var(--ds-surface); }
   align-items: center;
   justify-content: center;
   gap: 0.4rem;
+  padding-top: 0.9rem;
   padding-bottom: 2.45rem;
 }
 [data-page-kind="model"] .loop-core {
@@ -530,7 +531,22 @@ th { background: var(--ds-surface); }
   background: var(--ds-accent);
 }
 [data-page-kind="model"] .loop-pass span { padding: 0 0.3rem; }
-[data-page-kind="model"] .loop-figure .fig-node { justify-content: center; min-width: 5.6rem; }
+[data-page-kind="model"] .loop-repeat {
+  position: absolute;
+  top: -0.85rem;
+  left: 50%;
+  color: var(--ds-accent);
+  font-family: var(--ds-font-mono);
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+[data-page-kind="model"] .loop-review { position: relative; }
+[data-page-kind="model"] .loop-review .loop-return::before { inset: auto 12% 0 12%; }
+[data-page-kind="model"] .loop-figure .fig-node { justify-content: center; min-width: 4.8rem; }
 [data-page-kind="model"] .loop-figure .fig-node:not(.packs) {
   border-color: color-mix(in srgb, var(--ds-muted) 55%, var(--ds-border));
   background: color-mix(in srgb, var(--ds-muted) 12%, transparent);
@@ -881,6 +897,8 @@ html:has([data-page-kind="evaluation"]) .navigation-groups a[aria-current="page"
     max-width: 12rem;
     transform: none;
   }
+  [data-page-kind="model"] .loop-repeat { position: static; transform: none; display: block; text-align: center; margin-bottom: 0.25rem; }
+  [data-page-kind="model"] .loop-review .loop-return { position: static; height: auto; margin-top: 0.25rem; text-align: center; }
   [data-page-kind="model"] .own-figure {
     grid-template-columns: 1fr;
     row-gap: 1rem;

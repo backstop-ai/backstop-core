@@ -120,6 +120,7 @@ The agent does not hand failed work downstream.
 <div class="fig-node"><strong>Plan</strong></div>
 <div class="dag-edge" aria-hidden="true">→</div>
 <div class="loop-core">
+<span class="loop-repeat">× N</span>
 <div class="loop-forward">
 <div class="fig-node packs"><strong>Implement</strong></div>
 <div class="dag-edge" aria-hidden="true">→</div>
@@ -128,7 +129,12 @@ The agent does not hand failed work downstream.
 <div class="loop-return" aria-hidden="true"><span>fail / fix</span></div>
 </div>
 <div class="loop-pass" aria-hidden="true"><span>pass</span></div>
-<div class="fig-node"><strong>Proceed</strong></div>
+<div class="loop-review">
+<div class="fig-node"><strong>Review</strong></div>
+<div class="loop-return" aria-hidden="true"><span>fix</span></div>
+</div>
+<div class="dag-edge" aria-hidden="true">→</div>
+<div class="fig-node"><strong>Push</strong></div>
 <div class="dag-edge" aria-hidden="true">→</div>
 <div class="loop-ci">
 <div class="fig-node ci"><strong>CI</strong></div>
