@@ -387,13 +387,13 @@ claims:
     evidence_refs:
       - {evidence_id: EVIDENCE-043, kind: source, locator: {path: pkg/pack/manifest.go}, relevance: "Defines the pack manifest model."}
   - claim_id: CLAIM-030
-    statement: "Bundles progress through `idea`, `exploring`, `defined`, and `ready`; specifications progress from `draft` to `ready-for-implementation`; plans progress from `draft` to `approved` and `in-progress`. Terminal states distinguish delivered or implemented work from replacement, cancellation, deprecation, and obsolescence, with successor fields required where the schema names one."
-    statement_markdown: "Bundles progress through `idea`, `exploring`, `defined`, and `ready`; specifications progress from `draft` to `ready-for-implementation`; plans progress from `draft` to `approved` and `in-progress`. Terminal states distinguish delivered or implemented work from replacement, cancellation, deprecation, and obsolescence, with successor fields required where the schema names one."
+    statement: "Bundles progress through `idea`, `exploring`, `defined`, and `ready`; specifications progress from `draft` to `ready-for-implementation`; plans progress from `draft` to `ready` to `implementing` to `completed`. Terminal states distinguish delivered or implemented work from replacement, cancellation, deprecation, and obsolescence, with successor fields required where the schema names one."
+    statement_markdown: "Bundles progress through `idea`, `exploring`, `defined`, and `ready`; specifications progress from `draft` to `ready-for-implementation`; plans progress from `draft` to `ready` to `implementing` to `completed`. Terminal states distinguish delivered or implemented work from replacement, cancellation, deprecation, and obsolescence, with successor fields required where the schema names one."
     claim_type: mechanism
     owner: {route: "/reference/", anchor: artifact-lifecycle-and-closure}
     mechanism_summary: "Versioned artifact schemas enumerate live and terminal states plus successor requirements."
     guarantee_boundary: "Each artifact kind retains its own exact vocabulary."
-    known_limitations: "This paragraph summarizes the primary tracks rather than every artifact kind."
+    known_limitations: "This paragraph summarizes the primary tracks rather than every artifact kind. Exact plan live states are draft, ready, implementing, and completed."
     adoption_implications: "Consult the named schema before changing state."
     direction: "Keep lifecycle state machine-readable."
     evidence_refs:

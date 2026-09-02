@@ -76,13 +76,72 @@ A pack declares identity, version, claims, engines, fixtures, tools, applicabili
 
 ## Artifact lifecycle and closure {#artifact-lifecycle-and-closure}
 
+Status is a declared field. Authors set it. It is not inferred from git or CI. Per-noun Status tables live on the entity pages. This section is the machine: legal moves, what must be true, what starts being enforced, and what that move enables.
+
 <!-- backstop-claim: CLAIM-030 -->
-Bundles progress through `idea`, `exploring`, `defined`, and `ready`; specifications progress from `draft` to `ready-for-implementation`; plans progress from `draft` to `approved` and `in-progress`. Terminal states distinguish delivered or implemented work from replacement, cancellation, deprecation, and obsolescence, with successor fields required where the schema names one.
+Bundles progress through `idea`, `exploring`, `defined`, and `ready`; specifications progress from `draft` to `ready-for-implementation`; plans progress from `draft` to `ready` to `implementing` to `completed`. Terminal states distinguish delivered or implemented work from replacement, cancellation, deprecation, and obsolescence, with successor fields required where the schema names one.
 <!-- /backstop-claim -->
+
+Feature work uses bundle → spec → plan. Bounded work uses issue → plan. Both tracks meet at a plan. Each spec has exactly one plan. An issue does not get a spec. Product code is not written until a plan is approved.
+
+### Issue
+
+Live: `open` → `ready` → `in-progress`. `blocked` waits on named work.
+
+| State | Before you can enter it | Validator / gate | Enables |
+| --- | --- | --- | --- |
+| `open` | Scaffolded issue, Problem section | Schema only. Requirements and claims are optional. | Filing. Not a plan yet. |
+| `ready` | Requirements, claims, verification, implementation, and contracts | Full spec-parity traceability. | Creating a plan from the issue. |
+| `in-progress` | Same rigor as `ready` | Same. | A plan is in flight, or close-out is underway. |
+| `blocked` | Same rigor as `ready`, plus `blocked_by` | Same, plus the blocker must be named. | Waiting without pretending the work is moving. |
+| `closed` | `## Resolution`, and exactly one close pointer unless the issue carries its own requirements and claims | Close traceability. | The issue is finished. |
 
 <!-- backstop-claim: CLAIM-031 -->
 Closing an issue requires a `## Resolution` section and at most one traceability field: `delivered_by` names a completed plan, while `resolved-by` names a direct typed artifact reference, commit SHA, or pull-request URL when no plan lineage applies.
 <!-- /backstop-claim -->
+
+`delivered_by` and `resolved-by` on the same close is illegal. `replaced` requires `replaced-by`. `obsoleted` requires `obsoleted-by`. `canceled` is abandoned work.
+
+### Spec
+
+Live: `draft` → `ready-for-implementation` → `implemented`.
+
+A spec comes from a bundle. Live specs carry requirements, claims, verification, implementation, and contracts. Entering `ready-for-implementation` is what makes planning legal. `implemented` means the work was delivered; the file stays a full spec.
+
+Terminals: `replaced`, `canceled`, `deprecated`, `obsoleted`. Retired specs are exempt from live-work completeness.
+
+### Bundle
+
+Live: `idea` → `exploring` → `defined` → `ready`. Success terminal: `delivered`.
+
+The user drives promotion. Do not self-promote.
+
+| State | Before you can enter it | Validator / gate | Enables |
+| --- | --- | --- | --- |
+| `idea` | Named bundle | Identity and maturity enum. | The work has a name. |
+| `exploring` | Real open questions, unresolved | Same. | Exploration. Not specing. |
+| `defined` | `problem.summary`, `problem.user_story`, `solution.approach`, `requirements[]`, and sections Draft Requirements, Draft Design Decisions, Spec Seeds, Version History | Maturity gates. Placeholders are illegal. | Approach is clear. |
+| `ready` | Everything `defined` requires, plus `problem.success_criteria` and `solution.assumptions` | Same, tighter. | Spec generation. |
+| `delivered` | The work shipped. `requirements[]` still required. | Success terminal. | Closure of the bundle. |
+
+Terminals without delivery: `replaced`, `canceled`, `deprecated`. `replaced` requires `replaced-by`.
+
+### Plan
+
+Live: `draft` → `ready` → `implementing` → `completed`.
+
+`draft`, `ready`, and `implementing` are the same shape to the validator: phases, tasks, tests before implementation, every source claim mapped. Terminal plans (`replaced`, `canceled`, `obsoleted`) are exempt from phase and task completeness.
+
+| State | Before you can enter it | Validator / gate | Enables |
+| --- | --- | --- | --- |
+| `draft` | Source is an issue or a spec. Phases and tasks are present. | Plan schema and completeness. | Authoring. |
+| `ready` | Same shape. Reviewer has passed. | Same. | Implementation. An implementer may execute it. |
+| `implementing` | An implementer is executing it. | Same. | In-flight execution. |
+| `completed` | The work was delivered. Mandated tests exist. | Validator may accept a completed plan whose mandated tests are missing. The gate does not. | Delivery evidence for `delivered_by`. |
+
+`replaced` requires `replaced-by`. `obsoleted` requires `obsoleted-by`.
+
+Directive, ADR, and Capability have their own status vocabularies on [Directive](/directive/), [ADR](/adr/), and [Capability](/capability/). They are not paths into implementation.
 
 ## Source traceability {#source-traceability}
 

@@ -874,6 +874,56 @@ th { background: var(--ds-surface); }
   border: 0;
 }
 
+[data-page-kind="extension"] .page-hero h1 { max-width: 18ch; }
+[data-page-kind="extension"] .page-boundary,
+[data-page-kind="extension"] .prose > h2 + p,
+[data-page-kind="extension"] .prose > h3 + p {
+  max-width: 46rem;
+  margin: 0.45rem 0 1.25rem;
+  color: var(--ds-muted);
+  font-size: 1.15rem;
+  font-weight: 400;
+}
+[data-page-kind="extension"] .page-boundary { margin: 1.5rem 0 0; }
+[data-page-kind="extension"] .prose { width: min(calc(100% - 2rem), 72rem); padding-block: 2.5rem 4rem; }
+[data-page-kind="extension"] .prose > h2 {
+  margin: 3rem 0 0;
+  color: inherit;
+  font-family: var(--ds-font-sans);
+  font-size: clamp(1.45rem, 3vw, 2.1rem);
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+}
+[data-page-kind="extension"] .prose > h2:first-child { margin-top: 0; }
+[data-page-kind="extension"] .prose > h3 {
+  margin: 1.5rem 0 0;
+  color: inherit;
+  font-family: var(--ds-font-sans);
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.3;
+}
+[data-page-kind="extension"] .prose > h2 + h3 { margin-top: 1.1rem; }
+[data-page-kind="extension"] .prose > p { max-width: 46rem; }
+[data-page-kind="extension"] .prose pre {
+  max-width: 46rem;
+  margin: 0.85rem 0 1.1rem;
+  padding: 0.9rem 1.05rem;
+  overflow-x: auto;
+  border: 1px solid var(--ds-border);
+  border-radius: 0.55rem;
+  background: var(--ds-surface);
+}
+[data-page-kind="extension"] .prose pre code {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 0.9rem;
+  white-space: pre;
+}
+
 [data-page-kind="entity"] .page-hero {
   padding-block: 2.15rem 1.6rem;
 }
@@ -1010,7 +1060,7 @@ th { background: var(--ds-surface); }
   border-top: 1px solid var(--ds-border);
 }
 
-html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="entity"]) {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="extension"], [data-page-kind="entity"]) {
   color-scheme: light;
   background: var(--color-paper);
   --ds-canvas: var(--color-paper);
@@ -1023,27 +1073,27 @@ html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kin
   --ds-font-sans: var(--font-sans);
   --ds-font-mono: var(--font-mono);
 }
-html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="entity"]) body {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="extension"], [data-page-kind="entity"]) body {
   background: var(--color-paper);
   color: var(--color-ink);
   font-family: var(--font-sans);
 }
-html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="entity"]) .site-header {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="extension"], [data-page-kind="entity"]) .site-header {
   background: var(--color-paper);
   border-bottom-color: var(--color-line);
 }
-html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="entity"]) .header-shell {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="extension"], [data-page-kind="entity"]) .header-shell {
   min-height: 76px;
   align-items: center;
   padding-block: 0;
 }
-html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="entity"]) .wordmark {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="extension"], [data-page-kind="entity"]) .wordmark {
   font-family: var(--font-sans);
   font-size: 1rem;
   font-weight: 700;
   letter-spacing: -0.03em;
 }
-html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="entity"]) .wordmark[data-backstop-wordmark] > span:first-child {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="extension"], [data-page-kind="entity"]) .wordmark[data-backstop-wordmark] > span:first-child {
   display: inline-grid;
   place-items: center;
   width: 31px;
@@ -1056,19 +1106,19 @@ html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kin
   font-size: 0.66rem;
   letter-spacing: -0.08em;
 }
-html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="entity"]) .wordmark[data-backstop-wordmark] > span:last-child {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="extension"], [data-page-kind="entity"]) .wordmark[data-backstop-wordmark] > span:last-child {
   color: var(--color-muted);
   font-weight: 500;
 }
-html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="entity"]) .navigation-groups a {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="extension"], [data-page-kind="entity"]) .navigation-groups a {
   color: var(--color-ink);
   font-size: 0.84rem;
   font-weight: 530;
 }
-html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="entity"]) .navigation-groups a:hover {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="extension"], [data-page-kind="entity"]) .navigation-groups a:hover {
   color: var(--color-muted);
 }
-html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="entity"]) .navigation-groups a[aria-current="page"] {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="extension"], [data-page-kind="entity"]) .navigation-groups a[aria-current="page"] {
   color: var(--color-ink);
   text-decoration-color: var(--color-signal);
 }
