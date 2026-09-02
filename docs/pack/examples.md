@@ -40,7 +40,7 @@ Confirm the installed set:
 
 <pre><code>backstop pack list</code></pre>
 
-Commit `backstop.yml` and `backstop.lock` with the change. Git packs later move with `backstop pack update`. Local packs refresh the lock with `backstop pack relock`. Command details live in Reference.
+Commit `backstop.yml` and `backstop.lock` with the change. Git packs later move with `backstop pack update`. Command details live in Reference.
 
 <!-- backstop-claim: CLAIM-025 -->
 Add a published pack with `backstop pack add org/pack@version`. That pins the version in `backstop.yml` and writes `backstop.lock`. Restore locked packs with `backstop pack install`. Confirm them with `backstop pack list`.
@@ -48,3 +48,33 @@ Add a published pack with `backstop pack add org/pack@version`. That pins the ve
 
 <!-- backstop-journey-link: JLINK-017 -->
 [Use pack commands](/reference/#pack-commands)
+
+## Try a local pack first {#install-a-local-pack}
+
+Build the pack in its own directory and install that path into the project you want to prove against. Do this before you publish a tagged release.
+
+Scaffold, check, and test in the pack directory:
+
+<pre><code>backstop pack new --type engine --language go --slug my-standard</code></pre>
+
+<pre><code>backstop pack check ./my-standard</code></pre>
+
+<pre><code>backstop pack test ./my-standard</code></pre>
+
+`--type` is `engine`, `mechanism`, or `toolchain`. Authoring details live in the [guide](/pack/guide/#author-a-pack).
+
+From the consumer project, add the local path:
+
+<pre><code>backstop pack add ./my-standard</code></pre>
+
+That command validates the directory, copies it into `.backstop/packs/`, pins it as `local` in `backstop.yml`, and writes `backstop.lock`. There is no git tag yet.
+
+Run the project's gate:
+
+<pre><code>backstop gate</code></pre>
+
+After you edit the installed pack, refresh the lock:
+
+<pre><code>backstop pack relock ./my-standard</code></pre>
+
+Relock is local-source only. When the pack is ready to ship, publish a tagged release from its repository and add it with `backstop pack add org/pack@version`.
