@@ -21,6 +21,7 @@ a, summary, [tabindex] { outline-offset: 0.2rem; }
 .navigation-groups a { min-width: 0; color: var(--ds-muted); font-size: 0.92rem; overflow-wrap: anywhere; text-decoration: none; }
 .navigation-groups a:hover, .navigation-groups a[aria-current="page"] { color: inherit; }
 .navigation-groups a[aria-current="page"] { text-decoration: underline; text-decoration-color: var(--ds-accent); text-decoration-thickness: 0.16em; }
+[data-page-kind="home"] .nav-links.navigation-groups { gap: 0.7rem 1.5rem; }
 
 .page-hero { padding-block: clamp(3rem, 8vw, 7rem) clamp(2.5rem, 5vw, 4.5rem); border-bottom: 1px solid var(--ds-border); }
 .page-responsibility { margin: 0 0 1rem; color: var(--ds-accent); font-family: var(--ds-font-mono); font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.11em; }
@@ -1302,7 +1303,7 @@ th { background: var(--ds-surface); }
   border-top: 1px solid var(--ds-border);
 }
 
-html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="ecosystem"], [data-page-kind="extension"], [data-page-kind="reference"], [data-page-kind="entity"]) {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="ecosystem"], [data-page-kind="extension"], [data-page-kind="reference"], [data-page-kind="entity"], [data-page-kind="contributing"]) {
   color-scheme: light;
   background: var(--color-paper);
   --ds-canvas: var(--color-paper);
@@ -1315,27 +1316,27 @@ html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kin
   --ds-font-sans: var(--font-sans);
   --ds-font-mono: var(--font-mono);
 }
-html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="ecosystem"], [data-page-kind="extension"], [data-page-kind="reference"], [data-page-kind="entity"]) body {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="ecosystem"], [data-page-kind="extension"], [data-page-kind="reference"], [data-page-kind="entity"], [data-page-kind="contributing"]) body {
   background: var(--color-paper);
   color: var(--color-ink);
   font-family: var(--font-sans);
 }
-html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="ecosystem"], [data-page-kind="extension"], [data-page-kind="reference"], [data-page-kind="entity"]) .site-header {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="ecosystem"], [data-page-kind="extension"], [data-page-kind="reference"], [data-page-kind="entity"], [data-page-kind="contributing"]) .site-header {
   background: var(--color-paper);
   border-bottom-color: var(--color-line);
 }
-html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="ecosystem"], [data-page-kind="extension"], [data-page-kind="reference"], [data-page-kind="entity"]) .header-shell {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="ecosystem"], [data-page-kind="extension"], [data-page-kind="reference"], [data-page-kind="entity"], [data-page-kind="contributing"]) .header-shell {
   min-height: 76px;
   align-items: center;
   padding-block: 0;
 }
-html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="ecosystem"], [data-page-kind="extension"], [data-page-kind="reference"], [data-page-kind="entity"]) .wordmark {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="ecosystem"], [data-page-kind="extension"], [data-page-kind="reference"], [data-page-kind="entity"], [data-page-kind="contributing"]) .wordmark {
   font-family: var(--font-sans);
   font-size: 1rem;
   font-weight: 700;
   letter-spacing: -0.03em;
 }
-html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="ecosystem"], [data-page-kind="extension"], [data-page-kind="reference"], [data-page-kind="entity"]) .wordmark[data-backstop-wordmark] > span:first-child {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="ecosystem"], [data-page-kind="extension"], [data-page-kind="reference"], [data-page-kind="entity"], [data-page-kind="contributing"]) .wordmark[data-backstop-wordmark] > span:first-child {
   display: inline-grid;
   place-items: center;
   width: 31px;
@@ -1348,19 +1349,19 @@ html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kin
   font-size: 0.66rem;
   letter-spacing: -0.08em;
 }
-html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="ecosystem"], [data-page-kind="extension"], [data-page-kind="reference"], [data-page-kind="entity"]) .wordmark[data-backstop-wordmark] > span:last-child {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="ecosystem"], [data-page-kind="extension"], [data-page-kind="reference"], [data-page-kind="entity"], [data-page-kind="contributing"]) .wordmark[data-backstop-wordmark] > span:last-child {
   color: var(--color-muted);
   font-weight: 500;
 }
-html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="ecosystem"], [data-page-kind="extension"], [data-page-kind="reference"], [data-page-kind="entity"]) .navigation-groups a {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="ecosystem"], [data-page-kind="extension"], [data-page-kind="reference"], [data-page-kind="entity"], [data-page-kind="contributing"]) .navigation-groups a {
   color: var(--color-ink);
   font-size: 0.84rem;
   font-weight: 530;
 }
-html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="ecosystem"], [data-page-kind="extension"], [data-page-kind="reference"], [data-page-kind="entity"]) .navigation-groups a:hover {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="ecosystem"], [data-page-kind="extension"], [data-page-kind="reference"], [data-page-kind="entity"], [data-page-kind="contributing"]) .navigation-groups a:hover {
   color: var(--color-muted);
 }
-html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="ecosystem"], [data-page-kind="extension"], [data-page-kind="reference"], [data-page-kind="entity"]) .navigation-groups a[aria-current="page"] {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="ecosystem"], [data-page-kind="extension"], [data-page-kind="reference"], [data-page-kind="entity"], [data-page-kind="contributing"]) .navigation-groups a[aria-current="page"] {
   color: var(--color-ink);
   text-decoration-color: var(--color-signal);
 }
@@ -1370,7 +1371,8 @@ html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kin
 [data-page-kind="ecosystem"] .page-responsibility,
 [data-page-kind="extension"] .page-responsibility,
 [data-page-kind="reference"] .page-responsibility,
-[data-page-kind="entity"] .page-responsibility {
+[data-page-kind="entity"] .page-responsibility,
+[data-page-kind="contributing"] .page-responsibility {
   color: var(--color-muted);
 }
 [data-page-kind="evaluation"] .page-hero h1,
@@ -1379,7 +1381,8 @@ html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kin
 [data-page-kind="ecosystem"] .page-hero h1,
 [data-page-kind="extension"] .page-hero h1,
 [data-page-kind="reference"] .page-hero h1,
-[data-page-kind="entity"] .page-hero h1 {
+[data-page-kind="entity"] .page-hero h1,
+[data-page-kind="contributing"] .page-hero h1 {
   font-weight: 620;
   letter-spacing: -0.067em;
 }

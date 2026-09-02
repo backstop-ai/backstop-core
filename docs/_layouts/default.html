@@ -5,7 +5,8 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     {% assign page_kind = presentation.page_kind | default: page.page_kind %}
-    {% if page_kind == "evaluation" or page_kind == "model" or page_kind == "adoption" or page_kind == "ecosystem" or page_kind == "extension" or page_kind == "reference" or page_kind == "entity" %}
+    {% assign paper_kinds = "evaluation,model,adoption,ecosystem,extension,reference,entity,contributing" | split: "," %}
+    {% if paper_kinds contains page_kind %}
     <meta name="theme-color" content="#0c0d0d">
     {% else %}
     <meta name="color-scheme" content="dark">
@@ -16,7 +17,7 @@
     <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="/assets/css/design-system-tokens.css">
     <link rel="stylesheet" href="/assets/css/site.css">
-    {% if page_kind == "evaluation" or page_kind == "model" or page_kind == "adoption" or page_kind == "ecosystem" or page_kind == "extension" or page_kind == "reference" or page_kind == "entity" %}
+    {% if paper_kinds contains page_kind %}
     <link rel="stylesheet" href="/assets/css/backstop-tokens.css">
     {% endif %}
   </head>
