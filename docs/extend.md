@@ -48,22 +48,11 @@ If the engine invokes a tool, pin it. Tool pins are trust declarations, not inst
 
 ### Claims
 
-A claim names the property that must stay true. Give it an `id` and `text`, and bind it to a rule. Every claim needs both fixture polarities.
-
-```yaml
-claims:
-  - id: my-standard-clm-001
-    text: "Sample enforced property — replace with your own claim."
-    fixtures:
-      positive:
-        - fixtures/valid/example.txt
-      negative:
-        - fixtures/invalid/example.txt
-```
+A claim names the property that must stay true. Declare it on the rule with an `id`, `text`, and both fixture polarities. The rule owns the claim; there is no separate claims list.
 
 ### Rules
 
-A rule binds an engine to those claims and names how a violation is reported. `risk_class` is `security`, `correctness`, `style`, or `perf`.
+A rule binds an engine to its claims and names how a violation is reported. `risk_class` is `security`, `correctness`, `style`, or `perf`.
 
 ```yaml
 content:
@@ -92,7 +81,9 @@ Every claim needs both polarities. Positive is known-good: the engine must stay 
 
 The sample positive file is clean. The sample negative file carries `BACKSTOP-SAMPLE-VIOLATION`. Rewrite both files when you replace the sample rule. Iteration belongs inside the pack rather than in every consuming repository.
 
-The sample rule declares no `input_scope`, so at gate time it does not scan consumer files. Set `input_scope` to `single-file` or `multi-file` when the rule should inspect the project.
+### Scope the rule
+
+Set `input_scope` to `single-file` or `multi-file` when the rule should inspect consumer code. Without one, the sample rule only demonstrates pack check/test behavior.
 
 ### Check the pack
 
