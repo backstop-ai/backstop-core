@@ -986,6 +986,47 @@ th { background: var(--ds-surface); }
   border-radius: 0.55rem;
   background: var(--ds-surface);
 }
+[data-page-kind="reference"] .state-index {
+  margin: 0.85rem 0 1.35rem;
+  padding: 0.9rem 1rem 1rem;
+  border: 1px solid var(--ds-border);
+  border-radius: 0.55rem;
+  background: var(--ds-surface);
+}
+[data-page-kind="reference"] .state-index-kicker {
+  margin: 0 0 0.7rem;
+  color: var(--ds-muted);
+  font-family: var(--ds-font-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+[data-page-kind="reference"] .state-index dl {
+  display: grid;
+  grid-template-columns: 6.5rem 1fr;
+  column-gap: 1rem;
+  row-gap: 0.45rem;
+  margin: 0;
+}
+[data-page-kind="reference"] .state-index dt {
+  margin: 0;
+  color: var(--ds-muted);
+  font-family: var(--ds-font-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+[data-page-kind="reference"] .state-index dd {
+  margin: 0;
+  min-width: 0;
+}
+[data-page-kind="reference"] .state-index-note {
+  margin: 0.85rem 0 0;
+  color: var(--ds-muted);
+  font-size: 0.95rem;
+}
 [data-page-kind="reference"] .tactics-matrix { margin: 0.85rem 0 1.5rem; }
 [data-page-kind="reference"] .tactics-matrix table { width: 100%; margin: 0; font-size: 0.88rem; }
 [data-page-kind="reference"] .tactics-matrix th {
@@ -1342,6 +1383,12 @@ html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kin
   [data-page-kind="evaluation"] .ci-workflows { grid-template-columns: 1fr; }
   [data-page-kind="adoption"] .prose pre code { white-space: pre-wrap; }
   [data-page-kind="reference"] .prose td:first-child { white-space: normal; }
+  [data-page-kind="reference"] .state-index dl {
+    grid-template-columns: 1fr;
+    row-gap: 0.15rem;
+  }
+  [data-page-kind="reference"] .state-index dt { margin-top: 0.45rem; }
+  [data-page-kind="reference"] .state-index dt:first-child { margin-top: 0; }
   [data-page-kind="home"] .nav { height: auto !important; min-height: 76px; flex-wrap: wrap; gap: 1rem; padding-block: 1rem; }
   [data-page-kind="home"] .nav-links { flex-wrap: wrap; gap: 1rem !important; }
   [data-page-kind="home"] h1 { overflow-wrap: anywhere; }

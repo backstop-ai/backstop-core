@@ -80,7 +80,20 @@ A pack declares identity, version, claims, engines, fixtures, tools, applicabili
 Status is a declared field. Authors set it. It is not inferred from git or CI. Per-noun Status tables live on the entity pages. This section is the machine: legal moves, what must be true, what starts being enforced, and what that move enables.
 
 <!-- backstop-claim: CLAIM-030 -->
-Bundles progress through `idea`, `exploring`, `defined`, and `ready`. Terminal states distinguish delivered or implemented work from replacement, cancellation, deprecation, and obsolescence, with successor fields required where the schema names one.
+<div class="state-index" aria-label="Live states">
+<p class="state-index-kicker">Live states</p>
+<dl>
+<dt>Bundle</dt>
+<dd><code>idea</code> → <code>exploring</code> → <code>defined</code> → <code>ready</code></dd>
+<dt>Spec</dt>
+<dd><code>draft</code> → <code>ready-for-implementation</code> → <code>implemented</code></dd>
+<dt>Issue</dt>
+<dd><code>open</code> → <code>ready</code> → <code>in-progress</code><br>blocked waits on named work</dd>
+<dt>Plan</dt>
+<dd><code>draft</code> → <code>ready</code> → <code>implementing</code> → <code>completed</code></dd>
+</dl>
+<p class="state-index-note">Terminal states distinguish delivered or implemented work from replacement, cancellation, deprecation, and obsolescence. Successor fields are required where the schema names one.</p>
+</div>
 <!-- /backstop-claim -->
 
 Feature work uses bundle → spec → plan. Bounded work uses issue → plan. Both tracks meet at a plan. Each spec has exactly one plan. An issue does not get a spec. Product code is not written until a plan is approved.

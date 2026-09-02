@@ -325,7 +325,7 @@ for p,route in zip(sources,paths):
 
 legacy_responsibilities={
 'GET-004':[('/reference/','troubleshooting','`backstop doctor` diagnoses configuration discovery')],
-'ART-003':[('/model/','operating-model','Terminal state records whether work was delivered'),('/reference/','artifact-lifecycle-and-closure','Bundles progress through `idea`, `exploring`, `defined`, and `ready`')],
+'ART-003':[('/model/','operating-model','Terminal state records whether work was delivered'),('/reference/','artifact-lifecycle-and-closure','blocked waits on named work')],
 'ART-004':[('/model/','operating-model','`delivered_by` or a direct typed artifact'),('/reference/','artifact-lifecycle-and-closure','`delivered_by` names a completed plan')],
 'PACK-004':[('/extend/','path-filter-diagnostics','slash-bearing include or exclude pattern'),('/status/','path-filter-limitation','Slash-bearing engine path patterns can fail open')],
 'CLI-001':[('/reference/','cli-conventions','return `0` for success, `1` for blocking violations or broken promises, and `2` for configuration failure')],

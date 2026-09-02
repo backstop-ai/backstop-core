@@ -17,7 +17,7 @@ visible=lambda text:text.replace('{% raw %}','').replace('{% endraw %}','')
 for cid in ('CLAIM-006','CLAIM-007','CLAIM-008','CLAIM-009','CLAIM-012','CLAIM-013','CLAIM-014','CLAIM-015','CLAIM-016','CLAIM-021','CLAIM-026','CLAIM-027','CLAIM-028','CLAIM-029','CLAIM-030','CLAIM-031','CLAIM-032','CLAIM-036'):
  c=claims[cid]; assert '<!-- backstop-claim: '+cid+' -->\n'+c['statement_markdown'] in visible(texts[c['owner']['route']]),cid
 assert '[adjacent guidance](/status/#adjacent-guidance)' in texts['/contributing/'],'external owner seam link'
-responsibilities=[('/reference/','`backstop doctor` diagnoses configuration discovery'),('/reference/','Bundles progress through `idea`, `exploring`, `defined`, and `ready`'),('/reference/','`delivered_by` names a completed plan'),('/extend/','slash-bearing include or exclude pattern'),('/reference/','return `0` for success, `1` for blocking violations or broken promises, and `2` for configuration failure'),('/reference/','`backstop pack install`'),('/reference/','Artifact schemas live under'),('/reference/','initialization, diagnosis, gates, packs, artifacts, recipes, baselines, waivers, version reporting, and command discovery')]
+responsibilities=[('/reference/','`backstop doctor` diagnoses configuration discovery'),('/reference/','blocked waits on named work'),('/reference/','`delivered_by` names a completed plan'),('/extend/','slash-bearing include or exclude pattern'),('/reference/','return `0` for success, `1` for blocking violations or broken promises, and `2` for configuration failure'),('/reference/','`backstop pack install`'),('/reference/','Artifact schemas live under'),('/reference/','initialization, diagnosis, gates, packs, artifacts, recipes, baselines, waivers, version reporting, and command discovery')]
 def validate_responsibilities(corpus):
  for route,needle in responsibilities: assert needle in corpus[route],needle
 validate_responsibilities(texts)
@@ -34,7 +34,7 @@ PY
  rm -rf "$tmp"
 }
 production_delete_reject docs/reference.md '`backstop doctor` diagnoses configuration discovery' GET-004
-production_delete_reject docs/reference.md 'Bundles progress through `idea`, `exploring`, `defined`, and `ready`' ART-003
+production_delete_reject docs/reference.md 'blocked waits on named work' ART-003
 production_delete_reject docs/reference.md '`delivered_by` names a completed plan' ART-004
 production_delete_reject docs/extend.md 'slash-bearing include or exclude pattern' PACK-004
 production_delete_reject docs/reference.md 'return `0` for success, `1` for blocking violations or broken promises, and `2` for configuration failure' CLI-001

@@ -387,13 +387,27 @@ claims:
     evidence_refs:
       - {evidence_id: EVIDENCE-043, kind: source, locator: {path: pkg/pack/manifest.go}, relevance: "Defines the pack manifest model."}
   - claim_id: CLAIM-030
-    statement: "Bundles progress through `idea`, `exploring`, `defined`, and `ready`. Terminal states distinguish delivered or implemented work from replacement, cancellation, deprecation, and obsolescence, with successor fields required where the schema names one."
-    statement_markdown: "Bundles progress through `idea`, `exploring`, `defined`, and `ready`. Terminal states distinguish delivered or implemented work from replacement, cancellation, deprecation, and obsolescence, with successor fields required where the schema names one."
+    statement: "Live states: Bundle idea → exploring → defined → ready; Spec draft → ready-for-implementation → implemented; Issue open → ready → in-progress, blocked waits on named work; Plan draft → ready → implementing → completed. Terminal states distinguish delivered or implemented work from replacement, cancellation, deprecation, and obsolescence. Successor fields are required where the schema names one."
+    statement_markdown: |-
+      <div class="state-index" aria-label="Live states">
+      <p class="state-index-kicker">Live states</p>
+      <dl>
+      <dt>Bundle</dt>
+      <dd><code>idea</code> → <code>exploring</code> → <code>defined</code> → <code>ready</code></dd>
+      <dt>Spec</dt>
+      <dd><code>draft</code> → <code>ready-for-implementation</code> → <code>implemented</code></dd>
+      <dt>Issue</dt>
+      <dd><code>open</code> → <code>ready</code> → <code>in-progress</code><br>blocked waits on named work</dd>
+      <dt>Plan</dt>
+      <dd><code>draft</code> → <code>ready</code> → <code>implementing</code> → <code>completed</code></dd>
+      </dl>
+      <p class="state-index-note">Terminal states distinguish delivered or implemented work from replacement, cancellation, deprecation, and obsolescence. Successor fields are required where the schema names one.</p>
+      </div>
     claim_type: mechanism
     owner: {route: "/reference/", anchor: artifact-lifecycle-and-closure}
     mechanism_summary: "Versioned artifact schemas enumerate live and terminal states plus successor requirements."
     guarantee_boundary: "Each artifact kind retains its own exact vocabulary."
-    known_limitations: "Per-kind live sequences live in the tables on this section. This claim keeps the bundle ART-003 needle and the terminal/successor rule."
+    known_limitations: "Per-kind live sequences and validator semantics live in the tables on this section. This claim is the compact live-state index and the terminal/successor rule."
     adoption_implications: "Consult the named schema before changing state."
     direction: "Keep lifecycle state machine-readable."
     evidence_refs:
