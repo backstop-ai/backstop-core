@@ -41,7 +41,7 @@ paths=['/','/evaluate/','/model/','/adopt/','/use-cases/','/pack/examples/','/pa
 sources=['docs/index.md','docs/evaluate.md','docs/model.md','docs/adopt.md','docs/use-cases.md','docs/pack/examples.md','docs/pack/guide.md','docs/reference.md','docs/status.md','docs/contributing.md']
 pages=top.get('pages',[])
 if [(x.get('source'),x.get('canonical_path')) for x in pages]!=list(zip(sources,paths)): fail('page inventory must contain exact ten source/path pairs')
-heroes=['What failure does Backstop prevent?','Your agent already writes the code.','How it works','Try it out.','Which problem-oriented adoption path applies?','Published packs.','Packs: a guide','Exact interfaces, schemas, lifecycle rules, and integration behavior.','What is supported, limited, planned, or intentionally outside Backstop?','How can I participate in Backstop and its ecosystem?']
+heroes=['What failure does Backstop prevent?','Your agent already writes the code.','How it works','Try it out.','Which problem-oriented adoption path applies?','Published packs.','Packs: a guide','Exact interfaces, schemas, lifecycle rules, and integration behavior.','What is supported, limited, planned, or intentionally outside Backstop?','Contributing']
 for page,hero in zip(pages,heroes):
  if page.get('hero_question')!=hero: fail(page.get('source','page')+': hero_question')
 presentation_pages=presentation.get('pages',[])

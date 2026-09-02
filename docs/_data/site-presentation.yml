@@ -47,6 +47,6 @@ pages:
     next_action: /contributing/
   - route: /contributing/
     page_kind: contributing
-    hero_question: How can I participate in Backstop and its ecosystem?
+    hero_question: Contributing
     treatments: [boundary-callouts]
     next_action: /

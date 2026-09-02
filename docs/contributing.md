@@ -2,7 +2,6 @@
 title: Contributing
 layout: default
 permalink: /contributing/
-hero_question: "How can I participate in Backstop and its ecosystem?"
 hero_lede: false
 ---
 

@@ -34,7 +34,7 @@ func canonicalPresentation() []presentationPage {
 		{Route: "/pack/guide/", PageKind: "extension", HeroQuestion: "Packs: a guide", Treatments: []string{"evidence-cards", "boundary-callouts"}, NextAction: "/contributing/"},
 		{Route: "/reference/", PageKind: "reference", HeroQuestion: "Exact interfaces, schemas, lifecycle rules, and integration behavior.", Treatments: []string{"generated-regions", "local-overflow"}, NextAction: "/status/"},
 		{Route: "/status/", PageKind: "status", HeroQuestion: "What is supported, limited, planned, or intentionally outside Backstop?", Treatments: []string{"evidence-cards", "boundary-callouts", "generated-regions", "local-overflow"}, NextAction: "/contributing/"},
-		{Route: "/contributing/", PageKind: "contributing", HeroQuestion: "How can I participate in Backstop and its ecosystem?", Treatments: []string{"boundary-callouts"}, NextAction: "/"},
+		{Route: "/contributing/", PageKind: "contributing", HeroQuestion: "Contributing", Treatments: []string{"boundary-callouts"}, NextAction: "/"},
 	}
 }
 
