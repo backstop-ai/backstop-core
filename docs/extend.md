@@ -25,19 +25,84 @@ Author the pack in its own repository. Do not vendor it into core. Exact manifes
 
 <pre><code>backstop pack new --type engine --language go --slug my-standard</code></pre>
 
-`--type` is `engine`, `mechanism`, or `toolchain`. The scaffold writes a valid `pack.yml` and a sample rule that can pass check, test, and the gate.
+`--type` is `engine`, `mechanism`, or `toolchain`. The scaffold writes a valid `pack.yml`, a sample sandbox validator, and a positive/negative fixture pair that can pass check, test, and the gate.
 
-### Define claims, engines, and fixtures
+It writes `pack.yml`, `validators/my-standard.sh`, `fixtures/valid/example.txt`, and `fixtures/invalid/example.txt`.
 
-A claim names what must be true. An engine checks it. Fixtures prove the check works, including negative cases that must fail.
+### Engines
 
-Rules explain the violation. Tool pins make execution reproducible. Iteration belongs inside the pack rather than in every consuming repository.
+An engine is the check. It is declared as data. The scaffold writes a sandbox engine whose validator executable is the logic, so the pack needs no external tool.
+
+```yaml
+engines:
+  my-standard-engine:
+    command: ""
+    input_mode: none
+    scope_kind: file-args
+    gate_type: findings
+```
+
+Replace that sample with the real engine. `engine` means the validator is the logic. `mechanism` wraps a native tool. `toolchain` bundles a language's build, test, and lint passes.
+
+If the engine invokes a tool, pin it. Tool pins are trust declarations, not installers.
+
+### Claims
+
+A claim names the property that must stay true. Give it an `id` and `text`, and bind it to a rule. Every claim needs both fixture polarities.
+
+```yaml
+claims:
+  - id: my-standard-clm-001
+    text: "Sample enforced property — replace with your own claim."
+    fixtures:
+      positive:
+        - fixtures/valid/example.txt
+      negative:
+        - fixtures/invalid/example.txt
+```
+
+### Rules
+
+A rule binds an engine to those claims and names how a violation is reported. `risk_class` is `security`, `correctness`, `style`, or `perf`.
+
+```yaml
+content:
+  ruleset:
+    version: 0.1.0
+    rules:
+      - id: my-standard-sample
+        engine: my-standard-engine
+        validator: validators/my-standard.sh
+        risk_class: correctness
+        claims:
+          - id: my-standard-clm-001
+            text: "Sample enforced property — replace with your own claim."
+            fixtures:
+              positive:
+                - fixtures/valid/example.txt
+              negative:
+                - fixtures/invalid/example.txt
+```
+
+The sample validator exits 0 on a clean file. It prints a message naming the target and exits non-zero when it fires. Replace the marker check `BACKSTOP-SAMPLE-VIOLATION` with the real detection.
+
+### Fixtures
+
+Every claim needs both polarities. Positive is known-good: the engine must stay silent. Negative is known-bad: the engine must fire.
+
+The sample positive file is clean. The sample negative file carries `BACKSTOP-SAMPLE-VIOLATION`. Rewrite both files when you replace the sample rule. Iteration belongs inside the pack rather than in every consuming repository.
+
+The sample rule declares no `input_scope`, so at gate time it does not scan consumer files. Set `input_scope` to `single-file` or `multi-file` when the rule should inspect the project.
 
 ### Check the pack
+
+`pack check` validates the manifest. It does not run fixtures.
 
 <pre><code>backstop pack check ./my-standard</code></pre>
 
 ### Test the pack
+
+`pack test` runs the engine against the declared fixtures and fails if the pair does not discriminate.
 
 <pre><code>backstop pack test ./my-standard</code></pre>
 
