@@ -43,7 +43,7 @@ Bounded work uses issue → plan. This is the normal path for a bug, a follow-on
 
 <ul class="eval-list">
 <li>Create an issue.</li>
-<li>Create the corresponding plan.</li>
+<li>Create a plan for the issue.</li>
 <li>Run the artifact reviewers and deterministic validators.</li>
 <li>Resolve findings until the artifacts pass.</li>
 </ul>

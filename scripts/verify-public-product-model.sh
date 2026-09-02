@@ -411,7 +411,7 @@ allowances={
  'Review what Backstop finds. Do not fix anything yet.':'visitor adoption guide',
  'Pick a known bug in the repository. You already understand it, so you can judge whether the issue and plan capture the work.':'visitor adoption guide',
  'Bounded work uses issue → plan. This is the normal path for a bug, a follow-on, or a small fix.':'visitor adoption guide',
- '<ul class="eval-list">\n<li>Create an issue.</li>\n<li>Create the corresponding plan.</li>\n<li>Run the artifact reviewers and deterministic validators.</li>\n<li>Resolve findings until the artifacts pass.</li>\n</ul>':'visitor adoption guide',
+ '<ul class="eval-list">\n<li>Create an issue.</li>\n<li>Create a plan for the issue.</li>\n<li>Run the artifact reviewers and deterministic validators.</li>\n<li>Resolve findings until the artifacts pass.</li>\n</ul>':'visitor adoption guide',
  '[Artifact lifecycle](/reference/#artifact-lifecycle-and-closure)':'visitor adoption guide',
  'Assign the approved plan to an implementer agent. The agent executes the plan, runs required gates as it works, and fixes failures before proceeding.':'visitor adoption guide',
  'Stop before merge.':'visitor adoption guide',
