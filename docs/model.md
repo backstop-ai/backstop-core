@@ -176,6 +176,7 @@ The canonical architecture views are checked-in Mermaid sources so presentation 
 <!-- /backstop-claim -->
 
 Core owns execution and lifecycle primitives. Packs own standards and engines. Harnesses own orchestration. External toolchains own their behavior. The authoritative boundary view is `docs/_diagrams/ARCH-003-ownership-boundaries.mmd`.
+
 </div>
 
 <div class="canonical-anchors">
