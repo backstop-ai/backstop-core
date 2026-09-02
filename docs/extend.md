@@ -54,7 +54,7 @@ A toolchain pack often keeps convert and produce scripts under `scripts/`. Rule 
 
 ### Engines
 
-An engine executes one or many checks. It is a runner: semgrep, ast-grep, a shell script, or a native toolchain linter. The pack declares the engine, then binds rules to it. Those rules are the checks. Many rules can share one engine.
+An engine executes one or many checks. It is a runner. Semgrep, ast-grep, a shell script, and a native toolchain linter are examples, not the list. Packs are designed to support pretty much anything; that is why converters exist. The pack declares the engine, then binds rules to it. Those rules are the checks. Many rules can share one engine.
 
 The scaffold writes a sandbox engine: a shell validator, no external tool.
 

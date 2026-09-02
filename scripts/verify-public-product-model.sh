@@ -435,7 +435,7 @@ allowances={
  '`pack new` writes:':'author instruction',
  'Replace the sample in place. A native-tool pack keeps the convert script next to the engine it serves:':'author instruction',
  'A toolchain pack often keeps convert and produce scripts under `scripts/`. Rule configs declared by `rule_path` also live in the pack. There is no second copy in core.':'author instruction',
- 'An engine executes one or many checks. It is a runner: semgrep, ast-grep, a shell script, or a native toolchain linter. The pack declares the engine, then binds rules to it. Those rules are the checks. Many rules can share one engine.':'author instruction',
+ 'An engine executes one or many checks. It is a runner. Semgrep, ast-grep, a shell script, and a native toolchain linter are examples, not the list. Packs are designed to support pretty much anything; that is why converters exist. The pack declares the engine, then binds rules to it. Those rules are the checks. Many rules can share one engine.':'author instruction',
  'The scaffold writes a sandbox engine: a shell validator, no external tool.':'author instruction',
  'Replace that sample with the real runner. If the engine is a linter, the pack supplies the custom rules (`pattern`, `rule_path`).':'author instruction',
  'If the engine invokes a tool, pin it. Tool pins are trust declarations, not installers.':'author instruction',
