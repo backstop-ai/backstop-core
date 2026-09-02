@@ -181,7 +181,7 @@ After the pack is published, contribute it if you want it in the Backstop ecosys
 
 ## 3. Publish a pack {#publish-a-pack}
 
-The minimum required to publish a pack today:
+To publish a pack today:
 
 1. Make sure the pack passes its local checks/tests.
 2. `pack.yml` must declare a valid semantic version.
@@ -190,14 +190,4 @@ The minimum required to publish a pack today:
 
 That tagged Git commit is the immutable version consumers install and pin.
 
-Some Backstop-maintained packs already experiment with stronger publishing pipelines. These prototypes include:
-
-- running owner acceptance/fixture tests in CI
-- validating pack identity and version
-- checking that the Git tag matches `pack.yml`
-- preventing an existing version tag from being moved to another commit
-- creating the tag/release only after the publication checks pass
-
-Those pipelines are prototypes, not the required or canonical publishing model yet.
-
-Backstop is developing shared CI and publishing guidance for maintained packs. The current pipelines in some Backstop pack repositories are prototypes of that model; official guidance and reusable tooling are coming soon.
+Some Backstop-maintained packs use stronger CI publishing pipelines today, including owner acceptance, version/tag verification, and immutable release checks. These are prototypes, not the canonical publishing model. Shared CI guidance and reusable publishing tooling are coming soon.
