@@ -986,6 +986,25 @@ th { background: var(--ds-surface); }
   border-radius: 0.55rem;
   background: var(--ds-surface);
 }
+[data-page-kind="reference"] .tactics-matrix { margin: 0.85rem 0 1.5rem; }
+[data-page-kind="reference"] .tactics-matrix table { width: 100%; margin: 0; font-size: 0.88rem; }
+[data-page-kind="reference"] .tactics-matrix th {
+  color: var(--ds-muted);
+  font-family: var(--ds-font-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: transparent;
+}
+[data-page-kind="reference"] .tactics-matrix td:first-child {
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: 650;
+  white-space: nowrap;
+}
+[data-page-kind="reference"] .tactics-matrix td:nth-child(3) { color: var(--ds-muted); }
+[data-page-kind="reference"] .tactics-matrix td:last-child { color: var(--ds-accent); font-weight: 650; }
 
 [data-page-kind="entity"] .page-hero {
   padding-block: 2.15rem 1.6rem;
@@ -1248,6 +1267,10 @@ html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kin
   [data-page-kind="adoption"] .tactics-matrix tbody,
   [data-page-kind="adoption"] .tactics-matrix tr,
   [data-page-kind="adoption"] .tactics-matrix td,
+  [data-page-kind="reference"] .tactics-matrix table,
+  [data-page-kind="reference"] .tactics-matrix tbody,
+  [data-page-kind="reference"] .tactics-matrix tr,
+  [data-page-kind="reference"] .tactics-matrix td,
   [data-page-kind="entity"] .entity-table table,
   [data-page-kind="entity"] .entity-table tbody,
   [data-page-kind="entity"] .entity-table tr,
@@ -1262,6 +1285,7 @@ html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kin
   [data-page-kind="evaluation"] .tactics-matrix thead,
   [data-page-kind="model"] .tactics-matrix thead,
   [data-page-kind="adoption"] .tactics-matrix thead,
+  [data-page-kind="reference"] .tactics-matrix thead,
   [data-page-kind="entity"] .entity-table thead {
     position: absolute;
     width: 1px;
@@ -1272,6 +1296,7 @@ html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kin
   [data-page-kind="evaluation"] .tactics-matrix tr,
   [data-page-kind="model"] .tactics-matrix tr,
   [data-page-kind="adoption"] .tactics-matrix tr,
+  [data-page-kind="reference"] .tactics-matrix tr,
   [data-page-kind="entity"] .entity-table tr {
     margin: 0 0 1rem;
     padding: 0.9rem 1rem;
@@ -1282,6 +1307,7 @@ html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kin
   [data-page-kind="evaluation"] .tactics-matrix td,
   [data-page-kind="model"] .tactics-matrix td,
   [data-page-kind="adoption"] .tactics-matrix td,
+  [data-page-kind="reference"] .tactics-matrix td,
   [data-page-kind="entity"] .entity-table td {
     border: 0;
     padding: 0.4rem 0;
@@ -1290,10 +1316,12 @@ html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kin
   [data-page-kind="evaluation"] .tactics-matrix td:first-child,
   [data-page-kind="model"] .tactics-matrix td:first-child,
   [data-page-kind="adoption"] .tactics-matrix td:first-child,
+  [data-page-kind="reference"] .tactics-matrix td:first-child,
   [data-page-kind="entity"] .entity-table td:first-child { font-size: 1.05rem; padding-top: 0; }
   [data-page-kind="evaluation"] .tactics-matrix td::before,
   [data-page-kind="model"] .tactics-matrix td::before,
   [data-page-kind="adoption"] .tactics-matrix td::before,
+  [data-page-kind="reference"] .tactics-matrix td::before,
   [data-page-kind="entity"] .entity-table td::before {
     content: attr(data-label);
     display: block;
@@ -1308,6 +1336,7 @@ html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kin
   [data-page-kind="evaluation"] .tactics-matrix td:first-child::before,
   [data-page-kind="model"] .tactics-matrix td:first-child::before,
   [data-page-kind="adoption"] .tactics-matrix td:first-child::before,
+  [data-page-kind="reference"] .tactics-matrix td:first-child::before,
   [data-page-kind="entity"] .entity-table td:first-child::before { content: none; }
   [data-page-kind="evaluation"] .failed-verdict-row { grid-template-columns: 1fr auto; }
   [data-page-kind="evaluation"] .ci-workflows { grid-template-columns: 1fr; }

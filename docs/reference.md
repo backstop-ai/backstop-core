@@ -88,13 +88,20 @@ Feature work uses bundle → spec → plan. Bounded work uses issue → plan. Bo
 
 Live: `open` → `ready` → `in-progress`. `blocked` waits on named work.
 
-| State | Before you can enter it | Validator / gate | Enables |
-| --- | --- | --- | --- |
-| `open` | Scaffolded issue, Problem section | Schema only. Requirements and claims are optional. | Filing. Not a plan yet. |
-| `ready` | Requirements, claims, verification, implementation, and contracts | Full spec-parity traceability. | Creating a plan from the issue. |
-| `in-progress` | Same rigor as `ready` | Same. | A plan is in flight, or close-out is underway. |
-| `blocked` | Same rigor as `ready`, plus `blocked_by` | Same, plus the blocker must be named. | Waiting without pretending the work is moving. |
-| `closed` | `## Resolution`, and exactly one close pointer unless the issue carries its own requirements and claims | Close traceability. | The issue is finished. |
+<div class="tactics-matrix">
+<table>
+<thead>
+<tr><th>State</th><th>Before you can enter it</th><th>Validator / gate</th><th>Enables</th></tr>
+</thead>
+<tbody>
+<tr><td data-label="State"><code>open</code></td><td data-label="Before you can enter it">Scaffolded issue, Problem section</td><td data-label="Validator / gate">Schema only. Requirements and claims are optional.</td><td data-label="Enables">Filing. Not a plan yet.</td></tr>
+<tr><td data-label="State"><code>ready</code></td><td data-label="Before you can enter it">Requirements, claims, verification, implementation, and contracts</td><td data-label="Validator / gate">Full spec-parity traceability.</td><td data-label="Enables">Creating a plan from the issue.</td></tr>
+<tr><td data-label="State"><code>in-progress</code></td><td data-label="Before you can enter it">Same rigor as <code>ready</code></td><td data-label="Validator / gate">Same.</td><td data-label="Enables">A plan is in flight, or close-out is underway.</td></tr>
+<tr><td data-label="State"><code>blocked</code></td><td data-label="Before you can enter it">Same rigor as <code>ready</code>, plus <code>blocked_by</code></td><td data-label="Validator / gate">Same, plus the blocker must be named.</td><td data-label="Enables">Waiting without pretending the work is moving.</td></tr>
+<tr><td data-label="State"><code>closed</code></td><td data-label="Before you can enter it"><code>## Resolution</code>, and exactly one close pointer unless the issue carries its own requirements and claims</td><td data-label="Validator / gate">Close traceability.</td><td data-label="Enables">The issue is finished.</td></tr>
+</tbody>
+</table>
+</div>
 
 <!-- backstop-claim: CLAIM-031 -->
 Closing an issue requires a `## Resolution` section and at most one traceability field: `delivered_by` names a completed plan, while `resolved-by` names a direct typed artifact reference, commit SHA, or pull-request URL when no plan lineage applies.
@@ -116,13 +123,20 @@ Live: `idea` → `exploring` → `defined` → `ready`. Success terminal: `deliv
 
 The user drives promotion. Do not self-promote.
 
-| State | Before you can enter it | Validator / gate | Enables |
-| --- | --- | --- | --- |
-| `idea` | Named bundle | Identity and maturity enum. | The work has a name. |
-| `exploring` | Real open questions, unresolved | Same. | Exploration. Not specing. |
-| `defined` | `problem.summary`, `problem.user_story`, `solution.approach`, `requirements[]`, and sections Draft Requirements, Draft Design Decisions, Spec Seeds, Version History | Maturity gates. Placeholders are illegal. | Approach is clear. |
-| `ready` | Everything `defined` requires, plus `problem.success_criteria` and `solution.assumptions` | Same, tighter. | Spec generation. |
-| `delivered` | The work shipped. `requirements[]` still required. | Success terminal. | Closure of the bundle. |
+<div class="tactics-matrix">
+<table>
+<thead>
+<tr><th>State</th><th>Before you can enter it</th><th>Validator / gate</th><th>Enables</th></tr>
+</thead>
+<tbody>
+<tr><td data-label="State"><code>idea</code></td><td data-label="Before you can enter it">Named bundle</td><td data-label="Validator / gate">Identity and maturity enum.</td><td data-label="Enables">The work has a name.</td></tr>
+<tr><td data-label="State"><code>exploring</code></td><td data-label="Before you can enter it">Real open questions, unresolved</td><td data-label="Validator / gate">Same.</td><td data-label="Enables">Exploration. Not specing.</td></tr>
+<tr><td data-label="State"><code>defined</code></td><td data-label="Before you can enter it"><code>problem.summary</code>, <code>problem.user_story</code>, <code>solution.approach</code>, <code>requirements[]</code>, and sections Draft Requirements, Draft Design Decisions, Spec Seeds, Version History</td><td data-label="Validator / gate">Maturity gates. Placeholders are illegal.</td><td data-label="Enables">Approach is clear.</td></tr>
+<tr><td data-label="State"><code>ready</code></td><td data-label="Before you can enter it">Everything <code>defined</code> requires, plus <code>problem.success_criteria</code> and <code>solution.assumptions</code></td><td data-label="Validator / gate">Same, tighter.</td><td data-label="Enables">Spec generation.</td></tr>
+<tr><td data-label="State"><code>delivered</code></td><td data-label="Before you can enter it">The work shipped. <code>requirements[]</code> still required.</td><td data-label="Validator / gate">Success terminal.</td><td data-label="Enables">Closure of the bundle.</td></tr>
+</tbody>
+</table>
+</div>
 
 Terminals without delivery: `replaced`, `canceled`, `deprecated`. `replaced` requires `replaced-by`.
 
@@ -132,12 +146,19 @@ Live: `draft` → `ready` → `implementing` → `completed`.
 
 `draft`, `ready`, and `implementing` are the same shape to the validator: phases, tasks, tests before implementation, every source claim mapped. Terminal plans (`replaced`, `canceled`, `obsoleted`) are exempt from phase and task completeness.
 
-| State | Before you can enter it | Validator / gate | Enables |
-| --- | --- | --- | --- |
-| `draft` | Source is an issue or a spec. Phases and tasks are present. | Plan schema and completeness. | Authoring. |
-| `ready` | Same shape. Reviewer has passed. | Same. | Implementation. An implementer may execute it. |
-| `implementing` | An implementer is executing it. | Same. | In-flight execution. |
-| `completed` | The work was delivered. Mandated tests exist. | Validator may accept a completed plan whose mandated tests are missing. The gate does not. | Delivery evidence for `delivered_by`. |
+<div class="tactics-matrix">
+<table>
+<thead>
+<tr><th>State</th><th>Before you can enter it</th><th>Validator / gate</th><th>Enables</th></tr>
+</thead>
+<tbody>
+<tr><td data-label="State"><code>draft</code></td><td data-label="Before you can enter it">Source is an issue or a spec. Phases and tasks are present.</td><td data-label="Validator / gate">Plan schema and completeness.</td><td data-label="Enables">Authoring.</td></tr>
+<tr><td data-label="State"><code>ready</code></td><td data-label="Before you can enter it">Same shape. Reviewer has passed.</td><td data-label="Validator / gate">Same.</td><td data-label="Enables">Implementation. An implementer may execute it.</td></tr>
+<tr><td data-label="State"><code>implementing</code></td><td data-label="Before you can enter it">An implementer is executing it.</td><td data-label="Validator / gate">Same.</td><td data-label="Enables">In-flight execution.</td></tr>
+<tr><td data-label="State"><code>completed</code></td><td data-label="Before you can enter it">The work was delivered. Mandated tests exist.</td><td data-label="Validator / gate">Validator may accept a completed plan whose mandated tests are missing. The gate does not.</td><td data-label="Enables">Delivery evidence for <code>delivered_by</code>.</td></tr>
+</tbody>
+</table>
+</div>
 
 `replaced` requires `replaced-by`. `obsoleted` requires `obsoleted-by`.
 
