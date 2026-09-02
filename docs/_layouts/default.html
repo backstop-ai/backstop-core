@@ -4,7 +4,8 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    {% if presentation.page_kind == "evaluation" or presentation.page_kind == "model" or presentation.page_kind == "adoption" %}
+    {% assign page_kind = presentation.page_kind | default: page.page_kind %}
+    {% if page_kind == "evaluation" or page_kind == "model" or page_kind == "adoption" or page_kind == "entity" %}
     <meta name="theme-color" content="#0c0d0d">
     {% else %}
     <meta name="color-scheme" content="dark">
@@ -15,22 +16,24 @@
     <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="/assets/css/design-system-tokens.css">
     <link rel="stylesheet" href="/assets/css/site.css">
-    {% if presentation.page_kind == "evaluation" or presentation.page_kind == "model" or presentation.page_kind == "adoption" %}
+    {% if page_kind == "evaluation" or page_kind == "model" or page_kind == "adoption" or page_kind == "entity" %}
     <link rel="stylesheet" href="/assets/css/backstop-tokens.css">
     {% endif %}
   </head>
   <body data-site-shell="field-guide-v1">
     <a class="skip-link" href="#main">Skip to content</a>
     {% include site-header.html %}
-    <main id="main" data-page-route="{{ page.permalink }}" data-page-kind="{{ presentation.page_kind }}">
+    <main id="main" data-page-route="{{ page.permalink }}" data-page-kind="{{ page_kind }}">
       {% include page-hero.html presentation=presentation %}
       <div class="prose" data-page-content>
         {{ content }}
       </div>
+      {% if presentation.next_action %}
       <nav class="next-action" data-next-action aria-label="Next page">
         <span>Continue the field guide</span>
         <a href="{{ presentation.next_action }}">Next <span aria-hidden="true">→</span></a>
       </nav>
+      {% endif %}
     </main>
     {% include site-footer.html %}
   </body>
