@@ -49,7 +49,7 @@ generated_mutations:
     expected_error: CAP-013/@UJ-002
   - name: extra-generated-job
     key: CAP-004/@UJ-001
-    extra_job: installed-pack-catalog
+    extra_job: published-pack-catalog
     expected_error: CAP-004/@UJ-001
   - name: seed5-reconstructs-envelope
     key: CAP-011/@UJ-001

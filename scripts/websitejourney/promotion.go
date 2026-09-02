@@ -223,7 +223,7 @@ func proveMutationClasses(built string, m WebsiteCapabilityMap) ([]string, error
 		RouteMutations()[0],
 		firstClassMutation(EvidenceMutations(m), "evidence"),
 		firstClassMutation(BoundaryMutations(m), "boundary"),
-		{Class: "generated", JobID: "installed-pack-catalog", RemoveRegion: true, Target: "installed-pack-catalog"},
+		{Class: "generated", JobID: "published-pack-catalog", RemoveRegion: true, Target: "published-pack-catalog"},
 		{Class: "cap014", RemoveSharedAnchor: true, Target: "JLINK-024"},
 	}
 	proved := make([]string, 0, len(RequiredMutationClasses()))

@@ -1,0 +1,33 @@
+<!-- GENERATED PRODUCT TRUTH | job=published-pack-catalog | inputs=docs/_data/published-pack-inventory.yml | owner=/pack/examples/#published-pack-catalog | regenerate=./scripts/generate-product-truth.sh | DO NOT EDIT -->
+<!-- PRODUCT-TRUTH:BEGIN job=published-pack-catalog digest=sha256:a351973cdb47b555e4b3db4bf15ec0e4a561b6ab73a9b3d9550537fdfff24f5f -->
+<table data-product-truth-job="published-pack-catalog">
+<thead><tr><th>Pack</th><th>Version</th><th>Covers</th><th>Engines</th><th>Source</th></tr></thead>
+<tbody>
+<tr><td>backstop-ai/backstop-core-architecture</td><td>0.1.7</td><td>go enforcement: Backstop Core package-topology enforcement pack</td><td>go-arch-lint</td><td>https://github.com/backstop-ai/backstop-core-architecture</td></tr>
+<tr><td>backstop-ai/backstop-design-system</td><td>0.1.5</td><td>any recipes: Backstop&#39;s visual system as executable policy.</td><td>semgrep-design</td><td>https://github.com/backstop-ai/backstop-design-system</td></tr>
+<tr><td>backstop-ai/backstop-harness-toolchain-pack</td><td>0.1.1</td><td>typescript enforcement: Harness-specific Backstop toolchain pack for the OpenCode Bun monorepo</td><td>harness-core-test, harness-core-typecheck, harness-coverage, harness-format, harness-lint, harness-schema-test, harness-schema-typecheck, harness-test, harness-typecheck</td><td>https://github.com/backstop-ai/backstop-harness-toolchain-pack</td></tr>
+<tr><td>backstop-ai/backstop-self</td><td>1.1.3</td><td>go enforcement: Backstop&#39;s own dogfood pack: zero-baked-language enforcement over the backstop spine</td><td>—</td><td>https://github.com/backstop-ai/backstop-self</td></tr>
+<tr><td>backstop-ai/bash-toolchain</td><td>0.1.2</td><td>bash enforcement: Bash mechanism pack for static test-function discovery and exactly-once execution of the repository&#39;s supported canonical verifiers.</td><td>bash-documentation-semantics-test, bash-test</td><td>https://github.com/backstop-ai/bash-toolchain</td></tr>
+<tr><td>backstop-ai/bun-toolchain</td><td>1.3.0</td><td>typescript enforcement: Backstop toolchain pack: Bun (lint/build/test/coverage)</td><td>bun-coverage, bun-test, oxlint, prettier, typecheck</td><td>https://github.com/backstop-ai/bun-toolchain</td></tr>
+<tr><td>backstop-ai/ci-workflows</td><td>0.1.2</td><td>any recipes: Four per-platform gate-workflow recipes — GitHub Actions, GitLab CI, Bitbucket Pipelines and Jenkins — that scaffold a CI job which installs a pinned backstop CLI, installs the pack fleet, and runs &#96;backstop gate&#96; as the blocking step, plus the twelve semgrep rules that keep those invariants from being silently undone by later edits.</td><td>semgrep-ci</td><td>https://github.com/backstop-ai/ci-workflows</td></tr>
+<tr><td>backstop-ai/cobra-cli-standards</td><td>0.2.1</td><td>go enforcement: Backstop enforcement pack: cobra CLI discipline (secrets, streams, exit codes)</td><td>—</td><td>https://github.com/backstop-ai/cobra-cli-standards</td></tr>
+<tr><td>backstop-ai/documentation-semantics</td><td>0.1.1</td><td>any enforcement: Reusable documentation semantics for canonical definition ownership and deterministic consumer-corpus dispatch proof.</td><td>—</td><td>https://github.com/backstop-ai/documentation-semantics</td></tr>
+<tr><td>backstop-ai/go-contracts</td><td>1.4.0</td><td>go enforcement: Contracts pack (SPEC-038, BUNDLE-009 Seed 4) — the REAL installable pack SOURCE.</td><td>ast-grep-contracts, grep</td><td>https://github.com/backstop-ai/go-contracts</td></tr>
+<tr><td>backstop-ai/go-distribution</td><td>0.1.0</td><td>go recipes: backstop pack: the Go release trinity — goreleaser, tag-gated release workflow, Homebrew formula, version stamping. Recipes + nine falsified rules.</td><td>semgrep-godist</td><td>https://github.com/backstop-ai/go-distribution</td></tr>
+<tr><td>backstop-ai/go-standards</td><td>1.2.1</td><td>go enforcement: Backstop enforcement pack: Go code standards</td><td>—</td><td>https://github.com/backstop-ai/go-standards</td></tr>
+<tr><td>backstop-ai/go-substantiveness</td><td>1.2.1</td><td>go enforcement: Substantiveness pack (SPEC-037, BUNDLE-009 Seed 3) — the REAL installable pack source.</td><td>ast-grep-substantiveness</td><td>https://github.com/backstop-ai/go-substantiveness</td></tr>
+<tr><td>backstop-ai/go-toolchain</td><td>1.9.0</td><td>go enforcement: Backstop toolchain pack: Go (build/test/lint/coverage, test-name discovery)</td><td>go-build, go-coverage, go-test, golangci</td><td>https://github.com/backstop-ai/go-toolchain</td></tr>
+<tr><td>backstop-ai/secrets</td><td>1.1.0</td><td>any enforcement: Backstop enforcement pack: secrets scanning (gitleaks → SARIF)</td><td>gitleaks</td><td>https://github.com/backstop-ai/secrets</td></tr>
+<tr><td>backstop-ai/typescript-contracts</td><td>1.4.0</td><td>typescript enforcement: Backstop enforcement pack: TypeScript contract signatures</td><td>ast-grep-contracts, grep</td><td>https://github.com/backstop-ai/typescript-contracts</td></tr>
+<tr><td>backstop-ai/typescript-standards</td><td>1.1.1</td><td>typescript enforcement: Backstop enforcement pack: TypeScript code standards</td><td>—</td><td>https://github.com/backstop-ai/typescript-standards</td></tr>
+<tr><td>backstop-ai/typescript-substantiveness</td><td>1.1.2</td><td>typescript enforcement: Backstop enforcement pack: TypeScript test substantiveness</td><td>ast-grep-substantiveness</td><td>https://github.com/backstop-ai/typescript-substantiveness</td></tr>
+<tr><td>backstop-ai/typescript-toolchain</td><td>1.3.1</td><td>typescript enforcement: Backstop toolchain pack: TypeScript (tsc/eslint/vitest, single-run coverage)</td><td>ts-audit, ts-coverage, ts-lint, ts-test, ts-typecheck</td><td>https://github.com/backstop-ai/typescript-toolchain</td></tr>
+<tr><td>backstop-ai/vercel-supabase-standup</td><td>0.2.0</td><td>typescript recipes: Backstop pack: Vercel + Supabase standup recipe (founding fixture: bclabs-portal go-live)</td><td>bun-vehicle</td><td>https://github.com/backstop-ai/vercel-supabase-standup</td></tr>
+</tbody>
+</table>
+<!-- PRODUCT-TRUTH:SOURCES-BEGIN job=published-pack-catalog owner=/pack/examples/#published-pack-catalog digest=sha256:a351973cdb47b555e4b3db4bf15ec0e4a561b6ab73a9b3d9550537fdfff24f5f -->
+<ul data-generated-source-descriptors data-product-truth-job="published-pack-catalog">
+<li data-generated-source-descriptor data-source-kind="blob" data-commit-binding="site" data-source-path="docs/_data/published-pack-inventory.yml">https://github.com/backstop-ai/backstop-core/blob/&lt;SITE-COMMIT&gt;/docs/_data/published-pack-inventory.yml</li>
+</ul>
+<!-- PRODUCT-TRUTH:SOURCES-END job=published-pack-catalog -->
+<!-- PRODUCT-TRUTH:END job=published-pack-catalog -->

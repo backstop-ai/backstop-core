@@ -321,7 +321,7 @@ func TestWebsiteJourney_BuiltTraversalRejectsObligationCheats(t *testing.T) {
 		if SourceMetadataPresent(documents) {
 			t.Fatal("accepted tree must not carry source metadata")
 		}
-		if !HasGeneratedRegion(documents["/pack/examples/"], "installed-pack-catalog") {
+		if !HasGeneratedRegion(documents["/pack/examples/"], "published-pack-catalog") {
 			t.Fatal("accepted tree missing generated region")
 		}
 		route, fragment, err := ParseHop("/status/#adjacent-guidance")

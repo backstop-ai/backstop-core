@@ -59,11 +59,13 @@ type SchemaRecord struct {
 }
 
 type PackRecord struct {
-	Name            string `json:"name"`
-	DeclaredVersion string `json:"declared_version"`
-	LockedVersion   string `json:"locked_version"`
-	GitRef          string `json:"git_ref"`
-	ContentHash     string `json:"content_hash"`
+	Name        string   `json:"name"`
+	Version     string   `json:"version"`
+	Language    string   `json:"language"`
+	Archetype   string   `json:"archetype"`
+	Description string   `json:"description"`
+	Engines     []string `json:"engines"`
+	Repository  string   `json:"repository"`
 }
 
 type ReleaseRecord struct {
@@ -135,7 +137,7 @@ func LoadManifest(root, path string) (Manifest, error) {
 	if manifest.Version != "product-truth/v1" || len(manifest.Jobs) != 4 {
 		return manifest, diagnostic("PT001_MANIFEST", "pipeline", path, nil, "manifest must contain product-truth/v1 and exactly four jobs")
 	}
-	expected := []string{"cli-command-catalog", "artifact-schema-catalog", "installed-pack-catalog", "release-history"}
+	expected := []string{"cli-command-catalog", "artifact-schema-catalog", "published-pack-catalog", "release-history"}
 	seenID, seenOutput, seenOwner := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	for i, job := range manifest.Jobs {
 		owner := job.OwnerRoute + "#" + job.OwnerAnchor
@@ -172,11 +174,11 @@ func RenderAll(root string, manifest Manifest) ([]RenderedJob, error) {
 			typed, err = loadSchemas(root)
 			records, links = typed, schemaLinks(typed)
 			headers, rows = schemaRows(typed)
-		case "installed-pack-catalog":
+		case "published-pack-catalog":
 			var typed []PackRecord
-			typed, err = loadPacks(root)
+			typed, err = loadPublishedPacks(root)
 			records = typed
-			links = []SourceLinkDescriptor{{Kind: "blob", CommitBinding: "site", Path: "backstop.yml"}, {Kind: "blob", CommitBinding: "site", Path: "backstop.lock"}}
+			links = []SourceLinkDescriptor{{Kind: "blob", CommitBinding: "site", Path: "docs/_data/published-pack-inventory.yml"}}
 			headers, rows = packRows(typed)
 		case "release-history":
 			var typed []ReleaseRecord
@@ -286,51 +288,64 @@ func loadSchemas(root string) ([]SchemaRecord, error) {
 	return records, nil
 }
 
-func loadPacks(root string) ([]PackRecord, error) {
-	var declared struct {
-		Packs map[string]string `yaml:"packs"`
-	}
-	declaredData, err := os.ReadFile(filepath.Join(root, "backstop.yml"))
+func loadPublishedPacks(root string) ([]PackRecord, error) {
+	const (
+		jobID     = "published-pack-catalog"
+		output    = "docs/_includes/generated/published-pack-catalog.md"
+		inventory = "docs/_data/published-pack-inventory.yml"
+	)
+	inputs := []string{inventory}
+	data, err := os.ReadFile(filepath.Join(root, inventory))
 	if err != nil {
-		return nil, err
+		return nil, diagnostic("PT103_PACK_INVENTORY", jobID, output, inputs, err.Error())
 	}
-	if err := yaml.Unmarshal(declaredData, &declared); err != nil {
-		return nil, err
+	var parsed struct {
+		Version      string `yaml:"version"`
+		Organization string `yaml:"organization"`
+		Packs        []struct {
+			Name        string   `yaml:"name"`
+			Version     string   `yaml:"version"`
+			Language    string   `yaml:"language"`
+			Archetype   string   `yaml:"archetype"`
+			Description string   `yaml:"description"`
+			Engines     []string `yaml:"engines"`
+			Repository  string   `yaml:"repository"`
+		} `yaml:"packs"`
 	}
-	lockData, err := os.ReadFile(filepath.Join(root, "backstop.lock"))
-	if err != nil {
-		return nil, err
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&parsed); err != nil {
+		return nil, diagnostic("PT103_PACK_INVENTORY", jobID, output, inputs, err.Error())
 	}
-	var lockNode struct {
-		Packs map[string]map[string]any `yaml:"packs"`
+	if parsed.Version != "published-pack-inventory/v1" || parsed.Organization != "backstop-ai" || len(parsed.Packs) == 0 {
+		return nil, diagnostic("PT103_PACK_INVENTORY", jobID, output, inputs, "inventory must declare published-pack-inventory/v1 for backstop-ai with at least one pack")
 	}
-	if err := yaml.Unmarshal(lockData, &lockNode); err != nil {
-		return nil, err
-	}
-	if len(declared.Packs) != len(lockNode.Packs) {
-		return nil, diagnostic("PT103_PACK_JOIN", "installed-pack-catalog", "docs/_includes/generated/installed-pack-catalog.md", []string{"backstop.yml", "backstop.lock"}, "pack key sets differ")
-	}
-	names := make([]string, 0, len(declared.Packs))
-	for name := range declared.Packs {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	records := make([]PackRecord, 0, len(names))
-	for _, name := range names {
-		entry, ok := lockNode.Packs[name]
-		if !ok {
-			return nil, diagnostic("PT103_PACK_JOIN", "installed-pack-catalog", "docs/_includes/generated/installed-pack-catalog.md", []string{"backstop.yml", "backstop.lock"}, "missing lock for "+name)
+	namePattern := regexp.MustCompile(`^backstop-ai/[a-z0-9-]+$`)
+	versionPattern := regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
+	seen := map[string]bool{}
+	records := make([]PackRecord, 0, len(parsed.Packs))
+	for _, pack := range parsed.Packs {
+		engines := append([]string(nil), pack.Engines...)
+		sort.Strings(engines)
+		record := PackRecord{pack.Name, pack.Version, pack.Language, pack.Archetype, pack.Description, engines, pack.Repository}
+		if seen[record.Name] || !namePattern.MatchString(record.Name) || !versionPattern.MatchString(record.Version) {
+			return nil, diagnostic("PT103_PACK_INVENTORY", jobID, output, inputs, "invalid or duplicate pack identity for "+pack.Name)
 		}
-		entryName, nOK := scalarString(entry["name"])
-		version, vOK := scalarString(entry["version"])
-		gitRef, gOK := scalarString(entry["git_ref"])
-		hash, hOK := scalarString(entry["content_hash"])
-		declaredVersion := declared.Packs[name]
-		if !nOK || !vOK || !gOK || !hOK || entryName != name || version != declaredVersion || gitRef != "v"+declaredVersion || !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(hash) {
-			return nil, diagnostic("PT103_PACK_JOIN", "installed-pack-catalog", "docs/_includes/generated/installed-pack-catalog.md", []string{"backstop.yml", "backstop.lock"}, "identity mismatch for "+name)
+		if !validScalar(record.Language) || !validScalar(record.Archetype) || !validScalar(record.Description) || !validScalar(record.Repository) {
+			return nil, diagnostic("PT103_PACK_INVENTORY", jobID, output, inputs, "invalid pack scalar for "+pack.Name)
 		}
-		records = append(records, PackRecord{name, declaredVersion, version, gitRef, hash})
+		if record.Repository != "https://github.com/"+record.Name {
+			return nil, diagnostic("PT103_PACK_INVENTORY", jobID, output, inputs, "repository must be the GitHub URL for "+pack.Name)
+		}
+		for _, engine := range engines {
+			if !validScalar(engine) {
+				return nil, diagnostic("PT103_PACK_INVENTORY", jobID, output, inputs, "invalid engine name for "+pack.Name)
+			}
+		}
+		seen[record.Name] = true
+		records = append(records, record)
 	}
+	sort.Slice(records, func(i, j int) bool { return records[i].Name < records[j].Name })
 	return records, nil
 }
 
@@ -454,7 +469,7 @@ func VerifySourceIncludes(root string, manifest Manifest) error {
 	owners := map[string]struct{ File, Title string }{
 		"cli-command-catalog":     {"docs/reference.md", "CLI command catalog"},
 		"artifact-schema-catalog": {"docs/reference.md", "Artifact schema catalog"},
-		"installed-pack-catalog":  {"docs/pack/examples.md", "Installed pack catalog"},
+		"published-pack-catalog":  {"docs/pack/examples.md", "Published pack catalog"},
 		"release-history":         {"docs/status.md", "Release history"},
 	}
 	for _, job := range manifest.Jobs {
@@ -570,9 +585,14 @@ func schemaRows(records []SchemaRecord) ([]string, [][]string) {
 func packRows(records []PackRecord) ([]string, [][]string) {
 	rows := make([][]string, 0, len(records))
 	for _, r := range records {
-		rows = append(rows, []string{r.Name, r.DeclaredVersion, r.LockedVersion, r.GitRef, r.ContentHash})
+		engines := strings.Join(r.Engines, ", ")
+		if engines == "" {
+			engines = "—"
+		}
+		covers := r.Language + " " + r.Archetype + ": " + r.Description
+		rows = append(rows, []string{r.Name, r.Version, covers, engines, r.Repository})
 	}
-	return []string{"Pack", "Declared version", "Locked version", "Git ref", "Content SHA-256"}, rows
+	return []string{"Pack", "Version", "Covers", "Engines", "Source"}, rows
 }
 func releaseRows(records []ReleaseRecord) ([]string, [][]string) {
 	rows := make([][]string, 0, len(records))

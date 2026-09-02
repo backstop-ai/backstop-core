@@ -17,7 +17,7 @@ for link in top['journey_links']:
 claims={c['claim_id']:c for c in ev['claims']}
 for cid in ('CLAIM-011','CLAIM-019','CLAIM-020','CLAIM-022','CLAIM-023','CLAIM-025'):
  claim=claims[cid]; assert '<!-- backstop-claim: '+cid+' -->\n'+claim['statement_markdown'] in texts[claim['owner']['route']],cid
-responsibilities=[('/model/','Terminal state records whether work was delivered'),('/model/','`delivered_by` or a direct typed artifact'),('/pack/examples/','lock binds resolved bytes')]
+responsibilities=[('/model/','Terminal state records whether work was delivered'),('/model/','`delivered_by` or a direct typed artifact'),('/pack/examples/','pins the version in `backstop.yml` and writes `backstop.lock`')]
 def validate_responsibilities(corpus):
  for route,needle in responsibilities: assert needle in corpus[route],needle
 validate_responsibilities(texts)
@@ -35,7 +35,7 @@ PY
 }
 production_delete_reject docs/model.md 'Terminal state records whether work was delivered' ART-003
 production_delete_reject docs/model.md '`delivered_by` or a direct typed artifact' ART-004
-production_delete_reject docs/pack/examples.md 'lock binds resolved bytes' CLAIM-025
+production_delete_reject docs/pack/examples.md 'pins the version in `backstop.yml` and writes `backstop.lock`' CLAIM-025
 tmp="$(mktemp -d)"; for d in docs artifacts pkg cmd bundles issues; do cp -R "$root/$d" "$tmp/$d"; done; cp "$root/README.md" "$root/backstop.yml" "$root/backstop.lock" "$tmp/"
 python3 - "$tmp/docs/pack/examples.md" <<'PY'
 import sys

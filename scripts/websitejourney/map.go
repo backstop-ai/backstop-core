@@ -174,11 +174,11 @@ func ValidateGeneratedObligationMatrix(m WebsiteCapabilityMap) error {
 		jobs := journey.GeneratedJobIDs()
 		switch journey.GlobalKey {
 		case "CAP-011/@UJ-001":
-			if strings.Join(jobs, ",") != "installed-pack-catalog" {
-				return fmt.Errorf("%s: generated jobs %v, want installed-pack-catalog", journey.GlobalKey, jobs)
+			if strings.Join(jobs, ",") != "published-pack-catalog" {
+				return fmt.Errorf("%s: generated jobs %v, want published-pack-catalog", journey.GlobalKey, jobs)
 			}
 		case "CAP-013/@UJ-002":
-			if strings.Join(jobs, ",") != "cli-command-catalog,artifact-schema-catalog,installed-pack-catalog,release-history" {
+			if strings.Join(jobs, ",") != "cli-command-catalog,artifact-schema-catalog,published-pack-catalog,release-history" {
 				return fmt.Errorf("%s: generated jobs %v, want all four jobs", journey.GlobalKey, jobs)
 			}
 		default:

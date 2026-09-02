@@ -325,17 +325,17 @@ claims:
       - {evidence_id: EVIDENCE-035, kind: source, locator: {path: cmd/backstop/gate.go}, relevance: "Implements blocking gate exit behavior."}
       - {evidence_id: EVIDENCE-036, kind: reproducible-execution, locator: {version: v0.2.0}, command: "./bin/backstop gate", prerequisites: "Repository checkout with declared packs installed", relevance: "Exercises the gate postcondition."}
   - claim_id: CLAIM-025
-    statement: "The installed catalog is repository truth: declarations pin pack versions and the lock binds resolved bytes. Use the CLI to inspect, install, update, relock, and verify those selections."
-    statement_markdown: "The installed catalog is repository truth: declarations pin pack versions and the lock binds resolved bytes. Use the CLI to inspect, install, update, relock, and verify those selections."
+    statement: "Add a published pack with `backstop pack add org/pack@version`. That pins the version in `backstop.yml` and writes `backstop.lock`. Restore locked packs with `backstop pack install`. Confirm them with `backstop pack list`."
+    statement_markdown: "Add a published pack with `backstop pack add org/pack@version`. That pins the version in `backstop.yml` and writes `backstop.lock`. Restore locked packs with `backstop pack install`. Confirm them with `backstop pack list`."
     claim_type: mechanism
-    owner: {route: "/pack/examples/", anchor: installed-pack-catalog}
-    mechanism_summary: "Declarations select versions and the lock records resolved content identity."
-    guarantee_boundary: "Installed bytes must still match the lock."
-    known_limitations: "Mutable or stale installed trees fail verification."
-    adoption_implications: "Commit declarations and locks, then restore and verify installed bytes."
-    direction: "Keep pack state immutable and inspectable."
+    owner: {route: "/pack/examples/", anchor: install-a-pack}
+    mechanism_summary: "pack add pins the published version and writes the lock; pack install restores from the lock; pack list inspects installed state."
+    guarantee_boundary: "The lock records resolved content; installed bytes must still match it."
+    known_limitations: "pack relock applies to local-source packs only; git packs move with pack update."
+    adoption_implications: "Commit `backstop.yml` and `backstop.lock` after adding a pack."
+    direction: "Keep published packs pinned and locked."
     evidence_refs:
-      - {evidence_id: EVIDENCE-037, kind: source, locator: {path: backstop.lock}, relevance: "Records resolved pack versions, coordinates, and content hashes."}
+      - {evidence_id: EVIDENCE-037, kind: source, locator: {path: cmd/backstop/pack_add.go}, relevance: "Adds a pack, pins its version, and writes the lock."}
   - claim_id: CLAIM-026
     statement: "The repository root contains `backstop.yml`. Its `project`, `packs`, and `enforcement.policy` fields declare versioned standards and policy levels. The lock under `.backstop/` binds resolved pack bytes."
     statement_markdown: "The repository root contains `backstop.yml`. Its `project`, `packs`, and `enforcement.policy` fields declare versioned standards and policy levels. The lock under `.backstop/` binds resolved pack bytes."

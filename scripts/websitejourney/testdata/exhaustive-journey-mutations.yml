@@ -2,13 +2,13 @@
 # fixtures. Seed 5 consumes SPEC-075 owner verdicts and does not parse source.
 
 generated_mutations:
-  - {name: remove-region, job_id: installed-pack-catalog, remove_region: true, expected_error: CAP-011/@UJ-001}
-  - {name: remove-job-id, job_id: installed-pack-catalog, remove_job_id: true, expected_error: CAP-011/@UJ-001}
-  - {name: remove-owner-anchor, job_id: installed-pack-catalog, remove_owner_anchor: true, expected_error: CAP-011/@UJ-001}
-  - {name: remove-begin-marker, job_id: installed-pack-catalog, drop_begin_marker: true, expected_error: CAP-011/@UJ-001}
-  - {name: remove-end-marker, job_id: installed-pack-catalog, drop_end_marker: true, expected_error: CAP-011/@UJ-001}
-  - {name: remove-digest, job_id: installed-pack-catalog, drop_digest: true, expected_error: CAP-011/@UJ-001}
-  - {name: remove-source-link, job_id: installed-pack-catalog, remove_source_link: true, expected_error: CAP-011/@UJ-001}
+  - {name: remove-region, job_id: published-pack-catalog, remove_region: true, expected_error: CAP-011/@UJ-001}
+  - {name: remove-job-id, job_id: published-pack-catalog, remove_job_id: true, expected_error: CAP-011/@UJ-001}
+  - {name: remove-owner-anchor, job_id: published-pack-catalog, remove_owner_anchor: true, expected_error: CAP-011/@UJ-001}
+  - {name: remove-begin-marker, job_id: published-pack-catalog, drop_begin_marker: true, expected_error: CAP-011/@UJ-001}
+  - {name: remove-end-marker, job_id: published-pack-catalog, drop_end_marker: true, expected_error: CAP-011/@UJ-001}
+  - {name: remove-digest, job_id: published-pack-catalog, drop_digest: true, expected_error: CAP-011/@UJ-001}
+  - {name: remove-source-link, job_id: published-pack-catalog, remove_source_link: true, expected_error: CAP-011/@UJ-001}
   - {name: remove-cli-region, job_id: cli-command-catalog, remove_region: true, expected_error: CAP-013/@UJ-002}
   - {name: remove-artifact-source, job_id: artifact-schema-catalog, remove_source_link: true, expected_error: CAP-013/@UJ-002}
   - {name: remove-release-digest, job_id: release-history, drop_digest: true, expected_error: CAP-013/@UJ-002}

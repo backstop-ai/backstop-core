@@ -113,11 +113,11 @@ func TestWebsiteJourney_GeneratedObligationMatrixPasses(t *testing.T) {
 	}
 
 	cap011 := m.Journey("CAP-011/@UJ-001")
-	if jobs := cap011.GeneratedJobIDs(); strings.Join(jobs, ",") != "installed-pack-catalog" {
-		t.Fatalf("CAP-011/@UJ-001 jobs = %v, want installed-pack-catalog", jobs)
+	if jobs := cap011.GeneratedJobIDs(); strings.Join(jobs, ",") != "published-pack-catalog" {
+		t.Fatalf("CAP-011/@UJ-001 jobs = %v, want published-pack-catalog", jobs)
 	}
 	cap013 := m.Journey("CAP-013/@UJ-002")
-	if jobs := cap013.GeneratedJobIDs(); strings.Join(jobs, ",") != "cli-command-catalog,artifact-schema-catalog,installed-pack-catalog,release-history" {
+	if jobs := cap013.GeneratedJobIDs(); strings.Join(jobs, ",") != "cli-command-catalog,artifact-schema-catalog,published-pack-catalog,release-history" {
 		t.Fatalf("CAP-013/@UJ-002 jobs = %v, want all four generated jobs", jobs)
 	}
 	for _, key := range []string{"CAP-011/@UJ-001", "CAP-013/@UJ-002"} {

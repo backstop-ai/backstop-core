@@ -22,7 +22,7 @@ func TestProductTruth_SourceIncludesReferenceFragments(t *testing.T) {
 	}
 }
 
-func TestProductTruth_SourceIncludesInstalledPackFragment(t *testing.T) {
+func TestProductTruth_SourceIncludesPublishedPackFragment(t *testing.T) {
 	root := testRoot(t)
 	manifest := testManifest(t)
 	if err := VerifySourceIncludes(root, manifest); err != nil {
@@ -32,7 +32,7 @@ func TestProductTruth_SourceIncludesInstalledPackFragment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Count(string(data), "installed-pack-catalog.md") != 1 {
+	if strings.Count(string(data), "published-pack-catalog.md") != 1 {
 		t.Fatal("pack include count")
 	}
 }

@@ -427,7 +427,7 @@ func VerifyRenderedOwnerContracts(_ string, builtRoot string, siteCommit string)
 			findings = append(findings, Finding{Phase: "owner-contracts", Identity: id, Expected: "digest-bound nonempty code bytes", Observed: "missing or malformed"})
 		}
 	}
-	for _, job := range []string{"cli-command-catalog", "artifact-schema-catalog", "installed-pack-catalog", "release-history"} {
+	for _, job := range []string{"cli-command-catalog", "artifact-schema-catalog", "published-pack-catalog", "release-history"} {
 		addCardinality(&findings, "owner-contracts", job+" region", "1", strings.Count(joined, `data-generated-region="" data-product-truth-job="`+job+`"`))
 		pattern := regexp.MustCompile(`(?s)<section\s+data-generated-region=""\s+data-product-truth-job="` + regexp.QuoteMeta(job) + `"[^>]*>(.*?)</section>`)
 		match := pattern.FindStringSubmatch(joined)

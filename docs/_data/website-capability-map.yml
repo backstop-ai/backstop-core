@@ -102,33 +102,31 @@ journeys:
     hops: ["/use-cases/#pack-backed-use-cases", "/pack/examples/#choose-a-pack"]
     jlinks: [JLINK-016]
     obligations:
-      - {kind: evidence, claim_id: CLAIM-025, owner_route: "/pack/examples/", owner_anchor: installed-pack-catalog, claim_type: mechanism}
+      - {kind: evidence, claim_id: CLAIM-025, owner_route: "/pack/examples/", owner_anchor: install-a-pack, claim_type: mechanism}
       - {kind: boundary, boundary_id: BOUNDARY-003, owner_route: "/status/", owner_anchor: project-boundaries, state: planned, claim_id: CLAIM-003}
   - global_key: CAP-011/@UJ-001
-    hops: ["/pack/examples/#installed-pack-catalog", "/reference/#pack-commands"]
+    hops: ["/pack/examples/#install-a-pack", "/reference/#pack-commands"]
     jlinks: [JLINK-017]
     obligations:
-      - {kind: evidence, claim_id: CLAIM-025, owner_route: "/pack/examples/", owner_anchor: installed-pack-catalog, claim_type: mechanism}
+      - {kind: evidence, claim_id: CLAIM-025, owner_route: "/pack/examples/", owner_anchor: install-a-pack, claim_type: mechanism}
       - {kind: boundary, boundary_id: BOUNDARY-002, owner_route: "/status/", owner_anchor: supported-and-limited, state: limitation, claim_id: CLAIM-002}
       - kind: generated
-        job_id: installed-pack-catalog
-        output: docs/_includes/generated/installed-pack-catalog.md
+        job_id: published-pack-catalog
+        output: docs/_includes/generated/published-pack-catalog.md
         owner_route: /pack/examples/
-        owner_anchor: installed-pack-catalog
-        truth_begin_marker: "<!-- PRODUCT-TRUTH:BEGIN job=installed-pack-catalog digest=sha256:8fb07d94e578d43fb8fce23f25197bef3fd08d0b0066dab02e3c2097ead6ad9d -->"
-        truth_end_marker: "<!-- PRODUCT-TRUTH:END job=installed-pack-catalog -->"
-        sources_begin_marker: "<!-- PRODUCT-TRUTH:SOURCES-BEGIN job=installed-pack-catalog owner=/pack/examples/#installed-pack-catalog digest=sha256:8fb07d94e578d43fb8fce23f25197bef3fd08d0b0066dab02e3c2097ead6ad9d -->"
-        sources_end_marker: "<!-- PRODUCT-TRUTH:SOURCES-END job=installed-pack-catalog -->"
-        source_digest: sha256:8fb07d94e578d43fb8fce23f25197bef3fd08d0b0066dab02e3c2097ead6ad9d
+        owner_anchor: published-pack-catalog
+        truth_begin_marker: "<!-- PRODUCT-TRUTH:BEGIN job=published-pack-catalog digest=sha256:a351973cdb47b555e4b3db4bf15ec0e4a561b6ab73a9b3d9550537fdfff24f5f -->"
+        truth_end_marker: "<!-- PRODUCT-TRUTH:END job=published-pack-catalog -->"
+        sources_begin_marker: "<!-- PRODUCT-TRUTH:SOURCES-BEGIN job=published-pack-catalog owner=/pack/examples/#published-pack-catalog digest=sha256:a351973cdb47b555e4b3db4bf15ec0e4a561b6ab73a9b3d9550537fdfff24f5f -->"
+        sources_end_marker: "<!-- PRODUCT-TRUTH:SOURCES-END job=published-pack-catalog -->"
+        source_digest: sha256:a351973cdb47b555e4b3db4bf15ec0e4a561b6ab73a9b3d9550537fdfff24f5f
         descriptors:
-          - {kind: blob, commit_binding: site, path: backstop.yml}
-          - {kind: blob, commit_binding: site, path: backstop.lock}
+          - {kind: blob, commit_binding: site, path: docs/_data/published-pack-inventory.yml}
         url_templates:
-          - "https://github.com/backstop-ai/backstop-core/blob/<SITE-COMMIT>/backstop.yml"
-          - "https://github.com/backstop-ai/backstop-core/blob/<SITE-COMMIT>/backstop.lock"
+          - "https://github.com/backstop-ai/backstop-core/blob/<SITE-COMMIT>/docs/_data/published-pack-inventory.yml"
         site_identity: owner:SPEC-075:site-commit
         rendered_anchors:
-          - section[data-generated-region][data-product-truth-job=installed-pack-catalog] a[data-generated-source-link]
+          - section[data-generated-region][data-product-truth-job=published-pack-catalog] a[data-generated-source-link]
         reconstruction_verdict: owner:SPEC-075:reconstruction
         rendered_digest: owner:SPEC-075:rendered-digest
   - global_key: CAP-011/@UJ-002
@@ -155,7 +153,7 @@ journeys:
     obligations:
       - {kind: evidence, claim_id: CLAIM-007, owner_route: "/reference/", owner_anchor: source-traceability, claim_type: observed-failure}
   - global_key: CAP-013/@UJ-002
-    hops: ["/pack/examples/#installed-pack-catalog", "/reference/#cli-command-catalog", "/status/#release-history"]
+    hops: ["/pack/examples/#published-pack-catalog", "/reference/#cli-command-catalog", "/status/#release-history"]
     jlinks: [JLINK-022, JLINK-023]
     obligations:
       - {kind: evidence, claim_id: CLAIM-032, owner_route: "/reference/", owner_anchor: cli-command-catalog, claim_type: mechanism}
@@ -200,24 +198,22 @@ journeys:
         reconstruction_verdict: owner:SPEC-075:reconstruction
         rendered_digest: owner:SPEC-075:rendered-digest
       - kind: generated
-        job_id: installed-pack-catalog
-        output: docs/_includes/generated/installed-pack-catalog.md
+        job_id: published-pack-catalog
+        output: docs/_includes/generated/published-pack-catalog.md
         owner_route: /pack/examples/
-        owner_anchor: installed-pack-catalog
-        truth_begin_marker: "<!-- PRODUCT-TRUTH:BEGIN job=installed-pack-catalog digest=sha256:8fb07d94e578d43fb8fce23f25197bef3fd08d0b0066dab02e3c2097ead6ad9d -->"
-        truth_end_marker: "<!-- PRODUCT-TRUTH:END job=installed-pack-catalog -->"
-        sources_begin_marker: "<!-- PRODUCT-TRUTH:SOURCES-BEGIN job=installed-pack-catalog owner=/pack/examples/#installed-pack-catalog digest=sha256:8fb07d94e578d43fb8fce23f25197bef3fd08d0b0066dab02e3c2097ead6ad9d -->"
-        sources_end_marker: "<!-- PRODUCT-TRUTH:SOURCES-END job=installed-pack-catalog -->"
-        source_digest: sha256:8fb07d94e578d43fb8fce23f25197bef3fd08d0b0066dab02e3c2097ead6ad9d
+        owner_anchor: published-pack-catalog
+        truth_begin_marker: "<!-- PRODUCT-TRUTH:BEGIN job=published-pack-catalog digest=sha256:a351973cdb47b555e4b3db4bf15ec0e4a561b6ab73a9b3d9550537fdfff24f5f -->"
+        truth_end_marker: "<!-- PRODUCT-TRUTH:END job=published-pack-catalog -->"
+        sources_begin_marker: "<!-- PRODUCT-TRUTH:SOURCES-BEGIN job=published-pack-catalog owner=/pack/examples/#published-pack-catalog digest=sha256:a351973cdb47b555e4b3db4bf15ec0e4a561b6ab73a9b3d9550537fdfff24f5f -->"
+        sources_end_marker: "<!-- PRODUCT-TRUTH:SOURCES-END job=published-pack-catalog -->"
+        source_digest: sha256:a351973cdb47b555e4b3db4bf15ec0e4a561b6ab73a9b3d9550537fdfff24f5f
         descriptors:
-          - {kind: blob, commit_binding: site, path: backstop.yml}
-          - {kind: blob, commit_binding: site, path: backstop.lock}
+          - {kind: blob, commit_binding: site, path: docs/_data/published-pack-inventory.yml}
         url_templates:
-          - "https://github.com/backstop-ai/backstop-core/blob/<SITE-COMMIT>/backstop.yml"
-          - "https://github.com/backstop-ai/backstop-core/blob/<SITE-COMMIT>/backstop.lock"
+          - "https://github.com/backstop-ai/backstop-core/blob/<SITE-COMMIT>/docs/_data/published-pack-inventory.yml"
         site_identity: owner:SPEC-075:site-commit
         rendered_anchors:
-          - section[data-generated-region][data-product-truth-job=installed-pack-catalog] a[data-generated-source-link]
+          - section[data-generated-region][data-product-truth-job=published-pack-catalog] a[data-generated-source-link]
         reconstruction_verdict: owner:SPEC-075:reconstruction
         rendered_digest: owner:SPEC-075:rendered-digest
       - kind: generated
