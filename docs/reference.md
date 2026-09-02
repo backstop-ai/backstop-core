@@ -80,7 +80,7 @@ A pack declares identity, version, claims, engines, fixtures, tools, applicabili
 Status is a declared field. Authors set it. It is not inferred from git or CI. Per-noun Status tables live on the entity pages. This section is the machine: legal moves, what must be true, what starts being enforced, and what that move enables.
 
 <!-- backstop-claim: CLAIM-030 -->
-Bundles progress through `idea`, `exploring`, `defined`, and `ready`; specifications progress from `draft` to `ready-for-implementation`; plans progress from `draft` to `ready` to `implementing` to `completed`. Terminal states distinguish delivered or implemented work from replacement, cancellation, deprecation, and obsolescence, with successor fields required where the schema names one.
+Bundles progress through `idea`, `exploring`, `defined`, and `ready`. Terminal states distinguish delivered or implemented work from replacement, cancellation, deprecation, and obsolescence, with successor fields required where the schema names one.
 <!-- /backstop-claim -->
 
 Feature work uses bundle → spec → plan. Bounded work uses issue → plan. Both tracks meet at a plan. Each spec has exactly one plan. An issue does not get a spec. Product code is not written until a plan is approved.
@@ -114,7 +114,18 @@ Closing an issue requires a `## Resolution` section and at most one traceability
 
 Live: `draft` → `ready-for-implementation` → `implemented`.
 
-A spec comes from a bundle. Live specs carry requirements, claims, verification, implementation, and contracts. Entering `ready-for-implementation` is what makes planning legal. `implemented` means the work was delivered; the file stays a full spec.
+<div class="tactics-matrix">
+<table>
+<thead>
+<tr><th>State</th><th>Before you can enter it</th><th>Validator / gate</th><th>Enables</th></tr>
+</thead>
+<tbody>
+<tr><td data-label="State"><code>draft</code></td><td data-label="Before you can enter it">Spec exists from a bundle; required live-work shape</td><td data-label="Validator / gate">Spec schema/completeness</td><td data-label="Enables">Authoring</td></tr>
+<tr><td data-label="State"><code>ready-for-implementation</code></td><td data-label="Before you can enter it">Requirements, claims, verification, implementation, contracts complete; review/validation passed</td><td data-label="Validator / gate">Full live-work completeness/traceability</td><td data-label="Enables">Plan creation</td></tr>
+<tr><td data-label="State"><code>implemented</code></td><td data-label="Before you can enter it">Work delivered through its plan</td><td data-label="Validator / gate">Delivery/closure requirements</td><td data-label="Enables">No further implementation work</td></tr>
+</tbody>
+</table>
+</div>
 
 Terminals: `replaced`, `canceled`, `deprecated`, `obsoleted`. Retired specs are exempt from live-work completeness.
 
@@ -156,10 +167,12 @@ Live: `draft` → `ready` → `implementing` → `completed`.
 <tr><td data-label="State"><code>draft</code></td><td data-label="Before you can enter it">Source is an issue or a spec. Phases and tasks are present.</td><td data-label="Validator / gate">Plan schema and completeness.</td><td data-label="Enables">Authoring</td></tr>
 <tr><td data-label="State"><code>ready</code></td><td data-label="Before you can enter it">Same shape. Reviewer has passed.</td><td data-label="Validator / gate">Same.</td><td data-label="Enables">Implementation</td></tr>
 <tr><td data-label="State"><code>implementing</code></td><td data-label="Before you can enter it">An implementer is executing it.</td><td data-label="Validator / gate">Same.</td><td data-label="Enables">Plan execution</td></tr>
-<tr><td data-label="State"><code>completed</code></td><td data-label="Before you can enter it">The work was delivered. Mandated tests exist.</td><td data-label="Validator / gate">Validator may accept a completed plan whose mandated tests are missing. The gate does not.</td><td data-label="Enables"><code>delivered_by</code> on the source issue</td></tr>
+<tr><td data-label="State"><code>completed</code></td><td data-label="Before you can enter it">The work was delivered. Mandated tests exist.</td><td data-label="Validator / gate">Validator may accept a completed plan whose mandated tests are missing. The gate does not.</td><td data-label="Enables">Source artifact close-out</td></tr>
 </tbody>
 </table>
 </div>
+
+Issue-sourced (`PLAN-ISSUE-NNN`): permits `delivered_by` on that issue. Spec-sourced (`PLAN-SPEC-NNN`): permits setting the spec to `implemented`. Bundle `delivered` is a separate declared status. Spec and bundle status are not inferred from the plan.
 
 `replaced` requires `replaced-by`. `obsoleted` requires `obsoleted-by`.
 
