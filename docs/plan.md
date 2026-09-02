@@ -108,7 +108,14 @@ Each task has:
 
 <pre><code>backstop artifact validate --plan PLAN-ISSUE-NNN</code></pre>
 
-After it validates, an independent plan reviewer reads the source issue or spec and the plan. It checks claim coverage, file scope, TDD order, and gate cadence. Findings go back to the planner. Implementation does not start on a plan that failed review.
+## Reviewer
+
+`plan-reviewer`. Independent of the planner. Runs after the file validates.
+
+- Reads the source issue or spec and the plan
+- Checks claim coverage, file scope, TDD order, and gate cadence
+- Findings go back to the planner
+- Implementation does not start on a plan that failed review
 
 ## Notes
 
