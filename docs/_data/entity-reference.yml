@@ -67,7 +67,6 @@ entities:
     also:
       - {href: /plan/, label: Plan}
       - {href: /model/#operating-model, label: Operating model}
-      - {href: /reference/#artifact-schema-catalog, label: Artifact schemas}
 
   - id: spec
     output: docs/spec.md
@@ -250,7 +249,6 @@ entities:
     also:
       - {href: /bundle/, label: Bundle}
       - {href: /plan/, label: Plan}
-      - {href: /reference/#artifact-schema-catalog, label: Artifact schemas}
 
   - id: adr
     output: docs/adr.md
@@ -295,7 +293,6 @@ entities:
     also:
       - {href: /spec/, label: Spec}
       - {href: /plan/, label: Plan}
-      - {href: /reference/#artifact-schema-catalog, label: Artifact schemas}
 
   - id: capability
     output: docs/capability.md
@@ -346,7 +343,6 @@ entities:
     also:
       - {href: /spec/, label: Spec}
       - {href: /plan/, label: Plan}
-      - {href: /reference/#artifact-schema-catalog, label: Artifact schemas}
 
   - id: pack
     output: docs/pack.md

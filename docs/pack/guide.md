@@ -14,12 +14,9 @@ A pack can apply everywhere or to one repository. Make it as specific as the sta
 
 [What is a pack?](/pack/) is the noun. [Published packs](/pack/examples/#choose-a-pack) if a maintained pack already owns the standard.
 
-<!-- backstop-journey-link: JLINK-019 -->
-[Inspect the pack artifact](/reference/#pack-artifact)
-
 ## 2. Author a pack {#author-a-pack}
 
-Author the pack in its own repository. Do not vendor it into core. Exact manifest fields live in the pack artifact reference.
+Author the pack in its own repository. Do not vendor it into core.
 
 ### Scaffold the pack
 
@@ -172,12 +169,12 @@ Install the local pack in a consumer repository and run that repository's gate.
 
 <pre><code>backstop pack add ./my-standard</code></pre>
 
-### Contribute it if desired
+### Participate
 
-After the pack is published, contribute it if you want it in the Backstop ecosystem.
+Backstop is not accepting outside contributions now. That is planned.
 
 <!-- backstop-journey-link: JLINK-020 -->
-[Contribute the pack](/contributing/#contribution-paths)
+[How to participate](/contributing/#contribution-paths)
 
 ## 3. Publish a pack {#publish-a-pack}
 

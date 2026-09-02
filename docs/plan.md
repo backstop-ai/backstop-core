@@ -145,5 +145,4 @@ The source artifact defines the work. The plan is the handoff. An implementer ex
 <a href="/spec/">Spec</a>
 <a href="/bundle/">Bundle</a>
 <a href="/model/#operating-model">Operating model</a>
-<a href="/reference/#artifact-schema-catalog">Artifact schemas</a>
 </p>

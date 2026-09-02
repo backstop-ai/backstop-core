@@ -109,5 +109,4 @@ Feature work still uses bundle → spec → plan. Bounded work still uses issue 
 <p class="entity-also">
 <a href="/bundle/">Bundle</a>
 <a href="/plan/">Plan</a>
-<a href="/reference/#artifact-schema-catalog">Artifact schemas</a>
 </p>

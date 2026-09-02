@@ -70,9 +70,6 @@ Independent branches can execute in parallel. Dependencies establish the order w
 <!-- backstop-claim: CLAIM-022 -->
 Backstop converts declared intent into bounded work and an inspectable verdict. Proactive work begins with a bundle; reactive work begins with an issue. Both reach a reviewed plan before implementation, and both finish through deterministic validation and explicit terminal state. Terminal state records whether work was delivered, replaced, canceled, deprecated, or obsoleted; issue closure preserves either completed-plan lineage through `delivered_by` or a direct typed artifact, commit, or pull-request reference through `resolved-by`.
 <!-- /backstop-claim -->
-
-<!-- backstop-journey-link: JLINK-010 -->
-[Inspect artifact schemas](/reference/#artifact-schema-catalog)
 </div>
 
 ## Enforce your standards {#standards-packs}
@@ -165,9 +162,6 @@ The agent does not hand failed work downstream.
 
 <div class="canonical-note">
 The authoritative enforcement loop is `docs/_diagrams/ARCH-002-enforcement-loop.mmd`: intent bounds execution, pack engines return a verdict, and evidence feeds provenance back into intent.
-
-<!-- backstop-journey-link: JLINK-014 -->
-[Read the gate reference](/reference/#gate)
 </div>
 
 ## What Backstop does not own {#ownership-boundaries}
@@ -182,9 +176,6 @@ The canonical architecture views are checked-in Mermaid sources so presentation 
 <!-- /backstop-claim -->
 
 Core owns execution and lifecycle primitives. Packs own standards and engines. Harnesses own orchestration. External toolchains own their behavior. The authoritative boundary view is `docs/_diagrams/ARCH-003-ownership-boundaries.mmd`.
-
-<!-- backstop-journey-link: JLINK-011 -->
-[Review project boundaries](/status/#project-boundaries)
 </div>
 
 <div class="canonical-anchors">
@@ -203,17 +194,11 @@ Core owns execution and lifecycle primitives. Packs own standards and engines. H
 The gate checks the installed standards against the named inputs and returns a verdict. That is the whole guarantee. Whether anyone stops is outside the process.
 <!-- /backstop-claim -->
 
-<!-- backstop-journey-link: JLINK-006 -->
-[Review support and limits](/status/#supported-and-limited)
-
 ## Waivers {#waivers}
 
 ## Capabilities and journeys {#capabilities-and-journeys}
 
 ## Provenance and verification {#provenance-and-verification}
-
-<!-- backstop-journey-link: JLINK-021 -->
-[Trace the sources](/reference/#source-traceability)
 
 ## Harness integration {#harness-integration}
 
@@ -221,17 +206,11 @@ The gate checks the installed standards against the named inputs and returns a v
 A harness can schedule work and invoke Backstop. It preserves Backstop guarantees only when it also respects artifact order, role boundaries, and the gate exit status.
 <!-- /backstop-claim -->
 
-<!-- backstop-journey-link: JLINK-008 -->
-[Check compatibility details](/reference/#compatibility)
-
 ## Product category {#product-category}
 
 <!-- backstop-claim: CLAIM-020 -->
 Backstop is not a coding agent. It sits around whichever agent you already use and stops work that is off-task, unreviewable, or not allowed to ship.
 <!-- /backstop-claim -->
-
-<!-- backstop-journey-link: JLINK-005 -->
-[Find adjacent guidance](/status/#adjacent-guidance)
 
 ## Delivery lifecycle {#delivery-lifecycle}
 

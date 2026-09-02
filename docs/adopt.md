@@ -14,11 +14,6 @@ Pin the released binary in the repository.
 
 <pre><code>GOBIN=./.backstop-bin go install github.com/backstop-ai/backstop-core/cmd/backstop@v0.2.0</code></pre>
 
-<div class="canonical-note">
-<!-- backstop-journey-link: JLINK-012 -->
-[Configure Backstop](/reference/#configuration)
-</div>
-
 ### Initialize the repository {#configure}
 
 Backstop configuration lives with the code.
@@ -47,8 +42,6 @@ Bounded work uses issue → plan. This is the normal path for a bug, a follow-on
 <li>Run the artifact reviewers and deterministic validators.</li>
 <li>Resolve findings until the artifacts pass.</li>
 </ul>
-
-[Artifact lifecycle](/reference/#artifact-lifecycle-and-closure)
 
 ## 4. Let the agent implement it {#verify-enforcement}
 

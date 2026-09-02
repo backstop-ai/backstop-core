@@ -10,9 +10,6 @@ hero_lede: false
 
 Choose the narrowest maintained pack that owns the standard and supports the repository's tools. Check its release, engine requirements, fixture coverage, and maintenance state before composing it with other packs.
 
-<!-- backstop-journey-link: JLINK-018 -->
-[Review pack direction](/status/#pack-direction)
-
 ## Published pack catalog {#published-pack-catalog}
 
 <section data-generated-region data-product-truth-job="published-pack-catalog">
@@ -20,9 +17,6 @@ Choose the narrowest maintained pack that owns the standard and supports the rep
 {% include generated/published-pack-catalog.md %}
 <!-- PRODUCT-TRUTH-INCLUDE:END job=published-pack-catalog -->
 </section>
-
-<!-- backstop-journey-link: JLINK-022 -->
-[Browse the CLI catalog](/reference/#cli-command-catalog)
 
 ## Install a published pack {#install-a-pack}
 
@@ -40,14 +34,11 @@ Confirm the installed set:
 
 <pre><code>backstop pack list</code></pre>
 
-Commit `backstop.yml` and `backstop.lock` with the change. Git packs later move with `backstop pack update`. Command details live in Reference.
+Commit `backstop.yml` and `backstop.lock` with the change. Git packs later move with `backstop pack update`.
 
 <!-- backstop-claim: CLAIM-025 -->
 Add a published pack with `backstop pack add org/pack@version`. That pins the version in `backstop.yml` and writes `backstop.lock`. Restore locked packs with `backstop pack install`. Confirm them with `backstop pack list`.
 <!-- /backstop-claim -->
-
-<!-- backstop-journey-link: JLINK-017 -->
-[Use pack commands](/reference/#pack-commands)
 
 ## Try a local pack first {#install-a-local-pack}
 

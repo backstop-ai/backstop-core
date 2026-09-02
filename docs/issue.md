@@ -131,5 +131,4 @@ Product code is not written from the issue. The implementer executes an approved
 <p class="entity-also">
 <a href="/plan/">Plan</a>
 <a href="/model/#operating-model">Operating model</a>
-<a href="/reference/#artifact-schema-catalog">Artifact schemas</a>
 </p>

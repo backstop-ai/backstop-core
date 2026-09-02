@@ -103,5 +103,4 @@ Product code is not written from the ADR.
 <p class="entity-also">
 <a href="/spec/">Spec</a>
 <a href="/plan/">Plan</a>
-<a href="/reference/#artifact-schema-catalog">Artifact schemas</a>
 </p>

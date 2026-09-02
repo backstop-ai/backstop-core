@@ -23,31 +23,19 @@ neighborhoods:
   - {neighborhood_id: NBR-011, name: "Project Status / Direction", visitor_question: "Where is the project going?", owner_route: "/status/", required_answer: "Shipped, planned, and excluded."}
   - {neighborhood_id: NBR-012, name: "Contributing / Ecosystem", visitor_question: "How can I participate?", owner_route: "/contributing/", required_answer: "Contribution and ownership paths."}
 navigation:
-  primary: ["/evaluate/", "/model/", "/adopt/", "/use-cases/", "/pack/", "/reference/"]
-  utility: ["/status/", "/contributing/"]
+  primary: ["/evaluate/", "/model/", "/adopt/", "/pack/"]
+  utility: ["/contributing/"]
 journey_links:
   - {link_id: JLINK-001, source_route: "/", source_anchor: define-work, destination_route: "/evaluate/", destination_anchor: failure-fit, label: "Evaluate the failure fit"}
   - {link_id: JLINK-002, source_route: "/evaluate/", source_anchor: working-state, destination_route: "/model/", destination_anchor: operating-model, label: "See the operating model"}
   - {link_id: JLINK-003, source_route: "/use-cases/", source_anchor: choose-use-case, destination_route: "/evaluate/", destination_anchor: fit-decision, label: "Check the fit decision"}
   - {link_id: JLINK-004, source_route: "/evaluate/", source_anchor: fit-decision, destination_route: "/adopt/", destination_anchor: install, label: "Install Backstop"}
-  - {link_id: JLINK-005, source_route: "/model/", source_anchor: product-category, destination_route: "/status/", destination_anchor: adjacent-guidance, label: "Find adjacent guidance"}
-  - {link_id: JLINK-006, source_route: "/model/", source_anchor: gates-and-policy, destination_route: "/status/", destination_anchor: supported-and-limited, label: "Review support and limits"}
   - {link_id: JLINK-007, source_route: "/status/", source_anchor: boundary-states, destination_route: "/model/", destination_anchor: ownership-boundaries, label: "See ownership boundaries"}
-  - {link_id: JLINK-008, source_route: "/model/", source_anchor: harness-integration, destination_route: "/reference/", destination_anchor: compatibility, label: "Check compatibility details"}
   - {link_id: JLINK-009, source_route: "/reference/", source_anchor: compatibility, destination_route: "/status/", destination_anchor: adjacent-guidance, label: "Follow compatibility guidance"}
-  - {link_id: JLINK-010, source_route: "/model/", source_anchor: operating-model, destination_route: "/reference/", destination_anchor: artifact-schema-catalog, label: "Inspect artifact schemas"}
-  - {link_id: JLINK-011, source_route: "/model/", source_anchor: ownership-boundaries, destination_route: "/status/", destination_anchor: project-boundaries, label: "Review project boundaries"}
-  - {link_id: JLINK-012, source_route: "/adopt/", source_anchor: install, destination_route: "/reference/", destination_anchor: configuration, label: "Configure Backstop"}
   - {link_id: JLINK-013, source_route: "/adopt/", source_anchor: verify-enforcement, destination_route: "/model/", destination_anchor: enforcement-loop, label: "Understand the enforcement loop"}
-  - {link_id: JLINK-014, source_route: "/model/", source_anchor: enforcement-loop, destination_route: "/reference/", destination_anchor: gate, label: "Read the gate reference"}
   - {link_id: JLINK-015, source_route: "/use-cases/", source_anchor: choose-use-case, destination_route: "/adopt/", destination_anchor: adoption-paths, label: "Choose an adoption path"}
   - {link_id: JLINK-016, source_route: "/use-cases/", source_anchor: pack-backed-use-cases, destination_route: "/pack/examples/", destination_anchor: choose-a-pack, label: "Choose a maintained pack"}
-  - {link_id: JLINK-017, source_route: "/pack/examples/", source_anchor: install-a-pack, destination_route: "/reference/", destination_anchor: pack-commands, label: "Use pack commands"}
-  - {link_id: JLINK-018, source_route: "/pack/examples/", source_anchor: choose-a-pack, destination_route: "/status/", destination_anchor: pack-direction, label: "Review pack direction"}
-  - {link_id: JLINK-019, source_route: "/pack/guide/", source_anchor: pack-or-not, destination_route: "/reference/", destination_anchor: pack-artifact, label: "Inspect the pack artifact"}
-  - {link_id: JLINK-020, source_route: "/pack/guide/", source_anchor: author-a-pack, destination_route: "/contributing/", destination_anchor: contribution-paths, label: "Contribute the pack"}
-  - {link_id: JLINK-021, source_route: "/model/", source_anchor: provenance-and-verification, destination_route: "/reference/", destination_anchor: source-traceability, label: "Trace the sources"}
-  - {link_id: JLINK-022, source_route: "/pack/examples/", source_anchor: published-pack-catalog, destination_route: "/reference/", destination_anchor: cli-command-catalog, label: "Browse the CLI catalog"}
+  - {link_id: JLINK-020, source_route: "/pack/guide/", source_anchor: author-a-pack, destination_route: "/contributing/", destination_anchor: contribution-paths, label: "How to participate"}
   - {link_id: JLINK-023, source_route: "/reference/", source_anchor: cli-command-catalog, destination_route: "/status/", destination_anchor: release-history, label: "Check release history"}
   - {link_id: JLINK-024, source_route: "/status/", source_anchor: adjacent-guidance, destination_route: "/contributing/", destination_anchor: external-ownership, label: "Continue outside Backstop"}
 adoption_instructions:
