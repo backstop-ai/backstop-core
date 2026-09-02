@@ -3,6 +3,7 @@ title: Pack examples
 layout: default
 permalink: /pack/examples/
 hero_question: "Published packs."
+hero_lede: false
 ---
 
 ## Choose a pack {#choose-a-pack}

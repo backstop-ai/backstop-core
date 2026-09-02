@@ -924,6 +924,79 @@ th { background: var(--ds-surface); }
   white-space: pre;
 }
 
+[data-page-kind="ecosystem"] .page-hero h1 { max-width: 18ch; }
+[data-page-kind="ecosystem"] .page-boundary,
+[data-page-kind="ecosystem"] .prose > h2 + p,
+[data-page-kind="ecosystem"] .prose > h3 + p {
+  max-width: 46rem;
+  margin: 0.45rem 0 1.25rem;
+  color: var(--ds-muted);
+  font-size: 1.15rem;
+  font-weight: 400;
+}
+[data-page-kind="ecosystem"] .page-boundary { margin: 1.5rem 0 0; }
+[data-page-kind="ecosystem"] .prose { width: min(calc(100% - 2rem), 72rem); padding-block: 2.5rem 4rem; }
+[data-page-kind="ecosystem"] .prose > h2 {
+  margin: 3rem 0 0;
+  color: inherit;
+  font-family: var(--ds-font-sans);
+  font-size: clamp(1.45rem, 3vw, 2.1rem);
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+}
+[data-page-kind="ecosystem"] .prose > h2:first-child { margin-top: 0; }
+[data-page-kind="ecosystem"] .prose > h3 {
+  margin: 1.5rem 0 0;
+  color: inherit;
+  font-family: var(--ds-font-sans);
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.3;
+}
+[data-page-kind="ecosystem"] .prose > h2 + h3 { margin-top: 1.1rem; }
+[data-page-kind="ecosystem"] .prose > p,
+[data-page-kind="ecosystem"] .prose > ul { max-width: 46rem; }
+[data-page-kind="ecosystem"] .prose table {
+  width: 100%;
+  margin: 0;
+  font-size: 0.88rem;
+}
+[data-page-kind="ecosystem"] .prose th {
+  color: var(--ds-muted);
+  font-family: var(--ds-font-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: transparent;
+}
+[data-page-kind="ecosystem"] .prose td:first-child {
+  font-family: var(--ds-font-mono);
+  font-size: 0.84rem;
+  white-space: nowrap;
+}
+[data-page-kind="ecosystem"] .prose td:last-child {
+  font-family: var(--ds-font-mono);
+  font-size: 0.78rem;
+}
+[data-page-kind="ecosystem"] [data-generated-region] {
+  margin-block: 0.85rem 1.5rem;
+}
+[data-page-kind="ecosystem"] [data-overflow-region] {
+  margin: 0.85rem 0 1.1rem;
+  border: 1px solid var(--ds-border);
+  border-radius: 0.55rem;
+  background: var(--ds-surface);
+}
+[data-page-kind="ecosystem"] [data-generated-source-descriptors] {
+  max-width: 46rem;
+  margin: 0.75rem 0 0;
+  color: var(--ds-muted);
+  font-size: 0.85rem;
+}
+
 [data-page-kind="reference"] .page-hero h1 { max-width: 28ch; }
 [data-page-kind="reference"] .page-boundary,
 [data-page-kind="reference"] .prose > h2 + p,
@@ -1189,7 +1262,7 @@ th { background: var(--ds-surface); }
   border-top: 1px solid var(--ds-border);
 }
 
-html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="extension"], [data-page-kind="reference"], [data-page-kind="entity"]) {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="ecosystem"], [data-page-kind="extension"], [data-page-kind="reference"], [data-page-kind="entity"]) {
   color-scheme: light;
   background: var(--color-paper);
   --ds-canvas: var(--color-paper);
@@ -1202,27 +1275,27 @@ html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kin
   --ds-font-sans: var(--font-sans);
   --ds-font-mono: var(--font-mono);
 }
-html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="extension"], [data-page-kind="reference"], [data-page-kind="entity"]) body {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="ecosystem"], [data-page-kind="extension"], [data-page-kind="reference"], [data-page-kind="entity"]) body {
   background: var(--color-paper);
   color: var(--color-ink);
   font-family: var(--font-sans);
 }
-html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="extension"], [data-page-kind="reference"], [data-page-kind="entity"]) .site-header {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="ecosystem"], [data-page-kind="extension"], [data-page-kind="reference"], [data-page-kind="entity"]) .site-header {
   background: var(--color-paper);
   border-bottom-color: var(--color-line);
 }
-html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="extension"], [data-page-kind="reference"], [data-page-kind="entity"]) .header-shell {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="ecosystem"], [data-page-kind="extension"], [data-page-kind="reference"], [data-page-kind="entity"]) .header-shell {
   min-height: 76px;
   align-items: center;
   padding-block: 0;
 }
-html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="extension"], [data-page-kind="reference"], [data-page-kind="entity"]) .wordmark {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="ecosystem"], [data-page-kind="extension"], [data-page-kind="reference"], [data-page-kind="entity"]) .wordmark {
   font-family: var(--font-sans);
   font-size: 1rem;
   font-weight: 700;
   letter-spacing: -0.03em;
 }
-html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="extension"], [data-page-kind="reference"], [data-page-kind="entity"]) .wordmark[data-backstop-wordmark] > span:first-child {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="ecosystem"], [data-page-kind="extension"], [data-page-kind="reference"], [data-page-kind="entity"]) .wordmark[data-backstop-wordmark] > span:first-child {
   display: inline-grid;
   place-items: center;
   width: 31px;
@@ -1235,25 +1308,26 @@ html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kin
   font-size: 0.66rem;
   letter-spacing: -0.08em;
 }
-html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="extension"], [data-page-kind="reference"], [data-page-kind="entity"]) .wordmark[data-backstop-wordmark] > span:last-child {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="ecosystem"], [data-page-kind="extension"], [data-page-kind="reference"], [data-page-kind="entity"]) .wordmark[data-backstop-wordmark] > span:last-child {
   color: var(--color-muted);
   font-weight: 500;
 }
-html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="extension"], [data-page-kind="reference"], [data-page-kind="entity"]) .navigation-groups a {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="ecosystem"], [data-page-kind="extension"], [data-page-kind="reference"], [data-page-kind="entity"]) .navigation-groups a {
   color: var(--color-ink);
   font-size: 0.84rem;
   font-weight: 530;
 }
-html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="extension"], [data-page-kind="reference"], [data-page-kind="entity"]) .navigation-groups a:hover {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="ecosystem"], [data-page-kind="extension"], [data-page-kind="reference"], [data-page-kind="entity"]) .navigation-groups a:hover {
   color: var(--color-muted);
 }
-html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="extension"], [data-page-kind="reference"], [data-page-kind="entity"]) .navigation-groups a[aria-current="page"] {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="ecosystem"], [data-page-kind="extension"], [data-page-kind="reference"], [data-page-kind="entity"]) .navigation-groups a[aria-current="page"] {
   color: var(--color-ink);
   text-decoration-color: var(--color-signal);
 }
 [data-page-kind="evaluation"] .page-responsibility,
 [data-page-kind="model"] .page-responsibility,
 [data-page-kind="adoption"] .page-responsibility,
+[data-page-kind="ecosystem"] .page-responsibility,
 [data-page-kind="extension"] .page-responsibility,
 [data-page-kind="reference"] .page-responsibility,
 [data-page-kind="entity"] .page-responsibility {
@@ -1262,6 +1336,7 @@ html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kin
 [data-page-kind="evaluation"] .page-hero h1,
 [data-page-kind="model"] .page-hero h1,
 [data-page-kind="adoption"] .page-hero h1,
+[data-page-kind="ecosystem"] .page-hero h1,
 [data-page-kind="extension"] .page-hero h1,
 [data-page-kind="reference"] .page-hero h1,
 [data-page-kind="entity"] .page-hero h1 {
@@ -1388,6 +1463,8 @@ html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kin
   [data-page-kind="evaluation"] .failed-verdict-row { grid-template-columns: 1fr auto; }
   [data-page-kind="evaluation"] .ci-workflows { grid-template-columns: 1fr; }
   [data-page-kind="adoption"] .prose pre code { white-space: pre-wrap; }
+  [data-page-kind="ecosystem"] .prose td:first-child,
+  [data-page-kind="ecosystem"] .prose td:last-child,
   [data-page-kind="reference"] .prose td:first-child { white-space: normal; }
   [data-page-kind="reference"] .state-index dl {
     grid-template-columns: 1fr;
