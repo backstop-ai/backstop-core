@@ -17,7 +17,7 @@ def exact_ids(records,key,expected,label):
  raise AssertionError(f'{actual[0]}: {label} order field {key}')
 paths=['/','/evaluate/','/model/','/adopt/','/use-cases/','/packs/','/extend/','/reference/','/status/','/contributing/']
 sources=['docs/index.md','docs/evaluate.md','docs/model.md','docs/adopt.md','docs/use-cases.md','docs/packs.md','docs/extend.md','docs/reference.md','docs/status.md','docs/contributing.md']
-heroes=['What failure does Backstop prevent?','Your agent already writes the code.','How it works','Try it out.','Which problem-oriented adoption path applies?','Which maintained pack already owns this standard?','When should this concern become a pack?','What exact interface or behavior do I need?','What is supported, limited, planned, or intentionally outside Backstop?','How can I participate in Backstop and its ecosystem?']
+heroes=['What failure does Backstop prevent?','Your agent already writes the code.','How it works','Try it out.','Which problem-oriented adoption path applies?','Which maintained pack already owns this standard?','When should this concern become a pack?','Exact interfaces, schemas, lifecycle rules, and integration behavior.','What is supported, limited, planned, or intentionally outside Backstop?','How can I participate in Backstop and its ecosystem?']
 pages=d.get('pages',[]); assert [(p.get('source'),p.get('canonical_path')) for p in pages]==list(zip(sources,paths)),'docs/index.md: page source/canonical_path inventory'
 for p,hero in zip(pages,heroes): assert p.get('hero_question')==hero,f"{p.get('source')}: hero_question"
 ns=d.get('neighborhoods',[]); exact_ids(ns,'neighborhood_id',[f'NBR-{i:03}' for i in range(1,13)],'neighborhood')

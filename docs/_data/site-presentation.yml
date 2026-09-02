@@ -37,7 +37,7 @@ pages:
     next_action: /reference/
   - route: /reference/
     page_kind: reference
-    hero_question: What exact interface or behavior do I need?
+    hero_question: Exact interfaces, schemas, lifecycle rules, and integration behavior.
     treatments: [generated-regions, local-overflow]
     next_action: /status/
   - route: /status/

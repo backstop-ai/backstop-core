@@ -32,7 +32,7 @@ func canonicalPresentation() []presentationPage {
 		{Route: "/use-cases/", PageKind: "use-cases", HeroQuestion: "Which problem-oriented adoption path applies?", Treatments: []string{"evidence-cards", "boundary-callouts"}, NextAction: "/packs/"},
 		{Route: "/packs/", PageKind: "ecosystem", HeroQuestion: "Which maintained pack already owns this standard?", Treatments: []string{"evidence-cards", "generated-regions", "local-overflow"}, NextAction: "/extend/"},
 		{Route: "/extend/", PageKind: "extension", HeroQuestion: "When should this concern become a pack?", Treatments: []string{"evidence-cards", "boundary-callouts"}, NextAction: "/reference/"},
-		{Route: "/reference/", PageKind: "reference", HeroQuestion: "What exact interface or behavior do I need?", Treatments: []string{"generated-regions", "local-overflow"}, NextAction: "/status/"},
+		{Route: "/reference/", PageKind: "reference", HeroQuestion: "Exact interfaces, schemas, lifecycle rules, and integration behavior.", Treatments: []string{"generated-regions", "local-overflow"}, NextAction: "/status/"},
 		{Route: "/status/", PageKind: "status", HeroQuestion: "What is supported, limited, planned, or intentionally outside Backstop?", Treatments: []string{"evidence-cards", "boundary-callouts", "generated-regions", "local-overflow"}, NextAction: "/contributing/"},
 		{Route: "/contributing/", PageKind: "contributing", HeroQuestion: "How can I participate in Backstop and its ecosystem?", Treatments: []string{"boundary-callouts"}, NextAction: "/"},
 	}

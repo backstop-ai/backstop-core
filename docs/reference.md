@@ -2,7 +2,8 @@
 title: Reference
 layout: default
 permalink: /reference/
-hero_question: "What exact interface or behavior do I need?"
+hero_question: "Exact interfaces, schemas, lifecycle rules, and integration behavior."
+hero_lede: false
 ---
 
 ## Compatibility {#compatibility}
@@ -94,11 +95,11 @@ Live: `open` → `ready` → `in-progress`. `blocked` waits on named work.
 <tr><th>State</th><th>Before you can enter it</th><th>Validator / gate</th><th>Enables</th></tr>
 </thead>
 <tbody>
-<tr><td data-label="State"><code>open</code></td><td data-label="Before you can enter it">Scaffolded issue, Problem section</td><td data-label="Validator / gate">Schema only. Requirements and claims are optional.</td><td data-label="Enables">Filing. Not a plan yet.</td></tr>
-<tr><td data-label="State"><code>ready</code></td><td data-label="Before you can enter it">Requirements, claims, verification, implementation, and contracts</td><td data-label="Validator / gate">Full spec-parity traceability.</td><td data-label="Enables">Creating a plan from the issue.</td></tr>
-<tr><td data-label="State"><code>in-progress</code></td><td data-label="Before you can enter it">Same rigor as <code>ready</code></td><td data-label="Validator / gate">Same.</td><td data-label="Enables">A plan is in flight, or close-out is underway.</td></tr>
-<tr><td data-label="State"><code>blocked</code></td><td data-label="Before you can enter it">Same rigor as <code>ready</code>, plus <code>blocked_by</code></td><td data-label="Validator / gate">Same, plus the blocker must be named.</td><td data-label="Enables">Waiting without pretending the work is moving.</td></tr>
-<tr><td data-label="State"><code>closed</code></td><td data-label="Before you can enter it"><code>## Resolution</code>, and exactly one close pointer unless the issue carries its own requirements and claims</td><td data-label="Validator / gate">Close traceability.</td><td data-label="Enables">The issue is finished.</td></tr>
+<tr><td data-label="State"><code>open</code></td><td data-label="Before you can enter it">Scaffolded issue, Problem section</td><td data-label="Validator / gate">Schema only. Requirements and claims are optional.</td><td data-label="Enables">Issue exists but cannot produce a plan</td></tr>
+<tr><td data-label="State"><code>ready</code></td><td data-label="Before you can enter it">Requirements, claims, verification, implementation, and contracts</td><td data-label="Validator / gate">Full spec-parity traceability.</td><td data-label="Enables">Plan creation</td></tr>
+<tr><td data-label="State"><code>in-progress</code></td><td data-label="Before you can enter it">Same rigor as <code>ready</code></td><td data-label="Validator / gate">Same.</td><td data-label="Enables">Plan implementation or issue close-out</td></tr>
+<tr><td data-label="State"><code>blocked</code></td><td data-label="Before you can enter it">Same rigor as <code>ready</code>, plus <code>blocked_by</code></td><td data-label="Validator / gate">Same, plus the blocker must be named.</td><td data-label="Enables">Work remains open with a named blocker</td></tr>
+<tr><td data-label="State"><code>closed</code></td><td data-label="Before you can enter it"><code>## Resolution</code>, and exactly one close pointer unless the issue carries its own requirements and claims</td><td data-label="Validator / gate">Close traceability.</td><td data-label="Enables">No further issue work</td></tr>
 </tbody>
 </table>
 </div>
@@ -129,11 +130,11 @@ The user drives promotion. Do not self-promote.
 <tr><th>State</th><th>Before you can enter it</th><th>Validator / gate</th><th>Enables</th></tr>
 </thead>
 <tbody>
-<tr><td data-label="State"><code>idea</code></td><td data-label="Before you can enter it">Named bundle</td><td data-label="Validator / gate">Identity and maturity enum.</td><td data-label="Enables">The work has a name.</td></tr>
-<tr><td data-label="State"><code>exploring</code></td><td data-label="Before you can enter it">Real open questions, unresolved</td><td data-label="Validator / gate">Same.</td><td data-label="Enables">Exploration. Not specing.</td></tr>
-<tr><td data-label="State"><code>defined</code></td><td data-label="Before you can enter it"><code>problem.summary</code>, <code>problem.user_story</code>, <code>solution.approach</code>, <code>requirements[]</code>, and sections Draft Requirements, Draft Design Decisions, Spec Seeds, Version History</td><td data-label="Validator / gate">Maturity gates. Placeholders are illegal.</td><td data-label="Enables">Approach is clear.</td></tr>
-<tr><td data-label="State"><code>ready</code></td><td data-label="Before you can enter it">Everything <code>defined</code> requires, plus <code>problem.success_criteria</code> and <code>solution.assumptions</code></td><td data-label="Validator / gate">Same, tighter.</td><td data-label="Enables">Spec generation.</td></tr>
-<tr><td data-label="State"><code>delivered</code></td><td data-label="Before you can enter it">The work shipped. <code>requirements[]</code> still required.</td><td data-label="Validator / gate">Success terminal.</td><td data-label="Enables">Closure of the bundle.</td></tr>
+<tr><td data-label="State"><code>idea</code></td><td data-label="Before you can enter it">Named bundle</td><td data-label="Validator / gate">Identity and maturity enum.</td><td data-label="Enables">Bundle exists but cannot produce a spec</td></tr>
+<tr><td data-label="State"><code>exploring</code></td><td data-label="Before you can enter it">Real open questions, unresolved</td><td data-label="Validator / gate">Same.</td><td data-label="Enables">Exploration</td></tr>
+<tr><td data-label="State"><code>defined</code></td><td data-label="Before you can enter it"><code>problem.summary</code>, <code>problem.user_story</code>, <code>solution.approach</code>, <code>requirements[]</code>, and sections Draft Requirements, Draft Design Decisions, Spec Seeds, Version History</td><td data-label="Validator / gate">Maturity gates. Placeholders are illegal.</td><td data-label="Enables">Promotion to <code>ready</code></td></tr>
+<tr><td data-label="State"><code>ready</code></td><td data-label="Before you can enter it">Everything <code>defined</code> requires, plus <code>problem.success_criteria</code> and <code>solution.assumptions</code></td><td data-label="Validator / gate">Same, tighter.</td><td data-label="Enables">Spec generation</td></tr>
+<tr><td data-label="State"><code>delivered</code></td><td data-label="Before you can enter it">The work shipped. <code>requirements[]</code> still required.</td><td data-label="Validator / gate">Success terminal.</td><td data-label="Enables">No further bundle work</td></tr>
 </tbody>
 </table>
 </div>
@@ -152,10 +153,10 @@ Live: `draft` → `ready` → `implementing` → `completed`.
 <tr><th>State</th><th>Before you can enter it</th><th>Validator / gate</th><th>Enables</th></tr>
 </thead>
 <tbody>
-<tr><td data-label="State"><code>draft</code></td><td data-label="Before you can enter it">Source is an issue or a spec. Phases and tasks are present.</td><td data-label="Validator / gate">Plan schema and completeness.</td><td data-label="Enables">Authoring.</td></tr>
-<tr><td data-label="State"><code>ready</code></td><td data-label="Before you can enter it">Same shape. Reviewer has passed.</td><td data-label="Validator / gate">Same.</td><td data-label="Enables">Implementation. An implementer may execute it.</td></tr>
-<tr><td data-label="State"><code>implementing</code></td><td data-label="Before you can enter it">An implementer is executing it.</td><td data-label="Validator / gate">Same.</td><td data-label="Enables">In-flight execution.</td></tr>
-<tr><td data-label="State"><code>completed</code></td><td data-label="Before you can enter it">The work was delivered. Mandated tests exist.</td><td data-label="Validator / gate">Validator may accept a completed plan whose mandated tests are missing. The gate does not.</td><td data-label="Enables">Delivery evidence for <code>delivered_by</code>.</td></tr>
+<tr><td data-label="State"><code>draft</code></td><td data-label="Before you can enter it">Source is an issue or a spec. Phases and tasks are present.</td><td data-label="Validator / gate">Plan schema and completeness.</td><td data-label="Enables">Authoring</td></tr>
+<tr><td data-label="State"><code>ready</code></td><td data-label="Before you can enter it">Same shape. Reviewer has passed.</td><td data-label="Validator / gate">Same.</td><td data-label="Enables">Implementation</td></tr>
+<tr><td data-label="State"><code>implementing</code></td><td data-label="Before you can enter it">An implementer is executing it.</td><td data-label="Validator / gate">Same.</td><td data-label="Enables">Plan execution</td></tr>
+<tr><td data-label="State"><code>completed</code></td><td data-label="Before you can enter it">The work was delivered. Mandated tests exist.</td><td data-label="Validator / gate">Validator may accept a completed plan whose mandated tests are missing. The gate does not.</td><td data-label="Enables"><code>delivered_by</code> on the source issue</td></tr>
 </tbody>
 </table>
 </div>

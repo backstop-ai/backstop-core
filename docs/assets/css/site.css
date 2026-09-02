@@ -924,7 +924,7 @@ th { background: var(--ds-surface); }
   white-space: pre;
 }
 
-[data-page-kind="reference"] .page-hero h1 { max-width: 18ch; }
+[data-page-kind="reference"] .page-hero h1 { max-width: 28ch; }
 [data-page-kind="reference"] .page-boundary,
 [data-page-kind="reference"] .prose > h2 + p,
 [data-page-kind="reference"] .prose > h3 + p {
