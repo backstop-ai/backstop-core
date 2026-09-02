@@ -1,0 +1,905 @@
+---
+plan_id: PLAN-ISSUE-196
+spec_id: ISSUE-196
+created: "2026-09-02"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: ./scripts/verify-public-product-model.sh
+coverage_threshold: 80
+
+notes: |
+  Contained reactive landing on the issue-to-plan track, sourced from ISSUE-196. It moves
+  `/adopt/` from the Seed 1 field-guide page on `origin/main` to the approved visitor page,
+  and carries the smallest inventory / topology / allowance / presentation / page-test /
+  Seed 1 / Seed 5 contract lockstep that landing requires. It does not reopen BUNDLE-032's
+  charter, does not mark BUNDLE-032 delivered, and does not redesign any other page.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  SOURCE OF TRUTH FOR COPY
+  ══════════════════════════════════════════════════════════════════════════════
+  The approved bytes are `docs/adopt.md` at commit
+  `0a6010c0e45b290cbacc6713b83d5da4f5704ba9` (branch
+  `cursor/evaluate-copy-local-preview-e296`). Where that file and ISSUE-196's prose
+  disagree, the commit wins: it carries later Brandon decisions taken after the issue was
+  filed. Two such deltas are load-bearing and are stated as CLM-002. Landing is a
+  transcription of approved bytes plus their contract lockstep — it is not an occasion to
+  re-author, tighten, or "improve" locked copy, and every rejected pattern listed in
+  ISSUE-196's "Rejected — do not restore" section stays rejected.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  EXISTENCE-IN-WORLD (searched; NOT a stop)
+  ══════════════════════════════════════════════════════════════════════════════
+  `plans/`, `specs/`, and `issues/` were searched committed and in the working tree for
+  `adopt`, `/adopt/`, `Try it out.`, `adoption-paths`, `ADOPT-INSTALL`, `JLINK-012`,
+  `page-kind="adoption"`, and `paper_kinds`.
+
+  - PLAN-SPEC-072 / PLAN-SPEC-075 / PLAN-SPEC-076 own Seed 1 Adopt: the original page,
+    the closed hero/JLINK/adoption-instruction matrices, the rendered contract stamping,
+    and the Seed 5 journey matrix. All three are committed and completed. This plan
+    revises the Adopt-owned literals inside those delivered contracts; it does not
+    re-deliver them, does not restructure the specs, and does not edit those plans.
+  - ISSUE-193 owns `/evaluate/`; ISSUE-195 owns `/model/`; ISSUE-197 owns the
+    entity-reference pages; ISSUE-198 owns the Extend/pack-guide page; ISSUE-199 owns the
+    artifact-lifecycle reference; ISSUE-190 owns the canonical homepage. Their draft plans
+    (PLAN-ISSUE-193/195/197/198/199) sit beside this one in the working tree. This plan
+    absorbs none of them, and touches none of their pages.
+  - No artifact subsumes the Adopt surface. Residual delta only: this plan changes the
+    `/adopt/` row of every shared matrix and nothing else in those matrices.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  CROSS-PLAN COLLISION RULE (shared files, sibling landings)
+  ══════════════════════════════════════════════════════════════════════════════
+  `docs/_data/content-topology.yml`, `docs/_data/site-presentation.yml`,
+  `docs/_includes/page-hero.html`, `docs/_layouts/default.html`,
+  `docs/assets/css/site.css`, `scripts/verify-public-product-model.sh`,
+  `scripts/tests/public-product-model/verify-content-topology.sh`, and
+  `scripts/sitecheck/presentation_test.go` are shared with the sibling landings. Every edit
+  in this plan is ROW-SCOPED or ADDITIVE. If a sibling landed first and a shared structure
+  (for example `paper_kinds`, or the `html:has(...)` `--ds-*` remap selector list) already
+  exists, extend it; never replace it, never drop a sibling's row, and never revert a
+  sibling's hero. If a sibling has NOT landed, introduce only the minimum that `adoption`
+  needs. A regression of `/evaluate/`, `/model/`, `/`, `/use-cases/`, `/reference/`,
+  `/status/`, or `/contributing/` is a failure of this landing even if `/adopt/` is green.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  CLAIM LEDGER — ISSUE-196 carries prose only, no claims[] array, so this plan declares
+  its own. Each claim is evidence read out of the tree: `origin/main` for the starting
+  point, `0a6010c` for the approved target, and the verifier sources named inline.
+  ══════════════════════════════════════════════════════════════════════════════
+
+  CLM-001 — LIVE `/adopt/` IS STILL THE SEED 1 FIELD GUIDE, AND THE APPROVED PAGE IS
+    BYTE-KNOWN. `origin/main:docs/adopt.md` carries hero
+    `What does a first working adoption require?`, H2s `Adoption paths` / `Install` /
+    `Configure` / `Verify enforcement`, disposable-repository framing, an
+    `Inspect the created backstop.yml…` sentence, a visible
+    `Run the gate from the repository root.` smoke test, and a visible JLINK-012
+    `[Configure Backstop](/reference/#configuration)` tease. The approved page at `0a6010c`
+    replaces all of it with: front matter `hero_question: "Try it out."` and
+    `hero_lede: "Install Backstop and see how the pieces work together."`;
+    `## 1. Set up Backstop {#setup}` containing `### Install the binary {#install}` and
+    `### Initialize the repository {#configure}`;
+    `## 2. Start with your existing code {#adoption-paths}`;
+    `## 3. Try it on a bug you know {#known-bug}` with the single `ul.eval-list`;
+    `## 4. Let the agent implement it {#verify-enforcement}`; and
+    `## You've now used the whole model. {#used-the-model}`. `title`, `layout`, and
+    `permalink: /adopt/` are unchanged.
+
+  CLM-002 — TWO ISSUE SENTENCES ARE SUPERSEDED BY LATER-APPROVED COPY, AND THE COMMIT WINS.
+    (a) ISSUE-196 locks `[Choose a pack](/packs/#choose-a-pack)`. After filing, Brandon
+    approved the pack IA whose catalog route is `/pack/examples/`, and `0a6010c` carries
+    `Install a pack appropriate for the repository's stack. [Choose a pack](/pack/examples/#choose-a-pack).`
+    Land that destination. Do not restore `/packs/`.
+    (b) ISSUE-196 locks `#configure` at `Backstop configuration lives with the code.`
+    After Reference was hidden, completeness needed one further sentence, already present
+    at `0a6010c`: `Init writes the repository files later clones restore.` Keep both
+    sentences, in that order, in one paragraph. Do not add a third sentence, a slogan, an
+    aphorism, or any padding.
+
+  CLM-003 — `required_blocks` AND THE THREE COMMAND BYTES ARE INVARIANT; ONLY THE HEADINGS
+    AROUND THEM MOVED. `docs/_data/content-topology.yml` keeps
+    `required_blocks: [adoption-paths, install, configure, verify-enforcement]` byte-for-byte,
+    and keeps all three `adoption_instructions` records — IDs, `command_text`,
+    `command_sha256`, executable/argv/environment, provenance, `expected_exit_code`, and
+    `expected_outputs` — unchanged. `scripts/verify-public-product-model.sh` requires each
+    `command_text` to appear EXACTLY ONCE in `docs/adopt.md`
+    (`if text.count(ins['command_text'])!=1: fail(... displayed command cardinality)`) and
+    re-derives the nearest preceding `{#anchor}` heading, which must equal the record's
+    `owner_anchor`. In the approved copy the GOBIN install line sits under `{#install}`,
+    `backstop init` under `{#configure}`, and `backstop gate` under `{#verify-enforcement}`
+    inside the visually hidden `.canonical-note`. Cardinality 1 must hold WITHOUT restoring
+    a visible "Run the gate" smoke test, and no fourth locked command (notably no
+    `backstop pack add`) may be invented.
+
+  CLM-004 — JLINK-013 MUST RENDER AS A REAL `<p><a>`, WHICH MEANS ITS MARKER SITS OUTSIDE
+    THE RAW-HTML DIV. `scripts/render-public-site-contracts/main.go` rewrites the markdown
+    pair `<!-- backstop-journey-link: JLINK-013 -->` + `[label](/route#anchor)` into
+    `<p><a data-journey-link-id="JLINK-013" href="…">label</a></p>`, and Jekyll does not
+    process markdown nested inside a raw HTML block. `scripts/sitecheck/site.go` then
+    requires exactly one `data-journey-link-id="JLINK-013"` anchor carrying a
+    root-relative `route#anchor` href. `0a6010c` therefore places CLAIM-024 and the
+    `backstop gate` block inside `<div class="canonical-note">` but places the JLINK-013
+    marker and link AFTER the closing `</div>`, as a top-level markdown block still under
+    `{#verify-enforcement}`. Preserve that placement exactly.
+
+  CLM-005 — JLINK-012 CANNOT SURVIVE THE APPROVED COPY, AND ITS RETIREMENT CASCADES INTO
+    SEED 5. `scripts/verify-public-product-model.sh` requires every declared journey link's
+    marker and its exact `[label](destination_route#destination_anchor)` to appear exactly
+    once in its declared source page; the approved Adopt page contains no
+    `/reference/#configuration` link, so a declared JLINK-012 is an immediate red. Because
+    `/reference/` is hidden in the approved IA, the correct resolution is retirement, not a
+    hidden tease. Retirement must be completed in one consistent world:
+    `docs/_data/content-topology.yml` `journey_links`; the `exact_ids` JLINK list, the
+    `edge_specs` tuple list, and the `link_labels` list in BOTH
+    `scripts/verify-public-product-model.sh` and
+    `scripts/tests/public-product-model/verify-content-topology.sh`;
+    `docs/_data/website-capability-map.yml` journey `CAP-009/@UJ-001`;
+    `ExpectedWebsiteJourneys()` in `scripts/websitejourney/artifacts.go`; the 22-journey
+    cardinality in `scripts/websitejourney/traversal_test.go` and the matching capacity
+    hint in `scripts/websitejourney/map_test.go`; the `{jlink: JLINK-012, expected_error:
+    CAP-009/@UJ-001}` row in `scripts/websitejourney/testdata/built-journey-mutations.yml`;
+    and the `CAP-009/@UJ-001` row in `tests/website-capabilities.spec.ts`.
+    `scripts/websitejourney/traversal.go` resolves every mapped JLINK against the built
+    documents, so a mapped-but-unrendered JLINK-012 is a hard failure, not a warning.
+    CAP-009 keeps `@UJ-002` (JLINK-013), and journey cardinality becomes 21.
+    `PLAN-SPEC-076` is completed and must NOT be edited, even though it names 22.
+
+  CLM-006 — THE CLOSED ALLOWANCE DICTIONARY FOR `docs/adopt.md` IS REPLACED WHOLESALE, NOT
+    EXTENDED. `check_closed_blocks` in `scripts/verify-public-product-model.sh` masks front
+    matter, claim regions, fenced code, generated-region includes, and the three rendered
+    adoption commands, then requires every remaining blank-line-delimited, non-heading,
+    non-JLINK block of `docs/adopt.md` to be an exact key in `allowances['docs/adopt.md']`.
+    `origin/main` declares five keys, all of them Seed 1 sentences that the approved page
+    deletes. `0a6010c` declares fourteen, covering: the `#install` sentence; the two-sentence
+    `#configure` paragraph; the locked step-2 pack sentence; `Run:`; the
+    `<pre><code>backstop baseline</code></pre>` block (baseline is NOT an adoption
+    instruction, so it is not masked); `Review what Backstop finds. Do not fix anything
+    yet.`; the two step-3 paragraphs; the `<ul class="eval-list">…</ul>` block; the step-4
+    implementer paragraph; `Stop before merge.`; the closer
+    `Use the complete workflow, or only the parts you need.`; and the two residual
+    canonical-note fragments `<div class="canonical-note">` and `</div>`. Transcribe those
+    fourteen from `0a6010c` and DELETE the five stale keys — a stale allowance is silent
+    drift that re-legalizes rejected Seed 1 copy without any check noticing.
+
+  CLM-007 — `#configure` CLEARS THE 80-CHARACTER COMPLETENESS FLOOR AS WRITTEN; NEITHER
+    PADDING NOR A CHECK EDIT IS EXPECTED. `assertContentCompleteness` in
+    `tests/public-site-helpers.ts` walks the siblings after each required-block heading
+    until the next `H2`, and requires at least one visible block, at least 80 normalized
+    characters, and first content within 160 CSS px. `#configure` is an `H3`, so its walk
+    stops at `## 2.` and collects the 98-character approved paragraph plus the
+    13-character `backstop init` block — 112 normalized characters, comfortably over the
+    floor. Treat 112 as the prediction, not the proof: measure it in the real browser run.
+    Only a measured, reproduced failure may justify touching the check, the change must be
+    reported explicitly, and it may never be obtained by padding Brandon's sentence,
+    inventing a slogan, or lowering the floor for other routes.
+
+  CLM-008 — PAPER/INK FOR `adoption` IS TWO COORDINATED FILES, AND IT MUST NOT REGRESS ANY
+    OTHER PAGE. `origin/main:docs/_layouts/default.html` has no `paper_kinds` mechanism and
+    never links `backstop-tokens.css`; `origin/main:docs/assets/css/site.css` has no
+    `[data-page-kind="adoption"]` block and no `html:has(...)` `--ds-*` remap. Landing adds:
+    in the layout, a `paper_kinds` list CONTAINING `adoption` that gates both the
+    `backstop-tokens.css` stylesheet link and the paper `theme-color`, resolving
+    `page_kind` from the presentation row; in the stylesheet, `adoption` inside the
+    `html:has(...)` remap selector lists and the `[data-page-kind="adoption"]` rule block
+    from `0a6010c` — H3s visibly smaller than the numbered H2s, `.eval-list`,
+    `#used-the-model` separated by `border-top` and extra top margin with the accent closer
+    beneath it, and `.canonical-note` visually hidden by the 1px clip pattern. Every value
+    must come from `var(--ds-*)` or `var(--color-*)`: a raw hex in `site.css` trips the
+    design-system `no-raw-colors` acceptance cell. The existing
+    `[data-page-kind="home"] .nav` and `[data-page-kind="home"] .nav-links` media-query
+    rules must survive byte-identical.
+
+  CLM-009 — THE APPROVED HERO PAIR NEEDS A `hero_lede` SEAM IN THE SHARED INCLUDE.
+    `origin/main:docs/_includes/page-hero.html` renders a fixed
+    `<p class="page-boundary">Deterministic product truth, presented without changing its
+    owner.</p>` for every non-home page, so `hero_lede` in Adopt's front matter would be
+    inert. Add the `page.hero_lede` branch additively, keeping the default sentence for
+    every page that declares none. Do NOT import `0a6010c`'s
+    `title_key == hero_key` responsibility-label suppression: that was Contributing's
+    change, and Adopt's title (`Adopt Backstop`) differs from its hero (`Try it out.`), so
+    the label renders either way. `scripts/sitecheck/site.go` requires exactly one
+    `data-page-question>Try it out.</h1>` on `/adopt/`, so the `h1` binding must not move.
+
+  CLM-010 — THE SEED 1 HERO STRING EXISTS IN FIVE PLACES AND ALL FIVE MOVE TOGETHER.
+    `Try it out.` must replace `What does a first working adoption require?` in
+    `docs/_data/content-topology.yml` (`docs/adopt.md` page record),
+    `docs/_data/site-presentation.yml` (`/adopt/` row), the `heroes` list in
+    `scripts/verify-public-product-model.sh`, the `heroes` list in
+    `scripts/tests/public-product-model/verify-content-topology.sh`, and
+    `canonicalPresentation()` in `scripts/sitecheck/presentation_test.go`. The two
+    verifiers compare the topology pages AND the presentation pages against the same
+    `heroes` list, so any one omission fails with `docs/adopt.md: hero_question` or
+    `site presentation must consume the exact Seed 1 hero matrix`.
+
+  CLM-011 — `next_action` FOR `/adopt/` STAYS `/use-cases/`; ONLY THE LOCKED STEP-2
+    SENTENCE MAY NAME `/pack/examples/`. Re-pointing the linear field-guide order is pack-IA
+    work carried by the pack landing, not by Adopt copy. This plan changes the `/adopt/`
+    presentation row's `hero_question` only, leaves `page_kind: adoption` and
+    `treatments: [evidence-cards]` untouched, and leaves every other presentation row alone.
+    `scripts/sitecheck/site.go` requires exactly one `href="<next_action>">Next` on the
+    rendered route, so a speculative re-point would also require the destination route to
+    exist.
+
+  CLM-012 — `/pack/examples/#choose-a-pack` IS AN EXTERNAL PREREQUISITE AND THE ONE THING
+    THAT CAN LEGITIMATELY BLOCK THIS LANDING. `scripts/sitecheck/site.go` link resolution
+    rejects an internal href whose route is not canonical (`missing or alias target`) and
+    whose fragment is not exactly one ID on the destination page. On `origin/main` the
+    catalog is `/packs/` and `docs/pack/examples.md` does not exist; ISSUE-193, ISSUE-195,
+    ISSUE-197, ISSUE-198, and ISSUE-199 all leave the catalog route out of scope, so no
+    filed issue creates it. If, at implementation time, the working branch has no canonical
+    `/pack/examples/` route carrying exactly one `choose-a-pack` heading ID, STOP and report
+    the sequencing conflict. Do not restore `/packs/`, do not create the pack catalog here,
+    do not drop the link, do not waive or baseline the link-resolution finding, and do not
+    expand Adopt into a pack tutorial. Catalog coverage stays a Packs/product gap.
+
+  CLM-013 — THE SEED 1 AND SEED 5 SPEC LITERALS ARE FIVE NAMED LINES, NOT A REWRITE.
+    SPEC-072: the `docs/adopt.md | /adopt/` row of the canonical page table (hero cell) and
+    the `JLINK-012` row of the journey-link table. SPEC-075: the `/adopt/` row of the exact
+    presentation matrix (hero cell only; `next_action` stays `/use-cases/` per CLM-011) and
+    the `JLINK-012` row of its journey-link table. SPEC-076: the `CAP-009/@UJ-001` row of
+    the capability-journey table. `required_blocks`, CLAIM-024, JLINK-013, the three
+    ADOPT-* owner anchors and their SHA-256 digests, and every other page's rows stay
+    byte-identical. Do not renumber JLINKs, do not restructure sections, do not change any
+    spec `status`, `version`, or front-matter field, and do not hand-edit any other
+    artifact.
+
+  CLM-014 — SEED 4 NEEDS NO NEW INVENTORY ROWS, BUT `--check-diff` IS THE ARBITER.
+    Every in-matrix path this landing touches already has a row in
+    `origin/main:.backstop/seed4-delivery-inventory.yml`: `docs/adopt.md`,
+    `docs/_data/site-presentation.yml`, `docs/_includes/page-hero.html`,
+    `docs/_layouts/default.html`, `docs/assets/css/site.css`,
+    `scripts/sitecheck/presentation_test.go`, and
+    `scripts/verify-public-product-model.sh`. `expectedRole()` in
+    `scripts/sitecheck/inventory.go` returns "" for `docs/_data/content-topology.yml`,
+    `docs/_data/website-capability-map.yml`, `scripts/websitejourney/**`,
+    `scripts/tests/public-product-model/verify-content-topology.sh`,
+    `tests/website-capabilities.spec.ts`, `specs/**`, `issues/**`, and `plans/**`, so
+    `inventoryDiff` skips them and they need no rows. Run
+    `go run ./scripts/sitecheck --root . --check-diff` and reconcile ROWS to the real
+    committed diff if reality disagrees — never by widening the closed matrix, deleting a
+    governed row, or renaming a ledger path.
+
+  CLM-015 — THE FENCE. Only these files change: `docs/adopt.md`,
+    `docs/_includes/page-hero.html`, `docs/_layouts/default.html`,
+    `docs/assets/css/site.css`, `docs/_data/content-topology.yml`,
+    `docs/_data/site-presentation.yml`, `docs/_data/website-capability-map.yml`,
+    `scripts/verify-public-product-model.sh`,
+    `scripts/tests/public-product-model/verify-content-topology.sh`,
+    `scripts/sitecheck/presentation_test.go`, `scripts/websitejourney/artifacts.go`,
+    `scripts/websitejourney/map_test.go`, `scripts/websitejourney/traversal_test.go`,
+    `scripts/websitejourney/testdata/built-journey-mutations.yml`,
+    `tests/website-capabilities.spec.ts`, the three SPEC files named in CLM-013, and — only
+    under CLM-007's measured-failure condition — `tests/public-site-helpers.ts`. Unchanged:
+    `docs/index.html`, `docs/index.md`, `docs/evaluate.md`, `docs/model.md`,
+    `docs/use-cases.md`, `docs/packs.md`, `docs/extend.md`, `docs/reference.md`,
+    `docs/status.md`, `docs/contributing.md`, `docs/_includes/site-header.html` navigation,
+    `docs/_data/content-inventory.yml`, `docs/_data/evidence-inventory.yml`,
+    `docs/assets/css/backstop-tokens.css`, `playwright.config.ts` (`testMatch` stays
+    `public-site.spec.ts`), `tests/public-site.spec.ts`,
+    `scripts/tests/public-product-model/pages/discovery-evaluation-adoption-status.sh`
+    (CLAIM-024 already sits in its required list and the approved page keeps it), the other
+    sitecheck verifiers, the workflows, `bundles/BUNDLE-032*`, and the completed
+    PLAN-SPEC-072/075/076. Packs stay external and are never vendored. Green obtained by a
+    waiver, a suppression, a baseline entry, a skipped test, a loosened assertion, or a
+    lowered threshold is not acceptance.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  SHARP EDGES
+  ══════════════════════════════════════════════════════════════════════════════
+  1. `/pack/examples/` may not exist yet (CLM-012). This is the single most likely blocker,
+     and the only correct response is to stop and report the ordering, not to improvise a
+     destination.
+  2. `backstop gate` cardinality is counted over the raw markdown, including hidden HTML
+     (CLM-003). Any additional prose mentioning the literal bytes `backstop gate` elsewhere
+     on the page silently breaks it.
+  3. Markdown inside a raw HTML block is not processed (CLM-004). Moving the JLINK-013
+     marker back inside `.canonical-note` produces a rendered page with zero
+     `data-journey-link-id="JLINK-013"` anchors and a Seed 4 owner-contract failure.
+  4. `<pre><code>backstop baseline</code></pre>` is NOT one of the three adoption
+     instructions, so `check_closed_blocks` does not mask it and it needs its own allowance
+     key (CLM-006).
+  5. The `.canonical-note` div leaves exactly two residual blocks after masking —
+     `<div class="canonical-note">` and `</div>` — and both need allowance keys (CLM-006).
+  6. JLINK retirement is a two-seed operation (CLM-005). Fixing Seed 1 alone leaves the
+     Seed 5 journey map pointing at a link nothing renders; fixing Seed 5 alone leaves the
+     Seed 1 closed matrix declaring a link the page does not carry.
+  7. `.canonical-note` is visually hidden by clip, not by `display:none`, so the browser
+     completeness helper still counts it as a visible block with real text. Do not "fix"
+     a completeness failure by hiding it harder.
+  8. `TestSiteCheck_NavigationMatrixPasses` also asserts the ordered navigation labels in
+     `docs/index.html`. Those labels are IA-owned; leave them exactly as the branch has
+     them, and change only the `/adopt/` presentation row.
+  9. `scripts/verify-documentation-semantics-integration.sh` runs the released
+     documentation-semantics pack over a corpus that includes `docs/adopt.md`. New copy must
+     not introduce a duplicate canonical definition anchor; the pack, not this repo, owns
+     that rule, and it stays external.
+  10. `scripts/tests/public-product-model/verify-structural-verifier.sh` mutates
+     `docs/adopt.md` by replacing the exact GOBIN install string. Keeping that command byte-
+     identical keeps the shipped mutation fixture meaningful; changing it silently
+     neuters a negative test.
+  11. Per-file coverage floors apply to `scripts/sitecheck` and `scripts/websitejourney`.
+     Matrix rows must be EXERCISED by the suites, not merely edited.
+  12. The Seed 4 diff check reads committed history. This plan's own artifacts and the
+     ISSUE-196 file are outside the closed matrix, so they need no rows, but the working
+     branch must still be committed before `--check-diff` output is authoritative.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: RED — pin the approved Adopt contract in the executable matrices"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "RED: move the /adopt/ presentation row to the approved hero"
+        description: |
+          In `scripts/sitecheck/presentation_test.go`, change the `/adopt/` entry of
+          `canonicalPresentation()` so `HeroQuestion` is `Try it out.`. Change nothing
+          else on that row: `Route` stays `/adopt/`, `PageKind` stays `adoption`,
+          `Treatments` stays `[]string{"evidence-cards"}`, and `NextAction` stays
+          `/use-cases/` (CLM-011). Do not touch any other row — `/`, `/evaluate/`,
+          `/model/`, `/use-cases/`, `/packs/`, `/extend/`, `/reference/`, `/status/`, and
+          `/contributing/` belong to their own landings, and if a sibling already changed
+          one, leave that change intact.
+
+          Do not touch the `ordered` navigation-label slice inside
+          `TestSiteCheck_NavigationMatrixPasses`: those labels assert
+          `docs/index.html` and are IA-owned (sharp edge 8). Do not touch
+          `TestSiteCheck_NavigationMatrixRejectsInvalidCell`'s mutation list; it must keep
+          proving that a changed hero, an added treatment, a changed `next_action`, a
+          duplicate row, and a reordered pair are all rejected.
+
+          RED receipt, required before any data or copy edit: run
+          `go test ./scripts/sitecheck -run
+          '^(TestSiteCheck_NavigationMatrixPasses|TestSiteCheck_NavigationMatrixRejectsInvalidCell)$'
+          -count=1 -v`. `TestSiteCheck_NavigationMatrixPasses` must EXECUTE and fail with
+          `site presentation does not byte-match the accepted ten-row matrix`, because
+          `docs/_data/site-presentation.yml` still carries the Seed 1 hero.
+          `TestSiteCheck_NavigationMatrixRejectsInvalidCell` must still pass. A compile
+          error is not this task's RED evidence; if the package does not build, fix the
+          test file.
+        files:
+          - scripts/sitecheck/presentation_test.go
+        claims:
+          - CLM-010
+          - CLM-011
+        test_names:
+          - TestSiteCheck_NavigationMatrixPasses
+          - TestSiteCheck_NavigationMatrixRejectsInvalidCell
+        depends_on: []
+
+      - id: TASK-002
+        type: test
+        title: "RED: retire CAP-009/@UJ-001 from the Seed 5 journey expectations"
+        description: |
+          Specify the post-retirement Seed 5 world (CLM-005) before the map or the copy
+          moves.
+
+          In `scripts/websitejourney/traversal_test.go`, change the journey cardinality
+          assertion from 22 to 21 and update its failure message to match. In
+          `scripts/websitejourney/map_test.go`, update the corresponding 22-element
+          capacity hint so the expectation reads consistently; do not change what that
+          test asserts beyond the count. In
+          `scripts/websitejourney/testdata/built-journey-mutations.yml`, delete the
+          `{jlink: JLINK-012, expected_error: CAP-009/@UJ-001}` row and leave every other
+          mutation row byte-identical — the fixture must still prove that removing any
+          remaining rendered JLINK reds its journey. In `tests/website-capabilities.spec.ts`,
+          delete the `{ key: "CAP-009/@UJ-001", jlink: "JLINK-012", first: "/adopt/" }`
+          entry and leave the remaining entries, including
+          `{ key: "CAP-009/@UJ-002", jlink: "JLINK-013", first: "/adopt/" }` and the
+          CAP-014/@UJ-001 dual-identity special case, untouched.
+
+          Do not add a replacement journey, do not rebind CAP-009/@UJ-001 to another JLINK,
+          and do not delete the CAP-009 capability itself: CAP-009 keeps `@UJ-002`.
+          `playwright.config.ts` `testMatch` stays `public-site.spec.ts`; do not enroll
+          `website-capabilities.spec.ts` into the browser run.
+
+          RED receipt: run `go test ./scripts/websitejourney -run
+          '^(TestWebsiteJourney_EvidenceAndBoundaryBindingsPass|TestWebsiteJourney_BuiltSiteAllJourneysPass)$'
+          -count=1 -v`. Both must EXECUTE and fail against the still-22-journey
+          `docs/_data/website-capability-map.yml` and the still-JLINK-012
+          `ExpectedWebsiteJourneys()` — record the cardinality and JLINK-binding
+          diagnostics as the receipt.
+        files:
+          - scripts/websitejourney/traversal_test.go
+          - scripts/websitejourney/map_test.go
+          - scripts/websitejourney/testdata/built-journey-mutations.yml
+          - tests/website-capabilities.spec.ts
+        claims:
+          - CLM-005
+        test_names:
+          - TestWebsiteJourney_EvidenceAndBoundaryBindingsPass
+          - TestWebsiteJourney_BuiltSiteAllJourneysPass
+        depends_on: []
+
+  - id: phase-2
+    name: "Phase 2: GREEN — the approved Adopt page and its paper/ink chrome"
+    tasks:
+      - id: TASK-003
+        type: implementation
+        title: "GREEN: transcribe the approved Adopt page and add the hero_lede seam"
+        description: |
+          Replace `docs/adopt.md` with the approved bytes from
+          `0a6010c0e45b290cbacc6713b83d5da4f5704ba9` (CLM-001). Read that revision and
+          transcribe it; do not reconstruct it from ISSUE-196's prose, which is superseded
+          in two places (CLM-002). Required outcomes, each verifiable in the resulting
+          file:
+
+          - Front matter keeps `title: Adopt Backstop`, `layout: default`, and
+            `permalink: /adopt/`, and gains `hero_question: "Try it out."` and
+            `hero_lede: "Install Backstop and see how the pieces work together."`.
+          - Headings and IDs, in order: `## 1. Set up Backstop {#setup}`,
+            `### Install the binary {#install}`,
+            `### Initialize the repository {#configure}`,
+            `## 2. Start with your existing code {#adoption-paths}`,
+            `## 3. Try it on a bug you know {#known-bug}`,
+            `## 4. Let the agent implement it {#verify-enforcement}`,
+            `## You've now used the whole model. {#used-the-model}`. `#configure` is an H3
+            substep of Set up, never a visual peer of the numbered sections.
+          - Step 2 carries the locked sentence with the approved destination:
+            `[Choose a pack](/pack/examples/#choose-a-pack)` (CLM-002a). Before relying on
+            it, confirm the working branch has a canonical `/pack/examples/` route with
+            exactly one `choose-a-pack` heading ID; if it does not, STOP and report the
+            sequencing conflict per CLM-012 rather than substituting `/packs/`.
+          - `#configure` carries both approved sentences in one paragraph (CLM-002b),
+            unpadded.
+          - The three locked commands appear exactly once each, under `{#install}`,
+            `{#configure}`, and `{#verify-enforcement}` respectively (CLM-003). Keep
+            `backstop gate` inside the `.canonical-note` div with CLAIM-024; do not restore
+            a visible "Run the gate" section, do not tell the reader to run the gate
+            manually in step 4, and do not invent a fourth command.
+          - CLAIM-024's `<!-- backstop-claim: CLAIM-024 -->` … `<!-- /backstop-claim -->`
+            statement bytes are unchanged from `origin/main`.
+          - The JLINK-013 marker and `[Understand the enforcement loop](/model/#enforcement-loop)`
+            sit AFTER the closing `</div>`, as top-level markdown still under
+            `{#verify-enforcement}` (CLM-004).
+          - Step 3 uses the single `<ul class="eval-list">` list and no other bullet list on
+            the page. No copy/paste agent prompt, no separate human-versus-agent
+            instructions, no decision matrix, no pack explainer, no slide-frame chrome, and
+            none of the hero or H2 strings in ISSUE-196's rejected list.
+
+          In `docs/_includes/page-hero.html`, add the `page.hero_lede` branch so a page that
+          declares a lede renders it in `p.page-boundary` and every page that does not keeps
+          the existing default sentence (CLM-009). Leave `data-required-blocks`, the
+          `page-responsibility` label, and the `h1[data-page-question]` binding exactly as
+          they are; do not import the `title_key == hero_key` label suppression.
+
+          GREEN evidence: `docs/adopt.md` diffs clean against `git show
+          0a6010c:docs/adopt.md`; `grep -c 'backstop gate' docs/adopt.md` returns 1; the
+          page renders one `data-page-question>Try it out.</h1>` and one
+          `data-journey-link-id="JLINK-013"` anchor after a local Jekyll build.
+        files:
+          - docs/adopt.md
+          - docs/_includes/page-hero.html
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-009
+          - CLM-012
+        depends_on:
+          - TASK-001
+
+      - id: TASK-004
+        type: implementation
+        title: "GREEN: give page_kind adoption the paper/ink chrome without regressing siblings"
+        description: |
+          Land the `adoption` half of the paper/ink presentation (CLM-008), taking the rules
+          from `0a6010c` and nothing more.
+
+          In `docs/_layouts/default.html`: resolve `page_kind` from the presentation row,
+          declare a `paper_kinds` list that CONTAINS `adoption`, and gate both the
+          `/assets/css/backstop-tokens.css` stylesheet link and the paper `theme-color`
+          meta on membership in that list, leaving the dark `color-scheme` meta for
+          non-paper kinds. If a sibling landing already introduced `paper_kinds`, ADD
+          `adoption` to it and change nothing else. If it did not, introduce the mechanism
+          with only the kinds the branch actually needs — do not pre-declare kinds for pages
+          that have not landed. Keep `design-system-tokens.css` linked before `site.css`
+          (`scripts/sitecheck/site.go` asserts that order), keep the `main#main`
+          `data-page-route`/`data-page-kind` attributes, and keep exactly one
+          `data-next-action` nav.
+
+          In `docs/assets/css/site.css`: add `[data-page-kind="adoption"]` to the
+          `html:has(...)` selector lists that remap `--ds-*` onto the paper tokens
+          (extending the list additively if a sibling created it), and add the
+          `[data-page-kind="adoption"]` rule block — hero width, page-boundary/lede
+          treatment, prose measure, H2 scale, H3s clearly smaller than the numbered H2s,
+          `.eval-list`, `pre`/`pre code`, `#used-the-model` separated by `border-top` plus
+          extra top margin with the accent closer beneath it, and `.canonical-note` hidden
+          by the 1px clip pattern rather than `display:none` (sharp edge 7). Use only
+          `var(--ds-*)` / `var(--color-*)` values; a raw hex trips the design-system
+          `no-raw-colors` acceptance cell. Do not delete, reorder, or reindent the existing
+          `[data-page-kind="home"] .nav` and `[data-page-kind="home"] .nav-links`
+          media-query rules, and do not add rules for page kinds this landing does not own.
+
+          GREEN evidence: a local Jekyll build emits `backstop-tokens.css` on `/adopt/` and
+          not on `/`; `git diff` on `site.css` shows additions only, with the home
+          media-query block untouched.
+        files:
+          - docs/_layouts/default.html
+          - docs/assets/css/site.css
+        claims:
+          - CLM-008
+        depends_on:
+          - TASK-001
+
+      - id: TASK-005
+        type: verification
+        title: "Verify the rendered Adopt page and its chrome in the diff-scoped gate"
+        description: |
+          Run `./bin/backstop gate --file docs/adopt.md --file docs/_includes/page-hero.html
+          --file docs/_layouts/default.html --file docs/assets/css/site.css` as the
+          diff-scoped cadence gate for the four files this phase touched.
+
+          Then build the site locally and read the rendered `/adopt/` document. Require:
+          exactly one `data-page-question>Try it out.</h1>`; the lede rendered in
+          `p.page-boundary` as `Install Backstop and see how the pieces work together.`;
+          `data-required-blocks="adoption-paths,install,configure,verify-enforcement"`
+          present once; exactly one `data-journey-link-id="JLINK-013"` anchor whose href is
+          `/model/#enforcement-loop` and which is a real `<p><a>` rather than raw text
+          (CLM-004); `backstop-tokens.css` linked on `/adopt/` and absent from `/`; and the
+          `.canonical-note` present in the DOM but visually hidden.
+
+          The Seed 1 closed-world verifier is EXPECTED to be red at this point, because the
+          hero matrix, the allowance dictionary, and JLINK-012 have not moved yet; record
+          that expected red and its diagnostics rather than treating it as a blocker. Any
+          OTHER failure — a lint finding, a rendered-cardinality finding, a design-system
+          acceptance cell, or a regression on `/` or another route — is this phase's
+          failure and must be fixed here. Do not silence anything with a waiver, a baseline
+          entry, or a suppression.
+        files:
+          - docs/adopt.md
+          - docs/_includes/page-hero.html
+          - docs/_layouts/default.html
+          - docs/assets/css/site.css
+        claims:
+          - CLM-001
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-003
+          - TASK-004
+
+  - id: phase-3
+    name: "Phase 3: GREEN — Seed 1 topology, presentation data, and closed-world verifiers"
+    tasks:
+      - id: TASK-006
+        type: implementation
+        title: "GREEN: move the /adopt/ hero and retire JLINK-012 in the Seed 1 data"
+        description: |
+          Edit `docs/_data/content-topology.yml`:
+          - On the `docs/adopt.md` page record, set `hero_question: "Try it out."`
+            (CLM-010). Leave `canonical_path`, `role: adoption`, `neighborhood_ids: []`,
+            `required_blocks: [adoption-paths, install, configure, verify-enforcement]`, and
+            `source_material` byte-identical (CLM-003). Change no other page record.
+          - Delete the `JLINK-012` record from `journey_links` (CLM-005). Leave every other
+            journey link — including `JLINK-004` into `/adopt/#install` and `JLINK-013` and
+            `JLINK-015`, which are Evaluate-, Adopt-, and Use-Cases-sourced respectively —
+            byte-identical, and do not renumber anything.
+          - Leave `neighborhoods`, `navigation`, and all three `adoption_instructions`
+            records untouched: the ADOPT-* owner anchors `install`, `configure`, and
+            `verify-enforcement` all still exist in the approved page.
+
+          Edit `docs/_data/site-presentation.yml`: on the `/adopt/` row set
+          `hero_question: Try it out.` and change nothing else on that row —
+          `page_kind: adoption`, `treatments: [evidence-cards]`, and
+          `next_action: /use-cases/` all stay (CLM-011). Do not touch any other row.
+
+          GREEN evidence: `go test ./scripts/sitecheck -run
+          '^TestSiteCheck_NavigationMatrixPasses$' -count=1` passes, closing TASK-001's RED.
+          The Seed 1 shell verifiers remain red until TASK-007 lands their matching
+          matrices; record that as expected.
+        files:
+          - docs/_data/content-topology.yml
+          - docs/_data/site-presentation.yml
+        claims:
+          - CLM-005
+          - CLM-010
+          - CLM-011
+        depends_on:
+          - TASK-001
+          - TASK-002
+          - TASK-003
+
+      - id: TASK-007
+        type: implementation
+        title: "GREEN: relist the Adopt hero, the JLINK matrix, and the closed allowances"
+        description: |
+          Bring the two Seed 1 shell verifiers into lockstep with the data and the copy.
+
+          In `scripts/verify-public-product-model.sh`:
+          - In the `heroes` list, replace `What does a first working adoption require?`
+            with `Try it out.` at the `/adopt/` position, leaving the other nine entries
+            byte-identical (CLM-010). That one list is compared against both the topology
+            pages and the presentation pages.
+          - Remove `JLINK-012` from the `exact_ids(links, 'link_id', [...])` list, remove
+            its `('/adopt/','install','/reference/','configuration')` tuple from
+            `edge_specs`, and remove its `Configure Backstop` entry from `link_labels`,
+            keeping all three lists in the same relative order and the same length as each
+            other (CLM-005).
+          - Replace the `'docs/adopt.md'` entry of the `allowances` dictionary wholesale:
+            delete the five Seed 1 keys and transcribe the fourteen approved keys with their
+            classifications from `0a6010c:scripts/verify-public-product-model.sh` (CLM-006).
+            Transcribe them; do not retype them from memory — every key is compared by exact
+            bytes, including the apostrophe in `repository's`, the `→` in the step-3
+            paragraph, and the embedded newlines of the `<ul class="eval-list">` block.
+            Leave every other page's allowances untouched.
+          - Change nothing else: not the `paths`/`sources` inventory, not the neighborhood
+            owners, not the navigation contract, not the adoption-instruction assertions,
+            not the unit-contract table or its hashes.
+
+          In `scripts/tests/public-product-model/verify-content-topology.sh`, apply the
+          same three edits to its own `heroes`, `exact_ids` JLINK list, `edges` tuples, and
+          `labels` lists so the standalone dispatch stays consistent with the entrypoint.
+
+          GREEN evidence: `./scripts/verify-public-product-model.sh` prints
+          `public-product-model: PASS` and its dispatched
+          `scripts/tests/public-product-model/verify-content-topology.sh` exits 0. If an
+          `unclassified final-copy block` diagnostic appears, fix the ALLOWANCE to match the
+          approved copy — never edit the approved copy to match a guessed allowance.
+        files:
+          - scripts/verify-public-product-model.sh
+          - scripts/tests/public-product-model/verify-content-topology.sh
+        claims:
+          - CLM-005
+          - CLM-006
+          - CLM-010
+        depends_on:
+          - TASK-001
+          - TASK-003
+
+      - id: TASK-008
+        type: verification
+        title: "Verify the Seed 1 closed world against the approved Adopt page"
+        description: |
+          Run the plan's `test_command`, `./scripts/verify-public-product-model.sh`, and
+          require `public-product-model: PASS` plus a clean exit from every dispatched
+          sub-verifier, including
+          `scripts/tests/public-product-model/pages/discovery-evaluation-adoption-status.sh`
+          — which must still find CLAIM-024 on `/adopt/#verify-enforcement` and all three
+          `adoption_instructions` command texts on the page WITHOUT being edited (CLM-015).
+          Then run `./bin/backstop gate --file docs/_data/content-topology.yml --file
+          docs/_data/site-presentation.yml --file scripts/verify-public-product-model.sh
+          --file scripts/tests/public-product-model/verify-content-topology.sh` and
+          `go test ./scripts/sitecheck/... -count=1`.
+
+          Require specifically: each of the three ADOPT-* `command_text` values counted
+          exactly once in `docs/adopt.md` under its declared owner anchor (CLM-003); no
+          `marker/link cardinality` diagnostic for any surviving JLINK; no
+          `unclassified final-copy block` diagnostic for `docs/adopt.md` (CLM-006); the
+          hero matrix accepted from both the topology and the presentation data (CLM-010);
+          and JLINK-013's source anchor still resolving to `verify-enforcement` with its
+          destination anchor unique on `/model/` (CLM-004). Seed 5 is expected to remain red
+          until phase 4; record that and do not absorb it here. Fix nothing with a waiver, a
+          skip, or a baseline entry.
+        files:
+          - docs/adopt.md
+          - docs/_data/content-topology.yml
+          - docs/_data/site-presentation.yml
+          - scripts/verify-public-product-model.sh
+          - scripts/tests/public-product-model/verify-content-topology.sh
+        claims:
+          - CLM-003
+          - CLM-004
+          - CLM-006
+          - CLM-010
+        depends_on:
+          - TASK-005
+          - TASK-006
+          - TASK-007
+
+  - id: phase-4
+    name: "Phase 4: GREEN — Seed 5 journey lockstep after JLINK-012 retirement"
+    tasks:
+      - id: TASK-009
+        type: implementation
+        title: "GREEN: drop CAP-009/@UJ-001 from the capability map and the expected journeys"
+        description: |
+          Close TASK-002's RED by making the Seed 5 world match the retired JLINK-012
+          (CLM-005).
+
+          In `docs/_data/website-capability-map.yml`, delete the whole `CAP-009/@UJ-001`
+          journey entry — its `global_key`, `hops: ["/adopt/#install",
+          "/reference/#configuration"]`, `jlinks: [JLINK-012]`, and both obligations.
+          Leave `CAP-009/@UJ-002` and every other journey, obligation, predecessor version,
+          prerequisite, adoption-instruction reference, and the CAP-014/@UJ-001 dual-identity
+          block byte-identical. Do not renumber `@UJ` tags, do not remove the CAP-009
+          capability, and do not move an obligation from the deleted journey onto another
+          one.
+
+          In `scripts/websitejourney/artifacts.go`, delete the matching
+          `CAP-009/@UJ-001` element from `ExpectedWebsiteJourneys()` so the Go expectation
+          and the YAML map agree in content AND order. Leave `ExpectedWebsiteCapabilities()`
+          unchanged — CAP-009 remains a capability — and leave every other journey's hops,
+          JLinks, and titles untouched, including the pack-IA rows that a sibling landing
+          may already have changed.
+
+          GREEN evidence: `go test ./scripts/websitejourney/... -count=1` passes, with
+          `TestWebsiteJourney_EvidenceAndBoundaryBindingsPass`,
+          `TestWebsiteJourney_GeneratedObligationMatrixPasses`,
+          `TestWebsiteJourney_BuiltSiteAllJourneysPass`,
+          `TestWebsiteJourney_CAP014DualIdentityAnchorPasses`, and
+          `TestWebsiteJourney_BuiltTraversalRejectsObligationCheats` all green at 21
+          journeys. If a journey other than CAP-009/@UJ-001 fails, it belongs to a sibling
+          landing: report it, do not fix it here.
+        files:
+          - docs/_data/website-capability-map.yml
+          - scripts/websitejourney/artifacts.go
+        claims:
+          - CLM-005
+        depends_on:
+          - TASK-002
+          - TASK-006
+
+      - id: TASK-010
+        type: verification
+        title: "Verify the 21-journey Seed 5 matrix in the diff-scoped gate"
+        description: |
+          Run `./bin/backstop gate --file docs/_data/website-capability-map.yml --file
+          scripts/websitejourney/artifacts.go --file scripts/websitejourney/map_test.go
+          --file scripts/websitejourney/traversal_test.go`, then
+          `go test ./scripts/websitejourney/... -count=1`.
+
+          Require: journey cardinality 21 with no `missing mapped journey`,
+          `unexpected mapped journey`, or `out of matrix order` diagnostic; every surviving
+          JLINK resolving to a rendered anchor in the built documents; the
+          CAP-014/@UJ-001 JLINK-024/BOUNDARY-005 dual identity intact; the generated-job
+          obligations for CAP-011/@UJ-001 and CAP-013/@UJ-002 unchanged; and the built-journey
+          mutation fixture still proving that removing a rendered JLINK reds its journey
+          (sharp edge 6). Read the gate report for per-file coverage on
+          `scripts/websitejourney/artifacts.go` and confirm the edited matrix is exercised
+          by the suite rather than merely edited (sharp edge 11). Do not obtain green with a
+          waiver, a skipped test, or a baseline entry.
+        files:
+          - docs/_data/website-capability-map.yml
+          - scripts/websitejourney/artifacts.go
+          - scripts/websitejourney/map_test.go
+          - scripts/websitejourney/traversal_test.go
+        claims:
+          - CLM-005
+        depends_on:
+          - TASK-009
+
+  - id: phase-5
+    name: "Phase 5: Contract literals, full public-site pipeline, and the unscoped kill chain"
+    tasks:
+      - id: TASK-011
+        type: documentation
+        title: "Update the five Adopt contract literals in SPEC-072, SPEC-075, and SPEC-076"
+        description: |
+          Bring the delivered Seed 1 and Seed 5 specs into lockstep with what landed
+          (CLM-013). Exactly five edits, each a named line:
+
+          - `specs/SPEC-072-public-product-model.spec.md`: in the canonical page table, the
+            `docs/adopt.md` / `/adopt/` row's hero cell becomes `Try it out.`; in the
+            journey-link table, delete the `JLINK-012 | /adopt/#install |
+            /reference/#configuration` row.
+          - `specs/SPEC-075-static-public-site-design-system.spec.md`: in the exact
+            presentation matrix, the `/adopt/` row's hero cell becomes `Try it out.` and its
+            `next_action` cell stays `/use-cases/` (CLM-011); in the journey-link table,
+            delete the `JLINK-012` row.
+          - `specs/SPEC-076-end-to-end-website-capabilities.spec.md`: delete the
+            `CAP-009/@UJ-001 | … | JLINK-012` row from the capability-journey table.
+
+          Everything else in all three specs stays byte-identical: `required_blocks`,
+          CLAIM-024, JLINK-013, JLINK-004 and JLINK-015 into `/adopt/`, the three ADOPT-*
+          rows with their owner anchors and SHA-256 digests, the rendered-instruction
+          contract, other pages' rows, sharp-edge prose, front matter, `status`, and
+          version fields. Do not renumber JLINKs to close the gap, do not restructure a
+          section, do not edit `bundles/BUNDLE-032*`, and do not edit the completed
+          PLAN-SPEC-072/075/076 even though PLAN-SPEC-076 still names 22 journeys.
+
+          Evidence: `git diff` on the three specs shows five changed table rows and nothing
+          else.
+        files:
+          - specs/SPEC-072-public-product-model.spec.md
+          - specs/SPEC-075-static-public-site-design-system.spec.md
+          - specs/SPEC-076-end-to-end-website-capabilities.spec.md
+        claims:
+          - CLM-013
+        depends_on:
+          - TASK-006
+          - TASK-009
+
+      - id: TASK-012
+        type: verification
+        title: "Run the full public-site pipeline, the browser completeness matrix, and the Seed 4 diff check"
+        description: |
+          Run `./scripts/verify-public-site.sh` end to end and require every stage green and
+          substantive: `coverage` at or above 80.00, `documentation-semantics` (the released
+          pack over a corpus that includes `docs/adopt.md`, sharp edge 9), `product-truth`,
+          `jekyll`, `owner-assets`, `annotation`, `structure`, and `browser`.
+
+          From the `browser` stage, read the completeness measurement for `/adopt/`
+          (CLM-007). Require `#adoption-paths`, `#install`, `#configure`, and
+          `#verify-enforcement` each visible with at least 80 normalized characters and
+          first content within 160 px, at all three viewports. `#configure` is the tight one:
+          the prediction is 112 characters. If — and only if — the real measurement is below
+          the floor, the single permitted remedy is a narrowly scoped change to
+          `tests/public-site-helpers.ts`, reported explicitly with the measured number.
+          Padding Brandon's sentence, inventing a slogan, adding a third `#configure`
+          sentence, hiding the shortfall, or lowering the floor for other routes is a
+          failure, not a fix.
+
+          Then run `go run ./scripts/sitecheck --root . --check-diff` on the committed
+          branch (CLM-014). The expectation is exit 0 with no new rows, because every
+          in-matrix path this landing touches already has one. If the check disagrees,
+          reconcile the ROWS in `.backstop/seed4-delivery-inventory.yml` against the real
+          committed diff and report the discrepancy — never by widening `expectedRole()`,
+          deleting a governed row, or renaming a ledger path.
+
+          Finally, re-read the rendered `/adopt/` link resolution (CLM-012): every internal
+          href must resolve to a canonical route with exactly one matching target ID,
+          including `/pack/examples/#choose-a-pack`. A `missing or alias target` finding on
+          that href means the pack catalog has not landed — stop and report the sequencing
+          conflict rather than changing the destination or waiving the finding.
+        files:
+          - tests/public-site-helpers.ts
+          - .backstop/seed4-delivery-inventory.yml
+          - docs/adopt.md
+          - docs/assets/css/site.css
+        claims:
+          - CLM-007
+          - CLM-012
+          - CLM-014
+        depends_on:
+          - TASK-004
+          - TASK-008
+          - TASK-010
+
+      - id: TASK-013
+        type: verification
+        title: "Run the unscoped kill chain, validate the artifacts, and audit the fence"
+        description: |
+          Comprehensive final verification across both work categories.
+
+          Run `make test`, then `./bin/backstop gate --all` as the unscoped kill chain, then
+          `./bin/backstop artifact validate` for the artifact category, requiring
+          PLAN-ISSUE-196, ISSUE-196, and the three edited SPEC files to validate clean
+          against their schemas with no traceability, status-drift, or completeness
+          violation introduced by the five row edits (CLM-013).
+
+          Then audit the delivered diff against the fence (CLM-015). Require modifications
+          confined to: `docs/adopt.md`, `docs/_includes/page-hero.html`,
+          `docs/_layouts/default.html`, `docs/assets/css/site.css`,
+          `docs/_data/content-topology.yml`, `docs/_data/site-presentation.yml`,
+          `docs/_data/website-capability-map.yml`, `scripts/verify-public-product-model.sh`,
+          `scripts/tests/public-product-model/verify-content-topology.sh`,
+          `scripts/sitecheck/presentation_test.go`, `scripts/websitejourney/artifacts.go`,
+          `scripts/websitejourney/map_test.go`, `scripts/websitejourney/traversal_test.go`,
+          `scripts/websitejourney/testdata/built-journey-mutations.yml`,
+          `tests/website-capabilities.spec.ts`, the three SPEC files, this plan, and the
+          ISSUE-196 artifact — plus `tests/public-site-helpers.ts` only if CLM-007's
+          measured-failure condition fired and was reported.
+
+          Confirm by inspection: `required_blocks` for `/adopt/` is still
+          `[adoption-paths, install, configure, verify-enforcement]` (CLM-003); the three
+          ADOPT-* records and their digests are unchanged; `playwright.config.ts`
+          `testMatch` is still `public-site.spec.ts`; the `[data-page-kind="home"] .nav` and
+          `.nav-links` rules are byte-identical (CLM-008); `docs/index.html`,
+          `docs/evaluate.md`, `docs/model.md`, `docs/use-cases.md`, `docs/reference.md`,
+          `docs/status.md`, and `docs/contributing.md` are untouched; no pack was vendored
+          and `.backstop/packs/` is still gitignored; and BUNDLE-032 is not marked delivered.
+          Confirm the approved copy landed verbatim — no restored Seed 1 hero or H2, no
+          visible "Run the gate" smoke test, no visible Reference tease on Adopt, no
+          `backstop pack add`, no pack tutorial, and no invented slogan (CLM-001, CLM-002).
+
+          Report inherited or sibling-owned failures truthfully rather than absorbing them
+          into this lane, and do not obtain green with a waiver, a suppression, a baseline
+          change, a skipped test, or a lowered threshold.
+        files:
+          - plans/PLAN-ISSUE-196-adopt-visitor-page.plan.yml
+          - issues/ISSUE-196-adopt-visitor-page.issue.md
+          - specs/SPEC-072-public-product-model.spec.md
+          - specs/SPEC-075-static-public-site-design-system.spec.md
+          - specs/SPEC-076-end-to-end-website-capabilities.spec.md
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-008
+          - CLM-013
+          - CLM-015
+        depends_on:
+          - TASK-009
+          - TASK-011
+          - TASK-012
