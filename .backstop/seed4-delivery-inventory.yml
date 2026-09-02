@@ -37,8 +37,11 @@ entries:
   - change: A
     path: docs/_data/site-presentation.yml
     role: site-data
-  - change: M
+  - change: D
     path: docs/_includes/generated/installed-pack-catalog.md
+    role: include
+  - change: A
+    path: docs/_includes/generated/published-pack-catalog.md
     role: include
   - change: A
     path: docs/_includes/page-hero.html
@@ -79,7 +82,7 @@ entries:
   - change: M
     path: docs/evaluate.md
     role: page-wrapper
-  - change: M
+  - change: D
     path: docs/extend.md
     role: page-wrapper
   - change: A
@@ -95,9 +98,12 @@ entries:
     path: docs/model.md
     role: page-wrapper
   - change: A
-    path: docs/pack-authoring.md
+    path: docs/pack/examples.md
     role: page-wrapper
-  - change: M
+  - change: A
+    path: docs/pack/guide.md
+    role: page-wrapper
+  - change: D
     path: docs/packs.md
     role: page-wrapper
   - change: M
@@ -121,15 +127,15 @@ entries:
   - change: A
     path: scripts/install-design-assets.sh
     role: owner-asset-installer
+  - change: M
+    path: scripts/producttruth/generate.go
+    role: structural-verifier
   - change: A
     path: scripts/render-public-site-contracts/main.go
     role: rendered-contract-stamper
   - change: A
     path: scripts/render-public-site-contracts/main_test.go
     role: test
-  - change: M
-    path: scripts/producttruth/generate.go
-    role: structural-verifier
   - change: A
     path: scripts/sitecheck/design_system.go
     role: structural-verifier
@@ -179,18 +185,6 @@ entries:
     path: scripts/stamp-pages-artifact.sh
     role: deploy-stamp
   - change: M
-    path: scripts/verify-documentation-semantics-integration.sh
-    role: release-evidence-verifier
-  - change: A
-    path: scripts/verify-pages-deployment.sh
-    role: deploy-verifier
-  - change: A
-    path: scripts/verify-public-site.sh
-    role: verification-entrypoint
-  - change: M
-    path: scripts/verify-public-product-model.sh
-    role: verification-entrypoint
-  - change: M
     path: scripts/tests/public-product-model/pages/discovery-evaluation-adoption-status.sh
     role: test
   - change: M
@@ -199,6 +193,18 @@ entries:
   - change: M
     path: scripts/tests/public-product-model/pages/model-use-cases-packs.sh
     role: test
+  - change: M
+    path: scripts/verify-documentation-semantics-integration.sh
+    role: release-evidence-verifier
+  - change: A
+    path: scripts/verify-pages-deployment.sh
+    role: deploy-verifier
+  - change: M
+    path: scripts/verify-public-product-model.sh
+    role: verification-entrypoint
+  - change: A
+    path: scripts/verify-public-site.sh
+    role: verification-entrypoint
   - change: A
     path: tests/public-site-helpers.ts
     role: browser-verification

@@ -290,7 +290,7 @@ func TestSiteCheck_HomepageCanonicalDirectionRejectsDriftMatrix(t *testing.T) {
 func TestSiteCheck_HomepageCanonicalChangeFence(t *testing.T) {
 	for _, mutation := range []struct{ old, replacement string }{
 		{`data-page-kind="evaluation"`, `data-page-kind="home"`},
-		{`data-page-question>Is Backstop the right control surface for this problem?`, `>Define the work.`},
+		{`data-page-question>Your agent already writes the code.`, `>Define the work.`},
 		{`<section data-page-hero>`, `<section data-page-hero data-home-system-section>`},
 	} {
 		root, built := makeSyntheticSite(t)
