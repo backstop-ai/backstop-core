@@ -1,0 +1,779 @@
+---
+plan_id: PLAN-ISSUE-199
+spec_id: ISSUE-199
+created: "2026-09-02"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "./scripts/verify-public-product-model.sh"
+coverage_threshold: 80
+
+notes: |
+  Contained reactive correction on the issue-to-plan track, sourced from ISSUE-199. It lands
+  the approved artifact-lifecycle state machine onto the EXISTING url
+  `/reference/#artifact-lifecycle-and-closure`, replaces the section's false plan vocabulary
+  with the live one, and gives `page_kind: reference` the paper/ink chrome Brandon asked for
+  after the first draft left Reference on the dark field-guide surface. It creates no new
+  route, absorbs no sibling lane, and invents no waiver.
+
+  ════════════════════════════════════════════════════════════════════════════════
+  EXISTENCE-IN-WORLD (checked; NOT a duplicate — a residual delta)
+  ════════════════════════════════════════════════════════════════════════════════
+  `plans/`, `specs/`, `issues/`, and `bundles/` were searched (committed and working tree)
+  for `artifact-lifecycle-and-closure`, `CLAIM-030`, `CLAIM-031`, `ART-003`, `ART-004`,
+  `paper_kinds`, and `page_kind: reference`.
+
+  - PLAN-SPEC-072 (committed, `plans/PLAN-SPEC-072-public-product-model.plan.yml`) OWNS Seed 1
+    `/reference/`: it parked CLAIM-030 and CLAIM-031 on this anchor and fixed the ART-003 /
+    ART-004 responsibility needles. It is the owner of the surface. The RESIDUAL DELTA this
+    plan claims is exactly: (a) this one section's copy, (b) paper/ink chrome for the
+    `reference` page kind, and (c) the smallest byte-level lockstep those two require
+    (`evidence-inventory.yml` CLAIM-030, the closed-world allowance table, the page test).
+    Nothing else on `/reference/` is reopened.
+  - PLAN-SPEC-075 owns the design system and the closed Seed 4 delivery matrix; PLAN-SPEC-076
+    owns end-to-end website capabilities. Neither quotes the CLAIM-030 statement or the plan
+    status vocabulary (verified below), so neither is subsumed or contradicted.
+  - ISSUE-197 owns the per-noun entity lookup pages and their Status tables. ISSUE-198 owns
+    the Extend / pack-authoring guide rewrite. ISSUE-190/191/193/195/196 own the homepage,
+    the `.cursor/` matrix rows, Evaluate, Model, and Adopt. NONE of them is absorbed here.
+  - ISSUE-031 (closed) added the terminal states to the schemas. It changed enforcement, not
+    visitor copy, so it does not own this section.
+  - No open issue and no in-flight plan in this working tree owns this Reference section.
+
+  CROSS-LANE FILE COORDINATION (verified in this working tree). PLAN-ISSUE-193, PLAN-ISSUE-195,
+  and PLAN-ISSUE-196 were authored in parallel and their file scopes overlap FOUR of this
+  plan's six files: `docs/_layouts/default.html`, `docs/assets/css/site.css`,
+  `scripts/verify-public-product-model.sh`, and
+  `scripts/tests/public-product-model/pages/extend-reference-contributing.sh` (PLAN-ISSUE-193
+  additionally claims `docs/reference.md` and `docs/_data/evidence-inventory.yml`). Those are
+  shared registries and shared shell files, not contested content: each lane owns different
+  keys, selectors, and blocks inside them. Every edit this plan makes to a shared file MUST
+  therefore be ADDITIVE and key-scoped — append an allowance, append a page-kind to a selector
+  list or to `paper_kinds`, append a test function — and must never rewrite, reorder, reflow, or
+  delete a line a sibling lane owns. If a shared file already carries a sibling's edit when
+  this lands, adapt to it; do not revert it and do not treat it as drift.
+
+  ════════════════════════════════════════════════════════════════════════════════
+  BASELINE AND COPY SOURCE — TWO DIFFERENT TREES. DO NOT CONFLATE THEM.
+  ════════════════════════════════════════════════════════════════════════════════
+  IMPLEMENTATION BASELINE is `origin/main`. Branch from `main`, not from the preview branch.
+  On `main` the entity routes (`/directive/`, `/adr/`, `/capability/`, `/plan/`, `/issue/`,
+  `/spec/`, `/bundle/`) DO NOT EXIST, `paper_kinds` does not exist, `primaryNavigation()`
+  still lists `/reference/`, and the ART-003 needle is still the Seed 1 sentence.
+
+  APPROVED COPY SOURCE is commit `0a6010c0e45b290cbacc6713b83d5da4f5704ba9`
+  (branch `cursor/evaluate-copy-local-preview-e296`), file `docs/reference.md`, section
+  `#artifact-lifecycle-and-closure`. Read it with
+  `git show 0a6010c0e45b290cbacc6713b83d5da4f5704ba9:docs/reference.md`. It is APPROVED
+  DIRECTION AND EVIDENCE OF INTENT, not a mergeable diff: that branch also carries the entity
+  pages, the `/pack/` nav restructure, and a rewritten ART-003 needle, all of which belong to
+  other lanes. Port the section; do not cherry-pick the branch.
+
+  ════════════════════════════════════════════════════════════════════════════════
+  PREMISE CORRECTIONS — READ BEFORE STARTING. THREE FRAMING ITEMS ARE FALSE.
+  Each was checked against the live tree, not against issue prose.
+  ════════════════════════════════════════════════════════════════════════════════
+  1. NO `docs/_data/content-inventory.yml` `sources[]` REPAIR IS NEEDED, AND ONE IS ILLEGAL.
+     `scripts/tests/public-product-model/verify-content-inventory.sh` pins `expected_sources`
+     to exactly six sources, pins each source's `unit_id` list exactly, and asserts
+     `len(seen)==31`. The inventory is CLOSED. Adding a row fails
+     `verify_legacy_content_disposition_inventory`. The lifecycle section already has owners:
+     ART-003 and ART-004 both carry `disposition: decompose` with
+     `target_routes: ["/model/", "/reference/"]`. `verify-content-inventory.sh` was executed
+     against this tree and PASSED. Do not touch `content-inventory.yml`.
+  2. NO SEED 4 DELIVERY-INVENTORY ROW IS NEEDED. `inventoryDiff()` in
+     `scripts/sitecheck/inventory.go` SKIPS every diff path for which `expectedRole()` returns
+     "" (`inSeed4Matrix`). All six files this plan touches are already declared in
+     `.backstop/seed4-delivery-inventory.yml` with the correct change letter —
+     `docs/reference.md` M/page-wrapper, `docs/_layouts/default.html` A/layout,
+     `docs/assets/css/site.css` A/stylesheet-composition,
+     `scripts/verify-public-product-model.sh` M/verification-entrypoint,
+     `scripts/tests/public-product-model/pages/extend-reference-contributing.sh` M/test —
+     and `docs/_data/evidence-inventory.yml` has NO role, so `--check-diff` never sees it.
+     Re-editing a declared file does not change its letter. `go run ./scripts/sitecheck --root .
+     --check-diff` was executed and reported `delivery inventory valid (70 paths)`, exit 0. Add
+     no row. If a rebase genuinely flips a letter, reconcile the LETTER against the real diff;
+     never add a speculative row and never widen `expectedRole()`.
+  3. NO SPEC-072 / SPEC-075 / SPEC-076 LITERAL QUOTES THE OLD CLAIM-030 STATUSES. All three
+     were grepped for `CLAIM-030`, `CLAIM-031`, `Bundles progress through`, `approved`, and
+     `in-progress`. The only hits are SPEC-072's ART-003 / ART-004 disposition table rows
+     (`| ART-003 | Lifecycle states | decompose | /model/, /reference/ |`), which this plan does
+     not change, and SPEC-075's unrelated phrase "in-progress production deploy". There is NO
+     stale contract literal to update, so this plan edits NO spec. If a future read finds one,
+     that is a new finding to report — not a licence to rewrite a spec inside this lane.
+
+  ════════════════════════════════════════════════════════════════════════════════
+  CLAIM LEDGER — ISSUE-199 is prose-only and carries no `claims[]` array, so this plan
+  declares its own. Each claim is evidence read out of the tree, with the file that proves it.
+  ════════════════════════════════════════════════════════════════════════════════
+
+  CLM-001 — THE PUBLISHED SECTION NAMES PLAN STATES THAT DO NOT EXIST.
+    On `main`, `docs/reference.md#artifact-lifecycle-and-closure` is two claim paragraphs, and
+    CLAIM-030 reads "plans progress from `draft` to `approved` and `in-progress`".
+    `artifacts/plan/v1/schema.json` enumerates `draft, ready, implementing, completed,
+    replaced, canceled, obsoleted`. There is no `approved` plan status and no `in-progress`
+    plan status. `pkg/validate/plan.go` rejects any status outside that enum
+    (`plan/invalid-status`). The site publishes a vocabulary the product does not have. The
+    same falsehood appears in the approved prototype's connective prose — "Product code is not
+    written until a plan is approved" — and must be corrected to the live `ready` state when
+    the copy is ported. After landing, `approved` and `in-progress` must not appear anywhere in
+    this section as PLAN states; `in-progress` remains legal and required as an ISSUE state.
+
+  CLM-002 — THE SECTION MUST BECOME THE MACHINE, IN THE APPROVED SHAPE.
+    The Seed 1 section lists some states. It does not lock legal transitions, entry
+    preconditions, what begins being enforced, what the state enables, or how terminal/closure
+    traceability is established. The approved shape at `0a6010c` is: a lede that states status
+    is a DECLARED field (not inferred from git or CI); the CLAIM-030 live-state index panel; a
+    coupled-states panel binding the two tracks; then one `### <noun>` subsection per artifact
+    kind — Issue, Spec, Bundle, Plan — each with a `Live:` sequence line, a four-column
+    `tactics-matrix` table (State / Before you can enter it / Validator or gate / Enables), and
+    its terminal rules; CLAIM-031 inside the Issue subsection; and a closing paragraph that
+    points at the per-noun status vocabularies without absorbing them. The heading stays
+    exactly `## Artifact lifecycle and closure {#artifact-lifecycle-and-closure}`.
+
+  CLM-003 — EVERY STATE, PRECONDITION, AND ENFORCEMENT FACT MUST BE QUOTED FROM THE LIVE
+    SCHEMAS AND VALIDATORS, NOT FROM SEED 1 PROSE. Verified vocabularies:
+      • Bundle (`artifacts/bundle/v2/schema.json`, `status.maturity`): live `idea`,
+        `exploring`, `defined`, `ready`; success terminal `delivered`; retirement terminals
+        `replaced` (requires `replaced-by`), `canceled`, `deprecated`.
+      • Spec (`artifacts/spec/v1/schema.json`): live `draft`, `ready-for-implementation`,
+        `implemented`; terminals `replaced`, `canceled`, `deprecated`, `obsoleted`.
+      • Issue (`artifacts/issue/v1/schema.json`): live `open`, `ready`, `in-progress`,
+        `blocked`; success terminal `closed`; retirement terminals `replaced`, `canceled`,
+        `obsoleted`. There is no `deprecated` for issues.
+      • Plan (`artifacts/plan/v1/schema.json`): live `draft`, `ready`, `implementing`,
+        `completed`; terminals `replaced`, `canceled`, `obsoleted`. No `deprecated` for plans.
+    Verified enforcement:
+      • `pkg/validate/issue.go`: `traceabilityRequired = {ready, in-progress, blocked, closed}`
+        — requirements, claims, verification, implementation, and contracts are optional at
+        `open` and required from `ready` onward. `blocked` additionally requires non-empty
+        `context.blocked_by`. At `closed`, `delivered_by` and `resolved-by` are MUTUALLY
+        EXCLUSIVE (`issue/close-pointer-conflict`), either one relaxes the own-REQ/CLM chain,
+        and EITHER close still requires a `## Resolution` section.
+      • `pkg/validate/bundle.go`: the `defined`/`ready` maturity gate requires frontmatter
+        `problem.summary`, `problem.user_story`, `solution.approach`, a `requirements[]` array,
+        and the sections `Current Thinking`, `Draft Requirements`, `Draft Design Decisions`,
+        `Spec Seeds`, `Version History`. `ready` additionally requires
+        `problem.success_criteria` and `solution.assumptions`. NOTE: the approved prototype's
+        bundle table omits `Current Thinking` from `matureSections`; the landed table must name
+        all five, because four is factually incomplete.
+      • `pkg/validate/plan.go`: `draft`, `ready`, and `implementing` are the SAME shape to the
+        validator (phases, tasks, TDD ordering, claim mapping, file exclusivity); terminal
+        plans skip phase and task completeness entirely (`if !isTerminalStatus(status)`).
+      • `pkg/validate/spec.go`: live-work completeness is skipped for terminal specs
+        (`if !isTerminalStatus(art.Metadata["status"])`).
+      • `artifacts/plan/v1/schema.json` `task_test_names_description`: a `completed` plan whose
+        mandated tests are absent blocks as a BROKEN PROMISE at the gate, which the artifact
+        validator alone does not catch. That asymmetry is the honest "validator may pass, the
+        gate does not" fact the table's Plan/`completed` row states.
+
+  CLM-004 — THE ART-003 NEEDLE IS A LIVE CONTRACT, AND IT MUST OCCUR EXACTLY ONCE.
+    `scripts/verify-public-product-model.sh` `legacy_responsibilities['ART-003']` requires the
+    literal ``Bundles progress through `idea`, `exploring`, `defined`, and `ready` `` inside
+    `anchored_section('/reference/','artifact-lifecycle-and-closure')`, and ART-004 requires
+    ``  `delivered_by` names a completed plan ``. `anchored_section` runs from the anchored
+    heading to the NEXT heading carrying an explicit `{#...}` anchor, so the whole lifecycle
+    section — including the `### <noun>` subsections — is in scope. Independently,
+    `scripts/tests/public-product-model/pages/extend-reference-contributing.sh` carries both
+    needles in its `responsibilities` list AND runs `production_delete_reject` on each, which
+    deletes the FIRST occurrence in `docs/reference.md` and REQUIRES the production verifier to
+    then fail. Consequence: each needle must appear EXACTLY ONCE in `docs/reference.md`. A
+    second copy makes the deletion survivable, the verifier green, and the page test RED with
+    `ART-003 deletion passed production verifier`. The approved prototype rewrote the ART-003
+    needle to `blocked waits on named work`; this plan does NOT. The needle literal in
+    `verify-public-product-model.sh` and in the page test's `responsibilities` list is
+    PRESERVED BYTE-FOR-BYTE, and the landed copy is authored to satisfy it.
+
+  CLM-005 — CLAIM-030 IS BYTE-BOUND TO `docs/_data/evidence-inventory.yml`, AND THAT BINDING IS
+    WHY THE NEEDLE CANNOT LIVE INSIDE THE CLAIM. `canonical_payload()` in
+    `scripts/verify-public-product-model.sh` returns the claim body verbatim for every claim
+    except CLAIM-005 (it only strips `{% raw %}` markers), and the verifier then requires
+    `statement_markdown` to equal those exact bytes (`claim linkage/bytes CLAIM-030`).
+    `scripts/render-public-site-contracts/main.go` `bindClaims()` rewrites the claim markers
+    into `<article data-evidence-card data-claim-id="CLAIM-030">`, so the claim body is emitted
+    as raw HTML. Kramdown does not process Markdown inside a raw HTML block element, so a
+    backticked needle placed inside the approved `<div class="state-index">` panel would render
+    as literal backticks. Therefore: CLAIM-030's region is the approved `state-index` panel
+    (HTML, `<code>` elements, no backticks), `evidence-inventory.yml` CLAIM-030
+    `statement_markdown` is updated to those exact bytes, `statement` is updated to the plain
+    prose equivalent naming the same four live sequences with the live plan states, and the
+    ART-003 needle lives in a NON-CLAIM prose block inside the same section. CLAIM-030 is a
+    `mechanism` claim, so `verify-evidence-inventory.sh` requires at least one `evidence_refs`
+    entry of kind `source`, `schema`, `test`, or `implementation-commit`; its only current ref
+    is EVIDENCE-044 pointing at `artifacts/bundle/v1/schema.json`. Because the statement now
+    enumerates four artifact kinds, the refs must cover them: retarget the bundle ref to the
+    LIVE `artifacts/bundle/v2/schema.json` and add `schema` refs for
+    `artifacts/issue/v1/schema.json`, `artifacts/spec/v1/schema.json`, and
+    `artifacts/plan/v1/schema.json`. New `evidence_id` values must be unique and continue the
+    sequence after the current maximum, EVIDENCE-051. CLAIM-031's bytes do not change.
+
+  CLM-006 — EVERY NEW BLOCK NEEDS AN EXACT-BYTES CLOSED-WORLD ALLOWANCE, OR THE VERIFIER
+    REFUSES THE PAGE. `check_closed_blocks()` masks claim regions, fenced code blocks, rendered
+    instruction commands, and generated-region includes, then splits what remains on blank
+    lines and fails any block that is not the hero, not a heading (`block.startswith('#')`),
+    not a `<!-- backstop-journey-link: JLINK-NNN -->` pair, and not a key of
+    `allowances['docs/reference.md']` — which today holds exactly ONE entry. The approved
+    section contributes about twenty such blocks: two connective paragraphs, the
+    `state-coupling` panel, four `Live:` lines, four `tactics-matrix` panels, the
+    "user drives promotion" line, the per-noun terminal-rule lines, the plan same-shape line,
+    the plan-source/permissions line, and the closing vocabulary-pointer paragraph. Each needs
+    its own allowance key whose bytes match the page EXACTLY (leading/trailing whitespace
+    stripped, internal newlines preserved) and a short, honest nonconsequential rationale
+    string. Blank-line placement inside the HTML panels therefore changes the required key —
+    keep each `<div>…</div>` panel free of internal blank lines, as the prototype does.
+    `scripts/tests/public-product-model/pages/extend-reference-contributing.sh` also appends an
+    unmarked consequential sentence and requires the verifier to reject it, so the allowance
+    table may not be relaxed into a pattern or a catch-all.
+
+  CLM-007 — NO LINK MAY POINT AT A ROUTE THAT DOES NOT EXIST ON THE BASELINE.
+    `verifyLinks()` in `scripts/sitecheck/site.go` resolves every rendered `href`: a
+    root-relative path that is not a key of the built-documents map produces
+    `link-resolution … Expected: canonical route, Observed: missing or alias target`, and a
+    fragment must resolve to exactly one case-sensitive id on the target route.
+    `canonicalRoutes()` on `main` is `/`, `/evaluate/`, `/model/`, `/adopt/`, `/use-cases/`,
+    `/packs/`, `/extend/`, `/reference/`, `/status/`, `/contributing/`. The approved closing
+    paragraph links to `/directive/`, `/adr/`, and `/capability/`, and the approved lede says
+    the per-noun Status tables "live on the entity pages" — none of which exist on `main`
+    (ISSUE-197 owns them). Both must be re-authored to name the vocabularies and their owning
+    schemas WITHOUT linking to a nonexistent route and WITHOUT dumping the tables in. The
+    section adds no `JLINK`, so no `journey_links` row is created; it must also not consume an
+    existing JLINK id, because `JLINK-NNN` marker cardinality is checked as exactly one.
+
+  CLM-008 — PAPER/INK IS A LAYOUT PLUS STYLESHEET PAIR, TOKEN-ONLY, AND MUST NOT REGRESS
+    SIBLINGS. On `main`, `docs/_layouts/default.html` has no `paper_kinds` assignment, does not
+    link `backstop-tokens.css`, and computes `presentation` AFTER `</head>`. Landing paper/ink
+    for `page_kind: reference` therefore requires (a) hoisting the `presentation` assignment
+    above `<!doctype html>` so `page_kind` is readable inside `<head>` — Liquid tags emit
+    nothing, so the doctype still leads the output — (b) a `paper_kinds` list that CONTAINS
+    `reference`, and (c) a `{% if paper_kinds contains page_kind %}` guard that links
+    `/assets/css/backstop-tokens.css` after `site.css` and swaps the dark
+    `<meta name="color-scheme" content="dark">` for a paper `theme-color` only on paper kinds.
+    IF `paper_kinds` already exists when this lands (a sibling lane may have introduced it),
+    APPEND `reference` and preserve every existing kind; never rewrite the list to
+    `reference`-only. On the stylesheet side, `docs/assets/css/site.css` needs the paper shell
+    rules for the `reference` kind plus the `[data-page-kind="reference"]` prose, table,
+    `.state-index`, `.state-coupling`, and `.tactics-matrix` rules. Hard constraints:
+      • `backstop-ai/backstop-design-system` rule `no-raw-colors` matches `site.css` and
+        `backstop*.css` and forbids any `#hex`, `rgb(`, `rgba(`, `hsl(`, or `hsla(` literal, so
+        every new declaration must consume a named token. `var(--color-paper)`,
+        `--color-ink`, `--color-surface`, `--color-muted`, `--color-line`, `--color-signal`,
+        `--color-signal-ink`, `--radius-sm`, `--focus-ring`, `--font-sans`, `--font-mono`, and
+        the `--ds-*` aliases already exist on `main`; use them. Only if a genuinely new token
+        is unavoidable may `backstop-tokens.css` gain one, and it must be a named token there.
+      • Rules `focus-visible-required` and `reduced-motion-required` require `site.css` to keep
+        a `:focus-visible` rule and a `prefers-reduced-motion` block. Do not remove either.
+      • The `[data-page-kind="home"] .nav` and `[data-page-kind="home"] .nav-links` rules
+        inside the existing responsive media query MUST survive verbatim. ISSUE-190 restored
+        the canonical homepage; dropping them regresses it.
+      • `data-page-kind` cardinality is checked as exactly one per route, and
+        `site-presentation.yml` already declares `page_kind: reference` for `/reference/`. Do
+        not change the presentation row, the `hero_question`, the `treatments`, or
+        `next_action`.
+
+  CLM-009 — NAVIGATION AND ROUTE IDENTITY ARE NOT THIS PLAN'S TO CHANGE, AND THE GATE PROVES
+    WHY. Brandon's later direction is that `/use-cases/`, `/status/`, and `/reference/` are
+    turned off for now: hidden from remaining visitor copy and nav, but NOT 404, NOT
+    `published: false`, and NOT deleted. That end state is real, and this plan obeys it
+    NEGATIVELY: it does not add `/reference/` to primary or utility navigation, does not add a
+    redirect, does not retire the file, and does not touch `docs/_includes/site-header.html`.
+    It also does not REMOVE the existing `/reference/` nav link, because on `main` that cannot
+    be done unilaterally: `verifyRouteDocument()` emits a `navigation … Expected: present`
+    finding for every destination in `primaryNavigation()` that a rendered route fails to link,
+    `primaryNavigation()` in `scripts/sitecheck/site.go` still lists `/reference/`,
+    `docs/_data/content-topology.yml` `navigation.primary` still lists it, SPEC-072 fixes the
+    primary-nav roster in prose, the design-system rule `accessible-site-shell` requires named
+    Primary and Utility navs on every page, and `tests/public-site-helpers.ts` enumerates the
+    routes. Turning the route off is a coordinated multi-file change on files that sibling
+    lanes (ISSUE-193/195/196/197/198) also edit, so doing it here would both exceed this
+    issue's scope and collide with them. Report it as the separate lane it is.
+    `playwright.config.ts` `testMatch` stays `public-site.spec.ts`. Packs stay external —
+    nothing is vendored into the repository.
+
+  CLM-010 — THE LOCKSTEP IS EXACTLY FOUR MECHANICAL EDITS, AND NO MORE.
+    Landing the copy requires, and requires only: the section bytes in `docs/reference.md`;
+    CLAIM-030 `statement` / `statement_markdown` / `evidence_refs` in
+    `docs/_data/evidence-inventory.yml`; the new allowance keys in
+    `scripts/verify-public-product-model.sh`; and the new assertions in
+    `scripts/tests/public-product-model/pages/extend-reference-contributing.sh`. Landing
+    paper/ink requires, and requires only, `docs/_layouts/default.html` and
+    `docs/assets/css/site.css`. Per premise corrections 1–3 above there is NO
+    `content-inventory.yml` edit, NO `.backstop/seed4-delivery-inventory.yml` edit, and NO spec
+    edit. `docs/_data/content-topology.yml` needs no edit either: `artifact-lifecycle-and-closure`
+    is already in `/reference/` `required_blocks` and ART-003 / ART-004 are already in its
+    `source_material`.
+
+  CLM-011 — THE FENCE. Only these six files change:
+    `docs/reference.md`, `docs/_data/evidence-inventory.yml`,
+    `scripts/verify-public-product-model.sh`,
+    `scripts/tests/public-product-model/pages/extend-reference-contributing.sh`,
+    `docs/_layouts/default.html`, `docs/assets/css/site.css` — plus the committed ISSUE-199 and
+    PLAN-ISSUE-199 artifacts themselves. `/reference/#source-traceability` (CLAIM-007 /
+    CLAIM-008 gate-evidence provenance), `/reference/#pack-artifact`, every other Reference
+    section, `docs/model.md` (including ARCH-001 and `#delivery-lifecycle`), `docs/evaluate.md`,
+    `docs/adopt.md`, `docs/extend.md`, `docs/packs.md`, `docs/use-cases.md`, `docs/status.md`,
+    `docs/contributing.md`, the entity pages, `docs/_includes/*`, `docs/_data/site-presentation.yml`,
+    `docs/_data/content-topology.yml`, `docs/_data/content-inventory.yml`,
+    `.backstop/seed4-delivery-inventory.yml`, `scripts/sitecheck/*`, `playwright.config.ts`,
+    `tests/*`, `backstop.yml`, `backstop.lock`, and `specs/*` are UNTOUCHED. BUNDLE-032's
+    visitor-journey charter is not reopened and is not marked delivered. No waiver, no
+    baseline entry, no suppression, no skipped test, and no relaxed assertion is acceptance.
+
+  ════════════════════════════════════════════════════════════════════════════════
+  SHARP EDGES
+  ════════════════════════════════════════════════════════════════════════════════
+   1. Needle cardinality (CLM-004). Each of the two Reference needles must appear EXACTLY once
+      in `docs/reference.md`. Two occurrences invert the page test's deletion proof into a
+      false green and a red test.
+   2. Backticks do not render inside raw HTML blocks (CLM-005). The needle must sit in a
+      Markdown prose block, not inside the `state-index` panel.
+   3. Allowance keys are exact bytes (CLM-006). A reflowed line, a changed dash, a stray
+      trailing space, or a blank line inside an HTML panel changes the key and reds the page.
+   4. Links to `/directive/`, `/adr/`, `/capability/` red on `main` (CLM-007). So does any
+      fragment that is not exactly one id on its target route.
+   5. `### Issue`, `### Spec`, `### Bundle`, `### Plan` carry no explicit anchor, so Kramdown
+      derives the ids `issue`, `spec`, `bundle`, `plan`. `routeIDs()` requires every rendered
+      id on `/reference/` to be unique. If any of the four collides with an existing id, add an
+      explicit `{#lifecycle-<noun>}` anchor rather than renaming the visible heading, and
+      remember that the explicit-anchor duplicate check and `anchored_section`'s "next
+      explicitly anchored heading" boundary both then apply.
+   6. `matureSections` has FIVE entries (CLM-003). The prototype's bundle table lists four.
+      Name `Current Thinking` too.
+   7. `approved` is not a plan status (CLM-001). The prototype's own connective sentence
+      "until a plan is approved" reproduces the defect being fixed. Use `ready`.
+   8. `no-raw-colors` scans `site.css` (CLM-008). One hex literal blocks the gate.
+   9. Do not delete `[data-page-kind="home"] .nav` / `.nav-links` (CLM-008). That is an
+      ISSUE-190 regression, not a cleanup.
+  10. `paper_kinds` may already exist by the time this lands (CLM-008). Append, never replace.
+  11. The seed4 `--check-diff` reads committed history from base
+      `89f4138aa97e7ba1e8d7c67595cfaee1caefa797`, so treat it as authoritative only after the
+      branch is committed. Verified today: 70 declared paths, exit 0, no row needed.
+  12. `./scripts/verify-public-product-model.sh` takes roughly 45 seconds and internally
+      dispatches the content-inventory, content-topology, product-model, evidence-inventory,
+      structural-verifier, and three page tests. Run it whole; do not shortcut to one stage.
+  13. Never hand-edit the ISSUE-199 or PLAN-ISSUE-199 artifacts to make a check pass. Route any
+      artifact evolution back through the purpose-built agents.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: RED — specify the landed lifecycle machine and the paper/ink chrome"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "RED: assert the lifecycle machine, its live vocabulary, and reference paper/ink"
+        description: |
+          Add named, mutation-proved bash test functions to the EXISTING
+          `scripts/tests/public-product-model/pages/extend-reference-contributing.sh`, and call
+          each one explicitly at the bottom of the file so it actually executes under
+          `./scripts/verify-public-product-model.sh`. Follow the shipped idiom in that file and
+          in its siblings: a parameterized validation helper, positive assertions against the
+          real tree, then negative mutations proving the helper rejects them. Do not weaken,
+          rename, reorder, or delete any existing assertion, including the `responsibilities`
+          list, the eight `production_delete_reject` calls, and the trailing
+          unmarked-consequential-addition proof.
+
+          PRESERVE BYTE-FOR-BYTE the ART-003 needle
+          ``Bundles progress through `idea`, `exploring`, `defined`, and `ready` `` and the
+          ART-004 needle ``  `delivered_by` names a completed plan `` in both the
+          `responsibilities` list and their `production_delete_reject` calls (CLM-004). The
+          approved preview branch rewrote ART-003 to `blocked waits on named work`; this lane
+          does not.
+
+          `verify_reference_artifact_lifecycle_machine` must read
+          `docs/reference.md`, isolate the section between
+          `## Artifact lifecycle and closure {#artifact-lifecycle-and-closure}` and the next
+          explicitly anchored `##` heading, and require: the heading present verbatim and once;
+          `### Issue`, `### Spec`, `### Bundle`, and `### Plan` each present exactly once inside
+          it; exactly four `<div class="tactics-matrix">` panels inside it, each whose `<thead>`
+          row names the four columns State, Before you can enter it, the validator/gate column,
+          and Enables; one `state-index` live-state panel and one `state-coupling` panel; the
+          CLAIM-030 and CLAIM-031 regions both inside the section; and the ART-003 and ART-004
+          needles each occurring EXACTLY ONCE in the whole file (CLM-004). It must also require
+          the CLAIM-030 region body to equal `docs/_data/evidence-inventory.yml` CLAIM-030
+          `statement_markdown` byte-for-byte, and CLAIM-030's `evidence_refs` to include a
+          `schema` ref for each of `artifacts/bundle/v2/schema.json`,
+          `artifacts/issue/v1/schema.json`, `artifacts/spec/v1/schema.json`, and
+          `artifacts/plan/v1/schema.json` (CLM-005).
+
+          `verify_reference_artifact_lifecycle_state_vocabulary_is_live` must bind the copy to
+          the schemas rather than to a hardcoded list: load the `status` / `status.maturity`
+          enums out of `artifacts/plan/v1/schema.json`, `artifacts/issue/v1/schema.json`,
+          `artifacts/spec/v1/schema.json`, and `artifacts/bundle/v2/schema.json`, and require
+          every state the section names for a given noun to be a member of that noun's live
+          enum. It must require the section's plan sequence to be `draft` → `ready` →
+          `implementing` → `completed`, require the literal words `approved` and `in-progress`
+          to be absent from every plan-facing sentence in the section while `in-progress`
+          remains present as an issue state, and require the bundle preconditions to name all
+          five `matureSections` values from `pkg/validate/bundle.go` including
+          `Current Thinking` (CLM-001, CLM-003). Its negative half must prove non-vacuity by
+          copying the corpus, reintroducing `approved` as a plan state in the temp copy, and
+          requiring the helper to reject it with a diagnostic naming the offending state.
+
+          `verify_reference_artifact_lifecycle_rejects_unallowed_block` must copy the corpus the
+          way `production_delete_reject` does, append one new unmarked prose block INSIDE the
+          lifecycle section, run
+          `BACKSTOP_PUBLIC_MODEL_ROOT=<tmp> BACKSTOP_PUBLIC_MODEL_GIT_ROOT=<root>
+          BACKSTOP_PUBLIC_MODEL_SKIP_DISPATCH=1 scripts/verify-public-product-model.sh`, and
+          require failure with `unclassified final-copy block`. It must separately delete one
+          allowance-bearing block from the temp copy and require the verifier to fail too, so
+          the allowance table is proved to be exact-bytes and not a pattern (CLM-006).
+
+          `verify_reference_no_missing_route_links` must require that no `](/…)` Markdown link
+          and no `href="/…"` attribute inside the lifecycle section targets a route absent from
+          `canonicalRoutes()` in `scripts/sitecheck/site.go`, naming `/directive/`, `/adr/`, and
+          `/capability/` explicitly as forbidden on this baseline, and must prove it rejects a
+          temp copy in which such a link is reintroduced (CLM-007).
+
+          `verify_reference_paper_ink_chrome` must implement a
+          `validate_paper_ink <layout-file> <stylesheet-file>` helper requiring: the layout to
+          assign a `paper_kinds` list whose split members CONTAIN `reference`; the layout to
+          link `/assets/css/backstop-tokens.css` only under a
+          `{% if paper_kinds contains page_kind %}` guard and only after `site.css`; the
+          `presentation` assignment to precede `<head>` so `page_kind` resolves there; the
+          stylesheet to carry the paper shell rules for the `reference` kind and
+          `[data-page-kind="reference"]` rules for `.state-index`, `.state-coupling`, and
+          `.tactics-matrix`; and the stylesheet to contain no `#hex`, `rgb(`, `rgba(`, `hsl(`,
+          or `hsla(` literal, keeping `:focus-visible` and `prefers-reduced-motion` present
+          (CLM-008). Prove non-vacuity with four temp-copy mutations, each rejected with its own
+          diagnostic: `reference` dropped from `paper_kinds`; the `backstop-tokens.css` link
+          unguarded; the `[data-page-kind="reference"] .state-index` rules deleted; and a raw
+          hex literal introduced into the stylesheet.
+
+          `verify_reference_paper_ink_preserves_home_navigation` must require
+          `docs/assets/css/site.css` to still contain the `[data-page-kind="home"] .nav` and
+          `[data-page-kind="home"] .nav-links` rules inside their responsive media query, and
+          must prove it rejects a temp copy with those rules removed (CLM-008).
+
+          RED receipt, required before any production edit: run
+          `bash scripts/tests/public-product-model/pages/extend-reference-contributing.sh` and
+          require the run to reach and FAIL the new assertions on their intended conditions —
+          the missing `### <noun>` subsections, the missing `tactics-matrix` panels, the
+          `approved`/`in-progress` plan vocabulary still present in CLAIM-030, the CLAIM-030
+          bytes not matching `evidence-inventory.yml`, the absent `paper_kinds` assignment, and
+          the absent `[data-page-kind="reference"]` rules. A syntax error, an unbound variable,
+          a missing interpreter, or a corpus-load failure is NOT this task's RED evidence; fix
+          the test file rather than accepting such a failure. Record the diagnostics.
+        files:
+          - scripts/tests/public-product-model/pages/extend-reference-contributing.sh
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+        test_names:
+          - verify_reference_artifact_lifecycle_machine
+          - verify_reference_artifact_lifecycle_state_vocabulary_is_live
+          - verify_reference_artifact_lifecycle_rejects_unallowed_block
+          - verify_reference_no_missing_route_links
+          - verify_reference_paper_ink_chrome
+          - verify_reference_paper_ink_preserves_home_navigation
+        depends_on: []
+
+  - id: phase-2
+    name: "Phase 2: GREEN — land the lifecycle machine with its claim and allowance lockstep"
+    tasks:
+      - id: TASK-002
+        type: implementation
+        title: "GREEN: land the approved section, CLAIM-030 bytes, and the closed-world allowances"
+        description: |
+          Land the approved lifecycle machine on the existing anchor, and make the three
+          byte-coupled edits together in one task because any one of them alone leaves the
+          verifier red.
+
+          In `docs/reference.md`, replace the body of
+          `## Artifact lifecycle and closure {#artifact-lifecycle-and-closure}` with the
+          approved section, ported from
+          `git show 0a6010c0e45b290cbacc6713b83d5da4f5704ba9:docs/reference.md` and corrected
+          against the live tree. Keep the heading line byte-identical. Keep the section between
+          `#pack-artifact` and `#source-traceability`; add no heading with an explicit anchor
+          inside it, so `anchored_section` still covers the whole machine. Required corrections
+          to the ported copy:
+            • Replace the lede's claim that per-noun Status tables "live on the entity pages"
+              with language that names the owning artifact schemas, because `/directive/`,
+              `/adr/`, and `/capability/` do not exist on this baseline (CLM-007). Keep the
+              lede's load-bearing point that status is a DECLARED field, set by authors, not
+              inferred from git or CI.
+            • Change "Product code is not written until a plan is approved" to the live `ready`
+              state (CLM-001).
+            • Add `Current Thinking` to the bundle `defined`/`ready` precondition cell so all
+              five `matureSections` values are named (CLM-003).
+            • Re-author the closing vocabulary-pointer paragraph so it names Directive, ADR, and
+              Capability and states that they are not paths into implementation, WITHOUT
+              linking to their routes and WITHOUT reproducing their Status tables — ISSUE-197
+              owns those (CLM-007).
+            • Place the ART-003 needle ``Bundles progress through `idea`, `exploring`,
+              `defined`, and `ready` `` verbatim in a NON-CLAIM Markdown prose block inside the
+              section, exactly once in the file, and keep CLAIM-031's ART-004 needle exactly
+              once (CLM-004, CLM-005).
+            • Keep every state name inside its noun's live enum, and give each noun a `Live:`
+              sequence line plus a four-column `tactics-matrix` table answering what states
+              exist, which transitions are legal, what must be true first, what begins being
+              enforced, and what the state enables, with terminal and successor rules stated per
+              noun (CLM-002, CLM-003). Use `<code>` elements inside the HTML panels and tables,
+              never backticks, and keep each panel free of internal blank lines (CLM-006).
+          Do not add, remove, or renumber a `JLINK`. Do not change the page's frontmatter, its
+          `hero_question`, or any other section. Do not mix lifecycle or status semantics into
+          `#source-traceability`.
+
+          In `docs/_data/evidence-inventory.yml`, update ONLY the CLAIM-030 record: set
+          `statement_markdown` to the exact bytes of the CLAIM-030 region body as it now appears
+          in `docs/reference.md`; set `statement` to the plain-prose equivalent naming the same
+          four live sequences with the live plan states `draft` → `ready` → `implementing` →
+          `completed` and no `approved` or `in-progress` plan state; retarget EVIDENCE-044 to
+          the live `artifacts/bundle/v2/schema.json`; and add unique `schema` refs — continuing
+          the sequence after the current maximum EVIDENCE-051 — for
+          `artifacts/issue/v1/schema.json`, `artifacts/spec/v1/schema.json`, and
+          `artifacts/plan/v1/schema.json`, each with an honest `relevance` naming the enum it
+          defines. Refresh `known_limitations` only insofar as it must stay true. Leave
+          `claim_type`, `owner`, CLAIM-031, `corpus_roles`, and every other claim untouched
+          (CLM-005).
+
+          In `scripts/verify-public-product-model.sh`, add one allowance entry per new
+          non-claim, non-heading, non-journey-link block under `allowances['docs/reference.md']`,
+          preserving the existing `'Durable references use repository paths…'` entry. Each key
+          must be the block's exact stripped bytes and each value a short honest
+          nonconsequential rationale such as `'lifecycle machine connective'`,
+          `'ART-003 live-state responsibility'`, `'coupled-state presentation'`,
+          `'per-noun live sequence'`, `'per-noun state matrix presentation'`, or
+          `'terminal and successor rule'`. Do not touch `legacy_responsibilities`, and in
+          particular do not rewrite the ART-003 needle on line `'ART-003':[…]` (CLM-004,
+          CLM-006). Do not introduce a pattern, prefix, regex, or catch-all allowance, and do
+          not touch any other page's allowances.
+
+          GREEN evidence: rerun `bash
+          scripts/tests/public-product-model/pages/extend-reference-contributing.sh` and require
+          the copy-facing and allowance-facing functions from TASK-001 to pass; then run
+          `./scripts/verify-public-product-model.sh` and require `public-product-model: PASS`
+          with no `unclassified final-copy block`, no `claim linkage/bytes CLAIM-030`, and no
+          `missing final-copy responsibility` diagnostic. The paper/ink functions are expected
+          to remain RED until TASK-004; say so explicitly rather than reporting a clean run.
+        files:
+          - docs/reference.md
+          - docs/_data/evidence-inventory.yml
+          - scripts/verify-public-product-model.sh
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-010
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: verification
+        title: "Verify the landed section, its claim bytes, and the closed-world allowances"
+        description: |
+          Run `./bin/backstop gate --file docs/reference.md --file
+          docs/_data/evidence-inventory.yml --file scripts/verify-public-product-model.sh` as
+          the diff-scoped cadence gate for this phase's files, then
+          `./scripts/verify-public-product-model.sh` as the owning pipeline.
+
+          Require: `public-product-model: PASS` from every dispatched stage, including
+          `verify-content-inventory.sh`, `verify-content-topology.sh`,
+          `verify-evidence-inventory.sh`, and all three page tests; ART-003 and ART-004 needles
+          resolving inside `anchored_section('/reference/','artifact-lifecycle-and-closure')`
+          and each occurring exactly once in `docs/reference.md`; CLAIM-030's page bytes equal
+          to `statement_markdown`; the claim-region bijection intact with no duplicate and no
+          orphaned claim; and every new block classified by an exact-bytes allowance.
+
+          Read the gate report for `documentation-semantics` findings — the
+          `unique-canonical-definition-anchor` rule forbids a repeated explicit heading anchor
+          within one document, so confirm no explicit anchor was duplicated inside
+          `docs/reference.md`. Confirm the `/reference/` presentation row, `hero_question`,
+          `treatments`, `next_action`, `content-topology.yml`, `content-inventory.yml`, and
+          `.backstop/seed4-delivery-inventory.yml` are all unchanged (CLM-010). A waiver, a
+          baseline entry, a suppression, a skipped test, or a loosened assertion is a failure,
+          not a pass. Report any inherited or unrelated red truthfully instead of absorbing it.
+        files:
+          - docs/reference.md
+          - docs/_data/evidence-inventory.yml
+          - scripts/verify-public-product-model.sh
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-010
+        depends_on:
+          - TASK-002
+
+  - id: phase-3
+    name: "Phase 3: GREEN — paper/ink chrome for the reference page kind"
+    tasks:
+      - id: TASK-004
+        type: implementation
+        title: "GREEN: give page_kind reference the paper/ink layout and stylesheet treatment"
+        description: |
+          Put `/reference/` on the same paper/ink surface as the other visitor pages, using
+          `0a6010c0e45b290cbacc6713b83d5da4f5704ba9` as the approved reference for both the
+          layout guard and the `[data-page-kind="reference"]` rules, and touching nothing else.
+
+          In `docs/_layouts/default.html`: hoist the
+          `{% assign presentation = site.data.site-presentation.pages | where: "route",
+          page.permalink | first %}` line above `<!doctype html>` so `page_kind` is resolvable
+          inside `<head>`; derive `page_kind` from `presentation.page_kind`; assign a
+          `paper_kinds` list that CONTAINS `reference`; and guard both the paper `theme-color`
+          / dark `color-scheme` choice and the `/assets/css/backstop-tokens.css` link with
+          `{% if paper_kinds contains page_kind %}`, keeping the token link AFTER
+          `/assets/css/site.css`. IF a `paper_kinds` assignment already exists when this lands,
+          APPEND `reference` to it and preserve every existing kind — never rewrite the list
+          (CLM-008). Keep `data-site-shell="field-guide-v1"`, the skip link, the
+          `site-header.html` and `site-footer.html` includes, the single `data-page-hero`
+          include, the `<main id="main" data-page-route=…>` wrapper with exactly one
+          `data-page-kind`, the `.prose` container, the `next-action` nav, and the canonical
+          link exactly as they are. Add no inline `style=` attribute — the design-system rule
+          `no-inline-styles` blocks it — and do not touch `docs/_includes/site-header.html` or
+          `docs/_includes/page-hero.html` (CLM-009).
+
+          In `docs/assets/css/site.css`: add the paper shell rules for the `reference` page kind
+          — `color-scheme: light`, the `--ds-*` aliases remapped onto the paper tokens, and the
+          header, wordmark, and navigation treatments — plus the
+          `[data-page-kind="reference"]` rules for the prose column, headings, tables,
+          `.state-index`, `.state-coupling`, and `.tactics-matrix` (including the responsive
+          stacked-table treatment that uses the `data-label` attributes the new tables carry).
+          If a paper shell selector list already exists, APPEND the `reference` selector to it
+          rather than duplicating the block. Consume only named tokens: `--color-paper`,
+          `--color-ink`, `--color-surface`, `--color-muted`, `--color-line`, `--color-signal`,
+          `--color-signal-ink`, `--radius-sm`, `--focus-ring`, `--font-sans`, `--font-mono`, and
+          the `--ds-*` aliases. No `#hex`, `rgb(`, `rgba(`, `hsl(`, or `hsla(` literal may enter
+          this file — `no-raw-colors` blocks it. Keep the existing `:focus-visible` rule and the
+          `prefers-reduced-motion` block, and keep the `[data-page-kind="home"] .nav` and
+          `[data-page-kind="home"] .nav-links` rules inside their responsive media query
+          verbatim; deleting them regresses ISSUE-190's restored homepage (CLM-008). Do not add
+          rules for `entity`, `use-cases`, or any sibling kind this plan does not own, and do
+          not modify an existing sibling rule.
+
+          GREEN evidence: rerun `bash
+          scripts/tests/public-product-model/pages/extend-reference-contributing.sh` and require
+          `verify_reference_paper_ink_chrome` and
+          `verify_reference_paper_ink_preserves_home_navigation` to pass, including all five
+          negative mutations. Then run `./bin/backstop gate --file docs/assets/css/site.css` and
+          require no `no-raw-colors`, `focus-visible-required`, `reduced-motion-required`,
+          `no-inline-styles`, `canonical-wordmark`, `accessible-site-shell`, or
+          `reusable-page-hero` finding.
+        files:
+          - docs/_layouts/default.html
+          - docs/assets/css/site.css
+        claims:
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-001
+
+      - id: TASK-005
+        type: verification
+        title: "Verify the paper/ink chrome renders without regressing the shared shell"
+        description: |
+          Run `./bin/backstop gate --file docs/_layouts/default.html --file
+          docs/assets/css/site.css` as this phase's diff-scoped cadence gate, then
+          `./scripts/verify-public-site.sh` for the rendered-route, design-system, and
+          browser-verification stages that own the shell.
+
+          Require: the design-system corpora stage green with no `no-raw-colors`,
+          `no-inline-styles`, `focus-visible-required`, `reduced-motion-required`,
+          `canonical-wordmark`, `accessible-site-shell`, or `reusable-page-hero` finding;
+          `rendered-route` cardinality green for every canonical route, specifically exactly one
+          `data-page-kind` per route, exactly one `data-site-shell="field-guide-v1"`, exactly one
+          `data-page-hero`, one canonical link, one Primary nav and one Utility nav, and the
+          wordmark owner marker once; `navigation` green, which requires every rendered route to
+          still link every `primaryNavigation()` and `utilityNavigation()` destination including
+          `/reference/` (CLM-009); `link-resolution` green with no `missing or alias target`;
+          `anchor-cardinality` green on `/reference/`, which proves the Kramdown-derived
+          `issue`, `spec`, `bundle`, and `plan` ids do not collide (sharp edge 5); and
+          `runtime-absence` green with no script or JavaScript asset introduced.
+
+          Confirm `docs/_includes/site-header.html`, `docs/_includes/page-hero.html`,
+          `docs/_data/site-presentation.yml`, `playwright.config.ts` (`testMatch` still
+          `public-site.spec.ts`), `tests/public-site.spec.ts`, `tests/public-site-helpers.ts`,
+          and `docs/assets/css/backstop-tokens.css` are unchanged, and that no pack was vendored
+          into the repository. If Playwright or a Jekyll build cannot run in this environment,
+          say so plainly and report which stages were therefore not exercised — do not claim a
+          green you did not observe.
+        files:
+          - docs/_layouts/default.html
+          - docs/assets/css/site.css
+        claims:
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-004
+
+  - id: phase-4
+    name: "Phase 4: Full kill chain, artifact validation, and fence check"
+    tasks:
+      - id: TASK-006
+        type: verification
+        title: "Run the full gate, validate the artifacts, and prove the fence held"
+        description: |
+          Comprehensive final verification of every category this plan touches.
+
+          Run `./scripts/verify-public-product-model.sh` and require every dispatched stage to
+          print PASS, with the `extend-reference-contributing.sh` page test passing all six new
+          functions and every pre-existing assertion — the eight `production_delete_reject`
+          calls, the claim-bytes loop, the `responsibilities` loop, and the trailing
+          unmarked-consequential-addition proof. Run `./scripts/verify-public-site.sh` for the
+          rendered shell, the design-system corpora, and the structural verifiers. Run
+          `go run ./scripts/sitecheck --root . --check-diff` and require exit 0 with no
+          `inventory differs from git diff` output and no new
+          `.backstop/seed4-delivery-inventory.yml` row (CLM-010). Run `make test`, then
+          `./bin/backstop gate --all` as the unscoped kill chain, then
+          `./bin/backstop artifact validate` for the artifact category, requiring ISSUE-199 and
+          PLAN-ISSUE-199 to validate clean against their schemas and no
+          `artifact_status_drift` broken promise against this plan's declared `test_names`.
+
+          Then read the delivered diff as a fence check (CLM-011). Require modifications
+          confined to `docs/reference.md`, `docs/_data/evidence-inventory.yml`,
+          `scripts/verify-public-product-model.sh`,
+          `scripts/tests/public-product-model/pages/extend-reference-contributing.sh`,
+          `docs/_layouts/default.html`, and `docs/assets/css/site.css`, plus the committed
+          ISSUE-199 and PLAN-ISSUE-199 artifacts. Confirm unchanged:
+          `/reference/#source-traceability` and every other Reference section; `docs/model.md`,
+          `docs/evaluate.md`, `docs/adopt.md`, `docs/extend.md`, `docs/packs.md`,
+          `docs/use-cases.md`, `docs/status.md`, `docs/contributing.md`;
+          `docs/_data/site-presentation.yml`, `docs/_data/content-topology.yml`,
+          `docs/_data/content-inventory.yml`, `.backstop/seed4-delivery-inventory.yml`;
+          `docs/_includes/*`, `scripts/sitecheck/*`, `playwright.config.ts`, `tests/*`,
+          `backstop.yml`, `backstop.lock`, and every file under `specs/`. Confirm no entity page
+          was created, no redirect was added, `/reference/` was neither added to nor removed from
+          primary or utility navigation, `docs/reference.md` is neither deleted nor marked
+          `published: false`, and BUNDLE-032 was not marked delivered.
+
+          Confirm positively that the defect ISSUE-199 reports is gone: the words `approved` and
+          `in-progress` no longer appear as plan states anywhere in
+          `/reference/#artifact-lifecycle-and-closure` or in `docs/_data/evidence-inventory.yml`
+          CLAIM-030, and every state the section names is a member of the corresponding live
+          schema enum (CLM-001, CLM-003). Report inherited or unrelated failures truthfully
+          rather than absorbing them into this lane, and do not obtain green with a waiver,
+          suppression, baseline change, skipped test, or relaxed assertion.
+        files:
+          - docs/reference.md
+          - docs/_data/evidence-inventory.yml
+          - scripts/verify-public-product-model.sh
+          - scripts/tests/public-product-model/pages/extend-reference-contributing.sh
+          - docs/_layouts/default.html
+          - docs/assets/css/site.css
+          - plans/PLAN-ISSUE-199-artifact-lifecycle-reference.plan.yml
+          - issues/ISSUE-199-artifact-lifecycle-reference.issue.md
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+        depends_on:
+          - TASK-002
+          - TASK-003
+          - TASK-004
+          - TASK-005
