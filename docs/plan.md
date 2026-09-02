@@ -12,8 +12,22 @@ hero_lede: "Ordered work an agent can execute. It comes from an issue or a spec.
 <dt>Schema</dt><dd><code>plan/v1</code></dd>
 <dt>File</dt><dd><code>plans/PLAN-{SPEC|ISSUE}-NNN-slug.plan.yml</code></dd>
 <dt>Format</dt><dd>YAML. Machine-consumed. No markdown body.</dd>
-<dt>Created from</dt><dd>An issue or a spec. Do not hand-write one into existence.</dd>
+<dt>Created from</dt><dd>An issue or a spec. A plan does not exist on its own.</dd>
 </dl>
+
+## Sources
+
+<div class="entity-table entity-table-text">
+<table>
+<thead>
+<tr><th>Work</th><th>Path</th></tr>
+</thead>
+<tbody>
+<tr><td data-label="Work">Feature / substantial</td><td data-label="Path">Bundle → Spec → Plan</td></tr>
+<tr><td data-label="Work">Small / reactive</td><td data-label="Path">Issue → Plan</td></tr>
+</tbody>
+</table>
+</div>
 
 ## Fields
 
@@ -103,6 +117,7 @@ Each task has:
 - Parallel work has disjoint file sets
 - Every source claim maps to a task
 - Filename starts with `plan_id`
+- Do not hand-write a plan into existence
 
 ## Validate
 

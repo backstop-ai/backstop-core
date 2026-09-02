@@ -8,7 +8,7 @@ hero_lede: "Define the work. Enforce your standards. Detect drift."
 
 ## Define the work {#operating-model}
 
-One bundle. Many specs. One plan per spec.
+Feature work: one bundle. Many specs. One plan per spec.
 
 <div class="work-topology">
 <div class="work-view decomp">
@@ -44,7 +44,27 @@ One bundle. Many specs. One plan per spec.
 
 Independent branches can execute in parallel. Dependencies establish the order when they cannot.
 
-<p class="work-exception"><span>For small fixes</span>A bounded fix skips the bundle and spec. The issue becomes a plan.</p>
+<div class="work-paths" aria-label="Two paths into a plan">
+<div class="work-path">
+<span class="work-path-label">Feature / substantial work</span>
+<span class="work-path-flow">
+<span class="work-chip bundle">Bundle</span>
+<span class="work-path-arrow" aria-hidden="true">→</span>
+<span class="work-chip spec">Spec</span>
+<span class="work-path-arrow" aria-hidden="true">→</span>
+<span class="work-chip plan">Plan</span>
+</span>
+</div>
+<div class="work-path">
+<span class="work-path-label">Small / reactive work</span>
+<span class="work-path-flow work-path-direct">
+<span class="work-chip issue">Issue</span>
+<span class="work-path-lead" aria-hidden="true"></span>
+<span class="work-path-arrow" aria-hidden="true">→</span>
+<span class="work-chip plan">Plan</span>
+</span>
+</div>
+</div>
 
 <div class="canonical-note">
 <!-- backstop-claim: CLAIM-022 -->

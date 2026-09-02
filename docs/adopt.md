@@ -37,9 +37,9 @@ Review what Backstop finds. Do not fix anything yet.
 
 ## 3. Try it on a bug you know {#known-bug}
 
-Pick a known bug in the repository.
+Pick a known bug in the repository. You already understand it, so you can judge whether the issue and plan capture the work.
 
-Use Backstop's lightweight artifact workflow for it:
+Bounded work uses issue → plan. This is the first-class path for a bug, a follow-on, or a small fix — not a simplified tutorial or an exception to the model.
 
 <ul class="eval-list">
 <li>Create an issue.</li>
