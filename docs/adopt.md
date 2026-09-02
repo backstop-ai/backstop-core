@@ -55,10 +55,10 @@ A zero exit is the expected postcondition only when every blocking check passes.
 <!-- /backstop-claim -->
 
 <pre><code>backstop gate</code></pre>
+</div>
 
 <!-- backstop-journey-link: JLINK-013 -->
 [Understand the enforcement loop](/model/#enforcement-loop)
-</div>
 
 ## You've now used the whole model. {#used-the-model}
 

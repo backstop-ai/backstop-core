@@ -412,7 +412,7 @@ allowances={
  'Stop before merge.':'visitor adoption guide',
  'Use the complete workflow, or only the parts you need.':'visitor adoption closer',
  '<div class="canonical-note">':'canonical source note',
- '<!-- backstop-journey-link: JLINK-013 -->\n[Understand the enforcement loop](/model/#enforcement-loop)\n</div>':'canonical source note'
+ '</div>':'canonical source note'
 },
 'docs/use-cases.md':{
  'Start from the failure you need to prevent: policy drift, unreviewable agent output, inconsistent artifact execution, or a standard that exists only in prose. Then choose the smallest enforceable seam.':'visitor decision guidance',
