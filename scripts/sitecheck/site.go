@@ -95,7 +95,11 @@ func primaryNavigation() []string {
 }
 
 func extraLinkableRoutes() []string {
-	return []string{"/pack/"}
+	return []string{"/pack/", "/plan/", "/issue/", "/spec/", "/bundle/", "/directive/", "/adr/", "/capability/"}
+}
+
+func packFleetCurrent(route string) bool {
+	return route == "/pack/" || route == "/pack/guide/" || route == "/pack/examples/"
 }
 
 func utilityNavigation() []string {
@@ -216,7 +220,7 @@ func verifyRouteDocument(route string, page PresentationPage, doc string) []Find
 		if count < 1 {
 			findings = append(findings, Finding{Phase: "navigation", Identity: route + " -> " + destination, Expected: "present", Observed: "missing"})
 		}
-		if route == destination {
+		if route == destination || (destination == "/pack/" && packFleetCurrent(route)) {
 			currentExpected = 1
 		}
 	}

@@ -27,7 +27,7 @@ func syntheticDocument(page presentationPage) string {
 	labels := map[string]string{"/evaluate/": "Evaluate", "/model/": "Model", "/adopt/": "Adopt", "/use-cases/": "Use Cases", "/pack/": "Pack", "/reference/": "Reference", "/status/": "Status", "/contributing/": "Contributing"}
 	for _, destination := range primaryNavigation() {
 		current := ""
-		if page.Route == destination {
+		if page.Route == destination || (destination == "/pack/" && packFleetCurrent(page.Route)) {
 			current = ` aria-current="page"`
 		}
 		fmt.Fprintf(&primary, `<a href="%s"%s>%s</a>`, destination, current, labels[destination])
@@ -128,6 +128,7 @@ func TestSiteCheck_RouteCatalogsAreImmutableAndExhaustive(t *testing.T) {
 	wantRoutes := []string{"/", "/evaluate/", "/model/", "/adopt/", "/use-cases/", "/pack/examples/", "/pack/guide/", "/reference/", "/status/", "/contributing/"}
 	wantPrimary := []string{"/evaluate/", "/model/", "/adopt/", "/pack/"}
 	wantUtility := []string{"/contributing/"}
+	wantExtra := []string{"/pack/", "/plan/", "/issue/", "/spec/", "/bundle/", "/directive/", "/adr/", "/capability/"}
 	wantRedirects := map[string]string{"getting-started.html": "/adopt/", "concepts.html": "/model/", "artifact-workflow.html": "/model/", "cli-reference.html": "/reference/"}
 
 	assertSlice := func(name string, got, want []string) {
@@ -143,6 +144,7 @@ func TestSiteCheck_RouteCatalogsAreImmutableAndExhaustive(t *testing.T) {
 	assertSlice("canonical routes", canonicalRoutes(), wantRoutes)
 	assertSlice("primary navigation", primaryNavigation(), wantPrimary)
 	assertSlice("utility navigation", utilityNavigation(), wantUtility)
+	assertSlice("extra linkable routes", extraLinkableRoutes(), wantExtra)
 	for _, catalog := range []struct {
 		name string
 		got  []string
@@ -151,6 +153,7 @@ func TestSiteCheck_RouteCatalogsAreImmutableAndExhaustive(t *testing.T) {
 		{"canonical routes", canonicalRoutes(), wantRoutes},
 		{"primary navigation", primaryNavigation(), wantPrimary},
 		{"utility navigation", utilityNavigation(), wantUtility},
+		{"extra linkable routes", extraLinkableRoutes(), wantExtra},
 	} {
 		if strings.Join(catalog.got, "|") != strings.Join(catalog.want, "|") {
 			t.Fatalf("%s retained caller mutation: %#v", catalog.name, catalog.got)
