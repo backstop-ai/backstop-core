@@ -8,11 +8,11 @@ hero_lede: "If the standard is reusable, author a pack. If it is not, keep it in
 
 ## 1. Pack or not {#pack-or-not}
 
-Create a pack when a concern is deterministic, reusable across repositories, independently versionable, and owned by a maintainable standard. Keep repository-specific wiring local when reuse would manufacture an abstraction without a real consumer.
+Create a pack when a deterministic standard should be reused across repositories and versioned independently. If it only applies to this repository, keep it here.
 
-If the standard is specific to this repository, keep the wiring here. Do not manufacture a pack that has no second consumer.
+Do not create a pack that has no second consumer.
 
-If it should be a pack, author it next. [What is a pack?](/pack/) is the noun. [Choose a pack](/packs/#choose-a-pack) if a maintained pack already owns the standard.
+[What is a pack?](/pack/) is the noun. [Choose a pack](/packs/#choose-a-pack) if a maintained pack already owns the standard.
 
 <!-- backstop-journey-link: JLINK-019 -->
 [Inspect the pack artifact](/reference/#pack-artifact)
@@ -43,7 +43,7 @@ Rules explain the violation. Tool pins make execution reproducible. Iteration be
 
 ### Try it in a repository
 
-Install the local pack into a consumer repository, then run that repository's gate. This proves the pack is consumed. It is not the Adopt walkthrough.
+Install the local pack in a consumer repository and run that repository's gate.
 
 <pre><code>backstop pack add ./my-standard</code></pre>
 
@@ -51,7 +51,3 @@ Publish from the pack repository after check and test pass. Then contribute it.
 
 <!-- backstop-journey-link: JLINK-020 -->
 [Contribute the pack](/contributing/#contribution-paths)
-
-## 3. Path-filter diagnostics {#path-filter-diagnostics}
-
-When an engine receives explicit changed-file arguments, do not assume a slash-bearing include or exclude pattern behaves as it does during directory traversal. Use `pack check` and `pack test` to surface path-scope advisories, preserve production-relative fixture paths, and prefer a slash-free single-segment pattern only when it retains the intended scope.

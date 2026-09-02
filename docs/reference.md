@@ -75,6 +75,10 @@ Use `backstop pack install`, `backstop pack list`, `backstop pack update`, and `
 A pack declares identity, version, claims, engines, fixtures, tools, applicability, and findings. Commands are direct argv contracts; tool pins are trust declarations rather than installers.
 <!-- /backstop-claim -->
 
+## Path-filter diagnostics {#path-filter-diagnostics}
+
+When an engine receives explicit changed-file arguments, do not assume a slash-bearing include or exclude pattern behaves as it does during directory traversal. Use `pack check` and `pack test` to surface path-scope advisories, preserve production-relative fixture paths, and prefer a slash-free single-segment pattern only when it retains the intended scope.
+
 ## Artifact lifecycle and closure {#artifact-lifecycle-and-closure}
 
 Status is a declared field. Authors set it. It is not inferred from git or CI. Per-noun Status tables live on the entity pages. This section is the machine: legal moves, what must be true, what starts being enforced, and what that move enables.
