@@ -923,6 +923,40 @@ th { background: var(--ds-surface); }
   font-size: 0.9rem;
   white-space: pre;
 }
+[data-page-kind="extension"] .pack-model {
+  max-width: 46rem;
+  margin: 1.5rem 0 0.35rem;
+  padding: 0.9rem 1rem 1rem;
+  border: 1px solid var(--ds-border);
+  border-radius: 0.55rem;
+  background: var(--ds-surface);
+}
+[data-page-kind="extension"] .pack-model dl {
+  display: grid;
+  grid-template-columns: 7rem 1fr;
+  column-gap: 1rem;
+  row-gap: 0.55rem;
+  margin: 0;
+}
+[data-page-kind="extension"] .pack-model dt {
+  margin: 0;
+  color: var(--ds-muted);
+  font-family: var(--ds-font-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+[data-page-kind="extension"] .pack-model dd {
+  margin: 0;
+  min-width: 0;
+}
+[data-page-kind="extension"] .pack-model p {
+  max-width: none;
+  margin: 0.85rem 0 0;
+  color: var(--ds-muted);
+  font-size: 0.95rem;
+}
 
 [data-page-kind="ecosystem"] .page-hero h1 { max-width: 18ch; }
 [data-page-kind="ecosystem"] .page-boundary,
@@ -991,10 +1025,16 @@ th { background: var(--ds-surface); }
   background: var(--ds-surface);
 }
 [data-page-kind="ecosystem"] [data-generated-source-descriptors] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1.25rem;
   max-width: 46rem;
   margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
   color: var(--ds-muted);
-  font-size: 0.85rem;
+  font-family: var(--ds-font-mono);
+  font-size: 0.82rem;
 }
 
 [data-page-kind="reference"] .page-hero h1 { max-width: 28ch; }
@@ -1466,10 +1506,13 @@ html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kin
   [data-page-kind="ecosystem"] .prose td:first-child,
   [data-page-kind="ecosystem"] .prose td:last-child,
   [data-page-kind="reference"] .prose td:first-child { white-space: normal; }
+  [data-page-kind="extension"] .pack-model dl,
   [data-page-kind="reference"] .state-index dl {
     grid-template-columns: 1fr;
     row-gap: 0.15rem;
   }
+  [data-page-kind="extension"] .pack-model dt { margin-top: 0.45rem; }
+  [data-page-kind="extension"] .pack-model dt:first-child { margin-top: 0; }
   [data-page-kind="reference"] .state-index dt { margin-top: 0.45rem; }
   [data-page-kind="reference"] .state-index dt:first-child { margin-top: 0; }
   [data-page-kind="home"] .nav { height: auto !important; min-height: 76px; flex-wrap: wrap; gap: 1rem; padding-block: 1rem; }

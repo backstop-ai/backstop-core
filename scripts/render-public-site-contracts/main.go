@@ -225,7 +225,11 @@ func bindGeneratedSources(doc, commit string) (string, error) {
 		if path != "" {
 			link += ` data-source-path="` + html.EscapeString(path) + `"`
 		}
-		link += ` href="` + html.EscapeString(url) + `">Source</a></li>`
+		label := "Source"
+		if path != "" {
+			label = path
+		}
+		link += ` href="` + html.EscapeString(url) + `">` + html.EscapeString(label) + `</a></li>`
 		doc = strings.Replace(doc, item[0], link, 1)
 	}
 	if strings.Contains(doc, "&lt;SITE-COMMIT&gt;") || strings.Contains(doc, "<SITE-COMMIT>") {

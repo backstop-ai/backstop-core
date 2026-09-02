@@ -77,7 +77,7 @@ func TestRenderPublicSiteContracts_FullFixturePasses(t *testing.T) {
 		t.Fatal(err)
 	}
 	doc := string(data)
-	for _, expected := range []string{`<article data-evidence-card data-claim-id="CLAIM-001">`, `data-journey-link-id="JLINK-001"`, `data-adoption-instruction-id="ADOPT-INSTALL"`, `data-generated-source-link`, testCommit, `data-overflow-region`} {
+	for _, expected := range []string{`<article data-evidence-card data-claim-id="CLAIM-001">`, `data-journey-link-id="JLINK-001"`, `data-adoption-instruction-id="ADOPT-INSTALL"`, `data-generated-source-link`, `data-source-path="source"`, `>source</a>`, testCommit, `data-overflow-region`} {
 		if !strings.Contains(doc, expected) {
 			t.Fatalf("rendered contract missing %q", expected)
 		}

@@ -3,7 +3,7 @@ title: Packs
 layout: default
 permalink: /pack/guide/
 hero_question: "Packs: a guide"
-hero_lede: "If it is mechanically enforceable, put it in a pack."
+hero_lede: "Use a pack when a rule can be checked deterministically. Leave genuine judgment calls to the agent or reviewer."
 ---
 
 ## 1. Pack or not {#pack-or-not}
@@ -27,7 +27,7 @@ Author the pack in its own repository. Do not vendor it into core. Exact manifes
 
 `--type` is `engine`, `mechanism`, or `toolchain`. The scaffold writes a valid `pack.yml`, a sample sandbox validator, and a positive/negative fixture pair that can pass check, test, and the gate.
 
-### Pack layout
+### Understand the layout
 
 The pack is a directory. `pack.yml` sits at the root. Every path in the manifest (`convert`, `validator`, fixture files, `rule_path`) is relative to that directory. A missing file fails `pack check`.
 
@@ -52,9 +52,9 @@ testdata/fixtures/
 
 A toolchain pack often keeps convert and produce scripts under `scripts/`. Rule configs declared by `rule_path` also live in the pack. There is no second copy in core.
 
-### Engines
+### Add the engine
 
-An engine executes one or many checks. It is a runner. Semgrep, ast-grep, a shell script, and a native toolchain linter are examples, not the list. Packs are designed to support pretty much anything; that is why converters exist. The pack declares the engine, then binds rules to it. Those rules are the checks. Many rules can share one engine.
+An engine executes the rule. It is a runner. Semgrep, ast-grep, a shell script, and a native toolchain linter are examples, not the list. Packs are designed to support pretty much anything; that is why converters exist. The pack declares the engine. Many rules can share one engine.
 
 The scaffold writes a sandbox engine: a shell validator, no external tool.
 
@@ -82,7 +82,7 @@ engines:
 
 If the engine invokes a tool, pin it. Tool pins are trust declarations, not installers.
 
-### Convert the output
+### Add conversion where needed
 
 When the engine runs a native tool, the pack owns the conversion. `convert` is a pack-relative script. It reads the tool's stdout and emits SARIF. Core does not parse `grep`, `go test`, or `ast-grep` output.
 
@@ -103,13 +103,27 @@ If the tool already emits SARIF, omit `convert`.
 
 The sample sandbox validator has no convert: the validator is the logic.
 
-### Claims
+<div class="pack-model">
+<dl>
+<dt>Claim</dt>
+<dd>The definition. What must be true.</dd>
+<dt>Rule</dt>
+<dd>The implementation. How that requirement is checked.</dd>
+<dt>Engine</dt>
+<dd>The execution mechanism. The deterministic machinery that runs the rule.</dd>
+<dt>Fixtures</dt>
+<dd>Proof of the implementation. Known-positive and known-negative cases that demonstrate the rule behaves correctly.</dd>
+</dl>
+<p>The claim is the definition; the rule is its implementation; the engine executes that implementation. Fixtures exercise the rule against known cases to prove the implementation behaves correctly.</p>
+</div>
 
-A claim names the property that must stay true. Declare it on the rule with an `id`, `text`, and both fixture polarities. The rule owns the claim; there is no separate claims list.
+### Define claims
 
-### Rules
+A claim is the definition of what must be true. Declare it on the rule with an `id`, `text`, and both fixture polarities. There is no separate claims list.
 
-A rule binds an engine to its claims and names how a violation is reported. `risk_class` is `security`, `correctness`, `style`, or `perf`.
+### Implement rules
+
+A rule implements the deterministic check for that claim. It names how a violation is reported. `risk_class` is `security`, `correctness`, `style`, or `perf`.
 
 ```yaml
 content:
@@ -132,33 +146,33 @@ content:
 
 The sample validator exits 0 on a clean file. It prints a message naming the target and exits non-zero when it fires. Replace the marker check `BACKSTOP-SAMPLE-VIOLATION` with the real detection.
 
-### Fixtures
+### Add fixtures
 
-Every claim needs both polarities. Positive is known-good: the engine must stay silent. Negative is known-bad: the engine must fire.
+Fixtures are proof of the implementation. Every claim needs both polarities. Positive is known-good: the engine must stay silent. Negative is known-bad: the engine must fire.
 
 The sample positive file is clean. The sample negative file carries `BACKSTOP-SAMPLE-VIOLATION`. Rewrite both files when you replace the sample rule. Iteration belongs inside the pack rather than in every consuming repository.
 
-### Scope the rule
+### Scope the rules
 
 Set `input_scope` to `single-file` or `multi-file` when the rule should inspect consumer code. Without one, the sample rule only demonstrates pack check/test behavior.
 
-### Check the pack
+### Run checks and tests
 
 `pack check` validates the manifest. It does not run fixtures.
 
 <pre><code>backstop pack check ./my-standard</code></pre>
 
-### Test the pack
-
 `pack test` runs the engine against the declared fixtures and fails if the pair does not discriminate.
 
 <pre><code>backstop pack test ./my-standard</code></pre>
 
-### Try it in a repository
+### Try the pack in a repository
 
 Install the local pack in a consumer repository and run that repository's gate.
 
 <pre><code>backstop pack add ./my-standard</code></pre>
+
+### Contribute it if desired
 
 Publish from the pack repository after check and test pass. Then contribute it.
 
