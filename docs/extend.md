@@ -8,7 +8,9 @@ hero_lede: "If it is mechanically enforceable, put it in a pack."
 
 ## 1. Pack or not {#pack-or-not}
 
-Use a pack when a rule can be encoded and enforced deterministically, and should not be left to LLM judgment.
+Use a pack when a rule can be checked deterministically. Leave genuine judgment calls to the agent or reviewer.
+
+A pack can apply everywhere or to one repository. Make it as specific as the standard requires.
 
 [What is a pack?](/pack/) is the noun. [Choose a pack](/packs/#choose-a-pack) if a maintained pack already owns the standard.
 
