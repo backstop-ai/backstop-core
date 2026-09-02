@@ -1027,6 +1027,12 @@ th { background: var(--ds-surface); }
   color: var(--ds-muted);
   font-size: 0.95rem;
 }
+[data-page-kind="reference"] .state-coupling {
+  margin-top: 0;
+}
+[data-page-kind="reference"] .state-coupling dl {
+  grid-template-columns: 7rem 1fr;
+}
 [data-page-kind="reference"] .tactics-matrix { margin: 0.85rem 0 1.5rem; }
 [data-page-kind="reference"] .tactics-matrix table { width: 100%; margin: 0; font-size: 0.88rem; }
 [data-page-kind="reference"] .tactics-matrix th {

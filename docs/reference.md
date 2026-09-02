@@ -98,6 +98,17 @@ Status is a declared field. Authors set it. It is not inferred from git or CI. P
 
 Feature work uses bundle → spec → plan. Bounded work uses issue → plan. Both tracks meet at a plan. Each spec has exactly one plan. An issue does not get a spec. Product code is not written until a plan is approved.
 
+<div class="state-index state-coupling" aria-label="Coupled states">
+<p class="state-index-kicker">Coupled states</p>
+<dl>
+<dt>Feature</dt>
+<dd>bundle <code>ready</code> → spec <code>ready-for-implementation</code> → plan <code>ready</code> → plan <code>completed</code> → spec <code>implemented</code><br>bundle <code>delivered</code> is declared separately</dd>
+<dt>Bounded</dt>
+<dd>issue <code>ready</code> → plan <code>ready</code> → plan <code>completed</code> → issue <code>closed</code> via <code>delivered_by</code></dd>
+</dl>
+<p class="state-index-note"><code>delivered_by</code> requires a completed <code>PLAN-ISSUE-NNN</code>. Spec <code>implemented</code> is declared; it is not inferred from the plan. A <code>delivered</code> bundle cited by a non-<code>implemented</code> spec fails the gate.</p>
+</div>
+
 ### Issue
 
 Live: `open` → `ready` → `in-progress`. `blocked` waits on named work.
