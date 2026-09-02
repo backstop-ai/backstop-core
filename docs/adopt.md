@@ -39,7 +39,7 @@ Review what Backstop finds. Do not fix anything yet.
 
 Pick a known bug in the repository. You already understand it, so you can judge whether the issue and plan capture the work.
 
-Bounded work uses issue → plan. This is the first-class path for a bug, a follow-on, or a small fix — not a simplified tutorial or an exception to the model.
+Bounded work uses issue → plan. This is the normal path for a bug, a follow-on, or a small fix.
 
 <ul class="eval-list">
 <li>Create an issue.</li>
