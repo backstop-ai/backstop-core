@@ -115,6 +115,18 @@ pages. This section may point at those pages. It does not absorb them.
 Do not mix artifact lifecycle/status semantics into
 `/reference/#source-traceability`.
 
+### Presentation (paper/ink)
+
+The lifecycle machine lives on `/reference/`, not a new URL. `page_kind` is
+already `reference`. Landing must give `/reference/` the same paper/ink
+chrome as Evaluate, Model, Adopt, Extend, and entity pages. Brandon asked
+for that match after the first draft left Reference on the dark field-guide
+surface.
+
+When editing `site.css` media queries, do not drop
+`[data-page-kind="home"] .nav` rules. Playwright `testMatch` stays
+`public-site.spec.ts`. Packs stay external.
+
 ### Rejected — do not restore
 
 - CLAIM-030 plan language `approved` and `in-progress`
@@ -123,7 +135,6 @@ Do not mix artifact lifecycle/status semantics into
 - Dumping per-noun Status tables from the entity pages into Reference
 - Mixing CLAIM-007 / CLAIM-008 gate-evidence provenance into this section
 - Folding ISSUE-198 (Extend) into this issue
-- Restyling the entire `/reference/` page as the job of this issue
 - Independent "improvement" of locked copy
 - Slide-frame chrome, slogans, manufactured paradoxes
 
