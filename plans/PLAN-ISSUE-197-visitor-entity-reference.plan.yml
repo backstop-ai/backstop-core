@@ -1,0 +1,1054 @@
+---
+plan_id: PLAN-ISSUE-197
+spec_id: ISSUE-197
+created: "2026-09-02"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "go test ./scripts/entityref -count=1"
+coverage_threshold: 80
+
+notes: |
+  Contained reactive landing on the issue-to-plan track, sourced from ISSUE-197. It
+  lands ONE system — the visitor entity-reference lookup layer: the editorial overlay,
+  the generator plus its `-check` drift guard and its unit suite, the hand-locked Plan
+  page, the seven generated pages, and the smallest layout/CSS/link-catalog lockstep
+  those extra pages need. It does not reopen the Seed 1 topology, the homepage, or any
+  other visitor page.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  EXISTENCE-IN-WORLD — checked, overlaps named, NOT a duplicate
+  ══════════════════════════════════════════════════════════════════════════════
+  `plans/`, `issues/`, and `bundles/` were searched (committed and working tree) for
+  `entityref`, `entity-reference`, `page_kind: entity`, `/plan/`, `/issue/`, `/spec/`,
+  `/bundle/`, `Work path`, and `extraLinkableRoutes`.
+
+  - PLAN-SPEC-072 / BUNDLE-032 own the Seed 1 ten-page visitor topology and its IA.
+    The entity pages are EXTRA lookup, deliberately outside that matrix — they are not
+    pages eleven-through-eighteen of it. No subsumption.
+  - PLAN-ISSUE-193 (`/evaluate/`), PLAN-ISSUE-195 (`/model/`), PLAN-ISSUE-196
+    (`/adopt/`) own one canonical page each. PLAN-ISSUE-198 owns the pack GUIDE
+    (`/pack/guide/`) and the pack examples catalog. PLAN-ISSUE-199 owns the Reference
+    lifecycle section. `/pack/` in this plan is the noun/concept lookup page and is
+    neither `/pack/guide/` nor `/pack/examples/` nor the `/packs/` catalog.
+  - PLAN-ISSUE-190 owns the canonical homepage AND owns introducing the
+    `governance-artifact` inventory role (its TASK-004). PLAN-ISSUE-191 owns
+    `agent-environment` and reuses `governance-artifact`. This plan reuses but does
+    NOT introduce `governance-artifact` — see CLM-012.
+  - ISSUE-192 owns architecture-pack classification of `scripts/websitejourney` only.
+    Classification of `scripts/entityref` is unowned and is claimed here, following
+    that issue's mechanism exactly.
+
+  No artifact owns the entity-reference surface. Authoring proceeds.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  LANDING BASE — measured, not assumed
+  ══════════════════════════════════════════════════════════════════════════════
+  The landing branch `cursor/land-approved-entity-reference-e296` is `origin/main`
+  plus the ISSUE-197 issue file and nothing else (`git diff --name-only
+  origin/main...cursor/land-approved-entity-reference-e296` = one path). Every entity
+  file is therefore NEW at the landing base, and every premise below was read out of
+  `origin/main` or measured on the approved prototype at
+  `0a6010c0e45b290cbacc6713b83d5da4f5704ba9`.
+
+  The prototype branch carries much more than this issue (Seed 1 route rework, the
+  pack guide/examples pages, published-pack catalog, evaluate/model/adopt copy). Do
+  NOT cherry-pick that branch wholesale. Land only the surface enumerated in the task
+  file lists; everything else on that branch belongs to another issue.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  CLAIM LEDGER — ISSUE-197 is prose-only with no claims[] array, so this plan
+  declares its own. Every claim is evidence read out of the tree, not inference.
+  ══════════════════════════════════════════════════════════════════════════════
+
+  CLM-001 — THE LANDING'S REAL COST IS SIX GATE FINDINGS ON `scripts/entityref`, AND
+    THEY WERE MEASURED, NOT GUESSED. `./bin/backstop gate --file
+    scripts/entityref/main.go --file scripts/entityref/main_test.go` at prototype HEAD
+    0a6010c returns FAIL with five blocking pack_engines findings plus one
+    coverage_threshold violation plus two warnings:
+      1. `backstop-ai/backstop-core-architecture/unclassified-package` —
+         `scripts/entityref/main.go` is production Go outside the declared architecture.
+      2. `backstop-ai/backstop-self/...no-baked-language-token` on main.go — the
+         `"go.mod"` string literal in `repoRoot()`. The rule's regex enumerates
+         `go\.mod` explicitly and does NOT exclude non-test files.
+      3. `backstop-ai/backstop-self/...no-baked-tool-exec` on main_test.go —
+         `exec.Command("go", "run", "./scripts/entityref", "-check")`. The rule's only
+         path exclusion is `tests/smoke/**`; `*_test.go` is NOT excluded, and `go` is
+         not on the allowed literal-infra list (git, gh, sh, /bin/sh, sandbox-exec).
+      4. `backstop-ai/cobra-cli-standards/...exit-code-discipline` on main.go —
+         `os.Exit(1)` inside `fatal()`, outside `main()`.
+      5. `backstop-ai/go-toolchain/staticcheck` S1011 on main.go — the
+         `for _, k := range sortedKeys(ent.StatusMeanings)` append loop in the status
+         fallback should be a variadic append.
+      6. `coverage_threshold`: `scripts/entityref/main.go` 5/310 statements (1.61%,
+         independently reproduced with `go tool cover`) against the 80% per-file floor.
+    Two `go-standards/error-wrapping-required` warnings also land on main.go.
+    None of these may be resolved with a waiver, a suppression, a baseline entry, or a
+    line in `.backstop/coverage-exclusions`.
+
+  CLM-002 — CLASSIFICATION IS AN EXTERNAL PACK RELEASE, NEVER A CORE EDIT. Packs live
+    outside core; `.backstop/packs/` is gitignored and `backstop.lock` is the
+    durability boundary. `.backstop/packs/backstop-ai/backstop-core-architecture/
+    architecture/backstop-core.yml` (installed v0.1.7) declares `product_truth`,
+    `sitecheck`, `site_contracts`, and `websitejourney` under `scripts/` and has no
+    `entityref` component, which is exactly why go-arch-lint emits
+    `unclassified-package`. The repair is a new architecture-pack version adding
+    `entityref: { in: "scripts/entityref" }` with the same isolation policy those four
+    siblings carry (`entityref: { anyVendorDeps: true }`), adopted into Core through
+    `backstop pack update` so `backstop.yml` and `backstop.lock` move together. The
+    version number must be RESOLVED at adoption time, not assumed: ISSUE-192's
+    `websitejourney` release may consume the next number first.
+    `.backstop/website-pack-releases.yml` carries only the `documentation-semantics`
+    and `design-system` roles and needs no row for this pack.
+
+  CLM-003 — MAKING THE GENERATOR UNIT-TESTABLE IN-PROCESS IS THE SINGLE CHANGE THAT
+    RETIRES THREE FINDINGS AT ONCE. The shipped `main_test.go` is one function that
+    shells out to `go run ./scripts/entityref -check`; that subprocess is finding 3,
+    and because the child process's counters are never merged, the parent measures
+    only the five statements of `repoRoot()`. Deleting the subprocess and calling the
+    render/run entry points directly fixes finding 3 AND is the only route to the 80%
+    floor on a 310-statement file. It forces two further shape changes that retire
+    findings 2 and 4: `fatal()`/`os.Exit` must become returned errors (an
+    `os.Exit`-free library surface is also what makes error branches assertable), and
+    root resolution must stop naming a project manifest.
+
+  CLM-004 — THE DRIFT GUARD IS REAL TODAY AND MUST STAY REAL. `go run
+    ./scripts/entityref -check` exits 0 against the committed pages and prints
+    `entityref: ok` for exactly the seven generated outputs. The landing must (a) keep
+    that true after every change, (b) prove `-check` FAILS on a mutated page rather
+    than merely passing on a clean tree, and (c) commit generated pages together with
+    the generator. Never hand-edit a generated page; change the overlay or the schema
+    and re-run.
+
+  CLM-005 — PLAN IS HAND-LOCKED AND THE GENERATOR MUST KEEP SKIPPING IT. The generator
+    `continue`s on `ent.ID == "plan"`, `-check` names only the seven other outputs, and
+    `docs/plan.md` carries no `generated by` provenance comment. Its three locked Notes
+    sentences, its traditional section order (meta, Work path, Fields, Status, Phases,
+    Constraints, Validate, Reviewer, Notes), and its also-links must survive verbatim.
+    Regenerating Plan from the overlay is an explicit ISSUE-197 rejection.
+
+  CLM-006 — THE COPY IS LOCKED, INCLUDING THE HEADING AND THE COLUMN NAMES. The four
+    work-artifact ledes, the four non-work-track ledes, the `Work path` heading with
+    `WORK | PATH` columns, and the per-entity row sets (Plan both rows; Issue small /
+    reactive; Spec and Bundle feature / substantial; Pack, Directive, ADR, and
+    Capability NO Work path section at all) are quoted requirements. The heading
+    `Sources` is a named rejection; the internal overlay key is not a visitor-visible
+    heading and renaming it is not required. Pack renders KIND `Pack`, not `Artifact`,
+    and carries its four locked constraints. Do not dump `enforcement` jargon, do not
+    collapse the two tracks, and do not independently "improve" a locked sentence.
+
+  CLM-007 — WITHOUT FOUR PRESENTATION FALLBACKS THE EXTRA PAGES RENDER BROKEN, BECAUSE
+    THE LAYOUT LOOKS THEM UP IN A TEN-ROW TABLE THEY ARE NOT IN. On `origin/main`,
+    `docs/_layouts/default.html` derives page kind, and `docs/_includes/page-hero.html`
+    derives the H1, from `site.data.site-presentation.pages | where: "route",
+    page.permalink | first`. Entity routes are absent from that file (and must stay
+    absent — CLM-011), so the lookup yields nil and four things break: `data-page-kind`
+    renders empty, so every `[data-page-kind="entity"]` rule and the ink remap miss;
+    `hero_question` renders empty; there is no `hero_lede` channel for the locked ledes
+    at all; and `next_action` renders `<a href="">Next`, which is a literal empty href.
+    The fix is page-front-matter fallbacks (`page.page_kind`, `page.hero_question`,
+    `page.hero_lede`) plus guarding the next-action block on a present `next_action`.
+    The empty href is not cosmetic: it becomes a hard `link-resolution` finding the
+    moment CLM-009 lands.
+
+  CLM-008 — THE PAPER/INK CHROME MUST BE ADDED FOR `entity` WITHOUT REGRESSING ANY
+    EXISTING PAGE. `origin/main` has no paper-kind mechanism at all: no `paper_kinds`
+    list, no `backstop-tokens.css` link, no `html:has([data-page-kind=...])` remap.
+    This plan introduces the minimum for `entity` only. If PLAN-ISSUE-193/195/196 have
+    already landed those lists, ADD `entity` to the existing list and the existing
+    `html:has(...)` selector rather than replacing either — never claim another
+    issue's page kind. `docs/assets/css/backstop-tokens.css` already exists on main and
+    is not edited (its inventory role is deletion-only `retired-bootstrap`). The
+    `[data-page-kind="home"] .nav`, `.nav-links`, and `h1` rules inside the small-screen
+    media query must survive byte-for-byte; ISSUE-197 explicitly forbids dropping them.
+
+  CLM-009 — `extraLinkableRoutes()` IS WHAT MAKES THE ENTITY PAGES VERIFIED INSTEAD OF
+    INVISIBLE, AND THAT IS THE HONEST REASON FOR IT. Measured on `origin/main`: NO
+    canonical page links to `/plan/`, `/issue/`, `/spec/`, `/bundle/`, `/pack/`,
+    `/directive/`, `/adr/`, or `/capability/`, so the claim that Reference "needs" the
+    routes to resolve is NOT true at the landing base and must not be asserted.
+    `collectBuiltDocuments` loads only `canonicalRoutes()`, and `verifyLinks` iterates
+    exactly the documents it loaded — so without a second catalog the entity pages ship
+    with ZERO link verification, which is vacuous green. Adding a tolerant
+    `extraLinkableRoutes()` (missing files are skipped, unlike canonical routes) pulls
+    the entity pages into `documents` so every href on them is resolved, and
+    simultaneously lets any future canonical page link to them. It must NOT be added to
+    `canonicalRoutes()`, `primaryNavigation()`, `utilityNavigation()`, or
+    `legacyRedirects()`; entity documents must stay out of `verifyRouteDocument` and out
+    of the `VerifyRenderedOwnerContracts` join, both of which iterate canonical routes
+    only. Verified downstream targets: `origin/main`'s `/model/` carries
+    `{#operating-model}` and `{#standards-packs}`, and kramdown `auto_ids` is on, so the
+    Operating-model also-links resolve.
+
+  CLM-010 — TWO ALSO-LINK CLASSES ARE TRAPS AND BOTH MUST BE CLOSED IN THE OVERLAY.
+    First, the prototype's `docs/pack.md` links `/pack/guide/` and `/pack/examples/`;
+    NEITHER exists on `origin/main` (both are added by the prototype branch and owned by
+    ISSUE-198). Once CLM-009 makes `/pack/` linkable, those two become hard
+    `link-resolution` findings. The Pack page therefore keeps exactly its Operating
+    model link (`/model/#standards-packs`) at this landing, and the guide/examples links
+    are restored only by ISSUE-198, in ISSUE-198's lane. Second, the earlier preview
+    removed the "Artifact schemas" also-links pointing at
+    `/reference/#artifact-schema-catalog`; do NOT restore those teases. Sibling
+    entity-to-entity also-links and the Operating model link are kept as-is. Every
+    correction is made in `docs/_data/entity-reference.yml` and re-emitted; hand-editing
+    a generated page is a rejection.
+
+  CLM-011 — THE PAGES STAY OUTSIDE FOUR SEPARATE CLOSED WORLDS, EACH OF WHICH FAILS
+    LOUDLY IF THEY ARE ADDED. `scripts/verify-public-product-model.sh` pins an exact
+    ten-element `sources` list zipped against ten canonical paths;
+    `docs/_data/content-topology.yml` has exactly ten `canonical_path` entries;
+    `docs/_data/site-presentation.yml` has exactly ten `route` rows and
+    `sitecheck.Verify` returns a `route cardinality` finding the moment
+    `len(presentation.Pages) != len(canonicalRoutes())`; and
+    `docs/_data/content-inventory.yml` `sources[]` is the exact six pre-Seed-1 legacy
+    files asserted by `scripts/tests/public-product-model/verify-content-inventory.sh`.
+    Entity pages enter NONE of them, and none of `navigation.primary` /
+    `navigation.utility`. The public-product-model pipeline must stay green precisely
+    BECAUSE the entity pages remain outside `sources[]` — that is the acceptance signal,
+    not an accident.
+
+  CLM-012 — THE SEED 4 LEDGER CURRENTLY DOES NOT SEE THESE FILES, AND MAKING IT SEE
+    THEM MEANS WIDENING TWO GATES — BUT NOT THE ONE ANOTHER PLAN OWNS. Measured: `go
+    run ./scripts/sitecheck --root . --check-diff` PASSES today with every prototype
+    file present, because `inventoryDiff` calls `continue` on any path whose
+    `expectedRole()` is empty. The new files are invisible, not accepted. Declaring
+    rows therefore requires widening BOTH gates first — a key in `allowedRoles()` and a
+    case in `expectedRole()` — or `validatePathRole` rejects the row with "path is
+    outside the closed Seed 4 matrix". This plan introduces only the roles it owns
+    (`entity-page` for the eight `docs/*.md` lookup pages by EXACT path, `entity-generator`
+    for `scripts/entityref/main.go`), extends the existing `site-data` case to
+    `docs/_data/entity-reference.yml`, and maps `scripts/entityref/main_test.go` to the
+    existing `test` role. It must NOT introduce `governance-artifact`: shipped tests on
+    `origin/main` (`TestDeliveryInventory_ISSUE191CursorAgentEnvironmentPathsAreClosedRows`,
+    lines asserting `allowedRoles()` must NOT include `governance-artifact`) go red the
+    instant that key appears, and PLAN-ISSUE-190 TASK-004 owns introducing it together
+    with the reconciliation of those tests. The two ISSUE-197 governance rows are
+    therefore CONDITIONAL: declare them only if `governance-artifact` already exists at
+    implementation time; otherwise omit them and record the deferral. Omitting them is
+    not a red — those paths are outside the matrix and are skipped by `inventoryDiff`.
+
+  CLM-013 — EVERY NEW BUILT PAGE JOINS THE DESIGN-SYSTEM CORPUS. `BuildGateCorpus`
+    walks the entire built root and collects every `.html`, `.css`, and `.svg`, so the
+    eight new entity pages are gated by the installed design-system pack in the
+    `public-site[structure]` `--design-system-matrix` stage. They inherit the shared
+    header, footer, and layout, so they should pass exactly as the ten canonical pages
+    do — but "should" is not evidence. That stage must be shown green with the pages
+    present, and a failure there is repaired in the shared chrome, never by excluding a
+    page from the corpus.
+
+  CLM-014 — THE FENCE. Only the files in the task lists change. Untouched:
+    `docs/index.html`, `docs/evaluate.md`, `docs/model.md`, `docs/adopt.md`,
+    `docs/use-cases.md`, `docs/packs.md`, `docs/extend.md`, `docs/reference.md`,
+    `docs/status.md`, `docs/contributing.md`, `docs/_data/content-topology.yml`,
+    `docs/_data/content-inventory.yml`, `docs/_data/site-presentation.yml`,
+    `docs/_includes/site-header.html`, `docs/_includes/site-footer.html`,
+    `docs/assets/css/backstop.css`, `docs/assets/css/backstop-tokens.css`,
+    `playwright.config.ts` (`testMatch` stays `public-site.spec.ts`),
+    `tests/public-site.spec.ts`, `.backstop/coverage-exclusions`, `.backstop/packs/**`,
+    `scripts/verify-public-site.sh`, `scripts/verify-public-product-model.sh`,
+    `scripts/producttruth/**`, and `bundles/BUNDLE-032*` (not marked delivered).
+    `canonicalRoutes()`, `primaryNavigation()`, `utilityNavigation()`,
+    `legacyRedirects()`, and `navigationLabel()` keep their exact current contents.
+    `entityref` is NOT wired into Seed 1 sitecheck or the product-truth pipeline in
+    this landing.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  SHARP EDGES
+  ══════════════════════════════════════════════════════════════════════════════
+  1. Two roles gate the ledger, not one (CLM-012): `allowedRoles()` AND
+     `expectedRole()`. Fixing one alone leaves the row rejected.
+  2. `expectedRole("docs/unlisted.md")` must keep returning "" — the entity-page
+     mapping is an exact eight-path set, never a `docs/*.md` prefix or glob.
+     `TestDeliveryInventory_PathRoleMatrix` asserts that negative today.
+  3. The architecture-pack version is UNKNOWN until adoption. ISSUE-192's
+     `websitejourney` release may take the next number. Resolve the real tag, commit,
+     and content hash; never write a placeholder or edit installed pack bytes.
+  4. The prototype's `main_test.go` name `TestGeneratedPagesMatchCommitted` is being
+     replaced, not preserved — its subprocess IS finding 3. Do not keep a
+     "parameterised executable" variant of it; there is no reason for this package to
+     spawn a process at all.
+  5. Coverage is measured PER FILE from the profile, not as a package total. 5/310
+     needs ~248 covered statements; the deep helpers (`humanizePattern`, `fieldForm`,
+     `lookupProp`, `mergeBase`, `mdCode`, `sectionTable`, `statusValues`) must be
+     driven by real assertions, not by a smoke test that merely executes them.
+  6. `-check` reads committed page bytes. Regenerate and commit in the same change, or
+     the drift guard reports a false red against a stale file.
+  7. The `data-page-kind` fallback is what activates the ink remap. If it is added to
+     `default.html` but the `html:has(...)` selector is not extended, the pages render
+     with dark-theme tokens on paper chrome — visually broken, mechanically green.
+  8. Adding entity routes to the linkable catalog turns on link checking for pages that
+     were previously unchecked (CLM-009). Expect the two ISSUE-198 pack links to fail
+     first (CLM-010); that is the catalog working, not a regression.
+  9. Do not resolve any finding by adding `scripts/entityref/main.go` to
+     `.backstop/coverage-exclusions`, by adding a `@waiver:` comment, or by moving the
+     generator under an already-classified `scripts/` package to borrow its component.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Classify the new package through an architecture-pack release"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Adopt the architecture-pack release that classifies scripts/entityref"
+        description: |
+          Resolve and adopt the `backstop-ai/backstop-core-architecture` release that
+          adds an `entityref` component, following ISSUE-192's precedent exactly.
+
+          The pack must add `entityref: { in: "scripts/entityref" }` to `components`
+          and `entityref: { anyVendorDeps: true }` to `deps`, matching the isolation
+          policy that `product_truth`, `sitecheck`, `site_contracts`, and
+          `websitejourney` already carry: repository-local tooling that may use vendor
+          libraries but may not import released Core packages. Do not grant it
+          `anyProjectDeps`, do not add it to any `mayDependOn` list, and do not alter
+          any existing component or edge.
+
+          Adopt it into Core with `./bin/backstop pack update
+          backstop-ai/backstop-core-architecture`, letting the command move
+          `backstop.yml` and `backstop.lock` together and reinstall the verified
+          external bytes. RESOLVE the real version, tag commit, and content hash at
+          adoption time and record them in the task receipt — Core currently declares
+          and locks v0.1.7, and ISSUE-192's `websitejourney` release may consume the
+          next number, so no version literal may be assumed here. Confirm the resolved
+          tag with `git ls-remote --tags` against the pack repository before adopting.
+
+          Do NOT edit
+          `.backstop/packs/backstop-ai/backstop-core-architecture/architecture/backstop-core.yml`
+          directly — it is gitignored installed pack content, and a local edit would
+          shape the verdict without appearing in review. Do not vendor the pack into
+          core, do not bake an entityref exception into the CLI, do not move the
+          generator under `scripts/sitecheck/` or `scripts/producttruth/` to borrow
+          their components, and do not accept a
+          `@waiver:backstop-ai/backstop-core-architecture/unclassified-package` comment
+          as the repair.
+
+          RECEIPT: after adoption, `./bin/backstop gate --file scripts/entityref/main.go`
+          must no longer report `unclassified-package` for that file. The other four
+          blocking findings and the coverage violation are expected to remain — they
+          are repaired in later phases and must not be resolved here.
+        files:
+          - backstop.yml
+          - backstop.lock
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-014
+        depends_on: []
+
+  - id: phase-2
+    name: "Phase 2: RED — specify the generator, the linkable catalog, the chrome, and the ledger"
+    tasks:
+      - id: TASK-002
+        type: test
+        title: "RED: replace the subprocess smoke test with an in-process entityref suite"
+        description: |
+          Rewrite `scripts/entityref/main_test.go` as a substantive in-process suite.
+          Delete `TestGeneratedPagesMatchCommitted` and its `os/exec` import outright:
+          that `exec.Command("go", "run", ...)` call IS the `no-baked-tool-exec`
+          finding, and its child process is why the package measures 5/310. Do not
+          replace it with a parameterised-executable variant; this package has no
+          reason to spawn a process.
+
+          The suite must exercise the generator's real entry points directly, against
+          both the repository tree (resolved relatively, in the style
+          `scripts/sitecheck/presentation_test.go` already uses) and synthetic overlays
+          written into `t.TempDir()`. It must be written against the post-TASK-006
+          surface described there: an `os.Exit`-free run entry point that takes an
+          explicit root and returns an error, and a root resolver that does not name a
+          project manifest.
+
+          TestEntityRef_GeneratedPagesMatchSchemaAndOverlay must render each of the
+          seven generated entities from the real overlay and real
+          `artifacts/*/v*/schema.json` inputs and require byte equality with the
+          committed page, so schema-derived fields, enum tables, filename patterns, and
+          required sections are proved to come from the schema rather than from prose.
+
+          TestEntityRef_CheckFailsOnDrift must prove the drift guard is real in BOTH
+          directions: check mode returns nil against the clean tree, and returns an
+          error naming the drifted output after a mutated copy of one generated page is
+          written into a temp tree. A test that only asserts the clean pass would go
+          green against a `-check` that never compares anything.
+
+          TestEntityRef_SkipsLockedPlanPage must require the `plan` entity to be skipped
+          — no write, no check, and no `generated by` provenance comment introduced into
+          `docs/plan.md` — and must independently require the committed `docs/plan.md`
+          to still carry its three locked Notes sentences, its `## Work path` heading
+          with both track rows, and its Issue/Spec/Bundle/Operating-model also-links.
+
+          TestEntityRef_LockedLedesAndWorkPathRows must assert the exact locked lede for
+          each of the eight entities, the `Work path` heading with `Work`/`Path` column
+          headers, Plan carrying BOTH track rows, Issue carrying only the small /
+          reactive row, Spec and Bundle carrying only the feature / substantial row, and
+          Pack, Directive, ADR, and Capability carrying NO Work path section. It must
+          also require the string `## Sources` to be absent from every entity page.
+
+          TestEntityRef_PackPageCarriesConstraintsAndNoWorkPath must require
+          `docs/pack.md` to render KIND `Pack` (not `Artifact`), to carry all four
+          locked constraints verbatim, and to contain no `enforcement`-jargon dump.
+
+          TestEntityRef_AlsoLinksResolveToLandedRoutes must require every `href` emitted
+          by the overlay to be root-relative and to name a route that exists at the
+          landing base — the ten canonical routes plus the eight entity routes. It must
+          fail today on `docs/pack.md`'s `/pack/guide/` and `/pack/examples/` links and
+          must independently reject any `/reference/#artifact-schema-catalog` also-link,
+          so the removed "Artifact schemas" teases cannot be restored silently.
+
+          TestEntityRef_SchemaDerivationHelpersMatrix and
+          TestEntityRef_RootResolutionAndErrorPaths carry the coverage-bearing branches
+          with real assertions, not smoke execution: pattern humanisation, field-form
+          derivation from const/enum/pattern/type, base-schema merging including the
+          absent-base and unparseable-base paths, status-enum lookup with its
+          overlay-key fallback, the illegal-block additions for `replaced`/`obsoleted`,
+          section-table emission when `required_sections` is absent, inline-code
+          conversion with unbalanced backticks, HTML escaping, and root resolution
+          succeeding, failing, and reporting a readable error. Every branch must be
+          asserted on its output, since an executed-but-unasserted branch satisfies the
+          coverage arithmetic without proving anything.
+
+          RED receipt, required before any production edit: `go test ./scripts/entityref
+          -count=1 -v`. The suite is written against an entry-point shape TASK-006
+          introduces, so a compile failure is EXPECTED here and is the honest RED for
+          this task; record it, and record separately that
+          `go test ./scripts/entityref -count=1 -covermode=atomic
+          -coverprofile=/tmp/entityref-red.cover` followed by the per-file measurement in
+          TASK-008 still reports 5/310 for `scripts/entityref/main.go` before any
+          production change. Also run `./bin/backstop gate --file
+          scripts/entityref/main_test.go` and record the `no-baked-tool-exec` finding
+          disappearing from the test file as the independent receipt that the subprocess
+          is gone.
+        files:
+          - scripts/entityref/main_test.go
+        claims:
+          - CLM-001
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-010
+        test_names:
+          - TestEntityRef_GeneratedPagesMatchSchemaAndOverlay
+          - TestEntityRef_CheckFailsOnDrift
+          - TestEntityRef_SkipsLockedPlanPage
+          - TestEntityRef_LockedLedesAndWorkPathRows
+          - TestEntityRef_PackPageCarriesConstraintsAndNoWorkPath
+          - TestEntityRef_AlsoLinksResolveToLandedRoutes
+          - TestEntityRef_SchemaDerivationHelpersMatrix
+          - TestEntityRef_RootResolutionAndErrorPaths
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: test
+        title: "RED: specify the linkable entity catalog and its exclusion from the canonical topology"
+        description: |
+          Add TestSiteCheck_EntityRoutesAreLinkableAndOutsideCanonicalTopology to the
+          existing `scripts/sitecheck/site_contract_test.go`, and extend the existing
+          TestSiteCheck_RouteCatalogsAreImmutableAndExhaustive with the new catalog
+          without disturbing any assertion it already makes.
+
+          The positive half must require an `extraLinkableRoutes()` catalog returning
+          exactly `/pack/`, `/plan/`, `/issue/`, `/spec/`, `/bundle/`, `/directive/`,
+          `/adr/`, `/capability/` in that order, returning an independently mutable
+          slice (mutate the returned value, call again, require the catalog unchanged —
+          the same shape the existing immutability assertions use), and must prove the
+          catalog is CONSUMED: build a synthetic rendered tree containing a canonical
+          route whose document links to an entity route, and require `verifyLinks` to
+          resolve it only when the entity document is present in the collected set.
+
+          The negative half is what makes this more than an inventory of a slice. It
+          must require that `canonicalRoutes()` still returns exactly its current ten
+          routes with `/` first; that `primaryNavigation()` and `utilityNavigation()`
+          are unchanged and contain NO entity route; that `legacyRedirects()` and
+          `navigationLabel()` gain no entity entry; that an entity route missing from
+          the built tree is TOLERATED (skipped) while a missing canonical route is still
+          a `canonical-route` finding; and that an entity document with an empty href,
+          a path-relative href, or an href naming a route in neither catalog produces a
+          `link-resolution` finding. It must also require that entity documents are not
+          subjected to `verifyRouteDocument` — no hero-question, next-action,
+          navigation, canonical-link, or required-block expectation may be asserted
+          against them — and that they do not enter the `VerifyRenderedOwnerContracts`
+          canonical join.
+
+          RED receipt, before any production edit: `go test ./scripts/sitecheck -run
+          '^(TestSiteCheck_EntityRoutesAreLinkableAndOutsideCanonicalTopology|TestSiteCheck_RouteCatalogsAreImmutableAndExhaustive)$'
+          -count=1 -v`. Both named tests must EXECUTE and FAIL on the absent
+          `extraLinkableRoutes()` catalog and the unextended `collectBuiltDocuments`,
+          not on a fixture or tooling error.
+        files:
+          - scripts/sitecheck/site_contract_test.go
+        claims:
+          - CLM-009
+          - CLM-011
+        test_names:
+          - TestSiteCheck_EntityRoutesAreLinkableAndOutsideCanonicalTopology
+          - TestSiteCheck_RouteCatalogsAreImmutableAndExhaustive
+        depends_on: []
+
+      - id: TASK-004
+        type: test
+        title: "RED: specify the entity paper/ink chrome and its non-regression of the shared shell"
+        description: |
+          Add TestSiteCheck_EntityPaperInkChromeIsInLockstep to the existing
+          `scripts/sitecheck/presentation_test.go`, reading the real repository files
+          the way that suite already reads `docs/_data/site-presentation.yml` and
+          `docs/index.html`.
+
+          Against `docs/_layouts/default.html` it must require that the page-kind used
+          for `data-page-kind` falls back to the page's own front matter when the
+          ten-row presentation lookup yields nothing, that `entity` is a member of the
+          paper-kind list that links `backstop-tokens.css` and sets the ink
+          theme-colour, and that the next-action navigation block is GUARDED on a
+          present `next_action` so an extra page never emits `href=""`. Against
+          `docs/_includes/page-hero.html` it must require the H1 to fall back to
+          `page.hero_question` and a `hero_lede` channel to exist for the locked ledes.
+
+          Against `docs/assets/css/site.css` it must require the `entity` recipe to be
+          present — meta description list, entity tables, illegal box, also-links — and
+          require `[data-page-kind="entity"]` to be a member of the `html:has(...)`
+          `--ds-*` remap selector rather than a replacement of it. The non-regression
+          half is the point: it must independently require the
+          `[data-page-kind="home"] .nav`, `[data-page-kind="home"] .nav-links`, and
+          `[data-page-kind="home"] h1` rules inside the small-screen media query to
+          still be present, and require that no existing page kind was dropped from the
+          remap selector while adding `entity`.
+
+          It must also re-assert the closed worlds so the chrome change cannot smuggle a
+          topology change: `docs/_data/site-presentation.yml` still has exactly ten
+          rows byte-matching `canonicalPresentation()`, and none of the eight entity
+          permalinks appears in it, in `docs/_data/content-topology.yml`, or in the
+          primary/utility navigation. Do not weaken, rename, or reorder
+          TestSiteCheck_NavigationMatrixPasses or
+          TestSiteCheck_NavigationMatrixRejectsInvalidCell.
+
+          RED receipt: `go test ./scripts/sitecheck -run
+          '^(TestSiteCheck_EntityPaperInkChromeIsInLockstep|TestSiteCheck_NavigationMatrixPasses)$'
+          -count=1 -v`. The new test must execute and fail on the absent fallbacks, the
+          absent paper-kind list, and the absent entity CSS recipe; the existing
+          navigation test must still PASS unchanged, which is the proof this lane has
+          not touched the ten-page matrix.
+        files:
+          - scripts/sitecheck/presentation_test.go
+        claims:
+          - CLM-007
+          - CLM-008
+          - CLM-011
+        test_names:
+          - TestSiteCheck_EntityPaperInkChromeIsInLockstep
+        depends_on: []
+
+      - id: TASK-005
+        type: test
+        title: "RED: specify the Seed 4 delivery rows for the entity-reference files"
+        description: |
+          Add TestDeliveryInventory_ISSUE197EntityReferencePathsAreClosedRows to the
+          existing `scripts/sitecheck/inventory_test.go`, following the shape of the
+          shipped ISSUE-190/ISSUE-191 closed-row tests: direct `expectedRole()`
+          assertions, explicit negative paths, then real rows loaded through
+          `loadDeliveryInventory()` with an omission mutation proved against
+          `validateInventoryMatchesDiff()`.
+
+          The positive half must require `expectedRole()` to return `entity-page` for
+          each of the eight exact paths `docs/plan.md`, `docs/issue.md`,
+          `docs/spec.md`, `docs/bundle.md`, `docs/pack.md`, `docs/directive.md`,
+          `docs/adr.md`, `docs/capability.md`; `entity-generator` for
+          `scripts/entityref/main.go`; the existing `test` role for
+          `scripts/entityref/main_test.go`; and the existing `site-data` role for
+          `docs/_data/entity-reference.yml`. It must require `entity-page` and
+          `entity-generator` to be present in `allowedRoles()` and absent from
+          `prohibitedRoles()`, require each of the eleven paths to appear exactly once
+          in `.backstop/seed4-delivery-inventory.yml` with change `A` and the matching
+          role, and require one full-document pass —
+          `validateDeliveryInventory(loadDeliveryInventory(...))` returning nil — so the
+          role-key gate and the path-role gate are both exercised.
+
+          The negative half proves the matrix stayed CLOSED rather than merely wider.
+          `expectedRole()` must still return "" for `docs/unlisted.md`,
+          `docs/plan-notes.md`, `docs/nested/plan.md`, `scripts/entityref/README.md`,
+          and `scripts/entityrefextra/main.go` — the mapping is an exact eight-path set
+          and an exact generator path, never a `docs/*.md` glob or a
+          `scripts/entityref` prefix rule. It must independently require that
+          `allowedRoles()` does NOT contain `governance-artifact`, so this lane cannot
+          silently take over the role PLAN-ISSUE-190 TASK-004 owns, and must prove that
+          removing any one declared row makes `validateInventoryMatchesDiff` return an
+          error containing `inventory differs`.
+
+          Extend the existing TestDeliveryInventory_PathRoleMatrix table with the eleven
+          rows so the shared matrix table also carries them, leaving every existing row
+          and its trailing `docs/unlisted.md` assertion untouched. Do not edit, rename,
+          or weaken TestDeliveryInventory_ISSUE190GovernanceArtifactsAreClosedRows,
+          TestDeliveryInventory_ISSUE191CursorAgentEnvironmentPathsAreClosedRows,
+          TestDeliveryInventory_ISSUE191GovernanceArtifactsAreClosedRows, or
+          TestSiteCheck_DeliveryInventoryIgnoresPathsOutsideSeed4Matrix.
+
+          RED receipt: `go test ./scripts/sitecheck -run
+          '^(TestDeliveryInventory_ISSUE197EntityReferencePathsAreClosedRows|TestDeliveryInventory_PathRoleMatrix)$'
+          -count=1 -v`. Both must execute and fail on the empty `expectedRole()`
+          results, the missing role keys, and the missing inventory rows. Record
+          separately that `go run ./scripts/sitecheck --root . --check-diff` PASSES
+          today with the entity files present — that is the invisibility this task
+          closes, and it means the current green is not evidence of acceptance.
+        files:
+          - scripts/sitecheck/inventory_test.go
+        claims:
+          - CLM-012
+        test_names:
+          - TestDeliveryInventory_ISSUE197EntityReferencePathsAreClosedRows
+        depends_on: []
+
+  - id: phase-3
+    name: "Phase 3: GREEN — de-bake the generator and land the overlay, the locked Plan page, and the generated outputs"
+    tasks:
+      - id: TASK-006
+        type: implementation
+        title: "GREEN: make the generator classified, de-baked, exit-free, and unit-testable"
+        description: |
+          Reshape `scripts/entityref/main.go` so TASK-002's suite compiles and passes
+          and so findings 2, 4, 5, and the two error-wrapping warnings from CLM-001 are
+          gone. Behaviour is preserved: the rendered bytes of the seven generated pages
+          must not change, and `plan` must still be skipped.
+
+          Replace `fatal()` and every `os.Exit` outside `main()` with returned errors.
+          Introduce an exported-to-the-package run entry point that takes an explicit
+          root, a check flag, and an output writer, and returns an error; `main()` keeps
+          the single `os.Exit(1)` on a non-nil return, which is what
+          `exit-code-discipline` permits.
+
+          Remove the `"go.mod"` literal from root resolution. Resolve the root by
+          walking upward for the overlay data path `docs/_data/entity-reference.yml`,
+          which is a repository data path and not a language, tool, or project-manifest
+          token, and return a readable error instead of exiting when no root is found.
+          Do not substitute another manifest filename, do not shell out to a VCS to
+          find the root, and do not add a build tag or lint directive to hide the rule.
+
+          Replace the `for _, k := range sortedKeys(ent.StatusMeanings)` append loop
+          with the variadic append staticcheck S1011 names, and wrap the two unwrapped
+          error returns in the render path with `fmt.Errorf("...: %w", err)` context.
+
+          Do not change what any page renders: the meta description list, the `Work
+          path` table with `Work`/`Path` columns, the fields table, the status table and
+          illegal box, the sections table, constraints, validate block, reviewer block,
+          notes, and also-links keep their exact current emission, and Pack keeps
+          rendering KIND `Pack`.
+
+          GREEN evidence: `go test ./scripts/entityref -count=1 -v` with every TASK-002
+          test passing, then `./bin/backstop gate --file scripts/entityref/main.go
+          --file scripts/entityref/main_test.go`, requiring `unclassified-package`,
+          `no-baked-language-token`, `no-baked-tool-exec`, `exit-code-discipline`, the
+          staticcheck S1011 result, and both `error-wrapping-required` warnings to be
+          absent. The coverage violation is settled in TASK-008 against a measured
+          per-file number. A waiver, a suppression, a coverage exclusion, or a skipped
+          test is a failure, not a pass.
+        files:
+          - scripts/entityref/main.go
+        claims:
+          - CLM-001
+          - CLM-003
+          - CLM-004
+        depends_on:
+          - TASK-002
+
+      - id: TASK-007
+        type: implementation
+        title: "GREEN: land the overlay, the hand-locked Plan page, and the seven generated pages"
+        description: |
+          Land the entity content. This is a second implementation task in the same RED
+          cycle as TASK-006 — both are bound to TASK-002's failing suite — split from it
+          only to keep file scope narrow (D-080); it is not an untested implementation
+          step. It is ordered after TASK-006 because the generated outputs must be
+          emitted by the de-baked generator, not copied by hand.
+
+          Add `docs/_data/entity-reference.yml` carrying the locked editorial voice: the
+          eight ledes exactly as ISSUE-197 quotes them, the per-entity Work path rows
+          (Plan both tracks; Issue small / reactive; Spec and Bundle feature /
+          substantial; Pack, Directive, ADR, and Capability with no Work path block at
+          all), status meanings and kinds, reviewers, notes, constraints, and
+          also-links. Pack is overlay-only with no in-repo schema and carries its four
+          locked constraints: `Packs are not intent artifacts.`, `A pack is not a path
+          into implementation.`, `Implementation still requires an approved plan.`, and
+          `Packs live outside core. The lock file is the durability boundary.` Schema
+          identity comes from `artifacts/issue/v1`, `artifacts/spec/v1`,
+          `artifacts/bundle/v2`, `artifacts/directive/v1`, `artifacts/adr/v2`, and
+          `artifacts/capability/v1`, merged with `artifacts/base/schema.json`.
+
+          Correct the two also-link classes named in CLM-010 in the OVERLAY, before
+          generating. The Pack entity keeps exactly its Operating model link
+          (`/model/#standards-packs`) and must NOT link `/pack/guide/` or
+          `/pack/examples/`: neither route exists at the landing base and both belong to
+          ISSUE-198. Do not restore the removed "Artifact schemas" also-links pointing at
+          `/reference/#artifact-schema-catalog`. Sibling entity-to-entity also-links and
+          the `/model/#operating-model` link are kept as-is.
+
+          Add `docs/plan.md` by hand and keep it out of the generator: traditional
+          section order (meta, Work path, Fields, Status, Phases, Constraints, Validate,
+          Reviewer, Notes), both Work path rows, and the three locked Notes sentences
+          verbatim — `A plan is the bound on implementation. Nobody writes product code
+          until one is approved.`, `Reactive work uses issue → plan. Feature work uses
+          bundle → spec → plan. Both tracks meet here.`, and `The source artifact
+          defines the work. The plan is the handoff. An implementer executes the
+          approved plan and runs required gates as it works.` Its also-links are Issue,
+          Spec, Bundle, and Operating model. Front matter carries `page_kind: entity`,
+          the permalink `/plan/`, `hero_question`, and `hero_lede`.
+
+          Emit the seven generated pages with `go run ./scripts/entityref` and commit
+          exactly what it writes. Do not hand-edit `docs/issue.md`, `docs/spec.md`,
+          `docs/bundle.md`, `docs/directive.md`, `docs/adr.md`, `docs/capability.md`, or
+          `docs/pack.md`; if one is wrong, fix the overlay or the schema and re-run. Do
+          not add any of the eight pages to `docs/_data/content-topology.yml`,
+          `docs/_data/site-presentation.yml`, `docs/_data/content-inventory.yml`, the
+          product-model source list, or the primary/utility navigation.
+
+          GREEN evidence: `go run ./scripts/entityref` followed by `go run
+          ./scripts/entityref -check` exiting 0 and naming exactly the seven generated
+          outputs, `git status` showing no unstaged drift after the check, and `go test
+          ./scripts/entityref -count=1` green. Then `./bin/backstop gate --file
+          docs/_data/entity-reference.yml --file docs/plan.md --file docs/pack.md`.
+        files:
+          - docs/_data/entity-reference.yml
+          - docs/plan.md
+          - docs/issue.md
+          - docs/spec.md
+          - docs/bundle.md
+          - docs/directive.md
+          - docs/adr.md
+          - docs/capability.md
+          - docs/pack.md
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-010
+        depends_on:
+          - TASK-002
+          - TASK-006
+
+      - id: TASK-008
+        type: verification
+        title: "Verify the generator, the drift guard, and the per-file coverage floor"
+        description: |
+          Run `./bin/backstop gate --file scripts/entityref/main.go --file
+          scripts/entityref/main_test.go --file docs/_data/entity-reference.yml --file
+          docs/plan.md` as the diff-scoped cadence gate, then `go test
+          ./scripts/entityref -count=1 -v` and `go run ./scripts/entityref -check`.
+
+          Require every TASK-002 test present and passing, `-check` exiting 0 and naming
+          exactly the seven generated outputs, and all five CLM-001 blocking findings
+          plus both error-wrapping warnings absent from the gate report.
+
+          Measure the per-file coverage floor explicitly rather than trusting a package
+          total. Run `go test ./scripts/entityref -count=1 -covermode=atomic
+          -coverprofile=/tmp/entityref.cover`, then `awk '$1 ~
+          /scripts\/entityref\/main.go:/ { total += $2; if ($3 > 0) covered += $2 } END
+          { if (!total) exit 2; printf "main.go %d/%d %.2f%%\n", covered, total,
+          100*covered/total; exit !(100*covered/total >= 80) }' /tmp/entityref.cover`
+          and require at least 80%. The measured baseline is 5/310 (1.61%). Read the
+          uncovered rows and confirm the remaining gap is not concentrated in a
+          substantive branch that was executed but never asserted — an unasserted
+          branch clears the arithmetic without proving behaviour, and that is not
+          acceptance. Do not annotate, restructure away, waive, or exclude the
+          production file to reach the number, and do not add it to
+          `.backstop/coverage-exclusions`.
+
+          Finally, read the delivered diff for this lane and confirm it is confined to
+          `scripts/entityref/main.go`, `scripts/entityref/main_test.go`, the overlay,
+          `docs/plan.md`, and the seven generated pages, with no edit to
+          `docs/_data/content-topology.yml`, `docs/_data/site-presentation.yml`, or any
+          canonical page.
+        files:
+          - scripts/entityref/main.go
+          - scripts/entityref/main_test.go
+          - docs/_data/entity-reference.yml
+          - docs/plan.md
+          - docs/pack.md
+        claims:
+          - CLM-001
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-006
+          - TASK-007
+
+  - id: phase-4
+    name: "Phase 4: GREEN — paper/ink chrome, the linkable catalog, and the delivery ledger"
+    tasks:
+      - id: TASK-009
+        type: implementation
+        title: "GREEN: add the entity page kind, the presentation fallbacks, and the entity CSS recipe"
+        description: |
+          Make TASK-004's chrome test green with the smallest lockstep the extra pages
+          need, and no visitor-copy change.
+
+          In `docs/_layouts/default.html`, derive the page kind as the presentation-row
+          value with a fallback to the page's own `page_kind` front matter, and emit
+          that derived value in `data-page-kind`. Add a paper-kind membership test that
+          links `/assets/css/backstop-tokens.css` and sets the ink theme-colour meta for
+          `entity`. If PLAN-ISSUE-193/195/196 have already introduced that list, ADD
+          `entity` to it and change nothing else; if they have not, introduce the list
+          containing `entity` alone and do NOT claim `evaluation`, `model`, `adoption`,
+          `ecosystem`, `extension`, `reference`, or `contributing` — those page kinds
+          belong to other issues. Guard the next-action navigation block on a present
+          `next_action` so an extra page never emits an empty href. Do not move,
+          rename, or drop the skip link, the header or footer includes, the canonical
+          link, the stylesheet order, or `data-site-shell`.
+
+          In `docs/_includes/page-hero.html`, fall back to `page.hero_question` (and
+          then `page.title`) when the presentation row is absent, and render
+          `page.hero_lede` as the boundary paragraph when the page declares one,
+          preserving the existing default sentence for pages that do not. Keep the
+          `data-required-blocks` attribute and the `data-page-hero`/`data-page-question`
+          hooks exactly as they are — enforcement consumes them.
+
+          In `docs/assets/css/site.css`, add the `entity` recipe: meta description list,
+          entity tables including the text variant, the illegal box, the also-links row,
+          prose measure, and the small-screen stacking of entity tables and the meta
+          list. Add `[data-page-kind="entity"]` as an ADDITIONAL member of the
+          `html:has(...)` `--ds-*` remap selector and its body/header/wordmark/navigation
+          companions, introducing that selector only if it is absent and never dropping
+          a page kind that is already listed. Do not touch
+          `docs/assets/css/backstop.css` or `docs/assets/css/backstop-tokens.css`, and
+          do not drop the `[data-page-kind="home"] .nav`, `.nav-links`, or `h1` rules in
+          the small-screen media query — ISSUE-197 names that regression explicitly.
+
+          GREEN evidence: `go test ./scripts/sitecheck -run
+          '^(TestSiteCheck_EntityPaperInkChromeIsInLockstep|TestSiteCheck_NavigationMatrixPasses|TestSiteCheck_NavigationMatrixRejectsInvalidCell)$'
+          -count=1 -v` all passing, then `./bin/backstop gate --file
+          docs/_layouts/default.html --file docs/_includes/page-hero.html --file
+          docs/assets/css/site.css`.
+        files:
+          - docs/_layouts/default.html
+          - docs/_includes/page-hero.html
+          - docs/assets/css/site.css
+        claims:
+          - CLM-007
+          - CLM-008
+        depends_on:
+          - TASK-004
+
+      - id: TASK-010
+        type: implementation
+        title: "GREEN: make entity routes linkable and declare the Seed 4 delivery rows"
+        description: |
+          Make TASK-003's and TASK-005's tests green with two narrow widenings and
+          nothing else.
+
+          In `scripts/sitecheck/site.go`, add `extraLinkableRoutes()` returning a fresh
+          slice of exactly `/pack/`, `/plan/`, `/issue/`, `/spec/`, `/bundle/`,
+          `/directive/`, `/adr/`, `/capability/` in that order, and have
+          `collectBuiltDocuments` load those documents into the collected set AFTER the
+          canonical routes, skipping any that are missing instead of emitting a
+          `canonical-route` finding. That tolerance is deliberate: a canonical route
+          must exist, an extra lookup page need not. Change nothing else — leave
+          `canonicalRoutes()`, `primaryNavigation()`, `utilityNavigation()`,
+          `legacyRedirects()`, and `navigationLabel()` byte-identical, keep
+          `verifyRouteDocument` iterating only the presentation rows, and keep
+          `VerifyRenderedOwnerContracts` joining only canonical documents. Do not add a
+          second verifier and do not introduce a per-page exception.
+
+          In `scripts/sitecheck/inventory.go`, add exactly two new keys to
+          `allowedRoles()` — `entity-page` and `entity-generator` — preserving every
+          existing key and leaving `prohibitedRoles()` unchanged. In `expectedRole()`,
+          add an EXACT-PATH case for the eight entity pages (a set lookup in the style of
+          `pageWrappers()`/`retiredBootstrap()`, not a `docs/` prefix or a `.md` glob),
+          an exact case for `scripts/entityref/main.go` returning `entity-generator`, an
+          exact case for `scripts/entityref/main_test.go` returning the existing `test`
+          role placed BEFORE the generator case so the test file is not swallowed, and
+          `docs/_data/entity-reference.yml` alongside `docs/_data/site-presentation.yml`
+          on the existing `site-data` case. Do NOT introduce `governance-artifact`: it
+          is PLAN-ISSUE-190 TASK-004's to introduce, and shipped tests assert its
+          absence today. Do not change `validatePathRole`, `inventoryDiff`,
+          `seed4LedgerPaths`, or the empty-means-reject contract, and do not add a
+          wildcard, a generic markdown or YAML role, or a catch-all `default`.
+
+          In `.backstop/seed4-delivery-inventory.yml`, add eleven `A` rows —
+          `docs/_data/entity-reference.yml` (`site-data`), the eight entity pages
+          (`entity-page`), `scripts/entityref/main.go` (`entity-generator`), and
+          `scripts/entityref/main_test.go` (`test`) — preserving `schema_version`,
+          `base_commit`, and every existing row byte-for-byte. `A` is correct because
+          none of the eleven exists at base `89f4138aa97e7ba1e8d7c67595cfaee1caefa797`.
+          Lay them out in path order for readability while remembering the comparison is
+          order-insensitive, so ordering is presentation, not enforcement.
+          `docs/_layouts/default.html`, `docs/_includes/page-hero.html`,
+          `docs/assets/css/site.css`, `scripts/sitecheck/site.go`,
+          `scripts/sitecheck/inventory.go`, `backstop.yml`, and `backstop.lock` are
+          ALREADY declared rows and need no new entry — reconcile the change letter
+          against the real diff if one disagrees, never by deleting a governed row.
+
+          Add the ISSUE-197 issue and plan artifacts as `governance-artifact` rows ONLY
+          if that role already exists in `allowedRoles()` because PLAN-ISSUE-190 has
+          landed; if it does not, OMIT those two rows and record the deferral in the
+          task receipt. Omitting them is not a red: `inventoryDiff` skips paths outside
+          the matrix, which is exactly why `--check-diff` passes today with every entity
+          file present.
+
+          GREEN evidence: `go test ./scripts/sitecheck/... -count=1` with every TASK-003
+          and TASK-005 test passing and every pre-existing sitecheck test still passing
+          unmodified, then `go run ./scripts/sitecheck --root . --check-diff` exiting 0
+          with no `inventory differs from git diff` output, then `./bin/backstop gate
+          --file scripts/sitecheck/site.go --file scripts/sitecheck/inventory.go --file
+          .backstop/seed4-delivery-inventory.yml`.
+        files:
+          - scripts/sitecheck/site.go
+          - scripts/sitecheck/inventory.go
+          - .backstop/seed4-delivery-inventory.yml
+        claims:
+          - CLM-009
+          - CLM-011
+          - CLM-012
+        depends_on:
+          - TASK-003
+          - TASK-005
+
+      - id: TASK-011
+        type: verification
+        title: "Verify the rendered chrome, live link resolution, and the widened ledger"
+        description: |
+          Run `./bin/backstop gate --file docs/_layouts/default.html --file
+          docs/_includes/page-hero.html --file docs/assets/css/site.css --file
+          scripts/sitecheck/site.go --file scripts/sitecheck/inventory.go --file
+          .backstop/seed4-delivery-inventory.yml` as the diff-scoped cadence gate, then
+          `go test ./scripts/sitecheck/... -count=1` and `go run ./scripts/sitecheck
+          --root . --check-diff`.
+
+          Then prove the chrome and the links in the BUILT site rather than in source
+          text, because source assertions cannot see a nil presentation lookup. Build
+          with the locked production command `JEKYLL_ENV=production bundle exec jekyll
+          build --source docs --destination "$built" --trace`, install the owner assets
+          with `./scripts/install-design-assets.sh
+          .backstop/packs/backstop-ai/backstop-design-system "$built"`, then run `go run
+          ./scripts/sitecheck --root "$PWD" --built-root "$built" --site-commit "$(git
+          rev-parse HEAD)" --design-system-matrix`.
+
+          Require: each of the eight entity routes present at `<route>/index.html`
+          carrying `data-page-kind="entity"`, a non-empty H1, its locked lede, and NO
+          empty `href=""` anywhere; zero `link-resolution` findings, including on the
+          Pack page whose ISSUE-198 guide/examples links were removed in the overlay;
+          `/plan/`'s and the sibling pages' `/model/#operating-model` and
+          `/model/#standards-packs` fragments resolving to exactly one target ID on the
+          built `/model/`; every canonical route still passing `verifyRouteDocument`
+          unchanged; and the `--design-system-matrix` stage green with the eight new
+          pages present in the corpus that `BuildGateCorpus` walks. A design-system
+          finding on an entity page is repaired in the shared chrome, never by excluding
+          a page from the corpus. Clean up the temporary build directory and confirm
+          `git status` is unchanged afterwards.
+        files:
+          - docs/_layouts/default.html
+          - docs/_includes/page-hero.html
+          - docs/assets/css/site.css
+          - scripts/sitecheck/site.go
+          - scripts/sitecheck/inventory.go
+          - .backstop/seed4-delivery-inventory.yml
+          - scripts/sitecheck/site_contract_test.go
+          - scripts/sitecheck/presentation_test.go
+          - scripts/sitecheck/inventory_test.go
+        claims:
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-012
+          - CLM-013
+        depends_on:
+          - TASK-009
+          - TASK-010
+
+  - id: phase-5
+    name: "Phase 5: Full kill chain, public-site and product-model pipelines, and artifact validation"
+    tasks:
+      - id: TASK-012
+        type: verification
+        title: "Run the full gate, both site pipelines, and validate PLAN-ISSUE-197"
+        description: |
+          Comprehensive final verification of every category this plan touches.
+
+          Run `./scripts/verify-public-site.sh` and require every stage green with the
+          entity pages present: the race-enabled sitecheck coverage stage at or above
+          80.00%, the documentation-semantics stage, `generate-product-truth.sh --check`
+          converging with no new generated region, the locked Jekyll build, the owner
+          assets, the rendered contract stamper, `public-site[structure]` with
+          `--check-diff` and `--design-system-matrix` clean, and
+          `public-site[browser]`. Confirm `playwright.config.ts` still declares
+          `testMatch: "public-site.spec.ts"` and that no entity route was added to the
+          browser matrix.
+
+          Run `./scripts/verify-public-product-model.sh` and require it green. Its
+          exact-ten `sources`/`canonical_path` zip and the six-file legacy
+          `content-inventory.yml` list are the machine proof that the entity pages
+          stayed OUTSIDE the Seed 1 closed world — a failure there means this landing
+          self-promoted the lookup layer into the ten-page matrix and must be reverted,
+          not accommodated.
+
+          Then run `make test`, `./bin/backstop gate --all` as the unscoped kill chain,
+          and `./bin/backstop artifact validate --plan PLAN-ISSUE-197` for the artifact
+          category, requiring this plan and the ISSUE-197 issue to validate clean
+          against their schemas.
+
+          Read the gate report and require: no `unclassified-package` for
+          `scripts/entityref`; no `no-baked-tool-exec`, `no-baked-language-token`,
+          `exit-code-discipline`, `error-wrapping-required`, or staticcheck result on
+          either entityref file; `scripts/entityref/main.go` at or above the 80% per-file
+          coverage floor with `.backstop/coverage-exclusions` unchanged; no waiver,
+          suppression, or baseline entry added anywhere; and no vacuous-green or
+          capability-absent result.
+
+          Finally read the delivered diff as the fence check (CLM-014). Require
+          modifications confined to `backstop.yml`, `backstop.lock`,
+          `scripts/entityref/main.go`, `scripts/entityref/main_test.go`,
+          `docs/_data/entity-reference.yml`, the eight entity pages,
+          `docs/_layouts/default.html`, `docs/_includes/page-hero.html`,
+          `docs/assets/css/site.css`, `scripts/sitecheck/site.go`,
+          `scripts/sitecheck/inventory.go`, the four sitecheck test files,
+          `.backstop/seed4-delivery-inventory.yml`, and the committed ISSUE-197 and
+          PLAN-ISSUE-197 artifacts. Confirm unchanged: the ten canonical pages,
+          `docs/index.html`, `docs/_data/content-topology.yml`,
+          `docs/_data/content-inventory.yml`, `docs/_data/site-presentation.yml`,
+          `docs/_includes/site-header.html`, `docs/_includes/site-footer.html`,
+          `docs/assets/css/backstop.css`, `docs/assets/css/backstop-tokens.css`,
+          `playwright.config.ts`, `tests/public-site.spec.ts`,
+          `scripts/verify-public-site.sh`, `scripts/verify-public-product-model.sh`,
+          `scripts/producttruth/**`, `.backstop/packs/**`, and `bundles/BUNDLE-032*`,
+          whose maturity is NOT advanced by this landing. Confirm `canonicalRoutes()`
+          gained nothing, `primaryNavigation()` and `utilityNavigation()` gained nothing,
+          `allowedRoles()` gained exactly the two roles this plan owns, and no
+          `governance-artifact` key was introduced here.
+
+          Report inherited or unrelated failures truthfully rather than absorbing them
+          into this lane. Do not obtain green with a waiver, a suppression, a baseline
+          change, a skipped test, a coverage exclusion, a hand-edited generated page, or
+          by adding the entity pages to the Seed 1 topology or navigation.
+        files:
+          - plans/PLAN-ISSUE-197-visitor-entity-reference.plan.yml
+          - issues/ISSUE-197-visitor-entity-reference.issue.md
+          - backstop.yml
+          - backstop.lock
+          - scripts/entityref/main.go
+          - scripts/entityref/main_test.go
+          - docs/_data/entity-reference.yml
+          - docs/plan.md
+          - docs/pack.md
+          - docs/_layouts/default.html
+          - docs/_includes/page-hero.html
+          - docs/assets/css/site.css
+          - scripts/sitecheck/site.go
+          - scripts/sitecheck/inventory.go
+          - .backstop/seed4-delivery-inventory.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+        depends_on:
+          - TASK-006
+          - TASK-007
+          - TASK-008
+          - TASK-009
+          - TASK-010
+          - TASK-011
