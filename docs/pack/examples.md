@@ -77,4 +77,4 @@ After you edit the installed pack, refresh the lock:
 
 <pre><code>backstop pack relock ./my-standard</code></pre>
 
-Relock is local-source only. When the pack is ready to ship, publish a tagged release from its repository and add it with `backstop pack add org/pack@version`.
+Relock is local-source only. When the pack is ready to ship, [publish a tagged release](/pack/guide/#publish-a-pack) from its repository and add it with `backstop pack add org/pack@version`.

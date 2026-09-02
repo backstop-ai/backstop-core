@@ -174,7 +174,30 @@ Install the local pack in a consumer repository and run that repository's gate.
 
 ### Contribute it if desired
 
-Publish from the pack repository after check and test pass. Then contribute it.
+After the pack is published, contribute it if you want it in the Backstop ecosystem.
 
 <!-- backstop-journey-link: JLINK-020 -->
 [Contribute the pack](/contributing/#contribution-paths)
+
+## 3. Publish a pack {#publish-a-pack}
+
+The minimum required to publish a pack today:
+
+1. Make sure the pack passes its local checks/tests.
+2. `pack.yml` must declare a valid semantic version.
+3. Create a Git tag matching that version (for example, pack version `1.2.0` → tag `v1.2.0`).
+4. The tag must point to the exact commit being published.
+
+That tagged Git commit is the immutable version consumers install and pin.
+
+Some Backstop-maintained packs already experiment with stronger publishing pipelines. These prototypes include:
+
+- running owner acceptance/fixture tests in CI
+- validating pack identity and version
+- checking that the Git tag matches `pack.yml`
+- preventing an existing version tag from being moved to another commit
+- creating the tag/release only after the publication checks pass
+
+Those pipelines are prototypes, not the required or canonical publishing model yet.
+
+Backstop is developing shared CI and publishing guidance for maintained packs. The current pipelines in some Backstop pack repositories are prototypes of that model; official guidance and reusable tooling are coming soon.
