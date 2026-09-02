@@ -82,12 +82,16 @@ type OwnerAcceptanceExport struct {
 	} `yaml:"protected_file_fingerprints"`
 }
 
+func journeyLinkIDs() []string {
+	return []string{"JLINK-001", "JLINK-002", "JLINK-003", "JLINK-004", "JLINK-007", "JLINK-009", "JLINK-013", "JLINK-015", "JLINK-016", "JLINK-020", "JLINK-023", "JLINK-024"}
+}
+
 func canonicalRoutes() []string {
 	return []string{"/", "/evaluate/", "/model/", "/adopt/", "/use-cases/", "/pack/examples/", "/pack/guide/", "/reference/", "/status/", "/contributing/"}
 }
 
 func primaryNavigation() []string {
-	return []string{"/evaluate/", "/model/", "/adopt/", "/use-cases/", "/pack/", "/reference/"}
+	return []string{"/evaluate/", "/model/", "/adopt/", "/pack/"}
 }
 
 func extraLinkableRoutes() []string {
@@ -95,7 +99,7 @@ func extraLinkableRoutes() []string {
 }
 
 func utilityNavigation() []string {
-	return []string{"/status/", "/contributing/"}
+	return []string{"/contributing/"}
 }
 
 func legacyRedirects() map[string]string {
@@ -404,8 +408,7 @@ func VerifyRenderedOwnerContracts(_ string, builtRoot string, siteCommit string)
 	for _, route := range canonicalRoutes() {
 		joined += documents[route]
 	}
-	for index := 1; index <= 24; index++ {
-		id := fmt.Sprintf("JLINK-%03d", index)
+	for _, id := range journeyLinkIDs() {
 		addCardinality(&findings, "owner-contracts", id, "1", strings.Count(joined, `data-journey-link-id="`+id+`"`))
 		if !regexp.MustCompile(`<a\s+[^>]*data-journey-link-id="` + regexp.QuoteMeta(id) + `"[^>]*href="/[^"]+#[^"]+"[^>]*>[^<]+</a>`).MatchString(joined) {
 			findings = append(findings, Finding{Phase: "owner-contracts", Identity: id, Expected: "one labeled root-relative route/anchor link", Observed: "missing or malformed anchor"})

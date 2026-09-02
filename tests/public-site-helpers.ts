@@ -2,7 +2,7 @@ import { expect, Page } from "@playwright/test";
 
 export const canonicalRoutes = [
   "/", "/evaluate/", "/model/", "/adopt/", "/use-cases/",
-  "/packs/", "/extend/", "/reference/", "/status/", "/contributing/",
+  "/pack/examples/", "/pack/guide/", "/reference/", "/status/", "/contributing/",
 ] as const;
 
 export const viewports = [
@@ -17,12 +17,11 @@ const focusableSelector = [
 
 const primaryNavigation = [
   ["Evaluate", "/evaluate/"], ["Model", "/model/"], ["Adopt", "/adopt/"],
-  ["Use Cases", "/use-cases/"], ["Packs", "/packs/"], ["Extend", "/extend/"],
-  ["Reference", "/reference/"],
+  ["Pack", "/pack/"],
 ] as const;
 
 const utilityNavigation = [
-  ["Status", "/status/"], ["Contributing", "/contributing/"],
+  ["Contributing", "/contributing/"],
 ] as const;
 
 export async function settleLayout(page: Page): Promise<void> {
@@ -227,7 +226,7 @@ export async function assertKeyboardOrderAndBounds(page: Page, route: string): P
   for (const identity of expectedCanonicalFocusOrder) {
     expect(seenCanonical.filter((candidate) => candidate === identity), `${route} keyboard encounter ${identity}`).toHaveLength(1);
   }
-  expect(seenCanonical, `${route} ordered Home + 7 primary + 2 utility keyboard traversal`).toEqual(expectedCanonicalFocusOrder);
+  expect(seenCanonical, `${route} ordered Home + 4 primary + 1 utility keyboard traversal`).toEqual(expectedCanonicalFocusOrder);
 }
 
 export async function assertLocalOverflow(page: Page, route: string): Promise<void> {

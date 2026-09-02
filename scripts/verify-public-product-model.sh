@@ -66,14 +66,14 @@ for n in ns:
  if nid not in assigned: fail(nid+': unassigned from page.neighborhood_ids')
  if assigned[nid]!=owner: fail(nid+': page.neighborhood_ids owner '+assigned[nid]+' does not match neighborhood owner '+owner)
 if set(assigned)!={n['neighborhood_id'] for n in ns}: fail('unknown page neighborhood ID: '+','.join(sorted(set(assigned)-{n['neighborhood_id'] for n in ns})))
-if top.get('navigation')!={'primary':['/evaluate/','/model/','/adopt/','/use-cases/','/pack/','/reference/'],'utility':['/status/','/contributing/']}: fail('navigation membership/order')
+if top.get('navigation')!={'primary':['/evaluate/','/model/','/adopt/','/pack/'],'utility':['/contributing/']}: fail('navigation membership/order')
 links=top.get('journey_links',[])
-exact_ids(links,'link_id',[f'JLINK-{i:03}' for i in range(1,25)],'journey link')
+exact_ids(links,'link_id',['JLINK-001','JLINK-002','JLINK-003','JLINK-004','JLINK-007','JLINK-009','JLINK-013','JLINK-015','JLINK-016','JLINK-020','JLINK-023','JLINK-024'],'journey link')
 edge_specs=[
-('/','define-work','/evaluate/','failure-fit'),('/evaluate/','working-state','/model/','operating-model'),('/use-cases/','choose-use-case','/evaluate/','fit-decision'),('/evaluate/','fit-decision','/adopt/','install'),('/model/','product-category','/status/','adjacent-guidance'),('/model/','gates-and-policy','/status/','supported-and-limited'),('/status/','boundary-states','/model/','ownership-boundaries'),('/model/','harness-integration','/reference/','compatibility'),('/reference/','compatibility','/status/','adjacent-guidance'),('/model/','operating-model','/reference/','artifact-schema-catalog'),('/model/','ownership-boundaries','/status/','project-boundaries'),('/adopt/','install','/reference/','configuration'),('/adopt/','verify-enforcement','/model/','enforcement-loop'),('/model/','enforcement-loop','/reference/','gate'),('/use-cases/','choose-use-case','/adopt/','adoption-paths'),('/use-cases/','pack-backed-use-cases','/pack/examples/','choose-a-pack'),('/pack/examples/','install-a-pack','/reference/','pack-commands'),('/pack/examples/','choose-a-pack','/status/','pack-direction'),('/pack/guide/','pack-or-not','/reference/','pack-artifact'),('/pack/guide/','author-a-pack','/contributing/','contribution-paths'),('/model/','provenance-and-verification','/reference/','source-traceability'),('/pack/examples/','published-pack-catalog','/reference/','cli-command-catalog'),('/reference/','cli-command-catalog','/status/','release-history'),('/status/','adjacent-guidance','/contributing/','external-ownership')]
+('/','define-work','/evaluate/','failure-fit'),('/evaluate/','working-state','/model/','operating-model'),('/use-cases/','choose-use-case','/evaluate/','fit-decision'),('/evaluate/','fit-decision','/adopt/','install'),('/status/','boundary-states','/model/','ownership-boundaries'),('/reference/','compatibility','/status/','adjacent-guidance'),('/adopt/','verify-enforcement','/model/','enforcement-loop'),('/use-cases/','choose-use-case','/adopt/','adoption-paths'),('/use-cases/','pack-backed-use-cases','/pack/examples/','choose-a-pack'),('/pack/guide/','author-a-pack','/contributing/','contribution-paths'),('/reference/','cli-command-catalog','/status/','release-history'),('/status/','adjacent-guidance','/contributing/','external-ownership')]
 actual_edges=[(x.get('source_route'),x.get('source_anchor'),x.get('destination_route'),x.get('destination_anchor')) for x in links]
 if actual_edges!=edge_specs or any(not x.get('label') for x in links): fail('exact JLINK edge matrix')
-link_labels=['Evaluate the failure fit','See the operating model','Check the fit decision','Install Backstop','Find adjacent guidance','Review support and limits','See ownership boundaries','Check compatibility details','Follow compatibility guidance','Inspect artifact schemas','Review project boundaries','Configure Backstop','Understand the enforcement loop','Read the gate reference','Choose an adoption path','Choose a maintained pack','Use pack commands','Review pack direction','Inspect the pack artifact','Contribute the pack','Trace the sources','Browse the CLI catalog','Check release history','Continue outside Backstop']
+link_labels=['Evaluate the failure fit','See the operating model','Check the fit decision','Install Backstop','See ownership boundaries','Follow compatibility guidance','Understand the enforcement loop','Choose an adoption path','Choose a maintained pack','How to participate','Check release history','Continue outside Backstop']
 for link,label in zip(links,link_labels):
  if link.get('label')!=label: fail(link.get('link_id','JLINK')+': exact label')
 instructions=top.get('adoption_instructions',[])
@@ -380,7 +380,6 @@ allowances={
  'Independent branches can execute in parallel. Dependencies establish the order when they cannot.':'visitor operating guide',
  '<div class="work-paths" aria-label="Two paths into a plan">\n<div class="work-path">\n<span class="work-path-label">Feature / substantial work</span>\n<span class="work-path-flow">\n<span class="work-chip bundle">Bundle</span>\n<span class="work-path-arrow" aria-hidden="true">→</span>\n<span class="work-chip spec">Spec</span>\n<span class="work-path-arrow" aria-hidden="true">→</span>\n<span class="work-chip plan">Plan</span>\n</span>\n</div>\n<div class="work-path">\n<span class="work-path-label">Small / reactive work</span>\n<span class="work-path-flow work-path-direct">\n<span class="work-chip issue">Issue</span>\n<span class="work-path-lead" aria-hidden="true"></span>\n<span class="work-path-arrow" aria-hidden="true">→</span>\n<span class="work-chip plan">Plan</span>\n</span>\n</div>\n</div>':'visitor operating guide',
  '<div class="canonical-note">':'canonical source note',
- '<!-- backstop-journey-link: JLINK-010 -->\n[Inspect artifact schemas](/reference/#artifact-schema-catalog)\n</div>':'visitor operating guide',
  'Packs own standards, engines, and proof.':'visitor operating guide',
  '<div class="model-figure pack-figure">\n<div class="pack-body">\n<div class="topo-bundle">Pack</div>\n<div class="pack-fan" aria-hidden="true"></div>\n<div class="pack-row">\n<div class="pack-runtime">\n<div class="pack-pair">\n<div class="fig-node packs"><strong>Rules</strong><span>What must be true</span></div>\n<div class="fig-node packs"><strong>Engines</strong><span>How it is checked</span></div>\n</div>\n<div class="pack-collect" aria-hidden="true"></div>\n<div class="fig-node gate"><strong>Gate</strong><span>Runs the pack\'s required checks</span></div>\n</div>\n<div class="fig-node packs pack-proof"><strong>Fixtures</strong><span>Prove the check works</span></div>\n</div>\n</div>\n</div>':'visitor operating table',
  '<p class="figure-bridge">Packs compose across domains and toolchains.</p>':'visitor operating guide',
@@ -391,19 +390,16 @@ allowances={
  '<div class="model-figure claim-figure">\n<div class="claim-pair">\n<div class="fig-node packs"><strong>Claim</strong><span>What must exist</span></div>\n<div class="claim-cover" aria-hidden="true"><span>mandates</span></div>\n<div class="fig-node"><strong>Tests</strong><span>Must exist and be real</span></div>\n</div>\n</div>':'visitor operating table',
  'The agent does not hand failed work downstream.':'visitor operating guide',
  '<div class="model-figure loop-figure">\n<div class="loop-flow">\n<div class="fig-node"><strong>Plan</strong></div>\n<div class="dag-edge" aria-hidden="true">→</div>\n<div class="loop-core">\n<span class="loop-repeat">× N</span>\n<div class="loop-forward">\n<div class="fig-node packs"><strong>Implement</strong></div>\n<div class="dag-edge" aria-hidden="true">→</div>\n<div class="fig-node packs"><strong>Gate</strong></div>\n</div>\n<div class="loop-return" aria-hidden="true"><span>fail / fix</span></div>\n</div>\n<div class="loop-pass" aria-hidden="true"><span>pass</span></div>\n<div class="loop-review">\n<div class="fig-node"><strong>Implementation review</strong></div>\n<div class="loop-return" aria-hidden="true"><span>fix</span></div>\n</div>\n<div class="dag-edge" aria-hidden="true">→</div>\n<div class="fig-node"><strong>Commit / Push</strong></div>\n<div class="dag-edge" aria-hidden="true">→</div>\n<div class="loop-ci">\n<div class="fig-node ci"><strong>CI</strong></div>\n<p class="fig-caption">CI confirms. It does not discover.</p>\n</div>\n</div>\n</div>':'visitor operating table',
- '<div class="canonical-note">\nThe authoritative enforcement loop is `docs/_diagrams/ARCH-002-enforcement-loop.mmd`: intent bounds execution, pack engines return a verdict, and evidence feeds provenance back into intent.':'canonical source note',
- '<!-- backstop-journey-link: JLINK-014 -->\n[Read the gate reference](/reference/#gate)\n</div>':'visitor operating guide',
+ '<div class="canonical-note">\nThe authoritative enforcement loop is `docs/_diagrams/ARCH-002-enforcement-loop.mmd`: intent bounds execution, pack engines return a verdict, and evidence feeds provenance back into intent.\n</div>':'canonical source note',
  'Bring your agent, your harness, your standards, and your tools. Backstop does not own your source or your data.':'visitor operating guide',
  "Backstop keeps the work inside the boundaries you define, so you can be confident you're getting the software you think you are.":'visitor operating guide',
  '<div class="canonical-note">':'canonical source note',
  'Core owns execution and lifecycle primitives. Packs own standards and engines. Harnesses own orchestration. External toolchains own their behavior. The authoritative boundary view is `docs/_diagrams/ARCH-003-ownership-boundaries.mmd`.':'architecture-source identification',
- '<!-- backstop-journey-link: JLINK-011 -->\n[Review project boundaries](/status/#project-boundaries)\n</div>':'visitor operating guide',
  '<div class="canonical-anchors">':'canonical claim anchors',
  '</div>':'canonical claim anchors'
 },
 'docs/adopt.md':{
  'Pin the released binary in the repository.':'visitor adoption guide',
- '<div class="canonical-note">\n<!-- backstop-journey-link: JLINK-012 -->\n[Configure Backstop](/reference/#configuration)\n</div>':'canonical source note',
  'Backstop configuration lives with the code.':'visitor adoption guide',
  'Install a pack appropriate for the repository\'s stack. [Choose a pack](/pack/examples/#choose-a-pack).':'visitor adoption guide',
  'Run:':'visitor adoption guide',
@@ -412,7 +408,6 @@ allowances={
  'Pick a known bug in the repository. You already understand it, so you can judge whether the issue and plan capture the work.':'visitor adoption guide',
  'Bounded work uses issue → plan. This is the normal path for a bug, a follow-on, or a small fix.':'visitor adoption guide',
  '<ul class="eval-list">\n<li>Create an issue.</li>\n<li>Create a plan for the issue.</li>\n<li>Run the artifact reviewers and deterministic validators.</li>\n<li>Resolve findings until the artifacts pass.</li>\n</ul>':'visitor adoption guide',
- '[Artifact lifecycle](/reference/#artifact-lifecycle-and-closure)':'visitor adoption guide',
  'Assign the approved plan to an implementer agent. The agent executes the plan, runs required gates as it works, and fixes failures before proceeding.':'visitor adoption guide',
  'Stop before merge.':'visitor adoption guide',
  'Use the complete workflow, or only the parts you need.':'visitor adoption closer',
@@ -431,7 +426,7 @@ allowances={
  '<pre><code>backstop pack install</code></pre>':'consumer install guidance',
  'Confirm the installed set:':'consumer install guidance',
  '<pre><code>backstop pack list</code></pre>':'consumer install guidance',
- 'Commit `backstop.yml` and `backstop.lock` with the change. Git packs later move with `backstop pack update`. Command details live in Reference.':'consumer install guidance',
+ 'Commit `backstop.yml` and `backstop.lock` with the change. Git packs later move with `backstop pack update`.':'consumer install guidance',
  'Build the pack in its own directory and install that path into the project you want to prove against. Do this before you publish a tagged release.':'local pack install guidance',
  'Scaffold, check, and test in the pack directory:':'local pack install guidance',
  '<pre><code>backstop pack new --type engine --language go --slug my-standard</code></pre>':'local pack install guidance',
@@ -450,7 +445,7 @@ allowances={
  'Use a pack when a rule can be checked deterministically. Leave genuine judgment calls to the agent or reviewer.':'author decision guidance',
  'A pack can apply everywhere or to one repository. Make it as specific as the standard requires.':'author decision guidance',
  '[What is a pack?](/pack/) is the noun. [Published packs](/pack/examples/#choose-a-pack) if a maintained pack already owns the standard.':'author decision guidance',
- 'Author the pack in its own repository. Do not vendor it into core. Exact manifest fields live in the pack artifact reference.':'author instruction',
+ 'Author the pack in its own repository. Do not vendor it into core.':'author instruction',
  '<pre><code>backstop pack new --type engine --language go --slug my-standard</code></pre>':'author instruction',
  '`--type` is `engine`, `mechanism`, or `toolchain`. The scaffold writes a valid `pack.yml`, a sample sandbox validator, and a positive/negative fixture pair that can pass check, test, and the gate.':'author instruction',
  'The pack is a directory. `pack.yml` sits at the root. Every path in the manifest (`convert`, `validator`, fixture files, `rule_path`) is relative to that directory. A missing file fails `pack check`.':'author instruction',
@@ -478,7 +473,7 @@ allowances={
  '<pre><code>backstop pack test ./my-standard</code></pre>':'author instruction',
  "Install the local pack in a consumer repository and run that repository's gate.":'author instruction',
  '<pre><code>backstop pack add ./my-standard</code></pre>':'author instruction',
- 'After the pack is published, contribute it if you want it in the Backstop ecosystem.':'author instruction',
+ 'Backstop is not accepting outside contributions now. That is planned.':'author instruction',
  'To publish a pack today:':'author instruction',
  '1. Make sure the pack passes its local checks/tests.\n2. `pack.yml` must declare a valid semantic version.\n3. Create a Git tag matching that version (for example, pack version `1.2.0` → tag `v1.2.0`).\n4. The tag must point to the exact commit being published.':'author instruction',
  'That tagged Git commit is the immutable version consumers install and pin.':'author instruction',
@@ -509,8 +504,8 @@ allowances={
  'The first statement names shipped mechanism. The second names the process boundary without turning it into a future commitment.':'claim relationship explanation',
  'Public status uses five explicit states: supported, limitation, planned, non-goal, and adjacent guidance. Each state has durable sources and a visitor implication.':'registry vocabulary explanation'},
 'docs/contributing.md':{
- 'Contribute to Core when the change belongs to lifecycle, execution, artifact infrastructure, or a shared interface. Contribute to a pack when the change owns a standard, engine, fixture, or rule. Bring a reproducible failure, a bounded artifact chain, tests first, and the gate receipt.':'contribution instruction',
- 'Agent scheduling, organization-wide policy adoption, external toolchain correctness, and operational response retain their own owners. For the product boundary and continuation path, follow the evidence-backed [adjacent guidance](/status/#adjacent-guidance).':'owner-routing connective'}}
+ 'Backstop is in active build with a single maintainer. Outside contributions are not being accepted now. That is planned.':'contribution instruction',
+ 'Agent scheduling, organization-wide policy adoption, external toolchain correctness, and operational response retain their own owners.':'owner-routing connective'}}
 def check_closed_blocks(page,text,hero):
  masked=text
  front=re.match(r'^---\n.*?\n---\n',masked,re.S)
