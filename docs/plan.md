@@ -141,6 +141,9 @@ Reactive work uses issue → plan. Feature work uses bundle → spec → plan. B
 The source artifact defines the work. The plan is the handoff. An implementer executes the approved plan and runs required gates as it works.
 
 <p class="entity-also">
+<a href="/issue/">Issue</a>
+<a href="/spec/">Spec</a>
+<a href="/bundle/">Bundle</a>
 <a href="/model/#operating-model">Operating model</a>
 <a href="/reference/#artifact-schema-catalog">Artifact schemas</a>
 </p>

@@ -1,0 +1,382 @@
+# Editorial overlay for visitor entity pages.
+# Schema-derived tables (fields, status enums, filename, sections) come from
+# the JSON schema named here. This file owns voice: ledes, notes, status
+# meanings, reviewers, constraints. Plan is locked and is not generated.
+entities:
+  - id: issue
+    output: docs/issue.md
+    permalink: /issue/
+    title: Issue
+    schema: artifacts/issue/v1/schema.json
+    file_dir: issues/
+    hero_lede: "A first-class path for bounded work. It becomes a plan."
+    format: Markdown with YAML frontmatter.
+    created_from: Observed work. Scaffolded — not hand-written.
+    sources:
+      - {work: Small / reactive, path: "Issue → Plan"}
+    status_intro: Status is a declared field. Authors set it. It is not inferred from git or CI.
+    status_path: nested_blocks.issue.properties.status
+    status_kinds:
+      open: live
+      ready: live
+      in-progress: live
+      blocked: live
+      closed: terminal
+      replaced: terminal
+      canceled: terminal
+      obsoleted: terminal
+    status_meanings:
+      open: Filed. Work has not started.
+      ready: Ready to become a plan.
+      in-progress: A plan is in flight, or close-out is underway.
+      blocked: Waiting on named work.
+      closed: Finished. Requires a Resolution section and traceability.
+      replaced: A named successor took over. Requires replaced-by.
+      canceled: Abandoned. A reason is optional.
+      obsoleted: Shipped, then removed with no 1:1 successor. Requires obsoleted-by.
+    fields:
+      - {key: title, required: "yes"}
+      - {key: schema_version, required: "yes"}
+      - {key: issue.id, required: "yes"}
+      - {key: issue.type, required: "yes"}
+      - {key: issue.status, required: "yes", form: See Status}
+      - {key: issue.created, required: "yes"}
+      - {key: issue.closed, required: "when closed"}
+      - {key: delivered_by, required: "when closed via plan", form: PLAN-ISSUE-NNN}
+      - {key: resolved-by, required: "when closed without a plan", form: typed artifact id, commit SHA, or pull-request URL}
+      - {key: replaced-by, required: "when replaced", form: typed artifact id}
+      - {key: obsoleted-by, required: "when obsoleted", form: typed artifact id}
+    extra_illegal:
+      - "`deprecated` (spec and bundle only)"
+      - "A spec for an issue"
+      - "Both `delivered_by` and `resolved-by` on the same close"
+    constraints:
+      - Bounded work uses issue → plan
+      - An issue does not get a spec
+      - Do not hand-write an issue into existence
+      - Close requires a Resolution section and exactly one of delivered_by or resolved-by, unless the issue carries its own requirements and claims
+    validate: "backstop artifact validate --issue ISSUE-NNN"
+    reviewer:
+      intro: Issues do not have a dedicated reviewer agent.
+      bullets:
+        - The validator checks the schema
+        - A plan reviewer reads the issue when a plan is created from it
+    notes:
+      - Bounded work uses issue → plan. This is the normal path for a bug, a follow-on, or a small fix.
+      - Product code is not written from the issue. The implementer executes an approved plan.
+    also:
+      - {href: /plan/, label: Plan}
+      - {href: /model/#operating-model, label: Operating model}
+      - {href: /reference/#artifact-schema-catalog, label: Artifact schemas}
+
+  - id: spec
+    output: docs/spec.md
+    permalink: /spec/
+    title: Spec
+    schema: artifacts/spec/v1/schema.json
+    file_dir: specs/
+    hero_lede: "Requirements and claims for a slice of feature work. It comes from a bundle. It becomes a plan."
+    format: Markdown with YAML frontmatter.
+    created_from: A bundle. A spec does not exist on its own.
+    sources:
+      - {work: Feature / substantial, path: "Bundle → Spec → Plan"}
+    status_intro: Status is a declared field. Authors set it. It is not inferred from git or CI.
+    status_path: metadata.properties.status
+    status_kinds:
+      draft: live
+      ready-for-implementation: live
+      implemented: live
+      replaced: terminal
+      canceled: terminal
+      deprecated: terminal
+      obsoleted: terminal
+    status_meanings:
+      draft: Being written
+      ready-for-implementation: Approved to plan
+      implemented: The work was delivered. Still a full spec.
+      replaced: A named successor took over. Requires replaced-by.
+      canceled: Abandoned. A reason is optional.
+      deprecated: Retired without a single named successor.
+      obsoleted: Shipped, then removed with no 1:1 successor. Requires obsoleted-by.
+    fields:
+      - {key: title, required: "yes"}
+      - {key: number, required: "yes"}
+      - {key: created, required: "yes"}
+      - {key: status, required: "yes", form: See Status}
+      - {key: schema_version, required: "yes"}
+      - {key: spec_version, required: "yes"}
+      - {key: replaced-by, required: "when replaced", form: typed artifact id}
+      - {key: obsoleted-by, required: "when obsoleted", form: typed artifact id}
+    extra_illegal:
+      - "A spec with no bundle"
+      - "Two plans for one spec"
+    constraints:
+      - Feature work uses bundle → spec → plan
+      - Each spec has exactly one plan
+      - Do not hand-write a spec into existence
+      - Specs are never created from issues
+    validate: "backstop artifact validate --spec SPEC-NNN"
+    reviewer:
+      name: spec-reviewer
+      intro: Independent of the spec author. Runs after the file validates.
+      bullets:
+        - Reads the source bundle and the spec
+        - Checks requirement coverage, claims, and mandated tests
+        - Findings go back to the spec author
+        - Planning does not start on a spec that failed review
+    notes:
+      - Feature work uses bundle → spec → plan. A spec does not exist on its own.
+      - Product code is not written from the spec. The implementer executes an approved plan.
+    also:
+      - {href: /bundle/, label: Bundle}
+      - {href: /plan/, label: Plan}
+      - {href: /model/#operating-model, label: Operating model}
+
+  - id: bundle
+    output: docs/bundle.md
+    permalink: /bundle/
+    title: Bundle
+    schema: artifacts/bundle/v2/schema.json
+    file_dir: bundles/
+    hero_lede: "A larger body of work. It decomposes into specs. Each spec becomes a plan."
+    format: Markdown with YAML frontmatter.
+    created_from: Feature work that needs requirements decomposition. Scaffolded — not hand-written.
+    sources:
+      - {work: Feature / substantial, path: "Bundle → Spec → Plan"}
+    status_intro: Maturity is a declared field. The user drives promotion. It is not inferred from git or CI.
+    status_path: nested_blocks.status.properties.maturity
+    status_kinds:
+      idea: live
+      exploring: live
+      defined: live
+      ready: live
+      delivered: terminal
+      replaced: terminal
+      canceled: terminal
+      deprecated: terminal
+    status_meanings:
+      idea: Named. Not yet explored.
+      exploring: Open questions are real and unresolved.
+      defined: Approach is clear. Structured content is required.
+      ready: Ready for spec generation.
+      delivered: The work shipped.
+      replaced: A named successor took over. Requires replaced-by.
+      canceled: Abandoned. A reason is optional.
+      deprecated: Retired without a single named successor.
+    fields:
+      - {key: title, required: "yes"}
+      - {key: schema_version, required: "yes"}
+      - {key: bundle.name, required: "yes"}
+      - {key: bundle.version, required: "yes"}
+      - {key: bundle.created, required: "yes"}
+      - {key: bundle.category, required: "yes"}
+      - {key: status.maturity, required: "yes", form: See Status}
+      - {key: replaced-by, required: "when replaced", form: typed artifact id}
+    extra_illegal:
+      - "Self-promoting a bundle to defined or ready"
+      - "An issue inside a bundle track"
+    constraints:
+      - Feature work uses bundle → spec → plan
+      - One bundle. Many specs. One plan per spec.
+      - Bundles start at exploring with real open questions
+      - Do not hand-write a bundle into existence
+    validate: "backstop artifact validate --bundle BUNDLE-NNN"
+    reviewer:
+      name: bundle-reviewer
+      intro: Independent of the bundle author. A bundle has no upstream artifact, so review checks internal coherence and documented invariants.
+      bullets:
+        - Reads the bundle on its merits
+        - Checks open questions, requirements, and spec seeds
+        - Findings go back to the bundle author
+        - Specing does not start on a bundle that failed review
+    notes:
+      - A bundle is substantial work. It decomposes into specs. Each spec has exactly one plan.
+      - Product code is not written from the bundle. The implementer executes an approved plan.
+    also:
+      - {href: /spec/, label: Spec}
+      - {href: /plan/, label: Plan}
+      - {href: /model/#operating-model, label: Operating model}
+
+  - id: directive
+    output: docs/directive.md
+    permalink: /directive/
+    title: Directive
+    schema: artifacts/directive/v1/schema.json
+    file_dir: directives/
+    hero_lede: "A backlog item. Position in BACKLOG.yml is priority. It cites the work that authorized it."
+    format: Markdown with YAML frontmatter.
+    created_from: Source artifacts. A directive without a source is rejected.
+    status_intro: Status is a declared field. Authors set it. It is not inferred from git or CI.
+    status_path: nested_blocks.directive.properties.status
+    status_kinds:
+      queued: live
+      active: live
+      specced: live
+      done: terminal
+      replaced: terminal
+      canceled: terminal
+    status_meanings:
+      queued: Committed. Not started.
+      active: Work is in progress.
+      specced: A spec exists. Requires directive.spec.
+      done: Implementation complete and the gate passed. Requires directive.spec and directive.completed.
+      replaced: A named successor took over. Requires replaced-by.
+      canceled: Abandoned.
+    fields:
+      - {key: title, required: "yes"}
+      - {key: number, required: "yes"}
+      - {key: schema_version, required: "yes"}
+      - {key: created, required: "yes"}
+      - {key: directive.status, required: "yes", form: See Status}
+      - {key: directive.source, required: "yes", form: one or more artifact ids}
+      - {key: directive.spec, required: "when specced or done"}
+      - {key: directive.completed, required: "when done"}
+      - {key: replaced-by, required: "when replaced", form: typed artifact id}
+    extra_illegal:
+      - "A directive with an empty source list"
+      - "Priority as a field on the directive"
+    constraints:
+      - Position in BACKLOG.yml is priority
+      - Every directive cites at least one source
+      - A directive is not a path into implementation
+    validate: "backstop artifact validate --directive DIR-NNN"
+    reviewer:
+      intro: Directives do not have a dedicated reviewer agent.
+      bullets:
+        - The validator checks source, status gates, and retirement fields
+    notes:
+      - Directives form the backlog. They are not a substitute for a plan.
+      - Feature work still uses bundle → spec → plan. Bounded work still uses issue → plan.
+    also:
+      - {href: /bundle/, label: Bundle}
+      - {href: /plan/, label: Plan}
+      - {href: /reference/#artifact-schema-catalog, label: Artifact schemas}
+
+  - id: adr
+    output: docs/adr.md
+    permalink: /adr/
+    title: ADR
+    schema: artifacts/adr/v2/schema.json
+    file_dir: adrs/
+    hero_lede: "A recorded decision. It is evidence for later work. It is not a path into implementation."
+    format: Markdown with YAML frontmatter.
+    created_from: A decision that needs to stay inspectable.
+    status_intro: Status is a declared field. Authors set it.
+    status_path: metadata.properties.status
+    status_kinds:
+      Proposed: live
+      Accepted: live
+      Deprecated: terminal
+      Superseded: terminal
+    status_meanings:
+      Proposed: Under consideration
+      Accepted: The decision stands
+      Deprecated: No longer in force
+      Superseded: Replaced by a later ADR
+    fields:
+      - {key: title, required: "yes"}
+      - {key: number, required: "yes"}
+      - {key: created, required: "yes"}
+      - {key: status, required: "yes", form: See Status}
+      - {key: schema_version, required: "yes"}
+      - {key: deciders, required: "yes"}
+      - {key: decisions, required: "yes"}
+    constraints:
+      - An ADR is not a path into implementation
+      - Implementation still requires an approved plan
+    validate: "backstop artifact validate --adr ADR-NNNN"
+    reviewer:
+      intro: ADRs do not have a dedicated reviewer agent.
+      bullets:
+        - The validator checks the schema and required sections
+    notes:
+      - An ADR records why a decision was made. Later specs and plans can cite it.
+      - Product code is not written from the ADR.
+    also:
+      - {href: /spec/, label: Spec}
+      - {href: /plan/, label: Plan}
+      - {href: /reference/#artifact-schema-catalog, label: Artifact schemas}
+
+  - id: capability
+    output: docs/capability.md
+    permalink: /capability/
+    title: Capability
+    schema: artifacts/capability/v1/schema.json
+    file_dir: capabilities/
+    hero_lede: "What a user can do, proved end to end. Specs implement the pieces. The capability verifies the journey."
+    format: YAML, with a co-located Gherkin file.
+    created_from: A user-facing outcome that needs executable proof.
+    status_intro: Status is a declared field. verified means the gates passed. broken means a gate failed.
+    status_path: metadata.properties.capability.properties.status
+    status_kinds:
+      draft: live
+      defined: live
+      ready: live
+      in-progress: live
+      verified: live
+      broken: live
+      deprecated: terminal
+    status_meanings:
+      draft: Being written
+      defined: Scenarios exist
+      ready: Ready to verify
+      in-progress: Verification is running
+      verified: All required gates passed
+      broken: A required gate failed
+      deprecated: No longer in force
+    fields:
+      - {key: capability.id, required: "yes"}
+      - {key: capability.title, required: "yes"}
+      - {key: capability.status, required: "yes", form: See Status}
+      - {key: capability.strictness, required: "yes"}
+      - {key: capability.description, required: "no"}
+      - {key: capability.owner, required: "no"}
+    constraints:
+      - A capability is not a path into implementation
+      - Implementation still requires an approved plan
+      - verified requires every must-pass gate to exit 0
+    validate: "backstop artifact validate --all"
+    reviewer:
+      intro: Capabilities do not have a dedicated reviewer agent.
+      bullets:
+        - The validator checks identity, scenarios, and traceability to specs
+    notes:
+      - Specs prove units. A capability proves the user journey those units enable.
+      - Product code is not written from the capability file.
+    also:
+      - {href: /spec/, label: Spec}
+      - {href: /plan/, label: Plan}
+      - {href: /reference/#artifact-schema-catalog, label: Artifact schemas}
+
+  - id: pack
+    output: docs/pack.md
+    permalink: /pack/
+    title: Pack
+    schema: ""
+    schema_label: pack manifest
+    file_pattern: pack.yaml
+    hero_lede: "A versioned set of standards, engines, and proof. Packs are not intent artifacts."
+    format: Declared in the pack repository. Installed into gitignored `.backstop/packs/`.
+    created_from: A deterministic standard that should be reusable across repositories.
+    fields:
+      - {key: identity, required: "yes", form: name and version in the pack manifest}
+      - {key: claims, required: "yes", form: what must be true}
+      - {key: engines, required: "yes", form: how it is checked}
+      - {key: fixtures, required: "yes", form: proof the check works}
+    constraints:
+      - Packs live outside core. The lock file is the durability boundary.
+      - A pack is not a path into implementation
+      - Implementation still requires an approved plan
+    validate: "backstop pack list"
+    reviewer:
+      intro: Pack authoring is reviewed as pack work, not as an intent-artifact review.
+      bullets:
+        - Use pack check and pack test in the pack repository
+        - Consumers pin a version in backstop.yml and lock it
+    notes:
+      - Packs own standards, engines, and proof. Intent artifacts own the work.
+      - Choose a maintained pack when the concern is shared. Author a pack when it is not.
+    also:
+      - {href: /packs/#choose-a-pack, label: Choose a pack}
+      - {href: /extend/, label: Extend}
+      - {href: /model/#standards-packs, label: Operating model}
