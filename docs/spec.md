@@ -17,7 +17,7 @@ hero_lede: "Requirements and claims for a slice of feature work. It comes from a
 <dt>Created from</dt><dd>A bundle. A spec does not exist on its own.</dd>
 </dl>
 
-## Sources
+## Work path
 
 <div class="entity-table entity-table-text">
 <table>

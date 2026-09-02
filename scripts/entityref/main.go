@@ -178,7 +178,7 @@ func render(root string, ent Entity) (string, error) {
 
 	var rest strings.Builder
 	if len(ent.Sources) > 0 {
-		rest.WriteString("\n## Sources\n\n")
+		rest.WriteString("\n## Work path\n\n")
 		rest.WriteString(sourcesTable(ent.Sources))
 	}
 

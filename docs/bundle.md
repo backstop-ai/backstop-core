@@ -17,7 +17,7 @@ hero_lede: "A larger body of work. It decomposes into specs. Each spec becomes a
 <dt>Created from</dt><dd>Feature work that needs requirements decomposition. Scaffolded — not hand-written.</dd>
 </dl>
 
-## Sources
+## Work path
 
 <div class="entity-table entity-table-text">
 <table>

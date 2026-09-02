@@ -15,7 +15,7 @@ hero_lede: "Ordered work an agent can execute. It comes from an issue or a spec.
 <dt>Created from</dt><dd>An issue or a spec. A plan does not exist on its own.</dd>
 </dl>
 
-## Sources
+## Work path
 
 <div class="entity-table entity-table-text">
 <table>

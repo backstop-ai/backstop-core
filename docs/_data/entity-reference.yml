@@ -9,7 +9,7 @@ entities:
     title: Issue
     schema: artifacts/issue/v1/schema.json
     file_dir: issues/
-    hero_lede: "A first-class path for bounded work. It becomes a plan."
+    hero_lede: "Bounded work that does not need a bundle and spec. It becomes a plan."
     format: Markdown with YAML frontmatter.
     created_from: Observed work. Scaffolded — not hand-written.
     sources:
