@@ -27,7 +27,30 @@ Author the pack in its own repository. Do not vendor it into core. Exact manifes
 
 `--type` is `engine`, `mechanism`, or `toolchain`. The scaffold writes a valid `pack.yml`, a sample sandbox validator, and a positive/negative fixture pair that can pass check, test, and the gate.
 
-It writes `pack.yml`, `validators/my-standard.sh`, `fixtures/valid/example.txt`, and `fixtures/invalid/example.txt`.
+### Pack layout
+
+The pack is a directory. `pack.yml` sits at the root. Every path in the manifest (`convert`, `validator`, fixture files, `rule_path`) is relative to that directory. A missing file fails `pack check`.
+
+`pack new` writes:
+
+```
+my-standard/
+  pack.yml
+  validators/my-standard.sh
+  fixtures/valid/example.txt
+  fixtures/invalid/example.txt
+```
+
+Replace the sample in place. A native-tool pack keeps the convert script next to the engine it serves:
+
+```
+pack.yml
+grep/to-sarif.sh
+ast-grep/to-sarif.sh
+testdata/fixtures/
+```
+
+A toolchain pack often keeps convert and produce scripts under `scripts/`. Rule configs declared by `rule_path` also live in the pack. There is no second copy in core.
 
 ### Engines
 
