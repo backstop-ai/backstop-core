@@ -425,8 +425,7 @@ allowances={
 'docs/packs.md':{
  "Choose the narrowest maintained pack that owns the standard and supports the repository's tools. Check its release, engine requirements, fixture coverage, and maintenance state before composing it with other packs.":'selection guidance'},
 'docs/extend.md':{
- 'Create a pack when a deterministic standard should be reused across repositories and versioned independently. If it only applies to this repository, keep it here.':'author decision guidance',
- 'Do not create a pack that has no second consumer.':'author decision guidance',
+ 'Use a pack when a rule can be encoded and enforced deterministically, and should not be left to LLM judgment.':'author decision guidance',
  '[What is a pack?](/pack/) is the noun. [Choose a pack](/packs/#choose-a-pack) if a maintained pack already owns the standard.':'author decision guidance',
  'Author the pack in its own repository. Do not vendor it into core. Exact manifest fields live in the pack artifact reference.':'author instruction',
  '<pre><code>backstop pack new --type engine --language go --slug my-standard</code></pre>':'author instruction',

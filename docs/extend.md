@@ -3,14 +3,12 @@ title: Extend Backstop
 layout: default
 permalink: /extend/
 hero_question: "When should this concern become a pack?"
-hero_lede: "If the standard is reusable, author a pack. If it is not, keep it in the repository."
+hero_lede: "If it is mechanically enforceable, put it in a pack."
 ---
 
 ## 1. Pack or not {#pack-or-not}
 
-Create a pack when a deterministic standard should be reused across repositories and versioned independently. If it only applies to this repository, keep it here.
-
-Do not create a pack that has no second consumer.
+Use a pack when a rule can be encoded and enforced deterministically, and should not be left to LLM judgment.
 
 [What is a pack?](/pack/) is the noun. [Choose a pack](/packs/#choose-a-pack) if a maintained pack already owns the standard.
 
