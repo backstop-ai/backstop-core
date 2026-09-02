@@ -16,7 +16,7 @@ Pin the released binary in the repository.
 
 ### Initialize the repository {#configure}
 
-Backstop configuration lives with the code.
+Backstop configuration lives with the code. Init writes the repository files later clones restore.
 
 <pre><code>backstop init</code></pre>
 

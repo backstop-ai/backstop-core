@@ -400,7 +400,7 @@ allowances={
 },
 'docs/adopt.md':{
  'Pin the released binary in the repository.':'visitor adoption guide',
- 'Backstop configuration lives with the code.':'visitor adoption guide',
+ 'Backstop configuration lives with the code. Init writes the repository files later clones restore.':'visitor adoption guide',
  'Install a pack appropriate for the repository\'s stack. [Choose a pack](/pack/examples/#choose-a-pack).':'visitor adoption guide',
  'Run:':'visitor adoption guide',
  '<pre><code>backstop baseline</code></pre>':'visitor adoption guide',
