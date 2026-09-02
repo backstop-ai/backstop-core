@@ -54,7 +54,9 @@ A toolchain pack often keeps convert and produce scripts under `scripts/`. Rule 
 
 ### Engines
 
-An engine is the check. It is declared as data. The scaffold writes a sandbox engine whose validator executable is the logic, so the pack needs no external tool.
+An engine executes one or many checks. It is a runner: semgrep, ast-grep, a shell script, or a native toolchain linter. The pack declares the engine, then binds rules to it. Those rules are the checks. Many rules can share one engine.
+
+The scaffold writes a sandbox engine: a shell validator, no external tool.
 
 ```yaml
 engines:
@@ -65,7 +67,18 @@ engines:
     gate_type: findings
 ```
 
-Replace that sample with the real engine. `engine` means the validator is the logic. `mechanism` wraps a native tool. `toolchain` bundles a language's build, test, and lint passes.
+Replace that sample with the real runner. If the engine is a linter, the pack supplies the custom rules (`pattern`, `rule_path`).
+
+```yaml
+engines:
+  ast-grep-contracts:
+    command: ast-grep run --json
+    input_mode: pattern-arg
+    convert: ast-grep/to-sarif.sh
+    provision:
+      tool: ast-grep
+      version: 0.43.0
+```
 
 If the engine invokes a tool, pin it. Tool pins are trust declarations, not installers.
 
