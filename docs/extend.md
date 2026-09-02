@@ -46,6 +46,27 @@ Replace that sample with the real engine. `engine` means the validator is the lo
 
 If the engine invokes a tool, pin it. Tool pins are trust declarations, not installers.
 
+### Convert the output
+
+When the engine runs a native tool, the pack owns the conversion. `convert` is a pack-relative script. It reads the tool's stdout and emits SARIF. Core does not parse `grep`, `go test`, or `ast-grep` output.
+
+```yaml
+engines:
+  grep:
+    command: grep -rn -H -I
+    input_mode: pattern-arg
+    convert: grep/to-sarif.sh
+    provision:
+      tool: grep
+      version: "*"
+```
+
+The script lives in the pack: `grep/to-sarif.sh`, `ast-grep/to-sarif.sh`, `scripts/build-to-sarif.sh`. Unparseable input must fail the convert, not be dropped. Most converters emit SARIF. A coverage engine converts to coverage records instead.
+
+If the tool already emits SARIF, omit `convert`.
+
+The sample sandbox validator has no convert: the validator is the logic.
+
 ### Claims
 
 A claim names the property that must stay true. Declare it on the rule with an `id`, `text`, and both fixture polarities. The rule owns the claim; there is no separate claims list.
