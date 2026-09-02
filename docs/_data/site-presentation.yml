@@ -24,15 +24,15 @@ pages:
     page_kind: use-cases
     hero_question: Which problem-oriented adoption path applies?
     treatments: [evidence-cards, boundary-callouts]
-    next_action: /packs/
-  - route: /packs/
+    next_action: /pack/examples/
+  - route: /pack/examples/
     page_kind: ecosystem
-    hero_question: Which maintained pack already owns this standard?
+    hero_question: Published packs.
     treatments: [evidence-cards, generated-regions, local-overflow]
-    next_action: /extend/
-  - route: /extend/
+    next_action: /pack/guide/
+  - route: /pack/guide/
     page_kind: extension
-    hero_question: When should this concern become a pack?
+    hero_question: "Packs: a guide"
     treatments: [evidence-cards, boundary-callouts]
     next_action: /reference/
   - route: /reference/

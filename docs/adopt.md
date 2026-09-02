@@ -27,7 +27,7 @@ Backstop configuration lives with the code.
 
 ## 2. Start with your existing code {#adoption-paths}
 
-Install a pack appropriate for the repository's stack. [Choose a pack](/packs/#choose-a-pack).
+Install a pack appropriate for the repository's stack. [Choose a pack](/pack/examples/#choose-a-pack).
 
 Run:
 

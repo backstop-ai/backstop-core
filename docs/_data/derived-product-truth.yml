@@ -19,7 +19,7 @@ jobs:
   - id: installed-pack-catalog
     inputs: [backstop.yml, backstop.lock]
     output: docs/_includes/generated/installed-pack-catalog.md
-    owner_route: /packs/
+    owner_route: /pack/examples/
     owner_anchor: installed-pack-catalog
     marker: GENERATED PRODUCT TRUTH
     command: ./scripts/generate-product-truth.sh

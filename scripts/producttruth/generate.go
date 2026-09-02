@@ -454,7 +454,7 @@ func VerifySourceIncludes(root string, manifest Manifest) error {
 	owners := map[string]struct{ File, Title string }{
 		"cli-command-catalog":     {"docs/reference.md", "CLI command catalog"},
 		"artifact-schema-catalog": {"docs/reference.md", "Artifact schema catalog"},
-		"installed-pack-catalog":  {"docs/packs.md", "Installed pack catalog"},
+		"installed-pack-catalog":  {"docs/pack/examples.md", "Installed pack catalog"},
 		"release-history":         {"docs/status.md", "Release history"},
 	}
 	for _, job := range manifest.Jobs {

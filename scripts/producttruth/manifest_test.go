@@ -74,7 +74,7 @@ func TestProductTruth_ManifestArtifactSchemaJobPasses(t *testing.T) {
 }
 
 func TestProductTruth_ManifestInstalledPackJobPasses(t *testing.T) {
-	assertManifestJob(t, 2, "installed-pack-catalog", "docs/_includes/generated/installed-pack-catalog.md", "/packs/#installed-pack-catalog")
+	assertManifestJob(t, 2, "installed-pack-catalog", "docs/_includes/generated/installed-pack-catalog.md", "/pack/examples/#installed-pack-catalog")
 	if got := testManifest(t).Jobs[2].Inputs; !reflect.DeepEqual(got, []string{"backstop.yml", "backstop.lock"}) {
 		t.Fatalf("inputs=%v", got)
 	}

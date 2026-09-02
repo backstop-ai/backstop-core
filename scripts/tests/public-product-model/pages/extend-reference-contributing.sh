@@ -4,7 +4,7 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 python3 - "$root" <<'PY'
 import os,re,sys,yaml
 r=sys.argv[1]; top=yaml.safe_load(open(os.path.join(r,'docs/_data/content-topology.yml'))); ev=yaml.safe_load(open(os.path.join(r,'docs/_data/evidence-inventory.yml'))); presentation=yaml.safe_load(open(os.path.join(r,'docs/_data/site-presentation.yml')))
-sources={'docs/extend.md','docs/reference.md','docs/contributing.md'}; pages=[p for p in top['pages'] if p['source'] in sources]; assert {p['source'] for p in pages}==sources
+sources={'docs/pack/guide.md','docs/reference.md','docs/contributing.md'}; pages=[p for p in top['pages'] if p['source'] in sources]; assert {p['source'] for p in pages}==sources
 texts={p['canonical_path']:open(os.path.join(r,p['source']),encoding='utf-8').read() for p in pages}
 presented={p['route']:p['hero_question'] for p in presentation['pages']}
 for p in pages:

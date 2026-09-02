@@ -57,7 +57,7 @@ Packs own standards, engines, and proof. Intent artifacts own the work.
 Choose a maintained pack when the concern is shared. Author a pack when it is not.
 
 <p class="entity-also">
-<a href="/packs/#choose-a-pack">Choose a pack</a>
-<a href="/extend/">Extend</a>
+<a href="/pack/guide/">Guide</a>
+<a href="/pack/examples/">Examples</a>
 <a href="/model/#standards-packs">Operating model</a>
 </p>

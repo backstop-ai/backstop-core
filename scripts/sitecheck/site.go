@@ -83,11 +83,15 @@ type OwnerAcceptanceExport struct {
 }
 
 func canonicalRoutes() []string {
-	return []string{"/", "/evaluate/", "/model/", "/adopt/", "/use-cases/", "/packs/", "/extend/", "/reference/", "/status/", "/contributing/"}
+	return []string{"/", "/evaluate/", "/model/", "/adopt/", "/use-cases/", "/pack/examples/", "/pack/guide/", "/reference/", "/status/", "/contributing/"}
 }
 
 func primaryNavigation() []string {
-	return []string{"/evaluate/", "/model/", "/adopt/", "/use-cases/", "/packs/", "/extend/", "/reference/"}
+	return []string{"/evaluate/", "/model/", "/adopt/", "/use-cases/", "/pack/", "/reference/"}
+}
+
+func extraLinkableRoutes() []string {
+	return []string{"/pack/"}
 }
 
 func utilityNavigation() []string {
@@ -99,7 +103,6 @@ func legacyRedirects() map[string]string {
 		"getting-started.html":   "/adopt/",
 		"concepts.html":          "/model/",
 		"artifact-workflow.html": "/model/",
-		"pack-authoring.html":    "/extend/",
 		"cli-reference.html":     "/reference/",
 	}
 }
@@ -114,10 +117,8 @@ func navigationLabel(route string) string {
 		return "Adopt"
 	case "/use-cases/":
 		return "Use Cases"
-	case "/packs/":
-		return "Packs"
-	case "/extend/":
-		return "Extend"
+	case "/pack/":
+		return "Pack"
 	case "/reference/":
 		return "Reference"
 	case "/status/":
@@ -329,6 +330,15 @@ func collectBuiltDocuments(builtRoot string) (map[string]string, map[string]map[
 		data, err := os.ReadFile(path)
 		if err != nil {
 			findings = append(findings, Finding{Phase: "canonical-route", Identity: route, Expected: "one built file", Observed: err.Error()})
+			continue
+		}
+		documents[route] = string(data)
+		ids[route] = routeIDs(string(data))
+	}
+	for _, route := range extraLinkableRoutes() {
+		path := builtRoutePath(builtRoot, route)
+		data, err := os.ReadFile(path)
+		if err != nil {
 			continue
 		}
 		documents[route] = string(data)

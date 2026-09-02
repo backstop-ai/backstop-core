@@ -104,7 +104,7 @@ PY
 
   local marker='<meta name="backstop-deployment" content="commit='"$commit"';run='"$run_id"'">'
   local route body
-  for route in / /evaluate/ /model/ /adopt/ /use-cases/ /packs/ /extend/ /reference/ /status/ /contributing/; do
+  for route in / /evaluate/ /model/ /adopt/ /use-cases/ /pack/examples/ /pack/guide/ /reference/ /status/ /contributing/; do
     body=$(curl --fail --silent --show-error --proto '=https' --tlsv1.2 --max-redirs 0 "https://backstop.sh$route")
     [[ $(grep -Foc "$marker" <<<"$body") -eq 1 ]] || { echo "pages-verify: $route deployment marker mismatch" >&2; return 1; }
   done
@@ -119,7 +119,6 @@ PY
 /getting-started.html /adopt/
 /concepts.html /model/
 /artifact-workflow.html /model/
-/pack-authoring.html /extend/
 /cli-reference.html /reference/
 ALIASES
   echo "pages-verify: authoritative API, retained artifact, and HTTPS publication agree for $commit run $run_id"

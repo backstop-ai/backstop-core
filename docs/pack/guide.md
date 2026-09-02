@@ -1,8 +1,8 @@
 ---
-title: Extend Backstop
+title: Packs
 layout: default
-permalink: /extend/
-hero_question: "When should this concern become a pack?"
+permalink: /pack/guide/
+hero_question: "Packs: a guide"
 hero_lede: "If it is mechanically enforceable, put it in a pack."
 ---
 
@@ -12,7 +12,7 @@ Use a pack when a rule can be checked deterministically. Leave genuine judgment 
 
 A pack can apply everywhere or to one repository. Make it as specific as the standard requires.
 
-[What is a pack?](/pack/) is the noun. [Choose a pack](/packs/#choose-a-pack) if a maintained pack already owns the standard.
+[What is a pack?](/pack/) is the noun. [Published packs](/pack/examples/#choose-a-pack) if a maintained pack already owns the standard.
 
 <!-- backstop-journey-link: JLINK-019 -->
 [Inspect the pack artifact](/reference/#pack-artifact)

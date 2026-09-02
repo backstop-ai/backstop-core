@@ -377,6 +377,6 @@ entities:
       - Packs own standards, engines, and proof. Intent artifacts own the work.
       - Choose a maintained pack when the concern is shared. Author a pack when it is not.
     also:
-      - {href: /packs/#choose-a-pack, label: Choose a pack}
-      - {href: /extend/, label: Extend}
+      - {href: /pack/guide/, label: Guide}
+      - {href: /pack/examples/, label: Examples}
       - {href: /model/#standards-packs, label: Operating model}

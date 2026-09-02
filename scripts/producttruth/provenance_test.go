@@ -108,7 +108,7 @@ func TestProductTruth_InstalledPackImmutableSourceLinkDriftFails(t *testing.T) {
 	if strings.Contains(string(item.Bytes), "data-source-kind=\"tree\"") {
 		t.Fatal("pack source rendered as tree")
 	}
-	if !strings.Contains(string(item.Bytes), "owner=/packs/#installed-pack-catalog") {
+	if !strings.Contains(string(item.Bytes), "owner=/pack/examples/#installed-pack-catalog") {
 		t.Fatal("owner missing")
 	}
 }

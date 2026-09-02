@@ -18,8 +18,8 @@ docs/evaluate.md
 docs/model.md
 docs/adopt.md
 docs/use-cases.md
-docs/packs.md
-docs/extend.md
+docs/pack/examples.md
+docs/pack/guide.md
 docs/reference.md
 docs/status.md
 docs/contributing.md
@@ -200,7 +200,7 @@ verify_installed_semantics_gate_accepts_exact_clean_seed1_corpus() {
   fi
   python3 - "$output" <<'PY'
 import json,sys
-expected=['docs/index.md','docs/evaluate.md','docs/model.md','docs/adopt.md','docs/use-cases.md','docs/packs.md','docs/extend.md','docs/reference.md','docs/status.md','docs/contributing.md','docs/_data/content-topology.yml','docs/_data/product-model.yml','docs/_data/evidence-inventory.yml','docs/_data/content-inventory.yml']
+expected=['docs/index.md','docs/evaluate.md','docs/model.md','docs/adopt.md','docs/use-cases.md','docs/pack/examples.md','docs/pack/guide.md','docs/reference.md','docs/status.md','docs/contributing.md','docs/_data/content-topology.yml','docs/_data/product-model.yml','docs/_data/evidence-inventory.yml','docs/_data/content-inventory.yml']
 with open(sys.argv[1],encoding='utf-8') as handle: payload=json.load(handle)
 scope=payload.get('scope') or {}
 if scope.get('mode')!='file' or len(scope.get('files',[]))!=14 or set(scope.get('files',[]))!=set(expected):

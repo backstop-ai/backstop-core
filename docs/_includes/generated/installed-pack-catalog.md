@@ -1,5 +1,5 @@
-<!-- GENERATED PRODUCT TRUTH | job=installed-pack-catalog | inputs=backstop.yml,backstop.lock | owner=/packs/#installed-pack-catalog | regenerate=./scripts/generate-product-truth.sh | DO NOT EDIT -->
-<!-- PRODUCT-TRUTH:BEGIN job=installed-pack-catalog digest=sha256:6878c343b34e7d4f4014856e5d236bf45b72b4e3e1832083a25485c4f74926a0 -->
+<!-- GENERATED PRODUCT TRUTH | job=installed-pack-catalog | inputs=backstop.yml,backstop.lock | owner=/pack/examples/#installed-pack-catalog | regenerate=./scripts/generate-product-truth.sh | DO NOT EDIT -->
+<!-- PRODUCT-TRUTH:BEGIN job=installed-pack-catalog digest=sha256:8fb07d94e578d43fb8fce23f25197bef3fd08d0b0066dab02e3c2097ead6ad9d -->
 <table data-product-truth-job="installed-pack-catalog">
 <thead><tr><th>Pack</th><th>Declared version</th><th>Locked version</th><th>Git ref</th><th>Content SHA-256</th></tr></thead>
 <tbody>
@@ -16,7 +16,7 @@
 <tr><td>backstop-ai/go-toolchain</td><td>1.9.0</td><td>1.9.0</td><td>v1.9.0</td><td>6ab6c9731a0309181e638ba09da9c6c84dbf1d17870a7f6e4f4df4b4ae80aa03</td></tr>
 </tbody>
 </table>
-<!-- PRODUCT-TRUTH:SOURCES-BEGIN job=installed-pack-catalog owner=/packs/#installed-pack-catalog digest=sha256:6878c343b34e7d4f4014856e5d236bf45b72b4e3e1832083a25485c4f74926a0 -->
+<!-- PRODUCT-TRUTH:SOURCES-BEGIN job=installed-pack-catalog owner=/pack/examples/#installed-pack-catalog digest=sha256:8fb07d94e578d43fb8fce23f25197bef3fd08d0b0066dab02e3c2097ead6ad9d -->
 <ul data-generated-source-descriptors data-product-truth-job="installed-pack-catalog">
 <li data-generated-source-descriptor data-source-kind="blob" data-commit-binding="site" data-source-path="backstop.yml">https://github.com/backstop-ai/backstop-core/blob/&lt;SITE-COMMIT&gt;/backstop.yml</li>
 <li data-generated-source-descriptor data-source-kind="blob" data-commit-binding="site" data-source-path="backstop.lock">https://github.com/backstop-ai/backstop-core/blob/&lt;SITE-COMMIT&gt;/backstop.lock</li>

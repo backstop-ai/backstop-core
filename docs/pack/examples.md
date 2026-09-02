@@ -1,8 +1,8 @@
 ---
-title: Packs
+title: Pack examples
 layout: default
-permalink: /packs/
-hero_question: "Which maintained pack already owns this standard?"
+permalink: /pack/examples/
+hero_question: "Published packs."
 ---
 
 ## Choose a pack {#choose-a-pack}

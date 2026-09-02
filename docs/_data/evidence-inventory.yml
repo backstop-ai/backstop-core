@@ -328,7 +328,7 @@ claims:
     statement: "The installed catalog is repository truth: declarations pin pack versions and the lock binds resolved bytes. Use the CLI to inspect, install, update, relock, and verify those selections."
     statement_markdown: "The installed catalog is repository truth: declarations pin pack versions and the lock binds resolved bytes. Use the CLI to inspect, install, update, relock, and verify those selections."
     claim_type: mechanism
-    owner: {route: "/packs/", anchor: installed-pack-catalog}
+    owner: {route: "/pack/examples/", anchor: installed-pack-catalog}
     mechanism_summary: "Declarations select versions and the lock records resolved content identity."
     guarantee_boundary: "Installed bytes must still match the lock."
     known_limitations: "Mutable or stale installed trees fail verification."

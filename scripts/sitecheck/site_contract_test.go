@@ -24,7 +24,7 @@ func writeTestFile(t *testing.T, path, content string) {
 
 func syntheticDocument(page presentationPage) string {
 	var primary, utility strings.Builder
-	labels := map[string]string{"/evaluate/": "Evaluate", "/model/": "Model", "/adopt/": "Adopt", "/use-cases/": "Use Cases", "/packs/": "Packs", "/extend/": "Extend", "/reference/": "Reference", "/status/": "Status", "/contributing/": "Contributing"}
+	labels := map[string]string{"/evaluate/": "Evaluate", "/model/": "Model", "/adopt/": "Adopt", "/use-cases/": "Use Cases", "/pack/": "Pack", "/reference/": "Reference", "/status/": "Status", "/contributing/": "Contributing"}
 	for _, destination := range primaryNavigation() {
 		current := ""
 		if page.Route == destination {
@@ -55,9 +55,10 @@ func makeSyntheticSite(t *testing.T) (string, string) {
 	var presentation strings.Builder
 	presentation.WriteString("schema_version: backstop-core/site-presentation/v1\npages:\n")
 	for _, page := range canonicalPresentation() {
-		fmt.Fprintf(&presentation, "  - route: %s\n    page_kind: %s\n    hero_question: %s\n    treatments: [%s]\n    next_action: %s\n", page.Route, page.PageKind, page.HeroQuestion, strings.Join(page.Treatments, ", "), page.NextAction)
+		fmt.Fprintf(&presentation, "  - route: %s\n    page_kind: %s\n    hero_question: %q\n    treatments: [%s]\n    next_action: %s\n", page.Route, page.PageKind, page.HeroQuestion, strings.Join(page.Treatments, ", "), page.NextAction)
 		writeTestFile(t, builtRoutePath(built, page.Route), syntheticDocument(page))
 	}
+	writeTestFile(t, builtRoutePath(built, "/pack/"), `<!doctype html><html><body><main id="main" data-page-route="/pack/"></main></body></html>`)
 	writeTestFile(t, filepath.Join(root, "docs/_data/site-presentation.yml"), presentation.String())
 	for alias, destination := range legacyRedirects() {
 		writeTestFile(t, filepath.Join(built, alias), fmt.Sprintf(`<link rel="canonical" href="https://backstop.sh%s"><meta http-equiv="refresh" content="0; url=%s"><a href="%s">Continue</a>`, destination, destination, destination))
@@ -124,10 +125,10 @@ func TestSiteCheck_CanonicalRouteMatrixPasses(t *testing.T) {
 }
 
 func TestSiteCheck_RouteCatalogsAreImmutableAndExhaustive(t *testing.T) {
-	wantRoutes := []string{"/", "/evaluate/", "/model/", "/adopt/", "/use-cases/", "/packs/", "/extend/", "/reference/", "/status/", "/contributing/"}
-	wantPrimary := []string{"/evaluate/", "/model/", "/adopt/", "/use-cases/", "/packs/", "/extend/", "/reference/"}
+	wantRoutes := []string{"/", "/evaluate/", "/model/", "/adopt/", "/use-cases/", "/pack/examples/", "/pack/guide/", "/reference/", "/status/", "/contributing/"}
+	wantPrimary := []string{"/evaluate/", "/model/", "/adopt/", "/use-cases/", "/pack/", "/reference/"}
 	wantUtility := []string{"/status/", "/contributing/"}
-	wantRedirects := map[string]string{"getting-started.html": "/adopt/", "concepts.html": "/model/", "artifact-workflow.html": "/model/", "pack-authoring.html": "/extend/", "cli-reference.html": "/reference/"}
+	wantRedirects := map[string]string{"getting-started.html": "/adopt/", "concepts.html": "/model/", "artifact-workflow.html": "/model/", "cli-reference.html": "/reference/"}
 
 	assertSlice := func(name string, got, want []string) {
 		t.Helper()
