@@ -718,7 +718,7 @@ The wordmark is always the Home route and never masquerades as current-page stat
 | `/` | `home` | What failure does Backstop prevent? | `evidence-cards` | `/evaluate/` |
 | `/evaluate/` | `evaluation` | Your agent already writes the code. | `evidence-cards`, `boundary-callouts` | `/model/` |
 | `/model/` | `model` | How it works | `evidence-cards`, `local-overflow` | `/adopt/` |
-| `/adopt/` | `adoption` | What does a first working adoption require? | `evidence-cards` | `/use-cases/` |
+| `/adopt/` | `adoption` | Try it out. | `evidence-cards` | `/use-cases/` |
 | `/use-cases/` | `use-cases` | Which problem-oriented adoption path applies? | `evidence-cards`, `boundary-callouts` | `/packs/` |
 | `/packs/` | `ecosystem` | Which maintained pack already owns this standard? | `evidence-cards`, `generated-regions`, `local-overflow` | `/extend/` |
 | `/extend/` | `extension` | When should this concern become a pack? | `evidence-cards`, `boundary-callouts` | `/reference/` |
@@ -794,7 +794,6 @@ rendered binding below. Each source and destination anchor is case-sensitive and
 | `JLINK-009` | `/reference/#compatibility` | `/status/#adjacent-guidance` |
 | `JLINK-010` | `/model/#operating-model` | `/reference/#artifact-schema-catalog` |
 | `JLINK-011` | `/model/#ownership-boundaries` | `/status/#project-boundaries` |
-| `JLINK-012` | `/adopt/#install` | `/reference/#configuration` |
 | `JLINK-013` | `/adopt/#verify-enforcement` | `/model/#enforcement-loop` |
 | `JLINK-014` | `/model/#enforcement-loop` | `/reference/#gate` |
 | `JLINK-015` | `/use-cases/#choose-use-case` | `/adopt/#adoption-paths` |

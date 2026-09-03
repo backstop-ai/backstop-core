@@ -1,11 +1,5 @@
 Feature: Adopt Backstop
 
-  @UJ-001
-  Scenario: CAP-009/@UJ-001 Move from installation instructions to working configuration guidance
-    Given a visitor is at /adopt/#install
-    When they follow the rendered JLINK-012 next-action link
-    Then they arrive at /reference/#configuration and can move from installation instructions to working configuration guidance
-
   @UJ-002
   Scenario: CAP-009/@UJ-002 Verify the configured repository's enforcement path
     Given a visitor is at /adopt/#verify-enforcement

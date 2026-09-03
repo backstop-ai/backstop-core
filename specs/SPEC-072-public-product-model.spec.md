@@ -557,7 +557,7 @@ frontmatter.
 | `docs/index.md` | `/` | What failure does Backstop prevent? | NBR-001: recognize the failure class, explain why Backstop exists, and route the visitor by question. |
 | `docs/evaluate.md` | `/evaluate/` | Your agent already writes the code. | NBR-002 and NBR-003: additive positioning against tools the visitor already uses; the artifact chain as working state; the blocking gate; and the CI-is-too-late fit decision. |
 | `docs/model.md` | `/model/` | How it works | NBR-005 and NBR-006: progressively explain how Backstop works, then provide the dense canonical concept and architecture model. |
-| `docs/adopt.md` | `/adopt/` | What does a first working adoption require? | Move from evaluation to a working first adoption, state prerequisites and adoption cost, and link rather than duplicate canonical concepts. |
+| `docs/adopt.md` | `/adopt/` | Try it out. | Move from evaluation to a working first adoption, state prerequisites and adoption cost, and link rather than duplicate canonical concepts. |
 | `docs/use-cases.md` | `/use-cases/` | Which problem-oriented adoption path applies? | NBR-007: provide problem-oriented adoption paths and direct each path into the canonical model, packs, adoption, and reference material it needs. |
 | `docs/packs.md` | `/packs/` | Which maintained pack already owns this standard? | NBR-008: expose the pack ecosystem, problem coverage, composition, maintenance state, and selection guidance. |
 | `docs/extend.md` | `/extend/` | When should this concern become a pack? | NBR-009: decide whether a concern belongs in a pack and guide extension without duplicating exact reference material. |
@@ -648,7 +648,6 @@ intentionally one shared physical edge.
 | JLINK-009 | `/reference/#compatibility` | `/status/#adjacent-guidance` |
 | JLINK-010 | `/model/#operating-model` | `/reference/#artifact-schema-catalog` |
 | JLINK-011 | `/model/#ownership-boundaries` | `/status/#project-boundaries` |
-| JLINK-012 | `/adopt/#install` | `/reference/#configuration` |
 | JLINK-013 | `/adopt/#verify-enforcement` | `/model/#enforcement-loop` |
 | JLINK-014 | `/model/#enforcement-loop` | `/reference/#gate` |
 | JLINK-015 | `/use-cases/#choose-use-case` | `/adopt/#adoption-paths` |

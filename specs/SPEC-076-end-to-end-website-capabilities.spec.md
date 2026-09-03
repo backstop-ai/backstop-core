@@ -442,7 +442,6 @@ edge rather than requiring duplicate page copy.
 | CAP-007/@UJ-002 | Determine which lifecycle guarantees that compatibility does not preserve | `/reference/#compatibility` -> `/status/#adjacent-guidance` | JLINK-009 |
 | CAP-008/@UJ-001 | Follow the artifact-to-plan-to-gate operating model | `/model/#operating-model` -> `/reference/#artifact-schema-catalog` | JLINK-010 |
 | CAP-008/@UJ-002 | Inspect architecture and ownership boundaries | `/model/#ownership-boundaries` -> `/status/#project-boundaries` | JLINK-011 |
-| CAP-009/@UJ-001 | Move from installation instructions to working configuration guidance | `/adopt/#install` -> `/reference/#configuration` | JLINK-012 |
 | CAP-009/@UJ-002 | Verify the configured repository's enforcement path | `/adopt/#verify-enforcement` -> `/model/#enforcement-loop` -> `/reference/#gate` | JLINK-013, JLINK-014 |
 | CAP-010/@UJ-001 | Select a concrete use case and its adoption action | `/use-cases/#choose-use-case` -> `/adopt/#adoption-paths` | JLINK-015 |
 | CAP-010/@UJ-002 | Connect a use case to an applicable pack | `/use-cases/#pack-backed-use-cases` -> `/packs/#choose-a-pack` | JLINK-016 |
