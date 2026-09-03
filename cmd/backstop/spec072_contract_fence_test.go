@@ -29,25 +29,29 @@ import (
 // source of their consume edge — the place the real enforcement has always lived.
 const spec072FenceVerifier = "scripts/verify-public-product-model.sh"
 
-// spec072FenceSymbols are the five non-Go symbols ISSUE-200 converts, mapped to the file
-// each is declared over. Ordering matters to the assertion messages only.
-var spec072FenceSymbols = map[string]string{
-	"canonical_product_model":              "docs/_data/product-model.yml",
-	"legacy_content_disposition_inventory": "docs/_data/content-inventory.yml",
-	"delivery_lifecycle_architecture":      "docs/_diagrams/ARCH-001-delivery-lifecycle.mmd",
-	"enforcement_loop_architecture":        "docs/_diagrams/ARCH-002-enforcement-loop.mmd",
-	"ownership_boundaries_architecture":    "docs/_diagrams/ARCH-003-ownership-boundaries.mmd",
+// spec072FenceSymbols returns the five non-Go symbols ISSUE-200 converts, mapped to the
+// file each is declared over.
+func spec072FenceSymbols() map[string]string {
+	return map[string]string{
+		"canonical_product_model":              "docs/_data/product-model.yml",
+		"legacy_content_disposition_inventory": "docs/_data/content-inventory.yml",
+		"delivery_lifecycle_architecture":      "docs/_diagrams/ARCH-001-delivery-lifecycle.mmd",
+		"enforcement_loop_architecture":        "docs/_diagrams/ARCH-002-enforcement-loop.mmd",
+		"ownership_boundaries_architecture":    "docs/_diagrams/ARCH-003-ownership-boundaries.mmd",
+	}
 }
 
-// spec072FenceNonGoFiles are the five non-Go files the conversion covers. The fence reads
-// their bytes for INJECTED comment workarounds only; the probe verdict itself is TASK-001's
-// job and never greps these files.
-var spec072FenceNonGoFiles = []string{
-	"docs/_data/content-inventory.yml",
-	"docs/_data/product-model.yml",
-	"docs/_diagrams/ARCH-001-delivery-lifecycle.mmd",
-	"docs/_diagrams/ARCH-002-enforcement-loop.mmd",
-	"docs/_diagrams/ARCH-003-ownership-boundaries.mmd",
+// spec072FenceNonGoFiles returns the five non-Go files the conversion covers. The fence
+// reads their bytes for INJECTED comment workarounds only; the probe verdict itself is
+// TASK-001's job and never greps these files.
+func spec072FenceNonGoFiles() []string {
+	return []string{
+		"docs/_data/content-inventory.yml",
+		"docs/_data/product-model.yml",
+		"docs/_diagrams/ARCH-001-delivery-lifecycle.mmd",
+		"docs/_diagrams/ARCH-002-enforcement-loop.mmd",
+		"docs/_diagrams/ARCH-003-ownership-boundaries.mmd",
+	}
 }
 
 // spec072FenceVersion19 is the 1.0.9 Version History entry VERBATIM, including the two
@@ -60,23 +64,28 @@ const spec072FenceVersion19 = "- **1.0.9** (2026-08-30): JLINK-001 and CLAIM-017
 	"  Go-compiler false-REDs (ISSUE-053). PLAN-SPEC-072 stays `completed`; its\n" +
 	"  `spec_version` pin stays at `1.0.8`."
 
-// spec072FenceAllowedPaths is the complete set of repository paths this lane may change.
-var spec072FenceAllowedPaths = map[string]bool{
-	"specs/SPEC-072-public-product-model.spec.md":                      true,
-	"cmd/backstop/gate_contract_spec072_nongo_test.go":                 true,
-	"cmd/backstop/spec072_contract_fence_test.go":                      true,
-	"plans/PLAN-ISSUE-200-spec072-non-go-contract-signatures.plan.yml": true,
-	"issues/ISSUE-200-spec072-non-go-contract-signatures.issue.md":     true,
+// spec072FenceAllowedPaths returns the complete set of repository paths this lane may
+// change.
+func spec072FenceAllowedPaths() map[string]bool {
+	return map[string]bool{
+		"specs/SPEC-072-public-product-model.spec.md":                      true,
+		"cmd/backstop/gate_contract_spec072_nongo_test.go":                 true,
+		"cmd/backstop/spec072_contract_fence_test.go":                      true,
+		"plans/PLAN-ISSUE-200-spec072-non-go-contract-signatures.plan.yml": true,
+		"issues/ISSUE-200-spec072-non-go-contract-signatures.issue.md":     true,
+	}
 }
 
-// spec072FenceWaiverProse names the tracked files that legitimately QUOTE a
+// spec072FenceWaiverProse returns the tracked files that legitimately QUOTE a
 // contract_signature-keyed waiver token without applying one. The single entry is the
 // agent-memory note recording the empirical finding that such a token is a no-op for this
 // rule — documentation of why the workaround does not exist, not the workaround. It
 // predates this lane (present at the origin/main merge base) and is prose, not an
 // enforcement surface.
-var spec072FenceWaiverProse = map[string]bool{
-	".claude/agent-memory/implementer/project_contract_signature_unwaivable.md": true,
+func spec072FenceWaiverProse() map[string]bool {
+	return map[string]bool{
+		".claude/agent-memory/implementer/project_contract_signature_unwaivable.md": true,
+	}
 }
 
 // spec072FenceGoSourcesField matches a Go STRUCT FIELD declaration of the shape the
@@ -282,11 +291,12 @@ func TestGate_SPEC073ConsumeGraphResolvesAfterSpec072ContractConversion(t *testi
 	for _, edge := range downstream {
 		scopeFiles = append(scopeFiles, edge.source)
 	}
-	spec072ProbeRequireNoContractViolation(t,
-		spec072ProbeStep(t, root, scopeFiles...),
-		"canonical_product_model",
-		"legacy_content_disposition_inventory",
-	)
+	result := spec072ProbeStep(t, root, scopeFiles...)
+	for _, violation := range spec072ProbeViolationsNaming(result,
+		"canonical_product_model", "legacy_content_disposition_inventory") {
+		t.Errorf("gating SPEC-073's contract scope raised %s: file=%s message=%s",
+			gate.StepContractSignature, violation.File, violation.Message)
+	}
 
 	// 3. SPEC-073 validates clean through the artifact validation path.
 	if violations := spec072FenceValidateArtifact(t, spec073Path); len(violations) != 0 {
@@ -333,15 +343,16 @@ func TestArtifact_Spec072ContractConversionContainsNoForbiddenWorkarounds(t *tes
 	// --- SPEC-072's contract block: no provides for the five, a consumes for each. ---
 	spec072Path := filepath.Join(root, "specs", "SPEC-072-public-product-model.spec.md")
 	spec072 := spec072FenceParseFrontmatter(t, spec072Path)
+	converted := spec072FenceSymbols()
 	for _, contract := range spec072.Contracts {
 		for _, item := range contract.Provides {
-			if _, converted := spec072FenceSymbols[item.Name]; converted {
+			if _, isConverted := converted[item.Name]; isConverted {
 				t.Errorf("SPEC-072 still declares %s as a provides over %s (signature %q); it must be a consumes of %s",
 					item.Name, contract.File, item.Signature, spec072FenceVerifier)
 			}
 		}
 	}
-	for symbol, file := range spec072FenceSymbols {
+	for symbol, file := range converted {
 		if !spec072FenceHasConsume(spec072, spec072FenceVerifier, symbol, "variable") {
 			t.Errorf("SPEC-072 does not declare %s (over %s) as a consumes of %s with kind variable", symbol, file, spec072FenceVerifier)
 		}
@@ -373,7 +384,7 @@ func TestArtifact_Spec072ContractConversionContainsNoForbiddenWorkarounds(t *tes
 	}
 
 	// --- No injected sources[]-bearing comment in the five non-Go files. ---
-	for _, rel := range spec072FenceNonGoFiles {
+	for _, rel := range spec072FenceNonGoFiles() {
 		for number, line := range strings.Split(spec072FenceReadFile(t, filepath.Join(root, rel)), "\n") {
 			trimmed := strings.TrimSpace(line)
 			isComment := strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "%%")
@@ -396,9 +407,10 @@ func TestArtifact_Spec072ContractConversionContainsNoForbiddenWorkarounds(t *tes
 	// source file, a config, a spec — reds loudly. The marker is assembled at runtime so
 	// this file is not itself a carrier.
 	marker := "@" + "waiver:" + gate.StepContractSignature
+	prose := spec072FenceWaiverProse()
 	for _, path := range tracked {
 		slashed := filepath.ToSlash(path)
-		if spec072FenceWaiverProse[slashed] {
+		if prose[slashed] {
 			continue
 		}
 		if strings.Contains(spec072FenceReadFile(t, filepath.Join(root, path)), marker) {
@@ -420,8 +432,9 @@ func TestArtifact_Spec072ContractConversionContainsNoForbiddenWorkarounds(t *tes
 		t.Log("no merge base against origin/main resolved; the always-running state floor above is the whole fence for this run")
 		return
 	}
+	allowed := spec072FenceAllowedPaths()
 	for _, path := range changed {
-		if !spec072FenceAllowedPaths[filepath.ToSlash(path)] {
+		if !allowed[filepath.ToSlash(path)] {
 			t.Errorf("this lane changed %s, which is outside the permitted path set %v", path, spec072FenceSortedAllowedPaths())
 		}
 	}
@@ -437,8 +450,9 @@ func spec072FenceReadFile(t *testing.T, path string) string {
 }
 
 func spec072FenceSortedAllowedPaths() []string {
-	paths := make([]string, 0, len(spec072FenceAllowedPaths))
-	for path := range spec072FenceAllowedPaths {
+	allowed := spec072FenceAllowedPaths()
+	paths := make([]string, 0, len(allowed))
+	for path := range allowed {
 		paths = append(paths, path)
 	}
 	sort.Strings(paths)

@@ -38,16 +38,18 @@ func spec072ProbeEntries(t *testing.T, root string) []gate.ContractEntry {
 	return entries
 }
 
-// spec072ProbeRequireNoEntryNamed fails when the extracted contract set still carries a
-// provides-derived entry for symbol name.
-func spec072ProbeRequireNoEntryNamed(t *testing.T, entries []gate.ContractEntry, name string) {
-	t.Helper()
+// spec072ProbeEntriesNamed returns every extracted entry carrying the given symbol name.
+// A non-empty result IS the defect: extraction reads `provides` only, so a surviving entry
+// means the symbol is still declared as a machine-probed promise over a file that can never
+// satisfy a Go ast-grep pattern.
+func spec072ProbeEntriesNamed(entries []gate.ContractEntry, name string) []gate.ContractEntry {
+	var matched []gate.ContractEntry
 	for _, entry := range entries {
 		if entry.Name == name {
-			t.Errorf("contract extraction still yields a provides entry for %s over %s (signature %q); a non-Go file cannot satisfy a Go ast-grep pattern, so the entry must be declared as a consumes of scripts/verify-public-product-model.sh",
-				entry.Name, entry.File, entry.Signature)
+			matched = append(matched, entry)
 		}
 	}
+	return matched
 }
 
 // spec072ProbeStep runs the PRODUCTION contract gate step — buildContractStep ->
@@ -62,28 +64,29 @@ func spec072ProbeStep(t *testing.T, root string, files ...string) gate.StepResul
 		t.Fatalf("computing file-mode gate scope over %v: %v", files, err)
 	}
 	step := buildContractStep(filepath.Join(root, "specs"), root, scope)
-	return step(context.Background())
+	result := step(context.Background())
+	if result.ConfigErr {
+		t.Fatalf("contract step over %v reported a config error rather than a verdict: %+v", files, result.Violations)
+	}
+	return result
 }
 
-// spec072ProbeRequireNoContractViolation fails when the step result carries a
-// contract_signature violation whose File or Message names any of the given needles.
-func spec072ProbeRequireNoContractViolation(t *testing.T, result gate.StepResult, needles ...string) {
-	t.Helper()
-	if result.ConfigErr {
-		t.Fatalf("contract step reported a config error rather than a verdict: %+v", result.Violations)
-	}
+// spec072ProbeViolationsNaming returns the contract_signature violations in a step result
+// whose File or Message names any of the given needles.
+func spec072ProbeViolationsNaming(result gate.StepResult, needles ...string) []gate.Violation {
+	var matched []gate.Violation
 	for _, violation := range result.Violations {
 		if violation.Rule != gate.StepContractSignature {
 			continue
 		}
 		for _, needle := range needles {
 			if strings.Contains(violation.Message, needle) || strings.Contains(violation.File, needle) {
-				t.Errorf("contract step raised %s naming %q: file=%s message=%s",
-					gate.StepContractSignature, needle, violation.File, violation.Message)
+				matched = append(matched, violation)
 				break
 			}
 		}
 	}
+	return matched
 }
 
 // spec072ProbeControlProvesPackIsLive is the no-vacuous-green control. An absent
@@ -145,15 +148,19 @@ func spec072ProbeControlProvesPackIsLive(t *testing.T, root string) {
 // legacy_content_disposition_inventory.
 func TestGate_ContentInventoryContractSignatureProbeClears(t *testing.T) {
 	root := repoRoot(t)
-
 	spec072ProbeControlProvesPackIsLive(t, root)
-	spec072ProbeRequireNoEntryNamed(t, spec072ProbeEntries(t, root), "legacy_content_disposition_inventory")
-	spec072ProbeRequireNoContractViolation(t,
-		spec072ProbeStep(t, root, "docs/_data/content-inventory.yml"),
-		"legacy_content_disposition_inventory",
-		"docs/_data/content-inventory.yml",
-		"sources[]",
-	)
+
+	for _, entry := range spec072ProbeEntriesNamed(spec072ProbeEntries(t, root), "legacy_content_disposition_inventory") {
+		t.Errorf("contract extraction still yields a provides entry for %s over %s (signature %q); a non-Go file cannot satisfy a Go ast-grep pattern, so the entry must be a consumes of scripts/verify-public-product-model.sh",
+			entry.Name, entry.File, entry.Signature)
+	}
+
+	result := spec072ProbeStep(t, root, "docs/_data/content-inventory.yml")
+	for _, violation := range spec072ProbeViolationsNaming(result,
+		"legacy_content_disposition_inventory", "docs/_data/content-inventory.yml", "sources[]") {
+		t.Errorf("gating docs/_data/content-inventory.yml raised %s: file=%s message=%s",
+			gate.StepContractSignature, violation.File, violation.Message)
+	}
 }
 
 // TestGate_ProductModelContractSignatureProbeClears is CLM-003: gating
@@ -161,24 +168,26 @@ func TestGate_ContentInventoryContractSignatureProbeClears(t *testing.T) {
 // canonical_product_model.
 func TestGate_ProductModelContractSignatureProbeClears(t *testing.T) {
 	root := repoRoot(t)
-
 	spec072ProbeControlProvesPackIsLive(t, root)
 
-	entries := spec072ProbeEntries(t, root)
-	spec072ProbeRequireNoEntryNamed(t, entries, "canonical_product_model")
 	const proseSignature = "concepts[] + architecture_views[] + boundaries[state|explanation_markdown|continuation|guarantee_denial_markdown]"
+	entries := spec072ProbeEntries(t, root)
+	for _, entry := range spec072ProbeEntriesNamed(entries, "canonical_product_model") {
+		t.Errorf("contract extraction still yields a provides entry for %s over %s (signature %q); a non-Go file cannot satisfy a Go ast-grep pattern, so the entry must be a consumes of scripts/verify-public-product-model.sh",
+			entry.Name, entry.File, entry.Signature)
+	}
 	for _, entry := range entries {
 		if entry.Signature == proseSignature {
 			t.Errorf("contract extraction still yields the prose product-model signature %q on %s", proseSignature, entry.File)
 		}
 	}
 
-	spec072ProbeRequireNoContractViolation(t,
-		spec072ProbeStep(t, root, "docs/_data/product-model.yml"),
-		"canonical_product_model",
-		"docs/_data/product-model.yml",
-		proseSignature,
-	)
+	result := spec072ProbeStep(t, root, "docs/_data/product-model.yml")
+	for _, violation := range spec072ProbeViolationsNaming(result,
+		"canonical_product_model", "docs/_data/product-model.yml", proseSignature) {
+		t.Errorf("gating docs/_data/product-model.yml raised %s: file=%s message=%s",
+			gate.StepContractSignature, violation.File, violation.Message)
+	}
 }
 
 // TestGate_ArchitectureDiagramContractSignatureProbeClearsOnEdit is CLM-005: gating any of
@@ -199,14 +208,20 @@ func TestGate_ArchitectureDiagramContractSignatureProbeClearsOnEdit(t *testing.T
 		{"docs/_diagrams/ARCH-002-enforcement-loop.mmd", "enforcement_loop_architecture"},
 		{"docs/_diagrams/ARCH-003-ownership-boundaries.mmd", "ownership_boundaries_architecture"},
 	}
+	if len(diagrams) != 3 {
+		t.Fatalf("architecture diagram table covers %d diagrams, want all 3: a two-of-three assertion would pass against a partial conversion", len(diagrams))
+	}
 	for _, diagram := range diagrams {
 		t.Run(diagram.symbol, func(t *testing.T) {
-			spec072ProbeRequireNoEntryNamed(t, entries, diagram.symbol)
-			spec072ProbeRequireNoContractViolation(t,
-				spec072ProbeStep(t, root, diagram.file),
-				diagram.symbol,
-				diagram.file,
-			)
+			for _, entry := range spec072ProbeEntriesNamed(entries, diagram.symbol) {
+				t.Errorf("contract extraction still yields a provides entry for %s over %s (signature %q); a Mermaid diagram cannot satisfy a Go ast-grep pattern, so the entry must be a consumes of scripts/verify-public-product-model.sh",
+					entry.Name, entry.File, entry.Signature)
+			}
+			result := spec072ProbeStep(t, root, diagram.file)
+			for _, violation := range spec072ProbeViolationsNaming(result, diagram.symbol, diagram.file) {
+				t.Errorf("gating %s raised %s: file=%s message=%s",
+					diagram.file, gate.StepContractSignature, violation.File, violation.Message)
+			}
 		})
 	}
 }
