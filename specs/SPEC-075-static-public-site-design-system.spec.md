@@ -717,7 +717,7 @@ The wordmark is always the Home route and never masquerades as current-page stat
 |---|---|---|---|---|
 | `/` | `home` | What failure does Backstop prevent? | `evidence-cards` | `/evaluate/` |
 | `/evaluate/` | `evaluation` | Your agent already writes the code. | `evidence-cards`, `boundary-callouts` | `/model/` |
-| `/model/` | `model` | How does Backstop turn intent into a trustworthy verdict? | `evidence-cards`, `local-overflow` | `/adopt/` |
+| `/model/` | `model` | How it works | `evidence-cards`, `local-overflow` | `/adopt/` |
 | `/adopt/` | `adoption` | What does a first working adoption require? | `evidence-cards` | `/use-cases/` |
 | `/use-cases/` | `use-cases` | Which problem-oriented adoption path applies? | `evidence-cards`, `boundary-callouts` | `/packs/` |
 | `/packs/` | `ecosystem` | Which maintained pack already owns this standard? | `evidence-cards`, `generated-regions`, `local-overflow` | `/extend/` |
