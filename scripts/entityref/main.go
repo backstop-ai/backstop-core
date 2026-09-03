@@ -123,13 +123,17 @@ func Run(root string, check bool, w io.Writer) error {
 			if string(old) != page {
 				return fmt.Errorf("%s drifted from schema+overlay; run go run ./scripts/entityref", ent.Output)
 			}
-			fmt.Fprintf(w, "entityref: ok %s\n", ent.Output)
+			if _, err := fmt.Fprintf(w, "entityref: ok %s\n", ent.Output); err != nil {
+				return fmt.Errorf("write status: %w", err)
+			}
 			continue
 		}
 		if err := os.WriteFile(out, []byte(page), 0o644); err != nil {
 			return fmt.Errorf("write %s: %w", ent.Output, err)
 		}
-		fmt.Fprintf(w, "entityref: wrote %s from %s\n", ent.Output, schemaSource(ent))
+		if _, err := fmt.Fprintf(w, "entityref: wrote %s from %s\n", ent.Output, schemaSource(ent)); err != nil {
+			return fmt.Errorf("write status: %w", err)
+		}
 	}
 	return nil
 }
