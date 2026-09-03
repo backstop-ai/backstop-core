@@ -29,7 +29,7 @@ func canonicalPresentation() []presentationPage {
 		{Route: "/", PageKind: "home", HeroQuestion: "What failure does Backstop prevent?", Treatments: []string{"evidence-cards"}, NextAction: "/evaluate/"},
 		{Route: "/evaluate/", PageKind: "evaluation", HeroQuestion: "Your agent already writes the code.", Treatments: []string{"evidence-cards", "boundary-callouts"}, NextAction: "/model/"},
 		{Route: "/model/", PageKind: "model", HeroQuestion: "How it works", Treatments: []string{"evidence-cards", "local-overflow"}, NextAction: "/adopt/"},
-		{Route: "/adopt/", PageKind: "adoption", HeroQuestion: "What does a first working adoption require?", Treatments: []string{"evidence-cards"}, NextAction: "/use-cases/"},
+		{Route: "/adopt/", PageKind: "adoption", HeroQuestion: "Try it out.", Treatments: []string{"evidence-cards"}, NextAction: "/use-cases/"},
 		{Route: "/use-cases/", PageKind: "use-cases", HeroQuestion: "Which problem-oriented adoption path applies?", Treatments: []string{"evidence-cards", "boundary-callouts"}, NextAction: "/packs/"},
 		{Route: "/packs/", PageKind: "ecosystem", HeroQuestion: "Which maintained pack already owns this standard?", Treatments: []string{"evidence-cards", "generated-regions", "local-overflow"}, NextAction: "/extend/"},
 		{Route: "/extend/", PageKind: "extension", HeroQuestion: "When should this concern become a pack?", Treatments: []string{"evidence-cards", "boundary-callouts"}, NextAction: "/reference/"},
@@ -191,6 +191,52 @@ func extractAssignSplit(layout, name string) string {
 		return ""
 	}
 	return match[1]
+}
+
+func TestSiteCheck_AdoptionPaperInkChromeIsDeclared(t *testing.T) {
+	layout := readRepoFile(t, "docs/_layouts/default.html")
+	css := readRepoFile(t, "docs/assets/css/site.css")
+
+	paperKinds := map[string]bool{}
+	for _, kind := range strings.Split(extractAssignSplit(layout, "paper_kinds"), ",") {
+		kind = strings.TrimSpace(kind)
+		if kind != "" {
+			paperKinds[kind] = true
+		}
+	}
+	if !paperKinds["adoption"] {
+		t.Fatal("paper-kind list must contain adoption")
+	}
+	if !strings.Contains(layout, `<link rel="stylesheet" href="/assets/css/backstop-tokens.css">`) {
+		t.Fatal("paper branch must link backstop-tokens.css")
+	}
+
+	if !strings.Contains(css, `[data-page-kind="adoption"]`) || !strings.Contains(css, `html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"]`) {
+		t.Fatal("html:has paper remap must include adoption page kind")
+	}
+	usedModelRule := regexp.MustCompile(`\[data-page-kind="adoption"\] #used-the-model[^}]*\{[^}]*\}`)
+	if match := usedModelRule.FindString(css); match == "" || !strings.Contains(match, "border-top") {
+		t.Fatal("adoption #used-the-model must carry border-top")
+	}
+	canonicalRule := regexp.MustCompile(`\[data-page-kind="adoption"\] \.canonical-note[^}]*\{[^}]*\}`)
+	if match := canonicalRule.FindString(css); match == "" || !strings.Contains(match, "clip:") || strings.Contains(match, "display: none") {
+		t.Fatal("adoption canonical-note must use clip visually-hidden pattern")
+	}
+
+	media56 := extractMediaBlock(css, "max-width: 56rem")
+	if !strings.Contains(media56, `[data-page-kind="home"] .nav `) || !strings.Contains(media56, `[data-page-kind="home"] .nav-links`) {
+		t.Fatal("56rem media block must retain legacy home nav rules")
+	}
+
+	adoptionStart := strings.Index(css, `[data-page-kind="adoption"]`)
+	adoptionEnd := strings.Index(css, `html:has([data-page-kind="evaluation"]`)
+	adoptionBlock := css
+	if adoptionStart >= 0 && adoptionEnd > adoptionStart {
+		adoptionBlock = css[adoptionStart:adoptionEnd]
+	}
+	if regexp.MustCompile(`#[0-9a-fA-F]{3,8}\b`).MatchString(adoptionBlock) {
+		t.Fatal("adoption stylesheet block must not contain raw hex color literals")
+	}
 }
 
 func extractMediaBlock(css, query string) string {

@@ -11,7 +11,6 @@ const journeys = [
   { key: "CAP-007/@UJ-002", jlink: "JLINK-009", first: "/reference/" },
   { key: "CAP-008/@UJ-001", jlink: "JLINK-010", first: "/model/" },
   { key: "CAP-008/@UJ-002", jlink: "JLINK-011", first: "/model/" },
-  { key: "CAP-009/@UJ-001", jlink: "JLINK-012", first: "/adopt/" },
   { key: "CAP-009/@UJ-002", jlink: "JLINK-013", first: "/adopt/" },
   { key: "CAP-010/@UJ-001", jlink: "JLINK-015", first: "/use-cases/" },
   { key: "CAP-010/@UJ-002", jlink: "JLINK-016", first: "/use-cases/" },

@@ -26,8 +26,8 @@ func loadBuiltJourneyMutations(t *testing.T) builtJourneyMutationsFile {
 	if err := yaml.Unmarshal(data, &document); err != nil {
 		t.Fatal(err)
 	}
-	if len(document.JLinkRemovals) != 24 || len(document.JLinkWrongBinds) == 0 || len(document.CAP014Mutations) == 0 {
-		t.Fatal("built-journey-mutations.yml must cover JLINK-001..024 and CAP-014 cases")
+	if len(document.JLinkRemovals) != 23 || len(document.JLinkWrongBinds) == 0 || len(document.CAP014Mutations) == 0 {
+		t.Fatal("built-journey-mutations.yml must cover JLINK-001..024 except JLINK-012 and CAP-014 cases")
 	}
 	return document
 }
@@ -47,8 +47,8 @@ func TestWebsiteJourney_BuiltSiteAllJourneysPass(t *testing.T) {
 	if err := TraverseBuiltJourneys(built, m); err != nil {
 		t.Fatal(err)
 	}
-	if len(m.Journeys) != 22 {
-		t.Fatalf("journey cardinality: got %d, want 22", len(m.Journeys))
+	if len(m.Journeys) != 21 {
+		t.Fatalf("journey cardinality: got %d, want 21", len(m.Journeys))
 	}
 	for _, journey := range m.Journeys {
 		t.Run(journey.GlobalKey, func(t *testing.T) {

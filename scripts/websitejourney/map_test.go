@@ -166,7 +166,7 @@ func TestWebsiteJourney_RejectsInvalidGeneratedObligationMatrix(t *testing.T) {
 }
 
 func expectedJourneyKeys() []string {
-	keys := make([]string, 0, 22)
+	keys := make([]string, 0, 21)
 	for _, journey := range ExpectedWebsiteJourneys() {
 		keys = append(keys, journey.GlobalKey)
 	}

@@ -41,7 +41,7 @@ paths=['/','/evaluate/','/model/','/adopt/','/use-cases/','/packs/','/extend/','
 sources=['docs/index.md','docs/evaluate.md','docs/model.md','docs/adopt.md','docs/use-cases.md','docs/packs.md','docs/extend.md','docs/reference.md','docs/status.md','docs/contributing.md']
 pages=top.get('pages',[])
 if [(x.get('source'),x.get('canonical_path')) for x in pages]!=list(zip(sources,paths)): fail('page inventory must contain exact ten source/path pairs')
-heroes=['What failure does Backstop prevent?','Your agent already writes the code.','How it works','What does a first working adoption require?','Which problem-oriented adoption path applies?','Which maintained pack already owns this standard?','When should this concern become a pack?','What exact interface or behavior do I need?','What is supported, limited, planned, or intentionally outside Backstop?','How can I participate in Backstop and its ecosystem?']
+heroes=['What failure does Backstop prevent?','Your agent already writes the code.','How it works','Try it out.','Which problem-oriented adoption path applies?','Which maintained pack already owns this standard?','When should this concern become a pack?','What exact interface or behavior do I need?','What is supported, limited, planned, or intentionally outside Backstop?','How can I participate in Backstop and its ecosystem?']
 for page,hero in zip(pages,heroes):
  if page.get('hero_question')!=hero: fail(page.get('source','page')+': hero_question')
 presentation_pages=presentation.get('pages',[])
@@ -68,12 +68,12 @@ for n in ns:
 if set(assigned)!={n['neighborhood_id'] for n in ns}: fail('unknown page neighborhood ID: '+','.join(sorted(set(assigned)-{n['neighborhood_id'] for n in ns})))
 if top.get('navigation')!={'primary':['/evaluate/','/model/','/adopt/','/use-cases/','/packs/','/extend/','/reference/'],'utility':['/status/','/contributing/']}: fail('navigation membership/order')
 links=top.get('journey_links',[])
-exact_ids(links,'link_id',[f'JLINK-{i:03}' for i in range(1,25)],'journey link')
+exact_ids(links,'link_id',['JLINK-001','JLINK-002','JLINK-003','JLINK-004','JLINK-005','JLINK-006','JLINK-007','JLINK-008','JLINK-009','JLINK-010','JLINK-011','JLINK-013','JLINK-014','JLINK-015','JLINK-016','JLINK-017','JLINK-018','JLINK-019','JLINK-020','JLINK-021','JLINK-022','JLINK-023','JLINK-024'],'journey link')
 edge_specs=[
-('/','define-work','/evaluate/','failure-fit'),('/evaluate/','working-state','/model/','operating-model'),('/use-cases/','choose-use-case','/evaluate/','fit-decision'),('/evaluate/','fit-decision','/adopt/','install'),('/model/','product-category','/status/','adjacent-guidance'),('/model/','gates-and-policy','/status/','supported-and-limited'),('/status/','boundary-states','/model/','ownership-boundaries'),('/model/','harness-integration','/reference/','compatibility'),('/reference/','compatibility','/status/','adjacent-guidance'),('/model/','operating-model','/reference/','artifact-schema-catalog'),('/model/','ownership-boundaries','/status/','project-boundaries'),('/adopt/','install','/reference/','configuration'),('/adopt/','verify-enforcement','/model/','enforcement-loop'),('/model/','enforcement-loop','/reference/','gate'),('/use-cases/','choose-use-case','/adopt/','adoption-paths'),('/use-cases/','pack-backed-use-cases','/packs/','choose-a-pack'),('/packs/','installed-pack-catalog','/reference/','pack-commands'),('/packs/','choose-a-pack','/status/','pack-direction'),('/extend/','pack-or-not','/reference/','pack-artifact'),('/extend/','author-a-pack','/contributing/','contribution-paths'),('/model/','provenance-and-verification','/reference/','source-traceability'),('/packs/','installed-pack-catalog','/reference/','cli-command-catalog'),('/reference/','cli-command-catalog','/status/','release-history'),('/status/','adjacent-guidance','/contributing/','external-ownership')]
+('/','define-work','/evaluate/','failure-fit'),('/evaluate/','working-state','/model/','operating-model'),('/use-cases/','choose-use-case','/evaluate/','fit-decision'),('/evaluate/','fit-decision','/adopt/','install'),('/model/','product-category','/status/','adjacent-guidance'),('/model/','gates-and-policy','/status/','supported-and-limited'),('/status/','boundary-states','/model/','ownership-boundaries'),('/model/','harness-integration','/reference/','compatibility'),('/reference/','compatibility','/status/','adjacent-guidance'),('/model/','operating-model','/reference/','artifact-schema-catalog'),('/model/','ownership-boundaries','/status/','project-boundaries'),('/adopt/','verify-enforcement','/model/','enforcement-loop'),('/model/','enforcement-loop','/reference/','gate'),('/use-cases/','choose-use-case','/adopt/','adoption-paths'),('/use-cases/','pack-backed-use-cases','/packs/','choose-a-pack'),('/packs/','installed-pack-catalog','/reference/','pack-commands'),('/packs/','choose-a-pack','/status/','pack-direction'),('/extend/','pack-or-not','/reference/','pack-artifact'),('/extend/','author-a-pack','/contributing/','contribution-paths'),('/model/','provenance-and-verification','/reference/','source-traceability'),('/packs/','installed-pack-catalog','/reference/','cli-command-catalog'),('/reference/','cli-command-catalog','/status/','release-history'),('/status/','adjacent-guidance','/contributing/','external-ownership')]
 actual_edges=[(x.get('source_route'),x.get('source_anchor'),x.get('destination_route'),x.get('destination_anchor')) for x in links]
 if actual_edges!=edge_specs or any(not x.get('label') for x in links): fail('exact JLINK edge matrix')
-link_labels=['Evaluate the failure fit','See the operating model','Check the fit decision','Install Backstop','Find adjacent guidance','Review support and limits','See ownership boundaries','Check compatibility details','Follow compatibility guidance','Inspect artifact schemas','Review project boundaries','Configure Backstop','Understand the enforcement loop','Read the gate reference','Choose an adoption path','Choose a maintained pack','Use pack commands','Review pack direction','Inspect the pack artifact','Contribute the pack','Trace the sources','Browse the CLI catalog','Check release history','Continue outside Backstop']
+link_labels=['Evaluate the failure fit','See the operating model','Check the fit decision','Install Backstop','Find adjacent guidance','Review support and limits','See ownership boundaries','Check compatibility details','Follow compatibility guidance','Inspect artifact schemas','Review project boundaries','Understand the enforcement loop','Read the gate reference','Choose an adoption path','Choose a maintained pack','Use pack commands','Review pack direction','Inspect the pack artifact','Contribute the pack','Trace the sources','Browse the CLI catalog','Check release history','Continue outside Backstop']
 for link,label in zip(links,link_labels):
  if link.get('label')!=label: fail(link.get('link_id','JLINK')+': exact label')
 instructions=top.get('adoption_instructions',[])
@@ -400,11 +400,20 @@ allowances={
  'Core owns execution and lifecycle primitives. Packs own standards and engines. Harnesses own orchestration. External toolchains own their behavior. The authoritative boundary view is `docs/_diagrams/ARCH-003-ownership-boundaries.mmd`.':'architecture-source identification',
  '<div class="canonical-anchors" markdown="1">':'canonical claim anchors'},
 'docs/adopt.md':{
- 'Start in a disposable repository, prove one gate, and only then widen the policy surface. A first adoption needs Go, Git, an explicit project root, and a standard worth making non-negotiable.':'adoption instruction',
- 'Install the exact released binary into the disposable repository rather than relying on a machine-global copy.':'adoption instruction',
- 'Initialize the repository-owned declaration.':'adoption instruction',
- 'Inspect the created `backstop.yml`, select a maintained pack, and keep the pinned declaration in version control.':'adoption instruction',
- 'Run the gate from the repository root.':'adoption instruction'},
+ 'Pin the released binary in the repository.':'visitor adoption guide',
+ 'Backstop configuration lives with the code. Init writes the repository files later clones restore.':'visitor adoption guide',
+ 'Install a pack appropriate for the repository\'s stack. [Choose a pack](/pack/examples/#choose-a-pack).':'visitor adoption guide',
+ 'Run:':'visitor adoption guide',
+ '<pre><code>backstop baseline</code></pre>':'visitor adoption guide',
+ 'Review what Backstop finds. Do not fix anything yet.':'visitor adoption guide',
+ 'Pick a known bug in the repository. You already understand it, so you can judge whether the issue and plan capture the work.':'visitor adoption guide',
+ 'Bounded work uses issue → plan. This is the normal path for a bug, a follow-on, or a small fix.':'visitor adoption guide',
+ '<ul class="eval-list">\n<li>Create an issue.</li>\n<li>Create a plan for the issue.</li>\n<li>Run the artifact reviewers and deterministic validators.</li>\n<li>Resolve findings until the artifacts pass.</li>\n</ul>':'visitor adoption guide',
+ 'Assign the approved plan to an implementer agent. The agent executes the plan, runs required gates as it works, and fixes failures before proceeding.':'visitor adoption guide',
+ 'Stop before merge.':'visitor adoption guide',
+ 'Use the complete workflow, or only the parts you need.':'visitor adoption closer',
+ '<div class="canonical-note">':'canonical source note',
+ '</div>':'canonical source note'},
 'docs/use-cases.md':{
  'Start from the failure you need to prevent: policy drift, unreviewable agent output, inconsistent artifact execution, or a standard that exists only in prose. Then choose the smallest enforceable seam.':'visitor decision guidance',
  'Use a maintained pack when the concern is shared, repeatable, and already has an owner. Compose packs for architecture, language contracts, CI, security, or repository conventions instead of copying their rules into prompts.':'visitor decision guidance'},
