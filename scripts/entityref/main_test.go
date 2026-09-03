@@ -317,15 +317,19 @@ func TestEntityRef_AlsoLinksResolveToLandedRoutes(t *testing.T) {
 		}
 	}
 	pack := entityByID(overlay, "pack")
+	got := map[string]bool{}
 	for _, link := range pack.Also {
-		if strings.HasPrefix(link.Href, "/pack/guide/") || strings.HasPrefix(link.Href, "/pack/examples/") {
-			t.Fatalf("pack must not link ISSUE-198 routes at this landing: %s", link.Href)
+		got[link.Href] = true
+	}
+	for _, href := range []string{"/pack/examples/", "/pack/guide/"} {
+		if !got[href] {
+			t.Fatalf("pack also-links must include %s", href)
 		}
 	}
 }
 
 func canonicalRoutesForTest() []string {
-	return []string{"/", "/evaluate/", "/model/", "/adopt/", "/use-cases/", "/packs/", "/extend/", "/reference/", "/status/", "/contributing/"}
+	return []string{"/", "/evaluate/", "/model/", "/adopt/", "/use-cases/", "/pack/examples/", "/pack/guide/", "/reference/", "/status/", "/contributing/"}
 }
 
 func extraLinkableRoutesForTest() []string {

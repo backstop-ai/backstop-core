@@ -94,17 +94,8 @@ func journeyLinkIDs() []string {
 	return []string{"JLINK-001", "JLINK-002", "JLINK-003", "JLINK-004", "JLINK-005", "JLINK-006", "JLINK-007", "JLINK-008", "JLINK-009", "JLINK-010", "JLINK-011", "JLINK-013", "JLINK-014", "JLINK-015", "JLINK-016", "JLINK-020", "JLINK-021", "JLINK-023", "JLINK-024"}
 }
 
-func packFleetCurrent(route string) bool {
-	switch route {
-	case "/pack/", "/pack/guide/", "/pack/examples/":
-		return true
-	default:
-		return false
-	}
-}
-
 func primaryNavigation() []string {
-	return []string{"/evaluate/", "/model/", "/adopt/", "/pack/"}
+	return []string{"/evaluate/", "/model/", "/adopt/", "/pack/", "/pack/examples/", "/pack/guide/"}
 }
 
 func utilityNavigation() []string {
@@ -130,6 +121,10 @@ func navigationLabel(route string) string {
 		return "Adopt"
 	case "/pack/":
 		return "Pack"
+	case "/pack/examples/":
+		return "Published packs"
+	case "/pack/guide/":
+		return "Guide"
 	case "/use-cases/":
 		return "Use Cases"
 	case "/reference/":
@@ -225,7 +220,7 @@ func verifyRouteDocument(route string, page PresentationPage, doc string) []Find
 		if count < 1 {
 			findings = append(findings, Finding{Phase: "navigation", Identity: route + " -> " + destination, Expected: "present", Observed: "missing"})
 		}
-		if route == destination || (destination == "/pack/" && packFleetCurrent(route)) {
+		if route == destination {
 			currentExpected = 1
 		}
 	}

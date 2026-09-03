@@ -24,10 +24,10 @@ func writeTestFile(t *testing.T, path, content string) {
 
 func syntheticDocument(page presentationPage) string {
 	var primary, utility strings.Builder
-	labels := map[string]string{"/evaluate/": "Evaluate", "/model/": "Model", "/adopt/": "Adopt", "/pack/": "Pack", "/contributing/": "Contributing"}
+	labels := map[string]string{"/evaluate/": "Evaluate", "/model/": "Model", "/adopt/": "Adopt", "/pack/": "Pack", "/pack/examples/": "Published packs", "/pack/guide/": "Guide", "/contributing/": "Contributing"}
 	for _, destination := range primaryNavigation() {
 		current := ""
-		if page.Route == destination || (destination == "/pack/" && packFleetCurrent(page.Route)) {
+		if page.Route == destination {
 			current = ` aria-current="page"`
 		}
 		fmt.Fprintf(&primary, `<a href="%s"%s>%s</a>`, destination, current, labels[destination])
@@ -126,7 +126,7 @@ func TestSiteCheck_CanonicalRouteMatrixPasses(t *testing.T) {
 
 func TestSiteCheck_RouteCatalogsAreImmutableAndExhaustive(t *testing.T) {
 	wantRoutes := []string{"/", "/evaluate/", "/model/", "/adopt/", "/use-cases/", "/pack/examples/", "/pack/guide/", "/reference/", "/status/", "/contributing/"}
-	wantPrimary := []string{"/evaluate/", "/model/", "/adopt/", "/pack/"}
+	wantPrimary := []string{"/evaluate/", "/model/", "/adopt/", "/pack/", "/pack/examples/", "/pack/guide/"}
 	wantUtility := []string{"/contributing/"}
 	wantRedirects := map[string]string{"getting-started.html": "/adopt/", "concepts.html": "/model/", "artifact-workflow.html": "/model/", "cli-reference.html": "/reference/"}
 
@@ -171,15 +171,15 @@ func TestSiteCheck_RouteCatalogsAreImmutableAndExhaustive(t *testing.T) {
 	}
 }
 
-func TestSiteCheck_PackFleetCurrentPredicate(t *testing.T) {
-	for _, route := range []string{"/pack/", "/pack/guide/", "/pack/examples/"} {
-		if !packFleetCurrent(route) {
-			t.Fatalf("packFleetCurrent(%q) = false, want true", route)
+func TestSiteCheck_PackFleetRoutesArePrimaryNavigation(t *testing.T) {
+	for _, route := range []string{"/pack/", "/pack/examples/", "/pack/guide/"} {
+		if !containsString(primaryNavigation(), route) {
+			t.Fatalf("primaryNavigation missing pack fleet route %q", route)
 		}
 	}
-	for _, route := range []string{"/pack/examplesx/", "/packs/", "/extend/", "/reference/", "/"} {
-		if packFleetCurrent(route) {
-			t.Fatalf("packFleetCurrent(%q) = true, want false", route)
+	for _, route := range []string{"/pack/examplesx/", "/packs/", "/extend/"} {
+		if containsString(primaryNavigation(), route) {
+			t.Fatalf("primaryNavigation includes retired pack route %q", route)
 		}
 	}
 }

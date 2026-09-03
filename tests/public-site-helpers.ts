@@ -17,7 +17,7 @@ const focusableSelector = [
 
 const primaryNavigation = [
   ["Evaluate", "/evaluate/"], ["Model", "/model/"], ["Adopt", "/adopt/"],
-  ["Pack", "/pack/"],
+  ["Pack", "/pack/"], ["Published packs", "/pack/examples/"], ["Guide", "/pack/guide/"],
 ] as const;
 
 const utilityNavigation = [
@@ -288,7 +288,7 @@ export async function assertKeyboardOrderAndBounds(page: Page, route: string): P
   for (const identity of expectedCanonicalFocusOrder) {
     expect(seenCanonical.filter((candidate) => candidate === identity), `${route} keyboard encounter ${identity}`).toHaveLength(1);
   }
-  expect(seenCanonical, `${route} ordered Home + 4 primary + 1 utility keyboard traversal`).toEqual(expectedCanonicalFocusOrder);
+  expect(seenCanonical, `${route} ordered Home + 6 primary + 1 utility keyboard traversal`).toEqual(expectedCanonicalFocusOrder);
 }
 
 export async function assertLocalOverflow(page: Page, route: string): Promise<void> {
