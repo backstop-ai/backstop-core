@@ -1650,10 +1650,11 @@ html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kin
   }
   .site-nav-input:not(:checked) ~ .navigation-groups { display: none; }
   .site-nav-input:checked ~ .navigation-groups {
-    display: flex; flex-direction: column; position: absolute; z-index: 5;
-    top: calc(100% + 0.45rem); right: 0; min-width: 12.5rem; width: max-content; max-width: calc(100vw - 2rem);
+    display: flex; flex-direction: column; position: absolute; z-index: 5; box-sizing: border-box;
+    top: calc(100% + 0.45rem); right: 0; left: auto;
+    width: min(12.5rem, calc(100vw - 2rem)); min-width: 0; max-width: calc(100vw - 2rem);
     padding: 0.85rem 1rem; border: 1px solid var(--ds-border, var(--color-line)); border-radius: 0.45rem;
-    background: var(--ds-surface, var(--color-surface));
+    background: var(--ds-surface, var(--color-surface)); overflow-wrap: anywhere;
   }
   .site-nav-input:checked ~ .navigation-groups nav { display: flex; flex-direction: column; gap: 0.65rem; }
   [data-page-kind="model"] .decomp-set,
@@ -1674,7 +1675,8 @@ html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kin
   .home-gate-results span:nth-child(odd) { border-right: 0; }
   .site-nav-input:not(:checked) ~ .navigation-groups { display: none; }
   .site-nav-input:checked ~ .navigation-groups {
-    display: flex; flex-direction: column; width: max-content; min-width: 12.5rem;
+    display: flex; flex-direction: column; box-sizing: border-box;
+    width: min(12.5rem, calc(100vw - 2rem)); min-width: 0; max-width: calc(100vw - 2rem);
   }
   .site-nav-input:checked ~ .navigation-groups nav {
     display: flex; flex-direction: column; gap: 0.65rem; grid-template-columns: none;
