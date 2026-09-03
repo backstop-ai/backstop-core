@@ -250,6 +250,78 @@ PY
   then rm -rf "$tmp"; echo 'published-false mutation was accepted' >&2; exit 1; fi
   rm -rf "$tmp"
 }
+validate_paper_ink() {
+python3 - "$1" "$2" <<'PY'
+import re,sys
+layout=open(sys.argv[1]).read(); css=open(sys.argv[2]).read()
+assert layout.index('{% assign presentation') < layout.index('<!doctype html>')
+m=re.search(r'paper_kinds = "([^"]+)"',layout)
+assert m and 'reference' in set(m.group(1).split(',')),'paper_kinds must contain reference'
+assert '{% if paper_kinds contains page_kind %}' in layout
+assert layout.index('/assets/css/site.css') < layout.index('/assets/css/backstop-tokens.css')
+for sel in ('[data-page-kind="reference"] .state-index','[data-page-kind="reference"] .state-coupling','[data-page-kind="reference"] .tactics-matrix'):
+ assert sel in css,sel
+assert ':focus-visible' in css and 'prefers-reduced-motion' in css
+if re.search(r'#[0-9a-fA-F]{3,8}\b',css): raise SystemExit('raw hex literal')
+for pat in ('rgb(','rgba(','hsl(','hsla('):
+ if pat in css: raise SystemExit('raw color literal '+pat)
+PY
+}
+verify_reference_paper_ink_chrome() {
+  local layout="$root/docs/_layouts/default.html" css="$root/docs/assets/css/site.css" tmp
+  validate_paper_ink "$layout" "$css"
+  tmp="$(mktemp -d)"; cp "$layout" "$tmp/layout.html"; cp "$css" "$tmp/site.css"
+  python3 - "$tmp/layout.html" <<'PY'
+import re,sys
+p=sys.argv[1]; s=open(p).read()
+open(p,'w').write(re.sub(r'paper_kinds = "[^"]+"','paper_kinds = "evaluation,model,adoption,entity,extension,ecosystem"',s))
+PY
+  if validate_paper_ink "$tmp/layout.html" "$tmp/site.css" 2>/dev/null; then rm -rf "$tmp"; echo 'drop-reference mutation passed' >&2; exit 1; fi
+  rm -rf "$tmp"
+  tmp="$(mktemp -d)"; cp "$layout" "$tmp/layout.html"; cp "$css" "$tmp/site.css"
+  sed -i 's/{% if paper_kinds contains page_kind %}//g; s/{% endif %}//g' "$tmp/layout.html"
+  if validate_paper_ink "$tmp/layout.html" "$tmp/site.css" 2>/dev/null; then rm -rf "$tmp"; echo 'unguarded-tokens mutation passed' >&2; exit 1; fi
+  rm -rf "$tmp"
+  tmp="$(mktemp -d)"; cp "$layout" "$tmp/layout.html"; cp "$css" "$tmp/site.css"
+  python3 - "$tmp/site.css" <<'PY'
+import sys
+p=sys.argv[1]; s=open(p).read()
+start=s.index('[data-page-kind="reference"] .state-index')
+end=s.index('[data-page-kind="reference"] .state-coupling')
+open(p,'w').write(s[:start]+s[end:])
+PY
+  if validate_paper_ink "$tmp/layout.html" "$tmp/site.css" 2>/dev/null; then rm -rf "$tmp"; echo 'delete-state-index mutation passed' >&2; exit 1; fi
+  rm -rf "$tmp"
+  tmp="$(mktemp -d)"; cp "$layout" "$tmp/layout.html"; cp "$css" "$tmp/site.css"
+  echo 'html { color: #ff0000; }' >> "$tmp/site.css"
+  if validate_paper_ink "$tmp/layout.html" "$tmp/site.css" 2>/dev/null; then rm -rf "$tmp"; echo 'hex-literal mutation passed' >&2; exit 1; fi
+  rm -rf "$tmp"
+}
+verify_reference_paper_ink_preserves_home_navigation() {
+python3 - "$root/docs/assets/css/site.css" <<'PY'
+import sys
+css=open(sys.argv[1]).read()
+assert '[data-page-kind="home"] .nav' in css
+assert '[data-page-kind="home"] .nav-links' in css
+PY
+  local tmp; tmp="$(mktemp -d)"; cp "$root/docs/assets/css/site.css" "$tmp/site.css"
+  python3 - "$tmp/site.css" <<'PY'
+import sys
+p=sys.argv[1]; s=open(p).read()
+for rule in ('[data-page-kind="home"] .nav','[data-page-kind="home"] .nav-links'):
+ s=s.replace(rule,'')
+open(p,'w').write(s)
+PY
+  if python3 - "$tmp/site.css" <<'PY' >/dev/null 2>&1
+import sys
+css=open(sys.argv[1]).read()
+if '[data-page-kind="home"] .nav' not in css and '[data-page-kind="home"] .nav-links' not in css:
+ raise SystemExit(1)
+raise SystemExit(0)
+PY
+  then rm -rf "$tmp"; echo 'home-nav deletion mutation was accepted' >&2; exit 1; fi
+  rm -rf "$tmp"
+}
 python3 - "$root" <<'PY'
 import os,re,subprocess,sys,yaml
 r=sys.argv[1]; top=yaml.safe_load(open(os.path.join(r,'docs/_data/content-topology.yml'))); ev=yaml.safe_load(open(os.path.join(r,'docs/_data/evidence-inventory.yml'))); presentation=yaml.safe_load(open(os.path.join(r,'docs/_data/site-presentation.yml')))
@@ -316,3 +388,5 @@ verify_reference_artifact_lifecycle_state_vocabulary_is_live
 verify_reference_artifact_lifecycle_allowances_are_exact_bytes
 verify_reference_no_missing_route_links
 verify_reference_navigation_roster_is_consistent
+verify_reference_paper_ink_chrome
+verify_reference_paper_ink_preserves_home_navigation
