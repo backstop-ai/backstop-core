@@ -54,6 +54,7 @@ func pageWrappers() map[string]bool {
 	return map[string]bool{
 		"docs/index.md": true, "docs/evaluate.md": true, "docs/model.md": true,
 		"docs/adopt.md": true, "docs/use-cases.md": true, "docs/packs.md": true,
+		"docs/pack/examples.md": true, "docs/pack/guide.md": true,
 		"docs/extend.md": true, "docs/reference.md": true, "docs/status.md": true,
 		"docs/contributing.md": true, "docs/getting-started.md": true,
 		"docs/concepts.md": true, "docs/artifact-workflow.md": true,

@@ -24,10 +24,10 @@ func writeTestFile(t *testing.T, path, content string) {
 
 func syntheticDocument(page presentationPage) string {
 	var primary, utility strings.Builder
-	labels := map[string]string{"/evaluate/": "Evaluate", "/model/": "Model", "/adopt/": "Adopt", "/use-cases/": "Use Cases", "/packs/": "Packs", "/extend/": "Extend", "/reference/": "Reference", "/status/": "Status", "/contributing/": "Contributing"}
+	labels := map[string]string{"/evaluate/": "Evaluate", "/model/": "Model", "/adopt/": "Adopt", "/pack/": "Pack", "/contributing/": "Contributing"}
 	for _, destination := range primaryNavigation() {
 		current := ""
-		if page.Route == destination {
+		if page.Route == destination || (destination == "/pack/" && packFleetCurrent(page.Route)) {
 			current = ` aria-current="page"`
 		}
 		fmt.Fprintf(&primary, `<a href="%s"%s>%s</a>`, destination, current, labels[destination])
@@ -55,10 +55,11 @@ func makeSyntheticSite(t *testing.T) (string, string) {
 	var presentation strings.Builder
 	presentation.WriteString("schema_version: backstop-core/site-presentation/v1\npages:\n")
 	for _, page := range canonicalPresentation() {
-		fmt.Fprintf(&presentation, "  - route: %s\n    page_kind: %s\n    hero_question: %s\n    treatments: [%s]\n    next_action: %s\n", page.Route, page.PageKind, page.HeroQuestion, strings.Join(page.Treatments, ", "), page.NextAction)
+		fmt.Fprintf(&presentation, "  - route: %s\n    page_kind: %s\n    hero_question: %q\n    treatments: [%s]\n    next_action: %s\n", page.Route, page.PageKind, page.HeroQuestion, strings.Join(page.Treatments, ", "), page.NextAction)
 		writeTestFile(t, builtRoutePath(built, page.Route), syntheticDocument(page))
 	}
 	writeTestFile(t, filepath.Join(root, "docs/_data/site-presentation.yml"), presentation.String())
+	writeTestFile(t, builtRoutePath(built, "/pack/"), `<!doctype html><html><body><main id="main" data-page-route="/pack/"><h2 id="target">Pack</h2></main></body></html>`)
 	for alias, destination := range legacyRedirects() {
 		writeTestFile(t, filepath.Join(built, alias), fmt.Sprintf(`<link rel="canonical" href="https://backstop.sh%s"><meta http-equiv="refresh" content="0; url=%s"><a href="%s">Continue</a>`, destination, destination, destination))
 	}
@@ -124,10 +125,10 @@ func TestSiteCheck_CanonicalRouteMatrixPasses(t *testing.T) {
 }
 
 func TestSiteCheck_RouteCatalogsAreImmutableAndExhaustive(t *testing.T) {
-	wantRoutes := []string{"/", "/evaluate/", "/model/", "/adopt/", "/use-cases/", "/packs/", "/extend/", "/reference/", "/status/", "/contributing/"}
-	wantPrimary := []string{"/evaluate/", "/model/", "/adopt/", "/use-cases/", "/packs/", "/extend/", "/reference/"}
-	wantUtility := []string{"/status/", "/contributing/"}
-	wantRedirects := map[string]string{"getting-started.html": "/adopt/", "concepts.html": "/model/", "artifact-workflow.html": "/model/", "pack-authoring.html": "/extend/", "cli-reference.html": "/reference/"}
+	wantRoutes := []string{"/", "/evaluate/", "/model/", "/adopt/", "/use-cases/", "/pack/examples/", "/pack/guide/", "/reference/", "/status/", "/contributing/"}
+	wantPrimary := []string{"/evaluate/", "/model/", "/adopt/", "/pack/"}
+	wantUtility := []string{"/contributing/"}
+	wantRedirects := map[string]string{"getting-started.html": "/adopt/", "concepts.html": "/model/", "artifact-workflow.html": "/model/", "cli-reference.html": "/reference/"}
 
 	assertSlice := func(name string, got, want []string) {
 		t.Helper()
@@ -167,6 +168,19 @@ func TestSiteCheck_RouteCatalogsAreImmutableAndExhaustive(t *testing.T) {
 	redirects["concepts.html"] = "/mutated/"
 	if got := legacyRedirects()["concepts.html"]; got != "/model/" {
 		t.Fatalf("redirect catalog retained caller mutation: %q", got)
+	}
+}
+
+func TestSiteCheck_PackFleetCurrentPredicate(t *testing.T) {
+	for _, route := range []string{"/pack/", "/pack/guide/", "/pack/examples/"} {
+		if !packFleetCurrent(route) {
+			t.Fatalf("packFleetCurrent(%q) = false, want true", route)
+		}
+	}
+	for _, route := range []string{"/pack/examplesx/", "/packs/", "/extend/", "/reference/", "/"} {
+		if packFleetCurrent(route) {
+			t.Fatalf("packFleetCurrent(%q) = true, want false", route)
+		}
 	}
 }
 
@@ -238,6 +252,7 @@ func TestSiteCheck_EntityRoutesAreLinkableAndOutsideCanonicalTopology(t *testing
 	for _, route := range canonicalRoutes() {
 		writeTestFile(t, builtRoutePath(built, route), syntheticDocument(canonicalPresentationPage(route)))
 	}
+	writeTestFile(t, builtRoutePath(built, "/pack/"), `<!doctype html><html><body><main id="main" data-page-route="/pack/"><h2 id="target">Pack</h2></main></body></html>`)
 	writeTestFile(t, builtRoutePath(built, "/issue/"), `<!doctype html><html><body><main data-page-route="/issue/"><h2 id="target">Issue</h2></main></body></html>`)
 	documents, ids, findings := collectBuiltDocuments(built)
 	if len(findings) != 0 {

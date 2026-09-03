@@ -32,7 +32,7 @@ func makeOwnerContractSite(t *testing.T) (string, string) {
 	for _, id := range []string{"ADOPT-INSTALL", "ADOPT-CONFIGURE", "ADOPT-ENFORCE"} {
 		fmt.Fprintf(&content, `<pre data-adoption-instruction-id="%s" data-command-sha256="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"><code>echo ok</code></pre>`, id)
 	}
-	for _, job := range []string{"cli-command-catalog", "artifact-schema-catalog", "installed-pack-catalog", "release-history"} {
+	for _, job := range []string{"cli-command-catalog", "artifact-schema-catalog", "published-pack-catalog", "release-history"} {
 		fmt.Fprintf(&content, `<section data-generated-region="" data-product-truth-job="%s"><a data-generated-source-link data-source-kind="blob" data-source-commit="%s" href="https://github.com/backstop-ai/backstop-core/blob/%s/source">Source</a></section>`, job, ownerTestCommit, ownerTestCommit)
 	}
 	content.WriteString(`</main></html>`)

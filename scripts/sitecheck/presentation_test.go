@@ -29,10 +29,10 @@ func canonicalPresentation() []presentationPage {
 		{Route: "/", PageKind: "home", HeroQuestion: "What failure does Backstop prevent?", Treatments: []string{"evidence-cards"}, NextAction: "/evaluate/"},
 		{Route: "/evaluate/", PageKind: "evaluation", HeroQuestion: "Your agent already writes the code.", Treatments: []string{"evidence-cards", "boundary-callouts"}, NextAction: "/model/"},
 		{Route: "/model/", PageKind: "model", HeroQuestion: "How it works", Treatments: []string{"evidence-cards", "local-overflow"}, NextAction: "/adopt/"},
-		{Route: "/adopt/", PageKind: "adoption", HeroQuestion: "Try it out.", Treatments: []string{"evidence-cards"}, NextAction: "/use-cases/"},
-		{Route: "/use-cases/", PageKind: "use-cases", HeroQuestion: "Which problem-oriented adoption path applies?", Treatments: []string{"evidence-cards", "boundary-callouts"}, NextAction: "/packs/"},
-		{Route: "/packs/", PageKind: "ecosystem", HeroQuestion: "Which maintained pack already owns this standard?", Treatments: []string{"evidence-cards", "generated-regions", "local-overflow"}, NextAction: "/extend/"},
-		{Route: "/extend/", PageKind: "extension", HeroQuestion: "When should this concern become a pack?", Treatments: []string{"evidence-cards", "boundary-callouts"}, NextAction: "/reference/"},
+		{Route: "/adopt/", PageKind: "adoption", HeroQuestion: "Try it out.", Treatments: []string{"evidence-cards"}, NextAction: "/pack/examples/"},
+		{Route: "/use-cases/", PageKind: "use-cases", HeroQuestion: "Which problem-oriented adoption path applies?", Treatments: []string{"evidence-cards", "boundary-callouts"}, NextAction: "/pack/examples/"},
+		{Route: "/pack/examples/", PageKind: "ecosystem", HeroQuestion: "Published packs.", Treatments: []string{"evidence-cards", "generated-regions", "local-overflow"}, NextAction: "/pack/guide/"},
+		{Route: "/pack/guide/", PageKind: "extension", HeroQuestion: "Packs: a guide", Treatments: []string{"evidence-cards", "boundary-callouts"}, NextAction: "/contributing/"},
 		{Route: "/reference/", PageKind: "reference", HeroQuestion: "What exact interface or behavior do I need?", Treatments: []string{"generated-regions", "local-overflow"}, NextAction: "/status/"},
 		{Route: "/status/", PageKind: "status", HeroQuestion: "What is supported, limited, planned, or intentionally outside Backstop?", Treatments: []string{"evidence-cards", "boundary-callouts", "generated-regions", "local-overflow"}, NextAction: "/contributing/"},
 		{Route: "/contributing/", PageKind: "contributing", HeroQuestion: "How can I participate in Backstop and its ecosystem?", Treatments: []string{"boundary-callouts"}, NextAction: "/"},
@@ -65,7 +65,7 @@ func TestSiteCheck_NavigationMatrixPasses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ordered := []string{`href="/evaluate/">Evaluate`, `href="/model/">Model`, `href="/adopt/">Adopt`, `href="/use-cases/">Use Cases`, `href="/packs/">Packs`, `href="/extend/">Extend`, `href="/reference/">Reference`, `href="/status/">Status`, `href="/contributing/">Contributing`}
+	ordered := []string{`href="/evaluate/">Evaluate`, `href="/model/">Model`, `href="/adopt/">Adopt`, `href="/pack/">Pack`, `href="/contributing/">Contributing`}
 	position := -1
 	for _, expected := range ordered {
 		next := strings.Index(string(home), expected)
