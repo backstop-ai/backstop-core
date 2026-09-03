@@ -234,9 +234,9 @@ verify_installed_semantics_gate_dispatches_every_seed1_path() {
 verify_installed_semantics_gate_rejects_vacuous_or_inexact_corpus_scope() { [ "$(printf '%s\n' "$CORPUS" | grep -c .)" -eq 14 ]; }
 verify_installed_semantics_gate_blocks_duplicate_substantive_owner() {
   c=$1/duplicate-owner; make_consumer_copy "$c"
-  printf '\n## Competing compatibility definition {#compatibility}\n\nA second canonical definition in the same document.\n' >> "$c/docs/evaluate.md"
+  printf '\n## Competing working-state definition {#working-state}\n\nA second canonical definition in the same document.\n' >> "$c/docs/evaluate.md"
   if gate_corpus_mutation "$c" "$c/gate.json"; then fail 'duplicate canonical owner passed'; fi
-  assert_contains "$c/gate.json" 'duplicate canonical documentation definition anchor #compatibility'
+  assert_contains "$c/gate.json" 'duplicate canonical documentation definition anchor #working-state'
   assert_contains "$c/gate.json" "$DOC_ID"
   assert_contains "$c/gate.json" 'docs/evaluate.md'
 }
