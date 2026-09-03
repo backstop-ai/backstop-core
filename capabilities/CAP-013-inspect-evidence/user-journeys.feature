@@ -2,7 +2,7 @@ Feature: Inspect the Evidence
 
   @UJ-001
   Scenario: CAP-013/@UJ-001 Trace an evaluation claim to its durable source
-    Given a visitor is at /evaluate/#evidence
+    Given a visitor is at /model/#provenance-and-verification
     When they follow the rendered JLINK-021 next-action link
     Then they arrive at /reference/#source-traceability and can trace an evaluation claim to its durable source
 

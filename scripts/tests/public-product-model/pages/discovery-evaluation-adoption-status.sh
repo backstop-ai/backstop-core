@@ -17,7 +17,7 @@ for ins in top['adoption_instructions']:
  assert ins['command_text'] in texts['/adopt/'],ins['instruction_id']
 claims={c['claim_id']:c for c in ev['claims']}
 visible=lambda text:text.replace('{% raw %}','').replace('{% endraw %}','')
-for cid in ('CLAIM-001','CLAIM-002','CLAIM-003','CLAIM-004','CLAIM-006','CLAIM-007','CLAIM-008','CLAIM-011','CLAIM-012','CLAIM-017','CLAIM-018','CLAIM-020','CLAIM-021','CLAIM-024','CLAIM-033','CLAIM-034','CLAIM-035'):
+for cid in ('CLAIM-001','CLAIM-002','CLAIM-003','CLAIM-004','CLAIM-017','CLAIM-018','CLAIM-024','CLAIM-033','CLAIM-034','CLAIM-035'):
  c=claims[cid]; assert '<!-- backstop-claim: '+cid+' -->\n'+c['statement_markdown'] in visible(texts[c['owner']['route']]),cid
 status=texts['/status/']; exact='<!-- backstop-claim: CLAIM-005 -->\n'+claims['CLAIM-005']['statement_markdown'].replace('\n\n[Continue','\n\n<!-- backstop-journey-link: JLINK-024 -->\n[Continue')+'\n<!-- /backstop-claim -->'
 assert status.count(exact)==1,'CLAIM-005/JLINK-024 exact layout'

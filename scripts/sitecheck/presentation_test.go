@@ -26,7 +26,7 @@ type presentationPage struct {
 func canonicalPresentation() []presentationPage {
 	return []presentationPage{
 		{Route: "/", PageKind: "home", HeroQuestion: "What failure does Backstop prevent?", Treatments: []string{"evidence-cards"}, NextAction: "/evaluate/"},
-		{Route: "/evaluate/", PageKind: "evaluation", HeroQuestion: "Is Backstop the right control surface for this problem?", Treatments: []string{"evidence-cards", "boundary-callouts"}, NextAction: "/model/"},
+		{Route: "/evaluate/", PageKind: "evaluation", HeroQuestion: "Your agent already writes the code.", Treatments: []string{"evidence-cards", "boundary-callouts"}, NextAction: "/model/"},
 		{Route: "/model/", PageKind: "model", HeroQuestion: "How does Backstop turn intent into a trustworthy verdict?", Treatments: []string{"evidence-cards", "local-overflow"}, NextAction: "/adopt/"},
 		{Route: "/adopt/", PageKind: "adoption", HeroQuestion: "What does a first working adoption require?", Treatments: []string{"evidence-cards"}, NextAction: "/use-cases/"},
 		{Route: "/use-cases/", PageKind: "use-cases", HeroQuestion: "Which problem-oriented adoption path applies?", Treatments: []string{"evidence-cards", "boundary-callouts"}, NextAction: "/packs/"},
