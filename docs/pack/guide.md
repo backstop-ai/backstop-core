@@ -24,6 +24,14 @@ Author the pack in its own repository. Do not vendor it into core.
 
 `--type` is `engine`, `mechanism`, or `toolchain`. The scaffold writes a valid `pack.yml`, a sample sandbox validator, and a positive/negative fixture pair that can pass check, test, and the gate.
 
+### Choose a pack type
+
+All three types emit the same valid engine-pack skeleton. The type is the growth path, not a different file format.
+
+- **engine** — the validator executable is the enforcement logic. Choose this when the check is your own script or binary and does not wrap a language toolchain.
+- **mechanism** — wrap one native tool or command as an engine. Choose this when the rule is "run this tool and convert its output."
+- **toolchain** — bundle a language's native build, test, and lint passes as engines. Choose this when the pack owns a stack's verification suite, like `go-toolchain` or `typescript-toolchain`.
+
 ### Understand the layout
 
 The pack is a directory. `pack.yml` sits at the root. Every path in the manifest (`convert`, `validator`, fixture files, `rule_path`) is relative to that directory. A missing file fails `pack check`.

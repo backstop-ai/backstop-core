@@ -66,7 +66,7 @@ for n in ns:
  if nid not in assigned: fail(nid+': unassigned from page.neighborhood_ids')
  if assigned[nid]!=owner: fail(nid+': page.neighborhood_ids owner '+assigned[nid]+' does not match neighborhood owner '+owner)
 if set(assigned)!={n['neighborhood_id'] for n in ns}: fail('unknown page neighborhood ID: '+','.join(sorted(set(assigned)-{n['neighborhood_id'] for n in ns})))
-if top.get('navigation')!={'primary':['/evaluate/','/model/','/adopt/','/pack/'],'utility':['/contributing/']}: fail('navigation membership/order')
+if top.get('navigation')!={'primary':['/evaluate/','/model/','/adopt/','/pack/','/pack/examples/','/pack/guide/'],'utility':['/contributing/']}: fail('navigation membership/order')
 links=top.get('journey_links',[])
 exact_ids(links,'link_id',['JLINK-001','JLINK-002','JLINK-003','JLINK-004','JLINK-005','JLINK-006','JLINK-007','JLINK-008','JLINK-009','JLINK-010','JLINK-011','JLINK-013','JLINK-014','JLINK-015','JLINK-016','JLINK-020','JLINK-021','JLINK-023','JLINK-024'],'journey link')
 edge_specs=[
@@ -424,6 +424,8 @@ allowances={
  'Author the pack in its own repository. Do not vendor it into core.':'author instruction',
  '<pre><code>backstop pack new --type engine --language go --slug my-standard</code></pre>':'author instruction',
  '`--type` is `engine`, `mechanism`, or `toolchain`. The scaffold writes a valid `pack.yml`, a sample sandbox validator, and a positive/negative fixture pair that can pass check, test, and the gate.':'author instruction',
+ 'All three types emit the same valid engine-pack skeleton. The type is the growth path, not a different file format.':'author instruction',
+ '- **engine** — the validator executable is the enforcement logic. Choose this when the check is your own script or binary and does not wrap a language toolchain.\n- **mechanism** — wrap one native tool or command as an engine. Choose this when the rule is "run this tool and convert its output."\n- **toolchain** — bundle a language\'s native build, test, and lint passes as engines. Choose this when the pack owns a stack\'s verification suite, like `go-toolchain` or `typescript-toolchain`.':'author instruction',
  'The pack is a directory. `pack.yml` sits at the root. Every path in the manifest (`convert`, `validator`, fixture files, `rule_path`) is relative to that directory. A missing file fails `pack check`.':'author instruction',
  '`pack new` writes:':'author instruction',
  'Replace the sample in place. A native-tool pack keeps the convert script next to the engine it serves:':'author instruction',
@@ -469,7 +471,7 @@ allowances={
  '<pre><code>backstop pack new --type engine --language go --slug my-standard</code></pre>':'local pack install guidance',
  '<pre><code>backstop pack check ./my-standard</code></pre>':'local pack install guidance',
  '<pre><code>backstop pack test ./my-standard</code></pre>':'local pack install guidance',
- '`--type` is `engine`, `mechanism`, or `toolchain`. Authoring details live in the [guide](/pack/guide/#author-a-pack).':'local pack install guidance',
+ '`--type` is `engine`, `mechanism`, or `toolchain`. [What those types mean, and when to choose](/pack/guide/#choose-a-pack-type). Authoring details live in the [guide](/pack/guide/#author-a-pack).':'local pack install guidance',
  'From the consumer project, add the local path:':'local pack install guidance',
  '<pre><code>backstop pack add ./my-standard</code></pre>':'local pack install guidance',
  'That command validates the directory, copies it into `.backstop/packs/`, pins it as `local` in `backstop.yml`, and writes `backstop.lock`. There is no git tag yet.':'local pack install guidance',

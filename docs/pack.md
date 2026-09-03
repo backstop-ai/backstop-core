@@ -59,4 +59,6 @@ Choose a maintained pack when the concern is shared. Author a pack when it is no
 
 <p class="entity-also">
 <a href="/model/#standards-packs">Operating model</a>
+<a href="/pack/examples/">Published packs</a>
+<a href="/pack/guide/">Pack guide</a>
 </p>

@@ -375,3 +375,5 @@ entities:
       - Choose a maintained pack when the concern is shared. Author a pack when it is not.
     also:
       - {href: /model/#standards-packs, label: Operating model}
+      - {href: /pack/examples/, label: Published packs}
+      - {href: /pack/guide/, label: Pack guide}

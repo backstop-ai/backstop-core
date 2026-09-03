@@ -9,7 +9,9 @@
           <a href="/evaluate/"{% if page.permalink == '/evaluate/' %} aria-current="page"{% endif %}>Evaluate</a>
           <a href="/model/"{% if page.permalink == '/model/' %} aria-current="page"{% endif %}>Model</a>
           <a href="/adopt/"{% if page.permalink == '/adopt/' %} aria-current="page"{% endif %}>Adopt</a>
-          <a href="/pack/"{% if page.permalink == '/pack/' or page.permalink == '/pack/guide/' or page.permalink == '/pack/examples/' %} aria-current="page"{% endif %}>Pack</a>
+          <a href="/pack/"{% if page.permalink == '/pack/' %} aria-current="page"{% endif %}>Pack</a>
+          <a href="/pack/examples/"{% if page.permalink == '/pack/examples/' %} aria-current="page"{% endif %}>Published packs</a>
+          <a href="/pack/guide/"{% if page.permalink == '/pack/guide/' %} aria-current="page"{% endif %}>Guide</a>
         </nav>
         <nav aria-label="Utility">
           <a href="/contributing/"{% if page.permalink == '/contributing/' %} aria-current="page"{% endif %}>Contributing</a>

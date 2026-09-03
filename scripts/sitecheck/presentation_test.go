@@ -65,7 +65,7 @@ func TestSiteCheck_NavigationMatrixPasses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ordered := []string{`href="/evaluate/">Evaluate`, `href="/model/">Model`, `href="/adopt/">Adopt`, `href="/pack/">Pack`, `href="/contributing/">Contributing`}
+	ordered := []string{`href="/evaluate/">Evaluate`, `href="/model/">Model`, `href="/adopt/">Adopt`, `href="/pack/">Pack`, `href="/pack/examples/">Published packs`, `href="/pack/guide/">Guide`, `href="/contributing/">Contributing`}
 	position := -1
 	for _, expected := range ordered {
 		next := strings.Index(string(home), expected)

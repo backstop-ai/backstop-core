@@ -23,7 +23,7 @@ neighborhoods:
   - {neighborhood_id: NBR-011, name: "Project Status / Direction", visitor_question: "Where is the project going?", owner_route: "/status/", required_answer: "Shipped, planned, and excluded."}
   - {neighborhood_id: NBR-012, name: "Contributing / Ecosystem", visitor_question: "How can I participate?", owner_route: "/contributing/", required_answer: "Contribution and ownership paths."}
 navigation:
-  primary: ["/evaluate/", "/model/", "/adopt/", "/pack/"]
+  primary: ["/evaluate/", "/model/", "/adopt/", "/pack/", "/pack/examples/", "/pack/guide/"]
   utility: ["/contributing/"]
 journey_links:
   - {link_id: JLINK-001, source_route: "/", source_anchor: define-work, destination_route: "/evaluate/", destination_anchor: failure-fit, label: "Evaluate the failure fit"}
