@@ -1,16 +1,19 @@
 <header class="site-header">
   <div class="shell header-shell">
     <a class="wordmark" data-backstop-wordmark href="/" aria-label="Backstop home"><span>./b</span><span>backstop</span><span>.sh</span></a>
-    <div class="navigation-groups">
-      <nav aria-label="Primary">
-        <a href="/evaluate/"{% if page.permalink == '/evaluate/' %} aria-current="page"{% endif %}>Evaluate</a>
-        <a href="/model/"{% if page.permalink == '/model/' %} aria-current="page"{% endif %}>Model</a>
-        <a href="/adopt/"{% if page.permalink == '/adopt/' %} aria-current="page"{% endif %}>Adopt</a>
-        <a href="/pack/"{% if page.permalink == '/pack/' or page.permalink == '/pack/guide/' or page.permalink == '/pack/examples/' %} aria-current="page"{% endif %}>Pack</a>
-      </nav>
-      <nav aria-label="Utility">
-        <a href="/contributing/"{% if page.permalink == '/contributing/' %} aria-current="page"{% endif %}>Contributing</a>
-      </nav>
-    </div>
+    <details class="site-nav">
+      <summary class="site-nav-toggle"><span class="visually-hidden">Menu</span><span class="site-nav-bars" aria-hidden="true"></span></summary>
+      <div class="navigation-groups">
+        <nav aria-label="Primary">
+          <a href="/evaluate/"{% if page.permalink == '/evaluate/' %} aria-current="page"{% endif %}>Evaluate</a>
+          <a href="/model/"{% if page.permalink == '/model/' %} aria-current="page"{% endif %}>Model</a>
+          <a href="/adopt/"{% if page.permalink == '/adopt/' %} aria-current="page"{% endif %}>Adopt</a>
+          <a href="/pack/"{% if page.permalink == '/pack/' or page.permalink == '/pack/guide/' or page.permalink == '/pack/examples/' %} aria-current="page"{% endif %}>Pack</a>
+        </nav>
+        <nav aria-label="Utility">
+          <a href="/contributing/"{% if page.permalink == '/contributing/' %} aria-current="page"{% endif %}>Contributing</a>
+        </nav>
+      </div>
+    </details>
   </div>
 </header>

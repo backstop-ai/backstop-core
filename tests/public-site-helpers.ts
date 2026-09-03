@@ -32,7 +32,19 @@ export async function settleLayout(page: Page): Promise<void> {
   await page.waitForTimeout(34);
 }
 
+export async function revealPrimaryNavigation(page: Page): Promise<void> {
+  const toggle = page.locator("summary.site-nav-toggle");
+  if (await toggle.count() === 0) return;
+  const box = await toggle.boundingBox();
+  if (!box || box.width < 1 || box.height < 1) return;
+  const primary = page.locator('nav[aria-label="Primary"]');
+  if (await primary.isVisible()) return;
+  await toggle.click();
+  await expect(primary, "mobile navigation opens from the menu control").toBeVisible();
+}
+
 export async function assertRequiredSurface(page: Page, route: string): Promise<void> {
+  await revealPrimaryNavigation(page);
   const wordmark = page.locator("[data-backstop-wordmark]");
   await expect(wordmark).toBeVisible();
   const wordmarkParts = await wordmark.locator(":scope > span").allTextContents();
@@ -201,6 +213,7 @@ export async function assertContentCompleteness(page: Page, route: string): Prom
 }
 
 export async function assertKeyboardOrderAndBounds(page: Page, route: string): Promise<void> {
+  await revealPrimaryNavigation(page);
   const expectedCanonicalFocusOrder = [
     "Home:/",
     ...primaryNavigation.map(([label, href]) => `Primary:${label}:${href}`),
