@@ -163,6 +163,30 @@ func TestSiteCheck_RejectsCorpusExecutionAndProofSubstitutes(t *testing.T) {
 	}
 }
 
+func TestSiteCheck_HiddenCanonicalAnchorBrowserContractPasses(t *testing.T) {
+	helpers := readRepositoryFile(t, "tests/public-site-helpers.ts")
+	spec := readRepositoryFile(t, "tests/public-site.spec.ts")
+	config := readRepositoryFile(t, "playwright.config.ts")
+	for _, expected := range []string{
+		".canonical-anchors",
+		"rect(0px, 0px, 0px, 0px)",
+		"not visitor-visible",
+		"intent-artifacts",
+		"delivery-lifecycle",
+		"canonical-anchors cardinality",
+	} {
+		if !strings.Contains(helpers, expected) {
+			t.Fatalf("browser helper missing hidden-anchor contract fragment %q", expected)
+		}
+	}
+	if !strings.Contains(config, "public-site.spec.ts") {
+		t.Fatal("playwright testMatch must remain public-site.spec.ts")
+	}
+	if strings.Count(spec, "for (const route of canonicalRoutes)") != 2 {
+		t.Fatal("public-site.spec.ts must iterate canonicalRoutes twice")
+	}
+}
+
 func TestSiteCheck_VerificationPipelinePasses(t *testing.T) {
 	script := readRepositoryFile(t, "scripts/verify-public-site.sh")
 	ordered := []string{"go test ./scripts/sitecheck/... -race -covermode=atomic", "./scripts/verify-documentation-semantics-integration.sh", "./scripts/generate-product-truth.sh --check", "bundle exec jekyll build --source docs --destination", "./scripts/install-design-assets.sh", "go run ./scripts/render-public-site-contracts", "go run ./scripts/sitecheck", "npx playwright test"}

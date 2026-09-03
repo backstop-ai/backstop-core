@@ -14,7 +14,7 @@ func transactionFixture(t *testing.T) (string, []RenderedJob) {
 	t.Helper()
 	root := t.TempDir()
 	jobs := make([]RenderedJob, 4)
-	for i, id := range []string{"cli-command-catalog", "artifact-schema-catalog", "installed-pack-catalog", "release-history"} {
+	for i, id := range []string{"cli-command-catalog", "artifact-schema-catalog", "published-pack-catalog", "release-history"} {
 		output := filepath.ToSlash(filepath.Join(generatedDir, id+".md"))
 		content := []byte("<!-- GENERATED PRODUCT TRUTH | job=" + id + " | fixture -->\nnew\n")
 		jobs[i] = RenderedJob{Job: Job{ID: id, Output: output, Inputs: []string{"fixture"}}, Bytes: content}

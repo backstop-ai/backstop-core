@@ -1,0 +1,2478 @@
+---
+plan_id: PLAN-ISSUE-198
+spec_id: ISSUE-198
+created: "2026-09-02"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "./scripts/verify-public-product-model.sh"
+coverage_threshold: 80
+
+notes: |
+  Contained reactive landing on the issue-to-plan track, sourced from ISSUE-198.
+  It lands the APPROVED pack-authoring visitor page and the smallest lockstep that
+  keeps its links resolvable, replacing the Seed 1 `/extend/` and `/packs/` routes
+  with the approved pack fleet routes `/pack/guide/` and `/pack/examples/`.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  APPROVED IA SUPERSEDES THE ISSUE TEXT — READ THIS FIRST
+  ══════════════════════════════════════════════════════════════════════════════
+  ISSUE-198 was filed against `/extend/` and its "Approved page contract" section
+  names the Seed 1 hero ("When should this concern become a pack?"),
+  `required_blocks [pack-or-not, author-a-pack, path-filter-diagnostics]`, and a
+  retained JLINK-019 to `/reference/#pack-artifact`. After the filing, Brandon
+  approved the pack fleet information architecture. The approved prototype at
+  `0a6010c0e45b290cbacc6713b83d5da4f5704ba9` is authoritative over those specific
+  issue literals. The issue file is NOT edited; the supersession is recorded HERE,
+  literal by literal, and every task below is written against `0a6010c`:
+
+    - `/pack/`         = the noun page (OWNED BY ISSUE-197, not this plan)
+    - `/pack/guide/`   = should this become a pack, and how do I build/publish one?
+                         (THIS plan; approved source `docs/pack/guide.md`)
+    - `/pack/examples/`= which maintained pack to install, how to pin/lock it, how
+                         to try a local pack first (THIS plan, as lockstep)
+
+  SUPERSEDED ISSUE LITERALS — each verified against `0a6010c`, not inferred:
+
+    1. HERO. `When should this concern become a pack?` -> `Packs: a guide`
+       (`docs/pack/guide.md` front matter, `docs/_data/content-topology.yml`,
+       `docs/_data/site-presentation.yml`).
+    2. REQUIRED BLOCKS. `[pack-or-not, author-a-pack, path-filter-diagnostics]` ->
+       `[pack-or-not, author-a-pack, publish-a-pack]`. Path-filter diagnostics is
+       NOT a visitor H2 on the approved page; the section moves to `/reference/`
+       (CLM-007).
+    3. JLINK-019. The issue says "retained to `/reference/#pack-artifact`". The
+       approved topology DELETES `JLINK-019` outright, and the approved guide
+       carries no marker for it, because Reference is hidden from the visitor path
+       and no visible Reference tease may be restored. JLINK-017, JLINK-018, and
+       JLINK-022 go the same way for the same reason (CLM-008), and the Seed 5
+       journeys bound to them are reconciled rather than fed a manufactured link
+       (CLM-009). A previous revision of this plan proposed retargeting all four
+       and writing `[Use pack commands](/reference/#pack-commands)`,
+       `[Review pack direction](/status/#pack-direction)`, and
+       `[Browse the CLI catalog](/reference/#cli-command-catalog)` onto
+       `/pack/examples/`. That is withdrawn: it invents copy the approval does not
+       contain and re-teases the exact surfaces the approval hid.
+    4. NEXT ACTION. The guide's `next_action` is `/contributing/`, not
+       `/reference/` (`docs/_data/site-presentation.yml` at `0a6010c`). A previous
+       revision of this plan asserted `/reference/` and attributed the difference
+       to ISSUE-199. That was wrong in both halves and is withdrawn. `/adopt/` and
+       `/use-cases/` both point at `/pack/examples/` (CLM-012).
+    5. NAVIGATION. Approved `primary` is `["/evaluate/", "/model/", "/adopt/",
+       "/pack/"]` and approved `utility` is `["/contributing/"]`. One Pack item,
+       highlighted for all three pack fleet routes. `/use-cases/`, `/reference/`,
+       and `/status/` are NOT in the approved rosters and this plan does not put
+       them back (CLM-012). PLAN-ISSUE-199 explicitly refuses that reduction — it
+       is roster-NEUTRAL by its own CLM-009 — so attributing it to 199 leaves the
+       roster owned by nobody. The four pinned roster locations must agree
+       simultaneously, so the roster lands HERE, in the same lockstep as the Pack
+       item and `packFleetCurrent`.
+    6. ROUTES. Old `/extend/` and `/packs/` get NO redirects — they stay 404.
+
+  The implementer must NOT restore Seed 1 URLs, the Seed 1 hero, the Seed 1
+  three-paragraph stub, a route the approved IA dropped from the nav rosters, or a
+  Reference/Status tease that the approved copy does not contain, and must NOT
+  independently "improve" the approved copy.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  EXISTENCE-IN-WORLD — overlap found, residual delta planned, NOT aborted
+  ══════════════════════════════════════════════════════════════════════════════
+  `plans/`, `specs/`, `issues/`, and `bundles/` were searched (committed and
+  working tree) for `/extend/`, `/packs/`, `/pack/guide/`, `/pack/examples/`,
+  `pack-authoring`, `installed-pack-catalog`, PACK-004, and JLINK-016..022.
+
+    - PLAN-SPEC-072 (completed) OWNS the Seed 1 `/extend/` and `/packs/` pages,
+      their heroes, their required_blocks, JLINK-016..022, and PACK-004's
+      placement. This plan does not re-litigate that charter; it delivers the
+      RESIDUAL DELTA: the approved rewrite plus the route replacement.
+    - PLAN-SPEC-074 owns the derived product-truth pipeline; PLAN-SPEC-075 owns the
+      static design system and the Seed 4 delivery matrix; PLAN-SPEC-076 owns the
+      Seed 5 capability journeys. This plan changes only the pack-fleet-bearing
+      literals inside those closed worlds — it adds no new pipeline, no new
+      design-system primitive, and no new capability.
+    - ISSUE-197 owns `/pack/` and the entity-reference lookup system, INCLUDING
+      `docs/pack.md` and the entity generator. This plan does not author or rewrite
+      that page's copy. See the ISSUE-197 PREREQUISITE below.
+    - ISSUE-196 owns `/adopt/`; ISSUE-193 owns `/evaluate/`; ISSUE-195 owns
+      `/model/`; ISSUE-190 owns the homepage; ISSUE-199 owns Reference lifecycle.
+      No plan in the tree owns the pack fleet guide/examples rewrite. Nothing
+      subsumes this surface.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  ISSUE-197 PREREQUISITE — the one hard cross-issue ordering constraint
+  ══════════════════════════════════════════════════════════════════════════════
+  The approved nav is one item **Pack** -> `/pack/`. `/pack/` is ISSUE-197's noun
+  page. A primary nav destination that does not resolve is a broken site, so
+  `/pack/` MUST be a linkable route before this plan's nav consolidation lands.
+
+  LANDING ORDER IS FIXED, NOT PREFERRED: ISSUE-197 FIRST, THEN ISSUE-198. TASK-001
+  asserts the prerequisite and STOPS if it does not hold. This plan does NOT author
+  `docs/pack.md`, does not stub it, does not give it a minimum linkable route, and
+  does not edit it in any later task. A previous revision of this plan created a
+  conditional stub with fleet links in a setup task that had no test and no
+  verification; that is withdrawn on both counts. PLAN-ISSUE-197 CLM-010 is
+  explicit that the noun page's also-links are re-emitted from its overlay and its
+  generator, never hand-edited, and that the page carries the Operating-model link
+  at its landing. Whether `/pack/` ever links `/pack/guide/` and
+  `/pack/examples/` is therefore ISSUE-197's call, made through its overlay. THIS
+  PLAN REQUIRES NOTHING OF `docs/pack.md` BEYOND ITS EXISTENCE AS A RESOLVABLE
+  ROUTE. The fleet links run the other way: the approved guide links
+  `[What is a pack?](/pack/)` and `[Published packs](/pack/examples/#choose-a-pack)`,
+  and the approved examples page links back to `/pack/guide/#author-a-pack` and
+  `/pack/guide/#publish-a-pack` — guide and examples carry the fleet links, and
+  both pages are this plan's.
+
+  `/pack/` is deliberately kept OUT of `canonicalRoutes()` (it is not a Seed 1
+  page-inventory row); it is linkable through `extraLinkableRoutes()`.
+
+  THE LINKABLE CATALOG IS SHARED AND IS A UNION, NEVER A REPLACEMENT. One owner
+  introduces the getter and the other extends it, and neither may shrink it:
+
+    - ISSUE-197 CLM-009 declares the end state as eight entries — `/pack/` plus
+      `/plan/`, `/issue/`, `/spec/`, `/bundle/`, `/directive/`, `/adr/`,
+      `/capability/` — with `/pack/` present exactly once and no duplicates, and
+      its TASK-010 introduces all eight when the getter is absent.
+    - Under the fixed order above, ISSUE-197 lands first and this plan finds
+      `extraLinkableRoutes()` already present and already containing `/pack/`. It
+      then ADDS NOTHING and asserts the union: all eight present, `/pack/` exactly
+      once, no entity route removed, no entity route promoted into
+      `canonicalRoutes()`.
+    - If the order is violated and the getter is absent, this plan INTRODUCES it
+      returning exactly `[]string{"/pack/"}` — a fresh slice per call — and
+      ISSUE-197 later adds its seven.
+    - Shrinking the catalog to satisfy an ordered-equality assertion is a defect
+      under either order: it silently unlinks the other plan's pages. Assert
+      membership plus cardinality, not a brittle literal one plan can only satisfy
+      by deleting the other's entry.
+
+  The same extend-don't-replace rule governs three other shared surfaces this plan
+  touches: the `hero_lede` channel in `docs/_includes/page-hero.html`, the
+  `paper_kinds` list in `docs/_layouts/default.html`, and the `html:has(...)`
+  `--ds-*` remap selector in `docs/assets/css/site.css` (CLM-014).
+
+  ══════════════════════════════════════════════════════════════════════════════
+  CLAIM LEDGER — ISSUE-198 carries prose only, no `claims[]` array, so this plan
+  declares its own claims. Each was read out of the tree, not inferred.
+  ══════════════════════════════════════════════════════════════════════════════
+
+  CLM-001 — THE LANDING URL IS `/pack/guide/`, AND THE OLD ROUTES DIE WITHOUT
+    REDIRECTS. `docs/extend.md` and `docs/packs.md` are deleted, not moved with a
+    forwarding stub. `docs/pack/guide.md` (`permalink: /pack/guide/`) and
+    `docs/pack/examples.md` (`permalink: /pack/examples/`) replace them in the
+    ten-row page inventory that `verify-content-topology.sh` and
+    `verify-public-product-model.sh` both assert positionally. `/extend/` and
+    `/packs/` must 404 afterwards; no alias, no `redirect_from`, no
+    `legacyRedirects()` entry may be invented for them.
+
+  CLM-002 — `/pack/examples/` IS A REQUIRED LOCKSTEP, NOT SCOPE CREEP. The
+    approved guide links `[Published packs](/pack/examples/#choose-a-pack)` from
+    `#pack-or-not` and `[publish a tagged release](/pack/guide/#publish-a-pack)`
+    is linked back from examples. JLINK-016's destination is
+    `/use-cases/#pack-backed-use-cases` -> the ecosystem owner, and NBR-008's owner
+    route must be a real page. Landing the guide without examples produces two 404
+    links from approved copy and an unowned neighborhood.
+
+  CLM-003 — THE APPROVED GUIDE STRUCTURE IS LOCKED. `docs/pack/guide.md` at
+    `0a6010c` is the source of truth: `title: Packs`, `hero_question: "Packs: a
+    guide"`, a `hero_lede`, and exactly three H2 blocks in order —
+    `## 1. Pack or not {#pack-or-not}`, `## 2. Author a pack {#author-a-pack}`,
+    `## 3. Publish a pack {#publish-a-pack}`. Topology `required_blocks` is
+    `[pack-or-not, author-a-pack, publish-a-pack]`. The H3 subheadings under
+    authoring carry no `{#id}` anchors, which is what keeps JLINK-020's
+    `source_anchor` (`author-a-pack`) unstealable. Do not add, drop, reorder, or
+    re-word an H2; do not anchor an H3.
+
+  CLM-004 — THE LIVE AUTHORING LOOP AND PUBLISH-TODAY ARE VERIFIED, AND THERE IS
+    NO `pack publish`. `cmd/backstop/pack_authoring_loop_test.go` exercises
+    `pack new` -> `pack check` -> `pack test` -> `pack add` -> consumer `gate` from
+    inside a temp project. `cmd/backstop/` contains `pack_new.go`, `pack_check.go`,
+    `pack_gate.go`, `pack_add.go`, `pack_install.go`, `pack_list.go`,
+    `pack_relock.go`, `pack_update.go` — and NO `pack_publish.go`. Publish-today is
+    exactly: the pack passes its own local check/test, `pack.yml` declares a valid
+    semver, a Git tag matching that version with a `v` prefix (`1.2.0` -> `v1.2.0`)
+    points at the exact commit being published. Stronger maintained-pack CI is a
+    prototype, explicitly not canonical. Do not invent a publish command, a
+    publishing proxy, a registry fan-out, attestations, or credential management.
+    THIS CLAIM IS TESTED, NOT ASSERTED FROM A SETUP RECEIPT. TASK-005 adds a
+    command-surface probe to
+    `scripts/tests/public-product-model/pages/extend-reference-contributing.sh`:
+    every `backstop pack <verb>` string rendered on `docs/pack/guide.md` must
+    resolve to a verb the built CLI actually registers (read from
+    `backstop pack --help`), and `publish` must be ABSENT from that verb list. It
+    is falsifiable in both directions — it reds if the page names a command that
+    does not exist, and it reds if a `pack publish` ever appears without the page
+    and this claim being revisited. TASK-001's `ls cmd/backstop/pack_*.go` receipt
+    is a premise check that runs BEFORE the copy exists; it is not the acceptance.
+
+  CLM-005 — THE CONSUMER COMMANDS ON `/pack/examples/` ARE ALSO REAL. `pack add`
+    accepts either a git coordinate `org/pack@version` (unprefixed X.Y.Z; the tag
+    is `v` + version) or a local path; a local add validates the directory, copies
+    it into `.backstop/packs/`, pins it as `local` in `backstop.yml`, and writes
+    `backstop.lock`. `pack install` restores from the lock, `pack list` confirms
+    the installed set, `pack relock` is local-source only, and git packs move with
+    `pack update`. Packs stay EXTERNAL: nothing in this plan vendors a pack into
+    core or turns gitignored `.backstop/packs/` content into a durability claim.
+    TESTED the same way as CLM-004: TASK-005 adds the identical command-surface
+    probe to `scripts/tests/public-product-model/pages/model-use-cases-packs.sh`
+    over `docs/pack/examples.md`, so `pack add`, `pack install`, `pack list`,
+    `pack relock`, `pack update`, and `gate` are each proved to exist in the built
+    CLI, and a page naming a nonexistent consumer command reds the page test.
+
+  CLM-006 — THE FOUR-TERM MODEL BLOCK IS PART OF THE APPROVED COPY. The guide's
+    `<div class="pack-model">` definition list is exact and load-bearing: Claim =
+    the definition (what must be true); Rule = the implementation (how it is
+    checked); Engine = the execution mechanism (the deterministic machinery that
+    runs the rule); Fixtures = proof of the implementation (known-positive and
+    known-negative cases). It is markup inside markdown, so the closed-world
+    allowance checker must be taught it as a non-claim, non-jlink block.
+    TESTED TWICE, not carried by a setup receipt. First, TASK-005 asserts the
+    block structurally on the delivered page: exactly one
+    `<div class="pack-model">`, whose `<dl>` carries the four `<dt>` terms Claim,
+    Rule, Engine, Fixtures in that order, each with a non-empty `<dd>`. Second,
+    TASK-011 gives the block its own allowance entry keyed to `docs/pack/guide.md`
+    with an explicit purpose string, so deleting or re-wording it fails the closed
+    allowance world (CLM-015) instead of passing silently.
+
+  CLM-007 — PACK-004's NEEDLE MUST MOVE TO `/reference/`, AND THAT IS VERIFIED,
+    NOT ASSUMED. The approved page dropped path-filter diagnostics as a visitor H2,
+    but a shipped test still requires the needle: at `0a6010c`,
+    `scripts/tests/public-product-model/pages/extend-reference-contributing.sh`
+    keeps `('/reference/','slash-bearing include or exclude pattern')` in its
+    `responsibilities` list AND runs
+    `production_delete_reject docs/reference.md 'slash-bearing include or exclude
+    pattern' PACK-004`. So the disposition is a MOVE, not a deletion: the Seed 1
+    section lands verbatim in `docs/reference.md` as
+    `## Path-filter diagnostics {#path-filter-diagnostics}` immediately before
+    `#artifact-lifecycle-and-closure`, `/reference/` gains `path-filter-diagnostics`
+    in `required_blocks` and `PACK-004` in `source_material`, and PACK-004's
+    `content-inventory.yml` target routes become `["/reference/", "/status/"]` with
+    its rationale re-worded to name the reference owner.
+    `/status/#path-filter-limitation` keeps its own PACK-004 exposure untouched. Do
+    NOT restore the Seed 1 stub merely to keep a needle alive.
+    THE NEEDLE MOVES IN THREE PLACES, NOT TWO, AND THE THIRD IS THE ONE THAT
+    STRANDS THE PLAN IF IT IS MISSED. Besides the `responsibilities` tuple and the
+    `production_delete_reject` call in
+    `scripts/tests/public-product-model/pages/extend-reference-contributing.sh`,
+    the SAME paragraph is an allowance entry in the closed block dictionary of
+    `scripts/verify-public-product-model.sh`: on `origin/main` the key
+    `'When an engine receives explicit changed-file arguments, … only when it
+    retains the intended scope.'` -> `'path-filter repair instruction'` sits inside
+    the `'docs/extend.md'` map. When the section lands in `docs/reference.md`, that
+    entry must be RE-KEYED into the `'docs/reference.md'` map with its paragraph
+    bytes and its purpose string preserved verbatim, and the `'docs/extend.md'` map
+    is then deleted whole (CLM-015). Leaving it behind is a double failure that
+    makes TASK-013 UNREACHABLE: the deleted `docs/extend.md` map keeps an entry for
+    a page that no longer exists, and `check_closed_blocks` reports the moved
+    paragraph as an undeclared block on `docs/reference.md`, so
+    `verify-public-product-model.sh` — this plan's `test_command` — cannot go green
+    no matter how correct the copy is. `0a6010c` shows the delivered shape: the
+    entry present once, under `'docs/reference.md'`, byte-identical.
+
+  CLM-008 — THE PACK-FLEET JLINK DISPOSITION IS TWO RETARGETS AND FOUR RETIREMENTS,
+    AND EVERY REMAINING ID IS ACCOUNTED FOR EXPLICITLY. The approved topology at
+    `0a6010c` carries exactly twelve `journey_links` — JLINK-001, 002, 003, 004,
+    007, 009, 013, 015, 016, 020, 023, 024 — and both Seed 1 verifiers have already
+    converted the generated `range(1,25)` comprehension into an explicit
+    twelve-element literal list. Of the seven IDs this plan's surface touches, the
+    disposition is:
+
+      RETARGETED, KEPT
+      JLINK-016  source `/use-cases/#pack-backed-use-cases` UNCHANGED;
+                 destination `/packs/#choose-a-pack` -> `/pack/examples/#choose-a-pack`;
+                 label "Choose a maintained pack" UNCHANGED. The rendered marker
+                 lives on `docs/use-cases.md`, so that page's one link line changes
+                 with it — the only edit this plan makes outside its own pages.
+      JLINK-020  source `/extend/#author-a-pack` -> `/pack/guide/#author-a-pack`;
+                 destination `/contributing/#contribution-paths` UNCHANGED;
+                 label "Contribute the pack" -> "How to participate". This is the
+                 ONLY journey-link marker on either delivered page, and the
+                 approved guide already carries it above a standalone
+                 `[How to participate](/contributing/#contribution-paths)`.
+
+      RETIRED — REMOVED FROM THE TOPOLOGY, NOT RE-HOMED
+      JLINK-017  was `/packs/#installed-pack-catalog` -> `/reference/#pack-commands`
+      JLINK-018  was `/packs/#choose-a-pack`          -> `/status/#pack-direction`
+      JLINK-019  was `/extend/#pack-or-not`           -> `/reference/#pack-artifact`
+      JLINK-022  was `/packs/#installed-pack-catalog` -> `/reference/#cli-command-catalog`
+
+      NOT THIS PLAN'S
+      JLINK-023  `/reference/#cli-command-catalog` -> `/status/#release-history`
+                 survives untouched; it is bound to CAP-013/@UJ-002 alongside
+                 JLINK-022 and is not a pack-fleet link.
+      JLINK-021  `/model/#provenance-and-verification` -> `/reference/#source-traceability`
+                 is retired by the Evaluate/Model lane (ISSUE-193/195), not here.
+
+    WHY RETIREMENT AND NOT RETARGETING. All four retired links point INTO
+    `/reference/` or `/status/`, the surfaces the approved IA hides from the
+    visitor path, and the approved pages carry no marker for any of them. Keeping
+    an ID alive requires a rendered marker above a standalone link, because
+    `TraverseBuiltJourneys` resolves every mapped JLINK against the built
+    documents. So "keep the ID" and "add no tease" cannot both hold. A previous
+    revision of this plan tried to have both by writing
+    `[Use pack commands](/reference/#pack-commands)`,
+    `[Review pack direction](/status/#pack-direction)`, and
+    `[Browse the CLI catalog](/reference/#cli-command-catalog)` onto
+    `/pack/examples/`, and by splitting an approved sentence on the guide so a
+    retargeted JLINK-019 marker could sit above
+    `[Published packs](/pack/examples/#choose-a-pack)`. Both are withdrawn: the
+    first restores exactly the teases the approval removed, and the second edits
+    approved copy to keep an ID whose approved disposition is deletion.
+
+    RETIREMENT IS A STRUCTURAL LOCKSTEP, AND ITS SHAPE IS ALREADY ESTABLISHED.
+    PLAN-ISSUE-196 CLM-005 retires JLINK-012 the same way and documents the
+    collision rule: the `exact_ids` comprehension becomes an explicit ascending
+    literal list with the retired IDs simply absent, in BOTH
+    `scripts/verify-public-product-model.sh` AND
+    `scripts/tests/public-product-model/verify-content-topology.sh`, byte-identical
+    in the two files, with the matching `edge_specs` tuples and `link_labels`
+    entries deleted so all three lists keep the same length and order. This plan
+    follows that rule for its four IDs and nothing more: it never re-adds an ID a
+    sibling lane retired, never restores `range(1,25)`, and never renumbers a
+    surviving ID to close a gap. Whichever lane lands first converts the
+    comprehension; the later lane deletes only its own rows from the literal list.
+
+  CLM-009 — RETIRING FOUR LINKS RETIRES THREE SEED 5 JOURNEYS AND NARROWS A FOURTH,
+    AND THAT — NOT ANY COPY DECISION — IS WHAT NEEDS A REVIEWER'S EYE.
+    `ExpectedWebsiteJourneys()` in `scripts/websitejourney/artifacts.go` is the
+    closed world that `loadCapabilityTree` + `ValidateScenarioAndCoverageMatrix`
+    compare the gherkin corpus against by cardinality, order, key, title, JLINK
+    binding, and hop sequence, and `TraverseBuiltJourneys` resolves each binding
+    against the built site. Six journeys carry pack-fleet hops. Their delivered
+    disposition:
+
+      KEPT, HOPS RETARGETED
+      CAP-010/@UJ-002  JLINK-016  hops `["/use-cases/#pack-backed-use-cases",
+                                  "/pack/examples/#choose-a-pack"]`
+      CAP-012/@UJ-002  JLINK-020  hops `["/pack/guide/#author-a-pack",
+                                  "/contributing/#contribution-paths"]`
+
+      NARROWED
+      CAP-013/@UJ-002  JLinks `["JLINK-022","JLINK-023"]` -> `["JLINK-023"]`; hops
+                       lose the `/pack/examples/#published-pack-catalog` leg and
+                       become `["/reference/#cli-command-catalog",
+                       "/status/#release-history"]`; the scenario's `Given` and its
+                       first `When` line move with it.
+
+      RETIRED — the journey loses its only binding
+      CAP-011/@UJ-001  JLINK-017
+      CAP-011/@UJ-002  JLINK-018
+      CAP-012/@UJ-001  JLINK-019
+
+    RETIREMENT TOUCHES SEVEN SURFACES PER JOURNEY, and missing one inverts the
+    failure rather than removing it: the element in `ExpectedWebsiteJourneys()`;
+    the journey entry in `docs/_data/website-capability-map.yml`; the `@UJ-NNN`
+    scenario in the capability's `user-journeys.feature`; the row in
+    `tests/website-capabilities.spec.ts`; the `{jlink: …, expected_error: …}` row
+    in `scripts/websitejourney/testdata/built-journey-mutations.yml` together with
+    the `len(document.JLinkRemovals) != 24` guard in `traversal_test.go`; the
+    `len(m.Journeys) != 22` cardinality assertion in the same file; and the
+    `exhaustive-journey-mutations.yml` / `map-binding-mutations.yml` fixtures.
+    Deleting the scenario before the Go and YAML entries reds
+    `TestWebsiteJourney_ExactScenarioAndCoverageMatrixPasses` with "missing
+    scenario"; deleting the Go entry first reds it with "unexpected scenario".
+    Both counts are shared with PLAN-ISSUE-196, which retires CAP-009/@UJ-001 on
+    the same lines, so the delivered numbers are RELATIVE, not absolute: reduce the
+    journey cardinality by exactly the three journeys THIS plan retires and the
+    removal-fixture count by exactly its four IDs, reconciled against whatever the
+    landing base holds. Do not "fix" a count a sibling lane owns.
+
+    THE OPEN DECISION, STATED PLAINLY: CAP-011 "Browse the Pack Ecosystem" has
+    exactly two journeys and both retire, leaving the capability declared with zero
+    journeys. That is admissible only if the closed world tolerates it — nothing in
+    `LoadCapabilityTree`, `ValidateCapabilityArtifactMatrix`, or
+    `ValidateScenarioAndCoverageMatrix` visibly requires a capability to declare a
+    scenario, and `ExpectedWebsiteCapabilities()` keeps CAP-011 — but "visibly"
+    is not evidence. TASK-020 must PROVE it in the red phase, against a tree whose
+    CAP-011 feature file carries its `Feature:` title and no scenarios, BEFORE
+    TASK-021 executes the retirement. If the tree is rejected, STOP and report: the
+    disposition then requires either retiring or re-journeying CAP-011 itself,
+    which is SPEC-076 / BUNDLE-032 territory and outside this plan's fence.
+    Retiring the capability, inventing a synthetic hop, restoring a Reference or
+    Status tease to keep a journey alive, or skipping the scenario are all
+    unavailable. `PLAN-SPEC-076` is completed and is never edited; SPEC-076's own
+    literals are reconciled in TASK-023.
+
+    THE PROTOTYPE IS NOT A MODEL HERE. It retargeted the hops of all six journeys
+    while keeping JLINK-017/018/019/022 bound and simultaneously deleting those IDs
+    from the topology, which is precisely why `go test ./scripts/websitejourney/...`
+    is RED at `0a6010c`. It also left
+    `capabilities/CAP-010-apply-backstop/user-journeys.feature` naming
+    `/packs/#choose-a-pack` and
+    `capabilities/CAP-012-extend-backstop/user-journeys.feature` naming
+    `/extend/#pack-or-not` and `/extend/#author-a-pack`. This plan lands the
+    congruent state instead of copying that inconsistency.
+
+  CLM-010 — THE GENERATED PACK CATALOG LOSES ITS OWNER AND MUST BE RE-OWNED AS
+    `published-pack-catalog`. `installed-pack-catalog`'s owner is
+    `/packs/#installed-pack-catalog`, and this plan deletes `docs/packs.md`. Every
+    layer names that job: `docs/_data/derived-product-truth.yml`,
+    `LoadManifest`'s four-job expectation, `loadPacks`, `VerifySourceIncludes`,
+    `packRows`, `VerifyRenderedOwnerContracts`, the capability map's generated
+    obligations, and the websitejourney mutation fixtures. Re-owning it in place is
+    not enough: the approved page is titled "Published packs" and the approved
+    contract asserts the catalog lists org packs that are ABSENT from this
+    repository's lock, so `backstop.yml` / `backstop.lock` cannot remain the
+    inputs. The job becomes `published-pack-catalog`, owned by
+    `/pack/examples/#published-pack-catalog`, with the single checked-in input
+    `docs/_data/published-pack-inventory.yml` and columns
+    `Pack | Version | Covers | Engines | Source`. That inventory is a curated list
+    of ALREADY-PUBLISHED `backstop-ai` repositories with `vX.Y.Z` tags — it is not
+    a planned-pack catalog, a registry, a publishing proxy, a fan-out, an
+    attestation store, or credential management, and it introduces none of those.
+
+  CLM-011 — CLAIM-025 MOVES AND ITS STATEMENT CHANGES. In
+    `docs/_data/evidence-inventory.yml`, CLAIM-025's owner moves from
+    `/packs/#installed-pack-catalog` to `/pack/examples/#install-a-pack`, its
+    statement becomes the pin/lock instruction ("Add a published pack with
+    `backstop pack add org/pack@version`. That pins the version in `backstop.yml`
+    and writes `backstop.lock`. Restore locked packs with `backstop pack install`.
+    Confirm them with `backstop pack list`."), and its evidence ref moves from
+    `backstop.lock` to `cmd/backstop/pack_add.go`. Its owner-route needle in
+    `pages/model-use-cases-packs.sh` becomes
+    `('/pack/examples/','pins the version in `backstop.yml` and writes
+    `backstop.lock`')` with a matching `production_delete_reject` on
+    `docs/pack/examples.md`. CLAIM-025 is the ONLY evidence-inventory claim this
+    plan may touch; the other claim relocations in the prototype belong to
+    ISSUE-193/195/199.
+
+  CLM-012 — THE PACK ITEM, THE CURRENT-STATE PREDICATE, AND THE APPROVED ROSTER
+    LAND TOGETHER, BECAUSE FOUR PINNED PLACES MUST AGREE AT ONCE. The delivered
+    state is the approved one, verified at `0a6010c`:
+      `canonicalRoutes()`    `/`, `/evaluate/`, `/model/`, `/adopt/`, `/use-cases/`,
+                             `/pack/examples/`, `/pack/guide/`, `/reference/`,
+                             `/status/`, `/contributing/` — still exactly ten, with
+                             `/packs/` and `/extend/` swapped out in place.
+      `primaryNavigation()`  `/evaluate/`, `/model/`, `/adopt/`, `/pack/`
+      `utilityNavigation()`  `/contributing/`
+      `navigationLabel()`    the `Packs` and `Extend` cases collapse to one
+                             `case "/pack/": return "Pack"`; the `/use-cases/`,
+                             `/reference/`, and `/status/` cases STAY, because
+                             those routes remain canonical and labelled even though
+                             they are off the nav roster.
+      `packFleetCurrent()`   new; true for `/pack/`, `/pack/guide/`,
+                             `/pack/examples/`, false for everything else, so
+                             `verifyRouteDocument` expects exactly one
+                             `aria-current="page"` on the Pack item for all three.
+      `extraLinkableRoutes()` the shared union (see the ISSUE-197 PREREQUISITE);
+                             `/pack/` present exactly once, loaded by
+                             `collectBuiltDocuments`.
+    The same roster is pinned in three more places that must move in the same
+    lockstep or `verifyRouteDocument` emits a `navigation … Expected: present`
+    finding on every page: `docs/_data/content-topology.yml` `navigation.primary` /
+    `navigation.utility`, the anchors in `docs/_includes/site-header.html`, and the
+    `primaryNavigation` / `utilityNavigation` arrays in
+    `tests/public-site-helpers.ts` (whose keyboard-traversal message becomes
+    `Home + 4 primary + 1 utility`).
+
+    WHO OWNS THE ROSTER REDUCTION. `/use-cases/`, `/reference/`, and `/status/` are
+    absent from the approved rosters. PLAN-ISSUE-199 CLM-009 is roster-NEUTRAL by
+    construction — it neither adds nor removes an entry and derives its acceptance
+    from whatever the roster holds at run time — and no other lane claims the
+    removal, so a plan that "leaves it to 199" leaves the site with a header that
+    contradicts the approved IA and four pinned lists that disagree. This plan
+    therefore writes the rosters to the approved state. Its substantive delta is
+    the Pack item and `packFleetCurrent`; the three absences ride along because the
+    catalogs cannot be edited half-way. Under no circumstance does this plan RESTORE
+    `/use-cases/`, `/reference/`, or `/status/` to a nav roster to make an
+    assertion pass, and if a sibling landing has already removed them, this plan
+    preserves that state and adds only the Pack item. The pages themselves stay
+    canonical, rendered, and linkable — this is nav membership, not deletion.
+
+    NOT IN SCOPE, AND DELIBERATELY DIVERGENT FROM THE PROTOTYPE:
+    `docs/_includes/site-footer.html`. `0a6010c` also drops the footer's
+    `/status/` link. Nothing in the roster contract requires it — the footer link
+    resolves to a canonical route and no verifier reads the footer as a nav roster
+    — so this plan leaves the footer byte-identical and records the divergence
+    rather than absorbing a hiding decision it does not own.
+
+    Neither catalog getter may leak caller mutation;
+    `TestSiteCheck_RouteCatalogsAreImmutableAndExhaustive` proves that for
+    `extraLinkableRoutes()` too.
+
+    THE NEXT-ACTION CHAIN MOVES WITH THE ROSTER, and one of its cells is assigned
+    to this plan by a sibling: PLAN-ISSUE-196 CLM-011 states that re-pointing
+    `/adopt/` is "pack-IA work carried by PLAN-ISSUE-198", and leaves the cell at
+    `/use-cases/` for this plan to change. Delivered chain (approved):
+    `/adopt/` -> `/pack/examples/`, `/use-cases/` -> `/pack/examples/`,
+    `/pack/examples/` -> `/pack/guide/`, `/pack/guide/` -> `/contributing/`. Every
+    other row's `next_action` is untouched.
+
+  CLM-013 — THE `pack-authoring.html` ALIAS DIES WITH `/extend/`. Its
+    `legacyRedirects()` entry points at `/extend/`, so it must be removed from
+    `scripts/sitecheck/site.go`, from `scripts/verify-pages-deployment.sh`'s alias
+    block, and `docs/pack-authoring.md` must be deleted. `getting-started.html`,
+    `concepts.html`, `artifact-workflow.html`, and `cli-reference.html` are
+    untouched.
+
+  CLM-014 — PAPER/INK FOR `extension` AND `ecosystem`, ADDITIVELY, WITHOUT
+    REGRESSING ANYONE. Every surface in this claim is shared with a sibling lane,
+    so each edit is an ADDITION to whatever the landing base holds and never a
+    rewrite to this plan's own literal:
+      - `docs/_layouts/default.html` gates the `theme-color` meta and the
+        `backstop-tokens.css` link on a `paper_kinds` list that must CONTAIN
+        `ecosystem` and `extension`. If PLAN-ISSUE-193/195/196/197 already
+        introduced the list, ADD the two kinds and drop none; if it does not exist,
+        introduce it with those two only and claim no sibling's kind. `page_kind`
+        resolves from `site-presentation.yml` with a front-matter fallback.
+      - `docs/_includes/page-hero.html` must honor `hero_lede` in three branches:
+        `false` renders nothing, a truthy string renders as `.page-boundary`, and
+        an absent key falls back to the existing default sentence.
+        `/pack/examples/` sets `hero_lede: false` and the guide sets a string.
+        PLAN-ISSUE-197 TASK-009 introduces the same channel for its locked ledes
+        with only the truthy and absent branches. Whichever lands first, the other
+        ADDS what is missing: if the channel exists, add ONLY the explicit `false`
+        branch and leave the truthy and default branches byte-identical; if it does
+        not, introduce all three. `false` and nil are distinct values here — a
+        two-branch `if/else` silently gives `/pack/examples/` the default sentence.
+        Never collapse the branches to satisfy one page.
+      - `docs/assets/css/site.css` gains the `extension` and `ecosystem` recipes,
+        and `[data-page-kind="extension"]` / `[data-page-kind="ecosystem"]` join
+        the `html:has(...)` `--ds-*` remap selector as ADDITIONAL members —
+        introducing that selector only if absent, never dropping a kind another
+        lane added. The `[data-page-kind="home"] .nav` and `.nav-links` rules,
+        including the ones inside media queries, MUST survive byte-for-byte.
+    Playwright `testMatch` stays `public-site.spec.ts`.
+
+  CLM-015 — THE ALLOWANCE WORLD IS CLOSED, SO EVERY NEW BLOCK MUST BE DECLARED.
+    `scripts/verify-public-product-model.sh` enumerates, per page, every
+    non-claim, non-jlink, non-heading block with an explicit purpose string;
+    heading text is skipped. Both new pages introduce many such blocks —
+    decision prose, `<pre><code>` command blocks, YAML and tree fences, the
+    `pack-model` definition list, and the generated-region `<section>` wrapper.
+    Every one needs an allowance keyed to `docs/pack/guide.md` or
+    `docs/pack/examples.md`, and the `docs/packs.md` / `docs/extend.md` allowance
+    maps must be removed — after re-keying the one entry that survives the move,
+    PACK-004's `'path-filter repair instruction'`, into the `docs/reference.md` map
+    (CLM-007). A missing allowance fails closed; a blanket or wildcard allowance is
+    not acceptance.
+
+  CLM-016 — THE DOCUMENTATION-SEMANTICS CORPUS DROPS TO TWELVE REAL PAGES, AND THE
+    COUNT IS UPDATED EXPLICITLY RATHER THAN PRESERVED WITH A STUB.
+    `scripts/verify-documentation-semantics-integration.sh` hardcodes the corpus
+    and asserts its size in two independent places. Released
+    `documentation-semantics` v0.1.1 globs `docs/*.md` and `docs/_data/*.yml`, so
+    `docs/pack/guide.md` and `docs/pack/examples.md` are NOT reachable by that
+    pack's own scope until its glob includes nested pages, and this repository may
+    not widen a released pack's glob from core.
+
+    Deleting `docs/packs.md` and `docs/extend.md` therefore takes the corpus from
+    fourteen to TWELVE, and the count assertions move with it. The substitution the
+    prototype used — `docs/pack.md` and `docs/getting-started.md` IN, count held at
+    fourteen — is REJECTED here on both entries.
+    `docs/getting-started.md` is a five-line redirect stub (`layout: redirect`,
+    `redirect_to: /adopt/`, no prose): it holds the count while contributing no
+    semantic content, which is a vacuous corpus row and exactly the kind of
+    number-preserving green this repository exists to prevent.
+    `docs/pack.md` is real content, but it is ISSUE-197's page, and
+    PLAN-ISSUE-197 CLM-011 asserts as its own acceptance signal that its eight
+    entity pages enter NONE of the five Seed 1 closed worlds including this corpus.
+    Pulling it in from here would falsify a sibling plan's claim to buy back a
+    number. If a reviewer prefers pack-domain coverage restored, the honest route
+    is an ISSUE-197 amendment adding `docs/pack.md` on that plan's own authority,
+    not a substitution smuggled in here.
+
+    Delivered edits, all four together or the script is internally inconsistent:
+    the `CORPUS` heredoc loses the two paths; the `expected` list inside
+    `verify_installed_semantics_gate_accepts_exact_clean_seed1_corpus` loses the
+    same two; the scope assertion in that function becomes
+    `len(scope.get('files',[]))!=12`; and
+    `verify_installed_semantics_gate_rejects_vacuous_or_inexact_corpus_scope`'s
+    `[ "$(printf '%s\n' "$CORPUS" | grep -c .)" -eq 14 ]` becomes `-eq 12`. The
+    "fourteen-file" wording in the failure messages and the function's own
+    vocabulary follow. The per-path dispatch probes derive from `CORPUS` and
+    reduce with it, so the loop needs no edit but its count in SPEC-073 does
+    (CLM-018). Add a comment recording WHY the pack fleet pages are absent: the
+    released pack's glob does not reach `docs/pack/*.md`. Do not widen that glob
+    from core, do not add a substitute path to hold the number, and do not leave a
+    count assertion naming fourteen.
+
+  CLM-017 — THE SEED 4 DELIVERY MATRIX IS CLOSED AND DELETED PATHS STILL NEED
+    ROLES. `.backstop/seed4-delivery-inventory.yml` is a `change/path/role` ledger
+    diffed against `base_commit`, so `docs/pack/examples.md` and
+    `docs/pack/guide.md` need `A` rows and `docs/extend.md`, `docs/packs.md`,
+    `docs/pack-authoring.md` need `D` rows. Because `expectedRole()` resolves the
+    role for BOTH added and deleted paths, `pageWrappers()` must GAIN
+    `docs/pack/examples.md` and `docs/pack/guide.md` while RETAINING
+    `docs/packs.md`, `docs/extend.md`, and `docs/pack-authoring.md` — removing a
+    deleted page from that map turns its `D` row into "outside the closed Seed 4
+    matrix". The new generated fragment under `docs/_includes/generated/` also
+    needs a row, because the `docs/_includes/` prefix case puts it in the matrix.
+    `docs/_data/published-pack-inventory.yml` does NOT: `expectedRole()` admits
+    only the exact path `docs/_data/site-presentation.yml` from that directory, and
+    `inventoryDiff` SKIPS every path where `inSeed4Matrix` is false, so an
+    out-of-matrix path is invisible rather than rejected — and a declared row for
+    it becomes an "expected but not observed" mismatch. The same is true of the
+    other `docs/_data/*.yml` files this plan edits, of the five SPECs, and of this
+    plan's own artifacts. Do not widen the matrix with a glob, a catch-all, a new
+    generic role, or a new exact-path governance case.
+
+  CLM-018 — SEED 1 CONTRACT LITERALS IN THE SPECS MUST FOLLOW. SPEC-072 (page
+    inventory, neighborhood owners, unit contract, JLINK matrix, primary-nav
+    roster), SPEC-073 (the semantics corpus enumerations and every count word that
+    says "fourteen", now twelve), SPEC-074 (the `installed-pack-catalog` job, its
+    inputs, owner, descriptors, and PT-code text), SPEC-075 (route/label/nav order
+    table, presentation matrix including page kinds and next actions, alias table,
+    JLINK table, generated-region descriptor rules), and SPEC-076 (the journey
+    table, obligation table, and generated-job table) all name `/extend/`,
+    `/packs/`, `docs/extend.md`, `docs/packs.md`, `installed-pack-catalog`, a
+    seven-item primary nav, or a journey/JLINK row this plan retires. Landing
+    without updating them is exactly the silent divergence the issue forbids. This
+    is a LITERAL reconciliation: change the named routes, sources, anchors, labels,
+    job id, inputs, counts, and descriptor lists to the delivered state, DELETE the
+    rows for retired JLINKs and retired journeys, and change nothing else — no new
+    requirements, no new claims, no re-scoping of those specs, and no status
+    changes on them. `PLAN-SPEC-072..076` are completed plans and are never edited.
+
+  CLM-019 — THE FENCE. Out of scope and untouched: the homepage, `/evaluate/`,
+    `/model/`, `/adopt/` copy, `/use-cases/` copy other than the single JLINK-016
+    link line named in CLM-008, `/contributing/` copy, the Reference lifecycle
+    section and its tables, the entity-reference generator (`scripts/entityref/`),
+    `docs/_data/entity-reference.yml`, `docs/pack.md` in any form — this plan
+    neither creates, stubs, nor edits the noun page — the `/status/` footer link
+    and `docs/_includes/site-footer.html` (CLM-012 records that divergence from the
+    prototype deliberately), every evidence-inventory claim except CLAIM-025, every
+    JLINK retirement that belongs to a sibling lane (005, 006, 008, 010, 011, 012,
+    014, 021), every Seed 5 journey outside the six pack-fleet journeys named in
+    CLM-009, the `render-public-site-contracts` source-link LABEL change (a shared
+    presentation nicety affecting all four catalogs, not required by this page),
+    BUNDLE-032's charter and its delivered status, vendoring packs, and inventing a
+    publish CLI. Navigation-roster membership is IN scope and is fixed at the
+    approved rosters (CLM-012); what is forbidden is re-adding a route the approved
+    IA dropped. Do not obtain green with a waiver, a baseline entry, a skipped
+    test, a suppressed finding, or a loosened assertion.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  SHARP EDGES
+  ══════════════════════════════════════════════════════════════════════════════
+  1. THE PROTOTYPE IS RED IN EXACTLY THE PLACE THIS PLAN MUST CLOSE.
+     `go test ./scripts/websitejourney/...` fails at `0a6010c` because the
+     prototype deleted twelve JLINK IDs from the topology while Seed 5 still binds
+     five of them (017, 018, 019, 021, 022), and because two feature files were
+     never updated. The approved TOPOLOGY is authoritative; the prototype's Seed 5
+     is not. This plan lands the congruent state — four retirements plus the
+     journey reconciliation they force (CLM-008, CLM-009) — rather than copying
+     either half of that inconsistency. The prototype is evidence of approved copy
+     and IA, not of a green contract layer: verify every closed-world list against
+     the tree, never against the prototype alone.
+  2. THE PROTOTYPE BRANCH MIXES SIX ISSUES. `origin/main...0a6010c` touches 72
+     files across ISSUE-190/193/195/196/197/198/199. Only the pack-fleet slice
+     belongs here. In particular: do NOT adopt the prototype's `/evaluate/`,
+     `/model/`, `/adopt/`, `/contributing/`, or `/reference/` heroes, its
+     footer `/status/` removal, its entity pages and generator, or its claim
+     relocations other than CLAIM-025. DO adopt, because they are pack IA: the
+     `/pack/guide/` and `/pack/examples/` presentation rows including
+     `next_action: /contributing/`, the `/adopt/` and `/use-cases/` next-action
+     cells that point at `/pack/examples/`, and the `primaryNavigation()` /
+     `utilityNavigation()` rosters (CLM-012).
+  3. POSITIONAL CLOSED WORLDS. `paths`, `sources`, `heroes`,
+     `neighborhood_owners`, `edge_specs`, and `link_labels` are compared by
+     POSITION with `zip`, in both `verify-content-topology.sh` and
+     `verify-public-product-model.sh`. The pack fleet rows sit at index 5 and 6 of
+     the page inventory and NBR-008/NBR-009 at index 7 and 8. Edit the pack-fleet
+     entries in place; a reordered or off-by-one list produces a misleading
+     failure on an unrelated page.
+  4. `presentation_test.go` AND `site-presentation.yml` MUST AGREE ON QUOTING. The
+     approved heroes contain a colon (`Packs: a guide`) and a trailing period
+     (`Published packs.`). `makeSyntheticSite` must emit `hero_question: %q`, not
+     bare `%s`, or the synthetic YAML is unparseable and the failure looks like a
+     presentation bug instead of a quoting bug.
+  5. NEXT-ACTION CHAIN. Seed 1's chain is `/adopt/` -> `/use-cases/` -> `/packs/`
+     -> `/extend/` -> `/reference/`. The approved chain is `/adopt/` ->
+     `/pack/examples/`, `/use-cases/` -> `/pack/examples/`, `/pack/examples/` ->
+     `/pack/guide/`, `/pack/guide/` -> `/contributing/`. The guide's
+     `/contributing/` cell is approved copy, not a Reference-hiding side effect,
+     and it is verified at `0a6010c`; an earlier revision of this plan asserted
+     `/reference/` and is withdrawn. `/adopt/`'s cell is assigned to this plan by
+     PLAN-ISSUE-196 CLM-011. Sitecheck requires exactly one
+     `href="<next_action>">Next` per rendered route, so every destination in the
+     chain must exist before the cell moves.
+  6. `/pack/` IS LINKABLE BUT NOT CANONICAL. It must stay out of
+     `canonicalRoutes()`, out of the topology `pages` inventory, out of
+     `verify-pages-deployment.sh`'s canonical route loop, and out of
+     `tests/public-site-helpers.ts`'s `canonicalRoutes` — it enters only through
+     `extraLinkableRoutes()` and the nav catalogs. Adding it to the canonical set
+     breaks the exact-ten page inventory and steals ISSUE-197's page.
+  7. `aria-current` CARDINALITY IS ONE. `verifyRouteDocument` counts
+     `aria-current="page"` across the whole document and requires exactly one on a
+     nav destination. With `packFleetCurrent`, three routes map to one nav item, so
+     the Liquid in `site-header.html` and the Go predicate must agree exactly or
+     the count goes to 0 or 2.
+  8. DELETED PAGES STILL NEED SEED 4 ROLES (CLM-017). Removing `docs/packs.md`,
+     `docs/extend.md`, or `docs/pack-authoring.md` from `pageWrappers()` inverts
+     the failure from "undeclared path" to "path outside the closed matrix".
+  9. THE SEMANTICS CORPUS IS ASSERTED IN FOUR PLACES (CLM-016): the `CORPUS`
+     heredoc, the `expected` list inside
+     `verify_installed_semantics_gate_accepts_exact_clean_seed1_corpus`, the
+     `len(scope.get('files',[]))!=14` check in that same function, and the
+     `grep -c . == 14` assertion in
+     `verify_installed_semantics_gate_rejects_vacuous_or_inexact_corpus_scope`.
+     All four move together to twelve, and the "fourteen-file" wording in the
+     failure messages moves with them. Changing the lists but not the counts fails
+     the clean-corpus gate with a scope-size error that looks like a pack bug.
+  10. PACK-004's NEEDLE IS ASSERTED THREE TIMES (CLM-007): the `responsibilities`
+     tuple, the `production_delete_reject` call, and the closed-block ALLOWANCE
+     entry keyed by page. The first two must name `docs/reference.md` after the
+     move and the third must be re-keyed from the `docs/extend.md` map into the
+     `docs/reference.md` map. The needle and paragraph bytes are preserved
+     verbatim in all three. Missing the allowance is what makes TASK-013
+     unreachable.
+  11. PRODUCT-TRUTH IS A FOUR-JOB CLOSED WORLD AT A FIXED INDEX. `LoadManifest`
+     requires exactly four jobs in the exact order `cli-command-catalog`,
+     `artifact-schema-catalog`, `published-pack-catalog`, `release-history`, and
+     `manifest_test.go` asserts job index 2 by position. Rename in place; do not
+     append a fifth job or reorder.
+  12. THE GENERATED FRAGMENT IS DIGEST-BOUND, AND RETIRING CAP-011/@UJ-001 MOVES
+     ITS ONLY SURVIVING HOME. `docs/_data/website-capability-map.yml` carries
+     `truth_begin_marker`, `sources_begin_marker`, and `source_digest` for the pack
+     catalog in TWO journey blocks today: CAP-011/@UJ-001 (which this plan retires,
+     taking that copy of the block with it) and CAP-013/@UJ-002 (which SURVIVES).
+     `map.go` hardcodes both expectations — `CAP-011/@UJ-001` must carry exactly
+     `published-pack-catalog` and `CAP-013/@UJ-002` must carry all four jobs — so
+     the `CAP-011/@UJ-001` case is deleted with the journey while the four-job case
+     stays. The pack catalog therefore keeps Seed 5 generated coverage through
+     CAP-013/@UJ-002, whose obligation resolves against `owner_route`
+     (`HasGeneratedRegion(documents[obligation.OwnerRoute], …)`), NOT against the
+     journey's hops — which is why dropping the `/pack/examples/` hop with
+     JLINK-022 does not orphan it. The surviving digest and marker pair are
+     computed from the regenerated fragment; hand-editing a digest to make a test
+     pass is falsification. Regenerate, then read the value out.
+  13. `hero_lede: false` IS A REAL VALUE, NOT ABSENCE. Liquid treats `false` and
+     nil differently only if the template tests them separately; the three-branch
+     `if/elsif/else` in `page-hero.html` is required so `/pack/examples/` renders
+     no lede while pages without the key keep the default sentence.
+  14. PACKS STAY EXTERNAL. `.backstop/packs/` is gitignored by design and its
+     absence is not a durability gap. If a pack is missing, install it from
+     `backstop.lock`; never vendor pack content into core to make a gate green.
+  15. PER-FILE COVERAGE. `scripts/sitecheck/` and `scripts/producttruth/` files
+     carry an 80% per-file floor. New branches (`packFleetCurrent`,
+     `extraLinkableRoutes`, `loadPublishedPacks`'s validation arms) must be
+     EXECUTED by tests, not merely declared. A declared-but-unexecuted branch that
+     still measures above the floor is not acceptance.
+  16. THE VERIFIER LADDER DICTATES PHASE ORDER, AND IT IS NOT OBVIOUS. The four
+     site verifiers nest, so running one too early produces a failure the phase
+     does not own:
+       - `verify-public-product-model.sh` reads source markdown and
+         `docs/_data/*.yml` only. It masks the generated-region include block, so
+         it needs NO build and NO fragment. Earliest legal point: phase 5.
+       - `verify-product-truth.sh` runs the producttruth tests and
+         `generate-product-truth.sh --check`. It needs the owner page to exist but
+         not the topology. Earliest legal point: phase 4.
+       - `verify-public-site.sh` runs a locked production `jekyll build` AND
+         `sitecheck --check-diff --built-root --design-system-matrix`. It therefore
+         needs the generated fragment (phase 4), the delivered presentation data
+         (phase 5), AND the Seed 4 rows (phase 6). Earliest legal point: phase 7.
+       - `verify-website-capabilities.sh` invokes BOTH
+         `verify-public-product-model.sh` and `verify-public-site.sh` before its
+         own traversal, so it is strictly last. Earliest legal point: phase 8.
+     That ladder is why the phases run copy -> product truth -> data -> delivery
+     rows -> chrome -> journeys rather than in the order the surfaces were
+     described. A `{% include %}` of a nonexistent fragment is a hard Liquid build
+     failure, and `--check-diff` reads COMMITTED history, so this plan's own
+     artifact rows only converge once the plan file is committed on the branch.
+     The ladder constrains VERIFICATION, not every task, and the DAG is written to
+     let file-disjoint work run in parallel rather than in one long serial chain:
+       - Phase 2 (synthetic sitecheck contracts, `scripts/sitecheck/*`) and phase 3
+         (page copy, `docs/*` plus the two page test scripts) share no file and no
+         receipt, so both run straight off phase 1.
+       - Phase 5 (topology/presentation/inventory/evidence data plus the two
+         product-model verifier scripts) and phase 6 (Seed 4 ledger, deployment
+         aliases, semantics corpus, `inventory_test.go`) share no file, so both run
+         off phase 4's verification and phase 2's `TASK-004`. Phase 6 needs
+         `TASK-004` because `expectedRole()` for the pack fleet paths lands in
+         phase 2; phase 5 needs it because `TASK-013` re-runs the sitecheck
+         presentation matrix.
+       - Phase 7 is the convergence point: `TASK-017` depends on BOTH `TASK-013`
+         and `TASK-016`, because `verify-public-site.sh` needs the data layer and
+         the delivery rows simultaneously. Because phases 5 and 6 are concurrent,
+         phase 6's go-test receipt is SCOPED to the inventory and role tests —
+         the sitecheck tests that read the real presentation data are phase 7's.
+       - Phase 9's two arms are also disjoint: `TASK-023` (five SPEC files) hangs
+         off `TASK-021` and runs alongside `TASK-022` (websitejourney receipts),
+         and only `TASK-024` joins them. `TASK-024` therefore carries exactly two
+         edges — `TASK-022` and `TASK-023` — and no redundant edge back to
+         `TASK-021`, which both of them already imply.
+  17. FOUR ROSTER LOCATIONS, ONE COMMIT-SHAPED TRUTH (CLM-012). `verifyRouteDocument`
+     emits `navigation … Expected: present` for every `primaryNavigation()`
+     destination a rendered route fails to link, and `verify_reference_navigation_
+     roster_is_consistent` (PLAN-ISSUE-199) reads `docs/_data/content-topology.yml`
+     as the roster and requires the header to match it exactly — one rendered
+     anchor per rostered route, no rendered anchor for an off-roster canonical
+     route. So the Go catalogs, the topology data, the Liquid header, and the
+     Playwright helpers cannot land in different phases with different rosters and
+     be green in between. They land across phases 2, 5, and 7, and phase 7's
+     `verify-public-site.sh` is the first receipt where all four are true at once.
+     Do not "repair" an intermediate red by re-adding a dropped nav route.
+  18. RETIRING A JOURNEY IS A SEVEN-SURFACE EDIT (CLM-009), and the same two counts
+     are shared with PLAN-ISSUE-196's JLINK-012 retirement. Reduce by exactly what
+     this plan retires, reconcile against the landing base, and never renumber a
+     surviving ID or scenario to close a gap.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Prerequisite and premise receipts"
+    tasks:
+      - id: TASK-001
+        type: setup
+        title: "Assert the ISSUE-197 /pack/ prerequisite and record the premise receipts"
+        description: |
+          Establish the one cross-issue prerequisite and capture the premise
+          receipts every later task reads. THIS TASK WRITES NOTHING. It creates no
+          file, edits no file, and authors no copy — it is a read-and-record gate,
+          and every fact it records is re-proved by a later test or verification
+          task rather than trusted on its say-so.
+
+          PREREQUISITE, HARD. Assert that `docs/pack.md` exists with
+          `permalink: /pack/` and that the route is reachable through
+          `extraLinkableRoutes()`. If it does not exist, STOP and report the
+          sequencing conflict: ISSUE-197 lands first (see the ISSUE-197
+          PREREQUISITE note). Do NOT create the file, do NOT write a minimum-route
+          stub, do NOT add fleet links to it, and do NOT give it a Seed 4 row.
+          PLAN-ISSUE-197 owns the noun page including whether it links
+          `/pack/guide/` and `/pack/examples/`, and it emits that page from its
+          overlay rather than by hand. The fleet links this plan needs run the
+          other way and live on its own two pages.
+
+          Also record, without changing anything: whether `extraLinkableRoutes()`
+          already exists and what it returns. Under the fixed landing order it
+          exists and already contains `/pack/`, in which case TASK-003 adds no
+          entry and asserts the union; if the order was violated and the getter is
+          absent, TASK-003 introduces it with exactly `["/pack/"]`. Never shrink it.
+
+          PREMISE RECEIPTS, each read out of the tree and recorded for later tasks:
+          (a) `go test ./cmd/backstop -run TestPackAuthoringLoop -count=1` (or the
+          exact test name in `cmd/backstop/pack_authoring_loop_test.go`) to confirm
+          the live loop is `pack new` -> `pack check` -> `pack test` -> `pack add`
+          -> consumer `gate`; (b) `./bin/backstop pack --help` plus
+          `ls cmd/backstop/pack_*.go` to record the registered verb list and
+          confirm NO `publish` verb and no `pack_publish.go` exist — TASK-005 turns
+          this into the standing command-surface probe (CLM-004, CLM-005), so this
+          receipt is the premise, not the acceptance; (c) the THREE places that
+          hold the PACK-004 needle — the `responsibilities` tuple and the
+          `production_delete_reject` call in
+          `scripts/tests/public-product-model/pages/extend-reference-contributing.sh`,
+          and the `'path-filter repair instruction'` allowance entry under
+          `'docs/extend.md'` in `scripts/verify-public-product-model.sh` — proving
+          the section must MOVE to `docs/reference.md` and that its allowance must
+          be re-keyed with it (CLM-007); (d) the `documentation-semantics` pack's
+          declared scope, proving `docs/*.md` is the glob and nested
+          `docs/pack/*.md` cannot join the corpus, and the four corpus/count sites
+          in `scripts/verify-documentation-semantics-integration.sh` that must drop
+          from fourteen to twelve (CLM-016); (e)
+          `go test ./scripts/websitejourney/... -count=1` to record the CURRENT
+          failure set, so this plan's own red (pack-fleet retirements) is
+          distinguishable from failures inherited from sibling lanes.
+
+          If receipt (a) or (b) contradicts the approved copy — for example if a
+          publish command turns out to exist — STOP and report rather than editing
+          the approved page. If receipt (c) shows no test requires the needle,
+          record that and drop the `docs/reference.md` move from TASK-006; do not
+          restore the Seed 1 stub to keep a needle alive.
+        files:
+          - docs/pack.md
+          - scripts/verify-public-product-model.sh
+          - scripts/verify-documentation-semantics-integration.sh
+        claims:
+          - CLM-004
+          - CLM-005
+          - CLM-007
+          - CLM-012
+          - CLM-016
+        depends_on: []
+  - id: phase-2
+    name: "Phase 2: Route, navigation, and page-kind contracts"
+    tasks:
+      - id: TASK-002
+        type: test
+        title: "RED: assert the pack fleet route catalogs, Pack nav item, and packFleetCurrent"
+        description: |
+          Drive the sitecheck contract layer red against the delivered route and
+          navigation state, before touching any production Go.
+
+          In `scripts/sitecheck/site_contract_test.go`: change
+          `TestSiteCheck_RouteCatalogsAreImmutableAndExhaustive` so `wantRoutes` is
+          `/`, `/evaluate/`, `/model/`, `/adopt/`, `/use-cases/`,
+          `/pack/examples/`, `/pack/guide/`, `/reference/`, `/status/`,
+          `/contributing/` — still exactly ten; `wantPrimary` is `/evaluate/`,
+          `/model/`, `/adopt/`, `/pack/`; `wantUtility` is `/contributing/`; and
+          drop `pack-authoring.html` from `wantRedirects`. The primary and utility
+          rosters are the approved ones (CLM-012): do NOT keep `/use-cases/`,
+          `/reference/`, or `/status/` in a nav expectation, and do not add them
+          back later to repair a red.
+
+          Assert `extraLinkableRoutes()` as a UNION, not as this plan's literal.
+          Under the fixed landing order ISSUE-197 has already populated it with
+          eight entries, so require: every entity route ISSUE-197 owns still
+          present, `/pack/` present exactly once, no duplicates, and cardinality
+          unchanged by this plan — plus the caller-mutation loop proving the getter
+          returns an independently mutable slice. If the getter is absent because
+          the landing order was violated, the expectation is the single entry
+          `["/pack/"]` and ISSUE-197 adds its seven later. An ordered-equality
+          assertion pinned to `["/pack/"]` against a populated catalog is a defect:
+          it can only be satisfied by deleting ISSUE-197's entries.
+
+          Update `syntheticDocument`'s label map to carry `"/pack/": "Pack"` in
+          place of the `Packs` and `Extend` entries, and set `aria-current="page"`
+          when `page.Route == destination || (destination == "/pack/" &&
+          packFleetCurrent(page.Route))`. In `makeSyntheticSite`, emit
+          `hero_question: %q` rather than `%s` so colon- and period-bearing heroes
+          parse, and write a minimal built document for `/pack/` so the extra
+          linkable route resolves.
+
+          In `scripts/sitecheck/presentation_test.go`: in `canonicalPresentation()`
+          replace the `/packs/` and `/extend/` rows with
+          `{Route: "/pack/examples/", PageKind: "ecosystem", HeroQuestion:
+          "Published packs.", Treatments: [evidence-cards, generated-regions,
+          local-overflow], NextAction: "/pack/guide/"}` and
+          `{Route: "/pack/guide/", PageKind: "extension", HeroQuestion: "Packs: a
+          guide", Treatments: [evidence-cards, boundary-callouts], NextAction:
+          "/contributing/"}` — `/contributing/`, the approved value, NOT
+          `/reference/` — and repoint the `NextAction` of BOTH `/use-cases/` and
+          `/adopt/` to `/pack/examples/` (the `/adopt/` cell is assigned to this
+          plan by PLAN-ISSUE-196 CLM-011). Leave every other row — including the
+          `/evaluate/`, `/model/`, `/adopt/`, `/reference/`, and `/contributing/`
+          heroes and every other `NextAction` — exactly as the landing base holds
+          it. In `TestSiteCheck_NavigationMatrixPasses` the primary row becomes
+          Evaluate, Model, Adopt, Pack and the utility row becomes Contributing,
+          matching the rosters above.
+
+          In `scripts/sitecheck/owner_contracts_test.go`: rename
+          `installed-pack-catalog` to `published-pack-catalog` in the generated-job
+          list, and reduce the synthetic journey-link loop to the delivered ID set
+          — JLINK-017, 018, 019, and 022 are retired by this plan (CLM-008), and
+          whatever IDs sibling lanes have already retired stay retired. Derive the
+          loop from the topology's `journey_links` rather than from a hardcoded
+          `1..N` range so it cannot drift back, and never re-add a retired ID to
+          make the loop tidy.
+
+          Add a focused test proving the pack-fleet current-state predicate on its
+          own: `packFleetCurrent` true for `/pack/`, `/pack/guide/`,
+          `/pack/examples/` and false for `/pack/examplesx/`, `/packs/`,
+          `/extend/`, `/reference/`, and `/`. The negative half is what
+          distinguishes a predicate from a prefix match.
+
+          RED receipt: `go test ./scripts/sitecheck -count=1 -v`. The named tests
+          must EXECUTE and fail on their intended assertions (`/packs/` and
+          `/extend/` still in the catalogs, `/use-cases/` and `/reference/` still
+          in `primaryNavigation()`, `/status/` still in `utilityNavigation()`, the
+          retired alias still present, `packFleetCurrent` missing). A package that
+          does not compile because `packFleetCurrent` — and, only under a violated
+          landing order, `extraLinkableRoutes` — does not exist yet is expected for
+          those new symbols only; introduce them in TASK-003, and do not accept a
+          pre-existing build break elsewhere as this task's red.
+        files:
+          - scripts/sitecheck/site_contract_test.go
+          - scripts/sitecheck/presentation_test.go
+          - scripts/sitecheck/owner_contracts_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-008
+          - CLM-010
+          - CLM-012
+          - CLM-013
+        test_names:
+          - TestSiteCheck_RouteCatalogsAreImmutableAndExhaustive
+          - TestSiteCheck_NavigationMatrixPasses
+          - TestSiteCheck_CanonicalRouteMatrixPasses
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: implementation
+        title: "GREEN: swap the route catalogs, add extraLinkableRoutes and packFleetCurrent"
+        description: |
+          Make TASK-002 green with the smallest coordinated edit to the sitecheck
+          production files.
+
+          In `scripts/sitecheck/site.go`: in `canonicalRoutes()` replace `/packs/`
+          and `/extend/` with `/pack/examples/` and `/pack/guide/` in the same
+          positions. Set `primaryNavigation()` to the approved roster
+          `[]string{"/evaluate/", "/model/", "/adopt/", "/pack/"}` and
+          `utilityNavigation()` to `[]string{"/contributing/"}` (CLM-012); if a
+          sibling landing has already reduced either roster, preserve that state
+          and add only `/pack/`. Never re-add `/use-cases/`, `/reference/`, or
+          `/status/` to a roster. Add `packFleetCurrent(route string) bool`
+          returning true for `/pack/`, `/pack/guide/`, `/pack/examples/` and false
+          otherwise. In `navigationLabel()` replace the `/packs/` and `/extend/`
+          cases with a single `case "/pack/": return "Pack"`, and KEEP the
+          `/use-cases/`, `/reference/`, and `/status/` cases — those routes stay
+          canonical and labelled, they are simply off the nav roster. In
+          `legacyRedirects()` remove the `pack-authoring.html` entry and nothing
+          else.
+
+          `extraLinkableRoutes()` is a UNION, never a replacement (CLM-012, and the
+          ISSUE-197 PREREQUISITE note): if it already exists — the expected state
+          under the fixed landing order — verify `/pack/` is present exactly once
+          and CHANGE THE FUNCTION NOT AT ALL; do not rewrite it to this plan's
+          one-entry literal and do not reorder ISSUE-197's entries. Only if it is
+          absent does this plan introduce it, returning a fresh
+          `[]string{"/pack/"}` per call so caller mutation cannot leak. Likewise
+          `collectBuiltDocuments` must load each extra route's document after the
+          canonical loop and register its IDs, skipping silently when the file is
+          absent so a missing optional route degrades to a link finding rather than
+          a crash — if ISSUE-197 already wired that loop, leave it alone.
+
+          In `verifyRouteDocument`, expand the current-state condition to
+          `route == destination || (destination == "/pack/" && packFleetCurrent(route))`.
+          `VerifyRenderedOwnerContracts` must iterate the DELIVERED journey-link ID
+          set rather than a hardcoded `JLINK-001..024` range: JLINK-017, 018, 019,
+          and 022 are retired here (CLM-008) and sibling lanes retire others, so
+          read the IDs from the topology instead of pinning a range. Do not re-add
+          a retired ID to keep a loop bound tidy.
+
+          In `scripts/sitecheck/inventory.go`: ADD `docs/pack/examples.md` and
+          `docs/pack/guide.md` to `pageWrappers()`. RETAIN `docs/packs.md`,
+          `docs/extend.md`, and `docs/pack-authoring.md` — `expectedRole()` must
+          keep resolving `page-wrapper` for them so their Seed 4 `D` rows stay
+          inside the closed matrix (CLM-017, sharp edge 8). Change nothing else in
+          that file.
+
+          GREEN evidence: rerun `go test ./scripts/sitecheck -count=1` and require
+          the TASK-002 tests to pass with no other test in the package regressing.
+        files:
+          - scripts/sitecheck/site.go
+          - scripts/sitecheck/inventory.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-008
+          - CLM-012
+          - CLM-013
+          - CLM-017
+        depends_on:
+          - TASK-002
+
+      - id: TASK-004
+        type: verification
+        title: "Verify the route and navigation contract layer"
+        description: |
+          Run `backstop gate --file scripts/sitecheck/site.go --file
+          scripts/sitecheck/inventory.go --file
+          scripts/sitecheck/site_contract_test.go --file
+          scripts/sitecheck/presentation_test.go --file
+          scripts/sitecheck/owner_contracts_test.go` as the diff-scoped cadence
+          gate, then `go test ./scripts/sitecheck/... -count=1`.
+
+          Require: the TASK-002 tests passing; every other sitecheck test still
+          passing unmodified; and the per-file coverage floor met with
+          `packFleetCurrent` and the extra-route branch of `collectBuiltDocuments`
+          actually EXECUTED by the new assertions rather than merely declared
+          (sharp edge 15). Read the gate report for lint, unused-symbol, and
+          coverage findings on the two production files.
+
+          Confirm as NEGATIVES: `extraLinkableRoutes()` still holds every entity
+          route ISSUE-197 owns, with `/pack/` exactly once and no entry removed;
+          `docs/_includes/site-footer.html` untouched; no redirect invented for
+          `/extend/` or `/packs/`; no route re-added to `primaryNavigation()` or
+          `utilityNavigation()` that the approved IA dropped; and `docs/pack.md`
+          unmodified by this plan. A waiver, a skip, a baseline entry, or a
+          loosened assertion is a failure, not a pass.
+        files:
+          - scripts/sitecheck/site.go
+          - scripts/sitecheck/inventory.go
+          - scripts/sitecheck/site_contract_test.go
+          - scripts/sitecheck/presentation_test.go
+        claims:
+          - CLM-012
+          - CLM-013
+          - CLM-017
+        depends_on:
+          - TASK-003
+  - id: phase-3
+    name: "Phase 3: Approved page copy and the PACK-004 move"
+    tasks:
+      - id: TASK-005
+        type: test
+        title: "RED: retarget the page-level closed-world tests onto the pack fleet"
+        description: |
+          Point the two Seed 1 page tests at the delivered pages and needles before
+          the copy exists.
+
+          In `scripts/tests/public-product-model/pages/extend-reference-contributing.sh`:
+          change `sources` from `{'docs/extend.md','docs/reference.md',
+          'docs/contributing.md'}` to `{'docs/pack/guide.md','docs/reference.md',
+          'docs/contributing.md'}`. In `responsibilities`, move the PACK-004 needle
+          from `('/extend/','slash-bearing include or exclude pattern')` to
+          `('/reference/','slash-bearing include or exclude pattern')`, preserving
+          the needle bytes verbatim, and change
+          `production_delete_reject docs/extend.md '...' PACK-004` to
+          `production_delete_reject docs/reference.md '...' PACK-004`. Leave the
+          `/reference/` and `/contributing/` claim lists, the other
+          `responsibilities` entries, the other `production_delete_reject` calls,
+          and the external-owner seam assertion exactly as they are on main — the
+          prototype's contributing-copy and lifecycle changes belong to
+          ISSUE-199/other issues (CLM-019).
+
+          In `scripts/tests/public-product-model/pages/model-use-cases-packs.sh`:
+          change `sources` from `docs/packs.md` to `docs/pack/examples.md`; change
+          the CLAIM-025 responsibility needle from
+          `('/packs/','lock binds resolved bytes')` to
+          `('/pack/examples/','pins the version in `backstop.yml` and writes
+          `backstop.lock`')`; repoint `production_delete_reject` to
+          `docs/pack/examples.md` with that same needle; and repoint the appended
+          duplicate-claim mutation heredoc from `$tmp/docs/packs.md` to
+          `$tmp/docs/pack/examples.md`. Note that the mutation block copies whole
+          directories, so a nested `docs/pack/` path must survive the copy —
+          verify the `cp -R` still reaches it. In the same file, retarget the
+          JLINK-016 needle read against `docs/use-cases.md` from
+          `/packs/#choose-a-pack` to `/pack/examples/#choose-a-pack`; that one link
+          line is the only `/use-cases/` change this plan makes (CLM-008).
+
+          THE COMMAND-SURFACE PROBE — this is what gives CLM-004 and CLM-005 a test
+          instead of a setup receipt. Add to BOTH page scripts a check that reads
+          every `backstop pack <verb>` (and bare `backstop <verb>`) string rendered
+          on the page it owns — `docs/pack/guide.md` and `docs/pack/examples.md`
+          respectively — and requires each verb to appear in the built CLI's own
+          verb list (`./bin/backstop pack --help`, `./bin/backstop --help`). It
+          must also require `publish` to be ABSENT from the pack verb list, so the
+          probe reds either when a page names a command that does not exist or when
+          a `pack publish` appears without this plan's publish-today copy being
+          revisited. Fail with the offending verb named; a probe that silently
+          matches nothing is vacuous, so assert the extracted verb set is non-empty
+          on each page.
+
+          THE FOUR-TERM MODEL BLOCK — CLM-006's structural half. In
+          `extend-reference-contributing.sh`, require `docs/pack/guide.md` to carry
+          exactly one `<div class="pack-model">`, whose `<dl>` has the four `<dt>`
+          terms Claim, Rule, Engine, Fixtures in that order, each followed by a
+          non-empty `<dd>`. Its allowance half lands in TASK-011.
+
+          RED receipt: `./scripts/tests/public-product-model/pages/extend-reference-contributing.sh`
+          and `./scripts/tests/public-product-model/pages/model-use-cases-packs.sh`.
+          Both must FAIL naming the missing `docs/pack/guide.md` /
+          `docs/pack/examples.md` sources, the absent PACK-004 needle in
+          `docs/reference.md`, the absent `pack-model` block, and the unresolvable
+          command probe — not on a Python import error, a YAML parse error, or a
+          missing interpreter. If `./bin/backstop` is not built, build it; a probe
+          that cannot run is not a red.
+        files:
+          - scripts/tests/public-product-model/pages/extend-reference-contributing.sh
+          - scripts/tests/public-product-model/pages/model-use-cases-packs.sh
+        claims:
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-011
+        depends_on:
+          - TASK-001
+
+      - id: TASK-006
+        type: implementation
+        title: "GREEN: land the approved guide and examples pages, retire the Seed 1 pages"
+        description: |
+          Land the approved copy exactly, delete the pages it replaces, and move the
+          PACK-004 section.
+
+          Create `docs/pack/guide.md` from the approved source at `0a6010c`:
+          `title: Packs`, `layout: default`, `permalink: /pack/guide/`,
+          `hero_question: "Packs: a guide"`, and the approved `hero_lede`. Body is
+          exactly the three approved H2 blocks in order —
+          `## 1. Pack or not {#pack-or-not}`,
+          `## 2. Author a pack {#author-a-pack}`,
+          `## 3. Publish a pack {#publish-a-pack}` — with the approved H3
+          subheadings carrying NO `{#id}` anchors so JLINK-020's `author-a-pack`
+          source anchor cannot be stolen. Preserve the four-term `pack-model`
+          definition list verbatim (CLM-006), the live commands verbatim
+          (`pack new --type engine --language go --slug <slug>`, `pack check
+          ./<slug>`, `pack test ./<slug>`, `pack add ./<slug>`), the type list
+          `engine`, `mechanism`, `toolchain`, and the publish-today steps exactly:
+          local checks/tests pass, valid semver in `pack.yml`, a matching Git tag
+          with a `v` prefix, pointing at the exact commit. Do not invent
+          `backstop pack publish`, a catalog of planned packs, a publishing proxy,
+          a registry fan-out, attestations, or credential management (CLM-004).
+
+          Place the ONE journey-link marker this page owns, exactly as the approved
+          source has it: `#author-a-pack` carries
+          `<!-- backstop-journey-link: JLINK-020 -->` above a standalone
+          `[How to participate](/contributing/#contribution-paths)`, with marker,
+          link, and source-anchor cardinality exactly 1. Add NO marker for
+          JLINK-019 and do NOT split the approved `#pack-or-not` sentence to make
+          room for one — JLINK-019 is retired (CLM-008), and its in-sentence link
+          `[Published packs](/pack/examples/#choose-a-pack)` stays exactly as
+          approved: a plain link, unmarked. Add NO `/reference/` link anywhere on
+          this page — no visible Reference tease. The approved `#pack-or-not` links
+          `[What is a pack?](/pack/)` and `[Published packs](/pack/examples/#choose-a-pack)`
+          and nothing else.
+
+          Create `docs/pack/examples.md` from the approved source: `permalink:
+          /pack/examples/`, `hero_question: "Published packs."`,
+          `hero_lede: false`, and the four approved H2 blocks
+          `## Choose a pack {#choose-a-pack}`,
+          `## Published pack catalog {#published-pack-catalog}`,
+          `## Install a published pack {#install-a-pack}`,
+          `## Try a local pack first {#install-a-local-pack}`. The catalog section
+          wraps the generated include in
+          `<section data-generated-region data-product-truth-job="published-pack-catalog">`
+          with the `PRODUCT-TRUTH-INCLUDE:BEGIN/END` marker pair and
+          `{% include generated/published-pack-catalog.md %}` — exactly one
+          occurrence of the fragment name on the page. `#install-a-pack` carries the
+          approved CLAIM-025 block between `<!-- backstop-claim: CLAIM-025 -->` and
+          `<!-- /backstop-claim -->`.
+
+          THE EXAMPLES PAGE CARRIES NO JOURNEY-LINK MARKER AT ALL, and that is the
+          approved state at `0a6010c`, not an omission. Do NOT write
+          `<!-- backstop-journey-link: JLINK-017 -->` above
+          `[Use pack commands](/reference/#pack-commands)`,
+          `<!-- backstop-journey-link: JLINK-018 -->` above
+          `[Review pack direction](/status/#pack-direction)`, or
+          `<!-- backstop-journey-link: JLINK-022 -->` above
+          `[Browse the CLI catalog](/reference/#cli-command-catalog)`. All three
+          are teases into the surfaces the approved IA hid; all three IDs are
+          retired (CLM-008) and their journeys reconciled in phase 8 (CLM-009). An
+          earlier revision of this plan instructed exactly those three lines; they
+          are withdrawn. The page's only outbound links are the approved in-fleet
+          ones: `[guide](/pack/guide/#author-a-pack)` and
+          `[publish a tagged release](/pack/guide/#publish-a-pack)` inside
+          `#install-a-local-pack`.
+
+          Keep the approved consumer commands verbatim: `pack add
+          backstop-ai/<pack>@<version>`, `pack install`, `pack list`, the local
+          path add, `gate`, and `pack relock ./my-standard` described as
+          local-source only (CLM-005).
+
+          In `docs/use-cases.md`, retarget the single JLINK-016 link line from
+          `[Choose a maintained pack](/packs/#choose-a-pack)` to
+          `[Choose a maintained pack](/pack/examples/#choose-a-pack)`. The marker,
+          the label, the surrounding copy, and every other line of that page stay
+          byte-identical — this is the one edit this plan makes to a page it does
+          not own, and it exists because JLINK-016 survives with a new destination.
+
+          Move the PACK-004 section into `docs/reference.md` as
+          `## Path-filter diagnostics {#path-filter-diagnostics}`, placed
+          immediately before `## Artifact lifecycle and closure
+          {#artifact-lifecycle-and-closure}`, with the Seed 1 paragraph copied
+          verbatim so `slash-bearing include or exclude pattern` and the
+          `pack check` / `pack test` references survive byte-for-byte (CLM-007).
+          Change nothing else in `docs/reference.md` — its hero, its other
+          sections, and the lifecycle tables belong to ISSUE-199.
+
+          Delete `docs/extend.md`, `docs/packs.md`, and `docs/pack-authoring.md`.
+          Create no redirect, alias, or `redirect_from` for any of them (CLM-001,
+          CLM-013).
+
+          GREEN evidence: rerun both TASK-005 page tests and require them to pass.
+        files:
+          - docs/pack/guide.md
+          - docs/pack/examples.md
+          - docs/reference.md
+          - docs/use-cases.md
+          - docs/extend.md
+          - docs/packs.md
+          - docs/pack-authoring.md
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-013
+        depends_on:
+          - TASK-005
+
+      - id: TASK-007
+        type: verification
+        title: "Verify the approved copy against the page-level closed worlds"
+        description: |
+          Run `backstop gate --file docs/pack/guide.md --file
+          docs/pack/examples.md --file docs/reference.md --file
+          docs/use-cases.md` as the diff-scoped cadence gate, then both page tests
+          (`scripts/tests/public-product-model/pages/extend-reference-contributing.sh`
+          and `scripts/tests/public-product-model/pages/model-use-cases-packs.sh`).
+
+          Require: both page tests green, including the command-surface probe and
+          the `pack-model` structure check; the guide carrying exactly three H2
+          blocks with the approved anchors and no anchored H3; exactly ONE
+          journey-link marker across the two delivered pages — JLINK-020 on the
+          guide with the label "How to participate" — and ZERO markers on examples;
+          exactly one `published-pack-catalog.md` include on examples; the PACK-004
+          needle present verbatim in `docs/reference.md` and absent from any
+          surviving pack-fleet page; `docs/use-cases.md` differing from the landing
+          base by exactly one line, the JLINK-016 destination; and
+          `docs/extend.md`, `docs/packs.md`, `docs/pack-authoring.md` gone with no
+          redirect created.
+
+          Assert the NEGATIVES that the withdrawn revision would have violated:
+          grep both delivered pages for `JLINK-017`, `JLINK-018`, `JLINK-019`, and
+          `JLINK-022` and require zero matches; grep them for `/reference/` and
+          `/status/` hrefs and require zero matches; and diff the approved
+          `#pack-or-not` paragraph against the delivered one to confirm no sentence
+          was split to host a marker.
+
+          Also read the guide as a reviewer: no invented publish command, no
+          duplicated pack-manifest schema, no slide-frame chrome, no slogans, no
+          manufactured paradoxes, and no independent rewording of the approved
+          copy.
+
+          Two receipts are deliberately NOT available here and must not be forced.
+          `{% include generated/published-pack-catalog.md %}` does not resolve
+          until phase 4 creates the fragment, so no Jekyll build is attempted in
+          this phase and the fragment must not be hand-written. Sitecheck tests
+          that read real repository state — the Seed 4 delivery ledger and the
+          real `site-presentation.yml` — stay red until phases 5 and 6; scope the
+          pass requirement to the two page tests named above and record the rest as
+          sequenced rather than absorbing or suppressing them.
+        files:
+          - docs/pack/guide.md
+          - docs/pack/examples.md
+          - docs/reference.md
+          - docs/use-cases.md
+        claims:
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+        depends_on:
+          - TASK-006
+  - id: phase-4
+    name: "Phase 4: Re-own the generated pack catalog as published-pack-catalog"
+    tasks:
+      - id: TASK-008
+        type: test
+        title: "RED: assert a published-pack-catalog owned by /pack/examples/"
+        description: |
+          Drive the product-truth layer red against the re-owned job before the
+          generator changes (CLM-010).
+
+          `scripts/producttruth/manifest_test.go`: rename
+          `TestProductTruth_ManifestInstalledPackJobPasses` to
+          `TestProductTruth_ManifestPublishedPackJobPasses` and assert job INDEX 2
+          is `published-pack-catalog` with output
+          `docs/_includes/generated/published-pack-catalog.md`, owner
+          `/pack/examples/#published-pack-catalog`, and inputs exactly
+          `["docs/_data/published-pack-inventory.yml"]`. Keep the four-job
+          expectation and the index (sharp edge 11).
+
+          `scripts/producttruth/generate_test.go`: rename the render test to
+          `TestProductTruth_RenderPublishedPackCatalogDeterministically`, assert the
+          headers `Pack | Version | Covers | Engines | Source`, assert the fragment
+          contains NO `Content SHA-256`, `Declared version`, or `install_date`, and
+          assert it lists at least two `backstop-ai/` packs that are ABSENT from
+          this repository's `backstop.lock` — that negative is what proves the
+          catalog is published truth rather than local lock truth. Rename the
+          source-delta test and the `loadPacks` call site to `loadPublishedPacks`.
+
+          `scripts/producttruth/provenance_test.go`: rename the three installed-pack
+          provenance tests to `PublishedPack...`, assert exactly ONE `blob`/`site`
+          descriptor for `docs/_data/published-pack-inventory.yml`, assert the
+          rendered fragment does NOT contain `data-source-path="backstop.yml"` or
+          `data-source-path="backstop.lock"`, assert `data-source-kind="tree"` is
+          absent, and assert the owner string is
+          `owner=/pack/examples/#published-pack-catalog`.
+
+          `scripts/producttruth/source_site_test.go`: rename the include test to
+          `TestProductTruth_SourceIncludesPublishedPackFragment`, read
+          `docs/pack/examples.md`, and require exactly one
+          `published-pack-catalog.md` occurrence; swap `docs/packs.md` for
+          `docs/pack/examples.md` in the parallel-consumption rejection list.
+
+          `scripts/producttruth/transaction_test.go` and
+          `scripts/producttruth/testdata/source-deltas.yml`: rename the job id and
+          set the delta input to `docs/_data/published-pack-inventory.yml`.
+
+          Add a focused negative matrix for the new loader: a missing inventory
+          file, a wrong `version`, a wrong `organization`, an empty `packs` list, a
+          duplicate pack name, a non-`backstop-ai/...` name, a non-semver version, a
+          repository URL that is not `https://github.com/<name>`, and an empty
+          scalar must each produce a `PT103` diagnostic naming the inventory path.
+          Vacuous acceptance of a malformed inventory is the failure mode this
+          guards.
+
+          RED receipt: `go test ./scripts/producttruth/... -count=1 -v`. The renamed
+          tests must EXECUTE and fail on the missing `published-pack-catalog` job,
+          the missing inventory, and the still-`backstop.lock` descriptors.
+        files:
+          - scripts/producttruth/manifest_test.go
+          - scripts/producttruth/generate_test.go
+          - scripts/producttruth/provenance_test.go
+          - scripts/producttruth/source_site_test.go
+          - scripts/producttruth/transaction_test.go
+          - scripts/producttruth/testdata/source-deltas.yml
+        claims:
+          - CLM-010
+        test_names:
+          - TestProductTruth_ManifestPublishedPackJobPasses
+          - TestProductTruth_RenderPublishedPackCatalogDeterministically
+          - TestProductTruth_PublishedPackImmutableSourceLinksPass
+          - TestProductTruth_SourceIncludesPublishedPackFragment
+        depends_on:
+          - TASK-007
+
+      - id: TASK-009
+        type: implementation
+        title: "GREEN: rename the job, add the published pack inventory, regenerate the fragment"
+        description: |
+          Re-own the catalog in place, keeping the pipeline a four-job closed world.
+
+          `docs/_data/derived-product-truth.yml`: rename job index 2 to
+          `published-pack-catalog`, set `inputs: [docs/_data/published-pack-inventory.yml]`,
+          `output: docs/_includes/generated/published-pack-catalog.md`,
+          `owner_route: /pack/examples/`, `owner_anchor: published-pack-catalog`, and
+          a `source_link_policy` naming the inventory. Keep the marker and command
+          fields and the job ORDER (sharp edge 11).
+
+          `docs/_data/published-pack-inventory.yml`: create it with an explanatory
+          header stating that the source of truth is public `backstop-ai`
+          repositories shipping `pack.yml` at a stable `vMAJOR.MINOR.PATCH` tag and
+          that it is NOT this repository's `backstop.yml` or `backstop.lock`.
+          Declare `version: published-pack-inventory/v1`,
+          `organization: backstop-ai`, and one record per published pack with
+          `name`, `version`, `language`, `archetype`, `description`, `engines`, and
+          `repository`. Every record must describe a pack that ALREADY has a
+          published tag — no planned packs, no placeholders, no aspirational rows.
+          This file is a curated list, not a registry, a proxy, a fan-out, an
+          attestation store, or credential storage (CLM-010).
+
+          `scripts/producttruth/generate.go`: change `PackRecord` to the published
+          shape (`Name`, `Version`, `Language`, `Archetype`, `Description`,
+          `Engines`, `Repository`); rename the job id in `LoadManifest`'s `expected`
+          list and in `RenderAll`'s switch; replace `loadPacks` with
+          `loadPublishedPacks`, which reads the inventory with
+          `decoder.KnownFields(true)`, validates version/organization/non-empty,
+          enforces the `backstop-ai/<slug>` name pattern, strict `X.Y.Z` semver,
+          non-empty scalars, `repository == "https://github.com/" + name`,
+          uniqueness, and sorted engine names, and emits a `PT103` diagnostic
+          naming the inventory path on every failure; set the descriptor list to the
+          single `{Kind: "blob", CommitBinding: "site", Path:
+          "docs/_data/published-pack-inventory.yml"}`; change `packRows` to the
+          `Pack | Version | Covers | Engines | Source` columns with `—` for an
+          empty engine list; and repoint `VerifySourceIncludes`'s owner map entry to
+          `{"docs/pack/examples.md", "Published pack catalog"}`. Sort records by
+          name so rendering is deterministic.
+
+          Regenerate the fragment with `./scripts/generate-product-truth.sh`,
+          producing `docs/_includes/generated/published-pack-catalog.md` and
+          deleting `docs/_includes/generated/installed-pack-catalog.md`. Do NOT
+          hand-write the fragment or hand-edit a digest (sharp edge 12).
+
+          GREEN evidence: rerun `go test ./scripts/producttruth/... -count=1` and
+          require the TASK-008 tests to pass, then `./scripts/verify-product-truth.sh`.
+        files:
+          - docs/_data/derived-product-truth.yml
+          - docs/_data/published-pack-inventory.yml
+          - scripts/producttruth/generate.go
+          - docs/_includes/generated/published-pack-catalog.md
+          - docs/_includes/generated/installed-pack-catalog.md
+        claims:
+          - CLM-010
+        depends_on:
+          - TASK-008
+
+      - id: TASK-010
+        type: verification
+        title: "Verify the re-owned catalog end to end"
+        description: |
+          Run `backstop gate --file scripts/producttruth/generate.go --file
+          docs/_data/published-pack-inventory.yml --file
+          docs/_data/derived-product-truth.yml` as the diff-scoped cadence gate,
+          then `go test ./scripts/producttruth/... -count=1` and
+          `./scripts/verify-product-truth.sh`. Do NOT reach for
+          `./scripts/verify-public-product-model.sh` or
+          `./scripts/verify-public-site.sh` here: the topology still names
+          `/packs/` until phase 5 and the site build still carries the Seed 1
+          header until phase 7, so either would fail for a reason this task does
+          not own.
+
+          Require: the manifest still exactly four jobs in order with
+          `published-pack-catalog` at index 2; the fragment regenerated from the
+          inventory with a stable digest across two consecutive runs (determinism,
+          not luck); exactly one source descriptor, bound to the inventory path;
+          no `backstop.yml` or `backstop.lock` descriptor surviving anywhere in the
+          fragment; `installed-pack-catalog` returning zero matches across
+          `scripts/`, `docs/`, and `.backstop/`; and the negative loader matrix
+          producing `PT103` for every malformed inventory case rather than a
+          vacuous pass. Read out the regenerated `source_digest` and marker pair
+          and record them verbatim — phase 8 needs those exact values for the
+          capability map, and guessing or back-filling a digest is falsification.
+        files:
+          - scripts/producttruth/generate.go
+          - docs/_data/published-pack-inventory.yml
+          - docs/_includes/generated/published-pack-catalog.md
+        claims:
+          - CLM-010
+        depends_on:
+          - TASK-009
+  - id: phase-5
+    name: "Phase 5: Topology, presentation, inventory, and evidence data"
+    tasks:
+      - id: TASK-011
+        type: test
+        title: "RED: retarget the topology and product-model closed worlds"
+        description: |
+          Update the two positional closed-world verifiers to the delivered state.
+          Every list here is compared by `zip`, so edit pack-fleet entries IN PLACE
+          (sharp edge 3).
+
+          In `scripts/tests/public-product-model/verify-content-topology.sh`:
+          `paths` index 5 and 6 become `/pack/examples/` and `/pack/guide/`;
+          `sources` become `docs/pack/examples.md` and `docs/pack/guide.md`;
+          `heroes` become `Published packs.` and `Packs: a guide`; `owners` index 7
+          and 8 become `/pack/examples/` and `/pack/guide/`; the `navigation`
+          assertion becomes
+          `{'primary':['/evaluate/','/model/','/adopt/','/pack/'],
+          'utility':['/contributing/']}` — the approved rosters, with
+          `/use-cases/`, `/reference/`, and `/status/` absent (CLM-012).
+
+          JLINK LISTS. `exact_ids` must become an EXPLICIT ascending literal list
+          with `JLINK-017`, `JLINK-018`, `JLINK-019`, and `JLINK-022` absent
+          (CLM-008), converting the `range(1,25)` comprehension if a sibling lane
+          has not already converted it, and preserving every ID a sibling lane
+          already retired. Delete the matching four `edge_specs` tuples and the
+          matching four `link_labels` entries so all three lists keep the same
+          length and order. Retarget JLINK-016's destination to
+          `/pack/examples/#choose-a-pack` (label unchanged) and JLINK-020's source
+          to `/pack/guide/#author-a-pack` with the label "How to participate".
+          Every other hero, owner, edge, and label stays as the landing base holds
+          it. Do not renumber a surviving ID and do not re-add a retired one.
+
+          In `scripts/verify-public-product-model.sh`: apply the byte-identical
+          `paths`, `sources`, `heroes`, `neighborhood_owners`, `navigation`,
+          `exact_ids`, `edge_specs`, and `link_labels` changes — the two files'
+          lists must match each other exactly; update
+          `expected_unit_contract` so CON-002 targets `['/model/','/pack/examples/']`,
+          PACK-001 targets `['/pack/','/pack/examples/']`, PACK-002 and PACK-003
+          target `['/pack/guide/','/reference/']`, PACK-004 targets
+          `['/reference/','/status/']`, PACK-005 targets `['/pack/guide/']`, and
+          PACK-006 targets `['/pack/guide/','/contributing/']`.
+
+          ALLOWANCES (CLM-015), including the one re-key that decides whether this
+          phase can ever go green (CLM-007, sharp edge 10). Add
+          `docs/pack/guide.md` and `docs/pack/examples.md` maps that name EVERY
+          non-claim, non-jlink, non-heading block on those pages with an explicit
+          purpose string — enumerated from the delivered files: decision prose,
+          each `<pre><code>` command block, each fenced YAML and tree block, the
+          `pack-model` definition list (CLM-006), and the generated-region
+          `<section>` wrapper. BEFORE deleting the `docs/extend.md` map, MOVE its
+          `'When an engine receives explicit changed-file arguments, … only when it
+          retains the intended scope.'` -> `'path-filter repair instruction'` entry
+          into the `docs/reference.md` map with both the key bytes and the purpose
+          string preserved verbatim; that paragraph now lives on `/reference/` and
+          without the re-key `check_closed_blocks` reports it as an undeclared
+          block there while the stale `docs/extend.md` map points at a deleted
+          page. Then delete the `docs/packs.md` and `docs/extend.md` maps whole. No
+          blanket entry, no wildcard, no regex catch-all.
+
+          RED receipt: `./scripts/tests/public-product-model/verify-content-topology.sh`
+          and `./scripts/verify-public-product-model.sh`. Both must FAIL naming the
+          `/packs/` and `/extend/` rows still present in
+          `docs/_data/content-topology.yml`, the Seed 1 heroes and nav roster still
+          in `docs/_data/site-presentation.yml` and
+          `docs/_data/content-topology.yml`, and the un-retargeted JLINK edges —
+          not on a parse error.
+        files:
+          - scripts/tests/public-product-model/verify-content-topology.sh
+          - scripts/verify-public-product-model.sh
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-007
+          - CLM-008
+          - CLM-012
+          - CLM-015
+        depends_on:
+          - TASK-004
+          - TASK-010
+
+      - id: TASK-012
+        type: implementation
+        title: "GREEN: move the pack fleet through topology, presentation, inventory, and CLAIM-025"
+        description: |
+          Land the data-layer delta and nothing beyond it.
+
+          `docs/_data/content-topology.yml`. Replace the `docs/packs.md` page row
+          with `{source: docs/pack/examples.md, canonical_path: "/pack/examples/",
+          role: ecosystem, hero_question: "Published packs.", neighborhood_ids:
+          [NBR-008], required_blocks: [choose-a-pack, published-pack-catalog,
+          install-a-pack, install-a-local-pack], source_material: [CON-002,
+          PACK-001]}` and the `docs/extend.md` row with
+          `{source: docs/pack/guide.md, canonical_path: "/pack/guide/", role:
+          extension, hero_question: "Packs: a guide", neighborhood_ids: [NBR-009],
+          required_blocks: [pack-or-not, author-a-pack, publish-a-pack],
+          source_material: [PACK-001, PACK-002, PACK-003, PACK-005, PACK-006]}`,
+          both in their existing positions. On the `/reference/` row, insert
+          `path-filter-diagnostics` into `required_blocks` immediately before
+          `artifact-lifecycle-and-closure` and add `PACK-004` to `source_material`
+          in unit order; change nothing else on that row. Repoint NBR-008's
+          `owner_route` to `/pack/examples/` and NBR-009's to `/pack/guide/`,
+          updating their `name`/`required_answer` to the pack fleet job.
+
+          NAVIGATION, THE APPROVED ROSTERS AND NOTHING ELSE (CLM-012). Set
+          `navigation.primary` to
+          `["/evaluate/", "/model/", "/adopt/", "/pack/"]` and
+          `navigation.utility` to `["/contributing/"]`, matching TASK-003's Go
+          catalogs and TASK-011's assertion byte for byte. `/use-cases/`,
+          `/reference/`, and `/status/` are absent from the approved rosters and
+          this task does not put them back; if a sibling landing has already
+          reduced either roster, preserve that state and add only `/pack/`. The
+          three routes stay canonical, labelled, rendered, and linkable — this is
+          nav membership only.
+
+          JOURNEY LINKS, TWO RETARGETS AND FOUR DELETIONS (CLM-008). Retarget
+          JLINK-016's `destination` to `/pack/examples/#choose-a-pack` (source and
+          label unchanged) and JLINK-020's `source` to
+          `/pack/guide/#author-a-pack` with its label changed to
+          `How to participate` (destination unchanged). DELETE the `JLINK-017`,
+          `JLINK-018`, `JLINK-019`, and `JLINK-022` entries outright — they are
+          retired, not re-homed, and no replacement marker is written on any page.
+          Preserve every ID a sibling lane already retired, do not restore
+          `range`-generated IDs, do not renumber a surviving ID to close the gap,
+          and change no other `link_id`, source, destination, or label. The
+          resulting `journey_links` list must match TASK-011's `exact_ids` literal
+          exactly, in the same ascending order.
+
+          `docs/_data/site-presentation.yml`. Replace the `/packs/` and `/extend/`
+          route entries with `/pack/examples/` (page_kind `ecosystem`, hero
+          `Published packs.`, treatments `evidence-cards, generated-regions,
+          local-overflow`, next_action `/pack/guide/`) and `/pack/guide/`
+          (page_kind `extension`, hero `Packs: a guide`, treatments
+          `evidence-cards, boundary-callouts`, next_action `/contributing/` — the
+          APPROVED value at `0a6010c`, never `/reference/`), and set the
+          next_action of BOTH `/use-cases/` and `/adopt/` to `/pack/examples/`
+          (the `/adopt/` cell is assigned to this plan by PLAN-ISSUE-196 CLM-011).
+          Do not touch any other route's hero, kind, treatments, or next_action
+          (CLM-019, sharp edge 5).
+
+          `docs/_data/content-inventory.yml`. Retarget PACK-001 to
+          `["/pack/", "/pack/examples/"]`, PACK-002 and PACK-003 to
+          `["/pack/guide/", "/reference/"]`, PACK-004 to
+          `["/reference/", "/status/"]` with its rationale updated to name the
+          reference owner, PACK-005 to `["/pack/guide/"]`, PACK-006 to
+          `["/pack/guide/", "/contributing/"]`, and CON-002 to
+          `["/model/", "/pack/examples/"]`. Leave every HOME, GET, CON-001,
+          CON-003..006, ART, and CLI unit untouched.
+
+          `docs/_data/evidence-inventory.yml`. Change ONLY CLAIM-025: owner
+          `{route: "/pack/examples/", anchor: install-a-pack}`, `statement` and
+          `statement_markdown` set to the approved pin/lock instruction,
+          `mechanism_summary` / `guarantee_boundary` / `known_limitations` /
+          `adoption_implications` / `direction` updated to describe add-pin-lock,
+          restore, and inspect, and EVIDENCE-037's locator moved from
+          `backstop.lock` to `cmd/backstop/pack_add.go`. Do not touch CLAIM-006,
+          007, 008, 011, 012, 018, 020, 021, or 030 — those relocations belong to
+          ISSUE-193/195/199 (CLM-011, CLM-019).
+
+          GREEN evidence: rerun `./scripts/tests/public-product-model/verify-content-topology.sh`
+          and `./scripts/verify-public-product-model.sh` and require both to pass.
+          The second is the receipt for the CLM-015 allowance world: it can only go
+          green once every block on both delivered pages is declared and the
+          re-keyed PACK-004 paragraph resolves against the `docs/reference.md` map
+          (CLM-007, sharp edge 10).
+        files:
+          - docs/_data/content-topology.yml
+          - docs/_data/site-presentation.yml
+          - docs/_data/content-inventory.yml
+          - docs/_data/evidence-inventory.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-007
+          - CLM-008
+          - CLM-011
+          - CLM-012
+          - CLM-015
+        depends_on:
+          - TASK-011
+
+      - id: TASK-013
+        type: verification
+        title: "Verify the topology, presentation, and evidence data layer"
+        description: |
+          Run `backstop gate --file docs/_data/content-topology.yml --file
+          docs/_data/site-presentation.yml --file docs/_data/content-inventory.yml
+          --file docs/_data/evidence-inventory.yml` as the diff-scoped cadence
+          gate, then `./scripts/verify-public-product-model.sh` (this plan's
+          `test_command`) and
+          `./scripts/tests/public-product-model/verify-content-topology.sh`, and
+          `go test ./scripts/sitecheck/... -count=1` to confirm the presentation
+          matrix still agrees with the Go-side expectations from phase 2.
+
+          Require: the exact-ten page inventory positional check passing; NBR-008
+          and NBR-009 owned by the new routes; `navigation.primary` exactly
+          `["/evaluate/", "/model/", "/adopt/", "/pack/"]` and
+          `navigation.utility` exactly `["/contributing/"]`, identical in the
+          topology data and both verifier scripts; the `journey_links` list
+          carrying JLINK-016 retargeted to `/pack/examples/#choose-a-pack`,
+          JLINK-020 sourced at `/pack/guide/#author-a-pack` and labelled "How to
+          participate", and JLINK-017, JLINK-018, JLINK-019, JLINK-022 ABSENT, with
+          `exact_ids`, `edge_specs`, and `link_labels` the same length and order in
+          both files; every allowance satisfied with no unmatched block on either
+          new page; and CLAIM-025 resolving to `/pack/examples/#install-a-pack`.
+
+          THE ALLOWANCE RE-KEY IS THIS TASK'S REACHABILITY CONDITION (CLM-007,
+          CLM-015, sharp edge 10). `./scripts/verify-public-product-model.sh`
+          cannot go green while the `'path-filter repair instruction'` entry still
+          sits under a `'docs/extend.md'` map for a deleted page, or while the
+          moved paragraph is undeclared on `docs/reference.md`. Read the failure
+          text for `check_closed_blocks` specifically and require zero undeclared
+          blocks on `docs/reference.md`, `docs/pack/guide.md`, and
+          `docs/pack/examples.md`, and zero allowance maps keyed to a page that no
+          longer exists.
+
+          Confirm by diff that no other page's hero, no other claim, and no route
+          outside the pack fleet changed, and that no route the approved IA dropped
+          was re-added to either nav roster to make an assertion pass.
+        files:
+          - docs/_data/content-topology.yml
+          - docs/_data/site-presentation.yml
+          - docs/_data/evidence-inventory.yml
+          - scripts/verify-public-product-model.sh
+        claims:
+          - CLM-007
+          - CLM-008
+          - CLM-011
+          - CLM-012
+          - CLM-015
+        depends_on:
+          - TASK-012
+  - id: phase-6
+    name: "Phase 6: Seed 4 delivery rows, deployment aliases, and the semantics corpus"
+    tasks:
+      - id: TASK-014
+        type: test
+        title: "RED: assert the pack fleet Seed 4 rows and the twelve-path semantics corpus"
+        description: |
+          Add the closed-matrix and corpus assertions before declaring the rows.
+
+          `scripts/sitecheck/inventory_test.go`: add a focused test requiring
+          `expectedRole("docs/pack/examples.md")` and
+          `expectedRole("docs/pack/guide.md")` to be `page-wrapper`, and requiring
+          `expectedRole` to STILL return `page-wrapper` for `docs/packs.md`,
+          `docs/extend.md`, and `docs/pack-authoring.md` so their deletion rows stay
+          inside the matrix (CLM-017, sharp edge 8). Require
+          `expectedRole("docs/_includes/generated/published-pack-catalog.md")` to
+          be `include` by the existing `docs/_includes/` prefix case.
+
+          Assert the OUT-of-matrix half explicitly, because it is what determines
+          which rows may exist at all: `expectedRole` must return `""` for
+          `docs/_data/published-pack-inventory.yml`, for
+          `docs/_data/content-topology.yml`, and for this plan's own
+          `issues/`/`plans/` artifacts, and `inventoryDiff` must SKIP such paths
+          rather than reject them. `validateInventoryMatchesDiff` compares the
+          ledger to that FILTERED diff for set equality, so declaring a row for an
+          out-of-matrix path inverts the failure into "expected but not observed".
+          Also keep the near-miss negatives — `docs/pack/README.md` and an
+          unrelated undeclared path returning `""` — so the change proves
+          recognition rather than a widened matrix, and add no new role key.
+
+          Then require each in-matrix pack-fleet path to appear exactly once in
+          `.backstop/seed4-delivery-inventory.yml` with the correct change letter,
+          and prove that removing one row makes `validateInventoryMatchesDiff`
+          report `inventory differs`.
+
+          `scripts/verify-documentation-semantics-integration.sh`: the corpus drops
+          from fourteen paths to TWELVE, and every count moves with it (CLM-016,
+          sharp edge 9). Remove `docs/packs.md` and `docs/extend.md` from the
+          `CORPUS` heredoc and from the `expected` list inside
+          `verify_installed_semantics_gate_accepts_exact_clean_seed1_corpus`, and
+          substitute NOTHING for them: change the scope check in that function to
+          `len(scope.get('files',[]))!=12` and the
+          `[ "$(printf '%s\n' "$CORPUS" | grep -c .)" -eq 14 ]` assertion in
+          `verify_installed_semantics_gate_rejects_vacuous_or_inexact_corpus_scope`
+          to `-eq 12`, and reword the "fourteen-file" wording in the failure
+          messages and the function vocabulary to twelve. The per-path dispatch
+          probes derive from `CORPUS`, so they reduce with it and need no edit.
+
+          THE TWO SUBSTITUTIONS THE PROTOTYPE MADE ARE BOTH REFUSED, and the
+          refusal is the point of this task rather than an omission.
+          `docs/getting-started.md` is a five-line `layout: redirect` stub with no
+          prose: adding it would hold the number at fourteen while contributing
+          zero semantic content, which is a vacuous corpus row.
+          `docs/pack.md` is real content but it is ISSUE-197's page, and
+          PLAN-ISSUE-197 CLM-011 asserts as its own acceptance that its entity
+          pages enter NONE of the five Seed 1 closed worlds including this corpus —
+          pulling it in from here would falsify a sibling plan's claim to buy back
+          a number. Do not add either path, do not add any other path to hold the
+          count, and do not leave an assertion naming fourteen.
+
+          Add the comment recording WHY the delivered pack fleet pages are absent:
+          released `documentation-semantics` v0.1.1 globs `docs/*.md` and
+          `docs/_data/*.yml`, so `docs/pack/*.md` is outside that pack's own scope
+          until its glob includes nested pages. Do not widen the released pack's
+          glob from core.
+
+          RED receipt: `go test ./scripts/sitecheck -run
+          'Seed4|Inventory|PathRole' -count=1 -v`, `go run ./scripts/sitecheck
+          --root . --check-diff`, and
+          `./scripts/verify-documentation-semantics-integration.sh`. Each must FAIL
+          on the undeclared pack fleet paths and the stale corpus counts, not on a
+          missing tool or a pack that is not installed — if a pack is missing,
+          restore it from `backstop.lock` rather than treating the absence as red
+          (sharp edge 14).
+        files:
+          - scripts/sitecheck/inventory_test.go
+          - scripts/verify-documentation-semantics-integration.sh
+        claims:
+          - CLM-016
+          - CLM-017
+        depends_on:
+          - TASK-004
+          - TASK-010
+
+      - id: TASK-015
+        type: implementation
+        title: "GREEN: declare the Seed 4 rows and retire the pack-authoring alias"
+        description: |
+          Declare the delivery rows and finish the alias retirement.
+
+          `.backstop/seed4-delivery-inventory.yml`: add `A` rows for
+          `docs/pack/examples.md`, `docs/pack/guide.md`, and
+          `docs/_includes/generated/published-pack-catalog.md`; and add `D` rows
+          for `docs/extend.md`, `docs/packs.md`, `docs/pack-authoring.md`, and
+          `docs/_includes/generated/installed-pack-catalog.md`. Add NO row for
+          `docs/_data/published-pack-inventory.yml`, for the other
+          `docs/_data/*.yml` files this plan edits, for the SPECs, or for this
+          plan's own `issues/`/`plans/` artifacts: `expectedRole()` returns `""`
+          for all of them, `inventoryDiff` filters them out of the comparison, and
+          a declared row for a filtered path becomes an "expected but not observed"
+          mismatch. Do NOT widen `expectedRole()` to bring them in — that is a
+          separate decision with its own issue, exactly as ISSUE-190 and ISSUE-191
+          each did for their own governance paths. `docs/_data/site-presentation.yml`
+          is already `site-data` and already carries a row; confirm its change
+          letter rather than adding a duplicate. Use the role each path already
+          resolves to; add no new role key. Reconcile every change letter
+          against the REAL committed diff from `base_commit` — the ledger is
+          diffed, so a letter that disagrees with history is a mismatch. Never
+          reconcile by deleting a governed row or by widening the matrix. Note that
+          `--check-diff` reads committed history, so this plan's own artifact rows
+          only converge once the plan file is committed on the working branch.
+
+          `scripts/verify-pages-deployment.sh`: replace `/packs/` and `/extend/`
+          with `/pack/examples/` and `/pack/guide/` in the canonical route loop,
+          keeping `/use-cases/`, `/reference/`, and `/status/`, and leaving `/pack/`
+          OUT (it is linkable, not canonical — sharp edge 6). Remove the
+          `/pack-authoring.html /extend/` line from the alias block and nothing else
+          (CLM-013).
+
+          GREEN evidence: rerun the TASK-014 receipts and require the sitecheck
+          inventory tests, `--check-diff`, and the semantics integration verifier to
+          pass.
+        files:
+          - .backstop/seed4-delivery-inventory.yml
+          - scripts/verify-pages-deployment.sh
+        claims:
+          - CLM-013
+          - CLM-016
+          - CLM-017
+        depends_on:
+          - TASK-014
+
+      - id: TASK-016
+        type: verification
+        title: "Verify the closed Seed 4 matrix, aliases, and semantics corpus"
+        description: |
+          Run `backstop gate --file .backstop/seed4-delivery-inventory.yml --file
+          scripts/verify-pages-deployment.sh --file
+          scripts/verify-documentation-semantics-integration.sh --file
+          scripts/sitecheck/inventory_test.go` as the diff-scoped cadence gate,
+          then `go run ./scripts/sitecheck --root . --check-diff` (WITHOUT
+          `--built-root`), `go test ./scripts/sitecheck -run
+          'Seed4|Inventory|PathRole' -count=1`, and
+          `./scripts/verify-documentation-semantics-integration.sh`. Do NOT run
+          `./scripts/verify-public-site.sh` here: it performs the locked Jekyll
+          build and the built-root route and navigation checks, and the header
+          still carries the Seed 1 `Packs` and `Extend` items until phase 7. Phase
+          7 owns that receipt. The go-test run is scoped to the inventory and role
+          tests on purpose: this phase runs in PARALLEL with phase 5, so the
+          sitecheck tests that read the real `site-presentation.yml` may still be
+          red here through no fault of this phase. Phase 7 is the first place the
+          whole sitecheck package is legitimately green; do not widen the run and
+          do not "repair" a phase-5-owned red from here.
+
+          Require: `--check-diff` exiting 0 with no `inventory differs` output and
+          no path reported outside the closed matrix; every deleted page still
+          resolving a role; the semantics corpus exactly TWELVE paths with all four
+          count sites agreeing (heredoc, `expected` list, the `scope` length check,
+          and the `grep -c` assertion) and a real, non-vacuous gate run over it —
+          including the duplicate-owner probe still BLOCKING, which is what proves
+          the corpus is being inspected rather than skipped; NO substitute path
+          added to hold the number, in particular neither `docs/getting-started.md`
+          nor `docs/pack.md`; and `pack-authoring.html` gone from both the redirect
+          catalog and the deployment aliases while the four surviving aliases are
+          unchanged. Confirm the matrix gained no glob, no catch-all, and no new
+          role key.
+        files:
+          - .backstop/seed4-delivery-inventory.yml
+          - scripts/verify-pages-deployment.sh
+          - scripts/verify-documentation-semantics-integration.sh
+        claims:
+          - CLM-013
+          - CLM-016
+          - CLM-017
+        depends_on:
+          - TASK-015
+  - id: phase-7
+    name: "Phase 7: Navigation chrome and paper/ink presentation"
+    tasks:
+      - id: TASK-017
+        type: test
+        title: "RED: assert the browser-level Pack nav item and pack fleet routes"
+        description: |
+          Update the Playwright contract helpers to the delivered navigation and
+          route set. `testMatch` stays `public-site.spec.ts` — do not add,
+          rename, or re-glob a spec file (CLM-014).
+
+          In `tests/public-site-helpers.ts`: replace `/packs/` and `/extend/` in
+          `canonicalRoutes` with `/pack/examples/` and `/pack/guide/`, keeping the
+          array's other entries and order — `/use-cases/`, `/reference/`, and
+          `/status/` stay CANONICAL and must remain in that array. In
+          `primaryNavigation`, deliver the approved roster
+          `["Evaluate", "/evaluate/"], ["Model", "/model/"], ["Adopt", "/adopt/"],
+          ["Pack", "/pack/"]` — the `["Packs", "/packs/"]` and
+          `["Extend", "/extend/"]` pairs collapse into the single Pack item, and
+          `["Use Cases", "/use-cases/"]` and `["Reference", "/reference/"]` leave
+          the roster because the approved IA does not nav them (CLM-012). In
+          `utilityNavigation`, deliver `["Contributing", "/contributing/"]` only.
+          If a sibling landing has already reduced either roster, preserve that
+          state and add only the Pack item; never re-add a dropped route to make a
+          traversal assertion pass. Update the keyboard-traversal assertion message
+          to the delivered counts (`Home + 4 primary + 1 utility`) and confirm
+          `expectedCanonicalFocusOrder` is derived from those catalogs rather than
+          hardcoded, adjusting it in place if it is not — a hardcoded focus order
+          is how these four roster locations drift apart (sharp edge 17).
+
+          RED receipt: run the public-site Playwright suite (or, if a browser is
+          unavailable in this environment, `npx tsc --noEmit` on the helpers plus
+          `./scripts/verify-public-site.sh`) and require failure that names the
+          missing `Pack` nav item, the still-rendered `Packs`/`Extend`/`Use
+          Cases`/`Reference`/`Status` anchors, and the unresolved `/pack/guide/`
+          and `/pack/examples/` routes. Record explicitly which of the two receipts
+          was obtainable; do not claim a browser run that did not happen.
+        files:
+          - tests/public-site-helpers.ts
+        claims:
+          - CLM-012
+          - CLM-014
+        depends_on:
+          - TASK-013
+          - TASK-016
+
+      - id: TASK-018
+        type: implementation
+        title: "GREEN: consolidate the header nav and put the pack fleet on paper"
+        description: |
+          Land the shared chrome delta.
+
+          `docs/_includes/site-header.html`. Replace the `Packs` and `Extend`
+          primary anchors with one
+          `<a href="/pack/"{% if page.permalink == '/pack/' or page.permalink ==
+          '/pack/guide/' or page.permalink == '/pack/examples/' %}
+          aria-current="page"{% endif %}>Pack</a>`, so the delivered primary order
+          is Evaluate, Model, Adopt, Pack and the delivered utility roster is
+          Contributing alone — the approved rosters, identical to TASK-003's Go
+          catalogs, TASK-012's topology data, and TASK-017's Playwright helpers
+          (CLM-012, sharp edge 17). The `Use Cases`, `Reference`, and `Status`
+          anchors leave the header with them; if a sibling landing already removed
+          any of the three, preserve that and add only the Pack item, and never
+          re-add one to repair a red. Those pages stay canonical and reachable
+          through in-page links — this is nav membership, not deletion. The Liquid
+          condition must match `packFleetCurrent` exactly, or the `aria-current`
+          count goes to 0 or 2 (sharp edge 7). Do not touch
+          `docs/_includes/site-footer.html`, including its `/status/` link
+          (CLM-012 records that divergence from the prototype deliberately).
+
+          `docs/_layouts/default.html`. Resolve `page_kind` from the presentation
+          record with a front-matter fallback, and gate the paper treatment on a
+          `paper_kinds` list that includes `ecosystem` and `extension` alongside the
+          kinds already on paper. Emit `data-page-kind` from the resolved value.
+          Only the pack fleet kinds are this plan's business: if `paper_kinds`
+          already exists from a sibling landing, ADD the two kinds rather than
+          rewriting the list.
+
+          `docs/_includes/page-hero.html`. The `hero_lede` channel is SHARED with
+          PLAN-ISSUE-197 TASK-009, which introduces it for its locked entity ledes
+          with only the truthy and absent branches, so this edit is ADDITIVE
+          (CLM-014, sharp edge 13). If the channel already exists, add ONLY the
+          explicit `page.hero_lede == false` branch and leave the truthy and
+          default branches byte-identical; if it does not exist, introduce all
+          three: `false` renders nothing, a truthy string renders as
+          `.page-boundary`, absence keeps the existing default sentence. `false`
+          and nil are distinct values here — a two-branch `if/else` silently gives
+          `/pack/examples/` the default sentence. Never collapse the branches, and
+          never rewrite the channel to this plan's own literal. Leave the
+          responsibility line and `data-page-question` behavior otherwise as-is.
+
+          `docs/assets/css/site.css`. Add the `extension` and `ecosystem`
+          paper/ink rules — hero measure, prose width and rhythm, H2/H3 treatment,
+          `pre`/`code` treatment, the `.pack-model` definition list on the guide,
+          and table, generated-region, overflow-region, and source-descriptor
+          treatment on examples — matching the Evaluate/Model/Adopt/entity paper
+          system rather than inventing a new one. Add
+          `[data-page-kind="extension"]` and `[data-page-kind="ecosystem"]` to the
+          `html:has(...)` `--ds-*` remap selector as ADDITIONAL members,
+          introducing that selector only if it is absent and never dropping a kind
+          another lane added (CLM-014). DO NOT drop or reorder any
+          `[data-page-kind="home"] .nav` rule, including the ones nested inside
+          media queries. Do not restyle another page kind.
+
+          GREEN evidence: rerun the TASK-017 receipt and require the Pack nav item,
+          the single `aria-current` on all three pack fleet routes, and both new
+          routes resolving.
+        files:
+          - docs/_includes/site-header.html
+          - docs/_layouts/default.html
+          - docs/_includes/page-hero.html
+          - docs/assets/css/site.css
+        claims:
+          - CLM-012
+          - CLM-014
+        depends_on:
+          - TASK-017
+
+      - id: TASK-019
+        type: verification
+        title: "Verify navigation chrome, paper/ink, and the built site structure"
+        description: |
+          Run `backstop gate --file docs/_includes/site-header.html --file
+          docs/_layouts/default.html --file docs/_includes/page-hero.html --file
+          docs/assets/css/site.css --file tests/public-site-helpers.ts` as the
+          diff-scoped cadence gate, then `./scripts/verify-public-site.sh` and
+          `go test ./scripts/sitecheck/... -count=1`.
+
+          This is the first phase where `verify-public-site.sh` can legitimately
+          pass, and that is why it sits here: the script performs the locked
+          production Jekyll build (so phase 4's generated fragment must already
+          exist), then runs `sitecheck --check-diff --built-root --design-system-matrix`
+          (so phase 6's Seed 4 rows must already be declared and phase 5's
+          presentation data must already be delivered). If it fails on a missing
+          include or an `inventory differs` diagnostic, the cause is an incomplete
+          earlier phase, not this one — go back rather than declaring an exception.
+
+          Require: the built site rendering `/pack/guide/`, `/pack/examples/`, and
+          `/pack/` documents; exactly one `aria-current="page"` per pack fleet route,
+          on the Pack item; every rendered page carrying exactly four primary and
+          one utility nav anchor, matching `primaryNavigation()` and
+          `utilityNavigation()` and the topology roster with no
+          `navigation … Expected: present` finding anywhere — this is the FIRST
+          receipt where the Go catalogs, the topology data, the Liquid header, and
+          the Playwright helpers are all true at once (sharp edge 17);
+          `data-page-kind="extension"` and `data-page-kind="ecosystem"` present
+          with the paper treatment applied and no sibling lane's `paper_kinds`
+          entry or `--ds-*` remap member dropped;
+          `hero_lede: false` on examples producing NO `.page-boundary` while pages
+          with a string lede render one and pages without the key keep their
+          default sentence; and `/extend/`, `/packs/`,
+          `pack-authoring.html` producing no built output and no redirect.
+
+          Then grep `docs/assets/css/site.css` for `[data-page-kind="home"] .nav`
+          and confirm every rule that existed on main still exists, media queries
+          included. Confirm `playwright.config.ts` `testMatch` is still
+          `public-site.spec.ts` and that no other page kind's rules changed. If the
+          browser suite cannot run in this environment, say so plainly and report
+          which structural receipts stood in for it.
+        files:
+          - docs/_includes/site-header.html
+          - docs/_layouts/default.html
+          - docs/assets/css/site.css
+          - tests/public-site-helpers.ts
+        claims:
+          - CLM-012
+          - CLM-014
+        depends_on:
+          - TASK-018
+  - id: phase-8
+    name: "Phase 8: Seed 5 capability journeys and feature files"
+    tasks:
+      - id: TASK-020
+        type: test
+        title: "RED: assert the retired journeys, the pack fleet hops, and the published-pack job in Seed 5"
+        description: |
+          Update the websitejourney test surface to the delivered journey set
+          before changing the closed world it verifies (CLM-009), and PROVE the one
+          open question before the retirement executes.
+
+          THE ZERO-JOURNEY PROOF COMES FIRST, and if it fails this phase stops.
+          Retiring JLINK-017 and JLINK-018 takes both of CAP-011's journeys, so the
+          capability ends up declared with a `Feature:` title and no scenarios.
+          Nothing in `LoadCapabilityTree`, `ValidateCapabilityArtifactMatrix`, or
+          `ValidateScenarioAndCoverageMatrix` visibly requires a capability to
+          declare a scenario, and `ExpectedWebsiteCapabilities()` keeps CAP-011 —
+          but "visibly" is not evidence. Add a focused test that loads a capability
+          tree whose CAP-011 feature file carries its `Feature:` line and NO
+          scenarios and requires it to be ACCEPTED, then run it. If the tree is
+          rejected, STOP and report: the disposition then needs CAP-011 itself
+          retired or re-journeyed, which is SPEC-076 / BUNDLE-032 territory and
+          outside this plan's fence (CLM-009). Inventing a synthetic hop, restoring
+          a Reference or Status tease to keep a journey alive, or skipping the
+          scenario are all unavailable.
+
+          THE RETIREMENT EXPECTATIONS. Express the delivered journey set in the
+          test surface so TASK-021 has a red to close:
+          `scripts/websitejourney/traversal_test.go` — reduce the
+          `len(m.Journeys) != 22` cardinality assertion by exactly the THREE
+          journeys this plan retires (CAP-011/@UJ-001, CAP-011/@UJ-002,
+          CAP-012/@UJ-001) and reduce the `len(document.JLinkRemovals) != 24` guard
+          by exactly the FOUR IDs it retires; reconcile both numbers against
+          whatever the landing base holds, because PLAN-ISSUE-196 retires
+          CAP-009/@UJ-001 and JLINK-012 against the same two counts (sharp edge
+          18). Also change the `HasGeneratedRegion` check from `/packs/` +
+          `installed-pack-catalog` to `/pack/examples/` +
+          `published-pack-catalog`.
+          `scripts/websitejourney/testdata/built-journey-mutations.yml` — delete
+          the `jlink_removals` rows for JLINK-017, JLINK-018, JLINK-019, and
+          JLINK-022 and nothing else; the guard above moves with them.
+          `tests/website-capabilities.spec.ts` — delete the rows for the three
+          retired journeys and retarget the surviving pack-fleet rows.
+          `scripts/websitejourney/map_test.go` — replace the
+          `installed-pack-catalog` job id with `published-pack-catalog` in every
+          generated-obligation assertion, and delete the `CAP-011/@UJ-001`
+          expectation that pins the pack catalog to that retired journey, leaving
+          the `CAP-013/@UJ-002` four-job expectation intact (sharp edge 12).
+          `scripts/websitejourney/mutation_test.go` — change the route mutation
+          from `/extend/` to `/pack/guide/` and the generated-region mutation to
+          `published-pack-catalog`.
+          `scripts/websitejourney/testdata/exhaustive-journey-mutations.yml` and
+          `scripts/websitejourney/testdata/map-binding-mutations.yml` — rename the
+          job id in every fixture entry and drop the entries bound to a retired
+          journey or a retired JLINK.
+
+          Add a focused assertion that every JLINK bound by
+          `ExpectedWebsiteJourneys()` also exists as a `link_id` in
+          `docs/_data/content-topology.yml`, and the converse direction for the
+          four retired IDs specifically: none of JLINK-017, 018, 019, or 022 may
+          appear in the topology, in a journey binding, in a removal fixture, or as
+          a rendered marker on any built page. That cross-check is the invariant
+          the prototype violated — it bound JLINK-017/018/019/021/022 while the
+          topology had already dropped them — and it is what keeps a future JLINK
+          deletion from silently orphaning a journey. Do not touch JLINK-021: its
+          retirement belongs to the Evaluate/Model lane.
+
+          RED receipt: `go test ./scripts/websitejourney/... -count=1 -v`. Record
+          the failure set and SEPARATE this plan's own red (the three still-present
+          retired journeys, the pack fleet hops, the renamed job, the new
+          cross-check) from the failures inherited from sibling issues
+          (`CAP-004/@UJ-002` and the other `/evaluate/`, `/model/`, `/adopt/`
+          anchor drift). Do not absorb sibling failures into this lane and do not
+          "fix" them here.
+        files:
+          - scripts/websitejourney/map_test.go
+          - scripts/websitejourney/mutation_test.go
+          - scripts/websitejourney/traversal_test.go
+          - scripts/websitejourney/testdata/exhaustive-journey-mutations.yml
+          - scripts/websitejourney/testdata/map-binding-mutations.yml
+          - scripts/websitejourney/testdata/built-journey-mutations.yml
+          - tests/website-capabilities.spec.ts
+        test_names:
+          - TestWebsiteJourney_ExactScenarioAndCoverageMatrixPasses
+        claims:
+          - CLM-008
+          - CLM-009
+          - CLM-010
+        depends_on:
+          - TASK-019
+
+      - id: TASK-021
+        type: implementation
+        title: "GREEN: retire three journeys, retarget two, narrow one, and re-own the map"
+        description: |
+          Move the Seed 5 closed world and its scenario sources together. The
+          disposition is TWO retargets, one narrowing, and THREE retirements
+          (CLM-009) — never six retargets, because four of the seven pack-fleet
+          JLINKs are retired (CLM-008) and a journey cannot bind an ID the topology
+          no longer carries.
+
+          ORDER MATTERS WITHIN THE TASK. Delete the Go entry and the YAML entry
+          before the gherkin scenario or the failure inverts: removing the scenario
+          first reds `TestWebsiteJourney_ExactScenarioAndCoverageMatrixPasses` with
+          "missing scenario"; removing the Go entry first reds it with "unexpected
+          scenario". Land all seven surfaces per retired journey in one task.
+
+          `scripts/websitejourney/artifacts.go`:
+            KEPT, HOPS RETARGETED —
+              CAP-010/@UJ-002 (JLINK-016) hops
+              `["/use-cases/#pack-backed-use-cases",
+              "/pack/examples/#choose-a-pack"]`;
+              CAP-012/@UJ-002 (JLINK-020) hops
+              `["/pack/guide/#author-a-pack", "/contributing/#contribution-paths"]`.
+            NARROWED —
+              CAP-013/@UJ-002 `JLinks` `["JLINK-022","JLINK-023"]` ->
+              `["JLINK-023"]` and hops lose the
+              `/pack/examples/#published-pack-catalog` leg, becoming
+              `["/reference/#cli-command-catalog", "/status/#release-history"]`.
+            RETIRED, ELEMENT DELETED —
+              CAP-011/@UJ-001 (JLINK-017), CAP-011/@UJ-002 (JLINK-018),
+              CAP-012/@UJ-001 (JLINK-019).
+          Do NOT touch CAP-004..009, CAP-013/@UJ-001, or CAP-014; their drift is
+          sibling work. Do not renumber a surviving `@UJ-NNN` to close a gap and do
+          not re-add a retired ID to keep a list tidy.
+
+          `scripts/websitejourney/map.go`: rename the job id in its checks to
+          `published-pack-catalog`, and DELETE the hardcoded `CAP-011/@UJ-001`
+          generated-obligation case with the journey it belongs to, leaving the
+          `CAP-013/@UJ-002` four-job case intact. That surviving case is what keeps
+          the pack catalog covered in Seed 5: its obligation resolves against
+          `owner_route` via `HasGeneratedRegion(documents[obligation.OwnerRoute], …)`,
+          NOT against the journey's hops, which is why dropping the
+          `/pack/examples/` hop with JLINK-022 does not orphan it (sharp edge 12).
+
+          `docs/_data/website-capability-map.yml`: apply the same two retargets,
+          the narrowing, and the three journey deletions; set CAP-010/@UJ-002's
+          CLAIM-025 obligation owner to `{owner_route: "/pack/examples/",
+          owner_anchor: install-a-pack}`; delete the CAP-011/@UJ-001 block
+          entirely — including its copy of the pack-catalog generated obligation —
+          and in the SURVIVING CAP-013/@UJ-002 block rename the job to
+          `published-pack-catalog`, repoint output, owner route, and owner anchor,
+          replace the two `backstop.yml`/`backstop.lock` descriptors and URL
+          templates with the single inventory descriptor and template, update the
+          rendered-anchor selector, and set the marker pair and `source_digest` to
+          the values READ OUT of TASK-010's regenerated fragment. Regenerate and
+          read the digest; hand-editing one to match is falsification (sharp edge
+          12). Change no other journey, obligation, or boundary.
+
+          Feature files, so scenarios match the closed world exactly:
+          `capabilities/CAP-010-apply-backstop/user-journeys.feature` @UJ-002
+          arrives at `/pack/examples/#choose-a-pack` (the prototype left this file
+          naming `/packs/#choose-a-pack`);
+          `capabilities/CAP-011-browse-pack-ecosystem/user-journeys.feature` loses
+          BOTH scenarios, keeping its `Feature:` line and its description so the
+          capability still declares itself with zero journeys — the disposition
+          TASK-020 proved admissible before this task ran;
+          `capabilities/CAP-012-extend-backstop/user-journeys.feature` loses @UJ-001
+          and its @UJ-002 starts at `/pack/guide/#author-a-pack` (the prototype
+          left this file naming `/extend/#pack-or-not` and `/extend/#author-a-pack`);
+          `capabilities/CAP-013-inspect-evidence/user-journeys.feature` @UJ-002
+          loses its `/pack/examples/#published-pack-catalog` `Given` and its first
+          `When` line, starting at `/reference/#cli-command-catalog`. Surviving
+          scenario titles must match `ExpectedWebsiteJourneys()` titles exactly
+          (CLM-009).
+
+          GREEN evidence: rerun `go test ./scripts/websitejourney/... -count=1` and
+          require every pack-fleet failure, the reduced cardinality assertions, and
+          the new topology cross-check to pass. Sibling-owned failures may remain;
+          report them explicitly as inherited and unchanged in count and identity.
+        files:
+          - scripts/websitejourney/artifacts.go
+          - scripts/websitejourney/map.go
+          - docs/_data/website-capability-map.yml
+          - capabilities/CAP-010-apply-backstop/user-journeys.feature
+          - capabilities/CAP-011-browse-pack-ecosystem/user-journeys.feature
+          - capabilities/CAP-012-extend-backstop/user-journeys.feature
+          - capabilities/CAP-013-inspect-evidence/user-journeys.feature
+        claims:
+          - CLM-008
+          - CLM-009
+          - CLM-010
+        depends_on:
+          - TASK-020
+
+      - id: TASK-022
+        type: verification
+        title: "Verify the Seed 5 capability journeys against the built site"
+        description: |
+          Run `backstop gate --file scripts/websitejourney/artifacts.go --file
+          docs/_data/website-capability-map.yml` as the diff-scoped cadence gate,
+          then `go test ./scripts/websitejourney/... -count=1` and
+          `./scripts/verify-website-capabilities.sh`.
+
+          Require: every JLINK bound by a journey present as a `link_id` in
+          `docs/_data/content-topology.yml` and rendered exactly once on the built
+          site; JLINK-017, JLINK-018, JLINK-019, and JLINK-022 absent from the
+          topology, from every journey binding, from every removal fixture, and
+          from every built page; CAP-010/@UJ-002 and CAP-012/@UJ-002 traversing
+          their retargeted hops and CAP-013/@UJ-002 traversing its narrowed pair;
+          the journey cardinality reduced by exactly the three journeys this plan
+          retires; CAP-011 accepted with a `Feature:` title and zero scenarios,
+          matching the admissibility TASK-020 proved; the SURVIVING
+          CAP-013/@UJ-002 generated-obligation block resolving the regenerated
+          `published-pack-catalog` digest, marker pair, and single inventory
+          descriptor, with no orphaned CAP-011/@UJ-001 expectation left in
+          `map.go`; and surviving scenario titles matching the closed world.
+
+          Report inherited sibling failures truthfully with their exact identities
+          and counts, and confirm this plan neither increased them nor masked them.
+          A digest hand-edited to match, a skipped scenario, or a relaxed binding
+          check is falsification, not acceptance.
+        files:
+          - scripts/websitejourney/artifacts.go
+          - scripts/websitejourney/map.go
+          - docs/_data/website-capability-map.yml
+          - capabilities/CAP-011-browse-pack-ecosystem/user-journeys.feature
+          - capabilities/CAP-012-extend-backstop/user-journeys.feature
+        claims:
+          - CLM-008
+          - CLM-009
+          - CLM-010
+        depends_on:
+          - TASK-021
+  - id: phase-9
+    name: "Phase 9: Seed 1 contract literals and the full kill chain"
+    tasks:
+      - id: TASK-023
+        type: refactor
+        title: "Reconcile the SPEC-072/073/074/075/076 literals with the delivered pack fleet"
+        description: |
+          Update the Seed 1 contract literals that still name the retired routes,
+          sources, job id, JLINKs, and journeys. This is a LITERAL reconciliation
+          of EXISTING shipped artifacts (CLM-018): no new requirements, no new
+          claims, no re-scoping, no status changes, and no adoption of any sibling
+          issue's copy decisions. It is typed `refactor` for that reason — it
+          changes named literals in files that already exist without adding a
+          behavior or an obligation — which also keeps the final verification's
+          code-work dependency inside this phase, so TASK-024 needs no redundant
+          edge back into phase 8.
+
+          `specs/SPEC-072-public-product-model.spec.md`: the page-inventory
+          mapping, the neighborhood-owner list, the page/route/hero/neighborhood
+          table rows for the two pack pages, the paragraph explaining why selecting
+          a maintained pack and authoring one are different decisions, the
+          source-unit target-route table (CON-002, PACK-001..006 — PACK-004 to
+          `/reference/`, `/status/`), the primary-nav roster (now the four approved
+          items with `/use-cases/`, `/reference/`, and `/status/` off the roster
+          and still canonical), and the JLINK table: retarget the 016 and 020 rows
+          and DELETE the 017, 018, 019, and 022 rows. Record that the guide's third
+          block is `publish-a-pack` and that path-filter diagnostics now lives on
+          `/reference/`.
+
+          `specs/SPEC-073-documentation-semantics-integration.spec.md`: the two
+          corpus enumerations and the per-source entries lose `docs/packs.md` and
+          `docs/extend.md` with NO substitute, every count word that says
+          "fourteen" or "14" becomes twelve, and the per-path dispatch count
+          follows. Record the nested-glob reason (released
+          `documentation-semantics` v0.1.1 globs `docs/*.md`, so `docs/pack/*.md`
+          is out of its scope) and record that neither `docs/getting-started.md`
+          (a redirect stub) nor `docs/pack.md` (ISSUE-197's page, excluded from the
+          Seed 1 closed worlds by PLAN-ISSUE-197 CLM-011) was substituted in to
+          hold the number (CLM-016).
+
+          `specs/SPEC-074-derived-product-truth-pipeline.spec.md`: the job id, its
+          inputs, its output, its owner route/anchor, the owner-source file, the
+          descriptor count and order (now one inventory descriptor, not two lock
+          descriptors), the PT-code text that names the removed descriptors, and the
+          summary table row.
+
+          `specs/SPEC-075-static-public-site-design-system.spec.md`: the page/route
+          list, the route/label/nav-order table rows (one `Pack` item, four primary
+          entries, one utility entry), the presentation matrix rows including page
+          kinds, treatments, and next actions (`/pack/guide/` -> `/contributing/`,
+          `/pack/examples/` -> `/pack/guide/`, `/adopt/` and `/use-cases/` ->
+          `/pack/examples/`), the serverless alias list and alias table with
+          `pack-authoring.html` removed, the JLINK table rows (016 and 020
+          retargeted, 017/018/019/022 deleted), and the generated-region descriptor
+          rule for the pack catalog.
+
+          `specs/SPEC-076-end-to-end-website-capabilities.spec.md`: retarget the
+          journey rows for CAP-010/@UJ-002 and CAP-012/@UJ-002, narrow
+          CAP-013/@UJ-002, DELETE the rows for the retired CAP-011/@UJ-001,
+          CAP-011/@UJ-002, and CAP-012/@UJ-001, record CAP-011 as declared with
+          zero journeys, and update the obligation-table job references and the
+          generated-job table row to `published-pack-catalog` owned by
+          `/pack/examples/#published-pack-catalog`.
+
+          Route this through the artifact tooling rather than hand-editing freeform
+          prose where the schema owns the shape, and leave every requirement id,
+          claim id, and status field untouched. `PLAN-SPEC-072..076` are completed
+          plans and are never edited.
+        files:
+          - specs/SPEC-072-public-product-model.spec.md
+          - specs/SPEC-073-documentation-semantics-integration.spec.md
+          - specs/SPEC-074-derived-product-truth-pipeline.spec.md
+          - specs/SPEC-075-static-public-site-design-system.spec.md
+          - specs/SPEC-076-end-to-end-website-capabilities.spec.md
+        claims:
+          - CLM-009
+          - CLM-016
+          - CLM-018
+        depends_on:
+          - TASK-021
+
+      - id: TASK-024
+        type: verification
+        title: "Full kill chain, artifact validation, and the ISSUE-198 fence check"
+        description: |
+          Comprehensive final verification of every category this plan touched:
+          code, site content, generated product truth, capability journeys, the
+          closed delivery matrix, and artifacts.
+
+          Run, in order: `./scripts/verify-public-product-model.sh` (this plan's
+          `test_command`), `./scripts/verify-public-site.sh`,
+          `./scripts/verify-product-truth.sh`,
+          `./scripts/verify-documentation-semantics-integration.sh`,
+          `./scripts/verify-website-capabilities.sh`, `make test`, then
+          `backstop gate --all` as the unscoped kill chain, then
+          `backstop artifact validate` for the artifact category — SPECs were
+          edited in TASK-023, so artifact validation is mandatory here, and
+          PLAN-ISSUE-198 and ISSUE-198 must both validate clean against their
+          schemas.
+
+          Then read the delivered diff as a FENCE CHECK (CLM-019). Require changes
+          confined to: `docs/pack/guide.md`, `docs/pack/examples.md`,
+          `docs/reference.md` (the PACK-004 section only), `docs/use-cases.md` (the
+          single JLINK-016 link line only), the three deleted pages, the four
+          `docs/_data/` files plus the new published-pack inventory and the
+          regenerated fragment, the four `docs/_includes/` and `docs/_layouts/`
+          chrome files, `docs/assets/css/site.css`, the sitecheck, producttruth, and
+          websitejourney files named in earlier tasks, the four capability feature
+          files, `tests/public-site-helpers.ts`, `tests/website-capabilities.spec.ts`,
+          `.backstop/seed4-delivery-inventory.yml`, the three verify scripts, the
+          five SPECs, and this plan's own artifacts.
+
+          Confirm UNCHANGED: `docs/index.html`, `docs/evaluate.md`, `docs/model.md`,
+          `docs/adopt.md`, `docs/contributing.md`,
+          `docs/status.md`, `docs/pack.md` — this plan neither created, stubbed,
+          nor edited ISSUE-197's noun page — `docs/_includes/site-footer.html`
+          including its `/status/` link,
+          `docs/_data/entity-reference.yml`, `scripts/entityref/`,
+          `scripts/render-public-site-contracts/`, `playwright.config.ts`,
+          `tests/public-site.spec.ts`, every evidence-inventory claim except
+          CLAIM-025, every JLINK id this plan does not own (in particular
+          JLINK-021, which is the Evaluate/Model lane's retirement), every Seed 5
+          journey outside the six pack-fleet journeys, and BUNDLE-032's status.
+
+          Confirm the DELIVERED CLOSED-WORLD SHAPES rather than assuming them:
+          `journey_links` carries JLINK-016 and JLINK-020 retargeted and
+          JLINK-017/018/019/022 absent, with `exact_ids`, `edge_specs`, and
+          `link_labels` the same length in both verifier scripts; the nav rosters
+          are the four approved primary entries and the single utility entry in all
+          four pinned locations at once; the semantics corpus is twelve real paths
+          with no stub substituted; and `extraLinkableRoutes()` still holds every
+          entity route ISSUE-197 owns with `/pack/` exactly once.
+
+          Confirm POSITIVELY: `/extend/`, `/packs/`, and `pack-authoring.html`
+          produce no built output and no redirect; a repository-wide search for
+          `/extend/`, `/packs/`, `docs/extend.md`, `docs/packs.md`, and
+          `installed-pack-catalog` returns only intentional historical references in
+          completed artifacts; `[data-page-kind="home"] .nav` rules are intact;
+          `testMatch` is still `public-site.spec.ts`; no pack was vendored into
+          core; and no publish CLI, planned catalog, publishing proxy, registry
+          fan-out, attestation, or credential mechanism was introduced.
+
+          Report inherited or sibling-owned failures truthfully with their exact
+          identities rather than absorbing them into this lane, and do not obtain
+          green with a waiver, a suppression, a baseline change, a skipped test, a
+          hand-edited digest, or any loosened assertion.
+        files:
+          - docs/pack/guide.md
+          - docs/pack/examples.md
+          - docs/_data/content-topology.yml
+          - specs/SPEC-072-public-product-model.spec.md
+          - plans/PLAN-ISSUE-198-extend-visitor-page.plan.yml
+          - specs/SPEC-076-end-to-end-website-capabilities.spec.md
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+          - CLM-018
+          - CLM-019
+        depends_on:
+          - TASK-022
+          - TASK-023

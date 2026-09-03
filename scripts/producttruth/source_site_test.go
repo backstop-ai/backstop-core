@@ -22,17 +22,17 @@ func TestProductTruth_SourceIncludesReferenceFragments(t *testing.T) {
 	}
 }
 
-func TestProductTruth_SourceIncludesInstalledPackFragment(t *testing.T) {
+func TestProductTruth_SourceIncludesPublishedPackFragment(t *testing.T) {
 	root := testRoot(t)
 	manifest := testManifest(t)
 	if err := VerifySourceIncludes(root, manifest); err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(filepath.Join(root, "docs/packs.md"))
+	data, err := os.ReadFile(filepath.Join(root, "docs/pack/examples.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Count(string(data), "installed-pack-catalog.md") != 1 {
+	if strings.Count(string(data), "published-pack-catalog.md") != 1 {
 		t.Fatal("pack include count")
 	}
 }
@@ -55,7 +55,7 @@ func TestProductTruth_SourceIncludesReleaseHistoryFragment(t *testing.T) {
 func TestProductTruth_SourceRejectsParallelOrInvalidConsumption(t *testing.T) {
 	root := t.TempDir()
 	manifest := testManifest(t)
-	for _, file := range []string{"docs/reference.md", "docs/packs.md", "docs/status.md"} {
+	for _, file := range []string{"docs/reference.md", "docs/pack/examples.md", "docs/status.md"} {
 		target := filepath.Join(root, file)
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			t.Fatal(err)

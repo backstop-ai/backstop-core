@@ -1,0 +1,1237 @@
+---
+plan_id: PLAN-ISSUE-195
+spec_id: ISSUE-195
+created: "2026-09-02"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: ./scripts/verify-public-product-model.sh
+coverage_threshold: 80
+
+notes: |
+  Contained reactive rewrite on the issue-to-plan track, sourced from ISSUE-195. It
+  lands the approved `/model/` visitor page over the Seed 1 field-guide appendix and
+  the smallest lockstep that keeps the closed-world verifier, the topology/presentation
+  hero matrix, the rendered owner contracts, the browser completeness contract, and the
+  Seed 1 spec literals from silently diverging. It does not reopen BUNDLE-032's charter
+  and does not mark BUNDLE-032 delivered.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  EXISTENCE-IN-WORLD — checked, residual delta only, continue
+  ══════════════════════════════════════════════════════════════════════════════
+  `plans/`, `specs/`, and `issues/` were searched (committed and working tree) for
+  `/model/`, `docs/model.md`, `hero_question`, `canonical-anchors`, `paper`/`ink`,
+  `page_kind`, and `ISSUE-19[0-9]`.
+
+  - PLAN-SPEC-072 / PLAN-SPEC-075 / PLAN-SPEC-076 are completed and own the Seed 1
+    Model field guide: the verdict-question hero, NBR-005 + NBR-006, the required_blocks
+    quartet, the concept/architecture owner anchors, and the presentation matrix. They
+    do NOT own this visitor rewrite. This plan touches their delivered surface only to
+    keep three hero literals congruent (CLM-011).
+  - PLAN-ISSUE-190 (draft) owns `/` only and explicitly fences the homepage. This plan
+    never edits `docs/index.html`, `docs/assets/css/backstop.css`, or the homepage
+    navigation matrix, and it preserves the legacy home reflow rules PLAN-ISSUE-189 /
+    PLAN-ISSUE-190 depend on (CLM-009).
+  - PLAN-ISSUE-191 (draft) owns the `agent-environment` / `governance-artifact` widening
+    of the closed Seed 4 matrix. This plan requires no matrix widening at all (CLM-012).
+  - PLAN-ISSUE-193 owns `/evaluate/` and names Model out of scope, but the two plans
+    share six files, so this plan is written to be ORDER-FREE against it: every shared
+    edit is detection-first and cell-scoped, and 193's relocations, allowances, retargeted
+    hero rows, and `model-use-cases-packs.sh` widening are kept when present and never
+    made on its behalf when absent (CLM-014). PLAN-ISSUE-196/197/
+    198/199 are empty sibling scaffolds for Adopt, the entity reference, Extend, and the
+    artifact-lifecycle reference. This plan absorbs none of them: the pack-fleet route
+    split, the entity pages, the claim/journey relocations off `/evaluate/`, and the
+    navigation reduction visible on the prototype branch stay with their own issues.
+
+  No artifact subsumes the `/model/` rewrite. Disposition: author the residual delta.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  SOURCES AND WHAT IS AUTHORITATIVE
+  ══════════════════════════════════════════════════════════════════════════════
+  IMPLEMENTATION BASELINE is `origin/main` — Seed 1 Model. Every file this plan touches
+  starts from its `origin/main` bytes.
+
+  APPROVED COPY / CSS SOURCE is the prototype at commit
+  `0a6010c0e45b290cbacc6713b83d5da4f5704ba9` (branch
+  `cursor/evaluate-copy-local-preview-e296`). `docs/model.md` at that commit is the
+  LOCKED visible copy: transcribe it, do not rewrite, restructure, or re-word it.
+  ISSUE-195 references the earlier prototype HEAD `4366e98`; `0a6010c` supersedes it.
+
+  The prototype is copy and CSS evidence only. It is NOT an implementation baseline: it
+  also carries the Evaluate rewrite, the `/pack/` fleet split, entity pages, a reduced
+  navigation matrix, and cross-page claim relocations. Taking whole files from it would
+  import five other issues.
+
+  ISSUE PREMISES VERIFIED AGAINST SOURCE — three corrections, all resolved toward the
+  narrowest reading and recorded as claims:
+  1. The issue describes the bounded-fix exception as
+     `<p class="work-exception"><span>For small fixes</span>…</p>`. The approved copy at
+     `0a6010c` instead renders it as the `.work-paths` two-path figure
+     (`Feature / substantial work` Bundle → Spec → Plan; `Small / reactive work`
+     Issue → Plan) under the lede `Feature work: one bundle. Many specs. One plan per
+     spec.` `0a6010c` wins on bytes; the issue's intent — the bounded path is subordinate,
+     not a peer caption — is preserved by that figure (CLM-001).
+  2. The issue lists CLAIM-011, CLAIM-020, JLINK-005, JLINK-006, JLINK-008, and JLINK-021
+     inside Model's canonical anchors. On `origin/main` all six are owned by `/evaluate/`
+     (`docs/_data/evidence-inventory.yml`, `docs/_data/website-capability-map.yml`,
+     `docs/evaluate.md`). The prototype only relocates them because the Evaluate rewrite
+     deletes their sections. Importing them here would force edits to
+     `evidence-inventory.yml`, `website-capability-map.yml`,
+     `scripts/websitejourney/artifacts.go`,
+     `scripts/tests/public-product-model/pages/discovery-evaluation-adoption-status.sh`,
+     and `docs/evaluate.md` — ISSUE-193's fence. They stay on `/evaluate/` (CLM-006).
+  3. The issue says SPEC-072 / SPEC-075 / SPEC-076 still name the old hero. Only
+     `specs/SPEC-072-public-product-model.spec.md:559` and
+     `specs/SPEC-075-static-public-site-design-system.spec.md:720` carry the literal.
+     SPEC-076 carries no `/model/` hero literal and must be inspected, then left alone
+     (CLM-011).
+
+  ══════════════════════════════════════════════════════════════════════════════
+  CLAIM LEDGER — ISSUE-195 carries prose only, no claims[] array, so this plan
+  declares its own claims. Each is evidence read out of the tree, out of
+  `origin/main`, or out of a build executed at `0a6010c`.
+  ══════════════════════════════════════════════════════════════════════════════
+
+  CLM-001 — THE VISIBLE STRUCTURE IS LOCKED AND IS TRANSCRIBED, NOT AUTHORED.
+    `docs/model.md` at `0a6010c` is the approved page. Its locked order, quoted from the
+    issue's Approved page contract:
+      1. Hero `hero_question` **How it works**, `hero_lede` **Define the work. Enforce
+         your standards. Detect drift.**
+      2. `## Define the work {#operating-model}` — exactly ONE lede, `Feature work: one
+         bundle. Many specs. One plan per spec.`, and exactly ONE caption. Not two ledes:
+         the section is lede, then two-sided `.work-topology` (left "How work is
+         structured": Bundle fan to Spec/Plan A–D; right "How work is delivered": A and B
+         stacked, brace into C, arrow to D), then the caption `Independent branches can
+         execute in parallel. Dependencies establish the order when they cannot.`, then the
+         `.work-paths` figure; hidden CLAIM-022 and JLINK-010. The `.work-paths` figure
+         carries the bounded-fix path as a SUBORDINATE second row, and subordination is a
+         treatment, not a position — the delivered CSS at `0a6010c` separates the figure
+         from the caption with a hairline divider (`border-top: 1px solid var(--ds-border)`
+         over `padding-top` around 0.9rem) and renders both `.work-path-label` cells muted
+         and small (`color: var(--ds-muted)`, `font-size: 0.82rem`, weight 500, against the
+         1.15rem body lede). Existence of the figure is not the contract; the divider and
+         the muted labels are, because without them the two rows read as a peer feature
+         list, which is exactly the rejected treatment the issue names.
+      3. `## Enforce your standards {#standards-packs}` — lede `Packs own standards,
+         engines, and proof.`; pack figure fanning Pack to Rules / Engines / Fixtures with
+         Fixtures dashed OFF the collect path and only Rules + Engines collecting into
+         Gate `Runs the pack's required checks`; the bridge
+         `<p class="figure-bridge">Packs compose across domains and toolchains.</p>` — a
+         bridge, never a second H2; compose figure Code/Go, Architecture/Package bounds,
+         Design/CSS and tokens → Gate `Executes all rules across all packs`. Recipes stay
+         off this page; `## Recipes {#recipes}` remains a hidden anchor.
+      4. `## Detect drift {#baselines-and-ratchets}` — lede `Existing debt is not
+         permission for new debt.`; ratchet `Unchanged` / `Visible. Does not fail.` versus
+         `New or modified` / `Must meet the standard.` (never "touched"), caption `A waiver
+         is named and time-bounded. The rule stays.`; second lede `A claim names what must
+         exist and the tests that prove it.`; Claim — mandates — Tests `Must exist and be
+         real`. No provenance fan.
+      5. `## While the agent is working {#enforcement-loop}` — lede `The agent does not
+         hand failed work downstream.`; flow Plan → [Implement ↔ Gate] × N →
+         Implementation review ↔ Fix → Commit / Push → CI, with `.loop-core` bracketing
+         Implement + Gate + fail/fix and `× N` as that bracket's legend; caption on CI
+         `CI confirms. It does not discover.`; hidden ARCH-002 note and JLINK-014.
+      6. `## What Backstop does not own {#ownership-boundaries}` — prose closer, no
+         diagram: `Bring your agent, your harness, your standards, and your tools.
+         Backstop does not own your source or your data.` then the accent closer `Backstop
+         keeps the work inside the boundaries you define, so you can be confident you're
+         getting the software you think you are.`; hidden CLAIM-010, the ARCH-003 prose,
+         and JLINK-011.
+      7. `.canonical-anchors` — visually hidden, not visitor copy.
+    REJECTED, do not restore: Core/Packs/Harness inventory cards; the "Backstop sits
+    around the agent" wrap diagram; the legal inventory list; "make agents behave in a
+    disciplined way"; hero "How does it work?"; slide-frame/PowerPoint chrome
+    (`background`/`border`) on `.model-figure` or `.work-topology`; equal-peer feature
+    lists; "touched"; provenance as the Detect drift hero; Recipes on this page.
+
+  CLM-002 — THE HERO IS A SIX-PLACE LITERAL AND IT MUST OCCUR EXACTLY ONCE IN THE PAGE.
+    `How it works` must appear identically in `docs/model.md` frontmatter,
+    `docs/_data/content-topology.yml`, `docs/_data/site-presentation.yml`, the `heroes`
+    list in `scripts/verify-public-product-model.sh`, the `heroes` list in
+    `scripts/tests/public-product-model/verify-content-topology.sh`, and
+    `canonicalPresentation()` in `scripts/sitecheck/presentation_test.go`. It is not "How
+    does it work?" and not "How does Backstop turn intent into a trustworthy verdict?".
+    `verify-public-product-model.sh` additionally enforces `text.count(hero)==1` per
+    source file, and `verifyRouteDocument` requires exactly one
+    `data-page-question>How it works</h1>` in the built page — so the string must not
+    reappear anywhere in the body. The delivered copy says "How work is structured" and
+    "How work is delivered", never "How it works", which satisfies that count.
+
+  CLM-003 — TOPOLOGY IDENTITY IS UNCHANGED APART FROM THE HERO. `required_blocks` stay
+    `[operating-model, delivery-lifecycle, enforcement-loop, ownership-boundaries]`;
+    neighborhoods stay NBR-005 and NBR-006 owned by `/model/`; `source_material`,
+    `navigation`, the twenty-four-row `journey_links` matrix, the ten-row page inventory,
+    and every other page's row stay byte-for-byte as they are on `origin/main`. The
+    prototype's reduced navigation and twelve-row JLINK matrix belong to the pack-fleet
+    issues and must not be imported.
+
+  CLM-004 — THE HIDDEN APPENDIX DOES NOT RENDER WITHOUT `markdown="1"`, AND THE PROTOTYPE
+    IS RED ON EXACTLY THAT. Jekyll runs kramdown with `input: GFM` and no
+    `parse_block_html`, so markdown inside a block-level HTML element is passed through
+    raw. Executed evidence: `bundle exec jekyll build --source docs` at `0a6010c` emits
+    `_site/model/index.html` containing the literal text `## Intent artifacts
+    {#intent-artifacts}` and NO `id="delivery-lifecycle"` — three of the four
+    required_blocks ids exist, the fourth does not. Adding `markdown="1"` to the container
+    restores it: kramdown then emits `<h2 id="delivery-lifecycle">`, wraps claim bodies in
+    `<p>`, renders journey links as `<p><a href="…">…</a></p>`, and drops the
+    `markdown="1"` attribute from the output so the `.canonical-anchors` CSS selector
+    still matches. Every hidden container in the delivered page — the
+    `.canonical-anchors` block and each `.canonical-note` that holds a claim region or a
+    journey link — must carry it. Raw `<h2 id="…">` HTML is NOT an acceptable substitute:
+    `verify-public-product-model.sh` discovers anchors with the source-level regex
+    `^#{1,6} .+ \{#([a-z0-9-]+)\}$` and would report `missing anchor delivery-lifecycle`.
+
+  CLM-005 — MODEL-OWNED CLAIMS AND JOURNEY LINKS MUST SURVIVE THE REWRITE, HIDDEN.
+    `origin/main` binds CLAIM-022 to `/model/#operating-model`, CLAIM-010 to
+    `/model/#ownership-boundaries`, CLAIM-019 to `/model/#harness-integration`, CLAIM-023
+    to `/model/#delivery-lifecycle`, and JLINK-010 / JLINK-011 / JLINK-014 to source
+    route `/model/`. Four independent gates enforce them:
+    `verify-public-product-model.sh` requires a whole-corpus claim-region bijection, byte
+    equality with `statement_markdown`, and an owner anchor derived from the LAST heading
+    preceding the region, plus `marker + [label](/route/#anchor)` cardinality 1 per link;
+    `pages/model-use-cases-packs.sh` re-asserts the same markers on `/model/`;
+    `render-public-site-contracts` requires each source-route marker to be followed by a
+    rendered `<p><a href="…">…</a></p>`; and `sitecheck` requires exactly one
+    `data-journey-link-id="JLINK-0NN"` anchor per declared link in the built corpus.
+    Dropping any of them — as the prototype does, because the pack-fleet issues delete
+    those topology rows — reds all four.
+
+  CLM-006 — `/evaluate/`-OWNED CLAIMS AND LINKS STAY ON `/evaluate/`. See premise
+    correction 2 above. The hidden `## Gates and policy {#gates-and-policy}`,
+    `## Product category {#product-category}`, `## Provenance and verification
+    {#provenance-and-verification}`, and `## Harness integration {#harness-integration}`
+    anchors exist on `/model/` because thirteen `product-model.yml` concepts and three
+    `ARCH-0NN` architecture views declare `/model/#<anchor>` owners; they are ANCHORS, and
+    only the four model-owned claims carry claim markers. The invariant to satisfy, in
+    either landing order: every claim and journey link that
+    `docs/_data/website-capability-map.yml` and `docs/_data/evidence-inventory.yml` bind
+    to `/model/` has its marker on `docs/model.md` at the bound anchor, and no marker
+    bound to another route appears there. That invariant is order-free BECAUSE it is
+    stated against the data files rather than against a fixed marker list: if
+    PLAN-ISSUE-193 landed first it binds CLAIM-011, CLAIM-020, JLINK-005, JLINK-006,
+    JLINK-008, and JLINK-021 to `/model/`, and the rewrite then carries those markers too
+    (CLM-014). This plan never performs the relocation itself.
+
+  CLM-007 — CLOSED WORLD, AND THE BLANK-LINE LAYOUT INSIDE HIDDEN CONTAINERS IS
+    LOAD-BEARING. Every non-claim, non-journey-link, non-heading, non-fenced block of
+    `docs/model.md` must be an exact string key in `allowances['docs/model.md']` in
+    `scripts/verify-public-product-model.sh`. `check_closed_blocks` masks claim regions by
+    overwriting them with spaces while preserving newlines, and splits on
+    `\n[ \t]*\n` — so a masked claim region acts as a blank-line separator and a container
+    open tag and its `</div>` become separate blocks, each needing its own allowance. A
+    journey-link block passes only when it FULLMATCHES
+    `<!-- backstop-journey-link: JLINK-\d{3} -->\n\[label\](/route/#anchor)`; a stray
+    `</div>` sharing that block breaks the match and fails as unclassified copy. Blank
+    lines around every marker, link, and closing tag inside the hidden containers are part
+    of the contract, and the allowance keys must be transcribed from the delivered bytes,
+    including the `markdown="1"` attribute.
+
+  CLM-008 — PAPER/INK IS ADDITIVE FOR `model` ONLY. `origin/main`'s
+    `docs/_layouts/default.html` has no paper-kind construct: it emits
+    `<meta name="color-scheme" content="dark">` unconditionally, links only
+    `design-system-tokens.css` and `site.css`, and assigns `presentation` after
+    `</head>`. Landing needs the smallest construct that gives `model` the paper chrome —
+    the presentation assign hoisted above `<!doctype html>`, a paper-kind list containing
+    `model`, `<meta name="theme-color" content="#0c0d0d">` in place of the dark
+    `color-scheme` for that list, and a conditional
+    `/assets/css/backstop-tokens.css` link — plus the `html:has(…)` `--ds-*` remap, the
+    ink wordmark pill, 0.84rem ink nav, `--color-signal` current-page underline, and the
+    paper diagram rules in `docs/assets/css/site.css`. No other `page_kind` joins that
+    list in this plan; each sibling adds its own when its page lands. If `evaluation` is
+    already present because PLAN-ISSUE-193 landed first, ADD `model` to the existing list
+    rather than replacing it. `docs/assets/css/backstop-tokens.css` already exists on
+    `origin/main`, already defines `--color-paper`, `--color-ink`, `--color-signal`,
+    `--color-line`, and `--color-muted`, and carries the Seed 4 role `retired-bootstrap`,
+    which `validatePathRole` makes DELETION-ONLY: link it, never edit it.
+
+  CLM-009 — THE LEGACY HOME REFLOW RULES SURVIVE THE MEDIA-QUERY EDIT.
+    `origin/main`'s `@media (max-width: 56rem)` block in `docs/assets/css/site.css`
+    carries `[data-page-kind="home"] .nav`, `.nav-links`, and the rest of the legacy
+    homepage collapse set, and its `@media (max-width: 30rem)` block carries
+    `grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)`, which
+    `TestSiteCheck_LocalOverflowAndNavigationModesPass` asserts by literal. Model's
+    desktop / laptop / tablet / mobile reflow is ADDED to those blocks. Diagram text is
+    not shrunk until unreadable; fixtures stay beside the gate collect path, dashed, while
+    there is width; a one-column stack is the narrowest breakpoint only.
+
+  CLM-010 — THE BROWSER COMPLETENESS CONTRACT MUST ASSERT HIDDENNESS RATHER THAN ASSUME
+    VISIBILITY. `assertContentCompleteness` in `tests/public-site-helpers.ts` reads
+    `data-required-blocks` off the rendered hero and, for every id, requires
+    `toHaveCount(1)`, `toBeVisible()`, at least one visible sibling block, at least 80
+    characters of visible text, and a first-content gap under 160px. After the rewrite
+    `delivery-lifecycle` is a hidden canonical anchor. Leaving the assertion unchanged is
+    not safe in either direction: with the anchor absent it fails on cardinality, and once
+    the anchor renders inside the 1px clipped container Playwright's visibility heuristic
+    (non-empty bounding box, no `visibility: hidden`) can report it VISIBLE and pass
+    vacuously. The contract is therefore partitioned — required blocks inside
+    `.canonical-anchors` must be present exactly once and provably not visitor-visible;
+    required blocks outside it keep the full visible-and-substantive assertions. The
+    appendix is not un-hidden, `playwright.config.ts` `testMatch` stays
+    `public-site.spec.ts`, and packs stay external.
+
+  CLM-011 — SEED 1 CONTRACT LITERALS. `specs/SPEC-072-public-product-model.spec.md:559`
+    and `specs/SPEC-075-static-public-site-design-system.spec.md:720` still name "How does
+    Backstop turn intent into a trustworthy verdict?" in their `/model/` rows. Those two
+    cells are the entire spec delta; the surrounding contracts — NBR-005/NBR-006, the
+    required_blocks quartet, `page_kind: model`, treatments `evidence-cards`,
+    `local-overflow`, next action `/adopt/` — are unchanged and must stay. SPEC-076
+    carries no such literal and is inspected, then left untouched.
+
+  CLM-012 — THE CLOSED SEED 4 MATRIX NEEDS NO NEW ROW AND NO WIDENING. `inventoryDiff`
+    filters the committed `base...HEAD` diff through `inSeed4Matrix`, so any path whose
+    `expectedRole` is "" never reaches the comparison. `docs/_data/content-topology.yml`,
+    `scripts/tests/public-product-model/verify-content-topology.sh`, `specs/**`, and this
+    plan's own `issues/ISSUE-195-…` and `plans/PLAN-ISSUE-195-…` artifacts all return "".
+    If PLAN-ISSUE-193 landed first, the change letters of `docs/model.md` and the three
+    shared chrome files may already have moved; reconcile the letter, do not add a row.
+    Every matrix path this plan touches already carries a correct row in
+    `.backstop/seed4-delivery-inventory.yml`: `docs/model.md` (M, page-wrapper),
+    `docs/assets/css/site.css` (A, stylesheet-composition),
+    `docs/_layouts/default.html` (A, layout), `docs/_includes/page-hero.html` (A,
+    include), `docs/_data/site-presentation.yml` (A, site-data),
+    `scripts/verify-public-product-model.sh` (M, verification-entrypoint),
+    `scripts/sitecheck/presentation_test.go` (A, test),
+    `scripts/sitecheck/pipeline_contract_test.go` (A, test),
+    `tests/public-site-helpers.ts` (A, browser-verification). Introducing a
+    `governance-artifact` role is PLAN-ISSUE-190/191's surface, not this plan's. If
+    `--check-diff` disagrees at implementation time, reconcile the change LETTER of an
+    existing matrix row against the real committed diff and report it; never widen the
+    matrix, never delete a governed row, and never add a new source file that would
+    require one.
+
+  CLM-013 — THE FENCE. Only `docs/model.md`, `docs/_data/content-topology.yml`,
+    `docs/_data/site-presentation.yml`, `docs/_layouts/default.html`,
+    `docs/_includes/page-hero.html`, `docs/assets/css/site.css`,
+    `scripts/verify-public-product-model.sh`,
+    `scripts/tests/public-product-model/verify-content-topology.sh`,
+    `scripts/sitecheck/presentation_test.go`,
+    `scripts/sitecheck/pipeline_contract_test.go`, `tests/public-site-helpers.ts`,
+    `specs/SPEC-072-public-product-model.spec.md`, and
+    `specs/SPEC-075-static-public-site-design-system.spec.md` change. Unchanged:
+    `docs/index.html`, `docs/index.md`, `docs/evaluate.md`, `docs/adopt.md`,
+    `docs/use-cases.md`, `docs/packs.md`, `docs/extend.md`, `docs/reference.md`,
+    `docs/status.md`, `docs/contributing.md`, every entity page, `docs/_data/
+    evidence-inventory.yml`, `docs/_data/website-capability-map.yml`,
+    `docs/_data/content-inventory.yml`, `docs/_data/product-model.yml`,
+    `docs/assets/css/backstop.css`, `docs/assets/css/backstop-tokens.css`,
+    `docs/_includes/site-header.html`, `scripts/websitejourney/**`,
+    `scripts/sitecheck/site.go`, `scripts/verify-public-site.sh`,
+    `playwright.config.ts`, `tests/public-site.spec.ts`,
+    `.backstop/seed4-delivery-inventory.yml`, `capabilities/**`, `backstop.yml`,
+    `backstop.lock`, `bundles/BUNDLE-032-*`, and every pack. No waiver, baseline entry,
+    suppression, skipped test, `testMatch` change, or loosened assertion is acceptance.
+
+  CLM-014 — LANDING ORDER AGAINST PLAN-ISSUE-193 IS FREE, AND EVERY SHARED-FILE EDIT IS A
+    CELL-SCOPED MERGE RATHER THAN A REPLACEMENT. Six files are touched by both plans, and
+    PLAN-ISSUE-193 already declares its own side of each as append-only (its sharp edge 9
+    and its TASK-010). This plan states the symmetric obligation, so either order produces
+    the same tree. Before editing any shared file, DETECT whether 193 has landed by reading
+    the file, not by assuming: the tell in `scripts/verify-public-product-model.sh` is a
+    JLINK-005/006/008/021 tuple whose SOURCE route is `/model/` (origin/main sources them
+    from `/evaluate/`); the tell in `docs/model.md` is a `CLAIM-011` or `CLAIM-020` region;
+    the tell in `docs/_layouts/default.html` is an existing `paper_kinds` list; the tell in
+    `docs/assets/css/site.css` is an existing `html:has([data-page-kind="evaluation"])`
+    selector list; the tell in `docs/_includes/page-hero.html` is an existing
+    `page.hero_lede` branch. What 193 owns and this plan therefore KEEPS when it is already
+    present — never reverts to `origin/main`, never re-lands:
+      - `allowances['docs/evaluate.md']` (193 replaces three Seed 1 entries with twelve);
+      - the `/evaluate/` hero cell in both `heroes` lists and in `canonicalPresentation()`;
+      - the seven retargeted JLINK tuples, four of which give `/model/` a new SOURCE anchor:
+        JLINK-005 `#product-category` → `/status/#adjacent-guidance`, JLINK-006
+        `#gates-and-policy` → `/status/#supported-and-limited`, JLINK-008
+        `#harness-integration` → `/reference/#compatibility`, JLINK-021
+        `#provenance-and-verification` → `/reference/#source-traceability`;
+      - the CLAIM-011 (`#gates-and-policy`) and CLAIM-020 (`#product-category`) regions 193
+        relocates ONTO `docs/model.md`, together with their `owner:` records in
+        `evidence-inventory.yml` and `website-capability-map.yml`;
+      - the claim-tuple WIDENING of
+        `scripts/tests/public-product-model/pages/model-use-cases-packs.sh`, which 193
+        grows by CLAIM-011 and CLAIM-020. That file is 193's alone: this plan never edits
+        it in either order, and when the widened tuple is present the rewritten
+        `docs/model.md` must satisfy it rather than narrow it back;
+      - the `evaluation` entry in `paper_kinds` and in the `html:has(...)` selector list,
+        and the `page.hero_lede` branch in `page-hero.html` — which is byte-identical to
+        the branch this plan needs, so when 193 landed it, this plan verifies it and edits
+        nothing there.
+    Symmetrically, when 195 lands first: the four hidden `/evaluate/`-destined anchors
+    (`#gates-and-policy`, `#product-category`, `#provenance-and-verification`,
+    `#harness-integration`) survive the rewrite as headings inside `.canonical-anchors`
+    (CLM-006), which is precisely the destination 193's TASK-008 needs; `paper_kinds`, the
+    `html:has(...)` list, and the `page.hero_lede` branch exist for 193 to append to; and
+    `model-use-cases-packs.sh` is left at its Seed 1 tuple for 193 to widen. Neither plan
+    may make the other's edit on its behalf, and neither may revert it.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  SHARP EDGES
+  ══════════════════════════════════════════════════════════════════════════════
+  1. `markdown="1"` on every hidden container, or the appendix silently stops existing in
+     the built HTML (CLM-004). Proven by build, not by reading.
+  2. Blank lines inside hidden containers decide whether the closed-world block splitter
+     sees a legal journey-link block or unclassified copy (CLM-007).
+  3. The hero string must occur exactly once per source file and exactly once in the
+     rendered `<h1 data-page-question>` (CLM-002).
+  4. Claim owner anchors are derived from the LAST heading preceding the region. Moving a
+     `.canonical-note` past a heading silently re-owns its claim and fails
+     `claim linkage/bytes`.
+  5. `origin/main` is the baseline. Whole-file copies from the prototype import the
+     Evaluate rewrite, `/pack/examples/` + `/pack/guide/`, entity pages, the four-item
+     navigation, and the claim relocations — five other issues (CLM-006, CLM-013).
+  6. The `@media (max-width: 56rem)` and `(max-width: 30rem)` blocks already carry
+     load-bearing home rules and a literal asserted by a shipped test; add to them, never
+     rewrite them (CLM-009).
+  7. `tests/public-site-helpers.ts` is read as SOURCE TEXT by
+     `TestSiteCheck_ChromiumNoJSExactInteractionMatrixPasses`,
+     `TestSiteCheck_ActualRootFontRelayoutPasses`, and
+     `TestSiteCheck_LocalOverflowAndNavigationModesPass`. The literals `toBeVisible()`,
+     `primaryNavigation`, `utilityNavigation`, `toBe("./b backstop.sh")`,
+     `assertRequiredSurface`, `assertContentCompleteness`, `assertKeyboardOrderAndBounds`,
+     `assertLocalOverflow`, `data-overflow-region`, `ArrowRight`, and the three viewport
+     tuples must all survive the edit.
+  8. `docs/assets/css/backstop-tokens.css` is `retired-bootstrap`, deletion-only. Link it;
+     any modification is unrepresentable in the closed matrix.
+  9. New CSS uses design tokens only. The installed design-system pack's `no-raw-colors`
+     rule runs over the built stylesheet; a raw hex literal in the model block is a gate
+     failure, and a waiver is not the remedy. If the `#0c0d0d` `theme-color` meta in the
+     layout is flagged, report it rather than suppressing it.
+  10. `verify-public-product-model.sh` is the closed-world verifier AND this plan's
+     `test_command`. Editing its `heroes` list or `allowances` map is authoring the
+     contract, which is why it lands in the RED phase, before the page.
+  11. PLAN-ISSUE-193 may land before or after this plan, and both orders must produce the
+     same tree. Every shared-file edit therefore begins with a detection read and is a
+     cell-scoped merge (CLM-014). The failure mode is silent in both directions: reverting
+     193's evaluate allowances, its retargeted JLINK sources, its relocated CLAIM-011 /
+     CLAIM-020 regions, or its `model-use-cases-packs.sh` widening still builds, and so
+     does re-landing an edit 193 already made. Read the file; do not assume `origin/main`.
+  12. The prototype branch is separately red on `--check-diff` because it carries 171
+     changed matrix-and-non-matrix paths against a 70-row inventory. That red belongs to
+     the sibling issues. On a branch cut from `origin/main` carrying only this plan's
+     files, no inventory row changes (CLM-012); report any residue truthfully instead of
+     absorbing it.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: RED — state the Model contract before the page exists"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "RED: retarget the closed-world verifier at the approved Model page"
+        description: |
+          Author the source-of-truth contract in scripts/verify-public-product-model.sh
+          FIRST, so the page that follows has something to satisfy.
+
+          Step 0, before editing: read the file and decide the landing order (CLM-014).
+          Grep it for a JLINK-005, JLINK-006, JLINK-008, or JLINK-021 tuple whose SOURCE
+          route is '/model/', and for the size of `allowances['docs/evaluate.md']`.
+          - If those tuples still source from '/evaluate/' and the evaluate allowance map
+            still holds its three Seed 1 entries, PLAN-ISSUE-193 has NOT landed: the file
+            is at origin/main and the two edits below apply to those bytes.
+          - If they source from '/model/' and the evaluate map holds twelve entries,
+            PLAN-ISSUE-193 HAS landed: the file is NOT at origin/main, and the two edits
+            below apply to the CURRENT bytes. Do not diff against origin/main, do not
+            restore the '/evaluate/' hero cell, do not restore the three-entry evaluate
+            allowance map, and do not re-source any JLINK tuple back to '/evaluate/'. In
+            that state '/model/' is the source route for JLINK-005, JLINK-006, JLINK-008,
+            and JLINK-021 as well as JLINK-010/011/014, and TASK-005 must satisfy all
+            seven — record which set is live so TASK-005 reads it rather than re-deciding.
+          Either way this task never edits
+          scripts/tests/public-product-model/pages/model-use-cases-packs.sh: the CLAIM-011
+          and CLAIM-020 widening of its tuple is PLAN-ISSUE-193's, kept if present and
+          left un-made if absent.
+
+          Two edits, nothing else. First, in the `heroes` list, replace index 2 —
+          'How does Backstop turn intent into a trustworthy verdict?' — with
+          'How it works'. Leave the other nine hero strings AS THEY CURRENTLY STAND — at
+          origin/main values if 193 has not landed, at 193's retargeted /evaluate/ value if
+          it has — and leave the `paths` list and the `sources` list untouched: this plan
+          does not know about /pack/examples/ or /pack/guide/, and importing the
+          prototype's route lists would silently absorb ISSUE-198/199. Second, replace the
+          `allowances['docs/model.md']` sub-dict wholesale with the exact block set of the
+          approved page, and leave every other page's allowance map byte-for-byte
+          untouched — including `allowances['docs/evaluate.md']` in whichever of its two
+          legal states it is in (CLM-014). Wholesale replacement is order-safe for the
+          MODEL sub-dict specifically, and only for it: PLAN-ISSUE-193's own TASK-001
+          replaces `allowances['docs/evaluate.md']` and never writes a key under
+          `docs/model.md`, so there is nothing of 193's to revert here. Replacing any
+          other page's sub-dict — or rebuilding the whole `allowances` dict from
+          origin/main rather than editing the one key — would revert 193's twelve evaluate
+          entries and is the failure sharp edge 11 names.
+
+          Derive the allowance keys mechanically from docs/model.md at
+          0a6010c0e45b290cbacc6713b83d5da4f5704ba9, adjusted for the hidden-container
+          `markdown="1"` attribute this plan requires (CLM-004). Define the work
+          contributes exactly TWO prose keys — its ONE lede and its ONE caption — because
+          the section is lede, `.work-topology`, caption, `.work-paths`, and not two ledes
+          (CLM-001); a third prose key there means a second lede was transcribed. The full
+          key set: that lede, that caption, the `.work-topology` figure, the `.work-paths`
+          figure, `<div class="canonical-note" markdown="1">` and its `</div>`,
+          'Packs own standards, engines, and proof.', the `.pack-figure`, the
+          `<p class="figure-bridge">…</p>` bridge, the `.pack-compose` figure, the two
+          Detect drift ledes, the `.ratchet-figure` and `.claim-figure`, the enforcement
+          lede, the `.loop-figure`, the ARCH-002 note block, the two ownership
+          paragraphs, the ARCH-003 architecture-source paragraph, and
+          `<div class="canonical-anchors" markdown="1">` with its `</div>`. Every key is
+          a description of a real delivered block, not a wildcard, and each carries a
+          short nonconsequential-classification value in the established style
+          ('visitor operating guide', 'visitor operating table', 'canonical source note',
+          'canonical claim anchors', 'architecture-source identification').
+
+          Honor the masking semantics recorded in CLM-007 when deciding which strings are
+          separate keys: a masked claim region separates the container open tag from its
+          closing `</div>`, so both are their own blocks; a journey-link block is exempt
+          only when it fullmatches marker plus link with nothing else in the block.
+
+          That masking is why the allowance map is the SAME in both landing orders: the
+          extra CLAIM-011 / CLAIM-020 regions and the extra JLINK-005 / JLINK-006 /
+          JLINK-008 / JLINK-021 blocks that 193 puts on this page are masked or exempt, so
+          they contribute no allowance key. Do not add speculative keys for them, and do
+          not remove a key when they are absent.
+
+          Do not touch the claim-region logic, the JLINK cardinality logic, the concept
+          or architecture-view owner checks, the legacy-responsibility table, the
+          adoption-instruction contract, the evidence truth contract, or the dispatch
+          list at the bottom of the script. Do not relax any check to accommodate the new
+          page.
+
+          RED receipt, required before any page edit: run
+          `./scripts/verify-public-product-model.sh` against the pre-rewrite tree and
+          require it to fail with `docs/model.md: hero_question` — the topology YAML still
+          carries the verdict question while the verifier now demands 'How it works'. A
+          YAML/parse/interpreter error is NOT this task's RED evidence; if the script
+          cannot run, repair the script. If 193 landed first, require additionally that
+          the run reports no NEW `docs/evaluate.md` diagnostic and no JLINK source-anchor
+          diagnostic, which is the receipt that this edit merged into 193's file instead
+          of reverting it.
+        files:
+          - scripts/verify-public-product-model.sh
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-014
+        depends_on: []
+
+      - id: TASK-002
+        type: test
+        title: "RED: retarget the content-topology hero assertion at 'How it works'"
+        description: |
+          In scripts/tests/public-product-model/verify-content-topology.sh, replace index 2
+          of the `heroes` list — 'How does Backstop turn intent into a trustworthy
+          verdict?' — with 'How it works'.
+
+          Change nothing else, and take the rest of the file AS IT STANDS rather than from
+          origin/main: PLAN-ISSUE-193 mirrors its own hero and JLINK edits into this same
+          script, so if it landed first the /evaluate/ hero cell and four JLINK source
+          anchors are already retargeted and must be kept exactly as 193 left them
+          (CLM-014). The `paths` and `sources` lists keep /packs/ and /extend/, the
+          neighborhood owner list keeps its Seed 1 owners, the navigation assertion keeps
+          seven primary and two utility routes, and the JLINK edge/label matrix stays
+          twenty-four rows wide with whatever source anchors are currently declared. Those
+          belong to the pack-fleet and Evaluate issues, and rewriting them here would both
+          exceed the fence and desynchronize this script from
+          docs/_data/content-topology.yml, which this plan changes only in the Model hero
+          cell (CLM-003).
+
+          RED receipt: run
+          `./scripts/tests/public-product-model/verify-content-topology.sh` against the
+          pre-rewrite tree and require the assertion
+          `docs/model.md: hero_question` to fail. Also record that the same script still
+          passes every other assertion, proving the edit is a one-cell retarget rather
+          than a broad loosening.
+        files:
+          - scripts/tests/public-product-model/verify-content-topology.sh
+        claims:
+          - CLM-002
+          - CLM-003
+          - CLM-014
+        depends_on: []
+
+      - id: TASK-003
+        type: test
+        title: "RED: assert the Model hero, the paper/ink chrome, and the home reflow fence"
+        description: |
+          Work only inside the already-declared scripts/sitecheck/presentation_test.go.
+          Do not add a new file to scripts/sitecheck: a new path would need a Seed 4
+          inventory row, and CLM-012 keeps this plan out of that matrix.
+
+          First, in `canonicalPresentation()`, change the /model/ row's HeroQuestion to
+          "How it works". Leave Route, PageKind "model", Treatments
+          {"evidence-cards", "local-overflow"}, and NextAction "/adopt/" alone, and leave
+          all nine other rows AS THEY CURRENTLY STAND — not as origin/main has them. If
+          PLAN-ISSUE-193 landed first, its /evaluate/ row already carries that page's own
+          hero and NextAction "/model/", and reverting it to origin/main would red
+          `TestSiteCheck_NavigationMatrixPasses` against a site-presentation.yml this plan
+          is not allowed to edit (CLM-014). The prototype's rows for /adopt/,
+          /use-cases/, /pack/examples/, /pack/guide/, /reference/, and /contributing/
+          belong to other issues and are neither imported nor anticipated. This
+          immediately reds
+          `TestSiteCheck_NavigationMatrixPasses`, whose byte-match against
+          docs/_data/site-presentation.yml now fails on the Model hero, and it keeps
+          `TestSiteCheck_NavigationMatrixRejectsInvalidCell`'s Pages[2] hero mutation
+          meaningful.
+
+          Second, add `TestSiteCheck_ModelPaperInkChromeAndHomeReflowPasses` to the same
+          file. It reads docs/_layouts/default.html and docs/assets/css/site.css from the
+          repository root and requires, positively: a paper-kind list in the layout that
+          CONTAINS `model`; `<meta name="theme-color" content="#0c0d0d">` emitted on the
+          paper branch; a conditional `/assets/css/backstop-tokens.css` stylesheet link;
+          `<meta name="color-scheme" content="dark">` retained on the non-paper branch;
+          in the stylesheet an `html:has(` remap whose selector list INCLUDES
+          `[data-page-kind="model"]` and which maps `--ds-canvas`, `--ds-text`,
+          `--ds-accent`, and `--ds-border` onto the paper/ink tokens; a
+          `[data-page-kind="model"] .canonical-anchors` / `.canonical-note` rule carrying
+          `clip: rect(0, 0, 0, 0)`; and the model figure surfaces
+          (`.work-topology`, `.work-paths`, `.model-figure`, `.figure-bridge`,
+          `.loop-core`).
+
+          Both membership assertions are POSITIVE and OPEN, never exhaustive. Assert
+          `model` is a member of the paper-kind list and that `[data-page-kind="model"]`
+          is one of the selectors in the `html:has(...)` list; do NOT assert either
+          collection equals {model} or {model, evaluation}, and do NOT assert a length.
+          An exhaustive allowlist would red the moment PLAN-ISSUE-193 adds `evaluation` or
+          ISSUE-196/197 add their own kinds — a sibling landing must never turn this test
+          red (CLM-014). Parse the list into a set and make membership claims against it.
+
+          Assert `.work-paths` SUBORDINATION rather than its existence (CLM-001): the
+          `[data-page-kind="model"] .work-paths` rule carries a `border-top` divider whose
+          color is a `var(--ds-border)` token reference and a `padding-top`, and the
+          `.work-path-label` rule sets `color: var(--ds-muted)` at a `font-size` strictly
+          below the surrounding lede size. A `.work-paths` block with no divider and
+          unmuted labels renders the bounded-fix path as a peer feature row, which is a
+          rejected treatment, so a presence-only assertion would pass on the defect.
+
+          Its negative half is the regression fence and is what distinguishes an additive
+          restyle from a sitewide one. Require that the 56rem media block still contains
+          `[data-page-kind="home"] .nav ` and `[data-page-kind="home"] .nav-links`, that
+          `grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)` is still present, that
+          `.model-figure` and `.work-topology` carry no `background:` or `border:`
+          declaration (no slide frames), and that the model-scoped stylesheet block
+          introduces no raw hex color literal. The one negative membership claim is
+          `home`: assert `home` is NOT in the paper-kind list, because the homepage owns
+          its own chrome and PLAN-ISSUE-190 fences it. Make no claim about any other kind.
+
+          RED receipt: run
+          `go test ./scripts/sitecheck -run '^(TestSiteCheck_NavigationMatrixPasses|TestSiteCheck_ModelPaperInkChromeAndHomeReflowPasses)$' -count=1 -v`
+          against the pre-rewrite tree. Both must EXECUTE and FAIL on their intended
+          assertions — the hero byte-match, and the absent `model` paper-kind membership
+          and absent model stylesheet block. A compile failure is not RED evidence. If 193
+          landed first, the paper-kind list and the `html:has(...)` list already exist
+          carrying `evaluation`; the new test must still red on `model` membership
+          specifically, and must not red on `evaluation` being present.
+        files:
+          - scripts/sitecheck/presentation_test.go
+        claims:
+          - CLM-002
+          - CLM-008
+          - CLM-009
+          - CLM-014
+        test_names:
+          - TestSiteCheck_ModelPaperInkChromeAndHomeReflowPasses
+        depends_on: []
+
+      - id: TASK-004
+        type: test
+        title: "RED: partition the browser completeness contract into visitor and hidden blocks"
+        description: |
+          Teach tests/public-site-helpers.ts that a required block can be a canonical
+          topology anchor rather than visitor copy, and fence that new contract with a Go
+          source assertion. Do not edit tests/public-site.spec.ts and do not touch
+          playwright.config.ts: `testMatch` stays `public-site.spec.ts` (CLM-010).
+
+          Neither of this task's two files is shared with PLAN-ISSUE-193, so it needs no
+          detection step: 193 lists tests/public-site-helpers.ts and playwright.config.ts
+          in its own unchanged fence and never edits
+          scripts/sitecheck/pipeline_contract_test.go. Write these two files against their
+          current bytes and make no claim about 193 here. The order-freedom this task must
+          still honor is in WHAT it asserts: the eleven-anchor /model/ inventory below is
+          the same in either order, because 193 relocates claims and journey-link sources
+          ONTO existing `/model/` anchors and adds no new heading (CLM-014). Do not add a
+          twelfth anchor in anticipation of a sibling, and do not assert the number of
+          claim regions or journey links the container holds — that count is what changes
+          with landing order, and the marker-level contract belongs to
+          verify-public-product-model.sh, not to the browser lane.
+
+          In `assertContentCompleteness`, keep reading `data-required-blocks` and keep
+          `toHaveCount(1)` for every id. Then partition. A required block whose element
+          has a `.canonical-anchors` ancestor is a HIDDEN ANCHOR: assert it is present
+          exactly once and that it is not visitor-visible, by evaluating in the page that
+          the nearest `.canonical-anchors` ancestor has a bounding box no larger than 1px
+          in each axis and a computed `clip` of `rect(0px, 0px, 0px, 0px)`. Do not assert
+          `toBeVisible()` on it, and do not assert substantive visible text for it — a
+          1px clipped box can satisfy Playwright's visibility heuristic, so an unchanged
+          assertion would pass vacuously rather than prove anything. A required block
+          with no such ancestor is a VISITOR BLOCK and keeps every existing assertion
+          unchanged: visible, at least one visible sibling block, at least 80 characters
+          of visible text, first-content gap at most 160px.
+
+          Add a `/model/`-specific assertion in the same helper: the route exposes exactly
+          one `.canonical-anchors` container, that container holds `#intent-artifacts`,
+          `#work-tracks`, `#bounded-execution`, `#recipes`, `#gates-and-policy`,
+          `#waivers`, `#capabilities-and-journeys`, `#provenance-and-verification`,
+          `#harness-integration`, `#product-category`, and `#delivery-lifecycle`, each
+          present exactly once and each not visitor-visible, and the four
+          `data-required-blocks` ids resolve to three visitor blocks plus
+          `delivery-lifecycle` as a hidden anchor. That assertion is what stops the Seed 1
+          appendix from ever becoming the visitor page again, and it is what would fail if
+          a future edit un-hid the container instead of keeping the anchors.
+
+          Preserve every literal that sitecheck reads out of this file as source text —
+          `toBeVisible()`, `primaryNavigation`, `utilityNavigation`,
+          `toBe("./b backstop.sh")`, `assertRequiredSurface`, `assertContentCompleteness`,
+          `assertKeyboardOrderAndBounds`, `assertLocalOverflow`, `data-overflow-region`,
+          `ArrowRight`, and the three viewport tuples — and leave `canonicalRoutes`,
+          `primaryNavigation`, and `utilityNavigation` at their Seed 1 membership.
+
+          In scripts/sitecheck/pipeline_contract_test.go add
+          `TestSiteCheck_HiddenCanonicalAnchorBrowserContractPasses`, in the established
+          source-reading style of that file. It requires
+          tests/public-site-helpers.ts to contain the partition (a `.canonical-anchors`
+          containment test, the clip/1px hidden assertion, and the retained
+          visible-and-substantive branch) and the `/model/` canonical-anchor inventory;
+          and it requires tests/public-site.spec.ts and playwright.config.ts to be
+          unchanged in the ways that matter, by re-asserting `testMatch` is
+          `public-site.spec.ts` and that the spec still iterates `canonicalRoutes` twice.
+          Do not weaken or rename the existing tests in that file.
+
+          RED receipt: build the current Seed 1 tree and run the browser lane for the
+          Model route only —
+          `npx playwright test tests/public-site.spec.ts --grep "/model/"` — and require
+          failure on the missing `.canonical-anchors` container. Then run
+          `go test ./scripts/sitecheck -run '^TestSiteCheck_HiddenCanonicalAnchorBrowserContractPasses$' -count=1 -v`
+          and require it to pass only once the helper carries the new contract, so the
+          Go test is a durable fence over a browser assertion the Go suite cannot execute.
+        files:
+          - tests/public-site-helpers.ts
+          - scripts/sitecheck/pipeline_contract_test.go
+        claims:
+          - CLM-004
+          - CLM-010
+          - CLM-014
+        test_names:
+          - TestSiteCheck_HiddenCanonicalAnchorBrowserContractPasses
+        depends_on: []
+
+  - id: phase-2
+    name: "Phase 2: GREEN — land the approved page and its paper/ink chrome"
+    tasks:
+      - id: TASK-005
+        type: implementation
+        title: "GREEN: replace the Seed 1 appendix with the approved Model visitor page"
+        description: |
+          Replace docs/model.md with the locked copy from
+          0a6010c0e45b290cbacc6713b83d5da4f5704ba9, transcribed rather than rewritten,
+          and retarget the two hero cells. The locked section order, ledes, captions, and
+          figure semantics are enumerated in CLM-001; the rejected treatments there are
+          rejected, not deferred. `## Define the work {#operating-model}` carries one lede
+          and one caption around the `.work-topology` figure — do not transcribe a second
+          lede in the caption's place.
+
+          Step 0, before writing a byte: enumerate what the CURRENT page and the CURRENT
+          data files bind to /model/, and carry that set forward. This is what makes the
+          rewrite order-free against PLAN-ISSUE-193 (CLM-014). Grep the current
+          docs/model.md for every `<!-- backstop-claim: CLAIM-NNN -->` region and every
+          `<!-- backstop-journey-link: JLINK-NNN -->` marker, and grep
+          docs/_data/evidence-inventory.yml and docs/_data/website-capability-map.yml for
+          every record whose `owner.route` or journey-link `source` is `/model/`. Two legal
+          states:
+          - 193 has NOT landed. The set is exactly CLAIM-022, CLAIM-010, CLAIM-019,
+            CLAIM-023 and JLINK-010, JLINK-011, JLINK-014 — the (b) and (c) paragraphs
+            below describe it in full. CLAIM-011 and CLAIM-020 are absent and stay absent.
+          - 193 HAS landed. The set additionally contains the CLAIM-020 region under
+            `{#product-category}`, the CLAIM-011 region under `{#gates-and-policy}`, and
+            four relocated journey links: JLINK-005
+            `[Find adjacent guidance](/status/#adjacent-guidance)` under
+            `{#product-category}`, JLINK-006
+            `[Review support and limits](/status/#supported-and-limited)` under
+            `{#gates-and-policy}`, JLINK-008
+            `[Check compatibility details](/reference/#compatibility)` under
+            `{#harness-integration}`, and JLINK-021
+            `[Trace the sources](/reference/#source-traceability)` under
+            `{#provenance-and-verification}`. Transcribe every one of them into the
+            rewritten page inside the hidden `.canonical-anchors` container, each under the
+            heading its record names and each as the LAST block of its hidden section
+            before the next `{#anchor}` heading, so the last-preceding-heading rule
+            resolves to the declared owner or source anchor. Claim bodies stay byte-equal
+            to `statement_markdown`. Do NOT delete them, do not repoint them back to
+            /evaluate/, and do not edit evidence-inventory.yml or website-capability-map.yml
+            to match a narrower page — those files stay outside this plan's fence in both
+            orders. The widened `model-use-cases-packs.sh` tuple (CLAIM-011, CLAIM-020) is
+            193's and must pass unmodified against the rewritten page.
+          Record which state is live and reconcile it with what TASK-001 observed; if the
+          two disagree, stop and re-read rather than guessing.
+
+          Frontmatter keeps `title: Product Model`, `layout: default`,
+          `permalink: /model/`, sets `hero_question: "How it works"`, and adds
+          `hero_lede: "Define the work. Enforce your standards. Detect drift."`.
+
+          Three deliberate departures from the prototype file, each required by evidence:
+
+          (a) Every hidden container carries `markdown="1"` —
+          `<div class="canonical-anchors" markdown="1">` and each
+          `<div class="canonical-note" markdown="1">`. Without it kramdown passes the
+          block through raw, the eleven canonical heading ids never reach the built page,
+          and `#delivery-lifecycle` — a declared required_block — does not exist at all
+          (CLM-004).
+
+          (b) The three journey links /model/ owns at origin/main stay on the page,
+          hidden — plus any link Step 0 found relocated onto /model/: JLINK-010
+          `[Inspect artifact schemas](/reference/#artifact-schema-catalog)` under the
+          `{#operating-model}` heading, JLINK-014
+          `[Read the gate reference](/reference/#gate)` under `{#enforcement-loop}`, and
+          JLINK-011 `[Review project boundaries](/status/#project-boundaries)` under
+          `{#ownership-boundaries}` — each as its own marker-plus-link block, blank-line
+          separated, inside a `markdown="1"` hidden container, and each after the heading
+          that content-topology names as its `source_anchor` (CLM-005, CLM-007).
+
+          (c) The page carries the four claim regions /model/ owns at origin/main —
+          CLAIM-022 under `{#operating-model}`, CLAIM-010 under `{#ownership-boundaries}`,
+          CLAIM-019 under `{#harness-integration}`, CLAIM-023 under
+          `{#delivery-lifecycle}` — with bodies byte-identical to their
+          `statement_markdown` in docs/_data/evidence-inventory.yml, plus exactly the
+          regions Step 0 found already relocated onto the page. This plan never PERFORMS a
+          relocation: if 193 has not landed, CLAIM-011 and CLAIM-020 belong to /evaluate/
+          and importing them would force edits to evidence-inventory.yml,
+          website-capability-map.yml, websitejourney, and docs/evaluate.md (CLM-006); if it
+          has landed, they are already here and deleting them would red the claim-region
+          bijection, the owner-anchor check, and 193's widened
+          `model-use-cases-packs.sh` tuple. Either way their headings survive as hidden
+          anchors so the thirteen product-model concepts and three ARCH views keep their
+          declared owners — and so 193 has a destination if it lands second.
+
+          Keep the `.canonical-anchors` heading set complete: Intent artifacts, Work
+          tracks, Bounded execution, Recipes, Gates and policy, Waivers, Capabilities and
+          journeys, Provenance and verification, Harness integration, Product category,
+          and Delivery lifecycle. Keep the literal strings
+          `docs/_diagrams/ARCH-001-delivery-lifecycle.mmd`,
+          `docs/_diagrams/ARCH-002-enforcement-loop.mmd`, and
+          `docs/_diagrams/ARCH-003-ownership-boundaries.mmd` on the page, and keep the
+          two legacy-responsibility needles `Terminal state records whether work was
+          delivered` and `` `delivered_by` or a direct typed artifact `` inside the
+          `{#operating-model}` section — `pages/model-use-cases-packs.sh` deletes each of
+          them to prove the page still rejects the loss.
+
+          In docs/_data/content-topology.yml change exactly one cell: the docs/model.md
+          row's `hero_question` becomes `"How it works"`. In
+          docs/_data/site-presentation.yml change exactly one cell: the /model/ row's
+          `hero_question` becomes `How it works`. Required blocks, neighborhoods,
+          source material, treatments, next action, navigation, and the journey-link
+          matrix are untouched (CLM-003) — including, if 193 landed first, its /evaluate/
+          rows and its four retargeted journey-link `source_anchor` values, which are kept
+          exactly as they stand and must agree with the markers Step 0 carried forward
+          (CLM-014).
+
+          This task is the GREEN for TASK-004 as well as for TASK-001/002/003: the hidden
+          `.canonical-anchors` container this page introduces, and the eleven anchor ids
+          inside it, are exactly what TASK-004's partitioned browser contract measures
+          (CLM-004, CLM-010). The anchor inventory it asserts — including
+          `#delivery-lifecycle` as a hidden required block — cannot be satisfied until this
+          page exists, so the page must be authored against that contract rather than
+          against a shape invented here.
+
+          GREEN receipts, all four required:
+          1. `bundle exec jekyll build --source docs --destination <tmp>`, then require
+             `<tmp>/model/index.html` to contain `id="delivery-lifecycle"` and each of
+             the other ten canonical anchor ids exactly once, to contain
+             `data-page-question>How it works</h1>` exactly once, and to contain NO
+             leaked literal `{#` or line-leading `## ` — the exact defect observed on the
+             prototype.
+          2. `go run ./scripts/render-public-site-contracts --root . --built-root <tmp>
+             --site-commit <full-sha>` exits 0, and the annotated /model/ document
+             carries one `data-journey-link-id` anchor and one `data-claim-id` article for
+             every member of the Step 0 set — at minimum JLINK-010, JLINK-011, JLINK-014
+             and CLAIM-022, CLAIM-010, CLAIM-019, CLAIM-023, and additionally JLINK-005,
+             JLINK-006, JLINK-008, JLINK-021, CLAIM-011, and CLAIM-020 when 193 landed
+             first. Count against the data files, not against a literal list.
+          3. `./scripts/verify-public-product-model.sh` prints
+             `public-product-model: PASS`, including its dispatched
+             `pages/model-use-cases-packs.sh` and `verify-content-topology.sh` stages —
+             `model-use-cases-packs.sh` unmodified by this plan in either order, passing at
+             its Seed 1 tuple or at 193's widened tuple as it finds it.
+          4. `go run ./scripts/sitecheck --root . --check-diff` exits 0 with no
+             `inventory differs from git diff` output, confirming CLM-012's prediction
+             that no inventory row changes. If it disagrees, reconcile the change letter
+             of an existing matrix row against the real diff and report it; do not widen
+             the matrix.
+        files:
+          - docs/model.md
+          - docs/_data/content-topology.yml
+          - docs/_data/site-presentation.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-010
+          - CLM-014
+        depends_on:
+          - TASK-001
+          - TASK-002
+          - TASK-003
+          - TASK-004
+
+      - id: TASK-006
+        type: implementation
+        title: "GREEN: give /model/ the paper/ink chrome without restyling any sibling"
+        description: |
+          Deliver the presentation half. All three files are SHARED chrome that
+          PLAN-ISSUE-193 also edits, so every edit here is additive and detection-first
+          (CLM-014): read each file, then either create the construct or extend it. Never
+          start from origin/main bytes when the file has already moved.
+          - `docs/_layouts/default.html`: if `paper_kinds` exists, APPEND `model` and keep
+            every existing kind and the hoisted `presentation` assign as they are — do not
+            re-hoist and do not rewrite the head branch. If it is absent, create it
+            containing `model` alone.
+          - `docs/assets/css/site.css`: if an `html:has(...)` paper selector list exists,
+            ADD `[data-page-kind="model"]` to it rather than duplicating the remap block.
+          - `docs/_includes/page-hero.html`: if the `page.hero_lede` branch already exists
+            — 193 lands the same branch — VERIFY it renders `page.hero_lede` inside
+            `<p class="page-boundary">` and otherwise emits the current default sentence
+            byte-for-byte, then leave the file unedited and drop it from this task's
+            delivered set. A second branch is a defect, and `reusable-page-hero` requires
+            the shared hero treatment to appear exactly once.
+          This task never edits docs/evaluate.md, never removes an `evaluation` selector or
+          kind, and never reverts 193's wordmark, navigation, or type rules.
+
+          The styled surface is the block set TASK-001 already froze into
+          `allowances['docs/model.md']`, which is why this task depends on it: every
+          selector added here — `.work-topology`, `.work-paths` and its labels,
+          `.pack-figure`, `.figure-bridge`, `.ratchet-figure`, `.claim-figure`,
+          `.loop-figure` / `.loop-core`, the accent closer — must name a block that
+          allowance map admits. A selector with no corresponding allowed block is styling
+          copy this plan did not land, and a delivered block with no rule is an unstyled
+          figure; read the allowance keys as the inventory before writing CSS (CLM-001).
+
+          docs/_layouts/default.html: hoist the existing
+          `{% assign presentation = site.data.site-presentation.pages | where: "route",
+          page.permalink | first %}` above `<!doctype html>` so `<head>` can branch on it,
+          then add a paper-kind list containing `model`. On the paper branch emit
+          `<meta name="theme-color" content="#0c0d0d">` and link
+          `/assets/css/backstop-tokens.css` after site.css; on the other branch keep
+          `<meta name="color-scheme" content="dark">` exactly as it is today. Add
+          `model` to the list if it already exists; do not enroll any other page_kind
+          (CLM-008). Do NOT adopt the prototype's `page_kind` default-fallback assign or
+          its `{% if presentation.next_action %}` guard — those exist for entity pages
+          that have no presentation row, and /model/ has one; sitecheck still requires
+          exactly one `href="/adopt/">Next` on this route.
+
+          docs/_includes/page-hero.html: when the branch is absent, add only the
+          `page.hero_lede` branch, so a page that declares one renders it inside
+          `<p class="page-boundary">` while every other page keeps the existing default
+          sentence verbatim; when 193 already landed that same branch, verify and leave it.
+          Keep `data-page-hero`, the `.page-hero shell` wrapper, the
+          `data-required-blocks` binding, the `.page-responsibility` label, and the single
+          `<h1 data-page-question>` exactly as they are. Do not adopt the
+          prototype's `presented_hero` fallback chain or its title/hero de-duplication
+          `unless` — both serve unlanded sibling pages, and `Product Model` versus
+          `How it works` needs neither.
+
+          docs/assets/css/site.css: add the model block. The paper/ink remap uses
+          `html:has([data-page-kind="model"])` — extended, not replaced, if an
+          `evaluation` selector list is already present — mapping `--ds-canvas`,
+          `--ds-surface`, `--ds-text`, `--ds-muted`, `--ds-accent`, `--ds-border`,
+          `--ds-focus-ring`, and the font tokens onto `--color-paper`, `--color-surface`,
+          `--color-ink`, `--color-muted`, `--color-signal-ink`, `--color-line`, and the
+          canonical font tokens, with `color-scheme: light`. Style the `./b` ink wordmark
+          pill, 0.84rem ink navigation, and the `--color-signal` current-page underline
+          under the same `html:has(…)` prefix so nothing leaks onto the dark siblings.
+          Give the page loud H1/H2s over 1.15rem muted ledes, make the second ownership
+          paragraph the accent closer (`--ds-accent`, weight 650), and put every diagram
+          directly on paper: no `background` or `border` on `.model-figure` or
+          `.work-topology`, box gaps around 0.6rem, and the compose bridge preserved.
+
+          Make the bounded-fix path subordinate by treatment, which is the contract
+          TASK-003 measures and CLM-001 records. `.work-paths` takes a hairline divider —
+          `border-top: 1px solid var(--ds-border)` over roughly 0.9rem of `padding-top`,
+          so the two-path figure reads as an aside hanging off the caption rather than a
+          new section — and both `.work-path-label` cells take `color: var(--ds-muted)` at
+          `0.82rem` weight 500, visibly below the 1.15rem lede. Do not give the figure a
+          background, a box, or a heading, and do not set the two rows in the same weight
+          and size as the body copy: equal-peer feature lists are a rejected treatment.
+          Add
+          `[data-page-kind="model"] .canonical-anchors, [data-page-kind="model"]
+          .canonical-note` with the 1px `clip: rect(0, 0, 0, 0)` visually-hidden pattern —
+          that rule is what the browser contract from TASK-004 measures.
+
+          Reflow by viewport inside the EXISTING media blocks. Add model rules to
+          `@media (max-width: 56rem)` and to the narrower blocks; do not rewrite either
+          block, do not remove one `[data-page-kind="home"]` declaration, and keep
+          `grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)` in the 30rem block
+          (CLM-009). Keep diagram text readable rather than shrinking it, keep fixtures
+          beside the gate collect path — dashed, not stacked under Gate — while there is
+          width, and collapse to one column only at the narrowest breakpoint. Use design
+          tokens exclusively; no raw color literal enters the model block, and
+          docs/assets/css/backstop-tokens.css is linked, never edited.
+
+          GREEN receipts:
+          1. `go test ./scripts/sitecheck/... -count=1` passes, with
+             `TestSiteCheck_ModelPaperInkChromeAndHomeReflowPasses`,
+             `TestSiteCheck_HiddenCanonicalAnchorBrowserContractPasses`,
+             `TestSiteCheck_NavigationMatrixPasses`,
+             `TestSiteCheck_LocalOverflowAndNavigationModesPass`, and
+             `TestSiteCheck_ChromiumNoJSExactInteractionMatrixPasses` all green and
+             unmodified apart from this plan's declared edits.
+          2. `./scripts/verify-public-site.sh` completes with every stage green —
+             coverage, documentation-semantics, product-truth, jekyll, owner-assets,
+             annotation, structure, browser, cleanup. The browser stage must show
+             /model/ passing `assertRequiredSurface`, `assertContentCompleteness`,
+             `assertKeyboardOrderAndBounds`, and `assertLocalOverflow` across all three
+             viewports and the 200-percent-root-text lane, with the hidden-anchor branch
+             actually exercised rather than skipped.
+          3. Confirm by inspection of the built corpus that /, /adopt/, /use-cases/,
+             /packs/, /extend/, /reference/, /status/, and /contributing/ still render
+             their existing dark chrome, that /model/ carries theme-color and the tokens
+             stylesheet, and that /evaluate/ renders exactly as it did before this task —
+             dark if 193 has not landed, paper if it has. A change to /evaluate/'s chrome
+             in either direction means the selector list was replaced rather than extended
+             (CLM-014).
+        files:
+          - docs/_layouts/default.html
+          - docs/_includes/page-hero.html
+          - docs/assets/css/site.css
+        claims:
+          - CLM-001
+          - CLM-008
+          - CLM-009
+          - CLM-010
+          - CLM-014
+        depends_on:
+          - TASK-001
+          - TASK-003
+          - TASK-004
+
+      - id: TASK-008
+        type: documentation
+        title: "Reconcile the Seed 1 Model hero literal in SPEC-072 and SPEC-075"
+        description: |
+          Keep the completed Seed 1 specs congruent with the hero TASK-005 just delivered,
+          and no more than that. This lands in the same phase as the page because it is a
+          consequence of the page: the hero cell moved, so the delivered-contract literal
+          that quotes it moves with it, and the phase's own gate then sees both.
+
+          In specs/SPEC-072-public-product-model.spec.md, the `/model/` row of the page
+          inventory table names 'How does Backstop turn intent into a trustworthy
+          verdict?'. Replace that one cell with 'How it works'. Leave the row's
+          neighborhood assignment (NBR-005 and NBR-006) and its required-answer prose
+          intact: the page still progressively explains how Backstop works and still owns
+          the canonical concept and architecture model — that is exactly why the hidden
+          anchors survive.
+
+          In specs/SPEC-075-static-public-site-design-system.spec.md, the `/model/` row of
+          the presentation matrix names the same string. Replace that one cell with
+          'How it works'. Leave `page_kind: model`, treatments `evidence-cards` and
+          `local-overflow`, and next action `/adopt/` unchanged.
+
+          Inspect specs/SPEC-076-end-to-end-website-capabilities.spec.md for any /model/
+          hero literal. The search performed while planning found none; if that holds,
+          leave the file untouched and record the negative result rather than editing it
+          to look consistent. If a literal is present, replace only that cell.
+
+          This is a literal reconciliation of a delivered contract, not a re-specification:
+          do not restate requirements, do not add claims, do not change any spec's status,
+          do not touch the required_blocks quartet, and do not reword any surrounding
+          prose. Every other Seed 1 hero string in those tables stays as written, because
+          the sibling pages have not landed their rewrites — including the /evaluate/ row,
+          whether or not PLAN-ISSUE-193 has already reconciled it in the same tables
+          (CLM-014). Read the current cell before editing; touch only the /model/ one.
+        files:
+          - specs/SPEC-072-public-product-model.spec.md
+          - specs/SPEC-075-static-public-site-design-system.spec.md
+          - specs/SPEC-076-end-to-end-website-capabilities.spec.md
+        claims:
+          - CLM-011
+          - CLM-013
+          - CLM-014
+        depends_on:
+          - TASK-005
+
+      - id: TASK-007
+        type: verification
+        title: "Verify the landed page, chrome, and spec literals through the diff-scoped gate"
+        description: |
+          Run `./bin/backstop gate` as the diff-scoped cadence gate over everything this
+          phase delivered — the six page and chrome files plus the reconciled spec
+          literals — then read the report rather than the exit code alone.
+
+          Require: no lint, build, or findings violation on docs/assets/css/site.css,
+          docs/_layouts/default.html, or docs/_includes/page-hero.html; the Go test
+          dimension green for scripts/sitecheck with both new test names present and
+          executed; no coverage regression against the 80 percent floor for any touched Go
+          file; and every one of the installed design-system pack's rules that this phase
+          can plausibly break reported clean, named individually rather than as an
+          aggregate:
+          - `no-raw-colors` and `no-inline-styles` over the delivered stylesheet and the
+            edited layout — the model block is token-only and adds no `style=` attribute;
+          - `focus-visible-required` and `reduced-motion-required` — the file's existing
+            `:focus-visible` rule and `@media (prefers-reduced-motion: reduce)` block
+            survive the additions;
+          - `canonical-wordmark` — the ink wordmark pill RESTYLES the three existing
+            `./b`, `backstop`, `.sh` spans and must leave all three source-visible, in
+            order, on one owner. No `display: none`, no `visibility: hidden`, no
+            `aria-hidden`, no `content:` substitute, and no second owner introduced by the
+            paper branch;
+          - `accessible-site-shell` — the hoisted `presentation` assign and the branched
+            `<head>` must leave the named Primary and Utility navigation and the `main`
+            landmark intact on every route, paper and dark alike;
+          - `reusable-page-hero` — the `page.hero_lede` edit keeps exactly one shared
+            page-hero treatment per rendered page. Two branches emitting the hero, or a
+            hero duplicated for the paper kind, is the rejection this rule exists for.
+
+          Confirm from the report that green was not obtained through a waiver, a
+          baseline entry, a suppression, a skipped test, or a loosened assertion, and
+          that no pack was vendored into the repository to satisfy a check. If the
+          `no-raw-colors` rule flags the layout's `#0c0d0d` theme-color literal, report it
+          as a finding for the design-system owner rather than suppressing it or moving
+          the value out of reach of the rule.
+
+          Read the spec delta in the same report: the two reconciled hero cells are the
+          entire spec diff, and the documentation-semantics dimension must stay green
+          without a status change, a requirement edit, or a reworded contract row.
+
+          Report any inherited failure that predates this plan truthfully instead of
+          absorbing it into this lane.
+        files:
+          - docs/model.md
+          - docs/_data/content-topology.yml
+          - docs/_data/site-presentation.yml
+          - docs/_layouts/default.html
+          - docs/_includes/page-hero.html
+          - docs/assets/css/site.css
+          - specs/SPEC-072-public-product-model.spec.md
+          - specs/SPEC-075-static-public-site-design-system.spec.md
+        claims:
+          - CLM-008
+          - CLM-011
+          - CLM-012
+        depends_on:
+          - TASK-005
+          - TASK-006
+          - TASK-008
+
+  - id: phase-3
+    name: "Phase 3: Full kill chain and artifact validation"
+    tasks:
+      - id: TASK-009
+        type: verification
+        title: "Run the unscoped gate over the delivered Model page, chrome, and verifiers"
+        description: |
+          Run `./bin/backstop gate --all` as the full unscoped kill chain and read every
+          dimension: artifact validation, findings engines, test verification,
+          substantiveness, coverage, and contracts.
+
+          Require every dimension green with no waiver, baseline entry, suppression,
+          skipped test, or loosened assertion, and confirm the specific promises this
+          plan made rather than accepting an aggregate pass:
+          - the two new test names — TestSiteCheck_ModelPaperInkChromeAndHomeReflowPasses
+            and TestSiteCheck_HiddenCanonicalAnchorBrowserContractPasses — are present and
+            executed, not merely declared;
+          - the shipped tests this plan touched near — TestSiteCheck_NavigationMatrixPasses,
+            TestSiteCheck_NavigationMatrixRejectsInvalidCell,
+            TestSiteCheck_ChromiumNoJSExactInteractionMatrixPasses,
+            TestSiteCheck_ActualRootFontRelayoutPasses,
+            TestSiteCheck_LocalOverflowAndNavigationModesPass, and
+            TestSiteCheck_VerificationPipelinePasses — still pass unmodified;
+          - `--check-diff` is green with .backstop/seed4-delivery-inventory.yml unchanged,
+            as CLM-012 predicts.
+
+          Then read the delivered diff as a fence check against CLM-013. Require the
+          modification set to be exactly the thirteen declared files, which this task's
+          own file list enumerates: the six page and chrome files, the four verifier and
+          test files, tests/public-site-helpers.ts, and the two reconciled specs
+          SPEC-072 and SPEC-075. SPEC-076 is the fourteenth path only if TASK-008 found a
+          literal there; if it did not, require SPEC-076 to be absent from the diff, which
+          is the receipt that the negative result was recorded rather than papered over.
+          Confirm docs/index.html,
+          docs/evaluate.md, docs/adopt.md, docs/use-cases.md, docs/packs.md,
+          docs/extend.md, docs/reference.md, docs/status.md, docs/contributing.md,
+          docs/_data/evidence-inventory.yml, docs/_data/website-capability-map.yml,
+          docs/_data/content-inventory.yml, docs/_data/product-model.yml,
+          docs/_includes/site-header.html, docs/assets/css/backstop.css,
+          docs/assets/css/backstop-tokens.css, scripts/websitejourney/**,
+          scripts/sitecheck/site.go, scripts/verify-public-site.sh,
+          scripts/tests/public-product-model/pages/model-use-cases-packs.sh,
+          playwright.config.ts, tests/public-site.spec.ts, capabilities/**,
+          backstop.yml, backstop.lock, and every pack are untouched, and that no claim or
+          journey link moved between routes. Scope that fence to THIS plan's own commits:
+          if PLAN-ISSUE-193 landed first, its relocations are already in the base and are
+          not this plan's diff. What must hold in either order is that this plan moved no
+          claim and no journey link, and that the widened
+          `pages/model-use-cases-packs.sh` tuple is present-and-unmodified or
+          absent-and-unmodified rather than edited here (CLM-014).
+
+          Report inherited or unrelated failures truthfully rather than absorbing them,
+          and do not obtain green by editing a sibling page into agreement.
+        files:
+          - docs/model.md
+          - docs/_data/content-topology.yml
+          - docs/_data/site-presentation.yml
+          - docs/_layouts/default.html
+          - docs/_includes/page-hero.html
+          - docs/assets/css/site.css
+          - scripts/verify-public-product-model.sh
+          - scripts/tests/public-product-model/verify-content-topology.sh
+          - scripts/sitecheck/presentation_test.go
+          - scripts/sitecheck/pipeline_contract_test.go
+          - tests/public-site-helpers.ts
+          - specs/SPEC-072-public-product-model.spec.md
+          - specs/SPEC-075-static-public-site-design-system.spec.md
+          - specs/SPEC-076-end-to-end-website-capabilities.spec.md
+        claims:
+          - CLM-004
+          - CLM-006
+          - CLM-011
+          - CLM-012
+          - CLM-013
+          - CLM-014
+        depends_on:
+          - TASK-005
+          - TASK-006
+          - TASK-007
+          - TASK-008
+
+      - id: TASK-010
+        type: verification
+        title: "Validate PLAN-ISSUE-195, ISSUE-195, and the reconciled Seed 1 specs"
+        description: |
+          Run `./bin/backstop artifact validate` for the artifact category and require
+          this plan, its source issue, and the two reconciled specs to validate clean
+          against their schemas.
+
+          Require specifically: PLAN-ISSUE-195 valid with every declared claim mapped and
+          the TDD, gate-cadence, and file-exclusivity rules satisfied;
+          ISSUE-195-land-approved-model-visitor-page.issue.md still valid and still
+          `open` — this plan does not close it, and closure needs a completed plan
+          through `delivered_by`; SPEC-072 and SPEC-075 still valid after the hero-cell
+          reconciliation, with their statuses, requirement sets, claim sets, and
+          traceability unchanged; and SPEC-076 either untouched or valid with a single
+          reconciled cell.
+
+          Confirm the reconciliation did not disturb artifact lineage: no bundle status
+          changed, BUNDLE-032 is not marked delivered, no spec was promoted or retired,
+          and no sibling plan artifact — PLAN-ISSUE-190, PLAN-ISSUE-191, PLAN-ISSUE-193,
+          PLAN-ISSUE-196, PLAN-ISSUE-197, PLAN-ISSUE-198, PLAN-ISSUE-199 — was edited,
+          absorbed, or superseded.
+
+          A validation pass obtained by relaxing a schema, deleting a contract row, or
+          rewriting spec prose to fit is a failure, not acceptance.
+
+          Run this after TASK-009, not beside it: the artifact lane reads the same spec
+          files the kill chain just fenced, and validating them before that fence is read
+          would validate a tree nobody has checked.
+        files:
+          - plans/PLAN-ISSUE-195-model-visitor-page.plan.yml
+          - issues/ISSUE-195-land-approved-model-visitor-page.issue.md
+          - specs/SPEC-072-public-product-model.spec.md
+          - specs/SPEC-075-static-public-site-design-system.spec.md
+          - specs/SPEC-076-end-to-end-website-capabilities.spec.md
+        claims:
+          - CLM-011
+          - CLM-013
+        depends_on:
+          - TASK-005
+          - TASK-008
+          - TASK-009

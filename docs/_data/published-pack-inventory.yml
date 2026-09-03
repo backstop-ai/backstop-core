@@ -1,0 +1,184 @@
+# Published pack inventory for /pack/examples/.
+# Source of truth: public backstop-ai GitHub repositories that ship pack.yml
+# at a stable vMAJOR.MINOR.PATCH tag. This is not this repository's
+# backstop.yml or backstop.lock.
+version: published-pack-inventory/v1
+organization: backstop-ai
+packs:
+- name: backstop-ai/backstop-core-architecture
+  version: "0.1.7"
+  language: go
+  archetype: enforcement
+  description: Backstop Core package-topology enforcement pack
+  engines:
+  - go-arch-lint
+  repository: https://github.com/backstop-ai/backstop-core-architecture
+- name: backstop-ai/backstop-design-system
+  version: "0.1.5"
+  language: any
+  archetype: recipes
+  description: Backstop's visual system as executable policy.
+  engines:
+  - semgrep-design
+  repository: https://github.com/backstop-ai/backstop-design-system
+- name: backstop-ai/backstop-harness-toolchain-pack
+  version: "0.1.1"
+  language: typescript
+  archetype: enforcement
+  description: Harness-specific Backstop toolchain pack for the OpenCode Bun monorepo
+  engines:
+  - harness-core-test
+  - harness-core-typecheck
+  - harness-coverage
+  - harness-format
+  - harness-lint
+  - harness-schema-test
+  - harness-schema-typecheck
+  - harness-test
+  - harness-typecheck
+  repository: https://github.com/backstop-ai/backstop-harness-toolchain-pack
+- name: backstop-ai/backstop-self
+  version: "1.1.3"
+  language: go
+  archetype: enforcement
+  description: 'Backstop''s own dogfood pack: zero-baked-language enforcement over the backstop spine'
+  engines: []
+  repository: https://github.com/backstop-ai/backstop-self
+- name: backstop-ai/bash-toolchain
+  version: "0.1.2"
+  language: bash
+  archetype: enforcement
+  description: Bash mechanism pack for static test-function discovery and exactly-once execution of the repository's supported canonical verifiers.
+  engines:
+  - bash-documentation-semantics-test
+  - bash-test
+  repository: https://github.com/backstop-ai/bash-toolchain
+- name: backstop-ai/bun-toolchain
+  version: "1.3.0"
+  language: typescript
+  archetype: enforcement
+  description: 'Backstop toolchain pack: Bun (lint/build/test/coverage)'
+  engines:
+  - bun-coverage
+  - bun-test
+  - oxlint
+  - prettier
+  - typecheck
+  repository: https://github.com/backstop-ai/bun-toolchain
+- name: backstop-ai/ci-workflows
+  version: "0.1.2"
+  language: any
+  archetype: recipes
+  description: Four per-platform gate-workflow recipes — GitHub Actions, GitLab CI, Bitbucket Pipelines and Jenkins — that scaffold a CI job which installs a pinned backstop CLI, installs the pack fleet, and runs `backstop gate` as the blocking step, plus the twelve semgrep rules that keep those invariants from being silently undone by later edits.
+  engines:
+  - semgrep-ci
+  repository: https://github.com/backstop-ai/ci-workflows
+- name: backstop-ai/cobra-cli-standards
+  version: "0.2.1"
+  language: go
+  archetype: enforcement
+  description: 'Backstop enforcement pack: cobra CLI discipline (secrets, streams, exit codes)'
+  engines: []
+  repository: https://github.com/backstop-ai/cobra-cli-standards
+- name: backstop-ai/documentation-semantics
+  version: "0.1.1"
+  language: any
+  archetype: enforcement
+  description: Reusable documentation semantics for canonical definition ownership and deterministic consumer-corpus dispatch proof.
+  engines: []
+  repository: https://github.com/backstop-ai/documentation-semantics
+- name: backstop-ai/go-contracts
+  version: "1.4.0"
+  language: go
+  archetype: enforcement
+  description: Contracts pack (SPEC-038, BUNDLE-009 Seed 4) — the REAL installable pack SOURCE.
+  engines:
+  - ast-grep-contracts
+  - grep
+  repository: https://github.com/backstop-ai/go-contracts
+- name: backstop-ai/go-distribution
+  version: "0.1.0"
+  language: go
+  archetype: recipes
+  description: 'backstop pack: the Go release trinity — goreleaser, tag-gated release workflow, Homebrew formula, version stamping. Recipes + nine falsified rules.'
+  engines:
+  - semgrep-godist
+  repository: https://github.com/backstop-ai/go-distribution
+- name: backstop-ai/go-standards
+  version: "1.2.1"
+  language: go
+  archetype: enforcement
+  description: 'Backstop enforcement pack: Go code standards'
+  engines: []
+  repository: https://github.com/backstop-ai/go-standards
+- name: backstop-ai/go-substantiveness
+  version: "1.2.1"
+  language: go
+  archetype: enforcement
+  description: Substantiveness pack (SPEC-037, BUNDLE-009 Seed 3) — the REAL installable pack source.
+  engines:
+  - ast-grep-substantiveness
+  repository: https://github.com/backstop-ai/go-substantiveness
+- name: backstop-ai/go-toolchain
+  version: "1.9.0"
+  language: go
+  archetype: enforcement
+  description: 'Backstop toolchain pack: Go (build/test/lint/coverage, test-name discovery)'
+  engines:
+  - go-build
+  - go-coverage
+  - go-test
+  - golangci
+  repository: https://github.com/backstop-ai/go-toolchain
+- name: backstop-ai/secrets
+  version: "1.1.0"
+  language: any
+  archetype: enforcement
+  description: 'Backstop enforcement pack: secrets scanning (gitleaks → SARIF)'
+  engines:
+  - gitleaks
+  repository: https://github.com/backstop-ai/secrets
+- name: backstop-ai/typescript-contracts
+  version: "1.4.0"
+  language: typescript
+  archetype: enforcement
+  description: 'Backstop enforcement pack: TypeScript contract signatures'
+  engines:
+  - ast-grep-contracts
+  - grep
+  repository: https://github.com/backstop-ai/typescript-contracts
+- name: backstop-ai/typescript-standards
+  version: "1.1.1"
+  language: typescript
+  archetype: enforcement
+  description: 'Backstop enforcement pack: TypeScript code standards'
+  engines: []
+  repository: https://github.com/backstop-ai/typescript-standards
+- name: backstop-ai/typescript-substantiveness
+  version: "1.1.2"
+  language: typescript
+  archetype: enforcement
+  description: 'Backstop enforcement pack: TypeScript test substantiveness'
+  engines:
+  - ast-grep-substantiveness
+  repository: https://github.com/backstop-ai/typescript-substantiveness
+- name: backstop-ai/typescript-toolchain
+  version: "1.3.1"
+  language: typescript
+  archetype: enforcement
+  description: 'Backstop toolchain pack: TypeScript (tsc/eslint/vitest, single-run coverage)'
+  engines:
+  - ts-audit
+  - ts-coverage
+  - ts-lint
+  - ts-test
+  - ts-typecheck
+  repository: https://github.com/backstop-ai/typescript-toolchain
+- name: backstop-ai/vercel-supabase-standup
+  version: "0.2.0"
+  language: typescript
+  archetype: recipes
+  description: 'Backstop pack: Vercel + Supabase standup recipe (founding fixture: bclabs-portal go-live)'
+  engines:
+  - bun-vehicle
+  repository: https://github.com/backstop-ai/vercel-supabase-standup

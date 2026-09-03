@@ -1,0 +1,1466 @@
+---
+plan_id: PLAN-ISSUE-193
+spec_id: ISSUE-193
+created: "2026-09-02"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: ./scripts/verify-public-product-model.sh
+coverage_threshold: 80
+
+notes: |
+  Contained reactive correction on the issue-to-plan track, sourced from ISSUE-193. It
+  lands the approved `/evaluate/` visitor page onto the Seed 1 site that exists at
+  `origin/main` (e412f1fa453f7c37e5e48dac6198be96f2eb146f), together with the smallest
+  claim / journey-link / allowance / page-test / contract-literal lockstep that keeps the
+  ten-page product model internally consistent. It owns `/evaluate/` and nothing else.
+
+  BASELINE AND COPY SOURCE ARE DIFFERENT COMMITS. Implementation starts from
+  `origin/main`, where `/evaluate/` is still the Seed 1 field guide (hero "Is Backstop the
+  right control surface for this problem?", eight required blocks, five appendix claims,
+  seven journey links). The approved COPY is read out of `docs/evaluate.md` at this
+  branch's HEAD 0a6010c0e45b290cbacc6713b83d5da4f5704ba9, which carries the reviewed
+  prototype. Every locked sentence in that file is quoted verbatim. Do not paraphrase,
+  tighten, retitle, or "improve" a single approved sentence, and do not copy the rest of
+  that branch: HEAD also carries the pack-fleet routes, entity pages, Model/Adopt/
+  Reference/Status/Contributing rewrites, the published-pack catalog, and the trimmed
+  navigation, all of which are OUT OF SCOPE here.
+
+  EXISTENCE-IN-WORLD (searched, committed and working tree; disposition = residual delta).
+  `plans/`, `specs/`, `bundles/`, and `issues/` were searched for Evaluate visitor copy,
+  `tactics-matrix`, paper/ink inner-page restyle, "control surface" hero ownership,
+  `working-state`, and the JLINK-002/004/005/006/008/009/021 relocation.
+    - PLAN-SPEC-072, PLAN-SPEC-075, and PLAN-SPEC-076 are completed and own the Seed 1
+      information architecture, the original Evaluate field-guide page, the ten-route
+      presentation matrix, and the 24-wide JLINK/journey matrix. They do NOT own this
+      post-visitor-review rewrite; they are the CONTRACTS this plan must move in lockstep,
+      which is why Phase 4 edits their literal hero and hop tables and nothing else.
+    - PLAN-ISSUE-190 owns `/` only (canonical homepage restoration). This plan must not
+      redesign, restyle, or re-verify the homepage.
+    - PLAN-ISSUE-195/196/197/198/199 are sibling scaffolds authored in parallel for
+      `/model/`, `/adopt/`, entity references, `/pack/guide/`, and the artifact-lifecycle
+      reference. They own those pages' copy and theme. This plan touches `docs/model.md`,
+      `docs/reference.md`, and `docs/status.md` ONLY to insert relocated claim regions and
+      journey-link markers into headings that already exist at `origin/main`. If a sibling
+      plan lands first, reconcile by keeping the relocated marker inside the correspondingly
+      renamed section; never delete a relocated claim to resolve a conflict, and never
+      absorb a sibling page's copy.
+    - BUNDLE-032 is not reopened, its maturity is not advanced, and it is NOT marked
+      delivered by this plan.
+  No artifact subsumes this surface, so authoring proceeds on the narrowed residual delta.
+
+  LATER PREVIEW WORK IS NOT THIS PLAN. After the approved Evaluate prototype, the same
+  branch hid `/status/` and `/reference/` from remaining visitor copy and DELETED
+  JLINK-005/006/008/010/011/012/014/017/018/019/021/022 from `content-topology.yml`'s
+  visible matrix while `scripts/websitejourney/artifacts.go` still enumerates all 24. That
+  deletion is a separate, unowned decision. This plan follows ISSUE-193's own relocation
+  table instead: the matrix stays 24 wide and the five Evaluate-appendix journey links move
+  to the pages that now own their mechanism. Evaluate itself keeps exactly two outbound
+  links (JLINK-002 and JLINK-004) and gets NO restored `/status/` or `/reference/` tease.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  CLAIM LEDGER — ISSUE-193 carries prose only and no claims[] array, so this plan
+  declares its own claims. Each is evidence read out of the tree: `origin/main` for
+  the starting point, HEAD 0a6010c for the approved copy, and the installed pack for
+  the design-system rules.
+  ══════════════════════════════════════════════════════════════════════════════
+
+  CLM-001 — THE PAGE CONTRACT SHRINKS FROM EIGHT REQUIRED BLOCKS TO THREE, AND EVERY
+    CONSUMER OF THAT LIST IS EXPLICIT. `docs/_data/content-topology.yml:3` on `origin/main`
+    declares `required_blocks: [what-backstop-is, failure-fit, fit-decision, not-a-fit,
+    guarantees, compatibility, compatibility-limits, evidence]`. The approved page has three
+    H2 anchors only: `working-state`, `failure-fit`, `fit-decision`. `page-hero.html`
+    renders that list into `data-required-blocks`, and `assertContentCompleteness` in
+    `tests/public-site-helpers.ts` resolves every ID, requires it visible, requires >= 80
+    characters of sibling text before the next H2, and requires <= 160px between the
+    heading bottom and its first content. Leaving a retired ID in the list reds the browser
+    stage on a missing element; leaving a retired heading on the page reds the closed-world
+    block policy. Both halves move together.
+
+  CLM-002 — THE HERO PAIR IS DECLARED IN THREE FILES AND ASSERTED IN FOUR MORE, AND THE
+    LEDE IS NEW. The approved hero is exactly "Your agent already writes the code." with
+    lede "Backstop helps you ship confidently." The `hero_question` string is declared in
+    `docs/evaluate.md` front matter, `docs/_data/site-presentation.yml`, and
+    `docs/_data/content-topology.yml`; it is asserted by
+    `scripts/verify-public-product-model.sh` line 44 on `origin/main`
+    (`heroes=[...]`, checked at line 46, plus the separate
+    presentation-consumption equality on the next lines),
+    `scripts/tests/public-product-model/verify-content-topology.sh:20`,
+    `canonicalPresentation()` in `scripts/sitecheck/presentation_test.go:29` (which
+    `TestSiteCheck_NavigationMatrixPasses` DeepEquals against the real YAML), and the
+    `data-page-question>Is Backstop the right control surface for this problem?` mutation
+    literal in `TestSiteCheck_HomepageCanonicalChangeFence`
+    (`scripts/sitecheck/site_contract_test.go:292`). Seven files, one string. Missing any
+    one of them either reds the gate or, worse, turns the change-fence mutation into a
+    silent no-op whose `replaceOnce` matches nothing.
+
+  CLM-003 — `hero_lede` NEEDS AN INCLUDE CHANGE BECAUSE THE BOUNDARY SENTENCE IS
+    HARDCODED. `docs/_includes/page-hero.html` on `origin/main` emits a fixed
+    `<p class="page-boundary">Deterministic product truth, presented without changing its
+    owner.</p>` for every inner page. The approved Evaluate hero replaces that sentence with
+    "Backstop helps you ship confidently." The minimal delta is one conditional that prefers
+    `page.hero_lede` when set and otherwise keeps the existing sentence byte-for-byte, so
+    the other nine routes are unchanged. Do NOT also import HEAD's `presented_hero`
+    indirection or its `title == hero` responsibility-label suppression: those exist for the
+    entity and Contributing pages and belong to sibling issues.
+
+  CLM-004 — EVALUATE-ONLY PAPER/INK REQUIRES A HEAD-TIME BRANCH, WHICH REQUIRES MOVING ONE
+    LIQUID ASSIGN. `docs/_layouts/default.html` on `origin/main` assigns `presentation`
+    AFTER `</head>`, so `page_kind` is not in scope where `<meta name="color-scheme"
+    content="dark">` and the stylesheet links are emitted. The assign must move above
+    `<!doctype html>` so the head can (a) emit `<meta name="theme-color" content="#0c0d0d">`
+    instead of `color-scheme: dark` and (b) add `<link rel="stylesheet"
+    href="/assets/css/backstop-tokens.css">` for the paper kinds. The theme itself is one
+    `html:has([data-page-kind="evaluation"])` block in `docs/assets/css/site.css` remapping
+    `--ds-*` onto `--color-paper/ink/muted/signal-ink/line/surface` and
+    `--font-sans/mono`. BOTH shared-chrome files are additive-only: add `evaluation` to
+    `paper_kinds` (or to the `html:has(...)` selector list) if it is absent, extend the
+    existing list if a sibling plan already created it, and regress neither the homepage nor
+    any other page kind. `docs/index.html` is a standalone document with no `layout:` front
+    matter, so it cannot be reached by `default.html` at all.
+
+  CLM-005 — THE PROTOTYPE'S FAILED-GATE CARD CARRIES A RAW HEX LITERAL THAT IS AN
+    ERROR-SEVERITY PACK VIOLATION, AND IT MUST NOT BE COPIED. HEAD's
+    `docs/assets/css/site.css:742` and `:744` write `color: var(--color-danger, #ef5b50)`.
+    The installed design-system pack rule `no-raw-colors`
+    (`.backstop/packs/backstop-ai/backstop-design-system/rules/design-system.yml:2`) matches
+    `#[0-9a-f]{3,8}\b` at severity ERROR with `paths.include: ["site.css", "backstop*.css"]`
+    and excludes only the token files. `--color-danger: #ef5b50` is ALREADY declared in the
+    canonical token source `docs/assets/css/backstop-tokens.css:13`, and the layout loads
+    that file for the evaluation kind, so the correct form is bare `var(--color-danger)`
+    with no fallback. Do not edit `backstop-tokens.css` (it is `retired-bootstrap`,
+    deletion-only, and read-only under PLAN-ISSUE-190) and do not add a rule waiver.
+
+  CLM-006 — THE HOMEPAGE NAV MEDIA-QUERY RULES ARE LOAD-BEARING FOR TWO OTHER ARTIFACTS.
+    `origin/main`'s `docs/assets/css/site.css` `@media (max-width: 56rem)` block (lines
+    73-115) contains `[data-page-kind="home"] .nav { ... }` and
+    `[data-page-kind="home"] .nav-links { ... }` plus the home reflow overrides that
+    ISSUE-189 and ISSUE-190 rely on for the 360px and actual-200%-text cells. `.nav` /
+    `.nav-links` are homepage markup (`docs/index.html`), not the inner-page
+    `.navigation-groups` header. Editing that media query to add evaluation responsive
+    rules must PRESERVE every existing home rule verbatim; dropping them silently breaks
+    the homepage browser matrix that this plan is not allowed to touch.
+
+  CLM-007 — CLAIM RELOCATION IS BIJECTIVE AND ANCHOR-BOUND, AND EVERY DESTINATION HEADING
+    ALREADY EXISTS. All line numbers below are `origin/main` coordinates, which is the
+    baseline this plan edits. `scripts/verify-public-product-model.sh` recognises a region
+    with the `claim_start` pattern at line 275, walks every page in the claim-region loop at
+    lines 439-448, derives the owning anchor at line 443 as the LAST preceding
+    `^#{1,6} .+ \{#([a-z0-9-]+)\}$` heading, requires at line 446 that the record's
+    `owner` equal `{route, anchor}` AND that `statement_markdown` match the region bytes
+    after `{% raw %}` / `{% endraw %}` are stripped (`claim linkage/bytes CLAIM-NNN`), and
+    at line 448 requires exactly one region per `CLAIM-NNN` across the ten pages
+    (`claim-region bijection mismatch`). The eight
+    relocations ISSUE-193 names therefore mean physically moving eight comment-delimited
+    regions and repointing eight `owner:` records: CLAIM-020 to `/model/#product-category`,
+    CLAIM-011 to `/model/#gates-and-policy`, CLAIM-018 to `/status/#adjacent-guidance`,
+    CLAIM-006 / CLAIM-021 / CLAIM-012 to `/reference/#compatibility`, and CLAIM-007 /
+    CLAIM-008 to `/reference/#source-traceability`. All five destination headings exist
+    unchanged at `origin/main` (`docs/model.md` "Product category {#product-category}" and
+    "Gates and policy {#gates-and-policy}"; `docs/reference.md` "Compatibility
+    {#compatibility}" and "Source traceability {#source-traceability}"; `docs/status.md`
+    "Adjacent guidance {#adjacent-guidance}"), so no destination page needs a new section.
+
+  CLM-008 — OWNERS MOVE; STATEMENT BYTES DO NOT. The prototype branch also rewrote the
+    statement text of CLAIM-006, CLAIM-011, CLAIM-018, CLAIM-020, CLAIM-021, CLAIM-025, and
+    CLAIM-030 in `docs/_data/evidence-inventory.yml` as part of the later Model / Status /
+    Reference visitor-copy work. ISSUE-193 relocates OWNERSHIP only. Keep every
+    `statement` / `statement_markdown` / `mechanism_summary` / `guarantee_boundary` /
+    `known_limitations` / `adoption_implications` / `direction` / `evidence_refs` value
+    exactly as it stands at `origin/main`, change only `owner: {route, anchor}`, and leave
+    CLAIM-025 and CLAIM-030 untouched entirely.
+
+  CLM-009 — SIX JLINK SOURCES MOVE, ONE LABEL CHANGES, AND THE MATRIX STAYS 24 WIDE.
+    Seven of the 24 records change; six of those changes are to `source_route` /
+    `source_anchor` and the seventh (JLINK-004) is a label-only change. ISSUE-193's table is
+    JLINK-002 source anchor `what-backstop-is` -> `working-state`; JLINK-004 label
+    "Start installation" -> "Install Backstop" (source `/evaluate/#fit-decision` unchanged);
+    JLINK-005 source `/evaluate/#not-a-fit` -> `/model/#product-category`; JLINK-006 source
+    `/evaluate/#guarantees` -> `/model/#gates-and-policy`; JLINK-008 source
+    `/evaluate/#compatibility` -> `/model/#harness-integration`; JLINK-009 source
+    `/evaluate/#compatibility-limits` -> `/reference/#compatibility`; JLINK-021 source
+    `/evaluate/#evidence` -> `/model/#provenance-and-verification`. Every destination is
+    unchanged. All line numbers below are `origin/main` coordinates.
+    `scripts/verify-public-product-model.sh` enforces this in three separate places. Line 71,
+    `exact_ids(links,'link_id',[f'JLINK-{i:03}' for i in range(1,25)],'journey link')`, keeps
+    the set at exactly 24, so no link may be deleted to make the page simpler. Lines 72-75
+    (`edge_specs` / `actual_edges`) require the 24 `(source_route, source_anchor,
+    destination_route, destination_anchor)` tuples to match in order, failing as
+    `exact JLINK edge matrix`. Lines 449-456 then require the
+    `<!-- backstop-journey-link: JLINK-NNN -->` marker to appear exactly once on the source
+    page (line 452, `JLINK-NNN marker/link`), the LAST preceding `{#anchor}` heading to equal
+    `source_anchor` (line 454, `JLINK-NNN source anchor`), the marker to be immediately
+    followed by `[label](destination_route#destination_anchor)`, and the destination anchor
+    to resolve to exactly one heading on the destination page (line 456).
+
+  CLM-010 — THE GHERKIN SCENARIOS ARE THE HOP CONTRACT'S OTHER HALF, SO artifacts.go AND THE
+    FEATURE FILES MUST MOVE IN ONE STEP. `ValidateScenarioAndCoverageMatrix`
+    (`scripts/websitejourney/artifacts.go:411`) compares, at line 471, the hop sequence
+    parsed out of each `capabilities/CAP-NNN-*/user-journeys.feature` against
+    `ExpectedWebsiteJourneys()` for exact string equality, failing as
+    `<GlobalKey>: hop sequence [...], want [...]`. The two sides are therefore a single
+    atomic contract: retargeting a `Hops` slice without retargeting its feature file reds
+    that key, and vice versa. This is why TASK-004 edits `artifacts.go` and all six feature
+    files together rather than splitting them.
+
+    Six feature files still name retired Evaluate anchors at `origin/main`: CAP-004 line 11
+    (`/evaluate/#what-backstop-is`), CAP-005 line 12 (`#not-a-fit`), CAP-006 line 5
+    (`#guarantees`), CAP-007 lines 5 and 11 (`#compatibility`, `#compatibility-limits`),
+    CAP-013 line 5 (`#evidence`), and CAP-014 line 11 (`#compatibility-limits`) — seven hops
+    across six files. The prototype branch updated only CAP-011 and CAP-013/@UJ-002 (pack
+    routes) and left all seven Evaluate hops stale. CAP-004 line 7 (`/evaluate/#failure-fit`)
+    and CAP-005 line 6 (`/evaluate/#fit-decision`) survive and must not be touched.
+
+    A THIRD, UNEXECUTED CONSUMER ALSO HARDCODES THE OLD SOURCES.
+    `tests/website-capabilities.spec.ts:4-25` is a `journeys` table binding each GlobalKey to
+    a `first:` route, and seven rows say `first: "/evaluate/"`. Six of them are retargeted by
+    this plan (CAP-005/@UJ-002 and CAP-006/@UJ-001 and CAP-007/@UJ-001 and CAP-013/@UJ-001 to
+    `/model/`; CAP-007/@UJ-002 and CAP-014/@UJ-002 to `/reference/`); only CAP-004/@UJ-002
+    stays on `/evaluate/`, because JLINK-002's source remains `/evaluate/#working-state`.
+    This file is currently executed by NOTHING: `playwright.config.ts:7` sets
+    `testMatch: "public-site.spec.ts"`, `verify-public-site.sh:104` runs bare
+    `npx playwright test` under that config, the Go journey package never reads any
+    `.spec.ts` path (`ExecutableTestTitle` is parsed from the gherkin Scenario title, not
+    from Playwright), and the file has no `.backstop/seed4-delivery-inventory.yml` row. So
+    repointing those six rows produces NO gate receipt, red or green. It is done anyway, as
+    drift prevention, so the file does not silently become a lie about where six journeys
+    start. Do NOT change `testMatch` to make it execute and do NOT add an inventory row for
+    it: wiring up a dormant browser suite is a separate decision this issue does not own.
+
+  CLM-011 — THE CLOSED-WORLD ALLOWANCE SET FOR EVALUATE IS REPLACED WHOLESALE: THREE OUT,
+    THIRTEEN IN. `check_closed_blocks` in `scripts/verify-public-product-model.sh` masks front
+    matter, claim regions, fenced code, adoption instructions, and generated-include
+    envelopes, splits the remainder on blank lines, and skips only the exact hero, blocks
+    starting with `#`, and a bare journey-link marker plus its link. Every other block must
+    be a verbatim key in `allowances['docs/evaluate.md']`. The three Seed 1 entries
+    ("Backstop fits when fast implementation is no longer the constraint...", "Adopt it when
+    a repository needs explicit intent artifacts...", "Public claims name their mechanism
+    and the execution...") describe blocks the rewrite deletes and must be removed.
+    THIRTEEN new entries are required, matching the approved page's thirteen non-claim,
+    non-jlink, non-heading blocks byte-for-byte. Counted by replaying the masking algorithm
+    over `docs/evaluate.md` at HEAD 0a6010c, they are, in document order: (1) the
+    `.tactics-intro` div, (2) the five-column `.tactics-matrix` div, (3-6) the four
+    `#working-state` prose paragraphs, (7) the `.tactics-matrix.sdd-matrix` div, (8) the sdd
+    closer, (9) the `.failed-verdict` div, (10) the `#fit-decision` lede, (11) the
+    CI-versus-gate paragraph, (12) the `.ci-workflows` div, and (13) "CI should confirm, not
+    discover." Because blocks split on BLANK lines, each multi-line HTML div is ONE key
+    containing embedded `\n`; a reflowed div or an added blank line inside one silently
+    invalidates its key. Do not trust a remembered total: re-derive the count from the file
+    and require it to be thirteen before writing the dict.
+
+  CLM-012 — THE THREE PAGE TESTS MUST BE REBALANCED AND ONE OF THEM NEEDS `visible()`.
+    `scripts/tests/public-product-model/pages/discovery-evaluation-adoption-status.sh:20`
+    asserts the marked region for CLAIM-001/002/003/004/006/007/008/011/012/017/018/020/
+    021/024/033/034/035 inside its own corpus. Seven of those (006, 007, 008, 011, 012, 020,
+    021) leave that corpus and must be dropped from the tuple; CLAIM-018 STAYS because
+    `/status/` is also in that corpus. `model-use-cases-packs.sh:18` gains CLAIM-011 and
+    CLAIM-020. `extend-reference-contributing.sh:16` gains CLAIM-006, CLAIM-007, CLAIM-008,
+    CLAIM-012, and CLAIM-021, and must ALSO gain the
+    `visible=lambda text:text.replace('{% raw %}','').replace('{% endraw %}','')` helper and
+    wrap its owner lookup in it, because CLAIM-007 keeps its literal
+    `{% raw %}{{ ... }}{% endraw %}` bytes on `docs/reference.md` while
+    `statement_markdown` stores the stripped form.
+
+  CLM-013 — FOUR SEED 1 CONTRACT TABLES STILL NAME THE RETIRED EVALUATE HERO AND HOPS.
+    `specs/SPEC-072-public-product-model.spec.md:558` carries the old hero and the eight-way
+    responsibility sentence; its JLINK table names the old sources at lines 641 (002), 644
+    (005), 645 (006), 647 (008), 648 (009), and 660 (021).
+    `specs/SPEC-075-static-public-site-design-system.spec.md:719` carries the old hero in the
+    presentation matrix and SIX lines carry the old JLINK sources: 787 (002), 790 (005),
+    791 (006), 793 (008), 794 (009), and 806 (021). Line 793 is easy to miss because
+    JLINK-008's destination (`/reference/#compatibility`) is already correct and only its
+    source moves. `specs/SPEC-076-end-to-end-website-capabilities.spec.md` carries the old
+    journey hop sequences on SEVEN lines: 436 (CAP-004/@UJ-002), 438 (CAP-005/@UJ-002),
+    439 (CAP-006/@UJ-001), 441 (CAP-007/@UJ-001), 442 (CAP-007/@UJ-002), 453
+    (CAP-013/@UJ-001), and 456 (CAP-014/@UJ-002) — one row per retargeted hop, matching
+    TASK-004's seven `Hops` edits exactly. These are the only spec bytes in scope:
+    do not change any spec's `status`, do not touch SPEC-074, and do not advance or deliver
+    BUNDLE-032.
+
+  CLM-014 — NO NEW SEED 4 INVENTORY ROW IS REQUIRED, AND THAT IS PROVABLE RATHER THAN
+    ASSUMED. `expectedRole()` in `scripts/sitecheck/inventory.go` returns "" for
+    `issues/**`, `plans/**`, `capabilities/**`, `scripts/websitejourney/**`,
+    `scripts/tests/public-product-model/verify-content-topology.sh`,
+    `docs/_data/content-topology.yml`, `docs/_data/evidence-inventory.yml`, and
+    `docs/_data/website-capability-map.yml`; `inventoryDiff()` then `continue`s on any path
+    where `!inSeed4Matrix(path)`, so those files are invisible to `--check-diff`. Every
+    matrix path this plan does touch already has a row at `origin/main`:
+    `docs/evaluate.md`, `docs/model.md`, `docs/reference.md`, `docs/status.md`,
+    `docs/_data/site-presentation.yml`, `docs/_includes/page-hero.html`,
+    `docs/_layouts/default.html`, `docs/assets/css/site.css`,
+    `scripts/verify-public-product-model.sh`, the three
+    `scripts/tests/public-product-model/pages/*.sh` files,
+    `scripts/sitecheck/presentation_test.go`, `scripts/sitecheck/site_contract_test.go`,
+    and `tests/public-site.spec.ts`. SPEC-075 and its plan are `seed4LedgerPaths()` entries
+    that are skipped for modification (only rename is forbidden). Editing an existing file
+    does not change its A/M/D letter, so the expected outcome is that `--check-diff` stays
+    green with zero row edits. Verify it rather than assert it; if a letter genuinely flips,
+    reconcile the LETTER against the real committed diff and never widen the matrix, add a
+    wildcard, hide a governed path, or delete a row.
+
+  CLM-015 — THE BROWSER CONTRACT CONSTRAINS THE APPROVED LAYOUT, AND THE HARNESS SHAPE IS
+    FROZEN. `assertRequiredSurface` requires the wordmark's three `:scope > span` children
+    to be VISIBLE with normalized text exactly `./b backstop.sh`, so the Evaluate ink-pill
+    wordmark must restyle the existing spans and may not hide, duplicate, or synthesize any
+    part of the mark. `assertContentCompleteness` requires >= 80 characters of visible text
+    per required block, which `#failure-fit` satisfies through the `.failed-verdict` card
+    alone (the approved page deliberately has NO lede under that H2), and requires the first
+    content to sit within 160px of the heading bottom. `assertLocalOverflow` and the <= 1px
+    document-overflow assertion still apply at 360, 768, and 1440 plus the actual-200%-text
+    cell. `playwright.config.ts` keeps `testMatch: "public-site.spec.ts"` and
+    `javaScriptEnabled: false`; packs stay external in gitignored `.backstop/packs/` and are
+    never vendored, edited in place, or committed.
+
+  CLM-017 — RECEIPT REACHABILITY: TWO SHORT-CIRCUITS DECIDE WHICH DIAGNOSTIC A TASK CAN
+    ACTUALLY OBSERVE, SO NO TASK MAY DEMAND A RECEIPT ITS OWN STATE MAKES UNREACHABLE. Line
+    numbers are `origin/main` coordinates.
+
+    (a) `verify-website-capabilities.sh` IS PREREQUISITE-GATED AND IS UNUSABLE AS A JOURNEY
+    RECEIPT UNTIL THE WHOLE SITE IS GREEN. Its `run_prerequisites()` (lines 86-103, invoked
+    at line 168 before any journey work) executes `./scripts/verify-public-product-model.sh`,
+    `./scripts/verify-documentation-semantics-integration.sh`, `./scripts/verify-product-truth.sh`,
+    and `./scripts/verify-public-site.sh` in order, and `fail`s with
+    `governed dependency <command> failed before traversal` on the first non-zero exit.
+    `go test ./scripts/websitejourney/` does not run until all four pass. Consequences this
+    plan is built around: during Phase 1 the product-model verifier is deliberately red, so
+    the script aborts on prerequisite one and can never produce a journey diagnostic — every
+    Phase 1 journey receipt is therefore scoped to
+    `go test ./scripts/websitejourney -run ...`, which reads the feature files and
+    `ExpectedWebsiteJourneys()` directly. Equally, `verify-public-site.sh` is the FOURTH
+    prerequisite and stays red until TASK-010 lands the paper/ink surface that TASK-006
+    asserts, so no task before TASK-010 may require `verify-website-capabilities.sh` either.
+    The first point in this plan where the script can legitimately run end to end is
+    TASK-011, after Phase 3.
+
+    (b) BUILT-SITE TRAVERSAL CANNOT DETECT A MISSING ANCHOR ON A REAL PAGE, because the tree
+    it traverses is SYNTHESIZED FROM THE MAP. `WriteAcceptedBuiltTree`
+    (`scripts/websitejourney/traversal.go:101`) walks `m.Journeys`, calls `ParseHop` on each
+    hop, and writes `<section id="%s"></section>` into an in-memory page for any fragment not
+    already present. Every hop the map declares is therefore satisfied by construction. A
+    retargeted hop can only ever fail as a map-versus-expectation mismatch — the
+    `hop sequence [...], want [...]` diagnostic from `ValidateScenarioAndCoverageMatrix`, or a
+    `website-capability-map.yml` obligation mismatch — never as a built-site traversal miss
+    against `docs/*.md`. Do not write a receipt that predicts a traversal failure for a
+    missing `#working-state` or relocated `/reference/` anchor; that failure mode does not
+    exist in this package.
+
+    (c) THE PRODUCT-MODEL VERIFIER SHORT-CIRCUITS JLINK CARDINALITY BEFORE THE CLOSED-WORLD
+    POLICY, BY DESIGN. Lines 422-423 carry the explicit comment "Diagnose declared-link
+    loss/cardinality before the closed-block policy so page mutations retain the responsible
+    stable journey ID", the marker/link cardinality loop runs at lines 424-428, and
+    `check_closed_blocks` is not called until lines 429-430. `fail()` exits immediately. So
+    while any declared JLINK is missing from its source page, the allowance dict is NEVER
+    evaluated and no `unclassified final-copy block` diagnostic can be produced. TASK-007
+    lands the page and retargets `content-topology.yml`, but the relocated markers do not
+    reach `/model/` and `/reference/` until TASK-008 — so the closed-world allowance proof is
+    unreachable inside TASK-007 and is claimed at TASK-009 instead, once both halves are in.
+
+  CLM-016 — THE FENCE. Only the files enumerated in this plan's tasks change. Specifically
+    unchanged: `docs/index.html`, `docs/index.md`, `docs/assets/css/backstop.css`,
+    `docs/assets/css/backstop-tokens.css`, `docs/_includes/site-header.html`,
+    `docs/_includes/site-footer.html`, `docs/adopt.md`, `docs/use-cases.md`,
+    `docs/packs.md`, `docs/extend.md`, `docs/contributing.md`, the seven-primary /
+    two-utility navigation membership in `content-topology.yml` and `scripts/sitecheck/`,
+    `docs/_data/content-inventory.yml`, `docs/_data/derived-product-truth.yml`,
+    `docs/_data/product-model.yml`, `docs/_includes/generated/**`, `playwright.config.ts`,
+    `tests/public-site-helpers.ts`, `.github/workflows/**`,
+    `.backstop/seed4-delivery-inventory.yml` (expected; see CLM-014), every other
+    `capabilities/**` scenario, every entity page, the pack-fleet routes, and
+    `bundles/BUNDLE-032-website-expansion.bundle.md`. No waiver, suppression, baseline
+    entry, skipped test, `testMatch` widening, or relaxed assertion is acceptance.
+
+  ══════════════════════════════════════════════════════════════════════════════
+  SHARP EDGES
+  ══════════════════════════════════════════════════════════════════════════════
+  1. Seven files, one hero string (CLM-002). Missing the change-fence mutation literal in
+     `site_contract_test.go` does not fail loudly — it makes a negative mutation match
+     nothing, which is a vacuous test, not a red one.
+  2. Raw hex in the prototype CSS (CLM-005). Copy the card, not the `#ef5b50` fallback.
+  3. `[data-page-kind="home"] .nav` inside the 56rem media query (CLM-006). Preserve it
+     verbatim; it belongs to ISSUE-189/ISSUE-190, not to this plan.
+  4. CLAIM-005 on `docs/status.md` wraps JLINK-024 INSIDE its own claim region and has an
+     exact-layout assertion (`--claim-005-layout-only` mode plus the `status.count(exact)==1`
+     check in `discovery-evaluation-adoption-status.sh`). Insert CLAIM-018 as a separate
+     region after `<!-- /backstop-claim -->` without perturbing one byte of CLAIM-005.
+  5. Closed-world keys split on BLANK lines (CLM-011). One multi-line div is one key with
+     embedded `\n`. Reflowing the HTML, changing a smart quote, or inserting a blank line
+     inside a div invalidates the allowance even though the page looks identical.
+  6. `{% raw %}` asymmetry (CLM-012). `canonical_payload` strips the tags before comparing,
+     the page keeps them, and `extend-reference-contributing.sh` has no `visible()` helper
+     today. Add the helper when CLAIM-007 arrives or the test reds on byte mismatch.
+  7. The gherkin feature files are silent consumers (CLM-010). They are not under
+     `docs/` and not in the Seed 4 matrix, so no inventory row or page test names them.
+     `ValidateScenarioAndCoverageMatrix` compares them against `ExpectedWebsiteJourneys()`
+     for exact hop equality, so `artifacts.go` and the features are ONE atomic contract:
+     changing either side alone reds the matrix.
+  8. Moving the Liquid `presentation` assign above `<!doctype html>` (CLM-004) changes
+     `default.html` for all nine inner routes. Keep `data-page-kind="{{ presentation.page_kind }}"`
+     and the unconditional `next-action` nav exactly as they are; the `page.page_kind`
+     fallback and the conditional next action on the prototype branch exist for entity
+     pages that do not exist here.
+  9. Sibling plans may land first (see EXISTENCE-IN-WORLD). Treat `paper_kinds` in
+     `default.html` and the `html:has(...)` selector list in `site.css` as append-only
+     sets, and reconcile a relocated claim into its renamed destination section rather
+     than deleting it.
+  10. `--check-diff` reads committed history from base
+     `89f4138aa97e7ba1e8d7c67595cfaee1caefa797`. If the branch is rebased and a change
+     letter genuinely flips, reconcile the letter, never the matrix (CLM-014).
+  11. FOUR RECEIPTS LOOK OBVIOUS AND ARE WRONG (CLM-017). (a) `verify-website-capabilities.sh`
+     runs four whole-site verifiers as prerequisites before any journey code, so it is
+     unusable as a journey receipt until TASK-011 — during Phase 1 and Phase 2 it aborts on
+     a prerequisite and says nothing about hops. (b) Built-site traversal cannot catch a
+     missing anchor, because `WriteAcceptedBuiltTree` synthesizes the tree from the map;
+     hop errors surface only as map-versus-expectation mismatches. (c) The JLINK cardinality
+     loop short-circuits ahead of `check_closed_blocks`, so the allowance dict is unreachable
+     while any relocated marker is in flight — the closed-world proof lands at TASK-009, not
+     TASK-007. (d) The page tests raise `KeyError: '/evaluate/'`, not `AssertionError`, when a
+     claim is asserted in a corpus that does not include its current owner route.
+  12. `tests/website-capabilities.spec.ts` hardcodes `first:` routes for seven journeys but is
+     executed by nothing (`testMatch` is `public-site.spec.ts`; no inventory row). Repoint its
+     six moved rows for honesty, expect no receipt from doing so, and do not wire it up.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: RED — page contract, hero matrix, and relocation expectations"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "RED: retarget the Evaluate page contract, hero, JLINK matrix, and closed-world allowances"
+        description: |
+          Update the two Python-backed deterministic verifiers so they demand the approved
+          Evaluate contract while `origin/main`'s Seed 1 page is still in place. This is the
+          RED half of CLM-001, CLM-002, CLM-009, and CLM-011. Change only the expectations
+          named here; do not touch any other page's hero, route, neighborhood, or label.
+
+          In `scripts/verify-public-product-model.sh`: in `heroes=[...]` (line 44) replace
+          "Is Backstop the right control surface for this problem?" with "Your agent already
+          writes the code." — the same list is reused for the `presentation_pages` equality
+          check, so one edit covers both. In `edge_specs` (line 72) change the JLINK-002
+          tuple to `('/evaluate/','working-state','/model/','operating-model')`, the
+          JLINK-005 tuple to `('/model/','product-category','/status/','adjacent-guidance')`,
+          the JLINK-006 tuple to
+          `('/model/','gates-and-policy','/status/','supported-and-limited')`, the JLINK-008
+          tuple to `('/model/','harness-integration','/reference/','compatibility')`, the
+          JLINK-009 tuple to
+          `('/reference/','compatibility','/status/','adjacent-guidance')`, and the
+          JLINK-021 tuple to
+          `('/model/','provenance-and-verification','/reference/','source-traceability')`.
+          Keep the list at exactly 24 tuples in JLINK-001..024 order and keep the
+          `exact_ids(...range(1,25)...)` assertion at line 71 unchanged. In `link_labels` (line 76)
+          change the fourth entry from 'Start installation' to 'Install Backstop' and leave
+          the other 23 labels alone.
+
+          In the same file's `allowances` dict, replace the whole `'docs/evaluate.md'`
+          sub-dict. Remove the three Seed 1 keys ('Backstop fits when fast implementation is
+          no longer the constraint...', 'Adopt it when a repository needs explicit intent
+          artifacts...', 'Public claims name their mechanism and the execution...'). Add the
+          THIRTEEN keys required by the approved page, copied byte-for-byte from
+          `docs/evaluate.md` at HEAD 0a6010c with embedded `\n` for intra-div newlines and
+          escaped apostrophes where the copy uses them: the `<div class="tactics-intro">`
+          block, the five-column `<div class="tactics-matrix">` table block, 'SDD gives the
+          agent better instructions. The artifact chain gives it less to guess.', 'A spec
+          tells the agent what you want. The artifact chain tells it what to do next, what it
+          may assume, what it must prove, and when it is done.', 'Most spec-driven workflows
+          hand the agent one or more Markdown documents and leave it to infer the rest.
+          Backstop turns intent into bounded, linked work: requirements become a plan, the
+          plan produces implementation claims, and those claims require evidence.', 'At every
+          stage, the agent knows what is authoritative, what remains unresolved, and what
+          must be true before the work can proceed.', the
+          `<div class="tactics-matrix sdd-matrix">` table block, 'The same structure that
+          makes the agent easier to trust also makes the agent better at the job.', the
+          `<div class="failed-verdict" ...>` block, 'Fix problems while your agent is still
+          writing the code.', the 'Backstop puts deterministic gates inside the agent\'s
+          working loop...' paragraph, the `<div class="ci-workflows">` block, and 'CI should
+          confirm, not discover.' Give each a short, honest justification string in the style
+          of the neighbouring entries. Do not add, remove, or reorder any other page's
+          allowance entries.
+
+          That enumeration is THIRTEEN keys. Before writing the dict, re-derive the number
+          from the file rather than trusting this list: replay `check_closed_blocks`'s masking
+          order (strip front matter, mask claim regions, mask fenced code, mask
+          adoption-instruction `<pre><code>` renders, mask generated-include envelopes, split
+          on blank lines, then drop empties, the exact hero, anything starting with `#`, and
+          any bare journey-link marker-plus-link pair) over `docs/evaluate.md` at HEAD
+          0a6010c, and require exactly thirteen surviving blocks. If the count differs, the
+          copy source moved; report the discrepancy instead of absorbing it.
+
+          In `scripts/tests/public-product-model/verify-content-topology.sh`: apply the same
+          hero substitution in `heroes` (line 20), the same six `edges` retargets (line 35),
+          and the same JLINK-004 label change in `labels` (line 36). That is the COMPLETE
+          edit to this file. Do NOT attempt to change a `/evaluate/` `required_blocks`
+          expectation here: this script does not assert `required_blocks` at all — the token
+          does not occur in it — so such an edit would be a silent no-op that fakes coverage.
+          The `required_blocks` list is enforced elsewhere, by `page-hero.html` rendering it
+          into `data-required-blocks` plus `assertContentCompleteness` in the browser stage
+          (TASK-006 / TASK-010) and by the per-anchor heading regex in the page-level tests;
+          those owners are already covered. Leave the ten-way `paths`/`sources` lists, the
+          twelve neighborhood owners, and the seven-primary / two-utility `navigation`
+          assertion exactly as they are.
+
+          RED receipt, required before any content edit: run
+          `./scripts/verify-public-product-model.sh` and require it to FAIL naming the
+          Evaluate hero mismatch (`docs/evaluate.md: hero_question`) or the exact JLINK edge
+          matrix, and separately run
+          `bash scripts/tests/public-product-model/verify-content-topology.sh` and require an
+          AssertionError on `docs/evaluate.md: hero_question`. A Python syntax error, a
+          missing-file error, or a YAML parse failure is NOT this task's RED evidence; if the
+          verifier cannot execute, fix the edit rather than accepting the failure. Record both
+          diagnostics.
+        files:
+          - scripts/verify-public-product-model.sh
+          - scripts/tests/public-product-model/verify-content-topology.sh
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-009
+          - CLM-011
+        depends_on: []
+
+      - id: TASK-002
+        type: test
+        title: "RED: rebalance the three page-test claim corpora and add the raw-Liquid helper"
+        description: |
+          Move the eight relocated claims between the three page-level product-model tests so
+          each test asserts the marked region only inside the corpus that will own it. This is
+          the RED half of CLM-007, CLM-008, and CLM-012.
+
+          In `scripts/tests/public-product-model/pages/discovery-evaluation-adoption-status.sh`
+          drop CLAIM-006, CLAIM-007, CLAIM-008, CLAIM-011, CLAIM-012, CLAIM-020, and CLAIM-021
+          from the claim tuple, leaving
+          `('CLAIM-001','CLAIM-002','CLAIM-003','CLAIM-004','CLAIM-017','CLAIM-018','CLAIM-024','CLAIM-033','CLAIM-034','CLAIM-035')`.
+          CLAIM-018 is retained deliberately: it moves to `/status/#adjacent-guidance`, which is
+          inside this test's corpus. Keep the `visible()` lambda and keep the exact CLAIM-005 /
+          JLINK-024 layout assertion (`status.count(exact)==1`) byte-for-byte — that assertion
+          is the tripwire for sharp edge 4.
+
+          In `scripts/tests/public-product-model/pages/model-use-cases-packs.sh` add CLAIM-011
+          and CLAIM-020 to the claim tuple, keeping ID order:
+          `('CLAIM-011','CLAIM-019','CLAIM-020','CLAIM-022','CLAIM-023','CLAIM-025')`. Leave its
+          `sources` set (`docs/model.md`, `docs/use-cases.md`, `docs/packs.md`), its
+          `responsibilities` list, and its `production_delete_reject` cases unchanged.
+
+          In `scripts/tests/public-product-model/pages/extend-reference-contributing.sh` add
+          CLAIM-006, CLAIM-007, CLAIM-008, CLAIM-012, and CLAIM-021 to the claim tuple and add
+          `visible=lambda text:text.replace('{% raw %}','').replace('{% endraw %}','')`
+          immediately before the loop, then wrap the owner lookup as
+          `in visible(texts[c['owner']['route']])`. Without that helper CLAIM-007 reds on byte
+          mismatch, because the page keeps its literal `{% raw %}{{ ... }}{% endraw %}` bytes
+          while `statement_markdown` stores the stripped form (CLM-012). Leave its `sources`
+          set (`docs/extend.md`, `docs/reference.md`, `docs/contributing.md`), its
+          `[adjacent guidance](/status/#adjacent-guidance)` external-owner seam assertion, its
+          `responsibilities` list, and its `production_delete_reject` cases unchanged — those
+          belong to sibling issues.
+
+          RED receipt — and note the failure TYPE, because it is not the obvious one. Each
+          page test builds `texts` from only the pages in its own `sources` set, then does
+          `assert '<!-- backstop-claim: '+cid+' -->'+... in texts[claim['owner']['route']]`.
+          At this point the eight relocated claims still carry `owner.route: /evaluate/` in
+          `docs/_data/evidence-inventory.yml`, and `/evaluate/` is not a key in either
+          corpus. So the subscript raises before the assert can evaluate: the expected RED is
+          an uncaught `KeyError: '/evaluate/'`, NOT an `AssertionError` naming a claim ID.
+          Run each of the three scripts directly with `bash` and require
+          `model-use-cases-packs.sh` and `extend-reference-contributing.sh` to each exit
+          non-zero with a traceback whose final line is `KeyError: '/evaluate/'`, raised from
+          the claim loop. Record the tracebacks verbatim. An `AssertionError` naming a claim
+          ID at this point would mean the inventory was edited early — out of order for this
+          task, since ownership moves in TASK-008; if that happens, stop and re-check
+          sequencing rather than accepting the diagnostic.
+          `discovery-evaluation-adoption-status.sh` legitimately still passes after its
+          narrowing; record that it passes rather than manufacturing a failure for it. A
+          shell-level or import-level execution error is not RED evidence.
+
+          After TASK-008 repoints the owners, these same two scripts must go green; that
+          transition is the real proof and it is claimed at TASK-009.
+        files:
+          - scripts/tests/public-product-model/pages/discovery-evaluation-adoption-status.sh
+          - scripts/tests/public-product-model/pages/model-use-cases-packs.sh
+          - scripts/tests/public-product-model/pages/extend-reference-contributing.sh
+        claims:
+          - CLM-007
+          - CLM-008
+          - CLM-012
+        depends_on: []
+
+      - id: TASK-003
+        type: test
+        title: "RED: move the Evaluate hero literal in the Go presentation and change-fence contracts"
+        description: |
+          Update the two Go test files that carry the Seed 1 Evaluate hero as a literal, so the
+          hero string is red in exactly one more place before the data lands (CLM-002), and so
+          the homepage change fence keeps working against a real mutation rather than becoming
+          vacuous (CLM-016).
+
+          In `scripts/sitecheck/presentation_test.go`, inside `canonicalPresentation()`, change
+          the `/evaluate/` row's `HeroQuestion` to "Your agent already writes the code." and
+          change nothing else: keep `PageKind: "evaluation"`, keep
+          `Treatments: []string{"evidence-cards", "boundary-callouts"}`, keep
+          `NextAction: "/model/"`, and keep all nine other rows — including
+          `/use-cases/`, `/packs/`, `/extend/`, `/reference/`, `/status/`, and `/contributing/`
+          with their current heroes and next actions — exactly as they are. Do not touch
+          `TestSiteCheck_NavigationMatrixRejectsInvalidCell`'s mutation list or the
+          `ordered` nine-anchor navigation assertion in
+          `TestSiteCheck_NavigationMatrixPasses`.
+
+          In `scripts/sitecheck/site_contract_test.go`, inside
+          `TestSiteCheck_HomepageCanonicalChangeFence`, change the mutation literal
+          `` `data-page-question>Is Backstop the right control surface for this problem?` ``
+          to `` `data-page-question>Your agent already writes the code.` ``, leaving its
+          replacement (`` `>Define the work.` ``) and the other two fence mutations
+          (`data-page-kind="evaluation"` -> `"home"`, and the `data-page-hero` section
+          mutation) unchanged. Confirm the synthetic presentation fixture in
+          `makeSyntheticSite` still parses: the new hero is a plain YAML scalar with no colon,
+          so the existing `hero_question: %s` format directive remains valid; only if it
+          genuinely fails to parse, quote it with `%q` and change nothing else.
+
+          RED receipt: run
+          `go test ./scripts/sitecheck -run '^(TestSiteCheck_NavigationMatrixPasses|TestSiteCheck_HomepageCanonicalChangeFence|TestSiteCheck_NavigationMatrixRejectsInvalidCell)$' -count=1 -v`
+          and require `TestSiteCheck_NavigationMatrixPasses` to FAIL because
+          `docs/_data/site-presentation.yml` still declares the Seed 1 hero and the
+          `reflect.DeepEqual` against `canonicalPresentation()` therefore misses. Require
+          `TestSiteCheck_HomepageCanonicalChangeFence` to execute; if it passes at this point,
+          record that it does and confirm at TASK-011 that its mutation actually matches the
+          rendered Evaluate document rather than silently replacing nothing. A compile or
+          package failure is not RED evidence. Then run
+          `./bin/backstop gate --file scripts/sitecheck/presentation_test.go --file scripts/sitecheck/site_contract_test.go`
+          as cadence; its result does not replace the named `-count=1 -v` receipt.
+        files:
+          - scripts/sitecheck/presentation_test.go
+          - scripts/sitecheck/site_contract_test.go
+        claims:
+          - CLM-002
+          - CLM-016
+        test_names:
+          - TestSiteCheck_NavigationMatrixPasses
+          - TestSiteCheck_HomepageCanonicalChangeFence
+        depends_on: []
+
+      - id: TASK-004
+        type: test
+        title: "RED: retarget the expected journey hop catalog and the CAP-004/005/006 scenarios"
+        description: |
+          Retarget the hard-coded journey expectation table and the first three affected gherkin
+          scenario files together, so the hop catalog and the feature files stay mutually
+          consistent while both go red against the Seed 1 pages (CLM-009, CLM-010).
+
+          In `scripts/websitejourney/artifacts.go`, inside `ExpectedWebsiteJourneys()`, change
+          exactly seven `Hops` slices and nothing else. Set CAP-004/@UJ-002 to
+          `{"/evaluate/#working-state", "/model/#operating-model"}`; CAP-005/@UJ-002 to
+          `{"/model/#product-category", "/status/#adjacent-guidance"}`; CAP-006/@UJ-001 to
+          `{"/model/#gates-and-policy", "/status/#supported-and-limited"}`; CAP-007/@UJ-001 to
+          `{"/model/#harness-integration", "/reference/#compatibility"}`; CAP-007/@UJ-002 to
+          `{"/reference/#compatibility", "/status/#adjacent-guidance"}`; CAP-013/@UJ-001 to
+          `{"/model/#provenance-and-verification", "/reference/#source-traceability"}`; and
+          CAP-014/@UJ-002 to `{"/reference/#compatibility", "/status/#adjacent-guidance"}`.
+          Leave every `GlobalKey`, `CapabilityID`, `Tag`, `Title`, and `JLinks` value alone,
+          leave CAP-004/@UJ-001 and CAP-005/@UJ-001 (which still route through
+          `/evaluate/#failure-fit` and `/evaluate/#fit-decision`) untouched, and leave the
+          pack, use-case, adopt, and status journeys untouched.
+
+          In `capabilities/CAP-004-understand-backstop/user-journeys.feature` change the
+          @UJ-002 `Given` from `/evaluate/#what-backstop-is` to `/evaluate/#working-state` and
+          leave @UJ-001 alone. In `capabilities/CAP-005-evaluate-fit/user-journeys.feature`
+          change the @UJ-002 `Given` from `/evaluate/#not-a-fit` to
+          `/model/#product-category` and leave @UJ-001's `/evaluate/#fit-decision` hop alone.
+          In `capabilities/CAP-006-evaluate-guarantees/user-journeys.feature` change the
+          @UJ-001 `Given` from `/evaluate/#guarantees` to `/model/#gates-and-policy`. Change
+          only the hop tokens: keep every `Feature:` title, `@UJ-NNN` tag, `Scenario:` title,
+          `When they follow the rendered JLINK-NNN next-action link` line, and `Then they
+          arrive at ...` clause byte-for-byte, because `parseFeature` extracts hops positionally
+          from the scenario body and the titles are separately matched.
+
+          RED receipt — this task deliberately lands in a PARTIALLY RED state, and the
+          expected diagnostic is named precisely so it cannot be confused with a real defect.
+          `ExpectedWebsiteJourneys()` is edited for all SEVEN keys here, but only three of the
+          six feature files are repaired in this task, so `ValidateScenarioAndCoverageMatrix`
+          (`artifacts.go:411`, hop comparison at line 471) still disagrees on exactly four
+          keys: CAP-007/@UJ-001, CAP-007/@UJ-002, CAP-013/@UJ-001, and CAP-014/@UJ-002. Those
+          four are closed by TASK-005, which is why TASK-005 depends on this task. Do NOT
+          claim the coverage matrix passes at the end of this task; it does not, and asserting
+          otherwise would be a false receipt.
+
+          Run
+          `go test ./scripts/websitejourney -run '^(TestWebsiteJourney_ExactScenarioAndCoverageMatrixPasses|TestWebsiteJourney_RejectsScenarioAndCoverageDrift)$' -count=1 -v`
+          and require `TestWebsiteJourney_ExactScenarioAndCoverageMatrixPasses` to FAIL with a
+          `hop sequence [...], want [...]` message. Because the validator iterates
+          `ExpectedWebsiteJourneys()` in matrix order and returns on the first mismatch, and
+          CAP-007/@UJ-001 sits at index 6 while CAP-007/@UJ-002, CAP-013/@UJ-001, and
+          CAP-014/@UJ-002 sit at 7, 18, and 21, the reported key must be CAP-007/@UJ-001. A
+          different key means one of the three feature files edited here is wrong — fix the
+          edit rather than accepting the diagnostic. That single reported key IS the proof
+          that the three files edited here are correct: CAP-004/@UJ-002, CAP-005/@UJ-002, and
+          CAP-006/@UJ-001 sit at indices 1, 3, and 4, all AHEAD of index 6, so the validator
+          would have returned one of them instead had any of the three edits been wrong. Do
+          not ask for a per-key "no mismatch" assertion for them — the validator reports at
+          most one key per run, so no such receipt exists. The four remaining keys stay red
+          for the whole of this task and are closed only by TASK-005, whose own receipt
+          (the same three tests passing) is the transition that proves the seven-hop
+          retarget landed.
+
+          Use `go test ./scripts/websitejourney` and nothing else as this lane's receipt. Do
+          NOT invoke `./scripts/verify-website-capabilities.sh` here: per CLM-017(a) its
+          `run_prerequisites()` executes `./scripts/verify-public-product-model.sh` first and
+          `fail`s with `governed dependency ... failed before traversal`, and that verifier is
+          deliberately red from TASK-001, so the script aborts before reaching any journey
+          logic and can produce no journey diagnostic at all. A build or setup failure is not
+          RED evidence.
+        files:
+          - scripts/websitejourney/artifacts.go
+          - capabilities/CAP-004-understand-backstop/user-journeys.feature
+          - capabilities/CAP-005-evaluate-fit/user-journeys.feature
+          - capabilities/CAP-006-evaluate-guarantees/user-journeys.feature
+        claims:
+          - CLM-009
+          - CLM-010
+          - CLM-017
+        test_names:
+          - TestWebsiteJourney_ExactScenarioAndCoverageMatrixPasses
+          - TestWebsiteJourney_BuiltSiteAllJourneysPass
+        depends_on: []
+
+      - id: TASK-005
+        type: test
+        title: "RED: close the hop matrix with CAP-007/013/014 and repoint the dormant journey table"
+        description: |
+          Finish the gherkin half of CLM-010 so all seven Evaluate hops match TASK-004's
+          expectation table. The prototype branch left every one of these three files stale,
+          which is why they are called out explicitly.
+
+          In `capabilities/CAP-007-evaluate-compatibility/user-journeys.feature` change the
+          @UJ-001 `Given` from `/evaluate/#compatibility` to `/model/#harness-integration`
+          and the @UJ-002 `Given` from `/evaluate/#compatibility-limits` to
+          `/reference/#compatibility`. In
+          `capabilities/CAP-013-inspect-evidence/user-journeys.feature` change the @UJ-001
+          `Given` from `/evaluate/#evidence` to `/model/#provenance-and-verification`, and do
+          NOT touch @UJ-002 — that scenario is pack-catalog work owned elsewhere. In
+          `capabilities/CAP-014-continue-beyond-backstop/user-journeys.feature` change the
+          @UJ-002 `Given` from `/evaluate/#compatibility-limits` to `/reference/#compatibility`
+          and leave @UJ-001's BOUNDARY-005 continuation scenario, including its "inside
+          BOUNDARY-005" phrasing and its one-rendered-JLINK-024 wording, untouched.
+
+          As in TASK-004, change only the hop tokens. `Feature:` titles, tags, `Scenario:`
+          titles, the `When ... JLINK-NNN ...` lines, and the `Then they arrive at ...` clauses
+          stay byte-for-byte.
+
+          Also repoint the dormant Playwright journey table (CLM-010). In
+          `tests/website-capabilities.spec.ts`, six rows of the `journeys` array still declare
+          `first: "/evaluate/"` for journeys whose source has moved: set CAP-005/@UJ-002
+          (JLINK-005), CAP-006/@UJ-001 (JLINK-006), CAP-007/@UJ-001 (JLINK-008), and
+          CAP-013/@UJ-001 (JLINK-021) to `"/model/"`, and CAP-007/@UJ-002 (JLINK-009) and
+          CAP-014/@UJ-002 (JLINK-009) to `"/reference/"`. Leave CAP-004/@UJ-002 on
+          `"/evaluate/"` — JLINK-002's source stays `/evaluate/#working-state` — and leave all
+          seventeen other rows, the `test.use({ javaScriptEnabled: false })` posture, and the
+          CAP-014/@UJ-001 BOUNDARY-005 dual-identity branch untouched. This file is executed
+          by nothing today (`playwright.config.ts` restricts `testMatch` to
+          `public-site.spec.ts`, and it has no Seed 4 inventory row), so this edit yields NO
+          receipt; it is drift prevention only, so the table does not become a stale lie about
+          where six journeys begin. Do NOT change `testMatch` and do NOT add an inventory row
+          to make it run — that is a separate decision outside ISSUE-193.
+
+          RECEIPT: run
+          `go test ./scripts/websitejourney -run '^(TestWebsiteJourney_ExactScenarioAndCoverageMatrixPasses|TestWebsiteJourney_RejectsScenarioAndCoverageDrift|TestWebsiteJourney_CAP014DualIdentityAnchorPasses)$' -count=1 -v`
+          and require all three to PASS. That transition — CAP-007/@UJ-001 failing at the end
+          of TASK-004 and the whole matrix passing here — is this task's evidence: it proves
+          the gherkin corpus and `ExpectedWebsiteJourneys()` are now mutually consistent for
+          all seven retargeted hops.
+
+          Two things NOT to expect, both from CLM-017. First, do not invoke
+          `./scripts/verify-website-capabilities.sh` for this receipt: it runs
+          `./scripts/verify-public-product-model.sh` (red since TASK-001) and then
+          `./scripts/verify-public-site.sh` (red until TASK-010) as prerequisites and aborts
+          with `governed dependency ... failed before traversal` long before any traversal.
+          Second, do not predict a BUILT-SITE traversal failure for the not-yet-existing
+          `#working-state`, `/model/#product-category`, or `/reference/` anchors:
+          `WriteAcceptedBuiltTree` (`traversal.go:101`) synthesizes the tree it walks,
+          emitting `<section id="...">` for every fragment the map declares, so a hop can only
+          fail as a map-versus-expectation mismatch and never as a missing anchor on a real
+          `docs/*.md` page. The standing RED that Phase 2 must repair lives in the
+          product-model verifier's JLINK source-anchor loop (`origin/main` lines 449-456)
+          against the real pages, not here. A build or setup failure is not evidence.
+        files:
+          - capabilities/CAP-007-evaluate-compatibility/user-journeys.feature
+          - capabilities/CAP-013-inspect-evidence/user-journeys.feature
+          - capabilities/CAP-014-continue-beyond-backstop/user-journeys.feature
+          - tests/website-capabilities.spec.ts
+        claims:
+          - CLM-010
+          - CLM-017
+        test_names:
+          - TestWebsiteJourney_ExactScenarioAndCoverageMatrixPasses
+          - TestWebsiteJourney_CAP014DualIdentityAnchorPasses
+        depends_on:
+          - TASK-004
+
+      - id: TASK-006
+        type: test
+        title: "RED: specify the Evaluate paper/ink browser surface without weakening the shared matrix"
+        description: |
+          Add a focused, route-scoped browser contract for the Evaluate paper surface so the
+          presentation work in Phase 3 has a real red to satisfy (CLM-003, CLM-004, CLM-015).
+          Extend `tests/public-site.spec.ts` only; do NOT edit
+          `tests/public-site-helpers.ts`, `playwright.config.ts`, or the shared helper
+          functions, and do not change `testMatch`, the `javaScriptEnabled: false` posture,
+          the 360/768/1440 viewport matrix, or the actual-200%-text loop.
+
+          Add one `test.describe` block that visits `/evaluate/` and requires: the document
+          exposes `main#main[data-page-kind="evaluation"]`; a
+          `link[rel="stylesheet"][href="/assets/css/backstop-tokens.css"]` is present; a
+          `meta[name="theme-color"][content="#0c0d0d"]` is present and no
+          `meta[name="color-scheme"][content="dark"]` is; the computed `background-color` of
+          `body` resolves to the paper token rather than a dark canvas, asserted by reading
+          the computed value of `--color-paper` and comparing the two resolved colors rather
+          than hardcoding a literal; the hero exposes `[data-page-question]` with exact text
+          "Your agent already writes the code." and a `.page-boundary` with exact text
+          "Backstop helps you ship confidently."; `[data-required-blocks]` names exactly
+          `working-state,failure-fit,fit-decision`; the `.failed-verdict` card is visible with
+          a dark terminal background distinct from the page background; and exactly two
+          rendered journey links are present on the page, `JLINK-002` pointing at
+          `/model/#operating-model` with text "See the operating model" and `JLINK-004`
+          pointing at `/adopt/#install` with text "Install Backstop", with NO link to
+          `/status/` or `/reference/` anywhere in `[data-page-content]`.
+
+          Add one negative-control assertion in the same block proving the theme is
+          route-scoped: fetch `/model/` and require it to still carry
+          `meta[name="color-scheme"][content="dark"]` and no
+          `backstop-tokens.css` stylesheet link, so a later plan cannot satisfy Evaluate by
+          flipping every inner page. Reuse `settleLayout` and the existing exact-text and
+          attribute matchers; introduce no new helper file and no `test.skip`, `test.only`, or
+          soft assertion.
+
+          RED receipt: build and serve the site the way the pipeline does — `JEKYLL_ENV=production
+          bundle exec jekyll build --source docs --destination "$browser_root" --trace`, then
+          `./scripts/install-design-assets.sh .backstop/packs/backstop-ai/backstop-design-system "$browser_root"`,
+          then `go run ./scripts/render-public-site-contracts --root "$PWD" --built-root "$browser_root" --site-commit "$(git rev-parse HEAD)"`
+          — and run `PUBLIC_SITE_ROOT="$browser_root" PLAYWRIGHT_OUTPUT_DIR="$browser_state" npx playwright test`.
+          Require a nonzero result whose failing assertions are the new Evaluate paper ones
+          (missing `backstop-tokens.css`, `color-scheme: dark` still present, dark background,
+          wrong hero text, eight required blocks instead of three) while the existing
+          `/evaluate/` no-JavaScript and 200%-text cells still execute. Do not use
+          `./scripts/verify-public-site.sh` for this receipt: an earlier Go-stage red must not
+          mask whether Playwright itself ran. Clean up both temporary directories. A build,
+          asset-install, render, or browser-setup failure is not RED evidence.
+        files:
+          - tests/public-site.spec.ts
+        claims:
+          - CLM-003
+          - CLM-004
+          - CLM-015
+        depends_on: []
+
+  - id: phase-2
+    name: "Phase 2: GREEN — the approved Evaluate page and its claim/journey lockstep"
+    tasks:
+      - id: TASK-007
+        type: implementation
+        title: "GREEN: land the approved Evaluate page, hero pair, and the 24-wide topology matrix"
+        description: |
+          Replace the Seed 1 Evaluate field guide with the approved visitor page and reconcile
+          the two data files that declare its identity (CLM-001, CLM-002, CLM-009, CLM-011).
+          Quote the approved copy from `docs/evaluate.md` at HEAD 0a6010c verbatim; treat every
+          sentence as locked.
+
+          `docs/evaluate.md`: keep `title: Evaluate Backstop`, `layout: default`, and
+          `permalink: /evaluate/`; set `hero_question: "Your agent already writes the code."`
+          and add `hero_lede: "Backstop helps you ship confidently."`. Body, in order: the
+          `<div class="tactics-intro">` kicker/bridge pair ("Bigger models write great code.
+          None of them write code like you." and "Backstop enforces your standards so the
+          agent's code looks like your code.") rendered as a kicker, NOT an H2; the
+          five-column `<div class="tactics-matrix">` table with header cells "What you already
+          use", "What that gets you", "What it cannot guarantee", "What Backstop adds",
+          "Result" and the five rows Markdown specs, Skills / AGENTS.md, MCP, LLM review, and
+          Standards as docs, each cell carrying its `data-label`;
+          `## A spec is context. The artifact chain is working state. {#working-state}` with
+          its four prose paragraphs, the `<div class="tactics-matrix sdd-matrix">` four-column
+          table, the closer "The same structure that makes the agent easier to trust also makes
+          the agent better at the job.", and the JLINK-002 marker followed by
+          `[See the operating model](/model/#operating-model)`;
+          `## When work is not allowed to ship {#failure-fit}` with the `<div
+          class="failed-verdict" aria-label="Example failing Backstop gate">` card as its ONLY
+          content and no lede; and `## CI is too late to find problems {#fit-decision}` with
+          the lede "Fix problems while your agent is still writing the code.", the
+          CI-versus-gate paragraph, the `<div class="ci-workflows">` comparison, the closer
+          "CI should confirm, not discover.", and the JLINK-004 marker followed by
+          `[Install Backstop](/adopt/#install)`. Delete the entire Seed 1 appendix: the
+          `#what-backstop-is`, `#not-a-fit`, `#guarantees`, `#compatibility`,
+          `#compatibility-limits`, and `#evidence` sections, their claim regions, and the
+          JLINK-005/006/008/009/021 markers, which TASK-008 re-hosts. Restore none of the
+          rejected copy: no "control surface", no "better models plus markdown are not
+          determinism" lead, no Claude Code or Fable in the lead, no "A better model writes
+          more average code" kicker, and no "CI is too late to find out" heading. Add no link
+          to `/status/` or `/reference/`.
+
+          `docs/_data/site-presentation.yml`: on the `/evaluate/` row set
+          `hero_question: Your agent already writes the code.` and change nothing else — keep
+          `page_kind: evaluation`, `treatments: [evidence-cards, boundary-callouts]`, and
+          `next_action: /model/`, and keep all nine other rows exactly as they stand at
+          `origin/main`, including `/packs/`, `/extend/`, and their heroes and next actions.
+
+          `docs/_data/content-topology.yml`: on the `docs/evaluate.md` page record set
+          `hero_question: "Your agent already writes the code."` and
+          `required_blocks: [working-state, failure-fit, fit-decision]`, keeping
+          `role: evaluation`, `neighborhood_ids: [NBR-002, NBR-003]`, and
+          `source_material: [HOME-003, GET-005, CON-001]`. In `journey_links` apply exactly
+          the six source retargets and one label change from CLM-009 and keep all 24 records
+          in JLINK-001..024 order. Do not change `navigation` (the seven-primary /
+          two-utility membership stays), do not change any neighborhood record, and do not
+          touch any other page record.
+
+          GREEN evidence — and note carefully WHICH assertions are reachable at this point,
+          per CLM-017(c). Run `./scripts/verify-public-product-model.sh` and require the
+          early, order-independent Evaluate assertions to pass: the `heroes` equality at
+          `origin/main` lines 45-46, the `presentation_pages` consumption equality at line 48, the
+          24-wide `exact_ids` journey-link check at line 71, the `edge_specs` / `actual_edges`
+          matrix at lines 72-75, and the `link_labels` equality at lines 76-78.
+
+          The verifier will still FAIL, and the expected failure is a JLINK marker/link
+          cardinality diagnostic for the first relocated link whose marker has left
+          `docs/evaluate.md` but has not yet been planted on its new owner — JLINK-005, whose
+          `source_route` this task retargets to `/model/` while TASK-008 plants the marker.
+          The exact form is `docs/model.md: JLINK-005 marker/link cardinality` from the loop at
+          lines 424-428. That is correct and expected; report it, do not work around it, and
+          above all do not delete a journey link or revert a retarget to silence it.
+
+          DO NOT claim a closed-world allowance receipt in this task. The cardinality loop at
+          lines 424-428 runs BEFORE `check_closed_blocks` at lines 429-430 — an intentional
+          ordering documented in the comment at lines 422-423 — and `fail()` exits on the
+          first diagnostic, so while any declared JLINK is missing from its source page the
+          `allowances['docs/evaluate.md']` dict is never evaluated and the
+          `unclassified final-copy block` diagnostic cannot be produced. The thirteen
+          allowance keys written in TASK-001 are therefore proven at TASK-009, once TASK-008
+          has planted every relocated marker and the run reaches the closed-block policy.
+
+          Run
+          `go test ./scripts/sitecheck -run '^TestSiteCheck_NavigationMatrixPasses$' -count=1`
+          and require it to pass now that the presentation YAML matches TASK-003's table. Then
+          run `./bin/backstop gate --file docs/evaluate.md --file docs/_data/site-presentation.yml --file docs/_data/content-topology.yml`
+          as the diff-scoped cadence gate.
+        files:
+          - docs/evaluate.md
+          - docs/_data/site-presentation.yml
+          - docs/_data/content-topology.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-009
+          - CLM-011
+          - CLM-017
+        depends_on:
+          - TASK-001
+          - TASK-003
+          - TASK-004
+
+      - id: TASK-008
+        type: implementation
+        title: "GREEN: re-host the eight relocated claims and five journey-link sources"
+        description: |
+          Move the Evaluate appendix's claims and journey-link sources onto the pages that
+          already own their mechanism, and repoint the two data records that describe them
+          (CLM-007, CLM-008, CLM-009, CLM-012). This is a marker and ownership move, not a
+          copy rewrite.
+
+          `docs/_data/evidence-inventory.yml`: change ONLY the `owner:` mapping of eight
+          records — CLAIM-020 to `{route: "/model/", anchor: product-category}`, CLAIM-011 to
+          `{route: "/model/", anchor: gates-and-policy}`, CLAIM-018 to
+          `{route: "/status/", anchor: adjacent-guidance}`, CLAIM-006 / CLAIM-021 / CLAIM-012
+          to `{route: "/reference/", anchor: compatibility}`, and CLAIM-007 / CLAIM-008 to
+          `{route: "/reference/", anchor: source-traceability}`. Per CLM-008 leave every
+          `statement`, `statement_markdown`, `claim_type`, `mechanism_summary`,
+          `guarantee_boundary`, `known_limitations`, `adoption_implications`, `direction`,
+          `boundary_id`, and `evidence_refs` value byte-for-byte as at `origin/main`, and do
+          not touch CLAIM-025, CLAIM-030, or any other record.
+
+          `docs/_data/website-capability-map.yml`: retarget the same seven journey `hops`
+          sequences as TASK-004 set in `ExpectedWebsiteJourneys()` (CAP-004/@UJ-002,
+          CAP-005/@UJ-002, CAP-006/@UJ-001, CAP-007/@UJ-001, CAP-007/@UJ-002,
+          CAP-013/@UJ-001, CAP-014/@UJ-002) and repoint the matching `kind: evidence`
+          obligations' `owner_route` / `owner_anchor` for CLAIM-020, CLAIM-018, CLAIM-011,
+          CLAIM-006, CLAIM-012 (both CAP-007/@UJ-002 and CAP-014/@UJ-002 occurrences), and
+          CLAIM-007. Keep every `claim_type`, `kind: boundary` obligation, `kind: generated`
+          obligation, `jlinks` list, and `global_key` unchanged, and do not touch the pack,
+          adopt, use-case, or release journeys.
+
+          `docs/model.md`: insert the CLAIM-020 region under the existing
+          `## Product category {#product-category}` heading and the CLAIM-011 region under the
+          existing `## Gates and policy {#gates-and-policy}` heading, each as
+          `<!-- backstop-claim: CLAIM-NNN -->`, the statement bytes, `<!-- /backstop-claim -->`,
+          separated from surrounding prose by blank lines. Add the JLINK-005 marker plus
+          `[Find adjacent guidance](/status/#adjacent-guidance)` under `{#product-category}`,
+          the JLINK-006 marker plus `[Review support and limits](/status/#supported-and-limited)`
+          under `{#gates-and-policy}`, the JLINK-008 marker plus
+          `[Check compatibility details](/reference/#compatibility)` under
+          `## Harness integration {#harness-integration}`, and the JLINK-021 marker plus
+          `[Trace the sources](/reference/#source-traceability)` under
+          `## Provenance and verification {#provenance-and-verification}`. Each marker must be
+          the last thing in its section relative to the next `{#anchor}` heading so the
+          last-preceding-heading rule at `verify-public-product-model.sh` line 454
+          (`origin/main` coordinates; the `JLINK-NNN source anchor` check) resolves to the
+          declared `source_anchor`. Change no existing `docs/model.md` prose, heading, claim
+          region, or the existing JLINK-010/011/014 markers.
+
+          `docs/reference.md`: append the CLAIM-006, CLAIM-021, and CLAIM-012 regions after the
+          existing CLAIM-013 region under `## Compatibility {#compatibility}`, then the
+          JLINK-009 marker plus `[Follow compatibility guidance](/status/#adjacent-guidance)`
+          as the last block of that section. Append the CLAIM-007 and CLAIM-008 regions under
+          `## Source traceability {#source-traceability}` after the existing CLAIM-009 region
+          and before the existing "Durable references use repository paths..." paragraph, so
+          that paragraph keeps its current allowance. CLAIM-007 keeps its literal
+          `{% raw %}{{ ... }}{% endraw %}` bytes on the page (CLM-012); `canonical_payload`
+          strips the tags before comparing, so the record's `statement_markdown` stays in its
+          stripped form.
+
+          `docs/status.md`: insert the CLAIM-018 region under
+          `## Adjacent guidance {#adjacent-guidance}`, placed AFTER CLAIM-005's closing
+          `<!-- /backstop-claim -->` and before `## Pack direction {#pack-direction}`. Per
+          sharp edge 4, CLAIM-005's region wraps the JLINK-024 continuation and is byte-checked
+          by both the `--claim-005-layout-only` mode and the `status.count(exact)==1` assertion
+          in `discovery-evaluation-adoption-status.sh`: do not reflow, reindent, or move a
+          single byte of it. Change no other `docs/status.md` content.
+
+          GREEN evidence: run `./scripts/verify-public-product-model.sh` and require the
+          claim-region bijection, per-claim owner-anchor, claim-byte, and JLINK
+          marker/source-anchor assertions to pass for all eight relocated claims and all
+          seven retargeted links, with no `duplicate claim`, `claim linkage/bytes`, or
+          `claim-region bijection mismatch` diagnostic. Then run
+          `./bin/backstop gate --file docs/_data/evidence-inventory.yml --file docs/_data/website-capability-map.yml --file docs/model.md --file docs/reference.md --file docs/status.md`
+          as the diff-scoped cadence gate.
+        files:
+          - docs/_data/evidence-inventory.yml
+          - docs/_data/website-capability-map.yml
+          - docs/model.md
+          - docs/reference.md
+          - docs/status.md
+        claims:
+          - CLM-007
+          - CLM-008
+          - CLM-009
+          - CLM-012
+        depends_on:
+          - TASK-002
+          - TASK-004
+          - TASK-005
+
+      - id: TASK-009
+        type: verification
+        title: "Verify the product model, the page tests, the closed-world set, and the journey package"
+        description: |
+          Run the deterministic content lane end to end now that the page and the relocations
+          are both in place.
+
+          Run `./bin/backstop gate` as the diff-scoped cadence gate over everything TASK-007
+          and TASK-008 touched. Then run `./scripts/verify-public-product-model.sh` and
+          require a `public-product-model: PASS`, including its dispatched
+          `scripts/tests/public-product-model/verify-content-topology.sh`,
+          `verify-content-inventory.sh`, `verify-evidence-inventory.sh`,
+          `verify-product-model.sh`, `verify-structural-verifier.sh`, and all three
+          `pages/*.sh` stages. Confirm specifically: the ten source/path pairs and the
+          seven-primary / two-utility navigation are unchanged; `exact_ids` still sees exactly
+          24 journey links and exactly twelve neighborhoods; every one of the eight relocated
+          claims resolves on its new owner page with byte equality and the
+          `claim-region bijection mismatch` check at `origin/main` line 448 is satisfied; and
+          `verify-structural-verifier.sh`'s JLINK-002 mutation on `docs/evaluate.md` still
+          reproduces its expected rejection.
+
+          THIS IS WHERE THE CLOSED-WORLD ALLOWANCE SET IS FINALLY PROVEN (CLM-011, CLM-017c).
+          TASK-007 could not prove it: the JLINK marker/link cardinality loop at lines 424-428
+          short-circuits ahead of `check_closed_blocks` at lines 429-430, and until TASK-008
+          planted the relocated markers the run never reached the closed-block policy. Now
+          that both halves are in, the policy actually executes, so require explicitly that
+          `docs/evaluate.md` produces no `unclassified final-copy block requires claim linkage
+          or explicit nonconsequential allowance` diagnostic, and that all thirteen allowance
+          keys are live rather than orphaned. Prove liveness rather than assuming it: delete
+          one allowance key, re-run, require the verifier to red naming precisely the block
+          that key covered, then restore the key. An allowance dict that could be emptied
+          without reddening the gate is decoration, not enforcement.
+
+          Verify the journey lane with `go test ./scripts/websitejourney -count=1` and require
+          `TestWebsiteJourney_ExactScenarioAndCoverageMatrixPasses`,
+          `TestWebsiteJourney_CAP014DualIdentityAnchorPasses`,
+          `TestWebsiteJourney_BuiltSiteAllJourneysPass`, and
+          `TestWebsiteJourney_BuiltTraversalRejectsObligationCheats` to be present and passing
+          (CLM-010) — this confirms `website-capability-map.yml`'s retargeted obligations agree
+          with the hop catalog. Do NOT run `./scripts/verify-website-capabilities.sh` here: per
+          CLM-017(a) its fourth prerequisite is `./scripts/verify-public-site.sh`, which stays
+          red until TASK-010 lands the paper surface that TASK-006 asserts, so the script would
+          abort with `governed dependency ./scripts/verify-public-site.sh failed before
+          traversal` and prove nothing about journeys. The full script is run at TASK-011, the
+          first point where all four of its prerequisites can be green, and again in the
+          TASK-014 kill chain.
+
+          A waiver, a skipped stage, a loosened assertion, a deleted journey link, or a claim
+          left on `docs/evaluate.md` is a failure, not a pass. Report any inherited or
+          unrelated failure truthfully instead of absorbing it into this lane.
+        files:
+          - docs/evaluate.md
+          - docs/_data/content-topology.yml
+          - docs/_data/site-presentation.yml
+          - docs/_data/evidence-inventory.yml
+          - docs/_data/website-capability-map.yml
+          - docs/model.md
+          - docs/reference.md
+          - docs/status.md
+        claims:
+          - CLM-007
+          - CLM-008
+          - CLM-010
+          - CLM-011
+          - CLM-012
+          - CLM-017
+        depends_on:
+          - TASK-007
+          - TASK-008
+
+  - id: phase-3
+    name: "Phase 3: GREEN — Evaluate-only paper and ink presentation"
+    tasks:
+      - id: TASK-010
+        type: implementation
+        title: "GREEN: give the evaluation page kind the paper surface without regressing shared chrome"
+        description: |
+          Land the Evaluate-only paper/ink treatment (CLM-003, CLM-004, CLM-005, CLM-006).
+          All three files are SHARED chrome, so every edit is additive and route-scoped: add
+          `evaluation` to `paper_kinds` if absent, and do not regress the homepage or any
+          sibling `page_kind`. Every non-evaluation route must render byte-identically to
+          `origin/main`.
+
+          `docs/_layouts/default.html`: move the existing
+          `{% assign presentation = site.data.site-presentation.pages | where: "route", page.permalink | first %}`
+          line from just below `</head>` to the very top of the file, above `<!doctype html>`,
+          so `presentation.page_kind` is in scope inside `<head>`. Introduce a `paper_kinds`
+          list and add `evaluation` to it: if the list is absent, create it containing
+          `evaluation` alone; if a sibling plan already introduced it, APPEND `evaluation` and
+          preserve every existing kind. When the current page kind is in that list, emit
+          `<meta name="theme-color" content="#0c0d0d">` in place of
+          `<meta name="color-scheme" content="dark">` and add
+          `<link rel="stylesheet" href="/assets/css/backstop-tokens.css">` after the existing
+          `site.css` link; otherwise emit the current dark head byte-for-byte. Keep
+          `data-page-kind="{{ presentation.page_kind }}"` on `main#main`, keep the
+          `next-action` nav unconditional, and per sharp edge 8 do NOT import the prototype's
+          `page.page_kind` fallback or its conditional next action. Add no `style=` attribute
+          anywhere (the pack's `no-inline-styles` rule is ERROR on `*.html`).
+
+          `docs/_includes/page-hero.html`: make the boundary paragraph prefer
+          `page.hero_lede` when it is set and otherwise emit the current sentence
+          "Deterministic product truth, presented without changing its owner." byte-for-byte.
+          Keep `data-page-hero`, the `.page-hero shell` wrapper, the
+          `data-required-blocks="{{ topology.required_blocks | join: ',' }}"` binding, the
+          `.page-responsibility` label, and `<h1 data-page-question>{{ include.presentation.hero_question }}</h1>`
+          exactly as they are. Per CLM-003 do not import the prototype's `presented_hero`
+          indirection or its title/hero deduplication.
+
+          `docs/assets/css/site.css`: add the evaluation theme. Use
+          `html:has([data-page-kind="evaluation"])` to remap `--ds-canvas`, `--ds-surface`,
+          `--ds-text`, `--ds-muted`, `--ds-accent`, `--ds-border`, `--ds-focus-ring`,
+          `--ds-font-sans`, and `--ds-font-mono` onto `--color-paper`, `--color-surface`,
+          `--color-ink`, `--color-muted`, `--color-signal-ink`, `--color-line`,
+          `--focus-ring`, `--font-sans`, and `--font-mono`, and set `color-scheme: light`.
+          If a sibling plan already created an `html:has(...)` paper selector list, ADD
+          `[data-page-kind="evaluation"]` to it rather than duplicating the block. Then style,
+          all under `[data-page-kind="evaluation"]` or the `html:has(...)` paper root: the
+          header wordmark as the homepage `./b` ink pill (restyling the existing three spans
+          only — per CLM-015 all three must stay visible with normalized text
+          `./b backstop.sh`); `.navigation-groups a` at ink, `0.84rem`, with the
+          `[aria-current="page"]` underline in `--color-signal`; the `.failed-verdict` card as
+          a dark terminal on paper using `--color-terminal` like the home gate card, with its
+          `strong` verdicts in bare `var(--color-danger)`; the `.tactics-matrix` Result column
+          and the two journey links in `--color-signal-ink` rather than default link blue; and
+          the type recipe of a loud line (`h1`, `.prose > h2`, `.tactics-kicker` at weight
+          650) followed by a muted regular follow-on (`.page-boundary`, `.tactics-bridge`,
+          `h2 + p` at `1.15rem`, weight 400, `--ds-muted`) — weight 400/700 only, since
+          system UI has no usable 500. Keep the accent closers `.sdd-matrix + p` and
+          `.ci-workflows + p` green at weight 650.
+
+          Per CLM-005, use NO raw color literal anywhere in this file: every color must be
+          `var(--color-*)` or `var(--ds-*)` with no hex fallback, because `no-raw-colors`
+          matches `#[0-9a-f]{3,8}` at ERROR severity on `site.css` and `--color-danger`,
+          `--color-terminal`, `--color-signal`, and `--color-signal-ink` are all already
+          declared in the excluded token source `docs/assets/css/backstop-tokens.css`. Do not
+          edit, add to, or reformat `backstop-tokens.css`, and do not add a waiver. Keep the
+          file's existing `:focus-visible` rule and `@media (prefers-reduced-motion: reduce)`
+          block, which the pack's `focus-visible-required` and `reduced-motion-required` rules
+          require. Per CLM-006, if any evaluation responsive rule needs the existing
+          `@media (max-width: 56rem)` block, ADD to it and preserve every existing
+          `[data-page-kind="home"] .nav`, `.nav-links`, and home reflow rule verbatim; the
+          same applies to the `@media (max-width: 30rem)` block.
+
+          GREEN evidence: run `./bin/backstop gate --file docs/_layouts/default.html --file docs/_includes/page-hero.html --file docs/assets/css/site.css`
+          and require the installed design-system matrix — `no-raw-colors`,
+          `no-inline-styles`, `focus-visible-required`, `reduced-motion-required`,
+          `accessible-site-shell`, `canonical-wordmark`, and `reusable-page-hero` — to pass
+          with no finding on the edited files. Then run `./scripts/verify-public-site.sh` and
+          require every normal viewport and every actual-200%-text route green, with the
+          Evaluate paper assertions from TASK-006 now satisfied and `/model/`'s dark
+          negative control still holding. No waiver, suppression, baseline entry, or skipped
+          browser cell is acceptance.
+        files:
+          - docs/_layouts/default.html
+          - docs/_includes/page-hero.html
+          - docs/assets/css/site.css
+        claims:
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+        depends_on:
+          - TASK-006
+          - TASK-007
+
+      - id: TASK-011
+        type: verification
+        title: "Verify the paper surface, the browser matrix, and the homepage non-regression"
+        description: |
+          Run `./bin/backstop gate` as the diff-scoped cadence gate, then
+          `./scripts/verify-public-site.sh` as the full browser pipeline.
+
+          Require: the locked static Jekyll build, design-asset install, and rendered-contract
+          stamp stages pass; `go run ./scripts/sitecheck --root . --check-diff --built-root ...
+          --design-system-matrix` passes with no `inventory differs from git diff` diagnostic
+          (CLM-014); and the Playwright stage passes for all ten canonical routes at 360, 768,
+          and 1440 plus all ten actual-200%-text cells, with `testMatch` still
+          `public-site.spec.ts` and JavaScript still disabled (CLM-015).
+
+          Read the browser output and require specifically: TASK-006's Evaluate paper
+          assertions all pass; the `/model/` negative control still reports
+          `color-scheme: dark` and no `backstop-tokens.css`, proving the theme is route-scoped
+          (CLM-004); the wordmark on `/evaluate/` still exposes three visible spans normalizing
+          to `./b backstop.sh`; `#working-state`, `#failure-fit`, and `#fit-decision` each
+          clear the >= 80-character and <= 160px-gap completeness checks with `#failure-fit`
+          carrying only the failed-gate card; and document overflow stays <= 1px at every
+          viewport.
+
+          NOW run `./scripts/verify-website-capabilities.sh` and require it to pass end to
+          end. This is the FIRST task in the plan where that script can legitimately run: per
+          CLM-017(a) its `run_prerequisites()` executes `verify-public-product-model.sh`,
+          `verify-documentation-semantics-integration.sh`, `verify-product-truth.sh`, and
+          `verify-public-site.sh` before any journey work, and the fourth of those only goes
+          green once TASK-010 lands the paper surface TASK-006 asserts. Require all four
+          prerequisites to pass on their own merits — a `governed dependency ... failed before
+          traversal` message means a prerequisite is still red and this task is not done —
+          and then require the journey package's own stage to pass, including
+          `TestWebsiteJourney_BuiltSiteAllJourneysPass` and
+          `TestWebsiteJourney_ExactScenarioAndCoverageMatrixPasses`, at or above the package
+          coverage floor the script enforces (CLM-010).
+
+          Then verify the two homepage fences by inspection, not by assumption (CLM-006,
+          CLM-016). Diff `docs/assets/css/site.css` against `origin/main` and require every
+          pre-existing `[data-page-kind="home"]` rule inside `@media (max-width: 56rem)` and
+          `@media (max-width: 30rem)` — including `.nav` and `.nav-links` — to be present
+          unchanged. Require `docs/index.html`, `docs/index.md`,
+          `docs/assets/css/backstop.css`, `docs/assets/css/backstop-tokens.css`,
+          `docs/_includes/site-header.html`, `docs/_includes/site-footer.html`,
+          `tests/public-site-helpers.ts`, and `playwright.config.ts` to be untouched. Confirm
+          `TestSiteCheck_HomepageCanonicalChangeFence` still executes a real mutation: its
+          `data-page-question>Your agent already writes the code.` literal must match the
+          synthetic Evaluate document, not silently replace nothing. Confirm
+          `.backstop/packs/` remains gitignored and unmodified — no vendored, edited, or
+          committed pack bytes.
+        files:
+          - docs/_layouts/default.html
+          - docs/_includes/page-hero.html
+          - docs/assets/css/site.css
+          - tests/public-site.spec.ts
+          - scripts/sitecheck/presentation_test.go
+          - scripts/sitecheck/site_contract_test.go
+        claims:
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-010
+          - CLM-015
+          - CLM-017
+        depends_on:
+          - TASK-009
+          - TASK-010
+
+  - id: phase-4
+    name: "Phase 4: Seed 1 contract literals and delivery-inventory reconciliation"
+    tasks:
+      - id: TASK-012
+        type: documentation
+        title: "Move the SPEC-072, SPEC-075, and SPEC-076 Evaluate literals in lockstep"
+        description: |
+          Update the completed Seed 1 contracts so they no longer name the retired Evaluate
+          hero and hops (CLM-013). This is a literal-for-literal correction inside existing
+          tables. Change no requirement, claim, verification, or contract section, change no
+          `status` field, and do not reopen or re-scope SPEC-072, SPEC-075, or SPEC-076.
+
+          `specs/SPEC-072-public-product-model.spec.md`: in the "Authoritative page topology"
+          table, change the `docs/evaluate.md` row's Seed 1-owned `hero_question` cell from
+          "Is Backstop the right control surface for this problem?" to "Your agent already
+          writes the code." and revise its responsibility cell so it still names NBR-002 and
+          NBR-003 but describes the delivered page: the additive positioning against tools the
+          visitor already uses, the artifact chain as working state, the blocking gate, and
+          the CI-is-too-late fit decision. Do not restore "category and non-category" appendix
+          language for claims that no longer live there. In the JLINK table, change
+          JLINK-002's source to `/evaluate/#working-state`, JLINK-005's to
+          `/model/#product-category`, JLINK-006's to `/model/#gates-and-policy`, JLINK-008's
+          to `/model/#harness-integration`, JLINK-009's to `/reference/#compatibility`, and
+          JLINK-021's to `/model/#provenance-and-verification`, keeping every destination and
+          every other row unchanged. Leave the `/evaluate/` entries in the source-material
+          disposition table (HOME-003, GET-005, CON-001) and the prose at lines 97-103 and 577
+          as they are.
+
+          `specs/SPEC-075-static-public-site-design-system.spec.md`: in the presentation matrix
+          change the `/evaluate/` row's hero to "Your agent already writes the code.", keeping
+          its `evaluation` page kind, `evidence-cards, boundary-callouts` treatments, and
+          `/model/` next action. In its JLINK table apply the same six source retargets. Leave
+          the `docs/evaluate.md` / `/evaluate/` / `Evaluate` / `1` route row and the prose at
+          line 122 unchanged.
+
+          `specs/SPEC-076-end-to-end-website-capabilities.spec.md`: in the journey table
+          change CAP-004/@UJ-002 to `/evaluate/#working-state` -> `/model/#operating-model`,
+          CAP-005/@UJ-002 to `/model/#product-category` -> `/status/#adjacent-guidance`,
+          CAP-006/@UJ-001 to `/model/#gates-and-policy` -> `/status/#supported-and-limited`,
+          CAP-007/@UJ-001 to `/model/#harness-integration` -> `/reference/#compatibility`,
+          CAP-007/@UJ-002 to `/reference/#compatibility` -> `/status/#adjacent-guidance`,
+          CAP-013/@UJ-001 to `/model/#provenance-and-verification` ->
+          `/reference/#source-traceability`, and CAP-014/@UJ-002 to
+          `/reference/#compatibility` -> `/status/#adjacent-guidance`. Keep every capability
+          ID, title, and JLINK column value, and leave CAP-004/@UJ-001 and CAP-005/@UJ-001
+          alone.
+
+          Per CLM-016, do not touch SPEC-074, do not edit
+          `bundles/BUNDLE-032-website-expansion.bundle.md`, and do not mark BUNDLE-032
+          delivered or advance its maturity. These spec files are `seed4LedgerPaths()`
+          members for SPEC-075 only, and modification (as opposed to rename) is skipped by
+          `inventoryDiff`, so no inventory row follows from this task (CLM-014).
+        files:
+          - specs/SPEC-072-public-product-model.spec.md
+          - specs/SPEC-075-static-public-site-design-system.spec.md
+          - specs/SPEC-076-end-to-end-website-capabilities.spec.md
+        claims:
+          - CLM-013
+        depends_on:
+          - TASK-007
+          - TASK-008
+
+      - id: TASK-013
+        type: verification
+        title: "Validate the artifact category and prove the closed Seed 4 matrix still converges"
+        description: |
+          Verify the artifact and delivery-ledger categories this plan touches.
+
+          Run `./bin/backstop artifact validate` and require
+          `plans/PLAN-ISSUE-193-evaluate-visitor-page.plan.yml`,
+          `issues/ISSUE-193-evaluate-visitor-page.issue.md`, and the three edited specs to
+          validate clean against their schemas. Require SPEC-072, SPEC-075, and SPEC-076 to
+          retain their existing `status` values, require BUNDLE-032 to be unchanged and NOT
+          `delivered`, and require this plan's own `plan_id`, `spec_id`, and `created` fields
+          to be exactly `PLAN-ISSUE-193`, `ISSUE-193`, and `2026-09-02`.
+
+          Then prove CLM-014 rather than assuming it. Run
+          `go run ./scripts/sitecheck --root . --check-diff` and require exit 0 with no
+          `inventory differs from git diff` output, with
+          `.backstop/seed4-delivery-inventory.yml` UNCHANGED. Independently confirm the
+          reasoning by requiring `expectedRole()` to return the empty string for
+          `plans/PLAN-ISSUE-193-evaluate-visitor-page.plan.yml`,
+          `issues/ISSUE-193-evaluate-visitor-page.issue.md`,
+          `capabilities/CAP-004-understand-backstop/user-journeys.feature`,
+          `scripts/websitejourney/artifacts.go`,
+          `scripts/tests/public-product-model/verify-content-topology.sh`,
+          `docs/_data/content-topology.yml`, `docs/_data/evidence-inventory.yml`, and
+          `docs/_data/website-capability-map.yml`, and by confirming that every matrix path
+          this plan edited already carries a row with the correct A/M/D letter. If a letter
+          genuinely flipped after a rebase, reconcile the LETTER against the real committed
+          diff and report it; never widen the matrix, add a wildcard or catch-all role, hide a
+          governed path, or delete a row to obtain green.
+
+          Finally run `./bin/backstop gate` as the diff-scoped cadence gate over the edited
+          specs and require no artifact, contract, or documentation-semantics finding.
+        files:
+          - specs/SPEC-072-public-product-model.spec.md
+          - specs/SPEC-075-static-public-site-design-system.spec.md
+          - specs/SPEC-076-end-to-end-website-capabilities.spec.md
+          - .backstop/seed4-delivery-inventory.yml
+          - plans/PLAN-ISSUE-193-evaluate-visitor-page.plan.yml
+        claims:
+          - CLM-013
+          - CLM-014
+          - CLM-016
+        depends_on:
+          - TASK-010
+          - TASK-012
+
+  - id: phase-5
+    name: "Phase 5: Full kill chain, artifact validation, and the scope fence"
+    tasks:
+      - id: TASK-014
+        type: verification
+        title: "Run the full gate and artifact validation, then prove the ISSUE-193 fence"
+        description: |
+          Comprehensive final verification of every category this plan touches.
+
+          Run `make test`, then `./scripts/verify-public-product-model.sh`,
+          `./scripts/verify-website-capabilities.sh`, and `./scripts/verify-public-site.sh`,
+          and require each to pass end to end and substantively — not by skipping a stage,
+          shortening a matrix, or exporting a bypass variable. Then run
+          `./bin/backstop gate --all` as the unscoped kill chain and
+          `./bin/backstop artifact validate` for the artifact category, and require both green
+          with no waiver, suppression, baseline entry, skipped test, or relaxed assertion.
+
+          Read the gate report and require: no `no-raw-colors`, `no-inline-styles`,
+          `focus-visible-required`, `reduced-motion-required`, `canonical-wordmark`,
+          `reusable-page-hero`, inventory-mismatch, capability-absent, or vacuous-green
+          result; the per-file coverage floor met for every touched Go file; and the design
+          system's clean-plus-seven isolated corpora all executing real installed gates. If a
+          declared standard cannot execute, report it as a real red rather than accepting a
+          vacuous pass.
+
+          Then read the delivered diff as the ISSUE-193 fence (CLM-016). Require modifications
+          confined to: `docs/evaluate.md`, `docs/_data/site-presentation.yml`,
+          `docs/_data/content-topology.yml`, `docs/_data/evidence-inventory.yml`,
+          `docs/_data/website-capability-map.yml`, `docs/model.md`, `docs/reference.md`,
+          `docs/status.md`, `docs/_layouts/default.html`, `docs/_includes/page-hero.html`,
+          `docs/assets/css/site.css`, `scripts/verify-public-product-model.sh`,
+          `scripts/tests/public-product-model/verify-content-topology.sh`, the three
+          `scripts/tests/public-product-model/pages/*.sh` files,
+          `scripts/websitejourney/artifacts.go`, the six affected
+          `capabilities/CAP-*/user-journeys.feature` files,
+          `scripts/sitecheck/presentation_test.go`, `scripts/sitecheck/site_contract_test.go`,
+          `tests/public-site.spec.ts`, `tests/website-capabilities.spec.ts` (the six repointed
+          `first:` rows only), the three edited specs, and this plan and its issue.
+
+          Confirm unchanged: `docs/index.html`, `docs/index.md`,
+          `docs/assets/css/backstop.css`, `docs/assets/css/backstop-tokens.css`,
+          `docs/_includes/site-header.html`, `docs/_includes/site-footer.html`,
+          `docs/adopt.md`, `docs/use-cases.md`, `docs/packs.md`, `docs/extend.md`,
+          `docs/contributing.md`, `docs/_data/content-inventory.yml`,
+          `docs/_data/derived-product-truth.yml`, `docs/_data/product-model.yml`,
+          `docs/_includes/generated/**`, `playwright.config.ts` (in particular `testMatch` is
+          still exactly `public-site.spec.ts`, so `tests/website-capabilities.spec.ts` remains
+          unexecuted and no dormant suite was wired up to manufacture green),
+          `tests/public-site-helpers.ts`, `.github/workflows/**`,
+          `.backstop/seed4-delivery-inventory.yml`, `bundles/BUNDLE-032-website-expansion.bundle.md`,
+          every other `capabilities/**` scenario, and every gitignored byte under
+          `.backstop/packs/`. Confirm the journey matrix is still exactly 24 links wide, the
+          navigation is still seven primary plus two utility, no `/status/` or `/reference/`
+          tease was added to `/evaluate/`, no rejected copy was restored, and BUNDLE-032 is
+          not marked delivered.
+
+          Report inherited or unrelated failures truthfully rather than absorbing them into
+          this lane, and do not expand into homepage, Model, Adopt, Reference, Status,
+          Contributing, entity-page, or pack-fleet work to obtain green.
+        files:
+          - docs/evaluate.md
+          - docs/assets/css/site.css
+          - docs/_layouts/default.html
+          - scripts/verify-public-product-model.sh
+          - scripts/websitejourney/artifacts.go
+          - tests/public-site.spec.ts
+          - specs/SPEC-072-public-product-model.spec.md
+          - plans/PLAN-ISSUE-193-evaluate-visitor-page.plan.yml
+          - issues/ISSUE-193-evaluate-visitor-page.issue.md
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-010
+          - CLM-014
+          - CLM-015
+          - CLM-016
+          - CLM-017
+        depends_on:
+          - TASK-010
+          - TASK-011
+          - TASK-013

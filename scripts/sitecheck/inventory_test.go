@@ -133,6 +133,17 @@ func TestDeliveryInventory_PathRoleMatrix(t *testing.T) {
 		"scripts/sitecheck/check_test.go":  "test", "scripts/sitecheck/testdata/case.yml": "test",
 		"scripts/render-public-site-contracts/main.go":      "rendered-contract-stamper",
 		"scripts/render-public-site-contracts/main_test.go": "test",
+		"docs/_data/entity-reference.yml":                   "site-data",
+		"docs/plan.md":                                      "entity-page",
+		"docs/issue.md":                                     "entity-page",
+		"docs/spec.md":                                      "entity-page",
+		"docs/bundle.md":                                    "entity-page",
+		"docs/pack.md":                                      "entity-page",
+		"docs/directive.md":                                 "entity-page",
+		"docs/adr.md":                                       "entity-page",
+		"docs/capability.md":                                "entity-page",
+		"scripts/entityref/main.go":                         "entity-generator",
+		"scripts/entityref/main_test.go":                    "test",
 		"scripts/verify-public-site.sh":                     "verification-entrypoint", "scripts/install-design-assets.sh": "owner-asset-installer",
 		"scripts/verify-public-product-model.sh":                                           "verification-entrypoint",
 		"scripts/tests/public-product-model/pages/discovery-evaluation-adoption-status.sh": "test",
@@ -151,6 +162,131 @@ func TestDeliveryInventory_PathRoleMatrix(t *testing.T) {
 	if got := expectedRole("docs/unlisted.md"); got != "" {
 		t.Fatalf("unlisted role = %q", got)
 	}
+}
+
+func TestDeliveryInventory_ISSUE197EntityReferencePathsAreClosedRows(t *testing.T) {
+	entityPaths := []string{
+		"docs/plan.md", "docs/issue.md", "docs/spec.md", "docs/bundle.md",
+		"docs/pack.md", "docs/directive.md", "docs/adr.md", "docs/capability.md",
+	}
+	for _, path := range entityPaths {
+		if got := expectedRole(path); got != "entity-page" {
+			t.Fatalf("expectedRole(%q) = %q, want entity-page", path, got)
+		}
+	}
+	if got := expectedRole("scripts/entityref/main.go"); got != "entity-generator" {
+		t.Fatalf("expectedRole(entityref main) = %q", got)
+	}
+	if got := expectedRole("scripts/entityref/main_test.go"); got != "test" {
+		t.Fatalf("expectedRole(entityref test) = %q", got)
+	}
+	if got := expectedRole("docs/_data/entity-reference.yml"); got != "site-data" {
+		t.Fatalf("expectedRole(entity overlay) = %q", got)
+	}
+	if !allowedRoles()["entity-page"] || !allowedRoles()["entity-generator"] {
+		t.Fatal("allowedRoles must include entity-page and entity-generator")
+	}
+	if prohibitedRoles()["entity-page"] || prohibitedRoles()["entity-generator"] {
+		t.Fatal("entity roles must not be prohibited")
+	}
+	if allowedRoles()["governance-artifact"] {
+		t.Fatal("allowedRoles() must not include governance-artifact")
+	}
+	for _, path := range []string{"docs/unlisted.md", "docs/plan-notes.md", "docs/nested/plan.md", "scripts/entityref/README.md", "scripts/entityrefextra/main.go"} {
+		if got := expectedRole(path); got != "" {
+			t.Fatalf("expectedRole(%q) = %q, want empty", path, got)
+		}
+	}
+
+	root := filepath.Clean(filepath.Join("..", ".."))
+	inventory, err := loadDeliveryInventory(filepath.Join(root, ".backstop", "seed4-delivery-inventory.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	counts := map[string]int{}
+	for _, entry := range inventory.Entries {
+		counts[entry.Path]++
+	}
+	for _, path := range append([]string{"docs/_data/entity-reference.yml", "scripts/entityref/main.go", "scripts/entityref/main_test.go"}, entityPaths...) {
+		if counts[path] != 1 {
+			t.Fatalf("inventory path %q count = %d, want 1", path, counts[path])
+		}
+	}
+	if err := validateDeliveryInventory(inventory); err != nil {
+		t.Fatal(err)
+	}
+	omitted := inventory
+	omitted.Entries = append([]DeliveryEntry(nil), inventory.Entries...)
+	omitted.Entries = omitted.Entries[:len(omitted.Entries)-1]
+	if err := validateInventoryMatchesDiff(root, omitted); err == nil || !strings.Contains(err.Error(), "inventory differs") {
+		t.Fatalf("omitting a row did not fail: %v", err)
+	}
+}
+
+func TestDeliveryInventory_ISSUE198PackFleetPathsAreClosedRows(t *testing.T) {
+	packFleetPaths := []string{
+		"docs/pack/examples.md",
+		"docs/pack/guide.md",
+		"docs/_includes/generated/published-pack-catalog.md",
+	}
+	for _, path := range packFleetPaths {
+		if got := expectedRole(path); got != wantRoleForPackFleet(path) {
+			t.Fatalf("expectedRole(%q) = %q, want %q", path, got, wantRoleForPackFleet(path))
+		}
+	}
+	for _, path := range []string{"docs/packs.md", "docs/extend.md", "docs/pack-authoring.md"} {
+		if got := expectedRole(path); got != "page-wrapper" {
+			t.Fatalf("expectedRole(%q) = %q, want page-wrapper for deletion matrix", path, got)
+		}
+	}
+	for _, path := range []string{
+		"docs/_data/published-pack-inventory.yml",
+		"docs/_data/content-topology.yml",
+		"issues/ISSUE-198-pack-fleet.issue.md",
+		"plans/PLAN-ISSUE-198-extend-visitor-page.plan.yml",
+		"docs/pack/README.md",
+		"docs/unlisted.md",
+	} {
+		if got := expectedRole(path); got != "" {
+			t.Fatalf("expectedRole(%q) = %q, want empty (outside Seed 4 matrix)", path, got)
+		}
+	}
+
+	root := filepath.Clean(filepath.Join("..", ".."))
+	inventory, err := loadDeliveryInventory(filepath.Join(root, ".backstop", "seed4-delivery-inventory.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	counts := map[string]int{}
+	for _, entry := range inventory.Entries {
+		counts[entry.Path]++
+	}
+	for _, path := range packFleetPaths {
+		if counts[path] != 1 {
+			t.Fatalf("inventory path %q count = %d, want 1", path, counts[path])
+		}
+	}
+	for _, path := range []string{"docs/extend.md", "docs/packs.md", "docs/_includes/generated/installed-pack-catalog.md"} {
+		if counts[path] != 1 {
+			t.Fatalf("inventory deletion path %q count = %d, want 1", path, counts[path])
+		}
+	}
+	if err := validateDeliveryInventory(inventory); err != nil {
+		t.Fatal(err)
+	}
+	omitted := inventory
+	omitted.Entries = append([]DeliveryEntry(nil), inventory.Entries...)
+	omitted.Entries = omitted.Entries[:len(omitted.Entries)-1]
+	if err := validateInventoryMatchesDiff(root, omitted); err == nil || !strings.Contains(err.Error(), "inventory differs") {
+		t.Fatalf("omitting a pack fleet row did not fail: %v", err)
+	}
+}
+
+func wantRoleForPackFleet(path string) string {
+	if strings.HasPrefix(path, "docs/_includes/") {
+		return "include"
+	}
+	return "page-wrapper"
 }
 
 func TestDeliveryInventory_ISSUE190GovernanceArtifactsAreClosedRows(t *testing.T) {

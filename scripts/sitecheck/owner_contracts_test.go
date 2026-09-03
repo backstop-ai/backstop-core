@@ -19,8 +19,11 @@ func makeOwnerContractSite(t *testing.T) (string, string) {
 	}
 	var content strings.Builder
 	content.WriteString(`<html><main id="main">`)
-	for index := 1; index <= 23; index++ {
-		fmt.Fprintf(&content, `<a data-journey-link-id="JLINK-%03d" href="/model/#target">Journey %03d</a>`, index, index)
+	for _, id := range journeyLinkIDs() {
+		if id == "JLINK-024" {
+			continue
+		}
+		fmt.Fprintf(&content, `<a data-journey-link-id="%s" href="/model/#target">%s</a>`, id, id)
 	}
 	for index := 1; index <= 4; index++ {
 		fmt.Fprintf(&content, `<aside data-boundary-callout data-boundary-id="BOUNDARY-%03d" data-boundary-state="out-of-scope"><p data-boundary-explanation>Boundary %03d explanation.</p></aside>`, index, index)
@@ -29,7 +32,7 @@ func makeOwnerContractSite(t *testing.T) (string, string) {
 	for _, id := range []string{"ADOPT-INSTALL", "ADOPT-CONFIGURE", "ADOPT-ENFORCE"} {
 		fmt.Fprintf(&content, `<pre data-adoption-instruction-id="%s" data-command-sha256="sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"><code>echo ok</code></pre>`, id)
 	}
-	for _, job := range []string{"cli-command-catalog", "artifact-schema-catalog", "installed-pack-catalog", "release-history"} {
+	for _, job := range []string{"cli-command-catalog", "artifact-schema-catalog", "published-pack-catalog", "release-history"} {
 		fmt.Fprintf(&content, `<section data-generated-region="" data-product-truth-job="%s"><a data-generated-source-link data-source-kind="blob" data-source-commit="%s" href="https://github.com/backstop-ai/backstop-core/blob/%s/source">Source</a></section>`, job, ownerTestCommit, ownerTestCommit)
 	}
 	content.WriteString(`</main></html>`)

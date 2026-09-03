@@ -1,0 +1,720 @@
+---
+plan_id: PLAN-ISSUE-200
+spec_id: ISSUE-200
+created: "2026-09-03"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "./bin/backstop gate --file docs/_data/content-inventory.yml && ./scripts/verify-public-product-model.sh"
+coverage_threshold: 80
+
+notes: |
+  Contained reactive correction on the issue-to-plan track, sourced from ISSUE-200.
+  It converts the five remaining unenforceable non-Go `provides`+signature contract
+  entries in SPEC-072 into `consumes` of `scripts/verify-public-product-model.sh`,
+  bumps `spec_version` to 1.0.10, and adds a version-history entry. It changes no
+  registry row, no verifier script, no pin, no CLI code, and no public copy.
+
+  ════════════════════════════════════════════════════════════════════════════════
+  EXISTENCE-IN-WORLD
+  ════════════════════════════════════════════════════════════════════════════════
+  `plans/`, `specs/`, and `issues/` were searched (committed and working tree) for
+  `legacy_content_disposition_inventory`, `canonical_product_model`,
+  `contract_signature`, `content-inventory.yml`, `product-model.yml`, and the three
+  `ARCH-00*.mmd` paths.
+
+  PLAN-SPEC-072 is `completed` and delivered Seed 1. It owns the ORIGINAL contract
+  block but does NOT own converting the remaining non-Go `provides` entries — its
+  v1.0.9 amendment (ISSUE-053) converted exactly two siblings, `content-topology.yml`
+  and `evidence-inventory.yml`, and explicitly left the other five in place.
+
+  Commit `d13be4d` on `cursor/canonical-homepage-journey-anchors-e296` already applied
+  the ISSUE-053 pattern to the topology and evidence entries. That commit is NOT on
+  `main` and does not cover the five files named here. ISSUE-200 is the residual
+  delta, not a duplicate.
+
+  No other plan on this branch (`cursor/gate-hygiene-e296`, cut from `origin/main`
+  at `e412f1f`) owns this surface. PLAN-ISSUE-198, PLAN-ISSUE-193, and PLAN-ISSUE-195
+  are BLOCKED BY this defect (their diffs relight the probe); none of them owns the
+  SPEC-072 contract block, so none subsumes this work.
+
+  ════════════════════════════════════════════════════════════════════════════════
+  MECHANISM — WHY CONSUMES CLEARS THE PROBE (read before implementing)
+  ════════════════════════════════════════════════════════════════════════════════
+  `gate.ExtractContractEntries` (pkg/gate/step_testverify.go) iterates
+  `fm.Contracts` and builds one `ContractEntry` per **`provides`** item only. It
+  never reads `consumes`. The contract step
+  (`buildContractStep` → `produceContractEngineResults` → the installed go-contracts
+  pack → `gate.StepContractSignatureScopedFunc` → `gate.VerifyContractVerdict`)
+  therefore has NOTHING to probe for a `consumes`-only contract entry: no
+  `ContractEntry`, no ast-grep dispatch, no verdict, no violation.
+
+  That is the whole fix. There is no suppression anywhere in that chain — the entry
+  simply stops being a machine-probed promise and becomes a declared dependency,
+  exactly as `content-topology.yml` and `evidence-inventory.yml` already are.
+  `pkg/validate/contracts.go` accepts a consumes-only contract entry
+  (`TestContracts_ConsumesOnlyValid`), so the spec still validates.
+
+  The REAL enforcement of these five worlds never lived in the Go probe. It lives in
+  `scripts/verify-public-product-model.sh` and its children, which are untouched and
+  must still pass — that is what the `consumes` edge now names.
+
+  ════════════════════════════════════════════════════════════════════════════════
+  CLAIM LEDGER — ISSUE-200 carries CLM-001..CLM-009 in its `claims[]` array. The
+  notes below are the tree-read evidence backing each, at HEAD 83d8342.
+  ════════════════════════════════════════════════════════════════════════════════
+
+  CLM-001 / CLM-003 / CLM-005 — THE FIVE PROBES ARE UNSATISFIABLE, AND CONVERSION IS
+    THE ONLY CONFORMING FIX. specs/SPEC-072-public-product-model.spec.md lines 46-75
+    declare `provides` + `signature` for `canonical_product_model`,
+    `legacy_content_disposition_inventory`, `delivery_lifecycle_architecture`,
+    `enforcement_loop_architecture`, and `ownership_boundaries_architecture` over two
+    YAML files and three Mermaid files. The installed go-contracts pack compiles each
+    signature into an ast-grep **Go struct** pattern; `ast-grep --lang go` over YAML
+    or Mermaid cannot match, so `VerifyContractVerdict` raises `contract_signature`
+    for every one the moment the file lands in a Gate diff. No content edit satisfies
+    the probe, and the content is a closed world anyway.
+
+  CLM-002 / CLM-004 / CLM-006 / CLM-007 — THE REAL WORLDS ARE VERIFIED IN BASH, AND
+    THIS LANE MUST NOT TOUCH THAT BASH — which is a statement about THIS DIFF, not a
+    byte pin on the files (sharp edge 7). `verify_legacy_content_disposition_inventory`
+    and `verify_legacy_useful_unit_inventory` live in
+    scripts/tests/public-product-model/verify-content-inventory.sh (lines 46 and 69);
+    `verify_canonical_product_model_ownership` and
+    `verify_canonical_product_model_has_no_parallel_truth` in verify-product-model.sh
+    (lines 76-77); `verify_required_architecture_view_inventory` in the same file
+    (line 85); `verify_public_product_model_complete` in verify-content-topology.sh
+    (line 118). These are the mandated tests for those four claims. They ALREADY
+    EXIST and ALREADY PASS. This plan writes none of them, edits none of them, and
+    re-runs all of them as the proof that the conversion changed enforcement power by
+    exactly zero.
+
+  CLM-008 — SPEC-073's CONSUMES SURVIVE BECAUSE CONSUMES ARE NEVER RESOLVED AS A
+    PROVIDER GRAPH. specs/SPEC-073-documentation-semantics-integration.spec.md lines
+    86-94 consume `canonical_product_model` from docs/_data/product-model.yml and
+    `legacy_content_disposition_inventory` from docs/_data/content-inventory.yml.
+    A repo-wide search for `broken.consume` / `BrokenConsume` finds NOTHING in Go —
+    Core validates consumes STRUCTURALLY (`validateConsumesItem`: source, name, kind)
+    and never demands a matching `provides` anywhere. So the SPEC-072 conversion
+    cannot break SPEC-073, and the test's job is to PROVE that absence of coupling
+    rather than assume it.
+
+  CLM-009 — THE FENCE, AND IT IS A FENCE OVER TRACKED FILES. The only file this plan
+    may modify under `specs/`, `docs/`, `scripts/`, `cmd/`, or `.backstop/` outside
+    its own two new test files is specs/SPEC-072-public-product-model.spec.md. Every
+    workaround the issue forbids is individually cheap and individually fatal: a
+    parallel `.go` file carrying a `sources []string` field WOULD satisfy the ast-grep
+    pattern and is therefore the most tempting and most dishonest fix available.
+
+    Two things this claim does NOT assert, because asserting them would be false.
+    First, nothing about the CONTENTS of `.backstop/baseline.json`: it is gitignored,
+    untracked, CI-published, and already carries all five symbols (sharp edge 6). The
+    claim's baseline statement is a pure delta — this change adds no baseline entry
+    and runs no `backstop baseline` command. Second, no byte identity over the living
+    verifier scripts (sharp edge 7); "this lane did not change them" is a merge-base
+    filename statement, and "they still work" is TASK-004's runtime statement.
+
+  ════════════════════════════════════════════════════════════════════════════════
+  SHARP EDGES
+  ════════════════════════════════════════════════════════════════════════════════
+  1. COST. `./bin/backstop gate --file docs/_data/content-inventory.yml` takes ~8
+     minutes. It is spent EXACTLY ONCE, in TASK-005. Every red/green receipt before
+     that is bought from `gate.ExtractContractEntries` + `buildContractStep` +
+     `gate.VerifyContractVerdict` driven directly in-process, which is the same
+     production code path at a fraction of the wall clock.
+
+  2. THE RED MUST BE A REAL PROBE FAILURE, NOT A COMPILE ERROR. The new tests call
+     only existing exported/package symbols (`gate.ExtractContractEntries`,
+     `gate.ContractEntry`, `gate.GateScope`, `buildContractStep`, `repoRoot(t)`), so
+     a build break is a defect in the test file, not this task's RED evidence.
+
+  3. NEVER GREP FOR `sources[]` IN THE YAML. The issue forbids it explicitly. The
+     signal is the extracted contract set and the Gate verdict, never raw file bytes
+     of docs/_data/content-inventory.yml.
+
+  4. NO VACUOUS GREEN ON AN UNINSTALLED PACK, AND THE CONTROL HAS TWO PRECONDITIONS
+     THAT ARE EASY TO GET WRONG. `produceContractEngineResults` yields NO results
+     when the contracts pack is not installed, which would make "no violation for
+     this symbol" true for the wrong reason. Each probe test must first establish
+     that the pack path is live via a control entry — an artificial `provides` over a
+     non-Go file — that still produces a `contract_signature` violation through the
+     same production call, failing loudly if the pack is unresolvable rather than
+     skipping. Two preconditions govern that control:
+
+       (a) `projectRoot` passed to the producer must be the REAL repository root
+           (`repoRoot(t)`), never a `t.TempDir()`. Pack resolution goes through
+           `resolveContractsPacks(projectRoot)` -> `loadInstalledPacks`, which reads
+           `<projectRoot>/backstop.yml`, `<projectRoot>/backstop.lock`, and
+           `<projectRoot>/.backstop/packs/`. A temp root resolves no pack, produces
+           no results, and the control silently stops controlling anything.
+
+       (b) The control entry's target file must EXIST ON DISK, and the control must
+           assert `Scanned == true` on the returned `ContractEngineResult` rather
+           than settling for "a violation was raised".
+
+           Read `VerifyContractVerdict` (pkg/gate/contract_verdict.go) before
+           writing this: the `!Scanned` LOUD CONFIG ERROR branch lives INSIDE
+           `if r.Entry.Absent`. A present contract — `Absent: false`, which is what
+           this control is — never reaches it. It falls straight through to
+           `if r.Matched`, so an unscanned or missing scope degrades to
+           `Matched: false` and returns the ordinary "symbol %s signature not found
+           or mismatched in %s: expected %q" violation, BYTE-INDISTINGUISHABLE from
+           a genuine scanned miss.
+
+           That is precisely why the file must exist and why `Scanned` is asserted
+           DIRECTLY. A raised violation is not evidence the engine ran: point the
+           control at a nonexistent path and it still "raises", proving nothing.
+           `Scanned: true` on the result is the only field that says ast-grep
+           actually opened the file. Do NOT use "the violation is not a config
+           error" as the discriminator — for `Absent: false` there is no config-error
+           branch to discriminate against.
+
+           Write the synthetic non-Go file into a `t.TempDir()` and pass its
+           ABSOLUTE path as `File` (extraction only joins RELATIVE paths onto
+           projectRoot, so an absolute path is passed through untouched) while still
+           handing the producer the real repo root from (a).
+
+  5. `TestGate_ArchitectureDiagramContractSignatureProbeClearsOnEdit` must exercise
+     ALL THREE `.mmd` files, one subtest each. A single-diagram assertion passes
+     against a two-of-three conversion.
+
+  6. THE FENCE TEST FENCES COMMITTED SURFACES ONLY, AND NEVER SKIPS.
+     `TestArtifact_Spec072ContractConversionContainsNoForbiddenWorkarounds` runs in
+     CI where a merge base may be unavailable, so its floor is observable repository
+     STATE over TRACKED files: no `# sources[]` comment; no Go file under docs/_data
+     or docs/_diagrams; no `@waiver:` marker keyed to `contract_signature`;
+     `backstop.yml` still carrying `contract_signature` with `applies-to: new-code`
+     and `level: block`; the closed world still 6 sources / 31 units. A merge-base
+     `git diff --name-only` check is ADDED when a base resolves, never SUBSTITUTED
+     for the state floor and never a reason to skip.
+
+     `.backstop/baseline.json` IS OUT OF BOUNDS FOR THIS TEST. It is gitignored
+     (.gitignore line 43), untracked, CI-published, and machine-absolute, and it
+     ALREADY carries entries for all five symbols. An assertion that it holds no
+     `contract_signature` entry for these files would be false on every checkout
+     that has pulled a baseline and vacuously true on every fresh clone that has
+     not. Assert nothing about its contents. The only honest baseline statement is a
+     DELTA — this change adds no baseline entry and runs no `backstop baseline`
+     command — which belongs in the diff fence, not in a content probe.
+
+  7. NO VERIFIER-SCRIPT BYTE PINS. `scripts/verify-public-product-model.sh` and
+     everything under `scripts/tests/public-product-model/` are LIVING files that
+     other lanes edit. A sha256 pin over them turns an unrelated, legitimate change
+     into a red in this lane. TASK-004 already proves them by RUNNING them, which is
+     the stronger and more durable statement. Where "unchanged by this lane" needs
+     saying, say it with a merge-base `git diff --name-only` filename check that
+     degrades to silence when no base resolves.
+
+  8. PLAN-SPEC-072 STAYS `completed` AND ITS `spec_version: "1.0.8"` PIN STAYS PUT —
+     BUT THE 1.0.9 ENTRY IS NOT A "CONVERSION BUMPS THE SPEC" PRECEDENT, AND MUST NOT
+     BE CITED AS ONE. The git history is explicit: `284a3e5` bumped 1.0.8 -> 1.0.9 and
+     authored the 1.0.9 entry for the CAP-004 / JLINK-001 canonical-homepage retarget.
+     The ISSUE-053 topology/evidence conversion landed AFTER it in `d13be4d`, which
+     left `spec_version` at 1.0.9 and FOLDED two sentences into that already-open
+     entry. Both squashed to `main` as `e412f1f`. So ISSUE-053 bumped nothing; it rode
+     an in-flight bump.
+
+     The 1.0.10 bump here is therefore required by ISSUE-200 REQ-005 on its own terms
+     — a contract edit to an `implemented` spec with no in-flight entry to fold into —
+     NOT by an ISSUE-053 precedent. What the 1.0.9 entry DOES establish, and what
+     survived both commits verbatim, is the other half: a SPEC-072 amendment does not
+     retarget the completed PLAN-SPEC-072 pin. Retargeting it is out of scope.
+
+  9. DO NOT REWRITE THE 1.0.9 HISTORY ENTRY. Add a 1.0.10 entry above it and leave
+     1.0.9 verbatim — including the ISSUE-053 sentences `d13be4d` folded into it,
+     which are the record of the two-file precedent this change extends.
+
+  10. SEED 4 CLOSED MATRIX IS NOT IMPLICATED. `expectedRole()` in
+      scripts/sitecheck/inventory.go returns "" for `specs/**`, `plans/**`,
+      `issues/**`, and `cmd/backstop/**`, and `inventoryDiff` skips every path
+      outside the matrix. No `.backstop/seed4-delivery-inventory.yml` row is needed
+      or permitted here.
+
+  11. TASK-001 and TASK-002 run in PARALLEL into the same Go package (`main` in
+      cmd/backstop). Their helper functions must not collide by name. Prefix
+      TASK-001's helpers `spec072Probe*` and TASK-002's `spec072Fence*`, and reuse the
+      existing `repoRoot(t)` from pack_gate_test.go rather than redefining it.
+
+  12. `./bin/backstop` IS UNTRACKED, IS REMOVED BY `make clean`, AND GOES STALE. Every
+      task that spends a `./bin/backstop` receipt must run `make build` (which is just
+      `go build -o bin/backstop ./cmd/backstop/`) IMMEDIATELY BEFORE IT, so the gate
+      being reported is HEAD and not a binary from a previous branch. Do NOT run `make
+      baseline` anywhere in this plan: it is a network call to the CI-published
+      artifact and is deliberately not a prerequisite of `test` or `ci` (ISSUE-176).
+
+  13. THE FIVE SYMBOLS ARE ALREADY SEEDED IN `.backstop/baseline.json`, SO A CLEARED
+      PROBE SHOWS UP AS `FixedViolations`. Once the conversion lands, the five entries
+      stop being raised, and `CompareToBaseline` reclassifies them from seeded to
+      FIXED. `FixedViolations` is a report-only field on `StepResult` — it never
+      contributes to `Pass` and never fails a step. Expect to SEE them on a `--all`
+      run against a pulled baseline, expect them to persist until CI republishes the
+      baseline, and do NOT try to make them disappear by editing, regenerating, or
+      deleting the gitignored baseline file.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: RED — probe tests and the workaround fence, written against the unconverted spec"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "RED: Gate contract-signature probe tests for the two YAML and three Mermaid files"
+        description: |
+          Create cmd/backstop/gate_contract_spec072_nongo_test.go (package main) holding
+          the three Gate probe tests. Model the file on the existing SPEC-072 sibling
+          cmd/backstop/gate_spec072_all_matches_test.go and on
+          cmd/backstop/gate_contract_e2e_harness_test.go — in particular
+          runProductionContractStep's rule that NO seam stub is installed, so
+          contractEngineResultsFn stays nil and the pack dispatch is the real one.
+
+          Shared helper, named spec072ProbeStep so it cannot collide with TASK-002's
+          symbols: given a repository-relative file path, build a
+          gate.GateScope{Mode: gate.GateScopeModeFile, Files: []string{path},
+          ProjectRoot: root} via gate.ComputeGateScope (do not hand-populate the
+          unexported fileSet), call
+          buildContractStep(filepath.Join(root, "specs"), root, scope) and run it with
+          context.Background(). Use the existing repoRoot(t) helper from
+          pack_gate_test.go for root; do not define another one.
+
+          TestGate_ContentInventoryContractSignatureProbeClears (CLM-001) must:
+          (a) call gate.ExtractContractEntries(filepath.Join(root, "specs"), root) and
+          require that NO returned gate.ContractEntry has Name
+          "legacy_content_disposition_inventory" — extraction reads `provides` only, so
+          a surviving entry is the defect itself; (b) run spec072ProbeStep over
+          "docs/_data/content-inventory.yml" and require the returned
+          gate.StepResult to carry no violation whose Rule is "contract_signature" and
+          whose Message or File names legacy_content_disposition_inventory,
+          docs/_data/content-inventory.yml, or the literal sources[] expectation; and
+          (c) the NO-VACUOUS-GREEN control from sharp edge 4.
+
+          Build the control exactly as sharp edge 4 specifies, because both halves are
+          load-bearing. Write a synthetic non-Go file (say control.yml, holding a line
+          the compiled Go-struct pattern cannot match) into a t.TempDir() and construct
+          one gate.ContractEntry with Absent false, a present-signature promise, and
+          File set to that file's ABSOLUTE path. Push it through
+          produceContractEngineResults with projectRoot set to the REAL repository root
+          from repoRoot(t) — never the temp dir — because pack resolution reads
+          <projectRoot>/backstop.yml, <projectRoot>/backstop.lock, and
+          <projectRoot>/.backstop/packs/, and a temp root resolves no pack, returns no
+          results, and silently stops controlling anything.
+
+          Then require BOTH of the following on the single returned
+          gate.ContractEngineResult, in this order: Scanned == true, and
+          VerifyContractVerdict raising a contract_signature violation. The Scanned
+          assertion is the load-bearing one. Because the control is a PRESENT contract
+          (Absent false), VerifyContractVerdict's !Scanned config-error branch — which
+          sits inside `if r.Entry.Absent` — is unreachable for it, so a missing or
+          unscanned file yields Matched false and the ordinary "signature not found or
+          mismatched" violation, indistinguishable from a real scanned miss. A raise
+          alone would therefore be satisfied by a control pointed at a path that does
+          not exist, which is exactly the vacuous green this control exists to rule
+          out. Do not assert "the violation is not a config error"; for Absent false
+          there is no config-error branch to distinguish. If the contracts pack is
+          unresolvable — no results at all — the control fails the test; it must never
+          t.Skip.
+
+          The test MUST NOT read docs/_data/content-inventory.yml bytes or grep it for
+          "sources[]" (sharp edge 3).
+
+          TestGate_ProductModelContractSignatureProbeClears (CLM-003) applies the same
+          three-part shape to docs/_data/product-model.yml and symbol
+          canonical_product_model, additionally requiring that the long prose signature
+          "concepts[] + architecture_views[] + boundaries[...]" appears in NO extracted
+          ContractEntry.Signature.
+
+          TestGate_ArchitectureDiagramContractSignatureProbeClearsOnEdit (CLM-005) runs
+          one subtest per diagram over the pairs
+          (docs/_diagrams/ARCH-001-delivery-lifecycle.mmd,
+          delivery_lifecycle_architecture),
+          (docs/_diagrams/ARCH-002-enforcement-loop.mmd, enforcement_loop_architecture),
+          and (docs/_diagrams/ARCH-003-ownership-boundaries.mmd,
+          ownership_boundaries_architecture), asserting extraction-absence and
+          step-verdict-absence for each. All three subtests must be present; a
+          two-of-three assertion is not acceptance (sharp edge 5).
+
+          RED receipt, required before TASK-003 touches the spec: run
+          `go test ./cmd/backstop -run
+          '^(TestGate_ContentInventoryContractSignatureProbeClears|TestGate_ProductModelContractSignatureProbeClears|TestGate_ArchitectureDiagramContractSignatureProbeClearsOnEdit)$'
+          -count=1 -v`. All three must EXECUTE and FAIL on the intended assertions —
+          five surviving ContractEntry records and five raised contract_signature
+          verdicts — with the no-vacuous-green control PASSING in the same run. A
+          compile failure or an unresolvable pack is not this task's RED evidence.
+        files:
+          - cmd/backstop/gate_contract_spec072_nongo_test.go
+        claims:
+          - CLM-001
+          - CLM-003
+          - CLM-005
+        test_names:
+          - TestGate_ContentInventoryContractSignatureProbeClears
+          - TestGate_ProductModelContractSignatureProbeClears
+          - TestGate_ArchitectureDiagramContractSignatureProbeClearsOnEdit
+        depends_on: []
+
+      - id: TASK-002
+        type: test
+        title: "RED: SPEC-073 consume-graph resolution and the forbidden-workaround fence"
+        description: |
+          Create cmd/backstop/spec072_contract_fence_test.go (package main) holding the
+          consume-graph test and the fence test. Prefix every helper spec072Fence* so
+          nothing collides with TASK-001's symbols in the shared package (sharp edge
+          11); reuse repoRoot(t) rather than redefining it.
+
+          TestGate_SPEC073ConsumeGraphResolvesAfterSpec072ContractConversion (CLM-008)
+          must prove the SPEC-073 edges are intact AND that no coupling exists to
+          break. Parse specs/SPEC-073-documentation-semantics-integration.spec.md
+          frontmatter with gopkg.in/yaml.v3 (the same shape
+          gate_spec072_all_matches_test.go uses) and require the contracts block to
+          still declare a consume of canonical_product_model sourced at
+          docs/_data/product-model.yml and a consume of
+          legacy_content_disposition_inventory sourced at
+          docs/_data/content-inventory.yml, both kind variable. Then run the real
+          contract step over a gate.GateScope covering SPEC-073's own declared contract
+          files plus the two data files and require zero contract_signature violations
+          naming either symbol. Finally assert the structural half directly: the spec
+          validates clean through the artifact validation path, and
+          gate.ExtractContractEntries over the real specs dir yields no ContractEntry
+          derived from any `consumes` block (extraction is provides-only) — that is the
+          machine-checkable statement of "a consume is never resolved against a
+          provider, so a provides→consumes conversion upstream cannot orphan it".
+
+          TestArtifact_Spec072ContractConversionContainsNoForbiddenWorkarounds (CLM-009)
+          is the committed-surface fence from sharp edge 6. Its ALWAYS-RUNS state floor
+          over TRACKED files must require ALL of:
+            - specs/SPEC-072-public-product-model.spec.md declares NO `provides` entry
+              for any of the five symbols, and its contracts block declares each of the
+              five as a `consumes` of scripts/verify-public-product-model.sh, kind
+              variable;
+            - `spec_version` is 1.0.10 and the Version History still contains the
+              verbatim 1.0.9 entry text, ISSUE-053 sentences included (no silent
+              rewrite, sharp edge 9);
+            - no file under docs/_data/ or docs/_diagrams/ has a .go extension, and no
+              Go file anywhere in the repo declares a `sources []string` struct field
+              introduced to satisfy the ast-grep pattern;
+            - docs/_data/content-inventory.yml, docs/_data/product-model.yml, and the
+              three .mmd files contain no injected `sources[]`-bearing comment line;
+            - docs/_data/content-inventory.yml still parses to exactly 6 sources and 31
+              unique units — read via yaml.v3 against the same closed-world numbers
+              verify-content-inventory.sh pins, so a row add/remove reds here too;
+            - backstop.yml still carries contract_signature with `applies-to: new-code`
+              and `level: block` — no narrowing, no downgrade;
+            - no `@waiver:` marker keyed to contract_signature exists anywhere in the
+              tree;
+            - plans/PLAN-SPEC-072-public-product-model.plan.yml still reads
+              `status: completed` and `spec_version: "1.0.8"` (sharp edge 8).
+
+          Then, ONLY when a merge base resolves (`git merge-base HEAD origin/main`),
+          ADD a `git diff --name-only <base>...HEAD` check requiring the changed-path
+          set to be a subset of: the spec, the two new test files, this plan artifact,
+          and the ISSUE-200 issue file. That check is the honest way to say "this lane
+          changed nothing else" — including the verifier scripts and the pins. When no
+          base resolves it is simply omitted; the state floor above always runs, so the
+          test can never pass by skipping.
+
+          TWO ASSERTIONS ARE EXPLICITLY FORBIDDEN HERE, and the earlier draft of this
+          plan wrongly demanded both. Do NOT assert anything about the CONTENTS of
+          .backstop/baseline.json — it is gitignored, untracked, CI-published, and
+          ALREADY holds all five symbols, so a "no contract_signature entry for these
+          files" assertion is false on any checkout with a pulled baseline and
+          vacuously true on a fresh clone (sharp edge 6). Do NOT sha256-pin
+          scripts/verify-public-product-model.sh or anything under
+          scripts/tests/public-product-model/ — they are living files other lanes edit,
+          the merge-base check above already covers "this lane did not touch them", and
+          TASK-004 proves they still pass by running them (sharp edge 7).
+
+          RED receipt: run `go test ./cmd/backstop -run
+          '^(TestGate_SPEC073ConsumeGraphResolvesAfterSpec072ContractConversion|TestArtifact_Spec072ContractConversionContainsNoForbiddenWorkarounds)$'
+          -count=1 -v`. The fence test must FAIL on the still-present `provides`
+          entries and the 1.0.9 spec_version. The consume-graph test is expected to
+          fail only on the contract_signature-violation half (SPEC-073's own consume
+          declarations already resolve); record which halves are red so the GREEN
+          transition is legible.
+        files:
+          - cmd/backstop/spec072_contract_fence_test.go
+        claims:
+          - CLM-008
+          - CLM-009
+        test_names:
+          - TestGate_SPEC073ConsumeGraphResolvesAfterSpec072ContractConversion
+          - TestArtifact_Spec072ContractConversionContainsNoForbiddenWorkarounds
+        depends_on: []
+
+  - id: phase-2
+    name: "Phase 2: GREEN — convert the five contract entries and re-run the untouched verifier pipeline"
+    tasks:
+      - id: TASK-003
+        type: implementation
+        title: "GREEN: convert five SPEC-072 provides entries to consumes, bump to 1.0.10"
+        description: |
+          Edit specs/SPEC-072-public-product-model.spec.md and NOTHING else. This is the
+          only production edit in the plan.
+
+          In the `contracts:` block (currently lines 40-75), replace each of the five
+          `provides` entries with a `consumes` entry sourced at
+          scripts/verify-public-product-model.sh, byte-for-byte matching the shape the
+          adjacent content-topology.yml and evidence-inventory.yml entries already use:
+
+            - file: docs/_data/product-model.yml
+              consumes:
+                - source: scripts/verify-public-product-model.sh
+                  name: canonical_product_model
+                  kind: variable
+            - file: docs/_data/content-inventory.yml
+              consumes:
+                - source: scripts/verify-public-product-model.sh
+                  name: legacy_content_disposition_inventory
+                  kind: variable
+            - file: docs/_diagrams/ARCH-001-delivery-lifecycle.mmd
+              consumes:
+                - source: scripts/verify-public-product-model.sh
+                  name: delivery_lifecycle_architecture
+                  kind: variable
+            - file: docs/_diagrams/ARCH-002-enforcement-loop.mmd
+              consumes:
+                - source: scripts/verify-public-product-model.sh
+                  name: enforcement_loop_architecture
+                  kind: variable
+            - file: docs/_diagrams/ARCH-003-ownership-boundaries.mmd
+              consumes:
+                - source: scripts/verify-public-product-model.sh
+                  name: ownership_boundaries_architecture
+                  kind: variable
+
+          Every `signature:` line for these five is DELETED, not moved, not commented,
+          not relocated to a `scope:` or an `absent:` field. Symbol names, `kind:
+          variable`, and the `file:` keys and their ORDER are preserved exactly. The
+          two already-converted entries (public_content_topology,
+          public_claim_evidence_inventory) are left untouched.
+
+          Change `spec_version: 1.0.9` to `spec_version: 1.0.10`. Leave `status:
+          implemented`, `verification.test_command`, every requirement, every claim,
+          and every claim's `tests:` list unchanged — no claim is edited, added, or
+          removed.
+
+          In `## Version History`, insert a 1.0.10 entry ABOVE the 1.0.9 entry and
+          leave the 1.0.9 text verbatim, ISSUE-053 sentences included (sharp edge 9).
+          The new entry must state that the remaining five non-Go `provides`+signature
+          contract entries — content-inventory.yml, product-model.yml, and
+          ARCH-001/002/003 — are now consumed by ./scripts/verify-public-product-model.sh
+          rather than left as Go-compiler false-REDs (ISSUE-200), extending the
+          ISSUE-053 two-file conversion recorded in the 1.0.9 entry to the whole non-Go
+          set; that enforcement is unchanged and still lives in the bash verifier
+          pipeline; and that PLAN-SPEC-072 stays `completed` with its `spec_version`
+          pin at 1.0.8.
+
+          The BUMP ITSELF is required by ISSUE-200 REQ-005 — a contract edit to an
+          `implemented` spec — not by an ISSUE-053 precedent. Do not describe it as
+          following ISSUE-053's lead: `d13be4d` bumped nothing, it folded its sentences
+          into the already-open 1.0.9 entry that `284a3e5` had opened for unrelated
+          homepage work (sharp edge 8). Here there is no open entry to fold into.
+
+          Do NOT create a parallel .go file, do NOT add a `# sources[]` comment to any
+          YAML or Mermaid file, do NOT add a waiver or a baseline entry, do NOT narrow
+          `contract_signature`'s applies-to, do NOT teach the CLI about YAML, do NOT
+          vendor a pack, and do NOT touch scripts/websitejourney/promotion.go, any
+          verifier script, any registry row, or any visitor-page copy or IA.
+
+          GREEN evidence: rerun both RED commands from TASK-001 and TASK-002 and
+          require all five Go tests to pass, with the no-vacuous-green control still
+          proving the pack path is live.
+        files:
+          - specs/SPEC-072-public-product-model.spec.md
+        claims:
+          - CLM-001
+          - CLM-003
+          - CLM-005
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-001
+          - TASK-002
+
+      - id: TASK-004
+        type: verification
+        title: "Verify enforcement power is unchanged: the full bash verifier pipeline plus the five Go tests"
+        description: |
+          Prove the conversion cost zero enforcement. Run
+          `./scripts/verify-public-product-model.sh` and require the complete pipeline
+          to exit 0 against the UNCHANGED corpus, with these named functions all
+          passing: verify_legacy_content_disposition_inventory and
+          verify_legacy_useful_unit_inventory (CLM-002, from
+          scripts/tests/public-product-model/verify-content-inventory.sh);
+          verify_canonical_product_model_ownership and
+          verify_canonical_product_model_has_no_parallel_truth (CLM-004, from
+          verify-product-model.sh); verify_required_architecture_view_inventory
+          (CLM-006, same file); and verify_public_product_model_complete (CLM-007, from
+          verify-content-topology.sh). These are pre-existing mandated tests — this
+          task RUNS them and must not create, rename, reorder, or weaken any of them.
+
+          Then run `go test ./cmd/backstop -run
+          '^(TestGate_ContentInventoryContractSignatureProbeClears|TestGate_ProductModelContractSignatureProbeClears|TestGate_ArchitectureDiagramContractSignatureProbeClearsOnEdit|TestGate_SPEC073ConsumeGraphResolvesAfterSpec072ContractConversion|TestArtifact_Spec072ContractConversionContainsNoForbiddenWorkarounds)$'
+          -count=1 -v` and require all five to pass, then `go test ./cmd/backstop
+          ./pkg/gate ./pkg/validate -count=1` so the surrounding contract, extraction,
+          and validation suites are proved un-regressed — in particular
+          TestExtractContractEntries_OnlyImplementedSpecsAreExtracted,
+          TestContracts_ConsumesOnlyValid, TestGate_SPEC072DiscoversAll44BashFunctionsAcrossSameLineDeclarations,
+          and TestGate_SPEC072TerminalDiscoveryAndDriftClearAfterAllMatchEnumeration.
+
+          Run `make build` (sharp edge 12 — bin/backstop is untracked and goes stale),
+          then `./bin/backstop gate --file
+          specs/SPEC-072-public-product-model.spec.md` as the cheap diff-scoped cadence
+          gate on the one production file this plan edits, and read the report for
+          artifact-validation, status-drift, or contract findings on SPEC-072 itself.
+
+          Confirm `git status --porcelain` shows exactly three modified/added tracked
+          paths beyond this plan's own artifact: the spec and the two new test files.
+          `.backstop/baseline.json` and `bin/backstop` are gitignored and will not
+          appear; that is expected, not a finding. A waiver, a skipped verifier, a
+          baseline edit, or a loosened assertion is a failure, not a pass.
+        files:
+          - specs/SPEC-072-public-product-model.spec.md
+          - cmd/backstop/gate_contract_spec072_nongo_test.go
+          - cmd/backstop/spec072_contract_fence_test.go
+        claims:
+          - CLM-002
+          - CLM-004
+          - CLM-006
+          - CLM-007
+        depends_on:
+          - TASK-003
+
+  - id: phase-3
+    name: "Phase 3: The authoritative file-scoped Gate receipt on the five non-Go files"
+    tasks:
+      - id: TASK-005
+        type: verification
+        title: "Run backstop gate --file over content-inventory.yml and the four sibling non-Go files"
+        description: |
+          The expensive, authoritative probe receipt — spent once (sharp edge 1).
+
+          THE ACCEPTANCE CONDITION IS SINGULAR, AND IT IS EXIT 0. Each gate invocation
+          below must exit 0. The ONLY output this task is licensed to see and still
+          call green is report-only `FixedViolations` naming the five converted symbols
+          — the expected consequence of those symbols already being seeded in the
+          gitignored, CI-published `.backstop/baseline.json` and no longer being raised
+          (sharp edge 13). `FixedViolations` never contributes to `Pass`, so it cannot
+          be the reason a run exits 0, and it will persist until CI republishes the
+          baseline. Anything else — any nonzero exit, any blocking violation, any
+          config error — is a FAILURE of this task. There is no inherited-red
+          allowance: if a gate reds for a reason outside this lane, this task does not
+          pass, and the correct move is to report it and stop, not to narrate it and
+          continue.
+
+          Run `make build` first so the binary is HEAD (sharp edge 12).
+
+          Then run `./bin/backstop gate --file docs/_data/content-inventory.yml` — the
+          exact command ISSUE-200 names as the reproduction — and capture its full
+          output as the receipt for CLM-001, requiring exit 0 with no contract_signature
+          failure line naming legacy_content_disposition_inventory or the sources[]
+          expectation.
+
+          Then `./bin/backstop gate --file docs/_data/product-model.yml` and
+          `./bin/backstop gate --file docs/_diagrams/ARCH-001-delivery-lifecycle.mmd
+          --file docs/_diagrams/ARCH-002-enforcement-loop.mmd --file
+          docs/_diagrams/ARCH-003-ownership-boundaries.mmd`, under the same exit-0
+          condition and with no contract_signature failure naming
+          canonical_product_model, delivery_lifecycle_architecture,
+          enforcement_loop_architecture, or ownership_boundaries_architecture (CLM-003,
+          CLM-005). If runtime forces a choice, the content-inventory run is mandatory
+          and these two are strongly preferred; record explicitly which were run.
+
+          Finally run the issue's combined acceptance command verbatim:
+          `./bin/backstop gate --file docs/_data/content-inventory.yml &&
+          ./scripts/verify-public-product-model.sh`, requiring exit 0 for the chain
+          (CLM-007).
+
+          These five files are READ-ONLY in this task — they are named so the gate can
+          be scoped to them, never so they can be edited.
+        files:
+          - docs/_data/content-inventory.yml
+          - docs/_data/product-model.yml
+          - docs/_diagrams/ARCH-001-delivery-lifecycle.mmd
+          - docs/_diagrams/ARCH-002-enforcement-loop.mmd
+          - docs/_diagrams/ARCH-003-ownership-boundaries.mmd
+          - specs/SPEC-072-public-product-model.spec.md
+        claims:
+          - CLM-001
+          - CLM-003
+          - CLM-005
+          - CLM-007
+        depends_on:
+          - TASK-003
+          - TASK-004
+
+  - id: phase-4
+    name: "Phase 4: Full kill chain and artifact validation"
+    tasks:
+      - id: TASK-006
+        type: verification
+        title: "Run backstop gate --all and validate ISSUE-200, PLAN-ISSUE-200, and SPEC-072"
+        description: |
+          Comprehensive final verification across both work categories this plan
+          touches — Go code and artifacts.
+
+          CODE: run `make test`, then `make build` so the binary is HEAD (sharp edge
+          12), then `./bin/backstop gate --all` as the unscoped kill chain. Require it
+          to pass, and specifically require the contract_signature dimension to be
+          substantively exercised (not capability-absent, not vacuously green on an
+          uninstalled contracts pack) while raising nothing for any of the five
+          symbols. Report-only `FixedViolations` naming those five symbols ARE expected
+          here — the baseline still seeds them and CI has not republished it (sharp
+          edge 13) — and they do not affect `Pass`. Do not chase them, and do not touch
+          the gitignored baseline file to make them go away. Read the test-verification
+          and artifact_status_drift sections and confirm the five mandated Go test
+          names from ISSUE-200's claims[].tests resolve to the two new files, and that
+          the bash verifier names from CLM-002, CLM-004, CLM-006, and CLM-007 still
+          resolve to their scripts.
+
+          ARTIFACTS: run `./bin/backstop artifact validate --issue ISSUE-200 --plan
+          PLAN-ISSUE-200 --spec SPEC-072` and require all three to validate clean —
+          SPEC-072 in particular must validate as a consumes-only contract block at
+          spec_version 1.0.10 with status still `implemented`.
+
+          FENCE READ (CLM-009): read the delivered diff — `git diff --name-only
+          <merge-base>...HEAD` plus `git status --porcelain` for anything uncommitted —
+          and require the changed TRACKED path set to be exactly
+          specs/SPEC-072-public-product-model.spec.md,
+          cmd/backstop/gate_contract_spec072_nongo_test.go,
+          cmd/backstop/spec072_contract_fence_test.go, this plan's own artifact, and
+          the ISSUE-200 issue file. Everything else is thereby proved untouched by this
+          lane, including docs/_data/content-inventory.yml,
+          docs/_data/product-model.yml, the three .mmd files,
+          scripts/verify-public-product-model.sh and every script under
+          scripts/tests/public-product-model/, scripts/websitejourney/promotion.go,
+          backstop.yml, backstop.lock, .backstop/seed4-delivery-inventory.yml, and all
+          visitor-page copy and IA. Additionally read
+          plans/PLAN-SPEC-072-public-product-model.plan.yml directly and confirm it
+          still says `status: completed` and `spec_version: "1.0.8"`, and re-read
+          docs/_data/content-inventory.yml's closed world as 6 sources / 31 units.
+
+          Two non-assertions, deliberately (sharp edges 6 and 7). `.backstop/baseline.json`
+          is gitignored and CI-published, so it is absent from the diff by
+          construction and its CONTENTS are not a fence surface — the only claim made
+          about it is the delta that this lane added no entry to it and ran no
+          `backstop baseline` command. And the verifier scripts are fenced by the
+          filename diff above, never by a byte pin, because other lanes legitimately
+          edit them.
+
+          Green obtained via a waiver, a baseline edit, a suppression, a skipped test,
+          an applies-to narrowing, or any parallel-Go/YAML-comment workaround is a
+          failure, not a pass. A failure outside this lane is reported and stopped on,
+          not narrated and passed through.
+        files:
+          - specs/SPEC-072-public-product-model.spec.md
+          - cmd/backstop/gate_contract_spec072_nongo_test.go
+          - cmd/backstop/spec072_contract_fence_test.go
+          - plans/PLAN-ISSUE-200-spec072-non-go-contract-signatures.plan.yml
+          - issues/ISSUE-200-spec072-non-go-contract-signatures.issue.md
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+          - CLM-006
+          - CLM-007
+          - CLM-008
+          - CLM-009
+        depends_on:
+          - TASK-003
+          - TASK-004
+          - TASK-005

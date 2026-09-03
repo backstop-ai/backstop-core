@@ -2,7 +2,7 @@ import { expect, Page } from "@playwright/test";
 
 export const canonicalRoutes = [
   "/", "/evaluate/", "/model/", "/adopt/", "/use-cases/",
-  "/packs/", "/extend/", "/reference/", "/status/", "/contributing/",
+  "/pack/examples/", "/pack/guide/", "/reference/", "/status/", "/contributing/",
 ] as const;
 
 export const viewports = [
@@ -17,12 +17,11 @@ const focusableSelector = [
 
 const primaryNavigation = [
   ["Evaluate", "/evaluate/"], ["Model", "/model/"], ["Adopt", "/adopt/"],
-  ["Use Cases", "/use-cases/"], ["Packs", "/packs/"], ["Extend", "/extend/"],
-  ["Reference", "/reference/"],
+  ["Pack", "/pack/"],
 ] as const;
 
 const utilityNavigation = [
-  ["Status", "/status/"], ["Contributing", "/contributing/"],
+  ["Contributing", "/contributing/"],
 ] as const;
 
 export async function settleLayout(page: Page): Promise<void> {
@@ -101,6 +100,20 @@ export async function assertContentCompleteness(page: Page, route: string): Prom
   for (const id of required) {
     const block = page.locator(`#${id}`);
     await expect(block, `${route} #${id} cardinality`).toHaveCount(1);
+
+    const inCanonicalAnchors = await block.evaluate((element) => element.closest(".canonical-anchors") !== null);
+    if (inCanonicalAnchors) {
+      const hidden = await block.evaluate((element) => {
+        const container = element.closest(".canonical-anchors") as HTMLElement | null;
+        if (!container) return false;
+        const rect = container.getBoundingClientRect();
+        const clip = getComputedStyle(container).clip;
+        return rect.width <= 1 && rect.height <= 1 && clip === "rect(0px, 0px, 0px, 0px)";
+      });
+      expect(hidden, `${route} #${id} not visitor-visible`).toBe(true);
+      continue;
+    }
+
     await expect(block, `${route} #${id} visibility`).toBeVisible();
 
     const state = await block.evaluate((element) => {
@@ -141,6 +154,30 @@ export async function assertContentCompleteness(page: Page, route: string): Prom
     expect(state.textLength, `${route} #${id} substantive text`).toBeGreaterThanOrEqual(80);
     expect(state.firstContentGap, `${route} #${id} first content`).not.toBeNull();
     expect(state.firstContentGap!, `${route} #${id} unexplained vertical gap`).toBeLessThanOrEqual(160);
+  }
+
+  if (route === "/model/") {
+    const container = page.locator(".canonical-anchors");
+    await expect(container, `${route} canonical-anchors cardinality`).toHaveCount(1);
+    const hiddenAnchorIds = [
+      "intent-artifacts", "work-tracks", "bounded-execution", "recipes", "gates-and-policy",
+      "waivers", "capabilities-and-journeys", "provenance-and-verification", "harness-integration",
+      "product-category", "delivery-lifecycle",
+    ];
+    for (const anchorId of hiddenAnchorIds) {
+      const anchor = container.locator(`#${anchorId}`);
+      await expect(anchor, `${route} #${anchorId} cardinality`).toHaveCount(1);
+      const hidden = await anchor.evaluate((element) => {
+        const host = element.closest(".canonical-anchors") as HTMLElement | null;
+        if (!host) return false;
+        const rect = host.getBoundingClientRect();
+        const clip = getComputedStyle(host).clip;
+        return rect.width <= 1 && rect.height <= 1 && clip === "rect(0px, 0px, 0px, 0px)";
+      });
+      expect(hidden, `${route} #${anchorId} not visitor-visible`).toBe(true);
+    }
+    expect(required.filter((id) => id === "delivery-lifecycle").length, `${route} hidden required block`).toBe(1);
+    expect(required.filter((id) => id !== "delivery-lifecycle").length, `${route} visitor required blocks`).toBe(3);
   }
 
   if (route === "/") {
@@ -227,7 +264,7 @@ export async function assertKeyboardOrderAndBounds(page: Page, route: string): P
   for (const identity of expectedCanonicalFocusOrder) {
     expect(seenCanonical.filter((candidate) => candidate === identity), `${route} keyboard encounter ${identity}`).toHaveLength(1);
   }
-  expect(seenCanonical, `${route} ordered Home + 7 primary + 2 utility keyboard traversal`).toEqual(expectedCanonicalFocusOrder);
+  expect(seenCanonical, `${route} ordered Home + 4 primary + 1 utility keyboard traversal`).toEqual(expectedCanonicalFocusOrder);
 }
 
 export async function assertLocalOverflow(page: Page, route: string): Promise<void> {

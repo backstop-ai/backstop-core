@@ -82,16 +82,33 @@ type OwnerAcceptanceExport struct {
 	} `yaml:"protected_file_fingerprints"`
 }
 
+func extraLinkableRoutes() []string {
+	return []string{"/pack/", "/plan/", "/issue/", "/spec/", "/bundle/", "/directive/", "/adr/", "/capability/"}
+}
+
 func canonicalRoutes() []string {
-	return []string{"/", "/evaluate/", "/model/", "/adopt/", "/use-cases/", "/packs/", "/extend/", "/reference/", "/status/", "/contributing/"}
+	return []string{"/", "/evaluate/", "/model/", "/adopt/", "/use-cases/", "/pack/examples/", "/pack/guide/", "/reference/", "/status/", "/contributing/"}
+}
+
+func journeyLinkIDs() []string {
+	return []string{"JLINK-001", "JLINK-002", "JLINK-003", "JLINK-004", "JLINK-005", "JLINK-006", "JLINK-007", "JLINK-008", "JLINK-009", "JLINK-010", "JLINK-011", "JLINK-013", "JLINK-014", "JLINK-015", "JLINK-016", "JLINK-020", "JLINK-021", "JLINK-023", "JLINK-024"}
+}
+
+func packFleetCurrent(route string) bool {
+	switch route {
+	case "/pack/", "/pack/guide/", "/pack/examples/":
+		return true
+	default:
+		return false
+	}
 }
 
 func primaryNavigation() []string {
-	return []string{"/evaluate/", "/model/", "/adopt/", "/use-cases/", "/packs/", "/extend/", "/reference/"}
+	return []string{"/evaluate/", "/model/", "/adopt/", "/pack/"}
 }
 
 func utilityNavigation() []string {
-	return []string{"/status/", "/contributing/"}
+	return []string{"/contributing/"}
 }
 
 func legacyRedirects() map[string]string {
@@ -99,7 +116,6 @@ func legacyRedirects() map[string]string {
 		"getting-started.html":   "/adopt/",
 		"concepts.html":          "/model/",
 		"artifact-workflow.html": "/model/",
-		"pack-authoring.html":    "/extend/",
 		"cli-reference.html":     "/reference/",
 	}
 }
@@ -112,12 +128,10 @@ func navigationLabel(route string) string {
 		return "Model"
 	case "/adopt/":
 		return "Adopt"
+	case "/pack/":
+		return "Pack"
 	case "/use-cases/":
 		return "Use Cases"
-	case "/packs/":
-		return "Packs"
-	case "/extend/":
-		return "Extend"
 	case "/reference/":
 		return "Reference"
 	case "/status/":
@@ -211,7 +225,7 @@ func verifyRouteDocument(route string, page PresentationPage, doc string) []Find
 		if count < 1 {
 			findings = append(findings, Finding{Phase: "navigation", Identity: route + " -> " + destination, Expected: "present", Observed: "missing"})
 		}
-		if route == destination {
+		if route == destination || (destination == "/pack/" && packFleetCurrent(route)) {
 			currentExpected = 1
 		}
 	}
@@ -334,6 +348,15 @@ func collectBuiltDocuments(builtRoot string) (map[string]string, map[string]map[
 		documents[route] = string(data)
 		ids[route] = routeIDs(string(data))
 	}
+	for _, route := range extraLinkableRoutes() {
+		path := builtRoutePath(builtRoot, route)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		documents[route] = string(data)
+		ids[route] = routeIDs(string(data))
+	}
 	return documents, ids, findings
 }
 
@@ -394,8 +417,7 @@ func VerifyRenderedOwnerContracts(_ string, builtRoot string, siteCommit string)
 	for _, route := range canonicalRoutes() {
 		joined += documents[route]
 	}
-	for index := 1; index <= 24; index++ {
-		id := fmt.Sprintf("JLINK-%03d", index)
+	for _, id := range journeyLinkIDs() {
 		addCardinality(&findings, "owner-contracts", id, "1", strings.Count(joined, `data-journey-link-id="`+id+`"`))
 		if !regexp.MustCompile(`<a\s+[^>]*data-journey-link-id="` + regexp.QuoteMeta(id) + `"[^>]*href="/[^"]+#[^"]+"[^>]*>[^<]+</a>`).MatchString(joined) {
 			findings = append(findings, Finding{Phase: "owner-contracts", Identity: id, Expected: "one labeled root-relative route/anchor link", Observed: "missing or malformed anchor"})
@@ -417,7 +439,7 @@ func VerifyRenderedOwnerContracts(_ string, builtRoot string, siteCommit string)
 			findings = append(findings, Finding{Phase: "owner-contracts", Identity: id, Expected: "digest-bound nonempty code bytes", Observed: "missing or malformed"})
 		}
 	}
-	for _, job := range []string{"cli-command-catalog", "artifact-schema-catalog", "installed-pack-catalog", "release-history"} {
+	for _, job := range []string{"cli-command-catalog", "artifact-schema-catalog", "published-pack-catalog", "release-history"} {
 		addCardinality(&findings, "owner-contracts", job+" region", "1", strings.Count(joined, `data-generated-region="" data-product-truth-job="`+job+`"`))
 		pattern := regexp.MustCompile(`(?s)<section\s+data-generated-region=""\s+data-product-truth-job="` + regexp.QuoteMeta(job) + `"[^>]*>(.*?)</section>`)
 		match := pattern.FindStringSubmatch(joined)

@@ -74,7 +74,7 @@ claims:
     statement: "A harness can invoke Backstop, but operability alone does not preserve artifact ordering, review separation, or enforcement of a blocking verdict."
     statement_markdown: "A harness can invoke Backstop, but operability alone does not preserve artifact ordering, review separation, or enforcement of a blocking verdict."
     claim_type: compatibility
-    owner: {route: "/evaluate/", anchor: compatibility}
+    owner: {route: "/reference/", anchor: compatibility}
     mechanism_summary: "The CLI is runtime-neutral and communicates through files, output, and exit status."
     guarantee_boundary: "The integration must implement lifecycle and verdict propagation."
     known_limitations: "A generic shell invocation proves only operability."
@@ -90,7 +90,7 @@ claims:
     statement: "A literal Liquid-shaped `{{ ... }}` expression is currently interpreted as an undeclared recipe parameter and rejected before any write; ISSUE-182 tracks the missing literal-escape capability."
     statement_markdown: "A literal Liquid-shaped `{{ ... }}` expression is currently interpreted as an undeclared recipe parameter and rejected before any write; ISSUE-182 tracks the missing literal-escape capability."
     claim_type: observed-failure
-    owner: {route: "/evaluate/", anchor: evidence}
+    owner: {route: "/reference/", anchor: source-traceability}
     mechanism_summary: "Recipe substitution recognizes double-brace expressions as parameters, and a durable issue records the unsupported literal-escape case."
     guarantee_boundary: "The evidence proves this failure class, not every recipe defect."
     known_limitations: "The incident population is one first-party case."
@@ -103,7 +103,7 @@ claims:
     statement: "Linux CI exposed a contracts-pack fixture false negative, and commit `f8b3846fe5d4c2bc6465efc6eb5e4594e1b591da` repaired it with checked-in before-and-after evidence."
     statement_markdown: "Linux CI exposed a contracts-pack fixture false negative, and commit `f8b3846fe5d4c2bc6465efc6eb5e4594e1b591da` repaired it with checked-in before-and-after evidence."
     claim_type: observed-outcome
-    owner: {route: "/evaluate/", anchor: evidence}
+    owner: {route: "/reference/", anchor: source-traceability}
     mechanism_summary: "The closed issue binds the failing Linux run, repaired commit, and passing CI receipts."
     guarantee_boundary: "The evidence covers the named contracts-pack fixture failure, not every platform-specific engine defect."
     known_limitations: "Later engine or fixture changes require refreshed execution evidence."
@@ -141,7 +141,7 @@ claims:
     statement: "The enforceable guarantee is bounded: the declared gate evaluates the installed standards against the named inputs and returns a policy verdict. Organizational follow-through remains outside that process boundary."
     statement_markdown: "The enforceable guarantee is bounded: the declared gate evaluates the installed standards against the named inputs and returns a policy verdict. Organizational follow-through remains outside that process boundary."
     claim_type: runtime-behavior
-    owner: {route: "/evaluate/", anchor: guarantees}
+    owner: {route: "/model/", anchor: gates-and-policy}
     mechanism_summary: "Gate orchestration evaluates installed pack engines and returns their combined policy verdict."
     guarantee_boundary: "The process verdict does not implement organizational follow-through."
     known_limitations: "A caller may ignore the returned status."
@@ -154,7 +154,7 @@ claims:
     statement: "Runtime-neutral does not mean runtime-guaranteed. Backstop cannot make a harness respect a result it chooses to discard."
     statement_markdown: "Runtime-neutral does not mean runtime-guaranteed. Backstop cannot make a harness respect a result it chooses to discard."
     claim_type: compatibility
-    owner: {route: "/evaluate/", anchor: compatibility-limits}
+    owner: {route: "/reference/", anchor: compatibility}
     mechanism_summary: "The CLI communicates through output and process status at the harness boundary."
     guarantee_boundary: "Harness verdict propagation is outside Core."
     known_limitations: "A harness can discard a blocking result."
@@ -235,7 +235,7 @@ claims:
     statement: "Backstop is not an agent runtime, project-management system, or substitute for owning delivery decisions. Those systems can surround it, but they remain separate responsibilities."
     statement_markdown: "Backstop is not an agent runtime, project-management system, or substitute for owning delivery decisions. Those systems can surround it, but they remain separate responsibilities."
     claim_type: mechanism
-    owner: {route: "/evaluate/", anchor: not-a-fit}
+    owner: {route: "/status/", anchor: adjacent-guidance}
     mechanism_summary: "Core provides repository contracts and a CLI rather than orchestration or project-management services."
     guarantee_boundary: "Runtime scheduling and delivery ownership remain external."
     known_limitations: "Backstop cannot replace organizational decision ownership."
@@ -263,7 +263,7 @@ claims:
     statement: "Backstop is a deterministic control surface for AI-native delivery. It keeps intent, bounded implementation, review, and enforcement legible without requiring one agent vendor or runtime."
     statement_markdown: "Backstop is a deterministic control surface for AI-native delivery. It keeps intent, bounded implementation, review, and enforcement legible without requiring one agent vendor or runtime."
     claim_type: mechanism
-    owner: {route: "/evaluate/", anchor: what-backstop-is}
+    owner: {route: "/model/", anchor: product-category}
     mechanism_summary: "Repository artifacts and a runtime-neutral CLI separate declared intent, bounded work, review, and gate enforcement."
     guarantee_boundary: "The control surface does not supply an agent runtime."
     known_limitations: "Only declared artifacts and installed standards are inspectable."
@@ -275,7 +275,7 @@ claims:
     statement: "Invocation proves that the binary runs. A trustworthy integration separately proves that the harness preserves lifecycle order and stops on failure."
     statement_markdown: "Invocation proves that the binary runs. A trustworthy integration separately proves that the harness preserves lifecycle order and stops on failure."
     claim_type: compatibility
-    owner: {route: "/evaluate/", anchor: compatibility}
+    owner: {route: "/reference/", anchor: compatibility}
     mechanism_summary: "The process seam exposes operability and exit status, while lifecycle ordering belongs to the harness."
     guarantee_boundary: "Successful invocation does not prove surrounding orchestration."
     known_limitations: "A harness may reorder work or discard failure status."
@@ -325,17 +325,17 @@ claims:
       - {evidence_id: EVIDENCE-035, kind: source, locator: {path: cmd/backstop/gate.go}, relevance: "Implements blocking gate exit behavior."}
       - {evidence_id: EVIDENCE-036, kind: reproducible-execution, locator: {version: v0.2.0}, command: "./bin/backstop gate", prerequisites: "Repository checkout with declared packs installed", relevance: "Exercises the gate postcondition."}
   - claim_id: CLAIM-025
-    statement: "The installed catalog is repository truth: declarations pin pack versions and the lock binds resolved bytes. Use the CLI to inspect, install, update, relock, and verify those selections."
-    statement_markdown: "The installed catalog is repository truth: declarations pin pack versions and the lock binds resolved bytes. Use the CLI to inspect, install, update, relock, and verify those selections."
+    statement: "Add a published pack with `backstop pack add org/pack@version`. That pins the version in `backstop.yml` and writes `backstop.lock`. Restore locked packs with `backstop pack install`. Confirm them with `backstop pack list`."
+    statement_markdown: "Add a published pack with `backstop pack add org/pack@version`. That pins the version in `backstop.yml` and writes `backstop.lock`. Restore locked packs with `backstop pack install`. Confirm them with `backstop pack list`."
     claim_type: mechanism
-    owner: {route: "/packs/", anchor: installed-pack-catalog}
-    mechanism_summary: "Declarations select versions and the lock records resolved content identity."
-    guarantee_boundary: "Installed bytes must still match the lock."
-    known_limitations: "Mutable or stale installed trees fail verification."
-    adoption_implications: "Commit declarations and locks, then restore and verify installed bytes."
-    direction: "Keep pack state immutable and inspectable."
+    owner: {route: "/pack/examples/", anchor: install-a-pack}
+    mechanism_summary: "pack add pins the published version and writes the lock; pack install restores from the lock; pack list inspects installed state."
+    guarantee_boundary: "The lock records resolved content; installed bytes must still match it."
+    known_limitations: "pack relock applies to local-source packs only; git packs move with pack update."
+    adoption_implications: "Commit `backstop.yml` and `backstop.lock` after adding a pack."
+    direction: "Keep published packs pinned and locked."
     evidence_refs:
-      - {evidence_id: EVIDENCE-037, kind: source, locator: {path: backstop.lock}, relevance: "Records resolved pack versions, coordinates, and content hashes."}
+      - {evidence_id: EVIDENCE-037, kind: source, locator: {path: cmd/backstop/pack_add.go}, relevance: "Adds a pack, pins its version, and writes the lock."}
   - claim_id: CLAIM-026
     statement: "The repository root contains `backstop.yml`. Its `project`, `packs`, and `enforcement.policy` fields declare versioned standards and policy levels. The lock under `.backstop/` binds resolved pack bytes."
     statement_markdown: "The repository root contains `backstop.yml`. Its `project`, `packs`, and `enforcement.policy` fields declare versioned standards and policy levels. The lock under `.backstop/` binds resolved pack bytes."
@@ -387,17 +387,34 @@ claims:
     evidence_refs:
       - {evidence_id: EVIDENCE-043, kind: source, locator: {path: pkg/pack/manifest.go}, relevance: "Defines the pack manifest model."}
   - claim_id: CLAIM-030
-    statement: "Bundles progress through `idea`, `exploring`, `defined`, and `ready`; specifications progress from `draft` to `ready-for-implementation`; plans progress from `draft` to `approved` and `in-progress`. Terminal states distinguish delivered or implemented work from replacement, cancellation, deprecation, and obsolescence, with successor fields required where the schema names one."
-    statement_markdown: "Bundles progress through `idea`, `exploring`, `defined`, and `ready`; specifications progress from `draft` to `ready-for-implementation`; plans progress from `draft` to `approved` and `in-progress`. Terminal states distinguish delivered or implemented work from replacement, cancellation, deprecation, and obsolescence, with successor fields required where the schema names one."
+    statement: "Bundle maturity progresses `idea` → `exploring` → `defined` → `ready`; specs progress `draft` → `ready-for-implementation` → `implemented`; issues progress `open` → `ready` → `in-progress` (with `blocked` waiting on named work); plans progress `draft` → `ready` → `implementing` → `completed`. Terminal states distinguish delivered or implemented work from replacement, cancellation, deprecation, and obsolescence, with successor fields required where the schema names one."
+    statement_markdown: |-
+      <div class="state-index" aria-label="Live states">
+      <p class="state-index-kicker">Live states</p>
+      <dl>
+      <dt>Bundle</dt>
+      <dd><code>idea</code> → <code>exploring</code> → <code>defined</code> → <code>ready</code></dd>
+      <dt>Spec</dt>
+      <dd><code>draft</code> → <code>ready-for-implementation</code> → <code>implemented</code></dd>
+      <dt>Issue</dt>
+      <dd><code>open</code> → <code>ready</code> → <code>in-progress</code><br>blocked waits on named work</dd>
+      <dt>Plan</dt>
+      <dd><code>draft</code> → <code>ready</code> → <code>implementing</code> → <code>completed</code></dd>
+      </dl>
+      <p class="state-index-note">Terminal states distinguish delivered or implemented work from replacement, cancellation, deprecation, and obsolescence. Successor fields are required where the schema names one.</p>
+      </div>
     claim_type: mechanism
     owner: {route: "/reference/", anchor: artifact-lifecycle-and-closure}
     mechanism_summary: "Versioned artifact schemas enumerate live and terminal states plus successor requirements."
     guarantee_boundary: "Each artifact kind retains its own exact vocabulary."
-    known_limitations: "This paragraph summarizes the primary tracks rather than every artifact kind."
+    known_limitations: "Directive, ADR, and Capability status vocabularies are named but not reproduced here."
     adoption_implications: "Consult the named schema before changing state."
     direction: "Keep lifecycle state machine-readable."
     evidence_refs:
-      - {evidence_id: EVIDENCE-044, kind: schema, locator: {path: artifacts/bundle/v1/schema.json}, relevance: "Defines bundle lifecycle states."}
+      - {evidence_id: EVIDENCE-044, kind: schema, locator: {path: artifacts/bundle/v2/schema.json}, relevance: "Defines bundle maturity lifecycle states."}
+      - {evidence_id: EVIDENCE-052, kind: schema, locator: {path: artifacts/issue/v1/schema.json}, relevance: "Defines issue lifecycle states."}
+      - {evidence_id: EVIDENCE-053, kind: schema, locator: {path: artifacts/spec/v1/schema.json}, relevance: "Defines spec lifecycle states."}
+      - {evidence_id: EVIDENCE-054, kind: schema, locator: {path: artifacts/plan/v1/schema.json}, relevance: "Defines plan lifecycle states."}
   - claim_id: CLAIM-031
     statement: "Closing an issue requires a `## Resolution` section and at most one traceability field: `delivered_by` names a completed plan, while `resolved-by` names a direct typed artifact reference, commit SHA, or pull-request URL when no plan lineage applies."
     statement_markdown: "Closing an issue requires a `## Resolution` section and at most one traceability field: `delivered_by` names a completed plan, while `resolved-by` names a direct typed artifact reference, commit SHA, or pull-request URL when no plan lineage applies."

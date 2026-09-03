@@ -49,7 +49,7 @@ phases:
           parity red. Qualifying unreadable refs fail PT104; excluded refs stay excluded.
         files: [scripts/producttruth/manifest_test.go, scripts/producttruth/testdata/manifest-invalid.yml, scripts/producttruth/testdata/git-tags.yml]
         claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-029, CLM-030, CLM-031, CLM-032]
-        test_names: [TestProductTruth_ManifestCLIJobPasses, TestProductTruth_ManifestArtifactSchemaJobPasses, TestProductTruth_ManifestInstalledPackJobPasses, TestProductTruth_ManifestReleaseHistoryJobPasses, TestProductTruth_ManifestRejectsInvalidJobMatrix, TestProductTruth_DefaultModeEqualsWrite, TestProductTruth_RejectsInvalidModeArguments, TestProductTruth_GitLogicalTagStorageAndFormMatrix, TestProductTruth_GitLogicalRefsRejectInvalidMatrix]
+        test_names: [TestProductTruth_ManifestCLIJobPasses, TestProductTruth_ManifestArtifactSchemaJobPasses, TestProductTruth_ManifestPublishedPackJobPasses, TestProductTruth_ManifestReleaseHistoryJobPasses, TestProductTruth_ManifestRejectsInvalidJobMatrix, TestProductTruth_DefaultModeEqualsWrite, TestProductTruth_RejectsInvalidModeArguments, TestProductTruth_GitLogicalTagStorageAndFormMatrix, TestProductTruth_GitLogicalRefsRejectInvalidMatrix]
         depends_on: [TASK-001]
       - id: TASK-003
         type: implementation
@@ -72,7 +72,7 @@ phases:
           install_date, controls, nested values, and pack/schema disagreement.
         files: [scripts/producttruth/generate_test.go, scripts/producttruth/testdata/render-cases.yml, scripts/producttruth/testdata/source-deltas.yml]
         claims: [CLM-006, CLM-007, CLM-008, CLM-009, CLM-010, CLM-011, CLM-016, CLM-017, CLM-018, CLM-019, CLM-026, CLM-027, CLM-028, CLM-033, CLM-034, CLM-035, CLM-036]
-        test_names: [TestProductTruth_RenderCLICommandCatalogDeterministically, TestProductTruth_RenderArtifactSchemaCatalogDeterministically, TestProductTruth_RenderInstalledPackCatalogDeterministically, TestProductTruth_RenderReleaseHistoryDeterministically, TestProductTruth_WriteIsByteStableForEveryJob, TestProductTruth_RejectsNondeterministicRenderInputs, TestProductTruth_SourceDeltaCLICommandCatalog, TestProductTruth_SourceDeltaArtifactSchemaCatalog, TestProductTruth_SourceDeltaInstalledPackCatalog, TestProductTruth_SourceDeltaReleaseHistory, TestProductTruth_HasNoGeneralizedTransformationSurface, TestProductTruth_DoesNotAbsorbOtherSeedOwnership, TestProductTruth_RefusesUndeclaredGenericTransform, TestProductTruth_ExactRecordAndTableShapeMatrix, TestProductTruth_RejectsInvalidSchemaAndPackJoinMatrices, TestProductTruth_TableEscapingAndDigestContract, TestProductTruth_RejectsUnsafeScalarAndRecordShapes]
+        test_names: [TestProductTruth_RenderCLICommandCatalogDeterministically, TestProductTruth_RenderArtifactSchemaCatalogDeterministically, TestProductTruth_RenderPublishedPackCatalogDeterministically, TestProductTruth_RenderReleaseHistoryDeterministically, TestProductTruth_WriteIsByteStableForEveryJob, TestProductTruth_RejectsNondeterministicRenderInputs, TestProductTruth_SourceDeltaCLICommandCatalog, TestProductTruth_SourceDeltaArtifactSchemaCatalog, TestProductTruth_SourceDeltaPublishedPackCatalog, TestProductTruth_SourceDeltaReleaseHistory, TestProductTruth_HasNoGeneralizedTransformationSurface, TestProductTruth_DoesNotAbsorbOtherSeedOwnership, TestProductTruth_RefusesUndeclaredGenericTransform, TestProductTruth_ExactRecordAndTableShapeMatrix, TestProductTruth_RejectsInvalidSchemaAndPackJoinMatrices, TestProductTruth_TableEscapingAndDigestContract, TestProductTruth_RejectsUnsafeScalarAndRecordShapes]
         depends_on: [TASK-001]
       - id: TASK-005
         type: implementation
@@ -106,7 +106,7 @@ phases:
           omitted, empty, null, opposite-variant, unknown, reordered-input/serializer cases.
         files: [scripts/producttruth/provenance_test.go, scripts/producttruth/testdata/provenance-mutations.yml]
         claims: [CLM-035, CLM-047, CLM-048, CLM-049, CLM-050, CLM-051, CLM-052, CLM-053, CLM-054, CLM-055, CLM-056, CLM-057, CLM-058, CLM-059]
-        test_names: [TestProductTruth_CLIImmutableSourceLinkPasses, TestProductTruth_CLIImmutableSourceLinkRemovalFails, TestProductTruth_CLIImmutableSourceLinkDriftFails, TestProductTruth_ArtifactSchemaImmutableSourceLinksPass, TestProductTruth_ArtifactSchemaImmutableSourceLinkRemovalFails, TestProductTruth_ArtifactSchemaImmutableSourceLinkDriftFails, TestProductTruth_InstalledPackImmutableSourceLinksPass, TestProductTruth_InstalledPackImmutableSourceLinkRemovalFails, TestProductTruth_InstalledPackImmutableSourceLinkDriftFails, TestProductTruth_ReleaseHistoryImmutableSourceLinksPass, TestProductTruth_ReleaseHistoryImmutableSourceLinkRemovalFails, TestProductTruth_ReleaseHistoryImmutableSourceLinkDriftFails, TestProductTruth_SourceLinkCanonicalJSONAbsentEmptyNullMutationMatrix]
+        test_names: [TestProductTruth_CLIImmutableSourceLinkPasses, TestProductTruth_CLIImmutableSourceLinkRemovalFails, TestProductTruth_CLIImmutableSourceLinkDriftFails, TestProductTruth_ArtifactSchemaImmutableSourceLinksPass, TestProductTruth_ArtifactSchemaImmutableSourceLinkRemovalFails, TestProductTruth_ArtifactSchemaImmutableSourceLinkDriftFails, TestProductTruth_PublishedPackImmutableSourceLinksPass, TestProductTruth_PublishedPackImmutableSourceLinkRemovalFails, TestProductTruth_PublishedPackImmutableSourceLinkDriftFails, TestProductTruth_ReleaseHistoryImmutableSourceLinksPass, TestProductTruth_ReleaseHistoryImmutableSourceLinkRemovalFails, TestProductTruth_ReleaseHistoryImmutableSourceLinkDriftFails, TestProductTruth_SourceLinkCanonicalJSONAbsentEmptyNullMutationMatrix]
         depends_on: [TASK-006]
       - id: TASK-008
         type: implementation
@@ -196,7 +196,7 @@ phases:
           or parallel input readers without requiring Jekyll or built HTML.
         files: [scripts/producttruth/source_site_test.go, scripts/producttruth/testdata/source-site-mutations.yml]
         claims: [CLM-022, CLM-023, CLM-024, CLM-025]
-        test_names: [TestProductTruth_SourceIncludesReferenceFragments, TestProductTruth_SourceIncludesInstalledPackFragment, TestProductTruth_SourceIncludesReleaseHistoryFragment, TestProductTruth_SourceRejectsParallelOrInvalidConsumption]
+        test_names: [TestProductTruth_SourceIncludesReferenceFragments, TestProductTruth_SourceIncludesPublishedPackFragment, TestProductTruth_SourceIncludesReleaseHistoryFragment, TestProductTruth_SourceRejectsParallelOrInvalidConsumption]
         depends_on: [TASK-014]
       - id: TASK-016
         type: implementation

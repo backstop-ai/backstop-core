@@ -112,15 +112,11 @@ func TestWebsiteJourney_GeneratedObligationMatrixPasses(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cap011 := m.Journey("CAP-011/@UJ-001")
-	if jobs := cap011.GeneratedJobIDs(); strings.Join(jobs, ",") != "installed-pack-catalog" {
-		t.Fatalf("CAP-011/@UJ-001 jobs = %v, want installed-pack-catalog", jobs)
-	}
 	cap013 := m.Journey("CAP-013/@UJ-002")
-	if jobs := cap013.GeneratedJobIDs(); strings.Join(jobs, ",") != "cli-command-catalog,artifact-schema-catalog,installed-pack-catalog,release-history" {
+	if jobs := cap013.GeneratedJobIDs(); strings.Join(jobs, ",") != "cli-command-catalog,artifact-schema-catalog,published-pack-catalog,release-history" {
 		t.Fatalf("CAP-013/@UJ-002 jobs = %v, want all four generated jobs", jobs)
 	}
-	for _, key := range []string{"CAP-011/@UJ-001", "CAP-013/@UJ-002"} {
+	for _, key := range []string{"CAP-013/@UJ-002"} {
 		for _, job := range m.Journey(key).GeneratedObligations() {
 			if job.SourceDigest == "" || !strings.HasPrefix(job.SourceDigest, "sha256:") {
 				t.Fatalf("%s job %s missing canonical source-level digest", key, job.JobID)
@@ -166,7 +162,7 @@ func TestWebsiteJourney_RejectsInvalidGeneratedObligationMatrix(t *testing.T) {
 }
 
 func expectedJourneyKeys() []string {
-	keys := make([]string, 0, 22)
+	keys := make([]string, 0, 18)
 	for _, journey := range ExpectedWebsiteJourneys() {
 		keys = append(keys, journey.GlobalKey)
 	}

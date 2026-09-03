@@ -9,6 +9,6 @@ Feature: Evaluate Fit
 
   @UJ-002
   Scenario: CAP-005/@UJ-002 Confirm no-fit and continue to boundary guidance
-    Given a visitor is at /evaluate/#not-a-fit
+    Given a visitor is at /model/#product-category
     When they follow the rendered JLINK-005 next-action link
     Then they arrive at /status/#adjacent-guidance and can continue from a confirmed no-fit

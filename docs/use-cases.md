@@ -20,4 +20,4 @@ Start from the failure you need to prevent: policy drift, unreviewable agent out
 Use a maintained pack when the concern is shared, repeatable, and already has an owner. Compose packs for architecture, language contracts, CI, security, or repository conventions instead of copying their rules into prompts.
 
 <!-- backstop-journey-link: JLINK-016 -->
-[Choose a maintained pack](/packs/#choose-a-pack)
+[Choose a maintained pack](/pack/examples/#choose-a-pack)

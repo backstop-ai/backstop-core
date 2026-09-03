@@ -157,9 +157,9 @@ requirements:
       `a[data-generated-source-link]` inside the one
       `section[data-generated-region][data-product-truth-job]`, reconstructs the canonical
       descriptor/record envelope, and owns rendered-digest acceptance. Seed 5 consumes that
-      owner acceptance result and must not resolve or reconstruct it. CAP-011/@UJ-001 binds exactly
-      `installed-pack-catalog`; CAP-013/@UJ-002 binds exactly all four jobs
-      `cli-command-catalog`, `artifact-schema-catalog`, `installed-pack-catalog`, and
+      owner acceptance result and must not resolve or reconstruct it. CAP-011 is declared with zero
+      mapped journeys; CAP-013/@UJ-002 binds exactly all four jobs
+      `cli-command-catalog`, `artifact-schema-catalog`, `published-pack-catalog`, and
       `release-history`. CAP-014/@UJ-001 has one additional conjunctive identity contract:
       its JLINK-024 hop and BOUNDARY-005 adjacent-guidance continuation obligation must resolve
       to the SAME single rendered anchor inside the BOUNDARY-005 callout. That one anchor must
@@ -288,7 +288,7 @@ claims:
     tests: [TestWebsiteJourney_RejectsInvalidSemanticBindingMatrix]
   - id: CLM-023
     requirement: REQ-003
-    text: CAP-011/@UJ-001 resolves the exact installed-pack-catalog job and CAP-013/@UJ-002 resolves all four exact jobs through SPEC-074-owned descriptors, templates, marker pairs, and source-level digests plus SPEC-075-owned site-commit resolution, immutable rendered anchors, reconstruction, and rendered-digest acceptance.
+    text: CAP-013/@UJ-002 resolves all four exact jobs through SPEC-074-owned descriptors, templates, marker pairs, and source-level digests plus SPEC-075-owned site-commit resolution, immutable rendered anchors, reconstruction, and rendered-digest acceptance.
     tests: [TestWebsiteJourney_GeneratedObligationMatrixPasses]
   - id: CLM-024
     requirement: REQ-003
@@ -357,7 +357,7 @@ claims:
     tests: [TestWebsiteJourney_MutationDiagnosticsAreJourneySpecific]
   - id: CLM-027
     requirement: REQ-006
-    text: For every mapped generated obligation, independently removing its region, job ID, owner anchor, begin marker, end marker, digest, or each source link breaks CAP-011/@UJ-001 or CAP-013/@UJ-002 as mapped.
+    text: For every mapped generated obligation, independently removing its region, job ID, owner anchor, begin marker, end marker, digest, or each source link breaks CAP-013/@UJ-002 as mapped.
     tests: [TestWebsiteJourney_EveryGeneratedProvenanceMutationBreaksJourney]
   - id: CLM-030
     requirement: REQ-006
@@ -433,27 +433,23 @@ edge rather than requiring duplicate page copy.
 | Global key | Scenario | Exact ordered route/anchor traversal | Link IDs |
 |---|---|---|---|
 | CAP-004/@UJ-001 | Recognize the failure class and why Backstop exists | `/#define-work` -> `/evaluate/#failure-fit` | JLINK-001 |
-| CAP-004/@UJ-002 | Distinguish what Backstop is from what it is not | `/evaluate/#what-backstop-is` -> `/model/#operating-model` | JLINK-002 |
+| CAP-004/@UJ-002 | Distinguish what Backstop is from what it is not | `/evaluate/#working-state` -> `/model/#operating-model` | JLINK-002 |
 | CAP-005/@UJ-001 | Confirm fit and continue to adoption | `/use-cases/#choose-use-case` -> `/evaluate/#fit-decision` -> `/adopt/#install` | JLINK-003, JLINK-004 |
-| CAP-005/@UJ-002 | Confirm no-fit and continue to boundary guidance | `/evaluate/#not-a-fit` -> `/status/#adjacent-guidance` | JLINK-005 |
-| CAP-006/@UJ-001 | Distinguish a shipped mechanism from a guarantee | `/evaluate/#guarantees` -> `/status/#supported-and-limited` | JLINK-006 |
+| CAP-005/@UJ-002 | Confirm no-fit and continue to boundary guidance | `/model/#product-category` -> `/status/#adjacent-guidance` | JLINK-005 |
+| CAP-006/@UJ-001 | Distinguish a shipped mechanism from a guarantee | `/model/#gates-and-policy` -> `/status/#supported-and-limited` | JLINK-006 |
 | CAP-006/@UJ-002 | Compare every public boundary state and its implication | `/status/#boundary-states` -> `/model/#ownership-boundaries` | JLINK-007 |
-| CAP-007/@UJ-001 | Determine whether a named harness, model, or toolchain can operate Backstop | `/evaluate/#compatibility` -> `/reference/#compatibility` | JLINK-008 |
-| CAP-007/@UJ-002 | Determine which lifecycle guarantees that compatibility does not preserve | `/evaluate/#compatibility-limits` -> `/status/#adjacent-guidance` | JLINK-009 |
+| CAP-007/@UJ-001 | Determine whether a named harness, model, or toolchain can operate Backstop | `/model/#harness-integration` -> `/reference/#compatibility` | JLINK-008 |
+| CAP-007/@UJ-002 | Determine which lifecycle guarantees that compatibility does not preserve | `/reference/#compatibility` -> `/status/#adjacent-guidance` | JLINK-009 |
 | CAP-008/@UJ-001 | Follow the artifact-to-plan-to-gate operating model | `/model/#operating-model` -> `/reference/#artifact-schema-catalog` | JLINK-010 |
 | CAP-008/@UJ-002 | Inspect architecture and ownership boundaries | `/model/#ownership-boundaries` -> `/status/#project-boundaries` | JLINK-011 |
-| CAP-009/@UJ-001 | Move from installation instructions to working configuration guidance | `/adopt/#install` -> `/reference/#configuration` | JLINK-012 |
 | CAP-009/@UJ-002 | Verify the configured repository's enforcement path | `/adopt/#verify-enforcement` -> `/model/#enforcement-loop` -> `/reference/#gate` | JLINK-013, JLINK-014 |
 | CAP-010/@UJ-001 | Select a concrete use case and its adoption action | `/use-cases/#choose-use-case` -> `/adopt/#adoption-paths` | JLINK-015 |
-| CAP-010/@UJ-002 | Connect a use case to an applicable pack | `/use-cases/#pack-backed-use-cases` -> `/packs/#choose-a-pack` | JLINK-016 |
-| CAP-011/@UJ-001 | Browse the generated installed-pack catalog | `/packs/#installed-pack-catalog` -> `/reference/#pack-commands` | JLINK-017 |
-| CAP-011/@UJ-002 | Determine which pack addresses a problem and inspect its status | `/packs/#choose-a-pack` -> `/status/#pack-direction` | JLINK-018 |
-| CAP-012/@UJ-001 | Decide whether a concern belongs in a pack and start authoring | `/extend/#pack-or-not` -> `/reference/#pack-artifact` | JLINK-019 |
-| CAP-012/@UJ-002 | Continue from pack authoring to the contribution path | `/extend/#author-a-pack` -> `/contributing/#contribution-paths` | JLINK-020 |
-| CAP-013/@UJ-001 | Trace an evaluation claim to its durable source | `/evaluate/#evidence` -> `/reference/#source-traceability` | JLINK-021 |
-| CAP-013/@UJ-002 | Trace all generated product truth to authoritative sources | `/packs/#installed-pack-catalog` -> `/reference/#cli-command-catalog` -> `/status/#release-history` | JLINK-022, JLINK-023 |
+| CAP-010/@UJ-002 | Connect a use case to an applicable pack | `/use-cases/#pack-backed-use-cases` -> `/pack/examples/#choose-a-pack` | JLINK-016 |
+| CAP-012/@UJ-002 | Continue from pack authoring to the contribution path | `/pack/guide/#author-a-pack` -> `/contributing/#contribution-paths` | JLINK-020 |
+| CAP-013/@UJ-001 | Trace an evaluation claim to its durable source | `/model/#provenance-and-verification` -> `/reference/#source-traceability` | JLINK-021 |
+| CAP-013/@UJ-002 | Trace all generated product truth to authoritative sources | `/reference/#cli-command-catalog` -> `/status/#release-history` | JLINK-023 |
 | CAP-014/@UJ-001 | Follow adjacent guidance beyond an intentional boundary | `/status/#adjacent-guidance` -> `/contributing/#external-ownership` | JLINK-024 |
-| CAP-014/@UJ-002 | Confirm that adjacent guidance is not a Backstop guarantee | `/evaluate/#compatibility-limits` -> `/status/#adjacent-guidance` | JLINK-009 |
+| CAP-014/@UJ-002 | Confirm that adjacent guidance is not a Backstop guarantee | `/reference/#compatibility` -> `/status/#adjacent-guidance` | JLINK-009 |
 
 The graph deliberately reaches all ten canonical routes. No route exists solely to satisfy a route
 counter: removing any route severs at least one concrete journey.
@@ -476,16 +472,12 @@ must resolve to exactly one record; ambiguity is a failure requiring Seed 1 trut
 | CAP-007/@UJ-002 | compatibility claim explicitly naming unpreserved lifecycle guarantees | adjacent-guidance continuation for the unowned integration concern | none |
 | CAP-008/@UJ-001 | mechanism claim sourced to artifact, plan, pack, and gate implementation | non-goal preventing the model from claiming harness execution ownership | none |
 | CAP-008/@UJ-002 | mechanism claim linked to an authoritative Mermaid architecture view | non-goal or adjacent-guidance record for an external toolchain boundary | none |
-| CAP-009/@UJ-001 | runtime-behavior claim with reproducible installation/configuration execution | limitation naming prerequisites or unsupported adoption state | none |
 | CAP-009/@UJ-002 | runtime-behavior claim with captured gate result | supported boundary naming current enforcement behavior | none |
 | CAP-010/@UJ-001 | mechanism or runtime-behavior claim attached to the selected use case | limitation or adjacent-guidance for the use case's stopping point | none |
 | CAP-010/@UJ-002 | mechanism claim connecting use case to pack | planned, limitation, or adjacent-guidance record when no released pack owns the concern | none |
-| CAP-011/@UJ-001 | mechanism claim identifying catalog meaning | limitation that catalog presence is not a universal guarantee | `installed-pack-catalog` |
-| CAP-011/@UJ-002 | mechanism claim identifying pack purpose and release state | supported, planned, or limitation boundary matching that state | none |
-| CAP-012/@UJ-001 | mechanism claim for the pack-extension decision and authoring path | non-goal for concerns that do not belong in a Backstop pack | none |
 | CAP-012/@UJ-002 | mechanism claim for contribution ownership | adjacent-guidance record where another repository owns the work | none |
 | CAP-013/@UJ-001 | consequential claim with one durable mechanism source and claim-type-appropriate second source | none | none |
-| CAP-013/@UJ-002 | mechanism claim explaining the derivation chain | none | `cli-command-catalog`, `artifact-schema-catalog`, `installed-pack-catalog`, `release-history` |
+| CAP-013/@UJ-002 | mechanism claim explaining the derivation chain | none | `cli-command-catalog`, `artifact-schema-catalog`, `published-pack-catalog`, `release-history` |
 | CAP-014/@UJ-001 | mechanism claim supporting why the boundary exists | exact `BOUNDARY-005` adjacent-guidance with reason, JLINK-024 continuation, and guarantee denial | none |
 | CAP-014/@UJ-002 | compatibility or mechanism claim whose guarantee boundary is explicit | adjacent-guidance explicitly denying a Backstop guarantee | none |
 
@@ -507,7 +499,7 @@ job/owner/output tuples remain:
 |---|---|---|---|
 | `cli-command-catalog` | `/reference/#cli-command-catalog` | `docs/_includes/generated/cli-command-catalog.md` | One `{kind: tree, commit_binding: site, path: cmd/backstop}` descriptor; template `https://github.com/backstop-ai/backstop-core/tree/<SITE-COMMIT>/cmd/backstop`. |
 | `artifact-schema-catalog` | `/reference/#artifact-schema-catalog` | `docs/_includes/generated/artifact-schema-catalog.md` | One ordered `{kind: blob, commit_binding: site, path: <record.source>}` descriptor per schema record and no others; template `https://github.com/backstop-ai/backstop-core/blob/<SITE-COMMIT>/<record.source>`. |
-| `installed-pack-catalog` | `/packs/#installed-pack-catalog` | `docs/_includes/generated/installed-pack-catalog.md` | Exactly two ordered `{kind: blob, commit_binding: site}` descriptors for `backstop.yml`, then `backstop.lock`; corresponding blob URL templates with `<SITE-COMMIT>`. |
+| `published-pack-catalog` | `/pack/examples/#published-pack-catalog` | `docs/_includes/generated/published-pack-catalog.md` | One `{kind: blob, commit_binding: site, path: docs/_data/published-pack-inventory.yml}` descriptor; template `https://github.com/backstop-ai/backstop-core/blob/<SITE-COMMIT>/docs/_data/published-pack-inventory.yml`. |
 | `release-history` | `/status/#release-history` | `docs/_includes/generated/release-history.md` | One ordered `{kind: commit, commit_binding: record, commit: <record.commit>}` descriptor per release record and no others; template `https://github.com/backstop-ai/backstop-core/commit/<record.commit>`. |
 
 `<SITE-COMMIT>` remains an exact literal, HTML-encoded token in SPEC-074 source output; Seed 3 does
@@ -686,7 +678,7 @@ continuation in the required DOM position; source parsing or two lookalike ancho
    anchors rather than a direct load, global navigation, or Seed 5-authored link?
 4. Does every semantic role resolve once to a concrete accepted Seed 1 record through stable field
    markers without copied or parsed prose?
-5. Do CAP-011/@UJ-001 and CAP-013/@UJ-002 bind the exact generated jobs, marker pairs, digests,
+5. Do CAP-013/@UJ-002 bind the exact generated jobs, marker pairs, digests,
    owners, outputs, and complete source links as a third obligation kind?
 6. Does CAP-014/@UJ-001 traverse one anchor that simultaneously carries JLINK-024 and BOUNDARY-005
    continuation identities in exact containment/order and preserve exact explanation/link/denial

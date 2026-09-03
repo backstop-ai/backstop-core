@@ -8,6 +8,6 @@ Feature: Understand Backstop
 
   @UJ-002
   Scenario: CAP-004/@UJ-002 Distinguish what Backstop is from what it is not
-    Given a visitor is at /evaluate/#what-backstop-is
+    Given a visitor is at /evaluate/#working-state
     When they follow the rendered JLINK-002 next-action link
     Then they arrive at /model/#operating-model and can distinguish what Backstop is from what it is not

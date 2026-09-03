@@ -90,7 +90,7 @@ func TestWebsiteJourney_EveryBoundaryExplanationRemovalBreaksJourney(t *testing.
 func TestWebsiteJourney_MutationDiagnosticsAreJourneySpecific(t *testing.T) {
 	built, m := mustAcceptedBuiltTree(t)
 	first := KillJourneyMutation(built, m, JourneyMutation{Class: "route", Target: "/"})
-	second := KillJourneyMutation(built, m, JourneyMutation{Class: "route", Target: "/extend/"})
+	second := KillJourneyMutation(built, m, JourneyMutation{Class: "route", Target: "/pack/guide/"})
 	if first.Err == nil || second.Err == nil {
 		t.Fatal("expected both route mutants to die")
 	}

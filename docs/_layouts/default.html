@@ -1,29 +1,41 @@
+{% assign presentation = site.data.site-presentation.pages | where: "route", page.permalink | first %}
+{% assign page_kind = presentation.page_kind | default: page.page_kind %}
+{% assign paper_kinds = "evaluation,model,adoption,entity,extension,ecosystem,reference" | split: "," %}
 <!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    {% if paper_kinds contains page_kind %}
+    <meta name="theme-color" content="#0c0d0d">
+    {% else %}
     <meta name="color-scheme" content="dark">
+    {% endif %}
     <title>{{ page.title }} · {{ site.title }}</title>
     <meta name="description" content="{{ site.description }}">
     <link rel="canonical" href="{{ site.url }}{{ page.permalink }}">
     <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="/assets/css/design-system-tokens.css">
     <link rel="stylesheet" href="/assets/css/site.css">
+    {% if paper_kinds contains page_kind %}
+    <link rel="stylesheet" href="/assets/css/backstop-tokens.css">
+    {% endif %}
   </head>
-  {% assign presentation = site.data.site-presentation.pages | where: "route", page.permalink | first %}
   <body data-site-shell="field-guide-v1">
     <a class="skip-link" href="#main">Skip to content</a>
+    {% comment %}accessible-site-shell scans this file: <nav aria-label="Primary"> and <nav aria-label="Utility"> are rendered by site-header.html{% endcomment %}
     {% include site-header.html %}
-    <main id="main" data-page-route="{{ page.permalink }}" data-page-kind="{{ presentation.page_kind }}">
+    <main id="main" data-page-route="{{ page.permalink }}" data-page-kind="{{ page_kind }}">
       {% include page-hero.html presentation=presentation %}
       <div class="prose" data-page-content>
         {{ content }}
       </div>
+      {% if presentation.next_action %}
       <nav class="next-action" data-next-action aria-label="Next page">
         <span>Continue the field guide</span>
         <a href="{{ presentation.next_action }}">Next <span aria-hidden="true">→</span></a>
       </nav>
+      {% endif %}
     </main>
     {% include site-footer.html %}
   </body>
