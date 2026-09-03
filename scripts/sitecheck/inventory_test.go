@@ -266,7 +266,7 @@ func TestDeliveryInventory_ISSUE198PackFleetPathsAreClosedRows(t *testing.T) {
 			t.Fatalf("inventory path %q count = %d, want 1", path, counts[path])
 		}
 	}
-	for _, path := range []string{"docs/extend.md", "docs/packs.md", "docs/pack-authoring.md", "docs/_includes/generated/installed-pack-catalog.md"} {
+	for _, path := range []string{"docs/extend.md", "docs/packs.md", "docs/_includes/generated/installed-pack-catalog.md"} {
 		if counts[path] != 1 {
 			t.Fatalf("inventory deletion path %q count = %d, want 1", path, counts[path])
 		}

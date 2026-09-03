@@ -92,9 +92,6 @@ entries:
     path: docs/pack/guide.md
     role: page-wrapper
   - change: D
-    path: docs/pack-authoring.md
-    role: page-wrapper
-  - change: D
     path: docs/packs.md
     role: page-wrapper
   - change: A
