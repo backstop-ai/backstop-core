@@ -43,14 +43,10 @@ export async function revealPrimaryNavigation(page: Page): Promise<void> {
   await expect(primary, "mobile navigation opens from the menu control").toBeVisible();
 }
 
-async function resetKeyboardOrigin(page: Page): Promise<void> {
-  await page.evaluate(() => {
-    const active = document.activeElement as HTMLElement | null;
-    if (active && active !== document.body && typeof active.blur === "function") {
-      active.blur();
-    }
-    document.body.focus();
-  });
+async function startKeyboardAtSkipLink(page: Page): Promise<void> {
+  const skip = page.locator(".skip-link");
+  await expect(skip, "skip link is present for keyboard origin").toHaveCount(1);
+  await skip.focus({ force: true });
 }
 
 async function assertDocumentDoesNotOverflow(page: Page, route: string): Promise<void> {
@@ -229,7 +225,7 @@ export async function assertContentCompleteness(page: Page, route: string): Prom
 
 export async function assertKeyboardOrderAndBounds(page: Page, route: string): Promise<void> {
   await revealPrimaryNavigation(page);
-  await resetKeyboardOrigin(page);
+  await startKeyboardAtSkipLink(page);
   const expectedCanonicalFocusOrder = [
     "Home:/",
     ...primaryNavigation.map(([label, href]) => `Primary:${label}:${href}`),
@@ -242,7 +238,6 @@ export async function assertKeyboardOrderAndBounds(page: Page, route: string): P
   }).length);
   expect(expected, `${route} focusable count`).toBeGreaterThan(0);
 
-  await page.locator("body").press("Tab");
   await page.waitForTimeout(34);
   const seen: string[] = [];
   const seenCanonical: string[] = [];

@@ -1640,12 +1640,13 @@ html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kin
   [data-page-kind="model"] .figure-bridge { max-width: 100%; }
 }
 @media (max-width: 36rem) {
-  .header-shell { flex-direction: row; align-items: center; gap: 1rem; }
-  [data-page-kind="home"] .nav { flex-direction: row; flex-wrap: nowrap; align-items: center; overflow: visible; }
-  .site-nav { display: block; position: relative; margin-left: auto; }
+  .header-shell { flex-direction: row; align-items: center; gap: 0.5rem; min-width: 0; }
+  .wordmark { font-size: 1.15rem; }
+  [data-page-kind="home"] .nav { flex-direction: row; flex-wrap: nowrap; align-items: center; overflow: visible; min-width: 0; }
+  .site-nav { display: block; position: relative; margin-left: auto; flex: 0 0 auto; }
   .site-nav-toggle {
     display: inline-flex; align-items: center; justify-content: center;
-    min-width: 2.75rem; min-height: 2.75rem; padding: 0; cursor: pointer;
+    width: 44px; height: 44px; min-width: 44px; min-height: 44px; padding: 0; cursor: pointer;
     color: inherit; background: transparent; border: 1px solid var(--ds-border); border-radius: 0.35rem;
   }
   .site-nav-input:not(:checked) ~ .navigation-groups { display: none; }
