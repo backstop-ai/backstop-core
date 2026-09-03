@@ -64,10 +64,14 @@ func TestProductTruth_RenderArtifactSchemaCatalogDeterministically(t *testing.T)
 	}
 }
 
-func TestProductTruth_RenderInstalledPackCatalogDeterministically(t *testing.T) {
-	assertCanonicalFragment(t, "installed-pack-catalog", []string{"Pack", "Declared version", "Locked version", "Git ref", "Content SHA-256"})
-	if strings.Contains(string(renderedByID(t, "installed-pack-catalog").Bytes), "install_date") {
-		t.Fatal("nondeterministic install date published")
+func TestProductTruth_RenderPublishedPackCatalogDeterministically(t *testing.T) {
+	assertCanonicalFragment(t, "published-pack-catalog", []string{"Pack", "Version", "Covers", "Engines", "Source"})
+	text := string(renderedByID(t, "published-pack-catalog").Bytes)
+	if strings.Contains(text, "Content SHA-256") || strings.Contains(text, "Declared version") || strings.Contains(text, "install_date") {
+		t.Fatal("repository-lock internals published")
+	}
+	if !strings.Contains(text, "backstop-ai/typescript-standards") || !strings.Contains(text, "backstop-ai/secrets") {
+		t.Fatal("published catalog missing org pack absent from this repository's lock")
 	}
 }
 
@@ -105,8 +109,8 @@ func TestProductTruth_SourceDeltaCLICommandCatalog(t *testing.T) {
 func TestProductTruth_SourceDeltaArtifactSchemaCatalog(t *testing.T) {
 	assertLocalizedJob(t, "artifact-schema-catalog")
 }
-func TestProductTruth_SourceDeltaInstalledPackCatalog(t *testing.T) {
-	assertLocalizedJob(t, "installed-pack-catalog")
+func TestProductTruth_SourceDeltaPublishedPackCatalog(t *testing.T) {
+	assertLocalizedJob(t, "published-pack-catalog")
 }
 func TestProductTruth_SourceDeltaReleaseHistory(t *testing.T) {
 	assertLocalizedJob(t, "release-history")
@@ -168,7 +172,7 @@ func TestProductTruth_RejectsInvalidSchemaAndPackJoinMatrices(t *testing.T) {
 	if _, err := loadSchemas(root); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := loadPacks(root); err != nil {
+	if _, err := loadPublishedPacks(root); err != nil {
 		t.Fatal(err)
 	}
 	if reflect.DeepEqual([]string{"a"}, []string{"b"}) {

@@ -4,7 +4,7 @@ number: SPEC-072
 created: "2026-08-24"
 status: implemented
 schema_version: spec/v1
-spec_version: 1.0.10
+spec_version: 1.0.9
 
 implementation:
   summary: >
@@ -44,35 +44,35 @@ contracts:
         name: public_content_topology
         kind: variable
   - file: docs/_data/product-model.yml
-    consumes:
-      - source: scripts/verify-public-product-model.sh
-        name: canonical_product_model
+    provides:
+      - name: canonical_product_model
         kind: variable
+        signature: "concepts[] + architecture_views[] + boundaries[state|explanation_markdown|continuation|guarantee_denial_markdown]"
   - file: docs/_data/evidence-inventory.yml
     consumes:
       - source: scripts/verify-public-product-model.sh
         name: public_claim_evidence_inventory
         kind: variable
   - file: docs/_data/content-inventory.yml
-    consumes:
-      - source: scripts/verify-public-product-model.sh
-        name: legacy_content_disposition_inventory
+    provides:
+      - name: legacy_content_disposition_inventory
         kind: variable
+        signature: "sources[]"
   - file: docs/_diagrams/ARCH-001-delivery-lifecycle.mmd
-    consumes:
-      - source: scripts/verify-public-product-model.sh
-        name: delivery_lifecycle_architecture
+    provides:
+      - name: delivery_lifecycle_architecture
         kind: variable
+        signature: "UTF-8 Mermaid source owned by /model/#delivery-lifecycle"
   - file: docs/_diagrams/ARCH-002-enforcement-loop.mmd
-    consumes:
-      - source: scripts/verify-public-product-model.sh
-        name: enforcement_loop_architecture
+    provides:
+      - name: enforcement_loop_architecture
         kind: variable
+        signature: "UTF-8 Mermaid source owned by /model/#enforcement-loop"
   - file: docs/_diagrams/ARCH-003-ownership-boundaries.mmd
-    consumes:
-      - source: scripts/verify-public-product-model.sh
-        name: ownership_boundaries_architecture
+    provides:
+      - name: ownership_boundaries_architecture
         kind: variable
+        signature: "UTF-8 Mermaid source owned by /model/#ownership-boundaries"
 
 requirements:
   - id: REQ-001
@@ -555,9 +555,9 @@ frontmatter.
 | Source | Canonical path | Seed 1-owned `hero_question` | Authoritative responsibility |
 |---|---|---|---|
 | `docs/index.md` | `/` | What failure does Backstop prevent? | NBR-001: recognize the failure class, explain why Backstop exists, and route the visitor by question. |
-| `docs/evaluate.md` | `/evaluate/` | Your agent already writes the code. | NBR-002 and NBR-003: additive positioning against tools the visitor already uses; the artifact chain as working state; the blocking gate; and the CI-is-too-late fit decision. |
-| `docs/model.md` | `/model/` | How it works | NBR-005 and NBR-006: progressively explain how Backstop works, then provide the dense canonical concept and architecture model. |
-| `docs/adopt.md` | `/adopt/` | Try it out. | Move from evaluation to a working first adoption, state prerequisites and adoption cost, and link rather than duplicate canonical concepts. |
+| `docs/evaluate.md` | `/evaluate/` | Is Backstop the right control surface for this problem? | NBR-002 and NBR-003: define what Backstop is and is not; support fit, mechanism, guarantee, compatibility, limitation, and adoption-cost evaluation. |
+| `docs/model.md` | `/model/` | How does Backstop turn intent into a trustworthy verdict? | NBR-005 and NBR-006: progressively explain how Backstop works, then provide the dense canonical concept and architecture model. |
+| `docs/adopt.md` | `/adopt/` | What does a first working adoption require? | Move from evaluation to a working first adoption, state prerequisites and adoption cost, and link rather than duplicate canonical concepts. |
 | `docs/use-cases.md` | `/use-cases/` | Which problem-oriented adoption path applies? | NBR-007: provide problem-oriented adoption paths and direct each path into the canonical model, packs, adoption, and reference material it needs. |
 | `docs/packs.md` | `/packs/` | Which maintained pack already owns this standard? | NBR-008: expose the pack ecosystem, problem coverage, composition, maintenance state, and selection guidance. |
 | `docs/extend.md` | `/extend/` | When should this concern become a pack? | NBR-009: decide whether a concern belongs in a pack and guide extension without duplicating exact reference material. |
@@ -638,16 +638,17 @@ intentionally one shared physical edge.
 | Link ID | Source route/anchor | Destination route/anchor |
 |---|---|---|
 | JLINK-001 | `/#define-work` | `/evaluate/#failure-fit` |
-| JLINK-002 | `/evaluate/#working-state` | `/model/#operating-model` |
+| JLINK-002 | `/evaluate/#what-backstop-is` | `/model/#operating-model` |
 | JLINK-003 | `/use-cases/#choose-use-case` | `/evaluate/#fit-decision` |
 | JLINK-004 | `/evaluate/#fit-decision` | `/adopt/#install` |
-| JLINK-005 | `/model/#product-category` | `/status/#adjacent-guidance` |
-| JLINK-006 | `/model/#gates-and-policy` | `/status/#supported-and-limited` |
+| JLINK-005 | `/evaluate/#not-a-fit` | `/status/#adjacent-guidance` |
+| JLINK-006 | `/evaluate/#guarantees` | `/status/#supported-and-limited` |
 | JLINK-007 | `/status/#boundary-states` | `/model/#ownership-boundaries` |
-| JLINK-008 | `/model/#harness-integration` | `/reference/#compatibility` |
-| JLINK-009 | `/reference/#compatibility` | `/status/#adjacent-guidance` |
+| JLINK-008 | `/evaluate/#compatibility` | `/reference/#compatibility` |
+| JLINK-009 | `/evaluate/#compatibility-limits` | `/status/#adjacent-guidance` |
 | JLINK-010 | `/model/#operating-model` | `/reference/#artifact-schema-catalog` |
 | JLINK-011 | `/model/#ownership-boundaries` | `/status/#project-boundaries` |
+| JLINK-012 | `/adopt/#install` | `/reference/#configuration` |
 | JLINK-013 | `/adopt/#verify-enforcement` | `/model/#enforcement-loop` |
 | JLINK-014 | `/model/#enforcement-loop` | `/reference/#gate` |
 | JLINK-015 | `/use-cases/#choose-use-case` | `/adopt/#adoption-paths` |
@@ -656,7 +657,7 @@ intentionally one shared physical edge.
 | JLINK-018 | `/packs/#choose-a-pack` | `/status/#pack-direction` |
 | JLINK-019 | `/extend/#pack-or-not` | `/reference/#pack-artifact` |
 | JLINK-020 | `/extend/#author-a-pack` | `/contributing/#contribution-paths` |
-| JLINK-021 | `/model/#provenance-and-verification` | `/reference/#source-traceability` |
+| JLINK-021 | `/evaluate/#evidence` | `/reference/#source-traceability` |
 | JLINK-022 | `/packs/#installed-pack-catalog` | `/reference/#cli-command-catalog` |
 | JLINK-023 | `/reference/#cli-command-catalog` | `/status/#release-history` |
 | JLINK-024 | `/status/#adjacent-guidance` | `/contributing/#external-ownership` |
@@ -948,16 +949,6 @@ any of them or treating this spec as the owner of capability scenarios.
 
 ## Version History
 
-- **1.0.10** (2026-09-03): The five remaining non-Go `provides`+signature contract
-  entries — `content-inventory.yml`, `product-model.yml`, and
-  `ARCH-001`/`ARCH-002`/`ARCH-003` — are consumed by
-  `./scripts/verify-public-product-model.sh` rather than left as Go-compiler
-  false-REDs (ISSUE-200), extending the two-file conversion recorded in the 1.0.9
-  entry to the whole non-Go set. Enforcement is unchanged: the content-inventory,
-  product-model, and architecture-diagram worlds are still verified by the bash
-  verifier pipeline, whose scripts and closed-world pins are untouched. No
-  requirement, claim, or mandated test is edited. PLAN-SPEC-072 stays `completed`;
-  its `spec_version` pin stays at `1.0.8`.
 - **1.0.9** (2026-08-30): JLINK-001 and CLAIM-017 on `/` use the canonical homepage
   section `define-work`. `why-backstop` is not a public homepage anchor.
   YAML `provides` on `content-topology.yml` and `evidence-inventory.yml` are

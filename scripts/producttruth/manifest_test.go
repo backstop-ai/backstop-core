@@ -73,9 +73,9 @@ func TestProductTruth_ManifestArtifactSchemaJobPasses(t *testing.T) {
 	}
 }
 
-func TestProductTruth_ManifestInstalledPackJobPasses(t *testing.T) {
-	assertManifestJob(t, 2, "installed-pack-catalog", "docs/_includes/generated/installed-pack-catalog.md", "/packs/#installed-pack-catalog")
-	if got := testManifest(t).Jobs[2].Inputs; !reflect.DeepEqual(got, []string{"backstop.yml", "backstop.lock"}) {
+func TestProductTruth_ManifestPublishedPackJobPasses(t *testing.T) {
+	assertManifestJob(t, 2, "published-pack-catalog", "docs/_includes/generated/published-pack-catalog.md", "/pack/examples/#published-pack-catalog")
+	if got := testManifest(t).Jobs[2].Inputs; !reflect.DeepEqual(got, []string{"docs/_data/published-pack-inventory.yml"}) {
 		t.Fatalf("inputs=%v", got)
 	}
 }

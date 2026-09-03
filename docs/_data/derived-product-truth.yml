@@ -16,14 +16,14 @@ jobs:
     marker: GENERATED PRODUCT TRUTH
     command: ./scripts/generate-product-truth.sh
     source_link_policy: blob-site-record-source
-  - id: installed-pack-catalog
-    inputs: [backstop.yml, backstop.lock]
-    output: docs/_includes/generated/installed-pack-catalog.md
-    owner_route: /packs/
-    owner_anchor: installed-pack-catalog
+  - id: published-pack-catalog
+    inputs: [docs/_data/published-pack-inventory.yml]
+    output: docs/_includes/generated/published-pack-catalog.md
+    owner_route: /pack/examples/
+    owner_anchor: published-pack-catalog
     marker: GENERATED PRODUCT TRUTH
     command: ./scripts/generate-product-truth.sh
-    source_link_policy: blob-site-pack-manifests
+    source_link_policy: blob-site-published-pack-inventory
   - id: release-history
     inputs: [refs/tags/vMAJOR.MINOR.PATCH]
     output: docs/_includes/generated/release-history.md

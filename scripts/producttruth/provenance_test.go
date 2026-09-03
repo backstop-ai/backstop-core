@@ -86,29 +86,31 @@ func TestProductTruth_ArtifactSchemaImmutableSourceLinkDriftFails(t *testing.T) 
 	}
 }
 
-func TestProductTruth_InstalledPackImmutableSourceLinksPass(t *testing.T) {
-	assertDescriptorContract(t, "installed-pack-catalog", "blob", "site", 2)
-	text := string(renderedByID(t, "installed-pack-catalog").Bytes)
-	if strings.Index(text, "data-source-path=\"backstop.yml\"") > strings.Index(text, "data-source-path=\"backstop.lock\"") {
-		t.Fatal("pack descriptor order")
+func TestProductTruth_PublishedPackImmutableSourceLinksPass(t *testing.T) {
+	assertDescriptorContract(t, "published-pack-catalog", "blob", "site", 1)
+	text := string(renderedByID(t, "published-pack-catalog").Bytes)
+	if !strings.Contains(text, "data-source-path=\"docs/_data/published-pack-inventory.yml\"") {
+		t.Fatal("inventory descriptor missing")
 	}
 }
 
-func TestProductTruth_InstalledPackImmutableSourceLinkRemovalFails(t *testing.T) {
-	item := renderedByID(t, "installed-pack-catalog")
-	withoutManifest := bytes.Replace(item.Bytes, []byte("data-source-path=\"backstop.yml\""), nil, 1)
-	withoutLock := bytes.Replace(item.Bytes, []byte("data-source-path=\"backstop.lock\""), nil, 1)
-	if bytes.Equal(withoutManifest, item.Bytes) || bytes.Equal(withoutLock, item.Bytes) {
+func TestProductTruth_PublishedPackImmutableSourceLinkRemovalFails(t *testing.T) {
+	item := renderedByID(t, "published-pack-catalog")
+	withoutInventory := bytes.Replace(item.Bytes, []byte("data-source-path=\"docs/_data/published-pack-inventory.yml\""), nil, 1)
+	if bytes.Equal(withoutInventory, item.Bytes) {
 		t.Fatal("descriptor mutation did not apply")
 	}
 }
 
-func TestProductTruth_InstalledPackImmutableSourceLinkDriftFails(t *testing.T) {
-	item := renderedByID(t, "installed-pack-catalog")
+func TestProductTruth_PublishedPackImmutableSourceLinkDriftFails(t *testing.T) {
+	item := renderedByID(t, "published-pack-catalog")
 	if strings.Contains(string(item.Bytes), "data-source-kind=\"tree\"") {
 		t.Fatal("pack source rendered as tree")
 	}
-	if !strings.Contains(string(item.Bytes), "owner=/packs/#installed-pack-catalog") {
+	if strings.Contains(string(item.Bytes), "data-source-path=\"backstop.yml\"") || strings.Contains(string(item.Bytes), "data-source-path=\"backstop.lock\"") {
+		t.Fatal("catalog still cites this repository's lock")
+	}
+	if !strings.Contains(string(item.Bytes), "owner=/pack/examples/#published-pack-catalog") {
 		t.Fatal("owner missing")
 	}
 }
