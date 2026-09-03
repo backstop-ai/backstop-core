@@ -35,7 +35,7 @@ commit = sys.argv[2]
 run_id = sys.argv[3]
 routes = [
     "index.html", "evaluate/index.html", "model/index.html", "adopt/index.html",
-    "use-cases/index.html", "packs/index.html", "extend/index.html",
+    "use-cases/index.html", "pack/examples/index.html", "pack/guide/index.html",
     "reference/index.html", "status/index.html", "contributing/index.html",
 ]
 marker = f'<meta name="backstop-deployment" content="commit={commit};run={run_id}">'
