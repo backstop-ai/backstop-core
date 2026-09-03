@@ -380,7 +380,7 @@ claims:
   - id: CLM-003
     requirement: REQ-001
     text: The exact declared-and-locked pack job inputs, output, owner, marker, and command pass manifest validation.
-    tests: [TestProductTruth_ManifestInstalledPackJobPasses]
+    tests: [TestProductTruth_ManifestPublishedPackJobPasses]
   - id: CLM-004
     requirement: REQ-001
     text: The exact reachable stable-SemVer tag job input, output, owner, marker, and command pass manifest validation.
@@ -400,7 +400,7 @@ claims:
   - id: CLM-008
     requirement: REQ-002
     text: Declared and locked packs render by pack name with identity fields while install dates never enter the output.
-    tests: [TestProductTruth_RenderInstalledPackCatalogDeterministically]
+    tests: [TestProductTruth_RenderPublishedPackCatalogDeterministically]
   - id: CLM-009
     requirement: REQ-002
     text: Reachable stable release tags render by descending SemVer with peeled SHA, UTC date, and subject; prerelease, malformed, and unreachable tags are excluded.
@@ -440,7 +440,7 @@ claims:
   - id: CLM-018
     requirement: REQ-004
     text: A declared or locked pack identity change produces only the expected installed-pack catalog delta.
-    tests: [TestProductTruth_SourceDeltaInstalledPackCatalog]
+    tests: [TestProductTruth_SourceDeltaPublishedPackCatalog]
   - id: CLM-019
     requirement: REQ-004
     text: A release-tag fixture change produces only the expected release-history delta.
@@ -460,7 +460,7 @@ claims:
   - id: CLM-023
     requirement: REQ-005
     text: The installed-pack exact source include region appears once at its subordinate packs-page anchor with the required heading, markers, include line, job, and filename.
-    tests: [TestProductTruth_SourceIncludesInstalledPackFragment]
+    tests: [TestProductTruth_SourceIncludesPublishedPackFragment]
   - id: CLM-024
     requirement: REQ-005
     text: The release-history exact source include region appears once at its subordinate status-page anchor with the required heading, markers, include line, job, and filename.
@@ -574,15 +574,15 @@ claims:
   - id: CLM-053
     requirement: REQ-009
     text: The installed-pack job exports exactly the site-commit-bound immutable blob descriptors and URL templates for backstop.yml then backstop.lock, tied to its owner, output, markers, and envelope digest.
-    tests: [TestProductTruth_InstalledPackImmutableSourceLinksPass]
+    tests: [TestProductTruth_PublishedPackImmutableSourceLinksPass]
   - id: CLM-054
     requirement: REQ-009
     text: Independently removing either installed-pack source descriptor fails PT204 for installed-pack-catalog and names the missing path.
-    tests: [TestProductTruth_InstalledPackImmutableSourceLinkRemovalFails]
+    tests: [TestProductTruth_PublishedPackImmutableSourceLinkRemovalFails]
   - id: CLM-055
     requirement: REQ-009
     text: A mutable commit binding, wrong/missing/extra/reordered pack source, wrong owner/output, or marker/envelope digest drift fails the installed-pack provenance contract.
-    tests: [TestProductTruth_InstalledPackImmutableSourceLinkDriftFails]
+    tests: [TestProductTruth_PublishedPackImmutableSourceLinkDriftFails]
   - id: CLM-056
     requirement: REQ-009
     text: The release-history job exports exactly one immutable commit descriptor and URL for each generated release record in record order, tied to its owner, output, markers, and envelope digest.

@@ -4,7 +4,7 @@ number: SPEC-072
 created: "2026-08-24"
 status: implemented
 schema_version: spec/v1
-spec_version: 1.0.9
+spec_version: 1.0.10
 
 implementation:
   summary: >
@@ -44,35 +44,35 @@ contracts:
         name: public_content_topology
         kind: variable
   - file: docs/_data/product-model.yml
-    provides:
-      - name: canonical_product_model
+    consumes:
+      - source: scripts/verify-public-product-model.sh
+        name: canonical_product_model
         kind: variable
-        signature: "concepts[] + architecture_views[] + boundaries[state|explanation_markdown|continuation|guarantee_denial_markdown]"
   - file: docs/_data/evidence-inventory.yml
     consumes:
       - source: scripts/verify-public-product-model.sh
         name: public_claim_evidence_inventory
         kind: variable
   - file: docs/_data/content-inventory.yml
-    provides:
-      - name: legacy_content_disposition_inventory
+    consumes:
+      - source: scripts/verify-public-product-model.sh
+        name: legacy_content_disposition_inventory
         kind: variable
-        signature: "sources[]"
   - file: docs/_diagrams/ARCH-001-delivery-lifecycle.mmd
-    provides:
-      - name: delivery_lifecycle_architecture
+    consumes:
+      - source: scripts/verify-public-product-model.sh
+        name: delivery_lifecycle_architecture
         kind: variable
-        signature: "UTF-8 Mermaid source owned by /model/#delivery-lifecycle"
   - file: docs/_diagrams/ARCH-002-enforcement-loop.mmd
-    provides:
-      - name: enforcement_loop_architecture
+    consumes:
+      - source: scripts/verify-public-product-model.sh
+        name: enforcement_loop_architecture
         kind: variable
-        signature: "UTF-8 Mermaid source owned by /model/#enforcement-loop"
   - file: docs/_diagrams/ARCH-003-ownership-boundaries.mmd
-    provides:
-      - name: ownership_boundaries_architecture
+    consumes:
+      - source: scripts/verify-public-product-model.sh
+        name: ownership_boundaries_architecture
         kind: variable
-        signature: "UTF-8 Mermaid source owned by /model/#ownership-boundaries"
 
 requirements:
   - id: REQ-001
@@ -949,6 +949,16 @@ any of them or treating this spec as the owner of capability scenarios.
 
 ## Version History
 
+- **1.0.10** (2026-09-03): The five remaining non-Go `provides`+signature contract
+  entries — `content-inventory.yml`, `product-model.yml`, and
+  `ARCH-001`/`ARCH-002`/`ARCH-003` — are consumed by
+  `./scripts/verify-public-product-model.sh` rather than left as Go-compiler
+  false-REDs (ISSUE-200), extending the two-file conversion recorded in the 1.0.9
+  entry to the whole non-Go set. Enforcement is unchanged: the content-inventory,
+  product-model, and architecture-diagram worlds are still verified by the bash
+  verifier pipeline, whose scripts and closed-world pins are untouched. No
+  requirement, claim, or mandated test is edited. PLAN-SPEC-072 stays `completed`;
+  its `spec_version` pin stays at `1.0.8`.
 - **1.0.9** (2026-08-30): JLINK-001 and CLAIM-017 on `/` use the canonical homepage
   section `define-work`. `why-backstop` is not a public homepage anchor.
   YAML `provides` on `content-topology.yml` and `evidence-inventory.yml` are
