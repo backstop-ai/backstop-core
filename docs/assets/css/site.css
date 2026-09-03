@@ -697,6 +697,90 @@ th { background: var(--ds-surface); }
   pointer-events: none;
 }
 
+[data-page-kind="adoption"] .page-hero h1 { max-width: 12ch; }
+[data-page-kind="adoption"] .page-boundary,
+[data-page-kind="adoption"] .prose > h2 + p,
+[data-page-kind="adoption"] .prose > h3 + p {
+  max-width: 46rem;
+  margin: 0.45rem 0 1.25rem;
+  color: var(--ds-muted);
+  font-size: 1.15rem;
+  font-weight: 400;
+}
+[data-page-kind="adoption"] .page-boundary { margin: 1.5rem 0 0; }
+[data-page-kind="adoption"] .prose { width: min(calc(100% - 2rem), 72rem); padding-block: 2.5rem 4rem; }
+[data-page-kind="adoption"] .prose > h2 {
+  margin: 3rem 0 0;
+  color: inherit;
+  font-family: var(--ds-font-sans);
+  font-size: clamp(1.45rem, 3vw, 2.1rem);
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+}
+[data-page-kind="adoption"] .prose > h2:first-child { margin-top: 0; }
+[data-page-kind="adoption"] .prose > h3 {
+  margin: 1.5rem 0 0;
+  color: inherit;
+  font-family: var(--ds-font-sans);
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.3;
+}
+[data-page-kind="adoption"] .prose > h2 + h3 { margin-top: 1.1rem; }
+[data-page-kind="adoption"] .prose > p { max-width: 46rem; }
+[data-page-kind="adoption"] .eval-list {
+  max-width: 46rem;
+  margin: 0.85rem 0 1.1rem;
+  padding: 0 0 0 1.25rem;
+}
+[data-page-kind="adoption"] .eval-list > li {
+  margin: 0.45rem 0;
+  padding-left: 0.35rem;
+}
+[data-page-kind="adoption"] #used-the-model {
+  max-width: 46rem;
+  margin-top: 4.5rem;
+  padding-top: 2.25rem;
+  border-top: 1px solid var(--ds-border);
+  font-size: clamp(1.2rem, 2.2vw, 1.55rem);
+  font-weight: 650;
+}
+[data-page-kind="adoption"] #used-the-model + p {
+  margin-top: 0.5rem;
+  color: var(--ds-accent);
+  font-size: 1.15rem;
+  font-weight: 650;
+}
+[data-page-kind="adoption"] .prose pre {
+  max-width: 46rem;
+  margin: 0.85rem 0 1.1rem;
+  padding: 0.9rem 1.05rem;
+  overflow-x: auto;
+  border: 1px solid var(--ds-border);
+  border-radius: 0.55rem;
+  background: var(--ds-surface);
+}
+[data-page-kind="adoption"] .prose pre code {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 0.9rem;
+  white-space: pre;
+}
+[data-page-kind="adoption"] .canonical-note {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 @media (max-width: 56rem) {
   .header-shell { flex-direction: column; }
   .navigation-groups { justify-content: flex-start; }
@@ -872,7 +956,7 @@ th { background: var(--ds-surface); }
   color: var(--ds-accent);
   font-weight: 650;
 }
-html:has([data-page-kind="evaluation"], [data-page-kind="model"]) {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"]) {
   color-scheme: light;
   background: var(--color-paper);
   --ds-canvas: var(--color-paper);
@@ -885,27 +969,27 @@ html:has([data-page-kind="evaluation"], [data-page-kind="model"]) {
   --ds-font-sans: var(--font-sans);
   --ds-font-mono: var(--font-mono);
 }
-html:has([data-page-kind="evaluation"], [data-page-kind="model"]) body {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"]) body {
   background: var(--color-paper);
   color: var(--color-ink);
   font-family: var(--font-sans);
 }
-html:has([data-page-kind="evaluation"], [data-page-kind="model"]) .site-header {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"]) .site-header {
   background: var(--color-paper);
   border-bottom-color: var(--color-line);
 }
-html:has([data-page-kind="evaluation"], [data-page-kind="model"]) .header-shell {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"]) .header-shell {
   min-height: 76px;
   align-items: center;
   padding-block: 0;
 }
-html:has([data-page-kind="evaluation"], [data-page-kind="model"]) .wordmark {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"]) .wordmark {
   font-family: var(--font-sans);
   font-size: 1rem;
   font-weight: 700;
   letter-spacing: -0.03em;
 }
-html:has([data-page-kind="evaluation"], [data-page-kind="model"]) .wordmark[data-backstop-wordmark] > span:first-child {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"]) .wordmark[data-backstop-wordmark] > span:first-child {
   display: inline-grid;
   place-items: center;
   width: 31px;
@@ -918,19 +1002,19 @@ html:has([data-page-kind="evaluation"], [data-page-kind="model"]) .wordmark[data
   font-size: 0.66rem;
   letter-spacing: -0.08em;
 }
-html:has([data-page-kind="evaluation"], [data-page-kind="model"]) .wordmark[data-backstop-wordmark] > span:last-child {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"]) .wordmark[data-backstop-wordmark] > span:last-child {
   color: var(--color-muted);
   font-weight: 500;
 }
-html:has([data-page-kind="evaluation"], [data-page-kind="model"]) .navigation-groups a {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"]) .navigation-groups a {
   color: var(--color-ink);
   font-size: 0.84rem;
   font-weight: 530;
 }
-html:has([data-page-kind="evaluation"], [data-page-kind="model"]) .navigation-groups a:hover {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"]) .navigation-groups a:hover {
   color: var(--color-muted);
 }
-html:has([data-page-kind="evaluation"], [data-page-kind="model"]) .navigation-groups a[aria-current="page"] {
+html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"]) .navigation-groups a[aria-current="page"] {
   color: var(--color-ink);
   text-decoration-color: var(--color-signal);
 }
