@@ -259,7 +259,7 @@ m=re.search(r'paper_kinds = "([^"]+)"',layout)
 assert m and 'reference' in set(m.group(1).split(',')),'paper_kinds must contain reference'
 assert '{% if paper_kinds contains page_kind %}' in layout
 assert layout.index('/assets/css/site.css') < layout.index('/assets/css/backstop-tokens.css')
-for sel in ('[data-page-kind="reference"] .state-index','[data-page-kind="reference"] .state-coupling','[data-page-kind="reference"] .tactics-matrix'):
+for sel in ('[data-page-kind="reference"] .state-index {','[data-page-kind="reference"] .state-coupling','[data-page-kind="reference"] .tactics-matrix'):
  assert sel in css,sel
 assert ':focus-visible' in css and 'prefers-reduced-motion' in css
 if re.search(r'#[0-9a-fA-F]{3,8}\b',css): raise SystemExit('raw hex literal')
@@ -286,8 +286,10 @@ PY
   python3 - "$tmp/site.css" <<'PY'
 import sys
 p=sys.argv[1]; s=open(p).read()
-start=s.index('[data-page-kind="reference"] .state-index')
-end=s.index('[data-page-kind="reference"] .state-coupling')
+needle='[data-page-kind="reference"] .state-index {'
+assert needle in s
+start=s.index(needle)
+end=s.index('[data-page-kind="reference"] .state-coupling', start)
 open(p,'w').write(s[:start]+s[end:])
 PY
   if validate_paper_ink "$tmp/layout.html" "$tmp/site.css" 2>/dev/null; then rm -rf "$tmp"; echo 'delete-state-index mutation passed' >&2; exit 1; fi

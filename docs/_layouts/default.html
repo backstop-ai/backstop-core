@@ -1,6 +1,6 @@
 {% assign presentation = site.data.site-presentation.pages | where: "route", page.permalink | first %}
 {% assign page_kind = presentation.page_kind | default: page.page_kind %}
-{% assign paper_kinds = "evaluation,model,adoption,entity,extension,ecosystem" | split: "," %}
+{% assign paper_kinds = "evaluation,model,adoption,entity,extension,ecosystem,reference" | split: "," %}
 <!doctype html>
 <html lang="en">
   <head>
