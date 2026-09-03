@@ -82,7 +82,8 @@ notes: |
     lede "Backstop helps you ship confidently." The `hero_question` string is declared in
     `docs/evaluate.md` front matter, `docs/_data/site-presentation.yml`, and
     `docs/_data/content-topology.yml`; it is asserted by
-    `scripts/verify-public-product-model.sh:44` (`heroes=[...]`, plus the separate
+    `scripts/verify-public-product-model.sh` line 44 on `origin/main`
+    (`heroes=[...]`, checked at line 46, plus the separate
     presentation-consumption equality on the next lines),
     `scripts/tests/public-product-model/verify-content-topology.sh:20`,
     `canonicalPresentation()` in `scripts/sitecheck/presentation_test.go:29` (which
@@ -141,11 +142,15 @@ notes: |
     the homepage browser matrix that this plan is not allowed to touch.
 
   CLM-007 — CLAIM RELOCATION IS BIJECTIVE AND ANCHOR-BOUND, AND EVERY DESTINATION HEADING
-    ALREADY EXISTS. `scripts/verify-public-product-model.sh` (claim-region loop, ~lines
-    543-552) requires exactly one region per `CLAIM-NNN` across the ten pages
-    ("claim-region bijection mismatch"), requires the nearest preceding
-    `{#anchor}` heading to equal the record's `owner.anchor`, and requires byte equality
-    with `statement_markdown` after `{% raw %}` / `{% endraw %}` are stripped. The eight
+    ALREADY EXISTS. All line numbers below are `origin/main` coordinates, which is the
+    baseline this plan edits. `scripts/verify-public-product-model.sh` recognises a region
+    with the `claim_start` pattern at line 275, walks every page in the claim-region loop at
+    lines 439-448, derives the owning anchor at line 443 as the LAST preceding
+    `^#{1,6} .+ \{#([a-z0-9-]+)\}$` heading, requires at line 446 that the record's
+    `owner` equal `{route, anchor}` AND that `statement_markdown` match the region bytes
+    after `{% raw %}` / `{% endraw %}` are stripped (`claim linkage/bytes CLAIM-NNN`), and
+    at line 448 requires exactly one region per `CLAIM-NNN` across the ten pages
+    (`claim-region bijection mismatch`). The eight
     relocations ISSUE-193 names therefore mean physically moving eight comment-delimited
     regions and repointing eight `owner:` records: CLAIM-020 to `/model/#product-category`,
     CLAIM-011 to `/model/#gates-and-policy`, CLAIM-018 to `/status/#adjacent-guidance`,
@@ -165,7 +170,9 @@ notes: |
     exactly as it stands at `origin/main`, change only `owner: {route, anchor}`, and leave
     CLAIM-025 and CLAIM-030 untouched entirely.
 
-  CLM-009 — SEVEN JLINK SOURCES MOVE AND THE MATRIX STAYS 24 WIDE. ISSUE-193's table is
+  CLM-009 — SIX JLINK SOURCES MOVE, ONE LABEL CHANGES, AND THE MATRIX STAYS 24 WIDE.
+    Seven of the 24 records change; six of those changes are to `source_route` /
+    `source_anchor` and the seventh (JLINK-004) is a label-only change. ISSUE-193's table is
     JLINK-002 source anchor `what-backstop-is` -> `working-state`; JLINK-004 label
     "Start installation" -> "Install Backstop" (source `/evaluate/#fit-decision` unchanged);
     JLINK-005 source `/evaluate/#not-a-fit` -> `/model/#product-category`; JLINK-006 source
@@ -173,42 +180,73 @@ notes: |
     `/evaluate/#compatibility` -> `/model/#harness-integration`; JLINK-009 source
     `/evaluate/#compatibility-limits` -> `/reference/#compatibility`; JLINK-021 source
     `/evaluate/#evidence` -> `/model/#provenance-and-verification`. Every destination is
-    unchanged. `scripts/verify-public-product-model.sh:558` requires the
+    unchanged. All line numbers below are `origin/main` coordinates.
+    `scripts/verify-public-product-model.sh` enforces this in three separate places. Line 71,
+    `exact_ids(links,'link_id',[f'JLINK-{i:03}' for i in range(1,25)],'journey link')`, keeps
+    the set at exactly 24, so no link may be deleted to make the page simpler. Lines 72-75
+    (`edge_specs` / `actual_edges`) require the 24 `(source_route, source_anchor,
+    destination_route, destination_anchor)` tuples to match in order, failing as
+    `exact JLINK edge matrix`. Lines 449-456 then require the
     `<!-- backstop-journey-link: JLINK-NNN -->` marker to appear exactly once on the source
-    page with the LAST preceding `{#anchor}` heading equal to `source_anchor`, and the
-    marker must be immediately followed by `[label](destination_route#destination_anchor)`.
-    `exact_ids(links,'link_id',[f'JLINK-{i:03}' for i in range(1,25)],...)` in the same file
-    keeps the set at exactly 24, so no link may be deleted to make the page simpler.
+    page (line 452, `JLINK-NNN marker/link`), the LAST preceding `{#anchor}` heading to equal
+    `source_anchor` (line 454, `JLINK-NNN source anchor`), the marker to be immediately
+    followed by `[label](destination_route#destination_anchor)`, and the destination anchor
+    to resolve to exactly one heading on the destination page (line 456).
 
-  CLM-010 — THE GHERKIN SCENARIOS ARE PART OF THE HOP CONTRACT, AND THE PROTOTYPE MISSED
-    THEM. `scripts/websitejourney/artifacts.go:471` compares the hop sequence parsed out of
-    each `capabilities/CAP-NNN-*/user-journeys.feature` against `ExpectedWebsiteJourneys()`
-    for exact string equality, and `traversal.go` then resolves those hops against the built
-    site. Six feature files still name retired Evaluate anchors at `origin/main`:
-    CAP-004 line 11 (`/evaluate/#what-backstop-is`), CAP-005 line 12 (`#not-a-fit`),
-    CAP-006 line 5 (`#guarantees`), CAP-007 lines 5 and 11 (`#compatibility`,
-    `#compatibility-limits`), CAP-013 line 5 (`#evidence`), and CAP-014 line 11
-    (`#compatibility-limits`). The prototype branch updated only CAP-011 and
-    CAP-013/@UJ-002 (pack routes) and left all seven Evaluate hops stale, which would red
-    `scripts/verify-website-capabilities.sh`. CAP-004 line 7 (`/evaluate/#failure-fit`) and
-    CAP-005 line 6 (`/evaluate/#fit-decision`) survive and must not be touched.
+  CLM-010 — THE GHERKIN SCENARIOS ARE THE HOP CONTRACT'S OTHER HALF, SO artifacts.go AND THE
+    FEATURE FILES MUST MOVE IN ONE STEP. `ValidateScenarioAndCoverageMatrix`
+    (`scripts/websitejourney/artifacts.go:411`) compares, at line 471, the hop sequence
+    parsed out of each `capabilities/CAP-NNN-*/user-journeys.feature` against
+    `ExpectedWebsiteJourneys()` for exact string equality, failing as
+    `<GlobalKey>: hop sequence [...], want [...]`. The two sides are therefore a single
+    atomic contract: retargeting a `Hops` slice without retargeting its feature file reds
+    that key, and vice versa. This is why TASK-004 edits `artifacts.go` and all six feature
+    files together rather than splitting them.
+
+    Six feature files still name retired Evaluate anchors at `origin/main`: CAP-004 line 11
+    (`/evaluate/#what-backstop-is`), CAP-005 line 12 (`#not-a-fit`), CAP-006 line 5
+    (`#guarantees`), CAP-007 lines 5 and 11 (`#compatibility`, `#compatibility-limits`),
+    CAP-013 line 5 (`#evidence`), and CAP-014 line 11 (`#compatibility-limits`) — seven hops
+    across six files. The prototype branch updated only CAP-011 and CAP-013/@UJ-002 (pack
+    routes) and left all seven Evaluate hops stale. CAP-004 line 7 (`/evaluate/#failure-fit`)
+    and CAP-005 line 6 (`/evaluate/#fit-decision`) survive and must not be touched.
+
+    A THIRD, UNEXECUTED CONSUMER ALSO HARDCODES THE OLD SOURCES.
+    `tests/website-capabilities.spec.ts:4-25` is a `journeys` table binding each GlobalKey to
+    a `first:` route, and seven rows say `first: "/evaluate/"`. Six of them are retargeted by
+    this plan (CAP-005/@UJ-002 and CAP-006/@UJ-001 and CAP-007/@UJ-001 and CAP-013/@UJ-001 to
+    `/model/`; CAP-007/@UJ-002 and CAP-014/@UJ-002 to `/reference/`); only CAP-004/@UJ-002
+    stays on `/evaluate/`, because JLINK-002's source remains `/evaluate/#working-state`.
+    This file is currently executed by NOTHING: `playwright.config.ts:7` sets
+    `testMatch: "public-site.spec.ts"`, `verify-public-site.sh:104` runs bare
+    `npx playwright test` under that config, the Go journey package never reads any
+    `.spec.ts` path (`ExecutableTestTitle` is parsed from the gherkin Scenario title, not
+    from Playwright), and the file has no `.backstop/seed4-delivery-inventory.yml` row. So
+    repointing those six rows produces NO gate receipt, red or green. It is done anyway, as
+    drift prevention, so the file does not silently become a lie about where six journeys
+    start. Do NOT change `testMatch` to make it execute and do NOT add an inventory row for
+    it: wiring up a dormant browser suite is a separate decision this issue does not own.
 
   CLM-011 — THE CLOSED-WORLD ALLOWANCE SET FOR EVALUATE IS REPLACED WHOLESALE: THREE OUT,
-    TWELVE IN. `check_closed_blocks` in `scripts/verify-public-product-model.sh` masks front
+    THIRTEEN IN. `check_closed_blocks` in `scripts/verify-public-product-model.sh` masks front
     matter, claim regions, fenced code, adoption instructions, and generated-include
     envelopes, splits the remainder on blank lines, and skips only the exact hero, blocks
     starting with `#`, and a bare journey-link marker plus its link. Every other block must
     be a verbatim key in `allowances['docs/evaluate.md']`. The three Seed 1 entries
     ("Backstop fits when fast implementation is no longer the constraint...", "Adopt it when
     a repository needs explicit intent artifacts...", "Public claims name their mechanism
-    and the execution...") describe blocks the rewrite deletes and must be removed. Twelve
-    new entries are required, matching the approved page's twelve non-claim, non-jlink,
-    non-heading blocks byte-for-byte: `.tactics-intro` div, five-column `.tactics-matrix`
-    div, the four `#working-state` prose paragraphs, the `.tactics-matrix.sdd-matrix` div,
-    the sdd closer, the `.failed-verdict` div, the `#fit-decision` lede, the CI-versus-gate
-    paragraph, the `.ci-workflows` div, and "CI should confirm, not discover." Because
-    blocks split on BLANK lines, each multi-line HTML div is ONE key containing embedded
-    `\n`; a reflowed div or an added blank line inside one silently invalidates its key.
+    and the execution...") describe blocks the rewrite deletes and must be removed.
+    THIRTEEN new entries are required, matching the approved page's thirteen non-claim,
+    non-jlink, non-heading blocks byte-for-byte. Counted by replaying the masking algorithm
+    over `docs/evaluate.md` at HEAD 0a6010c, they are, in document order: (1) the
+    `.tactics-intro` div, (2) the five-column `.tactics-matrix` div, (3-6) the four
+    `#working-state` prose paragraphs, (7) the `.tactics-matrix.sdd-matrix` div, (8) the sdd
+    closer, (9) the `.failed-verdict` div, (10) the `#fit-decision` lede, (11) the
+    CI-versus-gate paragraph, (12) the `.ci-workflows` div, and (13) "CI should confirm, not
+    discover." Because blocks split on BLANK lines, each multi-line HTML div is ONE key
+    containing embedded `\n`; a reflowed div or an added blank line inside one silently
+    invalidates its key. Do not trust a remembered total: re-derive the count from the file
+    and require it to be thirteen before writing the dict.
 
   CLM-012 — THE THREE PAGE TESTS MUST BE REBALANCED AND ONE OF THEM NEEDS `visible()`.
     `scripts/tests/public-product-model/pages/discovery-evaluation-adoption-status.sh:20`
@@ -228,9 +266,14 @@ notes: |
     responsibility sentence; its JLINK table names the old sources at lines 641 (002), 644
     (005), 645 (006), 647 (008), 648 (009), and 660 (021).
     `specs/SPEC-075-static-public-site-design-system.spec.md:719` carries the old hero in the
-    presentation matrix and lines 787, 790, 791, 794, and 806 carry the old hops.
-    `specs/SPEC-076-end-to-end-website-capabilities.spec.md` lines 436, 438, 439, 442, 453,
-    and 456 carry the old journey hop sequences. These are the only spec bytes in scope:
+    presentation matrix and SIX lines carry the old JLINK sources: 787 (002), 790 (005),
+    791 (006), 793 (008), 794 (009), and 806 (021). Line 793 is easy to miss because
+    JLINK-008's destination (`/reference/#compatibility`) is already correct and only its
+    source moves. `specs/SPEC-076-end-to-end-website-capabilities.spec.md` carries the old
+    journey hop sequences on SEVEN lines: 436 (CAP-004/@UJ-002), 438 (CAP-005/@UJ-002),
+    439 (CAP-006/@UJ-001), 441 (CAP-007/@UJ-001), 442 (CAP-007/@UJ-002), 453
+    (CAP-013/@UJ-001), and 456 (CAP-014/@UJ-002) — one row per retargeted hop, matching
+    TASK-004's seven `Hops` edits exactly. These are the only spec bytes in scope:
     do not change any spec's `status`, do not touch SPEC-074, and do not advance or deliver
     BUNDLE-032.
 
@@ -268,6 +311,50 @@ notes: |
     `javaScriptEnabled: false`; packs stay external in gitignored `.backstop/packs/` and are
     never vendored, edited in place, or committed.
 
+  CLM-017 — RECEIPT REACHABILITY: TWO SHORT-CIRCUITS DECIDE WHICH DIAGNOSTIC A TASK CAN
+    ACTUALLY OBSERVE, SO NO TASK MAY DEMAND A RECEIPT ITS OWN STATE MAKES UNREACHABLE. Line
+    numbers are `origin/main` coordinates.
+
+    (a) `verify-website-capabilities.sh` IS PREREQUISITE-GATED AND IS UNUSABLE AS A JOURNEY
+    RECEIPT UNTIL THE WHOLE SITE IS GREEN. Its `run_prerequisites()` (lines 86-103, invoked
+    at line 168 before any journey work) executes `./scripts/verify-public-product-model.sh`,
+    `./scripts/verify-documentation-semantics-integration.sh`, `./scripts/verify-product-truth.sh`,
+    and `./scripts/verify-public-site.sh` in order, and `fail`s with
+    `governed dependency <command> failed before traversal` on the first non-zero exit.
+    `go test ./scripts/websitejourney/` does not run until all four pass. Consequences this
+    plan is built around: during Phase 1 the product-model verifier is deliberately red, so
+    the script aborts on prerequisite one and can never produce a journey diagnostic — every
+    Phase 1 journey receipt is therefore scoped to
+    `go test ./scripts/websitejourney -run ...`, which reads the feature files and
+    `ExpectedWebsiteJourneys()` directly. Equally, `verify-public-site.sh` is the FOURTH
+    prerequisite and stays red until TASK-010 lands the paper/ink surface that TASK-006
+    asserts, so no task before TASK-010 may require `verify-website-capabilities.sh` either.
+    The first point in this plan where the script can legitimately run end to end is
+    TASK-011, after Phase 3.
+
+    (b) BUILT-SITE TRAVERSAL CANNOT DETECT A MISSING ANCHOR ON A REAL PAGE, because the tree
+    it traverses is SYNTHESIZED FROM THE MAP. `WriteAcceptedBuiltTree`
+    (`scripts/websitejourney/traversal.go:101`) walks `m.Journeys`, calls `ParseHop` on each
+    hop, and writes `<section id="%s"></section>` into an in-memory page for any fragment not
+    already present. Every hop the map declares is therefore satisfied by construction. A
+    retargeted hop can only ever fail as a map-versus-expectation mismatch — the
+    `hop sequence [...], want [...]` diagnostic from `ValidateScenarioAndCoverageMatrix`, or a
+    `website-capability-map.yml` obligation mismatch — never as a built-site traversal miss
+    against `docs/*.md`. Do not write a receipt that predicts a traversal failure for a
+    missing `#working-state` or relocated `/reference/` anchor; that failure mode does not
+    exist in this package.
+
+    (c) THE PRODUCT-MODEL VERIFIER SHORT-CIRCUITS JLINK CARDINALITY BEFORE THE CLOSED-WORLD
+    POLICY, BY DESIGN. Lines 422-423 carry the explicit comment "Diagnose declared-link
+    loss/cardinality before the closed-block policy so page mutations retain the responsible
+    stable journey ID", the marker/link cardinality loop runs at lines 424-428, and
+    `check_closed_blocks` is not called until lines 429-430. `fail()` exits immediately. So
+    while any declared JLINK is missing from its source page, the allowance dict is NEVER
+    evaluated and no `unclassified final-copy block` diagnostic can be produced. TASK-007
+    lands the page and retargets `content-topology.yml`, but the relocated markers do not
+    reach `/model/` and `/reference/` until TASK-008 — so the closed-world allowance proof is
+    unreachable inside TASK-007 and is claimed at TASK-009 instead, once both halves are in.
+
   CLM-016 — THE FENCE. Only the files enumerated in this plan's tasks change. Specifically
     unchanged: `docs/index.html`, `docs/index.md`, `docs/assets/css/backstop.css`,
     `docs/assets/css/backstop-tokens.css`, `docs/_includes/site-header.html`,
@@ -302,8 +389,10 @@ notes: |
      the page keeps them, and `extend-reference-contributing.sh` has no `visible()` helper
      today. Add the helper when CLAIM-007 arrives or the test reds on byte mismatch.
   7. The gherkin feature files are silent consumers (CLM-010). They are not under
-     `docs/` and not in the Seed 4 matrix, so no inventory row or page test names them —
-     only `verify-website-capabilities.sh` does, and it fails on exact hop mismatch.
+     `docs/` and not in the Seed 4 matrix, so no inventory row or page test names them.
+     `ValidateScenarioAndCoverageMatrix` compares them against `ExpectedWebsiteJourneys()`
+     for exact hop equality, so `artifacts.go` and the features are ONE atomic contract:
+     changing either side alone reds the matrix.
   8. Moving the Liquid `presentation` assign above `<!doctype html>` (CLM-004) changes
      `default.html` for all nine inner routes. Keep `data-page-kind="{{ presentation.page_kind }}"`
      and the unconditional `next-action` nav exactly as they are; the `page.page_kind`
@@ -316,6 +405,19 @@ notes: |
   10. `--check-diff` reads committed history from base
      `89f4138aa97e7ba1e8d7c67595cfaee1caefa797`. If the branch is rebased and a change
      letter genuinely flips, reconcile the letter, never the matrix (CLM-014).
+  11. FOUR RECEIPTS LOOK OBVIOUS AND ARE WRONG (CLM-017). (a) `verify-website-capabilities.sh`
+     runs four whole-site verifiers as prerequisites before any journey code, so it is
+     unusable as a journey receipt until TASK-011 — during Phase 1 and Phase 2 it aborts on
+     a prerequisite and says nothing about hops. (b) Built-site traversal cannot catch a
+     missing anchor, because `WriteAcceptedBuiltTree` synthesizes the tree from the map;
+     hop errors surface only as map-versus-expectation mismatches. (c) The JLINK cardinality
+     loop short-circuits ahead of `check_closed_blocks`, so the allowance dict is unreachable
+     while any relocated marker is in flight — the closed-world proof lands at TASK-009, not
+     TASK-007. (d) The page tests raise `KeyError: '/evaluate/'`, not `AssertionError`, when a
+     claim is asserted in a corpus that does not include its current owner route.
+  12. `tests/website-capabilities.spec.ts` hardcodes `first:` routes for seven journeys but is
+     executed by nothing (`testMatch` is `public-site.spec.ts`; no inventory row). Repoint its
+     six moved rows for honesty, expect no receipt from doing so, and do not wire it up.
 
 phases:
   - id: phase-1
@@ -333,7 +435,7 @@ phases:
           In `scripts/verify-public-product-model.sh`: in `heroes=[...]` (line 44) replace
           "Is Backstop the right control surface for this problem?" with "Your agent already
           writes the code." — the same list is reused for the `presentation_pages` equality
-          check, so one edit covers both. In `edge_specs` (line 73) change the JLINK-002
+          check, so one edit covers both. In `edge_specs` (line 72) change the JLINK-002
           tuple to `('/evaluate/','working-state','/model/','operating-model')`, the
           JLINK-005 tuple to `('/model/','product-category','/status/','adjacent-guidance')`,
           the JLINK-006 tuple to
@@ -344,7 +446,7 @@ phases:
           JLINK-021 tuple to
           `('/model/','provenance-and-verification','/reference/','source-traceability')`.
           Keep the list at exactly 24 tuples in JLINK-001..024 order and keep the
-          `exact_ids(...range(1,25)...)` assertion unchanged. In `link_labels` (line 76)
+          `exact_ids(...range(1,25)...)` assertion at line 71 unchanged. In `link_labels` (line 76)
           change the fourth entry from 'Start installation' to 'Install Backstop' and leave
           the other 23 labels alone.
 
@@ -352,7 +454,7 @@ phases:
           sub-dict. Remove the three Seed 1 keys ('Backstop fits when fast implementation is
           no longer the constraint...', 'Adopt it when a repository needs explicit intent
           artifacts...', 'Public claims name their mechanism and the execution...'). Add the
-          twelve keys required by the approved page, copied byte-for-byte from
+          THIRTEEN keys required by the approved page, copied byte-for-byte from
           `docs/evaluate.md` at HEAD 0a6010c with embedded `\n` for intra-div newlines and
           escaped apostrophes where the copy uses them: the `<div class="tactics-intro">`
           block, the five-column `<div class="tactics-matrix">` table block, 'SDD gives the
@@ -373,13 +475,27 @@ phases:
           of the neighbouring entries. Do not add, remove, or reorder any other page's
           allowance entries.
 
+          That enumeration is THIRTEEN keys. Before writing the dict, re-derive the number
+          from the file rather than trusting this list: replay `check_closed_blocks`'s masking
+          order (strip front matter, mask claim regions, mask fenced code, mask
+          adoption-instruction `<pre><code>` renders, mask generated-include envelopes, split
+          on blank lines, then drop empties, the exact hero, anything starting with `#`, and
+          any bare journey-link marker-plus-link pair) over `docs/evaluate.md` at HEAD
+          0a6010c, and require exactly thirteen surviving blocks. If the count differs, the
+          copy source moved; report the discrepancy instead of absorbing it.
+
           In `scripts/tests/public-product-model/verify-content-topology.sh`: apply the same
           hero substitution in `heroes` (line 20), the same six `edges` retargets (line 35),
-          and the same JLINK-004 label change in `labels` (line 36). Additionally change the
-          `/evaluate/` `required_blocks` expectation source of truth only where this file
-          asserts it; leave the ten-way `paths`/`sources` lists, the twelve neighborhood
-          owners, and the seven-primary / two-utility `navigation` assertion exactly as they
-          are.
+          and the same JLINK-004 label change in `labels` (line 36). That is the COMPLETE
+          edit to this file. Do NOT attempt to change a `/evaluate/` `required_blocks`
+          expectation here: this script does not assert `required_blocks` at all — the token
+          does not occur in it — so such an edit would be a silent no-op that fakes coverage.
+          The `required_blocks` list is enforced elsewhere, by `page-hero.html` rendering it
+          into `data-required-blocks` plus `assertContentCompleteness` in the browser stage
+          (TASK-006 / TASK-010) and by the per-anchor heading regex in the page-level tests;
+          those owners are already covered. Leave the ten-way `paths`/`sources` lists, the
+          twelve neighborhood owners, and the seven-primary / two-utility `navigation`
+          assertion exactly as they are.
 
           RED receipt, required before any content edit: run
           `./scripts/verify-public-product-model.sh` and require it to FAIL naming the
@@ -435,13 +551,26 @@ phases:
           `responsibilities` list, and its `production_delete_reject` cases unchanged — those
           belong to sibling issues.
 
-          RED receipt: run each of the three scripts directly with `bash` and require
-          `model-use-cases-packs.sh` to fail on `CLAIM-011` or `CLAIM-020` and
-          `extend-reference-contributing.sh` to fail on `CLAIM-006` (the first newly required
-          ID) — the marked regions are still on `docs/evaluate.md`, so the owner lookup misses.
+          RED receipt — and note the failure TYPE, because it is not the obvious one. Each
+          page test builds `texts` from only the pages in its own `sources` set, then does
+          `assert '<!-- backstop-claim: '+cid+' -->'+... in texts[claim['owner']['route']]`.
+          At this point the eight relocated claims still carry `owner.route: /evaluate/` in
+          `docs/_data/evidence-inventory.yml`, and `/evaluate/` is not a key in either
+          corpus. So the subscript raises before the assert can evaluate: the expected RED is
+          an uncaught `KeyError: '/evaluate/'`, NOT an `AssertionError` naming a claim ID.
+          Run each of the three scripts directly with `bash` and require
+          `model-use-cases-packs.sh` and `extend-reference-contributing.sh` to each exit
+          non-zero with a traceback whose final line is `KeyError: '/evaluate/'`, raised from
+          the claim loop. Record the tracebacks verbatim. An `AssertionError` naming a claim
+          ID at this point would mean the inventory was edited early — out of order for this
+          task, since ownership moves in TASK-008; if that happens, stop and re-check
+          sequencing rather than accepting the diagnostic.
           `discovery-evaluation-adoption-status.sh` legitimately still passes after its
-          narrowing; record that it passes rather than manufacturing a failure for it. A shell
-          or Python execution error is not RED evidence.
+          narrowing; record that it passes rather than manufacturing a failure for it. A
+          shell-level or import-level execution error is not RED evidence.
+
+          After TASK-008 repoints the owners, these same two scripts must go green; that
+          transition is the real proof and it is claimed at TASK-009.
         files:
           - scripts/tests/public-product-model/pages/discovery-evaluation-adoption-status.sh
           - scripts/tests/public-product-model/pages/model-use-cases-packs.sh
@@ -539,14 +668,41 @@ phases:
           arrive at ...` clause byte-for-byte, because `parseFeature` extracts hops positionally
           from the scenario body and the titles are separately matched.
 
-          RED receipt: run
+          RED receipt — this task deliberately lands in a PARTIALLY RED state, and the
+          expected diagnostic is named precisely so it cannot be confused with a real defect.
+          `ExpectedWebsiteJourneys()` is edited for all SEVEN keys here, but only three of the
+          six feature files are repaired in this task, so `ValidateScenarioAndCoverageMatrix`
+          (`artifacts.go:411`, hop comparison at line 471) still disagrees on exactly four
+          keys: CAP-007/@UJ-001, CAP-007/@UJ-002, CAP-013/@UJ-001, and CAP-014/@UJ-002. Those
+          four are closed by TASK-005, which is why TASK-005 depends on this task. Do NOT
+          claim the coverage matrix passes at the end of this task; it does not, and asserting
+          otherwise would be a false receipt.
+
+          Run
           `go test ./scripts/websitejourney -run '^(TestWebsiteJourney_ExactScenarioAndCoverageMatrixPasses|TestWebsiteJourney_RejectsScenarioAndCoverageDrift)$' -count=1 -v`
-          and require the coverage-matrix test to PASS — proving `artifacts.go` and the three
-          edited feature files now agree with each other — while the remaining three stale
-          feature files are repaired in TASK-005. Then run `./scripts/verify-website-capabilities.sh`
-          and require it to FAIL naming a hop-sequence mismatch for one of CAP-007/@UJ-001,
-          CAP-007/@UJ-002, CAP-013/@UJ-001, or CAP-014/@UJ-002. Record both. A build or setup
-          failure is not RED evidence.
+          and require `TestWebsiteJourney_ExactScenarioAndCoverageMatrixPasses` to FAIL with a
+          `hop sequence [...], want [...]` message. Because the validator iterates
+          `ExpectedWebsiteJourneys()` in matrix order and returns on the first mismatch, and
+          CAP-007/@UJ-001 sits at index 6 while CAP-007/@UJ-002, CAP-013/@UJ-001, and
+          CAP-014/@UJ-002 sit at 7, 18, and 21, the reported key must be CAP-007/@UJ-001. A
+          different key means one of the three feature files edited here is wrong — fix the
+          edit rather than accepting the diagnostic. That single reported key IS the proof
+          that the three files edited here are correct: CAP-004/@UJ-002, CAP-005/@UJ-002, and
+          CAP-006/@UJ-001 sit at indices 1, 3, and 4, all AHEAD of index 6, so the validator
+          would have returned one of them instead had any of the three edits been wrong. Do
+          not ask for a per-key "no mismatch" assertion for them — the validator reports at
+          most one key per run, so no such receipt exists. The four remaining keys stay red
+          for the whole of this task and are closed only by TASK-005, whose own receipt
+          (the same three tests passing) is the transition that proves the seven-hop
+          retarget landed.
+
+          Use `go test ./scripts/websitejourney` and nothing else as this lane's receipt. Do
+          NOT invoke `./scripts/verify-website-capabilities.sh` here: per CLM-017(a) its
+          `run_prerequisites()` executes `./scripts/verify-public-product-model.sh` first and
+          `fail`s with `governed dependency ... failed before traversal`, and that verifier is
+          deliberately red from TASK-001, so the script aborts before reaching any journey
+          logic and can produce no journey diagnostic at all. A build or setup failure is not
+          RED evidence.
         files:
           - scripts/websitejourney/artifacts.go
           - capabilities/CAP-004-understand-backstop/user-journeys.feature
@@ -555,6 +711,7 @@ phases:
         claims:
           - CLM-009
           - CLM-010
+          - CLM-017
         test_names:
           - TestWebsiteJourney_ExactScenarioAndCoverageMatrixPasses
           - TestWebsiteJourney_BuiltSiteAllJourneysPass
@@ -562,7 +719,7 @@ phases:
 
       - id: TASK-005
         type: test
-        title: "RED: retarget the CAP-007, CAP-013, and CAP-014 gherkin scenarios"
+        title: "RED: close the hop matrix with CAP-007/013/014 and repoint the dormant journey table"
         description: |
           Finish the gherkin half of CLM-010 so all seven Evaluate hops match TASK-004's
           expectation table. The prototype branch left every one of these three files stale,
@@ -584,21 +741,49 @@ phases:
           titles, the `When ... JLINK-NNN ...` lines, and the `Then they arrive at ...` clauses
           stay byte-for-byte.
 
-          RED receipt: run
+          Also repoint the dormant Playwright journey table (CLM-010). In
+          `tests/website-capabilities.spec.ts`, six rows of the `journeys` array still declare
+          `first: "/evaluate/"` for journeys whose source has moved: set CAP-005/@UJ-002
+          (JLINK-005), CAP-006/@UJ-001 (JLINK-006), CAP-007/@UJ-001 (JLINK-008), and
+          CAP-013/@UJ-001 (JLINK-021) to `"/model/"`, and CAP-007/@UJ-002 (JLINK-009) and
+          CAP-014/@UJ-002 (JLINK-009) to `"/reference/"`. Leave CAP-004/@UJ-002 on
+          `"/evaluate/"` — JLINK-002's source stays `/evaluate/#working-state` — and leave all
+          seventeen other rows, the `test.use({ javaScriptEnabled: false })` posture, and the
+          CAP-014/@UJ-001 BOUNDARY-005 dual-identity branch untouched. This file is executed
+          by nothing today (`playwright.config.ts` restricts `testMatch` to
+          `public-site.spec.ts`, and it has no Seed 4 inventory row), so this edit yields NO
+          receipt; it is drift prevention only, so the table does not become a stale lie about
+          where six journeys begin. Do NOT change `testMatch` and do NOT add an inventory row
+          to make it run — that is a separate decision outside ISSUE-193.
+
+          RECEIPT: run
           `go test ./scripts/websitejourney -run '^(TestWebsiteJourney_ExactScenarioAndCoverageMatrixPasses|TestWebsiteJourney_RejectsScenarioAndCoverageDrift|TestWebsiteJourney_CAP014DualIdentityAnchorPasses)$' -count=1 -v`
-          and require the coverage-matrix and CAP-014 dual-identity tests to pass, proving the
-          scenario corpus is now internally consistent with `ExpectedWebsiteJourneys()`. Then
-          run `./scripts/verify-website-capabilities.sh` and require it to FAIL on built-site
-          traversal instead of on scenario drift — the anchors `#working-state`,
-          `#product-category` as a claim owner, and the relocated `/reference/` claims do not
-          exist on the pages yet. That failure is the standing RED that Phase 2 repairs;
-          record its exact diagnostic. A build or setup failure is not RED evidence.
+          and require all three to PASS. That transition — CAP-007/@UJ-001 failing at the end
+          of TASK-004 and the whole matrix passing here — is this task's evidence: it proves
+          the gherkin corpus and `ExpectedWebsiteJourneys()` are now mutually consistent for
+          all seven retargeted hops.
+
+          Two things NOT to expect, both from CLM-017. First, do not invoke
+          `./scripts/verify-website-capabilities.sh` for this receipt: it runs
+          `./scripts/verify-public-product-model.sh` (red since TASK-001) and then
+          `./scripts/verify-public-site.sh` (red until TASK-010) as prerequisites and aborts
+          with `governed dependency ... failed before traversal` long before any traversal.
+          Second, do not predict a BUILT-SITE traversal failure for the not-yet-existing
+          `#working-state`, `/model/#product-category`, or `/reference/` anchors:
+          `WriteAcceptedBuiltTree` (`traversal.go:101`) synthesizes the tree it walks,
+          emitting `<section id="...">` for every fragment the map declares, so a hop can only
+          fail as a map-versus-expectation mismatch and never as a missing anchor on a real
+          `docs/*.md` page. The standing RED that Phase 2 must repair lives in the
+          product-model verifier's JLINK source-anchor loop (`origin/main` lines 449-456)
+          against the real pages, not here. A build or setup failure is not evidence.
         files:
           - capabilities/CAP-007-evaluate-compatibility/user-journeys.feature
           - capabilities/CAP-013-inspect-evidence/user-journeys.feature
           - capabilities/CAP-014-continue-beyond-backstop/user-journeys.feature
+          - tests/website-capabilities.spec.ts
         claims:
           - CLM-010
+          - CLM-017
         test_names:
           - TestWebsiteJourney_ExactScenarioAndCoverageMatrixPasses
           - TestWebsiteJourney_CAP014DualIdentityAnchorPasses
@@ -719,11 +904,31 @@ phases:
           two-utility membership stays), do not change any neighborhood record, and do not
           touch any other page record.
 
-          GREEN evidence: run `./scripts/verify-public-product-model.sh` and require the
-          Evaluate hero, presentation-consumption, JLINK edge matrix, JLINK label, and
-          `docs/evaluate.md` closed-world block assertions to pass — a failure naming a
-          relocated claim on `/model/`, `/reference/`, or `/status/` is expected until
-          TASK-008 lands and must be reported as such, not worked around. Run
+          GREEN evidence — and note carefully WHICH assertions are reachable at this point,
+          per CLM-017(c). Run `./scripts/verify-public-product-model.sh` and require the
+          early, order-independent Evaluate assertions to pass: the `heroes` equality at
+          `origin/main` lines 45-46, the `presentation_pages` consumption equality at line 48, the
+          24-wide `exact_ids` journey-link check at line 71, the `edge_specs` / `actual_edges`
+          matrix at lines 72-75, and the `link_labels` equality at lines 76-78.
+
+          The verifier will still FAIL, and the expected failure is a JLINK marker/link
+          cardinality diagnostic for the first relocated link whose marker has left
+          `docs/evaluate.md` but has not yet been planted on its new owner — JLINK-005, whose
+          `source_route` this task retargets to `/model/` while TASK-008 plants the marker.
+          The exact form is `docs/model.md: JLINK-005 marker/link cardinality` from the loop at
+          lines 424-428. That is correct and expected; report it, do not work around it, and
+          above all do not delete a journey link or revert a retarget to silence it.
+
+          DO NOT claim a closed-world allowance receipt in this task. The cardinality loop at
+          lines 424-428 runs BEFORE `check_closed_blocks` at lines 429-430 — an intentional
+          ordering documented in the comment at lines 422-423 — and `fail()` exits on the
+          first diagnostic, so while any declared JLINK is missing from its source page the
+          `allowances['docs/evaluate.md']` dict is never evaluated and the
+          `unclassified final-copy block` diagnostic cannot be produced. The thirteen
+          allowance keys written in TASK-001 are therefore proven at TASK-009, once TASK-008
+          has planted every relocated marker and the run reaches the closed-block policy.
+
+          Run
           `go test ./scripts/sitecheck -run '^TestSiteCheck_NavigationMatrixPasses$' -count=1`
           and require it to pass now that the presentation YAML matches TASK-003's table. Then
           run `./bin/backstop gate --file docs/evaluate.md --file docs/_data/site-presentation.yml --file docs/_data/content-topology.yml`
@@ -737,6 +942,7 @@ phases:
           - CLM-002
           - CLM-009
           - CLM-011
+          - CLM-017
         depends_on:
           - TASK-001
           - TASK-003
@@ -784,8 +990,9 @@ phases:
           `## Harness integration {#harness-integration}`, and the JLINK-021 marker plus
           `[Trace the sources](/reference/#source-traceability)` under
           `## Provenance and verification {#provenance-and-verification}`. Each marker must be
-          the last thing in its section relative to the next `{#anchor}` heading so
-          `verify-public-product-model.sh:558`'s last-preceding-heading rule resolves to the
+          the last thing in its section relative to the next `{#anchor}` heading so the
+          last-preceding-heading rule at `verify-public-product-model.sh` line 454
+          (`origin/main` coordinates; the `JLINK-NNN source anchor` check) resolves to the
           declared `source_anchor`. Change no existing `docs/model.md` prose, heading, claim
           region, or the existing JLINK-010/011/014 markers.
 
@@ -833,7 +1040,7 @@ phases:
 
       - id: TASK-009
         type: verification
-        title: "Verify the product model, page tests, and website-capability traversal"
+        title: "Verify the product model, the page tests, the closed-world set, and the journey package"
         description: |
           Run the deterministic content lane end to end now that the page and the relocations
           are both in place.
@@ -847,18 +1054,36 @@ phases:
           `pages/*.sh` stages. Confirm specifically: the ten source/path pairs and the
           seven-primary / two-utility navigation are unchanged; `exact_ids` still sees exactly
           24 journey links and exactly twelve neighborhoods; every one of the eight relocated
-          claims resolves on its new owner page with byte equality; `docs/evaluate.md` has no
-          unclassified final-copy block and no orphaned allowance; and
+          claims resolves on its new owner page with byte equality and the
+          `claim-region bijection mismatch` check at `origin/main` line 448 is satisfied; and
           `verify-structural-verifier.sh`'s JLINK-002 mutation on `docs/evaluate.md` still
           reproduces its expected rejection.
 
-          Then run `./scripts/verify-website-capabilities.sh` and require it to pass, which is
-          the receipt that TASK-004's and TASK-005's retargeted gherkin hops now resolve
-          against real anchors (CLM-010). Read `TestWebsiteJourney_BuiltSiteAllJourneysPass`,
+          THIS IS WHERE THE CLOSED-WORLD ALLOWANCE SET IS FINALLY PROVEN (CLM-011, CLM-017c).
+          TASK-007 could not prove it: the JLINK marker/link cardinality loop at lines 424-428
+          short-circuits ahead of `check_closed_blocks` at lines 429-430, and until TASK-008
+          planted the relocated markers the run never reached the closed-block policy. Now
+          that both halves are in, the policy actually executes, so require explicitly that
+          `docs/evaluate.md` produces no `unclassified final-copy block requires claim linkage
+          or explicit nonconsequential allowance` diagnostic, and that all thirteen allowance
+          keys are live rather than orphaned. Prove liveness rather than assuming it: delete
+          one allowance key, re-run, require the verifier to red naming precisely the block
+          that key covered, then restore the key. An allowance dict that could be emptied
+          without reddening the gate is decoration, not enforcement.
+
+          Verify the journey lane with `go test ./scripts/websitejourney -count=1` and require
           `TestWebsiteJourney_ExactScenarioAndCoverageMatrixPasses`,
-          `TestWebsiteJourney_CAP014DualIdentityAnchorPasses`, and
-          `TestWebsiteJourney_BuiltTraversalRejectsObligationCheats` in that run and require
-          all four present and passing.
+          `TestWebsiteJourney_CAP014DualIdentityAnchorPasses`,
+          `TestWebsiteJourney_BuiltSiteAllJourneysPass`, and
+          `TestWebsiteJourney_BuiltTraversalRejectsObligationCheats` to be present and passing
+          (CLM-010) — this confirms `website-capability-map.yml`'s retargeted obligations agree
+          with the hop catalog. Do NOT run `./scripts/verify-website-capabilities.sh` here: per
+          CLM-017(a) its fourth prerequisite is `./scripts/verify-public-site.sh`, which stays
+          red until TASK-010 lands the paper surface that TASK-006 asserts, so the script would
+          abort with `governed dependency ./scripts/verify-public-site.sh failed before
+          traversal` and prove nothing about journeys. The full script is run at TASK-011, the
+          first point where all four of its prerequisites can be green, and again in the
+          TASK-014 kill chain.
 
           A waiver, a skipped stage, a loosened assertion, a deleted journey link, or a claim
           left on `docs/evaluate.md` is a failure, not a pass. Report any inherited or
@@ -878,6 +1103,7 @@ phases:
           - CLM-010
           - CLM-011
           - CLM-012
+          - CLM-017
         depends_on:
           - TASK-007
           - TASK-008
@@ -1000,6 +1226,19 @@ phases:
           carrying only the failed-gate card; and document overflow stays <= 1px at every
           viewport.
 
+          NOW run `./scripts/verify-website-capabilities.sh` and require it to pass end to
+          end. This is the FIRST task in the plan where that script can legitimately run: per
+          CLM-017(a) its `run_prerequisites()` executes `verify-public-product-model.sh`,
+          `verify-documentation-semantics-integration.sh`, `verify-product-truth.sh`, and
+          `verify-public-site.sh` before any journey work, and the fourth of those only goes
+          green once TASK-010 lands the paper surface TASK-006 asserts. Require all four
+          prerequisites to pass on their own merits — a `governed dependency ... failed before
+          traversal` message means a prerequisite is still red and this task is not done —
+          and then require the journey package's own stage to pass, including
+          `TestWebsiteJourney_BuiltSiteAllJourneysPass` and
+          `TestWebsiteJourney_ExactScenarioAndCoverageMatrixPasses`, at or above the package
+          coverage floor the script enforces (CLM-010).
+
           Then verify the two homepage fences by inspection, not by assumption (CLM-006,
           CLM-016). Diff `docs/assets/css/site.css` against `origin/main` and require every
           pre-existing `[data-page-kind="home"]` rule inside `@media (max-width: 56rem)` and
@@ -1025,7 +1264,9 @@ phases:
           - CLM-004
           - CLM-005
           - CLM-006
+          - CLM-010
           - CLM-015
+          - CLM-017
         depends_on:
           - TASK-009
           - TASK-010
@@ -1175,7 +1416,8 @@ phases:
           `scripts/websitejourney/artifacts.go`, the six affected
           `capabilities/CAP-*/user-journeys.feature` files,
           `scripts/sitecheck/presentation_test.go`, `scripts/sitecheck/site_contract_test.go`,
-          `tests/public-site.spec.ts`, the three edited specs, and this plan and its issue.
+          `tests/public-site.spec.ts`, `tests/website-capabilities.spec.ts` (the six repointed
+          `first:` rows only), the three edited specs, and this plan and its issue.
 
           Confirm unchanged: `docs/index.html`, `docs/index.md`,
           `docs/assets/css/backstop.css`, `docs/assets/css/backstop-tokens.css`,
@@ -1183,7 +1425,9 @@ phases:
           `docs/adopt.md`, `docs/use-cases.md`, `docs/packs.md`, `docs/extend.md`,
           `docs/contributing.md`, `docs/_data/content-inventory.yml`,
           `docs/_data/derived-product-truth.yml`, `docs/_data/product-model.yml`,
-          `docs/_includes/generated/**`, `playwright.config.ts`,
+          `docs/_includes/generated/**`, `playwright.config.ts` (in particular `testMatch` is
+          still exactly `public-site.spec.ts`, so `tests/website-capabilities.spec.ts` remains
+          unexecuted and no dormant suite was wired up to manufacture green),
           `tests/public-site-helpers.ts`, `.github/workflows/**`,
           `.backstop/seed4-delivery-inventory.yml`, `bundles/BUNDLE-032-website-expansion.bundle.md`,
           every other `capabilities/**` scenario, and every gitignored byte under
@@ -1215,6 +1459,7 @@ phases:
           - CLM-014
           - CLM-015
           - CLM-016
+          - CLM-017
         depends_on:
           - TASK-010
           - TASK-011
