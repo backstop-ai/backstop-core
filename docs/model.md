@@ -16,7 +16,14 @@ Backstop converts declared intent into bounded work and an inspectable verdict. 
 
 ## Product category {#product-category}
 
+<!-- backstop-claim: CLAIM-020 -->
+Backstop is a deterministic control surface for AI-native delivery. It keeps intent, bounded implementation, review, and enforcement legible without requiring one agent vendor or runtime.
+<!-- /backstop-claim -->
+
 Backstop is AI delivery discipline: a deterministic control surface around probabilistic execution. It does not need the agent to be right on the first pass; it needs mistakes to become visible before they escape the repository boundary.
+
+<!-- backstop-journey-link: JLINK-005 -->
+[Find adjacent guidance](/status/#adjacent-guidance)
 
 ## Intent artifacts {#intent-artifacts}
 
@@ -40,7 +47,14 @@ Recipes compose repeatable repository operations without transferring standards 
 
 ## Gates and policy {#gates-and-policy}
 
+<!-- backstop-claim: CLAIM-011 -->
+The enforceable guarantee is bounded: the declared gate evaluates the installed standards against the named inputs and returns a policy verdict. Organizational follow-through remains outside that process boundary.
+<!-- /backstop-claim -->
+
 A gate resolves installed packs, runs their declared engines, applies severity and policy, and emits a blocking or passing verdict.
+
+<!-- backstop-journey-link: JLINK-006 -->
+[Review support and limits](/status/#supported-and-limited)
 
 ## Baselines and ratchets {#baselines-and-ratchets}
 
@@ -58,11 +72,17 @@ Capabilities state outcomes. User journeys demonstrate those outcomes from a vis
 
 Evidence binds a claim or verdict to immutable source, exact execution, and governing intent. Green without provenance is not a durable delivery fact.
 
+<!-- backstop-journey-link: JLINK-021 -->
+[Trace the sources](/reference/#source-traceability)
+
 ## Harness integration {#harness-integration}
 
 <!-- backstop-claim: CLAIM-019 -->
 A harness can schedule work and invoke Backstop. It preserves Backstop guarantees only when it also respects artifact order, role boundaries, and the gate exit status.
 <!-- /backstop-claim -->
+
+<!-- backstop-journey-link: JLINK-008 -->
+[Check compatibility details](/reference/#compatibility)
 
 ## Delivery lifecycle {#delivery-lifecycle}
 

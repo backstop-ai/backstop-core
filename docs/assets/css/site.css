@@ -112,6 +112,45 @@ th { background: var(--ds-surface); }
   [data-page-kind="home"] strong,
   [data-page-kind="home"] p,
   [data-page-kind="home"] span { overflow-wrap: anywhere; }
+
+  [data-page-kind="evaluation"] .tactics-matrix table,
+  [data-page-kind="evaluation"] .tactics-matrix tbody,
+  [data-page-kind="evaluation"] .tactics-matrix tr,
+  [data-page-kind="evaluation"] .tactics-matrix td { display: block; width: 100%; }
+  [data-page-kind="evaluation"] .tactics-matrix thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+  }
+  [data-page-kind="evaluation"] .tactics-matrix tr {
+    margin: 0 0 1rem;
+    padding: 0.9rem 1rem;
+    border: 1px solid var(--ds-border);
+    border-radius: 0.55rem;
+    background: var(--ds-surface);
+  }
+  [data-page-kind="evaluation"] .tactics-matrix td {
+    border: 0;
+    padding: 0.4rem 0;
+    white-space: normal;
+  }
+  [data-page-kind="evaluation"] .tactics-matrix td:first-child { font-size: 1.05rem; padding-top: 0; }
+  [data-page-kind="evaluation"] .tactics-matrix td::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 0.15rem;
+    color: var(--ds-muted);
+    font-family: var(--ds-font-mono);
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  [data-page-kind="evaluation"] .tactics-matrix td:first-child::before { content: none; }
+  [data-page-kind="evaluation"] .failed-verdict-row { grid-template-columns: 1fr auto; }
+  [data-page-kind="evaluation"] .ci-workflows { grid-template-columns: 1fr; }
 }
 @media (max-width: 30rem) {
   .navigation-groups { display: flex; flex-direction: column; width: 100%; }
@@ -123,4 +162,187 @@ th { background: var(--ds-surface); }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   *, *::before, *::after { animation-duration: var(--ds-motion-reduced-duration); transition-duration: var(--ds-motion-reduced-duration); }
+}
+
+html:has([data-page-kind="evaluation"]) {
+  color-scheme: light;
+  background: var(--color-paper);
+  --ds-canvas: var(--color-paper);
+  --ds-surface: var(--color-surface);
+  --ds-text: var(--color-ink);
+  --ds-muted: var(--color-muted);
+  --ds-accent: var(--color-signal-ink);
+  --ds-border: var(--color-line);
+  --ds-focus-ring: var(--focus-ring);
+  --ds-font-sans: var(--font-sans);
+  --ds-font-mono: var(--font-mono);
+}
+html:has([data-page-kind="evaluation"]) body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+html:has([data-page-kind="evaluation"]) .site-header {
+  background: var(--color-paper);
+  border-bottom-color: var(--color-line);
+}
+html:has([data-page-kind="evaluation"]) .header-shell {
+  min-height: 76px;
+  align-items: center;
+  padding-block: 0;
+}
+html:has([data-page-kind="evaluation"]) .wordmark {
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+html:has([data-page-kind="evaluation"]) .wordmark[data-backstop-wordmark] > span:first-child {
+  display: inline-grid;
+  place-items: center;
+  width: 31px;
+  height: 25px;
+  margin-right: 9px;
+  background: var(--color-ink);
+  color: var(--color-paper);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: -0.08em;
+}
+html:has([data-page-kind="evaluation"]) .wordmark[data-backstop-wordmark] > span:last-child {
+  color: var(--color-muted);
+  font-weight: 500;
+}
+html:has([data-page-kind="evaluation"]) .navigation-groups a {
+  color: var(--color-ink);
+  font-size: 0.84rem;
+  font-weight: 530;
+}
+html:has([data-page-kind="evaluation"]) .navigation-groups a:hover {
+  color: var(--color-muted);
+}
+html:has([data-page-kind="evaluation"]) .navigation-groups a[aria-current="page"] {
+  color: var(--color-ink);
+  text-decoration-color: var(--color-signal);
+}
+
+[data-page-kind="evaluation"] .page-responsibility { color: var(--color-muted); }
+[data-page-kind="evaluation"] .page-hero h1 {
+  max-width: 14ch;
+  font-weight: 620;
+  letter-spacing: -0.067em;
+}
+[data-page-kind="evaluation"] .page-boundary,
+[data-page-kind="evaluation"] .tactics-bridge,
+[data-page-kind="evaluation"] .prose > h2 + p {
+  max-width: 46rem;
+  margin: 0.45rem 0 1.25rem;
+  color: var(--ds-muted);
+  font-size: 1.15rem;
+  font-weight: 400;
+}
+[data-page-kind="evaluation"] .page-boundary { margin: 1.5rem 0 0; }
+[data-page-kind="evaluation"] .prose { width: min(calc(100% - 2rem), 72rem); padding-block: 2.5rem 4rem; }
+[data-page-kind="evaluation"] .prose > h2,
+[data-page-kind="evaluation"] .tactics-kicker {
+  margin: 3rem 0 0;
+  color: inherit;
+  font-family: var(--ds-font-sans);
+  font-size: clamp(1.45rem, 3vw, 2.1rem);
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+  text-transform: none;
+}
+[data-page-kind="evaluation"] .tactics-kicker { margin: 0; }
+[data-page-kind="evaluation"] .tactics-intro { max-width: 46rem; margin: 0 0 1.75rem; }
+[data-page-kind="evaluation"] .prose > p { max-width: 46rem; }
+[data-page-kind="evaluation"] .prose a { color: var(--color-signal-ink); }
+[data-page-kind="evaluation"] .tactics-matrix { margin: 0 0 2.5rem; }
+[data-page-kind="evaluation"] .tactics-matrix table { width: 100%; font-size: 0.88rem; }
+[data-page-kind="evaluation"] .tactics-matrix th {
+  color: var(--ds-muted);
+  font-family: var(--ds-font-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+[data-page-kind="evaluation"] .tactics-matrix td:first-child { font-weight: 650; white-space: nowrap; }
+[data-page-kind="evaluation"] .tactics-matrix:not(.sdd-matrix) td:nth-child(3) { color: var(--ds-muted); }
+[data-page-kind="evaluation"] .sdd-matrix td:nth-child(2) { color: var(--ds-muted); }
+[data-page-kind="evaluation"] .tactics-matrix td:last-child { color: var(--ds-accent); font-weight: 650; }
+[data-page-kind="evaluation"] .failed-verdict {
+  margin: 1.25rem 0 0.5rem;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--color-terminal);
+  color: var(--color-terminal-text);
+  box-shadow: var(--shadow-terminal);
+  font-family: var(--ds-font-mono);
+  font-size: 0.86rem;
+}
+[data-page-kind="evaluation"] .failed-verdict-bar,
+[data-page-kind="evaluation"] .failed-verdict-row,
+[data-page-kind="evaluation"] .failed-verdict-foot {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--color-terminal-line);
+}
+[data-page-kind="evaluation"] .failed-verdict-bar { color: var(--color-terminal-bar); }
+[data-page-kind="evaluation"] .failed-verdict-row { grid-template-columns: 8rem 1fr auto; }
+[data-page-kind="evaluation"] .failed-verdict-row strong { color: var(--color-danger); }
+[data-page-kind="evaluation"] .failed-verdict-foot { border-bottom: 0; align-items: center; }
+[data-page-kind="evaluation"] .failed-verdict-foot strong { color: var(--color-danger); letter-spacing: 0.08em; }
+[data-page-kind="evaluation"] .failed-verdict-foot span { color: var(--color-terminal-muted); }
+[data-page-kind="evaluation"] .ci-workflows {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin: 1.5rem 0;
+}
+[data-page-kind="evaluation"] .ci-workflows article {
+  min-width: 0;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--ds-border);
+  border-radius: 0.55rem;
+  background: var(--ds-surface);
+}
+[data-page-kind="evaluation"] .ci-workflows article > p {
+  margin: 0 0 0.85rem;
+  color: var(--ds-muted);
+  font-family: var(--ds-font-mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+[data-page-kind="evaluation"] .ci-workflows ol {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.15rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+[data-page-kind="evaluation"] .ci-workflows li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+[data-page-kind="evaluation"] .ci-workflows li:not(:last-child)::after {
+  content: "→";
+  color: var(--ds-muted);
+}
+[data-page-kind="evaluation"] .ci-workflows .has-loop li:nth-child(-n+2)::after { content: "↔"; }
+[data-page-kind="evaluation"] .ci-workflows + p,
+[data-page-kind="evaluation"] .sdd-matrix + p {
+  color: var(--ds-accent);
+  font-size: 1.15rem;
+  font-weight: 650;
 }

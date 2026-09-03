@@ -716,7 +716,7 @@ The wordmark is always the Home route and never masquerades as current-page stat
 | Route | `page_kind` | SPEC-072 `hero_question` (consumed verbatim) | Ordered treatments | `next_action` |
 |---|---|---|---|---|
 | `/` | `home` | What failure does Backstop prevent? | `evidence-cards` | `/evaluate/` |
-| `/evaluate/` | `evaluation` | Is Backstop the right control surface for this problem? | `evidence-cards`, `boundary-callouts` | `/model/` |
+| `/evaluate/` | `evaluation` | Your agent already writes the code. | `evidence-cards`, `boundary-callouts` | `/model/` |
 | `/model/` | `model` | How does Backstop turn intent into a trustworthy verdict? | `evidence-cards`, `local-overflow` | `/adopt/` |
 | `/adopt/` | `adoption` | What does a first working adoption require? | `evidence-cards` | `/use-cases/` |
 | `/use-cases/` | `use-cases` | Which problem-oriented adoption path applies? | `evidence-cards`, `boundary-callouts` | `/packs/` |
@@ -784,14 +784,14 @@ rendered binding below. Each source and destination anchor is case-sensitive and
 | Link ID | Source route/anchor | Destination route/anchor |
 |---|---|---|
 | `JLINK-001` | `/#define-work` | `/evaluate/#failure-fit` |
-| `JLINK-002` | `/evaluate/#what-backstop-is` | `/model/#operating-model` |
+| `JLINK-002` | `/evaluate/#working-state` | `/model/#operating-model` |
 | `JLINK-003` | `/use-cases/#choose-use-case` | `/evaluate/#fit-decision` |
 | `JLINK-004` | `/evaluate/#fit-decision` | `/adopt/#install` |
-| `JLINK-005` | `/evaluate/#not-a-fit` | `/status/#adjacent-guidance` |
-| `JLINK-006` | `/evaluate/#guarantees` | `/status/#supported-and-limited` |
+| `JLINK-005` | `/model/#product-category` | `/status/#adjacent-guidance` |
+| `JLINK-006` | `/model/#gates-and-policy` | `/status/#supported-and-limited` |
 | `JLINK-007` | `/status/#boundary-states` | `/model/#ownership-boundaries` |
-| `JLINK-008` | `/evaluate/#compatibility` | `/reference/#compatibility` |
-| `JLINK-009` | `/evaluate/#compatibility-limits` | `/status/#adjacent-guidance` |
+| `JLINK-008` | `/model/#harness-integration` | `/reference/#compatibility` |
+| `JLINK-009` | `/reference/#compatibility` | `/status/#adjacent-guidance` |
 | `JLINK-010` | `/model/#operating-model` | `/reference/#artifact-schema-catalog` |
 | `JLINK-011` | `/model/#ownership-boundaries` | `/status/#project-boundaries` |
 | `JLINK-012` | `/adopt/#install` | `/reference/#configuration` |

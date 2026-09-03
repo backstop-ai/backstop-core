@@ -555,7 +555,7 @@ frontmatter.
 | Source | Canonical path | Seed 1-owned `hero_question` | Authoritative responsibility |
 |---|---|---|---|
 | `docs/index.md` | `/` | What failure does Backstop prevent? | NBR-001: recognize the failure class, explain why Backstop exists, and route the visitor by question. |
-| `docs/evaluate.md` | `/evaluate/` | Is Backstop the right control surface for this problem? | NBR-002 and NBR-003: define what Backstop is and is not; support fit, mechanism, guarantee, compatibility, limitation, and adoption-cost evaluation. |
+| `docs/evaluate.md` | `/evaluate/` | Your agent already writes the code. | NBR-002 and NBR-003: additive positioning against tools the visitor already uses; the artifact chain as working state; the blocking gate; and the CI-is-too-late fit decision. |
 | `docs/model.md` | `/model/` | How does Backstop turn intent into a trustworthy verdict? | NBR-005 and NBR-006: progressively explain how Backstop works, then provide the dense canonical concept and architecture model. |
 | `docs/adopt.md` | `/adopt/` | What does a first working adoption require? | Move from evaluation to a working first adoption, state prerequisites and adoption cost, and link rather than duplicate canonical concepts. |
 | `docs/use-cases.md` | `/use-cases/` | Which problem-oriented adoption path applies? | NBR-007: provide problem-oriented adoption paths and direct each path into the canonical model, packs, adoption, and reference material it needs. |
@@ -638,14 +638,14 @@ intentionally one shared physical edge.
 | Link ID | Source route/anchor | Destination route/anchor |
 |---|---|---|
 | JLINK-001 | `/#define-work` | `/evaluate/#failure-fit` |
-| JLINK-002 | `/evaluate/#what-backstop-is` | `/model/#operating-model` |
+| JLINK-002 | `/evaluate/#working-state` | `/model/#operating-model` |
 | JLINK-003 | `/use-cases/#choose-use-case` | `/evaluate/#fit-decision` |
 | JLINK-004 | `/evaluate/#fit-decision` | `/adopt/#install` |
-| JLINK-005 | `/evaluate/#not-a-fit` | `/status/#adjacent-guidance` |
-| JLINK-006 | `/evaluate/#guarantees` | `/status/#supported-and-limited` |
+| JLINK-005 | `/model/#product-category` | `/status/#adjacent-guidance` |
+| JLINK-006 | `/model/#gates-and-policy` | `/status/#supported-and-limited` |
 | JLINK-007 | `/status/#boundary-states` | `/model/#ownership-boundaries` |
-| JLINK-008 | `/evaluate/#compatibility` | `/reference/#compatibility` |
-| JLINK-009 | `/evaluate/#compatibility-limits` | `/status/#adjacent-guidance` |
+| JLINK-008 | `/model/#harness-integration` | `/reference/#compatibility` |
+| JLINK-009 | `/reference/#compatibility` | `/status/#adjacent-guidance` |
 | JLINK-010 | `/model/#operating-model` | `/reference/#artifact-schema-catalog` |
 | JLINK-011 | `/model/#ownership-boundaries` | `/status/#project-boundaries` |
 | JLINK-012 | `/adopt/#install` | `/reference/#configuration` |
@@ -657,7 +657,7 @@ intentionally one shared physical edge.
 | JLINK-018 | `/packs/#choose-a-pack` | `/status/#pack-direction` |
 | JLINK-019 | `/extend/#pack-or-not` | `/reference/#pack-artifact` |
 | JLINK-020 | `/extend/#author-a-pack` | `/contributing/#contribution-paths` |
-| JLINK-021 | `/evaluate/#evidence` | `/reference/#source-traceability` |
+| JLINK-021 | `/model/#provenance-and-verification` | `/reference/#source-traceability` |
 | JLINK-022 | `/packs/#installed-pack-catalog` | `/reference/#cli-command-catalog` |
 | JLINK-023 | `/reference/#cli-command-catalog` | `/status/#release-history` |
 | JLINK-024 | `/status/#adjacent-guidance` | `/contributing/#external-ownership` |

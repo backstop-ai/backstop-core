@@ -7,7 +7,7 @@ pages:
     next_action: /evaluate/
   - route: /evaluate/
     page_kind: evaluation
-    hero_question: Is Backstop the right control surface for this problem?
+    hero_question: Your agent already writes the code.
     treatments: [evidence-cards, boundary-callouts]
     next_action: /model/
   - route: /model/

@@ -1,6 +1,6 @@
 pages:
   - {source: docs/index.md, canonical_path: "/", role: discovery, hero_question: "What failure does Backstop prevent?", neighborhood_ids: [NBR-001], required_blocks: [define-work, choose-your-path], source_material: [HOME-001, HOME-002]}
-  - {source: docs/evaluate.md, canonical_path: "/evaluate/", role: evaluation, hero_question: "Is Backstop the right control surface for this problem?", neighborhood_ids: [NBR-002, NBR-003], required_blocks: [what-backstop-is, failure-fit, fit-decision, not-a-fit, guarantees, compatibility, compatibility-limits, evidence], source_material: [HOME-003, GET-005, CON-001]}
+  - {source: docs/evaluate.md, canonical_path: "/evaluate/", role: evaluation, hero_question: "Your agent already writes the code.", neighborhood_ids: [NBR-002, NBR-003], required_blocks: [working-state, failure-fit, fit-decision], source_material: [HOME-003, GET-005, CON-001]}
   - {source: docs/model.md, canonical_path: "/model/", role: canonical-model, hero_question: "How does Backstop turn intent into a trustworthy verdict?", neighborhood_ids: [NBR-005, NBR-006], required_blocks: [operating-model, delivery-lifecycle, enforcement-loop, ownership-boundaries], source_material: [HOME-002, CON-001, CON-002, CON-003, CON-004, CON-005, CON-006, ART-001, ART-003, ART-004, ART-005]}
   - {source: docs/adopt.md, canonical_path: "/adopt/", role: adoption, hero_question: "What does a first working adoption require?", neighborhood_ids: [], required_blocks: [adoption-paths, install, configure, verify-enforcement], source_material: [HOME-004, GET-001, GET-002, GET-003, ART-002, CLI-002]}
   - {source: docs/use-cases.md, canonical_path: "/use-cases/", role: use-cases, hero_question: "Which problem-oriented adoption path applies?", neighborhood_ids: [NBR-007], required_blocks: [choose-use-case, pack-backed-use-cases], source_material: [HOME-003, GET-003]}
@@ -27,14 +27,14 @@ navigation:
   utility: ["/status/", "/contributing/"]
 journey_links:
   - {link_id: JLINK-001, source_route: "/", source_anchor: define-work, destination_route: "/evaluate/", destination_anchor: failure-fit, label: "Evaluate the failure fit"}
-  - {link_id: JLINK-002, source_route: "/evaluate/", source_anchor: what-backstop-is, destination_route: "/model/", destination_anchor: operating-model, label: "See the operating model"}
+  - {link_id: JLINK-002, source_route: "/evaluate/", source_anchor: working-state, destination_route: "/model/", destination_anchor: operating-model, label: "See the operating model"}
   - {link_id: JLINK-003, source_route: "/use-cases/", source_anchor: choose-use-case, destination_route: "/evaluate/", destination_anchor: fit-decision, label: "Check the fit decision"}
-  - {link_id: JLINK-004, source_route: "/evaluate/", source_anchor: fit-decision, destination_route: "/adopt/", destination_anchor: install, label: "Start installation"}
-  - {link_id: JLINK-005, source_route: "/evaluate/", source_anchor: not-a-fit, destination_route: "/status/", destination_anchor: adjacent-guidance, label: "Find adjacent guidance"}
-  - {link_id: JLINK-006, source_route: "/evaluate/", source_anchor: guarantees, destination_route: "/status/", destination_anchor: supported-and-limited, label: "Review support and limits"}
+  - {link_id: JLINK-004, source_route: "/evaluate/", source_anchor: fit-decision, destination_route: "/adopt/", destination_anchor: install, label: "Install Backstop"}
+  - {link_id: JLINK-005, source_route: "/model/", source_anchor: product-category, destination_route: "/status/", destination_anchor: adjacent-guidance, label: "Find adjacent guidance"}
+  - {link_id: JLINK-006, source_route: "/model/", source_anchor: gates-and-policy, destination_route: "/status/", destination_anchor: supported-and-limited, label: "Review support and limits"}
   - {link_id: JLINK-007, source_route: "/status/", source_anchor: boundary-states, destination_route: "/model/", destination_anchor: ownership-boundaries, label: "See ownership boundaries"}
-  - {link_id: JLINK-008, source_route: "/evaluate/", source_anchor: compatibility, destination_route: "/reference/", destination_anchor: compatibility, label: "Check compatibility details"}
-  - {link_id: JLINK-009, source_route: "/evaluate/", source_anchor: compatibility-limits, destination_route: "/status/", destination_anchor: adjacent-guidance, label: "Follow compatibility guidance"}
+  - {link_id: JLINK-008, source_route: "/model/", source_anchor: harness-integration, destination_route: "/reference/", destination_anchor: compatibility, label: "Check compatibility details"}
+  - {link_id: JLINK-009, source_route: "/reference/", source_anchor: compatibility, destination_route: "/status/", destination_anchor: adjacent-guidance, label: "Follow compatibility guidance"}
   - {link_id: JLINK-010, source_route: "/model/", source_anchor: operating-model, destination_route: "/reference/", destination_anchor: artifact-schema-catalog, label: "Inspect artifact schemas"}
   - {link_id: JLINK-011, source_route: "/model/", source_anchor: ownership-boundaries, destination_route: "/status/", destination_anchor: project-boundaries, label: "Review project boundaries"}
   - {link_id: JLINK-012, source_route: "/adopt/", source_anchor: install, destination_route: "/reference/", destination_anchor: configuration, label: "Configure Backstop"}
@@ -46,7 +46,7 @@ journey_links:
   - {link_id: JLINK-018, source_route: "/packs/", source_anchor: choose-a-pack, destination_route: "/status/", destination_anchor: pack-direction, label: "Review pack direction"}
   - {link_id: JLINK-019, source_route: "/extend/", source_anchor: pack-or-not, destination_route: "/reference/", destination_anchor: pack-artifact, label: "Inspect the pack artifact"}
   - {link_id: JLINK-020, source_route: "/extend/", source_anchor: author-a-pack, destination_route: "/contributing/", destination_anchor: contribution-paths, label: "Contribute the pack"}
-  - {link_id: JLINK-021, source_route: "/evaluate/", source_anchor: evidence, destination_route: "/reference/", destination_anchor: source-traceability, label: "Trace the sources"}
+  - {link_id: JLINK-021, source_route: "/model/", source_anchor: provenance-and-verification, destination_route: "/reference/", destination_anchor: source-traceability, label: "Trace the sources"}
   - {link_id: JLINK-022, source_route: "/packs/", source_anchor: installed-pack-catalog, destination_route: "/reference/", destination_anchor: cli-command-catalog, label: "Browse the CLI catalog"}
   - {link_id: JLINK-023, source_route: "/reference/", source_anchor: cli-command-catalog, destination_route: "/status/", destination_anchor: release-history, label: "Check release history"}
   - {link_id: JLINK-024, source_route: "/status/", source_anchor: adjacent-guidance, destination_route: "/contributing/", destination_anchor: external-ownership, label: "Continue outside Backstop"}

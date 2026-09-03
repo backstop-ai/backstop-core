@@ -433,13 +433,13 @@ edge rather than requiring duplicate page copy.
 | Global key | Scenario | Exact ordered route/anchor traversal | Link IDs |
 |---|---|---|---|
 | CAP-004/@UJ-001 | Recognize the failure class and why Backstop exists | `/#define-work` -> `/evaluate/#failure-fit` | JLINK-001 |
-| CAP-004/@UJ-002 | Distinguish what Backstop is from what it is not | `/evaluate/#what-backstop-is` -> `/model/#operating-model` | JLINK-002 |
+| CAP-004/@UJ-002 | Distinguish what Backstop is from what it is not | `/evaluate/#working-state` -> `/model/#operating-model` | JLINK-002 |
 | CAP-005/@UJ-001 | Confirm fit and continue to adoption | `/use-cases/#choose-use-case` -> `/evaluate/#fit-decision` -> `/adopt/#install` | JLINK-003, JLINK-004 |
-| CAP-005/@UJ-002 | Confirm no-fit and continue to boundary guidance | `/evaluate/#not-a-fit` -> `/status/#adjacent-guidance` | JLINK-005 |
-| CAP-006/@UJ-001 | Distinguish a shipped mechanism from a guarantee | `/evaluate/#guarantees` -> `/status/#supported-and-limited` | JLINK-006 |
+| CAP-005/@UJ-002 | Confirm no-fit and continue to boundary guidance | `/model/#product-category` -> `/status/#adjacent-guidance` | JLINK-005 |
+| CAP-006/@UJ-001 | Distinguish a shipped mechanism from a guarantee | `/model/#gates-and-policy` -> `/status/#supported-and-limited` | JLINK-006 |
 | CAP-006/@UJ-002 | Compare every public boundary state and its implication | `/status/#boundary-states` -> `/model/#ownership-boundaries` | JLINK-007 |
-| CAP-007/@UJ-001 | Determine whether a named harness, model, or toolchain can operate Backstop | `/evaluate/#compatibility` -> `/reference/#compatibility` | JLINK-008 |
-| CAP-007/@UJ-002 | Determine which lifecycle guarantees that compatibility does not preserve | `/evaluate/#compatibility-limits` -> `/status/#adjacent-guidance` | JLINK-009 |
+| CAP-007/@UJ-001 | Determine whether a named harness, model, or toolchain can operate Backstop | `/model/#harness-integration` -> `/reference/#compatibility` | JLINK-008 |
+| CAP-007/@UJ-002 | Determine which lifecycle guarantees that compatibility does not preserve | `/reference/#compatibility` -> `/status/#adjacent-guidance` | JLINK-009 |
 | CAP-008/@UJ-001 | Follow the artifact-to-plan-to-gate operating model | `/model/#operating-model` -> `/reference/#artifact-schema-catalog` | JLINK-010 |
 | CAP-008/@UJ-002 | Inspect architecture and ownership boundaries | `/model/#ownership-boundaries` -> `/status/#project-boundaries` | JLINK-011 |
 | CAP-009/@UJ-001 | Move from installation instructions to working configuration guidance | `/adopt/#install` -> `/reference/#configuration` | JLINK-012 |
@@ -450,10 +450,10 @@ edge rather than requiring duplicate page copy.
 | CAP-011/@UJ-002 | Determine which pack addresses a problem and inspect its status | `/packs/#choose-a-pack` -> `/status/#pack-direction` | JLINK-018 |
 | CAP-012/@UJ-001 | Decide whether a concern belongs in a pack and start authoring | `/extend/#pack-or-not` -> `/reference/#pack-artifact` | JLINK-019 |
 | CAP-012/@UJ-002 | Continue from pack authoring to the contribution path | `/extend/#author-a-pack` -> `/contributing/#contribution-paths` | JLINK-020 |
-| CAP-013/@UJ-001 | Trace an evaluation claim to its durable source | `/evaluate/#evidence` -> `/reference/#source-traceability` | JLINK-021 |
+| CAP-013/@UJ-001 | Trace an evaluation claim to its durable source | `/model/#provenance-and-verification` -> `/reference/#source-traceability` | JLINK-021 |
 | CAP-013/@UJ-002 | Trace all generated product truth to authoritative sources | `/packs/#installed-pack-catalog` -> `/reference/#cli-command-catalog` -> `/status/#release-history` | JLINK-022, JLINK-023 |
 | CAP-014/@UJ-001 | Follow adjacent guidance beyond an intentional boundary | `/status/#adjacent-guidance` -> `/contributing/#external-ownership` | JLINK-024 |
-| CAP-014/@UJ-002 | Confirm that adjacent guidance is not a Backstop guarantee | `/evaluate/#compatibility-limits` -> `/status/#adjacent-guidance` | JLINK-009 |
+| CAP-014/@UJ-002 | Confirm that adjacent guidance is not a Backstop guarantee | `/reference/#compatibility` -> `/status/#adjacent-guidance` | JLINK-009 |
 
 The graph deliberately reaches all ten canonical routes. No route exists solely to satisfy a route
 counter: removing any route severs at least one concrete journey.

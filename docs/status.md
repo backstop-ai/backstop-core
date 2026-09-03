@@ -45,6 +45,10 @@ Backstop stops at an inspectable verdict because external orchestration and orga
 That continuation is guidance, not a guarantee provided by Backstop.
 <!-- /backstop-claim -->
 
+<!-- backstop-claim: CLAIM-018 -->
+Backstop is not an agent runtime, project-management system, or substitute for owning delivery decisions. Those systems can surround it, but they remain separate responsibilities.
+<!-- /backstop-claim -->
+
 ## Pack direction {#pack-direction}
 
 <!-- backstop-claim: CLAIM-033 -->

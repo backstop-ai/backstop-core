@@ -86,7 +86,7 @@ test.describe("Evaluate paper surface", () => {
     await expect(page.locator("[data-page-question]")).toHaveText("Your agent already writes the code.");
     await expect(page.locator(".page-boundary")).toHaveText("Backstop helps you ship confidently.");
 
-    const requiredBlocks = await main.getAttribute("data-required-blocks");
+    const requiredBlocks = await page.locator('[data-required-blocks]').getAttribute("data-required-blocks");
     expect(requiredBlocks).toBe("working-state,failure-fit,fit-decision");
 
     const failedVerdict = page.locator(".failed-verdict");

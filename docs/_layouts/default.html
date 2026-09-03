@@ -1,17 +1,26 @@
+{% assign presentation = site.data.site-presentation.pages | where: "route", page.permalink | first %}
+{% assign page_kind = presentation.page_kind %}
+{% assign paper_kinds = "evaluation" | split: "," %}
 <!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    {% if paper_kinds contains page_kind %}
+    <meta name="theme-color" content="#0c0d0d">
+    {% else %}
     <meta name="color-scheme" content="dark">
+    {% endif %}
     <title>{{ page.title }} · {{ site.title }}</title>
     <meta name="description" content="{{ site.description }}">
     <link rel="canonical" href="{{ site.url }}{{ page.permalink }}">
     <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="/assets/css/design-system-tokens.css">
     <link rel="stylesheet" href="/assets/css/site.css">
+    {% if paper_kinds contains page_kind %}
+    <link rel="stylesheet" href="/assets/css/backstop-tokens.css">
+    {% endif %}
   </head>
-  {% assign presentation = site.data.site-presentation.pages | where: "route", page.permalink | first %}
   <body data-site-shell="field-guide-v1">
     <a class="skip-link" href="#main">Skip to content</a>
     {% include site-header.html %}
