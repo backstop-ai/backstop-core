@@ -237,10 +237,22 @@ func TestSiteCheck_RejectsRootOutputCollision(t *testing.T) {
 	}
 }
 
+func canonicalStampOutputs() []string {
+	outputs := make([]string, 0, len(canonicalRoutes()))
+	for _, route := range canonicalRoutes() {
+		if route == "/" {
+			outputs = append(outputs, "index.html")
+			continue
+		}
+		outputs = append(outputs, strings.TrimPrefix(route, "/")+"index.html")
+	}
+	return outputs
+}
+
 func makeStampSite(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
-	for _, route := range []string{"index.html", "evaluate/index.html", "model/index.html", "adopt/index.html", "use-cases/index.html", "packs/index.html", "extend/index.html", "reference/index.html", "status/index.html", "contributing/index.html"} {
+	for _, route := range canonicalStampOutputs() {
 		writeTestFile(t, filepath.Join(root, route), "<html><head></head><body>"+route+"</body></html>")
 	}
 	writeTestFile(t, filepath.Join(root, "assets/css/site.css"), "body{}\n")
@@ -312,7 +324,7 @@ func TestPagesDeployment_HTTPSMarkerAndRouteMatrixPasses(t *testing.T) {
 		t.Fatal(err)
 	}
 	marker := `<meta name="backstop-deployment" content="commit=` + ownerTestCommit + `;run=123">`
-	for _, route := range []string{"index.html", "evaluate/index.html", "model/index.html", "adopt/index.html", "use-cases/index.html", "packs/index.html", "extend/index.html", "reference/index.html", "status/index.html", "contributing/index.html"} {
+	for _, route := range canonicalStampOutputs() {
 		data, _ := os.ReadFile(filepath.Join(root, route))
 		if strings.Count(string(data), marker) != 1 {
 			t.Fatalf("%s marker cardinality drifted", route)
@@ -341,6 +353,33 @@ func TestPagesDeployment_RejectsPartialOrStaleProofMatrix(t *testing.T) {
 		}
 		if err := runStamp(t, root, test.commit, test.runID); err == nil {
 			t.Fatalf("partial/stale stamp commit=%q run=%q remove=%v passed", test.commit, test.runID, test.remove)
+		}
+	}
+}
+
+func TestPagesDeployment_StampScriptLocksToCanonicalRoutes(t *testing.T) {
+	script := readRepositoryFile(t, "scripts/stamp-pages-artifact.sh")
+	start := strings.Index(script, "routes = [")
+	if start < 0 {
+		t.Fatal("stamp script is missing the canonical routes list")
+	}
+	block := script[start:]
+	end := strings.Index(block, "]")
+	if end < 0 {
+		t.Fatal("stamp script routes list is unclosed")
+	}
+	quoted := regexp.MustCompile(`"([^"]+)"`)
+	var got []string
+	for _, match := range quoted.FindAllStringSubmatch(block[:end], -1) {
+		got = append(got, match[1])
+	}
+	want := canonicalStampOutputs()
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("stamp routes = %#v, want %#v", got, want)
+	}
+	for _, retired := range []string{"packs/index.html", "extend/index.html"} {
+		if strings.Contains(script, retired) {
+			t.Fatalf("stamp script still requires retired output %q", retired)
 		}
 	}
 }
