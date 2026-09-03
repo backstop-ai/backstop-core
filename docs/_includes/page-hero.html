@@ -1,9 +1,10 @@
 {% assign topology_pages = site.data["content-topology"].pages %}
 {% assign topology = topology_pages | where: "canonical_path", page.permalink | first %}
+{% assign presented_hero = include.presentation.hero_question | default: page.hero_question | default: page.title %}
 <section data-page-hero>
   <div class="page-hero shell" data-required-blocks="{{ topology.required_blocks | join: ',' }}">
     <p class="page-responsibility">{{ page.title }}</p>
-    <h1 data-page-question>{{ include.presentation.hero_question }}</h1>
+    <h1 data-page-question>{{ presented_hero }}</h1>
     <p class="page-boundary">{% if page.hero_lede %}{{ page.hero_lede }}{% else %}Deterministic product truth, presented without changing its owner.{% endif %}</p>
   </div>
 </section>

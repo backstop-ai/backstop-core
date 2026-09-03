@@ -239,6 +239,72 @@ func TestSiteCheck_AdoptionPaperInkChromeIsDeclared(t *testing.T) {
 	}
 }
 
+func TestSiteCheck_EntityPaperInkChromeIsInLockstep(t *testing.T) {
+	layout := readRepoFile(t, "docs/_layouts/default.html")
+	hero := readRepoFile(t, "docs/_includes/page-hero.html")
+	css := readRepoFile(t, "docs/assets/css/site.css")
+	presentation := loadPresentation(t)
+
+	if len(presentation.Pages) != len(canonicalRoutes()) {
+		t.Fatalf("presentation rows = %d, want %d", len(presentation.Pages), len(canonicalRoutes()))
+	}
+	if !reflect.DeepEqual(presentation.Pages, canonicalPresentation()) {
+		t.Fatal("site presentation does not byte-match the accepted ten-row matrix")
+	}
+	entityRoutes := []string{"/plan/", "/issue/", "/spec/", "/bundle/", "/pack/", "/directive/", "/adr/", "/capability/"}
+	for _, route := range entityRoutes {
+		for _, page := range presentation.Pages {
+			if page.Route == route {
+				t.Fatalf("entity route %q appears in site-presentation.yml", route)
+			}
+		}
+	}
+
+	if !strings.Contains(layout, `presentation.page_kind | default: page.page_kind`) {
+		t.Fatal("layout must fall back to page.page_kind when presentation lookup is empty")
+	}
+	paperKinds := map[string]bool{}
+	for _, kind := range strings.Split(extractAssignSplit(layout, "paper_kinds"), ",") {
+		kind = strings.TrimSpace(kind)
+		if kind != "" {
+			paperKinds[kind] = true
+		}
+	}
+	for _, kind := range []string{"evaluation", "model", "adoption", "entity"} {
+		if !paperKinds[kind] {
+			t.Fatalf("paper-kind list must contain %q", kind)
+		}
+	}
+	if !strings.Contains(layout, `data-page-kind="{{ page_kind }}"`) {
+		t.Fatal("layout must emit derived page_kind in data-page-kind")
+	}
+	if !strings.Contains(layout, `{% if presentation.next_action %}`) {
+		t.Fatal("next-action block must be guarded on presentation.next_action")
+	}
+	if strings.Contains(layout, `href="{{ presentation.next_action }}">Next`) && !strings.Contains(layout, `{% if presentation.next_action %}`) {
+		t.Fatal("unguarded next-action would emit empty href on entity pages")
+	}
+	if !strings.Contains(hero, `include.presentation.hero_question | default: page.hero_question`) {
+		t.Fatal("page-hero must fall back to page.hero_question")
+	}
+	if !strings.Contains(hero, `page.hero_lede`) {
+		t.Fatal("page-hero must render page.hero_lede channel")
+	}
+
+	for _, surface := range []string{"entity-meta", "entity-table", "entity-illegal", "entity-also"} {
+		if !strings.Contains(css, `[data-page-kind="entity"] .`+surface) {
+			t.Fatalf("entity stylesheet missing .%s", surface)
+		}
+	}
+	if !strings.Contains(css, `html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"], [data-page-kind="entity"]`) {
+		t.Fatal("html:has paper remap must include entity page kind")
+	}
+	media56 := extractMediaBlock(css, "max-width: 56rem")
+	if !strings.Contains(media56, `[data-page-kind="home"] .nav `) || !strings.Contains(media56, `[data-page-kind="home"] .nav-links`) || !strings.Contains(media56, `[data-page-kind="home"] h1`) {
+		t.Fatal("56rem media block must retain legacy home nav rules")
+	}
+}
+
 func extractMediaBlock(css, query string) string {
 	start := strings.Index(css, "@media ("+query+")")
 	if start < 0 {

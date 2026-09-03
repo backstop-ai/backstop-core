@@ -82,6 +82,10 @@ type OwnerAcceptanceExport struct {
 	} `yaml:"protected_file_fingerprints"`
 }
 
+func extraLinkableRoutes() []string {
+	return []string{"/pack/", "/plan/", "/issue/", "/spec/", "/bundle/", "/directive/", "/adr/", "/capability/"}
+}
+
 func canonicalRoutes() []string {
 	return []string{"/", "/evaluate/", "/model/", "/adopt/", "/use-cases/", "/packs/", "/extend/", "/reference/", "/status/", "/contributing/"}
 }
@@ -333,6 +337,15 @@ func collectBuiltDocuments(builtRoot string) (map[string]string, map[string]map[
 		data, err := os.ReadFile(path)
 		if err != nil {
 			findings = append(findings, Finding{Phase: "canonical-route", Identity: route, Expected: "one built file", Observed: err.Error()})
+			continue
+		}
+		documents[route] = string(data)
+		ids[route] = routeIDs(string(data))
+	}
+	for _, route := range extraLinkableRoutes() {
+		path := builtRoutePath(builtRoot, route)
+		data, err := os.ReadFile(path)
+		if err != nil {
 			continue
 		}
 		documents[route] = string(data)

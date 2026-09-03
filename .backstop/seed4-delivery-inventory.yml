@@ -200,6 +200,39 @@ entries:
     path: scripts/tests/public-product-model/pages/model-use-cases-packs.sh
     role: test
   - change: A
+    path: docs/_data/entity-reference.yml
+    role: site-data
+  - change: A
+    path: docs/adr.md
+    role: entity-page
+  - change: A
+    path: docs/bundle.md
+    role: entity-page
+  - change: A
+    path: docs/capability.md
+    role: entity-page
+  - change: A
+    path: docs/directive.md
+    role: entity-page
+  - change: A
+    path: docs/issue.md
+    role: entity-page
+  - change: A
+    path: docs/pack.md
+    role: entity-page
+  - change: A
+    path: docs/plan.md
+    role: entity-page
+  - change: A
+    path: docs/spec.md
+    role: entity-page
+  - change: A
+    path: scripts/entityref/main.go
+    role: entity-generator
+  - change: A
+    path: scripts/entityref/main_test.go
+    role: test
+  - change: A
     path: tests/public-site-helpers.ts
     role: browser-verification
   - change: A

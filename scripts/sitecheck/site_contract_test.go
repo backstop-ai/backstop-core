@@ -170,6 +170,117 @@ func TestSiteCheck_RouteCatalogsAreImmutableAndExhaustive(t *testing.T) {
 	}
 }
 
+func TestSiteCheck_EntityRoutesAreLinkableAndOutsideCanonicalTopology(t *testing.T) {
+	wantExtra := []string{"/pack/", "/plan/", "/issue/", "/spec/", "/bundle/", "/directive/", "/adr/", "/capability/"}
+	gotExtra := extraLinkableRoutes()
+	if len(gotExtra) != len(wantExtra) {
+		t.Fatalf("extraLinkableRoutes len = %d, want %d", len(gotExtra), len(wantExtra))
+	}
+	seen := map[string]int{}
+	for _, route := range gotExtra {
+		seen[route]++
+	}
+	for _, route := range wantExtra {
+		if seen[route] != 1 {
+			t.Fatalf("route %q count = %d, want 1", route, seen[route])
+		}
+	}
+	gotExtra[0] = "/mutated/"
+	if extraLinkableRoutes()[0] == "/mutated/" {
+		t.Fatal("extraLinkableRoutes retained caller mutation")
+	}
+
+	baselineCanonical := append([]string(nil), canonicalRoutes()...)
+	baselinePrimary := append([]string(nil), primaryNavigation()...)
+	baselineUtility := append([]string(nil), utilityNavigation()...)
+	baselineRedirects := legacyRedirects()
+	for _, route := range wantExtra {
+		if route != "/pack/" && containsString(canonicalRoutes(), route) {
+			t.Fatalf("entity route %q appears in canonicalRoutes", route)
+		}
+	}
+	for _, route := range []string{"/plan/", "/issue/", "/spec/", "/bundle/", "/directive/", "/adr/", "/capability/"} {
+		if containsString(primaryNavigation(), route) || containsString(utilityNavigation(), route) {
+			t.Fatalf("entity route %q appears in navigation", route)
+		}
+	}
+	if strings.Join(canonicalRoutes(), "|") != strings.Join(baselineCanonical, "|") {
+		t.Fatal("canonicalRoutes changed")
+	}
+	if strings.Join(primaryNavigation(), "|") != strings.Join(baselinePrimary, "|") {
+		t.Fatal("primaryNavigation changed")
+	}
+	if strings.Join(utilityNavigation(), "|") != strings.Join(baselineUtility, "|") {
+		t.Fatal("utilityNavigation changed")
+	}
+	if len(legacyRedirects()) != len(baselineRedirects) {
+		t.Fatal("legacyRedirects cardinality changed")
+	}
+
+	root := t.TempDir()
+	built := filepath.Join(root, "_site")
+	for _, route := range extraLinkableRoutes() {
+		if route == "/pack/" {
+			continue
+		}
+		if _, err := os.Stat(builtRoutePath(built, route)); err == nil {
+			t.Fatalf("unexpected prebuilt entity route %s", route)
+		}
+	}
+	documents, _, findings := collectBuiltDocuments(built)
+	if len(findings) == 0 {
+		t.Fatal("missing canonical routes should produce canonical-route findings")
+	}
+	if _, ok := documents["/issue/"]; ok {
+		t.Fatal("missing entity route must be skipped without a finding")
+	}
+
+	for _, route := range canonicalRoutes() {
+		writeTestFile(t, builtRoutePath(built, route), syntheticDocument(canonicalPresentationPage(route)))
+	}
+	writeTestFile(t, builtRoutePath(built, "/issue/"), `<!doctype html><html><body><main data-page-route="/issue/"><h2 id="target">Issue</h2></main></body></html>`)
+	documents, ids, findings := collectBuiltDocuments(built)
+	if len(findings) != 0 {
+		t.Fatalf("full canonical tree findings = %#v", findings)
+	}
+	if _, ok := documents["/issue/"]; !ok {
+		t.Fatal("entity route must load when present in built tree")
+	}
+	evaluate := strings.Replace(documents["/evaluate/"], `</main>`, `<a href="/issue/#target">Issue</a></main>`, 1)
+	documents["/evaluate/"] = evaluate
+	if linkFindings := verifyLinks(documents, ids); len(linkFindings) != 0 {
+		t.Fatalf("entity link should resolve: %#v", linkFindings)
+	}
+	delete(documents, "/issue/")
+	if linkFindings := verifyLinks(documents, ids); len(linkFindings) == 0 {
+		t.Fatal("missing entity document should produce link-resolution finding")
+	}
+	bad := documents["/evaluate/"]
+	bad = strings.Replace(bad, `href="/issue/#target"`, `href="issue/"`, 1)
+	documents["/evaluate/"] = bad
+	if linkFindings := verifyLinks(documents, ids); len(linkFindings) == 0 {
+		t.Fatal("path-relative href should produce link-resolution finding")
+	}
+}
+
+func canonicalPresentationPage(route string) presentationPage {
+	for _, page := range canonicalPresentation() {
+		if page.Route == route {
+			return page
+		}
+	}
+	return presentationPage{Route: route, PageKind: "reference", HeroQuestion: "Q", NextAction: "/"}
+}
+
+func containsString(slice []string, value string) bool {
+	for _, item := range slice {
+		if item == value {
+			return true
+		}
+	}
+	return false
+}
+
 func TestSiteCheck_HomepageCanonicalDirectionPasses(t *testing.T) {
 	root, built := makeSyntheticSite(t)
 	if findings := Verify(root, built); len(findings) != 0 {

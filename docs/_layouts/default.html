@@ -1,6 +1,6 @@
 {% assign presentation = site.data.site-presentation.pages | where: "route", page.permalink | first %}
-{% assign page_kind = presentation.page_kind %}
-{% assign paper_kinds = "evaluation,model,adoption" | split: "," %}
+{% assign page_kind = presentation.page_kind | default: page.page_kind %}
+{% assign paper_kinds = "evaluation,model,adoption,entity" | split: "," %}
 <!doctype html>
 <html lang="en">
   <head>
@@ -25,15 +25,17 @@
     <a class="skip-link" href="#main">Skip to content</a>
     {% comment %}accessible-site-shell scans this file: <nav aria-label="Primary"> and <nav aria-label="Utility"> are rendered by site-header.html{% endcomment %}
     {% include site-header.html %}
-    <main id="main" data-page-route="{{ page.permalink }}" data-page-kind="{{ presentation.page_kind }}">
+    <main id="main" data-page-route="{{ page.permalink }}" data-page-kind="{{ page_kind }}">
       {% include page-hero.html presentation=presentation %}
       <div class="prose" data-page-content>
         {{ content }}
       </div>
+      {% if presentation.next_action %}
       <nav class="next-action" data-next-action aria-label="Next page">
         <span>Continue the field guide</span>
         <a href="{{ presentation.next_action }}">Next <span aria-hidden="true">→</span></a>
       </nav>
+      {% endif %}
     </main>
     {% include site-footer.html %}
   </body>

@@ -33,7 +33,7 @@ func allowedRoles() map[string]bool {
 	return map[string]bool{
 		"action-lock": true, "browser-verification": true, "build-dependency": true,
 		"delivery-inventory": true, "deploy-stamp": true, "deploy-verifier": true,
-		"include": true, "layout": true, "owner-asset-installer": true,
+		"entity-generator": true, "entity-page": true, "include": true, "layout": true, "owner-asset-installer": true,
 		"owner-release-import": true, "pack-declaration": true, "pack-lock": true,
 		"page-wrapper": true, "public-homepage": true, "rendered-contract-stamper": true,
 		"retired-bootstrap": true, "release-evidence-verifier": true,
@@ -64,6 +64,13 @@ func pageWrappers() map[string]bool {
 func retiredBootstrap() map[string]bool {
 	return map[string]bool{
 		"docs/assets/css/backstop-tokens.css": true,
+	}
+}
+
+func entityPages() map[string]bool {
+	return map[string]bool{
+		"docs/plan.md": true, "docs/issue.md": true, "docs/spec.md": true, "docs/bundle.md": true,
+		"docs/pack.md": true, "docs/directive.md": true, "docs/adr.md": true, "docs/capability.md": true,
 	}
 }
 
@@ -161,8 +168,14 @@ func expectedRole(path string) string {
 		return "pack-lock"
 	case path == "Gemfile" || path == "Gemfile.lock" || path == "package"+".json" || path == "package-lock"+".json":
 		return "build-dependency"
-	case path == "docs/_data/site-presentation.yml":
+	case path == "docs/_data/site-presentation.yml" || path == "docs/_data/entity-reference.yml":
 		return "site-data"
+	case path == "scripts/entityref/main_test.go":
+		return "test"
+	case path == "scripts/entityref/main.go":
+		return "entity-generator"
+	case entityPages()[path]:
+		return "entity-page"
 	case path == "docs/_config.yml" || path == "docs/CNAME":
 		return "site-config"
 	case strings.HasPrefix(path, "docs/_layouts/"):
