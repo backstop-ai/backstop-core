@@ -803,7 +803,7 @@ rendered binding below. Each source and destination anchor is case-sensitive and
 | `JLINK-018` | `/packs/#choose-a-pack` | `/status/#pack-direction` |
 | `JLINK-019` | `/extend/#pack-or-not` | `/reference/#pack-artifact` |
 | `JLINK-020` | `/extend/#author-a-pack` | `/contributing/#contribution-paths` |
-| `JLINK-021` | `/evaluate/#evidence` | `/reference/#source-traceability` |
+| `JLINK-021` | `/model/#provenance-and-verification` | `/reference/#source-traceability` |
 | `JLINK-022` | `/packs/#installed-pack-catalog` | `/reference/#cli-command-catalog` |
 | `JLINK-023` | `/reference/#cli-command-catalog` | `/status/#release-history` |
 | `JLINK-024` | `/status/#adjacent-guidance` | `/contributing/#external-ownership` |
