@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -27,7 +28,7 @@ func canonicalPresentation() []presentationPage {
 	return []presentationPage{
 		{Route: "/", PageKind: "home", HeroQuestion: "What failure does Backstop prevent?", Treatments: []string{"evidence-cards"}, NextAction: "/evaluate/"},
 		{Route: "/evaluate/", PageKind: "evaluation", HeroQuestion: "Your agent already writes the code.", Treatments: []string{"evidence-cards", "boundary-callouts"}, NextAction: "/model/"},
-		{Route: "/model/", PageKind: "model", HeroQuestion: "How does Backstop turn intent into a trustworthy verdict?", Treatments: []string{"evidence-cards", "local-overflow"}, NextAction: "/adopt/"},
+		{Route: "/model/", PageKind: "model", HeroQuestion: "How it works", Treatments: []string{"evidence-cards", "local-overflow"}, NextAction: "/adopt/"},
 		{Route: "/adopt/", PageKind: "adoption", HeroQuestion: "What does a first working adoption require?", Treatments: []string{"evidence-cards"}, NextAction: "/use-cases/"},
 		{Route: "/use-cases/", PageKind: "use-cases", HeroQuestion: "Which problem-oriented adoption path applies?", Treatments: []string{"evidence-cards", "boundary-callouts"}, NextAction: "/packs/"},
 		{Route: "/packs/", PageKind: "ecosystem", HeroQuestion: "Which maintained pack already owns this standard?", Treatments: []string{"evidence-cards", "generated-regions", "local-overflow"}, NextAction: "/extend/"},
@@ -94,4 +95,120 @@ func TestSiteCheck_NavigationMatrixRejectsInvalidCell(t *testing.T) {
 			t.Fatalf("mutation %d unexpectedly passed", index)
 		}
 	}
+}
+
+func readRepoFile(t *testing.T, relative string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("..", "..", relative))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+func TestSiteCheck_ModelPaperInkChromeAndHomeReflowPasses(t *testing.T) {
+	layout := readRepoFile(t, "docs/_layouts/default.html")
+	css := readRepoFile(t, "docs/assets/css/site.css")
+
+	paperKinds := map[string]bool{}
+	for _, kind := range strings.Split(extractAssignSplit(layout, "paper_kinds"), ",") {
+		kind = strings.TrimSpace(kind)
+		if kind != "" {
+			paperKinds[kind] = true
+		}
+	}
+	if !paperKinds["model"] {
+		t.Fatal("paper-kind list must contain model")
+	}
+	if paperKinds["home"] {
+		t.Fatal("paper-kind list must not contain home")
+	}
+	if !strings.Contains(layout, `<meta name="theme-color" content="#0c0d0d">`) {
+		t.Fatal("paper branch must emit theme-color #0c0d0d")
+	}
+	if !strings.Contains(layout, `<link rel="stylesheet" href="/assets/css/backstop-tokens.css">`) {
+		t.Fatal("paper branch must link backstop-tokens.css")
+	}
+	if !strings.Contains(layout, `<meta name="color-scheme" content="dark">`) {
+		t.Fatal("non-paper branch must retain dark color-scheme")
+	}
+
+	if !strings.Contains(css, `html:has([data-page-kind="evaluation"], [data-page-kind="model"])`) {
+		t.Fatal("html:has paper remap must include evaluation and model page kinds")
+	}
+	for _, token := range []string{"--ds-canvas", "--ds-text", "--ds-accent", "--ds-border"} {
+		if !strings.Contains(css, token) {
+			t.Fatalf("paper remap missing token mapping for %s", token)
+		}
+	}
+	if !strings.Contains(css, `[data-page-kind="model"] .canonical-anchors`) || !strings.Contains(css, `clip: rect(0, 0, 0, 0)`) {
+		t.Fatal("model canonical hidden pattern missing clip rule")
+	}
+	for _, surface := range []string{".work-topology", ".work-paths", ".model-figure", ".figure-bridge", ".loop-core"} {
+		if !strings.Contains(css, `[data-page-kind="model"] `+surface) {
+			t.Fatalf("model stylesheet missing surface %s", surface)
+		}
+	}
+	workPathsRule := regexp.MustCompile(`\[data-page-kind="model"\] \.work-paths[^}]*\{[^}]*\}`)
+	if match := workPathsRule.FindString(css); match == "" || !strings.Contains(match, "border-top") || !strings.Contains(match, "var(--ds-border)") || !strings.Contains(match, "padding-top") {
+		t.Fatal("work-paths must carry hairline divider using ds-border token")
+	}
+	labelRule := regexp.MustCompile(`\[data-page-kind="model"\] \.work-path-label[^}]*\{[^}]*\}`)
+	if match := labelRule.FindString(css); match == "" || !strings.Contains(match, "var(--ds-muted)") || !strings.Contains(match, "font-size") {
+		t.Fatal("work-path-label must be muted and smaller than body lede")
+	}
+
+	media56 := extractMediaBlock(css, "max-width: 56rem")
+	if !strings.Contains(media56, `[data-page-kind="home"] .nav `) || !strings.Contains(media56, `[data-page-kind="home"] .nav-links`) {
+		t.Fatal("56rem media block must retain legacy home nav rules")
+	}
+	if !strings.Contains(css, "grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)") {
+		t.Fatal("30rem navigation grid literal missing")
+	}
+	for _, surface := range []string{".model-figure", ".work-topology"} {
+		rule := regexp.MustCompile(regexp.QuoteMeta(`[data-page-kind="model"] `+surface) + `[^{]*\{[^}]*\}`)
+		for _, match := range rule.FindAllString(css, -1) {
+			if strings.Contains(match, "background:") || strings.Contains(match, "border:") {
+				t.Fatalf("slide-frame chrome forbidden on %s", surface)
+			}
+		}
+	}
+	modelStart := strings.Index(css, `[data-page-kind="model"]`)
+	modelEnd := strings.Index(css, `html:has([data-page-kind="evaluation"])`)
+	modelBlock := css
+	if modelStart >= 0 && modelEnd > modelStart {
+		modelBlock = css[modelStart:modelEnd]
+	}
+	if regexp.MustCompile(`#[0-9a-fA-F]{3,8}\b`).MatchString(modelBlock) {
+		t.Fatal("model stylesheet block must not contain raw hex color literals")
+	}
+}
+
+func extractAssignSplit(layout, name string) string {
+	pattern := regexp.MustCompile(`\{% assign ` + name + ` = "([^"]+)" \| split: "," %\}`)
+	match := pattern.FindStringSubmatch(layout)
+	if len(match) < 2 {
+		return ""
+	}
+	return match[1]
+}
+
+func extractMediaBlock(css, query string) string {
+	start := strings.Index(css, "@media ("+query+")")
+	if start < 0 {
+		return ""
+	}
+	depth := 0
+	for index := start; index < len(css); index++ {
+		switch css[index] {
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return css[start : index+1]
+			}
+		}
+	}
+	return css[start:]
 }
