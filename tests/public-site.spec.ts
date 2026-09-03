@@ -104,10 +104,13 @@ test.describe("Evaluate paper surface", () => {
     await expect(page.locator('[data-page-content] a[href*="/reference/"]')).toHaveCount(0);
   });
 
-  test("/model/ keeps dark inner-page presentation", async ({ page }) => {
+  test("/model/ uses paper presentation", async ({ page }) => {
     await page.goto("/model/");
     await settleLayout(page);
-    await expect(page.locator('meta[name="color-scheme"][content="dark"]')).toHaveCount(1);
-    await expect(page.locator('link[rel="stylesheet"][href="/assets/css/backstop-tokens.css"]')).toHaveCount(0);
+    await expect(page.locator('main#main[data-page-kind="model"]')).toHaveCount(1);
+    await expect(page.locator('link[rel="stylesheet"][href="/assets/css/backstop-tokens.css"]')).toHaveCount(1);
+    await expect(page.locator('meta[name="theme-color"][content="#0c0d0d"]')).toHaveCount(1);
+    await expect(page.locator('meta[name="color-scheme"][content="dark"]')).toHaveCount(0);
+    await expect(page.locator("[data-page-question]")).toHaveText("How it works");
   });
 });
