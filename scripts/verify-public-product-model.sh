@@ -401,6 +401,7 @@ allowances={
  '<div class="canonical-anchors" markdown="1">':'canonical claim anchors'},
 'docs/adopt.md':{
  'Install a released build with Homebrew or Go. Or clone the repository and build it.':'visitor adoption guide',
+ 'These commands cover macOS and Linux on amd64 and arm64. Windows is planned.':'visitor adoption guide',
  'Homebrew:':'visitor adoption guide',
  '<pre><code>brew install backstop-ai/tap/backstop</code></pre>':'visitor adoption guide',
  'Go, pinned to a module version in the repository:':'visitor adoption guide',

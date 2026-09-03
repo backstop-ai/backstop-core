@@ -12,6 +12,8 @@ hero_lede: "Install Backstop and see how the pieces work together."
 
 Install a released build with Homebrew or Go. Or clone the repository and build it.
 
+These commands cover macOS and Linux on amd64 and arm64. Windows is planned.
+
 Homebrew:
 
 <pre><code>brew install backstop-ai/tap/backstop</code></pre>
