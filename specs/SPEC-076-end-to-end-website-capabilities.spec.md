@@ -475,7 +475,6 @@ must resolve to exactly one record; ambiguity is a failure requiring Seed 1 trut
 | CAP-007/@UJ-002 | compatibility claim explicitly naming unpreserved lifecycle guarantees | adjacent-guidance continuation for the unowned integration concern | none |
 | CAP-008/@UJ-001 | mechanism claim sourced to artifact, plan, pack, and gate implementation | non-goal preventing the model from claiming harness execution ownership | none |
 | CAP-008/@UJ-002 | mechanism claim linked to an authoritative Mermaid architecture view | non-goal or adjacent-guidance record for an external toolchain boundary | none |
-| CAP-009/@UJ-001 | runtime-behavior claim with reproducible installation/configuration execution | limitation naming prerequisites or unsupported adoption state | none |
 | CAP-009/@UJ-002 | runtime-behavior claim with captured gate result | supported boundary naming current enforcement behavior | none |
 | CAP-010/@UJ-001 | mechanism or runtime-behavior claim attached to the selected use case | limitation or adjacent-guidance for the use case's stopping point | none |
 | CAP-010/@UJ-002 | mechanism claim connecting use case to pack | planned, limitation, or adjacent-guidance record when no released pack owns the concern | none |
