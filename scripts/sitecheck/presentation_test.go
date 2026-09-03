@@ -133,8 +133,8 @@ func TestSiteCheck_ModelPaperInkChromeAndHomeReflowPasses(t *testing.T) {
 		t.Fatal("non-paper branch must retain dark color-scheme")
 	}
 
-	if !strings.Contains(css, `html:has([data-page-kind="evaluation"], [data-page-kind="model"])`) {
-		t.Fatal("html:has paper remap must include evaluation and model page kinds")
+	if !strings.Contains(css, `html:has([data-page-kind="evaluation"], [data-page-kind="model"], [data-page-kind="adoption"]`) {
+		t.Fatal("html:has paper remap must include evaluation, model, and adoption page kinds")
 	}
 	for _, token := range []string{"--ds-canvas", "--ds-text", "--ds-accent", "--ds-border"} {
 		if !strings.Contains(css, token) {
