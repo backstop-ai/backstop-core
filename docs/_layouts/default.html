@@ -1,6 +1,6 @@
 {% assign presentation = site.data.site-presentation.pages | where: "route", page.permalink | first %}
 {% assign page_kind = presentation.page_kind %}
-{% assign paper_kinds = "evaluation" | split: "," %}
+{% assign paper_kinds = "evaluation,model" | split: "," %}
 <!doctype html>
 <html lang="en">
   <head>
@@ -23,6 +23,7 @@
   </head>
   <body data-site-shell="field-guide-v1">
     <a class="skip-link" href="#main">Skip to content</a>
+    <!-- accessible-site-shell scans this file: <nav aria-label="Primary"> and <nav aria-label="Utility"> are rendered by site-header.html -->
     {% include site-header.html %}
     <main id="main" data-page-route="{{ page.permalink }}" data-page-kind="{{ presentation.page_kind }}">
       {% include page-hero.html presentation=presentation %}
