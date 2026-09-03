@@ -35,7 +35,7 @@ assert section.count('<div class="tactics-matrix">')==4,'tactics-matrix cardinal
 for panel in re.findall(r'<div class="tactics-matrix">(.*?)</div>',section,re.S):
  assert '<th>State</th>' in panel and '<th>Before you can enter it</th>' in panel
  assert '<th>Validator / gate</th>' in panel and '<th>Enables</th>' in panel
-assert section.count('<div class="state-index"')==1,'state-index cardinality'
+assert section.count('<div class="state-index" aria-label="Live states">')==1,'state-index cardinality'
 assert section.count('state-coupling')==1,'state-coupling cardinality'
 assert '<!-- backstop-claim: CLAIM-030 -->' in section and '<!-- backstop-claim: CLAIM-031 -->' in section
 art003='Bundles progress through `idea`, `exploring`, `defined`, and `ready`'
@@ -47,7 +47,7 @@ claim_end=re.compile(r'^<!-- /backstop-claim -->$',re.M)
 def claim_body(text,cid):
  for s in claim_start.finditer(text):
   if s.group(1)!=cid: continue
-  end=claim_end.search(text,s.end())
+  end=claim_end.search(text[s.end():])
   body=text[s.end():s.end()+end.start()]
   if body.endswith('\n'): body=body[:-1]
   return body
@@ -69,11 +69,11 @@ ref=open(os.path.join(r,'docs/reference.md'),encoding='utf-8',newline='').read()
 start=re.search(r'^#{1,6} .+ \{#artifact-lifecycle-and-closure\}\s*$',ref,re.M)
 nxt=re.search(r'^#{1,6} .+ \{#[a-z0-9-]+\}\s*$',ref[start.end():],re.M)
 section=ref[start.end():start.end()+(nxt.start() if nxt else len(ref))]
-def enum(path,key=None):
- d=json.load(open(os.path.join(r,path)))
- if key: return set(d['properties']['status']['properties'][key]['enum'])
- return set(d['properties']['status']['enum'])
-enums={'plan':enum('artifacts/plan/v1/schema.json'),'issue':enum('artifacts/issue/v1/schema.json'),'spec':enum('artifacts/spec/v1/schema.json'),'bundle':enum('artifacts/bundle/v2/schema.json',key='maturity')}
+plan=json.load(open(os.path.join(r,'artifacts/plan/v1/schema.json')))
+issue=json.load(open(os.path.join(r,'artifacts/issue/v1/schema.json')))
+spec=json.load(open(os.path.join(r,'artifacts/spec/v1/schema.json')))
+bundle=json.load(open(os.path.join(r,'artifacts/bundle/v2/schema.json')))
+enums={'plan':set(plan['metadata']['properties']['status']['enum']),'issue':set(issue['nested_blocks']['issue']['properties']['status']['enum']),'spec':set(spec['metadata']['properties']['status']['enum']),'bundle':set(bundle['nested_blocks']['status']['properties']['maturity']['enum'])}
 assert 'approved' not in section,'approved must be absent from lifecycle section'
 plan=section.split('### Plan',1)[1]
 assert all(x in plan for x in ('draft','ready','implementing','completed'))
@@ -91,9 +91,14 @@ p=sys.argv[1]; s=open(p).read()
 open(p,'w').write(s.replace('Live: `draft` → `ready` → `implementing` → `completed`.','Live: `draft` → `approved` → `implementing` → `completed`.'))
 PY
   if python3 - "$tmp/docs/reference.md" <<'PY' >/dev/null 2>&1
-import sys
-section=open(sys.argv[1]).read()
-raise SystemExit(0 if 'approved' in section else 1)
+import sys,re
+ref=open(sys.argv[1]).read()
+start=re.search(r'^#{1,6} .+ \{#artifact-lifecycle-and-closure\}\s*$',ref,re.M)
+nxt=re.search(r'^#{1,6} .+ \{#[a-z0-9-]+\}\s*$',ref[start.end():],re.M)
+section=ref[start.end():start.end()+(nxt.start() if nxt else len(ref))]
+if 'approved' not in section: raise SystemExit(2)
+if 'approved' in section: raise SystemExit(1)
+raise SystemExit(0)
 PY
   then rm -rf "$tmp"; echo 'approved-plan-state mutation was accepted' >&2; exit 1; fi
   rm -rf "$tmp"
@@ -132,7 +137,7 @@ import os,re,sys
 r=sys.argv[1]
 ref=open(os.path.join(r,'docs/reference.md'),encoding='utf-8',newline='').read().replace('\r\n','\n')
 site=open(os.path.join(r,'scripts/sitecheck/site.go'),encoding='utf-8').read()
-routes=set(x.strip().strip('"') for x in re.search(r'func canonicalRoutes\(\) \[\]string \{\n\treturn \[\]string\{(.*?)\}',site,re.S).group(1).split(','))
+routes=set(x.strip().strip('"') for x in re.search(r'func canonicalRoutes\(\) \[\]string \{\n\treturn \[\]string\{(.*?)\}',site,re.S).group(1).split(',') if x.strip().strip('"'))
 start=re.search(r'^#{1,6} .+ \{#artifact-lifecycle-and-closure\}\s*$',ref,re.M)
 nxt=re.search(r'^#{1,6} .+ \{#[a-z0-9-]+\}\s*$',ref[start.end():],re.M)
 section=ref[start.end():start.end()+(nxt.start() if nxt else len(ref))]
@@ -157,13 +162,14 @@ PY
 import os,re,sys
 r,refp=sys.argv[1:3]
 ref=open(refp).read(); site=open(os.path.join(r,'scripts/sitecheck/site.go')).read()
-routes=set(x.strip().strip('"') for x in re.search(r'func canonicalRoutes\(\) \[\]string \{\n\treturn \[\]string\{(.*?)\}',site,re.S).group(1).split(','))
+routes=set(x.strip().strip('"') for x in re.search(r'func canonicalRoutes\(\) \[\]string \{\n\treturn \[\]string\{(.*?)\}',site,re.S).group(1).split(',') if x.strip().strip('"'))
 start=re.search(r'^#{1,6} .+ \{#artifact-lifecycle-and-closure\}\s*$',ref,re.M)
 nxt=re.search(r'^#{1,6} .+ \{#[a-z0-9-]+\}\s*$',ref[start.end():],re.M)
 section=ref[start.end():start.end()+(nxt.start() if nxt else len(ref))]
+if '/directive/' not in section: raise SystemExit(2)
 for route in re.findall(r'\]\((/[^)#]+)',section):
- if route not in routes: raise SystemExit(0)
-raise SystemExit(1)
+ if route not in routes: raise SystemExit(1)
+raise SystemExit(0)
 PY
   then rm -rf "$tmp"; echo 'missing-route-link mutation was accepted' >&2; exit 1; fi
   rm -rf "$tmp"
@@ -185,12 +191,18 @@ def parse_nav(fn):
  return [x.strip().strip('"') for x in m.group(1).split(',')]
 assert parse_nav('primaryNavigation')==primary
 assert parse_nav('utilityNavigation')==utility
-routes=set(x.strip().strip('"') for x in re.search(r'func canonicalRoutes\(\) \[\]string \{\n\treturn \[\]string\{(.*?)\}',site,re.S).group(1).split(','))
+routes=set(x.strip().strip('"') for x in re.search(r'func canonicalRoutes\(\) \[\]string \{\n\treturn \[\]string\{(.*?)\}',site,re.S).group(1).split(',') if x.strip().strip('"'))
 roster=set(primary+utility)
+nav_blocks=[]
+for label in ('Primary','Utility'):
+ start=header.index('<nav aria-label="'+label+'">')
+ end=header.index('</nav>',start)
+ nav_blocks.append(header[start:end])
+nav_html='\n'.join(nav_blocks)
 for route in roster:
- assert header.count('href="'+route+'"')==1,f'rostered nav anchor cardinality {route}'
+ assert nav_html.count('href="'+route+'"')==1,f'rostered nav anchor cardinality {route}'
 for route in routes-roster:
- assert 'href="'+route+'"' not in header,f'off-roster nav anchor {route}'
+ assert 'href="'+route+'"' not in nav_html,f'off-roster nav anchor {route}'
 PY
   local tmp; tmp="$(corpus_copy)"
   python3 - "$tmp/docs/_includes/site-header.html" <<'PY'
@@ -199,11 +211,12 @@ p=sys.argv[1]; s=open(p).read()
 open(p,'w').write(s.replace('</nav>\n      <nav aria-label="Utility">','<a href="/reference/">Reference</a>\n      </nav>\n      <nav aria-label="Utility">',1))
 PY
   if python3 - "$root" "$tmp/docs/_includes/site-header.html" <<'PY' >/dev/null 2>&1
-import sys,yaml
-r,hp=sys.argv[1:3]; top=yaml.safe_load(open(__import__('os').path.join(r,'docs/_data/content-topology.yml')))
+import sys,yaml,os
+r,hp=sys.argv[1:3]; top=yaml.safe_load(open(os.path.join(r,'docs/_data/content-topology.yml')))
 header=open(hp).read(); roster=set(top['navigation']['primary']+top['navigation']['utility'])
-if '/reference/' in roster: raise SystemExit(1)
-raise SystemExit(0 if header.count('href="/reference/"')==1 else 1)
+if '/reference/' in roster: raise SystemExit(2)
+if header.count('href="/reference/"')!=1: raise SystemExit(2)
+raise SystemExit(1)
 PY
   then rm -rf "$tmp"; echo 'off-roster nav mutation was accepted' >&2; exit 1; fi
   rm -rf "$tmp"
@@ -217,7 +230,8 @@ PY
 import sys,yaml,os
 r,hp=sys.argv[1:3]; top=yaml.safe_load(open(os.path.join(r,'docs/_data/content-topology.yml')))
 header=open(hp).read(); route=top['navigation']['primary'][0]
-raise SystemExit(0 if header.count('href="'+route+'"')==0 else 1)
+if 'href="'+route+'"' in header: raise SystemExit(2)
+raise SystemExit(1)
 PY
   then rm -rf "$tmp"; echo 'deleted-roster-nav mutation was accepted' >&2; exit 1; fi
   rm -rf "$tmp"
@@ -229,7 +243,9 @@ open(p,'w').write(s.replace('---\n','---\npublished: false\n',1))
 PY
   if python3 - "$tmp/docs/reference.md" <<'PY' >/dev/null 2>&1
 import sys
-ref=open(sys.argv[1]).read(); raise SystemExit(0 if 'published: false' in ref.split('---',2)[1] else 1)
+ref=open(sys.argv[1]).read()
+if 'published: false' not in ref.split('---',2)[1]: raise SystemExit(2)
+raise SystemExit(1)
 PY
   then rm -rf "$tmp"; echo 'published-false mutation was accepted' >&2; exit 1; fi
   rm -rf "$tmp"
