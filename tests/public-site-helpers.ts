@@ -33,7 +33,7 @@ export async function settleLayout(page: Page): Promise<void> {
 }
 
 export async function revealPrimaryNavigation(page: Page): Promise<void> {
-  const toggle = page.locator("summary.site-nav-toggle");
+  const toggle = page.locator(".site-nav-toggle");
   if (await toggle.count() === 0) return;
   const box = await toggle.boundingBox();
   if (!box || box.width < 1 || box.height < 1) return;
