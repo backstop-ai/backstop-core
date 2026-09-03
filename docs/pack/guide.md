@@ -24,7 +24,7 @@ Author the pack in its own repository. Do not vendor it into core.
 
 `--type` is `engine`, `mechanism`, or `toolchain`. The scaffold writes a valid `pack.yml`, a sample sandbox validator, and a positive/negative fixture pair that can pass check, test, and the gate.
 
-### Choose a pack type {#choose-pack-type}
+### Choose a pack type
 
 All three types emit the same valid engine-pack skeleton. The type is the growth path, not a different file format.
 
