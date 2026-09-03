@@ -52,7 +52,7 @@ Scaffold, check, and test in the pack directory:
 
 <pre><code>backstop pack test ./my-standard</code></pre>
 
-`--type` is `engine`, `mechanism`, or `toolchain`. Authoring details live in the [guide](/pack/guide/#author-a-pack).
+`--type` is `engine`, `mechanism`, or `toolchain`. [What those types mean, and when to choose](/pack/guide/#choose-pack-type). Authoring details live in the [guide](/pack/guide/#author-a-pack).
 
 From the consumer project, add the local path:
 
