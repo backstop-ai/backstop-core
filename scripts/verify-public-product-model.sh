@@ -400,7 +400,12 @@ allowances={
  'Core owns execution and lifecycle primitives. Packs own standards and engines. Harnesses own orchestration. External toolchains own their behavior. The authoritative boundary view is `docs/_diagrams/ARCH-003-ownership-boundaries.mmd`.':'architecture-source identification',
  '<div class="canonical-anchors" markdown="1">':'canonical claim anchors'},
 'docs/adopt.md':{
- 'Pin the released binary in the repository.':'visitor adoption guide',
+ 'Install a released build with Homebrew or Go. Or clone the repository and build it.':'visitor adoption guide',
+ 'Homebrew:':'visitor adoption guide',
+ '<pre><code>brew install backstop-ai/tap/backstop</code></pre>':'visitor adoption guide',
+ 'Go, pinned to a module version in the repository:':'visitor adoption guide',
+ 'From a clone:':'visitor adoption guide',
+ '<pre><code>git clone https://github.com/backstop-ai/backstop-core.git\ncd backstop-core\ngo build -o ./bin/backstop ./cmd/backstop</code></pre>':'visitor adoption guide',
  'Backstop configuration lives with the code. Init writes the repository files later clones restore.':'visitor adoption guide',
  'Install a pack appropriate for the repository\'s stack. [Choose a pack](/pack/examples/#choose-a-pack).':'visitor adoption guide',
  'Run:':'visitor adoption guide',

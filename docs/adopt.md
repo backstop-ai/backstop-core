@@ -10,9 +10,21 @@ hero_lede: "Install Backstop and see how the pieces work together."
 
 ### Install the binary {#install}
 
-Pin the released binary in the repository.
+Install a released build with Homebrew or Go. Or clone the repository and build it.
+
+Homebrew:
+
+<pre><code>brew install backstop-ai/tap/backstop</code></pre>
+
+Go, pinned to a module version in the repository:
 
 <pre><code>GOBIN=./.backstop-bin go install github.com/backstop-ai/backstop-core/cmd/backstop@v0.2.0</code></pre>
+
+From a clone:
+
+<pre><code>git clone https://github.com/backstop-ai/backstop-core.git
+cd backstop-core
+go build -o ./bin/backstop ./cmd/backstop</code></pre>
 
 ### Initialize the repository {#configure}
 
