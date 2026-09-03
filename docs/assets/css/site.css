@@ -74,7 +74,7 @@ th { background: var(--ds-surface); }
   font-size: 1.15rem;
   font-weight: 400;
 }
-[data-page-kind="model"] .prose { width: min(calc(100% - 2rem), 72rem); padding-block: 2.5rem 4rem; }
+[data-page-kind="model"] .prose { width: min(calc(100% - 2rem), 72rem); padding-block: 2.5rem 4rem; overflow-x: clip; }
 [data-page-kind="model"] .prose > h2 {
   margin: 3rem 0 0;
   color: inherit;
@@ -103,6 +103,8 @@ th { background: var(--ds-surface); }
   max-width: 100%;
   min-width: 0;
   margin: 0.35rem auto 1.5rem;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
 }
 [data-page-kind="model"] .work-split {
   align-self: stretch;
@@ -137,7 +139,7 @@ th { background: var(--ds-surface); }
   border: 1px solid var(--ds-accent);
   border-radius: 0.3rem;
   background: color-mix(in srgb, var(--ds-accent) 28%, transparent);
-  color: inherit;
+  color: var(--color-ink);
   font-size: 0.82rem;
   font-weight: 650;
   line-height: 1.2;
@@ -295,7 +297,7 @@ th { background: var(--ds-surface); }
 [data-page-kind="model"] .work-chip.bundle {
   border: 1px solid var(--ds-accent);
   background: color-mix(in srgb, var(--ds-accent) 28%, transparent);
-  color: inherit;
+  color: var(--color-ink);
 }
 [data-page-kind="model"] .work-chip.spec,
 [data-page-kind="model"] .work-chip.issue {
@@ -540,7 +542,15 @@ th { background: var(--ds-surface); }
   background: var(--ds-accent);
 }
 [data-page-kind="model"] .claim-cover span { padding: 0 0.35rem; }
-[data-page-kind="model"] .loop-figure { display: flex; flex-direction: column; align-items: center; }
+[data-page-kind="model"] .loop-figure {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+}
 [data-page-kind="model"] .loop-flow {
   display: flex;
   align-items: flex-start;
@@ -675,8 +685,12 @@ th { background: var(--ds-surface); }
   margin: -1px;
   overflow: hidden;
   clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
   white-space: nowrap;
   border: 0;
+  contain: strict;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 [data-page-kind="evaluation"] .page-hero h1 { max-width: 14ch; }
@@ -871,8 +885,12 @@ th { background: var(--ds-surface); }
   margin: -1px;
   overflow: hidden;
   clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
   white-space: nowrap;
   border: 0;
+  contain: strict;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 [data-page-kind="extension"] .page-hero h1 { max-width: 18ch; }

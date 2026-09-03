@@ -154,8 +154,8 @@ func TestEntityRef_SkipsLockedPlanPage(t *testing.T) {
 		if ent.ID != "plan" {
 			continue
 		}
-		if _, err := render(root, ent); err == nil {
-			// render would succeed but Run must skip writing
+		if _, err := render(root, ent); err != nil {
+			t.Fatalf("plan render: %v (Run must still skip writing plan.md)", err)
 		}
 	}
 	planPath := filepath.Join(root, "docs/plan.md")

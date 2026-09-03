@@ -264,7 +264,7 @@ export async function assertKeyboardOrderAndBounds(page: Page, route: string): P
   for (const identity of expectedCanonicalFocusOrder) {
     expect(seenCanonical.filter((candidate) => candidate === identity), `${route} keyboard encounter ${identity}`).toHaveLength(1);
   }
-  expect(seenCanonical, `${route} ordered Home + 7 primary + 2 utility keyboard traversal`).toEqual(expectedCanonicalFocusOrder);
+  expect(seenCanonical, `${route} ordered Home + 4 primary + 1 utility keyboard traversal`).toEqual(expectedCanonicalFocusOrder);
 }
 
 export async function assertLocalOverflow(page: Page, route: string): Promise<void> {
