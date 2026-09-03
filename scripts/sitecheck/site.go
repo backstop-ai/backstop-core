@@ -86,6 +86,10 @@ func canonicalRoutes() []string {
 	return []string{"/", "/evaluate/", "/model/", "/adopt/", "/use-cases/", "/packs/", "/extend/", "/reference/", "/status/", "/contributing/"}
 }
 
+func journeyLinkIDs() []string {
+	return []string{"JLINK-001", "JLINK-002", "JLINK-003", "JLINK-004", "JLINK-005", "JLINK-006", "JLINK-007", "JLINK-008", "JLINK-009", "JLINK-010", "JLINK-011", "JLINK-013", "JLINK-014", "JLINK-015", "JLINK-016", "JLINK-017", "JLINK-018", "JLINK-019", "JLINK-020", "JLINK-021", "JLINK-022", "JLINK-023", "JLINK-024"}
+}
+
 func primaryNavigation() []string {
 	return []string{"/evaluate/", "/model/", "/adopt/", "/use-cases/", "/packs/", "/extend/", "/reference/"}
 }
@@ -394,8 +398,7 @@ func VerifyRenderedOwnerContracts(_ string, builtRoot string, siteCommit string)
 	for _, route := range canonicalRoutes() {
 		joined += documents[route]
 	}
-	for index := 1; index <= 24; index++ {
-		id := fmt.Sprintf("JLINK-%03d", index)
+	for _, id := range journeyLinkIDs() {
 		addCardinality(&findings, "owner-contracts", id, "1", strings.Count(joined, `data-journey-link-id="`+id+`"`))
 		if !regexp.MustCompile(`<a\s+[^>]*data-journey-link-id="` + regexp.QuoteMeta(id) + `"[^>]*href="/[^"]+#[^"]+"[^>]*>[^<]+</a>`).MatchString(joined) {
 			findings = append(findings, Finding{Phase: "owner-contracts", Identity: id, Expected: "one labeled root-relative route/anchor link", Observed: "missing or malformed anchor"})

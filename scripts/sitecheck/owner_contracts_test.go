@@ -19,8 +19,11 @@ func makeOwnerContractSite(t *testing.T) (string, string) {
 	}
 	var content strings.Builder
 	content.WriteString(`<html><main id="main">`)
-	for index := 1; index <= 23; index++ {
-		fmt.Fprintf(&content, `<a data-journey-link-id="JLINK-%03d" href="/model/#target">Journey %03d</a>`, index, index)
+	for _, id := range journeyLinkIDs() {
+		if id == "JLINK-024" {
+			continue
+		}
+		fmt.Fprintf(&content, `<a data-journey-link-id="%s" href="/model/#target">%s</a>`, id, id)
 	}
 	for index := 1; index <= 4; index++ {
 		fmt.Fprintf(&content, `<aside data-boundary-callout data-boundary-id="BOUNDARY-%03d" data-boundary-state="out-of-scope"><p data-boundary-explanation>Boundary %03d explanation.</p></aside>`, index, index)
