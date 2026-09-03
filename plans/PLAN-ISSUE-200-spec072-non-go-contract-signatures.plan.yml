@@ -148,14 +148,31 @@ notes: |
            `<projectRoot>/.backstop/packs/`. A temp root resolves no pack, produces
            no results, and the control silently stops controlling anything.
 
-       (b) The control entry's target file must EXIST ON DISK. `ContractEntry.File`
-           is fed to the pack engine as a real path; a nonexistent file comes back
-           `Scanned: false`, and `VerifyContractVerdict` turns an unscanned scope
-           into a loud CONFIG ERROR rather than the signature VIOLATION the control
-           is asserting. Write the synthetic non-Go file into a `t.TempDir()` and
-           pass its ABSOLUTE path as `File` (extraction only joins RELATIVE paths
-           onto projectRoot, so an absolute path is passed through untouched) while
-           still handing the producer the real repo root from (a).
+       (b) The control entry's target file must EXIST ON DISK, and the control must
+           assert `Scanned == true` on the returned `ContractEngineResult` rather
+           than settling for "a violation was raised".
+
+           Read `VerifyContractVerdict` (pkg/gate/contract_verdict.go) before
+           writing this: the `!Scanned` LOUD CONFIG ERROR branch lives INSIDE
+           `if r.Entry.Absent`. A present contract — `Absent: false`, which is what
+           this control is — never reaches it. It falls straight through to
+           `if r.Matched`, so an unscanned or missing scope degrades to
+           `Matched: false` and returns the ordinary "symbol %s signature not found
+           or mismatched in %s: expected %q" violation, BYTE-INDISTINGUISHABLE from
+           a genuine scanned miss.
+
+           That is precisely why the file must exist and why `Scanned` is asserted
+           DIRECTLY. A raised violation is not evidence the engine ran: point the
+           control at a nonexistent path and it still "raises", proving nothing.
+           `Scanned: true` on the result is the only field that says ast-grep
+           actually opened the file. Do NOT use "the violation is not a config
+           error" as the discriminator — for `Absent: false` there is no config-error
+           branch to discriminate against.
+
+           Write the synthetic non-Go file into a `t.TempDir()` and pass its
+           ABSOLUTE path as `File` (extraction only joins RELATIVE paths onto
+           projectRoot, so an absolute path is passed through untouched) while still
+           handing the producer the real repo root from (a).
 
   5. `TestGate_ArchitectureDiagramContractSignatureProbeClearsOnEdit` must exercise
      ALL THREE `.mmd` files, one subtest each. A single-diagram assertion passes
@@ -273,17 +290,27 @@ phases:
           load-bearing. Write a synthetic non-Go file (say control.yml, holding a line
           the compiled Go-struct pattern cannot match) into a t.TempDir() and construct
           one gate.ContractEntry with Absent false, a present-signature promise, and
-          File set to that file's ABSOLUTE path — the file MUST exist on disk, because
-          a missing path returns Scanned false and VerifyContractVerdict then raises a
-          loud CONFIG ERROR instead of the signature VIOLATION the control asserts.
-          Push it through produceContractEngineResults with projectRoot set to the REAL
-          repository root from repoRoot(t) — never the temp dir — because pack
-          resolution reads <projectRoot>/backstop.yml, <projectRoot>/backstop.lock, and
+          File set to that file's ABSOLUTE path. Push it through
+          produceContractEngineResults with projectRoot set to the REAL repository root
+          from repoRoot(t) — never the temp dir — because pack resolution reads
+          <projectRoot>/backstop.yml, <projectRoot>/backstop.lock, and
           <projectRoot>/.backstop/packs/, and a temp root resolves no pack, returns no
-          results, and silently stops controlling anything. Then require
-          VerifyContractVerdict to RAISE a contract_signature violation that is NOT a
-          config error. If the contracts pack is unresolvable, the control fails the
-          test; it must never t.Skip.
+          results, and silently stops controlling anything.
+
+          Then require BOTH of the following on the single returned
+          gate.ContractEngineResult, in this order: Scanned == true, and
+          VerifyContractVerdict raising a contract_signature violation. The Scanned
+          assertion is the load-bearing one. Because the control is a PRESENT contract
+          (Absent false), VerifyContractVerdict's !Scanned config-error branch — which
+          sits inside `if r.Entry.Absent` — is unreachable for it, so a missing or
+          unscanned file yields Matched false and the ordinary "signature not found or
+          mismatched" violation, indistinguishable from a real scanned miss. A raise
+          alone would therefore be satisfied by a control pointed at a path that does
+          not exist, which is exactly the vacuous green this control exists to rule
+          out. Do not assert "the violation is not a config error"; for Absent false
+          there is no config-error branch to distinguish. If the contracts pack is
+          unresolvable — no results at all — the control fails the test; it must never
+          t.Skip.
 
           The test MUST NOT read docs/_data/content-inventory.yml bytes or grep it for
           "sources[]" (sharp edge 3).
