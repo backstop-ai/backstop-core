@@ -10,4 +10,4 @@ Feature: Apply Backstop
   Scenario: CAP-010/@UJ-002 Connect a use case to an applicable pack
     Given a visitor is at /use-cases/#pack-backed-use-cases
     When they follow the rendered JLINK-016 next-action link
-    Then they arrive at /packs/#choose-a-pack and can connect a use case to an applicable pack
+    Then they arrive at /pack/examples/#choose-a-pack and can connect a use case to an applicable pack

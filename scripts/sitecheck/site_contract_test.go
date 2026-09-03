@@ -383,7 +383,7 @@ func TestSiteCheck_HomepageCanonicalDirectionRejectsDriftMatrix(t *testing.T) {
 		{"alias-link", "homepage-canonical", "journey destination", "canonical root-relative evaluate anchor", "missing", replaceOnce(`href="/evaluate/#target"`, `href="/getting-started.html"`)},
 		{"empty-journey-destination", "homepage-canonical", "journey destination", "canonical root-relative evaluate anchor", "missing", replaceOnce(`href="/evaluate/#target"`, `href=""`)},
 		{"wrong-primary-navigation-destination", "navigation", "/ Primary order", "Evaluate -> /evaluate/", "missing, mislabeled, or reordered", replaceOnce(`<a href="/evaluate/">Evaluate</a>`, `<a href="/wrong-evaluate/">Evaluate</a>`)},
-		{"wrong-utility-navigation-destination", "navigation", "/ Utility order", "Status -> /status/", "missing, mislabeled, or reordered", replaceOnce(`<a href="/status/">Status</a>`, `<a href="/wrong-status/">Status</a>`)},
+		{"wrong-utility-navigation-destination", "navigation", "/ Utility order", "Contributing -> /contributing/", "missing, mislabeled, or reordered", replaceOnce(`<a href="/contributing/">Contributing</a>`, `<a href="/wrong-contributing/">Contributing</a>`)},
 	}
 	for _, mutation := range mutations {
 		t.Run(mutation.name, func(t *testing.T) {

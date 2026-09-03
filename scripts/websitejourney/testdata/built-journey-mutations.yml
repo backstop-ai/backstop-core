@@ -17,12 +17,8 @@ jlink_removals:
   - {jlink: JLINK-014, expected_error: CAP-009/@UJ-002}
   - {jlink: JLINK-015, expected_error: CAP-010/@UJ-001}
   - {jlink: JLINK-016, expected_error: CAP-010/@UJ-002}
-  - {jlink: JLINK-017, expected_error: CAP-011/@UJ-001}
-  - {jlink: JLINK-018, expected_error: CAP-011/@UJ-002}
-  - {jlink: JLINK-019, expected_error: CAP-012/@UJ-001}
   - {jlink: JLINK-020, expected_error: CAP-012/@UJ-002}
   - {jlink: JLINK-021, expected_error: CAP-013/@UJ-001}
-  - {jlink: JLINK-022, expected_error: CAP-013/@UJ-002}
   - {jlink: JLINK-023, expected_error: CAP-013/@UJ-002}
   - {jlink: JLINK-024, expected_error: CAP-014/@UJ-001}
 

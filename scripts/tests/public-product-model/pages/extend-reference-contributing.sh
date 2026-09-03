@@ -2,9 +2,9 @@
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 python3 - "$root" <<'PY'
-import os,re,sys,yaml
+import os,re,subprocess,sys,yaml
 r=sys.argv[1]; top=yaml.safe_load(open(os.path.join(r,'docs/_data/content-topology.yml'))); ev=yaml.safe_load(open(os.path.join(r,'docs/_data/evidence-inventory.yml'))); presentation=yaml.safe_load(open(os.path.join(r,'docs/_data/site-presentation.yml')))
-sources={'docs/extend.md','docs/reference.md','docs/contributing.md'}; pages=[p for p in top['pages'] if p['source'] in sources]; assert {p['source'] for p in pages}==sources
+sources={'docs/pack/guide.md','docs/reference.md','docs/contributing.md'}; pages=[p for p in top['pages'] if p['source'] in sources]; assert {p['source'] for p in pages}==sources
 texts={p['canonical_path']:open(os.path.join(r,p['source']),encoding='utf-8').read() for p in pages}
 presented={p['route']:p['hero_question'] for p in presentation['pages']}
 for p in pages:
@@ -17,10 +17,24 @@ visible=lambda text:text.replace('{% raw %}','').replace('{% endraw %}','')
 for cid in ('CLAIM-006','CLAIM-007','CLAIM-008','CLAIM-009','CLAIM-012','CLAIM-013','CLAIM-014','CLAIM-015','CLAIM-016','CLAIM-021','CLAIM-026','CLAIM-027','CLAIM-028','CLAIM-029','CLAIM-030','CLAIM-031','CLAIM-032','CLAIM-036'):
  c=claims[cid]; assert '<!-- backstop-claim: '+cid+' -->\n'+c['statement_markdown'] in visible(texts[c['owner']['route']]),cid
 assert '[adjacent guidance](/status/#adjacent-guidance)' in texts['/contributing/'],'external owner seam link'
-responsibilities=[('/reference/','`backstop doctor` diagnoses configuration discovery'),('/reference/','Bundles progress through `idea`, `exploring`, `defined`, and `ready`'),('/reference/','`delivered_by` names a completed plan'),('/extend/','slash-bearing include or exclude pattern'),('/reference/','return `0` for success, `1` for blocking violations or broken promises, and `2` for configuration failure'),('/reference/','`backstop pack install`'),('/reference/','Artifact schemas live under'),('/reference/','initialization, diagnosis, gates, packs, artifacts, recipes, baselines, waivers, version reporting, and command discovery')]
+responsibilities=[('/reference/','`backstop doctor` diagnoses configuration discovery'),('/reference/','Bundles progress through `idea`, `exploring`, `defined`, and `ready`'),('/reference/','`delivered_by` names a completed plan'),('/reference/','slash-bearing include or exclude pattern'),('/reference/','return `0` for success, `1` for blocking violations or broken promises, and `2` for configuration failure'),('/reference/','`backstop pack install`'),('/reference/','Artifact schemas live under'),('/reference/','initialization, diagnosis, gates, packs, artifacts, recipes, baselines, waivers, version reporting, and command discovery')]
 def validate_responsibilities(corpus):
  for route,needle in responsibilities: assert needle in corpus[route],needle
 validate_responsibilities(texts)
+guide=texts['/pack/guide/']
+assert guide.count('<div class="pack-model">')==1,'pack-model cardinality'
+dl=re.search(r'<div class="pack-model">\s*<dl>(.*?)</dl>',guide,re.S)
+assert dl,'pack-model dl'
+terms=['Claim','Rule','Engine','Fixtures']
+for term in terms:
+ assert re.search(r'<dt>\s*'+re.escape(term)+r'\s*</dt>\s*<dd>[^<]+</dd>',dl.group(1)),term
+pack_help=subprocess.check_output([os.path.join(r,'bin/backstop'),'pack','--help'],text=True)
+pack_verbs=set(re.findall(r'^\s{2,}(\w+)\s',pack_help,re.M))
+assert 'publish' not in pack_verbs,'pack publish must not exist'
+rendered=set(re.findall(r'backstop pack (\w+)',guide))
+assert rendered,'pack command probe must be non-empty on guide'
+for verb in rendered:
+ assert verb in pack_verbs,f'unknown pack verb on guide: {verb}'
 PY
 production_delete_reject(){
  local file="$1" needle="$2" expected="$3" tmp output; tmp="$(mktemp -d)"
@@ -36,7 +50,7 @@ PY
 production_delete_reject docs/reference.md '`backstop doctor` diagnoses configuration discovery' GET-004
 production_delete_reject docs/reference.md 'Bundles progress through `idea`, `exploring`, `defined`, and `ready`' ART-003
 production_delete_reject docs/reference.md '`delivered_by` names a completed plan' ART-004
-production_delete_reject docs/extend.md 'slash-bearing include or exclude pattern' PACK-004
+production_delete_reject docs/reference.md 'slash-bearing include or exclude pattern' PACK-004
 production_delete_reject docs/reference.md 'return `0` for success, `1` for blocking violations or broken promises, and `2` for configuration failure' CLI-001
 production_delete_reject docs/reference.md '`backstop pack install`' CLI-003
 production_delete_reject docs/reference.md 'Artifact schemas live under' CLI-004

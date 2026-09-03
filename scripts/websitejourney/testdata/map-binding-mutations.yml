@@ -39,32 +39,32 @@ semantic_mutations:
     expected_error: ADOPT-ENFORCE
 
 generated_mutations:
-  - name: wrong-job-on-cap-011
-    key: CAP-011/@UJ-001
+  - name: wrong-job-on-cap-013
+    key: CAP-013/@UJ-002
     override_jobs: [cli-command-catalog]
-    expected_error: CAP-011/@UJ-001
+    expected_error: CAP-013/@UJ-002
   - name: missing-job-on-cap-013
     key: CAP-013/@UJ-002
     omit_job: release-history
     expected_error: CAP-013/@UJ-002
   - name: extra-generated-job
     key: CAP-004/@UJ-001
-    extra_job: installed-pack-catalog
+    extra_job: published-pack-catalog
     expected_error: CAP-004/@UJ-001
   - name: seed5-reconstructs-envelope
-    key: CAP-011/@UJ-001
+    key: CAP-013/@UJ-002
     reconstruct_envelope: true
-    expected_error: CAP-011/@UJ-001
+    expected_error: CAP-013/@UJ-002
   - name: malformed-source-digest
-    key: CAP-011/@UJ-001
+    key: CAP-013/@UJ-002
     override_digest: sha256:not-a-digest
-    expected_error: CAP-011/@UJ-001
+    expected_error: CAP-013/@UJ-002
   - name: missing-marker-pair
     key: CAP-013/@UJ-002
     drop_markers: true
     expected_error: CAP-013/@UJ-002
   - name: resolved-url-template
-    key: CAP-011/@UJ-001
+    key: CAP-013/@UJ-002
     resolve_url_template: true
     expected_error: SITE-COMMIT
   - name: split-cap014-dual-identity

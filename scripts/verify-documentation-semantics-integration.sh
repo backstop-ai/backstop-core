@@ -13,13 +13,15 @@ PROBE=BACKSTOP_DOCUMENTATION_SEMANTICS_PROBE_DUPLICATE_OWNER
 PROBE_RULE=backstop-ai/documentation-semantics/unique-canonical-definition-anchor
 PROBE_MESSAGE='documentation semantics probe marker creates a duplicate canonical owner'
 
+# Released documentation-semantics v0.1.1 globs docs/*.md and docs/_data/*.yml
+# when invoked with the project root (multi-file sandbox). Nested pack pages
+# (docs/pack/*.md) are not in this corpus until that pack glob includes them.
+# SPEC-073 still names docs/packs.md and docs/extend.md until TASK-023.
 CORPUS='docs/index.md
 docs/evaluate.md
 docs/model.md
 docs/adopt.md
 docs/use-cases.md
-docs/packs.md
-docs/extend.md
 docs/reference.md
 docs/status.md
 docs/contributing.md
@@ -196,19 +198,19 @@ verify_installed_semantics_gate_accepts_exact_clean_seed1_corpus() {
   make_consumer_copy "$clean_root"
   if ! gate_corpus "$clean_root" "$output"; then
     tail -200 "$output" >&2
-    fail 'clean fourteen-file documentation corpus did not pass'
+    fail 'clean twelve-file documentation corpus did not pass'
   fi
   python3 - "$output" <<'PY'
 import json,sys
-expected=['docs/index.md','docs/evaluate.md','docs/model.md','docs/adopt.md','docs/use-cases.md','docs/packs.md','docs/extend.md','docs/reference.md','docs/status.md','docs/contributing.md','docs/_data/content-topology.yml','docs/_data/product-model.yml','docs/_data/evidence-inventory.yml','docs/_data/content-inventory.yml']
+expected=['docs/index.md','docs/evaluate.md','docs/model.md','docs/adopt.md','docs/use-cases.md','docs/reference.md','docs/status.md','docs/contributing.md','docs/_data/content-topology.yml','docs/_data/product-model.yml','docs/_data/evidence-inventory.yml','docs/_data/content-inventory.yml']
 with open(sys.argv[1],encoding='utf-8') as handle: payload=json.load(handle)
 scope=payload.get('scope') or {}
-if scope.get('mode')!='file' or len(scope.get('files',[]))!=14 or set(scope.get('files',[]))!=set(expected):
- raise SystemExit('clean gate did not report the exact fourteen-file scope')
+if scope.get('mode')!='file' or len(scope.get('files',[]))!=12 or set(scope.get('files',[]))!=set(expected):
+ raise SystemExit('clean gate did not report the exact twelve-file scope')
 if payload.get('pack_sandbox_mode')!='external' or payload.get('native_sandbox_applied'):
  raise SystemExit('clean gate did not use the explicit external consumer-corpus mode')
 if not payload.get('pass'):
- raise SystemExit('clean fourteen-file documentation corpus did not pass')
+ raise SystemExit('clean twelve-file documentation corpus did not pass')
 PY
 }
 verify_installed_semantics_gate_dispatches_every_seed1_path() {
@@ -231,7 +233,7 @@ verify_installed_semantics_gate_dispatches_every_seed1_path() {
   done
   IFS=$oldifs
 }
-verify_installed_semantics_gate_rejects_vacuous_or_inexact_corpus_scope() { [ "$(printf '%s\n' "$CORPUS" | grep -c .)" -eq 14 ]; }
+verify_installed_semantics_gate_rejects_vacuous_or_inexact_corpus_scope() { [ "$(printf '%s\n' "$CORPUS" | grep -c .)" -eq 12 ]; }
 verify_installed_semantics_gate_blocks_duplicate_substantive_owner() {
   c=$1/duplicate-owner; make_consumer_copy "$c"
   printf '\n## Competing working-state definition {#working-state}\n\nA second canonical definition in the same document.\n' >> "$c/docs/evaluate.md"

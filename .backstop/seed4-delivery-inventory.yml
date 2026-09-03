@@ -37,8 +37,11 @@ entries:
   - change: A
     path: docs/_data/site-presentation.yml
     role: site-data
-  - change: M
+  - change: D
     path: docs/_includes/generated/installed-pack-catalog.md
+    role: include
+  - change: A
+    path: docs/_includes/generated/published-pack-catalog.md
     role: include
   - change: A
     path: docs/_includes/page-hero.html
@@ -79,8 +82,20 @@ entries:
   - change: M
     path: docs/evaluate.md
     role: page-wrapper
-  - change: M
+  - change: D
     path: docs/extend.md
+    role: page-wrapper
+  - change: A
+    path: docs/pack/examples.md
+    role: page-wrapper
+  - change: A
+    path: docs/pack/guide.md
+    role: page-wrapper
+  - change: D
+    path: docs/pack-authoring.md
+    role: page-wrapper
+  - change: D
+    path: docs/packs.md
     role: page-wrapper
   - change: A
     path: docs/getting-started.md
@@ -93,12 +108,6 @@ entries:
     role: page-wrapper
   - change: M
     path: docs/model.md
-    role: page-wrapper
-  - change: A
-    path: docs/pack-authoring.md
-    role: page-wrapper
-  - change: M
-    path: docs/packs.md
     role: page-wrapper
   - change: M
     path: docs/reference.md

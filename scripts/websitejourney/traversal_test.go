@@ -26,8 +26,8 @@ func loadBuiltJourneyMutations(t *testing.T) builtJourneyMutationsFile {
 	if err := yaml.Unmarshal(data, &document); err != nil {
 		t.Fatal(err)
 	}
-	if len(document.JLinkRemovals) != 23 || len(document.JLinkWrongBinds) == 0 || len(document.CAP014Mutations) == 0 {
-		t.Fatal("built-journey-mutations.yml must cover JLINK-001..024 except JLINK-012 and CAP-014 cases")
+	if len(document.JLinkRemovals) != 19 || len(document.JLinkWrongBinds) == 0 || len(document.CAP014Mutations) == 0 {
+		t.Fatal("built-journey-mutations.yml must cover delivered JLINK removals and CAP-014 cases")
 	}
 	return document
 }
@@ -47,8 +47,8 @@ func TestWebsiteJourney_BuiltSiteAllJourneysPass(t *testing.T) {
 	if err := TraverseBuiltJourneys(built, m); err != nil {
 		t.Fatal(err)
 	}
-	if len(m.Journeys) != 21 {
-		t.Fatalf("journey cardinality: got %d, want 21", len(m.Journeys))
+	if len(m.Journeys) != 18 {
+		t.Fatalf("journey cardinality: got %d, want 18", len(m.Journeys))
 	}
 	for _, journey := range m.Journeys {
 		t.Run(journey.GlobalKey, func(t *testing.T) {
@@ -260,7 +260,7 @@ func TestWebsiteJourney_BuiltTraversalRejectsObligationCheats(t *testing.T) {
 		}
 	})
 	t.Run("missing-generated-region", func(t *testing.T) {
-		journey := cloneJourney(m.Journey("CAP-011/@UJ-001"))
+		journey := cloneJourney(m.Journey("CAP-013/@UJ-002"))
 		for i := range journey.Obligations {
 			if journey.Obligations[i].Kind == "generated" {
 				journey.Obligations[i].JobID = "missing-job"
@@ -271,7 +271,7 @@ func TestWebsiteJourney_BuiltTraversalRejectsObligationCheats(t *testing.T) {
 		}
 	})
 	t.Run("resolved-site-commit", func(t *testing.T) {
-		journey := cloneJourney(m.Journey("CAP-011/@UJ-001"))
+		journey := cloneJourney(m.Journey("CAP-013/@UJ-002"))
 		for i := range journey.Obligations {
 			if journey.Obligations[i].Kind == "generated" {
 				journey.Obligations[i].URLTemplates = []string{"https://example.invalid/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
@@ -282,7 +282,7 @@ func TestWebsiteJourney_BuiltTraversalRejectsObligationCheats(t *testing.T) {
 		}
 	})
 	t.Run("missing-owner-verdict", func(t *testing.T) {
-		journey := cloneJourney(m.Journey("CAP-011/@UJ-001"))
+		journey := cloneJourney(m.Journey("CAP-013/@UJ-002"))
 		for i := range journey.Obligations {
 			if journey.Obligations[i].Kind == "generated" {
 				journey.Obligations[i].SiteIdentity = ""
@@ -321,7 +321,7 @@ func TestWebsiteJourney_BuiltTraversalRejectsObligationCheats(t *testing.T) {
 		if SourceMetadataPresent(documents) {
 			t.Fatal("accepted tree must not carry source metadata")
 		}
-		if !HasGeneratedRegion(documents["/packs/"], "installed-pack-catalog") {
+		if !HasGeneratedRegion(documents["/pack/examples/"], "published-pack-catalog") {
 			t.Fatal("accepted tree missing generated region")
 		}
 		route, fragment, err := ParseHop("/status/#adjacent-guidance")

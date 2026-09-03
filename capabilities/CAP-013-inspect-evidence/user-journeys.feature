@@ -8,7 +8,6 @@ Feature: Inspect the Evidence
 
   @UJ-002
   Scenario: CAP-013/@UJ-002 Trace all generated product truth to authoritative sources
-    Given a visitor is at /packs/#installed-pack-catalog
-    When they follow the rendered JLINK-022 next-action link to /reference/#cli-command-catalog
-    And they follow the rendered JLINK-023 next-action link
+    Given a visitor is at /reference/#cli-command-catalog
+    When they follow the rendered JLINK-023 next-action link
     Then they arrive at /status/#release-history and can trace generated product truth to authoritative sources

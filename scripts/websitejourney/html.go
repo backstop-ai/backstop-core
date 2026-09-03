@@ -43,7 +43,7 @@ func BuiltRoutePath(root, route string) string {
 }
 
 func CanonicalBuiltRoutes() []string {
-	return []string{"/", "/evaluate/", "/model/", "/adopt/", "/use-cases/", "/packs/", "/extend/", "/reference/", "/status/", "/contributing/"}
+	return []string{"/", "/evaluate/", "/model/", "/adopt/", "/use-cases/", "/pack/examples/", "/pack/guide/", "/reference/", "/status/", "/contributing/"}
 }
 
 func LoadBuiltDocuments(builtRoot string) (map[string]string, error) {

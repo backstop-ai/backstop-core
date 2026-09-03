@@ -2,9 +2,9 @@
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 python3 - "$root" <<'PY'
-import os,re,sys,yaml
+import os,re,subprocess,sys,yaml
 r=sys.argv[1]; top=yaml.safe_load(open(os.path.join(r,'docs/_data/content-topology.yml'))); model=yaml.safe_load(open(os.path.join(r,'docs/_data/product-model.yml'))); ev=yaml.safe_load(open(os.path.join(r,'docs/_data/evidence-inventory.yml'))); presentation=yaml.safe_load(open(os.path.join(r,'docs/_data/site-presentation.yml')))
-sources={'docs/model.md','docs/use-cases.md','docs/packs.md'}; pages=[p for p in top['pages'] if p['source'] in sources]; assert {p['source'] for p in pages}==sources
+sources={'docs/model.md','docs/use-cases.md','docs/pack/examples.md'}; pages=[p for p in top['pages'] if p['source'] in sources]; assert {p['source'] for p in pages}==sources
 texts={p['canonical_path']:open(os.path.join(r,p['source']),encoding='utf-8').read() for p in pages}
 presented={p['route']:p['hero_question'] for p in presentation['pages']}
 for p in pages:
@@ -17,10 +17,18 @@ for link in top['journey_links']:
 claims={c['claim_id']:c for c in ev['claims']}
 for cid in ('CLAIM-011','CLAIM-019','CLAIM-020','CLAIM-022','CLAIM-023','CLAIM-025'):
  claim=claims[cid]; assert '<!-- backstop-claim: '+cid+' -->\n'+claim['statement_markdown'] in texts[claim['owner']['route']],cid
-responsibilities=[('/model/','Terminal state records whether work was delivered'),('/model/','`delivered_by` or a direct typed artifact'),('/packs/','lock binds resolved bytes')]
+responsibilities=[('/model/','Terminal state records whether work was delivered'),('/model/','`delivered_by` or a direct typed artifact'),('/pack/examples/','pins the version in `backstop.yml` and writes `backstop.lock`')]
 def validate_responsibilities(corpus):
  for route,needle in responsibilities: assert needle in corpus[route],needle
 validate_responsibilities(texts)
+examples=texts['/pack/examples/']
+pack_help=subprocess.check_output([os.path.join(r,'bin/backstop'),'pack','--help'],text=True)
+pack_verbs=set(re.findall(r'^\s{2,}(\w+)\s',pack_help,re.M))
+assert 'publish' not in pack_verbs,'pack publish must not exist'
+rendered=set(re.findall(r'backstop pack (\w+)',examples))
+assert rendered,'pack command probe must be non-empty on examples'
+for verb in rendered:
+ assert verb in pack_verbs,f'unknown pack verb on examples: {verb}'
 PY
 production_delete_reject(){
  local file="$1" needle="$2" expected="$3" tmp output; tmp="$(mktemp -d)"
@@ -35,9 +43,9 @@ PY
 }
 production_delete_reject docs/model.md 'Terminal state records whether work was delivered' ART-003
 production_delete_reject docs/model.md '`delivered_by` or a direct typed artifact' ART-004
-production_delete_reject docs/packs.md 'lock binds resolved bytes' CLAIM-025
+production_delete_reject docs/pack/examples.md 'pins the version in `backstop.yml` and writes `backstop.lock`' CLAIM-025
 tmp="$(mktemp -d)"; for d in docs artifacts pkg cmd bundles issues; do cp -R "$root/$d" "$tmp/$d"; done; cp "$root/README.md" "$root/backstop.yml" "$root/backstop.lock" "$tmp/"
-python3 - "$tmp/docs/packs.md" <<'PY'
+python3 - "$tmp/docs/pack/examples.md" <<'PY'
 import sys
 p=sys.argv[1]; s=open(p).read(); open(p,'w').write(s+'\nInstalled packs execute their declared engines and the lock guarantees those exact bytes.\n')
 PY

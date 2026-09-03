@@ -93,52 +93,16 @@ journeys:
       - {kind: evidence, claim_id: CLAIM-017, owner_route: "/", owner_anchor: define-work, claim_type: mechanism}
       - {kind: boundary, boundary_id: BOUNDARY-002, owner_route: "/status/", owner_anchor: supported-and-limited, state: limitation, claim_id: CLAIM-002}
   - global_key: CAP-010/@UJ-002
-    hops: ["/use-cases/#pack-backed-use-cases", "/packs/#choose-a-pack"]
+    hops: ["/use-cases/#pack-backed-use-cases", "/pack/examples/#choose-a-pack"]
     jlinks: [JLINK-016]
     obligations:
-      - {kind: evidence, claim_id: CLAIM-025, owner_route: "/packs/", owner_anchor: installed-pack-catalog, claim_type: mechanism}
+      - {kind: evidence, claim_id: CLAIM-025, owner_route: "/pack/examples/", owner_anchor: install-a-pack, claim_type: mechanism}
       - {kind: boundary, boundary_id: BOUNDARY-003, owner_route: "/status/", owner_anchor: project-boundaries, state: planned, claim_id: CLAIM-003}
-  - global_key: CAP-011/@UJ-001
-    hops: ["/packs/#installed-pack-catalog", "/reference/#pack-commands"]
-    jlinks: [JLINK-017]
-    obligations:
-      - {kind: evidence, claim_id: CLAIM-025, owner_route: "/packs/", owner_anchor: installed-pack-catalog, claim_type: mechanism}
-      - {kind: boundary, boundary_id: BOUNDARY-002, owner_route: "/status/", owner_anchor: supported-and-limited, state: limitation, claim_id: CLAIM-002}
-      - kind: generated
-        job_id: installed-pack-catalog
-        output: docs/_includes/generated/installed-pack-catalog.md
-        owner_route: /packs/
-        owner_anchor: installed-pack-catalog
-        truth_begin_marker: "<!-- PRODUCT-TRUTH:BEGIN job=installed-pack-catalog digest=sha256:6878c343b34e7d4f4014856e5d236bf45b72b4e3e1832083a25485c4f74926a0 -->"
-        truth_end_marker: "<!-- PRODUCT-TRUTH:END job=installed-pack-catalog -->"
-        sources_begin_marker: "<!-- PRODUCT-TRUTH:SOURCES-BEGIN job=installed-pack-catalog owner=/packs/#installed-pack-catalog digest=sha256:6878c343b34e7d4f4014856e5d236bf45b72b4e3e1832083a25485c4f74926a0 -->"
-        sources_end_marker: "<!-- PRODUCT-TRUTH:SOURCES-END job=installed-pack-catalog -->"
-        source_digest: sha256:6878c343b34e7d4f4014856e5d236bf45b72b4e3e1832083a25485c4f74926a0
-        descriptors:
-          - {kind: blob, commit_binding: site, path: backstop.yml}
-          - {kind: blob, commit_binding: site, path: backstop.lock}
-        url_templates:
-          - "https://github.com/backstop-ai/backstop-core/blob/<SITE-COMMIT>/backstop.yml"
-          - "https://github.com/backstop-ai/backstop-core/blob/<SITE-COMMIT>/backstop.lock"
-        site_identity: owner:SPEC-075:site-commit
-        rendered_anchors:
-          - section[data-generated-region][data-product-truth-job=installed-pack-catalog] a[data-generated-source-link]
-        reconstruction_verdict: owner:SPEC-075:reconstruction
-        rendered_digest: owner:SPEC-075:rendered-digest
-  - global_key: CAP-011/@UJ-002
-    hops: ["/packs/#choose-a-pack", "/status/#pack-direction"]
-    jlinks: [JLINK-018]
-    obligations:
-      - {kind: evidence, claim_id: CLAIM-033, owner_route: "/status/", owner_anchor: pack-direction, claim_type: mechanism}
-      - {kind: boundary, boundary_id: BOUNDARY-001, owner_route: "/status/", owner_anchor: supported-and-limited, state: supported, claim_id: CLAIM-001}
-  - global_key: CAP-012/@UJ-001
-    hops: ["/extend/#pack-or-not", "/reference/#pack-artifact"]
-    jlinks: [JLINK-019]
-    obligations:
-      - {kind: evidence, claim_id: CLAIM-029, owner_route: "/reference/", owner_anchor: pack-artifact, claim_type: mechanism}
-      - {kind: boundary, boundary_id: BOUNDARY-004, owner_route: "/status/", owner_anchor: project-boundaries, state: non-goal, claim_id: CLAIM-004}
+
+
+
   - global_key: CAP-012/@UJ-002
-    hops: ["/extend/#author-a-pack", "/contributing/#contribution-paths"]
+    hops: ["/pack/guide/#author-a-pack", "/contributing/#contribution-paths"]
     jlinks: [JLINK-020]
     obligations:
       - {kind: evidence, claim_id: CLAIM-036, owner_route: "/contributing/", owner_anchor: contribution-paths, claim_type: mechanism}
@@ -149,8 +113,8 @@ journeys:
     obligations:
       - {kind: evidence, claim_id: CLAIM-007, owner_route: "/reference/", owner_anchor: source-traceability, claim_type: observed-failure}
   - global_key: CAP-013/@UJ-002
-    hops: ["/packs/#installed-pack-catalog", "/reference/#cli-command-catalog", "/status/#release-history"]
-    jlinks: [JLINK-022, JLINK-023]
+    hops: ["/reference/#cli-command-catalog", "/status/#release-history"]
+    jlinks: [JLINK-023]
     obligations:
       - {kind: evidence, claim_id: CLAIM-032, owner_route: "/reference/", owner_anchor: cli-command-catalog, claim_type: mechanism}
       - kind: generated
@@ -158,9 +122,9 @@ journeys:
         output: docs/_includes/generated/cli-command-catalog.md
         owner_route: /reference/
         owner_anchor: cli-command-catalog
-        truth_begin_marker: "<!-- PRODUCT-TRUTH:BEGIN job=cli-command-catalog digest=sha256:9a0727cd1a743279847069b07d7b1eed78c034ba5bfe35dc4b238201ed6324d6 -->"
+        truth_begin_marker: "<!-- PRODUCT-TRUTH:BEGIN job=cli-command-catalog digest=sha256:a351973cdb47b555e4b3db4bf15ec0e4a561b6ab73a9b3d9550537fdfff24f5f -->"
         truth_end_marker: "<!-- PRODUCT-TRUTH:END job=cli-command-catalog -->"
-        sources_begin_marker: "<!-- PRODUCT-TRUTH:SOURCES-BEGIN job=cli-command-catalog owner=/reference/#cli-command-catalog digest=sha256:9a0727cd1a743279847069b07d7b1eed78c034ba5bfe35dc4b238201ed6324d6 -->"
+        sources_begin_marker: "<!-- PRODUCT-TRUTH:SOURCES-BEGIN job=cli-command-catalog owner=/reference/#cli-command-catalog digest=sha256:a351973cdb47b555e4b3db4bf15ec0e4a561b6ab73a9b3d9550537fdfff24f5f -->"
         sources_end_marker: "<!-- PRODUCT-TRUTH:SOURCES-END job=cli-command-catalog -->"
         source_digest: sha256:9a0727cd1a743279847069b07d7b1eed78c034ba5bfe35dc4b238201ed6324d6
         descriptors:
@@ -177,9 +141,9 @@ journeys:
         output: docs/_includes/generated/artifact-schema-catalog.md
         owner_route: /reference/
         owner_anchor: artifact-schema-catalog
-        truth_begin_marker: "<!-- PRODUCT-TRUTH:BEGIN job=artifact-schema-catalog digest=sha256:ee7aa023961c5e63426b6d0fcc3631c600181eb55aecca8dc764dad509bce969 -->"
+        truth_begin_marker: "<!-- PRODUCT-TRUTH:BEGIN job=artifact-schema-catalog digest=sha256:a351973cdb47b555e4b3db4bf15ec0e4a561b6ab73a9b3d9550537fdfff24f5f -->"
         truth_end_marker: "<!-- PRODUCT-TRUTH:END job=artifact-schema-catalog -->"
-        sources_begin_marker: "<!-- PRODUCT-TRUTH:SOURCES-BEGIN job=artifact-schema-catalog owner=/reference/#artifact-schema-catalog digest=sha256:ee7aa023961c5e63426b6d0fcc3631c600181eb55aecca8dc764dad509bce969 -->"
+        sources_begin_marker: "<!-- PRODUCT-TRUTH:SOURCES-BEGIN job=artifact-schema-catalog owner=/reference/#artifact-schema-catalog digest=sha256:a351973cdb47b555e4b3db4bf15ec0e4a561b6ab73a9b3d9550537fdfff24f5f -->"
         sources_end_marker: "<!-- PRODUCT-TRUTH:SOURCES-END job=artifact-schema-catalog -->"
         source_digest: sha256:ee7aa023961c5e63426b6d0fcc3631c600181eb55aecca8dc764dad509bce969
         descriptors:
@@ -194,24 +158,22 @@ journeys:
         reconstruction_verdict: owner:SPEC-075:reconstruction
         rendered_digest: owner:SPEC-075:rendered-digest
       - kind: generated
-        job_id: installed-pack-catalog
-        output: docs/_includes/generated/installed-pack-catalog.md
-        owner_route: /packs/
-        owner_anchor: installed-pack-catalog
-        truth_begin_marker: "<!-- PRODUCT-TRUTH:BEGIN job=installed-pack-catalog digest=sha256:6878c343b34e7d4f4014856e5d236bf45b72b4e3e1832083a25485c4f74926a0 -->"
-        truth_end_marker: "<!-- PRODUCT-TRUTH:END job=installed-pack-catalog -->"
-        sources_begin_marker: "<!-- PRODUCT-TRUTH:SOURCES-BEGIN job=installed-pack-catalog owner=/packs/#installed-pack-catalog digest=sha256:6878c343b34e7d4f4014856e5d236bf45b72b4e3e1832083a25485c4f74926a0 -->"
-        sources_end_marker: "<!-- PRODUCT-TRUTH:SOURCES-END job=installed-pack-catalog -->"
-        source_digest: sha256:6878c343b34e7d4f4014856e5d236bf45b72b4e3e1832083a25485c4f74926a0
+        job_id: published-pack-catalog
+        output: docs/_includes/generated/published-pack-catalog.md
+        owner_route: /pack/examples/
+        owner_anchor: published-pack-catalog
+        truth_begin_marker: "<!-- PRODUCT-TRUTH:BEGIN job=published-pack-catalog digest=sha256:a351973cdb47b555e4b3db4bf15ec0e4a561b6ab73a9b3d9550537fdfff24f5f -->"
+        truth_end_marker: "<!-- PRODUCT-TRUTH:END job=published-pack-catalog -->"
+        sources_begin_marker: "<!-- PRODUCT-TRUTH:SOURCES-BEGIN job=published-pack-catalog owner=/pack/examples/#published-pack-catalog digest=sha256:a351973cdb47b555e4b3db4bf15ec0e4a561b6ab73a9b3d9550537fdfff24f5f -->"
+        sources_end_marker: "<!-- PRODUCT-TRUTH:SOURCES-END job=published-pack-catalog -->"
+        source_digest: sha256:a351973cdb47b555e4b3db4bf15ec0e4a561b6ab73a9b3d9550537fdfff24f5f
         descriptors:
-          - {kind: blob, commit_binding: site, path: backstop.yml}
-          - {kind: blob, commit_binding: site, path: backstop.lock}
+          - {kind: blob, commit_binding: site, path: docs/_data/published-pack-inventory.yml}
         url_templates:
-          - "https://github.com/backstop-ai/backstop-core/blob/<SITE-COMMIT>/backstop.yml"
-          - "https://github.com/backstop-ai/backstop-core/blob/<SITE-COMMIT>/backstop.lock"
+          - "https://github.com/backstop-ai/backstop-core/blob/<SITE-COMMIT>/docs/_data/published-pack-inventory.yml"
         site_identity: owner:SPEC-075:site-commit
         rendered_anchors:
-          - section[data-generated-region][data-product-truth-job=installed-pack-catalog] a[data-generated-source-link]
+          - section[data-generated-region][data-product-truth-job=published-pack-catalog] a[data-generated-source-link]
         reconstruction_verdict: owner:SPEC-075:reconstruction
         rendered_digest: owner:SPEC-075:rendered-digest
       - kind: generated
@@ -219,9 +181,9 @@ journeys:
         output: docs/_includes/generated/release-history.md
         owner_route: /status/
         owner_anchor: release-history
-        truth_begin_marker: "<!-- PRODUCT-TRUTH:BEGIN job=release-history digest=sha256:5709eb97a133c96899b74a8728b1fe3813f02bb0e2f8de21c164a3cd4a203c16 -->"
+        truth_begin_marker: "<!-- PRODUCT-TRUTH:BEGIN job=release-history digest=sha256:a351973cdb47b555e4b3db4bf15ec0e4a561b6ab73a9b3d9550537fdfff24f5f -->"
         truth_end_marker: "<!-- PRODUCT-TRUTH:END job=release-history -->"
-        sources_begin_marker: "<!-- PRODUCT-TRUTH:SOURCES-BEGIN job=release-history owner=/status/#release-history digest=sha256:5709eb97a133c96899b74a8728b1fe3813f02bb0e2f8de21c164a3cd4a203c16 -->"
+        sources_begin_marker: "<!-- PRODUCT-TRUTH:SOURCES-BEGIN job=release-history owner=/status/#release-history digest=sha256:a351973cdb47b555e4b3db4bf15ec0e4a561b6ab73a9b3d9550537fdfff24f5f -->"
         sources_end_marker: "<!-- PRODUCT-TRUTH:SOURCES-END job=release-history -->"
         source_digest: sha256:5709eb97a133c96899b74a8728b1fe3813f02bb0e2f8de21c164a3cd4a203c16
         descriptors:
