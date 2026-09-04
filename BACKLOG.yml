@@ -101,6 +101,13 @@
 # not new or lower-urgency work, so it inherits the position rather than queuing behind
 # everything else. Everything else keeps its prior relative order.
 #
+# REORDERED 2026-09-04 (founder-directed, website paperwork pass): DIR-035
+# (Public Site) is inserted at position 1. DIR-002 remains the blocked init
+# lane (BUNDLE-003 REQ-022/REQ-024) and drops one slot; everything else keeps
+# its prior relative order. Trigger: the public site is mostly shipped and
+# had no live directive home. Position is the session's "website first" call;
+# founder may reorder.
+#
 # CORRECTED 2026-08-20: the REMOVED note above (same date) was itself a mistake. DIR-002 was
 # flipped to `status: done` on the premise that BUNDLE-003 had reached `maturity: delivered`;
 # that premise was wrong — a real CI failure (`requirement_traceability` red) caught that the
@@ -110,6 +117,8 @@
 # DIR-033) — see directives/DIR-002-backstop-init.directive.md's own Notes for the full
 # correction record.
 directives:
+  - id: DIR-035
+    title: Public Site
   - id: DIR-002
     title: backstop init Command
   - id: DIR-033
@@ -207,12 +216,6 @@ bundles:
   # bundle is not an open backlog slot.
   - id: BUNDLE-005
     title: Pack Validation — How an Agent Verifies Its Pack Output Is Correct
-  # Appended 2026-09-04 by backlog-pm full sweep (standing grant: new bundles are
-  # never invisible). BUNDLE-032 "Website Expansion" is `maturity: ready`, cited by
-  # NO live directive, and missing from this section since creation 2026-08-23.
-  # SPEC-072..076 are `implemented` / plans `completed` (SPEC-071 canceled); the
-  # public site is mostly shipped. Residuals (ISSUE-190/191/192/200) ride this
-  # unhomed entry until a directive homes it. Position is APPEND ORDER, not a
-  # priority claim; founder should reorder freely. See the 2026-09-04 sweep.
-  - id: BUNDLE-032
-    title: Website Expansion
+  # BUNDLE-032 "Website Expansion" was appended here 2026-09-04 (standing grant)
+  # then REMOVED the same day once DIR-035 cited it as source — a bundle leaves
+  # this section when a live directive homes it.
