@@ -207,3 +207,12 @@ bundles:
   # bundle is not an open backlog slot.
   - id: BUNDLE-005
     title: Pack Validation — How an Agent Verifies Its Pack Output Is Correct
+  # Appended 2026-09-04 by backlog-pm full sweep (standing grant: new bundles are
+  # never invisible). BUNDLE-032 "Website Expansion" is `maturity: ready`, cited by
+  # NO live directive, and missing from this section since creation 2026-08-23.
+  # SPEC-072..076 are `implemented` / plans `completed` (SPEC-071 canceled); the
+  # public site is mostly shipped. Residuals (ISSUE-190/191/192/200) ride this
+  # unhomed entry until a directive homes it. Position is APPEND ORDER, not a
+  # priority claim; founder should reorder freely. See the 2026-09-04 sweep.
+  - id: BUNDLE-032
+    title: Website Expansion
