@@ -154,9 +154,22 @@ func bindClaims(doc string, claims []evidenceClaim, boundaries map[string]bounda
 			closingNeedle += "</p>"
 		}
 		segment := doc[start:end]
+		wrapperCloser := func(wrapper string) string {
+			if strings.HasSuffix(closingNeedle, "</p>") {
+				return "</p>" + wrapper
+			}
+			return wrapper
+		}
 		if claim.BoundaryID == "" {
-			segment, _ = replaceOnce(segment, opening, `<article data-evidence-card data-claim-id="`+html.EscapeString(claim.ID)+`">`, claim.ID)
-			segment, _ = replaceOnce(segment, closingNeedle, `</article>`, claim.ID)
+			var err error
+			segment, err = replaceOnce(segment, opening, `<article data-evidence-card data-claim-id="`+html.EscapeString(claim.ID)+`">`, claim.ID)
+			if err != nil {
+				return doc, fmt.Errorf("%s: %w", claim.ID, err)
+			}
+			segment, err = replaceOnce(segment, closingNeedle, wrapperCloser("</article>"), claim.ID)
+			if err != nil {
+				return doc, fmt.Errorf("%s: %w", claim.ID, err)
+			}
 			doc = doc[:start] + segment + doc[end:]
 			continue
 		}
@@ -165,7 +178,11 @@ func bindClaims(doc string, claims []evidenceClaim, boundaries map[string]bounda
 			return doc, fmt.Errorf("%s: boundary owner binding is absent or inconsistent", claim.BoundaryID)
 		}
 		openingTag := fmt.Sprintf(`<aside data-boundary-callout data-boundary-id="%s" data-boundary-state="%s">`, html.EscapeString(boundaryRecord.ID), html.EscapeString(boundaryRecord.State))
-		segment, _ = replaceOnce(segment, opening, openingTag, boundaryRecord.ID)
+		var err error
+		segment, err = replaceOnce(segment, opening, openingTag, boundaryRecord.ID)
+		if err != nil {
+			return doc, fmt.Errorf("%s: %w", boundaryRecord.ID, err)
+		}
 		if !strings.Contains(segment, "<p>") {
 			return doc, fmt.Errorf("%s: explanation paragraph missing", boundaryRecord.ID)
 		}
@@ -181,7 +198,10 @@ func bindClaims(doc string, claims []evidenceClaim, boundaries map[string]bounda
 				return doc, fmt.Errorf("%s/%s: dual-identity continuation missing", boundaryRecord.ID, boundaryRecord.Continuation.JourneyLinkID)
 			}
 		}
-		segment, _ = replaceOnce(segment, closingNeedle, `</aside>`, boundaryRecord.ID)
+		segment, err = replaceOnce(segment, closingNeedle, wrapperCloser("</aside>"), boundaryRecord.ID)
+		if err != nil {
+			return doc, fmt.Errorf("%s: %w", boundaryRecord.ID, err)
+		}
 		doc = doc[:start] + segment + doc[end:]
 	}
 	return doc, nil
@@ -197,7 +217,7 @@ func bindAdoptionInstructions(doc string, instructions []adoptionInstruction, ro
 		var err error
 		doc, err = replaceOnce(doc, before, after, instruction.ID)
 		if err != nil {
-			return doc, err
+			return doc, fmt.Errorf("%s: %w", instruction.ID, err)
 		}
 	}
 	return doc, nil
@@ -341,10 +361,14 @@ func main() {
 	flag.Parse()
 	findings := Render(*root, *builtRoot, *commit)
 	for _, finding := range findings {
-		_, _ = fmt.Fprintf(os.Stderr, "%s: %s: %s\n", finding.Phase, finding.Identity, finding.Message)
+		if _, err := fmt.Fprintf(os.Stderr, "%s: %s: %s\n", finding.Phase, finding.Identity, finding.Message); err != nil {
+			os.Exit(1)
+		}
 	}
 	if len(findings) > 0 {
 		os.Exit(1)
 	}
-	_, _ = fmt.Fprintf(os.Stdout, "annotation: rendered owner contracts for %s\n", *commit)
+	if _, err := fmt.Fprintf(os.Stdout, "annotation: rendered owner contracts for %s\n", *commit); err != nil {
+		os.Exit(1)
+	}
 }
