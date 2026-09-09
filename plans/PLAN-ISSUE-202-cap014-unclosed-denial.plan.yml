@@ -1,0 +1,169 @@
+---
+plan_id: PLAN-ISSUE-202
+spec_id: ISSUE-202
+created: "2026-09-09"
+status: ready
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "./bin/backstop gate --all"
+coverage_threshold: 90
+
+notes: |
+  Isolated renderer fix on the issue-to-plan track. CAP-014/@UJ-001 is red on
+  every Pages post-deploy check because bindClaims steals the kramdown-wrapped
+  `</p>` when it substitutes `<!-- /backstop-claim --></p>` with `</aside>`.
+  The live BOUNDARY-005 denial paragraph is unclosed; firstElementText then
+  yields empty visible bytes.
+
+  EXISTENCE-IN-WORLD: searched plans/ and issues/ for bindClaims closer theft,
+  CAP-014 unclosed denial, JLINK-024 visible bytes, and
+  data-boundary-guarantee-denial. PLAN-SPEC-075 completed the original
+  stamper; it does not own this residual production HTML bug. PLAN-ISSUE-199
+  mentions bindClaims claim-marker rewrite for visitor pages and is closed.
+  No live plan subsumes this closer restoration. ISSUE-201 is a burnt tag
+  with no file; this work is ISSUE-202.
+
+  FENCE: only scripts/render-public-site-contracts/main.go and
+  scripts/render-public-site-contracts/main_test.go change in implementation.
+  Homing ISSUE-202 under DIR-035 is already done at authoring time and is not
+  a plan task. Do not edit pages.yml, websitejourney, sitecheck, docs/status.md,
+  or product-model copy. Do not make Pages fail deploy on this check.
+
+  TDD: TASK-001 writes the two mandated tests against the existing
+  makeRenderFixture kramdown shape. They MUST fail before TASK-002 edits
+  bindClaims. TASK-002 restores `</p>` in front of the semantic wrapper when
+  closingNeedle was extended to include it. TASK-003 is the phase gate.
+  TASK-004 is the unscoped kill chain.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: RED/GREEN restore kramdown paragraph closers in bindClaims"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "RED: assert adjacent-guidance denial and kramdown wrappers stay closed"
+        description: |
+          Extend scripts/render-public-site-contracts/main_test.go using the
+          existing makeRenderFixture kramdown shape. Do not add a new fixture
+          tree. Do not edit main.go.
+
+          TestRenderPublicSiteContracts_ClosesAdjacentGuidanceDenialParagraph
+          must render the fixture through Render, require the exact substring
+          `<p data-boundary-guarantee-denial>Denial bytes.</p></aside>`, and
+          apply the websitejourney firstElementText pattern
+          `(?s)[^<]*data-boundary-guarantee-denial[^>]*>([^<]*)<` to the
+          BOUNDARY-005 aside interior (bytes inside the aside, excluding the
+          `</aside>` tag, matching FindRenderedBoundary). The captured text
+          trimmed must equal `Denial bytes.` Also feed that same pattern a
+          copy of the live unclosed shape (denial text immediately followed
+          by `</aside>` with no `</p>`) and require empty/no match, so the
+          test does not treat the production defect as success.
+
+          TestRenderPublicSiteContracts_PreservesKramdownParagraphCloserInsideSemanticWrapper
+          must require the rendered fixture to contain
+          `<p>Evidence bytes.</p></article>` (or the CLAIM-001 article wrapping
+          that closed paragraph) and
+          `<p data-boundary-explanation>Unsupported bytes.</p></aside>` for
+          BOUNDARY-002. Leave TestRenderPublicSiteContracts_FullFixturePasses
+          unmodified, including its rejection of leftover claim markers,
+          SITE-COMMIT, and `</article></p>`.
+
+          RED receipt before any production edit: `./bin/backstop gate --file
+          scripts/render-public-site-contracts/main_test.go` must run the new
+          tests and fail on the closed-denial / restored-closer assertions.
+          A compile failure is not this task's RED evidence; fix the test
+          file until the tests execute and fail for the missing `</p>`.
+        files:
+          - scripts/render-public-site-contracts/main_test.go
+        test_names:
+          - TestRenderPublicSiteContracts_ClosesAdjacentGuidanceDenialParagraph
+          - TestRenderPublicSiteContracts_PreservesKramdownParagraphCloserInsideSemanticWrapper
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+        depends_on: []
+
+      - id: TASK-002
+        type: implementation
+        title: "GREEN: replace an extended closingNeedle with </p> plus the wrapper"
+        description: |
+          Edit only bindClaims in scripts/render-public-site-contracts/main.go.
+          When closingNeedle was extended because the bytes after the claim
+          closer were `</p>`, the replaceOnce of that needle must emit `</p>`
+          immediately before the semantic wrapper: `</p></article>` for
+          evidence cards and `</p></aside>` for boundary callouts. When the
+          needle was not extended, keep replacing with the wrapper alone.
+
+          Do not change how explanation or denial paragraphs are retagged.
+          Do not change bindJourneyLinks, sitecheck, websitejourney,
+          pages.yml, or any Markdown copy. Do not loosen firstElementText.
+
+          GREEN evidence: rerun `./bin/backstop gate --file
+          scripts/render-public-site-contracts/main.go --file
+          scripts/render-public-site-contracts/main_test.go` and require the
+          two new tests plus TestRenderPublicSiteContracts_FullFixturePasses
+          to pass.
+        files:
+          - scripts/render-public-site-contracts/main.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: verification
+        title: "Verify the renderer package through the diff-scoped gate"
+        description: |
+          Run `./bin/backstop gate --file
+          scripts/render-public-site-contracts/main.go --file
+          scripts/render-public-site-contracts/main_test.go`. Require zero
+          blocking violations on those files, the two mandated tests present
+          and passing, and TestRenderPublicSiteContracts_FullFixturePasses
+          still passing unmodified. A waiver, skip, or baseline change is a
+          failure.
+        files:
+          - scripts/render-public-site-contracts/main.go
+          - scripts/render-public-site-contracts/main_test.go
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+        depends_on:
+          - TASK-002
+
+  - id: phase-2
+    name: "Phase 2: Full kill chain and artifact validation"
+    tasks:
+      - id: TASK-004
+        type: verification
+        title: "Run backstop gate --all and validate ISSUE-202 artifacts"
+        description: |
+          Run `./bin/backstop gate --all` as the unscoped kill chain, then
+          `./bin/backstop artifact validate --all`. Require this plan,
+          ISSUE-202, and DIR-035 to validate. Read the implementation diff
+          as a fence check (CLM-004): production edits confined to
+          scripts/render-public-site-contracts/main.go and
+          scripts/render-public-site-contracts/main_test.go, plus the
+          already-authored ISSUE-202 / PLAN-ISSUE-202 / DIR-035 homing
+          artifacts. Confirm `.github/workflows/pages.yml`,
+          `scripts/websitejourney/html.go`, sitecheck dual-identity regex,
+          and `docs/status.md` are unchanged. Report inherited failures
+          truthfully; do not absorb them with a waiver.
+        files:
+          - scripts/render-public-site-contracts/main.go
+          - scripts/render-public-site-contracts/main_test.go
+          - plans/PLAN-ISSUE-202-cap014-unclosed-denial.plan.yml
+          - issues/ISSUE-202-cap014-unclosed-denial.issue.md
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+        depends_on:
+          - TASK-002
+          - TASK-003

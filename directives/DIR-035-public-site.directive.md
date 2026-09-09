@@ -23,6 +23,7 @@ directive:
     - "ISSUE-198"
     - "ISSUE-199"
     - "ISSUE-200"
+    - "ISSUE-202"
 ---
 
 ## Description
@@ -74,9 +75,10 @@ to keep those issues open.
 - When this directive was created, BUNDLE-032 was removed from BACKLOG.yml
   `bundles:` (a bundle leaves that section once a live directive cites it).
 - Open residuals ISSUE-191, ISSUE-192, ISSUE-200 keep their existing draft
-  plans. Next implementation in this lane is ISSUE-200 (live gate defect),
-  then ISSUE-191 / ISSUE-192. Do not start those without a validated plan;
-  ISSUE-200's plan is still `draft` and wants plan-review before implement.
+  plans. ISSUE-202 is the live CAP-014/@UJ-001 deployed-journey red (unclosed
+  BOUNDARY-005 denial paragraph from bindClaims stealing `</p>`). Do not start
+  ISSUE-200 / ISSUE-191 / ISSUE-192 without a validated plan; ISSUE-200's plan
+  is still `draft` and wants plan-review before implement.
 - PLAN-ISSUE-190 and PLAN-ISSUE-193..199 remaining `draft` after merge is
   recorded, not silently flipped to `completed`. Completing those plans is a
   follow-on closeout (mandated-test honesty) and must not be a vacuous status
