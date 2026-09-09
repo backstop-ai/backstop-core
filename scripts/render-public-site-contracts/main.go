@@ -161,8 +161,11 @@ func bindClaims(doc string, claims []evidenceClaim, boundaries map[string]bounda
 			return wrapper
 		}
 		if claim.BoundaryID == "" {
-			segment, _ = replaceOnce(segment, opening, `<article data-evidence-card data-claim-id="`+html.EscapeString(claim.ID)+`">`, claim.ID)
 			var err error
+			segment, err = replaceOnce(segment, opening, `<article data-evidence-card data-claim-id="`+html.EscapeString(claim.ID)+`">`, claim.ID)
+			if err != nil {
+				return doc, fmt.Errorf("%s: %w", claim.ID, err)
+			}
 			segment, err = replaceOnce(segment, closingNeedle, wrapperCloser("</article>"), claim.ID)
 			if err != nil {
 				return doc, fmt.Errorf("%s: %w", claim.ID, err)
@@ -175,7 +178,11 @@ func bindClaims(doc string, claims []evidenceClaim, boundaries map[string]bounda
 			return doc, fmt.Errorf("%s: boundary owner binding is absent or inconsistent", claim.BoundaryID)
 		}
 		openingTag := fmt.Sprintf(`<aside data-boundary-callout data-boundary-id="%s" data-boundary-state="%s">`, html.EscapeString(boundaryRecord.ID), html.EscapeString(boundaryRecord.State))
-		segment, _ = replaceOnce(segment, opening, openingTag, boundaryRecord.ID)
+		var err error
+		segment, err = replaceOnce(segment, opening, openingTag, boundaryRecord.ID)
+		if err != nil {
+			return doc, fmt.Errorf("%s: %w", boundaryRecord.ID, err)
+		}
 		if !strings.Contains(segment, "<p>") {
 			return doc, fmt.Errorf("%s: explanation paragraph missing", boundaryRecord.ID)
 		}
@@ -191,7 +198,6 @@ func bindClaims(doc string, claims []evidenceClaim, boundaries map[string]bounda
 				return doc, fmt.Errorf("%s/%s: dual-identity continuation missing", boundaryRecord.ID, boundaryRecord.Continuation.JourneyLinkID)
 			}
 		}
-		var err error
 		segment, err = replaceOnce(segment, closingNeedle, wrapperCloser("</aside>"), boundaryRecord.ID)
 		if err != nil {
 			return doc, fmt.Errorf("%s: %w", boundaryRecord.ID, err)
