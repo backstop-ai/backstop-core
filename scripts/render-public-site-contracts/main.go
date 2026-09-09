@@ -154,9 +154,15 @@ func bindClaims(doc string, claims []evidenceClaim, boundaries map[string]bounda
 			closingNeedle += "</p>"
 		}
 		segment := doc[start:end]
+		wrapperCloser := func(wrapper string) string {
+			if strings.HasSuffix(closingNeedle, "</p>") {
+				return "</p>" + wrapper
+			}
+			return wrapper
+		}
 		if claim.BoundaryID == "" {
 			segment, _ = replaceOnce(segment, opening, `<article data-evidence-card data-claim-id="`+html.EscapeString(claim.ID)+`">`, claim.ID)
-			segment, _ = replaceOnce(segment, closingNeedle, `</article>`, claim.ID)
+			segment, _ = replaceOnce(segment, closingNeedle, wrapperCloser("</article>"), claim.ID)
 			doc = doc[:start] + segment + doc[end:]
 			continue
 		}
@@ -181,7 +187,7 @@ func bindClaims(doc string, claims []evidenceClaim, boundaries map[string]bounda
 				return doc, fmt.Errorf("%s/%s: dual-identity continuation missing", boundaryRecord.ID, boundaryRecord.Continuation.JourneyLinkID)
 			}
 		}
-		segment, _ = replaceOnce(segment, closingNeedle, `</aside>`, boundaryRecord.ID)
+		segment, _ = replaceOnce(segment, closingNeedle, wrapperCloser("</aside>"), boundaryRecord.ID)
 		doc = doc[:start] + segment + doc[end:]
 	}
 	return doc, nil

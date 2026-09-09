@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -84,6 +85,60 @@ func TestRenderPublicSiteContracts_FullFixturePasses(t *testing.T) {
 	}
 	if strings.Contains(doc, "backstop-claim") || strings.Contains(doc, "SITE-COMMIT") || strings.Contains(doc, "</article></p>") {
 		t.Fatalf("render left marker or invalid wrapper: %s", doc)
+	}
+}
+
+func TestRenderPublicSiteContracts_ClosesAdjacentGuidanceDenialParagraph(t *testing.T) {
+	root, built := makeRenderFixture(t)
+	if findings := Render(root, built, testCommit); len(findings) != 0 {
+		t.Fatalf("render failed: %#v", findings)
+	}
+	data, err := os.ReadFile(filepath.Join(built, "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := string(data)
+	normalized := strings.ReplaceAll(doc, "\n", "")
+	if !strings.Contains(normalized, `<p data-boundary-guarantee-denial>Denial bytes.</p></aside>`) {
+		t.Fatalf("adjacent-guidance denial is not a closed paragraph: %s", doc)
+	}
+	asidePattern := regexp.MustCompile(`(?s)<aside\s+[^>]*data-boundary-id="BOUNDARY-005"[^>]*>(.*?)</aside>`)
+	match := asidePattern.FindStringSubmatch(doc)
+	if match == nil {
+		t.Fatalf("BOUNDARY-005 aside missing: %s", doc)
+	}
+	// Mirrors scripts/websitejourney/html.go firstElementText. Do not loosen that extractor.
+	denialPattern := regexp.MustCompile(`(?s)[^<]*data-boundary-guarantee-denial[^>]*>([^<]*)<`)
+	denial := denialPattern.FindStringSubmatch(match[1])
+	if denial == nil || strings.TrimSpace(denial[1]) != "Denial bytes." {
+		t.Fatalf("extractable denial bytes = %v", denial)
+	}
+	unclosedInner := `<p data-boundary-guarantee-denial>That continuation is guidance, not a guarantee provided by Backstop.
+`
+	if unclosed := denialPattern.FindStringSubmatch(unclosedInner); unclosed != nil && strings.TrimSpace(unclosed[1]) != "" {
+		t.Fatalf("unclosed live denial shape must not yield visible bytes, got %q", unclosed[1])
+	}
+}
+
+func TestRenderPublicSiteContracts_PreservesKramdownParagraphCloserInsideSemanticWrapper(t *testing.T) {
+	root, built := makeRenderFixture(t)
+	if findings := Render(root, built, testCommit); len(findings) != 0 {
+		t.Fatalf("render failed: %#v", findings)
+	}
+	data, err := os.ReadFile(filepath.Join(built, "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := string(data)
+	normalized := strings.ReplaceAll(doc, "\n", "")
+	for _, expected := range []string{
+		`<p>Evidence bytes.</p></article>`,
+		`<p data-boundary-explanation>Unsupported bytes.</p></aside>`,
+		`<p data-boundary-explanation>Adjacent bytes.</p>`,
+	} {
+		if !strings.Contains(normalized, expected) {
+			t.Fatalf("kramdown paragraph closer missing %q in %s", expected, doc)
+		}
 	}
 }
 
