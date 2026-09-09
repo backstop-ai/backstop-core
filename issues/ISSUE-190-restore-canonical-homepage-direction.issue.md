@@ -6,13 +6,15 @@ issue:
   id: ISSUE-190
   title: "Restore Canonical Homepage Direction"
   type: bug
-  status: ready
+  status: closed
   created: "2026-08-28"
+  closed: "2026-08-29"
 
 complexity:
   scope: contained
   uncertainty: known
   risk: moderate
+resolved-by: cd453e8c1c31aeb210979013345d4931d789b378
 
 verification:
   level: integration
@@ -233,6 +235,13 @@ cannot pass vacuously.
   on an existing restoration branch. They do not own the canonical direction,
   content sequence, wordmark, composability modes, or navigation-restoration
   outcome in this issue and remain untouched.
+
+## Resolution
+
+Landed on `main` in PR #29 (`cd453e8c1c31aeb210979013345d4931d789b378`, 2026-08-29),
+"Restore canonical homepage direction". Follow-on PR #33 (`e412f1f`) retargeted
+CAP-004 to the canonical homepage section. Closes via `resolved-by` on the
+homepage restore merge. `PLAN-ISSUE-190` remains `status: draft` on disk.
 
 ### Existence-in-world check
 
