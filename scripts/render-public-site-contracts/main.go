@@ -217,7 +217,7 @@ func bindAdoptionInstructions(doc string, instructions []adoptionInstruction, ro
 		var err error
 		doc, err = replaceOnce(doc, before, after, instruction.ID)
 		if err != nil {
-			return doc, err
+			return doc, fmt.Errorf("%s: %w", instruction.ID, err)
 		}
 	}
 	return doc, nil
@@ -361,10 +361,14 @@ func main() {
 	flag.Parse()
 	findings := Render(*root, *builtRoot, *commit)
 	for _, finding := range findings {
-		_, _ = fmt.Fprintf(os.Stderr, "%s: %s: %s\n", finding.Phase, finding.Identity, finding.Message)
+		if _, err := fmt.Fprintf(os.Stderr, "%s: %s: %s\n", finding.Phase, finding.Identity, finding.Message); err != nil {
+			os.Exit(1)
+		}
 	}
 	if len(findings) > 0 {
 		os.Exit(1)
 	}
-	_, _ = fmt.Fprintf(os.Stdout, "annotation: rendered owner contracts for %s\n", *commit)
+	if _, err := fmt.Fprintf(os.Stdout, "annotation: rendered owner contracts for %s\n", *commit); err != nil {
+		os.Exit(1)
+	}
 }
