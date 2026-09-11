@@ -49,12 +49,36 @@ packs." No CI caught the drift; it was found by a person reading the repo.
 
 ## Solution
 
-Publisher-side gating: a CI workflow per pack repo that runs `backstop pack check` + `backstop
-pack test` on every push, and, on a tag push specifically, additionally asserts manifest version
-== tag version (the same rule SPEC-055 REQ-039 will eventually enforce consumer-side, applied
-here at the source instead). This does not replace consumer-side validation (REQ-008) or the
-eventual REQ-039 mismatch detection — it adds a gate at the point where the mistake is cheapest
-to catch: before the tag is pushed, once, instead of after, per consumer.
+Publisher-side gating has two stages. Ordinary CI runs `backstop pack check` + `backstop pack
+test` on every push. Publication is a separately invoked workflow that validates the requested
+tag against the manifest, reconstructs candidate identity from committed bytes, reruns complete
+acceptance, and creates the tag only after the gate passes. A tag-push-only assertion is too late:
+it can report a bad immutable coordinate after publication but cannot prevent it. This does not
+replace consumer-side validation (REQ-008) or eventual REQ-039 mismatch detection; it moves the
+first refusal to the publisher before the tag exists.
+
+After tag creation, the workflow must install the public coordinate into a clean consumer and
+rerun acceptance before creating the release record. Candidate success and public-coordinate
+success are separate receipts. A partial publication must remain visibly incomplete rather than
+collapsing tag, release record, and consumer adoption into one optimistic result.
+
+## First Real Consumer and Empirical Correction (2026-08-26)
+
+`backstop-ai/bash-toolchain@v0.1.0` implements the first full reference protocol. Its candidate
+identity is commit + Git tree + content digest; it verifies the released Core checksum and
+embedded commit, exercises positive and negative disposable consumers, creates the tag only
+after prepublication acceptance, reinstalls from the fresh remote coordinate, and emits a
+postpublication lock-reconciliation artifact.
+
+The first publication attempt caught a real mismatch: Core `v0.3.0` downloaded successfully and
+passed checksum verification, but its executable reported source commit `bc532ac` rather than
+the expected later source. The workflow stopped before tagging. Core `v0.3.1` at `7dd4ecd`
+resolved the provenance mismatch. This proves publisher gating must bind the runtime behavior,
+candidate bytes, and public coordinate; manifest/tag equality alone is necessary but not
+sufficient.
+
+This issue is not complete from one consumer. The Bash repository is the reference implementation;
+DIR-027 still requires adoption across the published pack fleet.
 
 Note the recipe-capability tie-in: BUNDLE-015 REQ-018 already commits to a CI recipe pack (in
 `backstop-packs`, not core) shipping per-platform gate-workflow recipes (github/gitlab/bitbucket/
@@ -64,9 +88,11 @@ gap described here would be its own first customer, gating `backstop-ai` pack re
 same recipe mechanism the capability is proving out. This issue does not decide that the CI
 recipe pack IS the delivery mechanism, only that it is a strong candidate worth recording.
 
-### Homing (options to record, not a decision)
+### Homing (resolved)
 
-Three plausible owners for this work, left for the founder/backlog to choose between:
+DIR-027 owns fleet adoption and publisher-side gating as its fifth thread. DIR-019/BUNDLE-015
+REQ-018 remains the named reusable recipe successor, while DIR-001 owns Core binary release
+machinery rather than pack-fleet rollout. The earlier options are retained as decision history:
 
 1. **DIR-001's release workflow** — the publisher half of release tooling already scoped there.
 2. **A fifth thread on DIR-027** (pack-fleet-publication-migration) — alongside its existing four
@@ -78,10 +104,8 @@ Three plausible owners for this work, left for the founder/backlog to choose bet
 
 ## References
 
-- `directives/DIR-027-pack-fleet-publication-migration.directive.md` — enumerates the ten
-  published packs; documents the harness pack's manifest/tag drift (`0.1.3` vs. `v0.1.1`) as an
-  open reconciliation thread; does NOT cover publisher-side CI gating (its four threads are
-  extraction, harness reconciliation, fleet migration off local names, and Clone-strip asymmetry)
+- `directives/DIR-027-pack-fleet-publication-migration.directive.md` — owns publisher-side
+  gating as thread 5, enumerates the published fleet, and records the Bash reference implementation
 - `specs/SPEC-055-production-remote-dependency-assembly.spec.md:184-236` — REQ-008/REQ-011,
   consumer-side unconditional validation at add/upgrade time (the mechanism this issue's gap
   sits upstream of)

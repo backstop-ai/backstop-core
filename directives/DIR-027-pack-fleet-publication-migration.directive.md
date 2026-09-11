@@ -152,6 +152,19 @@ than core mechanism:
    fleet migration) are the same repos this thread gates, so land the CI
    workflow in the same pass rather than a separate round-trip per repo.
 
+   **Reference implementation and corrected tag boundary (2026-08-26).**
+   `backstop-ai/bash-toolchain@v0.1.0` now provides the first real consumer
+   of this thread. It runs push CI, derives candidate commit/tree/digest from
+   committed bytes, verifies the exact released Core binary identity, blocks
+   tag creation until full positive/negative disposable-consumer acceptance
+   passes, then installs the new public coordinate and reruns acceptance before
+   creating the release record. This corrects the original wording above:
+   manifest-version == tag-version must be asserted **before the workflow
+   creates the tag**, not merely by a job triggered after a tag push. A
+   tag-triggered integrity job remains useful as defense in depth, but it is
+   not the publication gate. The Bash pack is reference evidence, not fleet
+   completion; the existing adoption acceptance criterion remains open.
+
 **Dependency, not scope.** The legacy-lock content-hash migration and
 `pack relock`/remote-migration repair (BUNDLE-006 REQ-041, DD-28) is
 code-side work seeded in BUNDLE-006 and destined for its own spec. This
@@ -175,10 +188,13 @@ mechanism.
   deliberately-local development pack.
 - A fresh clone of each consumer, with no sibling directories present,
   installs its full pack set from its lock file alone.
-- Every published pack repo has a CI workflow that runs `backstop pack
-  check` + `backstop pack test` on push and asserts manifest version ==
-  tag version on a tag push; the workflow is marked as temporary pending
-  BUNDLE-015 REQ-018.
+- Every published pack repo has push CI that runs `backstop pack check` +
+  `backstop pack test`, plus a publication workflow that asserts requested
+  tag == manifest version and completes prepublication acceptance before it
+  creates the tag. It then installs the fresh public coordinate and verifies
+  it before creating the release record. Any tag-triggered integrity check is
+  defense in depth, not the primary publication boundary. The workflow is
+  marked as temporary pending BUNDLE-015 REQ-018.
 
 ## Notes
 
