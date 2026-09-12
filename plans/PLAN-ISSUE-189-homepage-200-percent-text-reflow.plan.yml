@@ -1,0 +1,154 @@
+---
+plan_id: PLAN-ISSUE-189
+spec_id: ISSUE-189
+created: "2026-08-27"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+test_command: "./scripts/verify-public-site.sh"
+notes: |
+  Minimal reactive bug plan for the isolated regression recorded by ISSUE-189 on
+  PR #28. The completed PLAN-SPEC-075 owns the original Seed 4 site delivery and
+  its browser, accessibility, design-system, inventory, ownership, and completeness
+  contracts; it does not own this newly observed homepage integration regression.
+  This plan is only the residual corrective delta and does not reopen or alter that
+  completed feature plan.
+
+  Implementation-time inspection after the initial `.checks` reset exposed the
+  paired `.verdict` minimum and two additional homepage-only intrinsic-width
+  constraints in the same responsive integration. They are one contained CSS
+  correction, not authorization to widen the source or contract scope.
+
+  ISSUE-189 carries no CLM identifiers, so this plan defines the following local
+  claim ledger for task mapping:
+    CLM-001: The existing Playwright case `200 percent text relayout › / reflows at
+             actual 200 percent root text` substantively reproduces the 360px
+             homepage overflow before the correction, without any browser-test edit.
+    CLM-002: At the existing small-screen/actual-200%-text condition, the homepage
+             responsive integration removes the inherited 510px minimum from paired
+             legacy parents `.checks` and `.verdict`, while preserving the shared
+             design-system source rule and all other responsive behavior.
+    CLM-003: The complete public-site verifier returns all 40 browser cases green,
+             including <=1px homepage document overflow, and the normal diff-scoped
+             Backstop gate passes without contract weakening or scope expansion.
+    CLM-004: The homepage CTA flex child can shrink inside the responsive container
+             and cannot exceed it, through breakpoint- and page-kind-scoped intrinsic
+             width constraints on `.cta > div`.
+    CLM-005: Homepage h2 content with observed internal scroll widths up to 490px wraps
+             under a breakpoint- and page-kind-scoped rule instead of widening the
+             document.
+
+  Modification scope is exactly `docs/assets/css/site.css`. The existing browser
+  test and helper, `docs/assets/css/backstop.css`, page content, Seed 4 artifacts,
+  inventory, owner assets, and verification infrastructure are read-only. No new test
+  is warranted because the shipped Playwright case is already a substantive red/green
+  regression proof.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: RED — reproduce the existing homepage reflow failure"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "RED: reproduce actual 200 percent homepage overflow without editing tests"
+        description: |
+          Before changing CSS, run `./scripts/verify-public-site.sh` against the current
+          PR head and retain the failing receipt for the existing Playwright case
+          `200 percent text relayout › / reflows at actual 200 percent root text` at
+          360x800. Confirm the diagnostic identifies parent `.checks` with a computed
+          width/minimum width of 510px and document overflow above the existing <=1px
+          limit, while the other 39 browser cases pass.
+
+          Read the existing test/helper and the two CSS rules only to establish the
+          red condition. Do not edit, skip, replace, broaden, or weaken any browser
+          assertion; do not add a redundant regression test.
+        files:
+          - scripts/verify-public-site.sh
+          - tests/public-site.spec.ts
+          - tests/public-site-helpers.ts
+          - docs/assets/css/backstop.css
+          - docs/assets/css/site.css
+        claims:
+          - CLM-001
+          - CLM-003
+        depends_on: []
+
+  - id: phase-2
+    name: "Phase 2: GREEN — correct the responsive integration and verify all contracts"
+    tasks:
+      - id: TASK-002
+        type: implementation
+        title: "GREEN: constrain the remaining homepage-only 200 percent reflow surfaces"
+        description: |
+          Edit only `docs/assets/css/site.css`. In the existing small-screen homepage
+          integration block that already collapses legacy fixed-width presentation
+          surfaces, include paired parent containers `.checks` and `.verdict` in the
+          minimum-width reset so neither retains `min-width: 510px` from
+          `docs/assets/css/backstop.css` under the actual-200%-text/360px condition.
+          In that same breakpoint- and `[data-page-kind="home"]`-scoped integration,
+          constrain `.cta > div` with `min-width: 0` and `max-width: 100%` so its
+          intrinsic flex width can shrink without exceeding the CTA, and apply overflow
+          wrapping to homepage h2 content whose observed internal scroll widths reach
+          490px. Keep every correction inside the existing homepage responsive
+          condition; do not introduce a generic/global selector or change the shared
+          owner CSS, page content, tests, assets, inventory, or contract artifacts.
+
+          Preserve all other Seed 4 design-system, accessibility, responsive layout,
+          browser, ownership, inventory, and completeness behavior. The implementation
+          is complete only when the unchanged existing Playwright case turns green.
+        files:
+          - docs/assets/css/site.css
+        claims:
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+        depends_on:
+          - TASK-001
+
+      - id: TASK-003
+        type: verification
+        title: "Verify the one-file CSS correction through the authoritative site and gate paths"
+        description: |
+          Verify in this order:
+
+          1. Run `./bin/backstop gate --file docs/assets/css/site.css` as the focused
+             CSS check.
+          2. Run `git diff --check -- docs/assets/css/site.css`, inspect
+             `git diff -- docs/assets/css/site.css`, and require the implementation
+             diff to contain only these three responsive homepage integrations:
+             reset both `.checks` and `.verdict` legacy minimum widths; constrain
+             `.cta > div` with `min-width: 0` and `max-width: 100%`; and enable
+             overflow wrapping for homepage h2. Require every changed selector to
+             remain inside the existing breakpoint and be explicitly
+             `[data-page-kind="home"]`-scoped. Confirm `git diff -- docs/assets/css/backstop.css
+             tests/public-site.spec.ts tests/public-site-helpers.ts` is empty relative
+             to the TASK-001 baseline; no assertion, shared owner rule, or helper may
+             change.
+          3. Run `./scripts/verify-public-site.sh`. Require all sitecheck, design-system,
+             ownership, inventory, completeness, accessibility, and browser stages
+             green; specifically require all 40 Playwright cases to pass and the
+             unchanged homepage actual-200%-text case to satisfy the existing <=1px
+             document-overflow limit.
+          4. After the public-site verifier, run the normal diff-scoped
+             `./bin/backstop gate` (not `--all`) and require a successful zero exit.
+             If the known unrelated TempDir/bad-file-descriptor failure recurs, stop
+             implementation and report it as an external blocker; do not widen this
+             plan's scope, waive the failure, or edit unrelated files.
+          5. Run `./bin/backstop artifact validate --plan PLAN-ISSUE-189` and require
+             PASS. Add no waiver, suppression, skip, baseline change, inventory edit,
+             or contract relaxation to obtain green.
+        files:
+          - docs/assets/css/site.css
+          - docs/assets/css/backstop.css
+          - tests/public-site.spec.ts
+          - tests/public-site-helpers.ts
+          - plans/PLAN-ISSUE-189-homepage-200-percent-text-reflow.plan.yml
+        claims:
+          - CLM-001
+          - CLM-002
+          - CLM-003
+          - CLM-004
+          - CLM-005
+        depends_on:
+          - TASK-002
