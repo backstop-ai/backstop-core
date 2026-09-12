@@ -1,6 +1,6 @@
 ---
 name: pm-trigger-hook-is-wrong-in-both-directions
-description: pm-trigger's missed-artifact half is FIXED (matcher now Write|Edit|MultiEdit); it still FABRICATES artifacts from testdata fixtures (rootless glob) and now also fires on RETIREMENTS — check status/path shape before triaging
+description: pm-trigger's missed-artifact half is FIXED (matcher now Write|Edit|MultiEdit); it still FABRICATES artifacts from testdata fixtures (rootless glob), fires on RETIREMENTS, and fires ACROSS REPOS on absolute paths — check status/path shape before triaging
 metadata:
   type: project
 ---
@@ -85,6 +85,25 @@ Also seen in the same run: the hook fires **mid-write**. My first `Read` of ISSU
 the pre-rewrite empty stub; seconds later the same path held the full cancellation. Generalizes
 [[triage-races-plan-scaffold]] beyond plan scaffolds — re-check the file (or `git status` /
 `git log -1 --stat`) before concluding anything from a hook-delivered snapshot.
+
+## Direction 4 — fires ACROSS REPOS on absolute paths
+
+**New 2026-09-08T00:11Z.** A backstop-core session that `Write`s an **absolute path into a
+different repo** triggers a full paid triage run against a corpus that cannot contain the
+artifact. Mechanism, read out of the hook: line 19's `REL="${FILE_PATH#"$PWD"/}"` strips
+nothing when the prefix doesn't match, so `REL` stays **absolute**; `git ls-files
+--error-unmatch <path outside this repo>` then fails, which the hook reads as "untracked ⇒ new
+artifact." The hook has **no "is this artifact in THIS repo" check at all.**
+
+First instance: an absolute path into a sibling repo's own `.backstop/bundles/` tree.
+**Tell: the `pending.log` line itself carries an absolute
+path** — every legitimate line is repo-relative. That is the cheapest possible detection; check
+it before anything else.
+
+**The Direction-2 fix already closes this one.** Anchoring the `case` to
+`issues/*.issue.md|bundles/*.bundle.md` (no leading `*`) *below* line 19 rejects an absolute
+`REL` for free — one edit, two false-fire classes. Add `case "$REL" in /*) exit 0 ;; esac` only
+if the anchoring is not done.
 
 Two mechanical details that matter when the fix is finally scoped: the dedupe guard is
 **per-path** (`grep -qF "$REL"`, line 24), so N fixture projects = N detached runs, never one;

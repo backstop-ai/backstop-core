@@ -25,7 +25,7 @@
 - [Linux-CI-green cluster](project_linux_ci_green_cluster.md) — ★ one CI run (32108003542) is feeding DIR-024 items 18/20/21/22/23; all ISSUE-020 delivery residuals = clear fits; sandbox fixes are darwin-invisible
 - [Concurrent PM triage races](project_concurrent_pm_triage_races.md) — sibling-issue bursts fire parallel PMs into ONE directive; re-read it after the agent returns, fix stale cross-refs in place
 - [Record-only consequence filings](project_record_only_consequence_filings.md) — "file, don't absorb" plan tasks emit issues with NO defect; not clear fits, and they arrive as batches the hook under-delivers
-- [pm-trigger hook false-fires](project_pm_trigger_hook_misses_cli_scaffolded.md) — missed-artifact half FIXED 2026-08-17; still fires on testdata fixtures AND on RETIREMENTS. Check status line + path shape before triaging
+- [pm-trigger hook false-fires](project_pm_trigger_hook_misses_cli_scaffolded.md) — missed-artifact half FIXED 2026-08-17; still fires on testdata, RETIREMENTS, and ACROSS REPOS (absolute path). Check status line + path shape first
 - [Done-directive RELEASE rule](project_homed_but_orphaned_bundles.md) — ★ covers bundles (2026-08-14, → BACKLOG.yml) AND issues (2026-08-17, → the done directive's Notes); citations always stay as provenance
 - [Orphaned issue backlog](project_orphaned_issue_backlog.md) — uncited-open has THREE buckets now (uncited / released / homed); hook only catches post-install artifacts, compute explicitly
 - [ISSUE-092 hollows acceptance bars](project_issue092_hollows_acceptance_bars.md) — any "passes pack test"/"fixtures falsify" criterion is vacuous while 092 lives; re-grep rule_path before citing

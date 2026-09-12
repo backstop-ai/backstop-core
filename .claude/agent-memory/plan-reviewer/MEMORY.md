@@ -83,3 +83,4 @@
 - [RED signature matches buggy impl](project_red_signature_matches_buggy_impl.md) — a restructured guard's stated "A and B both fail" pre-fix set is often satisfied only by the un-refactored version; derive the set yourself
 - [Narrow grep, false missing citation](project_narrow_grep_false_missing_citation.md) — a cited symbol returning zero hits is usually MY grep (`func ` prefix, assumed json tag spelling), not a bad citation; re-grep bare before flagging
 - [Message rewrite, unscoped escape hatch](project_message_rewrite_escape_hatch_unscoped.md) — "preserve the substring if you can; this task owns the consequence" is a scope defect: the test file belongs to the earlier RED task
+- [Per-test PASS evidence needs -v](project_per_test_pass_evidence_needs_verbose.md) — "confirm these N tests pass BY NAME" is unobtainable: bare `go test -run` prints only `ok`, and the CI gate job never prints per-test lines at all
