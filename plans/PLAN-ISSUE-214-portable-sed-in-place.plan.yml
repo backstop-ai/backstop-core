@@ -1,0 +1,162 @@
+---
+plan_id: PLAN-ISSUE-214
+spec_id: ISSUE-214
+created: "2026-10-12"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+coverage_threshold: 90
+test_command: backstop gate --all
+notes: |
+  ISSUE-214: scripts/tests/public-product-model/pages/extend-reference-contributing.sh:282,
+  inside verify_reference_paper_ink_chrome, runs GNU-only `sed -i '<script>' file`.
+  BSD sed (macOS) treats the script as the backup suffix and the path as the
+  script, so under `set -euo pipefail` the page check exits 1 and
+  scripts/verify-public-product-model.sh stops right after
+  "CLAIM-005 layout PASS". The bash-test engine runs that verifier, so
+  `backstop gate` fails on macOS. Linux CI uses GNU sed and never sees it.
+  Authoring base: branch fix/engine-evidence-integrity at b8be04a.
+
+  Scope (issue Direction 1 and 3, plus the trap from the issue Notes):
+    - Swap line 282 for the portable write-to-temp-then-mv form:
+        sed '<same script>' "$tmp/layout.html" > "$tmp/layout.new" && mv "$tmp/layout.new" "$tmp/layout.html"
+      The sed script text (strip `{% if paper_kinds contains page_kind %}`
+      and `{% endif %}`) stays byte-identical, so the "unguarded-tokens
+      mutation" keeps its meaning.
+    - Add one EXIT trap scoped to verify_reference_paper_ink_chrome that
+      removes that function's current mktemp scratch dir if the function
+      aborts partway. The function reuses one `tmp` variable for its four
+      mktemp -d dirs, so a single `trap 'rm -rf "${tmp:-}"' EXIT` set at
+      function entry covers every one (rm -rf on an already-removed path or
+      an empty string does nothing). Clear it with `trap - EXIT` just before
+      the function returns normally. The script defines no other trap today
+      (grep at b8be04a), and verify-public-product-model.sh runs it as its
+      own process, so nothing else is affected.
+    - The existing explicit `rm -rf "$tmp"` calls stay unchanged.
+
+  Out of scope:
+    - Issue Direction 2 (a macos-latest CI leg). No workflow invokes this
+      verifier directly; it runs through the gate's bash-test engine, so a
+      macOS leg means a new job with a Go build, pack install and gate run
+      on macOS. That is not trivial, so it is deferred and no CI file changes.
+    - mktemp cleanup in the script's other functions, and the
+      verify-documentation-semantics-integration.sh observation the issue
+      excludes on purpose.
+    - ISSUE-209 (engine dispatch error discards other engines' findings).
+
+  Existence-in-world: grep of plans/ and issues/ (committed and working tree)
+  for ISSUE-214, extend-reference-contributing and `sed -i` found only
+  PLAN-ISSUE-087, which mentions `sed -i ''` in release-pipeline prose (a
+  different surface). No artifact owns this fix.
+
+  Acceptance claims (ISSUE-214 has no formal CLM array):
+    CLM-001: on macOS (BSD sed), scripts/verify-public-product-model.sh runs
+      past the paper-ink chrome check and exits 0. The page check's in-place
+      edit uses only syntax that GNU and BSD sed both accept.
+    CLM-002: the unguarded-tokens mutation is unchanged: the same two Liquid
+      guards are stripped and validate_paper_ink still rejects the mutated
+      layout. The other three mutations in that function are untouched.
+    CLM-003: if verify_reference_paper_ink_chrome aborts partway, its current
+      mktemp scratch dir is still removed (one EXIT trap). The trap is cleared
+      on normal return so it does not run for later checks.
+
+  Red / green commands (on a macOS host):
+    red:   scripts/verify-public-product-model.sh; echo rc=$?
+           (expect rc=1, stopping after "CLAIM-005 layout PASS" with a
+           `sed: 1: ...` error), plus the issue's scratch reproduction.
+    green: scripts/verify-public-product-model.sh; echo rc=$?   (expect rc=0)
+    gate:  `backstop gate`, run with a backstop binary built from this
+           branch's HEAD (e.g. `make build` → bin/backstop, or
+           `go build ./cmd/backstop`), since an older installed binary may
+           predate fixes such as ISSUE-154.
+
+  File allowlist: scripts/tests/public-product-model/pages/extend-reference-contributing.sh
+  (production change). The plan file is touched only by validation. No new
+  test file: the existing verifier run on macOS is the failing check.
+phases:
+  - id: phase-1
+    name: "Phase 1: Portable in-place edit (red, fix, verify)"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Record the BSD sed failure of the public product model verifier"
+        description: |
+          Red phase. Do not edit any file. This page check is itself the test,
+          and on this macOS machine the existing verifier is the failing check.
+          Run the red commands from notes:
+            1. The issue's scratch reproduction in a throwaway temp dir (no network):
+               bare `sed -i 's/{% endif %}//g' layout.html` gives a sed error
+               and rc=1.
+            2. scripts/verify-public-product-model.sh; record the true exit
+               code (expect 1), the last PASS line ("CLAIM-005 layout PASS")
+               and the `sed: 1: ...` error that names
+               extend-reference-contributing.sh:282.
+          Also check that `sed --version` fails here (BSD sed, not GNU), so the
+          red really comes from BSD userland. If the verifier passes or fails
+          somewhere else, stop and report it; do not go on to TASK-002.
+        files:
+          - scripts/tests/public-product-model/pages/extend-reference-contributing.sh
+        claims: [CLM-001]
+        depends_on: []
+
+      - id: TASK-002
+        type: implementation
+        title: "Replace GNU-only sed -i and add a function-scoped cleanup trap"
+        description: |
+          Edit only scripts/tests/public-product-model/pages/extend-reference-contributing.sh,
+          inside verify_reference_paper_ink_chrome:
+            - Line 282: replace `sed -i '<script>' "$tmp/layout.html"` with
+              `sed '<script>' "$tmp/layout.html" > "$tmp/layout.new" && mv "$tmp/layout.new" "$tmp/layout.html"`.
+              Copy the quoted sed script byte for byte
+              (`s/{% if paper_kinds contains page_kind %}//g; s/{% endif %}//g`).
+            - Right after the `local ... tmp` declaration, add
+              `trap 'rm -rf "${tmp:-}"' EXIT`. Initialize tmp to an empty
+              value in that declaration so `set -u` is safe if the trap fires
+              before the first mktemp. Add `trap - EXIT` as the last statement
+              of the function.
+          Change nothing else: not the other three mutations, not the existing
+          rm -rf calls, no other function, no CI file. If any other file needs
+          a change, stop and report the scope change for review.
+        files:
+          - scripts/tests/public-product-model/pages/extend-reference-contributing.sh
+        claims: [CLM-001, CLM-002, CLM-003]
+        depends_on: [TASK-001]
+
+      - id: TASK-003
+        type: verification
+        title: "Rerun the verifier green and run the diff-scoped gate"
+        description: |
+          Run scripts/verify-public-product-model.sh and record the true exit
+          code (expect 0, with the run getting past the paper-ink chrome check).
+          Check CLM-002 by hand on a scratch copy of the layout, without
+          editing the repo: the new sed form gives the same bytes as GNU
+          `sed -i` would (no remaining `{% if paper_kinds contains page_kind %}`
+          or `{% endif %}`), and validate_paper_ink rejects it. Check CLM-003:
+          after a normal run, no new mktemp dir from this function is left in
+          $TMPDIR (compare a listing taken before and after). Optionally force
+          an abort in a scratch copy of the script to show the trap removes
+          the dir. Then run `backstop gate` with the HEAD-built binary
+          described in notes. Record its exit code and
+          findings, and confirm the bash-test engine no longer errors. Confirm
+          `git diff --stat` shows only the allowlisted script.
+        files:
+          - scripts/tests/public-product-model/pages/extend-reference-contributing.sh
+        claims: [CLM-001, CLM-002, CLM-003]
+        depends_on: [TASK-002]
+
+      - id: TASK-004
+        type: verification
+        title: "Run the full gate and validate the plan artifact"
+        description: |
+          Final verification, after TASK-003 is green. Using the same HEAD-built
+          binary (see notes), run `backstop gate --all` and
+          `backstop artifact validate --plan PLAN-ISSUE-214`. Record exit
+          codes, findings, base SHA and the final one-file diff. Report any
+          failure as a blocker; never waive one. Hand the logs and diff to an
+          independent reviewer and repeat review until it comes back CLEAN.
+          Leave plan and issue statuses unchanged.
+        files:
+          - scripts/tests/public-product-model/pages/extend-reference-contributing.sh
+          - plans/PLAN-ISSUE-214-portable-sed-in-place.plan.yml
+        claims: [CLM-001, CLM-002, CLM-003]
+        depends_on: [TASK-002, TASK-003]

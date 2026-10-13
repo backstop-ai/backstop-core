@@ -1,0 +1,373 @@
+---
+plan_id: PLAN-ISSUE-217
+spec_id: ISSUE-217
+created: "2026-10-12"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+coverage_threshold: 90
+test_command: backstop gate --all
+notes: |
+  ISSUE-217: the fallback per-file coverage threshold is a core constant,
+  `defaultCodeScopeCoverageFloor = 90` (pkg/gate/step_coverage.go:29), used at
+  one site: coverageThresholdsForScope (~:521, the `maxThreshold == 0` branch
+  at ~:555-557). It is reached through StepCoverageThresholdScopedFunc (~:74),
+  called from buildCoverageStep in cmd/backstop/gate.go (~:1807). That step
+  is built at ~:1030 inside buildGateStepsWithSandbox (~:931), which takes no
+  config and is called in production from gate.go (directly and through
+  buildGateSteps), baseline.go, waiver.go and init_seams.go. No backstop.yml key or pack can change it. Policy belongs
+  in config, not in core (thin executor). Authoring base: branch
+  fix/engine-evidence-integrity (working tree).
+
+  Existence-in-world: grep of plans/, specs/ and issues/ (committed and
+  working tree) for ISSUE-217, coverage_floor and defaultCodeScopeCoverageFloor
+  found only ISSUE-217 itself and its scaffold. No artifact owns this surface.
+
+  Sequencing: PLAN-ISSUE-207 (draft) and the uncommitted ISSUE-209 work both
+  edit cmd/backstop/gate.go. This plan's gate.go change is a small floor
+  loader, one parameter on buildCoverageStep, and its use inside
+  buildGateStepsWithSandbox. Rebase on whatever has landed
+  before TASK-006 and re-run the red/green for TASK-006/TASK-007 after any
+  rebase that touches gate.go. Do not touch the ISSUE-208/209/214 files.
+
+  Design decisions (the issue's open points):
+    - Key name: `enforcement.coverage_floor`, an integer 0-100. It follows the
+      Enforcement struct style (snake_case yaml/json tag, omitempty).
+    - Presence-aware: the field is `CoverageFloor *int`. nil (unset) means the
+      default 90. An explicit 0 is kept and means "no floor": the collapsed
+      code-scope threshold stays 0, so the step's existing `threshold <= 0`
+      skip applies.
+    - Default 90 lives in pkg/config as an exported DefaultCoverageFloor plus
+      an accessor (for example `func (e Enforcement) EffectiveCoverageFloor()
+      int`). pkg/gate keeps its own 90 for callers that pass no floor; a test
+      pins the two values equal.
+    - Threading without call-site churn: StepCoverageThresholdScopedFunc gets
+      a variadic option (for example `WithCoverageFloor(n int)`), and
+      coverageThresholdsForScope takes the resolved floor. The ~25 existing
+      test call sites are unchanged.
+    - Validation at config load: values below 0 or above 100, floats (85.5),
+      strings ("90"), booleans and an explicit `coverage_floor: null` are
+      rejected, and the error names `enforcement.coverage_floor`. null is
+      rejected (not read as unset) because a key that is present but empty
+      is almost always a mistake, and silently applying 90 would hide it;
+      omit the key to get the default. The Go check in the loader is the
+      real enforcement. A yaml type error from the typed decode does not name
+      the key, so the check runs on the raw node (or wraps the decode error
+      for this key). The schema is not what rejects unknown keys here: the
+      KnownFields(true) strict decode does that before the schema pass.
+      The schema (artifacts/backstop-yml/v1/schema.json) still gains the
+      property (integer, minimum 0, maximum 100) so it stays an accurate
+      description and its additionalProperties: false does not reject the
+      key.
+    - Wiring: buildGateStepsWithSandbox loads the floor itself from
+      projectRoot/backstop.yml through config.LoadConfigFromPath, the same
+      way gateConfig (gate.go:559) loads it, so every caller (gate, baseline,
+      waiver, init seams) gets the same floor with no signature change at
+      those callers. Load-error behaviour: if backstop.yml does not exist,
+      the floor is the default 90 (nothing to configure). If it exists but
+      fails to load (including an invalid coverage_floor), the coverage step
+      returns a fail result with ConfigErr set and a violation whose message
+      names the load error. It never falls back silently to 90. Do not
+      reuse gateConfig for this, because it swallows load errors; leave
+      gateConfig itself unchanged.
+    - Spec thresholds win as today: a qualifying spec-declared
+      coverage_threshold (file-in-diff, or the code-scope max when it is
+      above 0) is used even when it is below the floor. The floor is only the
+      fallback when that max is 0.
+    - `gate --all` unchanged (deferred, note only): with scope nil or
+      GateScopeModeAll the function returns specs as-is and never reaches the
+      floor, so a repo with no qualifying spec is checked at 90 on a diff
+      gate and not at all on --all. Making --all use the floor would start
+      failing files it skips today, so it should be its own issue. The docs
+      task records this asymmetry as known.
+
+  Acceptance claims (from ISSUE-217 REQ-001..004, plus the deferral):
+    CLM-001 (REQ-001): enforcement.coverage_floor is optional. When unset
+      the effective floor is 90 and the gate behaves exactly as today.
+    CLM-002 (REQ-002): when set, the configured value (including an explicit
+      0, meaning no floor) replaces the fallback for changed files with no
+      qualifying spec threshold, and the real gate step assembly
+      (buildGateStepsWithSandbox, shared by gate, baseline and waiver) reads
+      it from the project's backstop.yml.
+    CLM-003 (REQ-003): a qualifying spec-declared coverage_threshold still
+      takes precedence over the configured floor, including a spec value
+      below the floor.
+    CLM-004 (REQ-004): values outside 0-100, non-integers and an explicit
+      null are rejected at config load with an error naming
+      enforcement.coverage_floor. In the gate, a backstop.yml that fails to
+      load makes the coverage step a ConfigErr naming the error, never a
+      silent default.
+    CLM-005: `gate --all` behaviour is unchanged, and the key and the known
+      diff/--all asymmetry are documented.
+
+  Mandated tests (ISSUE-217) and where they live:
+    pkg/config/coverage_floor_test.go:
+      TestCoverageFloorUnsetDefaultsTo90          (CLM-001)
+      TestCoverageFloorRejectsInvalidValues       (CLM-004)
+    pkg/gate/step_coverage_floor_test.go:
+      TestCoverageFloorConfiguredUsedForFilesWithoutSpec (CLM-002)
+      TestCoverageFloorSpecThresholdStillWins     (CLM-003)
+    Supporting (not mandated), cmd/backstop/gate_coverage_floor_wiring_test.go:
+      TestCoverageFloorGateWiringUsesConfiguredValue (CLM-001, CLM-002, CLM-004)
+
+  Red / green commands (a backstop binary built from this branch for every
+  `backstop` command):
+    red:   go test ./pkg/config ./pkg/gate -run 'TestCoverageFloor' -count=1
+           go test ./cmd/backstop -run 'TestCoverageFloorGateWiring' -count=1
+           (red by compile failure or assertion failure; record which)
+    green: the same commands passing, plus
+           go test ./pkg/config ./pkg/gate -count=1
+    docs:  scripts/verify-public-product-model.sh and each
+           scripts/tests/public-product-model/verify-*.sh (TASK-008 edits
+           docs/reference.md). On macOS this needs the ISSUE-214 fix that is
+           in the working tree.
+    gate:  `backstop gate` (middle), `backstop gate --all` (final).
+
+  File allowlist:
+    production: pkg/config/config.go, artifacts/backstop-yml/v1/schema.json,
+      pkg/gate/step_coverage.go, cmd/backstop/gate.go
+    tests (new): pkg/config/coverage_floor_test.go,
+      pkg/gate/step_coverage_floor_test.go,
+      cmd/backstop/gate_coverage_floor_wiring_test.go
+    docs: docs/reference.md (Configuration section; add text after the
+      CLAIM-026 claim block, do not edit the claimed sentence)
+    run only, never edited: scripts/verify-public-product-model.sh,
+      scripts/tests/public-product-model/verify-*.sh, and the callers of
+      buildGateStepsWithSandbox (baseline.go, waiver.go, init_seams.go), which
+      get the floor with no signature change
+    The plan file is touched only by validation. Any other file needing a
+    change is a scope change: stop and report it for review.
+
+  Approved deviations (recorded 2026-10-12, coordinator-approved):
+    - Allowlist expansion for TASK-008: the public-product-model verifier
+      accepts docs prose only when it is a registered claim region or on the
+      verifier's allowance list, so an unlinked paragraph fails it. The
+      coverage_floor paragraph is CLAIM-037 instead: a claim region in
+      docs/reference.md after CLAIM-026, plus a CLAIM-037 entry (evidence
+      EVIDENCE-055..057, the three new tests) in
+      docs/_data/evidence-inventory.yml, which joins the allowlist. The
+      verifier script is not edited.
+    - TASK-006 coverage_floor 150 subtest: buildGateStepsWithSandbox loads
+      backstop.yml for the pack set (loadInstalledPacks) before the coverage
+      step is built, so an invalid floor halts the assembly as a pack_loading
+      ConfigErr naming enforcement.coverage_floor and no coverage step exists.
+      The subtest asserts that, and buildCoverageStep's own load-error branch
+      is covered directly.
+phases:
+  - id: phase-1
+    name: "Phase 1: Red tests for the config key and the threshold resolution"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Write the config load tests for enforcement.coverage_floor"
+        description: |
+          Create pkg/config/coverage_floor_test.go. Load each case from a temp
+          backstop.yml through LoadConfigFromPath, using the minimal valid
+          config the existing pkg/config tests use.
+            - TestCoverageFloorUnsetDefaultsTo90 (CLM-001): with no
+              coverage_floor, the accessor returns 90 and equals
+              DefaultCoverageFloor. Subtests: an explicit 0 returns 0 (the
+              presence check), and an explicit 75 returns 75.
+            - TestCoverageFloorRejectsInvalidValues (CLM-004): table of -1, 101,
+              85.5, "90" (quoted), true and null (`coverage_floor: null` and a bare
+              `coverage_floor:`). Each load fails, and the error
+              text contains "enforcement.coverage_floor". Also check that 0
+              and 100 load fine (the range edges).
+          Run the red command and record it (expect a compile failure: the
+          field and accessor do not exist yet).
+        files:
+          - pkg/config/coverage_floor_test.go
+        claims: [CLM-001, CLM-004]
+        depends_on: []
+
+      - id: TASK-002
+        type: test
+        title: "Write the gate threshold resolution tests for the floor"
+        description: |
+          Create pkg/gate/step_coverage_floor_test.go. Build the coverage
+          records, specs and diff GateScope the same way
+          step_coverage_test.go and step_coverage_classifier_test.go do.
+            - TestCoverageFloorConfiguredUsedForFilesWithoutSpec (CLM-002): one
+              changed file at 60% with no qualifying spec. With
+              WithCoverageFloor(50) the step passes. With
+              WithCoverageFloor(70) it fails with a below-bar violation at 70.
+              With WithCoverageFloor(0) a 10% file produces no below-bar
+              violation. With no option the bar is 90, as today.
+            - TestCoverageFloorSpecThresholdStillWins (CLM-003): with
+              WithCoverageFloor(95) and a matching spec declaring 60, a 70%
+              file passes (spec below the floor wins). Cover both resolution
+              paths: a spec whose own file is in the diff, and a spec matched
+              through its implementation package (code-scope max).
+          Run the red command and record it (expect a compile failure:
+          WithCoverageFloor does not exist yet).
+        files:
+          - pkg/gate/step_coverage_floor_test.go
+        claims: [CLM-002, CLM-003]
+        depends_on: []
+
+  - id: phase-2
+    name: "Phase 2: Config key and floor option"
+    tasks:
+      - id: TASK-003
+        type: implementation
+        title: "Add enforcement.coverage_floor with presence-aware default and range validation"
+        description: |
+          In pkg/config/config.go add `CoverageFloor *int` to Enforcement
+          (`yaml:"coverage_floor,omitempty" json:"coverage_floor,omitempty"`),
+          the exported DefaultCoverageFloor = 90, and the accessor that returns
+          the default for nil. Add the load-time check described in notes so
+          every invalid value fails with an error naming
+          enforcement.coverage_floor (check the raw node, or wrap the typed
+          decode error for this key). Reject an explicit null (key present,
+          value null) with that same error. Do not default the pointer in the
+          loader: nil must stay nil so 0 and unset stay different.
+          In artifacts/backstop-yml/v1/schema.json add the coverage_floor
+          property under enforcement (integer, minimum 0, maximum 100, with a
+          description that gives the default and the --all note). The Go
+          check is the enforcement; the schema entry keeps the schema
+          accurate. Make
+          TASK-001's tests pass without editing them.
+        files:
+          - pkg/config/config.go
+          - artifacts/backstop-yml/v1/schema.json
+        claims: [CLM-001, CLM-004]
+        depends_on: [TASK-001]
+
+      - id: TASK-004
+        type: implementation
+        title: "Replace the floor constant with a resolved value in coverageThresholdsForScope"
+        description: |
+          In pkg/gate/step_coverage.go add the variadic option to
+          StepCoverageThresholdScopedFunc (for example
+          `type CoverageOption func(*coverageOptions)` and
+          `WithCoverageFloor(n int)`), default the floor to the existing 90
+          when no option is given, and pass the resolved floor into
+          coverageThresholdsForScope, which uses it in place of the constant
+          in the `maxThreshold == 0` branch. Keep the `scope == nil ||
+          GateScopeModeAll` branch and the spec-selection order exactly as
+          they are (CLM-003, CLM-005). Comment the default so it says it must
+          match config.DefaultCoverageFloor. Existing call sites and tests
+          stay unchanged. Make TASK-002's tests pass.
+        files:
+          - pkg/gate/step_coverage.go
+        claims: [CLM-002, CLM-003, CLM-005]
+        depends_on: [TASK-002]
+
+      - id: TASK-005
+        type: verification
+        title: "Run the config and gate packages green and the diff-scoped gate"
+        description: |
+          Run the green commands from notes for pkg/config and pkg/gate
+          (the four mandated tests and both whole packages, -count=1) and
+          record exit codes. Then run `backstop gate` with a backstop binary
+          built from this branch and record its exit code and findings.
+        files:
+          - pkg/config/config.go
+          - artifacts/backstop-yml/v1/schema.json
+          - pkg/gate/step_coverage.go
+          - pkg/config/coverage_floor_test.go
+          - pkg/gate/step_coverage_floor_test.go
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004]
+        depends_on: [TASK-003, TASK-004]
+
+  - id: phase-3
+    name: "Phase 3: Wire the configured floor into the gate, document it, run the full gate"
+    tasks:
+      - id: TASK-006
+        type: test
+        title: "Write the gate wiring test over a real project assembly"
+        description: |
+          Create cmd/backstop/gate_coverage_floor_wiring_test.go with
+          TestCoverageFloorGateWiringUsesConfiguredValue. Drive the real step
+          assembly, not buildCoverageStep with a floor the test supplies: copy
+          the pattern in cmd/backstop/gate_classifier_wiring_test.go
+          (coverageStepResultOverProject, which builds the steps with
+          buildGateSteps over a temp project and returns the coverage step
+          result) and its project fixture. Give the temp project one changed
+          source file with no qualifying spec whose measured coverage is
+          between 50 and 70, and a backstop.yml written per subtest:
+            - no coverage_floor: the coverage step fails below the bar of 90;
+            - coverage_floor: 50: the step passes;
+            - coverage_floor: 70: the step fails below the bar of 70;
+            - coverage_floor: 150: the coverage step result has ConfigErr set
+              and a message naming enforcement.coverage_floor (CLM-004).
+          If the fixture's measured value is not between 50 and 70, change the
+          two floors so they bracket it (low below, high above, both below 90)
+          and say so in the test comment. Also assert config.DefaultCoverageFloor
+          equals 90. Run it and record the red (the configured subtests fail,
+          because the assembly ignores backstop.yml today).
+        files:
+          - cmd/backstop/gate_coverage_floor_wiring_test.go
+        claims: [CLM-001, CLM-002, CLM-004]
+        depends_on: [TASK-001, TASK-002]
+
+      - id: TASK-007
+        type: implementation
+        title: "Load the floor from backstop.yml inside buildGateStepsWithSandbox"
+        description: |
+          Edit only cmd/backstop/gate.go:
+            - Add a small loader, for example
+              `coverageFloorForProject(projectRoot string) (int, error)`: a
+              missing backstop.yml gives (config.DefaultCoverageFloor, nil);
+              otherwise config.LoadConfigFromPath and
+              cfg.Enforcement.EffectiveCoverageFloor(), returning the load
+              error as is. Do not reuse or change gateConfig.
+            - Call it once in buildGateStepsWithSandbox (~:931) and pass the
+              floor and the error to buildCoverageStep (~:1030 call, ~:1781
+              definition).
+            - In buildCoverageStep: with a load error, return a fail
+              StepResult for gate.StepCoverageThreshold with ConfigErr: true
+              and a violation (Rule coverage_threshold) whose message names
+              the load error. Otherwise pass gate.WithCoverageFloor(floor) to
+              StepCoverageThresholdScopedFunc (~:1807).
+          The callers of buildGateStepsWithSandbox and buildGateSteps
+          (gate.go, baseline.go, waiver.go, init_seams.go) keep their
+          signatures and are not edited. Change nothing else in gate.go. Make
+          TASK-006's test pass.
+        files:
+          - cmd/backstop/gate.go
+        claims: [CLM-001, CLM-002, CLM-004]
+        depends_on: [TASK-006, TASK-005]
+
+      - id: TASK-008
+        type: documentation
+        title: "Document enforcement.coverage_floor and the --all asymmetry"
+        description: |
+          In docs/reference.md, Configuration section, add a short paragraph
+          after the CLAIM-026 claim block (do not edit the claimed sentence):
+          the key, its range 0-100, the default 90 when unset, that 0 means no
+          floor, that a qualifying spec coverage_threshold takes precedence,
+          and that `gate --all` does not apply the floor today (known
+          asymmetry, separate concern). Plain language, no internal paths.
+        files:
+          - docs/reference.md
+        claims: [CLM-005]
+        depends_on: [TASK-004]
+
+      - id: TASK-009
+        type: verification
+        title: "Run the full gate and validate the plan artifact"
+        description: |
+          With a backstop binary built from this branch, run
+          `go test ./cmd/backstop -run TestCoverageFloor -count=1`, the docs
+          verifiers from notes (scripts/verify-public-product-model.sh and each
+          scripts/tests/public-product-model/verify-*.sh, recording each exit
+          code), `backstop gate --all` and
+          `backstop artifact validate --plan PLAN-ISSUE-217`. Confirm with the
+          repo's own backstop.yml (no coverage_floor key) that the coverage
+          step's verdict is unchanged from before this lane (CLM-001), and
+          that `gate --all` behaves as before (CLM-005). Record exit codes,
+          findings, the base SHA and the diff, which must hold only the
+          allowlisted files. Report any failure as a blocker; never waive
+          one. Hand the logs and diff to an independent reviewer and repeat
+          review until it comes back CLEAN. Leave plan and issue statuses
+          unchanged.
+        files:
+          - cmd/backstop/gate.go
+          - pkg/config/config.go
+          - pkg/gate/step_coverage.go
+          - docs/reference.md
+          - scripts/verify-public-product-model.sh
+          - plans/PLAN-ISSUE-217-configurable-coverage-floor.plan.yml
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005]
+        depends_on: [TASK-007, TASK-008]

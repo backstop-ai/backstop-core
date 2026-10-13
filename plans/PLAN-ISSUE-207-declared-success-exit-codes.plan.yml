@@ -1,0 +1,830 @@
+---
+plan_id: PLAN-ISSUE-207
+spec_id: ISSUE-207
+created: "2026-10-12"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+coverage_threshold: 90
+test_command: backstop gate --all
+notes: |
+  ISSUE-207: a non-CrashGuard findings engine that STARTS, exits non-zero and
+  yields an empty payload reads as a clean pack_engines pass. The never-started
+  refusal (check.NeverStarted, cmd/backstop/pack_gate.go:876) only covers a
+  process that never launched; the CrashGuard check (:940) is opt-in; and
+  parseSarif turns empty input into (nil, nil) (pkg/check/parsers.go:131-134).
+  The reproduced trigger is a pack-relative script named in command:
+  ("sh tool.sh" / "python3 tool.py") run with cwd = projectRoot
+  (cmd/backstop/gate.go:1131). This plan follows the issue's Direction #1-#5.
+  Direction #1 is a founder decision (2026-10-12) and is not reopened here:
+  each engine has a declared success-exit-code set, {0} when undeclared. An
+  EMPTY raw tool output (see the D-1 ruling below) with an exit status
+  outside the set is a loud engine failure. A non-empty payload is parsed as
+  findings whatever the exit status. Founder ruling on D-1 (2026-10-12):
+  emptiness is judged on the tool's RAW output BEFORE convert, which is the
+  stdout_artifact file when declared, otherwise stdout. ISSUE-207's Direction
+  now says this.
+  Authoring base: branch fix/engine-evidence-integrity at b8be04a.
+
+  Sequencing (CLM-015):
+    - PLAN-ISSUE-209 lands FIRST in cmd/backstop/pack_gate.go (it rewrites the
+      dispatcher loop dispatchPackEnginesWithEvidence, :268-320, and its doc
+      comments). This plan edits only runFindingsEngine's body (~:860-945) in
+      that file and rebases onto 209. Rebase conflicts in the dispatcher loop
+      are resolved in 209's favour. After 209, the failure from this plan
+      becomes one engine-error violation among preserved findings, not a
+      whole-dispatch abort; the error text is unchanged. This plan edits none
+      of 209's test files (dispatch_sarif_contract_test.go,
+      dispatch_unstartable_engine_test.go, pack_gate_producer_findings_test.go).
+    - ISSUE-208 (PLAN-ISSUE-208) has an in-progress working-tree change in
+      pkg/check/parsers.go. This plan does NOT edit that file and relies only
+      on its HEAD semantics: empty or whitespace input -> (nil, nil). The new
+      emptiness check runs on the payload bytes BEFORE ParsePackFindings, so
+      it does not depend on how 208 changes property-bag parsing.
+    - ISSUE-206 (pack test phase 3 dispatch parity; no plan yet) must land
+      WITH or AFTER this plan, never before. Fixing 206 alone would make
+      pack test run a pack-relative script from packDir and pass, while the
+      gate still runs it from projectRoot and passes silently. This plan's
+      gate-side failure (CLM-001) and authoring-time detection (CLM-012)
+      remove that risk. Nothing from 206 is implemented here.
+
+  Existence-in-world: grep of plans/, specs/, issues/, bundles/ and directives/
+  (committed and working tree) for ISSUE-207, success_exit_codes,
+  SuccessExitCodes and "pack-relative script" found only this scaffold and the
+  cross-references in ISSUE-206/ISSUE-209 issue prose. PLAN-ISSUE-209 and
+  PLAN-ISSUE-208 are siblings on this branch with different surfaces (see
+  Sequencing). PLAN-ISSUE-112/140 delivered never-started, which is kept and
+  not reopened. No owning artifact.
+
+  Complexity (honest): the issue rates this cross-cutting, known, moderate
+  risk, and this plan agrees. The default changes behaviour for every
+  non-CrashGuard findings engine on BOTH dispatch paths (gate
+  runFindingsEngine and packval DefaultExecutor.RunEngine). It adds manifest
+  surface on two decode paths: pkg/pack EngineSpec -> parseEngineSpec
+  (non-strict YAML, so an unwired key is silently dropped), and pkg/packval,
+  which decodes straight into engine.EngineBinding. Each change is small. The
+  risk is in (a) third-party packs, which are unknown, hence the
+  self-explaining error, (b) the D-1 ruling, which makes every grep-style
+  engine (in-repo, this repo's installed go-contracts, and consumers'
+  packs) declare [0, 1], and (c) existing tests whose stub runners return a
+  non-nil error with an empty payload for a non-CrashGuard engine (audited
+  under CLM-013).
+
+  Design decisions taken by this plan (the reviewer rules on each):
+    D-1 FOUNDER RULING (2026-10-12): "empty" means
+        len(bytes.TrimSpace(raw)) == 0, where raw is the tool's own output
+        BEFORE any convert. That is the stdout_artifact file's bytes when the
+        binding declares stdout_artifact, otherwise stdout. The check sits
+        after the never-started refusal and the stdout_artifact read, and
+        BEFORE the strict-SARIF shape guard and the convert. On failure the
+        convert is never run. Consequence: a convert engine whose tool
+        crashes with empty output and an unlisted exit status now fails, even
+        though its convert would have wrapped the empty input in an empty
+        SARIF envelope. This closes the convert-family gap the first draft
+        surfaced. The cost: every engine whose tool legitimately exits
+        non-zero with empty raw output on a clean run (grep: exit 1 on no
+        match) must declare that status. Those engines are enumerated and
+        declared under CLM-013 / CLM-016.
+    D-2 Failure shape: a *check.ConfigError (exit 2), the same class as
+        neverStartedError. Text:
+        "pack <pack> engine <command>: exit status <N> with an empty findings
+        payload is an engine failure, not a clean pass; if exit status <N> is
+        a legitimate no-findings result for this tool, declare it:
+        success_exit_codes: [0, <N>]". The dispatcher's existing wrap
+        ("dispatching findings engine <key> for pack <pack>: ...") adds the
+        engine's map key, so pack, engine key, command and status all appear.
+        When the run error carries no exit status (a stub or I/O error), <N>
+        is replaced by "a failed run with no exit status (<err>)" and the
+        hint is omitted. That case is never accepted (fail-safe).
+    D-3 CrashGuard relationship. One predicate, exitAccepted(runErr, set), is
+        used by both checks. It is true iff runErr == nil and 0 is in the
+        set, or runErr carries an exit status (errors.As to
+        interface{ ExitCode() int }, satisfied by *exec.ExitError) that is in
+        the set. (a) The new raw-empty check (pre-convert, D-1) applies to
+        engines with crash_guard false. A CrashGuard engine is already at least as
+        strict: an empty payload parses to zero findings, which its guard
+        already treats as a crash. Its existing "crashed: non-zero exit with
+        no parseable findings" wording therefore stays authoritative and
+        unchanged. (b) The CrashGuard condition changes from
+        `runErr != nil && zero findings` to `!exitAccepted && zero findings`.
+        With the set undeclared ({0}) this is identical to today for every
+        input, including a status-less error. With a set declared, a
+        CrashGuard engine may treat a listed status as clean. Both
+        declarations may coexist. No conflict rule is needed.
+    D-4 Validation (both decode paths, one authority:
+        engine.ValidateSuccessExitCodes). The value must be a YAML sequence of
+        integers. A scalar or a non-integer element is a decode error on both
+        paths once the field exists. The sequence must be non-empty, each
+        element in 0..255, with no duplicates, and it MUST contain 0
+        (omitting 0 would make a clean exit a failure; no known use case).
+        Absent or explicit null = undeclared = {0}. The field is accepted on
+        any engine but is inert outside the findings path (coverage engines
+        and the sandbox exit-code branch are out of scope).
+    D-5 Exit-status extraction lives in a new pkg/check/exit_status.go,
+        ExitStatus(err) (int, bool), alongside NeverStarted, as the single
+        authority for both dispatch paths. pkg/pack/engine (a leaf, no
+        pkg/check import) owns the field,
+        EngineBinding.EffectiveSuccessExitCodes() ([]int: the declared set,
+        or [0]) and ValidateSuccessExitCodes.
+    D-6 Direction #2 is a BLOCKING phase-2 error (check name
+        "command-pack-relative-file"), not a warning, for engines that do NOT
+        declare producer:. For those engines, a command: argv token that
+        resolves to a regular file under the pack dir is broken at gate time
+        by construction, because the gate cwd is projectRoot.
+        PRODUCER EXEMPTION (review finding, 2026-10-12): an engine that
+        declares producer: is skipped entirely. Core never invokes its
+        command: tool. The producer replaces the invoked name and receives
+        the command tokens as arguments it interprets. A token may
+        legitimately resolve in both places: the pack ships a stub for pack
+        test (cwd = packDir) and the consumer has the real script at gate
+        time (cwd = projectRoot). The motivating shipped case is
+        backstop-ai/bash-toolchain engine bash-test:
+        `command: bash scripts/verify-public-product-model.sh` with
+        `producer: scripts/test-produce.sh`.
+        Zero-hit audit of the revised rule (2026-10-12): 379 engine-bearing
+        manifests were scanned (every pack.yml in the repo excluding
+        node_modules, every pack.yml under .backstop/packs, and
+        pkg/pack/engine/testdata/contracts-grep-engine.yml). There were
+        ZERO hits. Exactly one token was producer-exempted: bash-toolchain
+        bash-test, scripts/verify-public-product-model.sh. Without the
+        exemption that would have been a false-positive block. Phase 2
+        runs in both check and test modes. Tokens considered: every
+        whitespace-split token of binding.Command (splitCommand semantics) of
+        a producer-less engine,
+        including argv[0]. Skipped: tokens starting with "-", absolute
+        paths, tokens that escape packDir after Clean, and anything that is
+        not a regular file (directories such as "src" and globs such as
+        "./..." never match). The FixHint steers to `producer: <token>` and
+        says core never resolves command: against the pack dir. "Does not
+        resolve from the project root" is NOT checked: no project exists at
+        authoring time, so that half is covered at runtime by CLM-001.
+        The gate's pack loader gets no new check.
+    D-7 The gate runner's Dir stays projectRoot (Direction #3). No cwd, Env
+        or runner construction change anywhere.
+
+  Acceptance claims defined here because ISSUE-207 has no formal CLM array:
+    CLM-001: the reproduced trigger fails loud. A pack whose command: is
+      "sh tool.sh" with tool.sh only in the pack root, dispatched with the
+      gate's runner shape (check.ExecCommandRunner{Dir: projectRoot}), returns
+      a *check.ConfigError (via errors.As) whose text names the pack, the
+      command, the observed exit status and success_exit_codes. It never
+      returns a nil error with zero violations.
+    CLM-002: for a crash_guard-false engine, an empty raw output (D-1: the
+      stdout_artifact file, else stdout, before convert) with an exit status
+      outside the effective set is an engine failure with the D-2 shape, and
+      the convert is not run.
+    CLM-003: a declared set is honoured. A listed status with an empty
+      payload is a clean result (nil error, zero violations). An unlisted
+      non-zero status still fails.
+    CLM-004: a non-empty raw output is converted (if declared) and parsed as
+      findings whatever the exit status. A tool exiting non-zero with a SARIF finding still reports it.
+      There is no regression for rule-fed engines.
+    CLM-005: undeclared = {0}. A run error with no extractable exit status is
+      never accepted (D-2/D-3).
+    CLM-006: emptiness is judged on the RAW pre-convert output (D-1). With
+      stdout_artifact it is the artifact, not noisy stdout. With convert it
+      is the tool's output before the convert. A tool that crashes with empty
+      output fails even though its convert would emit an empty SARIF
+      envelope, and the convert does not run. A convert engine whose tool
+      exits with a DECLARED status and empty output is clean (the convert
+      runs and its envelope parses to zero findings).
+    CLM-007: CrashGuard per D-3. The wording and outcome are unchanged when
+      the set is undeclared. A declared set lets a CrashGuard engine accept a
+      listed status.
+    CLM-008: the pack_engines step never reports pass for such an engine. It
+      is Status fail and ConfigErr true (exit 2), with the D-2 text in its
+      violations (Direction #4).
+    CLM-009: success_exit_codes is validated per D-4 on both decode paths
+      (pkg/pack ParseManifest/parseEngineSpec and pkg/packval
+      ParseManifest + phase1-structural). A declared value reaches the
+      resolved binding on both paths and is not silently dropped.
+    CLM-010: the gate runner's working directory stays projectRoot (D-7).
+    CLM-011: pack test parity. DefaultExecutor.RunEngine applies the same
+      D-1/D-2/D-3 rules after its convert (its own cwd stays packDir), so a
+      phase-3 negative fixture can no longer pass over a crashed run.
+    CLM-012: authoring-time detection per D-6. pack check and pack test both
+      fail phase2-coherence on a producer-less engine's command: token
+      naming a pack file and steer the author to producer:. Benign commands
+      are not flagged. Engines declaring producer: are never flagged,
+      including when the token exists in both the pack and the project (the
+      bash-toolchain shape). The revised rule has zero hits over every
+      manifest in the repo and in .backstop/packs.
+    CLM-013: existing packs and tests are handled honestly (re-audited
+      2026-10-12 under the D-1 ruling, i.e. on RAW pre-convert output).
+      Dispatch routes (gate.go line numbers at HEAD b8be04a; they shift once
+      PLAN-ISSUE-209 lands, so re-pin after the rebase): contract engines
+      run through runFindingsEngine via dispatchContractEntryWithSandbox ->
+      dispatchPackEnginesWithEvidence (gate.go:1944). Substantiveness
+      engines run through dispatchPackEnginesWithEvidence too
+      (gate.go:1513). pack_engines uses the same dispatcher
+      (gate.go:~1177). So the dedicated contracts and
+      substantiveness steps do NOT bypass this rule: every findings-path
+      engine is affected.
+      Tool behaviour checked locally on a clean (no-match) run:
+        grep -rn -H -I ...        -> empty stdout, exit 1   => TRIPS
+        ast-grep run --json ...   -> "[]" on stdout, exit 1 => raw non-empty, safe
+        ast-grep scan --json ...  -> "[]" on stdout, exit 0 => safe
+        semgrep --sarif           -> SARIF on stdout, exit 0 => safe
+        golangci-lint (sarif to stdout) -> SARIF, exit 0 => safe
+      crash_guard engines (go-build, go-test, go-arch-lint, bash-test,
+      fixture-test, mybuild) are outside the raw-empty check (D-3).
+      Engines that must declare `success_exit_codes: [0, 1]` (grep's
+      documented "no lines selected" status; reason recorded in a YAML
+      comment on each). These are in-repo, edited by TASK-012:
+        packs/contracts/pack.yml                 engine grep (contracts step)
+        pkg/gate/testdata/ts-proof-pack/pack.yml engine grep (contracts)
+        pkg/gate/testdata/traceability-pack/pack.yml engine grep (contracts)
+        cmd/backstop/testdata/hermetic-remote/acceptance-lint-pack/pack.yml
+                                                 engine marker-lint (grep, lint)
+        cmd/backstop/testdata/hermetic-remote/scaffold-entrypoint-pack/pack.yml
+                                                 engine entrypoint (grep, test)
+      Not declared, with reasons: the scaffold-templating-pack and
+      scaffold-recipe-pack grep engines (no rules, so never dispatched);
+      pkg/pack/engine/testdata/contracts-grep-engine.yml (a read-only
+      fixture parsed by engine-package tests, never dispatched against a
+      real tool, so the default cannot trip it); the two seamed verdict-probe
+      grep fixtures,
+      cmd/backstop/testdata/test-verdict-e2e/.backstop/packs/acme/verdict-probe/pack.yml
+      and cmd/backstop/testdata/test-verdict-absent-e2e/.backstop/packs/acme/verdict-probe/pack.yml
+      (their tests seam the dispatch, so real grep output never reaches
+      runFindingsEngine);
+      every ast-grep/semgrep engine (raw output never empty); every
+      crash_guard engine. No packs/contracts version bump is planned: it is a
+      fixture SOURCE, not a fleet member (pack_fleet_test.go:91). If a test
+      demands a bump, stop and return it.
+      EXTERNAL PREREQUISITE PRE-1 (outside this repo, founder to authorize):
+      this repo's own installed backstop-ai/go-contracts pack
+      (.backstop/packs, pinned in backstop.lock) carries the same
+      `grep -rn -H -I` engine without the declaration. Once TASK-006 lands,
+      this repo's own contracts step fails on every no-match absence probe.
+      Required: a backstop-ai/go-contracts release whose grep engine
+      declares `success_exit_codes: [0, 1]` (backward-compatible: older
+      binaries' non-strict decode ignores the key), then
+      `backstop pack update backstop-ai/go-contracts` here, which rewrites
+      backstop.lock. Third-party/consumer grep engines are in the same
+      position, hence the self-explaining error and the guide note. TASK-010
+      blocks on PRE-1. backstop.lock is allowlisted ONLY for that pack-update
+      result.
+      Any other test fallout: an existing test whose stub returns (empty,
+      non-nil error) for a crash_guard-false engine while expecting a clean
+      pass, or a Go-literal grep binding running a real no-match grep,
+      asserts today's behaviour. Stop and return it for review. Never
+      weaken an assertion.
+    CLM-014: docs. docs/pack/guide.md documents success_exit_codes, the {0}
+      default, the empty-selected-payload rule, the CrashGuard relationship,
+      command: vs producer: and a "Behavior change (next minor release)"
+      note. docs/CODEBASE-MAP.md records the dispatch rule. The repo has no
+      CHANGELOG file (goreleaser derives its changelog from commits), so the
+      release note is carried by the guide note plus the commit/PR text,
+      which the committer writes. Cutting the minor tag is out of scope.
+    CLM-015: sequencing as stated above (209 first in pack_gate.go; 208's
+      parsers.go untouched; 206 with or after; PRE-1 before the final gate).
+    CLM-016: every in-repo grep engine listed under CLM-013 declares
+      success_exit_codes: [0, 1] with a recorded reason, so its no-match
+      runs stay clean under the new default. No other pack.yml changes.
+
+  Exact edit allowlist:
+    production:
+      pkg/pack/engine/binding.go          (SuccessExitCodes field, yaml
+                                           success_exit_codes, doc comment)
+      pkg/pack/engine/success_exit_codes.go (new: EffectiveSuccessExitCodes,
+                                           ValidateSuccessExitCodes)
+      pkg/pack/manifest.go                (EngineSpec field; parseEngineSpec
+                                           copy + validate)
+      pkg/check/exit_status.go            (new: ExitStatus)
+      cmd/backstop/pack_gate.go           (runFindingsEngine body ONLY:
+                                           empty-payload check + CrashGuard
+                                           predicate; after rebasing on 209)
+      pkg/packval/executor.go             (RunEngine parity)
+      pkg/packval/phase1.go               (engine success_exit_codes check)
+      pkg/packval/phase2.go               (wire command-pack-relative-file;
+                                           Checks count 9 -> 10)
+      pkg/packval/command_pack_file.go    (new: token scan helper)
+    pack data (TASK-012; add success_exit_codes: [0, 1] + reason comment ONLY):
+      packs/contracts/pack.yml
+      pkg/gate/testdata/ts-proof-pack/pack.yml
+      pkg/gate/testdata/traceability-pack/pack.yml
+      cmd/backstop/testdata/hermetic-remote/acceptance-lint-pack/pack.yml
+      cmd/backstop/testdata/hermetic-remote/scaffold-entrypoint-pack/pack.yml
+    lock (ONLY via `backstop pack update backstop-ai/go-contracts` after PRE-1):
+      backstop.lock
+    docs:
+      docs/pack/guide.md
+      docs/CODEBASE-MAP.md
+    tests (new):
+      pkg/pack/engine/success_exit_codes_test.go
+      pkg/pack/manifest_success_exit_codes_test.go
+      cmd/backstop/pack_gate_success_exit_codes_test.go
+      cmd/backstop/gate_pack_engines_empty_payload_test.go
+      pkg/packval/executor_success_exit_codes_test.go
+      pkg/packval/phase1_success_exit_codes_test.go
+      pkg/packval/phase2_command_pack_file_test.go
+    tests (modified, new test function only):
+      pkg/pack/engine/grep_dispatch_convention_test.go
+  Approved deviations (coordinator-approved during implementation, 2026-10-12):
+    - pkg/packval/executor_crashguard_test.go added to the allowlist.
+      TestPackVal_EngineCrashGuard_UnsetLeavesNonZeroExitUnchanged asserted the
+      pre-D-1 behaviour (undeclared exit 2 with an empty payload is clean). It is
+      re-pointed: undeclared exit 2 is the engine failure (never the CrashGuard
+      "crashed" wording), and the same engine declaring [0, 2] stays clean.
+    - CLM-014 docs: the docs/pack/guide.md page only accepts claim-linked prose
+      (scripts/verify-public-product-model.sh closed-block check), so the
+      "Declare exit status" subsection is wrapped in claim region CLAIM-038, with
+      a matching type-mechanism entry (EVIDENCE-058..061, citing this plan's tests)
+      in docs/_data/evidence-inventory.yml, which is added to the allowlist. The
+      verifier itself is not edited.
+  NOT touched: pkg/check/parsers.go (208 in progress), the dispatcher loop and
+  209's test files, gate.go runner construction, runCoverageEngine, any
+  pack.yml not listed above, baselines, config. Any other file that appears necessary is a
+  scope change: stop and return it for review. Prefix file-local helpers per
+  file (sec*, sepStep*, secPV*, secP1*, cpf*) and reuse the existing package
+  helpers (mkDirAll, writeFileStr, fixtureRunner, directConvertSandboxRunner,
+  runPackEnginesStep, rootAtDir, the bun_dispatch_e2e_test.go harness)
+  rather than redefining them.
+
+  Red/green discipline: every behavioural test is written against seams that
+  compile at b8be04a. Manifests are YAML TEXT parsed by pack.ParseManifestFile
+  or packval.ParseManifest, so an unwired success_exit_codes key is silently
+  ignored today, and that ignoring is the behavioural red. The engine runs
+  through the existing runFindingsEngine / dispatchPackEnginesWithEvidence /
+  DefaultExecutor.RunEngine / RunCoherence entry points, using real
+  processes (POSIX sh scripts in t.TempDir, mode 0o755) for real exit
+  statuses. Only pkg/pack/engine/success_exit_codes_test.go exercises new
+  API (EffectiveSuccessExitCodes, ValidateSuccessExitCodes). It is
+  compile-red by necessity and is the one exception, stated rather than
+  hidden. Controls (pass before AND after) are marked below.
+
+  Red/green commands (repo root):
+    go test ./cmd/backstop -count=1 -v -run '^(TestFindingsEngine_(PackRelativeScriptInCommandFailsLoud|EmptyPayloadNonZeroExitUndeclaredFails|DeclaredSuccessExitCodeEmptyPayloadIsClean|DeclaredSetDoesNotAcceptOtherStatuses|NonEmptyPayloadNonZeroExitStillParsesFindings|StdoutArtifactEmptyFailsDespiteNoisyStdout|StdoutArtifactNonEmptyNonZeroExitParses|ConvertEngineEmptyRawOutputFailsBeforeConvert|ConvertEngineDeclaredNoMatchStatusIsClean|ConvertEngineNonEmptyRawOutputIsParsedAfterConvert|CrashGuardHonorsDeclaredSuccessExitCodes|CrashGuardUndeclaredKeepsCrashWording|RunErrorWithoutExitStatusIsNotAccepted)|TestPackEnginesStep_(PackRelativeScriptIsNotAPass|RunnerCwdStaysProjectRoot))$'
+    go test ./pkg/pack/... ./pkg/packval/... ./pkg/check/... -count=1 -v -run 'SuccessExitCodes|EmptyPayload|CommandNamingPackFile|CommandTokensNotNamingPackFiles|ConvertEngineEmptyRawOutputFailsBeforeConvert|CrashGuardHonors|DeclareNoMatchSuccessExitCodes'
+    go test ./... -race -count=1
+  Every mandated test must execute (no "no tests to run", none skipped).
+
+  Runtime verification:
+    backstop gate --file cmd/backstop/pack_gate.go
+    backstop gate --file pkg/packval/executor.go
+    backstop gate
+    backstop gate --all
+    backstop artifact validate --plan PLAN-ISSUE-207
+  Record real exit codes. Gate or environment failures are blockers to
+  surface, never waived. Plan and issue statuses stay unchanged; no
+  commit/push/PR is authorized by this plan.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Failing tests (manifest surface, gate dispatch, packval parity and detection)"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Pin success_exit_codes validation and resolution on the engine leaf and the pkg/pack decode path"
+        description: |
+          pkg/pack/engine/success_exit_codes_test.go (new API, compile-red by
+          necessity; see notes):
+          TestEffectiveSuccessExitCodes_UndeclaredIsZeroOnly (CLM-005):
+          a binding with nil SuccessExitCodes yields exactly [0]. A declared
+          [0, 1] yields [0, 1].
+          TestValidateSuccessExitCodes_RejectsInvalidSets (CLM-009, D-4):
+          table rows for empty non-nil, contains 256, contains -1, duplicate
+          1, missing 0. Each errors with a message that names
+          success_exit_codes and the reason. nil and [0, 1] pass.
+
+          pkg/pack/manifest_success_exit_codes_test.go (compiles today;
+          manifests are YAML text through ParseManifestFile, with
+          description: present):
+          TestParseManifest_SuccessExitCodesRejectsEmptyList (CLM-009):
+          `success_exit_codes: []` -> parse error naming the engine and
+          the key. Red: today the key is ignored.
+          TestParseManifest_SuccessExitCodesRejectsWrongType (CLM-009):
+          scalar `success_exit_codes: 1` and `[0, "x"]` -> parse error. Red.
+          TestParseManifest_SuccessExitCodesRejectsOutOfRangeDuplicateAndMissingZero
+          (CLM-009): [0, 256], [0, 1, 1], [1] -> parse error. Red.
+          TestParseManifest_SuccessExitCodesReachBinding (CLM-009): [0, 1]
+          parses. Assert via fmt.Sprintf("%v", spec.Binding) containing
+          "[0 1]" (avoids naming the new field, so the test compiles today
+          and is behaviour-red). Absent key -> binding prints no such list.
+        files:
+          - pkg/pack/engine/success_exit_codes_test.go
+          - pkg/pack/manifest_success_exit_codes_test.go
+        claims: [CLM-005, CLM-009]
+        depends_on: []
+        test_names:
+          - TestEffectiveSuccessExitCodes_UndeclaredIsZeroOnly
+          - TestValidateSuccessExitCodes_RejectsInvalidSets
+          - TestParseManifest_SuccessExitCodesRejectsEmptyList
+          - TestParseManifest_SuccessExitCodesRejectsWrongType
+          - TestParseManifest_SuccessExitCodesRejectsOutOfRangeDuplicateAndMissingZero
+          - TestParseManifest_SuccessExitCodesReachBinding
+
+      - id: TASK-002
+        type: test
+        title: "Pin gate-side findings-engine exit/payload semantics, including the issue's repro"
+        description: |
+          cmd/backstop/pack_gate_success_exit_codes_test.go (package main).
+          Each test writes a pack.yml (YAML text, description: present,
+          gate_type findings, scope_kind file-args unless stated) under a
+          temp <packsDir>/acme/<name>/ and parses it with
+          pack.ParseManifestFile. Engines are real POSIX sh scripts. The
+          runner is &check.ExecCommandRunner{Dir: projectRoot} (the gate's
+          shape, gate.go:1131), dispatched via dispatchPackEnginesWithEvidence
+          (or runFindingsEngineWithEvidence where only one engine matters),
+          with directConvertSandboxRunner for convert cases.
+          Engine scripts are referenced by ABSOLUTE path except in the repro,
+          so cwd plays no role elsewhere.
+
+          TestFindingsEngine_PackRelativeScriptInCommandFailsLoud (CLM-001,
+          CLM-002): the issue's trigger. command "sh tool.sh", tool.sh only
+          in the pack root (it would emit a SARIF finding), project has
+          bad.txt with the marker. Compute the expected status by running
+          `sh tool.sh` with cmd.Dir = projectRoot in the test itself. Require
+          a non-nil error, errors.As *check.ConfigError, and text containing
+          the pack name, "sh tool.sh", "exit status <N>" and
+          "success_exit_codes". Red today: nil error, zero violations.
+          TestFindingsEngine_EmptyPayloadNonZeroExitUndeclaredFails (CLM-002,
+          CLM-005): script prints nothing and exits 1, no key -> D-2 error
+          naming status 1 and the hint "success_exit_codes: [0, 1]". Red.
+          TestFindingsEngine_DeclaredSuccessExitCodeEmptyPayloadIsClean
+          (CLM-003; control): same script with success_exit_codes [0, 1]
+          -> nil error, zero violations.
+          TestFindingsEngine_DeclaredSetDoesNotAcceptOtherStatuses (CLM-003):
+          [0, 1] declared, script exits 2 with empty output -> D-2 error
+          naming 2. Red.
+          TestFindingsEngine_NonEmptyPayloadNonZeroExitStillParsesFindings
+          (CLM-004; control): exit 3 (not in {0}) with one SARIF result ->
+          nil error, the finding returned with its rule/file.
+          TestFindingsEngine_StdoutArtifactEmptyFailsDespiteNoisyStdout
+          (CLM-006): stdout_artifact out.sarif. The script prints a summary
+          line to stdout, writes an EMPTY out.sarif in cwd and exits 1 -> D-2
+          error. Red (today the empty artifact parses clean).
+          TestFindingsEngine_StdoutArtifactNonEmptyNonZeroExitParses
+          (CLM-006, CLM-004; control): artifact carries one result, exit 1,
+          and the finding is returned.
+          TestFindingsEngine_ConvertEngineEmptyRawOutputFailsBeforeConvert
+          (CLM-006, CLM-002): grep-shaped crash. The tool prints nothing and
+          exits 2 (no key declared). The pack-relative convert would emit an
+          empty-results SARIF envelope AND writes a marker file
+          convert-ran.txt. Require the D-2 error naming status 2 and require
+          that convert-ran.txt does NOT exist (the check precedes the
+          convert). Red: today the envelope parses clean.
+          TestFindingsEngine_ConvertEngineDeclaredNoMatchStatusIsClean
+          (CLM-003, CLM-006): grep no-match shape. success_exit_codes [0, 1],
+          the tool prints nothing and exits 1, the convert emits the envelope.
+          Require a nil error and zero violations. In the same test, a second
+          sub-case with the key removed must fail with D-2 naming status 1
+          (behaviour-red today: it passes).
+          TestFindingsEngine_ConvertEngineNonEmptyRawOutputIsParsedAfterConvert
+          (CLM-004, CLM-006; control): the tool prints non-empty text and exits
+          1 (undeclared). The convert emits one SARIF result, which must be
+          returned.
+          TestFindingsEngine_CrashGuardHonorsDeclaredSuccessExitCodes
+          (CLM-007): crash_guard true, success_exit_codes [0, 1]. The script
+          emits an empty-results SARIF and exits 1 -> nil error. Red (today
+          "crashed").
+          TestFindingsEngine_CrashGuardUndeclaredKeepsCrashWording (CLM-007;
+          control): crash_guard true, no key, empty output, exit 1 -> error
+          containing "crashed: non-zero exit with no parseable findings" and
+          NOT containing "success_exit_codes".
+          TestFindingsEngine_RunErrorWithoutExitStatusIsNotAccepted (CLM-005):
+          fixtureRunner returning (nil, errors.New("boom")) for a
+          crash_guard-false engine -> error containing "no exit status" and
+          "boom". Red.
+        files:
+          - cmd/backstop/pack_gate_success_exit_codes_test.go
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-006, CLM-007]
+        depends_on: []
+        test_names:
+          - TestFindingsEngine_PackRelativeScriptInCommandFailsLoud
+          - TestFindingsEngine_EmptyPayloadNonZeroExitUndeclaredFails
+          - TestFindingsEngine_DeclaredSuccessExitCodeEmptyPayloadIsClean
+          - TestFindingsEngine_DeclaredSetDoesNotAcceptOtherStatuses
+          - TestFindingsEngine_NonEmptyPayloadNonZeroExitStillParsesFindings
+          - TestFindingsEngine_StdoutArtifactEmptyFailsDespiteNoisyStdout
+          - TestFindingsEngine_StdoutArtifactNonEmptyNonZeroExitParses
+          - TestFindingsEngine_ConvertEngineEmptyRawOutputFailsBeforeConvert
+          - TestFindingsEngine_ConvertEngineDeclaredNoMatchStatusIsClean
+          - TestFindingsEngine_ConvertEngineNonEmptyRawOutputIsParsedAfterConvert
+          - TestFindingsEngine_CrashGuardHonorsDeclaredSuccessExitCodes
+          - TestFindingsEngine_CrashGuardUndeclaredKeepsCrashWording
+          - TestFindingsEngine_RunErrorWithoutExitStatusIsNotAccepted
+
+      - id: TASK-003
+        type: test
+        title: "Pin pack_engines step verdict and unchanged gate cwd"
+        description: |
+          cmd/backstop/gate_pack_engines_empty_payload_test.go (package main).
+          Install the repro pack under projectRoot/.backstop/packs/acme/<name>
+          following the bun_dispatch_e2e_test.go / gate_scope_test.go harness,
+          and obtain the step via runPackEnginesStep. If the step cannot load
+          an installed pack hermetically, drive dispatchPackEnginesWithEvidence
+          through the same runner construction plus the step's error branch,
+          and record which harness was used.
+          TestPackEnginesStep_PackRelativeScriptIsNotAPass (CLM-008, CLM-001):
+          Status "fail", ConfigErr true, and a violation message containing
+          the pack, the command, "exit status" and "success_exit_codes".
+          Red: today Status "pass" with zero violations.
+          TestPackEnginesStep_RunnerCwdStaysProjectRoot (CLM-010; control):
+          an absolute-path engine script writes cwd-probe.txt relative to its
+          cwd and emits empty-results SARIF at exit 0. Require the probe file
+          in projectRoot and absent from the pack root.
+        files:
+          - cmd/backstop/gate_pack_engines_empty_payload_test.go
+        claims: [CLM-008, CLM-010]
+        depends_on: []
+        test_names:
+          - TestPackEnginesStep_PackRelativeScriptIsNotAPass
+          - TestPackEnginesStep_RunnerCwdStaysProjectRoot
+
+      - id: TASK-004
+        type: test
+        title: "Pin pack-test parity and authoring-time command:->producer: detection"
+        description: |
+          pkg/packval/executor_success_exit_codes_test.go: DefaultExecutor.
+          RunEngine with a binding decoded from YAML text via
+          packval.ParseManifest. Real sh scripts by absolute path,
+          cwd packDir.
+          TestRunEngine_EmptyPayloadNonZeroExitUndeclaredFails (CLM-011):
+          empty output, exit 1 -> error naming the command, status 1 and
+          success_exit_codes. Red (today Passed=false, nil error, which IS a
+          negative fixture's pass).
+          TestRunEngine_DeclaredSuccessExitCodeEmptyPayloadIsClean (CLM-011,
+          CLM-003; control): [0, 1] -> nil error, Passed false.
+          TestRunEngine_ConvertEngineEmptyRawOutputFailsBeforeConvert (CLM-011,
+          CLM-006): the tool prints nothing and exits 2. The convert would emit
+          an empty SARIF envelope and writes a marker. Require an error naming
+          status 2 and success_exit_codes, and require the marker to be absent.
+          Red.
+          TestRunEngine_CrashGuardHonorsDeclaredSuccessExitCodes (CLM-011,
+          CLM-007): crash_guard + [0, 1], exit 1, empty-results SARIF -> nil
+          error. Red.
+
+          pkg/packval/phase1_success_exit_codes_test.go:
+          TestRunStructural_SuccessExitCodesValidated (CLM-009): through the
+          pipeline/RunStructural, [] / [1] / [0, 256] / [0, 1, 1] each yield
+          a phase1 error naming the engine and success_exit_codes. A
+          non-integer element yields the parse-manifest error. [0, 1] is
+          clean. Red: today the key is ignored.
+
+          pkg/packval/phase2_command_pack_file_test.go:
+          TestPackValidate_CommandNamingPackFileFailsCheckAndTest (CLM-012):
+          following TestBadEnginePack_FailsCheckAndTest (phase2_test.go:77),
+          a pack whose engine command is "sh tool.sh" with tool.sh in the
+          pack root fails phase2-coherence in BOTH check and test modes, with
+          Check "command-pack-relative-file", a message naming the engine and
+          "tool.sh", and a FixHint containing "producer:". Also cover
+          "./tool.sh" as argv[0]. Red.
+          TestRunCoherence_CommandTokensNotNamingPackFilesAreClean (CLM-012;
+          control): "semgrep --sarif --quiet",
+          "grep -rn -H -I PATTERN src" with src a pack DIRECTORY,
+          "go build ./...", an absolute script path, "-o out.marker" with no
+          such file, and "../escape.sh" with that file existing outside the
+          pack dir. No command-pack-relative-file error for any of them.
+          TestRunCoherence_ProducerEngineCommandTokensAreNotFlagged (CLM-012;
+          control, review finding): bash-toolchain shape. The engine declares
+          `command: bash scripts/verify.sh` and `producer: scripts/produce.sh`.
+          scripts/verify.sh exists in the pack dir AND in a sibling temp
+          project dir. Require no command-pack-relative-file error in either
+          check or test mode. Removing the producer: key from the same
+          manifest must yield the error, so the exemption is keyed on
+          producer:, not on the token.
+        files:
+          - pkg/packval/executor_success_exit_codes_test.go
+          - pkg/packval/phase1_success_exit_codes_test.go
+          - pkg/packval/phase2_command_pack_file_test.go
+        claims: [CLM-003, CLM-006, CLM-007, CLM-009, CLM-011, CLM-012]
+        depends_on: []
+        test_names:
+          - TestRunEngine_EmptyPayloadNonZeroExitUndeclaredFails
+          - TestRunEngine_DeclaredSuccessExitCodeEmptyPayloadIsClean
+          - TestRunEngine_ConvertEngineEmptyRawOutputFailsBeforeConvert
+          - TestRunEngine_CrashGuardHonorsDeclaredSuccessExitCodes
+          - TestRunStructural_SuccessExitCodesValidated
+          - TestPackValidate_CommandNamingPackFileFailsCheckAndTest
+          - TestRunCoherence_CommandTokensNotNamingPackFilesAreClean
+          - TestRunCoherence_ProducerEngineCommandTokensAreNotFlagged
+
+      - id: TASK-011
+        type: test
+        title: "Extend the grep-declaration sweep to require the no-match exit status"
+        description: |
+          pkg/pack/engine/grep_dispatch_convention_test.go: add
+          TestGrepEngineDeclarations_DeclareNoMatchSuccessExitCodes (CLM-016,
+          CLM-013), reusing the existing walkRepoFiles / ParseManifestFile /
+          commandTool predicate from TestGrepEngineDeclarations_ForceFilenameHeader
+          (no hand-written path list). Every convert-bearing grep findings
+          engine is one that dispatches for real (the sweep counts 6 at
+          authoring). Each must resolve to a binding carrying [0 1],
+          asserted via fmt.Sprintf("%v", spec.Binding) so the test compiles
+          today and is behaviour-red. The one enumerated exception is
+          pkg/pack/engine/testdata/contracts-grep-engine.yml (a read-only
+          fixture, never dispatched), asserted present so the exception
+          cannot rot. Expect exactly 5 required declarations. The
+          no-convert exempt set (scaffold-templating/recipe, no rules) stays
+          exempt for the reason the sweep already asserts. The failure
+          message names the file, the engine and the reason ("grep exits 1
+          with empty stdout on no match; ISSUE-207 D-1"). The existing
+          tests in the file are not edited. If the shared walk cannot express
+          this without changing their behaviour, fall back to a literal
+          table of the five CLM-013 paths in the same new test and record
+          that.
+        files:
+          - pkg/pack/engine/grep_dispatch_convention_test.go
+        claims: [CLM-013, CLM-016]
+        depends_on: []
+        test_names:
+          - TestGrepEngineDeclarations_DeclareNoMatchSuccessExitCodes
+
+  - id: phase-2
+    name: "Phase 2: Implementation (manifest surface, gate dispatch, packval parity) and scoped gate"
+    tasks:
+      - id: TASK-005
+        type: implementation
+        title: "Add success_exit_codes to the engine binding and pkg/pack decode path; add check.ExitStatus"
+        description: |
+          pkg/pack/engine/binding.go: add
+          `SuccessExitCodes []int yaml:"success_exit_codes"` with a doc comment
+          stating D-1/D-3/D-4. New pkg/pack/engine/success_exit_codes.go:
+          (b EngineBinding) EffectiveSuccessExitCodes() []int (the declared
+          set, or [0]) and ValidateSuccessExitCodes(codes []int) error per D-4
+          (nil is valid). pkg/pack/manifest.go: EngineSpec gains the same
+          field and tag. parseEngineSpec copies it and calls
+          engine.ValidateSuccessExitCodes, wrapping the error as
+          "parse success_exit_codes: ..." so ParseManifest names the engine
+          as it does for gate_type. New pkg/check/exit_status.go:
+          ExitStatus(err error) (int, bool) via
+          errors.As(err, &interface{ ExitCode() int }), returning false for
+          nil or for anything without a status (and for a negative code). Doc
+          comment cross-references NeverStarted. Run TASK-001 green.
+        files:
+          - pkg/pack/engine/binding.go
+          - pkg/pack/engine/success_exit_codes.go
+          - pkg/pack/manifest.go
+          - pkg/check/exit_status.go
+        claims: [CLM-005, CLM-009]
+        depends_on: [TASK-001]
+
+      - id: TASK-006
+        type: implementation
+        title: "Fail loud on empty raw output with an unaccepted exit in runFindingsEngine, before convert"
+        description: |
+          After rebasing on PLAN-ISSUE-209, in cmd/backstop/pack_gate.go
+          runFindingsEngine ONLY: add an unexported
+          exitAccepted(runErr error, set []int) bool per D-3, using
+          check.ExitStatus. Immediately after payload selection (the
+          stdout_artifact read, ~:888-898) and BEFORE requireLintSarifShape and
+          the convert (D-1): if
+          !binding.CrashGuard and len(bytes.TrimSpace(payload)) == 0 and
+          !exitAccepted(runErr, binding.EffectiveSuccessExitCodes()), return
+          the D-2 *check.ConfigError (known-status and no-status variants).
+          Change the CrashGuard condition to
+          `binding.CrashGuard && !exitAccepted(runErr, set) && len(checkViolations) == 0`
+          with its wording unchanged. Update the surrounding comments (the
+          :862-867 block and the :934-939 block) to describe the declared set
+          and cite ISSUE-207. Do not touch the never-started refusal,
+          the stdout_artifact/convert selection, runner construction, cwd,
+          the dispatcher loop or runCoverageEngine. Run TASK-002 and TASK-003
+          green, then go test ./cmd/backstop -race -count=1. Classify any
+          newly failing existing test per CLM-013 (stop and return, do not
+          edit).
+        files:
+          - cmd/backstop/pack_gate.go
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-010, CLM-013]
+        depends_on: [TASK-002, TASK-003, TASK-005]
+
+      - id: TASK-007
+        type: implementation
+        title: "Mirror the rule in pack test and add the phase1 and phase2 authoring checks"
+        description: |
+          pkg/packval/executor.go RunEngine: same D-1/D-2/D-3 logic right after
+          the stdout_artifact selection and BEFORE the strict-SARIF guard and
+          the convert, using check.ExitStatus and
+          binding.EffectiveSuccessExitCodes(). The message names
+          binding.Command, the status and the success_exit_codes hint
+          (packval convention: no pack name in scope). The CrashGuard
+          condition gets the same predicate with unchanged wording. cmd.Dir
+          stays packDir.
+          pkg/packval/phase1.go: for each pack.Engines entry, call
+          engine.ValidateSuccessExitCodes and append ValidationError
+          {Check: "engine-success-exit-codes", ManifestPath:
+          "engines.<name>.success_exit_codes"}. Bump the Checks count and
+          comment.
+          New pkg/packval/command_pack_file.go: commandPackFileFindings(pack,
+          packDir) per D-6, skipping any engine whose binding declares
+          producer: (sorted by engine name then token). pkg/packval/
+          phase2.go: append one ValidationError per finding with Check
+          "command-pack-relative-file", a message naming the engine and token
+          and explaining that the gate runs command: with the PROJECT root as
+          cwd, and a FixHint "declare it as `producer: <token>` (resolved
+          against the pack dir) and remove it from command:; core never
+          resolves command: against the pack dir". Checks 9 -> 10, comment
+          updated. Run TASK-004 green, then go test ./pkg/... -race
+          -count=1, applying CLM-013 to any newly failing existing test.
+        files:
+          - pkg/packval/executor.go
+          - pkg/packval/phase1.go
+          - pkg/packval/phase2.go
+          - pkg/packval/command_pack_file.go
+        claims: [CLM-003, CLM-006, CLM-007, CLM-009, CLM-011, CLM-012, CLM-013]
+        depends_on: [TASK-004, TASK-005]
+
+      - id: TASK-012
+        type: implementation
+        title: "Declare success_exit_codes: [0, 1] on the in-repo grep engines"
+        description: |
+          In each pack.yml listed under CLM-013 / the allowlist "pack data"
+          group, add `success_exit_codes: [0, 1]` to the named grep engine,
+          with a one-line YAML comment: "grep exits 1 with empty output when
+          nothing matches, a clean result (ISSUE-207)". No other key, version
+          or rule changes. Run TASK-011 green. Then run the contracts and
+          init acceptance suites (go test ./cmd/backstop ./pkg/gate
+          ./pkg/pack/... -count=1) and confirm the no-match absence probes
+          are clean after TASK-006. Before TASK-012 they must have failed with
+          the D-2 message, and that red/green is recorded as evidence the
+          declaration is load-bearing.
+        files:
+          - packs/contracts/pack.yml
+          - pkg/gate/testdata/ts-proof-pack/pack.yml
+          - pkg/gate/testdata/traceability-pack/pack.yml
+          - cmd/backstop/testdata/hermetic-remote/acceptance-lint-pack/pack.yml
+          - cmd/backstop/testdata/hermetic-remote/scaffold-entrypoint-pack/pack.yml
+        claims: [CLM-013, CLM-016]
+        depends_on: [TASK-011, TASK-005]
+
+      - id: TASK-008
+        type: verification
+        title: "Verify red-to-green, audit untouched callers, run the diff-scoped gate"
+        description: |
+          Confirm the recorded Phase-1 red: behavioural for every test except
+          the stated compile-red pkg/pack/engine file. Confirm controls stayed
+          green throughout. Run the three red/green commands from notes and
+          go test ./... -race -count=1. Confirm the diff touches only
+          allowlisted files, that pkg/check/parsers.go and 209's files are
+          untouched by this work, and that no existing assertion was edited.
+          Run backstop gate --file cmd/backstop/pack_gate.go,
+          backstop gate --file pkg/packval/executor.go, then backstop gate.
+          Record exit codes and findings.
+        files:
+          - cmd/backstop/pack_gate.go
+          - pkg/packval/executor.go
+          - pkg/packval/phase1.go
+          - pkg/packval/phase2.go
+          - pkg/pack/manifest.go
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-009, CLM-010, CLM-011, CLM-012, CLM-013, CLM-015, CLM-016]
+        depends_on: [TASK-006, TASK-007, TASK-012]
+
+  - id: phase-3
+    name: "Phase 3: Documentation, full gate and plan validation"
+    tasks:
+      - id: TASK-009
+        type: documentation
+        title: "Document success_exit_codes, the empty-payload rule and the behaviour change"
+        description: |
+          docs/pack/guide.md: after "Add conversion where needed", add an
+          "Exit status" subsection. Cover: success_exit_codes (example
+          `success_exit_codes: [0, 1]` for grep/rg no-match); the {0}
+          default; the failure rule judged on the tool's RAW output before
+          convert (the stdout_artifact file, else stdout), with the
+          consequence that grep-style engines (exit 1 on no match) must
+          declare [0, 1] even when they have a convert; non-empty output is
+          always parsed; the D-3
+          crash_guard relationship; validation rules (D-4); and command: vs
+          producer: (D-6), stating the gate's cwd is the project root. Add a
+          "Behavior change (next minor release)" note: findings engines that
+          exit non-zero with empty output now fail with a message telling the
+          author to declare success_exit_codes. Plain prose, no tool/vendor
+          claims beyond the examples already in the guide.
+          docs/CODEBASE-MAP.md: one paragraph next to the PRODUCER SEAM
+          entry naming exitAccepted, check.ExitStatus and
+          command-pack-relative-file, plus the ISSUE-206 ordering note.
+          Run backstop gate --file on both docs. sitecheck's inventory
+          references docs/pack/guide.md. If a site/doc check fails, surface
+          it rather than editing other files.
+        files:
+          - docs/pack/guide.md
+          - docs/CODEBASE-MAP.md
+        claims: [CLM-014, CLM-015]
+        depends_on: [TASK-008]
+
+      - id: TASK-010
+        type: verification
+        title: "Run the full gate and validate the plan artifact"
+        description: |
+          Run backstop gate --all and backstop artifact validate --plan
+          PLAN-ISSUE-207. Record exit codes, findings, base SHA (post-209
+          rebase) and the final diff (allowlisted files only). Confirm every
+          mandated test body executed, not just that its name is present.
+          Hand logs and diff to an independent reviewer and repeat until
+          CLEAN. BLOCKS ON PRE-1 (CLM-013): before backstop gate --all,
+          confirm the installed backstop-ai/go-contracts grep engine
+          declares success_exit_codes (a released pack version plus
+          `backstop pack update`, with the backstop.lock diff recorded). If
+          PRE-1 is not done, stop and report. Do not run the full gate
+          against a contracts pack known to trip. Failures are blockers,
+          never waived. Plan and issue statuses stay
+          unchanged.
+        files:
+          - cmd/backstop/pack_gate.go
+          - pkg/packval/executor.go
+          - docs/pack/guide.md
+          - backstop.lock
+          - plans/PLAN-ISSUE-207-declared-success-exit-codes.plan.yml
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-009, CLM-010, CLM-011, CLM-012, CLM-013, CLM-014, CLM-015, CLM-016]
+        depends_on: [TASK-006, TASK-007, TASK-008, TASK-009, TASK-012]

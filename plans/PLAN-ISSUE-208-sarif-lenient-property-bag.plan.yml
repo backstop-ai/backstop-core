@@ -1,0 +1,309 @@
+---
+plan_id: PLAN-ISSUE-208
+spec_id: ISSUE-208
+created: "2026-10-12"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+coverage_threshold: 90
+test_command: backstop gate --all
+notes: |
+  ISSUE-208: the SARIF parser declares result `properties` as map[string]string
+  (pkg/check/parsers.go:112), so any non-string property value (e.g. the SARIF
+  2.1.0 section 3.8.2 reserved `properties.tags` array that gitleaks emits on
+  every result) makes json.Unmarshal return an UnmarshalTypeError, and
+  parseSarif (pkg/check/parsers.go:136-137) returns "parsing SARIF output: ..."
+  for the whole log. Regression from ISSUE-062 (efd7e9f). Fix: decode the
+  property bag leniently, keeping string-valued entries only, exactly as the
+  existing doc comment (pkg/check/parsers.go:106-111) already promises.
+  Authoring base: branch fix/engine-evidence-integrity at b8be04a.
+
+  Scope: ISSUE-208 only. ISSUE-209 (dispatch abort discarding earlier findings
+  and skipping later engines when one engine errors) is a separate issue and is
+  NOT addressed here. The secrets-pack fixture gap (planted fake secret in the
+  pack's own fixtures) lives in a separate repository and is out of scope.
+
+  Existence-in-world: grep of plans/ and specs/ (committed and working tree)
+  for ISSUE-208, the parsers.go Properties field, and lenient/RawMessage
+  property decoding found no owning artifact. PLAN-ISSUE-160 mentions
+  json.RawMessage only for a `runs` presence check in pack validation, a
+  different surface. The ISSUE-062 plan delivered the field; this plan is the
+  residual defect fix to it and does not reopen that plan.
+
+  Complexity (honest): small and contained. One production file, one new
+  test file. Known root cause; no design uncertainty. Moderate risk only
+  because the parser is shared by every SARIF-emitting findings engine, which
+  is why the malformed-input guard test (CLM-003) is mandatory.
+
+  Acceptance claims defined here because ISSUE-208 has no formal CLM array:
+    CLM-001: a SARIF log whose results carry non-string property values (array,
+      object, number, bool, null), including a gitleaks-shaped log with an
+      array-valued `properties.tags`, parses with no error and surfaces every
+      active result as a Violation with its existing fields (File, Line, Rule,
+      Message, Severity, Fingerprint) unchanged.
+    CLM-002: string-valued property entries are preserved verbatim (JSON-decoded,
+      so escapes resolve) alongside ignored non-string entries on the same
+      result; non-string entries never appear in Violation.Properties in any
+      form (no raw JSON text). A null-valued entry ("k": null) is a non-string
+      and is dropped; this is a deliberate behavior change, since the old
+      map[string]string decoder stored it as k -> "". A result with no
+      `properties`, `properties: null`, `properties: {}`, or a bag with only
+      non-string values yields a nil map (strict nil) and no error.
+    CLM-003: genuinely malformed SARIF still fails loud with the existing
+      "parsing SARIF output" error: truncated JSON, a wrong top-level type
+      (array/string), a wrong-typed non-property field (e.g. string startLine),
+      and a `properties` value that is not a JSON object. The fix must NOT be
+      implemented by tolerating json.UnmarshalTypeError (that would silently
+      keep a half-decoded log).
+    CLM-004: the external contract is unchanged: check.Violation.Properties and
+      gate.Violation.Properties stay map[string]string; every consumer keeps
+      working without edits and existing regressions stay green.
+
+  Consumer impact (all verified at b8be04a; NONE change):
+    - pkg/gate/substantiveness_join.go:249 (Properties[substantivenessRoleProperty]),
+      :276 (Properties["func"]), :279 (Properties["symbol"]), :298
+      (Properties["func"]) -- reads, map[string]string unchanged.
+    - pkg/check/parsers.go:175 -- pass-through into Violation (may gain a
+      plain type conversion from a named bag type; same in-scope file).
+    - cmd/backstop/pack_gate.go:1000 -- check.Violation -> gate.Violation copy.
+    - pkg/gate/substantiveness_q1_dispatch.go:75 -- copy.
+    - pkg/check/check.go:32 and pkg/gate/result.go:121 -- documented exclusion
+      of Properties from baseline identity; unaffected.
+    - pkg/gate/testdata/self-rule/role-property-routing.go -- fixture reading
+      Properties["substantiveness_role"]; unaffected.
+    - pkg/check coverage parser (ParsePackCoverage) does not decode SARIF
+      properties; TestParseCoverage_SarifObjectRejected is unaffected.
+    The only SARIF `properties` decoder in pkg/ and cmd/ is parsers.go:112
+    (grep json:"properties" in pkg cmd; pkg/schema hits are JSON-schema
+    metadata, unrelated).
+
+  Substantiveness join regression: existing tests suffice, because the fix
+  changes only how parseSarif fills a map whose type and keys are unchanged,
+  and the join consumes the already-parsed Violation. Re-run unmodified:
+    pkg/check: TestParseSarif_CarriesResultProperties (func/symbol through the
+      parser), TestParseSarif_NoPropertiesIsEmptyNotError,
+      TestParsePackFindings_GolangciV2Sarif (includes malformed fail-loud),
+      TestSARIFSurface_Preserved.
+    pkg/gate: TestRouteSubstantivenessFindings_PartitionsByRoleProperty,
+      TestSubstantivenessJoin_ReadsPropertiesNotMessage,
+      TestSubstantivenessJoin_SpacedTestNameJoins,
+      TestSubstantivenessConvertEmitsPropertiesFromMetavars,
+      TestGateViolation_CarriesProperties,
+      TestProperties_ExcludedFromBaselineIdentity.
+  The new string-preservation test additionally carries func, symbol and
+  substantiveness_role keys next to non-string entries, pinning the join's
+  inputs at the parser boundary.
+
+  Exact implementation edit allowlist:
+    pkg/check/parsers.go
+    pkg/check/parsers_property_bag_test.go (new)
+  Do not edit parsers_test.go, any consumer listed above, packs, config,
+  baselines, or dependencies. If another production file appears necessary,
+  stop and return the proposed scope change for review.
+
+  Red/green commands (repo root):
+    go test ./pkg/check -count=1 -run '^TestParseSarif_PropertyBag' -v
+    go test ./pkg/check ./pkg/gate -count=1 -run 'TestParseSarif_|TestParsePackFindings_|TestSARIFSurface_Preserved|TestRouteSubstantivenessFindings_|TestSubstantivenessJoin_|TestSubstantivenessConvertEmitsPropertiesFromMetavars|TestGateViolation_CarriesProperties|TestProperties_ExcludedFromBaselineIdentity' -v
+    go test ./pkg/check ./pkg/gate -race -count=1
+  The first command must actually execute all five new tests (no "no tests to
+  run"). Red evidence: before TASK-002 every failure must be behavioral, never
+  a compile error. ArrayTags (both rows) and StringsPreserved fail on the
+  "parsing SARIF output" parse error. NonStringIgnored's array, object,
+  number and bool rows fail on the parse error; its null row does NOT error
+  today (the current decoder stores a null value as probed -> ""), so it fails
+  red on "probed key present". NilMap's all-non-string and empty-object rows
+  also fail red (parse error and non-nil empty map respectively). NilMap's
+  absent and properties-null rows, and MalformedStillFails, are controls that
+  may already pass and must stay green after the fix.
+
+  Fixture provenance: the gitleaks-shaped log mirrors the structure of real
+  gitleaks 8.30.1 SARIF output, observed during planning by running
+  `gitleaks dir . --report-format sarif` over a scratch tree holding one
+  randomly generated synthetic key (no real secret was scanned or captured).
+  Observed shape, which the fixture reproduces field for field: top-level
+  $schema "https://json.schemastore.org/sarif-2.1.0.json", version "2.1.0";
+  tool.driver {name "gitleaks", semanticVersion "v8.0.0" (the literal
+  gitleaks 8.30.1 reports), informationUri "https://github.com/gitleaks/gitleaks",
+  rules [{id, shortDescription.text}]} with no defaultConfiguration; result
+  {message.text "<ruleId> has detected secret for file <uri>.", ruleId,
+  locations[0].physicalLocation {artifactLocation.uri (relative, e.g.
+  "src/config.go"), region {startLine, startColumn, endLine, endColumn,
+  snippet.text = the secret}}, partialFingerprints {commitSha, email, author,
+  date, commitMessage} (all "" in dir mode), properties {"tags": []}}; no
+  result `level`. The real driver carries 222 rule descriptors; the fixture
+  keeps only the generic-api-key descriptor (id plus its real
+  shortDescription text). Secret/snippet text is "REDACTED".
+
+  Surfaced, out of scope (not planned here): in dir mode every gitleaks result
+  carries the same all-empty partialFingerprints, so sarifFingerprint yields
+  the identical "author=;commitMessage=;commitSha=;date=;email=" for every
+  gitleaks finding. Whether that collapses baseline identity across distinct
+  secrets is unverified and is a candidate separate issue for the founder.
+
+  Runtime verification:
+    backstop gate --file pkg/check/parsers.go
+    backstop gate
+    backstop gate --all
+    backstop artifact validate --plan PLAN-ISSUE-208
+  Record real exit codes. Gate or environment failures are blockers to
+  surface, never waived or worked around. Plan and issue statuses stay
+  unchanged by implementation; no commit/push/PR is authorized by this plan.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Lenient SARIF property bag (red, green, scoped and full gate)"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Pin lenient property-bag decoding and the malformed-input guard"
+        description: |
+          Create pkg/check/parsers_property_bag_test.go (package check) with
+          five top-level tests calling parseSarif(..., CheckTypeFindings) on
+          inline SARIF literals (match the inline-literal style of
+          TestParseSarif_CarriesResultProperties; no new testdata files).
+
+          TestParseSarif_PropertyBagArrayTagsSurfacesViolation (CLM-001):
+          an inline log whose structure mirrors real gitleaks 8.30.1 output
+          field for field, as recorded under "Fixture provenance" in notes,
+          with a code comment labelling it "structure mirrored from gitleaks
+          8.30.1 output, secret redacted". One run, the generic-api-key
+          driver rule descriptor (id + shortDescription.text, no
+          defaultConfiguration), two results, no result `level`:
+            A: uri "src/config.go", startLine 3, startColumn 8, endLine 3,
+               endColumn 50; message "generic-api-key has detected secret for
+               file src/config.go."
+            B: uri "pkg/app/settings.go", startLine 12 (with matching
+               startColumn/endLine/endColumn); message "generic-api-key has
+               detected secret for file pkg/app/settings.go."
+          Both use ruleId "generic-api-key", snippet.text "REDACTED", and the
+          five dir-mode partialFingerprints keys (commitSha, email, author,
+          date, commitMessage) with "" values. Never embed a real or
+          realistic-looking secret.
+          Two table rows vary only the properties bag, on both results:
+            primary: "properties": {"tags": []} (what real output emits);
+            extra: "properties": {"tags": ["secret", "api-key"]} (non-empty
+              SARIF 3.8.2 array).
+          For each row require err == nil and exactly two violations, then
+          assert concrete expected values for each of A and B: File (the uri),
+          Line (startLine), Rule "generic-api-key", Message (exact text),
+          Severity "error" (no result or descriptor level, so the fail-closed
+          default applies), and Fingerprint equal to
+          "author=;commitMessage=;commitSha=;date=;email=" (non-empty, built
+          from partialFingerprints rather than the snippet). Assert Properties
+          is nil (no "tags" key). Concrete values, not a with-vs-without
+          properties comparison, so a wrong JSON path cannot pass.
+
+          TestParseSarif_PropertyBagStringsPreservedAlongsideNonString (CLM-002):
+          one result whose properties mix strings ("func": "spaced test name",
+          "symbol": "readmodel", "substantiveness_role": "hollow", and an
+          escaped value such as "quoted" holding a JSON string with an escaped
+          quote and a \u-escaped non-ASCII rune, asserted in its decoded form) with "tags": [..], "meta": {..}, "rank": 3, "ok": true,
+          "gone": null. Require err == nil and Properties to deep-equal exactly
+          the four string entries (reflect.DeepEqual on the map), proving no
+          non-string entry leaks as raw JSON text.
+
+          TestParseSarif_PropertyBagNonStringValuesIgnored (CLM-002): table over
+          array, object, integer, float, true, false, null, each as the single
+          probed value beside one string sentinel key; require no error,
+          sentinel kept, probed key absent. The null row pins the deliberate
+          change that a null-valued entry is dropped rather than surfacing as
+          "" (see CLM-002).
+
+          TestParseSarif_PropertyBagNilMapWhenNoStringEntries (CLM-002): table
+          over properties absent, "properties": null, "properties": {}, and a
+          bag with only non-string values. Require err == nil, one violation,
+          and v.Properties == nil (strict nil, stronger than the existing
+          len==0 check in TestParseSarif_NoPropertiesIsEmptyNotError). Sharp
+          edge: a custom UnmarshalJSON receives the literal null and must treat
+          it as a no-op.
+
+          TestParseSarif_PropertyBagMalformedStillFails (CLM-003): table over
+          truncated JSON (a valid log cut mid-result), top-level array,
+          top-level string, a result with region.startLine as a string, and a
+          result whose "properties" is an array and then a string (not an
+          object). Each must return a non-nil error containing
+          "parsing SARIF output" and nil violations. This is the guard against
+          fixing ISSUE-208 by tolerating json.UnmarshalTypeError.
+
+          Run the first red command from notes; capture the named behavioral
+          failures before TASK-002. Do not touch production code here.
+        files:
+          - pkg/check/parsers_property_bag_test.go
+        claims: [CLM-001, CLM-002, CLM-003]
+        depends_on: []
+        test_names:
+          - TestParseSarif_PropertyBagArrayTagsSurfacesViolation
+          - TestParseSarif_PropertyBagStringsPreservedAlongsideNonString
+          - TestParseSarif_PropertyBagNonStringValuesIgnored
+          - TestParseSarif_PropertyBagNilMapWhenNoStringEntries
+          - TestParseSarif_PropertyBagMalformedStillFails
+
+      - id: TASK-002
+        type: implementation
+        title: "Decode SARIF result properties leniently, keeping string entries"
+        description: |
+          In pkg/check/parsers.go only, replace the map[string]string decode of
+          results[].properties with a lenient decode: unmarshal the bag as
+          map[string]json.RawMessage (so a non-object `properties` still errors
+          and fails the log), then keep only entries whose raw value is a JSON
+          string, decoded via json.Unmarshal into a string. Ignore every other
+          JSON kind. Produce nil when no string entry is kept (absent, null,
+          empty object, all non-string). A small unexported named type with an
+          UnmarshalJSON method (handling the null literal as a no-op) is the
+          expected shape; a post-decode conversion from a RawMessage field is
+          acceptable. Do not catch, unwrap, or tolerate json.UnmarshalTypeError
+          anywhere; the outer json.Unmarshal error path at parsers.go:136-137
+          stays exactly as is.
+
+          Keep check.Violation.Properties as map[string]string; parsers.go:175
+          may need a plain type conversion. Rewrite the doc comment at
+          parsers.go:106-111 to state the actual behavior: SARIF 2.1.0 section
+          3.8 property values are arbitrary JSON; v1 keeps string-valued
+          entries and ignores all others (e.g. the 3.8.2 `tags` array) rather
+          than rejecting the log; a null-valued entry is a non-string and is
+          dropped (it previously surfaced as ""); a non-object `properties` is
+          malformed and fails; no kept entries yields a nil map. Reference
+          ISSUE-208.
+
+          Run the green commands from notes. If any consumer or other file
+          needs editing, stop and return the scope change for review.
+        files:
+          - pkg/check/parsers.go
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004]
+        depends_on: [TASK-001]
+
+      - id: TASK-003
+        type: verification
+        title: "Verify red-to-green and run the diff-scoped gate"
+        description: |
+          Confirm recorded behavioral red, then green for all five new tests
+          and every existing regression named in notes (pkg/check and pkg/gate),
+          plus the race run of both packages. Run
+          backstop gate --file pkg/check/parsers.go and then backstop gate,
+          recording true exit codes and findings. Confirm the diff touches only
+          the two allowlisted files and no consumer listed in notes changed.
+        files:
+          - pkg/check/parsers.go
+          - pkg/check/parsers_property_bag_test.go
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004]
+        depends_on: [TASK-002]
+
+      - id: TASK-004
+        type: verification
+        title: "Run the full gate and validate the plan artifact"
+        description: |
+          Final verification, after TASK-003's diff-scoped gate is green: run
+          backstop gate --all and backstop artifact validate --plan
+          PLAN-ISSUE-208. TASK-003 is the scoped inner loop; this adds the
+          unscoped sweep (artifact validation, findings engines, test
+          verification, substantiveness, coverage, contracts). Record exit codes, findings, base SHA and the final
+          two-file diff. Confirm the five new test bodies executed (not mere
+          name presence). Hand logs and diff to an independent reviewer and
+          repeat review until CLEAN. Failures are surfaced as blockers, never
+          waived. Leave plan and issue statuses unchanged.
+        files:
+          - pkg/check/parsers.go
+          - pkg/check/parsers_property_bag_test.go
+          - plans/PLAN-ISSUE-208-sarif-lenient-property-bag.plan.yml
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004]
+        depends_on: [TASK-002, TASK-003]

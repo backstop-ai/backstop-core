@@ -1,0 +1,319 @@
+---
+plan_id: PLAN-ISSUE-216
+spec_id: ISSUE-216
+created: "2026-10-12"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+coverage_threshold: 90
+test_command: backstop gate --all
+notes: |
+  ISSUE-216: on macOS, `backstop pack test` with no path argument (packDir
+  defaults to "." in cmd/backstop/pack_test_cmd.go:29 and pack_check.go:32)
+  gives a false red. darwinSandboxProfile (pkg/packval/sandbox_nonlinux.go
+  ~:188) runs filepath.EvalSymlinks(packDir) with no filepath.Abs first, so
+  the Seatbelt profile gets `(subpath ".")`. Seatbelt matches absolute,
+  kernel-resolved paths, so nothing in the pack is readable: /bin/sh exits
+  126 with "validators/<x>.sh: Operation not permitted". Then
+  DefaultExecutor.RunValidator (pkg/packval/executor.go ~:262) flattens the
+  failure to ExitCode 1 with a nil error, and phase3.go (~:139-142) reports
+  only "layer3 positive failed". TestPackAuthoringLoop_EndToEnd
+  (cmd/backstop/pack_authoring_loop_test.go, darwin-only) is red for this
+  reason. Authoring base: branch fix/engine-evidence-integrity (working tree).
+
+  Existence-in-world: no plan or spec owns this surface. But open
+  ISSUE-147 (darwin-sandbox-relative-packdir-exit71, no plan) describes the
+  same root cause (no filepath.Abs in darwinSandboxProfile), including this
+  validator-seam symptom (its section added 2026-08-17; ISSUE-162 was retired
+  into it). ISSUE-147's second defect (discarded sandbox-exec stderr in the
+  stdout arm) is already fixed in tree: platformSandboxedExecute now folds
+  stderr into the error. This plan therefore delivers ISSUE-147's remaining
+  substance too. Disposition (decided): ISSUE-216 is the vehicle. When this
+  plan is delivered, ISSUE-147 is closed against PLAN-ISSUE-216.
+  Completed PLAN-ISSUE-185 and PLAN-ISSUE-168 also edited
+  sandbox_nonlinux.go and left ISSUE-147 out of scope on purpose. No
+  non-completed plan names sandbox_nonlinux.go.
+
+  Sequencing with PLAN-ISSUE-207 (draft, pending implementation): 207 edits
+  pkg/packval/executor.go (RunEngine) and cmd/backstop/pack_gate.go
+  (runFindingsEngine). This plan edits executor.go too (RunValidator only).
+  PLAN-ISSUE-207 lands first. Before starting TASK-001, rebase this work on
+  the tree with 207 applied, and re-run the red (TASK-001/TASK-002) and the
+  green (TASK-005/TASK-006) after any rebase that touches executor.go.
+  The working tree also holds uncommitted ISSUE-208/209/214 work. Do not
+  touch those files.
+
+  Scope:
+    - Resolve the pack directory once, in sandbox_nonlinux.go:
+      filepath.Abs, then filepath.EvalSymlinks (keep the Abs result if
+      EvalSymlinks fails, as today). An Abs error is returned, never a silent
+      fall back to the relative path. darwinSandboxProfile embeds the
+      resolved path. sandboxExecCommand's cmd.Dir and the helper request's
+      Dir (newDarwinSandboxInvocation) use that same resolved path.
+    - RunValidator keeps its contract (nil error, Passed=false on a failed
+      run) but reports the real exit status (errors.As *exec.ExitError;
+      fall back to 1 when there is none) and puts the run error text in
+      front of the captured output.
+    - phase3.go: all three validator seams that call RunValidator get a
+      diagnosable message: validator-positive ("layer3 positive failed"),
+      validator-negative ("layer3 negative run failed") and
+      validator-multi-file ("multi-file validator failed", ~:179-182). Each
+      includes the validator's exit status and its trimmed output (the last
+      1024 bytes at most). No branch condition changes (see the VALIDATOR SEAM comment in phase3.go,
+      pinned by TestPackVal_P3_ValidatorPolarityUnchangedByFindingsFix).
+
+  Out of scope:
+    - Normalizing packDir in pack_check.go / pack_test_cmd.go. The sandbox
+      keeps the invariant itself, so every caller is covered.
+    - The Linux Landlock path. It resolves Dir through file descriptors
+      (ISSUE-147, Platform scope), so the sandbox change does not touch it.
+      The RunValidator and phase3 changes are cross-platform: on Linux too,
+      exit codes and messages become real; pass/fail is unchanged.
+    - Observation for the founder, not fixed here: on the negative branch a
+      sandbox denial reads as Passed=false, which is the expected outcome, so
+      a denied negative fixture passes silently. A fix changes the seam's
+      polarity contract. Tracked separately as ISSUE-218.
+
+  Darwin-only tests and the agent sandbox: the new sandbox tests live in a
+  `//go:build darwin` file, so they run on this macOS machine and are not
+  compiled elsewhere (Linux CI skips them by construction).
+  TestPackAuthoringLoop_EndToEnd skips itself off darwin. The agent harness's
+  own Bash may run inside sandbox-exec on macOS, and a nested sandbox-exec
+  can fail to apply its profile (for example "sandbox_apply: Operation not
+  permitted", exit 71). That failure is not the red this plan targets. Run
+  every darwin sandbox test, `backstop pack test` and every gate with the
+  agent sandbox disabled, and record which mode each run used.
+
+  Acceptance claims (ISSUE-216 has no formal CLM array):
+    CLM-001: on darwin, a sandboxed run whose pack dir is the relative "."
+      can read and run files inside the pack. With cwd set to a temp pack,
+      SandboxedRun("/bin/sh", ["validators/check.sh", "fixtures/pos.txt"], ".")
+      exits 0 and prints the fixture's content. Before the fix it fails with
+      exit 126 and "Operation not permitted".
+    CLM-002: the Seatbelt profile always embeds the absolute, symlink-resolved
+      pack path, and the sandbox-exec command's Dir and the helper request's
+      Dir are that same path. For "." and for a relative subdirectory this
+      equals filepath.EvalSymlinks(filepath.Abs(...)).
+    CLM-003: a failed validator run is diagnosable. RunValidator reports the
+      real exit status (126 for a denial, not a flattened 1), and the
+      validator-positive, validator-negative run-failure and
+      validator-multi-file ValidationError messages carry the exit status and
+      the trimmed output. Validator polarity is unchanged.
+    CLM-004: end to end on darwin, `backstop pack test` with no argument,
+      run from inside a freshly scaffolded pack, passes, and
+      TestPackAuthoringLoop_EndToEnd passes.
+
+  New test names (the issue mandates none):
+    pkg/packval/sandbox_darwin_relative_packdir_test.go (//go:build darwin):
+      TestSandboxDarwin_RelativePackDirValidatorRuns            (CLM-001)
+      TestSandboxDarwin_ProfileEmbedsAbsolutePackDir            (CLM-002)
+      TestSandboxDarwin_InvocationDirMatchesResolvedPackDir     (CLM-002)
+      TestSandboxDarwin_RunValidatorReportsRealExitCode         (CLM-003)
+    pkg/packval/phase3_validator_diagnostic_test.go (no build tag, MockExecutor):
+      TestPackVal_P3_ValidatorFailureMessageCarriesExitAndOutput (CLM-003)
+
+  Red / green commands (macOS, agent sandbox disabled, a backstop binary
+  built from this branch for every `backstop` command):
+    red:   go test ./pkg/packval -run 'TestSandboxDarwin_(RelativePackDir|ProfileEmbedsAbsolute|InvocationDirMatches|RunValidatorReportsRealExitCode)|TestPackVal_P3_ValidatorFailureMessageCarriesExitAndOutput' -count=1
+           go test ./cmd/backstop -run TestPackAuthoringLoop_EndToEnd -count=1
+           CLI: scaffold a pack with `backstop pack new` in a temp dir, cd into
+           it, run `backstop pack test` (expect the false red) and
+           `backstop pack test "$PWD"` (expect pass).
+    green: the same commands, all passing, plus the existing
+           TestSandboxDarwin_* and TestPackVal_P3_* tests.
+    gate:  `backstop gate` (middle), `backstop gate --all` (final).
+
+  File allowlist:
+    production: pkg/packval/sandbox_nonlinux.go, pkg/packval/executor.go
+      (RunValidator only), pkg/packval/phase3.go (the three validator messages
+      and one helper only)
+    tests (new): pkg/packval/sandbox_darwin_relative_packdir_test.go,
+      pkg/packval/phase3_validator_diagnostic_test.go
+    run only, never edited: cmd/backstop/pack_authoring_loop_test.go
+    The plan file is touched only by validation. Any other file needing a
+    change is a scope change: stop and report it for review.
+phases:
+  - id: phase-1
+    name: "Phase 1: Red tests for the relative pack dir and the validator diagnostic"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Write the darwin relative-pack-dir sandbox tests and record the red"
+        description: |
+          Create pkg/packval/sandbox_darwin_relative_packdir_test.go with
+          `//go:build darwin`, package packval. Reuse helpers already in
+          sandbox_darwin_test.go where they fit. Do not use t.Parallel in any
+          test that changes the working directory. Use t.Chdir (or os.Chdir
+          with a t.Cleanup restore if the module's Go version predates t.Chdir).
+            - TestSandboxDarwin_RelativePackDirValidatorRuns (CLM-001): build a
+              temp pack with validators/check.sh (`cat "$1"`) and
+              fixtures/pos.txt holding a marker string. Chdir into it and call
+              SandboxedRun("/bin/sh", []string{"validators/check.sh",
+              "fixtures/pos.txt"}, "."). Assert a nil error and that the output
+              contains the marker. Add a subtest that runs from the temp
+              pack's parent with a relative subdirectory pack dir.
+            - TestSandboxDarwin_ProfileEmbedsAbsolutePackDir (CLM-002): after
+              chdir, darwinSandboxProfile(".") contains the Seatbelt literal of
+              filepath.EvalSymlinks(filepath.Abs(".")) and contains no
+              `(subpath ".")` clause.
+            - TestSandboxDarwin_InvocationDirMatchesResolvedPackDir (CLM-002):
+              newDarwinSandboxInvocation("/bin/true", nil, ".") returns a cmd
+              whose Dir is that resolved absolute path, and the helper request
+              JSON in its environment (sandboxHelperEnvVar) has the same Dir.
+              Close the returned ack pipe and ExtraFiles.
+            - TestSandboxDarwin_RunValidatorReportsRealExitCode (CLM-003): with
+              an absolute temp pack dir and a validator that exits 3, assert
+              (&DefaultExecutor{}).RunValidator returns Passed=false, a nil
+              error, ExitCode 3, and Output that contains the run error text.
+          Run the red command from notes with the agent sandbox disabled. Expect
+          RelativePackDirValidatorRuns to fail with exit 126 and "Operation not
+          permitted", the two CLM-002 tests to fail on the relative path, and
+          RunValidatorReportsRealExitCode to fail on ExitCode 1. Also record the
+          red for go test -run TestPackAuthoringLoop_EndToEnd and the CLI
+          reproduction from notes (no-arg `pack test` red, `pack test "$PWD"`
+          green). If a red shows a nested sandbox_apply failure instead, the
+          agent sandbox is still on: disable it and re-run. If any test passes
+          before the fix, stop and report it. (The authoring-loop and CLI reds
+          are baseline evidence for CLM-004, which TASK-006 proves.)
+        files:
+          - pkg/packval/sandbox_darwin_relative_packdir_test.go
+        claims: [CLM-001, CLM-002, CLM-003]
+        depends_on: []
+
+      - id: TASK-002
+        type: test
+        title: "Write the cross-platform phase3 validator diagnostic test"
+        description: |
+          Create pkg/packval/phase3_validator_diagnostic_test.go (no build tag,
+          package packval). Use MockExecutor.ValidatorFn so it runs on every
+          platform. Add TestPackVal_P3_ValidatorFailureMessageCarriesExitAndOutput
+          (CLM-003) with four subtests:
+            - positive fixture: ValidatorFn returns Passed=false, ExitCode 126,
+              Output "/bin/sh: validators/check.sh: Operation not permitted".
+              Assert the validator-positive ValidationError message contains
+              "126" and "Operation not permitted".
+            - negative run failure: ValidatorFn returns a non-nil error with
+              output and an exit code. Assert the validator-negative message
+              contains the exit code and the output.
+            - output longer than 1024 bytes is cut to its last 1024 bytes in
+              the message.
+            - multi-file seam: a rule with InputScope "multi-file" and a
+              validator; ValidatorFn returns Passed=false, ExitCode 126 and
+              denial output. Assert the validator-multi-file message contains
+              "126" and the output.
+          Build the pack fixture the same way the existing phase3 tests do
+          (see phase3_validator_dispatch_test.go and phase3_polarity_test.go).
+          Run it and record the red (messages lack the exit code and output).
+        files:
+          - pkg/packval/phase3_validator_diagnostic_test.go
+        claims: [CLM-003]
+        depends_on: []
+
+  - id: phase-2
+    name: "Phase 2: Absolute pack dir in the darwin sandbox and a diagnosable validator failure"
+    tasks:
+      - id: TASK-003
+        type: implementation
+        title: "Resolve the pack dir to an absolute path once in the darwin sandbox"
+        description: |
+          Edit only pkg/packval/sandbox_nonlinux.go. Add a small helper that
+          returns filepath.Abs(packDir), then EvalSymlinks of that (keep the
+          Abs result if EvalSymlinks fails), and returns the Abs error if
+          there is one. Use it in darwinSandboxProfile (so the function keeps
+          the invariant even for a direct call) and in
+          newDarwinSandboxInvocation, which passes the resolved path to both
+          the helper request Dir and sandboxExecCommand, so cmd.Dir, the
+          request Dir and the profile subpath are the same string. Update the
+          comment above darwinSandboxProfile (~:152) to say the path is made
+          absolute and then symlink-resolved, and why (Seatbelt matches
+          absolute paths; ISSUE-216 / ISSUE-147). Change nothing else in the
+          profile: the read list, the /dev/null grant and the literal encoding
+          stay byte-identical. Make TASK-001's RelativePackDir and CLM-002
+          tests pass.
+        files:
+          - pkg/packval/sandbox_nonlinux.go
+        claims: [CLM-001, CLM-002]
+        depends_on: [TASK-001]
+
+      - id: TASK-004
+        type: implementation
+        title: "Report the real validator exit status and output in phase3 errors"
+        description: |
+          Edit pkg/packval/executor.go RunValidator only: on error, use
+          errors.As to get *exec.ExitError and report its ExitCode (fall back
+          to 1), and set Output to the error text followed by the captured
+          output. Keep Passed=false and the nil error, which phase3's polarity
+          depends on. Before editing, run
+          `git grep -n "RunValidator\|ExitCode" pkg/packval/*_test.go`; if a
+          shipped test pins ExitCode 1 on this path, stop and report it rather
+          than editing that test.
+          Edit pkg/packval/phase3.go only in the three validator messages:
+          validator-positive ("layer3 positive failed"), validator-negative
+          ("layer3 negative run failed") and validator-multi-file ("multi-file
+          validator failed", ~:179-182). Append the exit status and the trimmed
+          output (last 1024 bytes at most), for example "layer3 positive
+          failed (validator exit 126): <output>". Use one small helper for the
+          three. Do not change any branch condition. Make TASK-002's test
+          and TASK-001's RunValidatorReportsRealExitCode pass, and keep
+          TestPackVal_P3_ValidatorPolarityUnchangedByFindingsFix green.
+          Leave RunEngine alone (PLAN-ISSUE-207 owns it).
+        files:
+          - pkg/packval/executor.go
+          - pkg/packval/phase3.go
+        claims: [CLM-003]
+        depends_on: [TASK-001, TASK-002]
+
+      - id: TASK-005
+        type: verification
+        title: "Run the packval tests green and the diff-scoped gate"
+        description: |
+          With the agent sandbox disabled, run the green commands from notes
+          for pkg/packval: the five new tests and the existing
+          TestSandboxDarwin_*, TestPackSandbox_* and TestPackVal_P3_* tests,
+          with -count=1. Record exit codes. Then run `backstop gate` with a
+          backstop binary built from this branch and record its exit code and
+          findings. Confirm `git diff --stat` for this lane shows only the
+          allowlisted files (the uncommitted ISSUE-208/209/214 work is not
+          this lane's).
+        files:
+          - pkg/packval/sandbox_nonlinux.go
+          - pkg/packval/executor.go
+          - pkg/packval/phase3.go
+          - pkg/packval/sandbox_darwin_relative_packdir_test.go
+          - pkg/packval/phase3_validator_diagnostic_test.go
+        claims: [CLM-001, CLM-002, CLM-003]
+        depends_on: [TASK-003, TASK-004]
+
+  - id: phase-3
+    name: "Phase 3: End-to-end pack test on darwin and full gate"
+    tasks:
+      - id: TASK-006
+        type: verification
+        title: "Prove the no-arg pack test and the authoring loop green, then run the full gate"
+        description: |
+          Final verification, agent sandbox disabled, with a backstop binary
+          built from this branch:
+            1. go test ./cmd/backstop -run TestPackAuthoringLoop_EndToEnd
+               -count=1 passes (CLM-004). Do not edit, skip or weaken it.
+            2. Repeat the CLI reproduction from notes: in a freshly scaffolded
+               pack, `backstop pack test` with no argument now passes, and so
+               does `backstop pack test "$PWD"`.
+            3. Make a scratch validator that cannot read its input fail and
+               confirm the pack test output shows the exit status and output
+               (CLM-003). Do this in a temp dir, not in the repo.
+            4. `backstop gate --all` and
+               `backstop artifact validate --plan PLAN-ISSUE-216`.
+          Record every exit code and finding, the base SHA, and the diff.
+          Report any failure as a blocker; never waive one. Hand the logs and
+          diff to an independent reviewer and repeat review until it comes
+          back CLEAN. Leave plan and issue statuses unchanged. Record in the
+          hand-off that ISSUE-147 is to be closed against PLAN-ISSUE-216 once
+          this plan is delivered (see notes).
+        files:
+          - pkg/packval/sandbox_nonlinux.go
+          - pkg/packval/executor.go
+          - pkg/packval/phase3.go
+          - cmd/backstop/pack_authoring_loop_test.go
+          - plans/PLAN-ISSUE-216-absolute-pack-dir-for-darwin-sandbox.plan.yml
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004]
+        depends_on: [TASK-003, TASK-004, TASK-005]

@@ -1,0 +1,633 @@
+---
+plan_id: PLAN-ISSUE-209
+spec_id: ISSUE-209
+created: "2026-10-12"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+coverage_threshold: 90
+test_command: backstop gate --all
+notes: |
+  ISSUE-209: dispatchPackEnginesWithEvidence (cmd/backstop/pack_gate.go:268)
+  returns on the FIRST engine error. Findings already collected from earlier
+  engines and packs are dropped (nil violations at pack_gate.go:301 sandbox and
+  :311 findings; an empty packEngineDispatchResult{} at :286-288 for a registry
+  lookup failure, which also drops NativeSandboxApplied), and every later
+  engine and pack is skipped. The pack_engines caller (cmd/backstop/gate.go
+  :1179-1185) independently discards dispatchResult.Violations on error and
+  emits one synthetic violation. Fix per the issue's Direction: keep
+  dispatching, record each failure as its own error violation, preserve
+  findings for pack_engines only, keep the step ConfigErr / exit 2.
+  Authoring base: branch fix/engine-evidence-integrity at b8be04a.
+
+  Scope: ISSUE-209 only. Explicitly OUT of scope (the issue's "Deferred / out
+  of scope" list, pending founder decision): the ConfigErr halt in
+  pkg/gate/gate.go:166-180; the coverage dispatcher's early returns
+  (dispatchPackCoverageWithEvidence, pack_gate.go:363/381/394); the
+  contract-entry LOOP (produceContractEngineResultsWithSandbox,
+  gate.go:1821/1839-1845) and buildContractStepWithSandbox's synthetic
+  violation. ISSUE-208 (lenient SARIF property bag, PLAN-ISSUE-208) is a
+  sibling on this branch and is not touched; the two plans share no file.
+  Not authorized: changing the dispatcher's signature, the dispatchPackEnginesFn
+  seam type, the test-only dispatchPackEngines wrapper, resolveDispatchPackEngines,
+  pkg/gate (FilterViolations, policy, halt), baselines, packs, or config.
+
+  Existence-in-world: grep of plans/ and specs/ (committed and working tree)
+  for ISSUE-209, dispatchPackEnginesWithEvidence, configErrorDiagnostic and
+  first-error/continue-past-error wording found no owning artifact.
+  PLAN-SPEC-016/009/054 hits for "does not stop at first error" concern pack
+  manifest/compile validation, a different surface. PLAN-ISSUE-112 delivered
+  the fail-loud never-started refusal this plan must keep (it is preserved,
+  not reopened). PLAN-ISSUE-201 (working tree) touches baseline severity
+  verdicts, not configErrorDiagnostic or the dispatcher. No overlap.
+
+  Complexity (honest): contained scope, exploratory design (settled below),
+  moderate risk. The loop change is small. The risk is in (a) keeping the two
+  fail-whole callers truly unchanged now that the dispatcher returns
+  violations alongside an error, and (b) the wide test surface: 23 test files
+  call the test-only wrapper dispatchPackEngines directly, 20 call
+  dispatchPackEnginesWithEvidence, and 7 stub the dispatchPackEnginesFn seam.
+  Audit result at b8be04a (enumerated under CLM-009): exactly three existing
+  tests assert zero violations on an ERROR path and must be strengthened; no
+  seam stub returns an error; every other caller asserts success-path
+  results or error presence only and stays unmodified.
+
+  Design decisions taken by this plan (reviewer to rule; see also task text):
+    D-1 Engine-error marker. Each failed engine becomes
+        gate.Violation{Rule: gate.StepPackEngines, Severity: "error",
+        File: "", ProjectWide: true, Message: <today's wrapped error text>}
+        and SourcePack deliberately EMPTY (the Message already names the pack
+        and engine). Rule = the step's own rule name (as the issue directs)
+        keeps it distinct from namespaced pack-rule findings. SourcePack must
+        stay empty because gate.FormatHuman (pkg/gate/output.go:130-131)
+        prefixes Rule with SourcePack, which would render
+        "[org/pack/pack_engines]" (the namespaced pack-rule shape engine
+        errors must stay distinct from) and would add source_pack to JSON
+        output; with it empty the human row renders "[pack_engines] <msg>"
+        exactly as today's synthetic violation does. ProjectWide: true is the
+        scope-filter exemption, reusing the documented dispatchAdvisory
+        precedent (pack_gate.go:1027-1056: a core-emitted dispatch decision
+        not attributable to one scoped file); it is json:"-" and outside
+        baseline identity. FilterViolations is NOT modified.
+    D-2 Aggregate error. errors.Join over each wrapped engine error in dispatch
+        order; signature (packEngineDispatchResult, error) unchanged. With a
+        single failure err.Error() is byte-identical to today, and errors.As
+        (e.g. *check.ConfigError) still resolves through the join.
+    D-3 The failing engine's own partial output is discarded (today's
+        behavior for that engine); only its NativeSandboxApplied bit is kept.
+    D-4 configErrorDiagnostic: for each ConfigErr step, if ANY violation has
+        Rule == step.StepName, render Reason plus only those violations'
+        messages (dispatch order); otherwise render exactly as today. Generic
+        on the step's own rule name, no baked step literal; steps whose
+        config-error violations use other rule names (e.g. traceability
+        polarity "<dim>_broken_declared", pkg/gate/traceability_polarity.go
+        :244/:258) are unaffected.
+    D-5 Verdict collector (ISSUE-118): NOT published on the error path. The
+        consuming step (test_verification) runs after pack_engines and is
+        always skipped by the ConfigErr halt, so a partial publish is
+        unobservable today; publishing would only matter once the deferred
+        halt question is decided, and should be decided with it. Recorded as
+        a code comment; no test (nothing observable to pin).
+    D-6 Seam fallback. If the pack_engines caller gets err != nil but no
+        returned violation carries Rule == gate.StepPackEngines (e.g. a seam
+        stub returning (nil, err)), it appends today's synthetic
+        {Rule: pack_engines, Message: err.Error(), Severity: error} so the
+        step never fails without naming its error.
+    D-7 Fail-whole callers (substantiveness gate.go:1510-1524, contract entry
+        gate.go:1944-1946) need no behavioral edit: each already returns on
+        err without reading the violations. They get an explicit comment and
+        a guard test each. Note: within the substantiveness dispatch, engines
+        AFTER a failing one now also execute (results still discarded); the
+        step outcome is unchanged.
+
+  Acceptance claims defined here because ISSUE-209 has no formal CLM array:
+    CLM-001: dispatchPackEnginesWithEvidence continues past a failed engine of
+      any kind (findings engine, sandbox engine, registry-lookup failure):
+      every later engine in the same pack and every later pack is still
+      dispatched, and findings from engines before AND after the failure are
+      returned in result.Violations alongside a non-nil error.
+    CLM-002: each failed engine is recorded as its own engine-error violation
+      with the D-1 shape (Rule pack_engines, Severity error, File "",
+      ProjectWide true, SourcePack empty, so human output renders
+      "[pack_engines] <msg>" and JSON carries no source_pack) and a Message
+      equal to today's wrapped text
+      ("dispatching findings engine %q for pack %s: ...", "dispatching
+      sandbox engine %q for pack %s: ...", "pack %s: <lookup error>"). The
+      returned error is the D-2 aggregate; for one failure err.Error() is
+      byte-identical to today and errors.As still finds *check.ConfigError.
+      The failing engine's own partial output is not included (D-3).
+    CLM-003: output is deterministic: violations (findings and engine-error
+      violations interleaved) appear in dispatch order, pack order then
+      per-pack rule-declared engine order; no sorting or de-duplication; real
+      findings' identity fields (Rule, File, Message, Severity, SourcePack)
+      are unchanged by an unrelated engine's failure.
+    CLM-004: NativeSandboxApplied is the OR across every engine that ran,
+      including engines after a failure, and survives the registry-lookup
+      failure path (which today returns an empty result).
+    CLM-005: the pack_engines step (gate.go:1179-1185), on dispatch error,
+      reports the preserved violations after activeScope.FilterViolations
+      (out-of-scope non-exempt findings dropped, ProjectWide findings kept,
+      engine-error violations always kept via D-1), falls back per D-6, and
+      keeps Status "fail" and ConfigErr true so Gate.Run exits 2. The verdict
+      collector is not published on this path (D-5). Preserved findings are
+      informational only: no baseline grandfathering, no waivers (ConfigErr
+      halt and ApplyPolicy's ConfigErr skip are unchanged).
+    CLM-006: substantiveness stays fail-whole: when the dispatcher (or seam)
+      returns violations alongside an error, the step emits exactly one
+      violation {Rule: test_substantiveness, Message prefixed
+      "dispatching substantiveness pack: ", Severity error}, Status fail,
+      ConfigErr true, and no hollow-conversion or Q2 noTarget violation.
+    CLM-007: the contract-entry call (dispatchContractEntryWithSandbox,
+      gate.go:1944-1946) still fails whole: an engine error returns a non-nil
+      error and a zero ContractEngineResult (Matched false, Scanned false),
+      never reading the engine-error violation now present in the result as
+      a match. The contract loop is unchanged (deferred).
+    CLM-008: configErrorDiagnostic (cmd/backstop/baseline.go:322-340) follows
+      D-4: a pack_engines ConfigErr step carrying preserved findings renders
+      only its engine-failure messages; steps without a Rule == StepName
+      violation render exactly as today; the three existing diagnostic tests
+      and TestRunBaselineGenerate_SurfacesTheGatesOwnConfigErrorAndRefusesToWrite
+      stay green unmodified.
+    CLM-009: existing coverage is kept honest: the three error-path tests that
+      assert zero violations are strengthened (not weakened) to assert zero
+      FINDING violations and exactly one engine-error violation; every other
+      direct wrapper caller, WithEvidence caller and seam stub is unmodified
+      and green; stale comments listed in the issue are corrected.
+
+  Existing tests requiring update (CLM-009), and why. Each asserts
+  `len(violations) != 0 -> error` on an ERROR path; after the fix the wrapper
+  returns the one engine-error violation for the failed engine, so the bare
+  zero-length check would fail. The intent of each ("a refused/failed run
+  must not yield anything that reads as a completed or clean scan") is kept
+  and tightened: assert no returned violation is a finding (every one has
+  Rule == gate.StepPackEngines, Severity "error", File "") and exactly one
+  engine-error violation whose Message equals err.Error().
+    - cmd/backstop/dispatch_sarif_contract_test.go
+        TestGateDispatch_NonSarifWithoutConvertFails (:104)
+    - cmd/backstop/dispatch_unstartable_engine_test.go
+        the shared helper assertNeverStartedRefusal (:140-158; the edited
+        check is at :155). It is called by BOTH
+        TestDispatch_UnstartableFindingsEngineFailsLoud (:119, :132) and
+        TestDispatch_UnstartableEngineFailsLoudWithoutCrashGuard (:179), so
+        the one helper edit strengthens and affects both tests.
+    - cmd/backstop/pack_gate_producer_findings_test.go
+        TestFindingsEngine_ProducerNeverStartedIsRefused (:383)
+  So four existing tests change behavior through three edit sites. All their
+  other assertions (error non-nil, errors.As *check.ConfigError,
+  pack/command naming, never-started vs crash wording) stay verbatim.
+  Audited and unaffected (no edit): every other zero/length-violations
+  assertion in the 23 wrapper-caller and 20 WithEvidence-caller files is on a
+  success path (err == nil checked first): bun_dispatch_e2e_test.go:124,
+  coverage_dispatch_routing_test.go:55, dispatch_sandbox_exitcode_test.go:41
+  and :81, pack_gate_errors_test.go:166, pack_gate_helpers_test.go:62/77/111,
+  pack_gate_scope_test.go:197/426/497,
+  pack_gate_issue091_regression_test.go:179,
+  pack_gate_gotoolchain_test.go:237, pack_gate_test.go:202. Error-presence-only
+  tests (TestDispatchPackEngines_BrokenSemgrepRuleFile,
+  TestDispatchPackEngines_BrokenValidatorMissingFile, the
+  pack_gate_producer_findings_test.go :316/:371/:410 fail-loud checks) are
+  unaffected. TestBuildGateSteps_PackEngineDispatchFailureYieldsFailStep
+  (gate_buildsteps_test.go:93) asserts Violations[0].Message contains
+  "broken pack": the engine-error violation's message is the same wrapped
+  text, so it stays green unmodified. Seam stubs (gate_discovery_e2e_test.go,
+  gate_scope_test.go, gate_substantiveness_severity_test.go,
+  gate_substantiveness_implemented_scope_test.go,
+  gate_substantiveness_wiring_test.go, gate_test_only_diff_verdict_e2e_test.go,
+  pack_gate_resolvers_test.go) all return a nil error: unaffected.
+  TestPackSandbox_DispatchResultsCarryDeterministicEvidence is unaffected.
+  If the green run surfaces any other failing existing test, stop and return
+  it for review; do not edit it to pass.
+
+  Stale comments to correct (CLM-009), all describing the wrapper chain
+  resolveDispatchPackEngines -> dispatchPackEngines -> runFindingsEngine as
+  the live path, which it is not (production calls
+  dispatchPackEnginesWithEvidence directly or the seam):
+    cmd/backstop/gate.go:1438 (buildTestSubstantivenessStep doc),
+    cmd/backstop/gate.go:1809 (produceContractEngineResults doc),
+    cmd/backstop/gate.go:1882 (dispatchContractEntry doc),
+    cmd/backstop/gate_substantiveness_e2e.go:22 and :488,
+    cmd/backstop/pack_gate.go:232-236 (dispatchPackEnginesFn doc: "nil in
+    production (resolveDispatchPackEngines falls back ...)").
+  Also update the dispatcher doc block (pack_gate.go:204-231) so it states
+  the continue-past-error contract. Comment-only edits; no code moved.
+
+  Exact edit allowlist:
+    production:
+      cmd/backstop/pack_gate.go           (dispatcher loop + doc comments)
+      cmd/backstop/gate.go                (pack_engines error branch;
+                                           comments at the substantiveness and
+                                           contract-entry error branches; the
+                                           three stale comments)
+      cmd/backstop/baseline.go            (configErrorDiagnostic, D-4)
+      cmd/backstop/gate_substantiveness_e2e.go (comments only, :22 and :488)
+    tests (new):
+      cmd/backstop/pack_gate_engine_error_continuation_test.go
+      cmd/backstop/gate_pack_engines_engine_error_test.go
+      cmd/backstop/gate_dispatch_fail_whole_guard_test.go
+      cmd/backstop/baseline_diagnostic_engine_error_test.go
+    tests (modified):
+      cmd/backstop/pack_sandbox_dispatch_result_test.go (add one test)
+      cmd/backstop/dispatch_sarif_contract_test.go
+      cmd/backstop/dispatch_unstartable_engine_test.go
+      cmd/backstop/pack_gate_producer_findings_test.go
+  Nothing else. If another file appears necessary, stop and return the
+  proposed scope change for review. New test files are written in parallel
+  in the same package: prefix every file-local helper with the file's short
+  tag (contTest*, stepErrTest*, failWholeTest*, diagTest*) to avoid
+  collisions, and reuse existing package helpers (fixtureRunner,
+  capturingRunner, recordingSandboxRunner, directConvertSandboxRunner,
+  emptySarifRunner, engineBindingForGateType, mkDirAll, writeFileStr,
+  setDispatchSeam, runPackEnginesStep, rootAtDir, writeSubstantivenessSpec,
+  injectSubstantivenessManifest, goSubstDiscovery) rather than redefining
+  them. Tests hand-construct the D-1 violation shape from existing
+  identifiers only, so red is behavioral, never a compile error.
+
+  Red/green commands (repo root):
+    go test ./cmd/backstop -count=1 -v -run '^(TestDispatchPackEngines_(EarlierFindingsSurviveLaterEngineError|LaterEnginesRunAfterEarlierEngineError|EachEngineFailureIsItsOwnErrorViolation|MixedPackAndEngineOrderIsDeterministic|SandboxAndRegistryErrorsContinueLikeFindingsErrors|SingleEngineErrorKeepsTodaysMessage)|TestPackSandbox_DispatchEvidenceSurvivesMidLoopEngineError|TestGateDispatch_NonSarifWithoutConvertFails|TestDispatch_UnstartableFindingsEngineFailsLoud|TestDispatch_UnstartableEngineFailsLoudWithoutCrashGuard|TestFindingsEngine_ProducerNeverStartedIsRefused|TestPackEnginesStep_EngineError.*|TestSubstantivenessStep_DispatchErrorIgnoresPartialStream|TestDispatchContractEntry_EngineErrorFailsWhole|TestConfigErrorDiagnostic_.*)$'
+    go test ./cmd/backstop -race -count=1
+  The first command must execute every mandated test (no "no tests to run",
+  none skipped). Red evidence before implementation (behavioral, no compile
+  errors): all six TestDispatchPackEngines_* tests,
+  TestPackSandbox_DispatchEvidenceSurvivesMidLoopEngineError, the four
+  strengthened existing tests (TestGateDispatch_NonSarifWithoutConvertFails,
+  TestDispatch_UnstartableFindingsEngineFailsLoud,
+  TestDispatch_UnstartableEngineFailsLoudWithoutCrashGuard via the shared
+  assertNeverStartedRefusal helper, and
+  TestFindingsEngine_ProducerNeverStartedIsRefused),
+  TestPackEnginesStep_EngineErrorPreservesFindingsAndStaysConfigErr,
+  TestPackEnginesStep_EngineErrorScopeFiltersFindingsButNotEngineErrors and
+  TestConfigErrorDiagnostic_RendersOnlyStepRuleViolationsWhenPresent FAIL.
+  Controls that pass before AND after (they pin behavior that must not
+  change): TestPackEnginesStep_EngineErrorWithoutErrorViolationKeepsSyntheticViolation,
+  TestSubstantivenessStep_DispatchErrorIgnoresPartialStream,
+  TestDispatchContractEntry_EngineErrorFailsWhole,
+  TestConfigErrorDiagnostic_RendersAllMessagesWithoutStepRuleViolation.
+
+  Runtime verification:
+    backstop gate --file cmd/backstop/pack_gate.go
+    backstop gate --file cmd/backstop/gate.go
+    backstop gate --file cmd/backstop/baseline.go
+    backstop gate
+    backstop gate --all
+    backstop artifact validate --plan PLAN-ISSUE-209
+  Record real exit codes. Gate or environment failures are blockers to
+  surface, never waived or worked around. Plan and issue statuses stay
+  unchanged by implementation; no commit/push/PR is authorized by this plan.
+
+  Pre-existing failures (NOT attributable to this plan): at HEAD b8be04a,
+  with no changes applied, TestDogfood_GoStandardsLockVerifies and
+  TestPackAuthoringLoop_EndToEnd already fail (confirmed by the plan
+  reviewer). TASK-007 and TASK-008 must report them as pre-existing, show
+  they fail identically at the base SHA, and must neither fix, skip nor
+  waive them under this plan. Any OTHER failure is in scope and a blocker.
+
+  Sequencing with PLAN-ISSUE-207: that plan (being authored) also edits
+  cmd/backstop/pack_gate.go, around runFindingsEngine; this plan edits
+  dispatchPackEnginesWithEvidence and its doc comments (:204-317). The
+  functions differ but the file is shared, so the two must not be
+  implemented concurrently on the same base: land one first, then rebase
+  the other onto it and re-run its red/green commands and gates before
+  review. Order is the founder's call; neither plan depends on the other's
+  behavior.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Failing tests (dispatcher, pack_engines caller, fail-whole guards, diagnostic)"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Pin dispatcher continuation, per-engine error violations, order and sandbox evidence"
+        description: |
+          New file cmd/backstop/pack_gate_engine_error_continuation_test.go
+          (package main). Drive dispatchPackEnginesWithEvidence directly with
+          hand-built manifests: findings engines declared in manifest.Engines
+          with distinct neutral commands (engineBindingForGateType pattern,
+          no Provision) and a fixtureRunner keyed per command returning
+          either a valid one-result SARIF log or unparseable bytes. Failing
+          kinds: (a) unparseable stdout (ParsePackFindings error),
+          (b) a sandbox rule with a missing validator (the
+          TestDispatchPackEngines_BrokenValidatorMissingFile trigger),
+          (c) a rule whose Engine names an engine absent from both the base
+          registry and manifest.Engines (registry lookup). Define one
+          file-local helper contTestWantEngineError(msg) returning the D-1
+          violation literal and compare the fields Rule, File, Message,
+          Severity and ProjectWide exactly, and require SourcePack == "" (S-1:
+          a non-empty SourcePack would render as a namespaced pack rule).
+
+          TestDispatchPackEngines_EarlierFindingsSurviveLaterEngineError
+          (CLM-001, CLM-002): one pack, engine A emits a finding, engine B
+          returns unparseable output. Require err != nil and Violations ==
+          [A's finding, engine-error(B)]; this is the issue's repro.
+          TestDispatchPackEngines_LaterEnginesRunAfterEarlierEngineError
+          (CLM-001): engine A fails first, engine B emits a finding; plus a
+          second pack after the failing pack. Require the runner recorded a
+          call for B and for the second pack, and both findings are present.
+          TestDispatchPackEngines_EachEngineFailureIsItsOwnErrorViolation
+          (CLM-002): two failing engines in two packs. Require exactly two
+          engine-error violations, each naming its own pack and engine in
+          Message, err.Error() containing both messages in dispatch order,
+          and errors.Is/As reaching each underlying error.
+          TestDispatchPackEngines_MixedPackAndEngineOrderIsDeterministic
+          (CLM-003): pack P1 [ok finding, fail], pack P2 [fail, ok finding].
+          Require the exact sequence f(P1), err(P1), err(P2), f(P2); run the
+          dispatch twice and require identical slices; require each finding's
+          Rule/File/Message/Severity/SourcePack equal to what the same engine
+          yields when dispatched alone (an unrelated failure must not perturb
+          real findings).
+          TestDispatchPackEngines_SandboxAndRegistryErrorsContinueLikeFindingsErrors
+          (CLM-001, CLM-002): table over the sandbox failure and the
+          registry-lookup failure, each placed BEFORE an ok findings engine;
+          require the later finding survives and the error violation's
+          Message equals today's wrapped text for that kind
+          ("dispatching sandbox engine %q for pack %s: ..." / "pack %s: ...").
+          TestDispatchPackEngines_SingleEngineErrorKeepsTodaysMessage
+          (CLM-002): one failing engine, table over an unparseable-output
+          engine and a ConfigError-producing refusal (e.g. the
+          never-started runner used by dispatch_unstartable_engine_test.go);
+          require err.Error() equals the exact pre-change wrapped string,
+          errors.As(*check.ConfigError) succeeds for the refusal row, and the
+          single engine-error violation's Message == err.Error().
+
+          In cmd/backstop/pack_sandbox_dispatch_result_test.go ADD
+          TestPackSandbox_DispatchEvidenceSurvivesMidLoopEngineError (CLM-004):
+          row 1: engine 1 runs a convert through directConvertSandboxRunner
+          (applied true), engine 2 is a registry-lookup failure, engine 3 runs
+          after it; require NativeSandboxApplied true with err != nil (today
+          the lookup path returns {} and resets it). Row 2: only an engine
+          AFTER the failure applies the sandbox; require true. Leave
+          TestPackSandbox_DispatchResultsCarryDeterministicEvidence untouched.
+
+          Strengthen the three existing error-path edit sites listed in notes
+          (CLM-009): replace only the `len(violations) != 0` block with the
+          stronger "no finding, exactly one engine-error violation whose
+          Message == err.Error() and an empty SourcePack" assertion; keep every
+          other assertion and the comment intent. The dispatch_unstartable
+          site is inside the shared helper assertNeverStartedRefusal, so the
+          edit covers both TestDispatch_UnstartableFindingsEngineFailsLoud and
+          TestDispatch_UnstartableEngineFailsLoudWithoutCrashGuard. All four
+          tests go red now (zero violations returned today).
+
+          Run the first red command from notes; capture the named failures.
+          Do not touch production code.
+        files:
+          - cmd/backstop/pack_gate_engine_error_continuation_test.go
+          - cmd/backstop/pack_sandbox_dispatch_result_test.go
+          - cmd/backstop/dispatch_sarif_contract_test.go
+          - cmd/backstop/dispatch_unstartable_engine_test.go
+          - cmd/backstop/pack_gate_producer_findings_test.go
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-009]
+        depends_on: []
+        test_names:
+          - TestDispatchPackEngines_EarlierFindingsSurviveLaterEngineError
+          - TestDispatchPackEngines_LaterEnginesRunAfterEarlierEngineError
+          - TestDispatchPackEngines_EachEngineFailureIsItsOwnErrorViolation
+          - TestDispatchPackEngines_MixedPackAndEngineOrderIsDeterministic
+          - TestDispatchPackEngines_SandboxAndRegistryErrorsContinueLikeFindingsErrors
+          - TestDispatchPackEngines_SingleEngineErrorKeepsTodaysMessage
+          - TestPackSandbox_DispatchEvidenceSurvivesMidLoopEngineError
+          - TestGateDispatch_NonSarifWithoutConvertFails
+          - TestDispatch_UnstartableFindingsEngineFailsLoud
+          - TestDispatch_UnstartableEngineFailsLoudWithoutCrashGuard
+          - TestFindingsEngine_ProducerNeverStartedIsRefused
+
+      - id: TASK-002
+        type: test
+        title: "Pin the pack_engines error branch and the two fail-whole callers"
+        description: |
+          New file cmd/backstop/gate_pack_engines_engine_error_test.go
+          (package main), seam-driven via dispatchPackEnginesFn (restored on
+          t.Cleanup) and runPackEnginesStep / buildGateSteps as in
+          gate_scope_test.go. The stub returns violations shaped exactly as
+          the dispatcher will (D-1 literal built by a file-local
+          stepErrTestEngineError helper) together with errors.Join(...).
+
+          TestPackEnginesStep_EngineErrorPreservesFindingsAndStaysConfigErr
+          (CLM-005): nil/all scope; stub returns [finding A, engine-error E1,
+          finding B, engine-error E2] + aggregate error. Require Status
+          "fail", ConfigErr true, Violations equal to the same four in the
+          same order, and gate.New(gate.WithSteps([]gate.StepFunc{<the
+          pack_engines StepFunc>})).Run(ctx) returning exit code 2. On that
+          GateResult, gate.FormatHuman(result, true) must contain
+          "[pack_engines] " immediately followed by each engine-error message
+          and must NOT contain "/pack_engines]" (pins S-1: engine errors
+          render un-namespaced, distinct from "[org/pack/<rule>]" findings).
+          TestPackEnginesStep_EngineErrorScopeFiltersFindingsButNotEngineErrors
+          (CLM-005): a diff scope over one changed file (reuse the
+          gate_scope_test.go project/scope setup); stub returns an in-scope
+          finding, an out-of-scope NON-exempt finding, an out-of-scope
+          ProjectWide finding, and an engine-error violation (File "").
+          Require the out-of-scope non-exempt finding is dropped and the
+          other three are kept in order, with ConfigErr true.
+          TestPackEnginesStep_EngineErrorWithoutErrorViolationKeepsSyntheticViolation
+          (CLM-005, D-6; control): row 1 stub returns (nil, err); row 2
+          returns ([in-scope finding], err). Require the step carries today's
+          synthetic {Rule: "pack_engines", Message: err.Error(), Severity:
+          "error"} (plus the finding in row 2), Status fail, ConfigErr true.
+
+          New file cmd/backstop/gate_dispatch_fail_whole_guard_test.go:
+          TestSubstantivenessStep_DispatchErrorIgnoresPartialStream (CLM-006;
+          control): with the gate_substantiveness_severity_test.go harness
+          (writeSubstantivenessSpec, injectSubstantivenessManifest,
+          goSubstDiscovery, buildTestSubstantivenessStep), stub the seam to
+          return a hollow-role finding on an in-scope test file and NO
+          extraction findings, plus an engine-error violation, with a non-nil
+          error. If the step read the stream it would emit a
+          test_substantiveness hollow violation and Q2 noTarget violations
+          for the spec's mandated tests. Require exactly one violation,
+          Rule gate.StepTestSubstantiveness, Message prefix
+          "dispatching substantiveness pack: ", Status fail, ConfigErr true.
+          TestDispatchContractEntry_EngineErrorFailsWhole (CLM-007; control):
+          a hand-built contracts manifest whose Engines map overrides "grep"
+          with a binding carrying a Provision tool not on the trusted-tool
+          allowlist, and an absence ContractEntry over an existing temp file,
+          so dispatch fails at checkEngineToolAllowed. Call
+          dispatchContractEntryWithSandbox with a recordingSandboxRunner.
+          Require err != nil containing "dispatching contract engine for",
+          and the returned ContractEngineResult equal to the zero value (in
+          particular Matched false), proving the engine-error violation the
+          dispatcher now returns is never read as a match. If this trigger
+          does not reach the dispatcher, use another in-dispatcher engine
+          error and record which.
+
+          Run the first red command; the first two pack_engines tests fail
+          behaviorally, the other three pass (controls). No production edits.
+        files:
+          - cmd/backstop/gate_pack_engines_engine_error_test.go
+          - cmd/backstop/gate_dispatch_fail_whole_guard_test.go
+        claims: [CLM-005, CLM-006, CLM-007]
+        depends_on: []
+        test_names:
+          - TestPackEnginesStep_EngineErrorPreservesFindingsAndStaysConfigErr
+          - TestPackEnginesStep_EngineErrorScopeFiltersFindingsButNotEngineErrors
+          - TestPackEnginesStep_EngineErrorWithoutErrorViolationKeepsSyntheticViolation
+          - TestSubstantivenessStep_DispatchErrorIgnoresPartialStream
+          - TestDispatchContractEntry_EngineErrorFailsWhole
+
+      - id: TASK-003
+        type: test
+        title: "Pin the baseline-generate refusal diagnostic over a preserved-findings step"
+        description: |
+          New file cmd/backstop/baseline_diagnostic_engine_error_test.go
+          (package main), calling configErrorDiagnostic directly.
+
+          TestConfigErrorDiagnostic_RendersOnlyStepRuleViolationsWhenPresent
+          (CLM-008): a pack_engines step with ConfigErr true carrying
+          [finding Rule "org/pack/no-foo" msg "FINDING-ONE", engine-error E1,
+          finding msg "FINDING-TWO", engine-error E2]. Require the diagnostic
+          starts "pack_engines: ", contains both engine-error messages in
+          order, and contains neither finding message. A second row with a
+          non-empty Reason requires the Reason still leads.
+          TestConfigErrorDiagnostic_RendersAllMessagesWithoutStepRuleViolation
+          (CLM-008; control): a traceability-polarity-shaped ConfigErr step
+          whose violations use other rule names (StepName S, Rule
+          "<dim>_broken_declared") renders every message exactly as today
+          (assert the full expected string).
+          Do not edit cmd/backstop/baseline_diagnostic_test.go; its tests are
+          the unchanged regression set.
+        files:
+          - cmd/backstop/baseline_diagnostic_engine_error_test.go
+        claims: [CLM-008]
+        depends_on: []
+        test_names:
+          - TestConfigErrorDiagnostic_RendersOnlyStepRuleViolationsWhenPresent
+          - TestConfigErrorDiagnostic_RendersAllMessagesWithoutStepRuleViolation
+
+  - id: phase-2
+    name: "Phase 2: Implementation (dispatcher, callers, diagnostic) and scoped gate"
+    tasks:
+      - id: TASK-004
+        type: implementation
+        title: "Continue dispatch past a failed engine and record per-engine error violations"
+        description: |
+          In cmd/backstop/pack_gate.go only, rewrite the loop in
+          dispatchPackEnginesWithEvidence: at each of the three error sites
+          (registry lookup :286, sandbox :299-301, findings :309-311) build
+          the wrapped error exactly as today, append it to a local errs slice,
+          append one engine-error violation (D-1, Message = wrapped
+          err.Error(), SourcePack left empty per S-1) to violations,
+          OR the engine's applied bit into nativeApplied (a lookup failure
+          contributes false but must not reset), discard that engine's own
+          returned violations (D-3), and continue. After the loop return
+          newPackEngineDispatchResult(violations, nativeApplied) with
+          errors.Join(errs...) (nil when errs is empty). Add a small
+          unexported constructor for the D-1 violation and document why
+          ProjectWide is set, cross-referencing dispatchAdvisory. Do not
+          change the signature, packEngineDispatchResult, the wrapper
+          dispatchPackEngines, the seam type, resolveDispatchPackEngines,
+          runFindingsEngine*, runSandboxEngineWithEvidence, or the coverage
+          dispatcher. Update the dispatcher doc block (:204-231) to state the
+          continue-past-error contract and the dispatchPackEnginesFn doc
+          (:232-236) to stop calling the wrapper the production fallback.
+
+          Run the TASK-001 tests green, then go test ./cmd/backstop -race
+          -count=1 (TASK-002/003 red tests may still fail until TASK-005/006).
+        files:
+          - cmd/backstop/pack_gate.go
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-009]
+        depends_on: [TASK-001]
+
+      - id: TASK-005
+        type: implementation
+        title: "Merge preserved findings in pack_engines; keep fail-whole callers explicit"
+        description: |
+          In cmd/backstop/gate.go, pack_engines error branch (:1179-1185):
+          take dispatchResult.Violations, pass them through
+          activeScope.FilterViolations (engine-error violations survive via
+          ProjectWide), apply the D-6 fallback when no violation has
+          Rule == gate.StepPackEngines, and return the StepResult with
+          Status "fail", ConfigErr true and stepResultWithNativeSandbox as
+          today. Leave collectedVerdicts and verdictEngineDeclared unset on
+          this path with a comment recording D-5 (unobservable under the
+          ConfigErr halt; revisit with the deferred halt question). The
+          success path below is unchanged.
+
+          Substantiveness error branch (:1517-1524) and contract-entry
+          dispErr branch (:1944-1946): no behavioral change; add a comment
+          that the dispatcher may now return violations alongside an error
+          and that they are deliberately ignored (ISSUE-209; ISSUE-112
+          precedent for substantiveness). Correct the stale comments at
+          gate.go:1438, :1809, :1882 and in
+          cmd/backstop/gate_substantiveness_e2e.go:22 and :488 to name the
+          real path (dispatchPackEnginesWithEvidence or the
+          dispatchPackEnginesFn seam). Comment-only in the e2e file.
+
+          Run the TASK-002 tests green (controls stay green).
+        files:
+          - cmd/backstop/gate.go
+          - cmd/backstop/gate_substantiveness_e2e.go
+        claims: [CLM-005, CLM-006, CLM-007, CLM-009]
+        depends_on: [TASK-002]
+
+      - id: TASK-006
+        type: implementation
+        title: "Render only engine-failure messages in the config-error diagnostic"
+        description: |
+          In cmd/backstop/baseline.go, configErrorDiagnostic (:322-340):
+          per ConfigErr step, if any violation has Rule == step.StepName,
+          join Reason plus only those violations' non-empty messages, in
+          order; otherwise keep today's loop exactly. Keep the ""-when-none
+          and "no detail reported" fallbacks. Update the doc comment to say
+          why (a pack_engines step can now carry preserved findings that
+          are not the config error; ISSUE-209). No change to
+          runBaselineGenerate.
+
+          Run the TASK-003 tests and the existing
+          baseline_diagnostic_test.go tests green.
+        files:
+          - cmd/backstop/baseline.go
+        claims: [CLM-008]
+        depends_on: [TASK-003]
+
+      - id: TASK-007
+        type: verification
+        title: "Verify red-to-green, audit untouched callers, run the diff-scoped gate"
+        description: |
+          Confirm recorded behavioral red from Phase 1, then green for every
+          mandated test (first command in notes) and the full
+          go test ./cmd/backstop -race -count=1 run. Confirm the only
+          existing test edit sites are the three named in notes (four tests,
+          via the shared assertNeverStartedRefusal helper), that the diff
+          touches only allowlisted files, that no seam stub or other caller
+          changed, and that the stale comments are corrected. Run
+          backstop gate --file on pack_gate.go, gate.go and baseline.go, then
+          backstop gate; record exit codes and findings. Report
+          TestDogfood_GoStandardsLockVerifies and
+          TestPackAuthoringLoop_EndToEnd as pre-existing failures (they fail
+          at b8be04a with no changes; show the base-SHA run), not as
+          regressions of this plan; do not fix, skip or waive them here.
+          Any other failure is a blocker.
+        files:
+          - cmd/backstop/pack_gate.go
+          - cmd/backstop/gate.go
+          - cmd/backstop/baseline.go
+          - cmd/backstop/gate_substantiveness_e2e.go
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-009]
+        depends_on: [TASK-004, TASK-005, TASK-006]
+
+  - id: phase-3
+    name: "Phase 3: Final full-gate verification and plan validation"
+    tasks:
+      - id: TASK-008
+        type: verification
+        title: "Run the full gate and validate the plan artifact"
+        description: |
+          Run backstop gate --all and backstop artifact validate --plan
+          PLAN-ISSUE-209. Record exit codes, findings, base SHA and the final
+          diff (allowlisted files only). Confirm every mandated test body
+          executed (not mere name presence). Hand logs and diff to an
+          independent reviewer and repeat review until CLEAN. Failures are
+          surfaced as blockers, never waived. The two pre-existing failures
+          named in notes (TestDogfood_GoStandardsLockVerifies,
+          TestPackAuthoringLoop_EndToEnd; failing at b8be04a with no changes)
+          are reported as pre-existing with base-SHA evidence, not attributed
+          to this plan, and are not fixed, skipped or waived here. If
+          PLAN-ISSUE-207 landed first, confirm this branch was rebased onto
+          it and the gates were re-run after the rebase. Leave plan and issue
+          statuses unchanged.
+        files:
+          - cmd/backstop/pack_gate.go
+          - cmd/backstop/gate.go
+          - cmd/backstop/baseline.go
+          - plans/PLAN-ISSUE-209-preserve-findings-past-engine-error.plan.yml
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-006, CLM-007, CLM-008, CLM-009]
+        depends_on: [TASK-004, TASK-005, TASK-006, TASK-007]
