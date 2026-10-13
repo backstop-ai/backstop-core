@@ -268,7 +268,8 @@ for pat in ('rgb(','rgba(','hsl(','hsla('):
 PY
 }
 verify_reference_paper_ink_chrome() {
-  local layout="$root/docs/_layouts/default.html" css="$root/docs/assets/css/site.css" tmp
+  local layout="$root/docs/_layouts/default.html" css="$root/docs/assets/css/site.css" tmp=""
+  trap 'rm -rf "${tmp:-}"' EXIT
   validate_paper_ink "$layout" "$css"
   tmp="$(mktemp -d)"; cp "$layout" "$tmp/layout.html"; cp "$css" "$tmp/site.css"
   python3 - "$tmp/layout.html" <<'PY'
@@ -279,7 +280,7 @@ PY
   if validate_paper_ink "$tmp/layout.html" "$tmp/site.css" 2>/dev/null; then rm -rf "$tmp"; echo 'drop-reference mutation passed' >&2; exit 1; fi
   rm -rf "$tmp"
   tmp="$(mktemp -d)"; cp "$layout" "$tmp/layout.html"; cp "$css" "$tmp/site.css"
-  sed -i 's/{% if paper_kinds contains page_kind %}//g; s/{% endif %}//g' "$tmp/layout.html"
+  sed 's/{% if paper_kinds contains page_kind %}//g; s/{% endif %}//g' "$tmp/layout.html" > "$tmp/layout.new" && mv "$tmp/layout.new" "$tmp/layout.html"
   if validate_paper_ink "$tmp/layout.html" "$tmp/site.css" 2>/dev/null; then rm -rf "$tmp"; echo 'unguarded-tokens mutation passed' >&2; exit 1; fi
   rm -rf "$tmp"
   tmp="$(mktemp -d)"; cp "$layout" "$tmp/layout.html"; cp "$css" "$tmp/site.css"
@@ -298,6 +299,7 @@ PY
   echo 'html { color: #ff0000; }' >> "$tmp/site.css"
   if validate_paper_ink "$tmp/layout.html" "$tmp/site.css" 2>/dev/null; then rm -rf "$tmp"; echo 'hex-literal mutation passed' >&2; exit 1; fi
   rm -rf "$tmp"
+  trap - EXIT
 }
 verify_reference_paper_ink_preserves_home_navigation() {
 python3 - "$root/docs/assets/css/site.css" <<'PY'
