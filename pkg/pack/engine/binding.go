@@ -215,6 +215,20 @@ type EngineBinding struct {
 	// they legitimately exit non-zero WHEN they report findings, so the SARIF on
 	// stdout, not the exit code, is their contract.
 	CrashGuard bool `yaml:"crash_guard"`
+	// SuccessExitCodes is the engine's DECLARED set of exit statuses that mean "the
+	// tool ran and found nothing" (ISSUE-207). Nil (absent or null) means
+	// undeclared, which resolves to {0} via EffectiveSuccessExitCodes.
+	//
+	// On the findings path the set decides one question: an EMPTY RAW output (the
+	// stdout_artifact file when declared, otherwise stdout, judged BEFORE any
+	// convert runs) with an exit status OUTSIDE the set is a loud engine failure,
+	// never a clean pass; a non-empty output is parsed as findings whatever the
+	// status (D-1). grep, which exits 1 with empty output when nothing matches,
+	// declares [0, 1]. A CrashGuard engine uses the same set: a status in the set
+	// with zero findings is clean rather than a crash (D-3). The value must be a
+	// non-empty list of distinct integers in 0..255 that contains 0
+	// (ValidateSuccessExitCodes, D-4). It is inert outside the findings path.
+	SuccessExitCodes []int `yaml:"success_exit_codes"`
 	// Category classifies the engine as toolchain MECHANISM or coding-standards
 	// OPINION for the pack-separation enforcer (ISSUE-015 / SPEC-034 REQ-007). The
 	// zero value EngineCategoryUnset means neither, so a rule binding the engine is

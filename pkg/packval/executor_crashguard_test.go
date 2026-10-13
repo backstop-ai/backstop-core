@@ -72,29 +72,49 @@ func TestPackVal_EngineCrashGuard_NonZeroExitWithNoFindingsFailsLoud(t *testing.
 }
 
 // TestPackVal_EngineCrashGuard_UnsetLeavesNonZeroExitUnchanged keeps CLM-006
-// honest (CLM-007) and is what makes the guard OPT-IN. The IDENTICAL script with
-// CrashGuard FALSE keeps today's behaviour exactly: a nil error and Passed=false.
+// honest (CLM-007) and is what makes the guard OPT-IN: the IDENTICAL script with
+// CrashGuard FALSE never gets the CrashGuard "crashed" verdict.
 //
-// A findings engine's exit code is not its contract — the SARIF is — so every
-// rule-fed engine leaves the flag false. Without this leg, CLM-006 could be
-// satisfied by a change that turns every non-zero exit into an error and reds
-// every ordinary engine that reports nothing.
-//
-// Green both before and after the fix, by design.
+// Re-pointed under ISSUE-207 D-1 (founder decision, approved deviation): a
+// CrashGuard-unset engine's empty payload is judged against its DECLARED
+// success_exit_codes ({0} when undeclared). So an undeclared exit 2 with nothing
+// emitted is an engine failure (the empty-payload refusal, not the crash
+// wording), while the same engine declaring exit 2 as a no-findings status keeps
+// the ordinary not-fired verdict: a nil error and Passed=false.
 func TestPackVal_EngineCrashGuard_UnsetLeavesNonZeroExitUnchanged(t *testing.T) {
-	packDir := convertFixturePackDir(t)
-	enginePath := writeConvertFixtureScript(t, packDir, "engine.sh", crashGuardSilentCrashScript)
+	t.Run("undeclared_exit_is_engine_failure", func(t *testing.T) {
+		packDir := convertFixturePackDir(t)
+		enginePath := writeConvertFixtureScript(t, packDir, "engine.sh", crashGuardSilentCrashScript)
 
-	binding := engine.EngineBinding{Command: enginePath, CrashGuard: false, Provision: nil}
+		binding := engine.EngineBinding{Command: enginePath, CrashGuard: false, Provision: nil}
 
-	res, err := (&DefaultExecutor{}).RunEngine(packDir, binding, []string{"fixture.txt"})
-	if err != nil {
-		t.Fatalf("THE GUARD IS NOT OPT-IN: a binding that declares NO CrashGuard must keep its current behaviour — "+
-			"a non-zero exit with zero findings is an ordinary not-fired verdict, not an error. got: %v (result %+v)", err, res)
-	}
-	if res.Passed {
-		t.Fatalf("expected the finding-free run to report not-fired, got %+v", res)
-	}
+		res, err := (&DefaultExecutor{}).RunEngine(packDir, binding, []string{"fixture.txt"})
+		if err == nil {
+			t.Fatalf("an undeclared exit 2 with an empty payload must be an engine failure (ISSUE-207 D-1), got result %+v", res)
+		}
+		if strings.Contains(err.Error(), "crashed") {
+			t.Fatalf("THE GUARD IS NOT OPT-IN: a CrashGuard-unset engine must not get the CrashGuard crash verdict; got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "exit status 2") || !strings.Contains(err.Error(), "success_exit_codes") {
+			t.Fatalf("the refusal must name the status and the success_exit_codes remedy; got: %v", err)
+		}
+	})
+
+	t.Run("declared_exit_is_not_fired", func(t *testing.T) {
+		packDir := convertFixturePackDir(t)
+		enginePath := writeConvertFixtureScript(t, packDir, "engine.sh", crashGuardSilentCrashScript)
+
+		binding := engine.EngineBinding{Command: enginePath, CrashGuard: false, SuccessExitCodes: []int{0, 2}, Provision: nil}
+
+		res, err := (&DefaultExecutor{}).RunEngine(packDir, binding, []string{"fixture.txt"})
+		if err != nil {
+			t.Fatalf("a CrashGuard-unset engine declaring exit 2 as a no-findings status must keep the ordinary "+
+				"not-fired verdict, not an error. got: %v (result %+v)", err, res)
+		}
+		if res.Passed {
+			t.Fatalf("expected the finding-free run to report not-fired, got %+v", res)
+		}
+	})
 }
 
 // TestPackVal_EngineCrashGuard_NonZeroExitWithFindingsStillReports pins CLM-008:

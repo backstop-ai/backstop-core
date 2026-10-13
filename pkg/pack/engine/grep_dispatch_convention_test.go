@@ -19,6 +19,7 @@
 package engine_test
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -540,5 +541,87 @@ func TestThinExecutor_NoGrepInvocationInNonTestCode(t *testing.T) {
 			"bakes no tool knowledge: grep reaches the runner only from pack DATA. If this "+
 			"is a fix for a grep output-shape problem, it belongs in the PACK's command "+
 			"declaration or convert script, not here", v.rel, v.line, v.detail)
+	}
+}
+
+// TestGrepEngineDeclarations_DeclareNoMatchSuccessExitCodes (PLAN-ISSUE-207
+// TASK-011, CLM-013/CLM-016) asserts that every repo-owned convert-bearing grep
+// findings engine that is dispatched for real declares success_exit_codes [0, 1].
+//
+// grep exits 1 with EMPTY stdout when nothing matches — a clean result. Under the
+// ISSUE-207 D-1 rule (an empty RAW pre-convert output with an exit status outside
+// the declared set is an engine failure), an undeclared grep engine fails every
+// no-match run, so the declaration is load-bearing, not decorative. The walk and
+// predicate are the ones TestGrepEngineDeclarations_ForceFilenameHeader uses, so a
+// new grep declaration is swept automatically. The declaration is asserted through
+// the binding's printed form so the test compiles before the field exists.
+func TestGrepEngineDeclarations_DeclareNoMatchSuccessExitCodes(t *testing.T) {
+	root := conventionRepoRoot(t)
+
+	// The one enumerated exception: a read-only fixture parsed by engine-package
+	// tests and never dispatched against a real tool, so the default cannot trip it.
+	exception := "pkg/pack/engine/testdata/contracts-grep-engine.yml"
+	seenException := false
+
+	var required []grepDeclaration
+	declared := map[string]bool{}
+
+	walkRepoFiles(t, root, func(path string, d fs.DirEntry) {
+		switch filepath.Ext(d.Name()) {
+		case ".yml", ".yaml":
+		default:
+			return
+		}
+		manifest, err := pack.ParseManifestFile(path)
+		if err != nil {
+			return // not a pack manifest; the parse IS the filter.
+		}
+		if manifest.Name == "" || len(manifest.Engines) == 0 {
+			return
+		}
+		rel, _ := filepath.Rel(root, path)
+		rel = filepath.ToSlash(rel)
+
+		names := make([]string, 0, len(manifest.Engines))
+		for name := range manifest.Engines {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+
+		for _, name := range names {
+			spec := manifest.Engines[name]
+			// The no-convert exempt set (no rules, never dispatched) stays exempt
+			// for the reason TestGrepEngineDeclarations_ForceFilenameHeader asserts.
+			if commandTool(spec.Command) != "grep" || spec.Convert == "" {
+				continue
+			}
+			if rel == exception {
+				seenException = true
+				continue
+			}
+			decl := grepDeclaration{rel: rel, engine: name, command: spec.Command}
+			required = append(required, decl)
+			declared[rel+"#"+name] = strings.Contains(fmt.Sprintf("%v", spec.Binding), "[0 1]")
+		}
+	})
+
+	if !seenException {
+		t.Errorf("the enumerated exception %s was not found — it moved or lost its convert; "+
+			"re-examine whether it now dispatches for real", exception)
+	}
+
+	const wantRequired = 5
+	if len(required) != wantRequired {
+		t.Errorf("found %d dispatched convert-bearing grep declarations, expected %d — a NEW "+
+			"one must declare success_exit_codes: [0, 1]; do not narrow the sweep",
+			len(required), wantRequired)
+	}
+
+	for _, decl := range required {
+		t.Logf("dispatched grep engine: %s [%s] declares [0 1]=%v", decl.rel, decl.engine, declared[decl.rel+"#"+decl.engine])
+		if !declared[decl.rel+"#"+decl.engine] {
+			t.Errorf("%s [%s]: must declare success_exit_codes: [0, 1] (grep exits 1 with empty "+
+				"stdout on no match; ISSUE-207 D-1)", decl.rel, decl.engine)
+		}
 	}
 }

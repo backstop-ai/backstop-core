@@ -26,7 +26,29 @@ type SpecVerification struct {
 	ImplementationPackage string
 }
 
+// defaultCodeScopeCoverageFloor is the fallback code-scope threshold used when the
+// caller passes no WithCoverageFloor option. It MUST match config.DefaultCoverageFloor
+// (enforcement.coverage_floor's unset default); a test pins the two equal. pkg/gate
+// does not import pkg/config, so the value is carried here for option-less callers.
 const defaultCodeScopeCoverageFloor = 90
+
+// coverageOptions carries the optional knobs of the scoped coverage step.
+type coverageOptions struct {
+	floor int
+}
+
+// CoverageOption configures StepCoverageThresholdScopedFunc.
+type CoverageOption func(*coverageOptions)
+
+// WithCoverageFloor sets the fallback code-scope threshold (the project's
+// enforcement.coverage_floor) applied to changed files that no qualifying spec
+// threshold governs. 0 means no floor. A qualifying spec-declared threshold still
+// takes precedence, even when it is lower.
+func WithCoverageFloor(n int) CoverageOption {
+	return func(o *coverageOptions) {
+		o.floor = n
+	}
+}
 
 // StepCoverageThresholdFunc returns a StepFunc that checks the spec-declared
 // coverage threshold PER FILE over the canonical []check.CoverageRecord (the
@@ -71,7 +93,13 @@ func StepCoverageThresholdFunc(coverage []check.CoverageRecord, specs []SpecVeri
 // silent pass (REQ-004). The no-record predicate is "any record for the path" so
 // it composes with SPEC-044's (path, metric) index; per-metric verdicts are
 // SPEC-044's.
-func StepCoverageThresholdScopedFunc(coverage []check.CoverageRecord, specs []SpecVerification, scope *GateScope, classifier SourceClassifier) StepFunc {
+func StepCoverageThresholdScopedFunc(coverage []check.CoverageRecord, specs []SpecVerification, scope *GateScope, classifier SourceClassifier, opts ...CoverageOption) StepFunc {
+	options := coverageOptions{floor: defaultCodeScopeCoverageFloor}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&options)
+		}
+	}
 	return func(_ context.Context) StepResult {
 		// REQ-004: no declared source globs + in-scope changed files => a DISTINCT
 		// visible, non-blocking capability-absent state — never a silent pass. This
@@ -87,7 +115,7 @@ func StepCoverageThresholdScopedFunc(coverage []check.CoverageRecord, specs []Sp
 		// pass }` early return stays DISMANTLED: the path-level no-record scan below runs
 		// independent of any numeric floor, so a declared source glob is honored as the
 		// measurement promise even when no positive floor is declared.
-		thresholds := coverageThresholdsForScope(specs, scope)
+		thresholds := coverageThresholdsForScope(specs, scope, options.floor)
 
 		// REQ-001: the index is keyed by (path, metric) so line AND branch coexist with
 		// no last-write-wins overwrite; dupKeys lists (path, metric) pairs the producer
@@ -517,8 +545,11 @@ type coverageThresholdSelection struct {
 // coverageThresholdsForScope is RETAINED, language-agnostic threshold-derivation
 // logic (re-keyed from the deleted per-package model to per-FILE consumption): it
 // selects the specs whose declared threshold governs the in-scope changed files,
-// or collapses to the code-scope floor when no spec is file-specific.
-func coverageThresholdsForScope(specs []SpecVerification, scope *GateScope) coverageThresholdSelection {
+// or collapses to the code-scope floor when no spec is file-specific. floor is the
+// resolved fallback (enforcement.coverage_floor, default 90) used only when no
+// qualifying spec declares a positive threshold; 0 leaves the collapsed threshold at
+// 0, so the per-metric `threshold <= 0` skip applies (no floor).
+func coverageThresholdsForScope(specs []SpecVerification, scope *GateScope, floor int) coverageThresholdSelection {
 	if scope == nil || scope.Mode == GateScopeModeAll {
 		return coverageThresholdSelection{Specs: specs}
 	}
@@ -553,7 +584,7 @@ func coverageThresholdsForScope(specs []SpecVerification, scope *GateScope) cove
 		}
 	}
 	if maxThreshold == 0 {
-		maxThreshold = defaultCodeScopeCoverageFloor
+		maxThreshold = floor
 	}
 	return coverageThresholdSelection{CollapsedCodeScope: true, MaxThreshold: maxThreshold}
 }

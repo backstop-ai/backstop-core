@@ -135,7 +135,8 @@ func TestDispatch_UnstartableFindingsEngineFailsLoud(t *testing.T) {
 
 // assertNeverStartedRefusal is the shared acceptance shape: a *check.ConfigError
 // (the gate's exit-2 class) naming the pack and the declared command, and NO
-// violations that could be mistaken for a clean scan. It asserts the error CLASS
+// finding that could be mistaken for a clean scan — only the one engine-error
+// violation recording the refusal (ISSUE-209). It asserts the error CLASS
 // via errors.As rather than matching a Go type name in a string.
 func assertNeverStartedRefusal(t *testing.T, err error, violations []gate.Violation, wantPack, wantCommand string) {
 	t.Helper()
@@ -152,8 +153,22 @@ func assertNeverStartedRefusal(t *testing.T, err error, violations []gate.Violat
 	if !strings.Contains(err.Error(), wantCommand) {
 		t.Errorf("the refusal must name the declared command %q, got: %v", wantCommand, err)
 	}
-	if len(violations) != 0 {
-		t.Errorf("a refused run must yield NO violations that could read as a completed scan, got %d: %#v", len(violations), violations)
+	// ISSUE-209: the refused engine is recorded as its own engine-error violation.
+	// A refused run must still yield NO finding that could read as a completed
+	// scan — only that one engine-error violation, carrying exactly the error text.
+	engineErrs := 0
+	for _, v := range violations {
+		if v.Rule != gate.StepPackEngines || v.Severity != "error" || v.File != "" || v.SourcePack != "" {
+			t.Errorf("a refused run must yield NO finding that could read as a completed scan, got %#v", v)
+			continue
+		}
+		engineErrs++
+		if v.Message != err.Error() {
+			t.Errorf("the engine-error violation must carry the refusal text %q, got %q", err.Error(), v.Message)
+		}
+	}
+	if engineErrs != 1 {
+		t.Errorf("want exactly one engine-error violation for the refused engine, got %d: %#v", engineErrs, violations)
 	}
 }
 

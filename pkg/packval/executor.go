@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/backstop-ai/backstop-core/pkg/check"
@@ -177,6 +179,21 @@ func (d *DefaultExecutor) RunEngine(packDir string, binding engine.EngineBinding
 		}
 		payload = body
 	}
+	// DECLARED SUCCESS EXIT CODES (ISSUE-207 D-1/D-2), mirroring the gate's
+	// runFindingsEngine. An EMPTY raw payload — the stdout_artifact file when
+	// declared, otherwise stdout, judged BEFORE the shape guard and the convert —
+	// with an exit status outside the binding's declared success_exit_codes ({0}
+	// when undeclared) is an engine failure, not a finding-free pass. Without it a
+	// crashed run returned Passed=false with a nil error: exactly a NEGATIVE
+	// fixture's pass. The convert never runs on that path, so it cannot launder the
+	// empty output into an empty-results SARIF envelope. Outside CrashGuard only:
+	// the CrashGuard guard below already treats that case as a crash, with its own
+	// wording. The message names binding.Command; no pack name is in scope here.
+	successExitCodes := binding.EffectiveSuccessExitCodes()
+	if !binding.CrashGuard && len(bytes.TrimSpace(payload)) == 0 && !runAccepted(runErr, successExitCodes) {
+		return ExecutionResult{Passed: false, Output: stdout.String(), ExitCode: 1},
+			emptyPayloadRunError(binding, runErr, successExitCodes)
+	}
 	// STRICT-SARIF SHAPE GUARD (ISSUE-160), mirroring the MECHANISM and the GATING
 	// of the gate's own guard — never its wording. A binding declares StrictSarif
 	// when its engine emits native SARIF; without this guard an engine that emitted
@@ -242,9 +259,11 @@ func (d *DefaultExecutor) RunEngine(packDir string, binding engine.EngineBinding
 	// ALL THREE CONJUNCTS ARE LOAD-BEARING:
 	//   - binding.CrashGuard keeps the guard OPT-IN. Every rule-fed findings engine
 	//     leaves it false, and its exit code is not its contract — the SARIF is.
-	//   - runErr != nil restricts it to a non-zero exit. A CLEAN exit with zero
-	//     findings is an ordinary positive fixture passing (the clean example
-	//     produced no finding) and must stay error-free.
+	//   - !runAccepted restricts it to an exit status OUTSIDE the declared
+	//     success_exit_codes (ISSUE-207 D-3; {0} when undeclared, i.e. any non-zero
+	//     exit, exactly as before). A CLEAN exit with zero findings is an ordinary
+	//     positive fixture passing (the clean example produced no finding) and must
+	//     stay error-free; so must a declared no-findings status.
 	//   - len(findings) == 0 is what makes it a CRASH rather than a report: an engine
 	//     that exits non-zero BECAUSE it emitted findings is working correctly.
 	//
@@ -252,11 +271,51 @@ func (d *DefaultExecutor) RunEngine(packDir string, binding engine.EngineBinding
 	// that never ran, so runErr is a STARTED process's exit status — which is what
 	// makes the word "crashed" accurate rather than a misdescription of a binary that
 	// never executed at all.
-	if binding.CrashGuard && runErr != nil && len(findings) == 0 {
+	if binding.CrashGuard && !runAccepted(runErr, successExitCodes) && len(findings) == 0 {
 		return ExecutionResult{Passed: false, Output: stdout.String(), ExitCode: 1},
 			fmt.Errorf("engine %q crashed: non-zero exit with no parseable findings: %w", binding.Command, runErr)
 	}
 	return ExecutionResult{Passed: len(findings) > 0, Output: stdout.String(), ExitCode: 0}, nil
+}
+
+// runAccepted reports whether a STARTED run's outcome is one of the binding's
+// declared no-findings exit statuses (ISSUE-207 D-3), the pack-test twin of the
+// gate's exitAccepted. A nil runErr is exit 0; an error carrying an exit status
+// (check.ExitStatus) is accepted iff that status is in the set; an error with no
+// extractable status is never accepted.
+func runAccepted(runErr error, set []int) bool {
+	status := 0
+	if runErr != nil {
+		code, ok := check.ExitStatus(runErr)
+		if !ok {
+			return false
+		}
+		status = code
+	}
+	for _, accepted := range set {
+		if accepted == status {
+			return true
+		}
+	}
+	return false
+}
+
+// emptyPayloadRunError renders the ISSUE-207 D-2 refusal on the pack-test path:
+// the declared command, the observed status and the success_exit_codes remedy. A
+// run error with no exit status gets no remedy: it can never be declared clean.
+func emptyPayloadRunError(binding engine.EngineBinding, runErr error, set []int) error {
+	status, ok := check.ExitStatus(runErr)
+	if runErr != nil && !ok {
+		return fmt.Errorf("engine %q: a failed run with no exit status (%v) with an empty findings payload is an engine failure, not a clean pass", binding.Command, runErr)
+	}
+	codes := append(append([]int(nil), set...), status)
+	sort.Ints(codes)
+	parts := make([]string, 0, len(codes))
+	for _, code := range codes {
+		parts = append(parts, strconv.Itoa(code))
+	}
+	return fmt.Errorf("engine %q: exit status %d with an empty findings payload is an engine failure, not a clean pass; if exit status %d is a legitimate no-findings result for this tool, declare it: success_exit_codes: [%s]",
+		binding.Command, status, status, strings.Join(parts, ", "))
 }
 
 func (d *DefaultExecutor) RunValidator(packDir, validator string, fixturePaths []string) (ExecutionResult, error) {

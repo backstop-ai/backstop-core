@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/backstop-ai/backstop-core/pkg/gate"
 	"github.com/backstop-ai/backstop-core/pkg/pack"
 	"github.com/backstop-ai/backstop-core/pkg/packval"
 )
@@ -80,7 +81,8 @@ func TestGateDispatch_SarifNativeNoConvert(t *testing.T) {
 // emits stdout that is NOT SARIF, the bytes reach check.ParsePackFindings and the
 // dispatch FAILS LOUD with an error attributed to the pack/engine — never a
 // silent zero-finding green. Substantive: asserts a non-nil error, that it names
-// the pack, and that zero violations are returned (no vacuous green).
+// the pack, and that no finding is returned — only the one engine-error violation
+// recording the failure (ISSUE-209) — so there is no vacuous green.
 func TestGateDispatch_NonSarifWithoutConvertFails(t *testing.T) {
 	packsDir := t.TempDir()
 	packRoot := filepath.Join(packsDir, "org", "pack")
@@ -101,8 +103,22 @@ func TestGateDispatch_NonSarifWithoutConvertFails(t *testing.T) {
 	if err == nil {
 		t.Fatalf("non-SARIF engine stdout with empty Convert must fail loud, got nil error and violations %#v", violations)
 	}
-	if len(violations) != 0 {
-		t.Errorf("a fail-loud parse error must not also return violations, got %#v", violations)
+	// ISSUE-209: the failed engine is now recorded as its own engine-error
+	// violation. A fail-loud parse error must still return NO finding — only that
+	// one engine-error violation, carrying exactly the error text.
+	engineErrs := 0
+	for _, v := range violations {
+		if v.Rule != gate.StepPackEngines || v.Severity != "error" || v.File != "" || v.SourcePack != "" {
+			t.Errorf("a fail-loud parse error must not also return findings, got %#v", v)
+			continue
+		}
+		engineErrs++
+		if v.Message != err.Error() {
+			t.Errorf("the engine-error violation must carry the error text %q, got %q", err.Error(), v.Message)
+		}
+	}
+	if engineErrs != 1 {
+		t.Errorf("want exactly one engine-error violation for the failed engine, got %d: %#v", engineErrs, violations)
 	}
 	if !strings.Contains(err.Error(), "org/pack") {
 		t.Errorf("parse error must be attributed to the pack, got: %v", err)

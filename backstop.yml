@@ -7,7 +7,7 @@ packs:
     backstop-ai/ci-workflows: 0.1.2
     backstop-ai/cobra-cli-standards: 0.2.1
     backstop-ai/documentation-semantics: 0.1.1
-    backstop-ai/go-contracts: 1.4.0
+    backstop-ai/go-contracts: 1.5.0
     backstop-ai/go-standards: 1.2.1
     backstop-ai/go-substantiveness: 1.2.1
     backstop-ai/go-toolchain: 1.9.0

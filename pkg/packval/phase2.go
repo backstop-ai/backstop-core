@@ -10,7 +10,7 @@ func RunCoherence(pack *PackManifest, packDir string) *PhaseResult {
 	res := &PhaseResult{
 		Phase:  "phase2-coherence",
 		Status: "pass",
-		Checks: 9, // claims, fixtures, unique-ids, tool-config-traceability, pairs-with, orphans, exempt-scope-decision, path-scope-dispatch, path-scope-fixture-mask
+		Checks: 10, // claims, fixtures, unique-ids, tool-config-traceability, pairs-with, orphans, exempt-scope-decision, path-scope-dispatch, path-scope-fixture-mask, command-pack-relative-file
 	}
 	if pack == nil {
 		res.Status = "fail"
@@ -158,6 +158,21 @@ func RunCoherence(pack *PackManifest, packDir string) *PhaseResult {
 			Message: pathScopeMaskMessage(m),
 			FixHint: pathScopeFixHint,
 			Files:   []string{m.RuleSource},
+		})
+	}
+
+	// A producer-less engine whose command: names a pack file is broken at gate
+	// time: the gate runs command: with the PROJECT root as cwd, so the file is not
+	// found there, the tool exits non-zero with empty output and (before ISSUE-207)
+	// read as a clean pass. Blocking, and in phase 2 so pack check catches it too.
+	for _, f := range commandPackFileFindings(pack, packDir) {
+		res.Errors = append(res.Errors, ValidationError{
+			Phase: res.Phase,
+			Check: commandPackFileCheckName,
+			Message: "engine " + f.Engine + " command: token " + f.Token + " names a file in the pack, but the gate runs " +
+				"command: with the PROJECT root as its working directory, so the file is not found at gate time",
+			FixHint:      "declare it as `producer: " + f.Token + "` (resolved against the pack dir) and remove it from command:; core never resolves command: against the pack dir",
+			ManifestPath: "engines." + f.Engine + ".command",
 		})
 	}
 

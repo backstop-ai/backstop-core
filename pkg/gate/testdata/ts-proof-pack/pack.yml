@@ -20,6 +20,8 @@ engines:
     # "Binary file <path> matches" line to STDOUT that the convert must not be
     # asked to parse. The convert REFUSES either shape rather than dropping it.
     command: grep -rn -H -I
+    # grep exits 1 with empty output when nothing matches, a clean result (ISSUE-207)
+    success_exit_codes: [0, 1]
     input_mode: pattern-arg
     input_flag: -e
     scope_kind: file-args

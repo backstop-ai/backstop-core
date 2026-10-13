@@ -4,7 +4,10 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
+
+	"github.com/backstop-ai/backstop-core/pkg/pack/engine"
 )
 
 var semverRe = regexp.MustCompile(`^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.\-]+)?$`) // nosemgrep: go.core.no-global-mutable-state — compile-once immutable regexp, never reassigned
@@ -13,7 +16,7 @@ func RunStructural(pack *PackManifest, packDir string) *PhaseResult {
 	res := &PhaseResult{
 		Phase:  "phase1-structural",
 		Status: "pass",
-		Checks: 5, // yaml-parse, required-fields, valid-enums, file-existence, risk-class
+		Checks: 6, // yaml-parse, required-fields, valid-enums, file-existence, risk-class, engine-success-exit-codes
 	}
 	if pack == nil {
 		res.Status = "fail"
@@ -87,6 +90,27 @@ func RunStructural(pack *PackManifest, packDir string) *PhaseResult {
 			}
 		}
 		// NOTE: tool_config.file intentionally excluded.
+	}
+
+	// Each engine's declared success_exit_codes is validated by the SAME authority
+	// the gate's manifest decode uses (engine.ValidateSuccessExitCodes, ISSUE-207
+	// D-4), so pack check and the gate cannot disagree about a declaration. packval
+	// decodes engines straight into engine.EngineBinding; a non-integer value has
+	// already failed that decode as a parse-manifest error.
+	engineNames := make([]string, 0, len(pack.Engines))
+	for name := range pack.Engines {
+		engineNames = append(engineNames, name)
+	}
+	sort.Strings(engineNames)
+	for _, name := range engineNames {
+		if err := engine.ValidateSuccessExitCodes(pack.Engines[name].SuccessExitCodes); err != nil {
+			res.Errors = append(res.Errors, ValidationError{
+				Phase:        res.Phase,
+				Check:        "engine-success-exit-codes",
+				Message:      "engine " + name + ": " + err.Error(),
+				ManifestPath: "engines." + name + ".success_exit_codes",
+			})
+		}
 	}
 
 	if len(res.Errors) > 0 {

@@ -51,6 +51,12 @@
             }
           }
         },
+        "coverage_floor": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Fallback per-file coverage threshold (percent) for changed files that no qualifying spec coverage_threshold governs. Unset means 90; 0 means no floor. A qualifying spec threshold takes precedence, even when lower. Not applied by gate --all today."
+        },
         "waiver_warning_days": {
           "type": "integer",
           "default": 30,

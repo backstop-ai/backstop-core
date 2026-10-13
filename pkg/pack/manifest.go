@@ -123,6 +123,10 @@ type EngineSpec struct {
 	// it). It is DATA the go-toolchain pack declares so the toolchain's crash
 	// semantics live in the pack, not a baked binding (ISSUE-027).
 	CrashGuard bool `yaml:"crash_guard"`
+	// SuccessExitCodes is the engine's declared no-findings exit-status set
+	// (ISSUE-207); nil means undeclared ({0}). Wired through parseEngineSpec, which
+	// validates it, so a pack.yml success_exit_codes key is never silently dropped.
+	SuccessExitCodes []int `yaml:"success_exit_codes"`
 	// ExemptFromScopeFilter marks an engine whose violations bypass diff-scope
 	// filtering (the go-build declared build-exemption, SPEC-041 CLM-011). Declared
 	// as pack DATA so the exemption travels with the pack, not a baked binding.
@@ -612,6 +616,7 @@ func parseEngineSpec(spec EngineSpec) (engine.EngineBinding, error) {
 		PackageScoped:         spec.PackageScoped,
 		ProjectTarget:         spec.ProjectTarget,
 		CrashGuard:            spec.CrashGuard,
+		SuccessExitCodes:      spec.SuccessExitCodes,
 		ExemptFromScopeFilter: spec.ExemptFromScopeFilter,
 		Provision:             spec.Provision,
 	}
@@ -639,6 +644,10 @@ func parseEngineSpec(spec EngineSpec) (engine.EngineBinding, error) {
 		return engine.EngineBinding{}, fmt.Errorf("parse gate_type: %w", err)
 	}
 	binding.GateType = gateType
+
+	if err := engine.ValidateSuccessExitCodes(spec.SuccessExitCodes); err != nil {
+		return engine.EngineBinding{}, fmt.Errorf("parse success_exit_codes: %w", err)
+	}
 
 	if spec.FieldContract != nil {
 		binding.FieldContract = *spec.FieldContract

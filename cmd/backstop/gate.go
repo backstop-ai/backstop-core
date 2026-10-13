@@ -1027,7 +1027,11 @@ func buildGateStepsWithSandbox(projectRoot string, root artifact.Root, sandboxRu
 	// would re-violate REQ-002). The records are sourced lazily at step-run time so the
 	// producer is exercised inside the gate (CLM-003). The merged classifier (above) is
 	// also threaded into the coverage step (SPEC-043 REQ-005).
-	coverageStep := buildCoverageStep(specDir, projectRoot, activeScope, classifier, coverageRecordsProducerWithSandbox(packs, projectRoot, sandboxRunner))
+	// ISSUE-217: the fallback threshold is the project's enforcement.coverage_floor,
+	// loaded here so every caller of this assembly (gate, baseline, waiver, init seams)
+	// gets the same floor. A load error is carried into the step, never defaulted.
+	coverageFloor, coverageFloorErr := coverageFloorForProject(projectRoot)
+	coverageStep := buildCoverageStep(specDir, projectRoot, activeScope, classifier, coverageRecordsProducerWithSandbox(packs, projectRoot, sandboxRunner), coverageFloor, coverageFloorErr)
 
 	// Step 6: Contract signature needs contract entries extracted from specs.
 	contractStep := buildContractStepWithSandbox(specDir, projectRoot, activeScope, sandboxRunner)
@@ -1177,11 +1181,31 @@ func buildGateStepsWithSandbox(projectRoot string, root artifact.Root, sandboxRu
 			dispatchResult, err = dispatchPackEnginesWithEvidence(dispatchPacks, filepath.Join(projectRoot, ".backstop", "packs"), projectRoot, activeScope, runner, sandboxRunner)
 		}
 		if err != nil {
+			// PRESERVE WHAT RAN (ISSUE-209). The dispatcher continues past a failed
+			// engine: it returns every finding the other engines produced plus one
+			// engine-error violation (Rule pack_engines, ProjectWide) per failure.
+			// Report them through the SAME diff-scope filter as the success path —
+			// engine-error violations always survive it via ProjectWide — and stay a
+			// config error so the gate still exits 2. The preserved findings are
+			// informational: the ConfigErr halt and ApplyPolicy's ConfigErr skip are
+			// unchanged, so nothing here is baselined or waived.
+			//
+			// The verdict collector is deliberately NOT published on this path (D-5):
+			// its consumer (test_verification) runs after pack_engines and is always
+			// skipped by the ConfigErr halt, so a partial publish is unobservable
+			// today. Revisit together with the deferred halt question.
+			violations := activeScope.FilterViolations(dispatchResult.Violations)
+			// Seam fallback (D-6): an error with no engine-error violation (e.g. a
+			// seam stub returning (nil, err)) still names its error, so the step can
+			// never fail without saying why.
+			if !hasStepRuleViolation(violations, gate.StepPackEngines) {
+				violations = append(violations, gate.Violation{Rule: "pack_engines", Message: err.Error(), Severity: "error"})
+			}
 			return stepResultWithNativeSandbox(gate.StepResult{
 				StepName:   "pack_engines",
 				Status:     "fail",
 				ConfigErr:  true,
-				Violations: []gate.Violation{{Rule: "pack_engines", Message: err.Error(), Severity: "error"}},
+				Violations: violations,
 			}, dispatchResult.NativeSandboxApplied)
 		}
 		// PUBLISH THE UNFILTERED STREAM TO THE VERDICT COLLECTOR — BEFORE THE FILTER
@@ -1220,6 +1244,17 @@ func buildGateStepsWithSandbox(projectRoot string, root artifact.Root, sandboxRu
 	packed = append(packed, steps[0], packValidatorStep)
 	packed = append(packed, steps[1:]...)
 	return packed
+}
+
+// hasStepRuleViolation reports whether any violation carries the step's own rule
+// name — the marker the dispatcher stamps on a failed engine (ISSUE-209).
+func hasStepRuleViolation(violations []gate.Violation, stepName string) bool {
+	for _, v := range violations {
+		if v.Rule == stepName {
+			return true
+		}
+	}
+	return false
 }
 
 func stepResultWithNativeSandbox(result gate.StepResult, applied bool) gate.StepResult {
@@ -1435,8 +1470,8 @@ func resolveSubstantivenessPacks(projectRoot string) ([]*pack.Manifest, error) {
 
 // buildTestSubstantivenessStep re-implements the substantiveness step (SPEC-037 REQ-005)
 // to CONSUME the substantiveness pack's Q1 findings + Q2 extraction through the EXISTING
-// resolveDispatchPackEngines() / dispatchPackEnginesFn seam (the same dispatcher code
-// check and the pack_engines step use) — NOT a re-implemented dispatcher and NOT the
+// dispatchPackEnginesFn seam, falling back to dispatchPackEnginesWithEvidence (the same
+// dispatcher the pack_engines step uses) — NOT a re-implemented dispatcher and NOT the
 // deleted go/parser analyzer. It then routes the flat []gate.Violation result by
 // namespaced rule ID, keys extraction findings per mandated test, and runs the
 // language-agnostic gate set-join (NoTargetViolation) + hollow → test_substantiveness
@@ -1514,6 +1549,10 @@ func buildTestSubstantivenessStepWithSandbox(specDir, codeDir, projectRoot strin
 			flat, err = dispatchResult.Violations, dispatchErr
 			nativeSandboxApplied = dispatchResult.NativeSandboxApplied
 		}
+		// FAIL WHOLE (ISSUE-209; ISSUE-112 precedent). The dispatcher may now return
+		// violations ALONGSIDE an error — the findings of engines that did not fail.
+		// They are deliberately ignored: routing a partial stream would manufacture
+		// hollow and noTarget verdicts from an incomplete extraction.
 		if err != nil {
 			return stepResultWithNativeSandbox(gate.StepResult{
 				StepName:   gate.StepTestSubstantiveness,
@@ -1743,8 +1782,20 @@ func mergeSourceClassifier(packs []*pack.Manifest) gate.SourceClassifier {
 // dispatchPackCoverage) — NOT a binary-resident `go test` runner (REQ-002). The
 // records are produced lazily inside the step so the producer is exercised in the
 // gate (CLM-003).
-func buildCoverageStep(specDir, projectRoot string, scope *gate.GateScope, classifier gate.SourceClassifier, records coverageRecordsFn) gate.StepFunc {
+//
+// floor is the resolved enforcement.coverage_floor (ISSUE-217). A non-nil floorErr
+// (backstop.yml exists but failed to load) makes the step a ConfigErr naming the
+// error — it never falls back silently to the default.
+func buildCoverageStep(specDir, projectRoot string, scope *gate.GateScope, classifier gate.SourceClassifier, records coverageRecordsFn, floor int, floorErr error) gate.StepFunc {
 	return func(ctx context.Context) gate.StepResult {
+		if floorErr != nil {
+			return gate.StepResult{
+				StepName:   gate.StepCoverageThreshold,
+				Status:     "fail",
+				ConfigErr:  true,
+				Violations: []gate.Violation{{Rule: "coverage_threshold", Message: "failed to load the coverage floor from backstop.yml: " + floorErr.Error(), Severity: "error"}},
+			}
+		}
 		specs, err := gate.ExtractSpecVerifications(specDir)
 		if err != nil {
 			return gate.StepResult{
@@ -1769,11 +1820,28 @@ func buildCoverageStep(specDir, projectRoot string, scope *gate.GateScope, class
 				}, nativeSandboxApplied)
 			}
 		}
-		step := gate.StepCoverageThresholdScopedFunc(coverage, specs, scope, classifier)
+		step := gate.StepCoverageThresholdScopedFunc(coverage, specs, scope, classifier, gate.WithCoverageFloor(floor))
 		result := step(ctx)
 		result.NativeSandboxApplied = nativeSandboxApplied
 		return result
 	}
+}
+
+// coverageFloorForProject resolves enforcement.coverage_floor from the project's
+// backstop.yml (ISSUE-217). A missing backstop.yml gives the default (nothing to
+// configure); a file that exists but fails to load returns the load error as is, so
+// the coverage step can report it rather than default silently. It deliberately does
+// not reuse gateConfig, which swallows load errors.
+func coverageFloorForProject(projectRoot string) (int, error) {
+	path := filepath.Join(projectRoot, "backstop.yml")
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return config.DefaultCoverageFloor, nil
+	}
+	cfg, err := config.LoadConfigFromPath(path)
+	if err != nil {
+		return 0, err
+	}
+	return cfg.Enforcement.EffectiveCoverageFloor(), nil
 }
 
 type evidenceSandboxRunner struct {
@@ -1806,7 +1874,7 @@ var contractEngineResultsFn func(projectRoot string, contracts []gate.ContractEn
 
 // produceContractEngineResults builds the []ContractEngineResult buildContractStep
 // verdicts off. In production it runs the PACK path (dispatchContractEntry ->
-// resolveDispatchPackEngines -> sandboxed convert -> SARIF) over
+// dispatchPackEnginesWithEvidence -> sandboxed convert -> SARIF) over
 // each declared contract entry; it NEVER routes to the deleted go/parser analyzer
 // (CLM-021). A test seam may override it so the wiring spy can assert the pack path
 // is the one consumed (CLM-020) and an unwired path fails (CLM-022).
@@ -1878,8 +1946,8 @@ func resolveContractsPacks(projectRoot string) ([]*pack.Manifest, error) {
 	return []*pack.Manifest{m}, nil
 }
 
-// dispatchContractEntry runs ONE contract entry through the REAL pack-engine dispatch
-// seam (resolveDispatchPackEngines → dispatchPackEngines → runFindingsEngine), so the
+// dispatchContractEntry runs ONE contract entry through the REAL pack-engine dispatcher
+// (dispatchPackEnginesWithEvidence → runFindingsEngineWithEvidence), so the
 // engine command clears the trusted-tool allowlist (CheckToolAllowed — REQ-005) and the
 // convert script runs under the REAL sandbox (packval.SandboxedRunStdout — CLM-049). It
 // builds a SINGLE-RULE in-memory manifest from the contracts pack's DECLARED engines: a
@@ -1942,6 +2010,9 @@ func dispatchContractEntryWithSandbox(projectRoot string, manifest *pack.Manifes
 	runner := &check.ExecCommandRunner{Dir: projectRoot, Env: packChildEnvironment()}
 	packDir := filepath.Join(projectRoot, ".backstop", "packs")
 	dispatchResult, dispErr := dispatchPackEnginesWithEvidence([]*pack.Manifest{single}, packDir, projectRoot, scope, runner, sandboxRunner)
+	// FAIL WHOLE (ISSUE-209). The dispatcher may now return violations alongside
+	// an error, including an engine-error violation for the failed engine. They are
+	// deliberately ignored: reading them would turn an engine failure into a MATCH.
 	if dispErr != nil {
 		return gate.ContractEngineResult{}, fmt.Errorf("dispatching contract engine for %s: %w", c.Name, dispErr)
 	}

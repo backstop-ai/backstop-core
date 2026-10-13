@@ -122,6 +122,32 @@ The sample sandbox validator has no convert: the validator is the logic.
 <p>The claim is the definition; the rule is its implementation; the engine executes that implementation. Fixtures exercise the rule against known cases to prove the implementation behaves correctly.</p>
 </div>
 
+### Declare exit status
+
+<!-- backstop-claim: CLAIM-038 -->
+A findings engine's output, not its exit status, is its contract: a tool may exit non-zero because it found something, and any non-empty output is parsed as findings whatever the status. The exit status decides one case, an empty output.
+
+Each engine has a set of exit statuses that mean "ran and found nothing". The set is `[0]` unless the engine declares `success_exit_codes`. When the tool's raw output is empty and its exit status is not in the set, the engine has failed. Backstop reports it as a configuration error (exit 2), never as a clean pass. Raw output means the `stdout_artifact` file when one is declared, otherwise stdout, and it is judged before any `convert:` runs. A convert therefore cannot turn a crashed tool's empty output into an empty SARIF result.
+
+Some tools exit non-zero with empty output on a clean run. `grep` exits 1 when nothing matches. Declare that status, even when the engine has a convert:
+
+```yaml
+engines:
+  grep:
+    command: grep -rn -H -I
+    # grep exits 1 with empty output when nothing matches, a clean result
+    success_exit_codes: [0, 1]
+```
+
+The value must be a non-empty list of distinct integers from 0 to 255 that includes 0. Omitting the key, or setting it to null, gives the default `[0]`. A run that fails without any exit status is never accepted.
+
+An engine with `crash_guard: true` uses the same set: a listed status with no findings is clean, and any other status with no findings is a crash. Without a declared set its behaviour is unchanged.
+
+`command:` runs with the project root as its working directory. It is never resolved against the pack directory, so `command: sh tool.sh` with `tool.sh` in the pack cannot find the script at gate time. Ship such a script as `producer: tool.sh` instead; `producer:` is resolved against the pack directory. `backstop pack check` and `backstop pack test` fail a `command:` token that names a pack file (check `command-pack-relative-file`), except on engines that declare `producer:`.
+
+**Behavior change (next minor release):** findings engines that exit non-zero with empty output now fail, with a message naming the status and the `success_exit_codes` line to declare when that status is a legitimate no-findings result.
+<!-- /backstop-claim -->
+
 ### Define claims
 
 A claim is the definition of what must be true. Declare it on the rule with an `id`, `text`, and both fixture polarities. There is no separate claims list.

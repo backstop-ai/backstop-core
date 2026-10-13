@@ -380,8 +380,22 @@ func TestFindingsEngine_ProducerNeverStartedIsRefused(t *testing.T) {
 	if strings.Contains(dispErr.Error(), "crashed") {
 		t.Errorf("a process that never ran must NOT be reported as a crash; got: %v", dispErr)
 	}
-	if len(violations) != 0 {
-		t.Errorf("a refused run must yield no violations that could read as a clean scan; got %#v", violations)
+	// ISSUE-209: the refused engine is recorded as its own engine-error violation.
+	// A refused run must still yield no finding that could read as a clean scan —
+	// only that one engine-error violation, carrying exactly the refusal text.
+	engineErrs := 0
+	for _, v := range violations {
+		if v.Rule != gate.StepPackEngines || v.Severity != "error" || v.File != "" || v.SourcePack != "" {
+			t.Errorf("a refused run must yield no finding that could read as a clean scan; got %#v", v)
+			continue
+		}
+		engineErrs++
+		if v.Message != dispErr.Error() {
+			t.Errorf("the engine-error violation must carry the refusal text %q, got %q", dispErr.Error(), v.Message)
+		}
+	}
+	if engineErrs != 1 {
+		t.Errorf("want exactly one engine-error violation for the refused producer, got %d: %#v", engineErrs, violations)
 	}
 }
 

@@ -319,14 +319,26 @@ func ghAPI(projectRoot, endpoint string) ([]byte, error) {
 // It returns "" when nothing carries ConfigErr — a gate that failed before building
 // any step genuinely has nothing to add, and inventing a diagnostic there would be
 // worse than saying less.
+//
+// When a ConfigErr step carries any violation whose Rule is the step's own name, only
+// those violations are rendered (after the Reason, in order). A pack_engines step can
+// now carry PRESERVED FINDINGS from the engines that did not fail next to one such
+// engine-error violation per failed engine (ISSUE-209); the findings are not the
+// config error, and concatenating them would bury what actually broke. A step with no
+// such violation (e.g. traceability polarity's "<dim>_broken_declared") renders every
+// message exactly as before.
 func configErrorDiagnostic(steps []gate.StepResult) string {
 	parts := []string{}
 	for _, step := range steps {
 		if !step.ConfigErr {
 			continue
 		}
+		onlyStepRule := hasStepRuleViolation(step.Violations, step.StepName)
 		detail := strings.TrimSpace(step.Reason)
 		for _, v := range step.Violations {
+			if onlyStepRule && v.Rule != step.StepName {
+				continue
+			}
 			if msg := strings.TrimSpace(v.Message); msg != "" {
 				detail = strings.TrimSpace(detail + " " + msg)
 			}

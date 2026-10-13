@@ -64,6 +64,8 @@ engines:
     # "Binary file <path> matches" line to STDOUT that the convert must not be
     # asked to parse. The convert REFUSES either shape rather than dropping it.
     command: grep -rn -H -I BACKSTOP_SCAFFOLD_PRESENT_9C21 src
+    # grep exits 1 with empty output when nothing matches, a clean result (ISSUE-207)
+    success_exit_codes: [0, 1]
     input_mode: none
     scope_kind: project-wide
     category: opinion

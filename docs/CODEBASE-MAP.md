@@ -175,7 +175,15 @@ exclusion, `fileModeTestTarget` and ProjectTarget all survive — which is why i
 differs from `runCoverageEngine`'s BARE producer invocation. go-toolchain
 declares one on go-test/go-build because `go` writes located compiler/vet
 diagnostics to stderr while core captures stdout by design (SPEC-031 CLM-028),
-so the PACK owns the merge. Coverage is a separate channel: `dispatchPackCoverage`
+so the PACK owns the merge. DECLARED SUCCESS EXIT CODES (ISSUE-207): an EMPTY
+raw findings payload (stdout_artifact, else stdout, BEFORE convert) with an exit
+status outside `binding.EffectiveSuccessExitCodes()` ({0} undeclared) is a
+`*check.ConfigError`, not a clean pass; `exitAccepted` (pack_gate.go) and
+`runAccepted` (packval executor.go) both read `check.ExitStatus`, and the same
+predicate drives the CrashGuard guard. packval phase 2 blocks a producer-less
+`command:` token naming a pack file (`command-pack-relative-file`). ISSUE-206
+(pack test phase-3 dispatch parity) must land with or after this rule, never
+before. Coverage is a separate channel: `dispatchPackCoverage`
 (`pack_gate.go:339`) → `ParsePackCoverage`, routed on `GateType==coverage`.
 PACK SEVERITY CONTRACT — a pack's SARIF `level: warning` is NON-BLOCKING by
 contract, `level: error` and an ABSENT level both block (fail-closed). Stated

@@ -44,6 +44,10 @@ Artifact schemas live under `artifacts/<kind>/v1/schema.json`. The CLI reserves 
 The repository root contains `backstop.yml`. Its `project`, `packs`, and `enforcement.policy` fields declare versioned standards and policy levels. The lock under `.backstop/` binds resolved pack bytes.
 <!-- /backstop-claim -->
 
+<!-- backstop-claim: CLAIM-037 -->
+`enforcement.coverage_floor` sets the project's fallback per-file coverage bar: a whole number from 0 to 100. When the key is absent the bar is 90, and `0` means no floor. It applies to changed files that no qualifying spec `coverage_threshold` governs; a qualifying spec threshold takes precedence, even when it is lower than the floor. Any other value, including an empty value, is rejected when `backstop.yml` loads. Known asymmetry: `backstop gate --all` does not apply the floor today, so a repository with no qualifying spec threshold is held to the floor on a diff-scoped gate but not on a full sweep. Changing that is a separate concern.
+<!-- /backstop-claim -->
+
 ## CLI conventions {#cli-conventions}
 
 <!-- backstop-claim: CLAIM-027 -->

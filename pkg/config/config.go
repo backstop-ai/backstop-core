@@ -61,6 +61,26 @@ type Enforcement struct {
 	// behavior (block, all-code). The keys are backstop's universal dimension
 	// vocabulary — never a tool or language name.
 	Policy map[string]DimensionPolicy `yaml:"policy,omitempty" json:"policy,omitempty"`
+	// CoverageFloor is the project-level fallback per-file coverage threshold (an
+	// integer 0-100), applied to changed files that no qualifying spec
+	// coverage_threshold governs. It is presence-aware: nil (key absent) means
+	// DefaultCoverageFloor, while an explicit 0 is kept and means "no floor". Read it
+	// through EffectiveCoverageFloor, never directly.
+	CoverageFloor *int `yaml:"coverage_floor,omitempty" json:"coverage_floor,omitempty"`
+}
+
+// DefaultCoverageFloor is the fallback per-file coverage threshold used when
+// enforcement.coverage_floor is unset. pkg/gate carries the same value for callers
+// that pass no floor; a test pins the two equal.
+const DefaultCoverageFloor = 90
+
+// EffectiveCoverageFloor resolves enforcement.coverage_floor: the configured value
+// when present (including 0, meaning no floor), DefaultCoverageFloor when unset.
+func (e Enforcement) EffectiveCoverageFloor() int {
+	if e.CoverageFloor == nil {
+		return DefaultCoverageFloor
+	}
+	return *e.CoverageFloor
 }
 
 // DimensionPolicy is one row of the enforcement policy table: how strictly a gate
@@ -202,6 +222,13 @@ func LoadConfigFromPath(path string) (*Config, error) {
 		return nil, fmt.Errorf("reading config %s: %w", path, err)
 	}
 
+	// enforcement.coverage_floor is checked on the raw node BEFORE the typed decode,
+	// so a wrong-typed value fails with an error that names the key (the typed
+	// decode's own type error does not).
+	if err := validateCoverageFloorNode(data); err != nil {
+		return nil, err
+	}
+
 	// Strict YAML decode to reject unknown keys
 	var cfg Config
 	decoder := yaml.NewDecoder(strings.NewReader(string(data)))
@@ -221,6 +248,60 @@ func LoadConfigFromPath(path string) (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+// validateCoverageFloorNode enforces enforcement.coverage_floor at load: when the
+// key is present its value must be a plain integer scalar in 0-100. Floats,
+// strings, booleans, collections and an explicit null (including a bare
+// `coverage_floor:`) are rejected — a present-but-empty key is almost always a
+// mistake, and silently applying the default would hide it; omit the key instead.
+func validateCoverageFloorNode(data []byte) error {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return fmt.Errorf("parsing backstop.yml: %w", err)
+	}
+	root := &doc
+	if root.Kind == yaml.DocumentNode && len(root.Content) > 0 {
+		root = root.Content[0]
+	}
+	enf := mappingValue(root, "enforcement")
+	if enf == nil {
+		return nil
+	}
+	floor := mappingValue(enf, "coverage_floor")
+	if floor == nil {
+		return nil
+	}
+	const want = "must be an integer from 0 to 100; omit the key for the default 90"
+	if floor.Kind != yaml.ScalarNode || floor.Tag != "!!int" {
+		shown := floor.Value
+		if floor.Kind != yaml.ScalarNode || floor.Tag == "!!null" {
+			shown = floor.ShortTag()
+		}
+		return fmt.Errorf("invalid enforcement.coverage_floor %q: %s", shown, want)
+	}
+	var value int
+	if err := floor.Decode(&value); err != nil {
+		return fmt.Errorf("invalid enforcement.coverage_floor %q: %s", floor.Value, want)
+	}
+	if value < 0 || value > 100 {
+		return fmt.Errorf("invalid enforcement.coverage_floor %d: %s", value, want)
+	}
+	return nil
+}
+
+// mappingValue returns the value node for key in a YAML mapping node, or nil when
+// node is not a mapping or the key is absent.
+func mappingValue(node *yaml.Node, key string) *yaml.Node {
+	if node == nil || node.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if node.Content[i].Value == key {
+			return node.Content[i+1]
+		}
+	}
+	return nil
 }
 
 // BaselineTTLDuration resolves enforcement.baseline_ttl with defaulting.

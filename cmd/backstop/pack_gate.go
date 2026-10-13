@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -221,6 +222,20 @@ func declaredPackNames(cfg *config.Config) []string {
 // An unknown engine, an unknown input_mode, or a missing declared input path is
 // a fail-loud config error naming the pack — never a silent skip or inferred
 // fallback.
+//
+// CONTINUE PAST AN ENGINE ERROR (ISSUE-209). dispatchPackEnginesWithEvidence does
+// NOT stop at the first failing engine. Each failure — a registry lookup miss, a
+// sandbox-engine error, or a findings-engine error — is recorded as its own
+// engine-error violation (engineErrorViolation) in dispatch order, the failing
+// engine's own partial output is discarded, and every later engine in the pack and
+// every later pack is still dispatched. Findings from engines before AND after a
+// failure are returned in result.Violations ALONGSIDE a non-nil error, which is the
+// errors.Join of each wrapped engine error in dispatch order (for a single failure
+// its text is exactly that one wrapped error, and errors.As still reaches e.g. a
+// *check.ConfigError). NativeSandboxApplied is the OR across every engine that ran.
+// A caller that must fail whole (substantiveness, contract entries) simply ignores
+// the violations whenever the error is non-nil.
+//
 // The scope parameter carries the gate's changed-file diff scope (untracked
 // inclusive) so rule-fed findings engines scan only the in-scope changed files
 // instead of the whole repository (ISSUE-010). Only a NIL scope is the
@@ -229,11 +244,14 @@ func declaredPackNames(cfg *config.Config) []string {
 // included since ISSUE-091 — hands that list over instead. The project-wide toolchain branch
 // (go build/test ./..., golangci-lint run ./...) is unaffected by scope — it
 // stays project-wide so unchanged-file breakage still fails the gate.
-// dispatchPackEnginesFn is a test seam: nil in production (resolveDispatchPackEngines
-// falls back to the concrete dispatchPackEngines), overridden by tests to inject
-// a hermetic stub. It is declared WITHOUT an initializer so it holds no
-// package-level mutable default. It is the gate's dispatch seam (used by the
-// pack_engines / substantiveness / contracts steps in gate.go).
+// dispatchPackEnginesFn is a test seam: nil in production, where the gate steps
+// call dispatchPackEnginesWithEvidence directly; overridden by tests to inject a
+// hermetic stub. It is declared WITHOUT an initializer so it holds no
+// package-level mutable default. The pack_engines and substantiveness steps in
+// gate.go consult it before falling back to dispatchPackEnginesWithEvidence; the
+// contract-entry probe always calls dispatchPackEnginesWithEvidence.
+// resolveDispatchPackEngines and the dispatchPackEngines wrapper below are the
+// test-only path that resolves the seam or wraps the evidence dispatcher.
 var dispatchPackEnginesFn func([]*pack.Manifest, string, string, *gate.GateScope, check.CommandRunner) ([]gate.Violation, error)
 
 // resolveDispatchPackEngines returns the injected dispatch seam or the concrete
@@ -265,9 +283,42 @@ func newPackEngineDispatchResult(violations []gate.Violation, nativeSandboxAppli
 	return result
 }
 
+// engineErrorViolation is the violation one failed engine contributes to the
+// dispatch result (ISSUE-209 D-1). Its shape is fixed:
+//
+//	Rule: gate.StepPackEngines  the step's own rule name, distinct from every
+//	                            namespaced pack-rule finding ("org/pack/<rule>").
+//	SourcePack: ""              DELIBERATELY EMPTY. gate.FormatHuman prefixes Rule
+//	                            with SourcePack, which would render the error as a
+//	                            namespaced "[org/pack/pack_engines]" pack rule; the
+//	                            message already names the pack and the engine.
+//	File: ""                    no scoped file is attributable to a dispatch failure.
+//	ProjectWide: true           LOAD-BEARING: the pack_engines step runs
+//	                            activeScope.FilterViolations over the preserved
+//	                            stream, which keeps a File-less violation only when
+//	                            ProjectWide is set. This is the same core-emitted
+//	                            dispatch-decision precedent as dispatchAdvisory, and
+//	                            ProjectWide is json:"-" and outside baseline identity.
+func engineErrorViolation(err error) gate.Violation {
+	return gate.Violation{
+		Rule:        gate.StepPackEngines,
+		Message:     err.Error(),
+		Severity:    "error",
+		File:        "",
+		ProjectWide: true,
+	}
+}
+
 func dispatchPackEnginesWithEvidence(packs []*pack.Manifest, packDir, projectRoot string, scope *gate.GateScope, runner check.CommandRunner, sandboxRunner packval.SandboxRunner) (packEngineDispatchResult, error) {
 	violations := []gate.Violation{}
 	nativeApplied := false
+	// Every engine failure, in dispatch order (ISSUE-209). Dispatch continues past
+	// each one; see "CONTINUE PAST AN ENGINE ERROR" in the dispatcher doc above.
+	var errs []error
+	recordEngineError := func(err error) {
+		errs = append(errs, err)
+		violations = append(violations, engineErrorViolation(err))
+	}
 	for _, manifest := range packs {
 		packRoot := filepath.Join(packDir, filepath.FromSlash(manifest.NormalizedName))
 
@@ -285,7 +336,10 @@ func dispatchPackEnginesWithEvidence(packs []*pack.Manifest, packDir, projectRoo
 		for _, engineName := range order {
 			binding, lookupErr := registry.Lookup(engineName)
 			if lookupErr != nil {
-				return packEngineDispatchResult{}, fmt.Errorf("pack %s: %w", manifest.NormalizedName, lookupErr)
+				// A lookup miss ran nothing, so it contributes no sandbox evidence —
+				// but it must not reset the evidence of engines that already ran.
+				recordEngineError(fmt.Errorf("pack %s: %w", manifest.NormalizedName, lookupErr))
+				continue
 			}
 			rules := grouped[engineName]
 
@@ -297,24 +351,28 @@ func dispatchPackEnginesWithEvidence(packs []*pack.Manifest, packDir, projectRoo
 			// (SPEC-034 REQ-001/REQ-004).
 			if binding.InputMode == engine.InputModeNone && binding.Command == "" {
 				vs, applied, err := runSandboxEngineWithEvidence(manifest, packRoot, projectRoot, rules, sandboxRunner)
-				if err != nil {
-					return newPackEngineDispatchResult(nil, nativeApplied || applied), fmt.Errorf("dispatching sandbox engine %q for pack %s: %w", engineName, manifest.NormalizedName, err)
-				}
 				nativeApplied = nativeApplied || applied
+				if err != nil {
+					// The failing engine's own partial output is discarded (D-3).
+					recordEngineError(fmt.Errorf("dispatching sandbox engine %q for pack %s: %w", engineName, manifest.NormalizedName, err))
+					continue
+				}
 				violations = append(violations, vs...)
 				continue
 			}
 
 			// Findings engine: gather inputs, run, convert, parseSarif.
 			vs, applied, err := runFindingsEngineWithEvidence(manifest, packRoot, projectRoot, scope, binding, rules, runner, sandboxRunner)
-			if err != nil {
-				return newPackEngineDispatchResult(nil, nativeApplied || applied), fmt.Errorf("dispatching findings engine %q for pack %s: %w", engineName, manifest.NormalizedName, err)
-			}
 			nativeApplied = nativeApplied || applied
+			if err != nil {
+				// The failing engine's own partial output is discarded (D-3).
+				recordEngineError(fmt.Errorf("dispatching findings engine %q for pack %s: %w", engineName, manifest.NormalizedName, err))
+				continue
+			}
 			violations = append(violations, vs...)
 		}
 	}
-	return newPackEngineDispatchResult(violations, nativeApplied), nil
+	return newPackEngineDispatchResult(violations, nativeApplied), errors.Join(errs...)
 }
 
 // dispatchPackCoverage is the coverage-records dispatch channel (SPEC-042
@@ -419,6 +477,61 @@ func neverStartedError(manifest *pack.Manifest, invoked string, runErr error) er
 		"pack %s engine %q never started: the process could not be executed (%v) — this is a broken run, not a finding-free pass; ensure the command is present and executable",
 		manifest.NormalizedName, invoked, runErr,
 	)}
+}
+
+// exitAccepted reports whether a STARTED run's outcome is one of the engine's
+// declared no-findings exit statuses (ISSUE-207 D-3). A nil runErr is exit 0; an
+// error carrying an exit status (check.ExitStatus) is accepted iff that status is
+// in the set. An error with NO extractable status is never accepted (fail-safe).
+// It is the one predicate both the empty-payload check and the CrashGuard guard in
+// runFindingsEngine use.
+func exitAccepted(runErr error, set []int) bool {
+	status := 0
+	if runErr != nil {
+		code, ok := check.ExitStatus(runErr)
+		if !ok {
+			return false
+		}
+		status = code
+	}
+	for _, accepted := range set {
+		if accepted == status {
+			return true
+		}
+	}
+	return false
+}
+
+// emptyPayloadExitError renders the ISSUE-207 D-2 refusal for a findings engine
+// that produced an EMPTY raw output with an exit status outside its declared
+// success_exit_codes. It is a *check.ConfigError (exit 2), the same class as
+// neverStartedError, and it tells the author how to declare a status that IS a
+// legitimate no-findings result. A run error with no exit status gets no hint: it
+// can never be declared clean.
+func emptyPayloadExitError(manifest *pack.Manifest, binding engine.EngineBinding, runErr error, set []int) error {
+	status, ok := check.ExitStatus(runErr)
+	if runErr != nil && !ok {
+		return &check.ConfigError{Message: fmt.Sprintf(
+			"pack %s engine %q: a failed run with no exit status (%v) with an empty findings payload is an engine failure, not a clean pass",
+			manifest.NormalizedName, binding.Command, runErr,
+		)}
+	}
+	return &check.ConfigError{Message: fmt.Sprintf(
+		"pack %s engine %q: exit status %d with an empty findings payload is an engine failure, not a clean pass; if exit status %d is a legitimate no-findings result for this tool, declare it: success_exit_codes: %s",
+		manifest.NormalizedName, binding.Command, status, status, successExitCodesHint(set, status),
+	)}
+}
+
+// successExitCodesHint renders the declared set plus status, sorted, in YAML flow
+// form (e.g. "[0, 1]"), for the D-2 remedy line.
+func successExitCodesHint(set []int, status int) string {
+	codes := append(append([]int(nil), set...), status)
+	sort.Ints(codes)
+	parts := make([]string, 0, len(codes))
+	for _, code := range codes {
+		parts = append(parts, fmt.Sprintf("%d", code))
+	}
+	return "[" + strings.Join(parts, ", ") + "]"
 }
 
 // runCoverageEngine runs one coverage engine: the trust gate, gather inputs, run the
@@ -859,11 +972,15 @@ func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, sc
 
 	stdout, runErr := runner.RunStdout(context.Background(), invoked, cmdArgs...)
 	// A rule-fed/config-file findings engine exits non-zero when it reports
-	// findings; the SARIF on stdout is the contract, so a non-zero EXIT is not
-	// fatal on its own. A CrashGuard engine (native build/test) is different: a
-	// non-zero exit that yields NO parseable findings is a tool/infra crash, not a
-	// finding-free pass, and must fail loud rather than read as a silent green
-	// (SPEC-034 REQ-003/CLM-010).
+	// findings; the SARIF on stdout is the contract, so a non-zero EXIT with a
+	// non-empty payload is not fatal on its own. What the exit status DOES decide is
+	// the empty-payload case (ISSUE-207): each engine has a DECLARED set of
+	// no-findings statuses (success_exit_codes, {0} when undeclared), and an EMPTY
+	// raw output with a status outside that set is an engine failure — the tool
+	// crashed, or never found the script it was told to run — not a clean pass. A
+	// CrashGuard engine (native build/test) keeps its stricter guard below: a
+	// status outside the set with NO parseable findings is a crash (SPEC-034
+	// REQ-003/CLM-010).
 	//
 	// UNSTARTABLE CARVE-OUT (ISSUE-112) — this refusal is INDEPENDENT of CrashGuard
 	// and sits ahead of the artifact read and the convert. A process that never
@@ -895,6 +1012,17 @@ func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, sc
 			return nil, fmt.Errorf("pack %s findings engine %q: declared stdout_artifact %q not produced (%s): %w", manifest.NormalizedName, binding.Command, binding.StdoutArtifact, artifactPath, readErr)
 		}
 		payload = body
+	}
+
+	// DECLARED SUCCESS EXIT CODES (ISSUE-207 D-1/D-2). Judged on the RAW payload —
+	// the stdout_artifact file when declared, otherwise stdout — BEFORE the shape
+	// guard and the convert, so a convert can never launder a crashed tool's empty
+	// output into an empty-results SARIF envelope. Outside CrashGuard only: a
+	// CrashGuard engine's empty payload parses to zero findings, which its own guard
+	// below already treats as a crash, with that guard's wording.
+	successExitCodes := binding.EffectiveSuccessExitCodes()
+	if !binding.CrashGuard && len(bytes.TrimSpace(payload)) == 0 && !exitAccepted(runErr, successExitCodes) {
+		return nil, emptyPayloadExitError(manifest, binding, runErr, successExitCodes)
 	}
 
 	// Strict-SARIF guard for a config-file engine that assumes a NATIVE SARIF tool
@@ -930,14 +1058,17 @@ func runFindingsEngine(manifest *pack.Manifest, packRoot, projectRoot string, sc
 	}
 
 	// Crash-vs-findings guard (SPEC-034 REQ-003/CLM-010). For a CrashGuard engine
-	// a non-zero run with zero parseable findings is a compiler/test-binary crash
-	// or unparseable output, not a clean pass — surface it (naming the pack and
-	// engine) instead of returning a silent green.
+	// a run whose exit status is NOT in the declared success_exit_codes set (just
+	// {0} when undeclared, i.e. any non-zero exit) with zero parseable findings is a
+	// compiler/test-binary crash or unparseable output, not a clean pass — surface
+	// it (naming the pack and engine) instead of returning a silent green. A
+	// declared set lets the engine treat a listed status as clean (ISSUE-207 D-3);
+	// undeclared, the outcome and wording are unchanged for every input.
 	//
 	// By here the run DID start: the never-started refusal above returned earlier,
 	// so runErr at this point is a started process's exit status. That split is why
 	// the guard's "crashed" wording is accurate rather than misleading.
-	if binding.CrashGuard && runErr != nil && len(checkViolations) == 0 {
+	if binding.CrashGuard && !exitAccepted(runErr, successExitCodes) && len(checkViolations) == 0 {
 		return nil, fmt.Errorf("pack %s engine %q crashed: non-zero exit with no parseable findings: %w", manifest.NormalizedName, binding.Command, runErr)
 	}
 
