@@ -2,9 +2,12 @@ package check
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -82,7 +85,10 @@ type sarifLog struct {
 					} `json:"artifactLocation"`
 					Region struct {
 						StartLine int `json:"startLine"`
-						Snippet   struct {
+						// StartColumn feeds only the degenerate-partialFingerprints
+						// position hash (ISSUE-210); an absent column decodes as 0.
+						StartColumn int `json:"startColumn"`
+						Snippet     struct {
 							Text string `json:"text"`
 						} `json:"snippet"`
 					} `json:"region"`
@@ -93,6 +99,11 @@ type sarifLog struct {
 			// the baseline keys on, so multiple same-rule findings in one file stay
 			// distinct and a finding survives unrelated line shifts. Engines that omit
 			// it fall back to the snippet text, then to the coarse message identity.
+			// A DEGENERATE map (keys present, every value empty after TrimSpace, as
+			// gitleaks emits in dir mode) carries no identity and is never used as
+			// text: sarifFingerprint hashes the snippet, or the position when the
+			// snippet is empty or redacted, so no raw snippet enters the fingerprint
+			// on that path (ISSUE-210, fail-closed decision of 2026-10-13).
 			PartialFingerprints map[string]string `json:"partialFingerprints"`
 			// Suppressions is the SARIF suppression list (ISSUE-017). A result with a
 			// non-empty suppressions array is INACTIVE per the SARIF spec — e.g.
@@ -197,11 +208,12 @@ func parseSarif(out []byte, target CheckType) ([]Violation, error) {
 			if level == "" {
 				level = descriptorLevels[r.RuleID]
 			}
-			file, line, snippet := "", 0, ""
+			file, line, column, snippet := "", 0, 0, ""
 			if len(r.Locations) > 0 {
 				pl := r.Locations[0].PhysicalLocation
 				file = pl.ArtifactLocation.URI
 				line = pl.Region.StartLine
+				column = pl.Region.StartColumn
 				snippet = strings.TrimSpace(pl.Region.Snippet.Text)
 			}
 			violations = append(violations, Violation{
@@ -211,7 +223,7 @@ func parseSarif(out []byte, target CheckType) ([]Violation, error) {
 				Message:     r.Message.Text,
 				Severity:    sarifSeverity(level),
 				Rule:        r.RuleID,
-				Fingerprint: sarifFingerprint(r.PartialFingerprints, snippet),
+				Fingerprint: sarifFingerprint(r.PartialFingerprints, snippet, line, column),
 				Properties:  map[string]string(r.Properties),
 			})
 		}
@@ -219,13 +231,47 @@ func parseSarif(out []byte, target CheckType) ([]Violation, error) {
 	return violations, nil
 }
 
-// sarifFingerprint derives a content-based, line-INDEPENDENT identity for a SARIF
-// result: the partialFingerprints (deterministically ordered) when the engine emits
-// them, else the region snippet text. Returns "" when the engine provides neither,
-// in which case the baseline falls back to its coarse message-level identity. Reads
-// no source and knows no language — it consumes only what the SARIF carries.
-func sarifFingerprint(partial map[string]string, snippet string) string {
+const (
+	// sarifRedactionMarker is the snippet text gitleaks emits for a fully
+	// redacted secret; it identifies nothing, so it is treated like an empty
+	// snippet by the degenerate-fingerprint rule (ISSUE-210).
+	sarifRedactionMarker = "REDACTED"
+	// sarifSnippetHashDomain and sarifPositionHashDomain prefix the two hash
+	// inputs of the degenerate-fingerprint rule so a snippet can never collide
+	// with a position.
+	sarifSnippetHashDomain  = "snippet:"
+	sarifPositionHashDomain = "position:"
+	// sarifFingerprintHashPrefix marks a fingerprint that is a hash rather than
+	// producer-supplied text.
+	sarifFingerprintHashPrefix = "sha256:"
+)
+
+// sarifFingerprint derives a content-based identity for a SARIF result. Returns
+// "" when the engine provides neither partialFingerprints nor a snippet, in which
+// case the baseline falls back to its coarse message-level identity. Reads no
+// source and knows no language — it consumes only what the SARIF carries.
+//
+//   - partialFingerprints with at least one non-empty (after TrimSpace) value: the
+//     keys sorted and joined as "k=v;..." with values verbatim, byte-identical to
+//     the pre-ISSUE-210 form so existing baselines are not re-keyed.
+//   - DEGENERATE partialFingerprints (keys present, every value empty after
+//     TrimSpace — gitleaks dir mode): the k=v text would be one constant for every
+//     result, collapsing every same-rule secret in a file into one baseline
+//     identity (ISSUE-210). Fail closed instead (decision of 2026-10-13): hash the
+//     snippet ("sha256:" + hex(sha256("snippet:" + snippet))), line-independent;
+//     when the snippet is empty or the redaction marker, hash the position
+//     ("position:<line>:<column>"). Accepted consequence: a redacted secret that
+//     moves line or column reads as NEW (noisy, never silent). No raw snippet ever
+//     enters the fingerprint on this path.
+//   - no partialFingerprints: the trimmed snippet text, unchanged.
+func sarifFingerprint(partial map[string]string, snippet string, line, column int) string {
 	if len(partial) > 0 {
+		if sarifPartialDegenerate(partial) {
+			if snippet != "" && snippet != sarifRedactionMarker {
+				return sarifHashFingerprint(sarifSnippetHashDomain + snippet)
+			}
+			return sarifHashFingerprint(sarifPositionHashDomain + strconv.Itoa(line) + ":" + strconv.Itoa(column))
+		}
 		keys := make([]string, 0, len(partial))
 		for k := range partial {
 			keys = append(keys, k)
@@ -238,6 +284,23 @@ func sarifFingerprint(partial map[string]string, snippet string) string {
 		return strings.Join(parts, ";")
 	}
 	return snippet
+}
+
+// sarifPartialDegenerate reports whether every partialFingerprints value is
+// empty after TrimSpace, i.e. the map carries no identity at all.
+func sarifPartialDegenerate(partial map[string]string) bool {
+	for _, v := range partial {
+		if strings.TrimSpace(v) != "" {
+			return false
+		}
+	}
+	return true
+}
+
+// sarifHashFingerprint returns "sha256:" + the lowercase hex sha256 of input.
+func sarifHashFingerprint(input string) string {
+	sum := sha256.Sum256([]byte(input))
+	return sarifFingerprintHashPrefix + hex.EncodeToString(sum[:])
 }
 
 // sarifSeverity maps a SARIF level to the check severity vocabulary. SARIF

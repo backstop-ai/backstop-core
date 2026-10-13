@@ -1,7 +1,10 @@
 package check
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -128,15 +131,24 @@ func singleResultLog(propsField string) string {
 // Violation with concrete, unchanged fields. Before the fix the array made
 // json.Unmarshal fail and parseSarif rejected the whole log.
 func TestParseSarif_PropertyBagArrayTagsSurfacesViolation(t *testing.T) {
-	const wantFingerprint = "author=;commitMessage=;commitSha=;date=;email="
+	// ISSUE-210 amendment: the all-empty dir-mode partialFingerprints are
+	// degenerate and both snippets are "REDACTED", so each fingerprint is the
+	// position hash of its own start line and column, never the old collapsed
+	// constant below.
+	const collapsedFingerprint = "author=;commitMessage=;commitSha=;date=;email="
+	positionFingerprint := func(line, column int) string {
+		sum := sha256.Sum256([]byte("position:" + strconv.Itoa(line) + ":" + strconv.Itoa(column)))
+		return "sha256:" + hex.EncodeToString(sum[:])
+	}
 	type wantViolation struct {
-		file    string
-		line    int
-		message string
+		file        string
+		line        int
+		message     string
+		fingerprint string
 	}
 	wants := []wantViolation{
-		{file: "src/config.go", line: 3, message: "generic-api-key has detected secret for file src/config.go."},
-		{file: "pkg/app/settings.go", line: 12, message: "generic-api-key has detected secret for file pkg/app/settings.go."},
+		{file: "src/config.go", line: 3, message: "generic-api-key has detected secret for file src/config.go.", fingerprint: positionFingerprint(3, 8)},
+		{file: "pkg/app/settings.go", line: 12, message: "generic-api-key has detected secret for file pkg/app/settings.go.", fingerprint: positionFingerprint(12, 5)},
 	}
 	rows := []struct {
 		name  string
@@ -171,8 +183,14 @@ func TestParseSarif_PropertyBagArrayTagsSurfacesViolation(t *testing.T) {
 				if v.Severity != "error" {
 					t.Errorf("violation %d Severity = %q, want error (fail-closed default: no result or descriptor level)", i, v.Severity)
 				}
-				if v.Fingerprint != wantFingerprint {
-					t.Errorf("violation %d Fingerprint = %q, want %q (from partialFingerprints, not the snippet)", i, v.Fingerprint, wantFingerprint)
+				if v.Fingerprint != want.fingerprint {
+					t.Errorf("violation %d Fingerprint = %q, want %q (position hash: degenerate partialFingerprints, redacted snippet)", i, v.Fingerprint, want.fingerprint)
+				}
+				if v.Fingerprint == collapsedFingerprint {
+					t.Errorf("violation %d Fingerprint is the collapsed constant %q", i, collapsedFingerprint)
+				}
+				if strings.Contains(v.Fingerprint, "REDACTED") {
+					t.Errorf("violation %d Fingerprint %q contains the redaction marker", i, v.Fingerprint)
 				}
 				if v.Pass != CheckTypeFindings {
 					t.Errorf("violation %d Pass = %q, want %q", i, v.Pass, CheckTypeFindings)
@@ -180,6 +198,9 @@ func TestParseSarif_PropertyBagArrayTagsSurfacesViolation(t *testing.T) {
 				if v.Properties != nil {
 					t.Errorf("violation %d Properties = %#v, want nil (the non-string tags entry is ignored)", i, v.Properties)
 				}
+			}
+			if violations[0].Fingerprint == violations[1].Fingerprint {
+				t.Errorf("both results share Fingerprint %q, want distinct per-position fingerprints", violations[0].Fingerprint)
 			}
 		})
 	}

@@ -116,6 +116,12 @@ notes: |
   absent and properties-null rows, and MalformedStillFails, are controls that
   may already pass and must stay green after the fix.
 
+  Amended by PLAN-ISSUE-210: TASK-001's Fingerprint assertion in
+  TestParseSarif_PropertyBagArrayTagsSurfacesViolation (the collapsed
+  "author=;commitMessage=;commitSha=;date=;email=" value) is replaced by
+  PLAN-ISSUE-210's per-result position-hash expectation; see the
+  "Amendment to PLAN-ISSUE-208" note there.
+
   Fixture provenance: the gitleaks-shaped log mirrors the structure of real
   gitleaks 8.30.1 SARIF output, observed during planning by running
   `gitleaks dir . --report-format sarif` over a scratch tree holding one

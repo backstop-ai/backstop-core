@@ -1,0 +1,477 @@
+---
+plan_id: PLAN-ISSUE-210
+spec_id: ISSUE-210
+created: "2026-10-13"
+status: draft
+target_repo: backstop-core
+target_module: github.com/backstop-ai/backstop-core
+coverage_threshold: 90
+test_command: backstop gate --all
+notes: |
+  ISSUE-210: sarifFingerprint (pkg/check/parsers.go:227-242 at 269c5e6; the
+  issue's :187-202 predates the ISSUE-208 edit) takes the partialFingerprints
+  branch whenever the map has any keys (`if len(partial) > 0`) and never looks
+  at the values. A producer that emits the keys with empty values (gitleaks in
+  dir mode: commitSha, email, author, date, commitMessage, all "") gets the
+  constant fingerprint "author=;commitMessage=;commitSha=;date=;email=" for
+  every result. That string becomes gate.Violation.RegionHash
+  (cmd/backstop/pack_gate.go:1125, `RegionHash: v.Fingerprint`; the issue's
+  :994 is stale), and EnrichViolationIdentity (pkg/gate/baseline.go:205-224)
+  builds identity as Rule|File|region, so identity degrades to Rule|File.
+  A second same-rule secret in an already-baselined file is then grandfathered
+  on a nil-scope or --all run (CompareBaseline, pkg/gate/baseline.go:115),
+  and fixing one of two baselined secrets never shows in FixedViolations.
+  Fail-open in a secrets dimension: blocker.
+  Authoring base: branch fix/engine-evidence-integrity at 269c5e6.
+
+  Ordering with ISSUE-208: the ISSUE-208 fix is already committed on this
+  branch (24f5dcf) and is not on any release tag or other branch, so the
+  collapse is reachable on this branch today but has not shipped. This plan
+  must land on the same branch before the branch ships; that satisfies the
+  issue's "with or before ISSUE-208" ordering (issue item 6).
+
+  Existence-in-world: grep of plans/, specs/ and issues/ (committed and
+  working tree) for ISSUE-210, partialFingerprints and sarifFingerprint found
+  no owning artifact. PLAN-ISSUE-046 covers File-path canonicalization and
+  scope stability of the fingerprint (and explicitly forbids a
+  fingerprint-scheme rewrite inside its own scope); PLAN-ISSUE-104 covers
+  severity descriptors; PLAN-ISSUE-208 surfaced this defect and recorded it
+  as out of its scope. None delivers the degenerate-case fix, so this plan
+  owns it.
+
+  FOUNDER DECISION (decided 2026-10-13), resolving the issue's open item 3:
+  FAIL-CLOSED, option (a), scoped narrowly to the degenerate case.
+    - Non-degenerate partialFingerprints (at least one value non-empty after
+      strings.TrimSpace): the fingerprint stays BYTE-IDENTICAL to today's
+      sorted `k=v` joined by ";" form, with untrimmed values and NO per-key
+      filtering of empty entries. Existing baselines for any producer that
+      emits real or mixed values are not re-keyed.
+    - Degenerate partialFingerprints (map has at least one key and every
+      trimmed value is empty): the fingerprint is a hash, never raw text.
+        * Informative snippet (the already-trimmed region snippet is
+          non-empty and not exactly the gitleaks redaction marker
+          "REDACTED"): "sha256:" + lowercase hex of
+          sha256("snippet:" + snippet). Line-independent, so a moved
+          unredacted secret keeps its identity.
+        * Empty or redacted snippet: "sha256:" + lowercase hex of
+          sha256("position:" + decimal startLine + ":" + decimal startColumn),
+          where an absent line or column decodes as 0. The "snippet:" and
+          "position:" domain prefixes keep the two inputs from colliding.
+      Accepted consequence: a redacted secret that moves to another line or
+      column reads as NEW (noisy, never silent). This is the deliberate
+      trade against the alternative (b), a documented residual collapse,
+      which was rejected.
+    - No raw snippet or match text may reach Fingerprint, RegionHash,
+      Identity, IdentityHash input, .backstop/baseline.json or the gate JSON
+      through this new path.
+    - The existing no-partialFingerprints fallback (raw trimmed snippet, else
+      "") for other producers is UNCHANGED and out of scope.
+    - SARIF region column: the sarifLog region struct (parsers.go:84-89)
+      decodes startLine and snippet.text only; it does NOT decode
+      startColumn. Adding `StartColumn int json:"startColumn"` to that struct
+      is in scope (parsers.go only; check.Violation does not gain a field).
+
+  Acceptance claims defined here because ISSUE-210 has no formal CLM array:
+    CLM-001: a result whose partialFingerprints has at least one non-empty
+      trimmed value yields a fingerprint byte-identical to today's form:
+      keys sorted, "k=v" joined by ";", values verbatim (empty entries
+      kept, nothing trimmed or filtered). Pinned by a mixed-value
+      gitleaks-shaped fixture with an exact string literal.
+    CLM-002: a result whose partialFingerprints is degenerate (one or more
+      keys, every value empty after TrimSpace, including whitespace-only
+      values) and whose trimmed snippet is informative yields
+      "sha256:" + hex(sha256("snippet:" + snippet)). Two such results with
+      differing snippets in the same file under the same rule have distinct
+      fingerprints and distinct IdentityHash; the same snippet on a
+      different line keeps the same fingerprint.
+    CLM-003: a degenerate result whose trimmed snippet is empty or exactly
+      "REDACTED" yields "sha256:" + hex(sha256("position:<line>:<column>"))
+      from region.startLine and region.startColumn (now decoded). Two
+      redacted results in the same file under the same rule at different
+      positions (different line, or same line and different column) have
+      distinct fingerprints and IdentityHash; a redacted result moved to a
+      new line gets a new fingerprint (the accepted noisy consequence).
+    CLM-004: on the degenerate path no raw snippet text appears in
+      Violation.Fingerprint, gate.Violation.RegionHash, Identity, the bytes
+      WriteBaseline writes, or the bytes gate.FormatJSON produces.
+    CLM-005: through the real findings dispatch, a baseline holding one
+      degenerate-fingerprint secret in a file does not grandfather a second
+      same-rule secret in that file: CompareBaseline with a nil scope
+      reports it in NewViolations, and dropping one of two baselined
+      secrets reports it in FixedViolations.
+    CLM-006: unchanged contracts: the no-partialFingerprints fallback (raw
+      trimmed snippet, else "") is unchanged; check.Violation,
+      gate.Violation and EnrichViolationIdentity are unchanged;
+      TestParsePackFindings_FingerprintFromSarif and
+      TestSarifFingerprint_StableAcrossScopeInvocations stay green
+      UNMODIFIED.
+    CLM-007: PLAN-ISSUE-208's mandated test
+      TestParseSarif_PropertyBagArrayTagsSurfacesViolation is amended so it
+      no longer pins the collapsed fingerprint (see "Amendment" below) and
+      stays green with every other assertion it makes unchanged.
+
+  Amendment to PLAN-ISSUE-208 (recorded per issue item 5): PLAN-ISSUE-208
+  TASK-001 mandated that TestParseSarif_PropertyBagArrayTagsSurfacesViolation
+  (pkg/check/parsers_property_bag_test.go, committed in 24f5dcf) assert
+  Fingerprint == "author=;commitMessage=;commitSha=;date=;email=" for both
+  gitleaks-shaped results (const wantFingerprint, checked in the per-violation
+  loop). That value is exactly the collapse this plan removes. This plan
+  replaces only that assertion: each of the two results (both snippet
+  "REDACTED", positions 3:8 and 12:5) must have a fingerprint equal to the
+  CLM-003 position hash of its own start line and column, computed in the
+  test with crypto/sha256; the two fingerprints must differ from each other;
+  neither may equal the old collapsed string nor contain "REDACTED". The test
+  name, both table rows, the fixture builder gitleaksShapedLog, and every
+  other assertion (File, Line, Rule, Message, Severity, Pass, nil
+  Properties) stay as they are; the file's import block may gain what the
+  hash oracle needs. PLAN-ISSUE-208 carries a short back-reference note
+  pointing here; this note is the amendment record.
+
+  Consumer impact (verified at 269c5e6):
+    - cmd/backstop/pack_gate.go:1125 is the only reader of
+      check.Violation.Fingerprint in pkg/ and cmd/ (it copies it into
+      RegionHash). No edit.
+    - pkg/gate/baseline.go EnrichViolationIdentity/WriteBaseline/
+      CompareBaseline consume RegionHash opaquely. No edit.
+    - pkg/check/code_check_engine_removal_test.go TestSARIFSurface_Preserved
+      greps production source for the substring "sarifFingerprint"; the
+      function keeps that name.
+    - Baselines: this repo's .backstop/baseline.json holds no collapsed
+      "author=;commitMessage=..." region_hash (grep count 0), so no entry is
+      re-keyed here. Since ISSUE-208 has not shipped, no released binary
+      could have written a collapsed gitleaks entry into a consumer
+      baseline. Producers that emit non-empty partialFingerprints (CLM-001)
+      and producers that emit none (CLM-006) keep their identities.
+
+  Out of scope, recorded as observations (not fixed here):
+    - The no-partialFingerprints fallback writes the RAW trimmed snippet into
+      RegionHash and Identity, and from there into baseline.json and gate
+      JSON. This repo's own .backstop/baseline.json has 136 region_hash
+      values that are raw code snippets (e.g. values beginning
+      `cmd := exec.Command(`). For code-pattern producers that is code, but
+      a secret-bearing producer that emits snippets without
+      partialFingerprints would persist plaintext secrets the same way.
+      Candidate separate issue for the founder (the existing
+      no-partialFingerprints raw-snippet fallback, not this plan's path).
+    - The CLM-002 fingerprint is an UNSALTED sha256 of an unredacted
+      secret, and it lands in baseline.json (tracked) and CI gate JSON. A
+      low-entropy secret (short password, guessable token) could be
+      recovered by dictionary or brute-force hashing. Accepted under the
+      2026-10-13 decision (hash, never raw); a keyed or salted scheme would
+      need a stable per-repo key and is a candidate follow-up for the
+      founder.
+    - Identical informative snippets (the same secret value pasted twice in
+      one file under one rule) share an identity under CLM-002, so fixing
+      one of the two copies does not show as fixed. Accepted under the
+      decision (same content); recorded so it is not mistaken for the
+      collapse being reintroduced.
+    - A degenerate result with no location region (line 0, column 0) and an
+      empty snippet hashes a constant "position:0:0" per Rule|File. gitleaks
+      always emits a region, so this is a theoretical residual only.
+    - gitleaks partial redaction (--redact below 100) emits a non-marker
+      snippet that still contains part of the secret; under CLM-002 it is
+      hashed, never stored raw.
+
+  Exact implementation edit allowlist:
+    pkg/check/parsers.go
+    pkg/check/parsers_degenerate_fingerprint_test.go (new)
+    pkg/check/parsers_property_bag_test.go (amend only the fingerprint
+      assertion described above, plus the import block it needs)
+    cmd/backstop/sarif_degenerate_identity_e2e_test.go (new)
+  Do not edit parse_pack_findings_test.go,
+  baseline_identity_dispatch_e2e_test.go, pkg/gate, pack_gate.go, any other
+  consumer, packs, config, baselines, PLAN-ISSUE-208 (beyond the notes back-reference already
+  added at planning time), or dependencies. If
+  another production file appears necessary, stop and return the proposed
+  scope change for review.
+
+  Test fixture rules: all snippet strings are synthetic and obviously
+  non-secret (e.g. "synthetic-snippet-alpha", "synthetic-snippet-bravo");
+  never embed a real or realistic-looking key. Every raw-text absence check
+  asserts against these exact synthetic strings.
+
+  Red/green commands (repo root):
+    go test ./pkg/check -count=1 -run '^TestParseSarif_DegenerateFingerprint|^TestParseSarif_PropertyBagArrayTagsSurfacesViolation$' -v
+    go test ./cmd/backstop -count=1 -run '^TestSarifDegenerateIdentity_' -v
+    go test ./pkg/check ./cmd/backstop -count=1 -run 'TestParsePackFindings_FingerprintFromSarif|TestSarifFingerprint_StableAcrossScopeInvocations|TestBaselineIdentity_RealDispatch_|TestBaselineCycle_|TestSARIFSurface_Preserved|TestParseSarif_' -v
+    go test ./pkg/check ./pkg/gate ./cmd/backstop -race -count=1
+  The first two commands must actually execute every new test (no "no tests
+  to run"). Red evidence: before TASK-003 every failure must be behavioral,
+  never a compile error; tests reach the fingerprint only through parseSarif,
+  ParsePackFindings or the real dispatch, never by calling sarifFingerprint
+  directly (its signature changes). Expected red:
+    DistinctSnippetsHashed, RedactedUsesPosition,
+    WhitespaceOnlyValuesDegenerate, the amended
+    PropertyBagArrayTagsSurfacesViolation, and
+    TestSarifDegenerateIdentity_SecondSecretReportedOnNilScope and
+    TestSarifDegenerateIdentity_DistinctIdentityThroughDispatch all fail on
+    the collapsed constant fingerprint (equal fingerprints / equal
+    IdentityHash / second secret not in NewViolations / no "sha256:"
+    prefix).
+  Controls that pass before and after the fix (they guard against a naive
+  fix): MixedValuesByteIdentical (CLM-001) and the raw-text absence
+  assertions of TestSarifDegenerateIdentity_NoRawSnippetPersisted (CLM-004;
+  today's collapsed value contains no snippet, but a plain snippet fallback
+  would fail it). That test's "region_hash starts with sha256:" assertion is
+  red today. Record both outcomes.
+
+  Runtime verification:
+    backstop gate --file pkg/check/parsers.go
+    backstop gate
+    backstop gate --all
+    backstop artifact validate --plan PLAN-ISSUE-210
+  Record real exit codes. Gate or environment failures are blockers to
+  surface, never waived or worked around. Plan and issue statuses stay
+  unchanged by implementation; no commit/push/PR is authorized by this plan.
+
+phases:
+  - id: phase-1
+    name: "Phase 1: Fail-closed degenerate SARIF fingerprint (red, green, scoped and full gate)"
+    tasks:
+      - id: TASK-001
+        type: test
+        title: "Pin degenerate-fingerprint hashing at the parser and amend the ISSUE-208 fingerprint assertion"
+        description: |
+          Create pkg/check/parsers_degenerate_fingerprint_test.go (package
+          check). Build inline gitleaks-shaped SARIF literals (same structure
+          as gitleaksShapedLog: results with no `level`, ruleId
+          "generic-api-key", the five dir-mode partialFingerprints keys) via
+          a local builder that takes, per result, uri, startLine,
+          startColumn, snippet text and the partialFingerprints object. Call
+          parseSarif(..., CheckTypeFindings) or ParsePackFindings only. Any
+          expected hash is computed in the test with crypto/sha256 and
+          encoding/hex over the exact input documented in notes, as an
+          independent oracle of the encoding.
+
+          Import constraint: this file is package check and MUST NOT import
+          pkg/gate (pkg/gate imports pkg/check via pkg/gate/scope.go, so the
+          import would be a cycle and break setup for the whole package).
+          Identity-level assertions (IdentityHash, Identity, RegionHash)
+          live only in TASK-002's cmd/backstop tests.
+
+          Helper names must be unique within package check: do not reuse
+          gitleaksShapedLog, singleResultLog or any other identifier already
+          declared in pkg/check test files; use a distinct prefix such as
+          degenerateFP (e.g. degenerateFPLog, degenerateFPResult).
+
+          TestParseSarif_DegenerateFingerprintDistinctSnippetsHashed
+          (CLM-002, CLM-004): two results, same file "src/config.go", same
+          rule, all-empty partialFingerprints, snippets
+          "synthetic-snippet-alpha" (line 3) and "synthetic-snippet-bravo"
+          (line 9). Require each Fingerprint == "sha256:" +
+          hex(sha256("snippet:" + its snippet)) (hence "sha256:"-prefixed);
+          the two differ; neither contains either snippet's text nor equals
+          the old collapsed string. A third row reparses
+          "synthetic-snippet-alpha" at line 40 and requires the same
+          fingerprint as at line 3 (line-independent). Distinct
+          IdentityHash for this case is pinned through the real dispatch by
+          TestSarifDegenerateIdentity_DistinctIdentityThroughDispatch
+          (TASK-002).
+
+          TestParseSarif_DegenerateFingerprintRedactedUsesPosition (CLM-003):
+          table of rows, all degenerate, same file and rule:
+            redacted, 3:8 vs 9:8 -> distinct;
+            redacted, 3:8 vs 3:20 -> distinct (column matters);
+            empty snippet "" (and whitespace-only "   "), 3:8 vs 9:8 ->
+              distinct, position-hashed;
+            redacted 3:8 moved to 4:8 -> different fingerprint (the accepted
+              noisy consequence; assert it explicitly, with a comment citing
+              the 2026-10-13 decision).
+          Each fingerprint must equal "sha256:" +
+          hex(sha256("position:<line>:<column>")) and must not contain
+          "REDACTED". A row with startColumn absent requires the hash of
+          "position:<line>:0".
+
+          TestParseSarif_DegenerateFingerprintWhitespaceOnlyValuesDegenerate
+          (CLM-002): partialFingerprints whose values are all whitespace
+          (" ", "\t") plus a single-key map {"commitSha": ""}; both take the
+          degenerate path (snippet hash), proving the TrimSpace rule and the
+          one-key case.
+
+          TestParseSarif_DegenerateFingerprintMixedValuesByteIdentical
+          (CLM-001, control): partialFingerprints {"commitSha":"abc123",
+          "email":"","author":" spaced ","date":"","commitMessage":""} with
+          snippet "synthetic-snippet-alpha". Require Fingerprint ==
+          "author= spaced ;commitMessage=;commitSha=abc123;date=;email="
+          exactly (untrimmed value, empty entries kept, no hash prefix).
+
+          Amend pkg/check/parsers_property_bag_test.go
+          TestParseSarif_PropertyBagArrayTagsSurfacesViolation exactly as
+          recorded under "Amendment to PLAN-ISSUE-208" in notes (CLM-007):
+          replace the wantFingerprint constant and its per-violation check
+          with the per-result position-hash expectation (3:8 and 12:5),
+          a distinctness check, and absence of "REDACTED" and of the old
+          collapsed string. The only other permitted change in that file is
+          its import block (adding what the hash oracle needs, e.g.
+          crypto/sha256, encoding/hex, fmt or strconv); touch nothing else.
+
+          Do NOT edit parse_pack_findings_test.go
+          (TestParsePackFindings_FingerprintFromSarif is the unmodified
+          CLM-006 control). Run the first red command from notes and record
+          the named behavioral failures and the green control.
+        files:
+          - pkg/check/parsers_degenerate_fingerprint_test.go
+          - pkg/check/parsers_property_bag_test.go
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-006, CLM-007]
+        depends_on: []
+        test_names:
+          - TestParseSarif_DegenerateFingerprintDistinctSnippetsHashed
+          - TestParseSarif_DegenerateFingerprintRedactedUsesPosition
+          - TestParseSarif_DegenerateFingerprintWhitespaceOnlyValuesDegenerate
+          - TestParseSarif_DegenerateFingerprintMixedValuesByteIdentical
+          - TestParseSarif_PropertyBagArrayTagsSurfacesViolation
+
+      - id: TASK-002
+        type: test
+        title: "Pin identity, persistence and baseline comparison through the real findings dispatch"
+        description: |
+          Create cmd/backstop/sarif_degenerate_identity_e2e_test.go (package
+          main), following the dispatch-e2e pattern of
+          baseline_identity_dispatch_e2e_test.go: a small runner type in this
+          new file whose Run/RunStdout return a configurable gitleaks-shaped
+          SARIF log (results as in TASK-001: rule "generic-api-key", all-empty
+          dir-mode partialFingerprints, synthetic snippets), driven through
+          dispatchPackEngines with semgrepDispatchManifest() and
+          engineDispatchPacksDir(t) (reused from the existing test files, not
+          redefined or edited). This exercises the real parse and the real
+          pack_gate.go bridge (RegionHash = Fingerprint). Use t.TempDir() for
+          projectRoot and a nil scope. Helper and type names must be unique
+          within package main: do not reuse scopePathShapingRunner,
+          fixtureRunner, capturingRunner or any other identifier already
+          declared in cmd/backstop; use a distinct prefix such as
+          degenerateIdentity (e.g. degenerateIdentityRunner).
+
+          TestSarifDegenerateIdentity_DistinctIdentityThroughDispatch
+          (CLM-002, CLM-003): two rows, each emitting two same-rule results
+          in one file: (a) snippets "synthetic-snippet-alpha" and
+          "synthetic-snippet-bravo"; (b) both "REDACTED" at 3:8 and 9:8.
+          Require two violations, distinct RegionHash, and distinct
+          gate.EnrichViolationIdentity IdentityHash.
+
+          TestSarifDegenerateIdentity_NoRawSnippetPersisted (CLM-004):
+          dispatch row (a), WriteBaseline the two violations to a temp path,
+          read the bytes back; build a gate.GateResult via
+          gate.NewGateResult with one StepResult carrying the enriched
+          violations in Violations and NewViolations, and gate.FormatJSON it.
+          Require that neither byte stream contains "synthetic-snippet-alpha"
+          or "synthetic-snippet-bravo" (control, green before and after), and
+          that every region_hash value in the decoded baseline starts with
+          "sha256:" (red before the fix).
+
+          TestSarifDegenerateIdentity_SecondSecretReportedOnNilScope
+          (CLM-005): dispatch a log holding only secret A
+          ("synthetic-snippet-alpha", src/config.go:3) and build a baseline
+          artifact from it (EnrichViolationIdentity, as
+          TestBaselineCycle_GenerateThenGate_TouchedFileRevoked does). Then
+          dispatch a log holding A and a new same-rule secret B
+          ("synthetic-snippet-bravo", same file, line 9) and run
+          gate.CompareBaseline with BaselineCompareOptions{Scope: nil}.
+          Require exactly one NewViolation and that it is B (by RegionHash
+          equal to B's snippet hash), and zero FixedViolations. Second row,
+          same shape with both snippets "REDACTED" at 3:8 and 9:8: B is new.
+          Third row (ratchet visibility): baseline holds A and B, current
+          holds only A; require exactly one FixedViolation (B) and zero new.
+
+          Run the second red command from notes; record behavioral failures
+          (DistinctIdentityThroughDispatch and SecondSecretReportedOnNilScope
+          red on the collapsed fingerprint) and the green control
+          assertions. Do not touch production code.
+        files:
+          - cmd/backstop/sarif_degenerate_identity_e2e_test.go
+        claims: [CLM-002, CLM-003, CLM-004, CLM-005]
+        depends_on: []
+        test_names:
+          - TestSarifDegenerateIdentity_DistinctIdentityThroughDispatch
+          - TestSarifDegenerateIdentity_NoRawSnippetPersisted
+          - TestSarifDegenerateIdentity_SecondSecretReportedOnNilScope
+
+      - id: TASK-003
+        type: implementation
+        title: "Hash the degenerate partialFingerprints case from snippet or position"
+        description: |
+          In pkg/check/parsers.go only:
+            1. Add `StartColumn int json:"startColumn"` to the sarifLog region
+               struct next to StartLine.
+            2. In parseSarif, capture the column alongside line and snippet
+               from locations[0] and pass line and column to
+               sarifFingerprint (signature becomes
+               sarifFingerprint(partial map[string]string, snippet string,
+               line, column int) string; keep the name).
+            3. In sarifFingerprint, when len(partial) > 0, decide degeneracy
+               by checking whether every value is empty after
+               strings.TrimSpace. Non-degenerate: return today's ordered
+               k=v;... string byte-for-byte (do not filter, trim or reorder
+               differently). Degenerate: if snippet != "" and snippet !=
+               "REDACTED", return "sha256:" + hex(sha256("snippet:" +
+               snippet)); otherwise return "sha256:" +
+               hex(sha256("position:" + strconv.Itoa(line) + ":" +
+               strconv.Itoa(column))). Name the marker and both prefixes as
+               unexported constants. One small unexported hash helper is
+               fine; add crypto/sha256, encoding/hex and strconv imports.
+            4. The len(partial) == 0 branch (raw snippet, else "") is
+               unchanged (CLM-006).
+          Update the sarifFingerprint doc comment and the PartialFingerprints
+          field comment to state the degenerate rule, the hashing, the
+          redaction-marker position fallback and its accepted line-drift
+          consequence, and that no raw snippet enters the fingerprint on that
+          path; reference ISSUE-210 and the 2026-10-13 fail-closed decision.
+          Do not touch check.Violation, pkg/gate or pack_gate.go.
+
+          Run the green commands from notes. If any other file needs
+          editing, stop and return the scope change for review.
+        files:
+          - pkg/check/parsers.go
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-006]
+        depends_on: [TASK-001, TASK-002]
+
+      - id: TASK-004
+        type: verification
+        title: "Verify red-to-green and run the diff-scoped gate"
+        description: |
+          Confirm recorded behavioral red, then green for every new and
+          amended test and the controls, plus the unmodified regressions in
+          the third command from notes (TestParsePackFindings_FingerprintFromSarif,
+          TestSarifFingerprint_StableAcrossScopeInvocations, the ISSUE-046
+          real-dispatch identity tests, TestSARIFSurface_Preserved, all
+          TestParseSarif_ tests), and the race run of pkg/check, pkg/gate and
+          cmd/backstop. Run backstop gate --file pkg/check/parsers.go and
+          then backstop gate, recording true exit codes and findings. Confirm
+          the diff touches only the four allowlisted files, that
+          parse_pack_findings_test.go and
+          baseline_identity_dispatch_e2e_test.go are byte-unchanged, and that
+          the parsers_property_bag_test.go diff is confined to the
+          fingerprint assertion and its import block. Confirm
+          pkg/check/parsers_degenerate_fingerprint_test.go does not import
+          pkg/gate and that `go test ./pkg/check` builds (no import cycle).
+        files:
+          - pkg/check/parsers.go
+          - pkg/check/parsers_degenerate_fingerprint_test.go
+          - pkg/check/parsers_property_bag_test.go
+          - cmd/backstop/sarif_degenerate_identity_e2e_test.go
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-006, CLM-007]
+        depends_on: [TASK-003]
+
+      - id: TASK-005
+        type: verification
+        title: "Run the full gate and validate the plan artifact"
+        description: |
+          Final verification, after TASK-004's diff-scoped gate is green: run
+          backstop gate --all and backstop artifact validate --plan
+          PLAN-ISSUE-210. TASK-004 is the scoped inner loop; this adds the
+          unscoped sweep (artifact validation, findings engines, test
+          verification, substantiveness, coverage, contracts). Confirm the
+          committed .backstop/baseline.json is unchanged and that --all
+          reports no new or fixed baseline entries attributable to this
+          change. Record exit codes, findings, base SHA and the final
+          four-file diff. Confirm every new test body executed (not mere name
+          presence). Hand logs and diff to an independent reviewer and repeat
+          review until CLEAN. Failures are surfaced as blockers, never
+          waived. Leave plan and issue statuses unchanged.
+        files:
+          - pkg/check/parsers.go
+          - pkg/check/parsers_degenerate_fingerprint_test.go
+          - pkg/check/parsers_property_bag_test.go
+          - cmd/backstop/sarif_degenerate_identity_e2e_test.go
+          - plans/PLAN-ISSUE-210-sarif-empty-fingerprint-identity.plan.yml
+        claims: [CLM-001, CLM-002, CLM-003, CLM-004, CLM-005, CLM-006, CLM-007]
+        depends_on: [TASK-003, TASK-004]
