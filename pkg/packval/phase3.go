@@ -139,7 +139,7 @@ func RunFixtures(pack *PackManifest, packDir string, executor FixtureExecutor) *
 				if rule.Validator != "" {
 					r, err := executor.RunValidator(packDir, rule.Validator, []string{f.Path})
 					if err != nil || !r.Passed {
-						res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "validator-positive", Rule: rule.ID, Claim: claim.ID, Message: "layer3 positive failed"})
+						res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "validator-positive", Rule: rule.ID, Claim: claim.ID, Message: validatorFailureMessage("layer3 positive failed", r, err)})
 					}
 				}
 			}
@@ -162,7 +162,7 @@ func RunFixtures(pack *PackManifest, packDir string, executor FixtureExecutor) *
 				if rule.Validator != "" {
 					r, err := executor.RunValidator(packDir, rule.Validator, []string{f.Path})
 					if err != nil {
-						res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "validator-negative", Rule: rule.ID, Claim: claim.ID, Message: "layer3 negative run failed"})
+						res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "validator-negative", Rule: rule.ID, Claim: claim.ID, Message: validatorFailureMessage("layer3 negative run failed", r, err)})
 					} else if r.Passed {
 						res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "validator-negative", Rule: rule.ID, Claim: claim.ID, Message: "layer3 negative unexpectedly passed"})
 					}
@@ -178,7 +178,7 @@ func RunFixtures(pack *PackManifest, packDir string, executor FixtureExecutor) *
 				}
 				r, err := executor.RunValidator(packDir, rule.Validator, all)
 				if err != nil || !r.Passed {
-					res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "validator-multi-file", Rule: rule.ID, Claim: claim.ID, Message: "multi-file validator failed"})
+					res.Errors = append(res.Errors, ValidationError{Phase: res.Phase, Check: "validator-multi-file", Rule: rule.ID, Claim: claim.ID, Message: validatorFailureMessage("multi-file validator failed", r, err)})
 				}
 			}
 		}
@@ -294,6 +294,29 @@ func RunFixtures(pack *PackManifest, packDir string, executor FixtureExecutor) *
 		res.Status = "fail"
 	}
 	return res
+}
+
+// validatorOutputTailBytes bounds how much validator output a phase-3 message carries.
+const validatorOutputTailBytes = 1024
+
+// validatorFailureMessage makes a failed validator run diagnosable: the seam's base
+// message, the validator's exit status, any run error, and the trimmed tail of its
+// output (the last validatorOutputTailBytes bytes at most). Without it a sandbox
+// denial and a wrong verdict read identically (ISSUE-216). It formats only; it
+// decides nothing — the validator polarity stays in the branch conditions.
+func validatorFailureMessage(base string, r ExecutionResult, err error) string {
+	msg := fmt.Sprintf("%s (validator exit %d)", base, r.ExitCode)
+	if err != nil {
+		msg += ": " + err.Error()
+	}
+	output := r.Output
+	if len(output) > validatorOutputTailBytes {
+		output = output[len(output)-validatorOutputTailBytes:]
+	}
+	if output = strings.TrimSpace(output); output != "" {
+		msg += ": " + output
+	}
+	return msg
 }
 
 // engineError builds the phase-3 error for a fixture whose engine run FAILED, as

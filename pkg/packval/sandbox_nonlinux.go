@@ -149,10 +149,13 @@ func writeDarwinSandboxAcknowledgement(fd int) error {
 //     cache; with it dyld reaches a real, debuggable denial. bsd.sb does NOT
 //     grant arbitrary project-file reads, file writes, or network — the deny
 //     rules below still hold (verified by TestSandboxSecurityDenialsHold).
-//   - packDir is symlink-resolved (filepath.EvalSymlinks): a sandbox subpath
-//     rule matches the KERNEL-resolved path, so an unresolved /var/... subpath
-//     would silently fail to match the real /private/var/... and deny legit
-//     reads inside packDir.
+//   - packDir is made absolute (filepath.Abs) and THEN symlink-resolved
+//     (filepath.EvalSymlinks), by resolveDarwinPackDir: a sandbox subpath rule
+//     matches the KERNEL-resolved ABSOLUTE path. A relative packDir (the "."
+//     that `pack test` with no argument defaults to) would embed
+//     `(subpath ".")`, which matches nothing, so every read inside the pack is
+//     denied (ISSUE-216 / ISSUE-147); an unresolved /var/... subpath would
+//     likewise fail to match the real /private/var/....
 //
 // The added system/runtime read subpaths (alongside packDir) are scoped, NOT a
 // blanket (allow file-read*) — that would be a security hole. They cover the
@@ -186,9 +189,9 @@ func writeDarwinSandboxAcknowledgement(fd int) error {
 // tightening, or a reader deleting the clause as decorative, from silently
 // re-opening ISSUE-168 on the platform where it currently happens to work.
 func darwinSandboxProfile(packDir string) (string, error) {
-	resolved := packDir
-	if r, err := filepath.EvalSymlinks(packDir); err == nil {
-		resolved = r
+	resolved, err := resolveDarwinPackDir(packDir)
+	if err != nil {
+		return "", fmt.Errorf("build darwin sandbox profile: %w", err)
 	}
 	readSubpaths := []string{
 		resolved,                            // the pack directory itself (the only project path)
@@ -213,6 +216,23 @@ func darwinSandboxProfile(packDir string) (string, error) {
 		"(version 1)(import \"bsd.sb\")(deny default)(allow process*)(allow file-read*%s)(deny network*)(deny file-write*)(allow file-write* (literal \"/dev/null\"))",
 		b.String(),
 	), nil
+}
+
+// resolveDarwinPackDir is the ONE place the darwin sandbox turns a caller's pack
+// directory into the path it uses: filepath.Abs first, then filepath.EvalSymlinks
+// (keeping the Abs result if EvalSymlinks fails). The profile subpath, the
+// sandbox-exec cmd.Dir and the helper request Dir all use its result, so they are
+// the same string. An Abs error is returned, never a silent fall back to the
+// relative path (ISSUE-216).
+func resolveDarwinPackDir(packDir string) (string, error) {
+	abs, err := filepath.Abs(packDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve pack dir %q to an absolute path: %w", packDir, err)
+	}
+	if r, err := filepath.EvalSymlinks(abs); err == nil {
+		return r, nil
+	}
+	return abs, nil
 }
 
 func seatbeltStringLiteral(value string) (string, error) {
@@ -244,13 +264,17 @@ func newDarwinSandboxInvocation(command string, args []string, packDir string) (
 	if err != nil {
 		return nil, nil, fmt.Errorf("resolve this executable for the sandbox trampoline: %w", err)
 	}
+	resolvedDir, err := resolveDarwinPackDir(packDir)
+	if err != nil {
+		return nil, nil, fmt.Errorf("resolve the darwin sandbox pack dir: %w", err)
+	}
 	environment := check.WithoutEnvironment(os.Environ(), sandboxHelperEnvVar, PackSandboxEnvVar)
-	request := sandboxHelperRequest{Command: command, Args: args, Dir: packDir, Environment: environment, AckFD: sandboxAckFD}
+	request := sandboxHelperRequest{Command: command, Args: args, Dir: resolvedDir, Environment: environment, AckFD: sandboxAckFD}
 	encoded, err := json.Marshal(request)
 	if err != nil {
 		return nil, nil, fmt.Errorf("encode sandbox helper request: %w", err)
 	}
-	cmd, err := sandboxExecCommand(self, nil, packDir)
+	cmd, err := sandboxExecCommand(self, nil, resolvedDir)
 	if err != nil {
 		return nil, nil, fmt.Errorf("construct sandbox-exec command: %w", err)
 	}

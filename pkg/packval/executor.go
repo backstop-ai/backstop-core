@@ -3,6 +3,7 @@ package packval
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -318,10 +319,21 @@ func emptyPayloadRunError(binding engine.EngineBinding, runErr error, set []int)
 		binding.Command, status, status, strings.Join(parts, ", "))
 }
 
+// RunValidator runs a pack validator in the sandbox. Its contract is that a FAILED
+// run is Passed=false with a nil error (phase 3's validator polarity depends on
+// that). The failure stays diagnosable: ExitCode is the run's real exit status
+// (1 when there is none, e.g. the sandbox could not start), and Output is the run
+// error text followed by the captured output, so a sandbox denial (exit 126,
+// "Operation not permitted") is not mistaken for a wrong verdict (ISSUE-216).
 func (d *DefaultExecutor) RunValidator(packDir, validator string, fixturePaths []string) (ExecutionResult, error) {
 	out, err := SandboxedRun(validator, fixturePaths, packDir)
 	if err != nil {
-		return ExecutionResult{Passed: false, Output: string(out), ExitCode: 1}, nil
+		exitCode := 1
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() >= 0 {
+			exitCode = exitErr.ExitCode()
+		}
+		return ExecutionResult{Passed: false, Output: err.Error() + "\n" + string(out), ExitCode: exitCode}, nil
 	}
 	return ExecutionResult{Passed: true, Output: string(out), ExitCode: 0}, nil
 }
