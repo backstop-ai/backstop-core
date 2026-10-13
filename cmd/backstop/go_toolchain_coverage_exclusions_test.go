@@ -271,7 +271,7 @@ func TestGoToolchainCoverageExclusions_ReleasedTagMatchesManifest(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if entry.GitRef == nil || entry.Version != "1.9.0" || *entry.GitRef != "v1.9.0" || entry.SourceType != "git" || entry.SourceCoordinate != issue186PackName || manifest.Version != "1.9.0" || hash != entry.ContentHash {
+	if entry.GitRef == nil || entry.Version != "1.10.0" || *entry.GitRef != "v1.10.0" || entry.SourceType != "git" || entry.SourceCoordinate != issue186PackName || manifest.Version != "1.10.0" || hash != entry.ContentHash {
 		t.Fatalf("released identity mismatch: lock=%#v manifest=%q computed_hash=%q", entry, manifest.Version, hash)
 	}
 }
@@ -287,15 +287,15 @@ func TestGoToolchainCoverageExclusions_ReleasedPackIsAdopted(t *testing.T) {
 		t.Fatal(err)
 	}
 	entry := lock.Packs[issue186PackName]
-	if cfg.Packs[issue186PackName] != "1.9.0" || entry.Version != "1.9.0" || entry.GitRef == nil || *entry.GitRef != "v1.9.0" {
-		t.Fatalf("core has not adopted 1.9.0/v1.9.0: config=%q lock=%#v", cfg.Packs[issue186PackName], entry)
+	if cfg.Packs[issue186PackName] != "1.10.0" || entry.Version != "1.10.0" || entry.GitRef == nil || *entry.GitRef != "v1.10.0" {
+		t.Fatalf("core has not adopted 1.10.0/v1.10.0: config=%q lock=%#v", cfg.Packs[issue186PackName], entry)
 	}
 	manifest, err := pack.ParseManifestFile(filepath.Join(root, ".backstop", "packs", "backstop-ai", "go-toolchain", "pack.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if manifest.Version != "1.9.0" {
-		t.Fatalf("installed manifest version=%q, want 1.9.0", manifest.Version)
+	if manifest.Version != "1.10.0" {
+		t.Fatalf("installed manifest version=%q, want 1.10.0", manifest.Version)
 	}
 	for _, name := range []string{"coverage-produce.sh", "coverage-to-records.sh"} {
 		body, readErr := os.ReadFile(filepath.Join(root, ".backstop", "packs", "backstop-ai", "go-toolchain", "scripts", name))

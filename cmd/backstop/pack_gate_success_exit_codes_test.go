@@ -99,9 +99,9 @@ func secDispatch(t *testing.T, fx secFixture, m *pack.Manifest) ([]gate.Violatio
 	return result.Violations, err
 }
 
-// secRequireD2 asserts err is the D-2 engine failure: a *check.ConfigError whose
+// requireSecD2 asserts err is the D-2 engine failure: a *check.ConfigError whose
 // text names every wanted fragment.
-func secRequireD2(t *testing.T, err error, wants ...string) {
+func requireSecD2(t *testing.T, err error, wants ...string) {
 	t.Helper()
 	if err == nil {
 		t.Fatal("expected the empty-payload engine failure, got a nil error (a vacuous clean pass)")
@@ -117,8 +117,8 @@ func secRequireD2(t *testing.T, err error, wants ...string) {
 	}
 }
 
-// secRequireClean asserts a nil error and zero findings.
-func secRequireClean(t *testing.T, vs []gate.Violation, err error) {
+// requireSecClean asserts a nil error and zero findings.
+func requireSecClean(t *testing.T, vs []gate.Violation, err error) {
 	t.Helper()
 	if err != nil {
 		t.Fatalf("expected a clean result, got error: %v", err)
@@ -128,8 +128,8 @@ func secRequireClean(t *testing.T, vs []gate.Violation, err error) {
 	}
 }
 
-// secRequireOneFinding asserts a nil error and exactly the one bad.txt finding.
-func secRequireOneFinding(t *testing.T, vs []gate.Violation, err error) {
+// requireSecOneFinding asserts a nil error and exactly the one bad.txt finding.
+func requireSecOneFinding(t *testing.T, vs []gate.Violation, err error) {
 	t.Helper()
 	if err != nil {
 		t.Fatalf("a non-empty payload must be parsed as findings, got error: %v", err)
@@ -166,7 +166,7 @@ func TestFindingsEngine_PackRelativeScriptInCommandFailsLoud(t *testing.T) {
 	if err == nil && len(vs) == 0 {
 		t.Fatal("THE DEFECT: a pack-relative script that never ran read as a clean pass (nil error, zero violations)")
 	}
-	secRequireD2(t, err, "acme/repro", "sh tool.sh", fmt.Sprintf("exit status %d", status), "success_exit_codes")
+	requireSecD2(t, err, "acme/repro", "sh tool.sh", fmt.Sprintf("exit status %d", status), "success_exit_codes")
 }
 
 // TestFindingsEngine_EmptyPayloadNonZeroExitUndeclaredFails (CLM-002, CLM-005).
@@ -176,7 +176,7 @@ func TestFindingsEngine_EmptyPayloadNonZeroExitUndeclaredFails(t *testing.T) {
 	m := secManifest(t, fx, "empty-exit1", "    command: "+script+"\n    input_mode: none\n    gate_type: findings")
 
 	_, err := secDispatch(t, fx, m)
-	secRequireD2(t, err, "acme/empty-exit1", script, "exit status 1", "success_exit_codes: [0, 1]")
+	requireSecD2(t, err, "acme/empty-exit1", script, "exit status 1", "success_exit_codes: [0, 1]")
 }
 
 // TestFindingsEngine_DeclaredSuccessExitCodeEmptyPayloadIsClean (CLM-003; control).
@@ -186,7 +186,7 @@ func TestFindingsEngine_DeclaredSuccessExitCodeEmptyPayloadIsClean(t *testing.T)
 	m := secManifest(t, fx, "declared-clean", "    command: "+script+"\n    input_mode: none\n    gate_type: findings\n    success_exit_codes: [0, 1]")
 
 	vs, err := secDispatch(t, fx, m)
-	secRequireClean(t, vs, err)
+	requireSecClean(t, vs, err)
 }
 
 // TestFindingsEngine_DeclaredSetDoesNotAcceptOtherStatuses (CLM-003).
@@ -196,7 +196,7 @@ func TestFindingsEngine_DeclaredSetDoesNotAcceptOtherStatuses(t *testing.T) {
 	m := secManifest(t, fx, "declared-other", "    command: "+script+"\n    input_mode: none\n    gate_type: findings\n    success_exit_codes: [0, 1]")
 
 	_, err := secDispatch(t, fx, m)
-	secRequireD2(t, err, "acme/declared-other", "exit status 2", "success_exit_codes")
+	requireSecD2(t, err, "acme/declared-other", "exit status 2", "success_exit_codes")
 }
 
 // TestFindingsEngine_NonEmptyPayloadNonZeroExitStillParsesFindings (CLM-004; control).
@@ -206,7 +206,7 @@ func TestFindingsEngine_NonEmptyPayloadNonZeroExitStillParsesFindings(t *testing
 	m := secManifest(t, fx, "nonempty-exit3", "    command: "+script+"\n    input_mode: none\n    gate_type: findings")
 
 	vs, err := secDispatch(t, fx, m)
-	secRequireOneFinding(t, vs, err)
+	requireSecOneFinding(t, vs, err)
 }
 
 // TestFindingsEngine_StdoutArtifactEmptyFailsDespiteNoisyStdout (CLM-006): the raw
@@ -217,7 +217,7 @@ func TestFindingsEngine_StdoutArtifactEmptyFailsDespiteNoisyStdout(t *testing.T)
 	m := secManifest(t, fx, "artifact-empty", "    command: "+script+"\n    input_mode: none\n    gate_type: findings\n    stdout_artifact: out.sarif")
 
 	_, err := secDispatch(t, fx, m)
-	secRequireD2(t, err, "acme/artifact-empty", "exit status 1", "success_exit_codes")
+	requireSecD2(t, err, "acme/artifact-empty", "exit status 1", "success_exit_codes")
 }
 
 // TestFindingsEngine_StdoutArtifactNonEmptyNonZeroExitParses (CLM-006, CLM-004; control).
@@ -227,7 +227,7 @@ func TestFindingsEngine_StdoutArtifactNonEmptyNonZeroExitParses(t *testing.T) {
 	m := secManifest(t, fx, "artifact-nonempty", "    command: "+script+"\n    input_mode: none\n    gate_type: findings\n    stdout_artifact: out.sarif")
 
 	vs, err := secDispatch(t, fx, m)
-	secRequireOneFinding(t, vs, err)
+	requireSecOneFinding(t, vs, err)
 }
 
 // secConvertScript writes a pack-relative convert that records that it ran (an
@@ -249,7 +249,7 @@ func TestFindingsEngine_ConvertEngineEmptyRawOutputFailsBeforeConvert(t *testing
 	m := secManifest(t, fx, "convert-crash", "    command: "+script+"\n    input_mode: none\n    gate_type: findings\n    convert: convert/to-sarif.sh")
 
 	_, err := secDispatch(t, fx, m)
-	secRequireD2(t, err, "acme/convert-crash", "exit status 2", "success_exit_codes")
+	requireSecD2(t, err, "acme/convert-crash", "exit status 2", "success_exit_codes")
 	if _, statErr := os.Stat(marker); statErr == nil {
 		t.Error("the convert must NOT run over an empty raw output with an unaccepted exit status")
 	}
@@ -266,7 +266,7 @@ func TestFindingsEngine_ConvertEngineDeclaredNoMatchStatusIsClean(t *testing.T) 
 		m := secManifest(t, fx, "convert-nomatch", "    command: "+script+"\n    input_mode: none\n    gate_type: findings\n    convert: convert/to-sarif.sh\n    success_exit_codes: [0, 1]")
 
 		vs, err := secDispatch(t, fx, m)
-		secRequireClean(t, vs, err)
+		requireSecClean(t, vs, err)
 		if _, statErr := os.Stat(marker); statErr != nil {
 			t.Errorf("with the status declared the convert must run: %v", statErr)
 		}
@@ -278,7 +278,7 @@ func TestFindingsEngine_ConvertEngineDeclaredNoMatchStatusIsClean(t *testing.T) 
 		m := secManifest(t, fx, "convert-nomatch-undeclared", "    command: "+script+"\n    input_mode: none\n    gate_type: findings\n    convert: convert/to-sarif.sh")
 
 		_, err := secDispatch(t, fx, m)
-		secRequireD2(t, err, "acme/convert-nomatch-undeclared", "exit status 1", "success_exit_codes: [0, 1]")
+		requireSecD2(t, err, "acme/convert-nomatch-undeclared", "exit status 1", "success_exit_codes: [0, 1]")
 	})
 }
 
@@ -291,7 +291,7 @@ func TestFindingsEngine_ConvertEngineNonEmptyRawOutputIsParsedAfterConvert(t *te
 	m := secManifest(t, fx, "convert-nonempty", "    command: "+script+"\n    input_mode: none\n    gate_type: findings\n    convert: convert/to-sarif.sh")
 
 	vs, err := secDispatch(t, fx, m)
-	secRequireOneFinding(t, vs, err)
+	requireSecOneFinding(t, vs, err)
 }
 
 // TestFindingsEngine_CrashGuardHonorsDeclaredSuccessExitCodes (CLM-007).
@@ -301,7 +301,7 @@ func TestFindingsEngine_CrashGuardHonorsDeclaredSuccessExitCodes(t *testing.T) {
 	m := secManifest(t, fx, "crashguard-declared", "    command: "+script+"\n    input_mode: none\n    gate_type: findings\n    crash_guard: true\n    success_exit_codes: [0, 1]")
 
 	vs, err := secDispatch(t, fx, m)
-	secRequireClean(t, vs, err)
+	requireSecClean(t, vs, err)
 }
 
 // TestFindingsEngine_CrashGuardUndeclaredKeepsCrashWording (CLM-007; control).

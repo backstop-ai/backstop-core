@@ -6,13 +6,15 @@ issue:
   id: ISSUE-219
   title: "Bash Toolchain Convert Heredoc Denied In Darwin Sandbox"
   type: bug
-  status: open
+  status: closed
   created: "2026-10-12"
+  closed: "2026-10-13"
 
 complexity:
   scope: contained
   uncertainty: known
   risk: safe
+resolved-by: e7d9169fe7d31386e97f9b2a803c6baeee3fc77b
 ---
 
 # Bash Toolchain Convert Heredoc Denied In Darwin Sandbox
@@ -78,3 +80,18 @@ Keep each change small and contained.
 - Related: ISSUE-216 (darwin sandbox denies a relative pack dir and drops the real cause); ISSUE-209
   (pack engine dispatch error discards findings). All three are darwin or evidence-loss defects where
   the real error is hidden.
+
+## Resolution
+
+Fixed on the pack side in `backstop-ai/bash-toolchain` v0.1.3 (commit
+`e7d9169fe7d31386e97f9b2a803c6baeee3fc77b`, 2026-10-13). `scripts/test-to-sarif.sh` now passes the
+Python program with `python3 -c '...' "$message"` instead of a here-document, so the failure branch
+needs no temp file. Output is byte-identical across quoting, control-character and non-ASCII cases.
+A new pack test, `TestBashToolchainConverterFailureBranchSurvivesWriteDenial`, runs the failure
+branch under a write-denying `sandbox-exec` profile on darwin. The earlier test missed the defect
+because bash 3.2 falls back to `/tmp` when `TMPDIR` does not exist. backstop-core adopted 0.1.3 the
+same day.
+
+Not done here: the optional core item (a private writable `TMPDIR` for converts and surfacing the
+sandbox's stderr). It moves to ISSUE-224, along with a second darwin denial found while verifying
+this fix (framework Python under `/Library/Frameworks`).

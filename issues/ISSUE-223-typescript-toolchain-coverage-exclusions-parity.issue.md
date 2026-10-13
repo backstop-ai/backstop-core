@@ -6,13 +6,15 @@ issue:
   id: ISSUE-223
   title: "Typescript Toolchain Coverage Exclusions Parity"
   type: bug
-  status: open
+  status: closed
   created: "2026-10-13"
+  closed: "2026-10-13"
 
 complexity:
   scope: contained
   uncertainty: known
   risk: moderate
+resolved-by: 55176ea9e3056cf673c8607cc3c79979b10a25cf
 ---
 
 # Typescript Toolchain Coverage Exclusions Parity
@@ -111,3 +113,12 @@ needs no change, because it already reads `excluded` and `justification` from ev
 - Related: ISSUE-186 (go-toolchain synthetic records for absent declared paths), ISSUE-221
   (`--coverage.include` gives unloaded files `0/N` entries, which is what made this failure
   reachable), ISSUE-222 (same pack, same release line).
+
+## Resolution
+
+Fixed in `backstop-ai/typescript-toolchain` v1.3.3 (commit
+`55176ea9e3056cf673c8607cc3c79979b10a25cf`): it reads `.backstop/coverage-exclusions`
+(`path<TAB>justification`) the same way go-toolchain does, and makes synthetic excluded records only
+for its own extensions. The matching change in go-toolchain shipped in v1.10.0 (commit
+`0cf01833b75c24c263ad46bcc934d875b2e059db`): synthetic records only for `.go` paths, so in a mixed
+repo neither pack emits records for the other's files. go-toolchain's new selftest covers this.

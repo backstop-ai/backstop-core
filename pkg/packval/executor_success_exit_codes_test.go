@@ -36,9 +36,9 @@ func secPVBinding(t *testing.T, packDir, engineLines string) engine.EngineBindin
 	return binding
 }
 
-// secPVRequireEmptyPayloadErr asserts the D-2 failure naming the command, the
+// requireSecPVEmptyPayloadErr asserts the D-2 failure naming the command, the
 // status and the success_exit_codes hint.
-func secPVRequireEmptyPayloadErr(t *testing.T, res ExecutionResult, err error, command, status string) {
+func requireSecPVEmptyPayloadErr(t *testing.T, res ExecutionResult, err error, command, status string) {
 	t.Helper()
 	if err == nil {
 		t.Fatalf("THE DEFECT: an empty payload with an unaccepted exit returned a nil error (result %+v) — a negative fixture's pass over a crashed run", res)
@@ -60,7 +60,7 @@ func TestRunEngine_EmptyPayloadNonZeroExitUndeclaredFails(t *testing.T) {
 	binding := secPVBinding(t, packDir, "    command: "+script+"\n    input_mode: none")
 
 	res, err := (&DefaultExecutor{}).RunEngine(packDir, binding, []string{"fixture.txt"})
-	secPVRequireEmptyPayloadErr(t, res, err, script, "1")
+	requireSecPVEmptyPayloadErr(t, res, err, script, "1")
 }
 
 // TestRunEngine_DeclaredSuccessExitCodeEmptyPayloadIsClean (CLM-011, CLM-003; control).
@@ -95,7 +95,7 @@ func TestRunEngine_ConvertEngineEmptyRawOutputFailsBeforeConvert(t *testing.T) {
 		binding := secPVBinding(t, packDir, "    command: "+script+"\n    input_mode: none\n    convert: to-sarif.sh")
 
 		res, err := (&DefaultExecutor{}).RunEngine(packDir, binding, []string{"fixture.txt"})
-		secPVRequireEmptyPayloadErr(t, res, err, script, "2")
+		requireSecPVEmptyPayloadErr(t, res, err, script, "2")
 	})
 
 	t.Run("ordering", func(t *testing.T) {
@@ -105,7 +105,7 @@ func TestRunEngine_ConvertEngineEmptyRawOutputFailsBeforeConvert(t *testing.T) {
 		binding := secPVBinding(t, packDir, "    command: "+script+"\n    input_mode: none\n    convert: to-sarif.sh")
 
 		res, err := (&DefaultExecutor{}).RunEngine(packDir, binding, []string{"fixture.txt"})
-		secPVRequireEmptyPayloadErr(t, res, err, script, "2")
+		requireSecPVEmptyPayloadErr(t, res, err, script, "2")
 		if err != nil && strings.Contains(err.Error(), "convert step") {
 			t.Errorf("the empty-payload check must precede the convert, but the convert ran: %v", err)
 		}

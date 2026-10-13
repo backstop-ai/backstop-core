@@ -6,13 +6,15 @@ issue:
   id: ISSUE-220
   title: "Go Test Engine Cmd Backstop Exceeds Default Timeout"
   type: bug
-  status: open
+  status: closed
   created: "2026-10-12"
+  closed: "2026-10-13"
 
 complexity:
   scope: contained
   uncertainty: known
   risk: safe
+resolved-by: 0cf01833b75c24c263ad46bcc934d875b2e059db
 ---
 
 # Go Test Engine Cmd Backstop Exceeds Default Timeout
@@ -77,3 +79,16 @@ Keep each change small and contained.
 - Related: ISSUE-172 (single-run convention shared by `go-test` and `go-coverage`); ISSUE-209 (pack
   engine dispatch error discards findings), the same class of evidence loss where the real cause is
   hidden.
+
+## Resolution
+
+Fixed in `backstop-ai/go-toolchain` v1.10.0 (commit `0cf01833b75c24c263ad46bcc934d875b2e059db`,
+2026-10-13). Both `go-test` and `go-coverage` now run `go test -timeout=30m ...`, and the producer's
+fallback run in `scripts/coverage-produce.sh` uses the same value. A comment requires the two to stay
+equal (single-run convention, ISSUE-172). The pack's new `selftest/run.sh` asserts the flag on both
+commands and on the fallback. backstop-core adopted 1.10.0 the same day, and the two adoption-pin
+tests in `cmd/backstop/go_toolchain_coverage_exclusions_test.go` moved to 1.10.0.
+
+Not done here (optional directions 2 and 3): speeding up or splitting `cmd/backstop`, a per-engine
+timeout setting in core, and reporting a timeout distinctly from a crash. These are still open if
+wanted.
