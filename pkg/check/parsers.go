@@ -106,12 +106,52 @@ type sarifLog struct {
 			// Properties is the SARIF result-level `properties` object (ISSUE-062):
 			// the generic structured channel a pack uses to hand the gate machine-data
 			// (e.g. the substantiveness func/symbol) WITHOUT tunnelling it through the
-			// human message. v1 preserves string-valued entries only; a result with no
-			// properties yields a nil map (no error). Additive — every existing field
-			// is unchanged and property-less findings behave exactly as before.
-			Properties map[string]string `json:"properties"`
+			// human message. It is decoded by sarifPropertyBag (ISSUE-208), which
+			// keeps string-valued entries and ignores every other JSON kind rather
+			// than rejecting the log; see that type for the exact rules.
+			Properties sarifPropertyBag `json:"properties"`
 		} `json:"results"`
 	} `json:"runs"`
+}
+
+// sarifPropertyBag decodes a SARIF result `properties` object leniently
+// (ISSUE-208). SARIF 2.1.0 §3.8 lets property-bag values be arbitrary JSON, and
+// §3.8.2 reserves `tags` as an array of strings (gitleaks emits it on every
+// result). v1 keeps string-valued entries only, JSON-decoded so escapes resolve,
+// and ignores every other kind (array, object, number, bool) instead of failing
+// the whole log. A null-valued entry is a non-string and is dropped; it
+// previously surfaced as "". A `properties` value that is not a JSON object is
+// malformed and fails the log. Absent, null, empty, or all-non-string bags yield
+// a nil map. Decode errors are never tolerated or unwrapped here: only the
+// value kind decides what is kept.
+type sarifPropertyBag map[string]string
+
+// UnmarshalJSON implements json.Unmarshaler for sarifPropertyBag.
+func (b *sarifPropertyBag) UnmarshalJSON(data []byte) error {
+	if bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+		return nil
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("decoding result properties: %w", err)
+	}
+	var kept map[string]string
+	for k, v := range raw {
+		trimmed := bytes.TrimSpace(v)
+		if len(trimmed) == 0 || trimmed[0] != '"' {
+			continue
+		}
+		var s string
+		if err := json.Unmarshal(trimmed, &s); err != nil {
+			return fmt.Errorf("decoding result property %q: %w", k, err)
+		}
+		if kept == nil {
+			kept = make(map[string]string)
+		}
+		kept[k] = s
+	}
+	*b = kept
+	return nil
 }
 
 // parseSarif parses a SARIF log into violations: File from
@@ -172,7 +212,7 @@ func parseSarif(out []byte, target CheckType) ([]Violation, error) {
 				Severity:    sarifSeverity(level),
 				Rule:        r.RuleID,
 				Fingerprint: sarifFingerprint(r.PartialFingerprints, snippet),
-				Properties:  r.Properties,
+				Properties:  map[string]string(r.Properties),
 			})
 		}
 	}
