@@ -105,6 +105,53 @@ func TestPackRemove_DeletesFromPacksDir(t *testing.T) {
 	}
 }
 
+// TestPackRemove_DeleteFailureLeavesManifestsUntouched verifies that when the
+// pack directory cannot be deleted, Remove returns the error and does not drop
+// the pack from backstop.yml, backstop.lock or provenance.
+func TestPackRemove_DeleteFailureLeavesManifestsUntouched(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: a read-only directory does not refuse a delete, so the arm under test is unreachable")
+	}
+	projectDir := setupRemoveProject(t)
+
+	// A read-only pack directory refuses deletion of its entries.
+	packDir := filepath.Join(projectDir, ".backstop", "packs", "acme", "valid-pack")
+	if err := os.Chmod(packDir, 0o555); err != nil {
+		t.Fatalf("making the pack directory read-only: %v", err)
+	}
+	// Restored so t.TempDir's cleanup can remove the tree.
+	t.Cleanup(func() { _ = os.Chmod(packDir, 0o755) })
+
+	ymlBefore := mustReadFile(t, filepath.Join(projectDir, "backstop.yml"))
+	lockBefore := mustReadFile(t, filepath.Join(projectDir, "backstop.lock"))
+	provPath := filepath.Join(projectDir, ".backstop", "pack-config-provenance.json")
+	provBefore := mustReadFile(t, provPath)
+
+	result, err := distribution.Remove("acme/valid-pack", distribution.RemoveOptions{ProjectDir: projectDir})
+	if err == nil {
+		t.Fatal("expected an error when the pack directory cannot be deleted")
+	}
+	if result != nil {
+		t.Errorf("expected nil result on delete failure, got %+v", result)
+	}
+	if !strings.Contains(err.Error(), "removing pack directory") {
+		t.Errorf("error does not attribute the failure to the delete: %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(packDir, "pack.yml")); statErr != nil {
+		t.Fatalf("expected pack files to remain after the refused delete: %v", statErr)
+	}
+
+	if got := mustReadFile(t, filepath.Join(projectDir, "backstop.yml")); string(got) != string(ymlBefore) {
+		t.Errorf("backstop.yml changed after a failed delete:\nbefore: %s\nafter: %s", ymlBefore, got)
+	}
+	if got := mustReadFile(t, filepath.Join(projectDir, "backstop.lock")); string(got) != string(lockBefore) {
+		t.Errorf("backstop.lock changed after a failed delete:\nbefore: %s\nafter: %s", lockBefore, got)
+	}
+	if got := mustReadFile(t, provPath); string(got) != string(provBefore) {
+		t.Errorf("provenance changed after a failed delete:\nbefore: %s\nafter: %s", provBefore, got)
+	}
+}
+
 func TestPackRemove_RemovesFromBackstopYml(t *testing.T) {
 	projectDir := setupRemoveProject(t)
 
@@ -208,6 +255,75 @@ func TestPackRemove_MalformedManifestExitsNonZero(t *testing.T) {
 	// must not delete content on the strength of it.
 	if _, statErr := os.Stat(filepath.Join(projectDir, ".backstop", "packs", "acme", "valid-pack")); statErr != nil {
 		t.Errorf("installed pack was deleted despite the manifest being unreadable: %v", statErr)
+	}
+}
+
+// TestPackRemove_UnreadableLockfileChangesNothing verifies that a lockfile
+// that exists but cannot be parsed stops Remove before the pack directory,
+// backstop.yml or provenance change.
+func TestPackRemove_UnreadableLockfileChangesNothing(t *testing.T) {
+	projectDir := setupRemoveProject(t)
+	writeFile(t, filepath.Join(projectDir, "backstop.lock"), "packs: [unclosed\n")
+
+	ymlBefore := mustReadFile(t, filepath.Join(projectDir, "backstop.yml"))
+	provPath := filepath.Join(projectDir, ".backstop", "pack-config-provenance.json")
+	provBefore := mustReadFile(t, provPath)
+
+	result, err := distribution.Remove("acme/valid-pack", distribution.RemoveOptions{ProjectDir: projectDir})
+	if err == nil {
+		t.Fatal("expected an error for an unparseable backstop.lock")
+	}
+	if result != nil {
+		t.Errorf("expected nil result on lockfile error, got %+v", result)
+	}
+	if !strings.Contains(err.Error(), "parsing lockfile") {
+		t.Errorf("error does not attribute the failure to the lockfile: %v", err)
+	}
+
+	packYml := filepath.Join(projectDir, ".backstop", "packs", "acme", "valid-pack", "pack.yml")
+	if _, statErr := os.Stat(packYml); statErr != nil {
+		t.Fatalf("pack files were deleted despite the lockfile error: %v", statErr)
+	}
+	if got := mustReadFile(t, filepath.Join(projectDir, "backstop.yml")); string(got) != string(ymlBefore) {
+		t.Errorf("backstop.yml changed after a lockfile error:\nbefore: %s\nafter: %s", ymlBefore, got)
+	}
+	if got := mustReadFile(t, provPath); string(got) != string(provBefore) {
+		t.Errorf("provenance changed after a lockfile error:\nbefore: %s\nafter: %s", provBefore, got)
+	}
+}
+
+// TestPackRemove_LockfileWriteFailureReturnsError verifies that when the
+// updated backstop.lock cannot be written, Remove returns the error instead
+// of reporting the pack as removed.
+func TestPackRemove_LockfileWriteFailureReturnsError(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: a read-only file does not refuse a write, so the arm under test is unreachable")
+	}
+	projectDir := setupRemoveProject(t)
+
+	lockPath := filepath.Join(projectDir, "backstop.lock")
+	if err := os.Chmod(lockPath, 0o444); err != nil {
+		t.Fatalf("making backstop.lock read-only: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(lockPath, 0o644) })
+
+	result, err := distribution.Remove("acme/valid-pack", distribution.RemoveOptions{ProjectDir: projectDir})
+	if err == nil {
+		t.Fatal("expected an error when backstop.lock cannot be written")
+	}
+	if result != nil {
+		t.Errorf("expected nil result on lockfile write failure, got %+v", result)
+	}
+	if !strings.Contains(err.Error(), "backstop.lock") {
+		t.Errorf("error does not name the lockfile: %v", err)
+	}
+
+	lf, readErr := distribution.ReadLockfile(lockPath)
+	if readErr != nil {
+		t.Fatalf("ReadLockfile: %v", readErr)
+	}
+	if _, ok := lf.Packs["acme/valid-pack"]; !ok {
+		t.Error("backstop.lock lost the pack entry although the write was refused")
 	}
 }
 

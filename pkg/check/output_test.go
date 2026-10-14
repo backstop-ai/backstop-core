@@ -328,7 +328,11 @@ func TestCodeCheck_Output_HumanWithColor(t *testing.T) {
 	}
 
 	// Unset NO_COLOR entirely — color should be enabled
-	os.Unsetenv("NO_COLOR")
+	// t.Setenv registers restoration of the original value; then unset it.
+	t.Setenv("NO_COLOR", "")
+	if err := os.Unsetenv("NO_COLOR"); err != nil {
+		t.Fatalf("unsetting NO_COLOR: %v", err)
+	}
 
 	out, err := FormatResult(result, OutputModeHuman)
 	if err != nil {

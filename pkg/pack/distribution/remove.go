@@ -1,7 +1,9 @@
 package distribution
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -36,7 +38,7 @@ func Remove(packName string, opts RemoveOptions) (*RemoveResult, error) {
 	provPath := filepath.Join(opts.ProjectDir, ".backstop", "pack-config-provenance.json")
 	prov, err := ReadProvenance(provPath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("removing %s: %w", packName, err)
 	}
 
 	for _, entry := range prov.Entries {
@@ -64,22 +66,32 @@ func Remove(packName string, opts RemoveOptions) (*RemoveResult, error) {
 		result.RevertedSettings = append(result.RevertedSettings, entry.SettingKey)
 	}
 
-	// Delete from .backstop/packs/.
+	// Read backstop.lock before changing anything. A missing lockfile is
+	// allowed; an unreadable one stops the remove with nothing changed.
+	lockPath := filepath.Join(opts.ProjectDir, "backstop.lock")
+	lf, err := ReadLockfile(lockPath)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("removing %s: %w", packName, err)
+	}
+
+	// Delete from .backstop/packs/. A failed delete stops the remove before
+	// backstop.yml, backstop.lock or provenance change, so a pack whose files
+	// are still installed is never reported as removed.
 	packDir := filepath.Join(opts.ProjectDir, ".backstop", "packs", packName)
-	os.RemoveAll(packDir)
+	if err := os.RemoveAll(packDir); err != nil {
+		return nil, fmt.Errorf("removing pack directory %s: %w", packDir, err)
+	}
 
 	// Remove from backstop.yml.
 	if err := removeFromBackstopYml(opts.ProjectDir, packName); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("removing %s from backstop.yml: %w", packName, err)
 	}
 
 	// Remove from backstop.lock.
-	lockPath := filepath.Join(opts.ProjectDir, "backstop.lock")
-	lf, _ := ReadLockfile(lockPath)
 	if lf != nil {
 		delete(lf.Packs, packName)
 		if err := WriteLockfile(lockPath, lf); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("removing %s from backstop.lock: %w", packName, err)
 		}
 	}
 
@@ -92,7 +104,7 @@ func Remove(packName string, opts RemoveOptions) (*RemoveResult, error) {
 	}
 	prov.Entries = filtered
 	if err := WriteProvenance(provPath, prov); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("removing %s from provenance: %w", packName, err)
 	}
 
 	return result, nil

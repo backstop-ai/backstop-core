@@ -43,8 +43,8 @@ func TestCodeCheck_DefaultScope_UsesGitMergeBase(t *testing.T) {
 func TestCodeCheck_DefaultScope_NonGitFallsBackToAll(t *testing.T) {
 	// Create a temp directory with some files (not a git repo)
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main"), 0o644)
-	os.WriteFile(filepath.Join(dir, "util.go"), []byte("package main"), 0o644)
+	mustWriteFile(t, filepath.Join(dir, "main.go"), "package main")
+	mustWriteFile(t, filepath.Join(dir, "util.go"), "package main")
 
 	mock := &mockGitExecutor{
 		isGitRepo: false,
@@ -76,10 +76,10 @@ func TestCodeCheck_DefaultScope_NonGitFallsBackToAll(t *testing.T) {
 // for all files, no git invocation. (CLM-007)
 func TestCodeCheck_AllFlag_FullCodebase(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main"), 0o644)
-	os.MkdirAll(filepath.Join(dir, "pkg"), 0o755)
-	os.WriteFile(filepath.Join(dir, "pkg", "util.go"), []byte("package pkg"), 0o644)
-	os.WriteFile(filepath.Join(dir, "readme.md"), []byte("# readme"), 0o644)
+	mustWriteFile(t, filepath.Join(dir, "main.go"), "package main")
+	mustMkdirAll(t, filepath.Join(dir, "pkg"))
+	mustWriteFile(t, filepath.Join(dir, "pkg", "util.go"), "package pkg")
+	mustWriteFile(t, filepath.Join(dir, "readme.md"), "# readme")
 
 	files, warnings, err := resolveScopeWithGit(ScopeModeAll, "", nil, withProjectDir(dir))
 	if err != nil {
@@ -97,7 +97,7 @@ func TestCodeCheck_AllFlag_FullCodebase(t *testing.T) {
 // at all. (CLM-008)
 func TestCodeCheck_AllFlag_NoGitCall(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main"), 0o644)
+	mustWriteFile(t, filepath.Join(dir, "main.go"), "package main")
 
 	gitCalled := false
 	mock := &mockGitExecutor{
@@ -360,7 +360,7 @@ func TestCodeCheck_DiffScope_LocalFallback_UntrackedErrorIsBestEffort(t *testing
 // repo, falls back to --all with warning. (CLM-040)
 func TestCodeCheck_ChangedFiles_NonGitFallbackToAll(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main"), 0o644)
+	mustWriteFile(t, filepath.Join(dir, "main.go"), "package main")
 
 	mock := &mockGitExecutor{
 		isGitRepo: false,
@@ -383,7 +383,7 @@ func TestCodeCheck_ChangedFiles_NonGitFallbackToAll(t *testing.T) {
 func TestCodeCheck_ScopeModeFile_ExistingFile(t *testing.T) {
 	dir := t.TempDir()
 	f := filepath.Join(dir, "test.go")
-	os.WriteFile(f, []byte("package main"), 0o644)
+	mustWriteFile(t, f, "package main")
 
 	files, warnings, err := resolveScopeWithGit(ScopeModeFile, f, nil)
 	if err != nil {
@@ -447,10 +447,10 @@ func TestCodeCheck_ScopeModeAll_EmptyProjectDir(t *testing.T) {
 // hidden directories (starting with dot).
 func TestCodeCheck_ScopeModeAll_HiddenDirsSkipped(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main"), 0o644)
+	mustWriteFile(t, filepath.Join(dir, "main.go"), "package main")
 	hiddenDir := filepath.Join(dir, ".hidden")
-	os.MkdirAll(hiddenDir, 0o755)
-	os.WriteFile(filepath.Join(hiddenDir, "secret.go"), []byte("package hidden"), 0o644)
+	mustMkdirAll(t, hiddenDir)
+	mustWriteFile(t, filepath.Join(hiddenDir, "secret.go"), "package hidden")
 
 	files, _, err := resolveScopeWithGit(ScopeModeAll, "", nil, withProjectDir(dir))
 	if err != nil {
@@ -501,7 +501,7 @@ func TestCodeCheck_ScopeDiff_MergeBaseSucceedsDiffFails(t *testing.T) {
 // all-scope when both remotes and local diff all fail.
 func TestCodeCheck_ScopeDiff_AllRemotesFailDiffLocalFails(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main"), 0o644)
+	mustWriteFile(t, filepath.Join(dir, "main.go"), "package main")
 
 	mock := &mockGitExecutor{
 		isGitRepo: true,
@@ -536,7 +536,7 @@ func TestCodeCheck_ScopeDiff_AllRemotesFailDiffLocalFails(t *testing.T) {
 // triggers all-scope fallback.
 func TestCodeCheck_ScopeDiff_NilGitExecutor(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main"), 0o644)
+	mustWriteFile(t, filepath.Join(dir, "main.go"), "package main")
 
 	files, warnings, err := resolveScopeWithGit(ScopeModeDiff, "", nil, withProjectDir(dir))
 	if err != nil {
@@ -653,7 +653,7 @@ func TestCodeCheck_DefaultGitExecutor_UntrackedFiles(t *testing.T) {
 func TestCodeCheck_ResolveScope_ScopeModeFile(t *testing.T) {
 	dir := t.TempDir()
 	f := filepath.Join(dir, "test.go")
-	os.WriteFile(f, []byte("package main"), 0o644)
+	mustWriteFile(t, f, "package main")
 
 	files, warnings, err := ResolveScope(ScopeModeFile, f)
 	if err != nil {
@@ -731,4 +731,20 @@ func containsHelper(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+// mustWriteFile writes content to path, failing the test on error.
+func mustWriteFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("writing %s: %v", path, err)
+	}
+}
+
+// mustMkdirAll creates dir and any parents, failing the test on error.
+func mustMkdirAll(t *testing.T, dir string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("creating %s: %v", dir, err)
+	}
 }

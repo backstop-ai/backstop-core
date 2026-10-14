@@ -145,24 +145,17 @@ func TestGate_HumanOutput_NoColorEnvVar(t *testing.T) {
 // TestGate_NoColorFromEnv_RespectsEnv verifies that NoColorFromEnv returns true
 // when NO_COLOR is set and false when it is not.
 func TestGate_NoColorFromEnv_RespectsEnv(t *testing.T) {
-	// Save and restore original value
-	orig, hadOrig := os.LookupEnv("NO_COLOR")
-	defer func() {
-		if hadOrig {
-			os.Setenv("NO_COLOR", orig)
-		} else {
-			os.Unsetenv("NO_COLOR")
-		}
-	}()
-
-	// When NO_COLOR is set, should return true
-	os.Setenv("NO_COLOR", "1")
+	// When NO_COLOR is set, should return true. t.Setenv restores the
+	// original value (or absence) when the test ends.
+	t.Setenv("NO_COLOR", "1")
 	if !NoColorFromEnv() {
 		t.Error("expected NoColorFromEnv() == true when NO_COLOR is set")
 	}
 
 	// When NO_COLOR is unset, should return false
-	os.Unsetenv("NO_COLOR")
+	if err := os.Unsetenv("NO_COLOR"); err != nil {
+		t.Fatalf("unsetting NO_COLOR: %v", err)
+	}
 	if NoColorFromEnv() {
 		t.Error("expected NoColorFromEnv() == false when NO_COLOR is unset")
 	}

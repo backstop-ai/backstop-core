@@ -55,11 +55,7 @@ func TestRealGitExecutor_IsGitAvailable(t *testing.T) {
 func TestRealGitExecutor_IsGitRepo(t *testing.T) {
 	dir := initTempGitRepo(t)
 	// Change to the temp repo directory for the check
-	origDir, _ := os.Getwd()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	r := &RealGitExecutor{}
 	if !r.IsGitRepo() {
@@ -69,11 +65,7 @@ func TestRealGitExecutor_IsGitRepo(t *testing.T) {
 
 func TestRealGitExecutor_IsGitRepo_NotARepo(t *testing.T) {
 	dir := t.TempDir() // plain directory, not a git repo
-	origDir, _ := os.Getwd()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	r := &RealGitExecutor{}
 	if r.IsGitRepo() {
@@ -83,11 +75,7 @@ func TestRealGitExecutor_IsGitRepo_NotARepo(t *testing.T) {
 
 func TestRealGitExecutor_ListTags(t *testing.T) {
 	dir := initTempGitRepo(t)
-	origDir, _ := os.Getwd()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	// Create a test tag
 	cmd := exec.Command("git", "tag", "-a", "backstop/spec/001", "-m", "test tag")
@@ -108,11 +96,7 @@ func TestRealGitExecutor_ListTags(t *testing.T) {
 
 func TestRealGitExecutor_ListTags_Empty(t *testing.T) {
 	dir := initTempGitRepo(t)
-	origDir, _ := os.Getwd()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	r := &RealGitExecutor{}
 	tags, err := r.ListTags("backstop/spec/*")
@@ -126,11 +110,7 @@ func TestRealGitExecutor_ListTags_Empty(t *testing.T) {
 
 func TestRealGitExecutor_CreateAnnotatedTag(t *testing.T) {
 	dir := initTempGitRepo(t)
-	origDir, _ := os.Getwd()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	r := &RealGitExecutor{}
 	err := r.CreateAnnotatedTag("backstop/spec/001", "test reservation")
@@ -147,11 +127,7 @@ func TestRealGitExecutor_CreateAnnotatedTag(t *testing.T) {
 
 func TestRealGitExecutor_PushTag_NoRemote(t *testing.T) {
 	dir := initTempGitRepo(t)
-	origDir, _ := os.Getwd()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	// Create a tag first
 	r := &RealGitExecutor{}
@@ -166,14 +142,29 @@ func TestRealGitExecutor_PushTag_NoRemote(t *testing.T) {
 
 func TestRealGitExecutor_FetchTags_InRepo(t *testing.T) {
 	dir := initTempGitRepo(t)
-	origDir, _ := os.Getwd()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
+	t.Chdir(dir)
+
+	// Give the repo a local origin that holds a tag the repo lacks, so the
+	// fetch has a known, observable effect.
+	origin := initTempGitRepo(t)
+	for _, args := range [][]string{
+		{"git", "-C", origin, "tag", "-a", "backstop/spec/007", "-m", "origin tag"},
+		{"git", "-C", dir, "remote", "add", "origin", origin},
+	} {
+		if out, err := exec.Command(args[0], args[1:]...).CombinedOutput(); err != nil {
+			t.Fatalf("remote setup %v failed: %v\n%s", args, err, out)
+		}
 	}
-	defer os.Chdir(origDir)
 
 	r := &RealGitExecutor{}
-	// FetchTags may succeed or fail depending on remote config;
-	// verify it doesn't panic and returns without crashing.
-	_ = r.FetchTags()
+	if err := r.FetchTags(); err != nil {
+		t.Fatalf("FetchTags error: %v", err)
+	}
+	tags, err := r.ListTags("backstop/spec/*")
+	if err != nil {
+		t.Fatalf("ListTags error: %v", err)
+	}
+	if len(tags) != 1 || tags[0] != "backstop/spec/007" {
+		t.Fatalf("expected the origin tag [backstop/spec/007] after FetchTags, got %v", tags)
+	}
 }

@@ -179,7 +179,11 @@ func TestHumanArtifactNewFormatter_FormatNewResult(t *testing.T) {
 // TestCLI_NoColor_AllowsANSIWhenUnset unsets NO_COLOR, formats with
 // HumanFormatter, verifies ANSI codes may be present. (CLM-031)
 func TestCLI_NoColor_AllowsANSIWhenUnset(t *testing.T) {
-	os.Unsetenv("NO_COLOR")
+	// t.Setenv registers restoration of the original value; then unset it.
+	t.Setenv("NO_COLOR", "")
+	if err := os.Unsetenv("NO_COLOR"); err != nil {
+		t.Fatalf("unsetting NO_COLOR: %v", err)
+	}
 	f := &HumanFormatter{}
 	result := validate.ValidationResult{
 		Violations: []validate.Violation{

@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -65,13 +66,17 @@ func TestCLI_EmbedCohort_BaseSchemaPresent(t *testing.T) {
 }
 
 // TestCLI_Embed_UsesEmbedFS verifies SchemaFS is of type embed.FS
-// (compile-time check via type assertion). (CLM-041)
+// (type assertion via reflection). (CLM-041)
 func TestCLI_Embed_UsesEmbedFS(t *testing.T) {
-	// Compile-time type assertion: SchemaFS must be embed.FS
-	var _ embed.FS = backstopcore.SchemaFS
-	// If this compiles, the claim is satisfied.
-	// Also verify it implements fs.FS at runtime.
-	var _ fs.FS = backstopcore.SchemaFS
+	// SchemaFS's type must be exactly embed.FS.
+	if got, want := reflect.TypeOf(backstopcore.SchemaFS), reflect.TypeFor[embed.FS](); got != want {
+		t.Fatalf("SchemaFS has type %v, want %v", got, want)
+	}
+	// It must also serve as an fs.FS: passing it to fs.Stat checks that at
+	// compile time, and the root must be readable at runtime.
+	if _, err := fs.Stat(backstopcore.SchemaFS, "."); err != nil {
+		t.Fatalf("SchemaFS root is not readable as an fs.FS: %v", err)
+	}
 }
 
 // TestCLI_Embed_ListSchemaPaths verifies ListSchemas() returns all expected

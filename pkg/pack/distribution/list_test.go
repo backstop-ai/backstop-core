@@ -130,7 +130,9 @@ func TestPackList_LockStatusMissing(t *testing.T) {
 	projectDir := setupListProject(t)
 
 	// Remove the installed pack.
-	os.RemoveAll(filepath.Join(projectDir, ".backstop", "packs", "acme", "valid-pack"))
+	if err := os.RemoveAll(filepath.Join(projectDir, ".backstop", "packs", "acme", "valid-pack")); err != nil {
+		t.Fatalf("removing installed pack: %v", err)
+	}
 
 	result, err := distribution.List(distribution.ListOptions{ProjectDir: projectDir})
 	if err != nil {

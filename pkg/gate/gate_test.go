@@ -54,15 +54,6 @@ func allPassSteps() []StepFunc {
 	return steps
 }
 
-// allSkippedSteps returns nine skipped steps in canonical order.
-func allSkippedSteps() []StepFunc {
-	var steps []StepFunc
-	for _, name := range AllStepNames {
-		steps = append(steps, makeSkippedStep(name, "not implemented"))
-	}
-	return steps
-}
-
 // --- Kill chain ordering tests ---
 
 // TestGate_AllNineStepsExecuteInOrder verifies gate runs all nine steps in

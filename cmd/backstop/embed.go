@@ -7,8 +7,8 @@ import (
 )
 
 // SchemaFS re-exports the root-level embedded schema filesystem.
-// The go:embed directive lives at the module root (embed.go) because
-// go:embed cannot reference files above the package directory.
+// The go:embed directive lives at the module root (embed.go) because an
+// embed pattern cannot reference files above the package directory.
 // This shim satisfies the SPEC-005 contract for cmd/backstop/embed.go.
 var SchemaFS embed.FS = backstopcore.SchemaFS
 
