@@ -6,13 +6,15 @@ issue:
   id: ISSUE-226
   title: "Go Toolchain 1.10 Lint Debt"
   type: bug
-  status: open
+  status: closed
   created: "2026-10-13"
+  closed: "2026-10-14"
 
 complexity:
   scope: contained
   uncertainty: known
   risk: moderate
+resolved-by: f8db7d124a72245bb4cc00b5443a0df38a5ab025
 ---
 
 # Go Toolchain 1.10 Lint Debt
@@ -106,7 +108,7 @@ delete error, wrapped, before any manifest or lockfile change.
   `Total violations: 5`. `coverage_threshold` passes. That run was before the error-wrapping change
   in `remove.go`, which removed four of its warnings.
 
-The 5 blocking findings that remain were there before this change. A follow-up issue tracks them:
+The 5 blocking findings that remain were there before this change. ISSUE-227 tracks them:
 
 - go-standards no-global-mutable-state on `var SchemaFS embed.FS` in `cmd/backstop/embed.go`. This
   is a SPEC-005 contract signature.
@@ -116,5 +118,11 @@ The 5 blocking findings that remain were there before this change. A follow-up i
   (`pkg/gate/gate_test.go`), `TestGateOutput_BaselineDifferential_HumanMessaging` and
   `TestGateOutput_BaselineDifferential_JSONDiagnostics` (`pkg/gate/output_test.go`). SPEC-019
   declares `package: cmd/backstop`, but these tests are in `pkg/gate`.
+
+## Resolution
+
+Fixed in `f8db7d124a72245bb4cc00b5443a0df38a5ab025`. The 5 blocking findings that were there before
+this change, and that `gate --file` still reports, are tracked in ISSUE-227. The bare diff-scoped
+gate was not run, because it covers the same files and would report the same 5 findings.
 
 ## Notes
