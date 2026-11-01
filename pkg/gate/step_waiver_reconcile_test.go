@@ -114,3 +114,37 @@ func TestGateWaiver_AuditFeed_EntryCarriesRuleReasonExpiry(t *testing.T) {
 		t.Errorf("feed entry missing rule/reason/expiry: %+v", e)
 	}
 }
+
+// TestGateWaiver_Suppress_RecomputesVerdictOverRemainingWarnings proves that once the
+// reconciliation pass removes every BLOCKING finding, the step's verdict is recomputed
+// over what remains: a step left holding only warnings reports "warning", not a "fail"
+// with no blocking finding to show for it. A remaining blocking finding still fails.
+func TestGateWaiver_Suppress_RecomputesVerdictOverRemainingWarnings(t *testing.T) {
+	read := memLineReader("app.go", map[int]string{
+		5: "risky() // @waiver:pkg/rule-a:accepted-risk:2999-01-01",
+	})
+	warn := Violation{Rule: "pkg/audit-moderate", File: "package.json", Line: 1, Severity: "warning"}
+
+	onlyWarnings := []StepResult{
+		packEnginesStep(Violation{Rule: "pkg/rule-a", File: "app.go", Line: 5, Severity: "error"}, warn),
+	}
+	(&Gate{}).computeWaiverResult(onlyWarnings, read, nil, waiverTestNow)
+	if got := onlyWarnings[0].Status; got != "warning" {
+		t.Errorf("status after waiving the only blocking finding = %q, want %q", got, "warning")
+	}
+	if !stepHasViolation(onlyWarnings, StepPackEngines, "package.json", 1, "pkg/audit-moderate") {
+		t.Error("the unwaived warning was dropped; it must still be reported")
+	}
+
+	stillBlocked := []StepResult{
+		packEnginesStep(
+			Violation{Rule: "pkg/rule-a", File: "app.go", Line: 5, Severity: "error"},
+			Violation{Rule: "pkg/rule-b", File: "app.go", Line: 9, Severity: "error"},
+			warn,
+		),
+	}
+	(&Gate{}).computeWaiverResult(stillBlocked, read, nil, waiverTestNow)
+	if got := stillBlocked[0].Status; got != "fail" {
+		t.Errorf("status with an unwaived blocking finding left = %q, want %q", got, "fail")
+	}
+}

@@ -144,9 +144,15 @@ func (g *Gate) computeWaiverResult(accumulated []StepResult, read waiver.LineRea
 			}
 			kept = append(kept, v)
 		}
+		removed := len(kept) < len(s.Violations)
 		s.Violations = kept
 		if len(kept) == 0 && s.Status == "fail" {
 			s.Status = "pass"
+		} else if removed && s.Status == "fail" && !s.ConfigErr {
+			// The waived findings may have been the only blocking ones: recompute the
+			// verdict over what remains, so a step left holding only warnings reports
+			// "warning" instead of a "fail" with no blocking finding to show for it.
+			s.Status = StepVerdict(kept)
 		}
 	}
 
