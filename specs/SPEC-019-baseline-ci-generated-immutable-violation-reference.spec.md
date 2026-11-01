@@ -4,7 +4,7 @@ number: SPEC-019
 created: "2026-05-25"
 status: implemented
 schema_version: spec/v1
-spec_version: 1.1.0
+spec_version: 1.1.1
 
 source:
   directive: DIR-012
@@ -229,6 +229,7 @@ claims:
       - TestBaseline_IdentityHash_DeterministicContract
   - id: CLM-003
     requirement: REQ-003
+    subject: pkg/gate
     text: Baseline comparison consumes accumulated step 1-6 results without rerunning those steps.
     tests:
       - TestGate_BaselineComparison_WiredAfterAccumulatedChecks
@@ -239,6 +240,7 @@ claims:
       - TestGate_BaselineRatchet_FailsNewAndAllowsReductions_Contract
   - id: CLM-005
     requirement: REQ-006
+    subject: pkg/gate
     text: Missing baseline skips comparison with a warning and does not generate a local baseline.
     tests:
       - TestGate_BaselineComparison_MissingBaselineSkipsWithReason
@@ -257,6 +259,7 @@ claims:
       - TestBaselineCIContract_ArtifactNamingAndLatestMainSelectionSemantics
   - id: CLM-008
     requirement: REQ-005
+    subject: pkg/gate
     text: Gate output reports baseline differential and clearly distinguishes zero-vs-nonzero new violations in human and JSON output.
     tests:
       - TestGateOutput_BaselineDifferential_HumanMessaging
@@ -283,6 +286,7 @@ claims:
       - TestBaselineCIContract_PullRequestGateKeepsChangedCodeEnforcement
   - id: CLM-012
     requirement: REQ-014
+    subject: pkg/gate
     text: V1 ignores waivers only temporarily and preserves a clear integration point for future waiver-aware baseline semantics.
     tests:
       - TestGate_Waiver_SkippedWhenNotImplemented
@@ -503,6 +507,13 @@ changed-code regressions.
 
 ## Version History
 
+- **1.1.1** (2026-11-01) — ISSUE-227. CLM-003, CLM-005, CLM-008 and CLM-012 gain
+  `subject: pkg/gate`. Their mandated tests have always lived in `pkg/gate`
+  (`gate_test.go`, `output_test.go` and `step_deferred_test.go`), but the claims inherited the
+  spec-level `cmd/backstop`, so `test_substantiveness` reported each test as not calling
+  the declared package. The rest were checked: CLM-001, 002, 017 and 018 already name
+  `pkg/gate`; CLM-004, 006, 007, 009, 010, 011, 014 and 015 test `cmd/backstop`; CLM-013
+  and CLM-016 are `kind: absence`. No requirement, claim text, test or contract changed.
 - **1.1.0** (2026-08-02) — Status → `implemented` (founder-approved closure). Delivered by
   commit `528f20c` ("feat: add baseline gate support"), which landed both halves of the
   subsystem in one change. **Producer verified present:** the `.github/workflows/ci.yml`
