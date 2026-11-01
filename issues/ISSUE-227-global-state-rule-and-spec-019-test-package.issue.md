@@ -78,3 +78,33 @@ SPEC-019 declares `implementation.package: cmd/backstop`. CLM-001 and CLM-002 ov
    should follow the repository's process for amending an implemented spec.
 
 ## Notes
+
+### Progress (2026-11-01)
+
+The da1a8a7 push to main made these findings block CI: `pkg/gate/step_waiver_reconcile_test.go`
+entered diff scope, and its package-level `var waiverTestNow = time.Date(...)` is a third
+instance of cause 1.
+
+- Cause 2 is fixed. SPEC-019 1.1.1 gives CLM-003, CLM-005, CLM-008 and CLM-012
+  `subject: pkg/gate`, after checking every claim.
+- Cause 1 is fixed in the pack. `backstop-ai/go-standards` v1.2.2 (a527a97) adds these
+  exclusions, all purely subtractive:
+  - matches inside function, method and closure bodies;
+  - `var _ T = ...` assertions;
+  - typed `embed.FS` re-exports;
+  - `*_test.go` files, as `no-ignored-errors` already does.
+
+  Measured on this repository: 14 matches before, 6 after, 0 added. Fixtures pin each exclusion.
+- This repository is NOT on v1.2.2 yet. `backstop pack update backstop-ai/go-standards` refuses
+  it, because `pack test` fails phase 3 with 17 errors. The same 17 occur at v1.2.1; they date
+  from the stricter phase-3 checks of ISSUE-092 and ISSUE-142, which came after 1.2.1. They
+  are:
+  - 14 `semgrep-rule-id` errors. Manifest IDs are dashed (`go-core-no-global-mutable-state`),
+    while the rule files use dotted semgrep IDs (`go.core.no-global-mutable-state`).
+  - 3 `semgrep-negative` errors (GO-060, GO-061, GO-062). Run directly, semgrep flags each of
+    those negative fixtures, so the gap is in how phase 3 dispatches them. It has not been
+    diagnosed yet.
+
+  Adopting v1.2.2, or any later go-standards release, needs those fixed in the pack first.
+  Until then the `embed.go` finding and the test-file instances still block any change that
+  touches those files.
